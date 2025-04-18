@@ -81,29 +81,29 @@ func (s *VllmSimulator) parseCommandParams() error {
 
 	// validate parsed values
 	if s.model == "" {
-		return fmt.Errorf("Model parameter is empty")
+		return fmt.Errorf("model parameter is empty")
 	}
 	if s.mode != modeEcho && s.mode != modeRandom {
-		return fmt.Errorf("Invalid mode '%s', valid values are 'random' and 'echo'", s.mode)
+		return fmt.Errorf("invalid mode '%s', valid values are 'random' and 'echo'", s.mode)
 	}
 	if s.port <= 0 {
-		return fmt.Errorf("Invalid port '%d'", s.port)
+		return fmt.Errorf("invalid port '%d'", s.port)
 	}
 	if s.interTokenLatency < 0 {
-		return fmt.Errorf("Inter token latency cannot be negative")
+		return fmt.Errorf("inter-token latency cannot be negative")
 	}
 	if s.timeToFirstToken < 0 {
-		return fmt.Errorf("Time to first token cannot be negative")
+		return fmt.Errorf("time to first token cannot be negative")
 	}
 	if s.maxLoras < 1 {
-		return fmt.Errorf("Max loras cannot be less than 1")
+		return fmt.Errorf("max loras cannot be less than 1")
 	}
 	if s.maxCpuLoras == 0 {
 		// max cpu loras by default is same as max loras
 		s.maxCpuLoras = s.maxLoras
 	}
 	if s.maxCpuLoras < 1 {
-		return fmt.Errorf("Max CPU loras cannot be less than 1")
+		return fmt.Errorf("max CPU loras cannot be less than 1")
 	}
 
 	return nil
@@ -135,7 +135,9 @@ func (s *VllmSimulator) startServer() error {
 	if err != nil {
 		return err
 	}
-	defer listener.Close()
+	defer func() {
+		_ = listener.Close()
+	}()
 
 	return server.Serve(listener)
 }

@@ -78,8 +78,8 @@ func (s *VllmSimulator) sendStreamingResponse(isChatCompletion bool, ctx *fastht
 		}
 
 		// finish sse events stream
-		fmt.Fprint(w, "data: [DONE]\n\n")
-		w.Flush()
+		_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
+		_ = w.Flush()
 
 		s.responseSentCallback(model)
 	})
@@ -130,8 +130,8 @@ func (s *VllmSimulator) sendChunk(isChatCompletion bool, w *bufio.Writer, creati
 		return err
 	}
 
-	fmt.Fprintf(w, "data: %s\n\n", data)
-	w.Flush()
+	_, _ = fmt.Fprintf(w, "data: %s\n\n", data)
+	_ = w.Flush()
 
 	return nil
 }

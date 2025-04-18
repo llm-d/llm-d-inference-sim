@@ -31,7 +31,7 @@ func main() {
 	// setup logger and context with graceful shutdown
 	logger := klog.Background()
 	ctx := klog.NewContext(context.Background(), logger)
-	ctx = signals.SetupSignalHandler(ctx)
+	_ = signals.SetupSignalHandler(ctx) // ctx is not used further
 
 	logger.Info("Start vllm simulator")
 
