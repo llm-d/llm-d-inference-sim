@@ -1,25 +1,27 @@
 # vLLM Simulator
 To help with development and testing we have developed a light weight vLLM simulator. It does not truly
-run inference, but it does emulate responses to the HTTP REST endpoints of vLLM. 
+run inference, but it does emulate responses to the HTTP REST endpoints of vLLM.
 Currently it supports partial OpenAI-compatible API:
-- /v1/chat/completions 
-- /v1/completions 
+- /v1/chat/completions
+- /v1/completions
 - /v1/models
 
 In addition, it supports a subset of vLLM's Prometheus metrics. These metrics are exposed via the /metrics HTTP REST endpoint. Currently supported are the following metrics:
 - vllm:lora_requests_info
 
-The simulated inferense has no connection with the model and LoRA adapters specified in the command line parameters. The /v1/models endpoint returns simulated results based on those same command line parameters.
+The simulated inference has no connection with the model and LoRA adapters specified in the command line parameters. The /v1/models endpoint returns simulated results based on those same command line parameters.
 
 The simulator supports two modes of operation:
 - `echo` mode: the response contains the same text that was received in the request. For `/v1/chat/completions` the last message for the role=`user` is used.
 - `random` mode: the response is randomly chosen from a set of pre-defined sentences.
 
-Timing of the response is defined by two parameters: `time-to-first-token` and `inter-token-latency`. 
+Timing of the response is defined by two parameters: `time-to-first-token` and `inter-token-latency`.
 
-For a request with `stream=true`: `time-to-first-token` defines the delay before the first token is returned, `inter-token-latency` defines the delay between subsequent tokens in the stream. 
+For a request with `stream=true`: `time-to-first-token` defines the delay before the first token is returned, `inter-token-latency` defines the delay between subsequent tokens in the stream.
 
 For a requst with `stream=false`: the response is returned after delay of `<time-to-first-token> + (<inter-token-latency> * (<number_of_output_tokens> - 1))`
+
+If the environment variable LOG_REQUEST_RESPONSE is set to `true` it will log http requests and responses.
 
 It can be run standalone or in a Pod for testing under packages such as Kind.
 
@@ -27,7 +29,7 @@ It can be run standalone or in a Pod for testing under packages such as Kind.
 API responses contains a subset of the fields provided by the OpenAI API.
 
 <details>
-  <summary>Click to show the structure of requests/responses</summary>  
+  <summary>Click to show the structure of requests/responses</summary>
 
 - `/v1/chat/completions`
     - **request**
@@ -71,12 +73,12 @@ API responses contains a subset of the fields provided by the OpenAI API.
 For more details see the <a href="https://docs.vllm.ai/en/stable/getting_started/quickstart.html#openai-completions-api-with-vllm">vLLM documentation</a>
 
 ## Command line parameters
-- `port`: the port the simulator listents on, mandatory
+- `port`: the port the simulator listens on, defaults to 8000
 - `model`: the currently 'loaded' model, mandatory
 - `lora`: a list of available LoRA adapters, separated by commas, optional, by default empty
 - `mode`: the simulator mode, optional, by default `random`
- - `echo`: returns the same text that was sent in the request
- - `random`: returns a sentence chosen at random from a set of pre-defined sentences
+- `echo`: returns the same text that was sent in the request
+- `random`: returns a sentence chosen at random from a set of pre-defined sentences
 - `time-to-first-token`: the time to the first token (in milliseconds), optional, by default zero
 - `inter-token-latency`: the time to 'generate' each additional token (in milliseconds), optional, by default zero
 - `max-loras`: maximum number of LoRAs in a single batch, optional, default is one

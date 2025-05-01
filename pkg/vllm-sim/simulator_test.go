@@ -37,7 +37,12 @@ import (
 
 const model = "my_model"
 const baseURL = "http://localhost/v1"
-const userMessage = "This is a test."
+const textPrompt = "This is a test."
+
+var chatPrompt = map[string]string{
+	"system": "You are a helpful assistant.",
+	"user":   "What is the best pie?",
+}
 
 func startServer(ctx context.Context, mode string) (*http.Client, error) {
 	oldArgs := os.Args
@@ -79,7 +84,7 @@ func startServer(ctx context.Context, mode string) (*http.Client, error) {
 var _ = Describe("Simulator", func() {
 
 	DescribeTable("chat completions streaming",
-		func(mode string) {
+		func(mode string, includeUsage bool) {
 			ctx := context.TODO()
 			client, err := startServer(ctx, mode)
 			Expect(err).NotTo(HaveOccurred())
@@ -90,47 +95,74 @@ var _ = Describe("Simulator", func() {
 
 			params := openai.ChatCompletionNewParams{
 				Messages: []openai.ChatCompletionMessageParamUnion{
-					openai.UserMessage(userMessage),
+					openai.SystemMessage(chatPrompt["system"]),
+					openai.UserMessage(chatPrompt["user"]),
 				},
-				Model:         model,
-				StreamOptions: openai.ChatCompletionStreamOptionsParam{IncludeUsage: param.NewOpt(true)},
+				Model: model,
+			}
+			if includeUsage {
+				params.StreamOptions = openai.ChatCompletionStreamOptionsParam{IncludeUsage: param.NewOpt(true)}
 			}
 			stream := openaiclient.Chat.Completions.NewStreaming(ctx, params)
 			defer func() {
 				err := stream.Close()
 				Expect(err).NotTo(HaveOccurred())
 			}()
+			chunks := []openai.ChatCompletionChunk{}
+			for stream.Next() {
+				chunks = append(chunks, stream.Current())
+			}
+			Expect(len(chunks)).Should(BeNumerically(">", 2))
+
 			tokens := []string{}
 			role := ""
-			for stream.Next() {
-				chunk := stream.Current()
+			finishReason := ""
+			for idx, chunk := range chunks {
+				Expect(chunk.ID).Should(HavePrefix(chatComplIdPrefix))
+				usage := chunk.Usage
+				Expect(usage.TotalTokens).Should(Equal(usage.PromptTokens + usage.CompletionTokens))
+				if includeUsage && idx == len(chunks)-1 {
+					// chunk with the usage result
+					Expect(len(chunk.Choices)).Should(Equal(0))
+					Expect(usage.TotalTokens).Should(BeNumerically(">", int64(0)))
+					fmt.Printf("prompt_tokens %d completion_tokens %d total_tokens %d",
+						usage.PromptTokens, usage.CompletionTokens, usage.TotalTokens)
+				} else {
+					Expect(len(chunk.Choices)).Should(BeNumerically(">", 0))
+					Expect(usage.TotalTokens).Should(Equal(int64(0)))
+				}
 				for _, choice := range chunk.Choices {
 					if choice.Delta.Role != "" {
 						role = choice.Delta.Role
 					} else if choice.FinishReason == "" {
 						tokens = append(tokens, choice.Delta.Content)
+					} else {
+						finishReason = choice.FinishReason
 					}
 				}
 			}
+			Expect(finishReason).Should(Equal(stopFinishReason))
 			msg := strings.Join(tokens, " ")
 			expectedMsg := ""
 			if mode == modeEcho {
-				expectedMsg = userMessage
+				expectedMsg = chatPrompt["user"]
 			} else {
 				expectedMsg = strings.Trim(getFullTextFromPartialString(msg), " ")
 			}
 			Expect(role).Should(Equal("assistant"))
 			Expect(msg).Should(Equal(expectedMsg))
 		},
-		func(mode string) string {
-			return fmt.Sprintf("mode: %s", mode)
+		func(mode string, includeUsage bool) string {
+			return fmt.Sprintf("mode: %s include usage: %t", mode, includeUsage)
 		},
-		Entry(nil, modeRandom),
-		Entry(nil, modeEcho),
+		Entry(nil, modeRandom, false),
+		Entry(nil, modeRandom, true),
+		Entry(nil, modeEcho, false),
+		Entry(nil, modeEcho, true),
 	)
 
 	DescribeTable("text completions streaming",
-		func(mode string) {
+		func(mode string, includeUsage bool) {
 			ctx := context.TODO()
 			client, err := startServer(ctx, mode)
 			Expect(err).NotTo(HaveOccurred())
@@ -141,39 +173,65 @@ var _ = Describe("Simulator", func() {
 
 			params := openai.CompletionNewParams{
 				Prompt: openai.CompletionNewParamsPromptUnion{
-					OfString: openai.String(userMessage),
+					OfString: openai.String(textPrompt),
 				},
-				Model:         openai.CompletionNewParamsModel(model),
-				StreamOptions: openai.ChatCompletionStreamOptionsParam{IncludeUsage: param.NewOpt(true)},
+				Model: openai.CompletionNewParamsModel(model),
+			}
+			if includeUsage {
+				params.StreamOptions = openai.ChatCompletionStreamOptionsParam{IncludeUsage: param.NewOpt(true)}
 			}
 			stream := openaiclient.Completions.NewStreaming(ctx, params)
 			defer func() {
 				err := stream.Close()
 				Expect(err).NotTo(HaveOccurred())
 			}()
-			tokens := []string{}
+			chunks := []openai.Completion{}
 			for stream.Next() {
-				chunk := stream.Current()
+				chunks = append(chunks, stream.Current())
+			}
+			Expect(len(chunks)).Should(BeNumerically(">", 2))
+
+			tokens := []string{}
+			var finishReason openai.CompletionChoiceFinishReason
+			for idx, chunk := range chunks {
+				Expect(chunk.ID).Should(HavePrefix(textComplIdPrefix))
+				usage := chunk.Usage
+				Expect(usage.TotalTokens).Should(Equal(usage.PromptTokens + usage.CompletionTokens))
+				if includeUsage && idx == len(chunks)-1 {
+					// chunk with the usage result
+					Expect(len(chunk.Choices)).Should(Equal(0))
+					Expect(usage.TotalTokens).Should(BeNumerically(">", int64(0)))
+					fmt.Printf("prompt_tokens %d completion_tokens %d total_tokens %d",
+						usage.PromptTokens, usage.CompletionTokens, usage.TotalTokens)
+				} else {
+					Expect(len(chunk.Choices)).Should(BeNumerically(">", 0))
+					Expect(usage.TotalTokens).Should(Equal(int64(0)))
+				}
 				for _, choice := range chunk.Choices {
 					if choice.FinishReason == "" {
 						tokens = append(tokens, choice.Text)
+					} else {
+						finishReason = choice.FinishReason
 					}
 				}
 			}
+			Expect(string(finishReason)).Should(Equal(stopFinishReason))
 			text := strings.Join(tokens, " ")
 			expectedText := ""
 			if mode == modeEcho {
-				expectedText = userMessage
+				expectedText = textPrompt
 			} else {
 				expectedText = strings.Trim(getFullTextFromPartialString(text), " ")
 			}
 			Expect(text).Should(Equal(expectedText))
 		},
-		func(mode string) string {
-			return fmt.Sprintf("mode: %s", mode)
+		func(mode string, includeUsage bool) string {
+			return fmt.Sprintf("mode: %s include usage: %t", mode, includeUsage)
 		},
-		Entry(nil, modeRandom),
-		Entry(nil, modeEcho),
+		Entry(nil, modeRandom, false),
+		Entry(nil, modeRandom, true),
+		Entry(nil, modeEcho, false),
+		Entry(nil, modeEcho, true),
 	)
 
 	DescribeTable("chat completions",
@@ -188,7 +246,8 @@ var _ = Describe("Simulator", func() {
 
 			params := openai.ChatCompletionNewParams{
 				Messages: []openai.ChatCompletionMessageParamUnion{
-					openai.UserMessage(userMessage),
+					openai.SystemMessage(chatPrompt["system"]),
+					openai.UserMessage(chatPrompt["user"]),
 				},
 				Model: model,
 			}
@@ -220,6 +279,7 @@ var _ = Describe("Simulator", func() {
 				}
 			}
 			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.ID).Should(HavePrefix(chatComplIdPrefix))
 			Expect(len(resp.Choices)).Should(BeNumerically(">", 0))
 
 			msg := resp.Choices[0].Message.Content
@@ -231,7 +291,7 @@ var _ = Describe("Simulator", func() {
 			} else {
 				expectedMsg := ""
 				if mode == modeEcho {
-					expectedMsg = userMessage
+					expectedMsg = chatPrompt["user"]
 				} else {
 					expectedMsg = getFullTextFromPartialString(msg)
 				}
@@ -271,7 +331,7 @@ var _ = Describe("Simulator", func() {
 				option.WithHTTPClient(client))
 			params := openai.CompletionNewParams{
 				Prompt: openai.CompletionNewParamsPromptUnion{
-					OfString: openai.String(userMessage),
+					OfString: openai.String(textPrompt),
 				},
 				Model: openai.CompletionNewParamsModel(model),
 			}
@@ -295,6 +355,7 @@ var _ = Describe("Simulator", func() {
 				}
 			}
 			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.ID).Should(HavePrefix(textComplIdPrefix))
 			Expect(len(resp.Choices)).Should(BeNumerically(">", 0))
 
 			text := resp.Choices[0].Text
@@ -306,7 +367,7 @@ var _ = Describe("Simulator", func() {
 			} else {
 				expectedText := ""
 				if mode == modeEcho {
-					expectedText = userMessage
+					expectedText = textPrompt
 				} else {
 					expectedText = getFullTextFromPartialString(text)
 				}
