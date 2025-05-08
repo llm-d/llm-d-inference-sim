@@ -39,6 +39,7 @@ import (
 )
 
 const vLLMDefaultPort = 8000
+const logRequestResponse = "LOG_REQUEST_RESPONSE"
 
 // New creates a new VllmSimulator instance with the given logger
 func New(logger logr.Logger) *VllmSimulator {
@@ -155,9 +156,16 @@ func (s *VllmSimulator) startServer(listener net.Listener) error {
 	// supports /metrics prometheus API
 	r.GET("/metrics", fasthttpadaptor.NewFastHTTPHandler(promhttp.Handler()))
 
+	handler := r.Handler
+	value := os.Getenv(logRequestResponse)
+	if strings.ToLower(strings.TrimSpace(value)) == "true" {
+		// Log request/response
+		handler = loggingRequestHandler(handler, s.logger)
+	}
+
 	server := fasthttp.Server{
 		ErrorHandler: s.HandleError,
-		Handler:      r.Handler,
+		Handler:      handler,
 		Logger:       s,
 	}
 
@@ -332,10 +340,11 @@ func (s *VllmSimulator) reqProcessingWorker(ctx context.Context, id int) {
 					prefix = "failed to create text response"
 				}
 				s.logger.Error(err, prefix)
-				reqCtx.httpReqCtx.Error(prefix+err.Error(), fasthttp.StatusBadRequest)
+				reqCtx.httpReqCtx.Error(prefix+": "+err.Error(), fasthttp.StatusBadRequest)
 			} else {
 				if req.isStream() {
-					s.sendStreamingResponse(reqCtx.isChatCompletion, reqCtx.httpReqCtx, responseTxt, model)
+					s.sendStreamingResponse(reqCtx.isChatCompletion, reqCtx.completionReq,
+						reqCtx.httpReqCtx, responseTxt, model)
 				} else {
 					s.sendResponse(reqCtx.isChatCompletion, reqCtx.httpReqCtx, responseTxt, model)
 				}
@@ -428,8 +437,14 @@ func (s *VllmSimulator) HandleError(ctx *fasthttp.RequestCtx, err error) {
 // model - model name
 // finishReason - a pointer to string that represents finish reason, can be nil or stop or length, ...
 func (s *VllmSimulator) createCompletionResponse(isChatCompletion bool, respText string, model string, finishReason *string) completionResponse {
+	complId := ""
+	if isChatCompletion {
+		complId = chatComplIdPrefix
+	} else {
+		complId = textComplIdPrefix
+	}
 	baseResp := baseCompletionResponse{
-		ID:      chatComplIdPrefix + uuid.NewString(),
+		ID:      complId + uuid.NewString(),
 		Created: time.Now().Unix(),
 		Model:   model,
 	}

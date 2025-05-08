@@ -17,9 +17,15 @@ limitations under the License.
 package vllmsim
 
 import (
+	"bytes"
+	"encoding/json"
+	"fmt"
 	"math/rand"
 	"strings"
 	"time"
+
+	"github.com/go-logr/logr"
+	"github.com/valyala/fasthttp"
 )
 
 // list of responses to use in random mode for comepltion requests
@@ -66,6 +72,66 @@ func getResponseText(max_completion_tokens *int64, text string) string {
 	}
 	// return truncated text
 	return strings.Join(tokens[0:*max_completion_tokens], " ")
+}
+
+func formatBody(src []byte, contentType string) string {
+	if strings.HasPrefix(contentType, "application/json") {
+		var prettyJSON bytes.Buffer
+		error := json.Indent(&prettyJSON, src, "", "\t")
+		if error != nil {
+			return fmt.Sprintf("JSON parse error: '%s' %s", error, string(src))
+		}
+		return prettyJSON.String()
+	}
+	if strings.HasPrefix(contentType, "text/event-stream") {
+		texts := strings.Split(string(src), "\n\n")
+		finalText := ""
+		for _, text := range texts {
+			text = strings.TrimSpace(text)
+			if text == "" {
+				continue
+			}
+			if strings.HasSuffix(text, "[DONE]") {
+				finalText += "\n\t" + text
+				continue
+			}
+			hasData := false
+			if strings.HasPrefix(text, "data:") {
+				hasData = true
+				text = "{" + strings.Replace(text, "data:", "\"data\":", 1) + "}"
+			}
+			var prettyJSON bytes.Buffer
+			error := json.Indent(&prettyJSON, []byte(text), "", "\t")
+			if error != nil {
+				return fmt.Sprintf("JSON parse error: '%s' %s", error, string(text))
+			}
+			text = prettyJSON.String()
+			if hasData {
+				text = strings.Replace(text, "\"data\":", "data:", 1)
+				text = text[1 : len(text)-2]
+			}
+			finalText += text
+		}
+		return finalText
+	}
+	return string(src)
+}
+
+func loggingRequestHandler(next fasthttp.RequestHandler, logger logr.Logger) fasthttp.RequestHandler {
+	return func(ctx *fasthttp.RequestCtx) {
+		// Log request details
+		contentType := string(ctx.Request.Header.ContentType())
+		logger.Info("Request", "method", ctx.Method(), "uri", ctx.URI(), "type", contentType)
+		logger.Info("Request", "body", formatBody(ctx.Request.Body(), contentType))
+
+		// Call the next handler
+		next(ctx)
+
+		// Log response details
+		contentType = string(ctx.Response.Header.ContentType())
+		logger.Info("Response", "status", ctx.Response.StatusCode(), "type", contentType)
+		logger.Info("Response", "body", formatBody(ctx.Response.Body(), contentType))
+	}
 }
 
 // Given a partial string, access the full string

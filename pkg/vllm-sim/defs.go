@@ -19,7 +19,9 @@ limitations under the License.
 package vllmsim
 
 import (
+	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/go-logr/logr"
@@ -31,6 +33,7 @@ const (
 	modeRandom        = "random"
 	modeEcho          = "echo"
 	chatComplIdPrefix = "chatcmpl-"
+	textComplIdPrefix = "cmpl-"
 	stopFinishReason  = "stop"
 	roleAssistant     = "assistant"
 	roleUser          = "user"
@@ -86,6 +89,32 @@ type baseResponseChoice struct {
 	FinishReason *string `json:"finish_reason"`
 }
 
+// Usage statistics for the completion request.
+type completionUsage struct {
+	// Number of tokens in the generated completion.
+	CompletionTokens int64 `json:"completion_tokens"`
+	// Number of tokens in the prompt.
+	PromptTokens int64 `json:"prompt_tokens"`
+	// Total number of tokens used in the request (prompt + completion).
+	TotalTokens int64 `json:"total_tokens"`
+	// indicates that this entire structure should be sent as null
+	zero bool `json:"-"`
+}
+
+// custom marshaling indicating that the field should be represented as null
+func (u completionUsage) IsZero() bool {
+	return u.zero
+}
+
+func (u completionUsage) MarshalJSON() ([]byte, error) {
+	if u.IsZero() {
+		return []byte("null"), nil
+	}
+
+	type Alias completionUsage
+	return json.Marshal(Alias(u))
+}
+
 // baseCompletionResponse contains base completion response related information
 type baseCompletionResponse struct {
 	// ID defines the response ID
@@ -94,17 +123,25 @@ type baseCompletionResponse struct {
 	Created int64 `json:"created"`
 	// Model defines the Model name for current request
 	Model string `json:"model"`
+	// Usage statistics for the completion request.
+	Usage *completionUsage `json:"usage,omitempty"`
 }
 
 // completionResponse interface representing both completion response types (text and chat)
 type completionResponse interface {
 }
 
+type streamOptions struct {
+	IncludeUsage bool `json:"include_usage"`
+}
+
 // baseCompletionRequest contains base completion request related information
 type baseCompletionRequest struct {
 	// Stream is a boolean value, defines whether response should be sent as a Stream
 	Stream bool `json:"stream"`
-	// Model defines Model name to use for "inferense", could be base Model name or one of available LoRA adapters
+	// Stream options
+	StreamOptions streamOptions `json:"stream_options"`
+	// Model defines Model name to use for "inference", could be base Model name or one of available LoRA adapters
 	Model string `json:"model"`
 }
 
@@ -116,14 +153,22 @@ func (b *baseCompletionRequest) getModel() string {
 	return b.Model
 }
 
+func (b *baseCompletionRequest) getStreamOptions() *streamOptions {
+	return &b.StreamOptions
+}
+
 // completionRequest interface representing both completion request types (text and chat)
 type completionRequest interface {
 	// createResponseText creates and returns response payload based on this request
 	createResponseText(mode string) (string, error)
 	// isStream returns boolean that defines is response should be streamed
 	isStream() bool
+	// getStreamOptions returns the streaming options
+	getStreamOptions() *streamOptions
 	// getModel returns model name as defined in the request
 	getModel() string
+	// getPromptTokensNumber returns number of prompt tokens
+	getPromptTokensNumber() int64
 }
 
 type completionReqCtx struct {
@@ -253,6 +298,15 @@ func (req chatCompletionRequest) createResponseText(mode string) (string, error)
 	return getRandomResponseText(maxTokens), nil
 }
 
+// getPromptTokensNumber returns number of chat completion prompt tokens
+func (req chatCompletionRequest) getPromptTokensNumber() int64 {
+	var promptTokens int64
+	for _, msg := range req.Messages {
+		promptTokens += int64(len(strings.Fields(msg.Content)))
+	}
+	return promptTokens
+}
+
 // createResponseText creates response text for the given text completion request and mode
 func (req textCompletionRequest) createResponseText(mode string) (string, error) {
 	maxTokens, err := getMaxTokens(nil, req.MaxTokens)
@@ -263,6 +317,11 @@ func (req textCompletionRequest) createResponseText(mode string) (string, error)
 		return getResponseText(maxTokens, req.Prompt), nil
 	}
 	return getRandomResponseText(maxTokens), nil
+}
+
+// getPromptTokensNumber returns number of text completion prompt tokens
+func (req textCompletionRequest) getPromptTokensNumber() int64 {
+	return int64(len(strings.Fields(req.Prompt)))
 }
 
 // getLastUserMsg returns last message from this request's messages with user role,

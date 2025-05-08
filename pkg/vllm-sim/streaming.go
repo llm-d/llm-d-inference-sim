@@ -30,7 +30,15 @@ import (
 // sendStreamingResponse creates and sends a streaming response for completion request of both types (text and chat) as defined by isChatCompletion
 // response content is wrapped according SSE format
 // First token is send after timeToFirstToken milliseconds, every other token is sent after interTokenLatency milliseconds
-func (s *VllmSimulator) sendStreamingResponse(isChatCompletion bool, ctx *fasthttp.RequestCtx, responseTxt string, model string) {
+// If options IncludeUsage is set, an additional chunk will be streamed before the `data: [DONE]` message.
+// The `usage` field on this chunk shows the token usage statistics for the entire
+// request, and the `choices` field will always be an empty array.
+//
+// All other chunks will also include a `usage` field, but with a null value.
+// **NOTE:** If the stream is interrupted, you may not receive the final usage
+// chunk which contains the total token usage for the request.
+func (s *VllmSimulator) sendStreamingResponse(isChatCompletion bool, req completionRequest,
+	ctx *fasthttp.RequestCtx, responseTxt string, model string) {
 	ctx.SetContentType("text/event-stream")
 	ctx.SetStatusCode(fasthttp.StatusOK)
 
@@ -40,11 +48,26 @@ func (s *VllmSimulator) sendStreamingResponse(isChatCompletion bool, ctx *fastht
 		tokens := strings.Fields(responseTxt)
 		s.logger.Info("Going to send text", "resp body", responseTxt, "tokens num", len(tokens))
 
+		options := req.getStreamOptions()
+		var finalUsage *completionUsage
+		if options != nil && options.IncludeUsage {
+			promptTokens := req.getPromptTokensNumber()
+			completionTokens := int64(len(tokens))
+			finalUsage = &completionUsage{
+				PromptTokens:     promptTokens,
+				CompletionTokens: completionTokens,
+				TotalTokens:      promptTokens + completionTokens}
+		}
+
+		var nullUsage *completionUsage
+		if options != nil && options.IncludeUsage {
+			// usage should be a null value and not omitted
+			nullUsage = &completionUsage{zero: true}
+		}
 		if len(tokens) > 0 {
 			if isChatCompletion {
 				// in chat completion first chunk contains the role
-				err := s.sendChunk(true, w, creationTime, model, roleAssistant, "", nil)
-				if err != nil {
+				if err := s.sendChunk(true, w, creationTime, model, roleAssistant, "", nullUsage, nil); err != nil {
 					ctx.Error("Sending stream first chunk failed, "+err.Error(), fasthttp.StatusInternalServerError)
 					return
 				}
@@ -61,19 +84,24 @@ func (s *VllmSimulator) sendStreamingResponse(isChatCompletion bool, ctx *fastht
 					isFirst = false
 				}
 
-				err := s.sendChunk(isChatCompletion, w, creationTime, model, "", token, nil)
-				if err != nil {
+				if err := s.sendChunk(isChatCompletion, w, creationTime, model, "", token, nullUsage, nil); err != nil {
 					ctx.Error("Sending stream chunk failed, "+err.Error(), fasthttp.StatusInternalServerError)
 					return
 				}
 			}
 
-			// send the last chunk
 			finishReason := stopFinishReason
-			err := s.sendChunk(isChatCompletion, w, creationTime, model, "", "", &finishReason)
-			if err != nil {
+			if err := s.sendChunk(isChatCompletion, w, creationTime, model, "", "", nullUsage, &finishReason); err != nil {
 				ctx.Error("Sending last stream chunk failed, "+err.Error(), fasthttp.StatusInternalServerError)
 				return
+			}
+
+			if options != nil && options.IncludeUsage {
+				// send usage
+				if err := s.sendChunk(isChatCompletion, w, creationTime, model, "", "", finalUsage, nil); err != nil {
+					ctx.Error("Sending stream chunk failed, "+err.Error(), fasthttp.StatusInternalServerError)
+					return
+				}
 			}
 		}
 
@@ -83,8 +111,7 @@ func (s *VllmSimulator) sendStreamingResponse(isChatCompletion bool, ctx *fastht
 			ctx.Error("fprint failed, "+err.Error(), fasthttp.StatusInternalServerError)
 			return
 		}
-		err = w.Flush()
-		if err != nil {
+		if err := w.Flush(); err != nil {
 			ctx.Error("flush failed, "+err.Error(), fasthttp.StatusInternalServerError)
 			return
 		}
@@ -98,41 +125,68 @@ func (s *VllmSimulator) sendStreamingResponse(isChatCompletion bool, ctx *fastht
 // creationTime time when this response was started
 // token the token to send
 // model the model
-// role this message role, relevenat to chat API only
+// role this message role, relevant to chat API only
+// usage response
 // finishReason - a pointer to string that represents finish reason, can be nil or stop or length, ...
-func (s *VllmSimulator) createCompletionChunk(isChatCompletion bool, creationTime int64, token string, model string, role string, finishReason *string) completionRespChunk {
+func (s *VllmSimulator) createCompletionChunk(isChatCompletion bool, creationTime int64,
+	token string, model string, role string, usage *completionUsage, finishReason *string) completionRespChunk {
+	complId := ""
+	if isChatCompletion {
+		complId = chatComplIdPrefix
+	} else {
+		complId = textComplIdPrefix
+	}
 	baseChunk := baseCompletionResponse{
-		ID:      chatComplIdPrefix + uuid.NewString(),
+		ID:      complId + uuid.NewString(),
 		Created: creationTime,
 		Model:   model,
+		Usage:   usage,
 	}
 	baseChoice := baseResponseChoice{Index: 0, FinishReason: finishReason}
 
 	if isChatCompletion {
-		chunk := chatCompletionRespChunk{
-			baseCompletionResponse: baseChunk,
-			Choices:                []chatRespChunkChoice{{Delta: message{}, baseResponseChoice: baseChoice}},
+		var chunk chatCompletionRespChunk
+		if usage != nil && !usage.IsZero() {
+			// this should be the final usage results if it exists
+			// choices should be empty array
+			chunk = chatCompletionRespChunk{
+				baseCompletionResponse: baseChunk,
+				Choices:                []chatRespChunkChoice{},
+			}
+		} else {
+			chunk = chatCompletionRespChunk{
+				baseCompletionResponse: baseChunk,
+				Choices:                []chatRespChunkChoice{{Delta: message{}, baseResponseChoice: baseChoice}},
+			}
+			if len(role) > 0 {
+				chunk.Choices[0].Delta.Role = role
+			}
+			if len(token) > 0 {
+				chunk.Choices[0].Delta.Content = token
+			}
 		}
-
-		if len(role) > 0 {
-			chunk.Choices[0].Delta.Role = role
-		}
-		if len(token) > 0 {
-			chunk.Choices[0].Delta.Content = token
-		}
-
 		return &chunk
+	}
+	var chunk textCompletionResponse
+	if usage != nil && !usage.IsZero() {
+		// this should be the final usage results if it exists
+		// choices should be empty array
+		chunk = textCompletionResponse{
+			baseCompletionResponse: baseChunk,
+		}
 	} else {
-		return &textCompletionResponse{
+		chunk = textCompletionResponse{
 			baseCompletionResponse: baseChunk,
 			Choices:                []textRespChoice{{baseResponseChoice: baseChoice, Text: token}},
 		}
 	}
+	return &chunk
 }
 
 // sendChunk send a single token chunk in a streamed completion API response
-func (s *VllmSimulator) sendChunk(isChatCompletion bool, w *bufio.Writer, creationTime int64, model string, role string, token string, finishReason *string) error {
-	chunk := s.createCompletionChunk(isChatCompletion, creationTime, token, model, role, finishReason)
+func (s *VllmSimulator) sendChunk(isChatCompletion bool, w *bufio.Writer, creationTime int64,
+	model string, role string, token string, usage *completionUsage, finishReason *string) error {
+	chunk := s.createCompletionChunk(isChatCompletion, creationTime, token, model, role, usage, finishReason)
 	data, err := json.Marshal(chunk)
 	if err != nil {
 		return err
