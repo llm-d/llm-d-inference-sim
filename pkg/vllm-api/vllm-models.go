@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Definitions of all sturctures used by vLLM simultor
+// Definitions of all structures used by vLLM simulator
 // Contains the main simulator class and all definitions related to request/response for all supported APIs
 package vllmapi
 

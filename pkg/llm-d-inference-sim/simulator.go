@@ -20,6 +20,7 @@ package llmdinferencesim
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -86,7 +87,7 @@ func (s *VllmSimulator) parseCommandParams() error {
 	var lorasStr string
 	f.StringVar(&lorasStr, "lora", "", "List of LoRA adapters, separated by comma")
 	f.IntVar(&s.maxLoras, "max-loras", 1, "Maximum number of LoRAs in a single batch")
-	f.IntVar(&s.maxCpuLoras, "max-cpu-loras", 0, "Maximum number of LoRAs to store in CPU memory")
+	f.IntVar(&s.maxCPULoras, "max-cpu-loras", 0, "Maximum number of LoRAs to store in CPU memory")
 	f.Int64Var(&s.maxRunningReqs, "max-running-requests", 5, "Maximum number of inference requests that could be processed at the same time (parameter to simulate requests waiting queue)")
 
 	if err := f.Parse(os.Args[1:]); err != nil {
@@ -100,7 +101,7 @@ func (s *VllmSimulator) parseCommandParams() error {
 
 	// validate parsed values
 	if s.model == "" {
-		return fmt.Errorf("model parameter is empty")
+		return errors.New("model parameter is empty")
 	}
 	if s.mode != modeEcho && s.mode != modeRandom {
 		return fmt.Errorf("invalid mode '%s', valid values are 'random' and 'echo'", s.mode)
@@ -109,20 +110,20 @@ func (s *VllmSimulator) parseCommandParams() error {
 		return fmt.Errorf("invalid port '%d'", s.port)
 	}
 	if s.interTokenLatency < 0 {
-		return fmt.Errorf("inter token latency cannot be negative")
+		return errors.New("inter token latency cannot be negative")
 	}
 	if s.timeToFirstToken < 0 {
-		return fmt.Errorf("time to first token cannot be negative")
+		return errors.New("time to first token cannot be negative")
 	}
 	if s.maxLoras < 1 {
-		return fmt.Errorf("max loras cannot be less than 1")
+		return errors.New("max loras cannot be less than 1")
 	}
-	if s.maxCpuLoras == 0 {
+	if s.maxCPULoras == 0 {
 		// max cpu loras by default is same as max loras
-		s.maxCpuLoras = s.maxLoras
+		s.maxCPULoras = s.maxLoras
 	}
-	if s.maxCpuLoras < 1 {
-		return fmt.Errorf("max CPU loras cannot be less than 1")
+	if s.maxCPULoras < 1 {
+		return errors.New("max CPU loras cannot be less than 1")
 	}
 
 	// just to suppress not used lint error for now
@@ -309,13 +310,13 @@ func (s *VllmSimulator) reqProcessingWorker(ctx context.Context, id int) {
 				intValue := 0
 
 				if !ok {
-					s.logger.Info("Create referense counter", "model", model)
+					s.logger.Info("Create reference counter", "model", model)
 					intValue = 0
 				} else {
 					intValue = value.(int)
 				}
 				s.runningLoras.Store(model, intValue+1)
-				s.logger.Info("Update LoRA referense counter", "model", model, "old value", intValue, "new value", intValue+1)
+				s.logger.Info("Update LoRA reference counter", "model", model, "old value", intValue, "new value", intValue+1)
 
 				// TODO - check if thie request went to the waiting queue - add it to waiting map
 				s.reportLoras()
@@ -359,13 +360,13 @@ func (s *VllmSimulator) responseSentCallback(model string) {
 	value, ok := s.runningLoras.Load(model)
 
 	if !ok {
-		s.logger.Info("Error: nil referense counter", "model", model)
+		s.logger.Info("Error: nil reference counter", "model", model)
 		s.logger.Error(nil, "Zerro model reference", "model", model)
 	} else {
 		intValue := value.(int)
 		if intValue > 1 {
 			s.runningLoras.Store(model, intValue-1)
-			s.logger.Info("Update LoRA referense counter", "model", model, "prev value", intValue, "new value", intValue-1)
+			s.logger.Info("Update LoRA reference counter", "model", model, "prev value", intValue, "new value", intValue-1)
 		} else {
 			// last lora instance stopped it execution - remove from the map
 			s.runningLoras.Delete(model)
@@ -377,7 +378,7 @@ func (s *VllmSimulator) responseSentCallback(model string) {
 
 }
 
-// sendCompletionError sends an error response for the curent completion request
+// sendCompletionError sends an error response for the current completion request
 func (s *VllmSimulator) sendCompletionError(ctx *fasthttp.RequestCtx, msg string, errType string, code int) {
 	compErr := completionError{
 		Object:  "error",
@@ -400,12 +401,7 @@ func (s *VllmSimulator) sendCompletionError(ctx *fasthttp.RequestCtx, msg string
 
 // HandleModels handles /v1/models request according the data stored in the simulator
 func (s *VllmSimulator) HandleModels(ctx *fasthttp.RequestCtx) {
-	modelsResp, err := s.createModelsResponse()
-	if err != nil {
-		s.logger.Error(err, "Cannot create /models response")
-		ctx.Error("Cannot create /models response, "+err.Error(), fasthttp.StatusInternalServerError)
-		return
-	}
+	modelsResp := s.createModelsResponse()
 
 	data, err := json.Marshal(modelsResp)
 	if err != nil {
@@ -419,7 +415,7 @@ func (s *VllmSimulator) HandleModels(ctx *fasthttp.RequestCtx) {
 	ctx.Response.SetBody(data)
 }
 
-func (s *VllmSimulator) HandleError(ctx *fasthttp.RequestCtx, err error) {
+func (s *VllmSimulator) HandleError(_ *fasthttp.RequestCtx, err error) {
 	s.logger.Error(err, "VLLM server error")
 }
 
@@ -429,7 +425,7 @@ func (s *VllmSimulator) HandleError(ctx *fasthttp.RequestCtx, err error) {
 // finishReason - a pointer to string that represents finish reason, can be nil or stop or length, ...
 func (s *VllmSimulator) createCompletionResponse(isChatCompletion bool, respText string, model string, finishReason *string) completionResponse {
 	baseResp := baseCompletionResponse{
-		ID:      chatComplIdPrefix + uuid.NewString(),
+		ID:      chatComplIDPrefix + uuid.NewString(),
 		Created: time.Now().Unix(),
 		Model:   model,
 	}
@@ -440,11 +436,11 @@ func (s *VllmSimulator) createCompletionResponse(isChatCompletion bool, respText
 			baseCompletionResponse: baseResp,
 			Choices:                []chatRespChoice{{Message: message{Role: roleAssistant, Content: respText}, baseResponseChoice: baseChoice}},
 		}
-	} else {
-		return &textCompletionResponse{
-			baseCompletionResponse: baseResp,
-			Choices:                []textRespChoice{{baseResponseChoice: baseChoice, Text: respText}},
-		}
+	}
+
+	return &textCompletionResponse{
+		baseCompletionResponse: baseResp,
+		Choices:                []textRespChoice{{baseResponseChoice: baseChoice, Text: respText}},
 	}
 }
 
@@ -475,7 +471,7 @@ func (s *VllmSimulator) sendResponse(isChatCompletion bool, ctx *fasthttp.Reques
 }
 
 // createModelsResponse creates and returns ModelResponse for the current state, returned array of models contains the base model + LoRA adapters if exist
-func (s *VllmSimulator) createModelsResponse() (*vllmapi.ModelsResponse, error) {
+func (s *VllmSimulator) createModelsResponse() *vllmapi.ModelsResponse {
 	modelsResp := vllmapi.ModelsResponse{Object: "list", Data: []vllmapi.ModelsResponseModelInfo{}}
 
 	// add base model's info
@@ -500,5 +496,5 @@ func (s *VllmSimulator) createModelsResponse() (*vllmapi.ModelsResponse, error) 
 		})
 	}
 
-	return &modelsResp, nil
+	return &modelsResp
 }

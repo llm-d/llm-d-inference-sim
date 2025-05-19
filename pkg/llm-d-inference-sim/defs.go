@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Definitions of all sturctures used by vLLM simultor
+// Definitions of all structures used by vLLM simulator
 // Contains the main simulator class and all definitions related to request/response for all supported APIs
 package llmdinferencesim
 
@@ -30,7 +30,7 @@ import (
 const (
 	modeRandom        = "random"
 	modeEcho          = "echo"
-	chatComplIdPrefix = "chatcmpl-"
+	chatComplIDPrefix = "chatcmpl-"
 	stopFinishReason  = "stop"
 	roleAssistant     = "assistant"
 	roleUser          = "user"
@@ -54,8 +54,8 @@ type VllmSimulator struct {
 	loraAdaptors sync.Map
 	// maxLoras defines maximum number of loaded loras
 	maxLoras int
-	// maxLoras defines maximum number of loras to store in CPU memory
-	maxCpuLoras int
+	// maxCPULoras defines maximum number of loras to store in CPU memory
+	maxCPULoras int
 	// runningLoras is a collection of running loras, key of lora's name, value is number of requests using this lora
 	runningLoras sync.Map
 	// waitingLoras will represent collection of loras defined in requests in the queue - Not implemented yet
@@ -267,10 +267,10 @@ func (req textCompletionRequest) createResponseText(mode string) (string, error)
 
 // getLastUserMsg returns last message from this request's messages with user role,
 // if does not exist - returns an empty string
-func (r *chatCompletionRequest) getLastUserMsg() string {
-	for i := len(r.Messages) - 1; i >= 0; i-- {
-		if r.Messages[i].Role == roleUser {
-			return r.Messages[i].Content
+func (req *chatCompletionRequest) getLastUserMsg() string {
+	for i := len(req.Messages) - 1; i >= 0; i-- {
+		if req.Messages[i].Role == roleUser {
+			return req.Messages[i].Content
 		}
 	}
 

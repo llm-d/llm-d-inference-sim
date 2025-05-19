@@ -38,34 +38,34 @@ var chatCompletionFakeResponses = []string{
 
 // getRandomResponseText returns random response text from the pre-defined list of responses
 // considering max completion tokens if it is not nil
-func getRandomResponseText(max_completion_tokens *int64) string {
+func getRandomResponseText(maxCompletionTokens *int64) string {
 	index := rand.New(rand.NewSource(time.Now().UnixNano())).Intn(len(chatCompletionFakeResponses))
 	text := chatCompletionFakeResponses[index]
 
-	return getResponseText(max_completion_tokens, text)
+	return getResponseText(maxCompletionTokens, text)
 }
 
 // getResponseText returns response text, from a given text
 // considering max completion tokens if it is not nil
-func getResponseText(max_completion_tokens *int64, text string) string {
+func getResponseText(maxCompletionTokens *int64, text string) string {
 	// should not happen
-	if max_completion_tokens != nil && *max_completion_tokens <= 0 {
+	if maxCompletionTokens != nil && *maxCompletionTokens <= 0 {
 		return ""
 	}
 
 	// no max completion tokens, return entire text
-	if max_completion_tokens == nil {
+	if maxCompletionTokens == nil {
 		return text
 	}
 	// create tokens from text, splitting by spaces
 	tokens := strings.Fields(text)
 
 	// return entire text
-	if *max_completion_tokens >= int64(len(tokens)) {
+	if *maxCompletionTokens >= int64(len(tokens)) {
 		return text
 	}
 	// return truncated text
-	return strings.Join(tokens[0:*max_completion_tokens], " ")
+	return strings.Join(tokens[0:*maxCompletionTokens], " ")
 }
 
 // Given a partial string, access the full string

@@ -30,13 +30,13 @@ var _ = Describe("Utils", func() {
 			Expect(text).Should(Equal(getFullTextFromPartialString(text)))
 		})
 		It("should return partial text", func() {
-			max_completion_tokens := int64(2)
-			text := getRandomResponseText(&max_completion_tokens)
-			Expect(int64(len(strings.Fields(text)))).Should(Equal(max_completion_tokens))
+			maxCompletionTokens := int64(2)
+			text := getRandomResponseText(&maxCompletionTokens)
+			Expect(int64(len(strings.Fields(text)))).Should(Equal(maxCompletionTokens))
 		})
 		It("should return complete text", func() {
-			max_completion_tokens := int64(2000)
-			text := getRandomResponseText(&max_completion_tokens)
+			maxCompletionTokens := int64(2000)
+			text := getRandomResponseText(&maxCompletionTokens)
 			Expect(text).Should(Equal(getFullTextFromPartialString(text)))
 		})
 	})

@@ -115,7 +115,7 @@ func (s *VllmSimulator) setInitialPrometheusMetrics() {
 func (s *VllmSimulator) reportLoras() {
 	var loras []string
 
-	s.runningLoras.Range(func(key interface{}, value interface{}) bool {
+	s.runningLoras.Range(func(key interface{}, _ interface{}) bool {
 		if lora, ok := key.(string); ok {
 			loras = append(loras, lora)
 		}

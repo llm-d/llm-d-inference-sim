@@ -69,7 +69,7 @@ func startServer(ctx context.Context, mode string) (*http.Client, error) {
 
 	return &http.Client{
 		Transport: &http.Transport{
-			DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
 				return listener.Dial()
 			},
 		},
@@ -123,7 +123,7 @@ var _ = Describe("Simulator", func() {
 			Expect(msg).Should(Equal(expectedMsg))
 		},
 		func(mode string) string {
-			return fmt.Sprintf("mode: %s", mode)
+			return "mode: " + mode
 		},
 		Entry(nil, modeRandom),
 		Entry(nil, modeEcho),
@@ -170,7 +170,7 @@ var _ = Describe("Simulator", func() {
 			Expect(text).Should(Equal(expectedText))
 		},
 		func(mode string) string {
-			return fmt.Sprintf("mode: %s", mode)
+			return "mode: " + mode
 		},
 		Entry(nil, modeRandom),
 		Entry(nil, modeEcho),
@@ -192,18 +192,18 @@ var _ = Describe("Simulator", func() {
 				},
 				Model: model,
 			}
-			num_tokens := 0
+			numTokens := 0
 			partialErrMsg := ""
 			// if maxTokens and maxCompletionTokens are passsed
 			// maxCompletionTokens is used
 			if maxTokens != 0 {
 				params.MaxTokens = param.NewOpt(int64(maxTokens))
-				num_tokens = maxTokens
+				numTokens = maxTokens
 				partialErrMsg = "max_tokens must be at least 1, got -1"
 			}
 			if maxCompletionTokens != 0 {
 				params.MaxCompletionTokens = param.NewOpt(int64(maxCompletionTokens))
-				num_tokens = maxCompletionTokens
+				numTokens = maxCompletionTokens
 				partialErrMsg = "max_completion_tokens must be at least 1, got -1"
 			}
 			resp, err := openaiclient.Chat.Completions.New(ctx, params)
@@ -220,14 +220,14 @@ var _ = Describe("Simulator", func() {
 				}
 			}
 			Expect(err).NotTo(HaveOccurred())
-			Expect(len(resp.Choices)).Should(BeNumerically(">", 0))
+			Expect(resp.Choices).ShouldNot(BeEmpty())
 
 			msg := resp.Choices[0].Message.Content
 			Expect(msg).ShouldNot(BeEmpty())
 
-			if num_tokens > 0 {
+			if numTokens > 0 {
 				tokens := strings.Fields(msg)
-				Expect(int64(len(tokens))).Should(BeNumerically("<=", num_tokens))
+				Expect(int64(len(tokens))).Should(BeNumerically("<=", numTokens))
 			} else {
 				expectedMsg := ""
 				if mode == modeEcho {
@@ -275,11 +275,11 @@ var _ = Describe("Simulator", func() {
 				},
 				Model: openai.CompletionNewParamsModel(model),
 			}
-			num_tokens := 0
+			numTokens := 0
 			partialErrMsg := "max_tokens must be at least 1, got -1"
 			if maxTokens != 0 {
 				params.MaxTokens = param.NewOpt(int64(maxTokens))
-				num_tokens = maxTokens
+				numTokens = maxTokens
 			}
 			resp, err := openaiclient.Completions.New(ctx, params)
 			if err != nil {
@@ -295,14 +295,14 @@ var _ = Describe("Simulator", func() {
 				}
 			}
 			Expect(err).NotTo(HaveOccurred())
-			Expect(len(resp.Choices)).Should(BeNumerically(">", 0))
+			Expect(resp.Choices).ShouldNot(BeEmpty())
 
 			text := resp.Choices[0].Text
 			Expect(text).ShouldNot(BeEmpty())
 
-			if num_tokens != 0 {
+			if numTokens != 0 {
 				tokens := strings.Fields(text)
-				Expect(int64(len(tokens))).Should(BeNumerically("<=", num_tokens))
+				Expect(int64(len(tokens))).Should(BeNumerically("<=", numTokens))
 			} else {
 				expectedText := ""
 				if mode == modeEcho {

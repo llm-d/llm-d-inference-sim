@@ -102,7 +102,7 @@ func (s *VllmSimulator) sendStreamingResponse(isChatCompletion bool, ctx *fastht
 // finishReason - a pointer to string that represents finish reason, can be nil or stop or length, ...
 func (s *VllmSimulator) createCompletionChunk(isChatCompletion bool, creationTime int64, token string, model string, role string, finishReason *string) completionRespChunk {
 	baseChunk := baseCompletionResponse{
-		ID:      chatComplIdPrefix + uuid.NewString(),
+		ID:      chatComplIDPrefix + uuid.NewString(),
 		Created: creationTime,
 		Model:   model,
 	}
@@ -122,11 +122,11 @@ func (s *VllmSimulator) createCompletionChunk(isChatCompletion bool, creationTim
 		}
 
 		return &chunk
-	} else {
-		return &textCompletionResponse{
-			baseCompletionResponse: baseChunk,
-			Choices:                []textRespChoice{{baseResponseChoice: baseChoice, Text: token}},
-		}
+	}
+
+	return &textCompletionResponse{
+		baseCompletionResponse: baseChunk,
+		Choices:                []textRespChoice{{baseResponseChoice: baseChoice, Text: token}},
 	}
 }
 
