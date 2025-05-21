@@ -95,7 +95,7 @@ make build-llm-d-inference-sim-image
 ### Running
 To run the vLLM Simulator image under Docker, run:
 ```bash
-docker run --rm --publish 8000:8000 ai-aware-router/llm-d-inference-sim:0.0.1 /ai-aware-router/llm-d-inference-sim  --port 8000 --model "Qwen/Qwen2.5-1.5B-Instruct" --lora "tweet-summary-0,tweet-summary-1"
+docker run --rm --publish 8000:8000 ghcr.io/llm-d/llm-d-inference-sim:0.0.1  --port 8000 --model "Qwen/Qwen2.5-1.5B-Instruct" --lora "tweet-summary-0,tweet-summary-1"
 ```
 **Note:** The above command exposes the simulator on port 8000, and serves the Qwen/Qwen2.5-1.5B-Instruct model.
 
