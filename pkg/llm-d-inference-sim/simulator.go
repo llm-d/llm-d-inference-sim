@@ -318,7 +318,7 @@ func (s *VllmSimulator) reqProcessingWorker(ctx context.Context, id int) {
 				s.runningLoras.Store(model, intValue+1)
 				s.logger.Info("Update LoRA reference counter", "model", model, "old value", intValue, "new value", intValue+1)
 
-				// TODO - check if thie request went to the waiting queue - add it to waiting map
+				// TODO - check if this request went to the waiting queue - add it to waiting map
 				s.reportLoras()
 			}
 			atomic.AddInt64(&(s.nRunningReqs), 1)
@@ -336,9 +336,9 @@ func (s *VllmSimulator) reqProcessingWorker(ctx context.Context, id int) {
 				reqCtx.httpReqCtx.Error(prefix+err.Error(), fasthttp.StatusBadRequest)
 			} else {
 				if req.isStream() {
-					s.sendStreamingResponse(reqCtx.isChatCompletion, reqCtx.httpReqCtx, responseTxt, model)
+					s.sendStreamingResponse(reqCtx.isChatCompletion, reqCtx.httpReqCtx, responseTxt, model, req.includeUsage(), req.getNumberOfPromptTokens())
 				} else {
-					s.sendResponse(reqCtx.isChatCompletion, reqCtx.httpReqCtx, responseTxt, model)
+					s.sendResponse(reqCtx.isChatCompletion, reqCtx.httpReqCtx, responseTxt, model, req.getNumberOfPromptTokens())
 				}
 			}
 			reqCtx.wg.Done()
@@ -423,11 +423,17 @@ func (s *VllmSimulator) HandleError(_ *fasthttp.RequestCtx, err error) {
 // respText - content to be sent in the response
 // model - model name
 // finishReason - a pointer to string that represents finish reason, can be nil or stop or length, ...
-func (s *VllmSimulator) createCompletionResponse(isChatCompletion bool, respText string, model string, finishReason *string) completionResponse {
+func (s *VllmSimulator) createCompletionResponse(isChatCompletion bool, respText string, model string, finishReason *string,
+	promptTokens int, completionTokens int) completionResponse {
 	baseResp := baseCompletionResponse{
 		ID:      chatComplIDPrefix + uuid.NewString(),
 		Created: time.Now().Unix(),
 		Model:   model,
+		Usage: &usage{
+			PromptTokens:     promptTokens,
+			CompletionTokens: completionTokens,
+			TotalTokens:      promptTokens + completionTokens,
+		},
 	}
 	baseChoice := baseResponseChoice{Index: 0, FinishReason: finishReason}
 
@@ -447,9 +453,10 @@ func (s *VllmSimulator) createCompletionResponse(isChatCompletion bool, respText
 // sendResponse sends response for completion API, supports both completions (text and chat) according the value of isChatCompletion
 // respText - content to be sent in the response
 // model - model name
-func (s *VllmSimulator) sendResponse(isChatCompletion bool, ctx *fasthttp.RequestCtx, respText string, model string) {
+func (s *VllmSimulator) sendResponse(isChatCompletion bool, ctx *fasthttp.RequestCtx, respText string, model string, promptTokens int) {
 	finishReason := stopFinishReason
-	resp := s.createCompletionResponse(isChatCompletion, respText, model, &finishReason)
+	numOfWords := len(strings.Fields(respText))
+	resp := s.createCompletionResponse(isChatCompletion, respText, model, &finishReason, promptTokens, numOfWords)
 
 	data, err := json.Marshal(resp)
 	if err != nil {
@@ -458,7 +465,6 @@ func (s *VllmSimulator) sendResponse(isChatCompletion bool, ctx *fasthttp.Reques
 	}
 
 	// calculate how long to wait before return the response, time is based on number of tokens (use words number)
-	numOfWords := len(strings.Fields(respText))
 	totalMillisToWait := s.timeToFirstToken + (numOfWords-1)*s.interTokenLatency
 	time.Sleep(time.Duration(totalMillisToWait) * time.Millisecond)
 

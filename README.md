@@ -9,7 +9,7 @@ Currently it supports partial OpenAI-compatible API:
 In addition, it supports a subset of vLLM's Prometheus metrics. These metrics are exposed via the /metrics HTTP REST endpoint. Currently supported are the following metrics:
 - vllm:lora_requests_info
 
-The simulated inferense has no connection with the model and LoRA adapters specified in the command line parameters. The /v1/models endpoint returns simulated results based on those same command line parameters.
+The simulated inference has no connection with the model and LoRA adapters specified in the command line parameters. The /v1/models endpoint returns simulated results based on those same command line parameters.
 
 The simulator supports two modes of operation:
 - `echo` mode: the response contains the same text that was received in the request. For `/v1/chat/completions` the last message for the role=`user` is used.

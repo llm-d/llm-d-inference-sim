@@ -102,8 +102,10 @@ var _ = Describe("Simulator", func() {
 			}()
 			tokens := []string{}
 			role := ""
+			var chunk openai.ChatCompletionChunk
+			numberOfChunksWithUsage := 0
 			for stream.Next() {
-				chunk := stream.Current()
+				chunk = stream.Current()
 				for _, choice := range chunk.Choices {
 					if choice.Delta.Role != "" {
 						role = choice.Delta.Role
@@ -111,7 +113,16 @@ var _ = Describe("Simulator", func() {
 						tokens = append(tokens, choice.Delta.Content)
 					}
 				}
+				if chunk.Usage.CompletionTokens != 0 || chunk.Usage.PromptTokens != 0 || chunk.Usage.TotalTokens != 0 {
+					numberOfChunksWithUsage++
+				}
 			}
+
+			Expect(numberOfChunksWithUsage).To(Equal(1))
+			Expect(chunk.Usage.PromptTokens).To(Equal(int64(4)))
+			Expect(chunk.Usage.CompletionTokens).To(BeNumerically(">", 0))
+			Expect(chunk.Usage.TotalTokens).To(Equal(chunk.Usage.PromptTokens + chunk.Usage.CompletionTokens))
+
 			msg := strings.Join(tokens, " ")
 			expectedMsg := ""
 			if mode == modeEcho {
@@ -152,14 +163,24 @@ var _ = Describe("Simulator", func() {
 				Expect(err).NotTo(HaveOccurred())
 			}()
 			tokens := []string{}
+			var chunk openai.Completion
+			numberOfChunksWithUsage := 0
 			for stream.Next() {
-				chunk := stream.Current()
+				chunk = stream.Current()
 				for _, choice := range chunk.Choices {
 					if choice.FinishReason == "" {
 						tokens = append(tokens, choice.Text)
 					}
 				}
+				if chunk.Usage.CompletionTokens != 0 || chunk.Usage.PromptTokens != 0 || chunk.Usage.TotalTokens != 0 {
+					numberOfChunksWithUsage++
+				}
 			}
+			Expect(numberOfChunksWithUsage).To(Equal(1))
+			Expect(chunk.Usage.PromptTokens).To(Equal(int64(4)))
+			Expect(chunk.Usage.CompletionTokens).To(BeNumerically(">", 0))
+			Expect(chunk.Usage.TotalTokens).To(Equal(chunk.Usage.PromptTokens + chunk.Usage.CompletionTokens))
+
 			text := strings.Join(tokens, " ")
 			expectedText := ""
 			if mode == modeEcho {
@@ -221,6 +242,10 @@ var _ = Describe("Simulator", func() {
 			}
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resp.Choices).ShouldNot(BeEmpty())
+
+			Expect(resp.Usage.PromptTokens).To(Equal(int64(4)))
+			Expect(resp.Usage.CompletionTokens).To(BeNumerically(">", 0))
+			Expect(resp.Usage.TotalTokens).To(Equal(resp.Usage.PromptTokens + resp.Usage.CompletionTokens))
 
 			msg := resp.Choices[0].Message.Content
 			Expect(msg).ShouldNot(BeEmpty())
@@ -296,6 +321,10 @@ var _ = Describe("Simulator", func() {
 			}
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resp.Choices).ShouldNot(BeEmpty())
+
+			Expect(resp.Usage.PromptTokens).To(Equal(int64(4)))
+			Expect(resp.Usage.CompletionTokens).To(BeNumerically(">", 0))
+			Expect(resp.Usage.TotalTokens).To(Equal(resp.Usage.PromptTokens + resp.Usage.CompletionTokens))
 
 			text := resp.Choices[0].Text
 			Expect(text).ShouldNot(BeEmpty())
