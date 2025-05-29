@@ -97,11 +97,9 @@ The following environment variables can be used to change the image tag: `SIM_TA
 ### Running
 To run the vLLM Simulator image under Docker, run:
 ```bash
-docker run --rm --publish 8000:8000 ghcr.io/llm-d/llm-d-inference-sim:<version>  --port 8000 --model "Qwen/Qwen2.5-1.5B-Instruct" --lora "tweet-summary-0,tweet-summary-1"
+docker run --rm --publish 8000:8000 ghcr.io/llm-d/llm-d-inference-sim:dev  --port 8000 --model "Qwen/Qwen2.5-1.5B-Instruct" --lora "tweet-summary-0,tweet-summary-1"
 ```
-**Note:** In the above docker command replace `<version>` with:
-- The current release which can be found on [github](./releases)
-- `dev` if you built the image locally as documented above.
+**Note:** If you want to run the vLLM Simulator with the latest release version, in the above docker command replace `dev` with the current release which can be found on [github](./releases).
 
 **Note:** The above command exposes the simulator on port 8000, and serves the Qwen/Qwen2.5-1.5B-Instruct model.
 
