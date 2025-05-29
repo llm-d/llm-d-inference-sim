@@ -92,14 +92,14 @@ To build a Docker image of the vLLM Simulator, run:
 make image-build
 ```
 Please note that the default image tag is `ghcr.io/llm-d/llm-d-inference-sim:dev`. <br>
-The following environment variables can be used to change the image tag: `SIM_TAG`, `IMAGE_TAG_BASE` or `IMG`.
+The following environment variables can be used to change the image tag: `REGISTRY`, `SIM_TAG`, `IMAGE_TAG_BASE` or `IMG`.
 
 ### Running
 To run the vLLM Simulator image under Docker, run:
 ```bash
 docker run --rm --publish 8000:8000 ghcr.io/llm-d/llm-d-inference-sim:dev  --port 8000 --model "Qwen/Qwen2.5-1.5B-Instruct" --lora "tweet-summary-0,tweet-summary-1"
 ```
-**Note:** If you want to run the vLLM Simulator with the latest release version, in the above docker command replace `dev` with the current release which can be found on [github](./releases).
+**Note:** To run the vLLM Simulator with the latest release version, in the above docker command replace `dev` with the current release which can be found on [GitHub](https://github.com/llm-d/llm-d-inference-sim/pkgs/container/llm-d-inference-sim).
 
 **Note:** The above command exposes the simulator on port 8000, and serves the Qwen/Qwen2.5-1.5B-Instruct model.
 
