@@ -28,11 +28,6 @@ build-llm-d-inference-sim:
 build-llm-d-inference-sim-linux:
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o bin/linux/ ${PACKAGE_VLLM_SIM}
 
-.PHONY: build-llm-d-inference-sim-image
-build-llm-d-inference-sim-image: build-llm-d-inference-sim-linux
-	$(CONTAINER_RUNTIME) build --file build/llm-d-inference-sim.Dockerfile --tag ${VLLM_SIM_NAME}:${VLLM_SIM_TAG} ./bin/linux
-
-
 SHELL := /usr/bin/env bash
 
 # Defaults
