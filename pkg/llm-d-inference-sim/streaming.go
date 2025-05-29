@@ -30,8 +30,8 @@ import (
 // sendStreamingResponse creates and sends a streaming response for completion request of both types (text and chat) as defined by isChatCompletion
 // response content is wrapped according SSE format
 // First token is send after timeToFirstToken milliseconds, every other token is sent after interTokenLatency milliseconds
-func (s *VllmSimulator) sendStreamingResponse(isChatCompletion bool, ctx *fasthttp.RequestCtx, responseTxt string, model string, includeUsage bool,
-	promptTokens int) {
+func (s *VllmSimulator) sendStreamingResponse(isChatCompletion bool, ctx *fasthttp.RequestCtx, responseTxt string, model string,
+	finishReason string, includeUsage bool, promptTokens int) {
 	ctx.SetContentType("text/event-stream")
 	ctx.SetStatusCode(fasthttp.StatusOK)
 
@@ -54,27 +54,31 @@ func (s *VllmSimulator) sendStreamingResponse(isChatCompletion bool, ctx *fastht
 			// time to first token delay
 			time.Sleep(time.Duration(s.timeToFirstToken) * time.Millisecond)
 
-			isFirst := true
-			for _, token := range tokens {
-				if !isFirst {
+			for i, token := range tokens {
+				if i == 0 {
 					time.Sleep(time.Duration(s.interTokenLatency) * time.Millisecond)
-				} else {
-					isFirst = false
 				}
 
-				err := s.sendChunk(isChatCompletion, w, creationTime, model, "", token, nil, 0, 0)
+				var err error
+
+				if i == len(tokens)-1 && finishReason == lengthFinishReason {
+					err = s.sendChunk(isChatCompletion, w, creationTime, model, "", token, &finishReason, 0, 0)
+				} else {
+					err = s.sendChunk(isChatCompletion, w, creationTime, model, "", token, nil, 0, 0)
+				}
 				if err != nil {
 					ctx.Error("Sending stream chunk failed, "+err.Error(), fasthttp.StatusInternalServerError)
 					return
 				}
 			}
 
-			// send the last chunk
-			finishReason := stopFinishReason
-			err := s.sendChunk(isChatCompletion, w, creationTime, model, "", "", &finishReason, 0, 0)
-			if err != nil {
-				ctx.Error("Sending last stream chunk failed, "+err.Error(), fasthttp.StatusInternalServerError)
-				return
+			// send the last chunk if finish reason is stop
+			if finishReason == stopFinishReason {
+				err := s.sendChunk(isChatCompletion, w, creationTime, model, "", "", &finishReason, 0, 0)
+				if err != nil {
+					ctx.Error("Sending last stream chunk failed, "+err.Error(), fasthttp.StatusInternalServerError)
+					return
+				}
 			}
 		}
 
@@ -110,8 +114,8 @@ func (s *VllmSimulator) sendStreamingResponse(isChatCompletion bool, ctx *fastht
 // model the model
 // role this message role, relevenat to chat API only
 // finishReason - a pointer to string that represents finish reason, can be nil or stop or length, ...
-func (s *VllmSimulator) createCompletionChunk(isChatCompletion bool, creationTime int64, token string, model string, role string, finishReason *string,
-	promptTokens int, completionTokens int) completionRespChunk {
+func (s *VllmSimulator) createCompletionChunk(isChatCompletion bool, creationTime int64, token string, model string, role string,
+	finishReason *string, promptTokens int, completionTokens int) completionRespChunk {
 	baseChunk := baseCompletionResponse{
 		ID:      chatComplIDPrefix + uuid.NewString(),
 		Created: creationTime,
@@ -159,8 +163,8 @@ func (s *VllmSimulator) createCompletionChunk(isChatCompletion bool, creationTim
 }
 
 // sendChunk send a single token chunk in a streamed completion API response
-func (s *VllmSimulator) sendChunk(isChatCompletion bool, w *bufio.Writer, creationTime int64, model string, role string, token string, finishReason *string,
-	promptTokens int, completionTokens int) error {
+func (s *VllmSimulator) sendChunk(isChatCompletion bool, w *bufio.Writer, creationTime int64, model string, role string, token string,
+	finishReason *string, promptTokens int, completionTokens int) error {
 	chunk := s.createCompletionChunk(isChatCompletion, creationTime, token, model, role, finishReason, promptTokens, completionTokens)
 	data, err := json.Marshal(chunk)
 	if err != nil {

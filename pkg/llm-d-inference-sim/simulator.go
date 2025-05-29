@@ -324,7 +324,7 @@ func (s *VllmSimulator) reqProcessingWorker(ctx context.Context, id int) {
 			atomic.AddInt64(&(s.nRunningReqs), 1)
 			s.reportRunningRequests()
 
-			responseTxt, err := req.createResponseText(s.mode)
+			responseTxt, finishReason, err := req.createResponseText(s.mode)
 			if err != nil {
 				prefix := ""
 				if reqCtx.isChatCompletion {
@@ -336,9 +336,11 @@ func (s *VllmSimulator) reqProcessingWorker(ctx context.Context, id int) {
 				reqCtx.httpReqCtx.Error(prefix+err.Error(), fasthttp.StatusBadRequest)
 			} else {
 				if req.isStream() {
-					s.sendStreamingResponse(reqCtx.isChatCompletion, reqCtx.httpReqCtx, responseTxt, model, req.includeUsage(), req.getNumberOfPromptTokens())
+					s.sendStreamingResponse(reqCtx.isChatCompletion, reqCtx.httpReqCtx, responseTxt, model, finishReason,
+						req.includeUsage(), req.getNumberOfPromptTokens())
 				} else {
-					s.sendResponse(reqCtx.isChatCompletion, reqCtx.httpReqCtx, responseTxt, model, req.getNumberOfPromptTokens())
+					s.sendResponse(reqCtx.isChatCompletion, reqCtx.httpReqCtx, responseTxt, model, finishReason,
+						req.getNumberOfPromptTokens())
 				}
 			}
 			reqCtx.wg.Done()
@@ -453,8 +455,8 @@ func (s *VllmSimulator) createCompletionResponse(isChatCompletion bool, respText
 // sendResponse sends response for completion API, supports both completions (text and chat) according the value of isChatCompletion
 // respText - content to be sent in the response
 // model - model name
-func (s *VllmSimulator) sendResponse(isChatCompletion bool, ctx *fasthttp.RequestCtx, respText string, model string, promptTokens int) {
-	finishReason := stopFinishReason
+func (s *VllmSimulator) sendResponse(isChatCompletion bool, ctx *fasthttp.RequestCtx, respText string, model string,
+	finishReason string, promptTokens int) {
 	numOfWords := len(strings.Fields(respText))
 	resp := s.createCompletionResponse(isChatCompletion, respText, model, &finishReason, promptTokens, numOfWords)
 

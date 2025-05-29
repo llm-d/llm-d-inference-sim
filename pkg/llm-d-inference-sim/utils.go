@@ -37,8 +37,8 @@ var chatCompletionFakeResponses = []string{
 }
 
 // getRandomResponseText returns random response text from the pre-defined list of responses
-// considering max completion tokens if it is not nil
-func getRandomResponseText(maxCompletionTokens *int64) string {
+// considering max completion tokens if it is not nil, and a finish reason (stop or length)
+func getRandomResponseText(maxCompletionTokens *int64) (string, string) {
 	index := rand.New(rand.NewSource(time.Now().UnixNano())).Intn(len(chatCompletionFakeResponses))
 	text := chatCompletionFakeResponses[index]
 
@@ -46,26 +46,26 @@ func getRandomResponseText(maxCompletionTokens *int64) string {
 }
 
 // getResponseText returns response text, from a given text
-// considering max completion tokens if it is not nil
-func getResponseText(maxCompletionTokens *int64, text string) string {
+// considering max completion tokens if it is not nil, and a finish reason (stop or length)
+func getResponseText(maxCompletionTokens *int64, text string) (string, string) {
 	// should not happen
 	if maxCompletionTokens != nil && *maxCompletionTokens <= 0 {
-		return ""
+		return "", stopFinishReason
 	}
 
 	// no max completion tokens, return entire text
 	if maxCompletionTokens == nil {
-		return text
+		return text, stopFinishReason
 	}
 	// create tokens from text, splitting by spaces
 	tokens := strings.Fields(text)
 
 	// return entire text
 	if *maxCompletionTokens >= int64(len(tokens)) {
-		return text
+		return text, stopFinishReason
 	}
 	// return truncated text
-	return strings.Join(tokens[0:*maxCompletionTokens], " ")
+	return strings.Join(tokens[0:*maxCompletionTokens], " "), lengthFinishReason
 }
 
 // Given a partial string, access the full string

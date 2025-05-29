@@ -29,12 +29,13 @@ import (
 )
 
 const (
-	modeRandom        = "random"
-	modeEcho          = "echo"
-	chatComplIDPrefix = "chatcmpl-"
-	stopFinishReason  = "stop"
-	roleAssistant     = "assistant"
-	roleUser          = "user"
+	modeRandom         = "random"
+	modeEcho           = "echo"
+	chatComplIDPrefix  = "chatcmpl-"
+	stopFinishReason   = "stop"
+	lengthFinishReason = "length"
+	roleAssistant      = "assistant"
+	roleUser           = "user"
 )
 
 // VllmSimulator simulates vLLM server supporting OpenAI API
@@ -143,8 +144,9 @@ func (b *baseCompletionRequest) includeUsage() bool {
 
 // completionRequest interface representing both completion request types (text and chat)
 type completionRequest interface {
-	// createResponseText creates and returns response payload based on this request
-	createResponseText(mode string) (string, error)
+	// createResponseText creates and returns response payload based on this request,
+	// and the finish reason
+	createResponseText(mode string) (string, string, error)
 	// isStream returns boolean that defines is response should be streamed
 	isStream() bool
 	// getModel returns model name as defined in the request
@@ -283,27 +285,37 @@ func getMaxTokens(maxCompletionTokens *int64, maxTokens *int64) (*int64, error) 
 }
 
 // createResponseText creates response text for the given chat completion request and mode
-func (req chatCompletionRequest) createResponseText(mode string) (string, error) {
+func (req chatCompletionRequest) createResponseText(mode string) (string, string, error) {
 	maxTokens, err := getMaxTokens(req.MaxCompletionTokens, req.MaxTokens)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
+
+	var text, finishReason string
 	if mode == modeEcho {
-		return getResponseText(maxTokens, req.getLastUserMsg()), nil
+		text, finishReason = getResponseText(maxTokens, req.getLastUserMsg())
+	} else {
+		text, finishReason = getRandomResponseText(maxTokens)
 	}
-	return getRandomResponseText(maxTokens), nil
+
+	return text, finishReason, nil
 }
 
 // createResponseText creates response text for the given text completion request and mode
-func (req textCompletionRequest) createResponseText(mode string) (string, error) {
+func (req textCompletionRequest) createResponseText(mode string) (string, string, error) {
 	maxTokens, err := getMaxTokens(nil, req.MaxTokens)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
+
+	var text, finishReason string
 	if mode == modeEcho {
-		return getResponseText(maxTokens, req.Prompt), nil
+		text, finishReason = getResponseText(maxTokens, req.Prompt)
+	} else {
+		text, finishReason = getRandomResponseText(maxTokens)
 	}
-	return getRandomResponseText(maxTokens), nil
+
+	return text, finishReason, nil
 }
 
 // getLastUserMsg returns last message from this request's messages with user role,

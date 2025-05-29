@@ -26,18 +26,21 @@ import (
 var _ = Describe("Utils", func() {
 	Context("GetRandomResponseText", func() {
 		It("should return complete text", func() {
-			text := getRandomResponseText(nil)
+			text, finishReason := getRandomResponseText(nil)
 			Expect(text).Should(Equal(getFullTextFromPartialString(text)))
+			Expect(finishReason).Should(Equal(stopFinishReason))
 		})
 		It("should return partial text", func() {
 			maxCompletionTokens := int64(2)
-			text := getRandomResponseText(&maxCompletionTokens)
+			text, finishReason := getRandomResponseText(&maxCompletionTokens)
 			Expect(int64(len(strings.Fields(text)))).Should(Equal(maxCompletionTokens))
+			Expect(finishReason).Should(Equal(lengthFinishReason))
 		})
 		It("should return complete text", func() {
 			maxCompletionTokens := int64(2000)
-			text := getRandomResponseText(&maxCompletionTokens)
+			text, finishReason := getRandomResponseText(&maxCompletionTokens)
 			Expect(text).Should(Equal(getFullTextFromPartialString(text)))
+			Expect(finishReason).Should(Equal(stopFinishReason))
 		})
 	})
 })
