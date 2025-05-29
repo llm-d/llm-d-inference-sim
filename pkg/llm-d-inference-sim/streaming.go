@@ -71,13 +71,18 @@ func (s *VllmSimulator) sendStreamingResponse(isChatCompletion bool, ctx *fastht
 
 			// send the last chunk
 			finishReason := stopFinishReason
-			completionTokens := 0
-			if includeUsage {
-				completionTokens = len(tokens)
-			}
-			err := s.sendChunk(isChatCompletion, w, creationTime, model, "", "", &finishReason, promptTokens, completionTokens)
+			err := s.sendChunk(isChatCompletion, w, creationTime, model, "", "", &finishReason, 0, 0)
 			if err != nil {
 				ctx.Error("Sending last stream chunk failed, "+err.Error(), fasthttp.StatusInternalServerError)
+				return
+			}
+		}
+
+		// send usage
+		if includeUsage {
+			err := s.sendChunk(isChatCompletion, w, creationTime, model, "", "", nil, promptTokens, len(tokens))
+			if err != nil {
+				ctx.Error("Sending usage chunk failed, "+err.Error(), fasthttp.StatusInternalServerError)
 				return
 			}
 		}
@@ -117,6 +122,16 @@ func (s *VllmSimulator) createCompletionChunk(isChatCompletion bool, creationTim
 			PromptTokens:     promptTokens,
 			CompletionTokens: completionTokens,
 			TotalTokens:      promptTokens + completionTokens,
+		}
+		if isChatCompletion {
+			return &chatCompletionResponse{
+				baseCompletionResponse: baseChunk,
+				Choices:                []chatRespChoice{},
+			}
+		}
+		return &textCompletionResponse{
+			baseCompletionResponse: baseChunk,
+			Choices:                []textRespChoice{},
 		}
 	}
 	baseChoice := baseResponseChoice{Index: 0, FinishReason: finishReason}
