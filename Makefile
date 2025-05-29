@@ -20,11 +20,10 @@ SHELL := /usr/bin/env bash
 
 # Defaults
 PROJECT_NAME ?= llm-d-inference-sim
-IMAGE_TAG_BASE ?= ghcr.io/llm-d/$(PROJECT_NAME)
+REGISTRY ?= ghcr.io/llm-d
+IMAGE_TAG_BASE ?= $(REGISTRY)/$(PROJECT_NAME)
 SIM_TAG ?= dev
 IMG = $(IMAGE_TAG_BASE):$(SIM_TAG)
-
-
 CONTAINER_TOOL := $(shell { command -v docker >/dev/null 2>&1 && echo docker; } || { command -v podman >/dev/null 2>&1 && echo podman; } || echo "")
 BUILDER := $(shell command -v buildah >/dev/null 2>&1 && echo buildah || echo $(CONTAINER_TOOL))
 PLATFORMS ?= linux/amd64 # linux/arm64 # linux/s390x,linux/ppc64le
@@ -66,6 +65,9 @@ build: check-go ##
 	go build -o bin/$(PROJECT_NAME) cmd/$(PROJECT_NAME)/main.go
 
 ##@ Container Build/Push
+
+.PHONY: image-build-and-push
+image-build-and-push: image-build image-push ## Build and push Docker image $(IMG) to registry
 
 .PHONY:	image-build
 image-build: check-container-tool ## Build Docker image ## Build Docker image using $(CONTAINER_TOOL)
