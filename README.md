@@ -112,9 +112,19 @@ make build
 ```
 
 ### Running
-To run the router in a standalone test environment, run:
+To run the vLLM simulator in a standalone test environment, run:
 ```bash
 ./bin/llm-d-inference-sim --model my_model --port 8000
 ```
 
+## Kubernetes testing
 
+To run the vLLM simulator in a Kubernetes cluster, run:
+```bash
+kubectl apply -f manifests/deployment.yaml
+```
+
+To verify the deployment is available, run:
+```bash
+kubectl get deployment vllm-llama3-8b-instruct
+```
