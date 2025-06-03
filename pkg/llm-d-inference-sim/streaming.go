@@ -57,6 +57,8 @@ func (s *VllmSimulator) sendStreamingResponse(isChatCompletion bool, ctx *fastht
 			for i, token := range tokens {
 				if i == 0 {
 					time.Sleep(time.Duration(s.interTokenLatency) * time.Millisecond)
+				} else {
+					token = " " + token
 				}
 
 				var err error

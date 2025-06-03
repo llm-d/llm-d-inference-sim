@@ -123,7 +123,7 @@ var _ = Describe("Simulator", func() {
 			Expect(chunk.Usage.CompletionTokens).To(BeNumerically(">", 0))
 			Expect(chunk.Usage.TotalTokens).To(Equal(chunk.Usage.PromptTokens + chunk.Usage.CompletionTokens))
 
-			msg := strings.Join(tokens, " ")
+			msg := strings.Join(tokens, "")
 			expectedMsg := ""
 			if mode == modeEcho {
 				expectedMsg = userMessage
@@ -181,7 +181,7 @@ var _ = Describe("Simulator", func() {
 			Expect(chunk.Usage.CompletionTokens).To(BeNumerically(">", 0))
 			Expect(chunk.Usage.TotalTokens).To(Equal(chunk.Usage.PromptTokens + chunk.Usage.CompletionTokens))
 
-			text := strings.Join(tokens, " ")
+			text := strings.Join(tokens, "")
 			expectedText := ""
 			if mode == modeEcho {
 				expectedText = userMessage
