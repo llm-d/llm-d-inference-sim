@@ -440,12 +440,14 @@ func (s *VllmSimulator) createCompletionResponse(isChatCompletion bool, respText
 	baseChoice := baseResponseChoice{Index: 0, FinishReason: finishReason}
 
 	if isChatCompletion {
+		baseResp.Object = chatCompletion
 		return &chatCompletionResponse{
 			baseCompletionResponse: baseResp,
 			Choices:                []chatRespChoice{{Message: message{Role: roleAssistant, Content: respText}, baseResponseChoice: baseChoice}},
 		}
 	}
 
+	baseResp.Object = textCompletion
 	return &textCompletionResponse{
 		baseCompletionResponse: baseResp,
 		Choices:                []textRespChoice{{baseResponseChoice: baseChoice, Text: respText}},

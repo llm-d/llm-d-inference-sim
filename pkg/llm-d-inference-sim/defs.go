@@ -29,13 +29,16 @@ import (
 )
 
 const (
-	modeRandom         = "random"
-	modeEcho           = "echo"
-	chatComplIDPrefix  = "chatcmpl-"
-	stopFinishReason   = "stop"
-	lengthFinishReason = "length"
-	roleAssistant      = "assistant"
-	roleUser           = "user"
+	modeRandom          = "random"
+	modeEcho            = "echo"
+	chatComplIDPrefix   = "chatcmpl-"
+	stopFinishReason    = "stop"
+	lengthFinishReason  = "length"
+	roleAssistant       = "assistant"
+	roleUser            = "user"
+	textCompletion      = "text_completion"
+	chatCompletion      = "chat.completion"
+	chatCompletionChunk = "chat.completion.chunk"
 )
 
 // VllmSimulator simulates vLLM server supporting OpenAI API
@@ -108,6 +111,8 @@ type baseCompletionResponse struct {
 	Model string `json:"model"`
 	// Usage contains the token usage statistics for the request
 	Usage *usage `json:"usage"`
+	// Object is the Object type, "text_completion", "chat.completion", or "chat.completion.chunk"
+	Object string `json:"object"`
 }
 
 // completionResponse interface representing both completion response types (text and chat)

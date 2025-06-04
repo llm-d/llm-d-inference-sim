@@ -116,6 +116,7 @@ var _ = Describe("Simulator", func() {
 				if chunk.Usage.CompletionTokens != 0 || chunk.Usage.PromptTokens != 0 || chunk.Usage.TotalTokens != 0 {
 					numberOfChunksWithUsage++
 				}
+				Expect(string(chunk.Object)).To(Equal(chatCompletionChunk))
 			}
 
 			Expect(numberOfChunksWithUsage).To(Equal(1))
@@ -175,6 +176,7 @@ var _ = Describe("Simulator", func() {
 				if chunk.Usage.CompletionTokens != 0 || chunk.Usage.PromptTokens != 0 || chunk.Usage.TotalTokens != 0 {
 					numberOfChunksWithUsage++
 				}
+				Expect(string(chunk.Object)).To(Equal(textCompletion))
 			}
 			Expect(numberOfChunksWithUsage).To(Equal(1))
 			Expect(chunk.Usage.PromptTokens).To(Equal(int64(4)))
@@ -242,6 +244,7 @@ var _ = Describe("Simulator", func() {
 			}
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resp.Choices).ShouldNot(BeEmpty())
+			Expect(string(resp.Object)).To(Equal(chatCompletion))
 
 			Expect(resp.Usage.PromptTokens).To(Equal(int64(4)))
 			Expect(resp.Usage.CompletionTokens).To(BeNumerically(">", 0))
@@ -321,6 +324,7 @@ var _ = Describe("Simulator", func() {
 			}
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resp.Choices).ShouldNot(BeEmpty())
+			Expect(string(resp.Object)).To(Equal(textCompletion))
 
 			Expect(resp.Usage.PromptTokens).To(Equal(int64(4)))
 			Expect(resp.Usage.CompletionTokens).To(BeNumerically(">", 0))
