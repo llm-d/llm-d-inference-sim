@@ -123,9 +123,9 @@ func (s *VllmSimulator) createCompletionChunk(isChatCompletion bool, creationTim
 		Model:   model,
 	}
 	if isChatCompletion {
-		baseChunk.Object = chatCompletionChunk
+		baseChunk.Object = chatCompletionChunkObject
 	} else {
-		baseChunk.Object = textCompletion
+		baseChunk.Object = textCompletionObject
 	}
 	if completionTokens != 0 {
 		baseChunk.Usage = &usage{

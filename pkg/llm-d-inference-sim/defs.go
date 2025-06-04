@@ -29,16 +29,16 @@ import (
 )
 
 const (
-	modeRandom          = "random"
-	modeEcho            = "echo"
-	chatComplIDPrefix   = "chatcmpl-"
-	stopFinishReason    = "stop"
-	lengthFinishReason  = "length"
-	roleAssistant       = "assistant"
-	roleUser            = "user"
-	textCompletion      = "text_completion"
-	chatCompletion      = "chat.completion"
-	chatCompletionChunk = "chat.completion.chunk"
+	modeRandom                = "random"
+	modeEcho                  = "echo"
+	chatComplIDPrefix         = "chatcmpl-"
+	stopFinishReason          = "stop"
+	lengthFinishReason        = "length"
+	roleAssistant             = "assistant"
+	roleUser                  = "user"
+	textCompletionObject      = "text_completion"
+	chatCompletionObject      = "chat.completion"
+	chatCompletionChunkObject = "chat.completion.chunk"
 )
 
 // VllmSimulator simulates vLLM server supporting OpenAI API
