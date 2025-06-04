@@ -182,6 +182,7 @@ func (s *VllmSimulator) readRequest(ctx *fasthttp.RequestCtx, isChatCompletion b
 		var req chatCompletionRequest
 
 		err := json.Unmarshal(ctx.Request.Body(), &req)
+		err = nil
 
 		return &req, err
 	}
@@ -442,7 +443,7 @@ func (s *VllmSimulator) createCompletionResponse(isChatCompletion bool, respText
 	if isChatCompletion {
 		return &chatCompletionResponse{
 			baseCompletionResponse: baseResp,
-			Choices:                []chatRespChoice{{Message: message{Role: roleAssistant, Content: respText}, baseResponseChoice: baseChoice}},
+			Choices:                []chatRespChoice{{Message: message{Role: roleAssistant, Content: content{Raw: respText}}, baseResponseChoice: baseChoice}},
 		}
 	}
 

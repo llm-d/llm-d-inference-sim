@@ -19,6 +19,7 @@ limitations under the License.
 package llmdinferencesim
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -170,7 +171,60 @@ type message struct {
 	// Role is the message Role, optional values are 'user', 'assistant', ...
 	Role string `json:"role,omitempty"`
 	// Content defines text of this message
-	Content string `json:"content,omitempty"`
+	Content content `json:"content,omitempty"`
+}
+
+type content struct {
+	Raw        string
+	Structured []contentBlock
+}
+
+type contentBlock struct {
+	Type     string `json:"type"`
+	Text     string `json:"text,omitempty"`
+	ImageURL string `json:"image_url,omitempty"`
+}
+
+// UnmarshalJSON allow use both format
+func (mc *content) UnmarshalJSON(data []byte) error {
+	// Raw format
+	var str string
+	if err := json.Unmarshal(data, &str); err == nil {
+		mc.Raw = str
+		return nil
+	}
+
+	// Block format
+	var blocks []contentBlock
+	if err := json.Unmarshal(data, &blocks); err == nil {
+		mc.Structured = blocks
+		return nil
+	}
+
+	return fmt.Errorf("Content format not supported")
+}
+
+func (mc content) MarshalJSON() ([]byte, error) {
+	if mc.Raw != "" {
+		return json.Marshal(mc.Raw)
+	}
+	if mc.Structured != nil {
+		return json.Marshal(mc.Structured)
+	}
+	return json.Marshal("")
+}
+
+func (mc content) PlainText() string {
+	if mc.Raw != "" {
+		return mc.Raw
+	}
+	var sb strings.Builder
+	for _, block := range mc.Structured {
+		if block.Type == "text" {
+			sb.WriteString(block.Text)
+		}
+	}
+	return sb.String()
 }
 
 // chatCompletionRequest defines structure of /chat/completion request
@@ -195,7 +249,7 @@ type chatCompletionRequest struct {
 func (c *chatCompletionRequest) getNumberOfPromptTokens() int {
 	var messages string
 	for _, message := range c.Messages {
-		messages += message.Content + " "
+		messages += message.Content.PlainText() + " "
 	}
 	return len(strings.Fields(messages))
 }
@@ -323,7 +377,7 @@ func (req textCompletionRequest) createResponseText(mode string) (string, string
 func (req *chatCompletionRequest) getLastUserMsg() string {
 	for i := len(req.Messages) - 1; i >= 0; i-- {
 		if req.Messages[i].Role == roleUser {
-			return req.Messages[i].Content
+			return req.Messages[i].Content.PlainText()
 		}
 	}
 

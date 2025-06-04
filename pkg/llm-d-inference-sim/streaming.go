@@ -152,7 +152,7 @@ func (s *VllmSimulator) createCompletionChunk(isChatCompletion bool, creationTim
 			chunk.Choices[0].Delta.Role = role
 		}
 		if len(token) > 0 {
-			chunk.Choices[0].Delta.Content = token
+			chunk.Choices[0].Delta.Content.Raw = token
 		}
 
 		return &chunk
