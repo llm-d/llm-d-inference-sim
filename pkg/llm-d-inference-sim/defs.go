@@ -133,6 +133,7 @@ type baseCompletionRequest struct {
 	StreamOptions streamOptions `json:"stream_options"`
 	// Model defines Model name to use for "inference", could be base Model name or one of available LoRA adapters
 	Model string `json:"model"`
+	Usage *bool `json:"usage,omitempty"`
 }
 
 func (b *baseCompletionRequest) isStream() bool {
@@ -144,7 +145,7 @@ func (b *baseCompletionRequest) getModel() string {
 }
 
 func (b *baseCompletionRequest) includeUsage() bool {
-	return !b.Stream || b.StreamOptions.IncludeUsage
+	return b.StreamOptions.IncludeUsage || (b.Usage != nil && *b.Usage)
 }
 
 // completionRequest interface representing both completion request types (text and chat)
