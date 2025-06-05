@@ -182,7 +182,6 @@ func (s *VllmSimulator) readRequest(ctx *fasthttp.RequestCtx, isChatCompletion b
 		var req chatCompletionRequest
 
 		err := json.Unmarshal(ctx.Request.Body(), &req)
-		err = nil
 
 		return &req, err
 	}

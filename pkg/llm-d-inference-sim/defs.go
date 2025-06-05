@@ -20,6 +20,7 @@ package llmdinferencesim
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -201,7 +202,7 @@ func (mc *content) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 
-	return fmt.Errorf("Content format not supported")
+	return errors.New("Content format not supported")
 }
 
 func (mc content) MarshalJSON() ([]byte, error) {
