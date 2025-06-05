@@ -63,7 +63,12 @@ func (s *VllmSimulator) sendStreamingResponse(isChatCompletion bool, ctx *fastht
 				var err error
 
 				if i == len(tokens)-1 && finishReason == lengthFinishReason {
-					err = s.sendChunk(isChatCompletion, w, creationTime, model, "", token, &finishReason, 0, 0)
+					var usagePromptTokens, usageCompletionTokens int
+					if includeUsage {
+						usagePromptTokens = promptTokens
+						usageCompletionTokens = len(tokens)
+					}
+					err = s.sendChunk(isChatCompletion, w, creationTime, model, "", token, &finishReason, usagePromptTokens, usageCompletionTokens)
 				} else {
 					err = s.sendChunk(isChatCompletion, w, creationTime, model, "", token, nil, 0, 0)
 				}
@@ -75,20 +80,16 @@ func (s *VllmSimulator) sendStreamingResponse(isChatCompletion bool, ctx *fastht
 
 			// send the last chunk if finish reason is stop
 			if finishReason == stopFinishReason {
-				err := s.sendChunk(isChatCompletion, w, creationTime, model, "", "", &finishReason, 0, 0)
+				var usagePromptTokens, usageCompletionTokens int
+				if includeUsage {
+					usagePromptTokens = promptTokens
+					usageCompletionTokens = len(tokens)
+				}
+				err := s.sendChunk(isChatCompletion, w, creationTime, model, "", "", &finishReason, usagePromptTokens, usageCompletionTokens)
 				if err != nil {
 					ctx.Error("Sending last stream chunk failed, "+err.Error(), fasthttp.StatusInternalServerError)
 					return
 				}
-			}
-		}
-
-		// send usage
-		if includeUsage {
-			err := s.sendChunk(isChatCompletion, w, creationTime, model, "", "", nil, promptTokens, len(tokens))
-			if err != nil {
-				ctx.Error("Sending usage chunk failed, "+err.Error(), fasthttp.StatusInternalServerError)
-				return
 			}
 		}
 
