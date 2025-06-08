@@ -358,4 +358,24 @@ var _ = Describe("Simulator", func() {
 		Entry(nil, modeRandom, -1),
 		Entry(nil, modeEcho, -1),
 	)
+
+	It("Should respond to /health", func() {
+		ctx := context.TODO()
+		client, err := startServer(ctx, modeRandom)
+		Expect(err).NotTo(HaveOccurred())
+
+		resp, err := client.Get("http://localhost/health")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+	})
+
+	It("Should respond to /ready", func() {
+		ctx := context.TODO()
+		client, err := startServer(ctx, modeRandom)
+		Expect(err).NotTo(HaveOccurred())
+
+		resp, err := client.Get("http://localhost/ready")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+	})
 })
