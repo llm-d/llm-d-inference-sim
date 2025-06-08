@@ -155,6 +155,9 @@ func (s *VllmSimulator) startServer(listener net.Listener) error {
 	r.POST("/v1/unload_lora_adapter", s.HandleUnloadLora)
 	// supports /metrics prometheus API
 	r.GET("/metrics", fasthttpadaptor.NewFastHTTPHandler(promhttp.Handler()))
+	// supports standard Kubernetes health and readiness checks
+	r.GET("/health", s.HandleHealth)
+	r.GET("/ready", s.HandleReady)
 
 	server := fasthttp.Server{
 		ErrorHandler: s.HandleError,
@@ -507,4 +510,20 @@ func (s *VllmSimulator) createModelsResponse() *vllmapi.ModelsResponse {
 	}
 
 	return &modelsResp
+}
+
+// HandleHealth http handler for /health
+func (s *VllmSimulator) HandleHealth(ctx *fasthttp.RequestCtx) {
+	s.logger.V(4).Info("health request received")
+	ctx.Response.Header.SetContentType("application/json")
+	ctx.Response.Header.SetStatusCode(fasthttp.StatusOK)
+	ctx.Response.SetBody([]byte("{}"))
+}
+
+// HandleReady http handler for /ready
+func (s *VllmSimulator) HandleReady(ctx *fasthttp.RequestCtx) {
+	s.logger.V(4).Info("readiness request received")
+	ctx.Response.Header.SetContentType("application/json")
+	ctx.Response.Header.SetStatusCode(fasthttp.StatusOK)
+	ctx.Response.SetBody([]byte("{}"))
 }
