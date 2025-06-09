@@ -6,8 +6,8 @@ Currently it supports partial OpenAI-compatible API:
 - /v1/completions 
 - /v1/models
 
-In addition, it supports a subset of vLLM's Prometheus metrics. These metrics are exposed via the /metrics HTTP REST endpoint. Currently supported are the following metrics:
-- vllm:lora_requests_info
+In addition, it supports a subset of vLLM's Prometheus metrics. These metrics are exposed via the /metrics HTTP REST endpoint.
+See [metrics.go](https://github.com/danehans/llm-d-inference-sim/blob/main/pkg/llm-d-inference-sim/metrics.go) for the latest list of supported metrics.
 
 The simulated inference has no connection with the model and LoRA adapters specified in the command line parameters. The /v1/models endpoint returns simulated results based on those same command line parameters.
 
