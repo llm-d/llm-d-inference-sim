@@ -181,9 +181,13 @@ type content struct {
 }
 
 type contentBlock struct {
-	Type     string `json:"type"`
-	Text     string `json:"text,omitempty"`
-	ImageURL string `json:"image_url,omitempty"`
+	Type     string     `json:"type"`
+	Text     string     `json:"text,omitempty"`
+	ImageURL ImageBlock `json:"image_url,omitempty"`
+}
+
+type ImageBlock struct {
+	Url string `json:"url,omitempty"`
 }
 
 // UnmarshalJSON allow use both format
