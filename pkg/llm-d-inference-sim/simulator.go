@@ -446,7 +446,7 @@ func (s *VllmSimulator) createCompletionResponse(isChatCompletion bool, respText
 		baseResp.Object = chatCompletionObject
 		return &chatCompletionResponse{
 			baseCompletionResponse: baseResp,
-			Choices:                []chatRespChoice{{Message: message{Role: roleAssistant, Content: respText}, baseResponseChoice: baseChoice}},
+			Choices:                []chatRespChoice{{Message: message{Role: roleAssistant, Content: content{Raw: respText}}, baseResponseChoice: baseChoice}},
 		}
 	}
 
