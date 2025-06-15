@@ -291,7 +291,7 @@ type chatCompletionRequest struct {
 
 	// ToolChoice controls which (if any) tool is called by the model,
 	// possible values: none, auto, required.
-	// Sending an object with a specfic tool, is currently not supported.
+	// Sending an object with a specific tool, is currently not supported.
 	ToolChoice string `json:"tool_choice,omitempty"`
 }
 
@@ -488,7 +488,7 @@ func (req chatCompletionRequest) createToolCalls(mode string) ([]toolCall, strin
 
 // createToolCalls shouldn't be called for text completion
 func (req textCompletionRequest) createToolCalls(mode string) ([]toolCall, string, string, error) {
-	return nil, "", "", fmt.Errorf("tool calls are not supported in text completion")
+	return nil, "", "", errors.New("tool calls are not supported in text completion")
 }
 
 // getLastUserMsg returns last message from this request's messages with user role,

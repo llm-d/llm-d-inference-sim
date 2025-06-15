@@ -103,7 +103,9 @@ func createArgument(property any) (any, error) {
 			// Support strings for tests
 			enumString, ok := enum.(string)
 			if ok {
-				json.Unmarshal([]byte(enumString), &enumArray)
+				if err := json.Unmarshal([]byte(enumString), &enumArray); err != nil {
+					return nil, err
+				}
 			}
 		}
 		if len(enumArray) > 0 {

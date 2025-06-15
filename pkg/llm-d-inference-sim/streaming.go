@@ -222,7 +222,7 @@ func (s *VllmSimulator) createChatCompletionChunk(context *streamingContext, tok
 }
 
 // sendChunk send a single token chunk in a streamed completion API response,
-// recieves either a completionRespChunk or a string with the data to send.
+// receives either a completionRespChunk or a string with the data to send.
 func (s *VllmSimulator) sendChunk(w *bufio.Writer, chunk completionRespChunk, dataString string) error {
 	if dataString == "" {
 		data, err := json.Marshal(chunk)
