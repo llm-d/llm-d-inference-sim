@@ -227,6 +227,7 @@ func (mc content) PlainText() string {
 	for _, block := range mc.Structured {
 		if block.Type == "text" {
 			sb.WriteString(block.Text)
+			sb.WriteString(" ")
 		}
 	}
 	return sb.String()
