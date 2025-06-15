@@ -206,7 +206,7 @@ func (mc *content) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 
-	return errors.New("Content format not supported")
+	return errors.New("content format not supported")
 }
 
 func (mc content) MarshalJSON() ([]byte, error) {
