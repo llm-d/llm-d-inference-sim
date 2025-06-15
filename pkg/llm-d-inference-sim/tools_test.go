@@ -103,7 +103,7 @@ var _ = Describe("Simulator for request with tools", func() {
 						role = choice.Delta.Role
 					} else if choice.FinishReason == "" || choice.FinishReason == toolsFinishReason {
 						toolCalls := choice.Delta.ToolCalls
-						Expect(len(toolCalls)).To(BeNumerically("==", 1))
+						Expect(toolCalls).To(HaveLen(1))
 						tc := toolCalls[0]
 						Expect(tc.Index).To(Or(BeNumerically("==", lastIndex), BeNumerically("==", lastIndex+1)))
 						if tc.Index > int64(lastIndex) {
@@ -115,7 +115,7 @@ var _ = Describe("Simulator for request with tools", func() {
 							args[tc.Function.Name] = append(args[tc.Function.Name], tc.Function.Arguments)
 						}
 						Expect(tc.ID).NotTo(BeEmpty())
-						Expect(string(tc.Type)).To(Equal("function"))
+						Expect(tc.Type).To(Equal("function"))
 					}
 				}
 				if chunk.Usage.CompletionTokens != 0 || chunk.Usage.PromptTokens != 0 || chunk.Usage.TotalTokens != 0 {
@@ -186,7 +186,7 @@ var _ = Describe("Simulator for request with tools", func() {
 			Expect(content).Should(BeEmpty())
 
 			toolCalls := resp.Choices[0].Message.ToolCalls
-			Expect(len(toolCalls)).To(BeNumerically(">", 0))
+			Expect(toolCalls).ToNot(BeEmpty())
 			for _, tc := range toolCalls {
 				Expect(tc.Function.Name).To(Or(Equal("get_weather"), Equal("get_temperature")))
 				Expect(tc.ID).NotTo(BeEmpty())
