@@ -185,8 +185,23 @@ func (s *VllmSimulator) readRequest(ctx *fasthttp.RequestCtx, isChatCompletion b
 		var req chatCompletionRequest
 
 		err := json.Unmarshal(ctx.Request.Body(), &req)
+		if err != nil {
+			return nil, err
+		}
 
-		return &req, err
+		for _, tool := range req.Tools {
+			toolJson, err := json.Marshal(tool)
+			if err != nil {
+				return nil, err
+			}
+			err = validateTool(toolJson)
+			if err != nil {
+				s.logger.Error(err, "tool validation failed")
+				return nil, err
+			}
+		}
+
+		return &req, nil
 	}
 	var req textCompletionRequest
 
@@ -327,7 +342,14 @@ func (s *VllmSimulator) reqProcessingWorker(ctx context.Context, id int) {
 			atomic.AddInt64(&(s.nRunningReqs), 1)
 			s.reportRunningRequests()
 
-			responseTxt, finishReason, err := req.createResponseText(s.mode)
+			var responseTxt, finishReason string
+			var err error
+			var toolCalls []toolCall
+			if reqCtx.isChatCompletion && req.getToolChoice() != toolChoiceNone && req.getTools() != nil {
+				toolCalls, responseTxt, finishReason, err = req.createToolCalls(s.mode)
+			} else {
+				responseTxt, finishReason, err = req.createResponseText(s.mode)
+			}
 			if err != nil {
 				prefix := ""
 				if reqCtx.isChatCompletion {
@@ -339,10 +361,11 @@ func (s *VllmSimulator) reqProcessingWorker(ctx context.Context, id int) {
 				reqCtx.httpReqCtx.Error(prefix+err.Error(), fasthttp.StatusBadRequest)
 			} else {
 				if req.isStream() {
-					s.sendStreamingResponse(reqCtx.isChatCompletion, reqCtx.httpReqCtx, responseTxt, model, finishReason,
-						req.includeUsage(), req.getNumberOfPromptTokens())
+					s.sendStreamingResponse(
+						&streamingContext{ctx: reqCtx.httpReqCtx, isChatCompletion: reqCtx.isChatCompletion, model: model},
+						responseTxt, toolCalls, finishReason, req.includeUsage(), req.getNumberOfPromptTokens())
 				} else {
-					s.sendResponse(reqCtx.isChatCompletion, reqCtx.httpReqCtx, responseTxt, model, finishReason,
+					s.sendResponse(reqCtx.isChatCompletion, reqCtx.httpReqCtx, responseTxt, toolCalls, model, finishReason,
 						req.getNumberOfPromptTokens())
 				}
 			}
@@ -358,7 +381,7 @@ func (s *VllmSimulator) responseSentCallback(model string) {
 	s.reportRunningRequests()
 
 	if model == s.model {
-		// this is base model - do not continue
+		// this is the base model - do not continue
 		return
 	}
 
@@ -366,14 +389,14 @@ func (s *VllmSimulator) responseSentCallback(model string) {
 
 	if !ok {
 		s.logger.Info("Error: nil reference counter", "model", model)
-		s.logger.Error(nil, "Zerro model reference", "model", model)
+		s.logger.Error(nil, "Zero model reference", "model", model)
 	} else {
 		intValue := value.(int)
 		if intValue > 1 {
 			s.runningLoras.Store(model, intValue-1)
 			s.logger.Info("Update LoRA reference counter", "model", model, "prev value", intValue, "new value", intValue-1)
 		} else {
-			// last lora instance stopped it execution - remove from the map
+			// last lora instance stopped its execution - remove from the map
 			s.runningLoras.Delete(model)
 			s.logger.Info("Remove LoRA from set of running loras", "model", model)
 		}
@@ -428,8 +451,8 @@ func (s *VllmSimulator) HandleError(_ *fasthttp.RequestCtx, err error) {
 // respText - content to be sent in the response
 // model - model name
 // finishReason - a pointer to string that represents finish reason, can be nil or stop or length, ...
-func (s *VllmSimulator) createCompletionResponse(isChatCompletion bool, respText string, model string, finishReason *string,
-	promptTokens int, completionTokens int) completionResponse {
+func (s *VllmSimulator) createCompletionResponse(isChatCompletion bool, respText string, toolCalls []toolCall, model string,
+	finishReason *string, promptTokens int, completionTokens int) completionResponse {
 	baseResp := baseCompletionResponse{
 		ID:      chatComplIDPrefix + uuid.NewString(),
 		Created: time.Now().Unix(),
@@ -444,9 +467,16 @@ func (s *VllmSimulator) createCompletionResponse(isChatCompletion bool, respText
 
 	if isChatCompletion {
 		baseResp.Object = chatCompletionObject
+
+		message := message{Role: roleAssistant}
+		if toolCalls != nil {
+			message.ToolCalls = toolCalls
+		} else {
+			message.Content = content{Raw: respText}
+		}
 		return &chatCompletionResponse{
 			baseCompletionResponse: baseResp,
-			Choices:                []chatRespChoice{{Message: message{Role: roleAssistant, Content: content{Raw: respText}}, baseResponseChoice: baseChoice}},
+			Choices:                []chatRespChoice{{Message: message, baseResponseChoice: baseChoice}},
 		}
 	}
 
@@ -460,10 +490,13 @@ func (s *VllmSimulator) createCompletionResponse(isChatCompletion bool, respText
 // sendResponse sends response for completion API, supports both completions (text and chat) according the value of isChatCompletion
 // respText - content to be sent in the response
 // model - model name
-func (s *VllmSimulator) sendResponse(isChatCompletion bool, ctx *fasthttp.RequestCtx, respText string, model string,
-	finishReason string, promptTokens int) {
+func (s *VllmSimulator) sendResponse(isChatCompletion bool, ctx *fasthttp.RequestCtx, respText string, toolCalls []toolCall,
+	model string, finishReason string, promptTokens int) {
 	numOfWords := len(strings.Fields(respText))
-	resp := s.createCompletionResponse(isChatCompletion, respText, model, &finishReason, promptTokens, numOfWords)
+	if toolCalls != nil {
+		numOfWords = countTokensForToolCalls(toolCalls)
+	}
+	resp := s.createCompletionResponse(isChatCompletion, respText, toolCalls, model, &finishReason, promptTokens, numOfWords)
 
 	data, err := json.Marshal(resp)
 	if err != nil {
@@ -471,7 +504,7 @@ func (s *VllmSimulator) sendResponse(isChatCompletion bool, ctx *fasthttp.Reques
 		return
 	}
 
-	// calculate how long to wait before return the response, time is based on number of tokens (use words number)
+	// calculate how long to wait before returning the response, time is based on number of tokens (use words number)
 	totalMillisToWait := s.timeToFirstToken + (numOfWords-1)*s.interTokenLatency
 	time.Sleep(time.Duration(totalMillisToWait) * time.Millisecond)
 

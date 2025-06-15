@@ -27,157 +27,212 @@ import (
 	"github.com/valyala/fasthttp"
 )
 
+type streamingContext struct {
+	ctx              *fasthttp.RequestCtx
+	isChatCompletion bool
+	model            string
+	creationTime     int64
+}
+
 // sendStreamingResponse creates and sends a streaming response for completion request of both types (text and chat) as defined by isChatCompletion
 // response content is wrapped according SSE format
 // First token is send after timeToFirstToken milliseconds, every other token is sent after interTokenLatency milliseconds
-func (s *VllmSimulator) sendStreamingResponse(isChatCompletion bool, ctx *fasthttp.RequestCtx, responseTxt string, model string,
-	finishReason string, includeUsage bool, promptTokens int) {
-	ctx.SetContentType("text/event-stream")
-	ctx.SetStatusCode(fasthttp.StatusOK)
+func (s *VllmSimulator) sendStreamingResponse(context *streamingContext, responseTxt string, toolCalls []toolCall, finishReason string, includeUsage bool, promptTokens int) {
+	context.ctx.SetContentType("text/event-stream")
+	context.ctx.SetStatusCode(fasthttp.StatusOK)
 
-	ctx.SetBodyStreamWriter(func(w *bufio.Writer) {
-		creationTime := time.Now().Unix()
+	context.ctx.SetBodyStreamWriter(func(w *bufio.Writer) {
+		context.creationTime = time.Now().Unix()
 
 		tokens := strings.Fields(responseTxt)
-		s.logger.Info("Going to send text", "resp body", responseTxt, "tokens num", len(tokens))
 
-		if len(tokens) > 0 {
-			if isChatCompletion {
+		if len(tokens) > 0 || len(toolCalls) > 0 {
+			if context.isChatCompletion {
 				// in chat completion first chunk contains the role
-				err := s.sendChunk(true, w, creationTime, model, roleAssistant, "", nil, 0, 0)
-				if err != nil {
-					ctx.Error("Sending stream first chunk failed, "+err.Error(), fasthttp.StatusInternalServerError)
+				chunk := s.createChatCompletionChunk(context, "", nil, roleAssistant, nil)
+				if err := s.sendChunk(w, chunk, ""); err != nil {
+					context.ctx.Error("Sending stream first chunk failed, "+err.Error(), fasthttp.StatusInternalServerError)
 					return
 				}
 			}
-
-			// time to first token delay
-			time.Sleep(time.Duration(s.timeToFirstToken) * time.Millisecond)
-
-			for i, token := range tokens {
-				if i != 0 {
-					time.Sleep(time.Duration(s.interTokenLatency) * time.Millisecond)
-					token = " " + token
+			if len(toolCalls) > 0 {
+				s.logger.Info("Going to send tools calls")
+				for _, tc := range toolCalls {
+					argsTokens := strings.Fields(tc.Function.Arguments)
+					s.sendTokenChunks(context, w, argsTokens, &tc, finishReason)
 				}
-
-				var err error
-
-				if i == len(tokens)-1 && finishReason == lengthFinishReason {
-					err = s.sendChunk(isChatCompletion, w, creationTime, model, "", token, &finishReason, 0, 0)
-				} else {
-					err = s.sendChunk(isChatCompletion, w, creationTime, model, "", token, nil, 0, 0)
-				}
-				if err != nil {
-					ctx.Error("Sending stream chunk failed, "+err.Error(), fasthttp.StatusInternalServerError)
-					return
-				}
-			}
-
-			// send the last chunk if finish reason is stop
-			if finishReason == stopFinishReason {
-				err := s.sendChunk(isChatCompletion, w, creationTime, model, "", "", &finishReason, 0, 0)
-				if err != nil {
-					ctx.Error("Sending last stream chunk failed, "+err.Error(), fasthttp.StatusInternalServerError)
-					return
-				}
+			} else {
+				s.logger.Info("Going to send text", "resp body", responseTxt, "tokens num", len(tokens))
+				s.sendTokenChunks(context, w, tokens, nil, finishReason)
 			}
 		}
 
 		// send usage
 		if includeUsage {
-			err := s.sendChunk(isChatCompletion, w, creationTime, model, "", "", nil, promptTokens, len(tokens))
-			if err != nil {
-				ctx.Error("Sending usage chunk failed, "+err.Error(), fasthttp.StatusInternalServerError)
+			completionTokens := len(tokens)
+			if toolCalls != nil {
+				completionTokens = countTokensForToolCalls(toolCalls)
+			}
+			chunk := s.createUsageChunk(context, promptTokens, completionTokens)
+			if err := s.sendChunk(w, chunk, ""); err != nil {
+				context.ctx.Error("Sending usage chunk failed, "+err.Error(), fasthttp.StatusInternalServerError)
 				return
 			}
 		}
 
 		// finish sse events stream
-		_, err := fmt.Fprint(w, "data: [DONE]\n\n")
-		if err != nil {
-			ctx.Error("fprint failed, "+err.Error(), fasthttp.StatusInternalServerError)
+		if err := s.sendChunk(w, nil, "[DONE]"); err != nil {
+			context.ctx.Error("Sending last stream chunk failed, "+err.Error(), fasthttp.StatusInternalServerError)
 			return
 		}
-		err = w.Flush()
-		if err != nil {
-			ctx.Error("flush failed, "+err.Error(), fasthttp.StatusInternalServerError)
-			return
-		}
-
-		s.responseSentCallback(model)
+		s.responseSentCallback(context.model)
 	})
 }
 
-// createCompletionChunk creates and returns a CompletionRespChunk, a single chunk of streamed completion API response,
+// sendTokenChunks creates and sends response chunks
+func (s *VllmSimulator) sendTokenChunks(context *streamingContext, w *bufio.Writer, tokens []string, tc *toolCall, finishReason string) {
+	// time to first token delay
+	time.Sleep(time.Duration(s.timeToFirstToken) * time.Millisecond)
+
+	for i, token := range tokens {
+		if i != 0 {
+			time.Sleep(time.Duration(s.interTokenLatency) * time.Millisecond)
+			token = " " + token
+		}
+		var toolChunk *toolCall
+		if tc != nil {
+			toolChunk = &toolCall{
+				ID:    tc.ID,
+				Type:  tc.Type,
+				Index: tc.Index,
+				Function: functionCall{
+					Arguments: token,
+				},
+			}
+			if i == 0 {
+				toolChunk.Function.Name = tc.Function.Name
+			}
+		}
+
+		var chunk completionRespChunk
+		if i == len(tokens)-1 && (finishReason == lengthFinishReason || finishReason == toolsFinishReason) {
+			if context.isChatCompletion {
+				chunk = s.createChatCompletionChunk(context, token, toolChunk, "", &finishReason)
+			} else {
+				chunk = s.createTextCompletionChunk(context, token, &finishReason)
+			}
+		} else {
+			if context.isChatCompletion {
+				chunk = s.createChatCompletionChunk(context, token, toolChunk, "", nil)
+			} else {
+				chunk = s.createTextCompletionChunk(context, token, nil)
+			}
+		}
+		if err := s.sendChunk(w, chunk, ""); err != nil {
+			context.ctx.Error("Sending stream chunk failed, "+err.Error(), fasthttp.StatusInternalServerError)
+			return
+		}
+	}
+
+	// send the last chunk if finish reason is stop
+	var chunk completionRespChunk
+	if finishReason == stopFinishReason {
+		if context.isChatCompletion {
+			chunk = s.createChatCompletionChunk(context, "", nil, "", &finishReason)
+		} else {
+			chunk = s.createTextCompletionChunk(context, "", &finishReason)
+		}
+		if err := s.sendChunk(w, chunk, ""); err != nil {
+			context.ctx.Error("Sending last stream chunk failed, "+err.Error(), fasthttp.StatusInternalServerError)
+			return
+		}
+	}
+}
+
+// createUsageChunk creates and returns a CompletionRespChunk with usage data, a single chunk of streamed completion API response,
 // supports both modes (text and chat)
-// creationTime time when this response was started
-// token the token to send
-// model the model
-// role this message role, relevenat to chat API only
-// finishReason - a pointer to string that represents finish reason, can be nil or stop or length, ...
-func (s *VllmSimulator) createCompletionChunk(isChatCompletion bool, creationTime int64, token string, model string, role string,
-	finishReason *string, promptTokens int, completionTokens int) completionRespChunk {
+func (s *VllmSimulator) createUsageChunk(context *streamingContext, promptTokens int, completionTokens int) completionRespChunk {
 	baseChunk := baseCompletionResponse{
 		ID:      chatComplIDPrefix + uuid.NewString(),
-		Created: creationTime,
-		Model:   model,
-	}
-	if isChatCompletion {
-		baseChunk.Object = chatCompletionChunkObject
-	} else {
-		baseChunk.Object = textCompletionObject
-	}
-	if completionTokens != 0 {
-		baseChunk.Usage = &usage{
+		Created: context.creationTime,
+		Model:   context.model,
+		Usage: &usage{
 			PromptTokens:     promptTokens,
 			CompletionTokens: completionTokens,
 			TotalTokens:      promptTokens + completionTokens,
-		}
-		if isChatCompletion {
-			return &chatCompletionResponse{
-				baseCompletionResponse: baseChunk,
-				Choices:                []chatRespChoice{},
-			}
-		}
-		return &textCompletionResponse{
+		},
+	}
+	if context.isChatCompletion {
+		baseChunk.Object = chatCompletionChunkObject
+		return &chatCompletionResponse{
 			baseCompletionResponse: baseChunk,
-			Choices:                []textRespChoice{},
+			Choices:                []chatRespChoice{},
 		}
+	}
+	baseChunk.Object = textCompletionObject
+
+	return &textCompletionResponse{
+		baseCompletionResponse: baseChunk,
+		Choices:                []textRespChoice{},
+	}
+}
+
+// createTextCompletionChunk creates and returns a CompletionRespChunk, a single chunk of streamed completion API response,
+// for text completion
+func (s *VllmSimulator) createTextCompletionChunk(context *streamingContext, token string, finishReason *string) completionRespChunk {
+	baseChunk := baseCompletionResponse{
+		ID:      chatComplIDPrefix + uuid.NewString(),
+		Created: context.creationTime,
+		Model:   context.model,
+		Object:  textCompletionObject,
 	}
 	baseChoice := baseResponseChoice{Index: 0, FinishReason: finishReason}
-
-	if isChatCompletion {
-		chunk := chatCompletionRespChunk{
-			baseCompletionResponse: baseChunk,
-			Choices:                []chatRespChunkChoice{{Delta: message{}, baseResponseChoice: baseChoice}},
-		}
-
-		if len(role) > 0 {
-			chunk.Choices[0].Delta.Role = role
-		}
-		if len(token) > 0 {
-			chunk.Choices[0].Delta.Content.Raw = token
-		}
-
-		return &chunk
-	}
-
 	return &textCompletionResponse{
 		baseCompletionResponse: baseChunk,
 		Choices:                []textRespChoice{{baseResponseChoice: baseChoice, Text: token}},
 	}
 }
 
-// sendChunk send a single token chunk in a streamed completion API response
-func (s *VllmSimulator) sendChunk(isChatCompletion bool, w *bufio.Writer, creationTime int64, model string, role string, token string,
-	finishReason *string, promptTokens int, completionTokens int) error {
-	chunk := s.createCompletionChunk(isChatCompletion, creationTime, token, model, role, finishReason, promptTokens, completionTokens)
-	data, err := json.Marshal(chunk)
-	if err != nil {
-		return err
+// createChatCompletionChunk creates and returns a CompletionRespChunk, a single chunk of streamed completion API response,
+// for chat completion. It sets either role, or token, or tool call info in the message.
+func (s *VllmSimulator) createChatCompletionChunk(context *streamingContext, token string, tool *toolCall,
+	role string, finishReason *string) completionRespChunk {
+	baseChunk := baseCompletionResponse{
+		ID:      chatComplIDPrefix + uuid.NewString(),
+		Created: context.creationTime,
+		Model:   context.model,
+		Object:  chatCompletionChunkObject,
+	}
+	baseChoice := baseResponseChoice{Index: 0, FinishReason: finishReason}
+	chunk := chatCompletionRespChunk{
+		baseCompletionResponse: baseChunk,
+		Choices:                []chatRespChunkChoice{{Delta: message{}, baseResponseChoice: baseChoice}},
 	}
 
-	_, err = fmt.Fprintf(w, "data: %s\n\n", data)
+	if len(role) > 0 {
+		chunk.Choices[0].Delta.Role = role
+	}
+	if tool != nil {
+		chunk.Choices[0].Delta.ToolCalls = []toolCall{*tool}
+	} else if len(token) > 0 {
+		chunk.Choices[0].Delta.Content.Raw = token
+	}
+
+	return &chunk
+}
+
+// sendChunk send a single token chunk in a streamed completion API response,
+// recieves either a completionRespChunk or a string with the data to send.
+func (s *VllmSimulator) sendChunk(w *bufio.Writer, chunk completionRespChunk, dataString string) error {
+	if dataString == "" {
+		data, err := json.Marshal(chunk)
+		if err != nil {
+			return err
+		}
+		dataString = string(data)
+	}
+
+	_, err := fmt.Fprintf(w, "data: %s\n\n", dataString)
 	if err != nil {
 		return err
 	}
