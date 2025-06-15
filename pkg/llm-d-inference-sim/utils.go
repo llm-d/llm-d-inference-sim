@@ -77,3 +77,24 @@ func getFullTextFromPartialString(partial string) string {
 	}
 	return ""
 }
+
+func randomNumericString(length int) string {
+	digits := "0123456789"
+	result := make([]byte, length)
+	for i := 0; i < length; i++ {
+		num := randomInt(9, false)
+		result[i] = digits[num]
+	}
+	return string(result)
+}
+
+// Returns an integer between 0 and max (included), unless startFromeOne is true,
+// in which case returns an integer between 1 and max (included)
+func randomInt(max int, startFromOne bool) int {
+	src := rand.NewSource(time.Now().UnixNano())
+	r := rand.New(src)
+	if startFromOne {
+		return r.Intn(max) + 1 // [1, max]
+	}
+	return r.Intn(max + 1) // [0, max]
+}

@@ -1,0 +1,216 @@
+/*
+Copyright 2025 The llm-d-inference-sim Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+	http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package llmdinferencesim
+
+import (
+	"context"
+	"encoding/json"
+	"strings"
+
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+	"github.com/openai/openai-go"
+	"github.com/openai/openai-go/option"
+	"github.com/openai/openai-go/packages/param"
+)
+
+var tools = []openai.ChatCompletionToolParam{
+	{
+		Function: openai.FunctionDefinitionParam{
+			Name:        "get_weather",
+			Description: openai.String("Get weather at the given location"),
+			Parameters: openai.FunctionParameters{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"location": map[string]string{
+						"type": "string",
+					},
+				},
+				"required": []string{"location"},
+			},
+		},
+	},
+	{
+		Function: openai.FunctionDefinitionParam{
+			Name:        "get_temperature",
+			Description: openai.String("Get temperature at the given location"),
+			Parameters: openai.FunctionParameters{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"city": map[string]string{
+						"type": "string",
+					},
+					"unit": map[string]string{
+						"type": "string",
+						"enum": "[\"C\", \"F\"]",
+					},
+				},
+				"required": []string{"city", "unit"},
+			},
+		},
+	},
+}
+
+var _ = Describe("Simulator for request with tools", func() {
+
+	DescribeTable("streaming",
+		func(mode string) {
+			ctx := context.TODO()
+			client, err := startServer(ctx, mode)
+			Expect(err).NotTo(HaveOccurred())
+
+			openaiclient := openai.NewClient(
+				option.WithBaseURL(baseURL),
+				option.WithHTTPClient(client))
+
+			params := openai.ChatCompletionNewParams{
+				Messages: []openai.ChatCompletionMessageParamUnion{
+					openai.UserMessage(userMessage),
+				},
+				Model:         model,
+				StreamOptions: openai.ChatCompletionStreamOptionsParam{IncludeUsage: param.NewOpt(true)},
+				ToolChoice:    openai.ChatCompletionToolChoiceOptionUnionParam{OfAuto: param.NewOpt("required")},
+				Tools:         tools,
+			}
+			stream := openaiclient.Chat.Completions.NewStreaming(ctx, params)
+			defer func() {
+				err := stream.Close()
+				Expect(err).NotTo(HaveOccurred())
+			}()
+			args := make(map[string][]string)
+			role := ""
+			var chunk openai.ChatCompletionChunk
+			numberOfChunksWithUsage := 0
+			lastIndex := -1
+			for stream.Next() {
+				chunk = stream.Current()
+				for _, choice := range chunk.Choices {
+					if choice.Delta.Role != "" {
+						role = choice.Delta.Role
+					} else if choice.FinishReason == "" || choice.FinishReason == toolsFinishReason {
+						toolCalls := choice.Delta.ToolCalls
+						Expect(len(toolCalls)).To(BeNumerically("==", 1))
+						tc := toolCalls[0]
+						Expect(tc.Index).To(Or(BeNumerically("==", lastIndex), BeNumerically("==", lastIndex+1)))
+						if tc.Index > int64(lastIndex) {
+							Expect(tc.Function.Name).To(Or(Equal("get_weather"), Equal("get_temperature")))
+							lastIndex++
+							args[tc.Function.Name] = []string{tc.Function.Arguments}
+						} else {
+							Expect(tc.Function.Name).To(BeNil())
+							args[tc.Function.Name] = append(args[tc.Function.Name], tc.Function.Arguments)
+						}
+						Expect(tc.ID).NotTo(BeEmpty())
+						Expect(string(tc.Type)).To(Equal("function"))
+					}
+				}
+				if chunk.Usage.CompletionTokens != 0 || chunk.Usage.PromptTokens != 0 || chunk.Usage.TotalTokens != 0 {
+					numberOfChunksWithUsage++
+				}
+				Expect(string(chunk.Object)).To(Equal(chatCompletionChunkObject))
+			}
+
+			Expect(numberOfChunksWithUsage).To(Equal(1))
+			Expect(chunk.Usage.PromptTokens).To(Equal(int64(4)))
+			Expect(chunk.Usage.CompletionTokens).To(BeNumerically(">", 0))
+			Expect(chunk.Usage.TotalTokens).To(Equal(chunk.Usage.PromptTokens + chunk.Usage.CompletionTokens))
+
+			Expect(role).Should(Equal("assistant"))
+
+			for functionName, callArgs := range args {
+				joinedArgs := strings.Join(callArgs, "")
+				argsMap := make(map[string]string)
+				err := json.Unmarshal([]byte(joinedArgs), &argsMap)
+				Expect(err).NotTo(HaveOccurred())
+
+				if functionName == "get_weather" {
+					Expect(joinedArgs).To(ContainSubstring("location"))
+				} else {
+					Expect(joinedArgs).To(ContainSubstring("city"))
+					Expect(joinedArgs).To(ContainSubstring("unit"))
+					Expect(argsMap["unit"]).To(Or(Equal("C"), Equal("F")))
+				}
+			}
+		},
+		func(mode string) string {
+			return "mode: " + mode
+		},
+		// Call several times because the tools and arguments are chosen randomly
+		Entry(nil, modeRandom),
+		Entry(nil, modeRandom),
+		Entry(nil, modeRandom),
+		Entry(nil, modeRandom),
+	)
+
+	DescribeTable("no streaming",
+		func(mode string) {
+			ctx := context.TODO()
+			client, err := startServer(ctx, mode)
+			Expect(err).NotTo(HaveOccurred())
+
+			openaiclient := openai.NewClient(
+				option.WithBaseURL(baseURL),
+				option.WithHTTPClient(client))
+
+			params := openai.ChatCompletionNewParams{
+				Messages:   []openai.ChatCompletionMessageParamUnion{openai.UserMessage(userMessage)},
+				Model:      model,
+				ToolChoice: openai.ChatCompletionToolChoiceOptionUnionParam{OfAuto: param.NewOpt("required")},
+				Tools:      tools,
+			}
+
+			resp, err := openaiclient.Chat.Completions.New(ctx, params)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.Choices).ShouldNot(BeEmpty())
+			Expect(string(resp.Object)).To(Equal(chatCompletionObject))
+
+			Expect(resp.Usage.PromptTokens).To(Equal(int64(4)))
+			Expect(resp.Usage.CompletionTokens).To(BeNumerically(">", 0))
+			Expect(resp.Usage.TotalTokens).To(Equal(resp.Usage.PromptTokens + resp.Usage.CompletionTokens))
+
+			content := resp.Choices[0].Message.Content
+			Expect(content).Should(BeEmpty())
+
+			toolCalls := resp.Choices[0].Message.ToolCalls
+			Expect(len(toolCalls)).To(BeNumerically(">", 0))
+			for _, tc := range toolCalls {
+				Expect(tc.Function.Name).To(Or(Equal("get_weather"), Equal("get_temperature")))
+				Expect(tc.ID).NotTo(BeEmpty())
+				Expect(string(tc.Type)).To(Equal("function"))
+				args := make(map[string]string)
+				err := json.Unmarshal([]byte(tc.Function.Arguments), &args)
+				Expect(err).NotTo(HaveOccurred())
+
+				if tc.Function.Name == "get_weather" {
+					Expect(tc.Function.Arguments).To(ContainSubstring("location"))
+				} else {
+					Expect(tc.Function.Arguments).To(ContainSubstring("city"))
+					Expect(tc.Function.Arguments).To(ContainSubstring("unit"))
+					Expect(args["unit"]).To(Or(Equal("C"), Equal("F")))
+				}
+			}
+		},
+		func(mode string) string {
+			return "mode: " + mode
+		},
+		// Call several times because the tools and arguments are chosen randomly
+		Entry(nil, modeRandom),
+		Entry(nil, modeRandom),
+		Entry(nil, modeRandom),
+		Entry(nil, modeRandom),
+	)
+})
