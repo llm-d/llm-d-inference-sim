@@ -54,9 +54,9 @@ var tools = []openai.ChatCompletionToolParam{
 					"city": map[string]string{
 						"type": "string",
 					},
-					"unit": map[string]string{
+					"unit": map[string]interface{}{
 						"type": "string",
-						"enum": "[\"C\", \"F\"]",
+						"enum": []string{"C", "F"},
 					},
 				},
 				"required": []string{"city", "unit"},

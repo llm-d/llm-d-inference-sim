@@ -60,34 +60,28 @@ func generateToolArguments(tool tool) (map[string]any, error) {
 	arguments := make(map[string]any)
 	properties, _ := tool.Function.Parameters["properties"].(map[string]any)
 
+	required := make(map[string]bool)
 	requiredParams, ok := tool.Function.Parameters["required"]
 	if ok {
 		requiredArray, _ := requiredParams.([]any)
 		for _, requiredParam := range requiredArray {
 			param, _ := requiredParam.(string)
-			property, _ := properties[param].(map[string]any)
-			arg, err := createArgument(property)
-			if err != nil {
-				return nil, err
-			}
-			arguments[param] = arg
-		}
-	} else {
-		// No required parameters
-		numberOfParameters := randomInt(len(properties), false)
-		if numberOfParameters > 0 {
-			for param, property := range properties {
-				arg, err := createArgument(property)
-				if err != nil {
-					return nil, err
-				}
-				arguments[param] = arg
-				if len(arguments) == numberOfParameters {
-					break
-				}
-			}
+			required[param] = true
 		}
 	}
+
+	for param, property := range properties {
+		_, paramIsRequired := required[param]
+		if !paramIsRequired && !flipCoin() {
+			continue
+		}
+		arg, err := createArgument(property)
+		if err != nil {
+			return nil, err
+		}
+		arguments[param] = arg
+	}
+
 	return arguments, nil
 }
 
@@ -99,16 +93,7 @@ func createArgument(property any) (any, error) {
 	enum, ok := propertyMap["enum"]
 	if ok {
 		enumArray, ok := enum.([]any)
-		if !ok {
-			// Support strings for tests
-			enumString, ok := enum.(string)
-			if ok {
-				if err := json.Unmarshal([]byte(enumString), &enumArray); err != nil {
-					return nil, err
-				}
-			}
-		}
-		if len(enumArray) > 0 {
+		if ok && len(enumArray) > 0 {
 			index := randomInt(len(enumArray)-1, false)
 			return enumArray[index], nil
 		}
@@ -120,7 +105,7 @@ func createArgument(property any) (any, error) {
 	case "number":
 		return randomInt(100, false), nil
 	case "boolean":
-		return randomInt(1, false) != 0, nil
+		return flipCoin(), nil
 	default:
 		return nil, fmt.Errorf("tool parameters of type %s are currently not supported", paramType)
 	}
