@@ -453,7 +453,12 @@ func (req textCompletionRequest) createResponseText(mode string) (string, string
 
 // createToolCalls creates and returns response payload based on this request
 // (tool calls or text), and the finish reason
+// mode defines the simulator response generation mode in case no tool calls are created
 func (req chatCompletionRequest) createToolCalls(mode string) ([]toolCall, string, string, error) {
+	// This function is called if tool choice is either 'required' or 'auto'.
+	// In case of 'required' at least one tool call has to be created, and we randomly choose
+	// the number of calls starting from one. Otherwise, we start from 0, and in case we randomly
+	// choose the number of calls to be 0, response text will be generated instead of a tool call.
 	numberOfCalls := randomInt(len(req.Tools), req.ToolChoice == toolChoiceRequired)
 	if numberOfCalls == 0 {
 		text, reason, err := req.createResponseText(mode)
@@ -462,6 +467,7 @@ func (req chatCompletionRequest) createToolCalls(mode string) ([]toolCall, strin
 
 	calls := make([]toolCall, 0)
 	for i := range numberOfCalls {
+		// Randomly choose which tools to call. We may call the same tool more than once.
 		index := randomInt(len(req.Tools)-1, false)
 		args, err := generateToolArguments(req.Tools[index])
 		if err != nil {

@@ -186,12 +186,14 @@ func (s *VllmSimulator) readRequest(ctx *fasthttp.RequestCtx, isChatCompletion b
 
 		err := json.Unmarshal(ctx.Request.Body(), &req)
 		if err != nil {
+			s.logger.Error(err, "failed to unmarshal request body")
 			return nil, err
 		}
 
 		for _, tool := range req.Tools {
 			toolJson, err := json.Marshal(tool)
 			if err != nil {
+				s.logger.Error(err, "failed to marshal request tools")
 				return nil, err
 			}
 			err = validateTool(toolJson)

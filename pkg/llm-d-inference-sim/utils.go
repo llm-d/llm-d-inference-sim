@@ -98,3 +98,8 @@ func randomInt(max int, startFromOne bool) int {
 	}
 	return r.Intn(max + 1) // [0, max]
 }
+
+// Returns true or false randomly
+func flipCoin() bool {
+	return randomInt(1, false) != 0
+}
