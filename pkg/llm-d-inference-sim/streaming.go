@@ -99,9 +99,9 @@ func (s *VllmSimulator) sendTokenChunks(context *streamingContext, w *bufio.Writ
 			time.Sleep(time.Duration(s.interTokenLatency) * time.Millisecond)
 			token = " " + token
 		}
-		var toolChunk *toolCall
+		var toolChunkInsert *toolCall
 		if tc != nil {
-			toolChunk = &toolCall{
+			toolChunkInsert = &toolCall{
 				ID:    tc.ID,
 				Type:  tc.Type,
 				Index: tc.Index,
@@ -110,24 +110,21 @@ func (s *VllmSimulator) sendTokenChunks(context *streamingContext, w *bufio.Writ
 				},
 			}
 			if i == 0 {
-				toolChunk.Function.Name = tc.Function.Name
+				toolChunkInsert.Function.Name = tc.Function.Name
 			}
 		}
 
 		var chunk completionRespChunk
+		var finishReasonToSend *string
 		if i == len(tokens)-1 && (finishReason == lengthFinishReason || finishReason == toolsFinishReason) {
-			if context.isChatCompletion {
-				chunk = s.createChatCompletionChunk(context, token, toolChunk, "", &finishReason)
-			} else {
-				chunk = s.createTextCompletionChunk(context, token, &finishReason)
-			}
-		} else {
-			if context.isChatCompletion {
-				chunk = s.createChatCompletionChunk(context, token, toolChunk, "", nil)
-			} else {
-				chunk = s.createTextCompletionChunk(context, token, nil)
-			}
+			finishReasonToSend = &finishReason
 		}
+		if context.isChatCompletion {
+			chunk = s.createChatCompletionChunk(context, token, toolChunkInsert, "", finishReasonToSend)
+		} else {
+			chunk = s.createTextCompletionChunk(context, token, finishReasonToSend)
+		}
+
 		if err := s.sendChunk(w, chunk, ""); err != nil {
 			context.ctx.Error("Sending stream chunk failed, "+err.Error(), fasthttp.StatusInternalServerError)
 			return
@@ -180,33 +177,39 @@ func (s *VllmSimulator) createUsageChunk(context *streamingContext, promptTokens
 // createTextCompletionChunk creates and returns a CompletionRespChunk, a single chunk of streamed completion API response,
 // for text completion
 func (s *VllmSimulator) createTextCompletionChunk(context *streamingContext, token string, finishReason *string) completionRespChunk {
-	baseChunk := baseCompletionResponse{
-		ID:      chatComplIDPrefix + uuid.NewString(),
-		Created: context.creationTime,
-		Model:   context.model,
-		Object:  textCompletionObject,
-	}
-	baseChoice := baseResponseChoice{Index: 0, FinishReason: finishReason}
 	return &textCompletionResponse{
-		baseCompletionResponse: baseChunk,
-		Choices:                []textRespChoice{{baseResponseChoice: baseChoice, Text: token}},
+		baseCompletionResponse: baseCompletionResponse{
+			ID:      chatComplIDPrefix + uuid.NewString(),
+			Created: context.creationTime,
+			Model:   context.model,
+			Object:  textCompletionObject,
+		},
+		Choices: []textRespChoice{
+			{
+				baseResponseChoice: baseResponseChoice{Index: 0, FinishReason: finishReason},
+				Text:               token,
+			},
+		},
 	}
 }
 
-// createChatCompletionChunk creates and returns a CompletionRespChunk, a single chunk of streamed completion API response,
-// for chat completion. It sets either role, or token, or tool call info in the message.
+// createChatCompletionChunk creates and returns a CompletionRespChunk, a single chunk of streamed completion
+// API response, for chat completion. It sets either role, or token, or tool call info in the message.
 func (s *VllmSimulator) createChatCompletionChunk(context *streamingContext, token string, tool *toolCall,
 	role string, finishReason *string) completionRespChunk {
-	baseChunk := baseCompletionResponse{
-		ID:      chatComplIDPrefix + uuid.NewString(),
-		Created: context.creationTime,
-		Model:   context.model,
-		Object:  chatCompletionChunkObject,
-	}
-	baseChoice := baseResponseChoice{Index: 0, FinishReason: finishReason}
 	chunk := chatCompletionRespChunk{
-		baseCompletionResponse: baseChunk,
-		Choices:                []chatRespChunkChoice{{Delta: message{}, baseResponseChoice: baseChoice}},
+		baseCompletionResponse: baseCompletionResponse{
+			ID:      chatComplIDPrefix + uuid.NewString(),
+			Created: context.creationTime,
+			Model:   context.model,
+			Object:  chatCompletionChunkObject,
+		},
+		Choices: []chatRespChunkChoice{
+			{
+				Delta:              message{},
+				baseResponseChoice: baseResponseChoice{Index: 0, FinishReason: finishReason},
+			},
+		},
 	}
 
 	if len(role) > 0 {

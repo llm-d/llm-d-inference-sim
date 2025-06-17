@@ -353,8 +353,11 @@ func (s *VllmSimulator) reqProcessingWorker(ctx context.Context, id int) {
 			var err error
 			var toolCalls []toolCall
 			if reqCtx.isChatCompletion && req.getToolChoice() != toolChoiceNone && req.getTools() != nil {
-				toolCalls, responseTxt, finishReason, err = req.createToolCalls(s.mode)
-			} else {
+				toolCalls, finishReason, err = req.createToolCalls()
+			}
+			if toolCalls == nil {
+				// Either no tool calls were defined, or we randomly chose not to create tool calls,
+				// so we generate a response text.
 				responseTxt, finishReason, err = req.createResponseText(s.mode)
 			}
 			if err != nil {

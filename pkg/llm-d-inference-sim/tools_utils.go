@@ -60,13 +60,13 @@ func generateToolArguments(tool tool) (map[string]any, error) {
 	arguments := make(map[string]any)
 	properties, _ := tool.Function.Parameters["properties"].(map[string]any)
 
-	required := make(map[string]bool)
+	required := make(map[string]struct{})
 	requiredParams, ok := tool.Function.Parameters["required"]
 	if ok {
 		requiredArray, _ := requiredParams.([]any)
 		for _, requiredParam := range requiredArray {
 			param, _ := requiredParam.(string)
-			required[param] = true
+			required[param] = struct{}{}
 		}
 	}
 
@@ -327,11 +327,4 @@ const schema = `{
     }
   }
 }
-
-
-
-
-
-
-
-  }`
+}`
