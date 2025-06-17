@@ -9,8 +9,8 @@ Currently it supports partial OpenAI-compatible API:
 In addition, a set of the vLLM HTTP endoints are suppored as well. These include:
 | Endpoint | Description |
 |---|---|
-| /v1/load_lora_adapter   | simulates the dynamic registration of LoRA adapters |
-| /v1/unload_lora_adapter | simulates the dynamic unloading and unregistration of LoRA adapters |
+| /v1/load_lora_adapter   | simulates the dynamic registration of a LoRA adapter |
+| /v1/unload_lora_adapter | simulates the dynamic unloading and unregistration of a LoRA adapter |
 | /metrics                | exposes Prometheus metrics. See tnhe table below for details |
 | /health                 | standard health check endpoint |
 | /ready                  | standard readiness endpoint |
@@ -18,11 +18,10 @@ In addition, a set of the vLLM HTTP endoints are suppored as well. These include
 In addition, it supports a subset of vLLM's Prometheus metrics. These metrics are exposed via the /metrics HTTP REST endpoint. Currently supported are the following metrics:
 | Metric | Description |
 |---|---|
-| vllm:gpu_cache_usage_perc | The fraction of KV-cache blocks currently in use (from 0 to 1) |
+| vllm:gpu_cache_usage_perc | The fraction of KV-cache blocks currently in use (from 0 to 1). Currently this value will always be zero. |
 | vllm:lora_requests_info | Running stats on lora requests |
 | vllm:num_requests_running | Number of requests currently running on GPU |
 | vllm:num_requests_waiting | Prometheus metric for the number of queued requests |
-| vllm:gpu_cache_usage_perc | The fraction of KV-cache blocks currently in use (from 0 to 1) |
 
 The simulated inference has no connection with the model and LoRA adapters specified in the command line parameters or via the /v1/load_lora_adapter HTTP REST endpoint. The /v1/models endpoint returns simulated results based on those same command line parameters and those loaded via the /v1/load_lora_adapter HTTP REST endpoint.
 
