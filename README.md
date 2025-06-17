@@ -6,12 +6,12 @@ Currently it supports partial OpenAI-compatible API:
 - /v1/completions 
 - /v1/models
 
-In addition, a set of the vLLM HTTP endoints are suppored as well. These include:
+In addition, a set of the vLLM HTTP endpoints are suppored as well. These include:
 | Endpoint | Description |
 |---|---|
 | /v1/load_lora_adapter   | simulates the dynamic registration of a LoRA adapter |
 | /v1/unload_lora_adapter | simulates the dynamic unloading and unregistration of a LoRA adapter |
-| /metrics                | exposes Prometheus metrics. See tnhe table below for details |
+| /metrics                | exposes Prometheus metrics. See the table below for details |
 | /health                 | standard health check endpoint |
 | /ready                  | standard readiness endpoint |
 
@@ -19,7 +19,7 @@ In addition, it supports a subset of vLLM's Prometheus metrics. These metrics ar
 | Metric | Description |
 |---|---|
 | vllm:gpu_cache_usage_perc | The fraction of KV-cache blocks currently in use (from 0 to 1). Currently this value will always be zero. |
-| vllm:lora_requests_info | Running stats on lora requests |
+| vllm:lora_requests_info | Running stats on LoRA requests |
 | vllm:num_requests_running | Number of requests currently running on GPU |
 | vllm:num_requests_waiting | Prometheus metric for the number of queued requests |
 
