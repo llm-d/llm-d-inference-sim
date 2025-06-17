@@ -111,106 +111,227 @@ func createArgument(property any) (any, error) {
 	}
 }
 
-func validateTool(tool []byte) error {
+type validator struct {
+	schema *jsonschema.Schema
+}
+
+func createValidator() (*validator, error) {
 	sch, err := jsonschema.CompileString("schema.json", schema)
 	if err != nil {
+		return nil, err
+	}
+	return &validator{schema: sch}, nil
+}
+
+func (v *validator) validateTool(tool []byte) error {
+	var value interface{}
+	if err := json.Unmarshal(tool, &value); err != nil {
 		return err
 	}
 
-	var v interface{}
-	if err := json.Unmarshal(tool, &v); err != nil {
-		return err
-	}
-
-	return sch.Validate(v)
+	return v.schema.Validate(value)
 }
 
 const schema = `{
-    "$schema": "https://json-schema.org/draft/2020-12/schema",
-	"name": "function-metaschema",
-	"schema": {
-	  "type": "object",
-	  "properties": {
-		"name": {
-		  "type": "string",
-		  "description": "The name of the function"
-		},
-		"description": {
-		  "type": "string",
-		  "description": "A description of what the function does"
-		},
-		"parameters": {
-		  "$ref": "#/$defs/schema_definition",
-		  "description": "A JSON schema that defines the function's parameters"
-		}
-	  },
-	  "required": [
-		"name",
-		"description",
-		"parameters"
-	  ],
-	  "additionalProperties": false,
-	  "$defs": {
-		"schema_definition": {
-		  "type": "object",
-		  "properties": {
-			"type": {
-			  "type": "string",
-			  "enum": [
-				"object",
-				"array",
-				"string",
-				"number",
-				"boolean",
-				"null"
-			  ]
-			},
-			"properties": {
-			  "type": "object",
-			  "additionalProperties": {
-				"$ref": "#/$defs/schema_definition"
-			  }
-			},
-			"items": {
-			  "anyOf": [
-				{
-				  "$ref": "#/$defs/schema_definition"
-				},
-				{
-				  "type": "array",
-				  "items": {
-					"$ref": "#/$defs/schema_definition"
-				  }
-				}
-			  ]
-			},
-			"required": {
-			  "type": "array",
-			  "items": {
-				"type": "string"
-			  }
-			},
-			"additionalProperties": {
-			  "type": "boolean"
-			}
-		  },
-		  "required": [
-			"type"
-		  ],
-		  "additionalProperties": false,
-		  "if": {
-			"properties": {
-			  "type": {
-				"const": "object"
-			  }
-			}
-		  },
-		  "then": {
-			"required": [
-			  "properties"
-			]
-		  }
-		}
-	  }
-	}
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "The name of the function"
+    },
+    "description": {
+      "type": "string",
+      "description": "A description of what the function does"
+    },
+    "parameters": {
+      "$ref": "#/$defs/param_definition",
+      "description": "A JSON schema that defines the function's parameters"
+    }
+  },
+  "required": [
+    "name",
+    "description",
+    "parameters"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "param_definition": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "object",
+            "array",
+            "string",
+            "number",
+            "boolean",
+            "null"
+          ]
+        },
+        "properties": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/property_definition"
+          }
+        },
+        "items": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/property_definition"
+            },
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/property_definition"
+              }
+            }
+          ]
+        },
+        "required": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false,
+      "if": {
+        "properties": {
+          "type": {
+            "const": "object"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "properties"
+        ]
+      }
+    },
+    "property_definition": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "string",
+            "number",
+            "boolean",
+            "null"
+          ]
+        },
+        "description": {
+          "type": "string"
+        },
+        "enum": {
+          "type": "array",
+          "items": {
+            "type": [
+              "string",
+              "number",
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "string"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "enum": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "number"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "enum": {
+                "type": "array",
+                "items": {
+                  "type": "number"
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "boolean"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "enum": {
+                "type": "array",
+                "items": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "null"
+              }
+            }
+          },
+          "then": {
+            "not": {
+              "required": [
+                "enum"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  }
+}
+
+
+
+
+
+
+
   }`

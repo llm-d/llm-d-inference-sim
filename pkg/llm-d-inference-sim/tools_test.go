@@ -65,6 +65,72 @@ var tools = []openai.ChatCompletionToolParam{
 	},
 }
 
+var invalidTools = [][]openai.ChatCompletionToolParam{
+	{
+		{
+			Function: openai.FunctionDefinitionParam{
+				Name:        "get_weather",
+				Description: openai.String("Get weather at the given location"),
+				Parameters: openai.FunctionParameters{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"location": map[string]string{
+							"type": "string",
+						},
+					},
+					"required": []string{"location"},
+				},
+			},
+		},
+		{
+			Function: openai.FunctionDefinitionParam{
+				Name:        "get_temperature",
+				Description: openai.String("Get temperature at the given location"),
+				Parameters: openai.FunctionParameters{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"city": map[string]string{
+							"type": "string",
+						},
+						"unit": map[string]interface{}{
+							"type": "string",
+							"enum": []int{5, 6},
+						},
+					},
+					"required": []string{"city", "unit"},
+				},
+			},
+		},
+	},
+
+	{
+		{
+			Function: openai.FunctionDefinitionParam{
+				Name:        "get_weather",
+				Description: openai.String("Get weather at the given location"),
+				Parameters: openai.FunctionParameters{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"location": map[string]string{
+							"type": "stringstring",
+						},
+					},
+					"required": []string{"location"},
+				},
+			},
+		},
+	},
+
+	{
+		{
+			Function: openai.FunctionDefinitionParam{
+				Name:        "get_weather",
+				Description: openai.String("Get weather at the given location"),
+			},
+		},
+	},
+}
+
 var _ = Describe("Simulator for request with tools", func() {
 
 	DescribeTable("streaming",
@@ -211,6 +277,34 @@ var _ = Describe("Simulator for request with tools", func() {
 		Entry(nil, modeRandom),
 		Entry(nil, modeRandom),
 		Entry(nil, modeRandom),
+		Entry(nil, modeRandom),
+	)
+
+	DescribeTable("check validator",
+		func(mode string) {
+			ctx := context.TODO()
+			client, err := startServer(ctx, mode)
+			Expect(err).NotTo(HaveOccurred())
+
+			openaiclient := openai.NewClient(
+				option.WithBaseURL(baseURL),
+				option.WithHTTPClient(client))
+
+			for _, invalidTool := range invalidTools {
+				params := openai.ChatCompletionNewParams{
+					Messages:   []openai.ChatCompletionMessageParamUnion{openai.UserMessage(userMessage)},
+					Model:      model,
+					ToolChoice: openai.ChatCompletionToolChoiceOptionUnionParam{OfAuto: param.NewOpt("required")},
+					Tools:      invalidTool,
+				}
+
+				_, err := openaiclient.Chat.Completions.New(ctx, params)
+				Expect(err).To(HaveOccurred())
+			}
+		},
+		func(mode string) string {
+			return "mode: " + mode
+		},
 		Entry(nil, modeRandom),
 	)
 })

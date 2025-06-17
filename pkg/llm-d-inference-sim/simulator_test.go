@@ -47,7 +47,10 @@ func startServer(ctx context.Context, mode string) (*http.Client, error) {
 	os.Args = []string{"cmd", "--model", model, "--mode", mode}
 	logger := klog.Background()
 
-	s := New(logger)
+	s, err := New(logger)
+	if err != nil {
+		return nil, err
+	}
 	// parse command line parameters
 	if err := s.parseCommandParams(); err != nil {
 		return nil, err

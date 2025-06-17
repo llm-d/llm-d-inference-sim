@@ -42,11 +42,16 @@ import (
 const vLLMDefaultPort = 8000
 
 // New creates a new VllmSimulator instance with the given logger
-func New(logger logr.Logger) *VllmSimulator {
-	return &VllmSimulator{
-		logger:  logger,
-		reqChan: make(chan *completionReqCtx, 1000),
+func New(logger logr.Logger) (*VllmSimulator, error) {
+	toolsValidtor, err := createValidator()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create tools validator: %s", err)
 	}
+	return &VllmSimulator{
+		logger:         logger,
+		reqChan:        make(chan *completionReqCtx, 1000),
+		toolsValidator: toolsValidtor,
+	}, nil
 }
 
 // Start starts the simulator
@@ -191,12 +196,12 @@ func (s *VllmSimulator) readRequest(ctx *fasthttp.RequestCtx, isChatCompletion b
 		}
 
 		for _, tool := range req.Tools {
-			toolJson, err := json.Marshal(tool)
+			toolJson, err := json.Marshal(tool.Function)
 			if err != nil {
 				s.logger.Error(err, "failed to marshal request tools")
 				return nil, err
 			}
-			err = validateTool(toolJson)
+			err = s.toolsValidator.validateTool(toolJson)
 			if err != nil {
 				s.logger.Error(err, "tool validation failed")
 				return nil, err

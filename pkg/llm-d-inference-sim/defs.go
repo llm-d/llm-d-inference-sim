@@ -73,9 +73,9 @@ type VllmSimulator struct {
 	waitingLoras sync.Map
 	// maxRunningReqs defines the maximum number of inference requests that could be processed at the same time
 	maxRunningReqs int64
-	// nRunningReqs ithe the number of inference requests that are currently being processed
+	// nRunningReqs is the number of inference requests that are currently being processed
 	nRunningReqs int64
-	// nWaitingReqs ithe the number of inference requests that are waiting to be processed
+	// nWaitingReqs is the number of inference requests that are waiting to be processed
 	nWaitingReqs int64
 	// loraInfo is prometheus gauge
 	loraInfo *prometheus.GaugeVec
@@ -87,6 +87,8 @@ type VllmSimulator struct {
 	kvCacheUsagePercentage *prometheus.GaugeVec
 	// channel for requeasts to be passed to workers
 	reqChan chan *completionReqCtx
+	// schema validator for tools parameters
+	toolsValidator *validator
 }
 
 // baseResponseChoice contains base completion response's choice related information
@@ -256,7 +258,8 @@ type function struct {
 	// Name is the function's name
 	Name string `json:"name"`
 	// Parameters are the parameters the function accepts
-	Parameters map[string]any `json:"parameters,omitempty"`
+	Parameters  map[string]any `json:"parameters,omitempty"`
+	Description string         `json:"description"`
 }
 
 // tool defines a tool to use in chat completion

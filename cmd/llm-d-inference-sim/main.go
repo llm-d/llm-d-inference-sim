@@ -33,12 +33,14 @@ func main() {
 	ctx := klog.NewContext(context.Background(), logger)
 	ctx = signals.SetupSignalHandler(ctx)
 
-	logger.Info("Start vllm simulator")
+	logger.Info("Starting vLLM simulator")
 
-	vllmSim := vllmsim.New(logger)
-	err := vllmSim.Start(ctx)
-
+	vllmSim, err := vllmsim.New(logger)
 	if err != nil {
-		logger.Error(err, "VLLM simulator failed")
+		logger.Error(err, "Failed to create vLLM simulator")
+		return
+	}
+	if err := vllmSim.Start(ctx); err != nil {
+		logger.Error(err, "vLLM simulator failed")
 	}
 }
