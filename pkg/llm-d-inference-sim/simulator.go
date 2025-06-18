@@ -395,13 +395,15 @@ func (s *VllmSimulator) reqProcessingWorker(ctx context.Context, id int) {
 			var responseTxt, finishReason string
 			var err error
 			var toolCalls []toolCall
+			var completionTokens int
 			if reqCtx.isChatCompletion && req.getToolChoice() != toolChoiceNone && req.getTools() != nil {
-				toolCalls, finishReason, err = req.createToolCalls()
+				toolCalls, finishReason, completionTokens, err = req.createToolCalls()
 			}
 			if toolCalls == nil {
 				// Either no tool calls were defined, or we randomly chose not to create tool calls,
 				// so we generate a response text.
 				responseTxt, finishReason, err = req.createResponseText(s.mode)
+				completionTokens = len(strings.Fields(responseTxt))
 			}
 			if err != nil {
 				prefix := ""
@@ -413,13 +415,22 @@ func (s *VllmSimulator) reqProcessingWorker(ctx context.Context, id int) {
 				s.logger.Error(err, prefix)
 				reqCtx.httpReqCtx.Error(prefix+err.Error(), fasthttp.StatusBadRequest)
 			} else {
+				usageData := usage{
+					PromptTokens:     req.getNumberOfPromptTokens(),
+					CompletionTokens: completionTokens,
+					TotalTokens:      req.getNumberOfPromptTokens() + completionTokens,
+				}
 				if req.isStream() {
+					var usageDataToSend *usage
+					if req.includeUsage() {
+						usageDataToSend = &usageData
+					}
 					s.sendStreamingResponse(
 						&streamingContext{ctx: reqCtx.httpReqCtx, isChatCompletion: reqCtx.isChatCompletion, model: model},
-						responseTxt, toolCalls, finishReason, req.includeUsage(), req.getNumberOfPromptTokens())
+						responseTxt, toolCalls, finishReason, usageDataToSend)
 				} else {
 					s.sendResponse(reqCtx.isChatCompletion, reqCtx.httpReqCtx, responseTxt, toolCalls, model, finishReason,
-						req.getNumberOfPromptTokens())
+						&usageData)
 				}
 			}
 			reqCtx.wg.Done()
@@ -505,16 +516,12 @@ func (s *VllmSimulator) HandleError(_ *fasthttp.RequestCtx, err error) {
 // model - model name
 // finishReason - a pointer to string that represents finish reason, can be nil or stop or length, ...
 func (s *VllmSimulator) createCompletionResponse(isChatCompletion bool, respText string, toolCalls []toolCall, model string,
-	finishReason *string, promptTokens int, completionTokens int) completionResponse {
+	finishReason *string, usageData *usage) completionResponse {
 	baseResp := baseCompletionResponse{
 		ID:      chatComplIDPrefix + uuid.NewString(),
 		Created: time.Now().Unix(),
 		Model:   model,
-		Usage: &usage{
-			PromptTokens:     promptTokens,
-			CompletionTokens: completionTokens,
-			TotalTokens:      promptTokens + completionTokens,
-		},
+		Usage:   usageData,
 	}
 	baseChoice := baseResponseChoice{Index: 0, FinishReason: finishReason}
 
@@ -544,12 +551,8 @@ func (s *VllmSimulator) createCompletionResponse(isChatCompletion bool, respText
 // respText - content to be sent in the response
 // model - model name
 func (s *VllmSimulator) sendResponse(isChatCompletion bool, ctx *fasthttp.RequestCtx, respText string, toolCalls []toolCall,
-	model string, finishReason string, promptTokens int) {
-	numOfWords := len(strings.Fields(respText))
-	if toolCalls != nil {
-		numOfWords = countTokensForToolCalls(toolCalls)
-	}
-	resp := s.createCompletionResponse(isChatCompletion, respText, toolCalls, model, &finishReason, promptTokens, numOfWords)
+	model string, finishReason string, usageData *usage) {
+	resp := s.createCompletionResponse(isChatCompletion, respText, toolCalls, model, &finishReason, usageData)
 
 	data, err := json.Marshal(resp)
 	if err != nil {
@@ -558,6 +561,7 @@ func (s *VllmSimulator) sendResponse(isChatCompletion bool, ctx *fasthttp.Reques
 	}
 
 	// calculate how long to wait before returning the response, time is based on number of tokens (use words number)
+	numOfWords := usageData.PromptTokens
 	totalMillisToWait := s.timeToFirstToken + (numOfWords-1)*s.interTokenLatency
 	time.Sleep(time.Duration(totalMillisToWait) * time.Millisecond)
 

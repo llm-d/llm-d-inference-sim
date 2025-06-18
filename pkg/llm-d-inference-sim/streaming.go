@@ -37,7 +37,8 @@ type streamingContext struct {
 // sendStreamingResponse creates and sends a streaming response for completion request of both types (text and chat) as defined by isChatCompletion
 // response content is wrapped according SSE format
 // First token is send after timeToFirstToken milliseconds, every other token is sent after interTokenLatency milliseconds
-func (s *VllmSimulator) sendStreamingResponse(context *streamingContext, responseTxt string, toolCalls []toolCall, finishReason string, includeUsage bool, promptTokens int) {
+func (s *VllmSimulator) sendStreamingResponse(context *streamingContext, responseTxt string, toolCalls []toolCall, finishReason string,
+	usageData *usage) {
 	context.ctx.SetContentType("text/event-stream")
 	context.ctx.SetStatusCode(fasthttp.StatusOK)
 
@@ -68,12 +69,8 @@ func (s *VllmSimulator) sendStreamingResponse(context *streamingContext, respons
 		}
 
 		// send usage
-		if includeUsage {
-			completionTokens := len(tokens)
-			if toolCalls != nil {
-				completionTokens = countTokensForToolCalls(toolCalls)
-			}
-			chunk := s.createUsageChunk(context, promptTokens, completionTokens)
+		if usageData != nil {
+			chunk := s.createUsageChunk(context, usageData)
 			if err := s.sendChunk(w, chunk, ""); err != nil {
 				context.ctx.Error("Sending usage chunk failed, "+err.Error(), fasthttp.StatusInternalServerError)
 				return
@@ -148,16 +145,12 @@ func (s *VllmSimulator) sendTokenChunks(context *streamingContext, w *bufio.Writ
 
 // createUsageChunk creates and returns a CompletionRespChunk with usage data, a single chunk of streamed completion API response,
 // supports both modes (text and chat)
-func (s *VllmSimulator) createUsageChunk(context *streamingContext, promptTokens int, completionTokens int) completionRespChunk {
+func (s *VllmSimulator) createUsageChunk(context *streamingContext, usageData *usage) completionRespChunk {
 	baseChunk := baseCompletionResponse{
 		ID:      chatComplIDPrefix + uuid.NewString(),
 		Created: context.creationTime,
 		Model:   context.model,
-		Usage: &usage{
-			PromptTokens:     promptTokens,
-			CompletionTokens: completionTokens,
-			TotalTokens:      promptTokens + completionTokens,
-		},
+		Usage:   usageData,
 	}
 	if context.isChatCompletion {
 		baseChunk.Object = chatCompletionChunkObject

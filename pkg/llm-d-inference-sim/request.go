@@ -30,8 +30,9 @@ type completionRequest interface {
 	// and the finish reason
 	createResponseText(mode string) (string, string, error)
 	// createToolCalls creates and returns response payload based on this request
-	// (tool calls or nothing in case we randomly choose not to generate calls), and the finish reason
-	createToolCalls() ([]toolCall, string, error)
+	// (tool calls or nothing in case we randomly choose not to generate calls), the finish reason,
+	// and the number of generated completion tokens
+	createToolCalls() ([]toolCall, string, int, error)
 	// isStream returns boolean that defines is response should be streamed
 	isStream() bool
 	// getModel returns model name as defined in the request

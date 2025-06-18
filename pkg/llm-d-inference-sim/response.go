@@ -248,15 +248,16 @@ func (req textCompletionRequest) createResponseText(mode string) (string, string
 }
 
 // createToolCalls creates and returns response payload based on this request
-// (tool calls or nothing in case we randomly choose not to generate calls), and the finish reason
-func (req chatCompletionRequest) createToolCalls() ([]toolCall, string, error) {
+// (tool calls or nothing in case we randomly choose not to generate calls), the finish reason,
+// and the number of generated completion tokensand the finish reason
+func (req chatCompletionRequest) createToolCalls() ([]toolCall, string, int, error) {
 	// This function is called if tool choice is either 'required' or 'auto'.
 	// In case of 'required' at least one tool call has to be created, and we randomly choose
 	// the number of calls starting from one. Otherwise, we start from 0, and in case we randomly
 	// choose the number of calls to be 0, response text will be generated instead of a tool call.
 	numberOfCalls := randomInt(len(req.Tools), req.ToolChoice == toolChoiceRequired)
 	if numberOfCalls == 0 {
-		return nil, "", nil
+		return nil, "", 0, nil
 	}
 
 	calls := make([]toolCall, 0)
@@ -265,11 +266,11 @@ func (req chatCompletionRequest) createToolCalls() ([]toolCall, string, error) {
 		index := randomInt(len(req.Tools)-1, false)
 		args, err := generateToolArguments(req.Tools[index])
 		if err != nil {
-			return nil, "", err
+			return nil, "", 0, err
 		}
 		argsJson, err := json.Marshal(args)
 		if err != nil {
-			return nil, "", err
+			return nil, "", 0, err
 		}
 
 		call := toolCall{
@@ -283,12 +284,13 @@ func (req chatCompletionRequest) createToolCalls() ([]toolCall, string, error) {
 		}
 		calls = append(calls, call)
 	}
-	return calls, toolsFinishReason, nil
+
+	return calls, toolsFinishReason, countTokensForToolCalls(calls), nil
 }
 
 // createToolCalls shouldn't be called for text completion
-func (req textCompletionRequest) createToolCalls() ([]toolCall, string, error) {
-	return nil, "", errors.New("tool calls are not supported in text completion")
+func (req textCompletionRequest) createToolCalls() ([]toolCall, string, int, error) {
+	return nil, "", 0, errors.New("tool calls are not supported in text completion")
 }
 
 // completionError defines the simulator's response in case of an error
