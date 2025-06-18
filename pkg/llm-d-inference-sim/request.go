@@ -24,6 +24,28 @@ import (
 	"github.com/valyala/fasthttp"
 )
 
+// completionRequest interface representing both completion request types (text and chat)
+type completionRequest interface {
+	// createResponseText creates and returns response payload based on this request,
+	// and the finish reason
+	createResponseText(mode string) (string, string, error)
+	// createToolCalls creates and returns response payload based on this request
+	// (tool calls or nothing in case we randomly choose not to generate calls), and the finish reason
+	createToolCalls() ([]toolCall, string, error)
+	// isStream returns boolean that defines is response should be streamed
+	isStream() bool
+	// getModel returns model name as defined in the request
+	getModel() string
+	// includeUsage returns true if usage statistics should be include in the response
+	includeUsage() bool
+	// getNumberOfPromptTokens returns the number of tokens in the prompt
+	getNumberOfPromptTokens() int
+	// getTools() returns tools to use (in chat completion)
+	getTools() []tool
+	// getToolChoice() returns tool choice (in chat completion)
+	getToolChoice() string
+}
+
 // baseCompletionRequest contains base completion request related information
 type baseCompletionRequest struct {
 	// Stream is a boolean value, defines whether response should be sent as a Stream
@@ -50,28 +72,6 @@ func (b *baseCompletionRequest) getModel() string {
 
 func (b *baseCompletionRequest) includeUsage() bool {
 	return !b.Stream || b.StreamOptions.IncludeUsage
-}
-
-// completionRequest interface representing both completion request types (text and chat)
-type completionRequest interface {
-	// createResponseText creates and returns response payload based on this request,
-	// and the finish reason
-	createResponseText(mode string) (string, string, error)
-	// createToolCalls creates and returns response payload based on this request
-	// (tool calls or nothing in case we randomly choose not to generate calls), and the finish reason
-	createToolCalls() ([]toolCall, string, error)
-	// isStream returns boolean that defines is response should be streamed
-	isStream() bool
-	// getModel returns model name as defined in the request
-	getModel() string
-	// includeUsage returns true if usage statistics should be include in the response
-	includeUsage() bool
-	// getNumberOfPromptTokens returns the number of tokens in the prompt
-	getNumberOfPromptTokens() int
-	// getTools() returns tools to use (in chat completion)
-	getTools() []tool
-	// getToolChoice() returns tool choice (in chat completion)
-	getToolChoice() string
 }
 
 // completionReqCtx is a context passed in the simulator's flow, it contains the request data needed

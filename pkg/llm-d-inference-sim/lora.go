@@ -17,6 +17,12 @@ limitations under the License.
 // LoRA related structures and functions
 package llmdinferencesim
 
+import (
+	"encoding/json"
+
+	"github.com/valyala/fasthttp"
+)
+
 type loadLoraRequest struct {
 	LoraName string `json:"lora_name"`
 	LoraPath string `json:"lora_path"`
@@ -40,10 +46,26 @@ func (s *VllmSimulator) getLoras() []string {
 	return loras
 }
 
-func (s *VllmSimulator) addLora(lora string) {
-	s.loraAdaptors.Store(lora, "")
+func (s *VllmSimulator) loadLora(ctx *fasthttp.RequestCtx) {
+	var req loadLoraRequest
+	err := json.Unmarshal(ctx.Request.Body(), &req)
+	if err != nil {
+		s.logger.Error(err, "failed to read and parse load lora request body")
+		ctx.Error("failed to read and parse load lora request body, "+err.Error(), fasthttp.StatusBadRequest)
+		return
+	}
+
+	s.loraAdaptors.Store(req.LoraName, "")
 }
 
-func (s *VllmSimulator) removeLora(lora string) {
-	s.loraAdaptors.Delete(lora)
+func (s *VllmSimulator) unloadLora(ctx *fasthttp.RequestCtx) {
+	var req unloadLoraRequest
+	err := json.Unmarshal(ctx.Request.Body(), &req)
+	if err != nil {
+		s.logger.Error(err, "failed to read and parse unload lora request body")
+		ctx.Error("failed to read and parse unload lora request body, "+err.Error(), fasthttp.StatusBadRequest)
+		return
+	}
+
+	s.loraAdaptors.Delete(req.LoraName)
 }
