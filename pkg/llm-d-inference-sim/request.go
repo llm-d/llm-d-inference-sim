@@ -29,10 +29,6 @@ type completionRequest interface {
 	// createResponseText creates and returns response payload based on this request,
 	// and the finish reason
 	createResponseText(mode string) (string, string, error)
-	// createToolCalls creates and returns response payload based on this request
-	// (tool calls or nothing in case we randomly choose not to generate calls), the finish reason,
-	// and the number of generated completion tokens
-	createToolCalls() ([]toolCall, string, int, error)
 	// isStream returns boolean that defines is response should be streamed
 	isStream() bool
 	// getModel returns model name as defined in the request
@@ -158,6 +154,23 @@ func (req *chatCompletionRequest) getLastUserMsg() string {
 	return ""
 }
 
+// createResponseText creates response text for the given chat completion request and mode
+func (req chatCompletionRequest) createResponseText(mode string) (string, string, error) {
+	maxTokens, err := getMaxTokens(req.MaxCompletionTokens, req.MaxTokens)
+	if err != nil {
+		return "", "", err
+	}
+
+	var text, finishReason string
+	if mode == modeEcho {
+		text, finishReason = getResponseText(maxTokens, req.getLastUserMsg())
+	} else {
+		text, finishReason = getRandomResponseText(maxTokens)
+	}
+
+	return text, finishReason, nil
+}
+
 // v1/completion
 // textCompletionRequest defines structure of /completion request
 type textCompletionRequest struct {
@@ -183,4 +196,21 @@ func (c *textCompletionRequest) getTools() []tool {
 
 func (c *textCompletionRequest) getToolChoice() string {
 	return ""
+}
+
+// createResponseText creates response text for the given text completion request and mode
+func (req textCompletionRequest) createResponseText(mode string) (string, string, error) {
+	maxTokens, err := getMaxTokens(nil, req.MaxTokens)
+	if err != nil {
+		return "", "", err
+	}
+
+	var text, finishReason string
+	if mode == modeEcho {
+		text, finishReason = getResponseText(maxTokens, req.Prompt)
+	} else {
+		text, finishReason = getRandomResponseText(maxTokens)
+	}
+
+	return text, finishReason, nil
 }

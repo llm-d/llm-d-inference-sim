@@ -20,7 +20,6 @@ package llmdinferencesim
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"strings"
 )
 
@@ -191,106 +190,6 @@ type chatRespChunkChoice struct {
 	baseResponseChoice
 	// Delta is a content of the chunk
 	Delta message `json:"delta"`
-}
-
-// returns the max tokens or error if incorrect
-func getMaxTokens(maxCompletionTokens *int64, maxTokens *int64) (*int64, error) {
-	var typeToken string
-	var tokens *int64
-	// if both arguments are passed,
-	// use maxCompletionTokens
-	// as in the real vllm
-	if maxCompletionTokens != nil {
-		tokens = maxCompletionTokens
-		typeToken = "max_completion_tokens"
-	} else if maxTokens != nil {
-		tokens = maxTokens
-		typeToken = "max_tokens"
-	}
-	if tokens != nil && *tokens < 1 {
-		return nil, fmt.Errorf("%s must be at least 1, got %d", typeToken, *tokens)
-	}
-	return tokens, nil
-}
-
-// createResponseText creates response text for the given chat completion request and mode
-func (req chatCompletionRequest) createResponseText(mode string) (string, string, error) {
-	maxTokens, err := getMaxTokens(req.MaxCompletionTokens, req.MaxTokens)
-	if err != nil {
-		return "", "", err
-	}
-
-	var text, finishReason string
-	if mode == modeEcho {
-		text, finishReason = getResponseText(maxTokens, req.getLastUserMsg())
-	} else {
-		text, finishReason = getRandomResponseText(maxTokens)
-	}
-
-	return text, finishReason, nil
-}
-
-// createResponseText creates response text for the given text completion request and mode
-func (req textCompletionRequest) createResponseText(mode string) (string, string, error) {
-	maxTokens, err := getMaxTokens(nil, req.MaxTokens)
-	if err != nil {
-		return "", "", err
-	}
-
-	var text, finishReason string
-	if mode == modeEcho {
-		text, finishReason = getResponseText(maxTokens, req.Prompt)
-	} else {
-		text, finishReason = getRandomResponseText(maxTokens)
-	}
-
-	return text, finishReason, nil
-}
-
-// createToolCalls creates and returns response payload based on this request
-// (tool calls or nothing in case we randomly choose not to generate calls), the finish reason,
-// and the number of generated completion tokensand the finish reason
-func (req chatCompletionRequest) createToolCalls() ([]toolCall, string, int, error) {
-	// This function is called if tool choice is either 'required' or 'auto'.
-	// In case of 'required' at least one tool call has to be created, and we randomly choose
-	// the number of calls starting from one. Otherwise, we start from 0, and in case we randomly
-	// choose the number of calls to be 0, response text will be generated instead of a tool call.
-	numberOfCalls := randomInt(len(req.Tools), req.ToolChoice == toolChoiceRequired)
-	if numberOfCalls == 0 {
-		return nil, "", 0, nil
-	}
-
-	calls := make([]toolCall, 0)
-	for i := range numberOfCalls {
-		// Randomly choose which tools to call. We may call the same tool more than once.
-		index := randomInt(len(req.Tools)-1, false)
-		args, err := generateToolArguments(req.Tools[index])
-		if err != nil {
-			return nil, "", 0, err
-		}
-		argsJson, err := json.Marshal(args)
-		if err != nil {
-			return nil, "", 0, err
-		}
-
-		call := toolCall{
-			Function: functionCall{
-				Arguments: string(argsJson),
-				Name:      &req.Tools[index].Function.Name,
-			},
-			ID:    "chatcmpl-tool-" + randomNumericString(10),
-			Type:  "function",
-			Index: i,
-		}
-		calls = append(calls, call)
-	}
-
-	return calls, toolsFinishReason, countTokensForToolCalls(calls), nil
-}
-
-// createToolCalls shouldn't be called for text completion
-func (req textCompletionRequest) createToolCalls() ([]toolCall, string, int, error) {
-	return nil, "", 0, errors.New("tool calls are not supported in text completion")
 }
 
 // completionError defines the simulator's response in case of an error

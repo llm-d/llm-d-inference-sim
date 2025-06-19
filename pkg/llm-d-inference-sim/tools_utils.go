@@ -51,6 +51,47 @@ var fakeStringArguments = []string{
 	`lifetime`,
 }
 
+// createToolCalls creates and returns response payload based on this request
+// (tool calls or nothing in case we randomly choose not to generate calls),
+// and the number of generated completion token sand the finish reason
+func createToolCalls(tools []tool, toolChoice string) ([]toolCall, string, int, error) {
+	// This function is called if tool choice is either 'required' or 'auto'.
+	// In case of 'required' at least one tool call has to be created, and we randomly choose
+	// the number of calls starting from one. Otherwise, we start from 0, and in case we randomly
+	// choose the number of calls to be 0, response text will be generated instead of a tool call.
+	numberOfCalls := randomInt(len(tools), toolChoice == toolChoiceRequired)
+	if numberOfCalls == 0 {
+		return nil, "", 0, nil
+	}
+
+	calls := make([]toolCall, 0)
+	for i := range numberOfCalls {
+		// Randomly choose which tools to call. We may call the same tool more than once.
+		index := randomInt(len(tools)-1, false)
+		args, err := generateToolArguments(tools[index])
+		if err != nil {
+			return nil, "", 0, err
+		}
+		argsJson, err := json.Marshal(args)
+		if err != nil {
+			return nil, "", 0, err
+		}
+
+		call := toolCall{
+			Function: functionCall{
+				Arguments: string(argsJson),
+				Name:      &tools[index].Function.Name,
+			},
+			ID:    "chatcmpl-tool-" + randomNumericString(10),
+			Type:  "function",
+			Index: i,
+		}
+		calls = append(calls, call)
+	}
+
+	return calls, toolsFinishReason, countTokensForToolCalls(calls), nil
+}
+
 func getStringArgument() string {
 	index := rand.New(rand.NewSource(time.Now().UnixNano())).Intn(len(fakeStringArguments))
 	return fakeStringArguments[index]

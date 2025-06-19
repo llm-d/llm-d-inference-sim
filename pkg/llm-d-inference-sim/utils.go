@@ -17,6 +17,7 @@ limitations under the License.
 package llmdinferencesim
 
 import (
+	"fmt"
 	"math/rand"
 	"strings"
 	"time"
@@ -34,6 +35,26 @@ var chatCompletionFakeResponses = []string{
 	`Alas, poor Yorick! I knew him, Horatio: A fellow of infinite jest`,
 	`The rest is silence. `,
 	`Give a man a fish and you feed him for a day; teach a man to fish and you feed him for a lifetime`,
+}
+
+// returns the max tokens or error if incorrect
+func getMaxTokens(maxCompletionTokens *int64, maxTokens *int64) (*int64, error) {
+	var typeToken string
+	var tokens *int64
+	// if both arguments are passed,
+	// use maxCompletionTokens
+	// as in the real vllm
+	if maxCompletionTokens != nil {
+		tokens = maxCompletionTokens
+		typeToken = "max_completion_tokens"
+	} else if maxTokens != nil {
+		tokens = maxTokens
+		typeToken = "max_tokens"
+	}
+	if tokens != nil && *tokens < 1 {
+		return nil, fmt.Errorf("%s must be at least 1, got %d", typeToken, *tokens)
+	}
+	return tokens, nil
 }
 
 // getRandomResponseText returns random response text from the pre-defined list of responses
