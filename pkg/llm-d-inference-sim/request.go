@@ -27,8 +27,9 @@ import (
 // completionRequest interface representing both completion request types (text and chat)
 type completionRequest interface {
 	// createResponseText creates and returns response payload based on this request,
-	// and the finish reason
-	createResponseText(mode string) (string, string, error)
+	// i.e., an array of generated tokens, the finish reason, and the number of created
+	// tokens
+	createResponseText(mode string) ([]string, string, int, error)
 	// isStream returns boolean that defines is response should be streamed
 	isStream() bool
 	// getModel returns model name as defined in the request
@@ -154,11 +155,13 @@ func (req *chatCompletionRequest) getLastUserMsg() string {
 	return ""
 }
 
-// createResponseText creates response text for the given chat completion request and mode
-func (req chatCompletionRequest) createResponseText(mode string) (string, string, error) {
+// createResponseText creates and returns response payload based on this request,
+// i.e., an array of generated tokens, the finish reason, and the number of created
+// tokens
+func (req chatCompletionRequest) createResponseText(mode string) ([]string, string, int, error) {
 	maxTokens, err := getMaxTokens(req.MaxCompletionTokens, req.MaxTokens)
 	if err != nil {
-		return "", "", err
+		return nil, "", 0, err
 	}
 
 	var text, finishReason string
@@ -168,7 +171,8 @@ func (req chatCompletionRequest) createResponseText(mode string) (string, string
 		text, finishReason = getRandomResponseText(maxTokens)
 	}
 
-	return text, finishReason, nil
+	tokens := tokenize(text)
+	return tokens, finishReason, len(tokens), nil
 }
 
 // v1/completion
@@ -198,11 +202,13 @@ func (c *textCompletionRequest) getToolChoice() string {
 	return ""
 }
 
-// createResponseText creates response text for the given text completion request and mode
-func (req textCompletionRequest) createResponseText(mode string) (string, string, error) {
+// createResponseText creates and returns response payload based on this request,
+// i.e., an array of generated tokens, the finish reason, and the number of created
+// tokens
+func (req textCompletionRequest) createResponseText(mode string) ([]string, string, int, error) {
 	maxTokens, err := getMaxTokens(nil, req.MaxTokens)
 	if err != nil {
-		return "", "", err
+		return nil, "", 0, err
 	}
 
 	var text, finishReason string
@@ -212,5 +218,6 @@ func (req textCompletionRequest) createResponseText(mode string) (string, string
 		text, finishReason = getRandomResponseText(maxTokens)
 	}
 
-	return text, finishReason, nil
+	tokens := tokenize(text)
+	return tokens, finishReason, len(tokens), nil
 }

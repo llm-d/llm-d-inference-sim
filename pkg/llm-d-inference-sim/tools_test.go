@@ -162,6 +162,7 @@ var _ = Describe("Simulator for request with tools", func() {
 			var chunk openai.ChatCompletionChunk
 			numberOfChunksWithUsage := 0
 			lastIndex := -1
+			var functionName string
 			for stream.Next() {
 				chunk = stream.Current()
 				for _, choice := range chunk.Choices {
@@ -176,9 +177,10 @@ var _ = Describe("Simulator for request with tools", func() {
 							Expect(tc.Function.Name).To(Or(Equal("get_weather"), Equal("get_temperature")))
 							lastIndex++
 							args[tc.Function.Name] = []string{tc.Function.Arguments}
+							functionName = tc.Function.Name
 						} else {
-							Expect(tc.Function.Name).To(BeNil())
-							args[tc.Function.Name] = append(args[tc.Function.Name], tc.Function.Arguments)
+							Expect(tc.Function.Name).To(BeEmpty())
+							args[functionName] = append(args[functionName], tc.Function.Arguments)
 						}
 						Expect(tc.ID).NotTo(BeEmpty())
 						Expect(tc.Type).To(Equal("function"))

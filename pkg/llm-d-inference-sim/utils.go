@@ -19,12 +19,14 @@ package llmdinferencesim
 import (
 	"fmt"
 	"math/rand"
+	"regexp"
 	"strings"
 	"time"
 )
 
 // list of responses to use in random mode for comepltion requests
 var chatCompletionFakeResponses = []string{
+	`Testing@, #testing 1$ ,2%,3^, [4&*5], 6~, 7-_ + (8 : 9) / \ < > .`,
 	`Testing, testing 1,2,3.`,
 	`I am fine, how are you today?`,
 	`I am your AI assistant, how can I help you today?`,
@@ -123,4 +125,9 @@ func randomInt(max int, startFromOne bool) int {
 // Returns true or false randomly
 func flipCoin() bool {
 	return randomInt(1, false) != 0
+}
+
+func tokenize(text string) []string {
+	re := regexp.MustCompile(`(\{|\}|:|,|-|\.|\?|\!|;|@|#|\$|%|\^|&|\*|\(|\)|\+|\-|_|~|/|\\|>|<|\[|\]|=|"|\w+)(\s*)`)
+	return re.FindAllString(text, -1)
 }

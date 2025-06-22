@@ -128,11 +128,9 @@ var _ = Describe("Simulator", func() {
 			Expect(chunk.Usage.TotalTokens).To(Equal(chunk.Usage.PromptTokens + chunk.Usage.CompletionTokens))
 
 			msg := strings.Join(tokens, "")
-			expectedMsg := ""
-			if mode == modeEcho {
-				expectedMsg = userMessage
-			} else {
-				expectedMsg = strings.Trim(getFullTextFromPartialString(msg), " ")
+			expectedMsg := userMessage
+			if mode == modeRandom {
+				expectedMsg = getFullTextFromPartialString(msg)
 			}
 			Expect(role).Should(Equal("assistant"))
 			Expect(msg).Should(Equal(expectedMsg))
@@ -187,11 +185,9 @@ var _ = Describe("Simulator", func() {
 			Expect(chunk.Usage.TotalTokens).To(Equal(chunk.Usage.PromptTokens + chunk.Usage.CompletionTokens))
 
 			text := strings.Join(tokens, "")
-			expectedText := ""
-			if mode == modeEcho {
-				expectedText = userMessage
-			} else {
-				expectedText = strings.Trim(getFullTextFromPartialString(text), " ")
+			expectedText := userMessage
+			if mode == modeRandom {
+				expectedText = getFullTextFromPartialString(text)
 			}
 			Expect(text).Should(Equal(expectedText))
 		},
@@ -260,10 +256,8 @@ var _ = Describe("Simulator", func() {
 				tokens := strings.Fields(msg)
 				Expect(int64(len(tokens))).Should(BeNumerically("<=", numTokens))
 			} else {
-				expectedMsg := ""
-				if mode == modeEcho {
-					expectedMsg = userMessage
-				} else {
+				expectedMsg := userMessage
+				if mode == modeRandom {
 					expectedMsg = getFullTextFromPartialString(msg)
 				}
 				Expect(msg).Should(Equal(expectedMsg))
@@ -340,10 +334,8 @@ var _ = Describe("Simulator", func() {
 				tokens := strings.Fields(text)
 				Expect(int64(len(tokens))).Should(BeNumerically("<=", numTokens))
 			} else {
-				expectedText := ""
-				if mode == modeEcho {
-					expectedText = userMessage
-				} else {
+				expectedText := userMessage
+				if mode == modeRandom {
 					expectedText = getFullTextFromPartialString(text)
 				}
 				Expect(text).Should(Equal(expectedText))

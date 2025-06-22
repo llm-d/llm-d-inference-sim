@@ -20,7 +20,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand"
-	"strings"
 	"time"
 
 	"github.com/santhosh-tekuri/jsonschema/v5"
@@ -29,12 +28,9 @@ import (
 func countTokensForToolCalls(toolCalls []toolCall) int {
 	numberOfTokens := 0
 	for _, tc := range toolCalls {
-		numberOfTokens += len(strings.Fields(tc.ID))
-		numberOfTokens += len(strings.Fields(tc.Type))
-		numberOfTokens += len(strings.Fields(*tc.Function.Name))
-		numberOfTokens += len(strings.Fields(tc.Function.Arguments))
+		// 3 - name, id, and type
+		numberOfTokens += 3 + len(tc.Function.tokenizedArguments)
 	}
-
 	return numberOfTokens
 }
 
@@ -79,8 +75,9 @@ func createToolCalls(tools []tool, toolChoice string) ([]toolCall, string, int, 
 
 		call := toolCall{
 			Function: functionCall{
-				Arguments: string(argsJson),
-				Name:      &tools[index].Function.Name,
+				Arguments:          string(argsJson),
+				tokenizedArguments: tokenize(string(argsJson)),
+				Name:               &tools[index].Function.Name,
 			},
 			ID:    "chatcmpl-tool-" + randomNumericString(10),
 			Type:  "function",

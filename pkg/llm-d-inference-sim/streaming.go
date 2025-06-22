@@ -20,7 +20,6 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -34,20 +33,19 @@ type streamingContext struct {
 	creationTime     int64
 }
 
-// sendStreamingResponse creates and sends a streaming response for completion request of both types (text and chat) as defined by isChatCompletion
+// sendStreamingResponse creates and sends a streaming response for completion request of both types (text and chat)
+// as defined by isChatCompletion
 // response content is wrapped according SSE format
 // First token is send after timeToFirstToken milliseconds, every other token is sent after interTokenLatency milliseconds
-func (s *VllmSimulator) sendStreamingResponse(context *streamingContext, responseTxt string, toolCalls []toolCall, finishReason string,
-	usageData *usage) {
+func (s *VllmSimulator) sendStreamingResponse(context *streamingContext, responseTokens []string, toolCalls []toolCall,
+	finishReason string, usageData *usage) {
 	context.ctx.SetContentType("text/event-stream")
 	context.ctx.SetStatusCode(fasthttp.StatusOK)
 
 	context.ctx.SetBodyStreamWriter(func(w *bufio.Writer) {
 		context.creationTime = time.Now().Unix()
 
-		tokens := strings.Fields(responseTxt)
-
-		if len(tokens) > 0 || len(toolCalls) > 0 {
+		if len(responseTokens) > 0 || len(toolCalls) > 0 {
 			if context.isChatCompletion {
 				// in chat completion first chunk contains the role
 				chunk := s.createChatCompletionChunk(context, "", nil, roleAssistant, nil)
@@ -59,12 +57,11 @@ func (s *VllmSimulator) sendStreamingResponse(context *streamingContext, respons
 			if len(toolCalls) > 0 {
 				s.logger.Info("Going to send tools calls")
 				for _, tc := range toolCalls {
-					argsTokens := strings.Fields(tc.Function.Arguments)
-					s.sendTokenChunks(context, w, argsTokens, &tc, finishReason)
+					s.sendTokenChunks(context, w, tc.Function.tokenizedArguments, &tc, finishReason)
 				}
 			} else {
-				s.logger.Info("Going to send text", "resp body", responseTxt, "tokens num", len(tokens))
-				s.sendTokenChunks(context, w, tokens, nil, finishReason)
+				s.logger.Info("Going to send text", "number of tokens", usageData.CompletionTokens)
+				s.sendTokenChunks(context, w, responseTokens, nil, finishReason)
 			}
 		}
 
@@ -94,7 +91,6 @@ func (s *VllmSimulator) sendTokenChunks(context *streamingContext, w *bufio.Writ
 	for i, token := range tokens {
 		if i != 0 {
 			time.Sleep(time.Duration(s.interTokenLatency) * time.Millisecond)
-			token = " " + token
 		}
 		var toolChunkInsert *toolCall
 		if tc != nil {

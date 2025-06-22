@@ -392,7 +392,8 @@ func (s *VllmSimulator) reqProcessingWorker(ctx context.Context, id int) {
 			atomic.AddInt64(&(s.nRunningReqs), 1)
 			s.reportRunningRequests()
 
-			var responseTxt, finishReason string
+			var responseTokens []string
+			var finishReason string
 			var err error
 			var toolCalls []toolCall
 			var completionTokens int
@@ -402,8 +403,7 @@ func (s *VllmSimulator) reqProcessingWorker(ctx context.Context, id int) {
 			if toolCalls == nil {
 				// Either no tool calls were defined, or we randomly chose not to create tool calls,
 				// so we generate a response text.
-				responseTxt, finishReason, err = req.createResponseText(s.mode)
-				completionTokens = len(strings.Fields(responseTxt))
+				responseTokens, finishReason, completionTokens, err = req.createResponseText(s.mode)
 			}
 			if err != nil {
 				prefix := ""
@@ -427,9 +427,9 @@ func (s *VllmSimulator) reqProcessingWorker(ctx context.Context, id int) {
 					}
 					s.sendStreamingResponse(
 						&streamingContext{ctx: reqCtx.httpReqCtx, isChatCompletion: reqCtx.isChatCompletion, model: model},
-						responseTxt, toolCalls, finishReason, usageDataToSend)
+						responseTokens, toolCalls, finishReason, usageDataToSend)
 				} else {
-					s.sendResponse(reqCtx.isChatCompletion, reqCtx.httpReqCtx, responseTxt, toolCalls, model, finishReason,
+					s.sendResponse(reqCtx.isChatCompletion, reqCtx.httpReqCtx, responseTokens, toolCalls, model, finishReason,
 						&usageData)
 				}
 			}
@@ -511,11 +511,14 @@ func (s *VllmSimulator) HandleError(_ *fasthttp.RequestCtx, err error) {
 	s.logger.Error(err, "VLLM server error")
 }
 
-// createCompletionResponse creates response for completion request, supports both completion requests types (text and chat) as defined by isChatCompletion
-// respText - content to be sent in the response
+// createCompletionResponse creates response for completion request, supports both completion requests types (text and chat)
+// as defined by isChatCompletion
+// respTokens - tokenized content to be sent in the response
+// toolCalls - tool calls to be sent in the response
 // model - model name
 // finishReason - a pointer to string that represents finish reason, can be nil or stop or length, ...
-func (s *VllmSimulator) createCompletionResponse(isChatCompletion bool, respText string, toolCalls []toolCall, model string,
+// usageData - usage (tokens statistics) for this response
+func (s *VllmSimulator) createCompletionResponse(isChatCompletion bool, respTokens []string, toolCalls []toolCall, model string,
 	finishReason *string, usageData *usage) completionResponse {
 	baseResp := baseCompletionResponse{
 		ID:      chatComplIDPrefix + uuid.NewString(),
@@ -525,6 +528,7 @@ func (s *VllmSimulator) createCompletionResponse(isChatCompletion bool, respText
 	}
 	baseChoice := baseResponseChoice{Index: 0, FinishReason: finishReason}
 
+	respText := strings.Join(respTokens, "")
 	if isChatCompletion {
 		baseResp.Object = chatCompletionObject
 
@@ -547,12 +551,16 @@ func (s *VllmSimulator) createCompletionResponse(isChatCompletion bool, respText
 	}
 }
 
-// sendResponse sends response for completion API, supports both completions (text and chat) according the value of isChatCompletion
-// respText - content to be sent in the response
+// sendResponse sends response for completion API, supports both completions (text and chat)
+// according the value of isChatCompletion
+// respTokens - tokenized content to be sent in the response
+// toolCalls - tool calls to be sent in the response
 // model - model name
-func (s *VllmSimulator) sendResponse(isChatCompletion bool, ctx *fasthttp.RequestCtx, respText string, toolCalls []toolCall,
+// finishReason - a pointer to string that represents finish reason, can be nil, stop, length, or tools
+// usageData - usage (tokens statistics) for this response
+func (s *VllmSimulator) sendResponse(isChatCompletion bool, ctx *fasthttp.RequestCtx, respTokens []string, toolCalls []toolCall,
 	model string, finishReason string, usageData *usage) {
-	resp := s.createCompletionResponse(isChatCompletion, respText, toolCalls, model, &finishReason, usageData)
+	resp := s.createCompletionResponse(isChatCompletion, respTokens, toolCalls, model, &finishReason, usageData)
 
 	data, err := json.Marshal(resp)
 	if err != nil {
@@ -560,9 +568,9 @@ func (s *VllmSimulator) sendResponse(isChatCompletion bool, ctx *fasthttp.Reques
 		return
 	}
 
-	// calculate how long to wait before returning the response, time is based on number of tokens (use words number)
-	numOfWords := usageData.PromptTokens
-	totalMillisToWait := s.timeToFirstToken + (numOfWords-1)*s.interTokenLatency
+	// calculate how long to wait before returning the response, time is based on number of tokens
+	numOfTokens := usageData.CompletionTokens
+	totalMillisToWait := s.timeToFirstToken + (numOfTokens-1)*s.interTokenLatency
 	time.Sleep(time.Duration(totalMillisToWait) * time.Millisecond)
 
 	// TODO - maybe add pod id to response header for testing
