@@ -127,7 +127,13 @@ func flipCoin() bool {
 	return randomInt(1, false) != 0
 }
 
+// Regular expression for the response tokenization
+var re *regexp.Regexp
+
+func init() {
+	re = regexp.MustCompile(`(\{|\}|:|,|-|\.|\?|\!|;|@|#|\$|%|\^|&|\*|\(|\)|\+|\-|_|~|/|\\|>|<|\[|\]|=|"|\w+)(\s*)`)
+}
+
 func tokenize(text string) []string {
-	re := regexp.MustCompile(`(\{|\}|:|,|-|\.|\?|\!|;|@|#|\$|%|\^|&|\*|\(|\)|\+|\-|_|~|/|\\|>|<|\[|\]|=|"|\w+)(\s*)`)
 	return re.FindAllString(text, -1)
 }

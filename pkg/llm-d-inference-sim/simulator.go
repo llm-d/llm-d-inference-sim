@@ -511,7 +511,7 @@ func (s *VllmSimulator) HandleError(_ *fasthttp.RequestCtx, err error) {
 	s.logger.Error(err, "VLLM server error")
 }
 
-// createCompletionResponse creates response for completion request, supports both completion requests types (text and chat)
+// createCompletionResponse creates the response for completion requests, supports both completion request types (text and chat)
 // as defined by isChatCompletion
 // respTokens - tokenized content to be sent in the response
 // toolCalls - tool calls to be sent in the response

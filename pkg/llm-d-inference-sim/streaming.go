@@ -33,7 +33,7 @@ type streamingContext struct {
 	creationTime     int64
 }
 
-// sendStreamingResponse creates and sends a streaming response for completion request of both types (text and chat)
+// sendStreamingResponse creates and sends a streaming response for completion requests of both types (text and chat)
 // as defined by isChatCompletion
 // response content is wrapped according SSE format
 // First token is send after timeToFirstToken milliseconds, every other token is sent after interTokenLatency milliseconds
