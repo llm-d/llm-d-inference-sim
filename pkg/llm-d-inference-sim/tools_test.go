@@ -394,7 +394,7 @@ var _ = Describe("Simulator for request with tools", func() {
 			args := make(map[string][]int)
 			err = json.Unmarshal([]byte(tc.Function.Arguments), &args)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(len(args["numbers"])).To(BeNumerically(">=", 1))
+			Expect(args["numbers"]).ToNot(BeEmpty())
 		},
 		func(mode string) string {
 			return "mode: " + mode
@@ -445,7 +445,7 @@ var _ = Describe("Simulator for request with tools", func() {
 			args := make(map[string][][][]string)
 			err = json.Unmarshal([]byte(tc.Function.Arguments), &args)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(len(args["tensor"])).To(BeNumerically(">=", 1))
+			Expect(args["tensor"]).ToNot(BeEmpty())
 		},
 		func(mode string) string {
 			return "mode: " + mode
