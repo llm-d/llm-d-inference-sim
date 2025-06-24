@@ -140,16 +140,16 @@ func createArgument(property any) (any, error) {
 	case "array":
 		items := propertyMap["items"]
 		itemsMap := items.(map[string]any)
-		numberOfArgs := randomInt(5, true)
-		arrayOfArgs := make([]any, numberOfArgs)
-		for i := range numberOfArgs {
-			arg, err := createArgument(itemsMap)
+		numberOfElements := randomInt(5, true)
+		array := make([]any, numberOfElements)
+		for i := range numberOfElements {
+			elem, err := createArgument(itemsMap)
 			if err != nil {
 				return nil, err
 			}
-			arrayOfArgs[i] = arg
+			array[i] = elem
 		}
-		return arrayOfArgs, nil
+		return array, nil
 	default:
 		return nil, fmt.Errorf("tool parameters of type %s are currently not supported", paramType)
 	}
