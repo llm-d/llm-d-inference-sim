@@ -19,8 +19,6 @@ package llmdinferencesim
 import (
 	"encoding/json"
 	"fmt"
-	"math/rand"
-	"time"
 
 	"github.com/santhosh-tekuri/jsonschema/v5"
 )
@@ -89,11 +87,6 @@ func createToolCalls(tools []tool, toolChoice string) ([]toolCall, string, int, 
 	return calls, toolsFinishReason, countTokensForToolCalls(calls), nil
 }
 
-func getStringArgument() string {
-	index := rand.New(rand.NewSource(time.Now().UnixNano())).Intn(len(fakeStringArguments))
-	return fakeStringArguments[index]
-}
-
 func generateToolArguments(tool tool) (map[string]any, error) {
 	arguments := make(map[string]any)
 	properties, _ := tool.Function.Parameters["properties"].(map[string]any)
@@ -144,9 +137,27 @@ func createArgument(property any) (any, error) {
 		return randomInt(100, false), nil
 	case "boolean":
 		return flipCoin(), nil
+	case "array":
+		items := propertyMap["items"]
+		itemsMap := items.(map[string]any)
+		numberOfArgs := randomInt(5, true)
+		arrayOfArgs := make([]any, numberOfArgs)
+		for i := range numberOfArgs {
+			arg, err := createArgument(itemsMap)
+			if err != nil {
+				return nil, err
+			}
+			arrayOfArgs[i] = arg
+		}
+		return arrayOfArgs, nil
 	default:
 		return nil, fmt.Errorf("tool parameters of type %s are currently not supported", paramType)
 	}
+}
+
+func getStringArgument() string {
+	index := randomInt(len(fakeStringArguments)-1, false)
+	return fakeStringArguments[index]
 }
 
 type validator struct {
@@ -262,6 +273,7 @@ const schema = `{
             "string",
             "number",
             "boolean",
+            "array",
             "null"
           ]
         },
@@ -275,12 +287,29 @@ const schema = `{
               "string",
               "number",
               "boolean",
+              "array",
               "null"
             ]
           }
         },
-        "additionalProperties": {
-          "type": "boolean"
+        "properties": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/property_definition"
+          }
+        },
+        "items": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/property_definition"
+            },
+            {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/property_definition"
+              }
+            }
+          ]
         }
       },
       "required": [
@@ -360,9 +389,22 @@ const schema = `{
               ]
             }
           }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "array"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "items"
+            ]
+          }
         }
       ]
     }
   }
-}
 }`

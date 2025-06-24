@@ -62,7 +62,7 @@ func getMaxTokens(maxCompletionTokens *int64, maxTokens *int64) (*int64, error) 
 // getRandomResponseText returns random response text from the pre-defined list of responses
 // considering max completion tokens if it is not nil, and a finish reason (stop or length)
 func getRandomResponseText(maxCompletionTokens *int64) (string, string) {
-	index := rand.New(rand.NewSource(time.Now().UnixNano())).Intn(len(chatCompletionFakeResponses))
+	index := randomInt(len(chatCompletionFakeResponses)-1, false)
 	text := chatCompletionFakeResponses[index]
 
 	return getResponseText(maxCompletionTokens, text)

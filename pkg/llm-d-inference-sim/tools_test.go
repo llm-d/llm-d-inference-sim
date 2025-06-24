@@ -131,6 +131,52 @@ var invalidTools = [][]openai.ChatCompletionToolParam{
 	},
 }
 
+var toolWithArray = []openai.ChatCompletionToolParam{
+	{
+		Function: openai.FunctionDefinitionParam{
+			Name:        "multiply_numbers",
+			Description: openai.String("Multiply an array of numbers"),
+			Parameters: openai.FunctionParameters{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"numbers": map[string]interface{}{
+						"type":        "array",
+						"items":       map[string]string{"type": "number"},
+						"description": "List of numbers to multiply",
+					},
+				},
+				"required": []string{"numbers"},
+			},
+		},
+	},
+}
+
+var toolWith3DArray = []openai.ChatCompletionToolParam{
+	{
+		Function: openai.FunctionDefinitionParam{
+			Name:        "process_tensor",
+			Description: openai.String("Process a 3D tensor of strings"),
+			Parameters: openai.FunctionParameters{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"tensor": map[string]interface{}{
+						"type": "array",
+						"items": map[string]any{
+							"type": "array",
+							"items": map[string]any{
+								"type":  "array",
+								"items": map[string]string{"type": "string"},
+							},
+						},
+						"description": "List of strings",
+					},
+				},
+				"required": []string{"tensor"},
+			},
+		},
+	},
+}
+
 var _ = Describe("Simulator for request with tools", func() {
 
 	DescribeTable("streaming",
@@ -307,6 +353,107 @@ var _ = Describe("Simulator for request with tools", func() {
 		func(mode string) string {
 			return "mode: " + mode
 		},
+		Entry(nil, modeRandom),
+	)
+
+	DescribeTable("array parameter, no streaming",
+		func(mode string) {
+			ctx := context.TODO()
+			client, err := startServer(ctx, mode)
+			Expect(err).NotTo(HaveOccurred())
+
+			openaiclient := openai.NewClient(
+				option.WithBaseURL(baseURL),
+				option.WithHTTPClient(client))
+
+			params := openai.ChatCompletionNewParams{
+				Messages:   []openai.ChatCompletionMessageParamUnion{openai.UserMessage(userMessage)},
+				Model:      model,
+				ToolChoice: openai.ChatCompletionToolChoiceOptionUnionParam{OfAuto: param.NewOpt("required")},
+				Tools:      toolWithArray,
+			}
+
+			resp, err := openaiclient.Chat.Completions.New(ctx, params)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.Choices).ShouldNot(BeEmpty())
+			Expect(string(resp.Object)).To(Equal(chatCompletionObject))
+
+			Expect(resp.Usage.PromptTokens).To(Equal(int64(4)))
+			Expect(resp.Usage.CompletionTokens).To(BeNumerically(">", 0))
+			Expect(resp.Usage.TotalTokens).To(Equal(resp.Usage.PromptTokens + resp.Usage.CompletionTokens))
+
+			content := resp.Choices[0].Message.Content
+			Expect(content).Should(BeEmpty())
+
+			toolCalls := resp.Choices[0].Message.ToolCalls
+			Expect(toolCalls).To(HaveLen(1))
+			tc := toolCalls[0]
+			Expect(tc.Function.Name).To(Equal("multiply_numbers"))
+			Expect(tc.ID).NotTo(BeEmpty())
+			Expect(string(tc.Type)).To(Equal("function"))
+			args := make(map[string][]int)
+			err = json.Unmarshal([]byte(tc.Function.Arguments), &args)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(len(args["numbers"])).To(BeNumerically(">=", 1))
+		},
+		func(mode string) string {
+			return "mode: " + mode
+		},
+		// Call several times because the tools and arguments are chosen randomly
+		Entry(nil, modeRandom),
+		Entry(nil, modeRandom),
+		Entry(nil, modeRandom),
+		Entry(nil, modeRandom),
+	)
+
+	DescribeTable("3D array parameter, no streaming",
+		func(mode string) {
+			ctx := context.TODO()
+			client, err := startServer(ctx, mode)
+			Expect(err).NotTo(HaveOccurred())
+
+			openaiclient := openai.NewClient(
+				option.WithBaseURL(baseURL),
+				option.WithHTTPClient(client))
+
+			params := openai.ChatCompletionNewParams{
+				Messages:   []openai.ChatCompletionMessageParamUnion{openai.UserMessage(userMessage)},
+				Model:      model,
+				ToolChoice: openai.ChatCompletionToolChoiceOptionUnionParam{OfAuto: param.NewOpt("required")},
+				Tools:      toolWith3DArray,
+			}
+
+			resp, err := openaiclient.Chat.Completions.New(ctx, params)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.Choices).ShouldNot(BeEmpty())
+			Expect(string(resp.Object)).To(Equal(chatCompletionObject))
+
+			Expect(resp.Usage.PromptTokens).To(Equal(int64(4)))
+			Expect(resp.Usage.CompletionTokens).To(BeNumerically(">", 0))
+			Expect(resp.Usage.TotalTokens).To(Equal(resp.Usage.PromptTokens + resp.Usage.CompletionTokens))
+
+			content := resp.Choices[0].Message.Content
+			Expect(content).Should(BeEmpty())
+
+			toolCalls := resp.Choices[0].Message.ToolCalls
+			Expect(toolCalls).To(HaveLen(1))
+			tc := toolCalls[0]
+			Expect(tc.Function.Name).To(Equal("process_tensor"))
+			Expect(tc.ID).NotTo(BeEmpty())
+			Expect(string(tc.Type)).To(Equal("function"))
+
+			args := make(map[string][][][]string)
+			err = json.Unmarshal([]byte(tc.Function.Arguments), &args)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(len(args["tensor"])).To(BeNumerically(">=", 1))
+		},
+		func(mode string) string {
+			return "mode: " + mode
+		},
+		// Call several times because the tools and arguments are chosen randomly
+		Entry(nil, modeRandom),
+		Entry(nil, modeRandom),
+		Entry(nil, modeRandom),
 		Entry(nil, modeRandom),
 	)
 })
