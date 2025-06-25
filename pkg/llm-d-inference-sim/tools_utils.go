@@ -272,36 +272,18 @@ const schema = `{
         "type"
       ],
       "additionalProperties": false,
-      "allOf": [
-        {
-          "if": {
-            "properties": {
-              "type": {
-                "const": "object"
-              }
-            }
-          },
-          "then": {
-            "required": [
-              "properties"
-            ]
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "type": {
-                "const": "object"
-              }
-            }
-          },
-          "then": {
-            "required": [
-              "properties"
-            ]
+      "if": {
+        "properties": {
+          "type": {
+            "const": "object"
           }
         }
-      ]
+      },
+      "then": {
+        "required": [
+          "properties"
+        ]
+      }
     },
     "property_definition": {
       "type": "object",
