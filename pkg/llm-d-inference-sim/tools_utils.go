@@ -308,9 +308,7 @@ const schema = `{
             "type": [
               "string",
               "number",
-              "boolean",
-              "array",
-              "null"
+              "boolean"
             ]
           }
         },
@@ -404,11 +402,29 @@ const schema = `{
         },
         {
           "if": {
-            "properties": {
-              "type": {
-                "const": "null"
+            "anyOf": [
+              {
+                "properties": {
+                  "type": {
+                    "const": "null"
+                  }
+                }
+              },
+              {
+                "properties": {
+                  "type": {
+                    "const": "object"
+                  }
+                }
+              },
+              {
+                "properties": {
+                  "type": {
+                    "const": "array"
+                  }
+                }
               }
-            }
+            ]
           },
           "then": {
             "not": {
