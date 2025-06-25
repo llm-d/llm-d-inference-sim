@@ -27,5 +27,6 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build -a -o bi
 FROM registry.access.redhat.com/ubi9/ubi-micro:latest
 WORKDIR /
 COPY --from=builder /workspace/bin/llm-d-inference-sim /app/llm-d-inference-sim
+USER 65532:65532
 
 ENTRYPOINT ["/app/llm-d-inference-sim"]
