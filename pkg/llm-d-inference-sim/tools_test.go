@@ -177,6 +177,85 @@ var toolWith3DArray = []openai.ChatCompletionToolParam{
 	},
 }
 
+var toolWithObjects = []openai.ChatCompletionToolParam{
+	{
+		Function: openai.FunctionDefinitionParam{
+			Name:        "process_order",
+			Description: openai.String("Process a customer order"),
+			Parameters: openai.FunctionParameters{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"order_info": map[string]interface{}{
+						"type": "object",
+						"properties": map[string]interface{}{
+							"item": map[string]interface{}{
+								"type": "string",
+							},
+							"quantity": map[string]string{
+								"type": "number",
+							},
+							"address": map[string]interface{}{
+								"type": "object",
+								"properties": map[string]interface{}{
+									"street": map[string]interface{}{
+										"type": "string",
+									},
+									"number": map[string]interface{}{
+										"type": "number",
+									},
+									"home": map[string]interface{}{
+										"type": "boolean",
+									},
+								},
+								"required": []string{"street", "number", "home"},
+							},
+						},
+						"required": []string{"item", "quantity", "address"},
+					},
+					"name": map[string]interface{}{
+						"type": "string",
+					},
+				},
+				"required": []string{"order_info", "name"},
+			},
+		},
+	},
+}
+
+var toolWithObjectAndArray = []openai.ChatCompletionToolParam{
+	{
+		Function: openai.FunctionDefinitionParam{
+			Name:        "submit_survey",
+			Description: openai.String("Submit a survey with user information."),
+			Parameters: openai.FunctionParameters{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"user_info": map[string]interface{}{
+						"type": "object",
+						"properties": map[string]interface{}{
+							"name": map[string]interface{}{
+								"type":        "string",
+								"description": "The user's name",
+							},
+							"age": map[string]string{
+								"type":        "number",
+								"description": "The user's age",
+							},
+							"hobbies": map[string]interface{}{
+								"type":        "array",
+								"items":       map[string]string{"type": "string"},
+								"description": "A list of the user's hobbies",
+							},
+						},
+						"required": []string{"name", "age", "hobbies"},
+					},
+				},
+				"required": []string{"user_info"},
+			},
+		},
+	},
+}
+
 var _ = Describe("Simulator for request with tools", func() {
 
 	DescribeTable("streaming",
@@ -454,6 +533,123 @@ var _ = Describe("Simulator for request with tools", func() {
 		Entry(nil, modeRandom),
 		Entry(nil, modeRandom),
 		Entry(nil, modeRandom),
+		Entry(nil, modeRandom),
+	)
+
+	DescribeTable("objects, no streaming",
+		func(mode string) {
+			ctx := context.TODO()
+			client, err := startServer(ctx, mode)
+			Expect(err).NotTo(HaveOccurred())
+
+			openaiclient := openai.NewClient(
+				option.WithBaseURL(baseURL),
+				option.WithHTTPClient(client))
+
+			params := openai.ChatCompletionNewParams{
+				Messages:   []openai.ChatCompletionMessageParamUnion{openai.UserMessage(userMessage)},
+				Model:      model,
+				ToolChoice: openai.ChatCompletionToolChoiceOptionUnionParam{OfAuto: param.NewOpt("required")},
+				Tools:      toolWithObjects,
+			}
+
+			resp, err := openaiclient.Chat.Completions.New(ctx, params)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.Choices).ShouldNot(BeEmpty())
+			Expect(string(resp.Object)).To(Equal(chatCompletionObject))
+
+			Expect(resp.Usage.PromptTokens).To(Equal(int64(4)))
+			Expect(resp.Usage.CompletionTokens).To(BeNumerically(">", 0))
+			Expect(resp.Usage.TotalTokens).To(Equal(resp.Usage.PromptTokens + resp.Usage.CompletionTokens))
+
+			content := resp.Choices[0].Message.Content
+			Expect(content).Should(BeEmpty())
+
+			toolCalls := resp.Choices[0].Message.ToolCalls
+			Expect(toolCalls).To(HaveLen(1))
+			tc := toolCalls[0]
+			Expect(tc.Function.Name).To(Equal("process_order"))
+			Expect(tc.ID).NotTo(BeEmpty())
+			Expect(string(tc.Type)).To(Equal("function"))
+
+			args := make(map[string]any)
+			err = json.Unmarshal([]byte(tc.Function.Arguments), &args)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(args["name"]).ToNot(BeEmpty())
+			Expect(args["order_info"]).ToNot(BeEmpty())
+			orderInfo, ok := args["order_info"].(map[string]any)
+			Expect(ok).To(BeTrue())
+			Expect(orderInfo["item"]).ToNot(BeEmpty())
+			Expect(orderInfo).To(HaveKey("quantity"))
+			Expect(orderInfo["address"]).ToNot(BeEmpty())
+			address, ok := orderInfo["address"].(map[string]any)
+			Expect(ok).To(BeTrue())
+			Expect(address["street"]).ToNot(BeEmpty())
+			_, ok = address["street"].(string)
+			Expect(ok).To(BeTrue())
+			_, ok = address["number"].(float64)
+			Expect(ok).To(BeTrue())
+			_, ok = address["home"].(bool)
+			Expect(ok).To(BeTrue())
+		},
+		func(mode string) string {
+			return "mode: " + mode
+		},
+		Entry(nil, modeRandom),
+	)
+
+	DescribeTable("objects with array field, no streaming",
+		func(mode string) {
+			ctx := context.TODO()
+			client, err := startServer(ctx, mode)
+			Expect(err).NotTo(HaveOccurred())
+
+			openaiclient := openai.NewClient(
+				option.WithBaseURL(baseURL),
+				option.WithHTTPClient(client))
+
+			params := openai.ChatCompletionNewParams{
+				Messages:   []openai.ChatCompletionMessageParamUnion{openai.UserMessage(userMessage)},
+				Model:      model,
+				ToolChoice: openai.ChatCompletionToolChoiceOptionUnionParam{OfAuto: param.NewOpt("required")},
+				Tools:      toolWithObjectAndArray,
+			}
+
+			resp, err := openaiclient.Chat.Completions.New(ctx, params)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.Choices).ShouldNot(BeEmpty())
+			Expect(string(resp.Object)).To(Equal(chatCompletionObject))
+
+			Expect(resp.Usage.PromptTokens).To(Equal(int64(4)))
+			Expect(resp.Usage.CompletionTokens).To(BeNumerically(">", 0))
+			Expect(resp.Usage.TotalTokens).To(Equal(resp.Usage.PromptTokens + resp.Usage.CompletionTokens))
+
+			content := resp.Choices[0].Message.Content
+			Expect(content).Should(BeEmpty())
+
+			toolCalls := resp.Choices[0].Message.ToolCalls
+			Expect(toolCalls).To(HaveLen(1))
+			tc := toolCalls[0]
+			Expect(tc.Function.Name).To(Equal("submit_survey"))
+			Expect(tc.ID).NotTo(BeEmpty())
+			Expect(string(tc.Type)).To(Equal("function"))
+
+			args := make(map[string]any)
+			err = json.Unmarshal([]byte(tc.Function.Arguments), &args)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(args["user_info"]).ToNot(BeEmpty())
+
+			userInfo, ok := args["user_info"].(map[string]any)
+			Expect(ok).To(BeTrue())
+			Expect(userInfo).To(HaveKey("age"))
+			Expect(userInfo["name"]).ToNot(BeEmpty())
+			Expect(userInfo["hobbies"]).ToNot(BeEmpty())
+			_, ok = userInfo["hobbies"].([]any)
+			Expect(ok).To(BeTrue())
+		},
+		func(mode string) string {
+			return "mode: " + mode
+		},
 		Entry(nil, modeRandom),
 	)
 })

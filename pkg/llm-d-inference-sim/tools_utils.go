@@ -87,12 +87,9 @@ func createToolCalls(tools []tool, toolChoice string) ([]toolCall, string, int, 
 	return calls, toolsFinishReason, countTokensForToolCalls(calls), nil
 }
 
-func generateToolArguments(tool tool) (map[string]any, error) {
-	arguments := make(map[string]any)
-	properties, _ := tool.Function.Parameters["properties"].(map[string]any)
-
+func getRequiredAsMap(property map[string]any) map[string]struct{} {
 	required := make(map[string]struct{})
-	requiredParams, ok := tool.Function.Parameters["required"]
+	requiredParams, ok := property["required"]
 	if ok {
 		requiredArray, _ := requiredParams.([]any)
 		for _, requiredParam := range requiredArray {
@@ -100,6 +97,14 @@ func generateToolArguments(tool tool) (map[string]any, error) {
 			required[param] = struct{}{}
 		}
 	}
+	return required
+}
+
+func generateToolArguments(tool tool) (map[string]any, error) {
+	arguments := make(map[string]any)
+	properties, _ := tool.Function.Parameters["properties"].(map[string]any)
+
+	required := getRequiredAsMap(tool.Function.Parameters)
 
 	for param, property := range properties {
 		_, paramIsRequired := required[param]
@@ -150,8 +155,24 @@ func createArgument(property any) (any, error) {
 			array[i] = elem
 		}
 		return array, nil
+	case "object":
+		required := getRequiredAsMap(propertyMap)
+		objectProperties := propertyMap["properties"].(map[string]any)
+		object := make(map[string]interface{})
+		for fieldName, fieldProperties := range objectProperties {
+			_, fieldIsRequired := required[fieldName]
+			if !fieldIsRequired && !flipCoin() {
+				continue
+			}
+			fieldValue, err := createArgument(fieldProperties)
+			if err != nil {
+				return nil, err
+			}
+			object[fieldName] = fieldValue
+		}
+		return object, nil
 	default:
-		return nil, fmt.Errorf("tool parameters of type %s are currently not supported", paramType)
+		return nil, fmt.Errorf("tool parameters of type %s are not supported", paramType)
 	}
 }
 
@@ -251,18 +272,36 @@ const schema = `{
         "type"
       ],
       "additionalProperties": false,
-      "if": {
-        "properties": {
-          "type": {
-            "const": "object"
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "object"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "properties"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "object"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "properties"
+            ]
           }
         }
-      },
-      "then": {
-        "required": [
-          "properties"
-        ]
-      }
+      ]
     },
     "property_definition": {
       "type": "object",
@@ -274,6 +313,7 @@ const schema = `{
             "number",
             "boolean",
             "array",
+            "object",
             "null"
           ]
         },
@@ -310,6 +350,12 @@ const schema = `{
               }
             }
           ]
+        },
+        "required": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         }
       },
       "required": [
@@ -401,6 +447,20 @@ const schema = `{
           "then": {
             "required": [
               "items"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "object"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "properties"
             ]
           }
         }
