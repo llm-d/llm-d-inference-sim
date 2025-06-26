@@ -181,6 +181,28 @@ var toolWith3DArray = []openai.ChatCompletionToolParam{
 	},
 }
 
+var toolWithWrongMinMax = []openai.ChatCompletionToolParam{
+	{
+		Function: openai.FunctionDefinitionParam{
+			Name:        "multiply_numbers",
+			Description: openai.String("Multiply an array of numbers"),
+			Parameters: openai.FunctionParameters{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"numbers": map[string]interface{}{
+						"type":        "array",
+						"items":       map[string]string{"type": "number"},
+						"description": "List of numbers to multiply",
+						"minItems":    3,
+						"maxItems":    1,
+					},
+				},
+				"required": []string{"numbers"},
+			},
+		},
+	},
+}
+
 var toolWithObjects = []openai.ChatCompletionToolParam{
 	{
 		Function: openai.FunctionDefinitionParam{
@@ -545,6 +567,32 @@ var _ = Describe("Simulator for request with tools", func() {
 		Entry(nil, modeRandom),
 		Entry(nil, modeRandom),
 		Entry(nil, modeRandom),
+		Entry(nil, modeRandom),
+	)
+
+	DescribeTable("array parameter with wrong min and max items, no streaming",
+		func(mode string) {
+			ctx := context.TODO()
+			client, err := startServer(ctx, mode)
+			Expect(err).NotTo(HaveOccurred())
+
+			openaiclient := openai.NewClient(
+				option.WithBaseURL(baseURL),
+				option.WithHTTPClient(client))
+
+			params := openai.ChatCompletionNewParams{
+				Messages:   []openai.ChatCompletionMessageParamUnion{openai.UserMessage(userMessage)},
+				Model:      model,
+				ToolChoice: openai.ChatCompletionToolChoiceOptionUnionParam{OfAuto: param.NewOpt("required")},
+				Tools:      toolWithWrongMinMax,
+			}
+
+			_, err = openaiclient.Chat.Completions.New(ctx, params)
+			Expect(err).To(HaveOccurred())
+		},
+		func(mode string) string {
+			return "mode: " + mode
+		},
 		Entry(nil, modeRandom),
 	)
 

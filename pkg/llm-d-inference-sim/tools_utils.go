@@ -157,6 +157,9 @@ func createArgument(property any) (any, error) {
 		if value, ok := propertyMap["maxItems"]; ok {
 			maxItems = int(value.(float64))
 		}
+		if minItems > maxItems {
+			return nil, fmt.Errorf("minItems (%d) is greater than maxItems(%d)", minItems, maxItems)
+		}
 		numberOfElements := randomInt(minItems, maxItems)
 		array := make([]any, numberOfElements)
 		for i := range numberOfElements {
