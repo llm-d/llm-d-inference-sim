@@ -237,7 +237,7 @@ const schema = `{
             "array",
             "string",
             "number",
-			"integer",
+            "integer",
             "boolean",
             "null"
           ]
@@ -296,7 +296,7 @@ const schema = `{
           "enum": [
             "string",
             "number",
-			"integer",
+            "integer",
             "boolean",
             "array",
             "object",
@@ -312,7 +312,7 @@ const schema = `{
             "type": [
               "string",
               "number",
-			  "integer",
+              "integer",
               "boolean"
             ]
           }
@@ -386,7 +386,7 @@ const schema = `{
             }
           }
         },
-		{
+        {
           "if": {
             "properties": {
               "type": {
