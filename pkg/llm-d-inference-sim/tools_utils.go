@@ -138,8 +138,10 @@ func createArgument(property any) (any, error) {
 	switch paramType {
 	case "string":
 		return getStringArgument(), nil
-	case "number":
+	case "integer":
 		return randomInt(100, false), nil
+	case "number":
+		return randomFloat(0, 100), nil
 	case "boolean":
 		return flipCoin(), nil
 	case "array":
@@ -235,6 +237,7 @@ const schema = `{
             "array",
             "string",
             "number",
+			"integer",
             "boolean",
             "null"
           ]
@@ -293,6 +296,7 @@ const schema = `{
           "enum": [
             "string",
             "number",
+			"integer",
             "boolean",
             "array",
             "object",
@@ -308,6 +312,7 @@ const schema = `{
             "type": [
               "string",
               "number",
+			  "integer",
               "boolean"
             ]
           }
@@ -376,6 +381,25 @@ const schema = `{
                 "type": "array",
                 "items": {
                   "type": "number"
+                }
+              }
+            }
+          }
+        },
+		{
+          "if": {
+            "properties": {
+              "type": {
+                "const": "integer"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "enum": {
+                "type": "array",
+                "items": {
+                  "type": "integer"
                 }
               }
             }
