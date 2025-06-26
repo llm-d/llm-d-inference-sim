@@ -62,7 +62,7 @@ func getMaxTokens(maxCompletionTokens *int64, maxTokens *int64) (*int64, error) 
 // getRandomResponseText returns random response text from the pre-defined list of responses
 // considering max completion tokens if it is not nil, and a finish reason (stop or length)
 func getRandomResponseText(maxCompletionTokens *int64) (string, string) {
-	index := randomInt(len(chatCompletionFakeResponses)-1, false)
+	index := randomInt(0, len(chatCompletionFakeResponses)-1)
 	text := chatCompletionFakeResponses[index]
 
 	return getResponseText(maxCompletionTokens, text)
@@ -105,26 +105,22 @@ func randomNumericString(length int) string {
 	digits := "0123456789"
 	result := make([]byte, length)
 	for i := 0; i < length; i++ {
-		num := randomInt(9, false)
+		num := randomInt(0, 9)
 		result[i] = digits[num]
 	}
 	return string(result)
 }
 
-// Returns an integer between 0 and max (included), unless startFromeOne is true,
-// in which case returns an integer between 1 and max (included)
-func randomInt(max int, startFromOne bool) int {
+// Returns an integer between min and max (included)
+func randomInt(min int, max int) int {
 	src := rand.NewSource(time.Now().UnixNano())
 	r := rand.New(src)
-	if startFromOne {
-		return r.Intn(max) + 1 // [1, max]
-	}
-	return r.Intn(max + 1) // [0, max]
+	return r.Intn(max-min+1) + min
 }
 
 // Returns true or false randomly
 func flipCoin() bool {
-	return randomInt(1, false) != 0
+	return randomInt(0, 1) != 0
 }
 
 // Regular expression for the response tokenization

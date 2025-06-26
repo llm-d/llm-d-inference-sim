@@ -160,12 +160,16 @@ var toolWith3DArray = []openai.ChatCompletionToolParam{
 				"type": "object",
 				"properties": map[string]interface{}{
 					"tensor": map[string]interface{}{
-						"type": "array",
+						"type":     "array",
+						"minItems": 2,
 						"items": map[string]any{
-							"type": "array",
+							"type":     "array",
+							"minItems": 0,
+							"maxItems": 1,
 							"items": map[string]any{
-								"type":  "array",
-								"items": map[string]string{"type": "string"},
+								"type":     "array",
+								"items":    map[string]string{"type": "string"},
+								"maxItems": 3,
 							},
 						},
 						"description": "List of strings",
@@ -525,6 +529,14 @@ var _ = Describe("Simulator for request with tools", func() {
 			err = json.Unmarshal([]byte(tc.Function.Arguments), &args)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(args["tensor"]).ToNot(BeEmpty())
+			tensor := args["tensor"]
+			Expect(len(tensor)).To(BeNumerically(">=", 2))
+			for _, elem := range tensor {
+				Expect(len(elem)).To(Or(Equal(0), Equal(1)))
+				for _, inner := range elem {
+					Expect(len(inner)).To(Or(Equal(1), Equal(2), Equal(3)))
+				}
+			}
 		},
 		func(mode string) string {
 			return "mode: " + mode
