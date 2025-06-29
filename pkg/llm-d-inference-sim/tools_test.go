@@ -160,18 +160,44 @@ var toolWith3DArray = []openai.ChatCompletionToolParam{
 				"type": "object",
 				"properties": map[string]interface{}{
 					"tensor": map[string]interface{}{
-						"type": "array",
+						"type":     "array",
+						"minItems": 2,
 						"items": map[string]any{
-							"type": "array",
+							"type":     "array",
+							"minItems": 0,
+							"maxItems": 1,
 							"items": map[string]any{
-								"type":  "array",
-								"items": map[string]string{"type": "string"},
+								"type":     "array",
+								"items":    map[string]string{"type": "string"},
+								"maxItems": 3,
 							},
 						},
 						"description": "List of strings",
 					},
 				},
 				"required": []string{"tensor"},
+			},
+		},
+	},
+}
+
+var toolWithWrongMinMax = []openai.ChatCompletionToolParam{
+	{
+		Function: openai.FunctionDefinitionParam{
+			Name:        "multiply_numbers",
+			Description: openai.String("Multiply an array of numbers"),
+			Parameters: openai.FunctionParameters{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"numbers": map[string]interface{}{
+						"type":        "array",
+						"items":       map[string]string{"type": "number"},
+						"description": "List of numbers to multiply",
+						"minItems":    3,
+						"maxItems":    1,
+					},
+				},
+				"required": []string{"numbers"},
 			},
 		},
 	},
@@ -525,6 +551,14 @@ var _ = Describe("Simulator for request with tools", func() {
 			err = json.Unmarshal([]byte(tc.Function.Arguments), &args)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(args["tensor"]).ToNot(BeEmpty())
+			tensor := args["tensor"]
+			Expect(len(tensor)).To(BeNumerically(">=", 2))
+			for _, elem := range tensor {
+				Expect(len(elem)).To(Or(Equal(0), Equal(1)))
+				for _, inner := range elem {
+					Expect(len(inner)).To(Or(Equal(1), Equal(2), Equal(3)))
+				}
+			}
 		},
 		func(mode string) string {
 			return "mode: " + mode
@@ -533,6 +567,32 @@ var _ = Describe("Simulator for request with tools", func() {
 		Entry(nil, modeRandom),
 		Entry(nil, modeRandom),
 		Entry(nil, modeRandom),
+		Entry(nil, modeRandom),
+	)
+
+	DescribeTable("array parameter with wrong min and max items, no streaming",
+		func(mode string) {
+			ctx := context.TODO()
+			client, err := startServer(ctx, mode)
+			Expect(err).NotTo(HaveOccurred())
+
+			openaiclient := openai.NewClient(
+				option.WithBaseURL(baseURL),
+				option.WithHTTPClient(client))
+
+			params := openai.ChatCompletionNewParams{
+				Messages:   []openai.ChatCompletionMessageParamUnion{openai.UserMessage(userMessage)},
+				Model:      model,
+				ToolChoice: openai.ChatCompletionToolChoiceOptionUnionParam{OfAuto: param.NewOpt("required")},
+				Tools:      toolWithWrongMinMax,
+			}
+
+			_, err = openaiclient.Chat.Completions.New(ctx, params)
+			Expect(err).To(HaveOccurred())
+		},
+		func(mode string) string {
+			return "mode: " + mode
+		},
 		Entry(nil, modeRandom),
 	)
 

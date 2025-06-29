@@ -53,7 +53,11 @@ func createToolCalls(tools []tool, toolChoice string) ([]toolCall, string, int, 
 	// In case of 'required' at least one tool call has to be created, and we randomly choose
 	// the number of calls starting from one. Otherwise, we start from 0, and in case we randomly
 	// choose the number of calls to be 0, response text will be generated instead of a tool call.
-	numberOfCalls := randomInt(len(tools), toolChoice == toolChoiceRequired)
+	min := 0
+	if toolChoice == toolChoiceRequired {
+		min = 1
+	}
+	numberOfCalls := randomInt(min, len(tools))
 	if numberOfCalls == 0 {
 		return nil, "", 0, nil
 	}
@@ -61,7 +65,7 @@ func createToolCalls(tools []tool, toolChoice string) ([]toolCall, string, int, 
 	calls := make([]toolCall, 0)
 	for i := range numberOfCalls {
 		// Randomly choose which tools to call. We may call the same tool more than once.
-		index := randomInt(len(tools)-1, false)
+		index := randomInt(0, len(tools)-1)
 		args, err := generateToolArguments(tools[index])
 		if err != nil {
 			return nil, "", 0, err
@@ -130,7 +134,7 @@ func createArgument(property any) (any, error) {
 	if ok {
 		enumArray, ok := enum.([]any)
 		if ok && len(enumArray) > 0 {
-			index := randomInt(len(enumArray)-1, false)
+			index := randomInt(0, len(enumArray)-1)
 			return enumArray[index], nil
 		}
 	}
@@ -139,7 +143,7 @@ func createArgument(property any) (any, error) {
 	case "string":
 		return getStringArgument(), nil
 	case "integer":
-		return randomInt(100, false), nil
+		return randomInt(0, 100), nil
 	case "number":
 		return randomFloat(0, 100), nil
 	case "boolean":
@@ -147,7 +151,18 @@ func createArgument(property any) (any, error) {
 	case "array":
 		items := propertyMap["items"]
 		itemsMap := items.(map[string]any)
-		numberOfElements := randomInt(5, true)
+		minItems := 1
+		maxItems := 5
+		if value, ok := propertyMap["minItems"]; ok {
+			minItems = int(value.(float64))
+		}
+		if value, ok := propertyMap["maxItems"]; ok {
+			maxItems = int(value.(float64))
+		}
+		if minItems > maxItems {
+			return nil, fmt.Errorf("minItems (%d) is greater than maxItems(%d)", minItems, maxItems)
+		}
+		numberOfElements := randomInt(minItems, maxItems)
 		array := make([]any, numberOfElements)
 		for i := range numberOfElements {
 			elem, err := createArgument(itemsMap)
@@ -179,7 +194,7 @@ func createArgument(property any) (any, error) {
 }
 
 func getStringArgument() string {
-	index := randomInt(len(fakeStringArguments)-1, false)
+	index := randomInt(0, len(fakeStringArguments)-1)
 	return fakeStringArguments[index]
 }
 
@@ -341,6 +356,14 @@ const schema = `{
           "items": {
             "type": "string"
           }
+        },
+          "minItems": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "maxItems": {
+          "type": "integer",
+          "minimum": 0
         }
       },
       "required": [
