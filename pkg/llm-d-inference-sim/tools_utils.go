@@ -257,67 +257,6 @@ const schema = `{
             "null"
           ]
         },
-        "properties": {
-          "type": "object",
-          "additionalProperties": {
-            "$ref": "#/$defs/property_definition"
-          }
-        },
-        "items": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/property_definition"
-            },
-            {
-              "type": "array",
-              "items": {
-                "$ref": "#/$defs/property_definition"
-              }
-            }
-          ]
-        },
-        "required": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "additionalProperties": {
-          "type": "boolean"
-        }
-      },
-      "required": [
-        "type"
-      ],
-      "additionalProperties": false,
-      "if": {
-        "properties": {
-          "type": {
-            "const": "object"
-          }
-        }
-      },
-      "then": {
-        "required": [
-          "properties"
-        ]
-      }
-    },
-    "property_definition": {
-      "type": "object",
-      "properties": {
-        "type": {
-          "type": "string",
-          "enum": [
-            "string",
-            "number",
-            "integer",
-            "boolean",
-            "array",
-            "object",
-            "null"
-          ]
-        },
         "description": {
           "type": "string"
         },
@@ -335,18 +274,18 @@ const schema = `{
         "properties": {
           "type": "object",
           "additionalProperties": {
-            "$ref": "#/$defs/property_definition"
+            "$ref": "#/$defs/param_definition"
           }
         },
         "items": {
           "anyOf": [
             {
-              "$ref": "#/$defs/property_definition"
+              "$ref": "#/$defs/param_definition"
             },
             {
               "type": "array",
               "items": {
-                "$ref": "#/$defs/property_definition"
+                "$ref": "#/$defs/param_definition"
               }
             }
           ]
@@ -357,7 +296,10 @@ const schema = `{
             "type": "string"
           }
         },
-          "minItems": {
+        "additionalProperties": {
+          "type": "boolean"
+        },
+        "minItems": {
           "type": "integer",
           "minimum": 0
         },
