@@ -85,18 +85,40 @@ API responses contains a subset of the fields provided by the OpenAI API.
 For more details see the <a href="https://docs.vllm.ai/en/stable/getting_started/quickstart.html#openai-completions-api-with-vllm">vLLM documentation</a>
 
 ## Command line parameters
-- `port`: the port the simulator listents on, mandatory
+- `config`: the path to a yaml configuration file 
+- `port`: the port the simulator listents on, default is 8000
 - `model`: the currently 'loaded' model, mandatory
-- `lora`: a list of available LoRA adapters, separated by commas, optional, by default empty
+- `served-model-name`: model names exposed by the API (comma or space-separated)
+- `lora-modules`: LoRA module configurations in JSON format: [{"name": "name", "path": "lora_path", "base_model_name": "id"}], optional, empty by default
+- `max-loras`: maximum number of LoRAs in a single batch, optional, default is one
+- `max-cpu-loras`: maximum number of LoRAs to store in CPU memory, optional, must be >= than max-loras, default is max-loras
+- `max-num-seqs`: maximum number of sequences per iteration (maximum number of inference requests that could be processed at the same time), default is 5
 - `mode`: the simulator mode, optional, by default `random`
  - `echo`: returns the same text that was sent in the request
  - `random`: returns a sentence chosen at random from a set of pre-defined sentences
 - `time-to-first-token`: the time to the first token (in milliseconds), optional, by default zero
 - `inter-token-latency`: the time to 'generate' each additional token (in milliseconds), optional, by default zero
-- `max-loras`: maximum number of LoRAs in a single batch, optional, default is one
-- `max-cpu-loras`: maximum number of LoRAs to store in CPU memory, optional, must be >= than max_loras, default is max_loras
-- `max-running-requests`: maximum number of inference requests that could be processed at the same time
 
+In addition, as we are using klog, the following parameters are available:
+- `add_dir_header`: if true, adds the file directory to the header of the log messages
+- `alsologtostderr`: log to standard error as well as files (no effect when -logtostderr=true)
+- `log_backtrace_at`: when logging hits line file:N, emit a stack trace (default :0)
+- `log_dir`: if non-empty, write log files in this directory (no effect when -logtostderr=true)
+- `log_file`: if non-empty, use this log file (no effect when -logtostderr=true)
+- `log_file_max_size`: defines the maximum size a log file can grow to (no effect when -logtostderr=true). Unit is megabytes. If the value is 0, the maximum file size is unlimited. (default 1800)
+- `logtostderr`: log to standard error instead of files (default true)
+- `one_output`: if true, only write logs to their native severity level (vs also writing to each lower severity level; no effect when -logtostderr=true)
+- `skip_headers`: if true, avoid header prefixes in the log messages
+- `skip_log_headers`: if true, avoid headers when opening log files (no effect when -logtostderr=true)
+- `stderrthreshold`: logs at or above this threshold go to stderr when writing to files and stderr (no effect when -logtostderr=true or -alsologtostderr=true) (default 2)
+- `v`: number for the log level verbosity
+- `vmodule`: comma-separated list of pattern=N settings for file-filtered logging
+
+---
+
+## Migrating from releases prior to v0.2.0
+- `max-running-requests` was replaced by `max-num-seqs`
+- `lora` was replaced by `lora-modules`, which is now an array in JSON format, e.g, [{"name": "name", "path": "lora_path", "base_model_name": "id"}]
 
 ## Working with docker image
 

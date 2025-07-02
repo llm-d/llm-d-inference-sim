@@ -20,7 +20,7 @@ package llmdinferencesim
 import (
 	"context"
 	"encoding/json"
-	"errors"
+	"flag"
 	"fmt"
 	"net"
 	"os"
@@ -38,6 +38,7 @@ import (
 	"github.com/spf13/pflag"
 	"github.com/valyala/fasthttp"
 	"github.com/valyala/fasthttp/fasthttpadaptor"
+	"k8s.io/klog/v2"
 )
 
 const (
@@ -62,28 +63,14 @@ const (
 type VllmSimulator struct {
 	// logger is used for information and errors logging
 	logger logr.Logger
-	// timeToFirstToken time before the first token will be returned, in milliseconds
-	timeToFirstToken int
-	// interTokenLatency time between generated tokens, in milliseconds
-	interTokenLatency int
-	// port defines on which port the simulator runs
-	port int
-	// mode defines the simulator response generation mode, valid values: echo, random
-	mode string
-	// model defines the current base model name
-	model string
+	// config is the simulator's configuration
+	config *configuration
 	// loraAdaptors contains list of LoRA available adaptors
 	loraAdaptors sync.Map
-	// maxLoras defines maximum number of loaded loras
-	maxLoras int
-	// maxCPULoras defines maximum number of loras to store in CPU memory
-	maxCPULoras int
 	// runningLoras is a collection of running loras, key of lora's name, value is number of requests using this lora
 	runningLoras sync.Map
 	// waitingLoras will represent collection of loras defined in requests in the queue - Not implemented yet
 	waitingLoras sync.Map
-	// maxRunningReqs defines the maximum number of inference requests that could be processed at the same time
-	maxRunningReqs int64
 	// nRunningReqs is the number of inference requests that are currently being processed
 	nRunningReqs int64
 	// nWaitingReqs is the number of inference requests that are waiting to be processed
@@ -118,7 +105,7 @@ func New(logger logr.Logger) (*VllmSimulator, error) {
 // Start starts the simulator
 func (s *VllmSimulator) Start(ctx context.Context) error {
 	// parse command line parameters
-	err := s.parseCommandParams()
+	err := s.parseCommandParamsAndLoadConfig()
 	if err != nil {
 		return err
 	}
@@ -130,7 +117,7 @@ func (s *VllmSimulator) Start(ctx context.Context) error {
 	}
 
 	// run request processing workers
-	for i := 1; i <= int(s.maxRunningReqs); i++ {
+	for i := 1; i <= s.config.MaxNumSeqs; i++ {
 		go s.reqProcessingWorker(ctx, i)
 	}
 	listener, err := s.newListener()
@@ -142,65 +129,83 @@ func (s *VllmSimulator) Start(ctx context.Context) error {
 	return s.startServer(listener)
 }
 
-// parseCommandParams parses and validates command line parameters
-func (s *VllmSimulator) parseCommandParams() error {
+// parseCommandParamsAndLoadConfig parses and validates command line parameters
+func (s *VllmSimulator) parseCommandParamsAndLoadConfig() error {
+	config := newConfig()
+	configFile := getConfigPathFromArgs()
+	if configFile != "" {
+		if err := config.load(configFile); err != nil {
+			return err
+		}
+	}
+
 	f := pflag.NewFlagSet("llm-d-inference-sim flags", pflag.ExitOnError)
-	f.StringVar(&s.mode, "mode", "random", "Simulator mode, echo - returns the same text that was sent in the request, for chat completion returns the last message, random - returns random sentence from a bank of pre-defined sentences")
-	f.IntVar(&s.port, "port", vLLMDefaultPort, "Port")
-	f.IntVar(&s.interTokenLatency, "inter-token-latency", 0, "Time to generate one token (in milliseconds)")
-	f.IntVar(&s.timeToFirstToken, "time-to-first-token", 0, "Time to first token (in milliseconds)")
-	f.StringVar(&s.model, "model", "", "Currently 'loaded' model")
-	var lorasStr string
-	f.StringVar(&lorasStr, "lora", "", "List of LoRA adapters, separated by comma")
-	f.IntVar(&s.maxLoras, "max-loras", 1, "Maximum number of LoRAs in a single batch")
-	f.IntVar(&s.maxCPULoras, "max-cpu-loras", 0, "Maximum number of LoRAs to store in CPU memory")
-	f.Int64Var(&s.maxRunningReqs, "max-running-requests", 5, "Maximum number of inference requests that could be processed at the same time (parameter to simulate requests waiting queue)")
+	f.IntVar(&config.Port, "port", config.Port, "Port")
+	f.StringVar(&config.Model, "model", config.Model, "Currently 'loaded' model")
+	f.IntVar(&config.MaxNumSeqs, "max-num-seqs", config.MaxNumSeqs, "Maximum number of inference requests that could be processed at the same time (parameter to simulate requests waiting queue)")
+
+	f.StringVar(&config.Mode, "mode", config.Mode, "Simulator mode, echo - returns the same text that was sent in the request, for chat completion returns the last message, random - returns random sentence from a bank of pre-defined sentences")
+	f.IntVar(&config.InterTokenLatency, "inter-token-latency", config.InterTokenLatency, "Time to generate one token (in milliseconds)")
+	f.IntVar(&config.TimeToFirstToken, "time-to-first-token", config.TimeToFirstToken, "Time to first token (in milliseconds)")
+
+	var loras loraModulesValue
+	f.Var(&loras, "lora-modules", "List of LoRA adapters (an array in JSON format)")
+
+	f.IntVar(&config.MaxLoras, "max-loras", config.MaxLoras, "Maximum number of LoRAs in a single batch")
+	f.IntVar(&config.MaxCPULoras, "max-cpu-loras", config.MaxCPULoras, "Maximum number of LoRAs to store in CPU memory")
+
+	f.StringVar(&configFile, "config", "", "The configuration file")
+
+	flagSet := flag.NewFlagSet("simFlagSet", flag.ExitOnError)
+	klog.InitFlags(flagSet)
+	f.AddGoFlagSet(flagSet)
 
 	if err := f.Parse(os.Args[1:]); err != nil {
 		return err
 	}
 
-	loras := strings.Split(lorasStr, ",")
-	for _, lora := range loras {
-		s.loraAdaptors.Store(lora, "")
+	// Need to read in a variable to avoid merging this value with the config file one
+	if loras != nil {
+		config.LoraModules = loras
 	}
 
-	// validate parsed values
-	if s.model == "" {
-		return errors.New("model parameter is empty")
+	if err := config.validate(); err != nil {
+		return err
 	}
-	if s.mode != modeEcho && s.mode != modeRandom {
-		return fmt.Errorf("invalid mode '%s', valid values are 'random' and 'echo'", s.mode)
-	}
-	if s.port <= 0 {
-		return fmt.Errorf("invalid port '%d'", s.port)
-	}
-	if s.interTokenLatency < 0 {
-		return errors.New("inter token latency cannot be negative")
-	}
-	if s.timeToFirstToken < 0 {
-		return errors.New("time to first token cannot be negative")
-	}
-	if s.maxLoras < 1 {
-		return errors.New("max loras cannot be less than 1")
-	}
-	if s.maxCPULoras == 0 {
-		// max cpu loras by default is same as max loras
-		s.maxCPULoras = s.maxLoras
-	}
-	if s.maxCPULoras < 1 {
-		return errors.New("max CPU loras cannot be less than 1")
+
+	s.config = config
+
+	for _, lora := range config.LoraModules {
+		s.loraAdaptors.Store(lora, "")
 	}
 
 	// just to suppress not used lint error for now
 	_ = &s.waitingLoras
-
 	return nil
 }
 
+func getConfigPathFromArgs() string {
+	for i, arg := range os.Args[1:] {
+		if arg == "--config" || arg == "-config" {
+			// Next argument should be the path
+			if i+2 <= len(os.Args)-1 {
+				return os.Args[i+2]
+			}
+		}
+		// Handle --config=path or -config=path
+		if strings.HasPrefix(arg, "--config=") {
+			return strings.TrimPrefix(arg, "--config=")
+		}
+		if strings.HasPrefix(arg, "-config=") {
+			return strings.TrimPrefix(arg, "-config=")
+		}
+	}
+	return ""
+}
+
 func (s *VllmSimulator) newListener() (net.Listener, error) {
-	s.logger.Info("Server starting", "port", s.port)
-	listener, err := net.Listen("tcp4", fmt.Sprintf(":%d", s.port))
+	s.logger.Info("Server starting", "port", s.config.Port)
+	listener, err := net.Listen("tcp4", fmt.Sprintf(":%d", s.config.Port))
 	if err != nil {
 		return nil, err
 	}
@@ -301,7 +306,7 @@ func (s *VllmSimulator) HandleUnloadLora(ctx *fasthttp.RequestCtx) {
 
 // isValidModel checks if the given model is the base model or one of "loaded" LoRAs
 func (s *VllmSimulator) isValidModel(model string) bool {
-	if model == s.model {
+	if model == s.config.Model {
 		return true
 	}
 
@@ -403,7 +408,7 @@ func (s *VllmSimulator) reqProcessingWorker(ctx context.Context, id int) {
 			if toolCalls == nil && err == nil {
 				// Either no tool calls were defined, or we randomly chose not to create tool calls,
 				// so we generate a response text.
-				responseTokens, finishReason, completionTokens, err = req.createResponseText(s.mode)
+				responseTokens, finishReason, completionTokens, err = req.createResponseText(s.config.Mode)
 			}
 			if err != nil {
 				prefix := ""
@@ -444,7 +449,7 @@ func (s *VllmSimulator) responseSentCallback(model string) {
 	atomic.AddInt64(&(s.nRunningReqs), -1)
 	s.reportRunningRequests()
 
-	if model == s.model {
+	if model == s.config.Model {
 		// this is the base model - do not continue
 		return
 	}
@@ -570,7 +575,7 @@ func (s *VllmSimulator) sendResponse(isChatCompletion bool, ctx *fasthttp.Reques
 
 	// calculate how long to wait before returning the response, time is based on number of tokens
 	numOfTokens := usageData.CompletionTokens
-	totalMillisToWait := s.timeToFirstToken + (numOfTokens-1)*s.interTokenLatency
+	totalMillisToWait := s.config.TimeToFirstToken + (numOfTokens-1)*s.config.InterTokenLatency
 	time.Sleep(time.Duration(totalMillisToWait) * time.Millisecond)
 
 	// TODO - maybe add pod id to response header for testing
@@ -587,11 +592,11 @@ func (s *VllmSimulator) createModelsResponse() *vllmapi.ModelsResponse {
 
 	// add base model's info
 	modelsResp.Data = append(modelsResp.Data, vllmapi.ModelsResponseModelInfo{
-		ID:      s.model,
+		ID:      s.config.Model,
 		Object:  vllmapi.ObjectModel,
 		Created: time.Now().Unix(),
 		OwnedBy: "vllm",
-		Root:    s.model,
+		Root:    s.config.Model,
 		Parent:  nil,
 	})
 
@@ -603,7 +608,7 @@ func (s *VllmSimulator) createModelsResponse() *vllmapi.ModelsResponse {
 			Created: time.Now().Unix(),
 			OwnedBy: "vllm",
 			Root:    lora,
-			Parent:  &s.model,
+			Parent:  &s.config.Model,
 		})
 	}
 

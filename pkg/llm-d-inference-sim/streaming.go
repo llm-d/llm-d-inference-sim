@@ -86,11 +86,11 @@ func (s *VllmSimulator) sendStreamingResponse(context *streamingContext, respons
 // sendTokenChunks creates and sends response chunks
 func (s *VllmSimulator) sendTokenChunks(context *streamingContext, w *bufio.Writer, tokens []string, tc *toolCall, finishReason string) {
 	// time to first token delay
-	time.Sleep(time.Duration(s.timeToFirstToken) * time.Millisecond)
+	time.Sleep(time.Duration(s.config.TimeToFirstToken) * time.Millisecond)
 
 	for i, token := range tokens {
 		if i != 0 {
-			time.Sleep(time.Duration(s.interTokenLatency) * time.Millisecond)
+			time.Sleep(time.Duration(s.config.InterTokenLatency) * time.Millisecond)
 		}
 		var toolChunkInsert *toolCall
 		if tc != nil {

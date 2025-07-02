@@ -52,12 +52,12 @@ func startServer(ctx context.Context, mode string) (*http.Client, error) {
 		return nil, err
 	}
 	// parse command line parameters
-	if err := s.parseCommandParams(); err != nil {
+	if err := s.parseCommandParamsAndLoadConfig(); err != nil {
 		return nil, err
 	}
 
 	// run request processing workers
-	for i := 1; i <= int(s.maxRunningReqs); i++ {
+	for i := 1; i <= s.config.MaxNumSeqs; i++ {
 		go s.reqProcessingWorker(ctx, i)
 	}
 
