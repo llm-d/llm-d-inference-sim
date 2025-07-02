@@ -94,8 +94,8 @@ For more details see the <a href="https://docs.vllm.ai/en/stable/getting_started
 - `max-cpu-loras`: maximum number of LoRAs to store in CPU memory, optional, must be >= than max-loras, default is max-loras
 - `max-num-seqs`: maximum number of sequences per iteration (maximum number of inference requests that could be processed at the same time), default is 5
 - `mode`: the simulator mode, optional, by default `random`
-	- `echo`: returns the same text that was sent in the request
-	- `random`: returns a sentence chosen at random from a set of pre-defined sentences
+    - `echo`: returns the same text that was sent in the request
+    - `random`: returns a sentence chosen at random from a set of pre-defined sentences
 - `time-to-first-token`: the time to the first token (in milliseconds), optional, by default zero
 - `inter-token-latency`: the time to 'generate' each additional token (in milliseconds), optional, by default zero
 
