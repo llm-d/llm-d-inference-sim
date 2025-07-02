@@ -365,9 +365,6 @@ var _ = Describe("Simulator for request with tools", func() {
 				}
 			}
 		},
-		func(mode string) string {
-			return "mode: " + mode
-		},
 		// Call several times because the tools and arguments are chosen randomly
 		Entry(nil, modeRandom),
 		Entry(nil, modeRandom),
@@ -423,9 +420,6 @@ var _ = Describe("Simulator for request with tools", func() {
 				}
 			}
 		},
-		func(mode string) string {
-			return "mode: " + mode
-		},
 		// Call several times because the tools and arguments are chosen randomly
 		Entry(nil, modeRandom),
 		Entry(nil, modeRandom),
@@ -454,9 +448,6 @@ var _ = Describe("Simulator for request with tools", func() {
 				_, err := openaiclient.Chat.Completions.New(ctx, params)
 				Expect(err).To(HaveOccurred())
 			}
-		},
-		func(mode string) string {
-			return "mode: " + mode
 		},
 		Entry(nil, modeRandom),
 	)
@@ -500,9 +491,6 @@ var _ = Describe("Simulator for request with tools", func() {
 			err = json.Unmarshal([]byte(tc.Function.Arguments), &args)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(args["numbers"]).ToNot(BeEmpty())
-		},
-		func(mode string) string {
-			return "mode: " + mode
 		},
 		// Call several times because the tools and arguments are chosen randomly
 		Entry(nil, modeRandom),
@@ -559,9 +547,6 @@ var _ = Describe("Simulator for request with tools", func() {
 					Expect(len(inner)).To(Or(Equal(1), Equal(2), Equal(3)))
 				}
 			}
-		},
-		func(mode string) string {
-			return "mode: " + mode
 		},
 		// Call several times because the tools and arguments are chosen randomly
 		Entry(nil, modeRandom),
@@ -652,9 +637,6 @@ var _ = Describe("Simulator for request with tools", func() {
 			_, ok = address["home"].(bool)
 			Expect(ok).To(BeTrue())
 		},
-		func(mode string) string {
-			return "mode: " + mode
-		},
 		Entry(nil, modeRandom),
 	)
 
@@ -706,9 +688,6 @@ var _ = Describe("Simulator for request with tools", func() {
 			Expect(userInfo["hobbies"]).ToNot(BeEmpty())
 			_, ok = userInfo["hobbies"].([]any)
 			Expect(ok).To(BeTrue())
-		},
-		func(mode string) string {
-			return "mode: " + mode
 		},
 		Entry(nil, modeRandom),
 	)

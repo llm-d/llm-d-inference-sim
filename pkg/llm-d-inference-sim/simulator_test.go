@@ -19,7 +19,6 @@ package llmdinferencesim
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -135,9 +134,6 @@ var _ = Describe("Simulator", func() {
 			Expect(role).Should(Equal("assistant"))
 			Expect(msg).Should(Equal(expectedMsg))
 		},
-		func(mode string) string {
-			return "mode: " + mode
-		},
 		Entry(nil, modeRandom),
 		Entry(nil, modeEcho),
 	)
@@ -190,9 +186,6 @@ var _ = Describe("Simulator", func() {
 				expectedText = getFullTextFromPartialString(text)
 			}
 			Expect(text).Should(Equal(expectedText))
-		},
-		func(mode string) string {
-			return "mode: " + mode
 		},
 		Entry(nil, modeRandom),
 		Entry(nil, modeEcho),
@@ -262,9 +255,6 @@ var _ = Describe("Simulator", func() {
 				}
 				Expect(msg).Should(Equal(expectedMsg))
 			}
-		},
-		func(mode string, maxTokens int, maxCompletionTokens int) string {
-			return fmt.Sprintf("mode: %s max_tokens: %d max_completion_tokens: %d", mode, maxTokens, maxCompletionTokens)
 		},
 		Entry(nil, modeRandom, 2, 0),
 		Entry(nil, modeEcho, 2, 0),
@@ -340,9 +330,6 @@ var _ = Describe("Simulator", func() {
 				}
 				Expect(text).Should(Equal(expectedText))
 			}
-		},
-		func(mode string, maxTokens int) string {
-			return fmt.Sprintf("mode: %s max_tokens: %d", mode, maxTokens)
 		},
 		Entry(nil, modeRandom, 2),
 		Entry(nil, modeEcho, 2),
