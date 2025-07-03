@@ -54,6 +54,7 @@ var _ = Describe("Simulator configuration", func() {
 	c := newConfig()
 	c.Model = model
 	c.ServedModelNames = []string{c.Model}
+	c.MaxCPULoras = 1
 	test := testCase{
 		name:           "simple",
 		args:           []string{"cmd", "--model", model, "--mode", modeRandom},
