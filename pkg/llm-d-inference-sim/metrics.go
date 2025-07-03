@@ -97,6 +97,7 @@ func (s *VllmSimulator) createAndRegisterPrometheus() error {
 
 // setInitialPrometheusMetrics send default values to prometheus
 func (s *VllmSimulator) setInitialPrometheusMetrics() {
+	modelName := s.getDisplayedModelName(s.config.Model)
 	s.loraInfo.WithLabelValues(
 		strconv.Itoa(s.config.MaxLoras),
 		"",
@@ -104,11 +105,11 @@ func (s *VllmSimulator) setInitialPrometheusMetrics() {
 
 	s.nRunningReqs = 0
 	s.runningRequests.WithLabelValues(
-		s.config.Model).Set(float64(s.nRunningReqs))
+		modelName).Set(float64(s.nRunningReqs))
 	s.waitingRequests.WithLabelValues(
-		s.config.Model).Set(float64(0))
+		modelName).Set(float64(0))
 	s.kvCacheUsagePercentage.WithLabelValues(
-		s.config.Model).Set(float64(0))
+		modelName).Set(float64(0))
 }
 
 // reportLoras sets information about loaded LoRA adapters
@@ -135,7 +136,7 @@ func (s *VllmSimulator) reportRunningRequests() {
 	if s.runningRequests != nil {
 		nRunningReqs := atomic.LoadInt64(&(s.nRunningReqs))
 		s.runningRequests.WithLabelValues(
-			s.config.Model).Set(float64(nRunningReqs))
+			s.getDisplayedModelName(s.config.Model)).Set(float64(nRunningReqs))
 	}
 }
 
@@ -144,6 +145,6 @@ func (s *VllmSimulator) reportWaitingRequests() {
 	if s.waitingRequests != nil {
 		nWaitingReqs := atomic.LoadInt64(&(s.nWaitingReqs))
 		s.waitingRequests.WithLabelValues(
-			s.config.Model).Set(float64(nWaitingReqs))
+			s.getDisplayedModelName(s.config.Model)).Set(float64(nWaitingReqs))
 	}
 }

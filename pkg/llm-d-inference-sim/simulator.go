@@ -65,6 +65,8 @@ type VllmSimulator struct {
 	logger logr.Logger
 	// config is the simulator's configuration
 	config *configuration
+	// one or many names exposed by the API
+	servedModelNames []string
 	// loraAdaptors contains list of LoRA available adaptors
 	loraAdaptors sync.Map
 	// runningLoras is a collection of running loras, key of lora's name, value is number of requests using this lora
@@ -140,8 +142,10 @@ func (s *VllmSimulator) parseCommandParamsAndLoadConfig() error {
 	}
 
 	f := pflag.NewFlagSet("llm-d-inference-sim flags", pflag.ExitOnError)
+
 	f.IntVar(&config.Port, "port", config.Port, "Port")
 	f.StringVar(&config.Model, "model", config.Model, "Currently 'loaded' model")
+	f.StringSliceVar(&s.servedModelNames, "served-model-name", nil, "Model names exposed by the API (comma or space-separated)")
 	f.IntVar(&config.MaxNumSeqs, "max-num-seqs", config.MaxNumSeqs, "Maximum number of inference requests that could be processed at the same time (parameter to simulate requests waiting queue)")
 
 	f.StringVar(&config.Mode, "mode", config.Mode, "Simulator mode, echo - returns the same text that was sent in the request, for chat completion returns the last message, random - returns random sentence from a bank of pre-defined sentences")
@@ -167,6 +171,13 @@ func (s *VllmSimulator) parseCommandParamsAndLoadConfig() error {
 	// Need to read in a variable to avoid merging this value with the config file one
 	if loras != nil {
 		config.LoraModules = loras
+	}
+
+  // Upstream vLLM behaviour: when --served-model-name is not provided,
+	// it falls back to using the value of --model as the single public name
+	// returned by the API and exposed in Prometheus metrics.
+	if len(s.servedModelNames) == 0 {
+		s.servedModelNames = []string{config.Model}
 	}
 
 	if err := config.validate(); err != nil {
@@ -306,10 +317,11 @@ func (s *VllmSimulator) HandleUnloadLora(ctx *fasthttp.RequestCtx) {
 
 // isValidModel checks if the given model is the base model or one of "loaded" LoRAs
 func (s *VllmSimulator) isValidModel(model string) bool {
-	if model == s.config.Model {
-		return true
+	for _, name := range s.servedModelNames {
+		if model == name {
+			return true
+		}
 	}
-
 	for _, lora := range s.getLoras() {
 		if model == lora {
 			return true
@@ -377,6 +389,8 @@ func (s *VllmSimulator) reqProcessingWorker(ctx context.Context, id int) {
 
 			req := reqCtx.completionReq
 			model := req.getModel()
+			displayModel := s.getDisplayedModelName(model)
+
 			if s.isLora(model) {
 				// if current request's model is LoRA, add it to the list of running loras
 				value, ok := s.runningLoras.Load(model)
@@ -402,8 +416,11 @@ func (s *VllmSimulator) reqProcessingWorker(ctx context.Context, id int) {
 			var err error
 			var toolCalls []toolCall
 			var completionTokens int
-			if reqCtx.isChatCompletion && req.getToolChoice() != toolChoiceNone && req.getTools() != nil {
-				toolCalls, finishReason, completionTokens, err = createToolCalls(req.getTools(), req.getToolChoice())
+			if reqCtx.isChatCompletion &&
+				req.getToolChoice() != toolChoiceNone &&
+				req.getTools() != nil {
+				toolCalls, finishReason, completionTokens, err =
+					createToolCalls(req.getTools(), req.getToolChoice())
 			}
 			if toolCalls == nil && err == nil {
 				// Either no tool calls were defined, or we randomly chose not to create tool calls,
@@ -431,10 +448,20 @@ func (s *VllmSimulator) reqProcessingWorker(ctx context.Context, id int) {
 						usageDataToSend = &usageData
 					}
 					s.sendStreamingResponse(
-						&streamingContext{ctx: reqCtx.httpReqCtx, isChatCompletion: reqCtx.isChatCompletion, model: model},
-						responseTokens, toolCalls, finishReason, usageDataToSend)
+						&streamingContext{
+							ctx:              reqCtx.httpReqCtx,
+							isChatCompletion: reqCtx.isChatCompletion,
+							model:            displayModel,
+						},
+						responseTokens, toolCalls, finishReason, usageDataToSend,
+					)
 				} else {
-					s.sendResponse(reqCtx.isChatCompletion, reqCtx.httpReqCtx, responseTokens, toolCalls, model, finishReason,
+					s.sendResponse(reqCtx.isChatCompletion,
+						reqCtx.httpReqCtx,
+						responseTokens,
+						toolCalls,
+						displayModel,
+						finishReason,
 						&usageData)
 				}
 			}
@@ -449,8 +476,8 @@ func (s *VllmSimulator) responseSentCallback(model string) {
 	atomic.AddInt64(&(s.nRunningReqs), -1)
 	s.reportRunningRequests()
 
-	if model == s.config.Model {
-		// this is the base model - do not continue
+	// Only LoRA models require reference-count handling.
+	if !s.isLora(model) {
 		return
 	}
 
@@ -520,15 +547,16 @@ func (s *VllmSimulator) HandleError(_ *fasthttp.RequestCtx, err error) {
 // as defined by isChatCompletion
 // respTokens - tokenized content to be sent in the response
 // toolCalls - tool calls to be sent in the response
-// model - model name
 // finishReason - a pointer to string that represents finish reason, can be nil or stop or length, ...
 // usageData - usage (tokens statistics) for this response
-func (s *VllmSimulator) createCompletionResponse(isChatCompletion bool, respTokens []string, toolCalls []toolCall, model string,
-	finishReason *string, usageData *usage) completionResponse {
+// modelName - display name returned to the client and used in metrics. It is either the first alias
+// from --served-model-name (for a base-model request) or the LoRA adapter name (for a LoRA request).
+func (s *VllmSimulator) createCompletionResponse(isChatCompletion bool, respTokens []string, toolCalls []toolCall,
+	finishReason *string, usageData *usage, modelName string) completionResponse {
 	baseResp := baseCompletionResponse{
 		ID:      chatComplIDPrefix + uuid.NewString(),
 		Created: time.Now().Unix(),
-		Model:   model,
+		Model:   modelName,
 		Usage:   usageData,
 	}
 	baseChoice := baseResponseChoice{Index: 0, FinishReason: finishReason}
@@ -560,12 +588,13 @@ func (s *VllmSimulator) createCompletionResponse(isChatCompletion bool, respToke
 // according the value of isChatCompletion
 // respTokens - tokenized content to be sent in the response
 // toolCalls - tool calls to be sent in the response
-// model - model name
+// modelName - display name returned to the client and used in metrics. It is either the first alias
+// from --served-model-name (for a base-model request) or the LoRA adapter name (for a LoRA request).
 // finishReason - a pointer to string that represents finish reason, can be nil, stop, length, or tools
 // usageData - usage (tokens statistics) for this response
 func (s *VllmSimulator) sendResponse(isChatCompletion bool, ctx *fasthttp.RequestCtx, respTokens []string, toolCalls []toolCall,
-	model string, finishReason string, usageData *usage) {
-	resp := s.createCompletionResponse(isChatCompletion, respTokens, toolCalls, model, &finishReason, usageData)
+	modelName string, finishReason string, usageData *usage) {
+	resp := s.createCompletionResponse(isChatCompletion, respTokens, toolCalls, &finishReason, usageData, modelName)
 
 	data, err := json.Marshal(resp)
 	if err != nil {
@@ -583,24 +612,27 @@ func (s *VllmSimulator) sendResponse(isChatCompletion bool, ctx *fasthttp.Reques
 	ctx.Response.Header.SetStatusCode(fasthttp.StatusOK)
 	ctx.Response.SetBody(data)
 
-	s.responseSentCallback(model)
+	s.responseSentCallback(modelName)
 }
 
 // createModelsResponse creates and returns ModelResponse for the current state, returned array of models contains the base model + LoRA adapters if exist
 func (s *VllmSimulator) createModelsResponse() *vllmapi.ModelsResponse {
 	modelsResp := vllmapi.ModelsResponse{Object: "list", Data: []vllmapi.ModelsResponseModelInfo{}}
 
-	// add base model's info
-	modelsResp.Data = append(modelsResp.Data, vllmapi.ModelsResponseModelInfo{
-		ID:      s.config.Model,
-		Object:  vllmapi.ObjectModel,
-		Created: time.Now().Unix(),
-		OwnedBy: "vllm",
-		Root:    s.config.Model,
-		Parent:  nil,
-	})
+	// Advertise every public model alias
+	for _, alias := range s.servedModelNames {
+		modelsResp.Data = append(modelsResp.Data, vllmapi.ModelsResponseModelInfo{
+			ID:      alias,
+			Object:  vllmapi.ObjectModel,
+			Created: time.Now().Unix(),
+			OwnedBy: "vllm",
+			Root:    alias,
+			Parent:  nil,
+		})
+	}
 
 	// add LoRA adapter's info
+	parent := s.servedModelNames[0]
 	for _, lora := range s.getLoras() {
 		modelsResp.Data = append(modelsResp.Data, vllmapi.ModelsResponseModelInfo{
 			ID:      lora,
@@ -608,7 +640,7 @@ func (s *VllmSimulator) createModelsResponse() *vllmapi.ModelsResponse {
 			Created: time.Now().Unix(),
 			OwnedBy: "vllm",
 			Root:    lora,
-			Parent:  &s.config.Model,
+			Parent:  &parent,
 		})
 	}
 
@@ -629,4 +661,14 @@ func (s *VllmSimulator) HandleReady(ctx *fasthttp.RequestCtx) {
 	ctx.Response.Header.SetContentType("application/json")
 	ctx.Response.Header.SetStatusCode(fasthttp.StatusOK)
 	ctx.Response.SetBody([]byte("{}"))
+}
+
+// getDisplayedModelName returns the model name that must appear in API
+// responses.  LoRA adapters keep their explicit name, while all base-model
+// requests are surfaced as the first alias from --served-model-name.
+func (s *VllmSimulator) getDisplayedModelName(reqModel string) string {
+	if s.isLora(reqModel) {
+		return reqModel
+	}
+	return s.servedModelNames[0]
 }
