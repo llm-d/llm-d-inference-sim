@@ -30,6 +30,8 @@ type configuration struct {
 	Port int `yaml:"port"`
 	// Model defines the current base model name
 	Model string `yaml:"model"`
+	// ServedModelNames is one or many model names exposed by the API
+	ServedModelNames []string `yaml:"served-model-name"`
 	// MaxLoras defines maximum number of loaded LoRAs
 	MaxLoras int `yaml:"max-loras"`
 	// MaxCPULoras defines maximum number of LoRAs to store in CPU memory
@@ -114,6 +116,13 @@ func (c *configuration) validate() error {
 	if c.Model == "" {
 		return errors.New("model parameter is empty")
 	}
+	// Upstream vLLM behaviour: when --served-model-name is not provided,
+	// it falls back to using the value of --model as the single public name
+	// returned by the API and exposed in Prometheus metrics.
+	if len(c.ServedModelNames) == 0 {
+		c.ServedModelNames = []string{c.Model}
+	}
+
 	if c.Mode != modeEcho && c.Mode != modeRandom {
 		return fmt.Errorf("invalid mode '%s', valid values are 'random' and 'echo'", c.Mode)
 	}

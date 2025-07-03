@@ -65,8 +65,6 @@ type VllmSimulator struct {
 	logger logr.Logger
 	// config is the simulator's configuration
 	config *configuration
-	// one or many names exposed by the API
-	servedModelNames []string
 	// loraAdaptors contains list of LoRA available adaptors
 	loraAdaptors sync.Map
 	// runningLoras is a collection of running loras, key of lora's name, value is number of requests using this lora
@@ -145,7 +143,9 @@ func (s *VllmSimulator) parseCommandParamsAndLoadConfig() error {
 
 	f.IntVar(&config.Port, "port", config.Port, "Port")
 	f.StringVar(&config.Model, "model", config.Model, "Currently 'loaded' model")
-	f.StringSliceVar(&s.servedModelNames, "served-model-name", nil, "Model names exposed by the API (comma or space-separated)")
+
+	var servedModelName []string
+	f.StringSliceVar(&servedModelName, "served-model-name", nil, "Model names exposed by the API (comma-separated)")
 	f.IntVar(&config.MaxNumSeqs, "max-num-seqs", config.MaxNumSeqs, "Maximum number of inference requests that could be processed at the same time (parameter to simulate requests waiting queue)")
 
 	f.StringVar(&config.Mode, "mode", config.Mode, "Simulator mode, echo - returns the same text that was sent in the request, for chat completion returns the last message, random - returns random sentence from a bank of pre-defined sentences")
@@ -168,16 +168,12 @@ func (s *VllmSimulator) parseCommandParamsAndLoadConfig() error {
 		return err
 	}
 
-	// Need to read in a variable to avoid merging this value with the config file one
+	// Need to read in a variable to avoid merging the values with the config file ones
 	if loras != nil {
 		config.LoraModules = loras
 	}
-
-  // Upstream vLLM behaviour: when --served-model-name is not provided,
-	// it falls back to using the value of --model as the single public name
-	// returned by the API and exposed in Prometheus metrics.
-	if len(s.servedModelNames) == 0 {
-		s.servedModelNames = []string{config.Model}
+	if servedModelName != nil {
+		config.ServedModelNames = servedModelName
 	}
 
 	if err := config.validate(); err != nil {
@@ -317,7 +313,7 @@ func (s *VllmSimulator) HandleUnloadLora(ctx *fasthttp.RequestCtx) {
 
 // isValidModel checks if the given model is the base model or one of "loaded" LoRAs
 func (s *VllmSimulator) isValidModel(model string) bool {
-	for _, name := range s.servedModelNames {
+	for _, name := range s.config.ServedModelNames {
 		if model == name {
 			return true
 		}
@@ -620,7 +616,7 @@ func (s *VllmSimulator) createModelsResponse() *vllmapi.ModelsResponse {
 	modelsResp := vllmapi.ModelsResponse{Object: "list", Data: []vllmapi.ModelsResponseModelInfo{}}
 
 	// Advertise every public model alias
-	for _, alias := range s.servedModelNames {
+	for _, alias := range s.config.ServedModelNames {
 		modelsResp.Data = append(modelsResp.Data, vllmapi.ModelsResponseModelInfo{
 			ID:      alias,
 			Object:  vllmapi.ObjectModel,
@@ -632,7 +628,7 @@ func (s *VllmSimulator) createModelsResponse() *vllmapi.ModelsResponse {
 	}
 
 	// add LoRA adapter's info
-	parent := s.servedModelNames[0]
+	parent := s.config.ServedModelNames[0]
 	for _, lora := range s.getLoras() {
 		modelsResp.Data = append(modelsResp.Data, vllmapi.ModelsResponseModelInfo{
 			ID:      lora,
@@ -670,5 +666,5 @@ func (s *VllmSimulator) getDisplayedModelName(reqModel string) string {
 	if s.isLora(reqModel) {
 		return reqModel
 	}
-	return s.servedModelNames[0]
+	return s.config.ServedModelNames[0]
 }

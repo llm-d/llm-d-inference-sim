@@ -53,6 +53,7 @@ var _ = Describe("Simulator configuration", func() {
 	// Simple config with only model name set
 	c := newConfig()
 	c.Model = model
+	c.ServedModelNames = []string{c.Model}
 	test := testCase{
 		name:           "simple",
 		args:           []string{"cmd", "--model", model, "--mode", modeRandom},
@@ -64,6 +65,7 @@ var _ = Describe("Simulator configuration", func() {
 	c = newConfig()
 	c.Port = 8001
 	c.Model = "Qwen/Qwen2-0.5B"
+	c.ServedModelNames = []string{"model1", "model2"}
 	c.MaxLoras = 2
 	c.MaxCPULoras = 5
 	c.MaxNumSeqs = 5
@@ -81,6 +83,7 @@ var _ = Describe("Simulator configuration", func() {
 	c = newConfig()
 	c.Port = 8002
 	c.Model = model
+	c.ServedModelNames = []string{"alias1", "alias2"}
 	c.MaxLoras = 2
 	c.MaxCPULoras = 5
 	c.MaxNumSeqs = 5
@@ -88,8 +91,9 @@ var _ = Describe("Simulator configuration", func() {
 	c.InterTokenLatency = 1
 	c.LoraModules = []loraModule{{Name: "lora1", Path: "/path/to/lora1"}, {Name: "lora2", Path: "/path/to/lora2"}}
 	test = testCase{
-		name:           "config file with command line args",
-		args:           []string{"cmd", "--model", model, "--config", "../../manifests/config.yaml", "--port", "8002"},
+		name: "config file with command line args",
+		args: []string{"cmd", "--model", model, "--config", "../../manifests/config.yaml", "--port", "8002",
+			"--served-model-name", "alias1,alias2"},
 		expectedConfig: c,
 	}
 	tests = append(tests, test)

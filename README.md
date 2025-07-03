@@ -88,7 +88,7 @@ For more details see the <a href="https://docs.vllm.ai/en/stable/getting_started
 - `config`: the path to a yaml configuration file 
 - `port`: the port the simulator listents on, default is 8000
 - `model`: the currently 'loaded' model, mandatory
-- `served-model-name`: model names exposed by the API (comma or space-separated)
+- `served-model-name`: model names exposed by the API (comma-separated)
 - `lora-modules`: LoRA module configurations in JSON format: [{"name": "name", "path": "lora_path", "base_model_name": "id"}], optional, empty by default
 - `max-loras`: maximum number of LoRAs in a single batch, optional, default is one
 - `max-cpu-loras`: maximum number of LoRAs to store in CPU memory, optional, must be >= than max-loras, default is max-loras

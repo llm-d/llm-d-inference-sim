@@ -1,5 +1,6 @@
 port: 8001
 model: "Qwen/Qwen2-0.5B"
+served-model-name: ["model1", "model2"]
 max-loras: 2
 max-cpu-loras: 5
 max-num-seqs: 5
