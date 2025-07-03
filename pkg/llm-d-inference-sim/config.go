@@ -92,11 +92,10 @@ func (l *loraModulesValue) UnmarshalYAML(unmarshal func(interface{}) error) erro
 
 func newConfig() *configuration {
 	return &configuration{
-		Port:        vLLMDefaultPort,
-		MaxLoras:    1,
-		MaxCPULoras: 1,
-		MaxNumSeqs:  5,
-		Mode:        modeRandom,
+		Port:       vLLMDefaultPort,
+		MaxLoras:   1,
+		MaxNumSeqs: 5,
+		Mode:       modeRandom,
 	}
 }
 
