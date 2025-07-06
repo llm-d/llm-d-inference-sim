@@ -88,8 +88,8 @@ For more details see the <a href="https://docs.vllm.ai/en/stable/getting_started
 - `config`: the path to a yaml configuration file 
 - `port`: the port the simulator listents on, default is 8000
 - `model`: the currently 'loaded' model, mandatory
-- `served-model-name`: model names exposed by the API (comma-separated)
-- `lora-modules`: LoRA module configurations in JSON format: [{"name": "name", "path": "lora_path", "base_model_name": "id"}], optional, empty by default
+- `served-model-name`: model names exposed by the API (a list of space-separated strings)
+- `lora-modules`: a list of LoRA adapters (a list of space-separated JSON strings): '{"name": "name", "path": "lora_path", "base_model_name": "id"}', optional, empty by default
 - `max-loras`: maximum number of LoRAs in a single batch, optional, default is one
 - `max-cpu-loras`: maximum number of LoRAs to store in CPU memory, optional, must be >= than max-loras, default is max-loras
 - `max-num-seqs`: maximum number of sequences per iteration (maximum number of inference requests that could be processed at the same time), default is 5
@@ -118,7 +118,7 @@ In addition, as we are using klog, the following parameters are available:
 
 ## Migrating from releases prior to v0.2.0
 - `max-running-requests` was replaced by `max-num-seqs`
-- `lora` was replaced by `lora-modules`, which is now an array in JSON format, e.g, [{"name": "name", "path": "lora_path", "base_model_name": "id"}]
+- `lora` was replaced by `lora-modules`, which is now a list of JSON strings, e.g, '{"name": "name", "path": "lora_path", "base_model_name": "id"}'
 
 ## Working with docker image
 

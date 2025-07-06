@@ -132,33 +132,36 @@ func (s *VllmSimulator) Start(ctx context.Context) error {
 // parseCommandParamsAndLoadConfig parses and validates command line parameters
 func (s *VllmSimulator) parseCommandParamsAndLoadConfig() error {
 	config := newConfig()
-	configFile := getConfigPathFromArgs()
-	if configFile != "" {
-		if err := config.load(configFile); err != nil {
+
+	configFileValues := getParamValueFromArgs("config")
+	if len(configFileValues) == 1 {
+		if err := config.load(configFileValues[0]); err != nil {
 			return err
 		}
 	}
+
+	servedModelNames := getParamValueFromArgs("served-model-name")
+	loraModuleNames := getParamValueFromArgs("lora-modules")
 
 	f := pflag.NewFlagSet("llm-d-inference-sim flags", pflag.ExitOnError)
 
 	f.IntVar(&config.Port, "port", config.Port, "Port")
 	f.StringVar(&config.Model, "model", config.Model, "Currently 'loaded' model")
-
-	var servedModelName []string
-	f.StringSliceVar(&servedModelName, "served-model-name", nil, "Model names exposed by the API (comma-separated)")
 	f.IntVar(&config.MaxNumSeqs, "max-num-seqs", config.MaxNumSeqs, "Maximum number of inference requests that could be processed at the same time (parameter to simulate requests waiting queue)")
+	f.IntVar(&config.MaxLoras, "max-loras", config.MaxLoras, "Maximum number of LoRAs in a single batch")
+	f.IntVar(&config.MaxCPULoras, "max-cpu-loras", config.MaxCPULoras, "Maximum number of LoRAs to store in CPU memory")
 
 	f.StringVar(&config.Mode, "mode", config.Mode, "Simulator mode, echo - returns the same text that was sent in the request, for chat completion returns the last message, random - returns random sentence from a bank of pre-defined sentences")
 	f.IntVar(&config.InterTokenLatency, "inter-token-latency", config.InterTokenLatency, "Time to generate one token (in milliseconds)")
 	f.IntVar(&config.TimeToFirstToken, "time-to-first-token", config.TimeToFirstToken, "Time to first token (in milliseconds)")
 
-	var loras loraModulesValue
-	f.Var(&loras, "lora-modules", "List of LoRA adapters (an array in JSON format)")
-
-	f.IntVar(&config.MaxLoras, "max-loras", config.MaxLoras, "Maximum number of LoRAs in a single batch")
-	f.IntVar(&config.MaxCPULoras, "max-cpu-loras", config.MaxCPULoras, "Maximum number of LoRAs to store in CPU memory")
-
+	// These values were manually parsed above in getParamValueFromArgs, we leave this in order to get these flags in --help
+	var servedModelNameStrings multiString
+	f.Var(&servedModelNameStrings, "served-model-name", "Model names exposed by the API (a list of space-separated strings)")
+	var configFile string
 	f.StringVar(&configFile, "config", "", "The configuration file")
+	var loras multiString
+	f.Var(&loras, "lora-modules", "List of LoRA adapters (a list of space-separated JSON strings)")
 
 	flagSet := flag.NewFlagSet("simFlagSet", flag.ExitOnError)
 	klog.InitFlags(flagSet)
@@ -169,11 +172,14 @@ func (s *VllmSimulator) parseCommandParamsAndLoadConfig() error {
 	}
 
 	// Need to read in a variable to avoid merging the values with the config file ones
-	if loras != nil {
-		config.LoraModules = loras
+	if loraModuleNames != nil {
+		config.LoraModulesString = loraModuleNames
+		if err := config.unmarshalLoras(); err != nil {
+			return err
+		}
 	}
-	if servedModelName != nil {
-		config.ServedModelNames = servedModelName
+	if servedModelNames != nil {
+		config.ServedModelNames = servedModelNames
 	}
 
 	if err := config.validate(); err != nil {
@@ -191,23 +197,27 @@ func (s *VllmSimulator) parseCommandParamsAndLoadConfig() error {
 	return nil
 }
 
-func getConfigPathFromArgs() string {
-	for i, arg := range os.Args[1:] {
-		if arg == "--config" || arg == "-config" {
-			// Next argument should be the path
-			if i+2 <= len(os.Args)-1 {
-				return os.Args[i+2]
+func getParamValueFromArgs(param string) []string {
+	var values []string
+	var readValues bool
+	for _, arg := range os.Args[1:] {
+		if readValues {
+			if strings.HasPrefix(arg, "--") {
+				break
+			}
+			values = append(values, arg)
+		} else {
+			if arg == "--"+param {
+				readValues = true
+				values = make([]string, 0)
+			} else if strings.HasPrefix(arg, "--"+param+"=") {
+				// Handle --param=value
+				values = append(values, strings.TrimPrefix(arg, "--"+param+"="))
+				break
 			}
 		}
-		// Handle --config=path or -config=path
-		if strings.HasPrefix(arg, "--config=") {
-			return strings.TrimPrefix(arg, "--config=")
-		}
-		if strings.HasPrefix(arg, "-config=") {
-			return strings.TrimPrefix(arg, "-config=")
-		}
 	}
-	return ""
+	return values
 }
 
 func (s *VllmSimulator) newListener() (net.Listener, error) {

@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -39,8 +40,10 @@ type configuration struct {
 	// MaxNumSeqs is maximum number of sequences per iteration (the maximum
 	// number of inference requests that could be processed at the same time)
 	MaxNumSeqs int `yaml:"max-num-seqs"`
+	// LoraModulesString is a list of LoRA adapters as strings
+	LoraModulesString []string `yaml:"lora-modules"`
 	// LoraModules is a list of LoRA adapters
-	LoraModules loraModulesValue `yaml:"lora-modules"`
+	LoraModules []loraModule
 
 	// TimeToFirstToken time before the first token will be returned, in milliseconds
 	TimeToFirstToken int `yaml:"time-to-first-token"`
@@ -52,42 +55,41 @@ type configuration struct {
 
 type loraModule struct {
 	// Name is the LoRA's name
-	Name string `yaml:"name"`
+	Name string `json:"name"`
 	// Path is the LoRA's path
-	Path string `yaml:"path"`
+	Path string `json:"path"`
 	// BaseModelName is the LoRA's base model
-	BaseModelName string `yaml:"base_model_name"`
+	BaseModelName string `json:"base_model_name"`
 }
 
-type loraModulesValue []loraModule
-
-func (l *loraModulesValue) String() string {
-	b, _ := json.Marshal(l)
-	return string(b)
+// Needed to parse values that contain multiple strings
+type multiString struct {
+	values []string
 }
 
-func (l *loraModulesValue) Set(val string) error {
-	return json.Unmarshal([]byte(val), l)
+func (l *multiString) String() string {
+	return strings.Join(l.values, " ")
 }
 
-func (l *loraModulesValue) Type() string {
-	return "loras"
+func (l *multiString) Set(val string) error {
+	l.values = append(l.values, val)
+	return nil
 }
 
-// Implement custom YAML unmarshaling for just this type
-func (l *loraModulesValue) UnmarshalYAML(unmarshal func(interface{}) error) error {
-	// Try parsing as an array of loraModule
-	var arr []loraModule
-	if err := unmarshal(&arr); err == nil {
-		*l = arr
-		return nil
+func (l *multiString) Type() string {
+	return "strings"
+}
+
+func (c *configuration) unmarshalLoras() error {
+	c.LoraModules = make([]loraModule, 0)
+	for _, jsonStr := range c.LoraModulesString {
+		var lora loraModule
+		if err := json.Unmarshal([]byte(jsonStr), &lora); err != nil {
+			return err
+		}
+		c.LoraModules = append(c.LoraModules, lora)
 	}
-	// Try parsing as a JSON string
-	var str string
-	if err := unmarshal(&str); err == nil {
-		return json.Unmarshal([]byte(str), l)
-	}
-	return errors.New("lora-modules: invalid format")
+	return nil
 }
 
 func newConfig() *configuration {
@@ -108,7 +110,8 @@ func (c *configuration) load(configFile string) error {
 	if err := yaml.Unmarshal(configBytes, &c); err != nil {
 		return fmt.Errorf("failed to unmarshal configuration: %s", err)
 	}
-	return nil
+
+	return c.unmarshalLoras()
 }
 
 func (c *configuration) validate() error {
@@ -118,7 +121,7 @@ func (c *configuration) validate() error {
 	// Upstream vLLM behaviour: when --served-model-name is not provided,
 	// it falls back to using the value of --model as the single public name
 	// returned by the API and exposed in Prometheus metrics.
-	if len(c.ServedModelNames) == 0 {
+	if len(c.ServedModelNames) == 0 || c.ServedModelNames[0] == "" {
 		c.ServedModelNames = []string{c.Model}
 	}
 

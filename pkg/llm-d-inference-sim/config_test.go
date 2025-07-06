@@ -78,6 +78,10 @@ var _ = Describe("Simulator configuration", func() {
 		args:           []string{"cmd", "--config", "../../manifests/config.yaml"},
 		expectedConfig: c,
 	}
+	c.LoraModulesString = []string{
+		"{\"name\":\"lora1\",\"path\":\"/path/to/lora1\"}",
+		"{\"name\":\"lora2\",\"path\":\"/path/to/lora2\"}",
+	}
 	tests = append(tests, test)
 
 	// Config from config.yaml file plus command line args
@@ -90,11 +94,65 @@ var _ = Describe("Simulator configuration", func() {
 	c.MaxNumSeqs = 5
 	c.TimeToFirstToken = 2
 	c.InterTokenLatency = 1
-	c.LoraModules = []loraModule{{Name: "lora1", Path: "/path/to/lora1"}, {Name: "lora2", Path: "/path/to/lora2"}}
+	c.LoraModules = []loraModule{{Name: "lora3", Path: "/path/to/lora3"}, {Name: "lora4", Path: "/path/to/lora4"}}
+	c.LoraModulesString = []string{
+		"{\"name\":\"lora3\",\"path\":\"/path/to/lora3\"}",
+		"{\"name\":\"lora4\",\"path\":\"/path/to/lora4\"}",
+	}
 	test = testCase{
 		name: "config file with command line args",
 		args: []string{"cmd", "--model", model, "--config", "../../manifests/config.yaml", "--port", "8002",
-			"--served-model-name", "alias1,alias2"},
+			"--served-model-name", "alias1", "alias2",
+			"--lora-modules", "{\"name\":\"lora3\",\"path\":\"/path/to/lora3\"}", "{\"name\":\"lora4\",\"path\":\"/path/to/lora4\"}",
+		},
+		expectedConfig: c,
+	}
+	tests = append(tests, test)
+
+	// Config from config.yaml file plus command line args with different format
+	c = newConfig()
+	c.Port = 8002
+	c.Model = model
+	c.ServedModelNames = []string{c.Model}
+	c.MaxLoras = 2
+	c.MaxCPULoras = 5
+	c.MaxNumSeqs = 5
+	c.TimeToFirstToken = 2
+	c.InterTokenLatency = 1
+	c.LoraModules = []loraModule{{Name: "lora3", Path: "/path/to/lora3"}}
+	c.LoraModulesString = []string{
+		"{\"name\":\"lora3\",\"path\":\"/path/to/lora3\"}",
+	}
+	test = testCase{
+		name: "config file with command line args",
+		args: []string{"cmd", "--model", model, "--config", "../../manifests/config.yaml", "--port", "8002",
+			"--served-model-name",
+			"--lora-modules={\"name\":\"lora3\",\"path\":\"/path/to/lora3\"}",
+		},
+		expectedConfig: c,
+	}
+	tests = append(tests, test)
+
+	// Config from config.yaml file plus command line args with empty string
+	c = newConfig()
+	c.Port = 8002
+	c.Model = model
+	c.ServedModelNames = []string{c.Model}
+	c.MaxLoras = 2
+	c.MaxCPULoras = 5
+	c.MaxNumSeqs = 5
+	c.TimeToFirstToken = 2
+	c.InterTokenLatency = 1
+	c.LoraModules = []loraModule{{Name: "lora3", Path: "/path/to/lora3"}}
+	c.LoraModulesString = []string{
+		"{\"name\":\"lora3\",\"path\":\"/path/to/lora3\"}",
+	}
+	test = testCase{
+		name: "config file with command line args",
+		args: []string{"cmd", "--model", model, "--config", "../../manifests/config.yaml", "--port", "8002",
+			"--served-model-name", "",
+			"--lora-modules", "{\"name\":\"lora3\",\"path\":\"/path/to/lora3\"}",
+		},
 		expectedConfig: c,
 	}
 	tests = append(tests, test)
@@ -140,6 +198,8 @@ var _ = Describe("Simulator configuration", func() {
 		Entry(tests[0].name, tests[0].args, tests[0].expectedConfig),
 		Entry(tests[1].name, tests[1].args, tests[1].expectedConfig),
 		Entry(tests[2].name, tests[2].args, tests[2].expectedConfig),
+		Entry(tests[3].name, tests[3].args, tests[3].expectedConfig),
+		Entry(tests[4].name, tests[4].args, tests[4].expectedConfig),
 	)
 
 	DescribeTable("invalid configurations",
@@ -147,10 +207,10 @@ var _ = Describe("Simulator configuration", func() {
 			_, err := createSimConfig(args)
 			Expect(err).To(HaveOccurred())
 		},
-		Entry(tests[3].name, tests[3].args),
-		Entry(tests[4].name, tests[4].args),
 		Entry(tests[5].name, tests[5].args),
 		Entry(tests[6].name, tests[6].args),
 		Entry(tests[7].name, tests[7].args),
+		Entry(tests[8].name, tests[8].args),
+		Entry(tests[9].name, tests[9].args),
 	)
 })
