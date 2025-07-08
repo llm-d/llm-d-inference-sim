@@ -24,6 +24,8 @@ import (
 	"k8s.io/klog/v2"
 )
 
+const qwenModelName = "Qwen/Qwen2-0.5B"
+
 func createSimConfig(args []string) (*configuration, error) {
 	oldArgs := os.Args
 	defer func() {
@@ -65,7 +67,7 @@ var _ = Describe("Simulator configuration", func() {
 	// Config from config.yaml file
 	c = newConfig()
 	c.Port = 8001
-	c.Model = "Qwen/Qwen2-0.5B"
+	c.Model = qwenModelName
 	c.ServedModelNames = []string{"model1", "model2"}
 	c.MaxLoras = 2
 	c.MaxCPULoras = 5
@@ -160,7 +162,7 @@ var _ = Describe("Simulator configuration", func() {
 	// Config from config.yaml file plus command line args with empty string for loras
 	c = newConfig()
 	c.Port = 8001
-	c.Model = "Qwen/Qwen2-0.5B"
+	c.Model = qwenModelName
 	c.ServedModelNames = []string{"model1", "model2"}
 	c.MaxLoras = 2
 	c.MaxCPULoras = 5
@@ -179,7 +181,7 @@ var _ = Describe("Simulator configuration", func() {
 	// Config from config.yaml file plus command line args with empty parameter for loras
 	c = newConfig()
 	c.Port = 8001
-	c.Model = "Qwen/Qwen2-0.5B"
+	c.Model = qwenModelName
 	c.ServedModelNames = []string{"model1", "model2"}
 	c.MaxLoras = 2
 	c.MaxCPULoras = 5
