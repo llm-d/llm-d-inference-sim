@@ -27,7 +27,7 @@ import (
 
 var _ = Describe("Simulator with seed", func() {
 	firstText := ""
-	DescribeTable("text completions",
+	DescribeTable("text completions with the same seed",
 		// use a function so that httpClient is captured when running
 		func() {
 			ctx := context.TODO()
@@ -67,4 +67,54 @@ var _ = Describe("Simulator with seed", func() {
 		Entry("seventh time text completion with seed"),
 		Entry("eighth time text completion with seed"),
 	)
+
+	texts := make([]string, 0)
+	DescribeTable("text completions with different seeds",
+		func(lastTest bool) {
+			ctx := context.TODO()
+			client, err := startServer(ctx, modeRandom)
+			Expect(err).NotTo(HaveOccurred())
+
+			openaiclient := openai.NewClient(
+				option.WithBaseURL(baseURL),
+				option.WithHTTPClient(client))
+			params := openai.CompletionNewParams{
+				Prompt: openai.CompletionNewParamsPromptUnion{
+					OfString: openai.String(userMessage),
+				},
+				Model: openai.CompletionNewParamsModel(model),
+			}
+
+			resp, err := openaiclient.Completions.New(ctx, params)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.Choices).ShouldNot(BeEmpty())
+			Expect(string(resp.Object)).To(Equal(textCompletionObject))
+
+			text := resp.Choices[0].Text
+			Expect(text).ShouldNot(BeEmpty())
+			texts = append(texts, text)
+			if lastTest {
+				Expect(hasAtLeastTwoDifferentTexts(texts)).To(BeTrue())
+			}
+		},
+		Entry("first time text completion without seed", false),
+		Entry("second time text completion without seed", false),
+		Entry("third time text completion without seed", false),
+		Entry("fourth time text completion without seed", false),
+		Entry("fifth time text completion without seed", false),
+		Entry("sixth time text completion without seed", false),
+		Entry("seventh time text completion without seed", false),
+		Entry("eighth time text completion without seed", true),
+	)
 })
+
+func hasAtLeastTwoDifferentTexts(texts []string) bool {
+	unique := make(map[string]struct{})
+	for _, s := range texts {
+		unique[s] = struct{}{}
+		if len(unique) > 1 {
+			return true
+		}
+	}
+	return false
+}

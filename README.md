@@ -98,6 +98,7 @@ For more details see the <a href="https://docs.vllm.ai/en/stable/getting_started
     - `random`: returns a sentence chosen at random from a set of pre-defined sentences
 - `time-to-first-token`: the time to the first token (in milliseconds), optional, by default zero
 - `inter-token-latency`: the time to 'generate' each additional token (in milliseconds), optional, by default zero
+- `seed`: random seed for operations (if not set, current Unix time in nanoseconds is used)
 
 In addition, as we are using klog, the following parameters are available:
 - `add_dir_header`: if true, adds the file directory to the header of the log messages
