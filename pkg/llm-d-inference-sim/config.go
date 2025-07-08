@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -51,6 +52,8 @@ type configuration struct {
 	InterTokenLatency int `yaml:"inter-token-latency"`
 	// Mode defines the simulator response generation mode, valid values: echo, random
 	Mode string `yaml:"mode"`
+	// Seed defines random seed for operations
+	Seed int64 `yaml:"seed"`
 }
 
 type loraModule struct {
@@ -98,6 +101,7 @@ func newConfig() *configuration {
 		MaxLoras:   1,
 		MaxNumSeqs: 5,
 		Mode:       modeRandom,
+		Seed:       time.Now().UnixNano(),
 	}
 }
 

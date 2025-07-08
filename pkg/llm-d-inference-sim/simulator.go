@@ -154,6 +154,7 @@ func (s *VllmSimulator) parseCommandParamsAndLoadConfig() error {
 	f.StringVar(&config.Mode, "mode", config.Mode, "Simulator mode, echo - returns the same text that was sent in the request, for chat completion returns the last message, random - returns random sentence from a bank of pre-defined sentences")
 	f.IntVar(&config.InterTokenLatency, "inter-token-latency", config.InterTokenLatency, "Time to generate one token (in milliseconds)")
 	f.IntVar(&config.TimeToFirstToken, "time-to-first-token", config.TimeToFirstToken, "Time to first token (in milliseconds)")
+	f.Int64Var(&config.Seed, "seed", config.Seed, "Random seed for operations (if not set, current Unix time in nanoseconds is used)")
 
 	// These values were manually parsed above in getParamValueFromArgs, we leave this in order to get these flags in --help
 	var servedModelNameStrings multiString
@@ -191,6 +192,8 @@ func (s *VllmSimulator) parseCommandParamsAndLoadConfig() error {
 	for _, lora := range config.LoraModules {
 		s.loraAdaptors.Store(lora, "")
 	}
+
+	initRandom(s.config.Seed)
 
 	// just to suppress not used lint error for now
 	_ = &s.waitingLoras

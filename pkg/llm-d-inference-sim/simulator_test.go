@@ -40,11 +40,20 @@ const baseURL = "http://localhost/v1"
 const userMessage = "This is a test."
 
 func startServer(ctx context.Context, mode string) (*http.Client, error) {
+	return startServerWithArgs(ctx, mode, nil)
+}
+
+func startServerWithArgs(ctx context.Context, mode string, args []string) (*http.Client, error) {
 	oldArgs := os.Args
 	defer func() {
 		os.Args = oldArgs
 	}()
-	os.Args = []string{"cmd", "--model", model, "--mode", mode}
+
+	if args != nil {
+		os.Args = args
+	} else {
+		os.Args = []string{"cmd", "--model", model, "--mode", mode}
+	}
 	logger := klog.Background()
 
 	s, err := New(logger)

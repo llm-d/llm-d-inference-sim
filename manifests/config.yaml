@@ -12,3 +12,4 @@ lora-modules:
 mode: "random"
 time-to-first-token: 2
 inter-token-latency: 1
+seed: 100100100

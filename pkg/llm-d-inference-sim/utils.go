@@ -21,7 +21,6 @@ import (
 	"math/rand"
 	"regexp"
 	"strings"
-	"time"
 )
 
 // list of responses to use in random mode for comepltion requests
@@ -111,11 +110,16 @@ func randomNumericString(length int) string {
 	return string(result)
 }
 
+var randomGenerator *rand.Rand
+
+func initRandom(seed int64) {
+	src := rand.NewSource(seed)
+	randomGenerator = rand.New(src)
+}
+
 // Returns an integer between min and max (included)
 func randomInt(min int, max int) int {
-	src := rand.NewSource(time.Now().UnixNano())
-	r := rand.New(src)
-	return r.Intn(max-min+1) + min
+	return randomGenerator.Intn(max-min+1) + min
 }
 
 // Returns true or false randomly
@@ -125,9 +129,7 @@ func flipCoin() bool {
 
 // Returns a random float64 in the range [min, max)
 func randomFloat(min float64, max float64) float64 {
-	src := rand.NewSource(time.Now().UnixNano())
-	r := rand.New(src)
-	return r.Float64()*(max-min) + min
+	return randomGenerator.Float64()*(max-min) + min
 }
 
 // Regular expression for the response tokenization

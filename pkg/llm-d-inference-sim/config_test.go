@@ -50,14 +50,15 @@ type testCase struct {
 var _ = Describe("Simulator configuration", func() {
 	tests := make([]testCase, 0)
 
-	// Simple config with only model name set
+	// Simple config with a few parameters
 	c := newConfig()
 	c.Model = model
 	c.ServedModelNames = []string{c.Model}
 	c.MaxCPULoras = 1
+	c.Seed = 100
 	test := testCase{
 		name:           "simple",
-		args:           []string{"cmd", "--model", model, "--mode", modeRandom},
+		args:           []string{"cmd", "--model", model, "--mode", modeRandom, "--seed", "100"},
 		expectedConfig: c,
 	}
 	tests = append(tests, test)
@@ -73,6 +74,7 @@ var _ = Describe("Simulator configuration", func() {
 	c.TimeToFirstToken = 2
 	c.InterTokenLatency = 1
 	c.LoraModules = []loraModule{{Name: "lora1", Path: "/path/to/lora1"}, {Name: "lora2", Path: "/path/to/lora2"}}
+	c.Seed = 100100100
 	test = testCase{
 		name:           "config file",
 		args:           []string{"cmd", "--config", "../../manifests/config.yaml"},
@@ -94,6 +96,7 @@ var _ = Describe("Simulator configuration", func() {
 	c.MaxNumSeqs = 5
 	c.TimeToFirstToken = 2
 	c.InterTokenLatency = 1
+	c.Seed = 100
 	c.LoraModules = []loraModule{{Name: "lora3", Path: "/path/to/lora3"}, {Name: "lora4", Path: "/path/to/lora4"}}
 	c.LoraModulesString = []string{
 		"{\"name\":\"lora3\",\"path\":\"/path/to/lora3\"}",
@@ -102,7 +105,7 @@ var _ = Describe("Simulator configuration", func() {
 	test = testCase{
 		name: "config file with command line args",
 		args: []string{"cmd", "--model", model, "--config", "../../manifests/config.yaml", "--port", "8002",
-			"--served-model-name", "alias1", "alias2",
+			"--served-model-name", "alias1", "alias2", "--seed", "100",
 			"--lora-modules", "{\"name\":\"lora3\",\"path\":\"/path/to/lora3\"}", "{\"name\":\"lora4\",\"path\":\"/path/to/lora4\"}",
 		},
 		expectedConfig: c,
@@ -119,6 +122,7 @@ var _ = Describe("Simulator configuration", func() {
 	c.MaxNumSeqs = 5
 	c.TimeToFirstToken = 2
 	c.InterTokenLatency = 1
+	c.Seed = 100100100
 	c.LoraModules = []loraModule{{Name: "lora3", Path: "/path/to/lora3"}}
 	c.LoraModulesString = []string{
 		"{\"name\":\"lora3\",\"path\":\"/path/to/lora3\"}",
@@ -143,6 +147,7 @@ var _ = Describe("Simulator configuration", func() {
 	c.MaxNumSeqs = 5
 	c.TimeToFirstToken = 2
 	c.InterTokenLatency = 1
+	c.Seed = 100100100
 	c.LoraModules = []loraModule{{Name: "lora3", Path: "/path/to/lora3"}}
 	c.LoraModulesString = []string{
 		"{\"name\":\"lora3\",\"path\":\"/path/to/lora3\"}",
