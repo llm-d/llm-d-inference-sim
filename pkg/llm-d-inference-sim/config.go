@@ -121,7 +121,7 @@ func (c *configuration) validate() error {
 	// Upstream vLLM behaviour: when --served-model-name is not provided,
 	// it falls back to using the value of --model as the single public name
 	// returned by the API and exposed in Prometheus metrics.
-	if len(c.ServedModelNames) == 0 || c.ServedModelNames[0] == "" {
+	if len(c.ServedModelNames) == 0 {
 		c.ServedModelNames = []string{c.Model}
 	}
 
