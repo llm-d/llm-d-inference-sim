@@ -39,7 +39,7 @@ func (s *VllmSimulator) getLoras() []string {
 		if lora, ok := key.(string); ok {
 			loras = append(loras, lora)
 		} else {
-			s.logger.Info("Stored LoRA is not a string", "value", lora)
+			s.logger.Info("Stored LoRA is not a string", "value", key)
 		}
 		return true
 	})
