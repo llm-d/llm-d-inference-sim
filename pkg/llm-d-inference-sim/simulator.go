@@ -189,7 +189,7 @@ func (s *VllmSimulator) parseCommandParamsAndLoadConfig() error {
 	s.config = config
 
 	for _, lora := range config.LoraModules {
-		s.loraAdaptors.Store(lora, "")
+		s.loraAdaptors.Store(lora.Name, "")
 	}
 
 	// just to suppress not used lint error for now

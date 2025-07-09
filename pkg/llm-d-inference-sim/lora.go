@@ -33,12 +33,13 @@ type unloadLoraRequest struct {
 }
 
 func (s *VllmSimulator) getLoras() []string {
-
 	loras := make([]string, 0)
 
 	s.loraAdaptors.Range(func(key, _ any) bool {
 		if lora, ok := key.(string); ok {
 			loras = append(loras, lora)
+		} else {
+			s.logger.Info("Stored LoRA is not a string", "value", lora)
 		}
 		return true
 	})
