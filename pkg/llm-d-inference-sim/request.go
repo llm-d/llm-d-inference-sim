@@ -42,6 +42,8 @@ type completionRequest interface {
 	getTools() []tool
 	// getToolChoice() returns tool choice (in chat completion)
 	getToolChoice() string
+	// getMaxCompletionTokens returns the maximum completion tokens requested
+	getMaxCompletionTokens() *int64
 }
 
 // baseCompletionRequest contains base completion request related information
@@ -143,6 +145,13 @@ func (c *chatCompletionRequest) getToolChoice() string {
 	return c.ToolChoice
 }
 
+func (c *chatCompletionRequest) getMaxCompletionTokens() *int64 {
+	if c.MaxCompletionTokens != nil {
+		return c.MaxCompletionTokens
+	}
+	return c.MaxTokens
+}
+
 // getLastUserMsg returns last message from this request's messages with user role,
 // if does not exist - returns an empty string
 func (req *chatCompletionRequest) getLastUserMsg() string {
@@ -200,6 +209,10 @@ func (c *textCompletionRequest) getTools() []tool {
 
 func (c *textCompletionRequest) getToolChoice() string {
 	return ""
+}
+
+func (c *textCompletionRequest) getMaxCompletionTokens() *int64 {
+	return c.MaxTokens
 }
 
 // createResponseText creates and returns response payload based on this request,

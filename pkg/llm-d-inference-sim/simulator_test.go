@@ -382,4 +382,105 @@ var _ = Describe("Simulator", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(resp.StatusCode).To(Equal(http.StatusOK))
 	})
+
+	Context("max-model-len context window validation", func() {
+		It("Should reject requests exceeding context window", func() {
+			ctx := context.TODO()
+			// Start server with max-model-len=10
+			args := []string{"cmd", "--model", model, "--mode", modeRandom, "--max-model-len", "10"}
+			client, err := startServerWithArgs(ctx, modeRandom, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Test with raw HTTP to verify the error response format
+			reqBody := `{
+				"messages": [{"role": "user", "content": "This is a test message"}],
+				"model": "my_model",
+				"max_tokens": 8
+			}`
+
+			resp, err := client.Post("http://localhost/v1/chat/completions", "application/json", strings.NewReader(reqBody))
+			Expect(err).NotTo(HaveOccurred())
+			defer resp.Body.Close()
+
+			body, err := io.ReadAll(resp.Body)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(resp.StatusCode).To(Equal(400))
+			Expect(string(body)).To(ContainSubstring("This model's maximum context length is 10 tokens"))
+			Expect(string(body)).To(ContainSubstring("However, you requested 13 tokens"))
+			Expect(string(body)).To(ContainSubstring("5 in the messages, 8 in the completion"))
+			Expect(string(body)).To(ContainSubstring("BadRequestError"))
+
+			// Also test with OpenAI client to ensure it gets an error
+			openaiclient := openai.NewClient(
+				option.WithBaseURL(baseURL),
+				option.WithHTTPClient(client),
+			)
+
+			_, err = openaiclient.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
+				Messages: []openai.ChatCompletionMessageParamUnion{
+					openai.UserMessage("This is a test message"),
+				},
+				Model:     model,
+				MaxTokens: openai.Int(8),
+			})
+
+			Expect(err).To(HaveOccurred())
+			var apiErr *openai.Error
+			Expect(errors.As(err, &apiErr)).To(BeTrue())
+			Expect(apiErr.StatusCode).To(Equal(400))
+		})
+
+		It("Should accept requests within context window", func() {
+			ctx := context.TODO()
+			// Start server with max-model-len=50
+			args := []string{"cmd", "--model", model, "--mode", modeEcho, "--max-model-len", "50"}
+			client, err := startServerWithArgs(ctx, modeEcho, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			openaiclient := openai.NewClient(
+				option.WithBaseURL(baseURL),
+				option.WithHTTPClient(client),
+			)
+
+			// Send a request within the context window
+			resp, err := openaiclient.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
+				Messages: []openai.ChatCompletionMessageParamUnion{
+					openai.UserMessage("Hello"),
+				},
+				Model:     model,
+				MaxTokens: openai.Int(5),
+			})
+
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.Choices).To(HaveLen(1))
+			Expect(resp.Model).To(Equal(model))
+		})
+
+		It("Should handle text completion requests exceeding context window", func() {
+			ctx := context.TODO()
+			// Start server with max-model-len=10
+			args := []string{"cmd", "--model", model, "--mode", modeRandom, "--max-model-len", "10"}
+			client, err := startServerWithArgs(ctx, modeRandom, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Test with raw HTTP for text completion
+			reqBody := `{
+				"prompt": "This is a long test prompt with many words",
+				"model": "my_model",
+				"max_tokens": 5
+			}`
+
+			resp, err := client.Post("http://localhost/v1/completions", "application/json", strings.NewReader(reqBody))
+			Expect(err).NotTo(HaveOccurred())
+			defer resp.Body.Close()
+
+			body, err := io.ReadAll(resp.Body)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(resp.StatusCode).To(Equal(400))
+			Expect(string(body)).To(ContainSubstring("This model's maximum context length is 10 tokens"))
+			Expect(string(body)).To(ContainSubstring("BadRequestError"))
+		})
+	})
 })

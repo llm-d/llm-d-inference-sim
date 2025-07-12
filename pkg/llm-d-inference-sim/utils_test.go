@@ -43,4 +43,54 @@ var _ = Describe("Utils", func() {
 			Expect(finishReason).Should(Equal(stopFinishReason))
 		})
 	})
+
+	Context("validateContextWindow", func() {
+		It("should pass when total tokens are within limit", func() {
+			promptTokens := 100
+			maxCompletionTokens := int64(50)
+			maxModelLen := 200
+
+			err := validateContextWindow(promptTokens, &maxCompletionTokens, maxModelLen)
+			Expect(err).Should(BeNil())
+		})
+
+		It("should fail when total tokens exceed limit", func() {
+			promptTokens := 150
+			maxCompletionTokens := int64(100)
+			maxModelLen := 200
+
+			err := validateContextWindow(promptTokens, &maxCompletionTokens, maxModelLen)
+			Expect(err).ShouldNot(BeNil())
+			Expect(err.Error()).Should(ContainSubstring("This model's maximum context length is 200 tokens"))
+			Expect(err.Error()).Should(ContainSubstring("However, you requested 250 tokens"))
+			Expect(err.Error()).Should(ContainSubstring("150 in the messages, 100 in the completion"))
+		})
+
+		It("should pass when no max model length is configured", func() {
+			promptTokens := 1000
+			maxCompletionTokens := int64(1000)
+			maxModelLen := 0
+
+			err := validateContextWindow(promptTokens, &maxCompletionTokens, maxModelLen)
+			Expect(err).Should(BeNil())
+		})
+
+		It("should handle nil max completion tokens", func() {
+			promptTokens := 100
+			maxModelLen := 200
+
+			err := validateContextWindow(promptTokens, nil, maxModelLen)
+			Expect(err).Should(BeNil())
+		})
+
+		It("should fail when only prompt tokens exceed limit", func() {
+			promptTokens := 250
+			maxModelLen := 200
+
+			err := validateContextWindow(promptTokens, nil, maxModelLen)
+			Expect(err).ShouldNot(BeNil())
+			Expect(err.Error()).Should(ContainSubstring("This model's maximum context length is 200 tokens"))
+			Expect(err.Error()).Should(ContainSubstring("However, you requested 250 tokens"))
+		})
+	})
 })

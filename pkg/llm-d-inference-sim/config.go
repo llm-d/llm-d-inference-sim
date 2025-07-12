@@ -41,6 +41,9 @@ type configuration struct {
 	// MaxNumSeqs is maximum number of sequences per iteration (the maximum
 	// number of inference requests that could be processed at the same time)
 	MaxNumSeqs int `yaml:"max-num-seqs"`
+	// MaxModelLen is the model's context window, the maximum number of tokens
+	// in a single request including input and output. Default value is 1024.
+	MaxModelLen int `yaml:"max-model-len"`
 	// LoraModulesString is a list of LoRA adapters as strings
 	LoraModulesString []string `yaml:"lora-modules"`
 	// LoraModules is a list of LoRA adapters
@@ -97,11 +100,12 @@ func (c *configuration) unmarshalLoras() error {
 
 func newConfig() *configuration {
 	return &configuration{
-		Port:       vLLMDefaultPort,
-		MaxLoras:   1,
-		MaxNumSeqs: 5,
-		Mode:       modeRandom,
-		Seed:       time.Now().UnixNano(),
+		Port:        vLLMDefaultPort,
+		MaxLoras:    1,
+		MaxNumSeqs:  5,
+		MaxModelLen: 1024,
+		Mode:        modeRandom,
+		Seed:        time.Now().UnixNano(),
 	}
 }
 
@@ -150,6 +154,9 @@ func (c *configuration) validate() error {
 	}
 	if c.MaxCPULoras < c.MaxLoras {
 		return errors.New("max CPU LoRAs cannot be less than max LoRAs")
+	}
+	if c.MaxModelLen < 1 {
+		return errors.New("max model len cannot be less than 1")
 	}
 
 	for _, lora := range c.LoraModules {
