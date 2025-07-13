@@ -68,7 +68,7 @@ func validateContextWindow(promptTokens int, maxCompletionTokens *int64, maxMode
 
 	totalTokens := int64(promptTokens) + completionTokens
 	if totalTokens > int64(maxModelLen) {
-		return fmt.Errorf("this model's maximum context length is %d tokens. However, you requested %d tokens (%d in the messages, %d in the completion). Please reduce the length of the messages or completion",
+		return fmt.Errorf("This model's maximum context length is %d tokens. However, you requested %d tokens (%d in the messages, %d in the completion). Please reduce the length of the messages or completion",
 			maxModelLen, totalTokens, promptTokens, completionTokens)
 	}
 
