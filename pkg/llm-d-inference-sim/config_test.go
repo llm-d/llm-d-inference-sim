@@ -24,7 +24,10 @@ import (
 	"k8s.io/klog/v2"
 )
 
-const qwenModelName = "Qwen/Qwen2-0.5B"
+const (
+	qwenModelName    = "Qwen/Qwen2-0.5B"
+	seedInConfigFile = 100100100
+)
 
 func createSimConfig(args []string) (*configuration, error) {
 	oldArgs := os.Args
@@ -76,7 +79,7 @@ var _ = Describe("Simulator configuration", func() {
 	c.TimeToFirstToken = 2
 	c.InterTokenLatency = 1
 	c.LoraModules = []loraModule{{Name: "lora1", Path: "/path/to/lora1"}, {Name: "lora2", Path: "/path/to/lora2"}}
-	c.Seed = 100100100
+	c.Seed = seedInConfigFile
 	test = testCase{
 		name:           "config file",
 		args:           []string{"cmd", "--config", "../../manifests/config.yaml"},
@@ -124,7 +127,7 @@ var _ = Describe("Simulator configuration", func() {
 	c.MaxNumSeqs = 5
 	c.TimeToFirstToken = 2
 	c.InterTokenLatency = 1
-	c.Seed = 100100100
+	c.Seed = seedInConfigFile
 	c.LoraModules = []loraModule{{Name: "lora3", Path: "/path/to/lora3"}}
 	c.LoraModulesString = []string{
 		"{\"name\":\"lora3\",\"path\":\"/path/to/lora3\"}",
@@ -149,7 +152,7 @@ var _ = Describe("Simulator configuration", func() {
 	c.MaxNumSeqs = 5
 	c.TimeToFirstToken = 2
 	c.InterTokenLatency = 1
-	c.Seed = 100100100
+	c.Seed = seedInConfigFile
 	c.LoraModules = []loraModule{{Name: "lora3", Path: "/path/to/lora3"}}
 	c.LoraModulesString = []string{
 		"{\"name\":\"lora3\",\"path\":\"/path/to/lora3\"}",
@@ -176,7 +179,7 @@ var _ = Describe("Simulator configuration", func() {
 	c.InterTokenLatency = 1
 	c.LoraModules = []loraModule{}
 	c.LoraModulesString = []string{}
-	c.Seed = 100100100
+	c.Seed = seedInConfigFile
 	test = testCase{
 		name:           "config file with command line args with empty string for loras",
 		args:           []string{"cmd", "--config", "../../manifests/config.yaml", "--lora-modules", ""},
@@ -196,7 +199,7 @@ var _ = Describe("Simulator configuration", func() {
 	c.InterTokenLatency = 1
 	c.LoraModules = []loraModule{}
 	c.LoraModulesString = []string{}
-	c.Seed = 100100100
+	c.Seed = seedInConfigFile
 	test = testCase{
 		name:           "config file with command line args with empty parameter for loras",
 		args:           []string{"cmd", "--config", "../../manifests/config.yaml", "--lora-modules"},

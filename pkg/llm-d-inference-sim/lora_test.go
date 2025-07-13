@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 
+	vllmapi "github.com/llm-d/llm-d-inference-sim/pkg/vllm-api"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/openai/openai-go"
@@ -58,12 +59,7 @@ var _ = Describe("LoRAs", func() {
 			Expect(msg).Should(Equal(userMessage))
 
 			// Unknown model, should return 404
-			params = openai.ChatCompletionNewParams{
-				Messages: []openai.ChatCompletionMessageParamUnion{
-					openai.UserMessage(userMessage),
-				},
-				Model: "lora1",
-			}
+			params.Model = "lora1"
 			_, err = openaiclient.Chat.Completions.New(ctx, params)
 			Expect(err).To(HaveOccurred())
 			var openaiError *openai.Error
@@ -84,13 +80,14 @@ var _ = Describe("LoRAs", func() {
 			err = openaiclient.Post(ctx, "/load_lora_adapter", loraParams, nil, options)
 			Expect(err).ToNot(HaveOccurred())
 
+			// Should be four models: base model and three LoRAs
+			var modelsResp vllmapi.ModelsResponse
+			err = openaiclient.Get(ctx, "/models", nil, &modelsResp)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(modelsResp).NotTo(BeNil())
+			Expect(modelsResp.Data).To(HaveLen(4))
+
 			// Request to lora1, should work now
-			params = openai.ChatCompletionNewParams{
-				Messages: []openai.ChatCompletionMessageParamUnion{
-					openai.UserMessage(userMessage),
-				},
-				Model: "lora1",
-			}
 			resp, err = openaiclient.Chat.Completions.New(ctx, params)
 			Expect(err).ToNot(HaveOccurred())
 
@@ -113,17 +110,18 @@ var _ = Describe("LoRAs", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// We should now get an error now
-			params = openai.ChatCompletionNewParams{
-				Messages: []openai.ChatCompletionMessageParamUnion{
-					openai.UserMessage(userMessage),
-				},
-				Model: "lora3",
-			}
+			params.Model = "lora3"
 			_, err = openaiclient.Chat.Completions.New(ctx, params)
 			Expect(err).To(HaveOccurred())
 			ok = errors.As(err, &openaiError)
 			Expect(ok).To(BeTrue())
 			Expect(openaiError.StatusCode).To(Equal(404))
+
+			// Should be three models: base model and two LoRAs
+			err = openaiclient.Get(ctx, "/models", nil, &modelsResp)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(modelsResp).NotTo(BeNil())
+			Expect(modelsResp.Data).To(HaveLen(3))
 		})
 	})
 })
