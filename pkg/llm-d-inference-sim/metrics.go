@@ -114,8 +114,12 @@ func (s *VllmSimulator) setInitialPrometheusMetrics() {
 
 // reportLoras sets information about loaded LoRA adapters
 func (s *VllmSimulator) reportLoras() {
-	var loras []string
+	if s.loraInfo == nil {
+		// Happens in the tests
+		return
+	}
 
+	var loras []string
 	s.runningLoras.Range(func(key interface{}, _ interface{}) bool {
 		if lora, ok := key.(string); ok {
 			loras = append(loras, lora)
