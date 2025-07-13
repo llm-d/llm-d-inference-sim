@@ -400,7 +400,10 @@ var _ = Describe("Simulator", func() {
 
 			resp, err := client.Post("http://localhost/v1/chat/completions", "application/json", strings.NewReader(reqBody))
 			Expect(err).NotTo(HaveOccurred())
-			defer resp.Body.Close()
+			defer func() {
+				err := resp.Body.Close()
+				Expect(err).NotTo(HaveOccurred())
+			}()
 
 			body, err := io.ReadAll(resp.Body)
 			Expect(err).NotTo(HaveOccurred())
@@ -473,7 +476,10 @@ var _ = Describe("Simulator", func() {
 
 			resp, err := client.Post("http://localhost/v1/completions", "application/json", strings.NewReader(reqBody))
 			Expect(err).NotTo(HaveOccurred())
-			defer resp.Body.Close()
+			defer func() {
+				err := resp.Body.Close()
+				Expect(err).NotTo(HaveOccurred())
+			}()
 
 			body, err := io.ReadAll(resp.Body)
 			Expect(err).NotTo(HaveOccurred())
