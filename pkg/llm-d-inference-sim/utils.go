@@ -61,10 +61,6 @@ func getMaxTokens(maxCompletionTokens *int64, maxTokens *int64) (*int64, error) 
 // validateContextWindow checks if the request fits within the model's context window
 // Returns an error if prompt tokens + max completion tokens exceeds the max model length
 func validateContextWindow(promptTokens int, maxCompletionTokens *int64, maxModelLen int) error {
-	if maxModelLen <= 0 {
-		return nil // no limit configured
-	}
-
 	completionTokens := int64(0)
 	if maxCompletionTokens != nil {
 		completionTokens = *maxCompletionTokens
