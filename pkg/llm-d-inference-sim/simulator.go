@@ -143,7 +143,7 @@ func (s *VllmSimulator) parseCommandParamsAndLoadConfig() error {
 	servedModelNames := getParamValueFromArgs("served-model-name")
 	loraModuleNames := getParamValueFromArgs("lora-modules")
 
-	f := pflag.NewFlagSet("llm-d-inference-sim flags", pflag.ExitOnError)
+	f := pflag.NewFlagSet("llm-d-inference-sim flags", pflag.ContinueOnError)
 
 	f.IntVar(&config.Port, "port", config.Port, "Port")
 	f.StringVar(&config.Model, "model", config.Model, "Currently 'loaded' model")
@@ -158,12 +158,14 @@ func (s *VllmSimulator) parseCommandParamsAndLoadConfig() error {
 	f.Int64Var(&config.Seed, "seed", config.Seed, "Random seed for operations (if not set, current Unix time in nanoseconds is used)")
 
 	// These values were manually parsed above in getParamValueFromArgs, we leave this in order to get these flags in --help
-	var servedModelNameStrings multiString
-	f.Var(&servedModelNameStrings, "served-model-name", "Model names exposed by the API (a list of space-separated strings)")
-	var configFile string
-	f.StringVar(&configFile, "config", "", "The configuration file")
-	var loras multiString
-	f.Var(&loras, "lora-modules", "List of LoRA adapters (a list of space-separated JSON strings)")
+	var dummyString string
+	f.StringVar(&dummyString, "config", "", "The configuration file")
+	var dummyMultiString multiString
+	f.Var(&dummyMultiString, "served-model-name", "Model names exposed by the API (a list of space-separated strings)")
+	f.Var(&dummyMultiString, "lora-modules", "List of LoRA adapters (a list of space-separated JSON strings)")
+	// In order to allow empty arguments, we set a dummy NoOptDefVal for these flags
+	f.Lookup("served-model-name").NoOptDefVal = "dummy"
+	f.Lookup("lora-modules").NoOptDefVal = "dummy"
 
 	flagSet := flag.NewFlagSet("simFlagSet", flag.ExitOnError)
 	klog.InitFlags(flagSet)
@@ -209,7 +211,9 @@ func getParamValueFromArgs(param string) []string {
 			if strings.HasPrefix(arg, "--") {
 				break
 			}
-			values = append(values, arg)
+			if arg != "" {
+				values = append(values, arg)
+			}
 		} else {
 			if arg == "--"+param {
 				readValues = true

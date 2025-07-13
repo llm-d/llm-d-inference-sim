@@ -24,6 +24,8 @@ import (
 	"k8s.io/klog/v2"
 )
 
+const qwenModelName = "Qwen/Qwen2-0.5B"
+
 func createSimConfig(args []string) (*configuration, error) {
 	oldArgs := os.Args
 	defer func() {
@@ -66,7 +68,7 @@ var _ = Describe("Simulator configuration", func() {
 	// Config from config.yaml file
 	c = newConfig()
 	c.Port = 8001
-	c.Model = "Qwen/Qwen2-0.5B"
+	c.Model = qwenModelName
 	c.ServedModelNames = []string{"model1", "model2"}
 	c.MaxLoras = 2
 	c.MaxCPULoras = 5
@@ -128,7 +130,7 @@ var _ = Describe("Simulator configuration", func() {
 		"{\"name\":\"lora3\",\"path\":\"/path/to/lora3\"}",
 	}
 	test = testCase{
-		name: "config file with command line args",
+		name: "config file with command line args with different format",
 		args: []string{"cmd", "--model", model, "--config", "../../manifests/config.yaml", "--port", "8002",
 			"--served-model-name",
 			"--lora-modules={\"name\":\"lora3\",\"path\":\"/path/to/lora3\"}",
@@ -153,11 +155,49 @@ var _ = Describe("Simulator configuration", func() {
 		"{\"name\":\"lora3\",\"path\":\"/path/to/lora3\"}",
 	}
 	test = testCase{
-		name: "config file with command line args",
+		name: "config file with command line args with empty string",
 		args: []string{"cmd", "--model", model, "--config", "../../manifests/config.yaml", "--port", "8002",
 			"--served-model-name", "",
 			"--lora-modules", "{\"name\":\"lora3\",\"path\":\"/path/to/lora3\"}",
 		},
+		expectedConfig: c,
+	}
+	tests = append(tests, test)
+
+	// Config from config.yaml file plus command line args with empty string for loras
+	c = newConfig()
+	c.Port = 8001
+	c.Model = qwenModelName
+	c.ServedModelNames = []string{"model1", "model2"}
+	c.MaxLoras = 2
+	c.MaxCPULoras = 5
+	c.MaxNumSeqs = 5
+	c.TimeToFirstToken = 2
+	c.InterTokenLatency = 1
+	c.LoraModules = []loraModule{}
+	c.LoraModulesString = []string{}
+	test = testCase{
+		name:           "config file with command line args with empty string for loras",
+		args:           []string{"cmd", "--config", "../../manifests/config.yaml", "--lora-modules", ""},
+		expectedConfig: c,
+	}
+	tests = append(tests, test)
+
+	// Config from config.yaml file plus command line args with empty parameter for loras
+	c = newConfig()
+	c.Port = 8001
+	c.Model = qwenModelName
+	c.ServedModelNames = []string{"model1", "model2"}
+	c.MaxLoras = 2
+	c.MaxCPULoras = 5
+	c.MaxNumSeqs = 5
+	c.TimeToFirstToken = 2
+	c.InterTokenLatency = 1
+	c.LoraModules = []loraModule{}
+	c.LoraModulesString = []string{}
+	test = testCase{
+		name:           "config file with command line args with empty parameter for loras",
+		args:           []string{"cmd", "--config", "../../manifests/config.yaml", "--lora-modules"},
 		expectedConfig: c,
 	}
 	tests = append(tests, test)
@@ -211,6 +251,8 @@ var _ = Describe("Simulator configuration", func() {
 		Entry(tests[2].name, tests[2].args, tests[2].expectedConfig),
 		Entry(tests[3].name, tests[3].args, tests[3].expectedConfig),
 		Entry(tests[4].name, tests[4].args, tests[4].expectedConfig),
+		Entry(tests[5].name, tests[5].args, tests[5].expectedConfig),
+		Entry(tests[6].name, tests[6].args, tests[6].expectedConfig),
 	)
 
 	DescribeTable("invalid configurations",
@@ -218,11 +260,10 @@ var _ = Describe("Simulator configuration", func() {
 			_, err := createSimConfig(args)
 			Expect(err).To(HaveOccurred())
 		},
-		Entry(tests[5].name, tests[5].args),
-		Entry(tests[6].name, tests[6].args),
 		Entry(tests[7].name, tests[7].args),
 		Entry(tests[8].name, tests[8].args),
 		Entry(tests[9].name, tests[9].args),
 		Entry(tests[10].name, tests[10].args),
+    Entry(tests[11].name, tests[11].args),
 	)
 })
