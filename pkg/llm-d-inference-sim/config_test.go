@@ -176,7 +176,6 @@ var _ = Describe("Simulator configuration", func() {
 	c.InterTokenLatency = 1
 	c.LoraModules = []loraModule{}
 	c.LoraModulesString = []string{}
-	c.Seed = 100100100
 	test = testCase{
 		name:           "config file with command line args with empty string for loras",
 		args:           []string{"cmd", "--config", "../../manifests/config.yaml", "--lora-modules", ""},
@@ -196,7 +195,6 @@ var _ = Describe("Simulator configuration", func() {
 	c.InterTokenLatency = 1
 	c.LoraModules = []loraModule{}
 	c.LoraModulesString = []string{}
-	c.Seed = 100100100
 	test = testCase{
 		name:           "config file with command line args with empty parameter for loras",
 		args:           []string{"cmd", "--config", "../../manifests/config.yaml", "--lora-modules"},

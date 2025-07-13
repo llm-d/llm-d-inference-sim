@@ -324,7 +324,7 @@ func (s *VllmSimulator) HandleLoadLora(ctx *fasthttp.RequestCtx) {
 }
 
 func (s *VllmSimulator) HandleUnloadLora(ctx *fasthttp.RequestCtx) {
-	s.logger.Info("unload lora request received")
+	s.logger.Info("load lora request received")
 	s.unloadLora(ctx)
 }
 
@@ -512,6 +512,7 @@ func (s *VllmSimulator) responseSentCallback(model string) {
 	}
 
 	s.reportLoras()
+
 }
 
 // sendCompletionError sends an error response for the current completion request
