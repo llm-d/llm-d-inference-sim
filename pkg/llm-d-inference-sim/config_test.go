@@ -265,5 +265,6 @@ var _ = Describe("Simulator configuration", func() {
 		Entry(tests[9].name, tests[9].args),
 		Entry(tests[10].name, tests[10].args),
 		Entry(tests[11].name, tests[11].args),
+		Entry(tests[12].name, tests[12].args),
 	)
 })
