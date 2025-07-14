@@ -158,7 +158,7 @@ func (s *VllmSimulator) parseCommandParamsAndLoadConfig() error {
 
 	// These values were manually parsed above in getParamValueFromArgs, we leave this in order to get these flags in --help
 	var dummyString string
-	f.StringVar(&dummyString, "config", "", "The configuration file")
+	f.StringVar(&dummyString, "config", "", "The path to a yaml configuration file. The command line values overwrite the configuration file values")
 	var dummyMultiString multiString
 	f.Var(&dummyMultiString, "served-model-name", "Model names exposed by the API (a list of space-separated strings)")
 	f.Var(&dummyMultiString, "lora-modules", "List of LoRA adapters (a list of space-separated JSON strings)")
@@ -171,6 +171,10 @@ func (s *VllmSimulator) parseCommandParamsAndLoadConfig() error {
 	f.AddGoFlagSet(flagSet)
 
 	if err := f.Parse(os.Args[1:]); err != nil {
+		if err == pflag.ErrHelp {
+			// --help - exit without printing an error message
+			os.Exit(0)
+		}
 		return err
 	}
 

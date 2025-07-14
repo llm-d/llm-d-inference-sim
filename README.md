@@ -85,7 +85,7 @@ API responses contains a subset of the fields provided by the OpenAI API.
 For more details see the <a href="https://docs.vllm.ai/en/stable/getting_started/quickstart.html#openai-completions-api-with-vllm">vLLM documentation</a>
 
 ## Command line parameters
-- `config`: the path to a yaml configuration file 
+- `config`: the path to a yaml configuration file that can contain the simulator's command line parameters. If a parameter is defined in both the config file and the command line, the command line value overwrites the configuration file value. An example configuration file can be found at `manifests/config.yaml`
 - `port`: the port the simulator listents on, default is 8000
 - `model`: the currently 'loaded' model, mandatory
 - `served-model-name`: model names exposed by the API (a list of space-separated strings)
@@ -134,7 +134,7 @@ The following environment variables can be used to change the image tag: `REGIST
 ### Running
 To run the vLLM Simulator image under Docker, run:
 ```bash
-docker run --rm --publish 8000:8000 ghcr.io/llm-d/llm-d-inference-sim:dev  --port 8000 --model "Qwen/Qwen2.5-1.5B-Instruct" --lora "tweet-summary-0,tweet-summary-1"
+docker run --rm --publish 8000:8000 ghcr.io/llm-d/llm-d-inference-sim:dev  --port 8000 --model "Qwen/Qwen2.5-1.5B-Instruct"  --lora-modules '{"name":"tweet-summary-0"}' '{"name":"tweet-summary-1"}'
 ```
 **Note:** To run the vLLM Simulator with the latest release version, in the above docker command replace `dev` with the current release which can be found on [GitHub](https://github.com/llm-d/llm-d-inference-sim/pkgs/container/llm-d-inference-sim).
 
