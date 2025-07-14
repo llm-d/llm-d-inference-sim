@@ -50,8 +50,10 @@ var _ = Describe("Utils", func() {
 			maxCompletionTokens := int64(50)
 			maxModelLen := 200
 
-			err := validateContextWindow(promptTokens, &maxCompletionTokens, maxModelLen)
-			Expect(err).ShouldNot(HaveOccurred())
+			isValid, actualCompletionTokens, totalTokens := validateContextWindow(promptTokens, &maxCompletionTokens, maxModelLen)
+			Expect(isValid).Should(BeTrue())
+			Expect(actualCompletionTokens).Should(Equal(int64(50)))
+			Expect(totalTokens).Should(Equal(int64(150)))
 		})
 
 		It("should fail when total tokens exceed limit", func() {
@@ -59,29 +61,30 @@ var _ = Describe("Utils", func() {
 			maxCompletionTokens := int64(100)
 			maxModelLen := 200
 
-			err := validateContextWindow(promptTokens, &maxCompletionTokens, maxModelLen)
-			Expect(err).Should(HaveOccurred())
-			Expect(err.Error()).Should(ContainSubstring("This model's maximum context length is 200 tokens"))
-			Expect(err.Error()).Should(ContainSubstring("However, you requested 250 tokens"))
-			Expect(err.Error()).Should(ContainSubstring("150 in the messages, 100 in the completion"))
+			isValid, actualCompletionTokens, totalTokens := validateContextWindow(promptTokens, &maxCompletionTokens, maxModelLen)
+			Expect(isValid).Should(BeFalse())
+			Expect(actualCompletionTokens).Should(Equal(int64(100)))
+			Expect(totalTokens).Should(Equal(int64(250)))
 		})
 
 		It("should handle nil max completion tokens", func() {
 			promptTokens := 100
 			maxModelLen := 200
 
-			err := validateContextWindow(promptTokens, nil, maxModelLen)
-			Expect(err).ShouldNot(HaveOccurred())
+			isValid, actualCompletionTokens, totalTokens := validateContextWindow(promptTokens, nil, maxModelLen)
+			Expect(isValid).Should(BeTrue())
+			Expect(actualCompletionTokens).Should(Equal(int64(0)))
+			Expect(totalTokens).Should(Equal(int64(100)))
 		})
 
 		It("should fail when only prompt tokens exceed limit", func() {
 			promptTokens := 250
 			maxModelLen := 200
 
-			err := validateContextWindow(promptTokens, nil, maxModelLen)
-			Expect(err).Should(HaveOccurred())
-			Expect(err.Error()).Should(ContainSubstring("This model's maximum context length is 200 tokens"))
-			Expect(err.Error()).Should(ContainSubstring("However, you requested 250 tokens"))
+			isValid, actualCompletionTokens, totalTokens := validateContextWindow(promptTokens, nil, maxModelLen)
+			Expect(isValid).Should(BeFalse())
+			Expect(actualCompletionTokens).Should(Equal(int64(0)))
+			Expect(totalTokens).Should(Equal(int64(250)))
 		})
 	})
 })

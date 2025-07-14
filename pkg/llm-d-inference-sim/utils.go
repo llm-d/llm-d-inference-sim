@@ -59,20 +59,17 @@ func getMaxTokens(maxCompletionTokens *int64, maxTokens *int64) (*int64, error) 
 }
 
 // validateContextWindow checks if the request fits within the model's context window
-// Returns an error if prompt tokens + max completion tokens exceeds the max model length
-func validateContextWindow(promptTokens int, maxCompletionTokens *int64, maxModelLen int) error {
+// Returns validation result, actual completion tokens, and total tokens
+func validateContextWindow(promptTokens int, maxCompletionTokens *int64, maxModelLen int) (bool, int64, int64) {
 	completionTokens := int64(0)
 	if maxCompletionTokens != nil {
 		completionTokens = *maxCompletionTokens
 	}
 
 	totalTokens := int64(promptTokens) + completionTokens
-	if totalTokens > int64(maxModelLen) {
-		return fmt.Errorf("This model's maximum context length is %d tokens. However, you requested %d tokens (%d in the messages, %d in the completion). Please reduce the length of the messages or completion",
-			maxModelLen, totalTokens, promptTokens, completionTokens)
-	}
+	isValid := totalTokens <= int64(maxModelLen)
 
-	return nil
+	return isValid, completionTokens, totalTokens
 }
 
 // getRandomResponseText returns random response text from the pre-defined list of responses

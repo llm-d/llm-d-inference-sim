@@ -374,9 +374,12 @@ func (s *VllmSimulator) handleCompletions(ctx *fasthttp.RequestCtx, isChatComple
 	}
 
 	// Validate context window constraints
-	err = validateContextWindow(vllmReq.getNumberOfPromptTokens(), vllmReq.getMaxCompletionTokens(), s.config.MaxModelLen)
-	if err != nil {
-		s.sendCompletionError(ctx, err.Error(), "BadRequestError", fasthttp.StatusBadRequest)
+	promptTokens := vllmReq.getNumberOfPromptTokens()
+	completionTokens := vllmReq.getMaxCompletionTokens()
+	isValid, actualCompletionTokens, totalTokens := validateContextWindow(promptTokens, completionTokens, s.config.MaxModelLen)
+	if !isValid {
+		s.sendCompletionError(ctx, fmt.Sprintf("This model's maximum context length is %d tokens. However, you requested %d tokens (%d in the messages, %d in the completion). Please reduce the length of the messages or completion",
+			s.config.MaxModelLen, totalTokens, promptTokens, actualCompletionTokens), "BadRequestError", fasthttp.StatusBadRequest)
 		return
 	}
 

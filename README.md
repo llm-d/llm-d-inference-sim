@@ -92,6 +92,7 @@ For more details see the <a href="https://docs.vllm.ai/en/stable/getting_started
 - `lora-modules`: a list of LoRA adapters (a list of space-separated JSON strings): '{"name": "name", "path": "lora_path", "base_model_name": "id"}', optional, empty by default
 - `max-loras`: maximum number of LoRAs in a single batch, optional, default is one
 - `max-cpu-loras`: maximum number of LoRAs to store in CPU memory, optional, must be >= than max-loras, default is max-loras
+- `max-model-len`: model's context window, maximum number of tokens in a single request including input and output, optional, default is 1024
 - `max-num-seqs`: maximum number of sequences per iteration (maximum number of inference requests that could be processed at the same time), default is 5
 - `mode`: the simulator mode, optional, by default `random`
     - `echo`: returns the same text that was sent in the request
