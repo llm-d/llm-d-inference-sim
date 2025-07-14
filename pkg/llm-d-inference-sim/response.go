@@ -37,7 +37,13 @@ type baseCompletionResponse struct {
 	// Usage contains the token usage statistics for the request
 	Usage *usage `json:"usage"`
 	// Object is the Object type, "text_completion", "chat.completion", or "chat.completion.chunk"
-	Object string `json:"object"`
+	Object          string   `json:"object"`
+	DoRemoteDecode  bool     `json:"do_remote_decode"`
+	DoRemotePrefill bool     `json:"do_remote_prefill"`
+	RemoteBlockIds  []string `json:"remote_block_ids"`
+	RemoteEngineId  string   `json:"remote_engine_id"`
+	RemoteHost      string   `json:"remote_host"`
+	RemotePort      int      `json:"remote_port"`
 }
 
 // usage contains token usage statistics

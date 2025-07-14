@@ -44,6 +44,10 @@ type completionRequest interface {
 	getToolChoice() string
 	// getMaxCompletionTokens returns the maximum completion tokens requested
 	getMaxCompletionTokens() *int64
+	// isDoRemoteDecode() returns true is do_remote_decode is true in the request, this means that this is prefill request
+	doRemoteDecode() bool
+	// isDoRemotePrefill() returns true is do_remote_prefill is true in the request, this means that this is decode request
+	doRemotePrefill() bool
 }
 
 // baseCompletionRequest contains base completion request related information
@@ -53,7 +57,13 @@ type baseCompletionRequest struct {
 	// StreamOptions defines streaming options in case Stream is set to true
 	StreamOptions streamOptions `json:"stream_options"`
 	// Model defines Model name to use for "inference", could be base Model name or one of available LoRA adapters
-	Model string `json:"model"`
+	Model           string   `json:"model"`
+	DoRemoteDecode  bool     `json:"do_remote_decode"`
+	DoRemotePrefill bool     `json:"do_remote_prefill"`
+	RemoteBlockIds  []string `json:"remote_block_ids"`
+	RemoteEngineId  string   `json:"remote_engine_id"`
+	RemoteHost      string   `json:"remote_host"`
+	RemotePort      int      `json:"remote_port"`
 }
 
 // StreamOptions defines streaming options for streaming requests
@@ -72,6 +82,14 @@ func (b *baseCompletionRequest) getModel() string {
 
 func (b *baseCompletionRequest) includeUsage() bool {
 	return !b.Stream || b.StreamOptions.IncludeUsage
+}
+
+func (b *baseCompletionRequest) doRemoteDecode() bool {
+	return b.DoRemoteDecode
+}
+
+func (b *baseCompletionRequest) doRemotePrefill() bool {
+	return b.DoRemotePrefill
 }
 
 // completionReqCtx is a context passed in the simulator's flow, it contains the request data needed

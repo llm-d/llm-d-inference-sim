@@ -49,6 +49,7 @@ const (
 	stopFinishReason          = "stop"
 	lengthFinishReason        = "length"
 	toolsFinishReason         = "tool_calls"
+	remoteDecodeFinishReason  = "remote_decode"
 	roleAssistant             = "assistant"
 	roleUser                  = "user"
 	textCompletionObject      = "text_completion"
@@ -155,6 +156,7 @@ func (s *VllmSimulator) parseCommandParamsAndLoadConfig() error {
 	f.StringVar(&config.Mode, "mode", config.Mode, "Simulator mode, echo - returns the same text that was sent in the request, for chat completion returns the last message, random - returns random sentence from a bank of pre-defined sentences")
 	f.IntVar(&config.InterTokenLatency, "inter-token-latency", config.InterTokenLatency, "Time to generate one token (in milliseconds)")
 	f.IntVar(&config.TimeToFirstToken, "time-to-first-token", config.TimeToFirstToken, "Time to first token (in milliseconds)")
+	f.IntVar(&config.KVCacheTransferLatency, "kv_cache_transfer_latency", config.KVCacheTransferLatency, "Time for KV-cache transfer from a remote vLLM (in milliseconds)")
 	f.Int64Var(&config.Seed, "seed", config.Seed, "Random seed for operations (if not set, current Unix time in nanoseconds is used)")
 
 	// These values were manually parsed above in getParamValueFromArgs, we leave this in order to get these flags in --help
@@ -304,6 +306,8 @@ func (s *VllmSimulator) readRequest(ctx *fasthttp.RequestCtx, isChatCompletion b
 	var req textCompletionRequest
 
 	err := json.Unmarshal(ctx.Request.Body(), &req)
+
+	fmt.Printf("Unmarshaled text request: %#v\n", req)
 	return &req, err
 }
 
@@ -327,6 +331,18 @@ func (s *VllmSimulator) HandleLoadLora(ctx *fasthttp.RequestCtx) {
 func (s *VllmSimulator) HandleUnloadLora(ctx *fasthttp.RequestCtx) {
 	s.logger.Info("unload lora request received")
 	s.unloadLora(ctx)
+}
+
+func (s *VllmSimulator) validateRequest(req completionRequest) (string, string, int) {
+	if !s.isValidModel(req.getModel()) {
+		return fmt.Sprintf("The model `%s` does not exist.", req.getModel()), "NotFoundError", fasthttp.StatusNotFound
+	}
+
+	if req.doRemoteDecode() && req.isStream() {
+		return "Prefill does not support streaming", "Invalid request", fasthttp.StatusBadRequest
+	}
+
+	return "", "", fasthttp.StatusOK
 }
 
 // isValidModel checks if the given model is the base model or one of "loaded" LoRAs
@@ -365,11 +381,9 @@ func (s *VllmSimulator) handleCompletions(ctx *fasthttp.RequestCtx, isChatComple
 		return
 	}
 
-	model := vllmReq.getModel()
-
-	if !s.isValidModel(model) {
-		s.sendCompletionError(ctx, fmt.Sprintf("The model `%s` does not exist.", vllmReq.getModel()),
-			"NotFoundError", fasthttp.StatusNotFound)
+	errMsg, errType, errCode := s.validateRequest(vllmReq)
+	if errMsg != "" {
+		s.sendCompletionError(ctx, errMsg, errType, errCode)
 		return
 	}
 
@@ -477,16 +491,23 @@ func (s *VllmSimulator) reqProcessingWorker(ctx context.Context, id int) {
 							isChatCompletion: reqCtx.isChatCompletion,
 							model:            displayModel,
 						},
-						responseTokens, toolCalls, finishReason, usageDataToSend,
+						responseTokens, toolCalls, finishReason, usageDataToSend, req.doRemotePrefill(),
 					)
 				} else {
+					if req.doRemoteDecode() {
+						// in case this is prefill pod processing, return special finish reason
+						finishReason = remoteDecodeFinishReason
+					}
+
 					s.sendResponse(reqCtx.isChatCompletion,
 						reqCtx.httpReqCtx,
 						responseTokens,
 						toolCalls,
 						displayModel,
 						finishReason,
-						&usageData)
+						&usageData,
+						req.doRemoteDecode(),
+						req.doRemotePrefill())
 				}
 			}
 			reqCtx.wg.Done()
@@ -575,13 +596,25 @@ func (s *VllmSimulator) HandleError(_ *fasthttp.RequestCtx, err error) {
 // modelName - display name returned to the client and used in metrics. It is either the first alias
 // from --served-model-name (for a base-model request) or the LoRA adapter name (for a LoRA request).
 func (s *VllmSimulator) createCompletionResponse(isChatCompletion bool, respTokens []string, toolCalls []toolCall,
-	finishReason *string, usageData *usage, modelName string) completionResponse {
+	finishReason *string, usageData *usage, modelName string, doRemoteDecode bool) completionResponse {
 	baseResp := baseCompletionResponse{
 		ID:      chatComplIDPrefix + uuid.NewString(),
 		Created: time.Now().Unix(),
 		Model:   modelName,
 		Usage:   usageData,
 	}
+
+	if doRemoteDecode {
+		// add special fields related to the prefill pod special behavior
+		baseResp.DoRemoteDecode = true
+		baseResp.DoRemotePrefill = false
+		// currently remote prefill information is hard-coded
+		baseResp.RemoteBlockIds = []string{"DUMMY_ID"}
+		baseResp.RemoteEngineId = "DUMMY_ID"
+		baseResp.RemoteHost = "DUMMY"
+		baseResp.RemotePort = 1234
+	}
+
 	baseChoice := baseResponseChoice{Index: 0, FinishReason: finishReason}
 
 	respText := strings.Join(respTokens, "")
@@ -616,8 +649,8 @@ func (s *VllmSimulator) createCompletionResponse(isChatCompletion bool, respToke
 // finishReason - a pointer to string that represents finish reason, can be nil, stop, length, or tools
 // usageData - usage (tokens statistics) for this response
 func (s *VllmSimulator) sendResponse(isChatCompletion bool, ctx *fasthttp.RequestCtx, respTokens []string, toolCalls []toolCall,
-	modelName string, finishReason string, usageData *usage) {
-	resp := s.createCompletionResponse(isChatCompletion, respTokens, toolCalls, &finishReason, usageData, modelName)
+	modelName string, finishReason string, usageData *usage, doRemoteDecode bool, doRemotePrefill bool) {
+	resp := s.createCompletionResponse(isChatCompletion, respTokens, toolCalls, &finishReason, usageData, modelName, doRemoteDecode)
 
 	data, err := json.Marshal(resp)
 	if err != nil {
@@ -627,7 +660,7 @@ func (s *VllmSimulator) sendResponse(isChatCompletion bool, ctx *fasthttp.Reques
 
 	// calculate how long to wait before returning the response, time is based on number of tokens
 	numOfTokens := usageData.CompletionTokens
-	totalMillisToWait := s.config.TimeToFirstToken + (numOfTokens-1)*s.config.InterTokenLatency
+	totalMillisToWait := s.getTimeToFirstToken(doRemotePrefill) + (numOfTokens-1)*s.config.InterTokenLatency
 	time.Sleep(time.Duration(totalMillisToWait) * time.Millisecond)
 
 	// TODO - maybe add pod id to response header for testing
@@ -636,6 +669,14 @@ func (s *VllmSimulator) sendResponse(isChatCompletion bool, ctx *fasthttp.Reques
 	ctx.Response.SetBody(data)
 
 	s.responseSentCallback(modelName)
+}
+
+// returns time to first token based on whether
+func (s *VllmSimulator) getTimeToFirstToken(doRemotePrefill bool) int {
+	if doRemotePrefill {
+		return s.config.KVCacheTransferLatency
+	}
+	return s.config.TimeToFirstToken
 }
 
 // createModelsResponse creates and returns ModelResponse for the current state, returned array of models contains the base model + LoRA adapters if exist

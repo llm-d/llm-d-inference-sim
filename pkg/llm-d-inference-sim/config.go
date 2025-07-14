@@ -53,6 +53,9 @@ type configuration struct {
 	TimeToFirstToken int `yaml:"time-to-first-token"`
 	// InterTokenLatency time between generated tokens, in milliseconds
 	InterTokenLatency int `yaml:"inter-token-latency"`
+	// KVCacheTransferLatency time to "transfer" kv-cache from another vLLM instance in case P/D is activated, in milliseconds
+	KVCacheTransferLatency int `yaml:"kv_cache_transfer_latency"`
+
 	// Mode defines the simulator response generation mode, valid values: echo, random
 	Mode string `yaml:"mode"`
 	// Seed defines random seed for operations
@@ -144,6 +147,9 @@ func (c *configuration) validate() error {
 	}
 	if c.TimeToFirstToken < 0 {
 		return errors.New("time to first token cannot be negative")
+	}
+	if c.KVCacheTransferLatency < 0 {
+		return errors.New("kv-cache tranfer time cannot be negative")
 	}
 	if c.MaxLoras < 1 {
 		return errors.New("max LoRAs cannot be less than 1")

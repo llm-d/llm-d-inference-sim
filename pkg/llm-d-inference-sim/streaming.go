@@ -38,7 +38,7 @@ type streamingContext struct {
 // response content is wrapped according SSE format
 // First token is send after timeToFirstToken milliseconds, every other token is sent after interTokenLatency milliseconds
 func (s *VllmSimulator) sendStreamingResponse(context *streamingContext, responseTokens []string, toolCalls []toolCall,
-	finishReason string, usageData *usage) {
+	finishReason string, usageData *usage, doRemotePrefill bool) {
 	context.ctx.SetContentType("text/event-stream")
 	context.ctx.SetStatusCode(fasthttp.StatusOK)
 
@@ -57,11 +57,11 @@ func (s *VllmSimulator) sendStreamingResponse(context *streamingContext, respons
 			if len(toolCalls) > 0 {
 				s.logger.Info("Going to send tools calls")
 				for _, tc := range toolCalls {
-					s.sendTokenChunks(context, w, tc.Function.tokenizedArguments, &tc, finishReason)
+					s.sendTokenChunks(context, w, tc.Function.tokenizedArguments, &tc, finishReason, doRemotePrefill)
 				}
 			} else {
 				s.logger.Info("Going to send text", "number of tokens", usageData.CompletionTokens)
-				s.sendTokenChunks(context, w, responseTokens, nil, finishReason)
+				s.sendTokenChunks(context, w, responseTokens, nil, finishReason, doRemotePrefill)
 			}
 		}
 
@@ -84,9 +84,9 @@ func (s *VllmSimulator) sendStreamingResponse(context *streamingContext, respons
 }
 
 // sendTokenChunks creates and sends response chunks
-func (s *VllmSimulator) sendTokenChunks(context *streamingContext, w *bufio.Writer, tokens []string, tc *toolCall, finishReason string) {
+func (s *VllmSimulator) sendTokenChunks(context *streamingContext, w *bufio.Writer, tokens []string, tc *toolCall, finishReason string, doRemotePrefill bool) {
 	// time to first token delay
-	time.Sleep(time.Duration(s.config.TimeToFirstToken) * time.Millisecond)
+	time.Sleep(time.Duration(s.getTimeToFirstToken(doRemotePrefill)) * time.Millisecond)
 
 	for i, token := range tokens {
 		if i != 0 {
