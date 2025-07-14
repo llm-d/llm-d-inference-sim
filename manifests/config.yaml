@@ -12,5 +12,5 @@ lora-modules:
 mode: "random"
 time-to-first-token: 2000
 inter-token-latency: 1000
-kv_cache_transfer_latency: 100
+kv-cache-transfer-latency: 100
 seed: 100100100

@@ -54,7 +54,7 @@ type configuration struct {
 	// InterTokenLatency time between generated tokens, in milliseconds
 	InterTokenLatency int `yaml:"inter-token-latency"`
 	// KVCacheTransferLatency time to "transfer" kv-cache from another vLLM instance in case P/D is activated, in milliseconds
-	KVCacheTransferLatency int `yaml:"kv_cache_transfer_latency"`
+	KVCacheTransferLatency int `yaml:"kv-cache-transfer-latency"`
 
 	// Mode defines the simulator response generation mode, valid values: echo, random
 	Mode string `yaml:"mode"`

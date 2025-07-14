@@ -194,7 +194,7 @@ var _ = Describe("Simulator configuration", func() {
 	c.KVCacheTransferLatency = 50
 	test = testCase{
 		name:           "config file with command line args with time to transfer kv-cache",
-		args:           []string{"cmd", "--config", "../../manifests/basic-config.yaml", "--kv_cache_transfer_latency", "50"},
+		args:           []string{"cmd", "--config", "../../manifests/basic-config.yaml", "--kv-cache-transfer-latency", "50"},
 		expectedConfig: c,
 	}
 	tests = append(tests, test)
