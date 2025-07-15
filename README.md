@@ -94,6 +94,7 @@ For more details see the <a href="https://docs.vllm.ai/en/stable/getting_started
 - `max-cpu-loras`: maximum number of LoRAs to store in CPU memory, optional, must be >= than max-loras, default is max-loras
 - `max-model-len`: model's context window, maximum number of tokens in a single request including input and output, optional, default is 1024
 - `max-num-seqs`: maximum number of sequences per iteration (maximum number of inference requests that could be processed at the same time), default is 5
+- `max-num-batched-tokens`: maximum number of batched tokens per iteration. If set, limits the total number of tokens (prompt + max output tokens) that can be processed simultaneously across all running requests. When not set or set to 0, only `max-num-seqs` constraint is enforced, optional, default is 0 (disabled)
 - `mode`: the simulator mode, optional, by default `random`
     - `echo`: returns the same text that was sent in the request
     - `random`: returns a sentence chosen at random from a set of pre-defined sentences

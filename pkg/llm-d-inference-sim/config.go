@@ -41,6 +41,8 @@ type configuration struct {
 	// MaxNumSeqs is maximum number of sequences per iteration (the maximum
 	// number of inference requests that could be processed at the same time)
 	MaxNumSeqs int `yaml:"max-num-seqs"`
+	// MaxNumBatchedTokens is maximum number of batched tokens per iteration
+	MaxNumBatchedTokens int `yaml:"max-num-batched-tokens"`
 	// MaxModelLen is the model's context window, the maximum number of tokens
 	// in a single request including input and output. Default value is 1024.
 	MaxModelLen int `yaml:"max-model-len"`
@@ -163,6 +165,9 @@ func (c *configuration) validate() error {
 	}
 	if c.MaxModelLen < 1 {
 		return errors.New("max model len cannot be less than 1")
+	}
+	if c.MaxNumBatchedTokens < 0 {
+		return errors.New("max num batched tokens cannot be negative")
 	}
 
 	for _, lora := range c.LoraModules {

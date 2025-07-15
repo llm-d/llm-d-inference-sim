@@ -88,6 +88,7 @@ var _ = Describe("Simulator configuration", func() {
 	c = createDefaultConfig(qwenModelName)
 	c.Port = 8001
 	c.ServedModelNames = []string{"model1", "model2"}
+	c.MaxNumBatchedTokens = 2048
 	c.LoraModules = []loraModule{{Name: "lora1", Path: "/path/to/lora1"}, {Name: "lora2", Path: "/path/to/lora2"}}
 	test = testCase{
 		name:           "config file",
@@ -105,6 +106,7 @@ var _ = Describe("Simulator configuration", func() {
 	c.Port = 8002
 	c.ServedModelNames = []string{"alias1", "alias2"}
 	c.Seed = 100
+	c.MaxNumBatchedTokens = 2048
 	c.LoraModules = []loraModule{{Name: "lora3", Path: "/path/to/lora3"}, {Name: "lora4", Path: "/path/to/lora4"}}
 	c.LoraModulesString = []string{
 		"{\"name\":\"lora3\",\"path\":\"/path/to/lora3\"}",
@@ -123,6 +125,7 @@ var _ = Describe("Simulator configuration", func() {
 	// Config from config.yaml file plus command line args with different format
 	c = createDefaultConfig(model)
 	c.Port = 8002
+	c.MaxNumBatchedTokens = 2048
 	c.LoraModules = []loraModule{{Name: "lora3", Path: "/path/to/lora3"}}
 	c.LoraModulesString = []string{
 		"{\"name\":\"lora3\",\"path\":\"/path/to/lora3\"}",
@@ -140,6 +143,7 @@ var _ = Describe("Simulator configuration", func() {
 	// Config from config.yaml file plus command line args with empty string
 	c = createDefaultConfig(model)
 	c.Port = 8002
+	c.MaxNumBatchedTokens = 2048
 	c.LoraModules = []loraModule{{Name: "lora3", Path: "/path/to/lora3"}}
 	c.LoraModulesString = []string{
 		"{\"name\":\"lora3\",\"path\":\"/path/to/lora3\"}",
@@ -158,6 +162,7 @@ var _ = Describe("Simulator configuration", func() {
 	c = createDefaultConfig(qwenModelName)
 	c.Port = 8001
 	c.ServedModelNames = []string{"model1", "model2"}
+	c.MaxNumBatchedTokens = 2048
 	c.LoraModulesString = []string{}
 	test = testCase{
 		name:           "config file with command line args with empty string for loras",
@@ -170,6 +175,7 @@ var _ = Describe("Simulator configuration", func() {
 	c = createDefaultConfig(qwenModelName)
 	c.Port = 8001
 	c.ServedModelNames = []string{"model1", "model2"}
+	c.MaxNumBatchedTokens = 2048
 	c.LoraModulesString = []string{}
 	test = testCase{
 		name:           "config file with command line args with empty parameter for loras",
@@ -184,6 +190,7 @@ var _ = Describe("Simulator configuration", func() {
 	// basic config file does not contain properties related to lora
 	c.MaxLoras = 1
 	c.MaxCPULoras = 1
+	c.MaxNumBatchedTokens = 1024
 	c.KVCacheTransferLatency = 50
 	test = testCase{
 		name:           "config file with command line args with time to transfer kv-cache",
@@ -258,4 +265,33 @@ var _ = Describe("Simulator configuration", func() {
 		Entry(tests[12].name, tests[12].args),
 		Entry(tests[13].name, tests[13].args),
 	)
+
+	It("should accept max-num-batched-tokens parameter", func() {
+		config, err := createSimConfig([]string{
+			"test",
+			"--model", qwenModelName,
+			"--max-num-batched-tokens", "1024",
+		})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(config.MaxNumBatchedTokens).Should(Equal(1024))
+	})
+
+	It("should validate max-num-batched-tokens cannot be negative", func() {
+		config := newConfig()
+		config.Model = qwenModelName
+		config.MaxNumBatchedTokens = -1
+
+		err := config.validate()
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).Should(ContainSubstring("max num batched tokens cannot be negative"))
+	})
+
+	It("should allow max-num-batched-tokens to be zero (disabled)", func() {
+		config := newConfig()
+		config.Model = qwenModelName
+		config.MaxNumBatchedTokens = 0
+
+		err := config.validate()
+		Expect(err).NotTo(HaveOccurred())
+	})
 })
