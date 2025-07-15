@@ -45,29 +45,19 @@ func createSimConfig(args []string) (*configuration, error) {
 	return s.config, nil
 }
 
-func createDefaultBasicConfig(model string) *configuration {
+func createDefaultConfig(model string) *configuration {
 	c := newConfig()
 
 	c.Model = model
 	c.ServedModelNames = []string{c.Model}
 	c.MaxNumSeqs = 5
-	c.MaxLoras = 1
-	c.MaxCPULoras = 1
+	c.MaxLoras = 2
+	c.MaxCPULoras = 5
 	c.TimeToFirstToken = 2000
 	c.InterTokenLatency = 1000
 	c.KVCacheTransferLatency = 100
 	c.Seed = 100100100
 	c.LoraModules = []loraModule{}
-
-	return c
-}
-
-func createDefaultConfig(model string) *configuration {
-	c := createDefaultBasicConfig(model)
-
-	// parameters special to config.yaml
-	c.MaxLoras = 2
-	c.MaxCPULoras = 5
 
 	return c
 }
@@ -189,8 +179,11 @@ var _ = Describe("Simulator configuration", func() {
 	tests = append(tests, test)
 
 	// Config from config.yaml file plus command line args with time to copy cache
-	c = createDefaultBasicConfig(qwenModelName)
+	c = createDefaultConfig(qwenModelName)
 	c.Port = 8001
+	// basic config file does not contain properties related to lora
+	c.MaxLoras = 1
+	c.MaxCPULoras = 1
 	c.KVCacheTransferLatency = 50
 	test = testCase{
 		name:           "config file with command line args with time to transfer kv-cache",
@@ -263,5 +256,6 @@ var _ = Describe("Simulator configuration", func() {
 		Entry(tests[10].name, tests[10].args),
 		Entry(tests[11].name, tests[11].args),
 		Entry(tests[12].name, tests[12].args),
+		Entry(tests[13].name, tests[13].args),
 	)
 })

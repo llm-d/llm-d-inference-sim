@@ -303,11 +303,10 @@ func (s *VllmSimulator) readRequest(ctx *fasthttp.RequestCtx, isChatCompletion b
 
 		return &req, nil
 	}
-	var req textCompletionRequest
 
+	var req textCompletionRequest
 	err := json.Unmarshal(ctx.Request.Body(), &req)
 
-	fmt.Printf("Unmarshaled text request: %#v\n", req)
 	return &req, err
 }
 
@@ -490,8 +489,9 @@ func (s *VllmSimulator) reqProcessingWorker(ctx context.Context, id int) {
 							ctx:              reqCtx.httpReqCtx,
 							isChatCompletion: reqCtx.isChatCompletion,
 							model:            displayModel,
+							doRemotePrefill:  req.doRemotePrefill(),
 						},
-						responseTokens, toolCalls, finishReason, usageDataToSend, req.doRemotePrefill(),
+						responseTokens, toolCalls, finishReason, usageDataToSend,
 					)
 				} else {
 					if req.doRemoteDecode() {
@@ -671,7 +671,7 @@ func (s *VllmSimulator) sendResponse(isChatCompletion bool, ctx *fasthttp.Reques
 	s.responseSentCallback(modelName)
 }
 
-// returns time to first token based on whether
+// returns time to first token based on the current request's doRemotePrefill
 func (s *VllmSimulator) getTimeToFirstToken(doRemotePrefill bool) int {
 	if doRemotePrefill {
 		return s.config.KVCacheTransferLatency
