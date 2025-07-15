@@ -60,7 +60,7 @@ func (s *VllmSimulator) sendStreamingResponse(context *streamingContext, respons
 					s.sendTokenChunks(context, w, tc.Function.tokenizedArguments, &tc, finishReason)
 				}
 			} else {
-				s.logger.Info("Going to send text", "number of tokens", usageData.CompletionTokens)
+				s.logger.Info("Going to send text", "number of tokens", len(responseTokens))
 				s.sendTokenChunks(context, w, responseTokens, nil, finishReason)
 			}
 		}
