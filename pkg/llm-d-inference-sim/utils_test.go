@@ -18,12 +18,17 @@ package llmdinferencesim
 
 import (
 	"strings"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
 
-var _ = Describe("Utils", func() {
+var _ = Describe("Utils", Ordered, func() {
+	BeforeAll(func() {
+		initRandom(time.Now().UnixNano())
+	})
+
 	Context("GetRandomResponseText", func() {
 		It("should return complete text", func() {
 			text, finishReason := getRandomResponseText(nil)
