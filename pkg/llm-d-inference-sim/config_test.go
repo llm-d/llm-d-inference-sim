@@ -53,6 +53,7 @@ func createDefaultConfig(model string) *configuration {
 	c.MaxNumSeqs = 5
 	c.MaxLoras = 2
 	c.MaxCPULoras = 5
+	c.MaxNumBatchedTokens = 2048
 	c.TimeToFirstToken = 2000
 	c.InterTokenLatency = 1000
 	c.KVCacheTransferLatency = 100
@@ -184,6 +185,7 @@ var _ = Describe("Simulator configuration", func() {
 	// basic config file does not contain properties related to lora
 	c.MaxLoras = 1
 	c.MaxCPULoras = 1
+	c.MaxNumBatchedTokens = 1024
 	c.KVCacheTransferLatency = 50
 	test = testCase{
 		name:           "config file with command line args with time to transfer kv-cache",
@@ -258,4 +260,33 @@ var _ = Describe("Simulator configuration", func() {
 		Entry(tests[12].name, tests[12].args),
 		Entry(tests[13].name, tests[13].args),
 	)
+
+	It("should accept max-num-batched-tokens parameter", func() {
+		config, err := createSimConfig([]string{
+			"test",
+			"--model", qwenModelName,
+			"--max-num-batched-tokens", "1024",
+		})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(config.MaxNumBatchedTokens).Should(Equal(1024))
+	})
+
+	It("should validate max-num-batched-tokens cannot be negative", func() {
+		config := newConfig()
+		config.Model = qwenModelName
+		config.MaxNumBatchedTokens = -1
+
+		err := config.validate()
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).Should(ContainSubstring("max num batched tokens cannot be negative"))
+	})
+
+	It("should allow max-num-batched-tokens to be zero (disabled)", func() {
+		config := newConfig()
+		config.Model = qwenModelName
+		config.MaxNumBatchedTokens = 0
+
+		err := config.validate()
+		Expect(err).NotTo(HaveOccurred())
+	})
 })

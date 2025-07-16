@@ -1,6 +1,7 @@
 port: 8001
 model: "Qwen/Qwen2-0.5B"
 max-num-seqs: 5
+max-num-batched-tokens: 1024
 mode: "random"
 time-to-first-token: 2000
 inter-token-latency: 1000

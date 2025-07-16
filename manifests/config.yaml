@@ -6,6 +6,7 @@ served-model-name:
 max-loras: 2
 max-cpu-loras: 5
 max-num-seqs: 5
+max-num-batched-tokens: 2048
 lora-modules:
 - '{"name":"lora1","path":"/path/to/lora1"}'
 - '{"name":"lora2","path":"/path/to/lora2"}'

@@ -65,6 +65,9 @@ func startServerWithArgs(ctx context.Context, mode string, args []string) (*http
 		return nil, err
 	}
 
+	// run queue manager that handles request constraints
+	go s.queueManager(ctx)
+
 	// run request processing workers
 	for i := 1; i <= s.config.MaxNumSeqs; i++ {
 		go s.reqProcessingWorker(ctx, i)
@@ -489,4 +492,188 @@ var _ = Describe("Simulator", func() {
 			Expect(string(body)).To(ContainSubstring("BadRequestError"))
 		})
 	})
+
+	Context("max-num-batched-tokens functionality", func() {
+		var simulator *VllmSimulator
+
+		BeforeEach(func() {
+			var err error
+			simulator, err = New(klog.Background())
+			Expect(err).NotTo(HaveOccurred())
+
+			// Setup basic configuration
+			simulator.config = newConfig()
+			simulator.config.Model = "test-model"
+			simulator.config.MaxModelLen = 1024
+			simulator.config.MaxNumSeqs = 5
+			simulator.config.MaxNumBatchedTokens = 2048
+		})
+
+		Describe("calculateProcessingTokens", func() {
+			It("should calculate tokens with explicit max_tokens", func() {
+				req := &chatCompletionRequest{
+					baseCompletionRequest: baseCompletionRequest{
+						Model: "test-model",
+					},
+					Messages: []message{
+						{Role: "user", Content: content{Raw: "Hello world"}},
+					},
+					MaxTokens: int64Ptr(100),
+				}
+
+				// Mock the token counting (in real implementation, this would tokenize the message)
+				// For test purposes, assume "Hello world" = 2 tokens
+				tokens := simulator.calculateProcessingTokens(req)
+
+				// Should be prompt tokens (2) + max tokens (100) = 102
+				// Note: In real implementation, this depends on the actual tokenization
+				Expect(tokens).To(BeNumerically(">=", 100))
+			})
+
+			It("should calculate tokens without max_tokens using max-model-len", func() {
+				req := &chatCompletionRequest{
+					baseCompletionRequest: baseCompletionRequest{
+						Model: "test-model",
+					},
+					Messages: []message{
+						{Role: "user", Content: content{Raw: "Hello world"}},
+					},
+				}
+
+				tokens := simulator.calculateProcessingTokens(req)
+
+				// Should be prompt tokens + (max-model-len - prompt tokens)
+				// which equals max-model-len = 1024
+				Expect(tokens).To(Equal(1024))
+			})
+		})
+
+		Describe("canAcceptRequest", func() {
+			It("should accept request when within both constraints", func() {
+				simulator.config.MaxNumSeqs = 2
+				simulator.config.MaxNumBatchedTokens = 2048
+
+				req := &chatCompletionRequest{
+					baseCompletionRequest: baseCompletionRequest{
+						Model: "test-model",
+					},
+					Messages: []message{
+						{Role: "user", Content: content{Raw: "Hello"}},
+					},
+					MaxTokens: int64Ptr(100),
+				}
+
+				canAccept := simulator.canAcceptRequest(req)
+				Expect(canAccept).To(BeTrue())
+			})
+
+			It("should reject request when max-num-seqs is exceeded", func() {
+				simulator.config.MaxNumSeqs = 1
+				simulator.config.MaxNumBatchedTokens = 2048
+
+				// Simulate one request already running
+				simulator.nRunningReqs = 1
+
+				req := &chatCompletionRequest{
+					baseCompletionRequest: baseCompletionRequest{
+						Model: "test-model",
+					},
+					Messages: []message{
+						{Role: "user", Content: content{Raw: "Hello"}},
+					},
+					MaxTokens: int64Ptr(100),
+				}
+
+				canAccept := simulator.canAcceptRequest(req)
+				Expect(canAccept).To(BeFalse())
+			})
+
+			It("should reject request when max-num-batched-tokens would be exceeded", func() {
+				simulator.config.MaxNumSeqs = 5
+				simulator.config.MaxNumBatchedTokens = 500
+
+				// Simulate tokens already being used
+				simulator.processingTokensCount = 400
+
+				req := &chatCompletionRequest{
+					baseCompletionRequest: baseCompletionRequest{
+						Model: "test-model",
+					},
+					Messages: []message{
+						{Role: "user", Content: content{Raw: "Hello"}},
+					},
+					MaxTokens: int64Ptr(200), // This would exceed the limit (400 + 200+ > 500)
+				}
+
+				canAccept := simulator.canAcceptRequest(req)
+				Expect(canAccept).To(BeFalse())
+			})
+
+			It("should ignore batched tokens constraint when MaxNumBatchedTokens is 0", func() {
+				simulator.config.MaxNumSeqs = 5
+				simulator.config.MaxNumBatchedTokens = 0 // Disabled
+
+				// Simulate a lot of tokens being used
+				simulator.processingTokensCount = 10000
+
+				req := &chatCompletionRequest{
+					baseCompletionRequest: baseCompletionRequest{
+						Model: "test-model",
+					},
+					Messages: []message{
+						{Role: "user", Content: content{Raw: "Hello"}},
+					},
+					MaxTokens: int64Ptr(200),
+				}
+
+				canAccept := simulator.canAcceptRequest(req)
+				Expect(canAccept).To(BeTrue()) // Should only check max-num-seqs
+			})
+		})
+
+		It("Should start with max-num-batched-tokens parameter", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", model, "--mode", modeRandom, "--max-num-batched-tokens", "1024"}
+			client, err := startServerWithArgs(ctx, modeRandom, args)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(client).NotTo(BeNil())
+		})
+
+		It("Should reject requests that exceed max-num-batched-tokens immediately", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", model, "--mode", modeRandom, "--max-num-batched-tokens", "10"}
+			client, err := startServerWithArgs(ctx, modeRandom, args)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(client).NotTo(BeNil())
+
+			// Create a request that requires more than 10 tokens (4 prompt + 20 max_tokens = 24 tokens)
+			reqBody := `{
+				"messages": [
+					{"role": "user", "content": "Hello world test prompt"}
+				],
+				"model": "my_model",
+				"max_tokens": 20
+			}`
+
+			resp, err := client.Post("http://localhost/v1/chat/completions", "application/json", strings.NewReader(reqBody))
+			Expect(err).NotTo(HaveOccurred())
+			defer func() {
+				err := resp.Body.Close()
+				Expect(err).NotTo(HaveOccurred())
+			}()
+
+			body, err := io.ReadAll(resp.Body)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(resp.StatusCode).To(Equal(400))
+			Expect(string(body)).To(ContainSubstring("Request requires"))
+			Expect(string(body)).To(ContainSubstring("max-num-batched-tokens is set to 10"))
+			Expect(string(body)).To(ContainSubstring("would never be accepted"))
+		})
+	})
 })
+
+// Helper function to create int64 pointer
+func int64Ptr(i int64) *int64 {
+	return &i
+}
