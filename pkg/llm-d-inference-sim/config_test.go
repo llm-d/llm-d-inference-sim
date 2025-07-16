@@ -53,6 +53,7 @@ func createDefaultConfig(model string) *configuration {
 	c.MaxNumSeqs = 5
 	c.MaxLoras = 2
 	c.MaxCPULoras = 5
+	c.MaxNumBatchedTokens = 2048
 	c.TimeToFirstToken = 2000
 	c.InterTokenLatency = 1000
 	c.KVCacheTransferLatency = 100
@@ -88,7 +89,6 @@ var _ = Describe("Simulator configuration", func() {
 	c = createDefaultConfig(qwenModelName)
 	c.Port = 8001
 	c.ServedModelNames = []string{"model1", "model2"}
-	c.MaxNumBatchedTokens = 2048
 	c.LoraModules = []loraModule{{Name: "lora1", Path: "/path/to/lora1"}, {Name: "lora2", Path: "/path/to/lora2"}}
 	test = testCase{
 		name:           "config file",
@@ -106,7 +106,6 @@ var _ = Describe("Simulator configuration", func() {
 	c.Port = 8002
 	c.ServedModelNames = []string{"alias1", "alias2"}
 	c.Seed = 100
-	c.MaxNumBatchedTokens = 2048
 	c.LoraModules = []loraModule{{Name: "lora3", Path: "/path/to/lora3"}, {Name: "lora4", Path: "/path/to/lora4"}}
 	c.LoraModulesString = []string{
 		"{\"name\":\"lora3\",\"path\":\"/path/to/lora3\"}",
@@ -125,7 +124,6 @@ var _ = Describe("Simulator configuration", func() {
 	// Config from config.yaml file plus command line args with different format
 	c = createDefaultConfig(model)
 	c.Port = 8002
-	c.MaxNumBatchedTokens = 2048
 	c.LoraModules = []loraModule{{Name: "lora3", Path: "/path/to/lora3"}}
 	c.LoraModulesString = []string{
 		"{\"name\":\"lora3\",\"path\":\"/path/to/lora3\"}",
@@ -143,7 +141,6 @@ var _ = Describe("Simulator configuration", func() {
 	// Config from config.yaml file plus command line args with empty string
 	c = createDefaultConfig(model)
 	c.Port = 8002
-	c.MaxNumBatchedTokens = 2048
 	c.LoraModules = []loraModule{{Name: "lora3", Path: "/path/to/lora3"}}
 	c.LoraModulesString = []string{
 		"{\"name\":\"lora3\",\"path\":\"/path/to/lora3\"}",
@@ -162,7 +159,6 @@ var _ = Describe("Simulator configuration", func() {
 	c = createDefaultConfig(qwenModelName)
 	c.Port = 8001
 	c.ServedModelNames = []string{"model1", "model2"}
-	c.MaxNumBatchedTokens = 2048
 	c.LoraModulesString = []string{}
 	test = testCase{
 		name:           "config file with command line args with empty string for loras",
@@ -175,7 +171,6 @@ var _ = Describe("Simulator configuration", func() {
 	c = createDefaultConfig(qwenModelName)
 	c.Port = 8001
 	c.ServedModelNames = []string{"model1", "model2"}
-	c.MaxNumBatchedTokens = 2048
 	c.LoraModulesString = []string{}
 	test = testCase{
 		name:           "config file with command line args with empty parameter for loras",

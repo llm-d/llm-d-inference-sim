@@ -105,7 +105,7 @@ type completionReqCtx struct {
 	httpReqCtx       *fasthttp.RequestCtx
 	isChatCompletion bool
 	wg               *sync.WaitGroup
-	requestID        string
+	processingTokens int
 }
 
 // chatCompletionRequest defines structure of /chat/completion request

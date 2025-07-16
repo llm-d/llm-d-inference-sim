@@ -60,13 +60,6 @@ const (
 	toolChoiceRequired        = "required"
 )
 
-// runningRequest tracks token usage for a currently running request
-type runningRequest struct {
-	promptTokens int
-	maxTokens    int
-	totalTokens  int
-}
-
 // VllmSimulator simulates vLLM server supporting OpenAI API
 type VllmSimulator struct {
 	// logger is used for information and errors logging
@@ -83,8 +76,6 @@ type VllmSimulator struct {
 	nRunningReqs int64
 	// nWaitingReqs is the number of inference requests that are waiting to be processed
 	nWaitingReqs int64
-	// runningRequestsMap tracks token usage for currently running requests
-	runningRequestsMap sync.Map
 	// processingTokensCount tracks the total number of tokens being processed by running requests
 	processingTokensCount int64
 	// loraInfo is prometheus gauge
@@ -394,23 +385,18 @@ func (s *VllmSimulator) isLora(model string) bool {
 }
 
 // calculateProcessingTokens calculates the total number of processing tokens for a request
-// Returns prompt tokens + max output tokens
+// Returns prompt tokens + max output tokens, or MaxModelLen if max_tokens is not specified
 func (s *VllmSimulator) calculateProcessingTokens(req completionRequest) int {
 	promptTokens := req.getNumberOfPromptTokens()
 	maxCompletionTokens := req.getMaxCompletionTokens()
 
-	// If max_tokens is not specified, calculate it as max-model-len - prompt-len
-	outputTokens := 0
-	if maxCompletionTokens != nil {
-		outputTokens = int(*maxCompletionTokens)
-	} else {
-		outputTokens = s.config.MaxModelLen - promptTokens
-		if outputTokens < 0 {
-			outputTokens = 0
-		}
+	// If max_tokens is not specified, return the maximum possible tokens (MaxModelLen)
+	if maxCompletionTokens == nil {
+		return s.config.MaxModelLen
 	}
 
-	return promptTokens + outputTokens
+	// If max_tokens is specified, return prompt tokens + specified max completion tokens
+	return promptTokens + int(*maxCompletionTokens)
 }
 
 // canAcceptRequest checks if a new request can be accepted based on max-num-seqs and max-num-batched-tokens constraints
@@ -436,27 +422,18 @@ func (s *VllmSimulator) canAcceptRequest(req completionRequest) bool {
 }
 
 // addRunningRequest adds a request to the running requests tracking
-func (s *VllmSimulator) addRunningRequest(reqID string, req completionRequest) {
-	processingTokens := s.calculateProcessingTokens(req)
+func (s *VllmSimulator) addRunningRequest(reqCtx *completionReqCtx) {
+	processingTokens := s.calculateProcessingTokens(reqCtx.completionReq)
+	reqCtx.processingTokens = processingTokens
 
-	runningReq := runningRequest{
-		promptTokens: req.getNumberOfPromptTokens(),
-		maxTokens:    processingTokens,
-		totalTokens:  processingTokens,
-	}
-
-	s.runningRequestsMap.Store(reqID, runningReq)
 	atomic.AddInt64(&s.processingTokensCount, int64(processingTokens))
 	atomic.AddInt64(&s.nRunningReqs, 1)
 }
 
 // removeRunningRequest removes a request from the running requests tracking
-func (s *VllmSimulator) removeRunningRequest(reqID string) {
-	if value, ok := s.runningRequestsMap.LoadAndDelete(reqID); ok {
-		runningReq := value.(runningRequest)
-		atomic.AddInt64(&s.processingTokensCount, -int64(runningReq.totalTokens))
-		atomic.AddInt64(&s.nRunningReqs, -1)
-	}
+func (s *VllmSimulator) removeRunningRequest(reqCtx *completionReqCtx) {
+	atomic.AddInt64(&s.processingTokensCount, -int64(reqCtx.processingTokens))
+	atomic.AddInt64(&s.nRunningReqs, -1)
 }
 
 // handleCompletions general completion requests handler, support both text and chat completion APIs
@@ -532,14 +509,8 @@ func (s *VllmSimulator) queueManager(ctx context.Context) {
 			var newQueue []*completionReqCtx
 			for _, reqCtx := range waitingQueue {
 				if s.canAcceptRequest(reqCtx.completionReq) {
-					// Generate a unique ID for this request
-					reqID := uuid.New().String()
-
 					// Add to running requests tracking
-					s.addRunningRequest(reqID, reqCtx.completionReq)
-
-					// Add the request ID to the context so workers can use it
-					reqCtx.requestID = reqID
+					s.addRunningRequest(reqCtx)
 
 					// Send to processing channel
 					s.processingChan <- reqCtx
@@ -656,7 +627,7 @@ func (s *VllmSimulator) reqProcessingWorker(ctx context.Context, id int) {
 			}
 
 			// Clean up the running request tracking
-			s.removeRunningRequest(reqCtx.requestID)
+			s.removeRunningRequest(reqCtx)
 
 			reqCtx.wg.Done()
 		}
