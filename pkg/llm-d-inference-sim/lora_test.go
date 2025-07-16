@@ -21,11 +21,12 @@ import (
 	"encoding/json"
 	"errors"
 
-	vllmapi "github.com/llm-d/llm-d-inference-sim/pkg/vllm-api"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
+
+	vllmapi "github.com/llm-d/llm-d-inference-sim/pkg/vllm-api"
 )
 
 var _ = Describe("LoRAs", func() {

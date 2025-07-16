@@ -24,8 +24,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	vllmapi "github.com/llm-d/llm-d-inference-sim/pkg/vllm-api"
 	"github.com/prometheus/client_golang/prometheus"
+
+	vllmapi "github.com/llm-d/llm-d-inference-sim/pkg/vllm-api"
 )
 
 // createAndRegisterPrometheus creates and registers prometheus metrics used by vLLM simulator

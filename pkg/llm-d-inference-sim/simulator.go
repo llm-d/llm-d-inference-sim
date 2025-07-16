@@ -32,13 +32,14 @@ import (
 	"github.com/buaazp/fasthttprouter"
 	"github.com/go-logr/logr"
 	"github.com/google/uuid"
-	vllmapi "github.com/llm-d/llm-d-inference-sim/pkg/vllm-api"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/spf13/pflag"
 	"github.com/valyala/fasthttp"
 	"github.com/valyala/fasthttp/fasthttpadaptor"
 	"k8s.io/klog/v2"
+
+	vllmapi "github.com/llm-d/llm-d-inference-sim/pkg/vllm-api"
 )
 
 const (
