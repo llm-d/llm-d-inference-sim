@@ -107,8 +107,8 @@ For more details see the <a href="https://docs.vllm.ai/en/stable/getting_started
 - `min-tool-call-number-param`: the minimum possible value of number (float) parameters in a tool call, optional, defaults to 0
 - `max-tool-call-array-param-length`: the maximum possible length of array parameters in a tool call, optional, defaults to 5
 - `min-tool-call-array-param-length`: the minimum possible length of array parameters in a tool call, optional, defaults to 1
-- `tool-call-not-required-param-probability`: the probability to add a not required parameter in a tool call, optional, defaults to 50
-- `object-tool-call-not-required-field-probability`: the probability to add a not required field in an object parameter in a tool call, optional, defaults to 50
+- `tool-call-not-required-param-probability`: the probability to add a parameter, that is not required, in a tool call, optional, defaults to 50
+- `object-tool-call-not-required-field-probability`: the probability to add a field, that is not required, in an object in a tool call, optional, defaults to 50
 	
 In addition, as we are using klog, the following parameters are available:
 - `add_dir_header`: if true, adds the file directory to the header of the log messages

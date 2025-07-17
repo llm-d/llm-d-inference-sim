@@ -203,85 +203,62 @@ var _ = Describe("Simulator configuration", func() {
 	}
 
 	// Invalid configurations
-	invalidTests := make([]testCase, 0)
-
-	test = testCase{
-		name: "invalid model",
-		args: []string{"cmd", "--model", "", "--config", "../../manifests/config.yaml"},
+	invalidTests := []testCase{
+		{
+			name: "invalid model",
+			args: []string{"cmd", "--model", "", "--config", "../../manifests/config.yaml"},
+		},
+		{
+			name: "invalid port",
+			args: []string{"cmd", "--port", "-50", "--config", "../../manifests/config.yaml"},
+		},
+		{
+			name: "invalid max-loras",
+			args: []string{"cmd", "--max-loras", "15", "--config", "../../manifests/config.yaml"},
+		},
+		{
+			name: "invalid mode",
+			args: []string{"cmd", "--mode", "hello", "--config", "../../manifests/config.yaml"},
+		},
+		{
+			name: "invalid lora",
+			args: []string{"cmd", "--config", "../../manifests/config.yaml",
+				"--lora-modules", "[{\"path\":\"/path/to/lora15\"}]"},
+		},
+		{
+			name: "invalid max-model-len",
+			args: []string{"cmd", "--max-model-len", "0", "--config", "../../manifests/config.yaml"},
+		},
+		{
+			name: "invalid tool-call-not-required-param-probability",
+			args: []string{"cmd", "--tool-call-not-required-param-probability", "-10", "--config", "../../manifests/config.yaml"},
+		},
+		{
+			name: "invalid max-tool-call-number-param",
+			args: []string{"cmd", "--max-tool-call-number-param", "-10", "--min-tool-call-number-param", "0",
+				"--config", "../../manifests/config.yaml"},
+		},
+		{
+			name: "invalid max-tool-call-integer-param",
+			args: []string{"cmd", "--max-tool-call-integer-param", "-10", "--min-tool-call-integer-param", "0",
+				"--config", "../../manifests/config.yaml"},
+		},
+		{
+			name: "invalid max-tool-call-array-param-length",
+			args: []string{"cmd", "--max-tool-call-array-param-length", "-10", "--min-tool-call-array-param-length", "0",
+				"--config", "../../manifests/config.yaml"},
+		},
+		{
+			name: "invalid tool-call-not-required-param-probability",
+			args: []string{"cmd", "--tool-call-not-required-param-probability", "-10",
+				"--config", "../../manifests/config.yaml"},
+		},
+		{
+			name: "invalid object-tool-call-not-required-field-probability",
+			args: []string{"cmd", "--object-tool-call-not-required-field-probability", "1210",
+				"--config", "../../manifests/config.yaml"},
+		},
 	}
-	invalidTests = append(invalidTests, test)
-
-	test = testCase{
-		name: "invalid port",
-		args: []string{"cmd", "--port", "-50", "--config", "../../manifests/config.yaml"},
-	}
-	invalidTests = append(invalidTests, test)
-
-	test = testCase{
-		name: "invalid max-loras",
-		args: []string{"cmd", "--max-loras", "15", "--config", "../../manifests/config.yaml"},
-	}
-	invalidTests = append(invalidTests, test)
-
-	test = testCase{
-		name: "invalid mode",
-		args: []string{"cmd", "--mode", "hello", "--config", "../../manifests/config.yaml"},
-	}
-	invalidTests = append(invalidTests, test)
-
-	test = testCase{
-		name: "invalid lora",
-		args: []string{"cmd", "--config", "../../manifests/config.yaml",
-			"--lora-modules", "[{\"path\":\"/path/to/lora15\"}]"},
-	}
-	invalidTests = append(invalidTests, test)
-
-	test = testCase{
-		name: "invalid max-model-len",
-		args: []string{"cmd", "--max-model-len", "0", "--config", "../../manifests/config.yaml"},
-	}
-	invalidTests = append(invalidTests, test)
-
-	test = testCase{
-		name: "invalid tool-call-not-required-param-probability",
-		args: []string{"cmd", "--tool-call-not-required-param-probability", "-10", "--config", "../../manifests/config.yaml"},
-	}
-	invalidTests = append(invalidTests, test)
-
-	test = testCase{
-		name: "invalid max-tool-call-number-param",
-		args: []string{"cmd", "--max-tool-call-number-param", "-10", "--min-tool-call-number-param", "0",
-			"--config", "../../manifests/config.yaml"},
-	}
-	invalidTests = append(invalidTests, test)
-
-	test = testCase{
-		name: "invalid max-tool-call-integer-param",
-		args: []string{"cmd", "--max-tool-call-integer-param", "-10", "--min-tool-call-integer-param", "0",
-			"--config", "../../manifests/config.yaml"},
-	}
-	invalidTests = append(invalidTests, test)
-
-	test = testCase{
-		name: "invalid max-tool-call-array-param-length",
-		args: []string{"cmd", "--max-tool-call-array-param-length", "-10", "--min-tool-call-array-param-length", "0",
-			"--config", "../../manifests/config.yaml"},
-	}
-	invalidTests = append(invalidTests, test)
-
-	test = testCase{
-		name: "invalid tool-call-not-required-param-probability",
-		args: []string{"cmd", "--tool-call-not-required-param-probability", "-10",
-			"--config", "../../manifests/config.yaml"},
-	}
-	invalidTests = append(invalidTests, test)
-
-	test = testCase{
-		name: "invalid object-tool-call-not-required-field-probability",
-		args: []string{"cmd", "--object-tool-call-not-required-field-probability", "1210",
-			"--config", "../../manifests/config.yaml"},
-	}
-	invalidTests = append(invalidTests, test)
 
 	for _, test := range invalidTests {
 		When(test.name, func() {

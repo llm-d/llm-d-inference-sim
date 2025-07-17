@@ -81,11 +81,11 @@ type configuration struct {
 	// optional, defaults to 1
 	MinToolCallArrayParamLength int `yaml:"min-tool-call-array-param-length"`
 
-	// ToolCallNotRequiredParamProbability is the probability to add a not required parameter in a tool call,
-	// optional, defaults to 50
+	// ToolCallNotRequiredParamProbability is the probability to add a parameter, that is not required,
+	// in a tool call, optional, defaults to 50
 	ToolCallNotRequiredParamProbability int `yaml:"tool-call-not-required-param-probability"`
-	// ObjectToolCallNotRequiredParamProbability is the probability to add a not required field in an object
-	// parameter in a tool call, optional, defaults to 50
+	// ObjectToolCallNotRequiredParamProbability is the probability to add a field, that is not required,
+	// in an object in a tool call, optional, defaults to 50
 	ObjectToolCallNotRequiredParamProbability int `yaml:"object-tool-call-not-required-field-probability"`
 }
 
@@ -215,9 +215,6 @@ func (c *configuration) validate() error {
 	}
 	if c.MaxToolCallArrayParamLength < c.MinToolCallArrayParamLength {
 		return errors.New("MaxToolCallArrayParamLength cannot be less than MinToolCallArrayParamLength")
-	}
-	if c.MaxToolCallArrayParamLength < 0 {
-		return errors.New("MaxToolCallArrayParamLength cannot be negative")
 	}
 	if c.MinToolCallArrayParamLength < 0 {
 		return errors.New("MinToolCallArrayParamLength cannot be negative")
