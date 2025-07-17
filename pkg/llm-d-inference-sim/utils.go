@@ -141,6 +141,11 @@ func flipCoin() bool {
 	return randomInt(0, 1) != 0
 }
 
+// probability is an integer between 0 and 100
+func randomBool(probability int) bool {
+	return randomGenerator.Float64() < float64(probability)/100
+}
+
 // Returns a random float64 in the range [min, max)
 func randomFloat(min float64, max float64) float64 {
 	return randomGenerator.Float64()*(max-min) + min

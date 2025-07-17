@@ -48,7 +48,7 @@ var fakeStringArguments = []string{
 // createToolCalls creates and returns response payload based on this request
 // (tool calls or nothing in case we randomly choose not to generate calls),
 // and the number of generated completion token sand the finish reason
-func createToolCalls(tools []tool, toolChoice string) ([]toolCall, string, int, error) {
+func createToolCalls(tools []tool, toolChoice string, config *configuration) ([]toolCall, string, int, error) {
 	// This function is called if tool choice is either 'required' or 'auto'.
 	// In case of 'required' at least one tool call has to be created, and we randomly choose
 	// the number of calls starting from one. Otherwise, we start from 0, and in case we randomly
@@ -66,7 +66,7 @@ func createToolCalls(tools []tool, toolChoice string) ([]toolCall, string, int, 
 	for i := range numberOfCalls {
 		// Randomly choose which tools to call. We may call the same tool more than once.
 		index := randomInt(0, len(tools)-1)
-		args, err := generateToolArguments(tools[index])
+		args, err := generateToolArguments(tools[index], config)
 		if err != nil {
 			return nil, "", 0, err
 		}
@@ -104,7 +104,7 @@ func getRequiredAsMap(property map[string]any) map[string]struct{} {
 	return required
 }
 
-func generateToolArguments(tool tool) (map[string]any, error) {
+func generateToolArguments(tool tool, config *configuration) (map[string]any, error) {
 	arguments := make(map[string]any)
 	properties, _ := tool.Function.Parameters["properties"].(map[string]any)
 
@@ -112,10 +112,10 @@ func generateToolArguments(tool tool) (map[string]any, error) {
 
 	for param, property := range properties {
 		_, paramIsRequired := required[param]
-		if !paramIsRequired && !flipCoin() {
+		if !paramIsRequired && !randomBool(config.ToolCallNotRequiredParamProbability) {
 			continue
 		}
-		arg, err := createArgument(property)
+		arg, err := createArgument(property, config)
 		if err != nil {
 			return nil, err
 		}
@@ -125,7 +125,7 @@ func generateToolArguments(tool tool) (map[string]any, error) {
 	return arguments, nil
 }
 
-func createArgument(property any) (any, error) {
+func createArgument(property any, config *configuration) (any, error) {
 	propertyMap, _ := property.(map[string]any)
 	paramType := propertyMap["type"]
 
@@ -143,16 +143,16 @@ func createArgument(property any) (any, error) {
 	case "string":
 		return getStringArgument(), nil
 	case "integer":
-		return randomInt(0, 100), nil
+		return randomInt(config.MinToolCallIntegerParam, config.MaxToolCallIntegerParam), nil
 	case "number":
-		return randomFloat(0, 100), nil
+		return randomFloat(config.MinToolCallNumberParam, config.MaxToolCallNumberParam), nil
 	case "boolean":
 		return flipCoin(), nil
 	case "array":
 		items := propertyMap["items"]
 		itemsMap := items.(map[string]any)
-		minItems := 1
-		maxItems := 5
+		minItems := config.MinToolCallArrayParamLength
+		maxItems := config.MaxToolCallArrayParamLength
 		if value, ok := propertyMap["minItems"]; ok {
 			minItems = int(value.(float64))
 		}
@@ -165,7 +165,7 @@ func createArgument(property any) (any, error) {
 		numberOfElements := randomInt(minItems, maxItems)
 		array := make([]any, numberOfElements)
 		for i := range numberOfElements {
-			elem, err := createArgument(itemsMap)
+			elem, err := createArgument(itemsMap, config)
 			if err != nil {
 				return nil, err
 			}
@@ -178,10 +178,10 @@ func createArgument(property any) (any, error) {
 		object := make(map[string]interface{})
 		for fieldName, fieldProperties := range objectProperties {
 			_, fieldIsRequired := required[fieldName]
-			if !fieldIsRequired && !flipCoin() {
+			if !fieldIsRequired && !randomBool(config.ObjectToolCallNotRequiredParamProbability) {
 				continue
 			}
-			fieldValue, err := createArgument(fieldProperties)
+			fieldValue, err := createArgument(fieldProperties, config)
 			if err != nil {
 				return nil, err
 			}

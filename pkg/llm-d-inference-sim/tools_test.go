@@ -19,6 +19,8 @@ package llmdinferencesim
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"strconv"
 	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -282,6 +284,58 @@ var toolWithObjectAndArray = []openai.ChatCompletionToolParam{
 	},
 }
 
+var toolWithoutRequiredParams = []openai.ChatCompletionToolParam{
+	{
+		Function: openai.FunctionDefinitionParam{
+			Name:        "get_temperature",
+			Description: openai.String("Get temperature at the given location"),
+			Parameters: openai.FunctionParameters{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"city": map[string]string{
+						"type": "string",
+					},
+					"country": map[string]string{
+						"type": "string",
+					},
+					"unit": map[string]interface{}{
+						"type": "string",
+						"enum": []string{"C", "F"},
+					},
+				},
+			},
+		},
+	},
+}
+
+var toolWithObjectWithoutRequiredParams = []openai.ChatCompletionToolParam{
+	{
+		Function: openai.FunctionDefinitionParam{
+			Name: "process_order",
+			Parameters: openai.FunctionParameters{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"order_info": map[string]interface{}{
+						"type": "object",
+						"properties": map[string]interface{}{
+							"item": map[string]interface{}{
+								"type": "string",
+							},
+							"quantity": map[string]string{
+								"type": "integer",
+							},
+							"address": map[string]interface{}{
+								"type": "string",
+							},
+						},
+					},
+				},
+				"required": []string{"order_info"},
+			},
+		},
+	},
+}
+
 var _ = Describe("Simulator for request with tools", func() {
 
 	DescribeTable("streaming",
@@ -462,9 +516,15 @@ var _ = Describe("Simulator for request with tools", func() {
 	)
 
 	DescribeTable("array parameter, no streaming",
-		func(mode string) {
+		func(mode string, minLength int, maxLength int, min float64, max float64) {
 			ctx := context.TODO()
-			client, err := startServer(ctx, mode)
+			serverArgs := []string{"cmd", "--model", model, "--mode", mode,
+				"--min-tool-call-array-param-length", strconv.Itoa(minLength),
+				"--max-tool-call-array-param-length", strconv.Itoa(maxLength),
+				"--min-tool-call-number-param", fmt.Sprint(min),
+				"--max-tool-call-number-param", fmt.Sprint(max),
+			}
+			client, err := startServerWithArgs(ctx, modeEcho, serverArgs)
 			Expect(err).NotTo(HaveOccurred())
 
 			openaiclient := openai.NewClient(
@@ -500,15 +560,21 @@ var _ = Describe("Simulator for request with tools", func() {
 			err = json.Unmarshal([]byte(tc.Function.Arguments), &args)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(args["numbers"]).ToNot(BeEmpty())
+			Expect(len(args["numbers"])).To(BeNumerically(">=", minLength))
+			Expect(len(args["numbers"])).To(BeNumerically("<=", maxLength))
+			for _, number := range args["numbers"] {
+				Expect(number).To(BeNumerically(">=", min))
+				Expect(number).To(BeNumerically("<=", max))
+			}
 		},
-		func(mode string) string {
-			return "mode: " + mode
+		func(mode string, minLength int, maxLength int, min float64, max float64) string {
+			return fmt.Sprintf("mode: %s, min array length: %d, max array length: %d, min number: %f max number %f ",
+				mode, minLength, maxLength, min, max)
 		},
-		// Call several times because the tools and arguments are chosen randomly
-		Entry(nil, modeRandom),
-		Entry(nil, modeRandom),
-		Entry(nil, modeRandom),
-		Entry(nil, modeRandom),
+		Entry(nil, modeRandom, 3, 7, -100.2, -5.75),
+		Entry(nil, modeRandom, 2, 10, 0.0, 34.5),
+		Entry(nil, modeRandom, 2, 2, -100.0, 100.0),
+		Entry(nil, modeRandom, 4, 5, 222.222, 333.333),
 	)
 
 	DescribeTable("3D array parameter, no streaming",
@@ -553,6 +619,7 @@ var _ = Describe("Simulator for request with tools", func() {
 			Expect(args["tensor"]).ToNot(BeEmpty())
 			tensor := args["tensor"]
 			Expect(len(tensor)).To(BeNumerically(">=", 2))
+			Expect(len(tensor)).To(BeNumerically("<=", 5)) // Default configuration
 			for _, elem := range tensor {
 				Expect(len(elem)).To(Or(Equal(0), Equal(1)))
 				for _, inner := range elem {
@@ -711,5 +778,107 @@ var _ = Describe("Simulator for request with tools", func() {
 			return "mode: " + mode
 		},
 		Entry(nil, modeRandom),
+	)
+
+	DescribeTable("tool with not required params",
+		func(probability int, numberOfParams int) {
+			ctx := context.TODO()
+			serverArgs := []string{"cmd", "--model", model, "--mode", modeRandom,
+				"--tool-call-not-required-param-probability", strconv.Itoa(probability),
+			}
+			client, err := startServerWithArgs(ctx, modeEcho, serverArgs)
+			Expect(err).NotTo(HaveOccurred())
+
+			openaiclient := openai.NewClient(
+				option.WithBaseURL(baseURL),
+				option.WithHTTPClient(client))
+
+			params := openai.ChatCompletionNewParams{
+				Messages:   []openai.ChatCompletionMessageParamUnion{openai.UserMessage(userMessage)},
+				Model:      model,
+				ToolChoice: openai.ChatCompletionToolChoiceOptionUnionParam{OfAuto: param.NewOpt("required")},
+				Tools:      toolWithoutRequiredParams,
+			}
+
+			resp, err := openaiclient.Chat.Completions.New(ctx, params)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.Choices).ShouldNot(BeEmpty())
+			Expect(string(resp.Object)).To(Equal(chatCompletionObject))
+
+			toolCalls := resp.Choices[0].Message.ToolCalls
+			Expect(toolCalls).To(HaveLen(1))
+			tc := toolCalls[0]
+			Expect(tc.Function.Name).To(Equal("get_temperature"))
+			Expect(tc.ID).NotTo(BeEmpty())
+			Expect(string(tc.Type)).To(Equal("function"))
+			args := make(map[string]string)
+			err = json.Unmarshal([]byte(tc.Function.Arguments), &args)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(args).To(HaveLen(numberOfParams))
+		},
+		func(probability int, numberOfParams int) string {
+			return fmt.Sprintf("probability: %d", probability)
+		},
+		Entry(nil, 0, 0),
+		Entry(nil, 100, 3),
+	)
+
+	DescribeTable("tool with object with not required params",
+		func(probability int, numberOfParams int, min int, max int) {
+			ctx := context.TODO()
+			serverArgs := []string{"cmd", "--model", model, "--mode", modeRandom,
+				"--object-tool-call-not-required-field-probability", strconv.Itoa(probability),
+				"--min-tool-call-integer-param", strconv.Itoa(min),
+				"--max-tool-call-integer-param", strconv.Itoa(max),
+			}
+			client, err := startServerWithArgs(ctx, modeEcho, serverArgs)
+			Expect(err).NotTo(HaveOccurred())
+
+			openaiclient := openai.NewClient(
+				option.WithBaseURL(baseURL),
+				option.WithHTTPClient(client))
+
+			params := openai.ChatCompletionNewParams{
+				Messages:   []openai.ChatCompletionMessageParamUnion{openai.UserMessage(userMessage)},
+				Model:      model,
+				ToolChoice: openai.ChatCompletionToolChoiceOptionUnionParam{OfAuto: param.NewOpt("required")},
+				Tools:      toolWithObjectWithoutRequiredParams,
+			}
+
+			resp, err := openaiclient.Chat.Completions.New(ctx, params)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.Choices).ShouldNot(BeEmpty())
+			Expect(string(resp.Object)).To(Equal(chatCompletionObject))
+
+			toolCalls := resp.Choices[0].Message.ToolCalls
+			Expect(toolCalls).To(HaveLen(1))
+			tc := toolCalls[0]
+			Expect(tc.Function.Name).To(Equal("process_order"))
+			Expect(tc.ID).NotTo(BeEmpty())
+			Expect(string(tc.Type)).To(Equal("function"))
+
+			args := make(map[string]any)
+			err = json.Unmarshal([]byte(tc.Function.Arguments), &args)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(args["order_info"]).ToNot(BeNil())
+			orderInfo, ok := args["order_info"].(map[string]any)
+			Expect(ok).To(BeTrue())
+			Expect(orderInfo).To(HaveLen(numberOfParams))
+			if numberOfParams > 0 {
+				Expect(orderInfo).To(HaveKey("quantity"))
+				quantityFloat, ok := orderInfo["quantity"].(float64)
+				Expect(ok).To(BeTrue())
+				quantity := int(quantityFloat)
+				Expect(quantity).To(BeNumerically(">=", min))
+				Expect(quantity).To(BeNumerically("<=", max))
+			}
+		},
+		func(probability int, numberOfParams int, min int, max int) string {
+			return fmt.Sprintf("probability: %d min: %d, max %d", probability, min, max)
+		},
+		Entry(nil, 0, 0, 0, 0),
+		Entry(nil, 100, 3, 0, 0),
+		Entry(nil, 100, 3, 5, 150),
+		Entry(nil, 100, 3, 150, 2500),
 	)
 })

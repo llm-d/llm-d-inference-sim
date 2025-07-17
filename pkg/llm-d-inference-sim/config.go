@@ -60,6 +60,33 @@ type configuration struct {
 	Mode string `yaml:"mode"`
 	// Seed defines random seed for operations
 	Seed int64 `yaml:"seed"`
+
+	// MaxToolCallIntegerParam defines the maximum possible value of integer parameters in a tool call,
+	// optional, defaults to 100
+	MaxToolCallIntegerParam int `yaml:"max-tool-call-integer-param"`
+	// MinToolCallIntegerParam defines the minimum possible value of integer parameters in a tool call,
+	// optional, defaults to 0
+	MinToolCallIntegerParam int `yaml:"min-tool-call-integer-param"`
+	// MaxToolCallNumberParam defines the maximum possible value of number (float) parameters in a tool call,
+	// optional, defaults to 100
+	MaxToolCallNumberParam float64 `yaml:"max-tool-call-number-param"`
+	// MinToolCallNumberParam defines the minimum possible value of number (float) parameters in a tool call,
+	// optional, defaults to 0
+	MinToolCallNumberParam float64 `yaml:"min-tool-call-number-param"`
+
+	// MaxToolCallArrayParamLength defines the maximum possible length of array parameters in a tool call,
+	// optional, defaults to 5
+	MaxToolCallArrayParamLength int `yaml:"max-tool-call-array-param-length"`
+	// MinToolCallArrayParamLength defines the minimum possible length of array parameters in a tool call,
+	// optional, defaults to 1
+	MinToolCallArrayParamLength int `yaml:"min-tool-call-array-param-length"`
+
+	// ToolCallNotRequiredParamProbability is the probability to add a not required parameter in a tool call,
+	// optional, defaults to 50
+	ToolCallNotRequiredParamProbability int `yaml:"tool-call-not-required-param-probability"`
+	// ObjectToolCallNotRequiredParamProbability is the probability to add a not required field in an object
+	// parameter in a tool call, optional, defaults to 50
+	ObjectToolCallNotRequiredParamProbability int `yaml:"object-tool-call-not-required-field-probability"`
 }
 
 type loraModule struct {
@@ -103,12 +130,18 @@ func (c *configuration) unmarshalLoras() error {
 
 func newConfig() *configuration {
 	return &configuration{
-		Port:        vLLMDefaultPort,
-		MaxLoras:    1,
-		MaxNumSeqs:  5,
-		MaxModelLen: 1024,
-		Mode:        modeRandom,
-		Seed:        time.Now().UnixNano(),
+		Port:                                vLLMDefaultPort,
+		MaxLoras:                            1,
+		MaxNumSeqs:                          5,
+		MaxModelLen:                         1024,
+		Mode:                                modeRandom,
+		Seed:                                time.Now().UnixNano(),
+		MaxToolCallIntegerParam:             100,
+		MaxToolCallNumberParam:              100,
+		MaxToolCallArrayParamLength:         5,
+		MinToolCallArrayParamLength:         1,
+		ToolCallNotRequiredParamProbability: 50,
+		ObjectToolCallNotRequiredParamProbability: 50,
 	}
 }
 
@@ -174,5 +207,26 @@ func (c *configuration) validate() error {
 		}
 	}
 
+	if c.MaxToolCallIntegerParam < c.MinToolCallIntegerParam {
+		return errors.New("MaxToolCallIntegerParam cannot be less than MinToolCallIntegerParam")
+	}
+	if c.MaxToolCallNumberParam < c.MinToolCallNumberParam {
+		return errors.New("MaxToolCallNumberParam cannot be less than MinToolCallNumberParam")
+	}
+	if c.MaxToolCallArrayParamLength < c.MinToolCallArrayParamLength {
+		return errors.New("MaxToolCallArrayParamLength cannot be less than MinToolCallArrayParamLength")
+	}
+	if c.MaxToolCallArrayParamLength < 0 {
+		return errors.New("MaxToolCallArrayParamLength cannot be negative")
+	}
+	if c.MinToolCallArrayParamLength < 0 {
+		return errors.New("MinToolCallArrayParamLength cannot be negative")
+	}
+	if c.ToolCallNotRequiredParamProbability < 0 || c.ToolCallNotRequiredParamProbability > 100 {
+		return errors.New("ToolCallNotRequiredParamProbability should be between 0 and 100")
+	}
+	if c.ObjectToolCallNotRequiredParamProbability < 0 || c.ObjectToolCallNotRequiredParamProbability > 100 {
+		return errors.New("ObjectToolCallNotRequiredParamProbability should be between 0 and 100")
+	}
 	return nil
 }

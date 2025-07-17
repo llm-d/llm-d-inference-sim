@@ -101,7 +101,15 @@ For more details see the <a href="https://docs.vllm.ai/en/stable/getting_started
 - `inter-token-latency`: the time to 'generate' each additional token (in milliseconds), optional, by default zero
 - `kv-cache-transfer-latency`: time for KV-cache transfer from a remote vLLM (in milliseconds), by default zero. Usually much shorter than `time-to-first-token`
 - `seed`: random seed for operations (if not set, current Unix time in nanoseconds is used)
-
+- `max-tool-call-integer-param`: the maximum possible value of integer parameters in a tool call, optional, defaults to 100
+- `min-tool-call-integer-param`: the minimum possible value of integer parameters in a tool call, optional, defaults to 0
+- `max-tool-call-number-param`: the maximum possible value of number (float) parameters in a tool call, optional, defaults to 100
+- `min-tool-call-number-param`: the minimum possible value of number (float) parameters in a tool call, optional, defaults to 0
+- `max-tool-call-array-param-length`: the maximum possible length of array parameters in a tool call, optional, defaults to 5
+- `min-tool-call-array-param-length`: the minimum possible length of array parameters in a tool call, optional, defaults to 1
+- `tool-call-not-required-param-probability`: the probability to add a not required parameter in a tool call, optional, defaults to 50
+- `object-tool-call-not-required-field-probability`: the probability to add a not required field in an object parameter in a tool call, optional, defaults to 50
+	
 In addition, as we are using klog, the following parameters are available:
 - `add_dir_header`: if true, adds the file directory to the header of the log messages
 - `alsologtostderr`: log to standard error as well as files (no effect when -logtostderr=true)

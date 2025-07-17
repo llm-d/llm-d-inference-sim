@@ -192,70 +192,103 @@ var _ = Describe("Simulator configuration", func() {
 	}
 	tests = append(tests, test)
 
+	for _, test := range tests {
+		When(test.name, func() {
+			It("should create correct configuration", func() {
+				config, err := createSimConfig(test.args)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(config).To(Equal(test.expectedConfig))
+			})
+		})
+	}
+
 	// Invalid configurations
+	invalidTests := make([]testCase, 0)
+
 	test = testCase{
 		name: "invalid model",
 		args: []string{"cmd", "--model", "", "--config", "../../manifests/config.yaml"},
 	}
-	tests = append(tests, test)
+	invalidTests = append(invalidTests, test)
 
 	test = testCase{
 		name: "invalid port",
 		args: []string{"cmd", "--port", "-50", "--config", "../../manifests/config.yaml"},
 	}
-	tests = append(tests, test)
+	invalidTests = append(invalidTests, test)
 
 	test = testCase{
 		name: "invalid max-loras",
 		args: []string{"cmd", "--max-loras", "15", "--config", "../../manifests/config.yaml"},
 	}
-	tests = append(tests, test)
+	invalidTests = append(invalidTests, test)
 
 	test = testCase{
 		name: "invalid mode",
 		args: []string{"cmd", "--mode", "hello", "--config", "../../manifests/config.yaml"},
 	}
-	tests = append(tests, test)
+	invalidTests = append(invalidTests, test)
 
 	test = testCase{
 		name: "invalid lora",
 		args: []string{"cmd", "--config", "../../manifests/config.yaml",
 			"--lora-modules", "[{\"path\":\"/path/to/lora15\"}]"},
 	}
-	tests = append(tests, test)
+	invalidTests = append(invalidTests, test)
 
 	test = testCase{
 		name: "invalid max-model-len",
 		args: []string{"cmd", "--max-model-len", "0", "--config", "../../manifests/config.yaml"},
 	}
-	tests = append(tests, test)
+	invalidTests = append(invalidTests, test)
 
-	DescribeTable("check configurations",
-		func(args []string, expectedConfig *configuration) {
-			config, err := createSimConfig(args)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(config).To(Equal(expectedConfig))
-		},
-		Entry(tests[0].name, tests[0].args, tests[0].expectedConfig),
-		Entry(tests[1].name, tests[1].args, tests[1].expectedConfig),
-		Entry(tests[2].name, tests[2].args, tests[2].expectedConfig),
-		Entry(tests[3].name, tests[3].args, tests[3].expectedConfig),
-		Entry(tests[4].name, tests[4].args, tests[4].expectedConfig),
-		Entry(tests[5].name, tests[5].args, tests[5].expectedConfig),
-		Entry(tests[6].name, tests[6].args, tests[6].expectedConfig),
-		Entry(tests[7].name, tests[7].args, tests[7].expectedConfig),
-	)
+	test = testCase{
+		name: "invalid tool-call-not-required-param-probability",
+		args: []string{"cmd", "--tool-call-not-required-param-probability", "-10", "--config", "../../manifests/config.yaml"},
+	}
+	invalidTests = append(invalidTests, test)
 
-	DescribeTable("invalid configurations",
-		func(args []string) {
-			_, err := createSimConfig(args)
-			Expect(err).To(HaveOccurred())
-		},
-		Entry(tests[8].name, tests[8].args),
-		Entry(tests[9].name, tests[9].args),
-		Entry(tests[10].name, tests[10].args),
-		Entry(tests[11].name, tests[11].args),
-		Entry(tests[12].name, tests[12].args),
-		Entry(tests[13].name, tests[13].args),
-	)
+	test = testCase{
+		name: "invalid max-tool-call-number-param",
+		args: []string{"cmd", "--max-tool-call-number-param", "-10", "--min-tool-call-number-param", "0",
+			"--config", "../../manifests/config.yaml"},
+	}
+	invalidTests = append(invalidTests, test)
+
+	test = testCase{
+		name: "invalid max-tool-call-integer-param",
+		args: []string{"cmd", "--max-tool-call-integer-param", "-10", "--min-tool-call-integer-param", "0",
+			"--config", "../../manifests/config.yaml"},
+	}
+	invalidTests = append(invalidTests, test)
+
+	test = testCase{
+		name: "invalid max-tool-call-array-param-length",
+		args: []string{"cmd", "--max-tool-call-array-param-length", "-10", "--min-tool-call-array-param-length", "0",
+			"--config", "../../manifests/config.yaml"},
+	}
+	invalidTests = append(invalidTests, test)
+
+	test = testCase{
+		name: "invalid tool-call-not-required-param-probability",
+		args: []string{"cmd", "--tool-call-not-required-param-probability", "-10",
+			"--config", "../../manifests/config.yaml"},
+	}
+	invalidTests = append(invalidTests, test)
+
+	test = testCase{
+		name: "invalid object-tool-call-not-required-field-probability",
+		args: []string{"cmd", "--object-tool-call-not-required-field-probability", "1210",
+			"--config", "../../manifests/config.yaml"},
+	}
+	invalidTests = append(invalidTests, test)
+
+	for _, test := range invalidTests {
+		When(test.name, func() {
+			It("should fail for invalid configuration", func() {
+				_, err := createSimConfig(test.args)
+				Expect(err).To(HaveOccurred())
+			})
+		})
+	}
 })
