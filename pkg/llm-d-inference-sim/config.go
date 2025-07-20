@@ -51,10 +51,24 @@ type configuration struct {
 
 	// TimeToFirstToken time before the first token will be returned, in milliseconds
 	TimeToFirstToken int `yaml:"time-to-first-token"`
+	// TimeToFirstTokenStdDev standard deviation for time before the first token will be returned,
+	// in milliseconds, optional, default is 0, can't be more than 30% of TimeToFirstToken, will not
+	// cause the actual time to first token to differ by more than 70% from TimeToFirstToken
+	TimeToFirstTokenStdDev int `yaml:"time-to-first-token-std-dev"`
 	// InterTokenLatency time between generated tokens, in milliseconds
 	InterTokenLatency int `yaml:"inter-token-latency"`
-	// KVCacheTransferLatency time to "transfer" kv-cache from another vLLM instance in case P/D is activated, in milliseconds
+	// InterTokenLatencyStdDev standard deviation for time between generated tokens, in milliseconds,
+	// optional, default is 0, can't be more than 30% of InterTokenLatency, will not cause the actual
+	// inter token latency to differ by more than 70% from InterTokenLatency
+	InterTokenLatencyStdDev int `yaml:"inter-token-latency-std-dev"`
+	// KVCacheTransferLatency time to "transfer" kv-cache from another vLLM instance in case P/D is activated,
+	// in milliseconds
 	KVCacheTransferLatency int `yaml:"kv-cache-transfer-latency"`
+	// KVCacheTransferLatencyStdDev standard deviation for time to "transfer" kv-cache from another
+	// vLLM instance in case P/D is activated, in milliseconds, optional, default is 0, can't be more
+	// than 30% of KVCacheTransferLatency, will not cause the actual latency to differ by more than 70% from
+	// KVCacheTransferLatency
+	KVCacheTransferLatencyStdDev int `yaml:"kv-cache-transfer-latency-std-dev"`
 
 	// Mode defines the simulator response generation mode, valid values: echo, random
 	Mode string `yaml:"mode"`
@@ -178,11 +192,29 @@ func (c *configuration) validate() error {
 	if c.InterTokenLatency < 0 {
 		return errors.New("inter token latency cannot be negative")
 	}
+	if c.InterTokenLatencyStdDev < 0 {
+		return errors.New("inter token latency standard deviation cannot be negative")
+	}
+	if float32(c.InterTokenLatencyStdDev) > 0.3*float32(c.InterTokenLatency) {
+		return errors.New("inter token latency standard deviation cannot be more than 30% of inter token latency")
+	}
 	if c.TimeToFirstToken < 0 {
 		return errors.New("time to first token cannot be negative")
 	}
+	if c.TimeToFirstTokenStdDev < 0 {
+		return errors.New("time to first token standard deviation cannot be negative")
+	}
+	if float32(c.TimeToFirstTokenStdDev) > 0.3*float32(c.TimeToFirstToken) {
+		return errors.New("time to first token standard deviation cannot be more than 30% of time to first token")
+	}
 	if c.KVCacheTransferLatency < 0 {
 		return errors.New("kv-cache tranfer time cannot be negative")
+	}
+	if c.KVCacheTransferLatencyStdDev < 0 {
+		return errors.New("kv-cache tranfer time standard deviation cannot be negative")
+	}
+	if float32(c.KVCacheTransferLatencyStdDev) > 0.3*float32(c.KVCacheTransferLatency) {
+		return errors.New("kv-cache tranfer standard deviation cannot be more than 30% of kv-cache tranfer")
 	}
 	if c.MaxLoras < 1 {
 		return errors.New("max LoRAs cannot be less than 1")

@@ -258,6 +258,36 @@ var _ = Describe("Simulator configuration", func() {
 			args: []string{"cmd", "--object-tool-call-not-required-field-probability", "1210",
 				"--config", "../../manifests/config.yaml"},
 		},
+		{
+			name: "invalid time-to-first-token-std-dev",
+			args: []string{"cmd", "--time-to-first-token-std-dev", "3000",
+				"--config", "../../manifests/config.yaml"},
+		},
+		{
+			name: "invalid (negative) time-to-first-token-std-dev",
+			args: []string{"cmd", "--time-to-first-token-std-dev", "10", "--time-to-first-token-std-dev", "-1",
+				"--config", "../../manifests/config.yaml"},
+		},
+		{
+			name: "invalid inter-token-latency-std-dev",
+			args: []string{"cmd", "--inter-token-latency", " 1000", "--inter-token-latency-std-dev", "301",
+				"--config", "../../manifests/config.yaml"},
+		},
+		{
+			name: "invalid (negative) inter-token-latency-std-dev",
+			args: []string{"cmd", "--inter-token-latency", " 1000", "--inter-token-latency-std-dev", "-1",
+				"--config", "../../manifests/config.yaml"},
+		},
+		{
+			name: "invalid kv-cache-transfer-latency-std-dev",
+			args: []string{"cmd", "--kv-cache-transfer-latency", "70", "--kv-cache-transfer-latency-std-dev", "35",
+				"--config", "../../manifests/config.yaml"},
+		},
+		{
+			name: "invalid (negative) kv-cache-transfer-latency-std-dev",
+			args: []string{"cmd", "--kv-cache-transfer-latency-std-dev", "-35",
+				"--config", "../../manifests/config.yaml"},
+		},
 	}
 
 	for _, test := range invalidTests {

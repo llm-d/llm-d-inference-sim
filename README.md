@@ -98,8 +98,11 @@ For more details see the <a href="https://docs.vllm.ai/en/stable/getting_started
     - `echo`: returns the same text that was sent in the request
     - `random`: returns a sentence chosen at random from a set of pre-defined sentences
 - `time-to-first-token`: the time to the first token (in milliseconds), optional, by default zero
+- `time-to-first-token-std-dev`: standard deviation for time before the first token will be returned, in milliseconds, optional, default is 0, can't be more than 30% of `time-to-first-token`, will not cause the actual time to first token to differ by more than 70% from `time-to-first-token`
 - `inter-token-latency`: the time to 'generate' each additional token (in milliseconds), optional, by default zero
+- `inter-token-latency-std-dev`: standard deviation for time between generated tokens, in milliseconds, optional, default is 0, can't be more than 30% of `inter-token-latency`, will not cause the actual inter token latency to differ by more than 70% from `inter-token-latency`
 - `kv-cache-transfer-latency`: time for KV-cache transfer from a remote vLLM (in milliseconds), by default zero. Usually much shorter than `time-to-first-token`
+- `kv-cache-transfer-latency-std-dev`: standard deviation for time to "transfer" kv-cache from another vLLM instance in case P/D is activated, in milliseconds, optional, default is 0, can't be more than 30% of `kv-cache-transfer-latency`, will not cause the actual latency to differ by more than 70% from `kv-cache-transfer-latency`
 - `seed`: random seed for operations (if not set, current Unix time in nanoseconds is used)
 - `max-tool-call-integer-param`: the maximum possible value of integer parameters in a tool call, optional, defaults to 100
 - `min-tool-call-integer-param`: the minimum possible value of integer parameters in a tool call, optional, defaults to 0

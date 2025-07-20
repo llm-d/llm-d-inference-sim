@@ -91,7 +91,7 @@ func (s *VllmSimulator) sendTokenChunks(context *streamingContext, w *bufio.Writ
 
 	for i, token := range tokens {
 		if i != 0 {
-			time.Sleep(time.Duration(s.config.InterTokenLatency) * time.Millisecond)
+			time.Sleep(time.Duration(s.getInterTokenLatency()) * time.Millisecond)
 		}
 		var toolChunkInsert *toolCall
 		if tc != nil {

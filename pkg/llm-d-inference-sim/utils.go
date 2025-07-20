@@ -151,6 +151,22 @@ func randomFloat(min float64, max float64) float64 {
 	return randomGenerator.Float64()*(max-min) + min
 }
 
+// Returns a normally distributed float64
+// If the generated value differs by more than 70% from mean, the returned
+// value will be 70% of mean
+func randomNorm(mean float64, stddev float64) float64 {
+	if stddev == 0 {
+		return mean
+	}
+	value := randomGenerator.NormFloat64()*stddev + mean
+	if mean-value > 0.7*mean {
+		value = 0.3 * mean
+	} else if value-mean > 0.7*mean {
+		value = 1.7 * mean
+	}
+	return value
+}
+
 // Regular expression for the response tokenization
 var re *regexp.Regexp
 

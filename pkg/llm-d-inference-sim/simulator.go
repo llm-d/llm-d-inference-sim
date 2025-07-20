@@ -158,6 +158,9 @@ func (s *VllmSimulator) parseCommandParamsAndLoadConfig() error {
 	f.IntVar(&config.InterTokenLatency, "inter-token-latency", config.InterTokenLatency, "Time to generate one token (in milliseconds)")
 	f.IntVar(&config.TimeToFirstToken, "time-to-first-token", config.TimeToFirstToken, "Time to first token (in milliseconds)")
 	f.IntVar(&config.KVCacheTransferLatency, "kv-cache-transfer-latency", config.KVCacheTransferLatency, "Time for KV-cache transfer from a remote vLLM (in milliseconds)")
+	f.IntVar(&config.InterTokenLatencyStdDev, "inter-token-latency-std-dev", config.InterTokenLatencyStdDev, "Standard deviation for time between generated tokens (in milliseconds)")
+	f.IntVar(&config.TimeToFirstTokenStdDev, "time-to-first-token-std-dev", config.TimeToFirstTokenStdDev, "Standard deviation for time before the first token will be returned (in milliseconds)")
+	f.IntVar(&config.KVCacheTransferLatencyStdDev, "kv-cache-transfer-latency-std-dev", config.KVCacheTransferLatencyStdDev, "Standard deviation for time for KV-cache transfer from a remote vLLM (in milliseconds)")
 	f.Int64Var(&config.Seed, "seed", config.Seed, "Random seed for operations (if not set, current Unix time in nanoseconds is used)")
 
 	f.IntVar(&config.MaxToolCallIntegerParam, "max-tool-call-integer-param", config.MaxToolCallIntegerParam, "Maximum possible value of integer parameters in a tool call")
@@ -674,7 +677,7 @@ func (s *VllmSimulator) sendResponse(isChatCompletion bool, ctx *fasthttp.Reques
 
 	// calculate how long to wait before returning the response, time is based on number of tokens
 	numOfTokens := usageData.CompletionTokens
-	totalMillisToWait := s.getTimeToFirstToken(doRemotePrefill) + (numOfTokens-1)*s.config.InterTokenLatency
+	totalMillisToWait := s.getTimeToFirstToken(doRemotePrefill) + s.getTotalInterTokenLatency(numOfTokens)
 	time.Sleep(time.Duration(totalMillisToWait) * time.Millisecond)
 
 	// TODO - maybe add pod id to response header for testing
@@ -687,10 +690,29 @@ func (s *VllmSimulator) sendResponse(isChatCompletion bool, ctx *fasthttp.Reques
 
 // returns time to first token based on the current request's doRemotePrefill
 func (s *VllmSimulator) getTimeToFirstToken(doRemotePrefill bool) int {
+	mean := float64(s.config.TimeToFirstToken)
+	stddev := float64(s.config.TimeToFirstTokenStdDev)
 	if doRemotePrefill {
-		return s.config.KVCacheTransferLatency
+		mean = float64(s.config.KVCacheTransferLatency)
+		stddev = float64(s.config.KVCacheTransferLatencyStdDev)
 	}
-	return s.config.TimeToFirstToken
+	return int(randomNorm(mean, stddev))
+}
+
+// returns inter token latency
+func (s *VllmSimulator) getInterTokenLatency() int {
+	mean := float64(s.config.InterTokenLatency)
+	stddev := float64(s.config.InterTokenLatencyStdDev)
+	return int(randomNorm(mean, stddev))
+}
+
+// returns total inter token latency for the given number of tokens
+func (s *VllmSimulator) getTotalInterTokenLatency(numOfTokens int) int {
+	total := 0
+	for range numOfTokens - 1 {
+		total += s.getInterTokenLatency()
+	}
+	return total
 }
 
 // createModelsResponse creates and returns ModelResponse for the current state, returned array of models contains the base model + LoRA adapters if exist

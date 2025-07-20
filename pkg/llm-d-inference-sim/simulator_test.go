@@ -489,4 +489,84 @@ var _ = Describe("Simulator", func() {
 			Expect(string(body)).To(ContainSubstring("BadRequestError"))
 		})
 	})
+
+	Describe("Check random latencies", Ordered, func() {
+		var simulator *VllmSimulator
+
+		BeforeAll(func() {
+			var err error
+			simulator, err = New(klog.Background())
+			Expect(err).NotTo(HaveOccurred())
+
+			simulator.config = newConfig()
+			simulator.config.TimeToFirstToken = 2048
+			simulator.config.TimeToFirstTokenStdDev = 2048
+			simulator.config.KVCacheTransferLatency = 2048
+			simulator.config.KVCacheTransferLatencyStdDev = 2048
+		})
+
+		DescribeTable("should calculate inter token latency correctly",
+			func(interTokenLatency int, stddev int) {
+				simulator.config.InterTokenLatency = interTokenLatency
+				simulator.config.InterTokenLatencyStdDev = stddev
+				interToken := simulator.getInterTokenLatency()
+				Expect(interToken).To(BeNumerically(">=", float32(interTokenLatency)*0.3))
+				Expect(interToken).To(BeNumerically("<=", float32(interTokenLatency)*1.7))
+			},
+			func(interTokenLatency int, stddev int) string {
+				return fmt.Sprintf("interTokenLatency: %d stddev: %d", interTokenLatency, stddev)
+			},
+			Entry(nil, 1000, 300),
+			Entry(nil, 1000, 800), // invalid std dev, used for testing purposes
+			Entry(nil, 1000, 900), // invalid std dev, used for testing purposes
+			Entry(nil, 1000, 0),
+		)
+
+		DescribeTable("should calculate total inter token latency correctly",
+			func(interTokenLatency int, stddev int, numberOfTokens int) {
+				simulator.config.InterTokenLatency = interTokenLatency
+				simulator.config.InterTokenLatencyStdDev = stddev
+				latency := simulator.getTotalInterTokenLatency(numberOfTokens)
+				Expect(latency).To(BeNumerically(">=", float32(interTokenLatency)*0.3*float32(numberOfTokens)))
+				Expect(latency).To(BeNumerically("<=", float32(interTokenLatency)*1.7*float32(numberOfTokens)))
+			},
+			func(interTokenLatency int, stddev int, numberOfTokens int) string {
+				return fmt.Sprintf("interTokenLatency: %d stddev: %d, numberOfTokens: %d", interTokenLatency,
+					stddev, numberOfTokens)
+			},
+			Entry(nil, 1000, 30, 100),
+			Entry(nil, 1000, 800, 20), // invalid std dev, used for testing purposes
+			Entry(nil, 1000, 900, 5),  // invalid std dev, used for testing purposes
+			Entry(nil, 1000, 0, 50),
+		)
+
+		DescribeTable("should calculate time to first token correctly",
+			func(timeToFirstToken int, timeToFirstTokenStdDev int,
+				kvCacheLatency int, kvCacheLatencyStdDev int, doREmotePrefill bool) {
+				simulator.config.TimeToFirstToken = timeToFirstToken
+				simulator.config.TimeToFirstTokenStdDev = timeToFirstTokenStdDev
+				simulator.config.KVCacheTransferLatency = kvCacheLatency
+				simulator.config.KVCacheTransferLatencyStdDev = kvCacheLatencyStdDev
+				timeToFirst := simulator.getTimeToFirstToken(doREmotePrefill)
+				if doREmotePrefill {
+					Expect(timeToFirst).To(BeNumerically(">=", float32(kvCacheLatency)*0.3))
+					Expect(timeToFirst).To(BeNumerically("<=", float32(kvCacheLatency)*1.7))
+				} else {
+					Expect(timeToFirst).To(BeNumerically(">=", float32(timeToFirstToken)*0.3))
+					Expect(timeToFirst).To(BeNumerically("<=", float32(timeToFirstToken)*1.7))
+				}
+			},
+			func(timeToFirstToken int, timeToFirstTokenStdDev int,
+				kvCacheLatency int, kvCacheLatencyStdDev int, doREmotePrefill bool) string {
+				return fmt.Sprintf("timeToFirstToken: %d stddev: %d kvCacheLatency: %d stddev: %d doREmotePrefill: %t",
+					timeToFirstToken, timeToFirstTokenStdDev, kvCacheLatency, kvCacheLatencyStdDev, doREmotePrefill)
+			},
+			Entry(nil, 10000, 300, 1000, 200, true),
+			Entry(nil, 10000, 300, 1000, 200, false),
+			Entry(nil, 10000, 9000, 1000, 800, true),  // invalid std dev, used for testing purposes
+			Entry(nil, 10000, 8000, 1000, 900, false), // invalid std dev, used for testing purposes
+			Entry(nil, 10000, 0, 1000, 0, true),
+			Entry(nil, 10000, 0, 1000, 0, false),
+		)
+	})
 })
