@@ -159,9 +159,9 @@ func randomNorm(mean float64, stddev float64) float64 {
 		return mean
 	}
 	value := randomGenerator.NormFloat64()*stddev + mean
-	if mean-value > 0.7*mean {
+	if value < 0.3*mean {
 		value = 0.3 * mean
-	} else if value-mean > 0.7*mean {
+	} else if value > 1.7*mean {
 		value = 1.7 * mean
 	}
 	return value
