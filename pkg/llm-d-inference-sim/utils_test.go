@@ -117,7 +117,7 @@ var _ = Describe("Utils", Ordered, func() {
 	})
 
 	Context("GetRandomText", func() {
-		var lenArr []int = []int{5, 20, 50, 150}
+		lenArr := []int{5, 20, 50, 150}
 
 		for _, len := range lenArr {
 			name := fmt.Sprintf("should return text with %d tokens", len)
