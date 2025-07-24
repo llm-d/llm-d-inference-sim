@@ -354,6 +354,10 @@ func (s *VllmSimulator) validateRequest(req completionRequest) (string, string, 
 		return fmt.Sprintf("The model `%s` does not exist.", req.getModel()), "NotFoundError", fasthttp.StatusNotFound
 	}
 
+	if req.getMaxCompletionTokens() != nil && *req.getMaxCompletionTokens() <= 0 {
+		return "Max completion tokens and max tokens should be positive", "Invalid request", fasthttp.StatusBadRequest
+	}
+
 	if req.doRemoteDecode() && req.isStream() {
 		return "Prefill does not support streaming", "Invalid request", fasthttp.StatusBadRequest
 	}

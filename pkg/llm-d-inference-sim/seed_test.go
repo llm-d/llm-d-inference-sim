@@ -42,7 +42,8 @@ var _ = Describe("Simulator with seed", func() {
 				Prompt: openai.CompletionNewParamsPromptUnion{
 					OfString: openai.String(userMessage),
 				},
-				Model: openai.CompletionNewParamsModel(model),
+				Model:     openai.CompletionNewParamsModel(model),
+				MaxTokens: openai.Int(10),
 			}
 
 			resp, err := openaiclient.Completions.New(ctx, params)

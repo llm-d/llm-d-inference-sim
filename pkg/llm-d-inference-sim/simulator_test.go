@@ -38,6 +38,9 @@ import (
 const model = "my_model"
 const baseURL = "http://localhost/v1"
 const userMessage = "This is a test."
+const invalidMaxTokensErrMsg = "Max completion tokens and max tokens should be positive"
+
+var userMsgTokens int64
 
 func startServer(ctx context.Context, mode string) (*http.Client, error) {
 	return startServerWithArgs(ctx, mode, nil)
@@ -64,6 +67,10 @@ func startServerWithArgs(ctx context.Context, mode string, args []string) (*http
 	if err := s.parseCommandParamsAndLoadConfig(); err != nil {
 		return nil, err
 	}
+
+	// calculate number of tokens for user message,
+	// must be activated after parseCommandParamsAndLoadConfig since it initializes the random engine
+	userMsgTokens = int64(len(tokenize(userMessage)))
 
 	// run request processing workers
 	for i := 1; i <= s.config.MaxNumSeqs; i++ {
@@ -132,17 +139,15 @@ var _ = Describe("Simulator", func() {
 			}
 
 			Expect(numberOfChunksWithUsage).To(Equal(1))
-			Expect(chunk.Usage.PromptTokens).To(Equal(int64(4)))
+			Expect(chunk.Usage.PromptTokens).To(Equal(userMsgTokens))
 			Expect(chunk.Usage.CompletionTokens).To(BeNumerically(">", 0))
 			Expect(chunk.Usage.TotalTokens).To(Equal(chunk.Usage.PromptTokens + chunk.Usage.CompletionTokens))
 
 			msg := strings.Join(tokens, "")
-			expectedMsg := userMessage
-			if mode == modeRandom {
-				expectedMsg = getFullTextFromPartialString(msg)
+			if mode == modeEcho {
+				Expect(msg).Should(Equal(userMessage))
 			}
 			Expect(role).Should(Equal("assistant"))
-			Expect(msg).Should(Equal(expectedMsg))
 		},
 		func(mode string) string {
 			return "mode: " + mode
@@ -189,16 +194,14 @@ var _ = Describe("Simulator", func() {
 				Expect(string(chunk.Object)).To(Equal(textCompletionObject))
 			}
 			Expect(numberOfChunksWithUsage).To(Equal(1))
-			Expect(chunk.Usage.PromptTokens).To(Equal(int64(4)))
+			Expect(chunk.Usage.PromptTokens).To(Equal(userMsgTokens))
 			Expect(chunk.Usage.CompletionTokens).To(BeNumerically(">", 0))
 			Expect(chunk.Usage.TotalTokens).To(Equal(chunk.Usage.PromptTokens + chunk.Usage.CompletionTokens))
 
 			text := strings.Join(tokens, "")
-			expectedText := userMessage
-			if mode == modeRandom {
-				expectedText = getFullTextFromPartialString(text)
+			if mode == modeEcho {
+				Expect(text).Should(Equal(userMessage))
 			}
-			Expect(text).Should(Equal(expectedText))
 		},
 		func(mode string) string {
 			return "mode: " + mode
@@ -224,18 +227,15 @@ var _ = Describe("Simulator", func() {
 				Model: model,
 			}
 			numTokens := 0
-			partialErrMsg := ""
 			// if maxTokens and maxCompletionTokens are passsed
 			// maxCompletionTokens is used
 			if maxTokens != 0 {
 				params.MaxTokens = param.NewOpt(int64(maxTokens))
 				numTokens = maxTokens
-				partialErrMsg = "max_tokens must be at least 1, got -1"
 			}
 			if maxCompletionTokens != 0 {
 				params.MaxCompletionTokens = param.NewOpt(int64(maxCompletionTokens))
 				numTokens = maxCompletionTokens
-				partialErrMsg = "max_completion_tokens must be at least 1, got -1"
 			}
 			resp, err := openaiclient.Chat.Completions.New(ctx, params)
 			if err != nil {
@@ -244,7 +244,7 @@ var _ = Describe("Simulator", func() {
 					if openaiError.StatusCode == 400 {
 						errMsg, err := io.ReadAll(openaiError.Response.Body)
 						Expect(err).NotTo(HaveOccurred())
-						if strings.Contains(string(errMsg), partialErrMsg) {
+						if strings.Contains(string(errMsg), invalidMaxTokensErrMsg) {
 							return
 						}
 					}
@@ -254,7 +254,7 @@ var _ = Describe("Simulator", func() {
 			Expect(resp.Choices).ShouldNot(BeEmpty())
 			Expect(string(resp.Object)).To(Equal(chatCompletionObject))
 
-			Expect(resp.Usage.PromptTokens).To(Equal(int64(4)))
+			Expect(resp.Usage.PromptTokens).To(Equal(userMsgTokens))
 			Expect(resp.Usage.CompletionTokens).To(BeNumerically(">", 0))
 			Expect(resp.Usage.TotalTokens).To(Equal(resp.Usage.PromptTokens + resp.Usage.CompletionTokens))
 
@@ -262,14 +262,12 @@ var _ = Describe("Simulator", func() {
 			Expect(msg).ShouldNot(BeEmpty())
 
 			if numTokens > 0 {
-				tokens := strings.Fields(msg)
+				tokens := tokenize(msg)
 				Expect(int64(len(tokens))).Should(BeNumerically("<=", numTokens))
 			} else {
-				expectedMsg := userMessage
-				if mode == modeRandom {
-					expectedMsg = getFullTextFromPartialString(msg)
+				if mode == modeEcho {
+					Expect(msg).Should(Equal(userMessage))
 				}
-				Expect(msg).Should(Equal(expectedMsg))
 			}
 		},
 		func(mode string, maxTokens int, maxCompletionTokens int) string {
@@ -310,7 +308,6 @@ var _ = Describe("Simulator", func() {
 				Model: openai.CompletionNewParamsModel(model),
 			}
 			numTokens := 0
-			partialErrMsg := "max_tokens must be at least 1, got -1"
 			if maxTokens != 0 {
 				params.MaxTokens = param.NewOpt(int64(maxTokens))
 				numTokens = maxTokens
@@ -322,7 +319,7 @@ var _ = Describe("Simulator", func() {
 					if openaiError.StatusCode == 400 {
 						errMsg, err := io.ReadAll(openaiError.Response.Body)
 						Expect(err).NotTo(HaveOccurred())
-						if strings.Contains(string(errMsg), partialErrMsg) {
+						if strings.Contains(string(errMsg), invalidMaxTokensErrMsg) {
 							return
 						}
 					}
@@ -332,7 +329,7 @@ var _ = Describe("Simulator", func() {
 			Expect(resp.Choices).ShouldNot(BeEmpty())
 			Expect(string(resp.Object)).To(Equal(textCompletionObject))
 
-			Expect(resp.Usage.PromptTokens).To(Equal(int64(4)))
+			Expect(resp.Usage.PromptTokens).To(Equal(userMsgTokens))
 			Expect(resp.Usage.CompletionTokens).To(BeNumerically(">", 0))
 			Expect(resp.Usage.TotalTokens).To(Equal(resp.Usage.PromptTokens + resp.Usage.CompletionTokens))
 
@@ -340,14 +337,12 @@ var _ = Describe("Simulator", func() {
 			Expect(text).ShouldNot(BeEmpty())
 
 			if numTokens != 0 {
-				tokens := strings.Fields(text)
+				tokens := tokenize(text)
 				Expect(int64(len(tokens))).Should(BeNumerically("<=", numTokens))
 			} else {
-				expectedText := userMessage
-				if mode == modeRandom {
-					expectedText = getFullTextFromPartialString(text)
+				if mode == modeEcho {
+					Expect(text).Should(Equal(userMessage))
 				}
-				Expect(text).Should(Equal(expectedText))
 			}
 		},
 		func(mode string, maxTokens int) string {
