@@ -18,7 +18,6 @@ limitations under the License.
 package llmdinferencesim
 
 import (
-	"strings"
 	"sync"
 
 	"github.com/valyala/fasthttp"
@@ -158,7 +157,7 @@ func (c *chatCompletionRequest) getNumberOfPromptTokens() int {
 	for _, message := range c.Messages {
 		messages += message.Content.PlainText() + " "
 	}
-	return len(strings.Fields(messages))
+	return len(tokenize(messages))
 }
 
 func (c *chatCompletionRequest) getTools() []tool {
@@ -224,7 +223,7 @@ type textCompletionRequest struct {
 }
 
 func (t *textCompletionRequest) getNumberOfPromptTokens() int {
-	return len(strings.Fields(t.Prompt))
+	return len(tokenize(t.Prompt))
 }
 
 func (c *textCompletionRequest) getTools() []tool {
