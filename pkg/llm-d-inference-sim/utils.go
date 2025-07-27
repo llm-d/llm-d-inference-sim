@@ -101,7 +101,7 @@ func getRandomFinishReason() string {
 	return lengthFinishReason
 }
 
-// generateRandomText generates random text for the required number of tokens,
+// getRandomText generates random text for the required number of tokens,
 // select randomly a sentence from chatCompletionFakeResponses,
 // if number of tokens is lower than required - select another sentence,
 // continue until the required number of tokens is achieved
