@@ -18,6 +18,7 @@ package llmdinferencesim
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -32,7 +33,7 @@ var _ = Describe("Utils", Ordered, func() {
 	Context("GetRandomResponseText", func() {
 		It("should return complete text", func() {
 			text, finishReason := getRandomResponseText(nil)
-			Expect(int64(len(tokenize(text)))).Should(BeNumerically("<=", ResponseLenMax))
+			Expect(isValidText(text)).To(BeTrue())
 			Expect(finishReason).Should(Equal(stopFinishReason))
 		})
 		It("should return short text", func() {
@@ -46,6 +47,7 @@ var _ = Describe("Utils", Ordered, func() {
 			maxCompletionTokens := int64(ResponseLenMax * 5)
 			text, finishReason := getRandomResponseText(&maxCompletionTokens)
 			Expect(int64(len(tokenize(text)))).Should(Equal(maxCompletionTokens))
+			Expect(isValidText(text)).To(BeTrue())
 			Expect([]string{stopFinishReason, lengthFinishReason}).Should(ContainElement(finishReason))
 		})
 	})
@@ -128,4 +130,69 @@ var _ = Describe("Utils", Ordered, func() {
 			})
 		}
 	})
+
+	Context("IsValidText", func() {
+		validTxts := make([]string, 0)
+		invalidTxts := make([]string, 0)
+
+		validTxts = append(validTxts, chatCompletionFakeResponses[0][:4])
+		validTxts = append(validTxts, chatCompletionFakeResponses[1])
+		validTxts = append(validTxts, chatCompletionFakeResponses[1]+" "+chatCompletionFakeResponses[2])
+
+		invalidTxts = append(invalidTxts, (chatCompletionFakeResponses[1] + " " + chatCompletionFakeResponses[2])[3:4])
+		invalidTxts = append(invalidTxts, chatCompletionFakeResponses[0][4:])
+		invalidTxts = append(invalidTxts, chatCompletionFakeResponses[1]+"-"+chatCompletionFakeResponses[2])
+		invalidTxts = append(invalidTxts, chatCompletionFakeResponses[1]+" ")
+		invalidTxts = append(invalidTxts, chatCompletionFakeResponses[1]+"   "+chatCompletionFakeResponses[2])
+
+		for _, txt := range validTxts {
+			It("text should be valid", func() {
+				Expect(isValidText(txt)).To(BeTrue())
+			})
+		}
+
+		for _, txt := range invalidTxts {
+			It("text should be invalid", func() {
+				Expect(isValidText(txt)).To(BeFalse())
+			})
+		}
+	})
+
 })
+
+// isValidText validates that the given text could be generated from the predefined list of sentences
+func isValidText(text string) bool {
+	charsTested := 0
+
+	for charsTested < len(text) {
+		textToCheck := text[charsTested:]
+		found := false
+
+		for _, fakeSentense := range chatCompletionFakeResponses {
+			if len(textToCheck) <= len(fakeSentense) {
+				if strings.HasPrefix(fakeSentense, textToCheck) {
+					found = true
+					charsTested = len(text)
+					break
+				}
+			} else {
+				if strings.HasPrefix(textToCheck, fakeSentense) {
+					charsTested += len(fakeSentense)
+					// during generation sentences are connected by space, skip it
+					// additional space at the end of the string is invalid
+					if text[charsTested] == ' ' && charsTested < len(text)-1 {
+						charsTested += 1
+						found = true
+					}
+					break
+				}
+			}
+		}
+
+		if !found {
+			return false
+		}
+	}
+
+	return true
+}

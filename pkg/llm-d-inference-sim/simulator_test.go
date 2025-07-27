@@ -144,7 +144,11 @@ var _ = Describe("Simulator", func() {
 			Expect(chunk.Usage.TotalTokens).To(Equal(chunk.Usage.PromptTokens + chunk.Usage.CompletionTokens))
 
 			msg := strings.Join(tokens, "")
-			if mode == modeEcho {
+			if mode == modeRandom {
+				// in case of random mode ensure that the returned message could be output of the random text generator
+				Expect(isValidText(msg)).To(BeTrue())
+			} else {
+				// in case of echo mode check that the text is returned as-is
 				Expect(msg).Should(Equal(userMessage))
 			}
 			Expect(role).Should(Equal("assistant"))
@@ -199,7 +203,11 @@ var _ = Describe("Simulator", func() {
 			Expect(chunk.Usage.TotalTokens).To(Equal(chunk.Usage.PromptTokens + chunk.Usage.CompletionTokens))
 
 			text := strings.Join(tokens, "")
-			if mode == modeEcho {
+			if mode == modeRandom {
+				// in case of random mode ensure that the returned message could be output of the random text generator
+				Expect(isValidText(text)).To(BeTrue())
+			} else {
+				// in case of echo mode check that the text is returned as-is
 				Expect(text).Should(Equal(userMessage))
 			}
 		},
@@ -265,7 +273,11 @@ var _ = Describe("Simulator", func() {
 				tokens := tokenize(msg)
 				Expect(int64(len(tokens))).Should(BeNumerically("<=", numTokens))
 			} else {
-				if mode == modeEcho {
+				if mode == modeRandom {
+					// in case of random mode ensure that the returned message could be output of the random text generator
+					Expect(isValidText(msg)).To(BeTrue())
+				} else {
+					// in case of echo mode check that the text is returned as-is
 					Expect(msg).Should(Equal(userMessage))
 				}
 			}
@@ -340,7 +352,11 @@ var _ = Describe("Simulator", func() {
 				tokens := tokenize(text)
 				Expect(int64(len(tokens))).Should(BeNumerically("<=", numTokens))
 			} else {
-				if mode == modeEcho {
+				if mode == modeRandom {
+					// in case of random mode ensure that the returned message could be output of the random text generator
+					Expect(isValidText(text)).To(BeTrue())
+				} else {
+					// in case of echo mode check that the text is returned as-is
 					Expect(text).Should(Equal(userMessage))
 				}
 			}
