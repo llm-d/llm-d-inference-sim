@@ -14,16 +14,17 @@
 
 # Makefile for the llm-d-inference-sim project
 
-CONTAINER_RUNTIME ?= docker
-
 SHELL := /usr/bin/env bash
 
 # Defaults
+TARGETOS ?= $(shell go env GOOS)
+TARGETARCH ?= $(shell go env GOARCH)
 PROJECT_NAME ?= llm-d-inference-sim
-REGISTRY ?= ghcr.io/llm-d
-IMAGE_TAG_BASE ?= $(REGISTRY)/$(PROJECT_NAME)
+IMAGE_REGISTRY ?= ghcr.io/llm-d
+IMAGE_TAG_BASE ?= $(IMAGE_REGISTRY)/$(PROJECT_NAME)
 SIM_TAG ?= dev
 IMG = $(IMAGE_TAG_BASE):$(SIM_TAG)
+
 CONTAINER_TOOL := $(shell { command -v docker >/dev/null 2>&1 && echo docker; } || { command -v podman >/dev/null 2>&1 && echo podman; } || echo "")
 BUILDER := $(shell command -v buildah >/dev/null 2>&1 && echo buildah || echo $(CONTAINER_TOOL))
 PLATFORMS ?= linux/amd64 # linux/arm64 # linux/s390x,linux/ppc64le
@@ -35,7 +36,26 @@ SRC = $(shell find . -type f -name '*.go')
 help: ## Print help
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_0-9-]+:.*?##/ { printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
 
+LDFLAGS ?= -extldflags '-L$(shell pwd)/lib'
+CGO_ENABLED=1
+TOKENIZER_LIB = lib/libtokenizers.a
+
+.PHONY: download-tokenizer
+download-tokenizer: $(TOKENIZER_LIB)
+$(TOKENIZER_LIB):
+	## Download the HuggingFace tokenizer bindings.
+	@echo "Downloading HuggingFace tokenizer bindings..."
+	mkdir -p lib
+	curl -L https://github.com/daulet/tokenizers/releases/download/v1.20.2/libtokenizers.$(TARGETOS)-$(TARGETARCH).tar.gz | tar -xz -C lib
+	ranlib lib/*.a
+
 ##@ Development
+
+.PHONY: clean
+clean:
+	go clean -testcache -cache
+	rm -f $(TOKENIZER_LIB)
+	rmdir lib
 
 .PHONY: format
 format: ## Format Go source files
@@ -43,7 +63,7 @@ format: ## Format Go source files
 	@gofmt -l -w $(SRC)
 
 .PHONY: test
-test: check-ginkgo ## Run tests
+test: check-ginkgo download-tokenizer ## Run tests
 	@printf "\033[33;1m==== Running tests ====\033[0m\n"
 	ginkgo -r -v
 
@@ -60,24 +80,28 @@ lint: check-golangci-lint ## Run lint
 ##@ Build
 
 .PHONY: build
-build: check-go ##
+build: check-go download-tokenizer ##
 	@printf "\033[33;1m==== Building ====\033[0m\n"
-	go build -o bin/$(PROJECT_NAME) cmd/$(PROJECT_NAME)/main.go
+	go build -ldflags="$(LDFLAGS)" -o bin/$(PROJECT_NAME) cmd/$(PROJECT_NAME)/main.go
 
 ##@ Container Build/Push
-
-.PHONY: image-build-and-push
-image-build-and-push: image-build image-push ## Build and push Docker image $(IMG) to registry
 
 .PHONY:	image-build
 image-build: check-container-tool ## Build Docker image ## Build Docker image using $(CONTAINER_TOOL)
 	@printf "\033[33;1m==== Building Docker image $(IMG) ====\033[0m\n"
-	$(CONTAINER_TOOL) build --build-arg TARGETOS=$(TARGETOS) --build-arg TARGETARCH=$(TARGETARCH) -t $(IMG) .
+	$(CONTAINER_TOOL) build \
+		--platform $(TARGETOS)/$(TARGETARCH) \
+		--build-arg TARGETOS=$(TARGETOS)\
+		--build-arg TARGETARCH=$(TARGETARCH)\
+		-t $(IMG) .
 
 .PHONY: image-push
 image-push: check-container-tool ## Push Docker image $(IMG) to registry
 	@printf "\033[33;1m==== Pushing Docker image $(IMG) ====\033[0m\n"
 	$(CONTAINER_TOOL) push $(IMG)
+
+.PHONY: image-build-and-push
+image-build-and-push: image-build image-push ## Build and push Docker image $(IMG) to registry
 
 ##@ Install/Uninstall Targets
 

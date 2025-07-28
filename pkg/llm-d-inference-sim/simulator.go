@@ -79,6 +79,8 @@ type VllmSimulator struct {
 	reqChan chan *openaiserverapi.CompletionReqCtx
 	// schema validator for tools parameters
 	toolsValidator *openaiserverapi.Validator
+	// kv cache functionality
+	kvcacheHelper *KVCacheHelper
 }
 
 // New creates a new VllmSimulator instance with the given logger
@@ -87,10 +89,17 @@ func New(logger logr.Logger) (*VllmSimulator, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create tools validator: %s", err)
 	}
+
+	kvcacheHelper, err := NewKVCacheHelper(logger)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create kv cache helper: %s", err)
+	}
+
 	return &VllmSimulator{
 		logger:         logger,
 		reqChan:        make(chan *openaiserverapi.CompletionReqCtx, 1000),
 		toolsValidator: toolsValidtor,
+		kvcacheHelper:  kvcacheHelper,
 	}, nil
 }
 
@@ -107,6 +116,8 @@ func (s *VllmSimulator) Start(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+
+	go s.kvcacheHelper.Run(ctx)
 
 	// run request processing workers
 	for i := 1; i <= s.config.MaxNumSeqs; i++ {
@@ -395,6 +406,11 @@ func (s *VllmSimulator) handleCompletions(ctx *fasthttp.RequestCtx, isChatComple
 	if errMsg != "" {
 		s.sendCompletionError(ctx, errMsg, errType, errCode)
 		return
+	}
+
+	err = s.kvcacheHelper.ProcessRequest(vllmReq)
+	if err != nil {
+		s.logger.Error(err, "kv cache failed to process request", "error", err)
 	}
 
 	// Validate context window constraints
