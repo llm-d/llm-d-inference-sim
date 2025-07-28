@@ -173,6 +173,8 @@ func (s *VllmSimulator) parseCommandParamsAndLoadConfig() error {
 	f.IntVar(&config.ToolCallNotRequiredParamProbability, "tool-call-not-required-param-probability", config.ToolCallNotRequiredParamProbability, "Probability to add a parameter, that is not required, in a tool call")
 	f.IntVar(&config.ObjectToolCallNotRequiredParamProbability, "object-tool-call-not-required-field-probability", config.ObjectToolCallNotRequiredParamProbability, "Probability to add a field, that is not required, in an object in a tool call")
 
+	f.BoolVar(&config.EnableKVCache, "enable-kvcache", config.EnableKVCache, "Defines if KV cache feature is enabled")
+
 	// These values were manually parsed above in getParamValueFromArgs, we leave this in order to get these flags in --help
 	var dummyString string
 	f.StringVar(&dummyString, "config", "", "The path to a yaml configuration file. The command line values overwrite the configuration file values")
@@ -408,10 +410,13 @@ func (s *VllmSimulator) handleCompletions(ctx *fasthttp.RequestCtx, isChatComple
 		return
 	}
 
-	err = s.kvcacheHelper.ProcessRequest(vllmReq)
-	if err != nil {
-		// TODO should it be an error with http response error or just a warning?
-		s.logger.Error(err, "kv cache failed to process request", "error", err)
+	if s.config.EnableKVCache && !isChatCompletion {
+		// kv cache is currently supported for /completion API only
+		err = s.kvcacheHelper.ProcessRequest(vllmReq)
+		if err != nil {
+			// TODO should it be an error with http response error or just a warning?
+			s.logger.Error(err, "kv cache failed to process request", "error", err)
+		}
 	}
 
 	// Validate context window constraints
