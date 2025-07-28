@@ -410,6 +410,7 @@ func (s *VllmSimulator) handleCompletions(ctx *fasthttp.RequestCtx, isChatComple
 
 	err = s.kvcacheHelper.ProcessRequest(vllmReq)
 	if err != nil {
+		// TODO should it be an error with http response error or just a warning?
 		s.logger.Error(err, "kv cache failed to process request", "error", err)
 	}
 
