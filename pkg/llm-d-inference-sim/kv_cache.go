@@ -8,15 +8,17 @@ import (
 	"github.com/go-logr/logr"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	"github.com/llm-d/llm-d-kv-cache-manager/pkg/kvcache"
+	"github.com/llm-d/llm-d-kv-cache-manager/pkg/kvcache/kvblock"
 	"github.com/llm-d/llm-d-kv-cache-manager/pkg/tokenization"
 	"github.com/llm-d/llm-d-kv-cache-manager/pkg/tokenization/prefixstore"
 )
 
 type KVCacheHelper struct {
-	config         *kvcache.Config
-	tokenizersPool *tokenization.Pool
-	tokensIndexer  prefixstore.Indexer
-	logger         logr.Logger
+	config          *kvcache.Config
+	tokenizersPool  *tokenization.Pool
+	tokensIndexer   prefixstore.Indexer    // gets tokens for a prompt
+	tokensProcessor kvblock.TokenProcessor // turns tokens to kv block keys
+	logger          logr.Logger
 }
 
 func NewKVCacheHelper(logger logr.Logger) (*KVCacheHelper, error) {
@@ -29,12 +31,14 @@ func NewKVCacheHelper(logger logr.Logger) (*KVCacheHelper, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create tokenizers pool: %w", err)
 	}
+	tokensProcessor := kvblock.NewChunkedTokenDatabase(config.TokenProcessorConfig)
 
 	return &KVCacheHelper{
-		config:         config,
-		tokenizersPool: tokenizersPool,
-		tokensIndexer:  tokensIndexer,
-		logger:         logger,
+		config:          config,
+		tokenizersPool:  tokenizersPool,
+		tokensIndexer:   tokensIndexer,
+		tokensProcessor: tokensProcessor,
+		logger:          logger,
 	}, nil
 }
 
@@ -44,6 +48,8 @@ func (h *KVCacheHelper) Run(ctx context.Context) {
 }
 
 func (h *KVCacheHelper) ProcessRequest(vllmReq openaiserverapi.CompletionRequest) error {
+	h.logger.Info("KV cache - process request")
+
 	prompt := vllmReq.GetPrompt()
 	modelName := vllmReq.GetModel()
 
@@ -60,8 +66,8 @@ func (h *KVCacheHelper) ProcessRequest(vllmReq openaiserverapi.CompletionRequest
 	}
 
 	// 2. get block keys
-	// blockKeys := h.tokensProcessor.TokensToKVBlockKeys(tokens, modelName)
-	// traceLogger.Info("found tokens", "tokens", tokens, "block-keys", blockKeys)
+	blockKeys := h.tokensProcessor.TokensToKVBlockKeys(tokens, modelName)
+	h.logger.Info("found tokens", "tokens", tokens, "block-keys", blockKeys)
 
 	return nil
 }
