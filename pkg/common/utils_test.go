@@ -14,11 +14,10 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package llmdinferencesim
+package common
 
 import (
 	"fmt"
-	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -27,28 +26,28 @@ import (
 
 var _ = Describe("Utils", Ordered, func() {
 	BeforeAll(func() {
-		initRandom(time.Now().UnixNano())
+		InitRandom(time.Now().UnixNano())
 	})
 
 	Context("GetRandomResponseText", func() {
 		It("should return complete text", func() {
-			text, finishReason := getRandomResponseText(nil)
-			Expect(isValidText(text)).To(BeTrue())
-			Expect(finishReason).Should(Equal(stopFinishReason))
+			text, finishReason := GetRandomResponseText(nil)
+			Expect(IsValidText(text)).To(BeTrue())
+			Expect(finishReason).Should(Equal(StopFinishReason))
 		})
 		It("should return short text", func() {
 			maxCompletionTokens := int64(2)
-			text, finishReason := getRandomResponseText(&maxCompletionTokens)
-			Expect(int64(len(tokenize(text)))).Should(Equal(maxCompletionTokens))
-			Expect([]string{stopFinishReason, lengthFinishReason}).Should(ContainElement(finishReason))
+			text, finishReason := GetRandomResponseText(&maxCompletionTokens)
+			Expect(int64(len(Tokenize(text)))).Should(Equal(maxCompletionTokens))
+			Expect([]string{StopFinishReason, LengthFinishReason}).Should(ContainElement(finishReason))
 		})
 		It("should return long text", func() {
 			// return required number of tokens although it is higher than ResponseLenMax
 			maxCompletionTokens := int64(ResponseLenMax * 5)
-			text, finishReason := getRandomResponseText(&maxCompletionTokens)
-			Expect(int64(len(tokenize(text)))).Should(Equal(maxCompletionTokens))
-			Expect(isValidText(text)).To(BeTrue())
-			Expect([]string{stopFinishReason, lengthFinishReason}).Should(ContainElement(finishReason))
+			text, finishReason := GetRandomResponseText(&maxCompletionTokens)
+			Expect(int64(len(Tokenize(text)))).Should(Equal(maxCompletionTokens))
+			Expect(IsValidText(text)).To(BeTrue())
+			Expect([]string{StopFinishReason, LengthFinishReason}).Should(ContainElement(finishReason))
 		})
 	})
 
@@ -56,21 +55,21 @@ var _ = Describe("Utils", Ordered, func() {
 		theText := "Give a man a fish and you feed him for a day; teach a man to fish and you feed him for a lifetime"
 
 		It("should return the same text since max tokens is not defined", func() {
-			text, finishReason := getResponseText(nil, theText)
+			text, finishReason := GetResponseText(nil, theText)
 			Expect(text).Should(Equal(theText))
-			Expect(finishReason).Should(Equal(stopFinishReason))
+			Expect(finishReason).Should(Equal(StopFinishReason))
 		})
 		It("should return the same text since max tokens is higher than the text length", func() {
 			maxCompletionTokens := int64(1000)
-			text, finishReason := getResponseText(&maxCompletionTokens, theText)
+			text, finishReason := GetResponseText(&maxCompletionTokens, theText)
 			Expect(text).Should(Equal(theText))
-			Expect(finishReason).Should(Equal(stopFinishReason))
+			Expect(finishReason).Should(Equal(StopFinishReason))
 		})
 		It("should return partial text", func() {
 			maxCompletionTokens := int64(2)
-			text, finishReason := getResponseText(&maxCompletionTokens, theText)
-			Expect(int64(len(tokenize(text)))).Should(Equal(maxCompletionTokens))
-			Expect(finishReason).Should(Equal(lengthFinishReason))
+			text, finishReason := GetResponseText(&maxCompletionTokens, theText)
+			Expect(int64(len(Tokenize(text)))).Should(Equal(maxCompletionTokens))
+			Expect(finishReason).Should(Equal(LengthFinishReason))
 		})
 	})
 
@@ -80,7 +79,7 @@ var _ = Describe("Utils", Ordered, func() {
 			maxCompletionTokens := int64(50)
 			maxModelLen := 200
 
-			isValid, actualCompletionTokens, totalTokens := validateContextWindow(promptTokens, &maxCompletionTokens, maxModelLen)
+			isValid, actualCompletionTokens, totalTokens := ValidateContextWindow(promptTokens, &maxCompletionTokens, maxModelLen)
 			Expect(isValid).Should(BeTrue())
 			Expect(actualCompletionTokens).Should(Equal(int64(50)))
 			Expect(totalTokens).Should(Equal(int64(150)))
@@ -91,7 +90,7 @@ var _ = Describe("Utils", Ordered, func() {
 			maxCompletionTokens := int64(100)
 			maxModelLen := 200
 
-			isValid, actualCompletionTokens, totalTokens := validateContextWindow(promptTokens, &maxCompletionTokens, maxModelLen)
+			isValid, actualCompletionTokens, totalTokens := ValidateContextWindow(promptTokens, &maxCompletionTokens, maxModelLen)
 			Expect(isValid).Should(BeFalse())
 			Expect(actualCompletionTokens).Should(Equal(int64(100)))
 			Expect(totalTokens).Should(Equal(int64(250)))
@@ -101,7 +100,7 @@ var _ = Describe("Utils", Ordered, func() {
 			promptTokens := 100
 			maxModelLen := 200
 
-			isValid, actualCompletionTokens, totalTokens := validateContextWindow(promptTokens, nil, maxModelLen)
+			isValid, actualCompletionTokens, totalTokens := ValidateContextWindow(promptTokens, nil, maxModelLen)
 			Expect(isValid).Should(BeTrue())
 			Expect(actualCompletionTokens).Should(Equal(int64(0)))
 			Expect(totalTokens).Should(Equal(int64(100)))
@@ -111,7 +110,7 @@ var _ = Describe("Utils", Ordered, func() {
 			promptTokens := 250
 			maxModelLen := 200
 
-			isValid, actualCompletionTokens, totalTokens := validateContextWindow(promptTokens, nil, maxModelLen)
+			isValid, actualCompletionTokens, totalTokens := ValidateContextWindow(promptTokens, nil, maxModelLen)
 			Expect(isValid).Should(BeFalse())
 			Expect(actualCompletionTokens).Should(Equal(int64(0)))
 			Expect(totalTokens).Should(Equal(int64(250)))
@@ -124,9 +123,8 @@ var _ = Describe("Utils", Ordered, func() {
 		for _, len := range lenArr {
 			name := fmt.Sprintf("should return text with %d tokens", len)
 			It(name, func() {
-				text := getRandomText(len)
-				fmt.Printf("Text with %d tokens: '%s'\n", len, text)
-				Expect(tokenize(text)).Should(HaveLen(len))
+				text := GetRandomText(len)
+				Expect(Tokenize(text)).Should(HaveLen(len))
 			})
 		}
 	})
@@ -147,52 +145,15 @@ var _ = Describe("Utils", Ordered, func() {
 
 		for _, txt := range validTxts {
 			It("text should be valid", func() {
-				Expect(isValidText(txt)).To(BeTrue())
+				Expect(IsValidText(txt)).To(BeTrue())
 			})
 		}
 
 		for _, txt := range invalidTxts {
 			It("text should be invalid", func() {
-				Expect(isValidText(txt)).To(BeFalse())
+				Expect(IsValidText(txt)).To(BeFalse())
 			})
 		}
 	})
 
 })
-
-// isValidText validates that the given text could be generated from the predefined list of sentences
-func isValidText(text string) bool {
-	charsTested := 0
-
-	for charsTested < len(text) {
-		textToCheck := text[charsTested:]
-		found := false
-
-		for _, fakeSentense := range chatCompletionFakeResponses {
-			if len(textToCheck) <= len(fakeSentense) {
-				if strings.HasPrefix(fakeSentense, textToCheck) {
-					found = true
-					charsTested = len(text)
-					break
-				}
-			} else {
-				if strings.HasPrefix(textToCheck, fakeSentense) {
-					charsTested += len(fakeSentense)
-					// during generation sentences are connected by space, skip it
-					// additional space at the end of the string is invalid
-					if text[charsTested] == ' ' && charsTested < len(text)-1 {
-						charsTested += 1
-						found = true
-					}
-					break
-				}
-			}
-		}
-
-		if !found {
-			return false
-		}
-	}
-
-	return true
-}

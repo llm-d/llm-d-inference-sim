@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package llmdinferencesim
+package common
 
 import (
 	"fmt"
@@ -30,6 +30,11 @@ const (
 	responseLenMean             = 40
 	responseLenStddev           = 20
 	stopFinishReasonProbability = 0.8
+
+	StopFinishReason         = "stop"
+	LengthFinishReason       = "length"
+	ToolsFinishReason        = "tool_calls"
+	RemoteDecodeFinishReason = "remote_decode"
 )
 
 // list of responses to use in random mode for comepltion requests
@@ -48,7 +53,7 @@ var chatCompletionFakeResponses = []string{
 }
 
 // returns the max tokens or error if incorrect
-func getMaxTokens(maxCompletionTokens *int64, maxTokens *int64) (*int64, error) {
+func GetMaxTokens(maxCompletionTokens *int64, maxTokens *int64) (*int64, error) {
 	var typeToken string
 	var tokens *int64
 	// if both arguments are passed,
@@ -67,9 +72,9 @@ func getMaxTokens(maxCompletionTokens *int64, maxTokens *int64) (*int64, error) 
 	return tokens, nil
 }
 
-// validateContextWindow checks if the request fits within the model's context window
+// ValidateContextWindow checks if the request fits within the model's context window
 // Returns validation result, actual completion tokens, and total tokens
-func validateContextWindow(promptTokens int, maxCompletionTokens *int64, maxModelLen int) (bool, int64, int64) {
+func ValidateContextWindow(promptTokens int, maxCompletionTokens *int64, maxModelLen int) (bool, int64, int64) {
 	completionTokens := int64(0)
 	if maxCompletionTokens != nil {
 		completionTokens = *maxCompletionTokens
@@ -81,9 +86,9 @@ func validateContextWindow(promptTokens int, maxCompletionTokens *int64, maxMode
 	return isValid, completionTokens, totalTokens
 }
 
-// getRandomResponseLen returns int in range [1, responseLenMax]
+// GetRandomResponseLen returns int in range [1, responseLenMax]
 // numbers are chosen according a gaussian distribution with mean responseLenMean, and standard deviation responseLenStddev
-func getRandomResponseLen() int {
+func GetRandomResponseLen() int {
 	for {
 		val := rand.NormFloat64()*responseLenStddev + responseLenMean
 		if val >= 1 && val <= ResponseLenMax {
@@ -93,25 +98,25 @@ func getRandomResponseLen() int {
 	}
 }
 
-// getRandomFinishReason returns finish reason with the probability for 'stop' as defined by stopFinishReasonProbability
-func getRandomFinishReason() string {
+// GetRandomFinishReason returns finish reason with the probability for 'stop' as defined by stopFinishReasonProbability
+func GetRandomFinishReason() string {
 	if rand.Float64() < stopFinishReasonProbability {
-		return stopFinishReason
+		return StopFinishReason
 	}
-	return lengthFinishReason
+	return LengthFinishReason
 }
 
-// getRandomText generates random text for the required number of tokens,
+// GetRandomText generates random text for the required number of tokens,
 // select randomly a sentence from chatCompletionFakeResponses,
 // if number of tokens is lower than required - select another sentence,
 // continue until the required number of tokens is achieved
-func getRandomText(numOfTokens int) string {
+func GetRandomText(numOfTokens int) string {
 	allTokens := make([]string, 0)
 
 	for len(allTokens) < numOfTokens {
-		index := randomInt(0, len(chatCompletionFakeResponses)-1)
+		index := RandomInt(0, len(chatCompletionFakeResponses)-1)
 		// create tokens from text, splitting by spaces and special characters
-		tokens := tokenize(chatCompletionFakeResponses[index])
+		tokens := Tokenize(chatCompletionFakeResponses[index])
 		remaining := numOfTokens - len(allTokens)
 
 		if len(tokens) > remaining {
@@ -131,7 +136,7 @@ func getRandomText(numOfTokens int) string {
 	return strings.Join(allTokens, "")
 }
 
-// getRandomResponseText generates text to be returned in a response, and the finish reason (stop or length)
+// GetRandomResponseText generates text to be returned in a response, and the finish reason (stop or length)
 // if maxCompletionTokens is defined
 // - currently, the generated number of words in the text will be equal to it value
 // - in future - need to find statistics about generated tokens distribution and return less tokens in part os requests
@@ -139,46 +144,46 @@ func getRandomText(numOfTokens int) string {
 // if maxCompletionTokens is nil
 // - the response text's length is randomly chosen from the range [1, responseLenMax] according additional parameters
 // - finish reason is stop
-func getRandomResponseText(maxCompletionTokens *int64) (string, string) {
+func GetRandomResponseText(maxCompletionTokens *int64) (string, string) {
 	numOfTokens := 0
-	finishReason := stopFinishReason
+	finishReason := StopFinishReason
 
 	// no max completion tokens, return text with random length
 	if maxCompletionTokens == nil {
-		numOfTokens = getRandomResponseLen()
+		numOfTokens = GetRandomResponseLen()
 	} else {
 		numOfTokens = int(*maxCompletionTokens)
-		finishReason = getRandomFinishReason()
+		finishReason = GetRandomFinishReason()
 	}
 
-	text := getRandomText(numOfTokens)
+	text := GetRandomText(numOfTokens)
 	return text, finishReason
 }
 
-// getResponseText returns response text, from a given text
+// GetResponseText returns response text, from a given text
 // considering max completion tokens if it is not nil, and a finish reason (stop or length)
-func getResponseText(maxCompletionTokens *int64, text string) (string, string) {
+func GetResponseText(maxCompletionTokens *int64, text string) (string, string) {
 	// no max completion tokens, return entire text
 	if maxCompletionTokens == nil {
-		return text, stopFinishReason
+		return text, StopFinishReason
 	}
 
 	// create tokens from text, splitting by spaces
-	tokens := tokenize(text)
+	tokens := Tokenize(text)
 
 	// return entire text
 	if *maxCompletionTokens >= int64(len(tokens)) {
-		return text, stopFinishReason
+		return text, StopFinishReason
 	}
 	// return truncated text
-	return strings.Join(tokens[0:*maxCompletionTokens], " "), lengthFinishReason
+	return strings.Join(tokens[0:*maxCompletionTokens], " "), LengthFinishReason
 }
 
-func randomNumericString(length int) string {
+func RandomNumericString(length int) string {
 	digits := "0123456789"
 	result := make([]byte, length)
 	for i := 0; i < length; i++ {
-		num := randomInt(0, 9)
+		num := RandomInt(0, 9)
 		result[i] = digits[num]
 	}
 	return string(result)
@@ -187,32 +192,32 @@ func randomNumericString(length int) string {
 var randomGenerator *rand.Rand
 var randMutex sync.Mutex
 
-func initRandom(seed int64) {
+func InitRandom(seed int64) {
 	src := rand.NewSource(seed)
 	randomGenerator = rand.New(src)
 }
 
 // Returns an integer between min and max (included)
-func randomInt(min int, max int) int {
+func RandomInt(min int, max int) int {
 	randMutex.Lock()
 	defer randMutex.Unlock()
 	return randomGenerator.Intn(max-min+1) + min
 }
 
 // Returns true or false randomly
-func flipCoin() bool {
-	return randomInt(0, 1) != 0
+func FlipCoin() bool {
+	return RandomInt(0, 1) != 0
 }
 
 // probability is an integer between 0 and 100
-func randomBool(probability int) bool {
+func RandomBool(probability int) bool {
 	randMutex.Lock()
 	defer randMutex.Unlock()
 	return randomGenerator.Float64() < float64(probability)/100
 }
 
 // Returns a random float64 in the range [min, max)
-func randomFloat(min float64, max float64) float64 {
+func RandomFloat(min float64, max float64) float64 {
 	randMutex.Lock()
 	defer randMutex.Unlock()
 	return randomGenerator.Float64()*(max-min) + min
@@ -221,7 +226,7 @@ func randomFloat(min float64, max float64) float64 {
 // Returns a normally distributed float64
 // If the generated value differs by more than 70% from mean, the returned
 // value will be 70% of mean
-func randomNorm(mean float64, stddev float64) float64 {
+func RandomNorm(mean float64, stddev float64) float64 {
 	if stddev == 0 {
 		return mean
 	}
@@ -243,6 +248,44 @@ func init() {
 	re = regexp.MustCompile(`(\{|\}|:|,|-|\.|\?|\!|;|@|#|\$|%|\^|&|\*|\(|\)|\+|\-|_|~|/|\\|>|<|\[|\]|=|"|\w+)(\s*)`)
 }
 
-func tokenize(text string) []string {
+func Tokenize(text string) []string {
 	return re.FindAllString(text, -1)
+}
+
+// IsValidText validates that the given text could be generated from the predefined list of sentences
+// used in tests
+func IsValidText(text string) bool {
+	charsTested := 0
+
+	for charsTested < len(text) {
+		textToCheck := text[charsTested:]
+		found := false
+
+		for _, fakeSentense := range chatCompletionFakeResponses {
+			if len(textToCheck) <= len(fakeSentense) {
+				if strings.HasPrefix(fakeSentense, textToCheck) {
+					found = true
+					charsTested = len(text)
+					break
+				}
+			} else {
+				if strings.HasPrefix(textToCheck, fakeSentense) {
+					charsTested += len(fakeSentense)
+					// during generation sentences are connected by space, skip it
+					// additional space at the end of the string is invalid
+					if text[charsTested] == ' ' && charsTested < len(text)-1 {
+						charsTested += 1
+						found = true
+					}
+					break
+				}
+			}
+		}
+
+		if !found {
+			return false
+		}
+	}
+
+	return true
 }

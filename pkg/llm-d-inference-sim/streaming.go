@@ -23,6 +23,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/llm-d/llm-d-inference-sim/pkg/common"
+	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	"github.com/valyala/fasthttp"
 )
 
@@ -38,8 +40,8 @@ type streamingContext struct {
 // as defined by isChatCompletion
 // response content is wrapped according SSE format
 // First token is send after timeToFirstToken milliseconds, every other token is sent after interTokenLatency milliseconds
-func (s *VllmSimulator) sendStreamingResponse(context *streamingContext, responseTokens []string, toolCalls []toolCall,
-	finishReason string, usageData *usage) {
+func (s *VllmSimulator) sendStreamingResponse(context *streamingContext, responseTokens []string, toolCalls []openaiserverapi.ToolCall,
+	finishReason string, usageData *openaiserverapi.Usage) {
 	context.ctx.SetContentType("text/event-stream")
 	context.ctx.SetStatusCode(fasthttp.StatusOK)
 
@@ -49,7 +51,7 @@ func (s *VllmSimulator) sendStreamingResponse(context *streamingContext, respons
 		if len(responseTokens) > 0 || len(toolCalls) > 0 {
 			if context.isChatCompletion {
 				// in chat completion first chunk contains the role
-				chunk := s.createChatCompletionChunk(context, "", nil, roleAssistant, nil)
+				chunk := s.createChatCompletionChunk(context, "", nil, openaiserverapi.RoleAssistant, nil)
 				if err := s.sendChunk(w, chunk, ""); err != nil {
 					context.ctx.Error("Sending stream first chunk failed, "+err.Error(), fasthttp.StatusInternalServerError)
 					return
@@ -58,7 +60,7 @@ func (s *VllmSimulator) sendStreamingResponse(context *streamingContext, respons
 			if len(toolCalls) > 0 {
 				s.logger.Info("Going to send tools calls")
 				for _, tc := range toolCalls {
-					s.sendTokenChunks(context, w, tc.Function.tokenizedArguments, &tc, finishReason)
+					s.sendTokenChunks(context, w, tc.Function.TokenizedArguments, &tc, finishReason)
 				}
 			} else {
 				s.logger.Info("Going to send text", "number of tokens", len(responseTokens))
@@ -85,7 +87,7 @@ func (s *VllmSimulator) sendStreamingResponse(context *streamingContext, respons
 }
 
 // sendTokenChunks creates and sends response chunks
-func (s *VllmSimulator) sendTokenChunks(context *streamingContext, w *bufio.Writer, tokens []string, tc *toolCall, finishReason string) {
+func (s *VllmSimulator) sendTokenChunks(context *streamingContext, w *bufio.Writer, tokens []string, tc *openaiserverapi.ToolCall, finishReason string) {
 	// time to first token delay
 	time.Sleep(time.Duration(s.getTimeToFirstToken(context.doRemotePrefill)) * time.Millisecond)
 
@@ -93,13 +95,13 @@ func (s *VllmSimulator) sendTokenChunks(context *streamingContext, w *bufio.Writ
 		if i != 0 {
 			time.Sleep(time.Duration(s.getInterTokenLatency()) * time.Millisecond)
 		}
-		var toolChunkInsert *toolCall
+		var toolChunkInsert *openaiserverapi.ToolCall
 		if tc != nil {
-			toolChunkInsert = &toolCall{
+			toolChunkInsert = &openaiserverapi.ToolCall{
 				ID:    tc.ID,
 				Type:  tc.Type,
 				Index: tc.Index,
-				Function: functionCall{
+				Function: openaiserverapi.FunctionCall{
 					Arguments: token,
 				},
 			}
@@ -108,9 +110,9 @@ func (s *VllmSimulator) sendTokenChunks(context *streamingContext, w *bufio.Writ
 			}
 		}
 
-		var chunk completionRespChunk
+		var chunk openaiserverapi.CompletionRespChunk
 		var finishReasonToSend *string
-		if i == len(tokens)-1 && (finishReason == lengthFinishReason || finishReason == toolsFinishReason) {
+		if i == len(tokens)-1 && (finishReason == common.LengthFinishReason || finishReason == common.ToolsFinishReason) {
 			finishReasonToSend = &finishReason
 		}
 		if context.isChatCompletion {
@@ -126,8 +128,8 @@ func (s *VllmSimulator) sendTokenChunks(context *streamingContext, w *bufio.Writ
 	}
 
 	// send the last chunk if finish reason is stop
-	var chunk completionRespChunk
-	if finishReason == stopFinishReason {
+	var chunk openaiserverapi.CompletionRespChunk
+	if finishReason == common.StopFinishReason {
 		if context.isChatCompletion {
 			chunk = s.createChatCompletionChunk(context, "", nil, "", &finishReason)
 		} else {
@@ -142,8 +144,8 @@ func (s *VllmSimulator) sendTokenChunks(context *streamingContext, w *bufio.Writ
 
 // createUsageChunk creates and returns a CompletionRespChunk with usage data, a single chunk of streamed completion API response,
 // supports both modes (text and chat)
-func (s *VllmSimulator) createUsageChunk(context *streamingContext, usageData *usage) completionRespChunk {
-	baseChunk := baseCompletionResponse{
+func (s *VllmSimulator) createUsageChunk(context *streamingContext, usageData *openaiserverapi.Usage) openaiserverapi.CompletionRespChunk {
+	baseChunk := openaiserverapi.BaseCompletionResponse{
 		ID:      chatComplIDPrefix + uuid.NewString(),
 		Created: context.creationTime,
 		Model:   context.model,
@@ -151,32 +153,32 @@ func (s *VllmSimulator) createUsageChunk(context *streamingContext, usageData *u
 	}
 	if context.isChatCompletion {
 		baseChunk.Object = chatCompletionChunkObject
-		return &chatCompletionResponse{
-			baseCompletionResponse: baseChunk,
-			Choices:                []chatRespChoice{},
+		return &openaiserverapi.ChatCompletionResponse{
+			BaseCompletionResponse: baseChunk,
+			Choices:                []openaiserverapi.ChatRespChoice{},
 		}
 	}
 	baseChunk.Object = textCompletionObject
 
-	return &textCompletionResponse{
-		baseCompletionResponse: baseChunk,
-		Choices:                []textRespChoice{},
+	return &openaiserverapi.TextCompletionResponse{
+		BaseCompletionResponse: baseChunk,
+		Choices:                []openaiserverapi.TextRespChoice{},
 	}
 }
 
 // createTextCompletionChunk creates and returns a CompletionRespChunk, a single chunk of streamed completion API response,
 // for text completion
-func (s *VllmSimulator) createTextCompletionChunk(context *streamingContext, token string, finishReason *string) completionRespChunk {
-	return &textCompletionResponse{
-		baseCompletionResponse: baseCompletionResponse{
+func (s *VllmSimulator) createTextCompletionChunk(context *streamingContext, token string, finishReason *string) openaiserverapi.CompletionRespChunk {
+	return &openaiserverapi.TextCompletionResponse{
+		BaseCompletionResponse: openaiserverapi.BaseCompletionResponse{
 			ID:      chatComplIDPrefix + uuid.NewString(),
 			Created: context.creationTime,
 			Model:   context.model,
 			Object:  textCompletionObject,
 		},
-		Choices: []textRespChoice{
+		Choices: []openaiserverapi.TextRespChoice{
 			{
-				baseResponseChoice: baseResponseChoice{Index: 0, FinishReason: finishReason},
+				BaseResponseChoice: openaiserverapi.BaseResponseChoice{Index: 0, FinishReason: finishReason},
 				Text:               token,
 			},
 		},
@@ -185,19 +187,19 @@ func (s *VllmSimulator) createTextCompletionChunk(context *streamingContext, tok
 
 // createChatCompletionChunk creates and returns a CompletionRespChunk, a single chunk of streamed completion
 // API response, for chat completion. It sets either role, or token, or tool call info in the message.
-func (s *VllmSimulator) createChatCompletionChunk(context *streamingContext, token string, tool *toolCall,
-	role string, finishReason *string) completionRespChunk {
-	chunk := chatCompletionRespChunk{
-		baseCompletionResponse: baseCompletionResponse{
+func (s *VllmSimulator) createChatCompletionChunk(context *streamingContext, token string, tool *openaiserverapi.ToolCall,
+	role string, finishReason *string) openaiserverapi.CompletionRespChunk {
+	chunk := openaiserverapi.ChatCompletionRespChunk{
+		BaseCompletionResponse: openaiserverapi.BaseCompletionResponse{
 			ID:      chatComplIDPrefix + uuid.NewString(),
 			Created: context.creationTime,
 			Model:   context.model,
 			Object:  chatCompletionChunkObject,
 		},
-		Choices: []chatRespChunkChoice{
+		Choices: []openaiserverapi.ChatRespChunkChoice{
 			{
-				Delta:              message{},
-				baseResponseChoice: baseResponseChoice{Index: 0, FinishReason: finishReason},
+				Delta:              openaiserverapi.Message{},
+				BaseResponseChoice: openaiserverapi.BaseResponseChoice{Index: 0, FinishReason: finishReason},
 			},
 		},
 	}
@@ -206,7 +208,7 @@ func (s *VllmSimulator) createChatCompletionChunk(context *streamingContext, tok
 		chunk.Choices[0].Delta.Role = role
 	}
 	if tool != nil {
-		chunk.Choices[0].Delta.ToolCalls = []toolCall{*tool}
+		chunk.Choices[0].Delta.ToolCalls = []openaiserverapi.ToolCall{*tool}
 	} else if len(token) > 0 {
 		chunk.Choices[0].Delta.Content.Raw = token
 	}
@@ -216,7 +218,7 @@ func (s *VllmSimulator) createChatCompletionChunk(context *streamingContext, tok
 
 // sendChunk send a single token chunk in a streamed completion API response,
 // receives either a completionRespChunk or a string with the data to send.
-func (s *VllmSimulator) sendChunk(w *bufio.Writer, chunk completionRespChunk, dataString string) error {
+func (s *VllmSimulator) sendChunk(w *bufio.Writer, chunk openaiserverapi.CompletionRespChunk, dataString string) error {
 	if dataString == "" {
 		data, err := json.Marshal(chunk)
 		if err != nil {

@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package llmdinferencesim
+package common
 
 import (
 	"encoding/json"
@@ -27,7 +27,13 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-type configuration struct {
+const (
+	vLLMDefaultPort = 8000
+	ModeRandom      = "random"
+	ModeEcho        = "echo"
+)
+
+type Configuration struct {
 	// Port defines on which port the simulator runs
 	Port int `yaml:"port"`
 	// Model defines the current base model name
@@ -47,7 +53,7 @@ type configuration struct {
 	// LoraModulesString is a list of LoRA adapters as strings
 	LoraModulesString []string `yaml:"lora-modules"`
 	// LoraModules is a list of LoRA adapters
-	LoraModules []loraModule
+	LoraModules []LoraModule
 
 	// TimeToFirstToken time before the first token will be returned, in milliseconds
 	TimeToFirstToken int `yaml:"time-to-first-token"`
@@ -103,7 +109,7 @@ type configuration struct {
 	ObjectToolCallNotRequiredParamProbability int `yaml:"object-tool-call-not-required-field-probability"`
 }
 
-type loraModule struct {
+type LoraModule struct {
 	// Name is the LoRA's name
 	Name string `json:"name"`
 	// Path is the LoRA's path
@@ -113,27 +119,27 @@ type loraModule struct {
 }
 
 // Needed to parse values that contain multiple strings
-type multiString struct {
-	values []string
+type MultiString struct {
+	Values []string
 }
 
-func (l *multiString) String() string {
-	return strings.Join(l.values, " ")
+func (l *MultiString) String() string {
+	return strings.Join(l.Values, " ")
 }
 
-func (l *multiString) Set(val string) error {
-	l.values = append(l.values, val)
+func (l *MultiString) Set(val string) error {
+	l.Values = append(l.Values, val)
 	return nil
 }
 
-func (l *multiString) Type() string {
+func (l *MultiString) Type() string {
 	return "strings"
 }
 
-func (c *configuration) unmarshalLoras() error {
-	c.LoraModules = make([]loraModule, 0)
+func (c *Configuration) UnmarshalLoras() error {
+	c.LoraModules = make([]LoraModule, 0)
 	for _, jsonStr := range c.LoraModulesString {
-		var lora loraModule
+		var lora LoraModule
 		if err := json.Unmarshal([]byte(jsonStr), &lora); err != nil {
 			return err
 		}
@@ -142,13 +148,13 @@ func (c *configuration) unmarshalLoras() error {
 	return nil
 }
 
-func newConfig() *configuration {
-	return &configuration{
+func NewConfig() *Configuration {
+	return &Configuration{
 		Port:                                vLLMDefaultPort,
 		MaxLoras:                            1,
 		MaxNumSeqs:                          5,
 		MaxModelLen:                         1024,
-		Mode:                                modeRandom,
+		Mode:                                ModeRandom,
 		Seed:                                time.Now().UnixNano(),
 		MaxToolCallIntegerParam:             100,
 		MaxToolCallNumberParam:              100,
@@ -159,7 +165,7 @@ func newConfig() *configuration {
 	}
 }
 
-func (c *configuration) load(configFile string) error {
+func (c *Configuration) Load(configFile string) error {
 	configBytes, err := os.ReadFile(configFile)
 	if err != nil {
 		return fmt.Errorf("failed to read configuration file: %s", err)
@@ -169,10 +175,10 @@ func (c *configuration) load(configFile string) error {
 		return fmt.Errorf("failed to unmarshal configuration: %s", err)
 	}
 
-	return c.unmarshalLoras()
+	return c.UnmarshalLoras()
 }
 
-func (c *configuration) validate() error {
+func (c *Configuration) Validate() error {
 	if c.Model == "" {
 		return errors.New("model parameter is empty")
 	}
@@ -183,7 +189,7 @@ func (c *configuration) validate() error {
 		c.ServedModelNames = []string{c.Model}
 	}
 
-	if c.Mode != modeEcho && c.Mode != modeRandom {
+	if c.Mode != ModeEcho && c.Mode != ModeRandom {
 		return fmt.Errorf("invalid mode '%s', valid values are 'random' and 'echo'", c.Mode)
 	}
 	if c.Port <= 0 {

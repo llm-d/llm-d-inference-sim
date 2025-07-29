@@ -39,26 +39,16 @@ import (
 	"github.com/valyala/fasthttp/fasthttpadaptor"
 	"k8s.io/klog/v2"
 
+	"github.com/llm-d/llm-d-inference-sim/pkg/common"
+	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	vllmapi "github.com/llm-d/llm-d-inference-sim/pkg/vllm-api"
 )
 
 const (
-	vLLMDefaultPort           = 8000
-	modeRandom                = "random"
-	modeEcho                  = "echo"
 	chatComplIDPrefix         = "chatcmpl-"
-	stopFinishReason          = "stop"
-	lengthFinishReason        = "length"
-	toolsFinishReason         = "tool_calls"
-	remoteDecodeFinishReason  = "remote_decode"
-	roleAssistant             = "assistant"
-	roleUser                  = "user"
 	textCompletionObject      = "text_completion"
 	chatCompletionObject      = "chat.completion"
 	chatCompletionChunkObject = "chat.completion.chunk"
-	toolChoiceNone            = "none"
-	toolChoiceAuto            = "auto"
-	toolChoiceRequired        = "required"
 )
 
 // VllmSimulator simulates vLLM server supporting OpenAI API
@@ -66,7 +56,7 @@ type VllmSimulator struct {
 	// logger is used for information and errors logging
 	logger logr.Logger
 	// config is the simulator's configuration
-	config *configuration
+	config *common.Configuration
 	// loraAdaptors contains list of LoRA available adaptors
 	loraAdaptors sync.Map
 	// runningLoras is a collection of running loras, key of lora's name, value is number of requests using this lora
@@ -86,20 +76,20 @@ type VllmSimulator struct {
 	// kvCacheUsagePercentage is prometheus gauge
 	kvCacheUsagePercentage *prometheus.GaugeVec
 	// channel for requeasts to be passed to workers
-	reqChan chan *completionReqCtx
+	reqChan chan *openaiserverapi.CompletionReqCtx
 	// schema validator for tools parameters
-	toolsValidator *validator
+	toolsValidator *openaiserverapi.Validator
 }
 
 // New creates a new VllmSimulator instance with the given logger
 func New(logger logr.Logger) (*VllmSimulator, error) {
-	toolsValidtor, err := createValidator()
+	toolsValidtor, err := openaiserverapi.CreateValidator()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create tools validator: %s", err)
 	}
 	return &VllmSimulator{
 		logger:         logger,
-		reqChan:        make(chan *completionReqCtx, 1000),
+		reqChan:        make(chan *openaiserverapi.CompletionReqCtx, 1000),
 		toolsValidator: toolsValidtor,
 	}, nil
 }
@@ -133,11 +123,11 @@ func (s *VllmSimulator) Start(ctx context.Context) error {
 
 // parseCommandParamsAndLoadConfig parses and validates command line parameters
 func (s *VllmSimulator) parseCommandParamsAndLoadConfig() error {
-	config := newConfig()
+	config := common.NewConfig()
 
 	configFileValues := getParamValueFromArgs("config")
 	if len(configFileValues) == 1 {
-		if err := config.load(configFileValues[0]); err != nil {
+		if err := config.Load(configFileValues[0]); err != nil {
 			return err
 		}
 	}
@@ -175,7 +165,7 @@ func (s *VllmSimulator) parseCommandParamsAndLoadConfig() error {
 	// These values were manually parsed above in getParamValueFromArgs, we leave this in order to get these flags in --help
 	var dummyString string
 	f.StringVar(&dummyString, "config", "", "The path to a yaml configuration file. The command line values overwrite the configuration file values")
-	var dummyMultiString multiString
+	var dummyMultiString common.MultiString
 	f.Var(&dummyMultiString, "served-model-name", "Model names exposed by the API (a list of space-separated strings)")
 	f.Var(&dummyMultiString, "lora-modules", "List of LoRA adapters (a list of space-separated JSON strings)")
 	// In order to allow empty arguments, we set a dummy NoOptDefVal for these flags
@@ -197,7 +187,7 @@ func (s *VllmSimulator) parseCommandParamsAndLoadConfig() error {
 	// Need to read in a variable to avoid merging the values with the config file ones
 	if loraModuleNames != nil {
 		config.LoraModulesString = loraModuleNames
-		if err := config.unmarshalLoras(); err != nil {
+		if err := config.UnmarshalLoras(); err != nil {
 			return err
 		}
 	}
@@ -205,7 +195,7 @@ func (s *VllmSimulator) parseCommandParamsAndLoadConfig() error {
 		config.ServedModelNames = servedModelNames
 	}
 
-	if err := config.validate(); err != nil {
+	if err := config.Validate(); err != nil {
 		return err
 	}
 
@@ -215,7 +205,7 @@ func (s *VllmSimulator) parseCommandParamsAndLoadConfig() error {
 		s.loraAdaptors.Store(lora.Name, "")
 	}
 
-	initRandom(s.config.Seed)
+	common.InitRandom(s.config.Seed)
 
 	// just to suppress not used lint error for now
 	_ = &s.waitingLoras
@@ -295,9 +285,9 @@ func (s *VllmSimulator) Printf(format string, args ...interface{}) {
 }
 
 // readRequest reads and parses data from the body of the given request according the type defined by isChatCompletion
-func (s *VllmSimulator) readRequest(ctx *fasthttp.RequestCtx, isChatCompletion bool) (completionRequest, error) {
+func (s *VllmSimulator) readRequest(ctx *fasthttp.RequestCtx, isChatCompletion bool) (openaiserverapi.CompletionRequest, error) {
 	if isChatCompletion {
-		var req chatCompletionRequest
+		var req openaiserverapi.ChatCompletionRequest
 
 		err := json.Unmarshal(ctx.Request.Body(), &req)
 		if err != nil {
@@ -311,7 +301,7 @@ func (s *VllmSimulator) readRequest(ctx *fasthttp.RequestCtx, isChatCompletion b
 				s.logger.Error(err, "failed to marshal request tools")
 				return nil, err
 			}
-			err = s.toolsValidator.validateTool(toolJson)
+			err = s.toolsValidator.ValidateTool(toolJson)
 			if err != nil {
 				s.logger.Error(err, "tool validation failed")
 				return nil, err
@@ -321,7 +311,7 @@ func (s *VllmSimulator) readRequest(ctx *fasthttp.RequestCtx, isChatCompletion b
 		return &req, nil
 	}
 
-	var req textCompletionRequest
+	var req openaiserverapi.TextCompletionRequest
 	err := json.Unmarshal(ctx.Request.Body(), &req)
 
 	return &req, err
@@ -349,16 +339,16 @@ func (s *VllmSimulator) HandleUnloadLora(ctx *fasthttp.RequestCtx) {
 	s.unloadLora(ctx)
 }
 
-func (s *VllmSimulator) validateRequest(req completionRequest) (string, string, int) {
-	if !s.isValidModel(req.getModel()) {
-		return fmt.Sprintf("The model `%s` does not exist.", req.getModel()), "NotFoundError", fasthttp.StatusNotFound
+func (s *VllmSimulator) validateRequest(req openaiserverapi.CompletionRequest) (string, string, int) {
+	if !s.isValidModel(req.GetModel()) {
+		return fmt.Sprintf("The model `%s` does not exist.", req.GetModel()), "NotFoundError", fasthttp.StatusNotFound
 	}
 
-	if req.getMaxCompletionTokens() != nil && *req.getMaxCompletionTokens() <= 0 {
+	if req.GetMaxCompletionTokens() != nil && *req.GetMaxCompletionTokens() <= 0 {
 		return "Max completion tokens and max tokens should be positive", "Invalid request", fasthttp.StatusBadRequest
 	}
 
-	if req.doRemoteDecode() && req.isStream() {
+	if req.IsDoRemoteDecode() && req.IsStream() {
 		return "Prefill does not support streaming", "Invalid request", fasthttp.StatusBadRequest
 	}
 
@@ -408,9 +398,9 @@ func (s *VllmSimulator) handleCompletions(ctx *fasthttp.RequestCtx, isChatComple
 	}
 
 	// Validate context window constraints
-	promptTokens := vllmReq.getNumberOfPromptTokens()
-	completionTokens := vllmReq.getMaxCompletionTokens()
-	isValid, actualCompletionTokens, totalTokens := validateContextWindow(promptTokens, completionTokens, s.config.MaxModelLen)
+	promptTokens := vllmReq.GetNumberOfPromptTokens()
+	completionTokens := vllmReq.GetMaxCompletionTokens()
+	isValid, actualCompletionTokens, totalTokens := common.ValidateContextWindow(promptTokens, completionTokens, s.config.MaxModelLen)
 	if !isValid {
 		s.sendCompletionError(ctx, fmt.Sprintf("This model's maximum context length is %d tokens. However, you requested %d tokens (%d in the messages, %d in the completion). Please reduce the length of the messages or completion",
 			s.config.MaxModelLen, totalTokens, promptTokens, actualCompletionTokens), "BadRequestError", fasthttp.StatusBadRequest)
@@ -419,11 +409,11 @@ func (s *VllmSimulator) handleCompletions(ctx *fasthttp.RequestCtx, isChatComple
 
 	var wg sync.WaitGroup
 	wg.Add(1)
-	reqCtx := &completionReqCtx{
-		completionReq:    vllmReq,
-		httpReqCtx:       ctx,
-		isChatCompletion: isChatCompletion,
-		wg:               &wg,
+	reqCtx := &openaiserverapi.CompletionReqCtx{
+		CompletionReq:    vllmReq,
+		HTTPReqCtx:       ctx,
+		IsChatCompletion: isChatCompletion,
+		Wg:               &wg,
 	}
 	s.reqChan <- reqCtx
 	atomic.StoreInt64(&(s.nWaitingReqs), int64(len(s.reqChan)))
@@ -445,8 +435,8 @@ func (s *VllmSimulator) reqProcessingWorker(ctx context.Context, id int) {
 			atomic.StoreInt64(&(s.nWaitingReqs), int64(len(s.reqChan)))
 			s.reportWaitingRequests()
 
-			req := reqCtx.completionReq
-			model := req.getModel()
+			req := reqCtx.CompletionReq
+			model := req.GetModel()
 			displayModel := s.getDisplayedModelName(model)
 
 			if s.isLora(model) {
@@ -472,66 +462,66 @@ func (s *VllmSimulator) reqProcessingWorker(ctx context.Context, id int) {
 			var responseTokens []string
 			var finishReason string
 			var err error
-			var toolCalls []toolCall
+			var toolCalls []openaiserverapi.ToolCall
 			var completionTokens int
-			if reqCtx.isChatCompletion &&
-				req.getToolChoice() != toolChoiceNone &&
-				req.getTools() != nil {
+			if reqCtx.IsChatCompletion &&
+				req.GetToolChoice() != openaiserverapi.ToolChoiceNone &&
+				req.GetTools() != nil {
 				toolCalls, finishReason, completionTokens, err =
-					createToolCalls(req.getTools(), req.getToolChoice(), s.config)
+					openaiserverapi.CreateToolCalls(req.GetTools(), req.GetToolChoice(), s.config)
 			}
 			if toolCalls == nil && err == nil {
 				// Either no tool calls were defined, or we randomly chose not to create tool calls,
 				// so we generate a response text.
-				responseTokens, finishReason, completionTokens, err = req.createResponseText(s.config.Mode)
+				responseTokens, finishReason, completionTokens, err = req.CreateResponseText(s.config.Mode)
 			}
 			if err != nil {
 				prefix := ""
-				if reqCtx.isChatCompletion {
+				if reqCtx.IsChatCompletion {
 					prefix = "failed to create chat response"
 				} else {
 					prefix = "failed to create text response"
 				}
 				s.logger.Error(err, prefix)
-				reqCtx.httpReqCtx.Error(prefix+err.Error(), fasthttp.StatusBadRequest)
+				reqCtx.HTTPReqCtx.Error(prefix+err.Error(), fasthttp.StatusBadRequest)
 			} else {
-				usageData := usage{
-					PromptTokens:     req.getNumberOfPromptTokens(),
+				usageData := openaiserverapi.Usage{
+					PromptTokens:     req.GetNumberOfPromptTokens(),
 					CompletionTokens: completionTokens,
-					TotalTokens:      req.getNumberOfPromptTokens() + completionTokens,
+					TotalTokens:      req.GetNumberOfPromptTokens() + completionTokens,
 				}
-				if req.isStream() {
-					var usageDataToSend *usage
-					if req.includeUsage() {
+				if req.IsStream() {
+					var usageDataToSend *openaiserverapi.Usage
+					if req.IncludeUsage() {
 						usageDataToSend = &usageData
 					}
 					s.sendStreamingResponse(
 						&streamingContext{
-							ctx:              reqCtx.httpReqCtx,
-							isChatCompletion: reqCtx.isChatCompletion,
+							ctx:              reqCtx.HTTPReqCtx,
+							isChatCompletion: reqCtx.IsChatCompletion,
 							model:            displayModel,
-							doRemotePrefill:  req.doRemotePrefill(),
+							doRemotePrefill:  req.IsDoRemotePrefill(),
 						},
 						responseTokens, toolCalls, finishReason, usageDataToSend,
 					)
 				} else {
-					if req.doRemoteDecode() {
+					if req.IsDoRemoteDecode() {
 						// in case this is prefill pod processing, return special finish reason
-						finishReason = remoteDecodeFinishReason
+						finishReason = common.RemoteDecodeFinishReason
 					}
 
-					s.sendResponse(reqCtx.isChatCompletion,
-						reqCtx.httpReqCtx,
+					s.sendResponse(reqCtx.IsChatCompletion,
+						reqCtx.HTTPReqCtx,
 						responseTokens,
 						toolCalls,
 						displayModel,
 						finishReason,
 						&usageData,
-						req.doRemoteDecode(),
-						req.doRemotePrefill())
+						req.IsDoRemoteDecode(),
+						req.IsDoRemotePrefill())
 				}
 			}
-			reqCtx.wg.Done()
+			reqCtx.Wg.Done()
 		}
 	}
 }
@@ -569,7 +559,7 @@ func (s *VllmSimulator) responseSentCallback(model string) {
 
 // sendCompletionError sends an error response for the current completion request
 func (s *VllmSimulator) sendCompletionError(ctx *fasthttp.RequestCtx, msg string, errType string, code int) {
-	compErr := completionError{
+	compErr := openaiserverapi.CompletionError{
 		Object:  "error",
 		Message: msg,
 		Type:    errType,
@@ -616,9 +606,9 @@ func (s *VllmSimulator) HandleError(_ *fasthttp.RequestCtx, err error) {
 // usageData - usage (tokens statistics) for this response
 // modelName - display name returned to the client and used in metrics. It is either the first alias
 // from --served-model-name (for a base-model request) or the LoRA adapter name (for a LoRA request).
-func (s *VllmSimulator) createCompletionResponse(isChatCompletion bool, respTokens []string, toolCalls []toolCall,
-	finishReason *string, usageData *usage, modelName string, doRemoteDecode bool) completionResponse {
-	baseResp := baseCompletionResponse{
+func (s *VllmSimulator) createCompletionResponse(isChatCompletion bool, respTokens []string, toolCalls []openaiserverapi.ToolCall,
+	finishReason *string, usageData *openaiserverapi.Usage, modelName string, doRemoteDecode bool) openaiserverapi.CompletionResponse {
+	baseResp := openaiserverapi.BaseCompletionResponse{
 		ID:      chatComplIDPrefix + uuid.NewString(),
 		Created: time.Now().Unix(),
 		Model:   modelName,
@@ -636,28 +626,28 @@ func (s *VllmSimulator) createCompletionResponse(isChatCompletion bool, respToke
 		baseResp.RemotePort = 1234
 	}
 
-	baseChoice := baseResponseChoice{Index: 0, FinishReason: finishReason}
+	baseChoice := openaiserverapi.BaseResponseChoice{Index: 0, FinishReason: finishReason}
 
 	respText := strings.Join(respTokens, "")
 	if isChatCompletion {
 		baseResp.Object = chatCompletionObject
 
-		message := message{Role: roleAssistant}
+		message := openaiserverapi.Message{Role: openaiserverapi.RoleAssistant}
 		if toolCalls != nil {
 			message.ToolCalls = toolCalls
 		} else {
-			message.Content = content{Raw: respText}
+			message.Content = openaiserverapi.Content{Raw: respText}
 		}
-		return &chatCompletionResponse{
-			baseCompletionResponse: baseResp,
-			Choices:                []chatRespChoice{{Message: message, baseResponseChoice: baseChoice}},
+		return &openaiserverapi.ChatCompletionResponse{
+			BaseCompletionResponse: baseResp,
+			Choices:                []openaiserverapi.ChatRespChoice{{Message: message, BaseResponseChoice: baseChoice}},
 		}
 	}
 
 	baseResp.Object = textCompletionObject
-	return &textCompletionResponse{
-		baseCompletionResponse: baseResp,
-		Choices:                []textRespChoice{{baseResponseChoice: baseChoice, Text: respText}},
+	return &openaiserverapi.TextCompletionResponse{
+		BaseCompletionResponse: baseResp,
+		Choices:                []openaiserverapi.TextRespChoice{{BaseResponseChoice: baseChoice, Text: respText}},
 	}
 }
 
@@ -669,8 +659,8 @@ func (s *VllmSimulator) createCompletionResponse(isChatCompletion bool, respToke
 // from --served-model-name (for a base-model request) or the LoRA adapter name (for a LoRA request).
 // finishReason - a pointer to string that represents finish reason, can be nil, stop, length, or tools
 // usageData - usage (tokens statistics) for this response
-func (s *VllmSimulator) sendResponse(isChatCompletion bool, ctx *fasthttp.RequestCtx, respTokens []string, toolCalls []toolCall,
-	modelName string, finishReason string, usageData *usage, doRemoteDecode bool, doRemotePrefill bool) {
+func (s *VllmSimulator) sendResponse(isChatCompletion bool, ctx *fasthttp.RequestCtx, respTokens []string, toolCalls []openaiserverapi.ToolCall,
+	modelName string, finishReason string, usageData *openaiserverapi.Usage, doRemoteDecode bool, doRemotePrefill bool) {
 	resp := s.createCompletionResponse(isChatCompletion, respTokens, toolCalls, &finishReason, usageData, modelName, doRemoteDecode)
 
 	data, err := json.Marshal(resp)
@@ -700,14 +690,14 @@ func (s *VllmSimulator) getTimeToFirstToken(doRemotePrefill bool) int {
 		mean = float64(s.config.KVCacheTransferLatency)
 		stddev = float64(s.config.KVCacheTransferLatencyStdDev)
 	}
-	return int(randomNorm(mean, stddev))
+	return int(common.RandomNorm(mean, stddev))
 }
 
 // returns inter token latency
 func (s *VllmSimulator) getInterTokenLatency() int {
 	mean := float64(s.config.InterTokenLatency)
 	stddev := float64(s.config.InterTokenLatencyStdDev)
-	return int(randomNorm(mean, stddev))
+	return int(common.RandomNorm(mean, stddev))
 }
 
 // returns total inter token latency for the given number of tokens

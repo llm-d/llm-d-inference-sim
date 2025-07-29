@@ -19,6 +19,7 @@ package llmdinferencesim
 import (
 	"context"
 
+	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/openai/openai-go"
@@ -31,8 +32,8 @@ var _ = Describe("Simulator with seed", func() {
 		// use a function so that httpClient is captured when running
 		func() {
 			ctx := context.TODO()
-			client, err := startServerWithArgs(ctx, modeRandom,
-				[]string{"cmd", "--model", model, "--mode", modeRandom, "--seed", "100"})
+			client, err := startServerWithArgs(ctx, common.ModeRandom,
+				[]string{"cmd", "--model", model, "--mode", common.ModeRandom, "--seed", "100"})
 			Expect(err).NotTo(HaveOccurred())
 
 			openaiclient := openai.NewClient(
@@ -73,7 +74,7 @@ var _ = Describe("Simulator with seed", func() {
 	DescribeTable("text completions with different seeds",
 		func(lastTest bool) {
 			ctx := context.TODO()
-			client, err := startServer(ctx, modeRandom)
+			client, err := startServer(ctx, common.ModeRandom)
 			Expect(err).NotTo(HaveOccurred())
 
 			openaiclient := openai.NewClient(

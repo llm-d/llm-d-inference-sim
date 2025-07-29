@@ -26,6 +26,7 @@ import (
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
 
+	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	vllmapi "github.com/llm-d/llm-d-inference-sim/pkg/vllm-api"
 )
 
@@ -34,7 +35,7 @@ var _ = Describe("LoRAs", func() {
 		It("Should config, load and load LoRAs correctly", func() {
 			ctx := context.TODO()
 			client, err := startServerWithArgs(ctx, "",
-				[]string{"cmd", "--model", model, "--mode", modeEcho,
+				[]string{"cmd", "--model", model, "--mode", common.ModeEcho,
 					"--lora-modules", "{\"name\":\"lora3\",\"path\":\"/path/to/lora3\"}",
 					"{\"name\":\"lora4\",\"path\":\"/path/to/lora4\"}"})
 			Expect(err).NotTo(HaveOccurred())

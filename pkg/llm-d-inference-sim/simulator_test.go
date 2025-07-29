@@ -26,6 +26,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/openai/openai-go"
@@ -70,7 +71,7 @@ func startServerWithArgs(ctx context.Context, mode string, args []string) (*http
 
 	// calculate number of tokens for user message,
 	// must be activated after parseCommandParamsAndLoadConfig since it initializes the random engine
-	userMsgTokens = int64(len(tokenize(userMessage)))
+	userMsgTokens = int64(len(common.Tokenize(userMessage)))
 
 	// run request processing workers
 	for i := 1; i <= s.config.MaxNumSeqs; i++ {
@@ -144,9 +145,9 @@ var _ = Describe("Simulator", func() {
 			Expect(chunk.Usage.TotalTokens).To(Equal(chunk.Usage.PromptTokens + chunk.Usage.CompletionTokens))
 
 			msg := strings.Join(tokens, "")
-			if mode == modeRandom {
+			if mode == common.ModeRandom {
 				// in case of random mode ensure that the returned message could be output of the random text generator
-				Expect(isValidText(msg)).To(BeTrue())
+				Expect(common.IsValidText(msg)).To(BeTrue())
 			} else {
 				// in case of echo mode check that the text is returned as-is
 				Expect(msg).Should(Equal(userMessage))
@@ -156,8 +157,8 @@ var _ = Describe("Simulator", func() {
 		func(mode string) string {
 			return "mode: " + mode
 		},
-		Entry(nil, modeRandom),
-		Entry(nil, modeEcho),
+		Entry(nil, common.ModeRandom),
+		Entry(nil, common.ModeEcho),
 	)
 
 	DescribeTable("text completions streaming",
@@ -203,9 +204,9 @@ var _ = Describe("Simulator", func() {
 			Expect(chunk.Usage.TotalTokens).To(Equal(chunk.Usage.PromptTokens + chunk.Usage.CompletionTokens))
 
 			text := strings.Join(tokens, "")
-			if mode == modeRandom {
+			if mode == common.ModeRandom {
 				// in case of random mode ensure that the returned message could be output of the random text generator
-				Expect(isValidText(text)).To(BeTrue())
+				Expect(common.IsValidText(text)).To(BeTrue())
 			} else {
 				// in case of echo mode check that the text is returned as-is
 				Expect(text).Should(Equal(userMessage))
@@ -214,8 +215,8 @@ var _ = Describe("Simulator", func() {
 		func(mode string) string {
 			return "mode: " + mode
 		},
-		Entry(nil, modeRandom),
-		Entry(nil, modeEcho),
+		Entry(nil, common.ModeRandom),
+		Entry(nil, common.ModeEcho),
 	)
 
 	DescribeTable("chat completions",
@@ -270,12 +271,12 @@ var _ = Describe("Simulator", func() {
 			Expect(msg).ShouldNot(BeEmpty())
 
 			if numTokens > 0 {
-				tokens := tokenize(msg)
+				tokens := common.Tokenize(msg)
 				Expect(int64(len(tokens))).Should(BeNumerically("<=", numTokens))
 			} else {
-				if mode == modeRandom {
+				if mode == common.ModeRandom {
 					// in case of random mode ensure that the returned message could be output of the random text generator
-					Expect(isValidText(msg)).To(BeTrue())
+					Expect(common.IsValidText(msg)).To(BeTrue())
 				} else {
 					// in case of echo mode check that the text is returned as-is
 					Expect(msg).Should(Equal(userMessage))
@@ -285,22 +286,22 @@ var _ = Describe("Simulator", func() {
 		func(mode string, maxTokens int, maxCompletionTokens int) string {
 			return fmt.Sprintf("mode: %s max_tokens: %d max_completion_tokens: %d", mode, maxTokens, maxCompletionTokens)
 		},
-		Entry(nil, modeRandom, 2, 0),
-		Entry(nil, modeEcho, 2, 0),
-		Entry(nil, modeRandom, 1000, 0),
-		Entry(nil, modeEcho, 1000, 0),
-		Entry(nil, modeRandom, 1000, 2),
-		Entry(nil, modeEcho, 1000, 2),
-		Entry(nil, modeRandom, 0, 2),
-		Entry(nil, modeEcho, 0, 2),
-		Entry(nil, modeRandom, 0, 1000),
-		Entry(nil, modeEcho, 0, 1000),
-		Entry(nil, modeRandom, 0, 0),
-		Entry(nil, modeEcho, 0, 0),
-		Entry(nil, modeRandom, -1, 0),
-		Entry(nil, modeEcho, -1, 0),
-		Entry(nil, modeRandom, 0, -1),
-		Entry(nil, modeEcho, 0, -1),
+		Entry(nil, common.ModeRandom, 2, 0),
+		Entry(nil, common.ModeEcho, 2, 0),
+		Entry(nil, common.ModeRandom, 1000, 0),
+		Entry(nil, common.ModeEcho, 1000, 0),
+		Entry(nil, common.ModeRandom, 1000, 2),
+		Entry(nil, common.ModeEcho, 1000, 2),
+		Entry(nil, common.ModeRandom, 0, 2),
+		Entry(nil, common.ModeEcho, 0, 2),
+		Entry(nil, common.ModeRandom, 0, 1000),
+		Entry(nil, common.ModeEcho, 0, 1000),
+		Entry(nil, common.ModeRandom, 0, 0),
+		Entry(nil, common.ModeEcho, 0, 0),
+		Entry(nil, common.ModeRandom, -1, 0),
+		Entry(nil, common.ModeEcho, -1, 0),
+		Entry(nil, common.ModeRandom, 0, -1),
+		Entry(nil, common.ModeEcho, 0, -1),
 	)
 
 	DescribeTable("text completions",
@@ -349,12 +350,12 @@ var _ = Describe("Simulator", func() {
 			Expect(text).ShouldNot(BeEmpty())
 
 			if numTokens != 0 {
-				tokens := tokenize(text)
+				tokens := common.Tokenize(text)
 				Expect(int64(len(tokens))).Should(BeNumerically("<=", numTokens))
 			} else {
-				if mode == modeRandom {
+				if mode == common.ModeRandom {
 					// in case of random mode ensure that the returned message could be output of the random text generator
-					Expect(isValidText(text)).To(BeTrue())
+					Expect(common.IsValidText(text)).To(BeTrue())
 				} else {
 					// in case of echo mode check that the text is returned as-is
 					Expect(text).Should(Equal(userMessage))
@@ -364,19 +365,19 @@ var _ = Describe("Simulator", func() {
 		func(mode string, maxTokens int) string {
 			return fmt.Sprintf("mode: %s max_tokens: %d", mode, maxTokens)
 		},
-		Entry(nil, modeRandom, 2),
-		Entry(nil, modeEcho, 2),
-		Entry(nil, modeRandom, 1000),
-		Entry(nil, modeEcho, 1000),
-		Entry(nil, modeRandom, 0),
-		Entry(nil, modeEcho, 0),
-		Entry(nil, modeRandom, -1),
-		Entry(nil, modeEcho, -1),
+		Entry(nil, common.ModeRandom, 2),
+		Entry(nil, common.ModeEcho, 2),
+		Entry(nil, common.ModeRandom, 1000),
+		Entry(nil, common.ModeEcho, 1000),
+		Entry(nil, common.ModeRandom, 0),
+		Entry(nil, common.ModeEcho, 0),
+		Entry(nil, common.ModeRandom, -1),
+		Entry(nil, common.ModeEcho, -1),
 	)
 
 	It("Should respond to /health", func() {
 		ctx := context.TODO()
-		client, err := startServer(ctx, modeRandom)
+		client, err := startServer(ctx, common.ModeRandom)
 		Expect(err).NotTo(HaveOccurred())
 
 		resp, err := client.Get("http://localhost/health")
@@ -386,7 +387,7 @@ var _ = Describe("Simulator", func() {
 
 	It("Should respond to /ready", func() {
 		ctx := context.TODO()
-		client, err := startServer(ctx, modeRandom)
+		client, err := startServer(ctx, common.ModeRandom)
 		Expect(err).NotTo(HaveOccurred())
 
 		resp, err := client.Get("http://localhost/ready")
@@ -398,8 +399,8 @@ var _ = Describe("Simulator", func() {
 		It("Should reject requests exceeding context window", func() {
 			ctx := context.TODO()
 			// Start server with max-model-len=10
-			args := []string{"cmd", "--model", model, "--mode", modeRandom, "--max-model-len", "10"}
-			client, err := startServerWithArgs(ctx, modeRandom, args)
+			args := []string{"cmd", "--model", model, "--mode", common.ModeRandom, "--max-model-len", "10"}
+			client, err := startServerWithArgs(ctx, common.ModeRandom, args)
 			Expect(err).NotTo(HaveOccurred())
 
 			// Test with raw HTTP to verify the error response format
@@ -448,8 +449,8 @@ var _ = Describe("Simulator", func() {
 		It("Should accept requests within context window", func() {
 			ctx := context.TODO()
 			// Start server with max-model-len=50
-			args := []string{"cmd", "--model", model, "--mode", modeEcho, "--max-model-len", "50"}
-			client, err := startServerWithArgs(ctx, modeEcho, args)
+			args := []string{"cmd", "--model", model, "--mode", common.ModeEcho, "--max-model-len", "50"}
+			client, err := startServerWithArgs(ctx, common.ModeEcho, args)
 			Expect(err).NotTo(HaveOccurred())
 
 			openaiclient := openai.NewClient(
@@ -474,8 +475,8 @@ var _ = Describe("Simulator", func() {
 		It("Should handle text completion requests exceeding context window", func() {
 			ctx := context.TODO()
 			// Start server with max-model-len=10
-			args := []string{"cmd", "--model", model, "--mode", modeRandom, "--max-model-len", "10"}
-			client, err := startServerWithArgs(ctx, modeRandom, args)
+			args := []string{"cmd", "--model", model, "--mode", common.ModeRandom, "--max-model-len", "10"}
+			client, err := startServerWithArgs(ctx, common.ModeRandom, args)
 			Expect(err).NotTo(HaveOccurred())
 
 			// Test with raw HTTP for text completion
@@ -509,7 +510,7 @@ var _ = Describe("Simulator", func() {
 			simulator, err = New(klog.Background())
 			Expect(err).NotTo(HaveOccurred())
 
-			simulator.config = newConfig()
+			simulator.config = common.NewConfig()
 			simulator.config.TimeToFirstToken = 2048
 			simulator.config.TimeToFirstTokenStdDev = 2048
 			simulator.config.KVCacheTransferLatency = 2048

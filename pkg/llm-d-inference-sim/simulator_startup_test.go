@@ -19,6 +19,7 @@ package llmdinferencesim
 import (
 	"os"
 
+	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"k8s.io/klog/v2"
@@ -28,7 +29,7 @@ const (
 	qwenModelName = "Qwen/Qwen2-0.5B"
 )
 
-func createSimConfig(args []string) (*configuration, error) {
+func createSimConfig(args []string) (*common.Configuration, error) {
 	oldArgs := os.Args
 	defer func() {
 		os.Args = oldArgs
@@ -45,8 +46,8 @@ func createSimConfig(args []string) (*configuration, error) {
 	return s.config, nil
 }
 
-func createDefaultConfig(model string) *configuration {
-	c := newConfig()
+func createDefaultConfig(model string) *common.Configuration {
+	c := common.NewConfig()
 
 	c.Model = model
 	c.ServedModelNames = []string{c.Model}
@@ -57,7 +58,7 @@ func createDefaultConfig(model string) *configuration {
 	c.InterTokenLatency = 1000
 	c.KVCacheTransferLatency = 100
 	c.Seed = 100100100
-	c.LoraModules = []loraModule{}
+	c.LoraModules = []common.LoraModule{}
 
 	return c
 }
@@ -65,21 +66,21 @@ func createDefaultConfig(model string) *configuration {
 type testCase struct {
 	name           string
 	args           []string
-	expectedConfig *configuration
+	expectedConfig *common.Configuration
 }
 
 var _ = Describe("Simulator configuration", func() {
 	tests := make([]testCase, 0)
 
 	// Simple config with a few parameters
-	c := newConfig()
+	c := common.NewConfig()
 	c.Model = model
 	c.ServedModelNames = []string{c.Model}
 	c.MaxCPULoras = 1
 	c.Seed = 100
 	test := testCase{
 		name:           "simple",
-		args:           []string{"cmd", "--model", model, "--mode", modeRandom, "--seed", "100"},
+		args:           []string{"cmd", "--model", model, "--mode", common.ModeRandom, "--seed", "100"},
 		expectedConfig: c,
 	}
 	tests = append(tests, test)
@@ -88,7 +89,7 @@ var _ = Describe("Simulator configuration", func() {
 	c = createDefaultConfig(qwenModelName)
 	c.Port = 8001
 	c.ServedModelNames = []string{"model1", "model2"}
-	c.LoraModules = []loraModule{{Name: "lora1", Path: "/path/to/lora1"}, {Name: "lora2", Path: "/path/to/lora2"}}
+	c.LoraModules = []common.LoraModule{{Name: "lora1", Path: "/path/to/lora1"}, {Name: "lora2", Path: "/path/to/lora2"}}
 	test = testCase{
 		name:           "config file",
 		args:           []string{"cmd", "--config", "../../manifests/config.yaml"},
@@ -105,7 +106,7 @@ var _ = Describe("Simulator configuration", func() {
 	c.Port = 8002
 	c.ServedModelNames = []string{"alias1", "alias2"}
 	c.Seed = 100
-	c.LoraModules = []loraModule{{Name: "lora3", Path: "/path/to/lora3"}, {Name: "lora4", Path: "/path/to/lora4"}}
+	c.LoraModules = []common.LoraModule{{Name: "lora3", Path: "/path/to/lora3"}, {Name: "lora4", Path: "/path/to/lora4"}}
 	c.LoraModulesString = []string{
 		"{\"name\":\"lora3\",\"path\":\"/path/to/lora3\"}",
 		"{\"name\":\"lora4\",\"path\":\"/path/to/lora4\"}",
@@ -123,7 +124,7 @@ var _ = Describe("Simulator configuration", func() {
 	// Config from config.yaml file plus command line args with different format
 	c = createDefaultConfig(model)
 	c.Port = 8002
-	c.LoraModules = []loraModule{{Name: "lora3", Path: "/path/to/lora3"}}
+	c.LoraModules = []common.LoraModule{{Name: "lora3", Path: "/path/to/lora3"}}
 	c.LoraModulesString = []string{
 		"{\"name\":\"lora3\",\"path\":\"/path/to/lora3\"}",
 	}
@@ -140,7 +141,7 @@ var _ = Describe("Simulator configuration", func() {
 	// Config from config.yaml file plus command line args with empty string
 	c = createDefaultConfig(model)
 	c.Port = 8002
-	c.LoraModules = []loraModule{{Name: "lora3", Path: "/path/to/lora3"}}
+	c.LoraModules = []common.LoraModule{{Name: "lora3", Path: "/path/to/lora3"}}
 	c.LoraModulesString = []string{
 		"{\"name\":\"lora3\",\"path\":\"/path/to/lora3\"}",
 	}

@@ -23,6 +23,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/openai/openai-go"
@@ -373,7 +374,7 @@ var _ = Describe("Simulator for request with tools", func() {
 				for _, choice := range chunk.Choices {
 					if choice.Delta.Role != "" {
 						role = choice.Delta.Role
-					} else if choice.FinishReason == "" || choice.FinishReason == toolsFinishReason {
+					} else if choice.FinishReason == "" || choice.FinishReason == common.ToolsFinishReason {
 						toolCalls := choice.Delta.ToolCalls
 						Expect(toolCalls).To(HaveLen(1))
 						tc := toolCalls[0]
@@ -423,10 +424,10 @@ var _ = Describe("Simulator for request with tools", func() {
 			return "mode: " + mode
 		},
 		// Call several times because the tools and arguments are chosen randomly
-		Entry(nil, modeRandom),
-		Entry(nil, modeRandom),
-		Entry(nil, modeRandom),
-		Entry(nil, modeRandom),
+		Entry(nil, common.ModeRandom),
+		Entry(nil, common.ModeRandom),
+		Entry(nil, common.ModeRandom),
+		Entry(nil, common.ModeRandom),
 	)
 
 	DescribeTable("no streaming",
@@ -481,10 +482,10 @@ var _ = Describe("Simulator for request with tools", func() {
 			return "mode: " + mode
 		},
 		// Call several times because the tools and arguments are chosen randomly
-		Entry(nil, modeRandom),
-		Entry(nil, modeRandom),
-		Entry(nil, modeRandom),
-		Entry(nil, modeRandom),
+		Entry(nil, common.ModeRandom),
+		Entry(nil, common.ModeRandom),
+		Entry(nil, common.ModeRandom),
+		Entry(nil, common.ModeRandom),
 	)
 
 	DescribeTable("check validator",
@@ -512,7 +513,7 @@ var _ = Describe("Simulator for request with tools", func() {
 		func(mode string) string {
 			return "mode: " + mode
 		},
-		Entry(nil, modeRandom),
+		Entry(nil, common.ModeRandom),
 	)
 
 	DescribeTable("array parameter, no streaming",
@@ -524,7 +525,7 @@ var _ = Describe("Simulator for request with tools", func() {
 				"--min-tool-call-number-param", fmt.Sprint(min),
 				"--max-tool-call-number-param", fmt.Sprint(max),
 			}
-			client, err := startServerWithArgs(ctx, modeEcho, serverArgs)
+			client, err := startServerWithArgs(ctx, common.ModeEcho, serverArgs)
 			Expect(err).NotTo(HaveOccurred())
 
 			openaiclient := openai.NewClient(
@@ -571,10 +572,10 @@ var _ = Describe("Simulator for request with tools", func() {
 			return fmt.Sprintf("mode: %s, min array length: %d, max array length: %d, min number: %f max number %f ",
 				mode, minLength, maxLength, min, max)
 		},
-		Entry(nil, modeRandom, 3, 7, -100.2, -5.75),
-		Entry(nil, modeRandom, 2, 10, 0.0, 34.5),
-		Entry(nil, modeRandom, 2, 2, -100.0, 100.0),
-		Entry(nil, modeRandom, 4, 5, 222.222, 333.333),
+		Entry(nil, common.ModeRandom, 3, 7, -100.2, -5.75),
+		Entry(nil, common.ModeRandom, 2, 10, 0.0, 34.5),
+		Entry(nil, common.ModeRandom, 2, 2, -100.0, 100.0),
+		Entry(nil, common.ModeRandom, 4, 5, 222.222, 333.333),
 	)
 
 	DescribeTable("3D array parameter, no streaming",
@@ -631,10 +632,10 @@ var _ = Describe("Simulator for request with tools", func() {
 			return "mode: " + mode
 		},
 		// Call several times because the tools and arguments are chosen randomly
-		Entry(nil, modeRandom),
-		Entry(nil, modeRandom),
-		Entry(nil, modeRandom),
-		Entry(nil, modeRandom),
+		Entry(nil, common.ModeRandom),
+		Entry(nil, common.ModeRandom),
+		Entry(nil, common.ModeRandom),
+		Entry(nil, common.ModeRandom),
 	)
 
 	DescribeTable("array parameter with wrong min and max items, no streaming",
@@ -660,7 +661,7 @@ var _ = Describe("Simulator for request with tools", func() {
 		func(mode string) string {
 			return "mode: " + mode
 		},
-		Entry(nil, modeRandom),
+		Entry(nil, common.ModeRandom),
 	)
 
 	DescribeTable("objects, no streaming",
@@ -722,7 +723,7 @@ var _ = Describe("Simulator for request with tools", func() {
 		func(mode string) string {
 			return "mode: " + mode
 		},
-		Entry(nil, modeRandom),
+		Entry(nil, common.ModeRandom),
 	)
 
 	DescribeTable("objects with array field, no streaming",
@@ -777,16 +778,16 @@ var _ = Describe("Simulator for request with tools", func() {
 		func(mode string) string {
 			return "mode: " + mode
 		},
-		Entry(nil, modeRandom),
+		Entry(nil, common.ModeRandom),
 	)
 
 	DescribeTable("tool with not required params",
 		func(probability int, numberOfParams int) {
 			ctx := context.TODO()
-			serverArgs := []string{"cmd", "--model", model, "--mode", modeRandom,
+			serverArgs := []string{"cmd", "--model", model, "--mode", common.ModeRandom,
 				"--tool-call-not-required-param-probability", strconv.Itoa(probability),
 			}
-			client, err := startServerWithArgs(ctx, modeEcho, serverArgs)
+			client, err := startServerWithArgs(ctx, common.ModeEcho, serverArgs)
 			Expect(err).NotTo(HaveOccurred())
 
 			openaiclient := openai.NewClient(
@@ -826,12 +827,12 @@ var _ = Describe("Simulator for request with tools", func() {
 	DescribeTable("tool with object with not required params",
 		func(probability int, numberOfParams int, min int, max int) {
 			ctx := context.TODO()
-			serverArgs := []string{"cmd", "--model", model, "--mode", modeRandom,
+			serverArgs := []string{"cmd", "--model", model, "--mode", common.ModeRandom,
 				"--object-tool-call-not-required-field-probability", strconv.Itoa(probability),
 				"--min-tool-call-integer-param", strconv.Itoa(min),
 				"--max-tool-call-integer-param", strconv.Itoa(max),
 			}
-			client, err := startServerWithArgs(ctx, modeEcho, serverArgs)
+			client, err := startServerWithArgs(ctx, common.ModeEcho, serverArgs)
 			Expect(err).NotTo(HaveOccurred())
 
 			openaiclient := openai.NewClient(

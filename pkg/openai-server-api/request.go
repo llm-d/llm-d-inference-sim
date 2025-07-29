@@ -15,38 +15,44 @@ limitations under the License.
 */
 
 // Contains structures and functions related to requests for all supported APIs
-package llmdinferencesim
+package openaiserverapi
 
 import (
 	"sync"
 
+	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/valyala/fasthttp"
 )
 
-// completionRequest interface representing both completion request types (text and chat)
-type completionRequest interface {
-	// createResponseText creates and returns response payload based on this request,
+const (
+	RoleAssistant = "assistant"
+	RoleUser      = "user"
+)
+
+// CompletionRequest interface representing both completion request types (text and chat)
+type CompletionRequest interface {
+	// CreateResponseText creates and returns response payload based on this request,
 	// i.e., an array of generated tokens, the finish reason, and the number of created
 	// tokens
-	createResponseText(mode string) ([]string, string, int, error)
-	// isStream returns boolean that defines is response should be streamed
-	isStream() bool
-	// getModel returns model name as defined in the request
-	getModel() string
-	// includeUsage returns true if usage statistics should be include in the response
-	includeUsage() bool
-	// getNumberOfPromptTokens returns the number of tokens in the prompt
-	getNumberOfPromptTokens() int
-	// getTools() returns tools to use (in chat completion)
-	getTools() []tool
-	// getToolChoice() returns tool choice (in chat completion)
-	getToolChoice() string
-	// getMaxCompletionTokens returns the maximum completion tokens requested
-	getMaxCompletionTokens() *int64
-	// doRemoteDecode() returns true if do_remote_decode field is true in the request, this means that this is prefill request
-	doRemoteDecode() bool
-	// doRemotePrefill() returns true if do_remote_prefill field is true in the request, this means that this is decode request
-	doRemotePrefill() bool
+	CreateResponseText(mode string) ([]string, string, int, error)
+	// IsStream returns boolean that defines is response should be streamed
+	IsStream() bool
+	// GetModel returns model name as defined in the request
+	GetModel() string
+	// IncludeUsage returns true if usage statistics should be include in the response
+	IncludeUsage() bool
+	// GetNumberOfPromptTokens returns the number of tokens in the prompt
+	GetNumberOfPromptTokens() int
+	// GetTools() returns tools to use (in chat completion)
+	GetTools() []Tool
+	// GetToolChoice() returns tool choice (in chat completion)
+	GetToolChoice() string
+	// GetMaxCompletionTokens returns the maximum completion tokens requested
+	GetMaxCompletionTokens() *int64
+	// IsDoRemoteDecode() returns true if do_remote_decode field is true in the request, this means that this is prefill request
+	IsDoRemoteDecode() bool
+	// IsDoRemotePrefill() returns true if do_remote_prefill field is true in the request, this means that this is decode request
+	IsDoRemotePrefill() bool
 }
 
 // baseCompletionRequest contains base completion request related information
@@ -54,7 +60,7 @@ type baseCompletionRequest struct {
 	// Stream is a boolean value, defines whether response should be sent as a Stream
 	Stream bool `json:"stream"`
 	// StreamOptions defines streaming options in case Stream is set to true
-	StreamOptions streamOptions `json:"stream_options"`
+	StreamOptions StreamOptions `json:"stream_options"`
 	// Model defines Model name to use for "inference", could be base Model name or one of available LoRA adapters
 	Model string `json:"model"`
 	// DoRemoteDecode boolean value, true when request's decode will be done on remote pod
@@ -72,45 +78,45 @@ type baseCompletionRequest struct {
 }
 
 // StreamOptions defines streaming options for streaming requests
-type streamOptions struct {
+type StreamOptions struct {
 	// IncludeUsage is a boolean value, defines whether response contain usage statistics
 	IncludeUsage bool `json:"include_usage"`
 }
 
-func (b *baseCompletionRequest) isStream() bool {
+func (b *baseCompletionRequest) IsStream() bool {
 	return b.Stream
 }
 
-func (b *baseCompletionRequest) getModel() string {
+func (b *baseCompletionRequest) GetModel() string {
 	return b.Model
 }
 
-func (b *baseCompletionRequest) includeUsage() bool {
+func (b *baseCompletionRequest) IncludeUsage() bool {
 	return !b.Stream || b.StreamOptions.IncludeUsage
 }
 
-func (b *baseCompletionRequest) doRemoteDecode() bool {
+func (b *baseCompletionRequest) IsDoRemoteDecode() bool {
 	return b.DoRemoteDecode
 }
 
-func (b *baseCompletionRequest) doRemotePrefill() bool {
+func (b *baseCompletionRequest) IsDoRemotePrefill() bool {
 	return b.DoRemotePrefill
 }
 
-// completionReqCtx is a context passed in the simulator's flow, it contains the request data needed
+// CompletionReqCtx is a context passed in the simulator's flow, it contains the request data needed
 // to generate the simulator's response
-type completionReqCtx struct {
-	completionReq    completionRequest
-	httpReqCtx       *fasthttp.RequestCtx
-	isChatCompletion bool
-	wg               *sync.WaitGroup
+type CompletionReqCtx struct {
+	CompletionReq    CompletionRequest
+	HTTPReqCtx       *fasthttp.RequestCtx
+	IsChatCompletion bool
+	Wg               *sync.WaitGroup
 }
 
-// chatCompletionRequest defines structure of /chat/completion request
-type chatCompletionRequest struct {
+// ChatCompletionRequest defines structure of /chat/completion request
+type ChatCompletionRequest struct {
 	baseCompletionRequest
 	// Messages list of request's Messages
-	Messages []message `json:"messages"`
+	Messages []Message `json:"messages"`
 
 	// The maximum number of tokens that can be generated in the chat
 	// completion. This value can be used to control costs for text
@@ -125,7 +131,7 @@ type chatCompletionRequest struct {
 	MaxCompletionTokens *int64 `json:"max_completion_tokens"`
 
 	// Tools is a list of tools the model may call.
-	Tools []tool `json:"tools,omitempty"`
+	Tools []Tool `json:"tools,omitempty"`
 
 	// ToolChoice controls which (if any) tool is called by the model,
 	// possible values: none, auto, required.
@@ -143,8 +149,8 @@ type function struct {
 	Description string `json:"description"`
 }
 
-// tool defines a tool to use in chat completion
-type tool struct {
+// Tool defines a Tool to use in chat completion
+type Tool struct {
 	// Function describes the tool
 	Function function `json:"function"`
 	// Type defines the type of the tool, currently only functions are
@@ -152,23 +158,23 @@ type tool struct {
 	Type string `json:"type"`
 }
 
-func (c *chatCompletionRequest) getNumberOfPromptTokens() int {
+func (c *ChatCompletionRequest) GetNumberOfPromptTokens() int {
 	var messages string
 	for _, message := range c.Messages {
 		messages += message.Content.PlainText() + " "
 	}
-	return len(tokenize(messages))
+	return len(common.Tokenize(messages))
 }
 
-func (c *chatCompletionRequest) getTools() []tool {
+func (c *ChatCompletionRequest) GetTools() []Tool {
 	return c.Tools
 }
 
-func (c *chatCompletionRequest) getToolChoice() string {
+func (c *ChatCompletionRequest) GetToolChoice() string {
 	return c.ToolChoice
 }
 
-func (c *chatCompletionRequest) getMaxCompletionTokens() *int64 {
+func (c *ChatCompletionRequest) GetMaxCompletionTokens() *int64 {
 	if c.MaxCompletionTokens != nil {
 		return c.MaxCompletionTokens
 	}
@@ -177,9 +183,9 @@ func (c *chatCompletionRequest) getMaxCompletionTokens() *int64 {
 
 // getLastUserMsg returns last message from this request's messages with user role,
 // if does not exist - returns an empty string
-func (req *chatCompletionRequest) getLastUserMsg() string {
+func (req *ChatCompletionRequest) getLastUserMsg() string {
 	for i := len(req.Messages) - 1; i >= 0; i-- {
-		if req.Messages[i].Role == roleUser {
+		if req.Messages[i].Role == RoleUser {
 			return req.Messages[i].Content.PlainText()
 		}
 	}
@@ -187,29 +193,29 @@ func (req *chatCompletionRequest) getLastUserMsg() string {
 	return ""
 }
 
-// createResponseText creates and returns response payload based on this request,
+// CreateResponseText creates and returns response payload based on this request,
 // i.e., an array of generated tokens, the finish reason, and the number of created
 // tokens
-func (req chatCompletionRequest) createResponseText(mode string) ([]string, string, int, error) {
-	maxTokens, err := getMaxTokens(req.MaxCompletionTokens, req.MaxTokens)
+func (req ChatCompletionRequest) CreateResponseText(mode string) ([]string, string, int, error) {
+	maxTokens, err := common.GetMaxTokens(req.MaxCompletionTokens, req.MaxTokens)
 	if err != nil {
 		return nil, "", 0, err
 	}
 
 	var text, finishReason string
-	if mode == modeEcho {
-		text, finishReason = getResponseText(maxTokens, req.getLastUserMsg())
+	if mode == common.ModeEcho {
+		text, finishReason = common.GetResponseText(maxTokens, req.getLastUserMsg())
 	} else {
-		text, finishReason = getRandomResponseText(maxTokens)
+		text, finishReason = common.GetRandomResponseText(maxTokens)
 	}
 
-	tokens := tokenize(text)
+	tokens := common.Tokenize(text)
 	return tokens, finishReason, len(tokens), nil
 }
 
 // v1/completion
-// textCompletionRequest defines structure of /completion request
-type textCompletionRequest struct {
+// TextCompletionRequest defines structure of /completion request
+type TextCompletionRequest struct {
 	baseCompletionRequest
 	// Prompt defines request's content
 	Prompt string `json:"prompt"`
@@ -222,38 +228,38 @@ type textCompletionRequest struct {
 	MaxTokens *int64 `json:"max_tokens"`
 }
 
-func (t *textCompletionRequest) getNumberOfPromptTokens() int {
-	return len(tokenize(t.Prompt))
+func (t *TextCompletionRequest) GetNumberOfPromptTokens() int {
+	return len(common.Tokenize(t.Prompt))
 }
 
-func (c *textCompletionRequest) getTools() []tool {
+func (c *TextCompletionRequest) GetTools() []Tool {
 	return nil
 }
 
-func (c *textCompletionRequest) getToolChoice() string {
+func (c *TextCompletionRequest) GetToolChoice() string {
 	return ""
 }
 
-func (c *textCompletionRequest) getMaxCompletionTokens() *int64 {
+func (c *TextCompletionRequest) GetMaxCompletionTokens() *int64 {
 	return c.MaxTokens
 }
 
-// createResponseText creates and returns response payload based on this request,
+// CreateResponseText creates and returns response payload based on this request,
 // i.e., an array of generated tokens, the finish reason, and the number of created
 // tokens
-func (req textCompletionRequest) createResponseText(mode string) ([]string, string, int, error) {
-	maxTokens, err := getMaxTokens(nil, req.MaxTokens)
+func (req TextCompletionRequest) CreateResponseText(mode string) ([]string, string, int, error) {
+	maxTokens, err := common.GetMaxTokens(nil, req.MaxTokens)
 	if err != nil {
 		return nil, "", 0, err
 	}
 
 	var text, finishReason string
-	if mode == modeEcho {
-		text, finishReason = getResponseText(maxTokens, req.Prompt)
+	if mode == common.ModeEcho {
+		text, finishReason = common.GetResponseText(maxTokens, req.Prompt)
 	} else {
-		text, finishReason = getRandomResponseText(maxTokens)
+		text, finishReason = common.GetRandomResponseText(maxTokens)
 	}
 
-	tokens := tokenize(text)
+	tokens := common.Tokenize(text)
 	return tokens, finishReason, len(tokens), nil
 }
