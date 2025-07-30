@@ -40,6 +40,7 @@ import (
 	"k8s.io/klog/v2"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
+	kvcache "github.com/llm-d/llm-d-inference-sim/pkg/kv-cache"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	vllmapi "github.com/llm-d/llm-d-inference-sim/pkg/vllm-api"
 )
@@ -80,7 +81,7 @@ type VllmSimulator struct {
 	// schema validator for tools parameters
 	toolsValidator *openaiserverapi.Validator
 	// kv cache functionality
-	kvcacheHelper *KVCacheHelper
+	kvcacheHelper *kvcache.KVCacheHelper
 }
 
 // New creates a new VllmSimulator instance with the given logger
@@ -90,7 +91,7 @@ func New(logger logr.Logger) (*VllmSimulator, error) {
 		return nil, fmt.Errorf("failed to create tools validator: %s", err)
 	}
 
-	kvcacheHelper, err := NewKVCacheHelper(logger)
+	kvcacheHelper, err := kvcache.NewKVCacheHelper(logger)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create kv cache helper: %s", err)
 	}

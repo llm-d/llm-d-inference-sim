@@ -1,4 +1,4 @@
-package llmdinferencesim
+package kvcache
 
 import (
 	"errors"

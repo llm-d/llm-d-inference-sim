@@ -1,4 +1,4 @@
-package llmdinferencesim
+package kvcache
 
 // contains all logic relevant to KV-cache support
 import (

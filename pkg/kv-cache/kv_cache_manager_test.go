@@ -14,11 +14,17 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package llmdinferencesim
+package kvcache
 
 import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+)
+
+const (
+	req1ID = "req1"
+	req2ID = "req2"
+	req3ID = "req3"
 )
 
 var _ = Describe("KV cache", func() {
@@ -27,15 +33,14 @@ var _ = Describe("KV cache", func() {
 			// check single request processing, ensure cache is valid after request processing started
 			// and after the processing was finished
 			blockCache := newBlockCache(3)
-			reqID := "req1"
-			err := blockCache.startRequest(reqID, []uint64{1, 2})
+			err := blockCache.startRequest(req1ID, []uint64{1, 2})
 			Expect(err).NotTo(HaveOccurred())
 			activeRequests, totalBlocks, unusedBlocks := blockCache.getStats()
 			Expect(activeRequests).To(Equal(1))
 			Expect(totalBlocks).To(Equal(2))
 			Expect(unusedBlocks).To(Equal(0))
 
-			err = blockCache.finishRequest(reqID)
+			err = blockCache.finishRequest(req1ID)
 			Expect(err).NotTo(HaveOccurred())
 			activeRequests, totalBlocks, unusedBlocks = blockCache.getStats()
 			Expect(activeRequests).To(Equal(0))
@@ -44,8 +49,6 @@ var _ = Describe("KV cache", func() {
 		})
 		It("two requests", func() {
 			blockCache := newBlockCache(5)
-			req1ID := "req1"
-			req2ID := "req2"
 
 			err := blockCache.startRequest(req1ID, []uint64{1, 2})
 			Expect(err).NotTo(HaveOccurred())
@@ -72,8 +75,6 @@ var _ = Describe("KV cache", func() {
 		})
 		It("reusing blocks", func() {
 			blockCache := newBlockCache(5)
-			req1ID := "req1"
-			req2ID := "req2"
 
 			err := blockCache.startRequest(req1ID, []uint64{1, 2})
 			Expect(err).NotTo(HaveOccurred())
@@ -104,9 +105,6 @@ var _ = Describe("KV cache", func() {
 		It("block eviction", func() {
 			// text eviction
 			blockCache := newBlockCache(4)
-			req1ID := "req1"
-			req2ID := "req2"
-			req3ID := "req3"
 
 			err := blockCache.startRequest(req1ID, []uint64{1, 2})
 			Expect(err).NotTo(HaveOccurred())
@@ -128,9 +126,6 @@ var _ = Describe("KV cache", func() {
 		It("cache full, no eviction", func() {
 			// text eviction
 			blockCache := newBlockCache(4)
-			req1ID := "req1"
-			req2ID := "req2"
-			req3ID := "req3"
 
 			err := blockCache.startRequest(req1ID, []uint64{1, 2})
 			Expect(err).NotTo(HaveOccurred())
