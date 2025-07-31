@@ -108,7 +108,7 @@ type Configuration struct {
 	// in an object in a tool call, optional, defaults to 50
 	ObjectToolCallNotRequiredParamProbability int `yaml:"object-tool-call-not-required-field-probability"`
 
-	// EnableKVCache defines is kv cache feature will be enabled
+	// EnableKVCache defines if kv cache feature will be enabled
 	EnableKVCache bool `yaml:"enable-kvcache"`
 }
 
