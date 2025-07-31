@@ -64,10 +64,17 @@ func startServerWithArgs(ctx context.Context, mode string, args []string) (*http
 	if err != nil {
 		return nil, err
 	}
-	// parse command line parameters
-	if err := s.parseCommandParamsAndLoadConfig(); err != nil {
+	config, err := common.ParseCommandParamsAndLoadConfig()
+	if err != nil {
 		return nil, err
 	}
+	s.config = config
+
+	for _, lora := range config.LoraModules {
+		s.loraAdaptors.Store(lora.Name, "")
+	}
+
+	common.InitRandom(s.config.Seed)
 
 	// calculate number of tokens for user message,
 	// must be activated after parseCommandParamsAndLoadConfig since it initializes the random engine

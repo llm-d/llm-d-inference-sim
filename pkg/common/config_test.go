@@ -14,40 +14,32 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package llmdinferencesim
+package common
 
 import (
 	"os"
 
-	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"k8s.io/klog/v2"
 )
 
 const (
 	qwenModelName = "Qwen/Qwen2-0.5B"
+	model         = "test-model"
 )
 
-func createSimConfig(args []string) (*common.Configuration, error) {
+func createSimConfig(args []string) (*Configuration, error) {
 	oldArgs := os.Args
 	defer func() {
 		os.Args = oldArgs
 	}()
 	os.Args = args
 
-	s, err := New(klog.Background())
-	if err != nil {
-		return nil, err
-	}
-	if err := s.parseCommandParamsAndLoadConfig(); err != nil {
-		return nil, err
-	}
-	return s.config, nil
+	return ParseCommandParamsAndLoadConfig()
 }
 
-func createDefaultConfig(model string) *common.Configuration {
-	c := common.NewConfig()
+func createDefaultConfig(model string) *Configuration {
+	c := NewConfig()
 
 	c.Model = model
 	c.ServedModelNames = []string{c.Model}
@@ -58,7 +50,7 @@ func createDefaultConfig(model string) *common.Configuration {
 	c.InterTokenLatency = 1000
 	c.KVCacheTransferLatency = 100
 	c.Seed = 100100100
-	c.LoraModules = []common.LoraModule{}
+	c.LoraModules = []LoraModule{}
 
 	return c
 }
@@ -66,21 +58,21 @@ func createDefaultConfig(model string) *common.Configuration {
 type testCase struct {
 	name           string
 	args           []string
-	expectedConfig *common.Configuration
+	expectedConfig *Configuration
 }
 
 var _ = Describe("Simulator configuration", func() {
 	tests := make([]testCase, 0)
 
 	// Simple config with a few parameters
-	c := common.NewConfig()
+	c := NewConfig()
 	c.Model = model
 	c.ServedModelNames = []string{c.Model}
 	c.MaxCPULoras = 1
 	c.Seed = 100
 	test := testCase{
 		name:           "simple",
-		args:           []string{"cmd", "--model", model, "--mode", common.ModeRandom, "--seed", "100"},
+		args:           []string{"cmd", "--model", model, "--mode", ModeRandom, "--seed", "100"},
 		expectedConfig: c,
 	}
 	tests = append(tests, test)
@@ -89,7 +81,7 @@ var _ = Describe("Simulator configuration", func() {
 	c = createDefaultConfig(qwenModelName)
 	c.Port = 8001
 	c.ServedModelNames = []string{"model1", "model2"}
-	c.LoraModules = []common.LoraModule{{Name: "lora1", Path: "/path/to/lora1"}, {Name: "lora2", Path: "/path/to/lora2"}}
+	c.LoraModules = []LoraModule{{Name: "lora1", Path: "/path/to/lora1"}, {Name: "lora2", Path: "/path/to/lora2"}}
 	test = testCase{
 		name:           "config file",
 		args:           []string{"cmd", "--config", "../../manifests/config.yaml"},
@@ -106,7 +98,7 @@ var _ = Describe("Simulator configuration", func() {
 	c.Port = 8002
 	c.ServedModelNames = []string{"alias1", "alias2"}
 	c.Seed = 100
-	c.LoraModules = []common.LoraModule{{Name: "lora3", Path: "/path/to/lora3"}, {Name: "lora4", Path: "/path/to/lora4"}}
+	c.LoraModules = []LoraModule{{Name: "lora3", Path: "/path/to/lora3"}, {Name: "lora4", Path: "/path/to/lora4"}}
 	c.LoraModulesString = []string{
 		"{\"name\":\"lora3\",\"path\":\"/path/to/lora3\"}",
 		"{\"name\":\"lora4\",\"path\":\"/path/to/lora4\"}",
@@ -124,7 +116,7 @@ var _ = Describe("Simulator configuration", func() {
 	// Config from config.yaml file plus command line args with different format
 	c = createDefaultConfig(model)
 	c.Port = 8002
-	c.LoraModules = []common.LoraModule{{Name: "lora3", Path: "/path/to/lora3"}}
+	c.LoraModules = []LoraModule{{Name: "lora3", Path: "/path/to/lora3"}}
 	c.LoraModulesString = []string{
 		"{\"name\":\"lora3\",\"path\":\"/path/to/lora3\"}",
 	}
@@ -141,7 +133,7 @@ var _ = Describe("Simulator configuration", func() {
 	// Config from config.yaml file plus command line args with empty string
 	c = createDefaultConfig(model)
 	c.Port = 8002
-	c.LoraModules = []common.LoraModule{{Name: "lora3", Path: "/path/to/lora3"}}
+	c.LoraModules = []LoraModule{{Name: "lora3", Path: "/path/to/lora3"}}
 	c.LoraModulesString = []string{
 		"{\"name\":\"lora3\",\"path\":\"/path/to/lora3\"}",
 	}

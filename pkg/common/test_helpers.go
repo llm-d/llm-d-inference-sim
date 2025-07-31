@@ -27,16 +27,16 @@ func IsValidText(text string) bool {
 		textToCheck := text[charsTested:]
 		found := false
 
-		for _, fakeSentense := range chatCompletionFakeResponses {
-			if len(textToCheck) <= len(fakeSentense) {
-				if strings.HasPrefix(fakeSentense, textToCheck) {
+		for _, fakeSentence := range chatCompletionFakeResponses {
+			if len(textToCheck) <= len(fakeSentence) {
+				if strings.HasPrefix(fakeSentence, textToCheck) {
 					found = true
 					charsTested = len(text)
 					break
 				}
 			} else {
-				if strings.HasPrefix(textToCheck, fakeSentense) {
-					charsTested += len(fakeSentense)
+				if strings.HasPrefix(textToCheck, fakeSentence) {
+					charsTested += len(fakeSentence)
 					// during generation sentences are connected by space, skip it
 					// additional space at the end of the string is invalid
 					if text[charsTested] == ' ' && charsTested < len(text)-1 {
