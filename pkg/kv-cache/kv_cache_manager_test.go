@@ -17,6 +17,11 @@ limitations under the License.
 package kvcache
 
 import (
+	"fmt"
+	"sync"
+	"time"
+
+	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -25,6 +30,8 @@ const (
 	req1ID = "req1"
 	req2ID = "req2"
 	req3ID = "req3"
+
+	cacheIsFullErr = "cache is full and no blocks available for eviction"
 )
 
 type ActionType int
@@ -55,9 +62,9 @@ type testAction struct {
 	expectedBlocksInfo     map[uint64]expectedBlockInfo
 }
 
-func newTestAction(action ActionType, request testRequest) testAction {
+func newStartAction(request testRequest) testAction {
 	return testAction{
-		action:                 action,
+		action:                 actionStartRequest,
 		request:                request,
 		isError:                false,
 		expectedActiveRequests: -1,
@@ -95,7 +102,20 @@ type testCase struct {
 	actions   []testAction
 }
 
-var _ = Describe("KV cache", func() {
+type threadTestCase struct {
+	name              string
+	cacheSize         int
+	numGoroutines     int
+	numOperations     int
+	minBlockLen       int
+	maxBlockLen       int
+	maxHashValue      uint64
+	shouldUseAllCache bool
+}
+
+var _ = Describe("KV cache", Ordered, func() {
+	common.InitRandom(time.Now().UnixNano())
+
 	Context("blocks cache tests", func() {
 		// check single request processing, ensure cache is valid after request processing started
 		// and after the processing was finished
@@ -115,7 +135,7 @@ var _ = Describe("KV cache", func() {
 			name:      "two requests",
 			cacheSize: 5,
 			actions: []testAction{
-				newTestAction(actionStartRequest, req1),
+				newStartAction(req1),
 				newTestActionWithExpectedValues(actionStartRequest, req2, 2, 4, 0, nil),
 				newTestActionWithExpectedValues(actionFinishRequest, req1, 1, 4, 2, nil),
 				newTestActionWithExpectedValues(actionFinishRequest, req2, 0, 4, 4, nil),
@@ -124,7 +144,7 @@ var _ = Describe("KV cache", func() {
 			name:      "reusing blocks",
 			cacheSize: 5,
 			actions: []testAction{
-				newTestAction(actionStartRequest, req1),
+				newStartAction(req1),
 				// Check block '1' reference count (should be 2)
 				newTestActionWithExpectedValues(actionStartRequest, req2_1, 2, 3, 0, map[uint64]expectedBlockInfo{1: {true, 2}}),
 				// Check block '1' reference count (should be 1)
@@ -134,21 +154,21 @@ var _ = Describe("KV cache", func() {
 			name:      "block eviction",
 			cacheSize: 4,
 			actions: []testAction{
-				newTestAction(actionStartRequest, req1),
-				newTestAction(actionStartRequest, req2),
+				newStartAction(req1),
+				newStartAction(req2),
 				newTestActionWithExpectedValues(actionFinishRequest, req2, -1, -1, -1, map[uint64]expectedBlockInfo{3: {true, 0}}),
 				newTestActionWithExpectedValues(actionStartRequest, req3, -1, -1, -1, map[uint64]expectedBlockInfo{
-					3: {false, -1},
 					5: {true, 1},
+					3: {false, 0},
 				}),
 			},
 		}, {
 			name:      "cache full, no eviction",
 			cacheSize: 4,
 			actions: []testAction{
-				newTestAction(actionStartRequest, req1),
-				newTestAction(actionStartRequest, req2),
-				newInvalidTestAction(actionStartRequest, req3, "cache is full and no blocks available for eviction"),
+				newStartAction(req1),
+				newStartAction(req2),
+				newInvalidTestAction(actionStartRequest, req3, cacheIsFullErr),
 			},
 		}}
 
@@ -194,14 +214,14 @@ var _ = Describe("KV cache", func() {
 					// check specific blocks info if required
 					if len(action.expectedBlocksInfo) > 0 {
 						for block, expectedInfo := range action.expectedBlocksInfo {
-							info, exists := blockCache.getBlockInfo(block)
+							refCount, exists := blockCache.getBlockInfo(block)
 							if expectedInfo.exists {
 								Expect(exists).To(BeTrue())
 							} else {
 								Expect(exists).To(BeFalse())
 							}
 							if expectedInfo.refCount >= 0 {
-								Expect(info.refCount).To(Equal(expectedInfo.refCount))
+								Expect(refCount).To(Equal(expectedInfo.refCount))
 							}
 						}
 					}
@@ -209,63 +229,91 @@ var _ = Describe("KV cache", func() {
 			})
 		}
 	})
+
+	Context("thread safety", func() {
+		testCases := []threadTestCase{{
+			name:              "run add/remove requests in parallel, use partial cache",
+			cacheSize:         1000,
+			numGoroutines:     50,
+			numOperations:     100,
+			minBlockLen:       2,
+			maxBlockLen:       10,
+			maxHashValue:      100,
+			shouldUseAllCache: false,
+		}, {
+			name:              "run add/remove requests in parallel, use all cache",
+			cacheSize:         100,
+			numGoroutines:     50,
+			numOperations:     10,
+			minBlockLen:       2,
+			maxBlockLen:       10,
+			maxHashValue:      100,
+			shouldUseAllCache: true,
+		}}
+
+		for _, testCase := range testCases {
+			It(testCase.name, func() {
+				blockCache := newBlockCache(testCase.cacheSize)
+				var wg sync.WaitGroup
+
+				// Start multiple goroutines performing concurrent operations
+				for i := range testCase.numGoroutines {
+					wg.Add(1)
+					go func(id int) {
+						defer wg.Done()
+
+						for j := range testCase.numOperations {
+							reqID := fmt.Sprintf("req_%d_%d", id, j)
+							blocks := createRandomArray(testCase.minBlockLen, testCase.maxBlockLen, testCase.maxHashValue)
+
+							err := blockCache.startRequest(reqID, blocks)
+							if err != nil {
+								// some operations may fail due to cache being full, which is expected
+								if err.Error() != cacheIsFullErr {
+									fmt.Printf("Start request '%s' unexpected error '%s'\n", reqID, err.Error())
+								}
+								continue
+							}
+
+							time.Sleep(time.Duration(common.RandomInt(1, 100)) * time.Microsecond)
+
+							err = blockCache.finishRequest(reqID)
+							if err != nil {
+								fmt.Printf("Finish request error '%s'\n", err.Error())
+							}
+						}
+					}(i)
+				}
+
+				wg.Wait()
+
+				activeReqs, totalBlocks, unusedBlocks := blockCache.getStats()
+				fmt.Printf("Thread safety test completed. Final stats: Active requests: %d, Total blocks: %d, Unused blocks: %d\n",
+					activeReqs, totalBlocks, unusedBlocks)
+				if testCase.shouldUseAllCache {
+					Expect(totalBlocks).To(Equal(testCase.cacheSize))
+				}
+				Expect(totalBlocks).To(Equal(unusedBlocks))
+			})
+		}
+	})
 })
 
-// 	// Test 4: Cache full with no evictable blocks
-// 	fmt.Println("\n=== Test 4: Cache Full Scenario ===")
+func createRandomArray(minArrLen, maxArrLen int, maxValue uint64) []uint64 {
+	// Random length between a and b (inclusive)
+	length := common.RandomInt(minArrLen, maxArrLen)
 
-// 	// Try to add more blocks than capacity allows
-// 	err = cache.StartRequest("req4", []string{"block6", "block7"})
-// 	if err != nil {
-// 		fmt.Printf("Expected error when cache is full: %v\n", err)
-// 	}
+	// Create array with random values
+	arr := make([]uint64, 0)
+	seen := make(map[uint64]struct{})
 
-// 	// Test 5: Thread safety test
-// 	fmt.Println("\n=== Test 5: Thread Safety ===")
-// 	testThreadSafety()
+	for len(arr) < length {
+		val := uint64(common.RandomInt(0, int(maxValue)))
+		if _, exists := seen[val]; !exists {
+			seen[val] = struct{}{}
+			arr = append(arr, val)
+		}
+	}
 
-// 	fmt.Println("\nAll tests completed!")
-// }
-
-// func testThreadSafety() {
-// 	cache := NewBlockCache(10)
-
-// 	var wg sync.WaitGroup
-// 	numGoroutines := 50
-// 	numOperations := 100
-
-// 	// Start multiple goroutines performing concurrent operations
-// 	for i := 0; i < numGoroutines; i++ {
-// 		wg.Add(1)
-// 		go func(id int) {
-// 			defer wg.Done()
-
-// 			for j := 0; j < numOperations; j++ {
-// 				reqID := fmt.Sprintf("req_%d_%d", id, j)
-// 				blockHashes := []string{
-// 					fmt.Sprintf("block_%d_%d_1", id, j),
-// 					fmt.Sprintf("block_%d_%d_2", id, j),
-// 				}
-
-// 				// Start request
-// 				err := cache.StartRequest(reqID, blockHashes)
-// 				if err != nil {
-// 					// Some operations may fail due to cache being full, which is expected
-// 					continue
-// 				}
-
-// 				// Small delay to simulate work
-// 				time.Sleep(time.Microsecond)
-
-// 				// Finish request
-// 				cache.FinishRequest(reqID)
-// 			}
-// 		}(i)
-// 	}
-
-// 	wg.Wait()
-
-// 	activeReqs, totalBlocks, unusedBlocks := cache.GetStats()
-// 	fmt.Printf("Thread safety test completed. Final stats: Active requests: %d, Total blocks: %d, Unused blocks: %d\n",
-// 		activeReqs, totalBlocks, unusedBlocks)
-// }
+	return arr
+}
