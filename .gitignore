@@ -1,4 +1,6 @@
 bin
+lib
+vendor
 .vscode
 # MacOSX
 .DS_Store

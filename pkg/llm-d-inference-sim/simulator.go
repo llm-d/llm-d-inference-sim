@@ -40,6 +40,7 @@ import (
 	"k8s.io/klog/v2"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
+	kvcache "github.com/llm-d/llm-d-inference-sim/pkg/kv-cache"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	vllmapi "github.com/llm-d/llm-d-inference-sim/pkg/vllm-api"
 )
@@ -79,6 +80,8 @@ type VllmSimulator struct {
 	reqChan chan *openaiserverapi.CompletionReqCtx
 	// schema validator for tools parameters
 	toolsValidator *openaiserverapi.Validator
+	// kv cache functionality
+	kvcacheHelper *kvcache.KVCacheHelper
 }
 
 // New creates a new VllmSimulator instance with the given logger
@@ -87,10 +90,17 @@ func New(logger logr.Logger) (*VllmSimulator, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create tools validator: %s", err)
 	}
+
+	kvcacheHelper, err := kvcache.NewKVCacheHelper(logger)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create kv cache helper: %s", err)
+	}
+
 	return &VllmSimulator{
 		logger:         logger,
 		reqChan:        make(chan *openaiserverapi.CompletionReqCtx, 1000),
 		toolsValidator: toolsValidtor,
+		kvcacheHelper:  kvcacheHelper,
 	}, nil
 }
 
@@ -107,6 +117,8 @@ func (s *VllmSimulator) Start(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+
+	go s.kvcacheHelper.Run(ctx)
 
 	// run request processing workers
 	for i := 1; i <= s.config.MaxNumSeqs; i++ {
@@ -161,6 +173,8 @@ func (s *VllmSimulator) parseCommandParamsAndLoadConfig() error {
 	f.IntVar(&config.MinToolCallArrayParamLength, "min-tool-call-array-param-length", config.MinToolCallArrayParamLength, "Minimum possible length of array parameters in a tool call")
 	f.IntVar(&config.ToolCallNotRequiredParamProbability, "tool-call-not-required-param-probability", config.ToolCallNotRequiredParamProbability, "Probability to add a parameter, that is not required, in a tool call")
 	f.IntVar(&config.ObjectToolCallNotRequiredParamProbability, "object-tool-call-not-required-field-probability", config.ObjectToolCallNotRequiredParamProbability, "Probability to add a field, that is not required, in an object in a tool call")
+
+	f.BoolVar(&config.EnableKVCache, "enable-kvcache", config.EnableKVCache, "Defines if KV cache feature is enabled")
 
 	// These values were manually parsed above in getParamValueFromArgs, we leave this in order to get these flags in --help
 	var dummyString string
@@ -395,6 +409,15 @@ func (s *VllmSimulator) handleCompletions(ctx *fasthttp.RequestCtx, isChatComple
 	if errMsg != "" {
 		s.sendCompletionError(ctx, errMsg, errType, errCode)
 		return
+	}
+
+	if s.config.EnableKVCache && !isChatCompletion {
+		// kv cache is currently supported for /completion API only
+		err = s.kvcacheHelper.ProcessRequest(vllmReq)
+		if err != nil {
+			// TODO should it be an error with http response error or just a warning?
+			s.logger.Error(err, "kv cache failed to process request", "error", err)
+		}
 	}
 
 	// Validate context window constraints
