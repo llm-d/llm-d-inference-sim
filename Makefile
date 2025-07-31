@@ -65,7 +65,7 @@ format: ## Format Go source files
 .PHONY: test
 test: check-ginkgo download-tokenizer ## Run tests
 	@printf "\033[33;1m==== Running tests ====\033[0m\n"
-	ginkgo -r -v
+	CGO_ENABLED=1 ginkgo -ldflags="$(LDFLAGS)" -v -r
 
 .PHONY: post-deploy-test
 post-deploy-test: ## Run post deployment tests
