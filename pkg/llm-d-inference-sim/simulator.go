@@ -300,6 +300,8 @@ func (s *VllmSimulator) Printf(format string, args ...interface{}) {
 
 // readRequest reads and parses data from the body of the given request according the type defined by isChatCompletion
 func (s *VllmSimulator) readRequest(ctx *fasthttp.RequestCtx, isChatCompletion bool) (openaiserverapi.CompletionRequest, error) {
+	requestID := uuid.NewString()
+
 	if isChatCompletion {
 		var req openaiserverapi.ChatCompletionRequest
 
@@ -321,12 +323,15 @@ func (s *VllmSimulator) readRequest(ctx *fasthttp.RequestCtx, isChatCompletion b
 				return nil, err
 			}
 		}
+		req.RequestID = requestID
 
 		return &req, nil
 	}
 
 	var req openaiserverapi.TextCompletionRequest
 	err := json.Unmarshal(ctx.Request.Body(), &req)
+
+	req.RequestID = requestID
 
 	return &req, err
 }
@@ -411,12 +416,21 @@ func (s *VllmSimulator) handleCompletions(ctx *fasthttp.RequestCtx, isChatComple
 		return
 	}
 
+	defer func() {
+		if s.config.EnableKVCache && !isChatCompletion {
+			err := s.kvcacheHelper.OnRequestEnd(vllmReq)
+			if err != nil {
+				// TODO should it be an error with http response error or just a warning?
+				s.logger.Error(err, "kv cache failed to process request end", "error", err)
+			}
+		}
+	}()
 	if s.config.EnableKVCache && !isChatCompletion {
 		// kv cache is currently supported for /completion API only
-		err = s.kvcacheHelper.ProcessRequest(vllmReq)
+		err = s.kvcacheHelper.OnRequestStart(vllmReq)
 		if err != nil {
 			// TODO should it be an error with http response error or just a warning?
-			s.logger.Error(err, "kv cache failed to process request", "error", err)
+			s.logger.Error(err, "kv cache failed to process request start", "error", err)
 		}
 	}
 

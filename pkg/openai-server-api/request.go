@@ -31,6 +31,8 @@ const (
 
 // CompletionRequest interface representing both completion request types (text and chat)
 type CompletionRequest interface {
+	// GetRequestID returns the unique request id
+	GetRequestID() string
 	// CreateResponseText creates and returns response payload based on this request,
 	// i.e., an array of generated tokens, the finish reason, and the number of created
 	// tokens
@@ -59,6 +61,8 @@ type CompletionRequest interface {
 
 // baseCompletionRequest contains base completion request related information
 type baseCompletionRequest struct {
+	// RequestID is the unique id of this request
+	RequestID string
 	// Stream is a boolean value, defines whether response should be sent as a Stream
 	Stream bool `json:"stream"`
 	// StreamOptions defines streaming options in case Stream is set to true
@@ -83,6 +87,10 @@ type baseCompletionRequest struct {
 type StreamOptions struct {
 	// IncludeUsage is a boolean value, defines whether response contain usage statistics
 	IncludeUsage bool `json:"include_usage"`
+}
+
+func (b *baseCompletionRequest) GetRequestID() string {
+	return b.RequestID
 }
 
 func (b *baseCompletionRequest) IsStream() bool {

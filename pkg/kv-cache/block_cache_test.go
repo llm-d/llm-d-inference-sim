@@ -113,10 +113,10 @@ type threadTestCase struct {
 	shouldUseAllCache bool
 }
 
-var _ = Describe("KV cache", Ordered, func() {
+var _ = Describe("Block cache", Ordered, func() {
 	common.InitRandom(time.Now().UnixNano())
 
-	Context("blocks cache tests", func() {
+	Context("general tests", func() {
 		// check single request processing, ensure cache is valid after request processing started
 		// and after the processing was finished
 		req1 := testRequest{req1ID, []uint64{1, 2}}

@@ -23,6 +23,8 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+
+	"github.com/google/uuid"
 )
 
 const (
@@ -195,6 +197,7 @@ var randMutex sync.Mutex
 func InitRandom(seed int64) {
 	src := rand.NewSource(seed)
 	randomGenerator = rand.New(src)
+	uuid.SetRand(rand.New(src))
 }
 
 // Returns an integer between min and max (included)
