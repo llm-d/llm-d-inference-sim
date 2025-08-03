@@ -20,10 +20,8 @@ package llmdinferencesim
 import (
 	"context"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"net"
-	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -34,10 +32,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/spf13/pflag"
 	"github.com/valyala/fasthttp"
 	"github.com/valyala/fasthttp/fasthttpadaptor"
-	"k8s.io/klog/v2"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	kvcache "github.com/llm-d/llm-d-inference-sim/pkg/kv-cache"
@@ -63,6 +59,7 @@ type VllmSimulator struct {
 	// runningLoras is a collection of running loras, key of lora's name, value is number of requests using this lora
 	runningLoras sync.Map
 	// waitingLoras will represent collection of loras defined in requests in the queue - Not implemented yet
+	// nolint:unused
 	waitingLoras sync.Map
 	// nRunningReqs is the number of inference requests that are currently being processed
 	nRunningReqs int64
@@ -107,10 +104,17 @@ func New(logger logr.Logger) (*VllmSimulator, error) {
 // Start starts the simulator
 func (s *VllmSimulator) Start(ctx context.Context) error {
 	// parse command line parameters
-	err := s.parseCommandParamsAndLoadConfig()
+	config, err := common.ParseCommandParamsAndLoadConfig()
 	if err != nil {
 		return err
 	}
+	s.config = config
+
+	for _, lora := range config.LoraModules {
+		s.loraAdaptors.Store(lora.Name, "")
+	}
+
+	common.InitRandom(s.config.Seed)
 
 	// initialize prometheus metrics
 	err = s.createAndRegisterPrometheus()
@@ -131,124 +135,6 @@ func (s *VllmSimulator) Start(ctx context.Context) error {
 
 	// start the http server
 	return s.startServer(listener)
-}
-
-// parseCommandParamsAndLoadConfig parses and validates command line parameters
-func (s *VllmSimulator) parseCommandParamsAndLoadConfig() error {
-	config := common.NewConfig()
-
-	configFileValues := getParamValueFromArgs("config")
-	if len(configFileValues) == 1 {
-		if err := config.Load(configFileValues[0]); err != nil {
-			return err
-		}
-	}
-
-	servedModelNames := getParamValueFromArgs("served-model-name")
-	loraModuleNames := getParamValueFromArgs("lora-modules")
-
-	f := pflag.NewFlagSet("llm-d-inference-sim flags", pflag.ContinueOnError)
-
-	f.IntVar(&config.Port, "port", config.Port, "Port")
-	f.StringVar(&config.Model, "model", config.Model, "Currently 'loaded' model")
-	f.IntVar(&config.MaxNumSeqs, "max-num-seqs", config.MaxNumSeqs, "Maximum number of inference requests that could be processed at the same time (parameter to simulate requests waiting queue)")
-	f.IntVar(&config.MaxLoras, "max-loras", config.MaxLoras, "Maximum number of LoRAs in a single batch")
-	f.IntVar(&config.MaxCPULoras, "max-cpu-loras", config.MaxCPULoras, "Maximum number of LoRAs to store in CPU memory")
-	f.IntVar(&config.MaxModelLen, "max-model-len", config.MaxModelLen, "Model's context window, maximum number of tokens in a single request including input and output")
-
-	f.StringVar(&config.Mode, "mode", config.Mode, "Simulator mode, echo - returns the same text that was sent in the request, for chat completion returns the last message, random - returns random sentence from a bank of pre-defined sentences")
-	f.IntVar(&config.InterTokenLatency, "inter-token-latency", config.InterTokenLatency, "Time to generate one token (in milliseconds)")
-	f.IntVar(&config.TimeToFirstToken, "time-to-first-token", config.TimeToFirstToken, "Time to first token (in milliseconds)")
-	f.IntVar(&config.KVCacheTransferLatency, "kv-cache-transfer-latency", config.KVCacheTransferLatency, "Time for KV-cache transfer from a remote vLLM (in milliseconds)")
-	f.IntVar(&config.InterTokenLatencyStdDev, "inter-token-latency-std-dev", config.InterTokenLatencyStdDev, "Standard deviation for time between generated tokens (in milliseconds)")
-	f.IntVar(&config.TimeToFirstTokenStdDev, "time-to-first-token-std-dev", config.TimeToFirstTokenStdDev, "Standard deviation for time before the first token will be returned (in milliseconds)")
-	f.IntVar(&config.KVCacheTransferLatencyStdDev, "kv-cache-transfer-latency-std-dev", config.KVCacheTransferLatencyStdDev, "Standard deviation for time for KV-cache transfer from a remote vLLM (in milliseconds)")
-	f.Int64Var(&config.Seed, "seed", config.Seed, "Random seed for operations (if not set, current Unix time in nanoseconds is used)")
-
-	f.IntVar(&config.MaxToolCallIntegerParam, "max-tool-call-integer-param", config.MaxToolCallIntegerParam, "Maximum possible value of integer parameters in a tool call")
-	f.IntVar(&config.MinToolCallIntegerParam, "min-tool-call-integer-param", config.MinToolCallIntegerParam, "Minimum possible value of integer parameters in a tool call")
-	f.Float64Var(&config.MaxToolCallNumberParam, "max-tool-call-number-param", config.MaxToolCallNumberParam, "Maximum possible value of number (float) parameters in a tool call")
-	f.Float64Var(&config.MinToolCallNumberParam, "min-tool-call-number-param", config.MinToolCallNumberParam, "Minimum possible value of number (float) parameters in a tool call")
-	f.IntVar(&config.MaxToolCallArrayParamLength, "max-tool-call-array-param-length", config.MaxToolCallArrayParamLength, "Maximum possible length of array parameters in a tool call")
-	f.IntVar(&config.MinToolCallArrayParamLength, "min-tool-call-array-param-length", config.MinToolCallArrayParamLength, "Minimum possible length of array parameters in a tool call")
-	f.IntVar(&config.ToolCallNotRequiredParamProbability, "tool-call-not-required-param-probability", config.ToolCallNotRequiredParamProbability, "Probability to add a parameter, that is not required, in a tool call")
-	f.IntVar(&config.ObjectToolCallNotRequiredParamProbability, "object-tool-call-not-required-field-probability", config.ObjectToolCallNotRequiredParamProbability, "Probability to add a field, that is not required, in an object in a tool call")
-
-	f.BoolVar(&config.EnableKVCache, "enable-kvcache", config.EnableKVCache, "Defines if KV cache feature is enabled")
-
-	// These values were manually parsed above in getParamValueFromArgs, we leave this in order to get these flags in --help
-	var dummyString string
-	f.StringVar(&dummyString, "config", "", "The path to a yaml configuration file. The command line values overwrite the configuration file values")
-	var dummyMultiString common.MultiString
-	f.Var(&dummyMultiString, "served-model-name", "Model names exposed by the API (a list of space-separated strings)")
-	f.Var(&dummyMultiString, "lora-modules", "List of LoRA adapters (a list of space-separated JSON strings)")
-	// In order to allow empty arguments, we set a dummy NoOptDefVal for these flags
-	f.Lookup("served-model-name").NoOptDefVal = "dummy"
-	f.Lookup("lora-modules").NoOptDefVal = "dummy"
-
-	flagSet := flag.NewFlagSet("simFlagSet", flag.ExitOnError)
-	klog.InitFlags(flagSet)
-	f.AddGoFlagSet(flagSet)
-
-	if err := f.Parse(os.Args[1:]); err != nil {
-		if err == pflag.ErrHelp {
-			// --help - exit without printing an error message
-			os.Exit(0)
-		}
-		return err
-	}
-
-	// Need to read in a variable to avoid merging the values with the config file ones
-	if loraModuleNames != nil {
-		config.LoraModulesString = loraModuleNames
-		if err := config.UnmarshalLoras(); err != nil {
-			return err
-		}
-	}
-	if servedModelNames != nil {
-		config.ServedModelNames = servedModelNames
-	}
-
-	if err := config.Validate(); err != nil {
-		return err
-	}
-
-	s.config = config
-
-	for _, lora := range config.LoraModules {
-		s.loraAdaptors.Store(lora.Name, "")
-	}
-
-	common.InitRandom(s.config.Seed)
-
-	// just to suppress not used lint error for now
-	_ = &s.waitingLoras
-	return nil
-}
-
-func getParamValueFromArgs(param string) []string {
-	var values []string
-	var readValues bool
-	for _, arg := range os.Args[1:] {
-		if readValues {
-			if strings.HasPrefix(arg, "--") {
-				break
-			}
-			if arg != "" {
-				values = append(values, arg)
-			}
-		} else {
-			if arg == "--"+param {
-				readValues = true
-				values = make([]string, 0)
-			} else if strings.HasPrefix(arg, "--"+param+"=") {
-				// Handle --param=value
-				values = append(values, strings.TrimPrefix(arg, "--"+param+"="))
-				break
-			}
-		}
-	}
-	return values
 }
 
 func (s *VllmSimulator) newListener() (net.Listener, error) {
