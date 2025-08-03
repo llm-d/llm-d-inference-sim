@@ -22,6 +22,10 @@ import (
 	"time"
 )
 
+const (
+	capacityError = "the kv cache does not have sufficient capacity to store this request"
+)
+
 // blockCache represents a thread-safe cache for blocks with eviction policy
 type blockCache struct {
 	mu              sync.RWMutex
@@ -51,10 +55,13 @@ func (bc *blockCache) startRequest(requestID string, blocks []uint64) error {
 		return fmt.Errorf("request already exists for id %s", requestID)
 	}
 
-	// counter for blocks to be added to usedBlock (both from unused and new blocks)
+	// divide list of blocks to three lists:
+	// blockAreadyInUse - blocks, which is already used by currently running request
+	// blockToMoveToUsed - blocks, which was used in past
+	// blocksToAdd - new blocks
 	blocksToAdd := make([]uint64, 0)
 	blockToMoveToUsed := make([]uint64, 0)
-	blockAreadyInUsed := make([]uint64, 0)
+	blockAreadyInUse := make([]uint64, 0)
 
 	// first step - ensure that there is enough space for all blocks
 	// count number of new blocks + number of blocks that are in the unused blocks
@@ -65,16 +72,16 @@ func (bc *blockCache) startRequest(requestID string, blocks []uint64) error {
 		} else if _, exists := bc.usedBlocks[blockHash]; !exists {
 			blocksToAdd = append(blocksToAdd, blockHash)
 		} else {
-			blockAreadyInUsed = append(blockAreadyInUsed, blockHash)
+			blockAreadyInUse = append(blockAreadyInUse, blockHash)
 		}
 	}
 
 	if len(bc.usedBlocks)+len(blocksToAdd)+len(blockToMoveToUsed) > bc.maxBlocks {
-		return errors.New("cache is full and no blocks available for eviction")
+		return errors.New(capacityError)
 	}
 
-	// for blocks that are already in used block - update the reference
-	for _, block := range blockAreadyInUsed {
+	// for blocks that are already in use - update the reference
+	for _, block := range blockAreadyInUse {
 		bc.usedBlocks[block] += 1
 	}
 
@@ -86,12 +93,20 @@ func (bc *blockCache) startRequest(requestID string, blocks []uint64) error {
 
 	// for new block - add them, if there is no empty slots - evict the oldest block
 	for _, block := range blocksToAdd {
-		if len(bc.usedBlocks)+len(bc.unusedBlocks) >= bc.maxBlocks {
-			// cache is full, try to evict
-			if !bc.evictOldestUnusedBlock() {
-				// shouldn't happen
-				return errors.New("cache is full and no blocks available for eviction")
+		if len(bc.usedBlocks)+len(bc.unusedBlocks) == bc.maxBlocks {
+			// cache is full but contains unused blocks - evict the oldest
+			var oldestUnusedHash uint64
+			oldestUnusedTime := time.Now()
+
+			for hash, t := range bc.unusedBlocks {
+				if t.Before(oldestUnusedTime) {
+					// first element or earlier timestamp
+					oldestUnusedHash = hash
+					oldestUnusedTime = t
+				}
 			}
+
+			delete(bc.unusedBlocks, oldestUnusedHash)
 		}
 
 		// Add the new block
@@ -99,36 +114,10 @@ func (bc *blockCache) startRequest(requestID string, blocks []uint64) error {
 	}
 
 	// store the request mapping
-	if bc.requestToBlocks == nil {
-		fmt.Println("NULL")
-	}
 	bc.requestToBlocks[requestID] = make([]uint64, len(blocks))
 	copy(bc.requestToBlocks[requestID], blocks)
 
 	return nil
-}
-
-// evictOldestUnusedBlock finds and removes the oldest block with reference count 0
-// Returns true if a block was evicted, false if no evictable blocks found
-func (bc *blockCache) evictOldestUnusedBlock() bool {
-	var oldestUnusedHash *uint64
-	var oldestUnusedTime time.Time
-
-	// find the oldest block with reference count == 0
-	for hash, t := range bc.unusedBlocks {
-		if oldestUnusedHash == nil || t.Before(oldestUnusedTime) {
-			// first element or earlier timestamp
-			oldestUnusedHash = &hash
-			oldestUnusedTime = t
-		}
-	}
-
-	if oldestUnusedHash != nil {
-		delete(bc.unusedBlocks, *oldestUnusedHash)
-		return true
-	}
-
-	return false
 }
 
 // finishRequest processes the completion of a request, decreasing reference counts
@@ -145,6 +134,7 @@ func (bc *blockCache) finishRequest(requestID string) error {
 	now := time.Now()
 
 	// Decrease reference count for each block
+	errBlocks := make([]uint64, 0)
 	for _, blockHash := range blockHashes {
 		if refCount, exists := bc.usedBlocks[blockHash]; exists {
 			if refCount > 1 {
@@ -156,31 +146,22 @@ func (bc *blockCache) finishRequest(requestID string) error {
 				delete(bc.usedBlocks, blockHash)
 			}
 		} else {
-			// TODO - this is an error?
-			fmt.Printf("Not existing block %d for request %s\n", blockHash, requestID)
+			errBlocks = append(errBlocks, blockHash)
 		}
 	}
 
 	// Remove the request mapping
 	delete(bc.requestToBlocks, requestID)
 
+	if len(errBlocks) > 0 {
+		errMsg := "Not existing blocks "
+		for _, b := range errBlocks {
+			errMsg += fmt.Sprintf("%d, ", b)
+		}
+		return fmt.Errorf("%s for request %s", errMsg[:len(errMsg)-2], requestID)
+	}
+
 	return nil
-}
-
-func (bc *blockCache) GetStateStr() string {
-	bc.mu.Lock()
-	defer bc.mu.Unlock()
-
-	txt := fmt.Sprintf("Cache: %d requests\nBlocks:", len(bc.requestToBlocks))
-
-	for block, refCount := range bc.usedBlocks {
-		txt += fmt.Sprintf("%d->%d, ", block, refCount)
-	}
-	for block := range bc.unusedBlocks {
-		txt += fmt.Sprintf("%d->0, ", block)
-	}
-
-	return txt
 }
 
 // GetStats returns current cache statistics (for testing/debugging)

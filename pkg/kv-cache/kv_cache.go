@@ -81,12 +81,8 @@ func (h *KVCacheHelper) OnRequestStart(vllmReq openaiserverapi.CompletionRequest
 
 	// 1. get available tokens of longest prefix
 	tokens := h.tokensIndexer.FindLongestContainedTokens(prompt, modelName)
-	h.logger.Info(">>> After tokensIndexer.FindLongestContainedTokens", "tokens", len(tokens))
 	if len(tokens) == 0 {
 		//nolint:nilnil // no need to return an error
-		h.logger.Info(">>> tokensIndexer.FindLongestContainedTokens returned 0 tokens", "prompt len", len(prompt), "model", modelName)
-		// add request with empty list of blocks
-		fmt.Printf("Before start request '%s' with empty list of tokens\n%s\n", requestID, h.blockCache.GetStateStr())
 		return h.blockCache.startRequest(requestID, make([]uint64, 0))
 	}
 
@@ -99,7 +95,6 @@ func (h *KVCacheHelper) OnRequestStart(vllmReq openaiserverapi.CompletionRequest
 		blockHashes[i] = key.ChunkHash
 	}
 
-	fmt.Printf("Before start request '%s'\n%s\n", requestID, h.blockCache.GetStateStr())
 	return h.blockCache.startRequest(requestID, blockHashes)
 }
 

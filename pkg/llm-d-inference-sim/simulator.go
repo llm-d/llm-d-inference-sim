@@ -88,16 +88,11 @@ func New(logger logr.Logger) (*VllmSimulator, error) {
 		return nil, fmt.Errorf("failed to create tools validator: %s", err)
 	}
 
-	kvcacheHelper, err := kvcache.NewKVCacheHelper(logger)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create kv cache helper: %s", err)
-	}
-
 	return &VllmSimulator{
 		logger:         logger,
 		reqChan:        make(chan *openaiserverapi.CompletionReqCtx, 1000),
 		toolsValidator: toolsValidtor,
-		kvcacheHelper:  kvcacheHelper,
+		kvcacheHelper:  nil, // kvcach helper will be created only if required after reading configuration
 	}, nil
 }
 
@@ -122,7 +117,14 @@ func (s *VllmSimulator) Start(ctx context.Context) error {
 		return err
 	}
 
-	go s.kvcacheHelper.Run(ctx)
+	if s.config.EnableKVCache {
+		s.kvcacheHelper, err = kvcache.NewKVCacheHelper(s.logger)
+		if err != nil {
+			return err
+		}
+
+		go s.kvcacheHelper.Run(ctx)
+	}
 
 	// run request processing workers
 	for i := 1; i <= s.config.MaxNumSeqs; i++ {
@@ -307,7 +309,7 @@ func (s *VllmSimulator) handleCompletions(ctx *fasthttp.RequestCtx, isChatComple
 			err := s.kvcacheHelper.OnRequestEnd(vllmReq)
 			if err != nil {
 				// TODO should it be an error with http response error or just a warning?
-				s.logger.Error(err, "kv cache failed to process request end", "error", err)
+				s.logger.Error(err, "kv cache failed to process request end")
 			}
 		}
 	}()
@@ -316,7 +318,7 @@ func (s *VllmSimulator) handleCompletions(ctx *fasthttp.RequestCtx, isChatComple
 		err = s.kvcacheHelper.OnRequestStart(vllmReq)
 		if err != nil {
 			// TODO should it be an error with http response error or just a warning?
-			s.logger.Error(err, "kv cache failed to process request start", "error", err)
+			s.logger.Error(err, "kv cache failed to process request start")
 		}
 	}
 

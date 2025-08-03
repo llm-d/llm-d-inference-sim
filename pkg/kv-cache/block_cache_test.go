@@ -30,8 +30,6 @@ const (
 	req1ID = "req1"
 	req2ID = "req2"
 	req3ID = "req3"
-
-	cacheIsFullErr = "cache is full and no blocks available for eviction"
 )
 
 type ActionType int
@@ -168,7 +166,7 @@ var _ = Describe("Block cache", Ordered, func() {
 			actions: []testAction{
 				newStartAction(req1),
 				newStartAction(req2),
-				newInvalidTestAction(actionStartRequest, req3, cacheIsFullErr),
+				newInvalidTestAction(actionStartRequest, req3, capacityError),
 			},
 		}}
 
@@ -269,18 +267,14 @@ var _ = Describe("Block cache", Ordered, func() {
 							err := blockCache.startRequest(reqID, blocks)
 							if err != nil {
 								// some operations may fail due to cache being full, which is expected
-								if err.Error() != cacheIsFullErr {
-									fmt.Printf("Start request '%s' unexpected error '%s'\n", reqID, err.Error())
-								}
+								Expect(err.Error()).To(Equal(capacityError))
 								continue
 							}
 
 							time.Sleep(time.Duration(common.RandomInt(1, 100)) * time.Microsecond)
 
 							err = blockCache.finishRequest(reqID)
-							if err != nil {
-								fmt.Printf("Finish request error '%s'\n", err.Error())
-							}
+							Expect(err).NotTo(HaveOccurred())
 						}
 					}(i)
 				}
