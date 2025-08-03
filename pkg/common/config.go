@@ -151,7 +151,7 @@ func (c *Configuration) unmarshalLoras() error {
 	return nil
 }
 
-func NewConfig() *Configuration {
+func newConfig() *Configuration {
 	return &Configuration{
 		Port:                                vLLMDefaultPort,
 		MaxLoras:                            1,
@@ -272,7 +272,7 @@ func (c *Configuration) validate() error {
 // ParseCommandParamsAndLoadConfig loads configuration, parses command line parameters, merges the values
 // (command line values overwrite the config file ones), and validates the configuration
 func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
-	config := NewConfig()
+	config := newConfig()
 
 	configFileValues := getParamValueFromArgs("config")
 	if len(configFileValues) == 1 {

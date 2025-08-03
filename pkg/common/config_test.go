@@ -39,7 +39,7 @@ func createSimConfig(args []string) (*Configuration, error) {
 }
 
 func createDefaultConfig(model string) *Configuration {
-	c := NewConfig()
+	c := newConfig()
 
 	c.Model = model
 	c.ServedModelNames = []string{c.Model}
@@ -65,7 +65,7 @@ var _ = Describe("Simulator configuration", func() {
 	tests := make([]testCase, 0)
 
 	// Simple config with a few parameters
-	c := NewConfig()
+	c := newConfig()
 	c.Model = model
 	c.ServedModelNames = []string{c.Model}
 	c.MaxCPULoras = 1

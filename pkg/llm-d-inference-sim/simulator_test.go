@@ -517,11 +517,12 @@ var _ = Describe("Simulator", func() {
 			simulator, err = New(klog.Background())
 			Expect(err).NotTo(HaveOccurred())
 
-			simulator.config = common.NewConfig()
-			simulator.config.TimeToFirstToken = 2048
-			simulator.config.TimeToFirstTokenStdDev = 2048
-			simulator.config.KVCacheTransferLatency = 2048
-			simulator.config.KVCacheTransferLatencyStdDev = 2048
+			simulator.config = &common.Configuration{
+				TimeToFirstToken:             2048,
+				TimeToFirstTokenStdDev:       2048,
+				KVCacheTransferLatency:       2048,
+				KVCacheTransferLatencyStdDev: 2048,
+			}
 		})
 
 		DescribeTable("should calculate inter token latency correctly",
