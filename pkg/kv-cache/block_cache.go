@@ -56,8 +56,8 @@ func (bc *blockCache) startRequest(requestID string, blocks []uint64) error {
 	}
 
 	// divide list of blocks to three lists:
-	// blockAreadyInUse - blocks, which is already used by currently running request
-	// blockToMoveToUsed - blocks, which was used in past
+	// blockAreadyInUse - blocks, which are already used by currently running request
+	// blockToMoveToUsed - blocks, which were used in past
 	// blocksToAdd - new blocks
 	blocksToAdd := make([]uint64, 0)
 	blockToMoveToUsed := make([]uint64, 0)
@@ -100,7 +100,6 @@ func (bc *blockCache) startRequest(requestID string, blocks []uint64) error {
 
 			for hash, t := range bc.unusedBlocks {
 				if t.Before(oldestUnusedTime) {
-					// first element or earlier timestamp
 					oldestUnusedHash = hash
 					oldestUnusedTime = t
 				}

@@ -92,7 +92,7 @@ func New(logger logr.Logger) (*VllmSimulator, error) {
 		logger:         logger,
 		reqChan:        make(chan *openaiserverapi.CompletionReqCtx, 1000),
 		toolsValidator: toolsValidtor,
-		kvcacheHelper:  nil, // kvcach helper will be created only if required after reading configuration
+		kvcacheHelper:  nil, // kvcache helper will be created only if required after reading configuration
 	}, nil
 }
 
