@@ -1,3 +1,8 @@
+[![Go Report Card](https://goreportcard.com/badge/github.com/llm-d/llm-d-inference-sim)](https://goreportcard.com/report/github.com/llm-d/llm-d-inference-sim)
+[![Go Reference](https://pkg.go.dev/badge/github.com/llm-d/llm-d-inference-sim.svg)](https://pkg.go.dev/github.com/llm-d/llm-d-inference-sim)
+[![License](https://img.shields.io/github/license/llm-d/llm-d-inference-sim)](/LICENSE)
+[![Join Slack](https://img.shields.io/badge/Join_Slack-blue?logo=slack)](https://llm-d.slack.com/archives/C097SUE2HSL)
+
 # vLLM Simulator
 To help with development and testing we have developed a light weight vLLM simulator. It does not truly
 run inference, but it does emulate responses to the HTTP REST endpoints of vLLM. 
