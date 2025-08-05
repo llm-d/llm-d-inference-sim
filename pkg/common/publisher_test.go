@@ -40,8 +40,10 @@ var _ = Describe("Publisher", func() {
 		Expect(err).NotTo(HaveOccurred())
 		sub, err := zctx.NewSocket(zmq.SUB)
 		Expect(err).NotTo(HaveOccurred())
-		sub.Bind(endpoint)
-		sub.SetSubscribe(topic)
+		err = sub.Bind(endpoint)
+		Expect(err).NotTo(HaveOccurred())
+		err = sub.SetSubscribe(topic)
+		Expect(err).NotTo(HaveOccurred())
 
 		time.Sleep(100 * time.Millisecond)
 
@@ -57,7 +59,8 @@ var _ = Describe("Publisher", func() {
 		go func() {
 			ticker := time.NewTicker(time.Second)
 			for range ticker.C {
-				pub.PublishEvent(ctx, topic, data)
+				err := pub.PublishEvent(ctx, topic, data)
+				Expect(err).NotTo(HaveOccurred())
 			}
 		}()
 

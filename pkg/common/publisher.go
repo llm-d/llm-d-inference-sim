@@ -19,6 +19,7 @@ package common
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"sync/atomic"
 
@@ -43,8 +44,11 @@ func NewPublisher(endpoint string) (*Publisher, error) {
 	}
 
 	if err := socket.Connect(endpoint); err != nil {
-		socket.Close()
-		return nil, fmt.Errorf("failed to connect to %s: %w", endpoint, err)
+		errClose := socket.Close()
+		return nil, errors.Join(
+			fmt.Errorf("failed to connect to %s: %w", endpoint, err),
+			errClose,
+		)
 	}
 
 	return &Publisher{
