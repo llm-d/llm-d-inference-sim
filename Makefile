@@ -63,7 +63,7 @@ format: ## Format Go source files
 	@gofmt -l -w $(SRC)
 
 .PHONY: test
-test: check-ginkgo download-tokenizer ## Run tests
+test: check-ginkgo download-tokenizer download-zmq ## Run tests
 	@printf "\033[33;1m==== Running tests ====\033[0m\n"
 	CGO_ENABLED=1 ginkgo -ldflags="$(LDFLAGS)" -v -r
 
@@ -80,7 +80,7 @@ lint: check-golangci-lint ## Run lint
 ##@ Build
 
 .PHONY: build
-build: check-go download-tokenizer ##
+build: check-go download-tokenizer download-zmq 
 	@printf "\033[33;1m==== Building ====\033[0m\n"
 	go build -ldflags="$(LDFLAGS)" -o bin/$(PROJECT_NAME) cmd/$(PROJECT_NAME)/main.go
 
@@ -193,3 +193,35 @@ print-project-name: ## Print the current project name
 .PHONY: install-hooks
 install-hooks: ## Install git hooks
 	git config core.hooksPath hooks
+
+##@ ZMQ Setup
+
+.PHONY: download-zmq
+download-zmq: ## Install ZMQ dependencies based on OS/ARCH
+	@echo "Checking if ZMQ is already installed..."
+	@if pkg-config --exists libzmq; then \
+	  echo "✅ ZMQ is already installed."; \
+	else \
+	  echo "Installing ZMQ dependencies..."; \
+	  if [ "$(TARGETOS)" = "linux" ]; then \
+	    if [ -x "$(command -v apt)" ]; then \
+	      apt update && apt install -y libzmq3-dev; \
+	    elif [ -x "$(command -v dnf)" ]; then \
+	      dnf install -y zeromq-devel; \
+	    else \
+	      echo "Unsupported Linux package manager. Install libzmq manually."; \
+	      exit 1; \
+	    fi; \
+	  elif [ "$(TARGETOS)" = "darwin" ]; then \
+	    if [ -x "$(command -v brew)" ]; then \
+	      brew install zeromq; \
+	    else \
+	      echo "Homebrew is not installed and is required to install zeromq. Install it from https://brew.sh/"; \
+	      exit 1; \
+	    fi; \
+	  else \
+	    echo "Unsupported OS: $(TARGETOS). Install libzmq manually - check https://zeromq.org/download/ for guidance."; \
+	    exit 1; \
+	  fi; \
+	  echo "✅ ZMQ dependencies installed."; \
+	fi

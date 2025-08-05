@@ -41,6 +41,14 @@ RUN go build -a -o bin/llm-d-inference-sim -ldflags="-extldflags '-L$(pwd)/lib'"
 FROM registry.access.redhat.com/ubi9/ubi-minimal:latest
 
 WORKDIR /
+
+# Install zeromq runtime library needed by the manager.
+# The final image is UBI9, so we need epel-release-9.
+USER root
+RUN microdnf install -y dnf && \
+    dnf install -y 'https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm' && \
+    dnf install -y zeromq
+
 COPY --from=builder /workspace/bin/llm-d-inference-sim /app/llm-d-inference-sim
 
 # USER 65532:65532
