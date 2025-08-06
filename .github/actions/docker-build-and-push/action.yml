@@ -13,6 +13,10 @@ inputs:
   registry:
     required: true
     description: Container registry (e.g., ghcr.io/llm-d)
+  prerelease:
+    required: true
+    description: indicates whether or not this is a pre-release (not a release) build
+
 runs:
   using: "composite"
   steps:
