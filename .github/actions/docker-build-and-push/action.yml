@@ -36,7 +36,7 @@ runs:
       
     - name: Build image
       run: |
-        if [[ ${{ inputs.prerelease }} ]]; then
+        if [[ ${{ inputs.prerelease }} == "true" ]]; then
           LATEST_TAG=""
         else
           LATEST_TAG="-t ${{ inputs.registry }}/${{ inputs.image-name }}:latest"
