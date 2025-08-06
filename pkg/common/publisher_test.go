@@ -50,18 +50,14 @@ var _ = Describe("Publisher", func() {
 		pub, err := NewPublisher(endpoint)
 		Expect(err).NotTo(HaveOccurred())
 
-		time.Sleep(100 * time.Millisecond)
-
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		// Make sure that sub.RecvMessageBytes is called before pub.PublishEvent
 		go func() {
-			ticker := time.NewTicker(time.Second)
-			for range ticker.C {
-				err := pub.PublishEvent(ctx, topic, data)
-				Expect(err).NotTo(HaveOccurred())
-			}
+			// Make sure that sub.RecvMessageBytes is called before pub.PublishEvent
+			time.Sleep(time.Second)
+			err := pub.PublishEvent(ctx, topic, data)
+			Expect(err).NotTo(HaveOccurred())
 		}()
 
 		// The message should be [topic, seq, payload]
