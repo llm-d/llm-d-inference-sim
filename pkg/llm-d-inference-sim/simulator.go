@@ -118,7 +118,7 @@ func (s *VllmSimulator) Start(ctx context.Context) error {
 	}
 
 	if s.config.EnableKVCache {
-		s.kvcacheHelper, err = kvcache.NewKVCacheHelper(s.logger)
+		s.kvcacheHelper, err = kvcache.NewKVCacheHelper(s.config, s.logger)
 		if err != nil {
 			return err
 		}

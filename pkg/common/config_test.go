@@ -281,6 +281,16 @@ var _ = Describe("Simulator configuration", func() {
 			args: []string{"cmd", "--kv-cache-transfer-latency-std-dev", "-35",
 				"--config", "../../manifests/config.yaml"},
 		},
+		{
+			name: "invalid (negative) kv-cache-size",
+			args: []string{"cmd", "--kv-cache-size", "-35",
+				"--config", "../../manifests/config.yaml"},
+		},
+		{
+			name: "invalid block-size",
+			args: []string{"cmd", "--block-size", "35",
+				"--config", "../../manifests/config.yaml"},
+		},
 	}
 
 	for _, test := range invalidTests {

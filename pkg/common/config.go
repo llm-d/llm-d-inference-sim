@@ -113,6 +113,18 @@ type Configuration struct {
 
 	// EnableKVCache defines if kv cache feature will be enabled
 	EnableKVCache bool `yaml:"enable-kvcache"`
+	//  KVCacheSize is the maximum number of token blocks in kv cache, the default value is 1024
+	KVCacheSize int `yaml:"kv-cache-size"`
+
+	// TokenizersCacheDir is the directory for caching tokenizers
+	TokenizersCacheDir string `yaml:"tokenizers-cache-dir"`
+	// TokenBlockSize is token block size for contiguous chunks of tokens, possible values: 8,16,32,64,128, defaults to 16
+	TokenBlockSize int `yaml:"block-size"`
+	// HashSeed is the seed for hash generation (if not set, is read from PYTHONHASHSEED environment variable)
+	HashSeed string `yaml:"hash-seed"`
+
+	// ZMQEndpoint is the ZMQ address to publish events, the default value is tcp://localhost:5557
+	ZMQEndpoint string `yaml:"zmq-endpoint"`
 }
 
 type LoraModule struct {
@@ -168,6 +180,9 @@ func newConfig() *Configuration {
 		MinToolCallArrayParamLength:         1,
 		ToolCallNotRequiredParamProbability: 50,
 		ObjectToolCallNotRequiredParamProbability: 50,
+		KVCacheSize:    1024,
+		TokenBlockSize: 16,
+		ZMQEndpoint:    "tcp://localhost:5557",
 	}
 }
 
@@ -269,6 +284,15 @@ func (c *Configuration) validate() error {
 	if c.ObjectToolCallNotRequiredParamProbability < 0 || c.ObjectToolCallNotRequiredParamProbability > 100 {
 		return errors.New("ObjectToolCallNotRequiredParamProbability should be between 0 and 100")
 	}
+
+	if c.TokenBlockSize != 8 && c.TokenBlockSize != 16 && c.TokenBlockSize != 32 &&
+		c.TokenBlockSize != 64 && c.TokenBlockSize != 128 {
+		return errors.New("token block size should be one of the following: 8, 16, 32, 64, 128")
+	}
+
+	if c.KVCacheSize < 0 {
+		return errors.New("KV cache size cannot be negative")
+	}
 	return nil
 }
 
@@ -313,7 +337,13 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 	f.IntVar(&config.MinToolCallArrayParamLength, "min-tool-call-array-param-length", config.MinToolCallArrayParamLength, "Minimum possible length of array parameters in a tool call")
 	f.IntVar(&config.ToolCallNotRequiredParamProbability, "tool-call-not-required-param-probability", config.ToolCallNotRequiredParamProbability, "Probability to add a parameter, that is not required, in a tool call")
 	f.IntVar(&config.ObjectToolCallNotRequiredParamProbability, "object-tool-call-not-required-field-probability", config.ObjectToolCallNotRequiredParamProbability, "Probability to add a field, that is not required, in an object in a tool call")
+
 	f.BoolVar(&config.EnableKVCache, "enable-kvcache", config.EnableKVCache, "Defines if KV cache feature is enabled")
+	f.IntVar(&config.KVCacheSize, "kv-cache-size", config.KVCacheSize, "Maximum number of token blocks in kv cache")
+	f.IntVar(&config.TokenBlockSize, "block-size", config.TokenBlockSize, "Token block size for contiguous chunks of tokens, possible values: 8,16,32,64,128")
+	f.StringVar(&config.TokenizersCacheDir, "tokenizers-cache-dir", config.TokenizersCacheDir, "Directory for caching tokenizers")
+	f.StringVar(&config.HashSeed, "hash-seed", config.HashSeed, "Seed for hash generation (if not set, is read from PYTHONHASHSEED environment variable)")
+	f.StringVar(&config.ZMQEndpoint, "zmq-endpoint", config.ZMQEndpoint, "ZMQ address to publish events")
 
 	// These values were manually parsed above in getParamValueFromArgs, we leave this in order to get these flags in --help
 	var dummyString string
@@ -346,6 +376,13 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 	}
 	if servedModelNames != nil {
 		config.ServedModelNames = servedModelNames
+	}
+
+	if config.HashSeed == "" {
+		hashSeed := os.Getenv("PYTHONHASHSEED")
+		if hashSeed != "" {
+			config.HashSeed = hashSeed
+		}
 	}
 
 	if err := config.validate(); err != nil {

@@ -21,14 +21,10 @@ import (
 	"fmt"
 
 	"github.com/go-logr/logr"
+	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	"github.com/llm-d/llm-d-kv-cache-manager/pkg/kvcache/kvblock"
 	"github.com/llm-d/llm-d-kv-cache-manager/pkg/tokenization"
-)
-
-const (
-	// TODO move it to configuration
-	maxBlocks = 100
 )
 
 type KVCacheHelper struct {
@@ -38,12 +34,18 @@ type KVCacheHelper struct {
 	blockCache      *blockCache
 }
 
-func NewKVCacheHelper(logger logr.Logger) (*KVCacheHelper, error) {
-	// TODO update config by command line params
+func NewKVCacheHelper(config *common.Configuration, logger logr.Logger) (*KVCacheHelper, error) {
 	tokenProcConfig := kvblock.DefaultTokenProcessorConfig()
+	tokenProcConfig.BlockSize = config.TokenBlockSize
+	if config.HashSeed != "" {
+		tokenProcConfig.HashSeed = config.HashSeed
+	}
 	tokensProcessor := kvblock.NewChunkedTokenDatabase(tokenProcConfig)
 
 	tokenizationConfig := tokenization.DefaultConfig()
+	if config.TokenizersCacheDir != "" {
+		tokenizationConfig.TokenizersCacheDir = config.TokenizersCacheDir
+	}
 	tokenizer, err := tokenization.NewCachedHFTokenizer(tokenizationConfig.HFTokenizerConfig)
 
 	if err != nil {
@@ -53,7 +55,7 @@ func NewKVCacheHelper(logger logr.Logger) (*KVCacheHelper, error) {
 	return &KVCacheHelper{
 		tokenizer:       tokenizer,
 		tokensProcessor: tokensProcessor,
-		blockCache:      newBlockCache(maxBlocks, logger),
+		blockCache:      newBlockCache(config.KVCacheSize, logger),
 		logger:          logger,
 	}, nil
 }
