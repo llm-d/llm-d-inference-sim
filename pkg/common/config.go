@@ -297,7 +297,7 @@ func (c *Configuration) validate() error {
 		return errors.New("KV cache size cannot be negative")
 	}
 	if c.EventBatchSize < 0 {
-		return errors.New("Event batch size cannot be negative")
+		return errors.New("event batch size cannot be negative")
 	}
 	return nil
 }

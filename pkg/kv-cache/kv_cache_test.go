@@ -206,8 +206,7 @@ var _ = Describe("KV cache", Ordered, func() {
 				}
 
 				sub, topic := createSub(config)
-				defer sub.Close()
-
+				//nolint
 				defer sub.Close()
 
 				ctx, cancel := context.WithCancel(context.Background())
@@ -309,6 +308,7 @@ var _ = Describe("KV cache", Ordered, func() {
 			}
 
 			sub, topic := createSub(config)
+			//nolint
 			defer sub.Close()
 
 			ctx, cancel := context.WithCancel(context.Background())

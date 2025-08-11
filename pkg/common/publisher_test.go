@@ -44,6 +44,7 @@ var _ = Describe("Publisher", func() {
 		Expect(err).NotTo(HaveOccurred())
 		err = sub.SetSubscribe(topic)
 		Expect(err).NotTo(HaveOccurred())
+		//nolint
 		defer sub.Close()
 
 		time.Sleep(100 * time.Millisecond)
