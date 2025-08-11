@@ -103,11 +103,13 @@ var _ = Describe("Simulator configuration", func() {
 		"{\"name\":\"lora3\",\"path\":\"/path/to/lora3\"}",
 		"{\"name\":\"lora4\",\"path\":\"/path/to/lora4\"}",
 	}
+	c.EventBatchSize = 5
 	test = testCase{
 		name: "config file with command line args",
 		args: []string{"cmd", "--model", model, "--config", "../../manifests/config.yaml", "--port", "8002",
 			"--served-model-name", "alias1", "alias2", "--seed", "100",
 			"--lora-modules", "{\"name\":\"lora3\",\"path\":\"/path/to/lora3\"}", "{\"name\":\"lora4\",\"path\":\"/path/to/lora4\"}",
+			"--event-batch-size", "5",
 		},
 		expectedConfig: c,
 	}
@@ -289,6 +291,11 @@ var _ = Describe("Simulator configuration", func() {
 		{
 			name: "invalid block-size",
 			args: []string{"cmd", "--block-size", "35",
+				"--config", "../../manifests/config.yaml"},
+		},
+		{
+			name: "invalid (negative) event-batch-size",
+			args: []string{"cmd", "--event-batch-size", "-35",
 				"--config", "../../manifests/config.yaml"},
 		},
 	}

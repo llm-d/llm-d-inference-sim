@@ -23,11 +23,11 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 )
 
 const (
 	capacityError = "the kv cache does not have sufficient capacity to store this request"
-	batchSize     = 3
 	delay         = time.Second
 )
 
@@ -44,20 +44,24 @@ type blockCache struct {
 }
 
 // newBlockCache creates a new blockCache with the specified maximum number of blocks
-func newBlockCache(maxBlocks int, logger logr.Logger) *blockCache {
+func newBlockCache(config *common.Configuration, logger logr.Logger) (*blockCache, error) {
 	// TODO read size of channel from config
 	eChan := make(chan EventData, 10000)
+
+	publisher, err := common.NewPublisher(config.ZMQEndpoint)
+	if err != nil {
+		return nil, err
+	}
 
 	return &blockCache{
 		requestToBlocks: make(map[string][]uint64),
 		usedBlocks:      make(map[uint64]int),
 		unusedBlocks:    make(map[uint64]time.Time),
-		maxBlocks:       maxBlocks,
+		maxBlocks:       config.KVCacheSize,
 		eventChan:       eChan,
-		// TODO - create topic name from pod ip + model name
-		eventSender: NewKVEventSender(&Publisher{}, "topic1", eChan, batchSize, delay, logger),
-		logger:      logger,
-	}
+		eventSender:     NewKVEventSender(publisher, createTopic(config), eChan, config.EventBatchSize, delay, logger),
+		logger:          logger,
+	}, nil
 }
 
 func (b *blockCache) start(ctx context.Context) {
@@ -128,7 +132,7 @@ func (bc *blockCache) startRequest(requestID string, blocks []uint64) error {
 			}
 
 			delete(bc.unusedBlocks, oldestUnusedHash)
-			bc.eventChan <- EventData{action: eventActionRemove, hashValues: []uint64{block}}
+			bc.eventChan <- EventData{action: eventActionRemove, hashValues: []uint64{oldestUnusedHash}}
 		}
 
 		// Add the new block
@@ -213,4 +217,8 @@ func (bc *blockCache) getBlockInfo(blockHash uint64) (int, bool) {
 	}
 
 	return 0, false
+}
+
+func createTopic(config *common.Configuration) string {
+	return fmt.Sprintf("kv@$localhost:%d@%s", config.Port, config.Model)
 }
