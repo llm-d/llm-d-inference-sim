@@ -125,6 +125,8 @@ type Configuration struct {
 
 	// ZMQEndpoint is the ZMQ address to publish events, the default value is tcp://localhost:5557
 	ZMQEndpoint string `yaml:"zmq-endpoint"`
+	// EventBatchSize is the maximum number of kv-cache events to be sent together, defaults to 16
+	EventBatchSize int `yaml:"event-batch-size"`
 }
 
 type LoraModule struct {
@@ -183,6 +185,7 @@ func newConfig() *Configuration {
 		KVCacheSize:    1024,
 		TokenBlockSize: 16,
 		ZMQEndpoint:    "tcp://localhost:5557",
+		EventBatchSize: 16,
 	}
 }
 
@@ -293,6 +296,9 @@ func (c *Configuration) validate() error {
 	if c.KVCacheSize < 0 {
 		return errors.New("KV cache size cannot be negative")
 	}
+	if c.EventBatchSize < 1 {
+		return errors.New("event batch size cannot less than 1")
+	}
 	return nil
 }
 
@@ -344,6 +350,7 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 	f.StringVar(&config.TokenizersCacheDir, "tokenizers-cache-dir", config.TokenizersCacheDir, "Directory for caching tokenizers")
 	f.StringVar(&config.HashSeed, "hash-seed", config.HashSeed, "Seed for hash generation (if not set, is read from PYTHONHASHSEED environment variable)")
 	f.StringVar(&config.ZMQEndpoint, "zmq-endpoint", config.ZMQEndpoint, "ZMQ address to publish events")
+	f.IntVar(&config.EventBatchSize, "event-batch-size", config.EventBatchSize, "Maximum number of kv-cache events to be sent together")
 
 	// These values were manually parsed above in getParamValueFromArgs, we leave this in order to get these flags in --help
 	var dummyString string

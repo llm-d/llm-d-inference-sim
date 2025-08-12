@@ -16,11 +16,13 @@ limitations under the License.
 package kvcache
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-kv-cache-manager/pkg/kvcache/kvevents"
 	"github.com/vmihailenco/msgpack/v5"
 )
@@ -32,21 +34,18 @@ const (
 	eventActionRemove
 )
 
+const (
+	BlockStored  = "BlockStored"
+	BlockRemoved = "BlockRemoved"
+)
+
 type EventData struct {
 	action     EventAction
 	hashValues []uint64
 }
 
-type Publisher struct{}
-
-func (p *Publisher) PublishEvent(ctx context.Context, topic string, batch interface{}) error {
-	// mock implementation
-	fmt.Printf("Publish batch %#v\n", batch)
-	return nil
-}
-
 type KVEventSender struct {
-	publisher    *Publisher
+	publisher    *common.Publisher
 	topic        string
 	eventChan    chan EventData
 	maxBatchSize int
@@ -55,7 +54,8 @@ type KVEventSender struct {
 	logger       logr.Logger
 }
 
-func NewKVEventSender(publisher *Publisher, topic string, ch chan EventData, maxBatchSize int, delay time.Duration, logger logr.Logger) *KVEventSender {
+func NewKVEventSender(publisher *common.Publisher, topic string, ch chan EventData, maxBatchSize int,
+	delay time.Duration, logger logr.Logger) *KVEventSender {
 	return &KVEventSender{
 		publisher:    publisher,
 		topic:        topic,
@@ -90,14 +90,24 @@ func (s *KVEventSender) Run(ctx context.Context) error {
 			}
 
 			// Encode eventData's hash value to msgpack.RawMessage
-			var blockPayloadBytes msgpack.RawMessage
 			var err error
+			var payload bytes.Buffer
+			enc := msgpack.NewEncoder(&payload)
+			enc.UseArrayEncodedStructs(true)
 
 			switch eventData.action {
 			case eventActionStore:
-				blockPayloadBytes, err = msgpack.Marshal(kvevents.BlockStored{BlockHashes: eventData.hashValues})
+				bs := &kvevents.BlockStoredEvent{
+					TypeField:   BlockStored,
+					BlockStored: &kvevents.BlockStored{BlockHashes: eventData.hashValues},
+				}
+				err = enc.Encode(bs)
 			case eventActionRemove:
-				blockPayloadBytes, err = msgpack.Marshal(kvevents.BlockRemoved{BlockHashes: eventData.hashValues})
+				br := &kvevents.BlockRemovedEvent{
+					TypeField:    BlockRemoved,
+					BlockRemoved: &kvevents.BlockRemoved{BlockHashes: eventData.hashValues},
+				}
+				err = enc.Encode(br)
 			default:
 				return fmt.Errorf("invalid event action %d", eventData.action)
 			}
@@ -105,7 +115,7 @@ func (s *KVEventSender) Run(ctx context.Context) error {
 				return fmt.Errorf("failed to marshal value: %w", err)
 			}
 
-			s.batch = append(s.batch, blockPayloadBytes)
+			s.batch = append(s.batch, payload.Bytes())
 
 			// check if batch is big enough to be sent
 			if len(s.batch) >= s.maxBatchSize {
