@@ -34,6 +34,11 @@ const (
 	eventActionRemove
 )
 
+const (
+	BlockStored  = "BlockStored"
+	BlockRemoved = "BlockRemoved"
+)
+
 type EventData struct {
 	action     EventAction
 	hashValues []uint64
@@ -93,13 +98,13 @@ func (s *KVEventSender) Run(ctx context.Context) error {
 			switch eventData.action {
 			case eventActionStore:
 				bs := &kvevents.BlockStoredEvent{
-					TypeField:   "BlockStored",
+					TypeField:   BlockStored,
 					BlockStored: &kvevents.BlockStored{BlockHashes: eventData.hashValues},
 				}
 				err = enc.Encode(bs)
 			case eventActionRemove:
 				br := &kvevents.BlockRemovedEvent{
-					TypeField:    "BlockRemoved",
+					TypeField:    BlockRemoved,
 					BlockRemoved: &kvevents.BlockRemoved{BlockHashes: eventData.hashValues},
 				}
 				err = enc.Encode(br)
