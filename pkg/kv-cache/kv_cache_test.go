@@ -197,6 +197,8 @@ var _ = Describe("KV cache", Ordered, func() {
 
 		for _, test := range testCases {
 			It(test.name, func() {
+				time.Sleep(300 * time.Millisecond)
+
 				config := &common.Configuration{
 					Port:           1234,
 					Model:          "model",
