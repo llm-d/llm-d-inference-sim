@@ -188,6 +188,13 @@ To run the vLLM simulator in a Kubernetes cluster, run:
 kubectl apply -f manifests/deployment.yaml
 ```
 
+When testing locally with kind, build the docker image with `make build-image` then load into the cluster:
+```shell
+kind load --name kind docker-image ghcr.io/llm-d/llm-d-inference-sim:dev
+```
+
+Update the `deployment.yaml` file to use the dev tag. 
+
 To verify the deployment is available, run:
 ```bash
 kubectl get deployment vllm-llama3-8b-instruct
