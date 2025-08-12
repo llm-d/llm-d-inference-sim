@@ -453,30 +453,84 @@ var _ = Describe("Simulator", func() {
 			Expect(apiErr.StatusCode).To(Equal(400))
 		})
 
-		It("Should accept requests within context window", func() {
+		It("Should accept requests within context window and set pod/namespace headers", func() {
 			ctx := context.TODO()
-			// Start server with max-model-len=50
+
+			// Create simulator with custom runtime context to test headers
+			oldArgs := os.Args
+			defer func() {
+				os.Args = oldArgs
+			}()
 			args := []string{"cmd", "--model", model, "--mode", common.ModeEcho, "--max-model-len", "50"}
-			client, err := startServerWithArgs(ctx, common.ModeEcho, args)
+			os.Args = args
+
+			logger := klog.Background()
+			s, err := New(logger)
 			Expect(err).NotTo(HaveOccurred())
 
-			openaiclient := openai.NewClient(
-				option.WithBaseURL(baseURL),
-				option.WithHTTPClient(client),
-			)
+			// Set up the context with test values
+			testPodName := "testPod"
+			testNamespace := "testNamespace"
+			s.context = RuntimeContext{
+				Namespace: testNamespace,
+				Pod:       testPodName,
+			}
 
-			// Send a request within the context window
-			resp, err := openaiclient.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
-				Messages: []openai.ChatCompletionMessageParamUnion{
-					openai.UserMessage("Hello"),
+			config, err := common.ParseCommandParamsAndLoadConfig()
+			Expect(err).NotTo(HaveOccurred())
+			s.config = config
+
+			for _, lora := range config.LoraModules {
+				s.loraAdaptors.Store(lora.Name, "")
+			}
+
+			common.InitRandom(s.config.Seed)
+
+			// run request processing workers
+			for i := 1; i <= s.config.MaxNumSeqs; i++ {
+				go s.reqProcessingWorker(ctx, i)
+			}
+
+			listener := fasthttputil.NewInmemoryListener()
+
+			// start the http server
+			go func() {
+				if err := s.startServer(listener); err != nil {
+					logger.Error(err, "error starting server")
+				}
+			}()
+
+			client := &http.Client{
+				Transport: &http.Transport{
+					DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
+						return listener.Dial()
+					},
 				},
-				Model:     model,
-				MaxTokens: openai.Int(5),
-			})
+			}
 
+			// Send a request within the context window using raw HTTP to access headers
+			reqBody := `{
+				"messages": [{"role": "user", "content": "Hello"}],
+				"model": "` + model + `",
+				"max_tokens": 5
+			}`
+
+			resp, err := client.Post("http://localhost/v1/chat/completions", "application/json", strings.NewReader(reqBody))
 			Expect(err).NotTo(HaveOccurred())
-			Expect(resp.Choices).To(HaveLen(1))
-			Expect(resp.Model).To(Equal(model))
+			defer func() {
+				err := resp.Body.Close()
+				Expect(err).NotTo(HaveOccurred())
+			}()
+
+			// Check response status is OK
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+			// Verify pod name and namespace headers are present
+			podHeader := resp.Header.Get("pod")
+			namespaceHeader := resp.Header.Get("namespace")
+
+			Expect(podHeader).To(Equal(testPodName))
+			Expect(namespaceHeader).To(Equal(testNamespace))
 		})
 
 		It("Should handle text completion requests exceeding context window", func() {

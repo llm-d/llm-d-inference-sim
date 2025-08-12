@@ -156,6 +156,8 @@ make image-build
 Please note that the default image tag is `ghcr.io/llm-d/llm-d-inference-sim:dev`. <br>
 The following environment variables can be used to change the image tag: `REGISTRY`, `SIM_TAG`, `IMAGE_TAG_BASE` or `IMG`.
 
+Note: On macOS, use `make image-build TARGETOS=linux` to pull the correct base image.
+
 ### Running
 To run the vLLM Simulator image under Docker, run:
 ```bash
