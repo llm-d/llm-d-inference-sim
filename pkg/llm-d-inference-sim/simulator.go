@@ -47,21 +47,10 @@ const (
 	textCompletionObject      = "text_completion"
 	chatCompletionObject      = "chat.completion"
 	chatCompletionChunkObject = "chat.completion.chunk"
+
+	podHeader       = "x-inference-pod"
+	namespaceHeader = "x-inference-namespace"
 )
-
-// RuntimeContext contains information about the context where the simulator is running
-type RuntimeContext struct {
-	Namespace string `json:"namespace"`
-	Pod       string `json:"pod"`
-}
-
-// newRuntimeContext creates a new RuntimeContext instance from environment variables
-func newRuntimeContext() RuntimeContext {
-	return RuntimeContext{
-		Namespace: os.Getenv("POD_NAMESPACE"),
-		Pod:       os.Getenv("POD_NAME"),
-	}
-}
 
 // VllmSimulator simulates vLLM server supporting OpenAI API
 type VllmSimulator struct {
@@ -69,8 +58,6 @@ type VllmSimulator struct {
 	logger logr.Logger
 	// config is the simulator's configuration
 	config *common.Configuration
-	// context contains information about the runtime environment
-	context RuntimeContext
 	// loraAdaptors contains list of LoRA available adaptors
 	loraAdaptors sync.Map
 	// runningLoras is a collection of running loras, key of lora's name, value is number of requests using this lora
@@ -96,6 +83,10 @@ type VllmSimulator struct {
 	toolsValidator *openaiserverapi.Validator
 	// kv cache functionality
 	kvcacheHelper *kvcache.KVCacheHelper
+	// namespace where simulator is running
+	Namespace string
+	// pod name of simulator
+	Pod string
 }
 
 // New creates a new VllmSimulator instance with the given logger
@@ -107,10 +98,11 @@ func New(logger logr.Logger) (*VllmSimulator, error) {
 
 	return &VllmSimulator{
 		logger:         logger,
-		context:        newRuntimeContext(),
 		reqChan:        make(chan *openaiserverapi.CompletionReqCtx, 1000),
 		toolsValidator: toolsValidtor,
 		kvcacheHelper:  nil, // kvcache helper will be created only if required after reading configuration
+		Namespace:      os.Getenv("POD_NAMESPACE"),
+		Pod:            os.Getenv("POD_NAME"),
 	}, nil
 }
 
@@ -620,11 +612,11 @@ func (s *VllmSimulator) sendResponse(isChatCompletion bool, ctx *fasthttp.Reques
 	ctx.Response.Header.SetContentType("application/json")
 	ctx.Response.Header.SetStatusCode(fasthttp.StatusOK)
 	// Add pod and namespace information to response headers for testing/debugging
-	if s.context.Pod != "" {
-		ctx.Response.Header.Add("pod", s.context.Pod)
+	if s.Pod != "" {
+		ctx.Response.Header.Add(podHeader, s.Pod)
 	}
-	if s.context.Namespace != "" {
-		ctx.Response.Header.Add("namespace", s.context.Namespace)
+	if s.Namespace != "" {
+		ctx.Response.Header.Add(namespaceHeader, s.Namespace)
 	}
 	ctx.Response.SetBody(data)
 
