@@ -50,6 +50,8 @@ const (
 
 	podHeader       = "x-inference-pod"
 	namespaceHeader = "x-inference-namespace"
+	podNameEnv      = "POD_NAME"
+	podNsEnv        = "POD_NAMESPACE"
 )
 
 // VllmSimulator simulates vLLM server supporting OpenAI API
@@ -101,8 +103,8 @@ func New(logger logr.Logger) (*VllmSimulator, error) {
 		reqChan:        make(chan *openaiserverapi.CompletionReqCtx, 1000),
 		toolsValidator: toolsValidtor,
 		kvcacheHelper:  nil, // kvcache helper will be created only if required after reading configuration
-		Namespace:      os.Getenv("POD_NAMESPACE"),
-		Pod:            os.Getenv("POD_NAME"),
+		Namespace:      os.Getenv(podNsEnv),
+		Pod:            os.Getenv(podNameEnv),
 	}, nil
 }
 

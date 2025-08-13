@@ -103,23 +103,23 @@ func startServerCommon(ctx context.Context, args []string) (*http.Client, error)
 
 func startServerWithContext(ctx context.Context, mode string, namespace, pod string) (*http.Client, error) {
 	// Set environment variables for pod name and namespace
-	oldPodName := os.Getenv("POD_NAME")
-	oldPodNamespace := os.Getenv("POD_NAMESPACE")
+	oldPodName := os.Getenv(podNameEnv)
+	oldPodNamespace := os.Getenv(podNsEnv)
 
-	os.Setenv("POD_NAME", pod)
-	os.Setenv("POD_NAMESPACE", namespace)
+	os.Setenv(podNameEnv, pod)
+	os.Setenv(podNsEnv, namespace)
 
 	defer func() {
 		// Unset or restore original environment variables
 		if oldPodName == "" {
-			os.Unsetenv("POD_NAME")
+			os.Unsetenv(podNameEnv)
 		} else {
-			os.Setenv("POD_NAME", oldPodName)
+			os.Setenv(podNameEnv, oldPodName)
 		}
 		if oldPodNamespace == "" {
-			os.Unsetenv("POD_NAMESPACE")
+			os.Unsetenv(podNsEnv)
 		} else {
-			os.Setenv("POD_NAMESPACE", oldPodNamespace)
+			os.Setenv(podNsEnv, oldPodNamespace)
 		}
 	}()
 
