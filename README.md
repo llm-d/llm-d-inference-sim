@@ -29,9 +29,10 @@ In addition, it supports a subset of vLLM's Prometheus metrics. These metrics ar
 
 The simulated inference has no connection with the model and LoRA adapters specified in the command line parameters or via the /v1/load_lora_adapter HTTP REST endpoint. The /v1/models endpoint returns simulated results based on those same command line parameters and those loaded via the /v1/load_lora_adapter HTTP REST endpoint.
 
-The simulator supports two modes of operation:
+The simulator supports three modes of operation:
 - `echo` mode: the response contains the same text that was received in the request. For `/v1/chat/completions` the last message for the role=`user` is used.
 - `random` mode: the response is randomly chosen from a set of pre-defined sentences.
+- `failure` mode: randomly injects OpenAI API compatible error responses for testing error handling.
 
 Timing of the response is defined by the `time-to-first-token` and `inter-token-latency` parameters. In case P/D is enabled for a request, `kv-cache-transfer-latency` will be used instead of `time-to-first-token`.
 
@@ -101,6 +102,7 @@ For more details see the <a href="https://docs.vllm.ai/en/stable/getting_started
 - `mode`: the simulator mode, optional, by default `random`
     - `echo`: returns the same text that was sent in the request
     - `random`: returns a sentence chosen at random from a set of pre-defined sentences
+    - `failure`: randomly injects OpenAI API compatible error responses
 - `time-to-first-token`: the time to the first token (in milliseconds), optional, by default zero
 - `time-to-first-token-std-dev`: standard deviation for time before the first token will be returned, in milliseconds, optional, default is 0, can't be more than 30% of `time-to-first-token`, will not cause the actual time to first token to differ by more than 70% from `time-to-first-token`
 - `inter-token-latency`: the time to 'generate' each additional token (in milliseconds), optional, by default zero
@@ -122,6 +124,8 @@ For more details see the <a href="https://docs.vllm.ai/en/stable/getting_started
 - `tokenizers-cache-dir`: the directory for caching tokenizers
 - `hash-seed`: seed for hash generation (if not set, is read from PYTHONHASHSEED environment variable)
 - `zmq-endpoint`: ZMQ address to publish events
+- `failure-injection-rate`: probability (0-100) of injecting failures when in failure mode, optional, default is 10
+- `failure-types`: list of specific failure types to inject (rate_limit, invalid_api_key, context_length, server_error, invalid_request, model_not_found), optional, if empty all types are used
 
 In addition, as we are using klog, the following parameters are available:
 - `add_dir_header`: if true, adds the file directory to the header of the log messages

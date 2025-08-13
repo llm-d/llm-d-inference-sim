@@ -208,14 +208,17 @@ type ChatRespChunkChoice struct {
 
 // CompletionError defines the simulator's response in case of an error
 type CompletionError struct {
-	// Object is a type of this Object, "error"
-	Object string `json:"object"`
 	// Message is an error Message
 	Message string `json:"message"`
 	// Type is a type of the error
 	Type string `json:"type"`
-	// Params is the error's parameters
+	// Param is the error's parameter
 	Param *string `json:"param"`
-	// Code is http status Code
-	Code int `json:"code"`
+	// Code is the error code string
+	Code string `json:"code,omitempty"`
+}
+
+// ErrorResponse wraps the error in the expected OpenAI format
+type ErrorResponse struct {
+	Error CompletionError `json:"error"`
 }

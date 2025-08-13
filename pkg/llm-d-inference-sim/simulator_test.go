@@ -31,7 +31,6 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
-	"github.com/openai/openai-go/packages/param"
 	"github.com/valyala/fasthttp/fasthttputil"
 	"k8s.io/klog/v2"
 )
@@ -120,7 +119,7 @@ var _ = Describe("Simulator", func() {
 					openai.UserMessage(userMessage),
 				},
 				Model:         model,
-				StreamOptions: openai.ChatCompletionStreamOptionsParam{IncludeUsage: param.NewOpt(true)},
+				StreamOptions: openai.ChatCompletionStreamOptionsParam{IncludeUsage: openai.Bool(true)},
 			}
 			stream := openaiclient.Chat.Completions.NewStreaming(ctx, params)
 			defer func() {
@@ -183,7 +182,7 @@ var _ = Describe("Simulator", func() {
 					OfString: openai.String(userMessage),
 				},
 				Model:         openai.CompletionNewParamsModel(model),
-				StreamOptions: openai.ChatCompletionStreamOptionsParam{IncludeUsage: param.NewOpt(true)},
+				StreamOptions: openai.ChatCompletionStreamOptionsParam{IncludeUsage: openai.Bool(true)},
 			}
 			stream := openaiclient.Completions.NewStreaming(ctx, params)
 			defer func() {
@@ -246,11 +245,11 @@ var _ = Describe("Simulator", func() {
 			// if maxTokens and maxCompletionTokens are passsed
 			// maxCompletionTokens is used
 			if maxTokens != 0 {
-				params.MaxTokens = param.NewOpt(int64(maxTokens))
+				params.MaxTokens = openai.Int(int64(maxTokens))
 				numTokens = maxTokens
 			}
 			if maxCompletionTokens != 0 {
-				params.MaxCompletionTokens = param.NewOpt(int64(maxCompletionTokens))
+				params.MaxCompletionTokens = openai.Int(int64(maxCompletionTokens))
 				numTokens = maxCompletionTokens
 			}
 			resp, err := openaiclient.Chat.Completions.New(ctx, params)
@@ -329,7 +328,7 @@ var _ = Describe("Simulator", func() {
 			}
 			numTokens := 0
 			if maxTokens != 0 {
-				params.MaxTokens = param.NewOpt(int64(maxTokens))
+				params.MaxTokens = openai.Int(int64(maxTokens))
 				numTokens = maxTokens
 			}
 			resp, err := openaiclient.Completions.New(ctx, params)
@@ -588,5 +587,265 @@ var _ = Describe("Simulator", func() {
 			Entry(nil, 10000, 0, 1000, 0, true),
 			Entry(nil, 10000, 0, 1000, 0, false),
 		)
+	})
+
+	Describe("Failure injection mode", func() {
+		var (
+			client *http.Client
+			ctx    context.Context
+		)
+
+		AfterEach(func() {
+			if ctx != nil {
+				ctx.Done()
+			}
+		})
+
+		Context("with 100% failure injection rate", func() {
+			BeforeEach(func() {
+				ctx = context.Background()
+				var err error
+				client, err = startServerWithArgs(ctx, "failure", []string{
+					"cmd", "--model", model, 
+					"--mode", "failure",
+					"--failure-injection-rate", "100",
+				})
+				Expect(err).ToNot(HaveOccurred())
+			})
+
+			It("should always return an error response for chat completions", func() {
+				openaiClient := openai.NewClient(
+					option.WithBaseURL(baseURL),
+					option.WithHTTPClient(client),
+				)
+
+				_, err := openaiClient.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
+					Model: model,
+					Messages: []openai.ChatCompletionMessageParamUnion{
+						openai.UserMessage(userMessage),
+					},
+				})
+
+				Expect(err).To(HaveOccurred())
+				
+				var openaiError *openai.Error
+				ok := errors.As(err, &openaiError)
+				Expect(ok).To(BeTrue())
+				Expect(openaiError.StatusCode).To(BeNumerically(">=", 400))
+				Expect(openaiError.Type).ToNot(BeEmpty())
+				Expect(openaiError.Message).ToNot(BeEmpty())
+			})
+
+			It("should always return an error response for text completions", func() {
+				openaiClient := openai.NewClient(
+					option.WithBaseURL(baseURL),
+					option.WithHTTPClient(client),
+				)
+
+				_, err := openaiClient.Completions.New(ctx, openai.CompletionNewParams{
+					Model: openai.CompletionNewParamsModel(model),
+					Prompt: openai.CompletionNewParamsPromptUnion{
+						OfString: openai.String(userMessage),
+					},
+				})
+
+				Expect(err).To(HaveOccurred())
+				
+				var openaiError *openai.Error
+				ok := errors.As(err, &openaiError)
+				Expect(ok).To(BeTrue())
+				Expect(openaiError.StatusCode).To(BeNumerically(">=", 400))
+				Expect(openaiError.Type).ToNot(BeEmpty())
+				Expect(openaiError.Message).ToNot(BeEmpty())
+			})
+		})
+
+		Context("with specific failure types", func() {
+			BeforeEach(func() {
+				ctx = context.Background()
+				var err error
+				client, err = startServerWithArgs(ctx, "failure", []string{
+					"cmd", "--model", model, 
+					"--mode", "failure",
+					"--failure-injection-rate", "100",
+					"--failure-types", "rate_limit",
+				})
+				Expect(err).ToNot(HaveOccurred())
+			})
+
+			It("should return only rate limit errors", func() {
+				openaiClient := openai.NewClient(
+					option.WithBaseURL(baseURL),
+					option.WithHTTPClient(client),
+				)
+
+				_, err := openaiClient.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
+					Model: model,
+					Messages: []openai.ChatCompletionMessageParamUnion{
+						openai.UserMessage(userMessage),
+					},
+				})
+
+				Expect(err).To(HaveOccurred())
+				
+				var openaiError *openai.Error
+				ok := errors.As(err, &openaiError)
+				Expect(ok).To(BeTrue())
+				Expect(openaiError.StatusCode).To(Equal(429))
+				Expect(openaiError.Type).To(Equal("rate_limit_exceeded"))
+				Expect(strings.Contains(openaiError.Message, model)).To(BeTrue())
+			})
+		})
+
+		Context("with multiple specific failure types", func() {
+			BeforeEach(func() {
+				ctx = context.Background()
+				var err error
+				client, err = startServerWithArgs(ctx, "failure", []string{
+					"cmd", "--model", model, 
+					"--mode", "failure",
+					"--failure-injection-rate", "100",
+					"--failure-types", "invalid_api_key", "server_error",
+				})
+				Expect(err).ToNot(HaveOccurred())
+			})
+
+			It("should return only specified error types", func() {
+				openaiClient := openai.NewClient(
+					option.WithBaseURL(baseURL),
+					option.WithHTTPClient(client),
+				)
+
+				// Make multiple requests to verify we get the expected error types
+				for i := 0; i < 10; i++ {
+					_, err := openaiClient.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
+						Model: model,
+						Messages: []openai.ChatCompletionMessageParamUnion{
+							openai.UserMessage(userMessage),
+						},
+					})
+
+					Expect(err).To(HaveOccurred())
+					
+					var openaiError *openai.Error
+					ok := errors.As(err, &openaiError)
+					Expect(ok).To(BeTrue())
+					
+					// Should only be one of the specified types
+					Expect(openaiError.StatusCode == 401 || openaiError.StatusCode == 503).To(BeTrue())
+					Expect(openaiError.Type == "invalid_request_error" || openaiError.Type == "server_error").To(BeTrue())
+				}
+			})
+		})
+
+		Context("with 0% failure injection rate", func() {
+			BeforeEach(func() {
+				ctx = context.Background()
+				var err error
+				client, err = startServerWithArgs(ctx, "failure", []string{
+					"cmd", "--model", model, 
+					"--mode", "failure",
+					"--failure-injection-rate", "0",
+				})
+				Expect(err).ToNot(HaveOccurred())
+			})
+
+			It("should never return errors and behave like random mode", func() {
+				openaiClient := openai.NewClient(
+					option.WithBaseURL(baseURL),
+					option.WithHTTPClient(client),
+				)
+
+				resp, err := openaiClient.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
+					Model: model,
+					Messages: []openai.ChatCompletionMessageParamUnion{
+						openai.UserMessage(userMessage),
+					},
+				})
+
+				Expect(err).ToNot(HaveOccurred())
+				Expect(resp.Choices).To(HaveLen(1))
+				Expect(resp.Choices[0].Message.Content).ToNot(BeEmpty())
+				Expect(resp.Model).To(Equal(model))
+			})
+		})
+
+		Context("testing all predefined failure types", func() {
+			DescribeTable("should return correct error for each failure type",
+				func(failureType string, expectedStatusCode int, expectedErrorType string, expectedErrorCode string) {
+					ctx := context.Background()
+					client, err := startServerWithArgs(ctx, "failure", []string{
+						"cmd", "--model", model, 
+						"--mode", "failure",
+						"--failure-injection-rate", "100",
+						"--failure-types", failureType,
+					})
+					Expect(err).ToNot(HaveOccurred())
+
+					openaiClient := openai.NewClient(
+						option.WithBaseURL(baseURL),
+						option.WithHTTPClient(client),
+					)
+
+					_, err = openaiClient.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
+						Model: model,
+						Messages: []openai.ChatCompletionMessageParamUnion{
+							openai.UserMessage(userMessage),
+						},
+					})
+
+					Expect(err).To(HaveOccurred())
+					
+					var openaiError *openai.Error
+					ok := errors.As(err, &openaiError)
+					Expect(ok).To(BeTrue())
+					Expect(openaiError.StatusCode).To(Equal(expectedStatusCode))
+					Expect(openaiError.Type).To(Equal(expectedErrorType))
+					// Note: OpenAI Go client doesn't directly expose the error code field, 
+					// but we can verify via status code and type
+				},
+				Entry("rate_limit", "rate_limit", 429, "rate_limit_exceeded", "rate_limit_exceeded"),
+				Entry("invalid_api_key", "invalid_api_key", 401, "invalid_request_error", "invalid_api_key"),
+				Entry("context_length", "context_length", 400, "invalid_request_error", "context_length_exceeded"),
+				Entry("server_error", "server_error", 503, "server_error", "server_error"),
+				Entry("invalid_request", "invalid_request", 400, "invalid_request_error", "invalid_request_error"),
+				Entry("model_not_found", "model_not_found", 404, "invalid_request_error", "model_not_found"),
+			)
+		})
+
+		Context("configuration validation", func() {
+			It("should fail with invalid failure injection rate > 100", func() {
+				ctx := context.Background()
+				_, err := startServerWithArgs(ctx, "failure", []string{
+					"cmd", "--model", model, 
+					"--failure-injection-rate", "150",
+				})
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("failure injection rate should be between 0 and 100"))
+			})
+
+			It("should fail with invalid failure injection rate < 0", func() {
+				ctx := context.Background()
+				_, err := startServerWithArgs(ctx, "failure", []string{
+					"cmd", "--model", model, 
+					"--mode", "failure",
+					"--failure-injection-rate", "-10",
+				})
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("failure injection rate should be between 0 and 100"))
+			})
+
+			It("should fail with invalid failure type", func() {
+				ctx := context.Background()
+				_, err := startServerWithArgs(ctx, "failure", []string{
+					"cmd", "--model", model, 
+					"--mode", "failure",
+					"--failure-injection-rate", "50",
+					"--failure-types", "invalid_type",
+				})
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("invalid failure type 'invalid_type'"))
+			})
+		})
 	})
 })

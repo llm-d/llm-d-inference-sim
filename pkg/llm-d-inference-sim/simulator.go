@@ -291,6 +291,13 @@ func (s *VllmSimulator) isLora(model string) bool {
 
 // handleCompletions general completion requests handler, support both text and chat completion APIs
 func (s *VllmSimulator) handleCompletions(ctx *fasthttp.RequestCtx, isChatCompletion bool) {
+	// Check if we should inject a failure
+	if common.ShouldInjectFailure(s.config) {
+		failure := common.GetRandomFailure(s.config)
+		s.sendFailureResponse(ctx, failure)
+		return
+	}
+
 	vllmReq, err := s.readRequest(ctx, isChatCompletion)
 	if err != nil {
 		s.logger.Error(err, "failed to read and parse request body")
@@ -485,20 +492,41 @@ func (s *VllmSimulator) responseSentCallback(model string) {
 // sendCompletionError sends an error response for the current completion request
 func (s *VllmSimulator) sendCompletionError(ctx *fasthttp.RequestCtx, msg string, errType string, code int) {
 	compErr := openaiserverapi.CompletionError{
-		Object:  "error",
 		Message: msg,
 		Type:    errType,
-		Code:    code,
+		Code:    "",
 		Param:   nil,
 	}
+	errorResp := openaiserverapi.ErrorResponse{Error: compErr}
 	s.logger.Error(nil, compErr.Message)
 
-	data, err := json.Marshal(compErr)
+	data, err := json.Marshal(errorResp)
 	if err != nil {
 		ctx.Error(err.Error(), fasthttp.StatusInternalServerError)
 	} else {
 		ctx.SetContentType("application/json")
 		ctx.SetStatusCode(code)
+		ctx.SetBody(data)
+	}
+}
+
+// sendFailureResponse sends a predefined failure response for testing
+func (s *VllmSimulator) sendFailureResponse(ctx *fasthttp.RequestCtx, failure common.FailureSpec) {
+	compErr := openaiserverapi.CompletionError{
+		Message: failure.Message,
+		Type:    failure.ErrorType,
+		Code:    failure.ErrorCode,
+		Param:   failure.Param,
+	}
+	errorResp := openaiserverapi.ErrorResponse{Error: compErr}
+	s.logger.Info("Injecting failure", "type", failure.ErrorType, "message", failure.Message)
+
+	data, err := json.Marshal(errorResp)
+	if err != nil {
+		ctx.Error(err.Error(), fasthttp.StatusInternalServerError)
+	} else {
+		ctx.SetContentType("application/json")
+		ctx.SetStatusCode(failure.StatusCode)
 		ctx.SetBody(data)
 	}
 }

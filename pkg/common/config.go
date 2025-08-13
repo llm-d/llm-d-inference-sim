@@ -34,6 +34,7 @@ const (
 	vLLMDefaultPort = 8000
 	ModeRandom      = "random"
 	ModeEcho        = "echo"
+	ModeFailure     = "failure"
 )
 
 type Configuration struct {
@@ -127,6 +128,11 @@ type Configuration struct {
 	ZMQEndpoint string `yaml:"zmq-endpoint"`
 	// EventBatchSize is the maximum number of kv-cache events to be sent together, defaults to 16
 	EventBatchSize int `yaml:"event-batch-size"`
+
+	// FailureInjectionRate is the probability (0-100) of injecting failures when in failure mode
+	FailureInjectionRate int `yaml:"failure-injection-rate"`
+	// FailureTypes is a list of specific failure types to inject (empty means all types)
+	FailureTypes []string `yaml:"failure-types"`
 }
 
 type LoraModule struct {
@@ -182,10 +188,12 @@ func newConfig() *Configuration {
 		MinToolCallArrayParamLength:         1,
 		ToolCallNotRequiredParamProbability: 50,
 		ObjectToolCallNotRequiredParamProbability: 50,
-		KVCacheSize:    1024,
-		TokenBlockSize: 16,
-		ZMQEndpoint:    "tcp://localhost:5557",
-		EventBatchSize: 16,
+		KVCacheSize:        1024,
+		TokenBlockSize:     16,
+		ZMQEndpoint:        "tcp://localhost:5557",
+		EventBatchSize:     16,
+		FailureInjectionRate: 10,
+		FailureTypes:       []string{},
 	}
 }
 
@@ -213,8 +221,8 @@ func (c *Configuration) validate() error {
 		c.ServedModelNames = []string{c.Model}
 	}
 
-	if c.Mode != ModeEcho && c.Mode != ModeRandom {
-		return fmt.Errorf("invalid mode '%s', valid values are 'random' and 'echo'", c.Mode)
+	if c.Mode != ModeEcho && c.Mode != ModeRandom && c.Mode != ModeFailure {
+		return fmt.Errorf("invalid mode '%s', valid values are 'random', 'echo', and 'failure'", c.Mode)
 	}
 	if c.Port <= 0 {
 		return fmt.Errorf("invalid port '%d'", c.Port)
@@ -299,6 +307,25 @@ func (c *Configuration) validate() error {
 	if c.EventBatchSize < 1 {
 		return errors.New("event batch size cannot less than 1")
 	}
+
+	if c.FailureInjectionRate < 0 || c.FailureInjectionRate > 100 {
+		return errors.New("failure injection rate should be between 0 and 100")
+	}
+
+	validFailureTypes := map[string]bool{
+		"rate_limit":        true,
+		"invalid_api_key":   true,
+		"context_length":    true,
+		"server_error":      true,
+		"invalid_request":   true,
+		"model_not_found":   true,
+	}
+	for _, failureType := range c.FailureTypes {
+		if !validFailureTypes[failureType] {
+			return fmt.Errorf("invalid failure type '%s', valid types are: rate_limit, invalid_api_key, context_length, server_error, invalid_request, model_not_found", failureType)
+		}
+	}
+
 	return nil
 }
 
@@ -326,7 +353,7 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 	f.IntVar(&config.MaxCPULoras, "max-cpu-loras", config.MaxCPULoras, "Maximum number of LoRAs to store in CPU memory")
 	f.IntVar(&config.MaxModelLen, "max-model-len", config.MaxModelLen, "Model's context window, maximum number of tokens in a single request including input and output")
 
-	f.StringVar(&config.Mode, "mode", config.Mode, "Simulator mode, echo - returns the same text that was sent in the request, for chat completion returns the last message, random - returns random sentence from a bank of pre-defined sentences")
+	f.StringVar(&config.Mode, "mode", config.Mode, "Simulator mode: echo - returns the same text that was sent in the request, for chat completion returns the last message; random - returns random sentence from a bank of pre-defined sentences; failure - randomly injects API errors")
 	f.IntVar(&config.InterTokenLatency, "inter-token-latency", config.InterTokenLatency, "Time to generate one token (in milliseconds)")
 	f.IntVar(&config.TimeToFirstToken, "time-to-first-token", config.TimeToFirstToken, "Time to first token (in milliseconds)")
 	f.IntVar(&config.KVCacheTransferLatency, "kv-cache-transfer-latency", config.KVCacheTransferLatency, "Time for KV-cache transfer from a remote vLLM (in milliseconds)")
@@ -351,6 +378,13 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 	f.StringVar(&config.HashSeed, "hash-seed", config.HashSeed, "Seed for hash generation (if not set, is read from PYTHONHASHSEED environment variable)")
 	f.StringVar(&config.ZMQEndpoint, "zmq-endpoint", config.ZMQEndpoint, "ZMQ address to publish events")
 	f.IntVar(&config.EventBatchSize, "event-batch-size", config.EventBatchSize, "Maximum number of kv-cache events to be sent together")
+	
+	f.IntVar(&config.FailureInjectionRate, "failure-injection-rate", config.FailureInjectionRate, "Probability (0-100) of injecting failures when in failure mode")
+
+	failureTypes := getParamValueFromArgs("failure-types")
+	var dummyFailureTypes multiString
+	f.Var(&dummyFailureTypes, "failure-types", "List of specific failure types to inject (rate_limit, invalid_api_key, context_length, server_error, invalid_request, model_not_found)")
+	f.Lookup("failure-types").NoOptDefVal = "dummy"
 
 	// These values were manually parsed above in getParamValueFromArgs, we leave this in order to get these flags in --help
 	var dummyString string
@@ -383,6 +417,9 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 	}
 	if servedModelNames != nil {
 		config.ServedModelNames = servedModelNames
+	}
+	if failureTypes != nil {
+		config.FailureTypes = failureTypes
 	}
 
 	if config.HashSeed == "" {
