@@ -33,7 +33,7 @@ var _ = Describe("Simulator with seed", func() {
 		func() {
 			ctx := context.TODO()
 			client, err := startServerWithArgs(ctx, common.ModeRandom,
-				[]string{"cmd", "--model", model, "--mode", common.ModeRandom, "--seed", "100"})
+				[]string{"cmd", "--model", model, "--mode", common.ModeRandom, "--seed", "100"}, nil)
 			Expect(err).NotTo(HaveOccurred())
 
 			openaiclient := openai.NewClient(

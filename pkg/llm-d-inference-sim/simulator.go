@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -46,6 +47,11 @@ const (
 	textCompletionObject      = "text_completion"
 	chatCompletionObject      = "chat.completion"
 	chatCompletionChunkObject = "chat.completion.chunk"
+
+	podHeader       = "x-inference-pod"
+	namespaceHeader = "x-inference-namespace"
+	podNameEnv      = "POD_NAME"
+	podNsEnv        = "POD_NAMESPACE"
 )
 
 // VllmSimulator simulates vLLM server supporting OpenAI API
@@ -79,6 +85,10 @@ type VllmSimulator struct {
 	toolsValidator *openaiserverapi.Validator
 	// kv cache functionality
 	kvcacheHelper *kvcache.KVCacheHelper
+	// namespace where simulator is running
+	namespace string
+	// pod name of simulator
+	pod string
 }
 
 // New creates a new VllmSimulator instance with the given logger
@@ -93,6 +103,8 @@ func New(logger logr.Logger) (*VllmSimulator, error) {
 		reqChan:        make(chan *openaiserverapi.CompletionReqCtx, 1000),
 		toolsValidator: toolsValidtor,
 		kvcacheHelper:  nil, // kvcache helper will be created only if required after reading configuration
+		namespace:      os.Getenv(podNsEnv),
+		pod:            os.Getenv(podNameEnv),
 	}, nil
 }
 
@@ -599,9 +611,15 @@ func (s *VllmSimulator) sendResponse(isChatCompletion bool, ctx *fasthttp.Reques
 	totalMillisToWait := s.getTimeToFirstToken(doRemotePrefill) + s.getTotalInterTokenLatency(numOfTokens)
 	time.Sleep(time.Duration(totalMillisToWait) * time.Millisecond)
 
-	// TODO - maybe add pod id to response header for testing
 	ctx.Response.Header.SetContentType("application/json")
 	ctx.Response.Header.SetStatusCode(fasthttp.StatusOK)
+	// Add pod and namespace information to response headers for testing/debugging
+	if s.pod != "" {
+		ctx.Response.Header.Add(podHeader, s.pod)
+	}
+	if s.namespace != "" {
+		ctx.Response.Header.Add(namespaceHeader, s.namespace)
+	}
 	ctx.Response.SetBody(data)
 
 	s.responseSentCallback(modelName)

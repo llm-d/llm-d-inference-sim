@@ -36,7 +36,7 @@ SRC = $(shell find . -type f -name '*.go')
 help: ## Print help
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_0-9-]+:.*?##/ { printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
 
-LDFLAGS ?= -extldflags '-L$(shell pwd)/lib'
+GO_LDFLAGS := -extldflags '-L$(shell pwd)/lib $(LDFLAGS)'
 CGO_ENABLED=1
 TOKENIZER_LIB = lib/libtokenizers.a
 # Extract TOKENIZER_VERSION from Dockerfile
@@ -67,7 +67,7 @@ format: ## Format Go source files
 .PHONY: test
 test: check-ginkgo download-tokenizer download-zmq ## Run tests
 	@printf "\033[33;1m==== Running tests ====\033[0m\n"
-	CGO_ENABLED=1 ginkgo -ldflags="$(LDFLAGS)" -v -r
+	CGO_ENABLED=1 ginkgo -ldflags="$(GO_LDFLAGS)" -v -r
 
 .PHONY: post-deploy-test
 post-deploy-test: ## Run post deployment tests
@@ -84,7 +84,7 @@ lint: check-golangci-lint ## Run lint
 .PHONY: build
 build: check-go download-tokenizer download-zmq 
 	@printf "\033[33;1m==== Building ====\033[0m\n"
-	go build -ldflags="$(LDFLAGS)" -o bin/$(PROJECT_NAME) cmd/$(PROJECT_NAME)/main.go
+	go build -ldflags="$(GO_LDFLAGS)" -o bin/$(PROJECT_NAME) cmd/$(PROJECT_NAME)/main.go
 
 ##@ Container Build/Push
 

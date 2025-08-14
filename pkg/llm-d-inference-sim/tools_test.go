@@ -525,7 +525,7 @@ var _ = Describe("Simulator for request with tools", func() {
 				"--min-tool-call-number-param", fmt.Sprint(min),
 				"--max-tool-call-number-param", fmt.Sprint(max),
 			}
-			client, err := startServerWithArgs(ctx, common.ModeEcho, serverArgs)
+			client, err := startServerWithArgs(ctx, common.ModeEcho, serverArgs, nil)
 			Expect(err).NotTo(HaveOccurred())
 
 			openaiclient := openai.NewClient(
@@ -787,7 +787,7 @@ var _ = Describe("Simulator for request with tools", func() {
 			serverArgs := []string{"cmd", "--model", model, "--mode", common.ModeRandom,
 				"--tool-call-not-required-param-probability", strconv.Itoa(probability),
 			}
-			client, err := startServerWithArgs(ctx, common.ModeEcho, serverArgs)
+			client, err := startServerWithArgs(ctx, common.ModeEcho, serverArgs, nil)
 			Expect(err).NotTo(HaveOccurred())
 
 			openaiclient := openai.NewClient(
@@ -832,7 +832,7 @@ var _ = Describe("Simulator for request with tools", func() {
 				"--min-tool-call-integer-param", strconv.Itoa(min),
 				"--max-tool-call-integer-param", strconv.Itoa(max),
 			}
-			client, err := startServerWithArgs(ctx, common.ModeEcho, serverArgs)
+			client, err := startServerWithArgs(ctx, common.ModeEcho, serverArgs, nil)
 			Expect(err).NotTo(HaveOccurred())
 
 			openaiclient := openai.NewClient(
