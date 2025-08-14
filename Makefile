@@ -39,8 +39,8 @@ help: ## Print help
 LDFLAGS ?= -extldflags '-L$(shell pwd)/lib'
 CGO_ENABLED=1
 TOKENIZER_LIB = lib/libtokenizers.a
-# Extract RELEASE_VERSION from Dockerfile
-TOKENIZER_VERSION := $(shell grep '^ARG RELEASE_VERSION=' Dockerfile | cut -d'=' -f2)
+# Extract TOKENIZER_VERSION from Dockerfile
+TOKENIZER_VERSION := $(shell grep '^ARG TOKENIZER_VERSION=' Dockerfile | cut -d'=' -f2)
 
 .PHONY: download-tokenizer
 download-tokenizer: $(TOKENIZER_LIB)

@@ -23,9 +23,9 @@ COPY . .
 
 # HuggingFace tokenizer bindings
 RUN mkdir -p lib
-# Ensure that the RELEASE_VERSION matches the one used in the imported llm-d-kv-cache-manager version
-ARG RELEASE_VERSION=v1.22.1
-RUN curl -L https://github.com/daulet/tokenizers/releases/download/${RELEASE_VERSION}/libtokenizers.${TARGETOS}-${TARGETARCH}.tar.gz | tar -xz -C lib
+# Ensure that the TOKENIZER_VERSION matches the one used in the imported llm-d-kv-cache-manager version
+ARG TOKENIZER_VERSION=v1.22.1
+RUN curl -L https://github.com/daulet/tokenizers/releases/download/${TOKENIZER_VERSION}/libtokenizers.${TARGETOS}-${TARGETARCH}.tar.gz | tar -xz -C lib
 RUN ranlib lib/*.a
 
 # Build
