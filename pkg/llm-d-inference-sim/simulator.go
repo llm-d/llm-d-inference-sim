@@ -86,9 +86,9 @@ type VllmSimulator struct {
 	// kv cache functionality
 	kvcacheHelper *kvcache.KVCacheHelper
 	// namespace where simulator is running
-	Namespace string
+	namespace string
 	// pod name of simulator
-	Pod string
+	pod string
 }
 
 // New creates a new VllmSimulator instance with the given logger
@@ -103,8 +103,8 @@ func New(logger logr.Logger) (*VllmSimulator, error) {
 		reqChan:        make(chan *openaiserverapi.CompletionReqCtx, 1000),
 		toolsValidator: toolsValidtor,
 		kvcacheHelper:  nil, // kvcache helper will be created only if required after reading configuration
-		Namespace:      os.Getenv(podNsEnv),
-		Pod:            os.Getenv(podNameEnv),
+		namespace:      os.Getenv(podNsEnv),
+		pod:            os.Getenv(podNameEnv),
 	}, nil
 }
 
@@ -614,11 +614,11 @@ func (s *VllmSimulator) sendResponse(isChatCompletion bool, ctx *fasthttp.Reques
 	ctx.Response.Header.SetContentType("application/json")
 	ctx.Response.Header.SetStatusCode(fasthttp.StatusOK)
 	// Add pod and namespace information to response headers for testing/debugging
-	if s.Pod != "" {
-		ctx.Response.Header.Add(podHeader, s.Pod)
+	if s.pod != "" {
+		ctx.Response.Header.Add(podHeader, s.pod)
 	}
-	if s.Namespace != "" {
-		ctx.Response.Header.Add(namespaceHeader, s.Namespace)
+	if s.namespace != "" {
+		ctx.Response.Header.Add(namespaceHeader, s.namespace)
 	}
 	ctx.Response.SetBody(data)
 

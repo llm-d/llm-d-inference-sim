@@ -45,6 +45,14 @@ func (s *VllmSimulator) sendStreamingResponse(context *streamingContext, respons
 	context.ctx.SetContentType("text/event-stream")
 	context.ctx.SetStatusCode(fasthttp.StatusOK)
 
+	// Add pod and namespace information to response headers for testing/debugging
+	if s.pod != "" {
+		context.ctx.Response.Header.Add(podHeader, s.pod)
+	}
+	if s.namespace != "" {
+		context.ctx.Response.Header.Add(namespaceHeader, s.namespace)
+	}
+
 	context.ctx.SetBodyStreamWriter(func(w *bufio.Writer) {
 		context.creationTime = time.Now().Unix()
 
