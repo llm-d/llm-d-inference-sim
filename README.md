@@ -116,13 +116,15 @@ For more details see the <a href="https://docs.vllm.ai/en/stable/getting_started
 - `min-tool-call-array-param-length`: the minimum possible length of array parameters in a tool call, optional, defaults to 1
 - `tool-call-not-required-param-probability`: the probability to add a parameter, that is not required, in a tool call, optional, defaults to 50
 - `object-tool-call-not-required-field-probability`: the probability to add a field, that is not required, in an object in a tool call, optional, defaults to 50
-- `enable-kvcache`: if true, the KV cache support will be enabled in the simulator. In this case, the KV cache will be simulated, and ZQM events will be published when a KV cache block is added or evicted.
+<!-- 
+- `enable-kvcache`: if true, the KV cache support will be enabled in the simulator. In this case, the KV cache will be simulated, and ZQM events will be published when a KV cache block is added or evicted. 
 - `kv-cache-size`: the maximum number of token blocks in kv cache
 - `block-size`: token block size for contiguous chunks of tokens, possible values: 8,16,32,64,128
 - `tokenizers-cache-dir`: the directory for caching tokenizers
 - `hash-seed`: seed for hash generation (if not set, is read from PYTHONHASHSEED environment variable)
 - `zmq-endpoint`: ZMQ address to publish events
-
+- `event-batch-size`: the maximum number of kv-cache events to be sent together, defaults to 16
+-->
 In addition, as we are using klog, the following parameters are available:
 - `add_dir_header`: if true, adds the file directory to the header of the log messages
 - `alsologtostderr`: log to standard error as well as files (no effect when -logtostderr=true)
