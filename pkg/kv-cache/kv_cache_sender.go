@@ -16,7 +16,6 @@ limitations under the License.
 package kvcache
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"time"
@@ -90,24 +89,14 @@ func (s *KVEventSender) Run(ctx context.Context) error {
 			}
 
 			// Encode eventData's hash value to msgpack.RawMessage
+			var payload []byte
 			var err error
-			var payload bytes.Buffer
-			enc := msgpack.NewEncoder(&payload)
-			enc.UseArrayEncodedStructs(true)
 
 			switch eventData.action {
 			case eventActionStore:
-				bs := &kvevents.BlockStoredEvent{
-					TypeField:   BlockStored,
-					BlockStored: &kvevents.BlockStored{BlockHashes: eventData.hashValues},
-				}
-				err = enc.Encode(bs)
+				payload, err = msgpack.Marshal(kvevents.BlockStored{BlockHashes: eventData.hashValues}.ToTaggedUnion())
 			case eventActionRemove:
-				br := &kvevents.BlockRemovedEvent{
-					TypeField:    BlockRemoved,
-					BlockRemoved: &kvevents.BlockRemoved{BlockHashes: eventData.hashValues},
-				}
-				err = enc.Encode(br)
+				payload, err = msgpack.Marshal(kvevents.BlockRemoved{BlockHashes: eventData.hashValues}.ToTaggedUnion())
 			default:
 				return fmt.Errorf("invalid event action %d", eventData.action)
 			}
@@ -115,7 +104,7 @@ func (s *KVEventSender) Run(ctx context.Context) error {
 				return fmt.Errorf("failed to marshal value: %w", err)
 			}
 
-			s.batch = append(s.batch, payload.Bytes())
+			s.batch = append(s.batch, payload)
 
 			// check if batch is big enough to be sent
 			if len(s.batch) >= s.maxBatchSize {

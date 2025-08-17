@@ -496,9 +496,12 @@ func parseEvent(parts [][]byte, expectedTopic string, expectedSeq uint64) ([]uin
 	Expect(err).NotTo(HaveOccurred())
 	for _, rawEvent := range eventBatch.Events {
 		var taggedUnion []msgpack.RawMessage
-		err = msgpack.Unmarshal(rawEvent, &taggedUnion)
+		err := msgpack.Unmarshal(rawEvent, &taggedUnion)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(len(taggedUnion)).To(BeNumerically(">", 1))
+
+		payloadBytes, err := msgpack.Marshal(taggedUnion[1:])
+		Expect(err).NotTo(HaveOccurred())
 
 		var tag string
 		err = msgpack.Unmarshal(taggedUnion[0], &tag)
@@ -506,12 +509,12 @@ func parseEvent(parts [][]byte, expectedTopic string, expectedSeq uint64) ([]uin
 
 		switch tag {
 		case BlockStored:
-			var bs kvevents.BlockStoredEvent
-			err = msgpack.Unmarshal(rawEvent, &bs)
+			var bs kvevents.BlockStored
+			err = msgpack.Unmarshal(payloadBytes, &bs)
 			stored = append(stored, bs.BlockHashes...)
 		case BlockRemoved:
-			var br kvevents.BlockRemovedEvent
-			err = msgpack.Unmarshal(rawEvent, &br)
+			var br kvevents.BlockRemoved
+			err = msgpack.Unmarshal(payloadBytes, &br)
 			removed = append(removed, br.BlockHashes...)
 
 		default:
