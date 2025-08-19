@@ -137,7 +137,6 @@ type Metrics struct {
 	// LoraMetrics
 	LoraMetrics []LorasMetrics `json:"loras"`
 	LorasString []string       `yaml:"loras"`
-	// LorasJSONString []string `json:"loras"`
 	// RunningRequests is the number of inference requests that are currently being processed
 	RunningRequests int64 `yaml:"running-requests" json:"running-requests"`
 	// WaitingRequests is the number of inference requests that are waiting to be processed
