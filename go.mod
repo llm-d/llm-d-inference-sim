@@ -8,7 +8,7 @@ require (
 	github.com/buaazp/fasthttprouter v0.1.1
 	github.com/go-logr/logr v1.4.2
 	github.com/google/uuid v1.6.0
-	github.com/llm-d/llm-d-kv-cache-manager v0.2.2-0.20250814115305-d5a8ca882318
+	github.com/llm-d/llm-d-kv-cache-manager v0.2.1
 	github.com/onsi/ginkgo/v2 v2.23.4
 	github.com/onsi/gomega v1.37.0
 	github.com/openai/openai-go v0.1.0-beta.10

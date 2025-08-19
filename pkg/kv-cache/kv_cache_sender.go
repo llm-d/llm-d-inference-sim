@@ -94,9 +94,9 @@ func (s *KVEventSender) Run(ctx context.Context) error {
 
 			switch eventData.action {
 			case eventActionStore:
-				payload, err = msgpack.Marshal(kvevents.BlockStored{BlockHashes: eventData.hashValues}.ToTaggedUnion())
+				payload, err = msgpack.Marshal(storedToTaggedUnion(kvevents.BlockStored{BlockHashes: eventData.hashValues}))
 			case eventActionRemove:
-				payload, err = msgpack.Marshal(kvevents.BlockRemoved{BlockHashes: eventData.hashValues}.ToTaggedUnion())
+				payload, err = msgpack.Marshal(removedToTaggedUnion(kvevents.BlockRemoved{BlockHashes: eventData.hashValues}))
 			default:
 				return fmt.Errorf("invalid event action %d", eventData.action)
 			}
@@ -125,6 +125,24 @@ func (s *KVEventSender) Run(ctx context.Context) error {
 			}
 			timer.Reset(s.delay)
 		}
+	}
+}
+
+func storedToTaggedUnion(bs kvevents.BlockStored) []any {
+	return []any{
+		BlockStored,
+		bs.BlockHashes,
+		bs.ParentBlockHash,
+		bs.TokenIds,
+		bs.BlockSize,
+		bs.LoraID,
+	}
+}
+
+func removedToTaggedUnion(br kvevents.BlockRemoved) []any {
+	return []any{
+		BlockRemoved,
+		br.BlockHashes,
 	}
 }
 
