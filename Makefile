@@ -25,6 +25,16 @@ IMAGE_TAG_BASE ?= $(IMAGE_REGISTRY)/$(PROJECT_NAME)
 SIM_TAG ?= dev
 IMG = $(IMAGE_TAG_BASE):$(SIM_TAG)
 
+ifeq ($(TARGETOS),darwin)
+ifeq ($(TARGETARCH),amd64)
+TOKENIZER_ARCH = x86_64
+else
+TOKENIZER_ARCH = $(TARGETARCH)
+endif
+else
+TOKENIZER_ARCH = $(TARGETARCH)
+endif
+
 CONTAINER_TOOL := $(shell { command -v docker >/dev/null 2>&1 && echo docker; } || { command -v podman >/dev/null 2>&1 && echo podman; } || echo "")
 BUILDER := $(shell command -v buildah >/dev/null 2>&1 && echo buildah || echo $(CONTAINER_TOOL))
 PLATFORMS ?= linux/amd64 # linux/arm64 # linux/s390x,linux/ppc64le
@@ -48,7 +58,7 @@ $(TOKENIZER_LIB):
 	## Download the HuggingFace tokenizer bindings.
 	@echo "Downloading HuggingFace tokenizer bindings for version $(TOKENIZER_VERSION)..."
 	mkdir -p lib
-	curl -L https://github.com/daulet/tokenizers/releases/download/$(TOKENIZER_VERSION)/libtokenizers.$(TARGETOS)-$(TARGETARCH).tar.gz | tar -xz -C lib
+	curl -L https://github.com/daulet/tokenizers/releases/download/$(TOKENIZER_VERSION)/libtokenizers.$(TARGETOS)-$(TOKENIZER_ARCH).tar.gz | tar -xz -C lib
 	ranlib lib/*.a
 
 ##@ Development
@@ -92,8 +102,8 @@ build: check-go download-tokenizer download-zmq
 image-build: check-container-tool ## Build Docker image ## Build Docker image using $(CONTAINER_TOOL)
 	@printf "\033[33;1m==== Building Docker image $(IMG) ====\033[0m\n"
 	$(CONTAINER_TOOL) build \
-		--platform $(TARGETOS)/$(TARGETARCH) \
-		--build-arg TARGETOS=$(TARGETOS)\
+		--platform linux/$(TARGETARCH) \
+ 		--build-arg TARGETOS=linux \
 		--build-arg TARGETARCH=$(TARGETARCH)\
 		-t $(IMG) .
 
