@@ -303,6 +303,13 @@ func (s *VllmSimulator) isLora(model string) bool {
 
 // handleCompletions general completion requests handler, support both text and chat completion APIs
 func (s *VllmSimulator) handleCompletions(ctx *fasthttp.RequestCtx, isChatCompletion bool) {
+	// Check if we should inject a failure
+	if ShouldInjectFailure(s.config) {
+		failure := GetRandomFailure(s.config)
+		s.sendCompletionError(ctx, failure, true)
+		return
+	}
+
 	vllmReq, err := s.readRequest(ctx, isChatCompletion)
 	if err != nil {
 		s.logger.Error(err, "failed to read and parse request body")
@@ -312,7 +319,13 @@ func (s *VllmSimulator) handleCompletions(ctx *fasthttp.RequestCtx, isChatComple
 
 	errMsg, errType, errCode := s.validateRequest(vllmReq)
 	if errMsg != "" {
-		s.sendCompletionError(ctx, errMsg, errType, errCode)
+		s.sendCompletionError(ctx, FailureSpec{
+			StatusCode: errCode,
+			ErrorType:  errType,
+			ErrorCode:  "",
+			Message:    errMsg,
+			Param:      nil,
+		}, false)
 		return
 	}
 
@@ -339,8 +352,14 @@ func (s *VllmSimulator) handleCompletions(ctx *fasthttp.RequestCtx, isChatComple
 	completionTokens := vllmReq.GetMaxCompletionTokens()
 	isValid, actualCompletionTokens, totalTokens := common.ValidateContextWindow(promptTokens, completionTokens, s.config.MaxModelLen)
 	if !isValid {
-		s.sendCompletionError(ctx, fmt.Sprintf("This model's maximum context length is %d tokens. However, you requested %d tokens (%d in the messages, %d in the completion). Please reduce the length of the messages or completion",
-			s.config.MaxModelLen, totalTokens, promptTokens, actualCompletionTokens), "BadRequestError", fasthttp.StatusBadRequest)
+		s.sendCompletionError(ctx, FailureSpec{
+			StatusCode: fasthttp.StatusBadRequest,
+			ErrorType:  "BadRequestError",
+			ErrorCode:  "",
+			Message: fmt.Sprintf("This model's maximum context length is %d tokens. However, you requested %d tokens (%d in the messages, %d in the completion). Please reduce the length of the messages or completion",
+				s.config.MaxModelLen, totalTokens, promptTokens, actualCompletionTokens),
+			Param: nil,
+		}, false)
 		return
 	}
 
@@ -495,22 +514,53 @@ func (s *VllmSimulator) responseSentCallback(model string) {
 }
 
 // sendCompletionError sends an error response for the current completion request
-func (s *VllmSimulator) sendCompletionError(ctx *fasthttp.RequestCtx, msg string, errType string, code int) {
-	compErr := openaiserverapi.CompletionError{
-		Object:  "error",
-		Message: msg,
-		Type:    errType,
-		Code:    code,
-		Param:   nil,
+// The first parameter can be either a string message or a FailureSpec
+// isInjected indicates if this is an injected failure for logging purposes
+func (s *VllmSimulator) sendCompletionError(ctx *fasthttp.RequestCtx, errorInfo interface{}, isInjected bool) {
+	var compErr openaiserverapi.CompletionError
+	var statusCode int
+	
+	switch v := errorInfo.(type) {
+	case string:
+		// Legacy call with string message (backward compatibility)
+		compErr = openaiserverapi.CompletionError{
+			Message: v,
+			Type:    "BadRequestError",
+			Code:    "",
+			Param:   nil,
+		}
+		statusCode = fasthttp.StatusBadRequest
+	case FailureSpec:
+		// New call with FailureSpec
+		compErr = openaiserverapi.CompletionError{
+			Message: v.Message,
+			Type:    v.ErrorType,
+			Code:    v.ErrorCode,
+			Param:   v.Param,
+		}
+		statusCode = v.StatusCode
+	default:
+		// For calls with msg, errType, and code - need to be updated in calling code
+		panic("sendCompletionError called with unexpected type")
 	}
-	s.logger.Error(nil, compErr.Message)
+	
+	errorResp := openaiserverapi.ErrorResponse{
+		Object: "error",
+		Error:  compErr,
+	}
+	
+	if isInjected {
+		s.logger.Info("Injecting failure", "type", compErr.Type, "message", compErr.Message)
+	} else {
+		s.logger.Error(nil, compErr.Message)
+	}
 
-	data, err := json.Marshal(compErr)
+	data, err := json.Marshal(errorResp)
 	if err != nil {
 		ctx.Error(err.Error(), fasthttp.StatusInternalServerError)
 	} else {
 		ctx.SetContentType("application/json")
-		ctx.SetStatusCode(code)
+		ctx.SetStatusCode(statusCode)
 		ctx.SetBody(data)
 	}
 }

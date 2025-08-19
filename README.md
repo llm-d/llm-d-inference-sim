@@ -124,6 +124,8 @@ For more details see the <a href="https://docs.vllm.ai/en/stable/getting_started
 - `hash-seed`: seed for hash generation (if not set, is read from PYTHONHASHSEED environment variable)
 - `zmq-endpoint`: ZMQ address to publish events
 - `event-batch-size`: the maximum number of kv-cache events to be sent together, defaults to 16
+- `failure-injection-rate`: probability (0-100) of injecting failures, optional, default is 0
+- `failure-types`: list of specific failure types to inject (rate_limit, invalid_api_key, context_length, server_error, invalid_request, model_not_found), optional, if empty all types are used
 -->
 In addition, as we are using klog, the following parameters are available:
 - `add_dir_header`: if true, adds the file directory to the header of the log messages
