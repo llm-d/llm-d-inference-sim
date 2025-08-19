@@ -34,6 +34,7 @@ const (
 	vLLMDefaultPort = 8000
 	ModeRandom      = "random"
 	ModeEcho        = "echo"
+	dummy           = "dummy"
 )
 
 type Configuration struct {
@@ -127,6 +128,31 @@ type Configuration struct {
 	ZMQEndpoint string `yaml:"zmq-endpoint"`
 	// EventBatchSize is the maximum number of kv-cache events to be sent together, defaults to 16
 	EventBatchSize int `yaml:"event-batch-size"`
+
+	// FakeMetrics is a set of metrics to send to Prometheus instead of the real data
+	FakeMetrics *Metrics `yaml:"fake-metrics"`
+}
+
+type Metrics struct {
+	// LoraMetrics
+	LoraMetrics []LorasMetrics `json:"loras"`
+	LorasString []string       `yaml:"loras"`
+	// LorasJSONString []string `json:"loras"`
+	// RunningRequests is the number of inference requests that are currently being processed
+	RunningRequests int64 `yaml:"running-requests" json:"running-requests"`
+	// WaitingRequests is the number of inference requests that are waiting to be processed
+	WaitingRequests int64 `yaml:"waiting-requests" json:"waiting-requests"`
+	// KVCacheUsagePercentage  is the fraction of KV-cache blocks currently in use (from 0 to 1)
+	KVCacheUsagePercentage float32 `yaml:"kv-cache-usage" json:"kv-cache-usage"`
+}
+
+type LorasMetrics struct {
+	// RunningLoras is a comma separated list of running LoRAs
+	RunningLoras string `json:"running"`
+	// WaitingLoras is a comma separated list of waiting LoRAs
+	WaitingLoras string `json:"waiting"`
+	// Timestamp is the timestamp of the metric
+	Timestamp float64 `json:"timestamp"`
 }
 
 type LoraModule struct {
@@ -168,6 +194,29 @@ func (c *Configuration) unmarshalLoras() error {
 	return nil
 }
 
+func (c *Configuration) unmarshalFakeMetrics(fakeMetricsString string) error {
+	var metrics *Metrics
+	if err := json.Unmarshal([]byte(fakeMetricsString), &metrics); err != nil {
+		return err
+	}
+	c.FakeMetrics = metrics
+	return nil
+}
+
+func (c *Configuration) unmarshalLoraFakeMetrics() error {
+	if c.FakeMetrics != nil {
+		c.FakeMetrics.LoraMetrics = make([]LorasMetrics, 0)
+		for _, jsonStr := range c.FakeMetrics.LorasString {
+			var lora LorasMetrics
+			if err := json.Unmarshal([]byte(jsonStr), &lora); err != nil {
+				return err
+			}
+			c.FakeMetrics.LoraMetrics = append(c.FakeMetrics.LoraMetrics, lora)
+		}
+	}
+	return nil
+}
+
 func newConfig() *Configuration {
 	return &Configuration{
 		Port:                                vLLMDefaultPort,
@@ -199,7 +248,14 @@ func (c *Configuration) load(configFile string) error {
 		return fmt.Errorf("failed to unmarshal configuration: %s", err)
 	}
 
-	return c.unmarshalLoras()
+	if err := c.unmarshalLoras(); err != nil {
+		return err
+	}
+	if err := c.unmarshalLoraFakeMetrics(); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (c *Configuration) validate() error {
@@ -299,6 +355,15 @@ func (c *Configuration) validate() error {
 	if c.EventBatchSize < 1 {
 		return errors.New("event batch size cannot less than 1")
 	}
+
+	if c.FakeMetrics != nil {
+		if c.FakeMetrics.RunningRequests < 0 || c.FakeMetrics.WaitingRequests < 0 {
+			return errors.New("fake metrics request counters cannot be negative")
+		}
+		if c.FakeMetrics.KVCacheUsagePercentage < 0 || c.FakeMetrics.KVCacheUsagePercentage > 1 {
+			return errors.New("fake metrics KV cache usage must be between 0 ans 1")
+		}
+	}
 	return nil
 }
 
@@ -316,6 +381,7 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 
 	servedModelNames := getParamValueFromArgs("served-model-name")
 	loraModuleNames := getParamValueFromArgs("lora-modules")
+	fakeMetrics := getParamValueFromArgs("fake-metrics")
 
 	f := pflag.NewFlagSet("llm-d-inference-sim flags", pflag.ContinueOnError)
 
@@ -358,9 +424,11 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 	var dummyMultiString multiString
 	f.Var(&dummyMultiString, "served-model-name", "Model names exposed by the API (a list of space-separated strings)")
 	f.Var(&dummyMultiString, "lora-modules", "List of LoRA adapters (a list of space-separated JSON strings)")
+	f.Var(&dummyMultiString, "fake-metrics", "A set of metrics to send to Prometheus instead of the real data")
 	// In order to allow empty arguments, we set a dummy NoOptDefVal for these flags
-	f.Lookup("served-model-name").NoOptDefVal = "dummy"
-	f.Lookup("lora-modules").NoOptDefVal = "dummy"
+	f.Lookup("served-model-name").NoOptDefVal = dummy
+	f.Lookup("lora-modules").NoOptDefVal = dummy
+	f.Lookup("fake-metrics").NoOptDefVal = dummy
 
 	flagSet := flag.NewFlagSet("simFlagSet", flag.ExitOnError)
 	klog.InitFlags(flagSet)
@@ -378,6 +446,11 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 	if loraModuleNames != nil {
 		config.LoraModulesString = loraModuleNames
 		if err := config.unmarshalLoras(); err != nil {
+			return nil, err
+		}
+	}
+	if fakeMetrics != nil {
+		if err := config.unmarshalFakeMetrics(fakeMetrics[0]); err != nil {
 			return nil, err
 		}
 	}

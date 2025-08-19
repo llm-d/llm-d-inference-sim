@@ -125,6 +125,8 @@ For more details see the <a href="https://docs.vllm.ai/en/stable/getting_started
 - `zmq-endpoint`: ZMQ address to publish events
 - `event-batch-size`: the maximum number of kv-cache events to be sent together, defaults to 16
 -->
+- `fake-metrics`: a set of metrics to send to Prometheus instead of the real data
+
 In addition, as we are using klog, the following parameters are available:
 - `add_dir_header`: if true, adds the file directory to the header of the log messages
 - `alsologtostderr`: log to standard error as well as files (no effect when -logtostderr=true)

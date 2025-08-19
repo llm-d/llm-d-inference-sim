@@ -1,0 +1,16 @@
+model: "Qwen/Qwen2-0.5B"
+max-loras: 2
+max-cpu-loras: 5
+max-num-seqs: 5
+mode: "random"
+time-to-first-token: 2000
+inter-token-latency: 1000
+kv-cache-transfer-latency: 100
+seed: 100100100
+fake-metrics: 
+  running-requests: 16
+  waiting-requests: 3 
+  kv-cache-usage: 0.3
+  loras:
+  - '{"running":"lora1,lora2","waiting":"lora3","timestamp":1257894567}'
+  - '{"running":"lora1,lora3","waiting":"","timestamp":1257894569}'

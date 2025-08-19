@@ -48,6 +48,10 @@ func startServer(ctx context.Context, mode string) (*http.Client, error) {
 }
 
 func startServerWithArgs(ctx context.Context, mode string, args []string, envs map[string]string) (*http.Client, error) {
+	return startServerWithArgsAndMetrics(ctx, mode, args, envs, false)
+}
+
+func startServerWithArgsAndMetrics(ctx context.Context, mode string, args []string, envs map[string]string, setMetrics bool) (*http.Client, error) {
 	oldArgs := os.Args
 	defer func() {
 		os.Args = oldArgs
@@ -90,6 +94,13 @@ func startServerWithArgs(ctx context.Context, mode string, args []string, envs m
 	}
 
 	common.InitRandom(s.config.Seed)
+
+	if setMetrics {
+		err = s.createAndRegisterPrometheus()
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	// calculate number of tokens for user message,
 	// must be activated after parseCommandParamsAndLoadConfig since it initializes the random engine
@@ -420,7 +431,7 @@ var _ = Describe("Simulator", func() {
 	It("Should not include namespace and pod headers in chat completion response when env is not set", func() {
 		ctx := context.TODO()
 
-		client, err := startServerWithArgs(ctx, common.ModeRandom, nil, nil)
+		client, err := startServer(ctx, common.ModeRandom)
 		Expect(err).NotTo(HaveOccurred())
 
 		openaiclient := openai.NewClient(
@@ -523,7 +534,7 @@ var _ = Describe("Simulator", func() {
 	It("Should not include namespace and pod headers in chat completion streaming response when env is not set", func() {
 		ctx := context.TODO()
 
-		client, err := startServerWithArgs(ctx, common.ModeRandom, nil, nil)
+		client, err := startServer(ctx, common.ModeRandom)
 		Expect(err).NotTo(HaveOccurred())
 
 		openaiclient := openai.NewClient(
@@ -808,5 +819,32 @@ var _ = Describe("Simulator", func() {
 			Entry(nil, 10000, 0, 1000, 0, true),
 			Entry(nil, 10000, 0, 1000, 0, false),
 		)
+	})
+
+	Context("fake metrics", func() {
+		It("Should respond with fake metrics to /metrics", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", model, "--mode", common.ModeRandom,
+				"--fake-metrics",
+				"{\"running-requests\":10,\"waiting-requests\":30,\"kv-cache-usage\":0.4,\"loras\":[{\"running\":\"lora4,lora2\",\"waiting\":\"lora3\",\"timestamp\":1257894567},{\"running\":\"lora4,lora3\",\"waiting\":\"\",\"timestamp\":1257894569}]}",
+			}
+
+			client, err := startServerWithArgsAndMetrics(ctx, common.ModeRandom, args, nil, true)
+			Expect(err).NotTo(HaveOccurred())
+
+			resp, err := client.Get("http://localhost/metrics")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+			data, err := io.ReadAll(resp.Body)
+			Expect(err).NotTo(HaveOccurred())
+			metrics := string(data)
+			Expect(metrics).To(ContainSubstring("vllm:num_requests_running{model_name=\"my_model\"} 10"))
+			Expect(metrics).To(ContainSubstring("vllm:num_requests_waiting{model_name=\"my_model\"} 30"))
+			Expect(metrics).To(ContainSubstring("vllm:gpu_cache_usage_perc{model_name=\"my_model\"} 0.4"))
+			Expect(metrics).To(ContainSubstring("vllm:lora_requests_info{max_lora=\"1\",running_lora_adapters=\"lora4,lora2\",waiting_lora_adapters=\"lora3\"} 1.257894567e+09"))
+			Expect(metrics).To(ContainSubstring("vllm:lora_requests_info{max_lora=\"1\",running_lora_adapters=\"lora4,lora3\",waiting_lora_adapters=\"\"} 1.257894569e+09"))
+
+		})
 	})
 })
