@@ -30,7 +30,8 @@ import (
 
 const (
 	topic    = "test-topic"
-	endpoint = "tcp://localhost:5557"
+	subEndpoint = "tcp://*:5557"
+	pubEndpoint = "tcp://localhost:5557"
 	data     = "Hello"
 )
 
@@ -40,7 +41,7 @@ var _ = Describe("Publisher", func() {
 		Expect(err).NotTo(HaveOccurred())
 		sub, err := zctx.NewSocket(zmq.SUB)
 		Expect(err).NotTo(HaveOccurred())
-		err = sub.Bind(endpoint)
+		err = sub.Bind(subEndpoint)
 		Expect(err).NotTo(HaveOccurred())
 		err = sub.SetSubscribe(topic)
 		Expect(err).NotTo(HaveOccurred())
@@ -49,7 +50,7 @@ var _ = Describe("Publisher", func() {
 
 		time.Sleep(100 * time.Millisecond)
 
-		pub, err := NewPublisher(endpoint)
+		pub, err := NewPublisher(pubEndpoint)
 		Expect(err).NotTo(HaveOccurred())
 
 		ctx, cancel := context.WithCancel(context.Background())

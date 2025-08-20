@@ -36,7 +36,8 @@ const (
 	req1ID   = "req1"
 	req2ID   = "req2"
 	req3ID   = "req3"
-	endpoint = "tcp://localhost:5557"
+	subEndpoint = "tcp://*:5557"
+	pubEndpoint = "tcp://localhost:5557"
 )
 
 type ActionType int
@@ -203,7 +204,7 @@ var _ = Describe("KV cache", Ordered, func() {
 					Port:           1234,
 					Model:          "model",
 					KVCacheSize:    test.cacheSize,
-					ZMQEndpoint:    endpoint,
+					ZMQEndpoint:    pubEndpoint,
 					EventBatchSize: 1,
 				}
 
@@ -306,7 +307,7 @@ var _ = Describe("KV cache", Ordered, func() {
 				Port:        1234,
 				Model:       "model",
 				KVCacheSize: 4,
-				ZMQEndpoint: endpoint,
+				ZMQEndpoint: pubEndpoint,
 			}
 
 			sub, topic := createSub(config)
@@ -415,7 +416,7 @@ var _ = Describe("KV cache", Ordered, func() {
 					Port:        1234,
 					Model:       "model",
 					KVCacheSize: testCase.cacheSize,
-					ZMQEndpoint: endpoint,
+					ZMQEndpoint: pubEndpoint,
 				}
 				blockCache, err := newBlockCache(&config, GinkgoLogr)
 				Expect(err).NotTo(HaveOccurred())
@@ -531,7 +532,7 @@ func createSub(config *common.Configuration) (*zmq.Socket, string) {
 	Expect(err).NotTo(HaveOccurred())
 	sub, err := zctx.NewSocket(zmq.SUB)
 	Expect(err).NotTo(HaveOccurred())
-	err = sub.Bind(endpoint)
+	err = sub.Bind(subEndpoint)
 	Expect(err).NotTo(HaveOccurred())
 	topic := createTopic(config)
 	err = sub.SetSubscribe(topic)
