@@ -148,7 +148,9 @@ In addition, as we are using klog, the following parameters are available:
 - `v`: number for the log level verbosity
 - `vmodule`: comma-separated list of pattern=N settings for file-filtered logging
 
----
+## Environment variables
+- `POD_NAME`: the simulator pod name. If defined, the response will contain the HTTP header `x-inference-pod` with this value
+- `POD_NAMESPACE`: the simulator pod namespace. If defined, the response will contain the HTTP header `x-inference-namespace` with this value
 
 ## Migrating from releases prior to v0.2.0
 - `max-running-requests` was replaced by `max-num-seqs`
