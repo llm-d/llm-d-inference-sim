@@ -33,7 +33,7 @@ const (
 	subEndpoint = "tcp://*:5557"
 	pubEndpoint = "tcp://localhost:5557"
 	data        = "Hello"
-	retries  = 0
+	retries     = 0
 )
 
 var _ = Describe("Publisher", func() {

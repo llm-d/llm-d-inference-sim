@@ -39,6 +39,7 @@ type Publisher struct {
 
 // NewPublisher creates a new ZMQ publisher.
 // endpoint is the ZMQ address to bind to (e.g., "tcp://*:5557").
+// retries is the maximum number of connection attempts.
 func NewPublisher(endpoint string, retries uint) (*Publisher, error) {
 	socket, err := zmq.NewSocket(zmq.PUB)
 	if err != nil {
