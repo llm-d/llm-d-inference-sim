@@ -53,7 +53,6 @@ RUN microdnf install -y dnf && \
 
 COPY --from=builder /workspace/bin/llm-d-inference-sim /app/llm-d-inference-sim
 
-# USER 65532:65532
-USER root
+USER 65532:65532
 
 ENTRYPOINT ["/app/llm-d-inference-sim"]
