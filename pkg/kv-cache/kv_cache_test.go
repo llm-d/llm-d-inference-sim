@@ -205,6 +205,7 @@ var _ = Describe("KV cache", Ordered, func() {
 					Model:          "model",
 					KVCacheSize:    test.cacheSize,
 					ZMQEndpoint:    pubEndpoint,
+					ZMQRetriesTimes: 3,
 					EventBatchSize: 1,
 				}
 
@@ -308,6 +309,7 @@ var _ = Describe("KV cache", Ordered, func() {
 				Model:       "model",
 				KVCacheSize: 4,
 				ZMQEndpoint: pubEndpoint,
+				ZMQRetriesTimes: 3,
 			}
 
 			sub, topic := createSub(config)
@@ -417,6 +419,7 @@ var _ = Describe("KV cache", Ordered, func() {
 					Model:       "model",
 					KVCacheSize: testCase.cacheSize,
 					ZMQEndpoint: pubEndpoint,
+					ZMQRetriesTimes: 3,
 				}
 				blockCache, err := newBlockCache(&config, GinkgoLogr)
 				Expect(err).NotTo(HaveOccurred())

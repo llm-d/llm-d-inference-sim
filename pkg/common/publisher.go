@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"sync/atomic"
+	"time"
 
 	zmq "github.com/pebbe/zmq4"
 	"github.com/vmihailenco/msgpack/v5"
@@ -38,24 +39,33 @@ type Publisher struct {
 
 // NewPublisher creates a new ZMQ publisher.
 // endpoint is the ZMQ address to bind to (e.g., "tcp://*:5557").
-func NewPublisher(endpoint string) (*Publisher, error) {
+func NewPublisher(endpoint string, retries uint) (*Publisher, error) {
 	socket, err := zmq.NewSocket(zmq.PUB)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create ZMQ PUB socket: %w", err)
 	}
 
-	if err := socket.Connect(endpoint); err != nil {
-		errClose := socket.Close()
-		return nil, errors.Join(
-			fmt.Errorf("failed to connect to %s: %w", endpoint, err),
-			errClose,
-		)
+	// Retry connection with specified retry times and intervals
+	for i := uint(0); i <= retries; i++ {
+		err = socket.Connect(endpoint)
+		if err == nil {
+			return &Publisher{
+				socket:   socket,
+				endpoint: endpoint,
+			}, nil
+		}
+
+		// If not the last attempt, wait before retrying
+		if i < retries {
+			time.Sleep(1 * time.Second)
+		}
 	}
 
-	return &Publisher{
-		socket:   socket,
-		endpoint: endpoint,
-	}, nil
+	errClose := socket.Close()
+	return nil, errors.Join(
+		fmt.Errorf("failed to connect to %s after %d retries: %w", endpoint, retries+1, err),
+		errClose,
+	)
 }
 
 // PublishEvent publishes a KV cache event batch to the ZMQ topic.

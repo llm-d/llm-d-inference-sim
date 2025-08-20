@@ -33,6 +33,7 @@ const (
 	subEndpoint = "tcp://*:5557"
 	pubEndpoint = "tcp://localhost:5557"
 	data        = "Hello"
+	retries  = 0
 )
 
 var _ = Describe("Publisher", func() {
@@ -50,7 +51,7 @@ var _ = Describe("Publisher", func() {
 
 		time.Sleep(100 * time.Millisecond)
 
-		pub, err := NewPublisher(pubEndpoint)
+		pub, err := NewPublisher(pubEndpoint, retries)
 		Expect(err).NotTo(HaveOccurred())
 
 		ctx, cancel := context.WithCancel(context.Background())

@@ -48,7 +48,7 @@ func newBlockCache(config *common.Configuration, logger logr.Logger) (*blockCach
 	// TODO read size of channel from config
 	eChan := make(chan EventData, 10000)
 
-	publisher, err := common.NewPublisher(config.ZMQEndpoint)
+	publisher, err := common.NewPublisher(config.ZMQEndpoint, config.ZMQRetriesTimes)
 	if err != nil {
 		return nil, err
 	}
