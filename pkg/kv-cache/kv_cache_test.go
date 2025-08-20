@@ -33,9 +33,9 @@ import (
 )
 
 const (
-	req1ID   = "req1"
-	req2ID   = "req2"
-	req3ID   = "req3"
+	req1ID      = "req1"
+	req2ID      = "req2"
+	req3ID      = "req3"
 	subEndpoint = "tcp://*:5557"
 	pubEndpoint = "tcp://localhost:5557"
 )

@@ -29,10 +29,10 @@ import (
 )
 
 const (
-	topic    = "test-topic"
+	topic       = "test-topic"
 	subEndpoint = "tcp://*:5557"
 	pubEndpoint = "tcp://localhost:5557"
-	data     = "Hello"
+	data        = "Hello"
 )
 
 var _ = Describe("Publisher", func() {
