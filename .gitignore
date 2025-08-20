@@ -2,5 +2,6 @@ bin
 lib
 vendor
 .vscode
+.devcontainer
 # MacOSX
 .DS_Store
