@@ -116,7 +116,6 @@ For more details see the <a href="https://docs.vllm.ai/en/stable/getting_started
 - `min-tool-call-array-param-length`: the minimum possible length of array parameters in a tool call, optional, defaults to 1
 - `tool-call-not-required-param-probability`: the probability to add a parameter, that is not required, in a tool call, optional, defaults to 50
 - `object-tool-call-not-required-field-probability`: the probability to add a field, that is not required, in an object in a tool call, optional, defaults to 50
-<!-- 
 - `enable-kvcache`: if true, the KV cache support will be enabled in the simulator. In this case, the KV cache will be simulated, and ZQM events will be published when a KV cache block is added or evicted. 
 - `kv-cache-size`: the maximum number of token blocks in kv cache
 - `block-size`: token block size for contiguous chunks of tokens, possible values: 8,16,32,64,128
@@ -124,7 +123,6 @@ For more details see the <a href="https://docs.vllm.ai/en/stable/getting_started
 - `hash-seed`: seed for hash generation (if not set, is read from PYTHONHASHSEED environment variable)
 - `zmq-endpoint`: ZMQ address to publish events
 - `event-batch-size`: the maximum number of kv-cache events to be sent together, defaults to 16
--->
 - `fake-metrics`: represents a predefined set of metrics to be sent to Prometheus as a substitute for the actual data. When specified, only these fake metrics will be reported — real metrics and fake metrics will never be reported simultaneously. The set should include values for 
     - `running-requests`
     - `waiting-requests`
