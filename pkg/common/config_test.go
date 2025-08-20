@@ -379,6 +379,10 @@ var _ = Describe("Simulator configuration", func() {
 			args: []string{"cmd", "--fake-metrics", "{\"running-requests\":10,\"waiting-requests\":30,\"kv-cache-usage\":40}",
 				"--config", "../../manifests/config.yaml"},
 		},
+		{
+			name: "invalid ZMQ retries time",
+			args: []string{"cmd", "zmq-retries-times", "-1", "--config", "../../manifests/config.yaml"},
+		},
 	}
 
 	for _, test := range invalidTests {
