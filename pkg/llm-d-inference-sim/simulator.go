@@ -720,11 +720,10 @@ func (s *VllmSimulator) showConfig(tgtLgr logr.Logger) error {
 		err := fmt.Errorf("target logger is nil, cannot show configuration")
 		return err
 	}
-	config := s.config
-	cfgJSON, err := json.MarshalIndent(config, "", "  ")
+	cfgJSON, err := json.MarshalIndent(s.config, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal configuration to JSON: %w", err)
 	}
-	tgtLgr.Info("Final simulator configuration:", "config", string(cfgJSON))
+	tgtLgr.Info("Configuration:", "", string(cfgJSON))
 	return nil
 }
