@@ -122,13 +122,13 @@ For more details see the <a href="https://docs.vllm.ai/en/stable/getting_started
 - `tokenizers-cache-dir`: the directory for caching tokenizers
 - `hash-seed`: seed for hash generation (if not set, is read from PYTHONHASHSEED environment variable)
 - `zmq-endpoint`: ZMQ address to publish events
-- `zmq-max-connect-attempts`: the maximum number of ZMQ connection attempts. defaults to 0. maximum: 10
+- `zmq-max-connect-attempts`: the maximum number of ZMQ connection attempts, defaults to 0, maximum: 10
 - `event-batch-size`: the maximum number of kv-cache events to be sent together, defaults to 16
-- `fake-metrics`: represents a predefined set of metrics to be sent to Prometheus as a substitute for the actual data. When specified, only these fake metrics will be reported — real metrics and fake metrics will never be reported simultaneously. The set should include values for 
+- `fake-metrics`: represents a predefined set of metrics to be sent to Prometheus as a substitute for the real metrics. When specified, only these fake metrics will be reported — real metrics and fake metrics will never be reported together. The set should include values for 
     - `running-requests`
     - `waiting-requests`
     - `kv-cache-usage`
-    - `loras` - an array containing LoRA information objects, each with `running` (a comma-separated list of active LoRAs), `waiting` (a comma-separated list of LoRAs on hold), and a `timestamp`.  
+    - `loras` - an array containing LoRA information objects, each with the fields: `running` (a comma-separated list of LoRAs in use by running requests), `waiting` (a comma-separated list of LoRAs to be used by waiting requests), and `timestamp` (seconds since Jan 1 1970, the timestamp of this metric).  
 
     Example:
       {"running-requests":10,"waiting-requests":30,"kv-cache-usage":0.4,"loras":[{"running":"lora4,lora2","waiting":"lora3","timestamp":1257894567},{"running":"lora4,lora3","waiting":"","timestamp":1257894569}]}

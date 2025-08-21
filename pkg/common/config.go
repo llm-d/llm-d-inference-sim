@@ -420,7 +420,7 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 	f.StringVar(&config.TokenizersCacheDir, "tokenizers-cache-dir", config.TokenizersCacheDir, "Directory for caching tokenizers")
 	f.StringVar(&config.HashSeed, "hash-seed", config.HashSeed, "Seed for hash generation (if not set, is read from PYTHONHASHSEED environment variable)")
 	f.StringVar(&config.ZMQEndpoint, "zmq-endpoint", config.ZMQEndpoint, "ZMQ address to publish events")
-	f.UintVar(&config.ZMQMaxConnectAttempts, "zmq-max-connect-attempts", config.ZMQMaxConnectAttempts, "Maximum number of times to retry ZMQ requests")
+	f.UintVar(&config.ZMQMaxConnectAttempts, "zmq-max-connect-attempts", config.ZMQMaxConnectAttempts, "Maximum number of times to try ZMQ connect")
 	f.IntVar(&config.EventBatchSize, "event-batch-size", config.EventBatchSize, "Maximum number of kv-cache events to be sent together")
 
 	// These values were manually parsed above in getParamValueFromArgs, we leave this in order to get these flags in --help
@@ -429,7 +429,7 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 	var dummyMultiString multiString
 	f.Var(&dummyMultiString, "served-model-name", "Model names exposed by the API (a list of space-separated strings)")
 	f.Var(&dummyMultiString, "lora-modules", "List of LoRA adapters (a list of space-separated JSON strings)")
-	f.Var(&dummyMultiString, "fake-metrics", "A set of metrics to send to Prometheus instead of the real data")
+	f.Var(&dummyMultiString, "fake-metrics", "A set of metrics to report to Prometheus instead of the real metrics")
 	// In order to allow empty arguments, we set a dummy NoOptDefVal for these flags
 	f.Lookup("served-model-name").NoOptDefVal = dummy
 	f.Lookup("lora-modules").NoOptDefVal = dummy
