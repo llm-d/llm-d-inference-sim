@@ -114,7 +114,13 @@ func (s *VllmSimulator) Start(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+
 	s.config = config
+
+	err = s.showConfig(s.logger)
+	if err != nil {
+		return err
+	}
 
 	for _, lora := range config.LoraModules {
 		s.loraAdaptors.Store(lora.Name, "")
@@ -707,4 +713,18 @@ func (s *VllmSimulator) getDisplayedModelName(reqModel string) string {
 		return reqModel
 	}
 	return s.config.ServedModelNames[0]
+}
+
+func (s *VllmSimulator) showConfig(tgtLgr logr.Logger) error {
+	if tgtLgr == logr.Discard() {
+		err := fmt.Errorf("target logger is nil, cannot show configuration")
+		return err
+	}
+	config := s.config
+	cfgJSON, err := json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal configuration to JSON: %w", err)
+	}
+	tgtLgr.Info("Final simulator configuration:", "config", string(cfgJSON))
+	return nil
 }
