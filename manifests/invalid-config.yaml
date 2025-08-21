@@ -1,0 +1,9 @@
+port: 8001
+model: "Qwen/Qwen2-0.5B"
+max-num-seqs: 5
+mode: "random"
+time-to-first-token: 2000
+inter-token-latency: 1000
+kv-cache-transfer-latency: 100
+seed: 100100100
+zmq-max-connect-attempts: -111

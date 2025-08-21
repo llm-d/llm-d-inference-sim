@@ -122,7 +122,7 @@ For more details see the <a href="https://docs.vllm.ai/en/stable/getting_started
 - `tokenizers-cache-dir`: the directory for caching tokenizers
 - `hash-seed`: seed for hash generation (if not set, is read from PYTHONHASHSEED environment variable)
 - `zmq-endpoint`: ZMQ address to publish events
-- `zmq-retries-times`: the maximum number of ZMQ connection attempts.
+- `zmq-max-connect-attempts`: the maximum number of ZMQ connection attempts. defaults to 0. maximum: 10
 - `event-batch-size`: the maximum number of kv-cache events to be sent together, defaults to 16
 - `fake-metrics`: represents a predefined set of metrics to be sent to Prometheus as a substitute for the actual data. When specified, only these fake metrics will be reported — real metrics and fake metrics will never be reported simultaneously. The set should include values for 
     - `running-requests`
