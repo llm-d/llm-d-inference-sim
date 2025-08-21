@@ -720,7 +720,44 @@ func (s *VllmSimulator) showConfig(tgtLgr logr.Logger) error {
 		err := fmt.Errorf("target logger is nil, cannot show configuration")
 		return err
 	}
-	cfgJSON, err := json.MarshalIndent(s.config, "", "  ")
+	cfgJSON, err := json.Marshal(s.config)
+	if err != nil {
+		return fmt.Errorf("failed to marshal configuration to JSON: %w", err)
+	}
+
+	// clean LoraModulesString field
+	var m map[string]interface{}
+	err = json.Unmarshal(cfgJSON, &m)
+	if err != nil {
+		return fmt.Errorf("failed to unmarshal JSON to map: %w", err)
+	}
+	m["lora-modules"] = m["LoraModules"]
+	delete(m, "LoraModules")
+	if m["lora-modules"] == nil {
+		m["lora-modules"] = ""
+	}
+	delete(m, "LoraModulesString")
+
+	// clean fake-metrics field
+	if m["fake-metrics"] != nil {
+		var fakeMetricsM map[string]interface{}
+		fakeMetricsJSON, err := json.Marshal(m["fake-metrics"])
+		if err != nil {
+			return fmt.Errorf("failed to marshal fake-metrics to JSON: %w", err)
+		}
+		err = json.Unmarshal(fakeMetricsJSON, &fakeMetricsM)
+		if err != nil {
+			return fmt.Errorf("failed to unmarshal fake-metrics to map: %w", err)
+		}
+		delete(fakeMetricsM, "LorasString")
+		// set fake-metrics
+		m["fake-metrics"] = fakeMetricsM
+	} else {
+		m["fake-metrics"] = ""
+	}
+
+	// show in JSON
+	cfgJSON, err = json.MarshalIndent(m, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal configuration to JSON: %w", err)
 	}
