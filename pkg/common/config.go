@@ -39,100 +39,101 @@ const (
 
 type Configuration struct {
 	// Port defines on which port the simulator runs
-	Port int `yaml:"port"`
+	Port int `yaml:"port" json:"port"`
 	// Model defines the current base model name
-	Model string `yaml:"model"`
+	Model string `yaml:"model" json:"model"`
 	// ServedModelNames is one or many model names exposed by the API
-	ServedModelNames []string `yaml:"served-model-name"`
+	ServedModelNames []string `yaml:"served-model-name" json:"served-model-name"`
 	// MaxLoras defines maximum number of loaded LoRAs
-	MaxLoras int `yaml:"max-loras"`
+	MaxLoras int `yaml:"max-loras" json:"max-loras"`
 	// MaxCPULoras defines maximum number of LoRAs to store in CPU memory
-	MaxCPULoras int `yaml:"max-cpu-loras"`
+	MaxCPULoras int `yaml:"max-cpu-loras" json:"max-cpu-loras"`
 	// MaxNumSeqs is maximum number of sequences per iteration (the maximum
 	// number of inference requests that could be processed at the same time)
-	MaxNumSeqs int `yaml:"max-num-seqs"`
+	MaxNumSeqs int `yaml:"max-num-seqs" json:"max-num-seqs"`
 	// MaxModelLen is the model's context window, the maximum number of tokens
 	// in a single request including input and output. Default value is 1024.
-	MaxModelLen int `yaml:"max-model-len"`
+	MaxModelLen int `yaml:"max-model-len" json:"max-model-len"`
 	// LoraModulesString is a list of LoRA adapters as strings
-	LoraModulesString []string `yaml:"lora-modules"`
+	LoraModulesString []string `yaml:"lora-modules" json:"lora-modules"`
 	// LoraModules is a list of LoRA adapters
 	LoraModules []LoraModule
 
 	// TimeToFirstToken time before the first token will be returned, in milliseconds
-	TimeToFirstToken int `yaml:"time-to-first-token"`
+	TimeToFirstToken int `yaml:"time-to-first-token" json:"time-to-first-token"`
 	// TimeToFirstTokenStdDev standard deviation for time before the first token will be returned,
 	// in milliseconds, optional, default is 0, can't be more than 30% of TimeToFirstToken, will not
 	// cause the actual time to first token to differ by more than 70% from TimeToFirstToken
-	TimeToFirstTokenStdDev int `yaml:"time-to-first-token-std-dev"`
+	TimeToFirstTokenStdDev int `yaml:"time-to-first-token-std-dev" json:"time-to-first-token-std-dev"`
 	// InterTokenLatency time between generated tokens, in milliseconds
-	InterTokenLatency int `yaml:"inter-token-latency"`
+	InterTokenLatency int `yaml:"inter-token-latency" json:"inter-token-latency"`
 	// InterTokenLatencyStdDev standard deviation for time between generated tokens, in milliseconds,
 	// optional, default is 0, can't be more than 30% of InterTokenLatency, will not cause the actual
 	// inter token latency to differ by more than 70% from InterTokenLatency
-	InterTokenLatencyStdDev int `yaml:"inter-token-latency-std-dev"`
+	InterTokenLatencyStdDev int `yaml:"inter-token-latency-std-dev" json:"inter-token-latency-std-dev"`
 	// KVCacheTransferLatency time to "transfer" kv-cache from another vLLM instance in case P/D is activated,
 	// in milliseconds
-	KVCacheTransferLatency int `yaml:"kv-cache-transfer-latency"`
+	KVCacheTransferLatency int `yaml:"kv-cache-transfer-latency" json:"kv-cache-transfer-latency"`
 	// KVCacheTransferLatencyStdDev standard deviation for time to "transfer" kv-cache from another
 	// vLLM instance in case P/D is activated, in milliseconds, optional, default is 0, can't be more
 	// than 30% of KVCacheTransferLatency, will not cause the actual latency to differ by more than 70% from
 	// KVCacheTransferLatency
-	KVCacheTransferLatencyStdDev int `yaml:"kv-cache-transfer-latency-std-dev"`
+	KVCacheTransferLatencyStdDev int `yaml:"kv-cache-transfer-latency-std-dev" json:"kv-cache-transfer-latency-std-dev"`
 
 	// Mode defines the simulator response generation mode, valid values: echo, random
-	Mode string `yaml:"mode"`
+	Mode string `yaml:"mode" json:"mode"`
 	// Seed defines random seed for operations
-	Seed int64 `yaml:"seed"`
+	Seed int64 `yaml:"seed" json:"seed"`
 
 	// MaxToolCallIntegerParam defines the maximum possible value of integer parameters in a tool call,
 	// optional, defaults to 100
-	MaxToolCallIntegerParam int `yaml:"max-tool-call-integer-param"`
+	MaxToolCallIntegerParam int `yaml:"max-tool-call-integer-param" json:"max-tool-call-integer-param"`
 	// MinToolCallIntegerParam defines the minimum possible value of integer parameters in a tool call,
 	// optional, defaults to 0
-	MinToolCallIntegerParam int `yaml:"min-tool-call-integer-param"`
+	MinToolCallIntegerParam int `yaml:"min-tool-call-integer-param" json:"min-tool-call-integer-param"`
 	// MaxToolCallNumberParam defines the maximum possible value of number (float) parameters in a tool call,
 	// optional, defaults to 100
-	MaxToolCallNumberParam float64 `yaml:"max-tool-call-number-param"`
+	MaxToolCallNumberParam float64 `yaml:"max-tool-call-number-param" json:"max-tool-call-number-param"`
 	// MinToolCallNumberParam defines the minimum possible value of number (float) parameters in a tool call,
 	// optional, defaults to 0
-	MinToolCallNumberParam float64 `yaml:"min-tool-call-number-param"`
+	MinToolCallNumberParam float64 `yaml:"min-tool-call-number-param" json:"min-tool-call-number-param"`
 
 	// MaxToolCallArrayParamLength defines the maximum possible length of array parameters in a tool call,
 	// optional, defaults to 5
-	MaxToolCallArrayParamLength int `yaml:"max-tool-call-array-param-length"`
+	MaxToolCallArrayParamLength int `yaml:"max-tool-call-array-param-length" json:"max-tool-call-array-param-length"`
 	// MinToolCallArrayParamLength defines the minimum possible length of array parameters in a tool call,
 	// optional, defaults to 1
-	MinToolCallArrayParamLength int `yaml:"min-tool-call-array-param-length"`
+	MinToolCallArrayParamLength int `yaml:"min-tool-call-array-param-length" json:"min-tool-call-array-param-length"`
 
 	// ToolCallNotRequiredParamProbability is the probability to add a parameter, that is not required,
 	// in a tool call, optional, defaults to 50
-	ToolCallNotRequiredParamProbability int `yaml:"tool-call-not-required-param-probability"`
+	ToolCallNotRequiredParamProbability int `yaml:"tool-call-not-required-param-probability" json:"tool-call-not-required-param-probability"`
 	// ObjectToolCallNotRequiredParamProbability is the probability to add a field, that is not required,
 	// in an object in a tool call, optional, defaults to 50
-	ObjectToolCallNotRequiredParamProbability int `yaml:"object-tool-call-not-required-field-probability"`
+	ObjectToolCallNotRequiredParamProbability int `yaml:"object-tool-call-not-required-field-probability" json:"object-tool-call-not-required-field-probability"`
 
 	// EnableKVCache defines if kv cache feature will be enabled
-	EnableKVCache bool `yaml:"enable-kvcache"`
+	EnableKVCache bool `yaml:"enable-kvcache" json:"enable-kvcache"`
 	//  KVCacheSize is the maximum number of token blocks in kv cache, the default value is 1024
-	KVCacheSize int `yaml:"kv-cache-size"`
+	KVCacheSize int `yaml:"kv-cache-size" json:"kv-cache-size"`
 
 	// TokenizersCacheDir is the directory for caching tokenizers
-	TokenizersCacheDir string `yaml:"tokenizers-cache-dir"`
+	TokenizersCacheDir string `yaml:"tokenizers-cache-dir" json:"tokenizers-cache-dir"`
 	// TokenBlockSize is token block size for contiguous chunks of tokens, possible values: 8,16,32,64,128, defaults to 16
-	TokenBlockSize int `yaml:"block-size"`
+	TokenBlockSize int `yaml:"block-size" json:"block-size"`
 	// HashSeed is the seed for hash generation (if not set, is read from PYTHONHASHSEED environment variable)
-	HashSeed string `yaml:"hash-seed"`
+	HashSeed string `yaml:"hash-seed" json:"hash-seed"`
 
 	// ZMQEndpoint is the ZMQ address to publish events, the default value is tcp://localhost:5557
-	ZMQEndpoint string `yaml:"zmq-endpoint"`
+	ZMQEndpoint string `yaml:"zmq-endpoint" json:"zmq-endpoint"`
 	// ZMQMaxConnectAttempts defines the maximum number (10) of retries when ZMQ connection fails
-	ZMQMaxConnectAttempts uint `yaml:"zmq-max-connect-attempts"`
+	ZMQMaxConnectAttempts uint `yaml:"zmq-max-connect-attempts" json:"zmq-max-connect-attempts"`
+
 	// EventBatchSize is the maximum number of kv-cache events to be sent together, defaults to 16
-	EventBatchSize int `yaml:"event-batch-size"`
+	EventBatchSize int `yaml:"event-batch-size" json:"event-batch-size"`
 
 	// FakeMetrics is a set of metrics to send to Prometheus instead of the real data
-	FakeMetrics *Metrics `yaml:"fake-metrics"`
+	FakeMetrics *Metrics `yaml:"fake-metrics" json:"fake-metrics"`
 }
 
 type Metrics struct {
