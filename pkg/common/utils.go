@@ -200,11 +200,11 @@ func InitRandom(seed int64) {
 	uuid.SetRand(randomGenerator)
 }
 
-// Returns an integer between min and max (included)
-func RandomInt(min int, max int) int {
+// RandomInt returns an integer between minVal and maxVal (included)
+func RandomInt(minVal int, maxVal int) int {
 	randMutex.Lock()
 	defer randMutex.Unlock()
-	return randomGenerator.Intn(max-min+1) + min
+	return randomGenerator.Intn(maxVal-minVal+1) + minVal
 }
 
 // Returns true or false randomly
@@ -219,11 +219,11 @@ func RandomBool(probability int) bool {
 	return randomGenerator.Float64() < float64(probability)/100
 }
 
-// Returns a random float64 in the range [min, max)
-func RandomFloat(min float64, max float64) float64 {
+// RandomFloat returns a random float64 in the range [minVal, maxVal)
+func RandomFloat(minVal float64, maxVal float64) float64 {
 	randMutex.Lock()
 	defer randMutex.Unlock()
-	return randomGenerator.Float64()*(max-min) + min
+	return randomGenerator.Float64()*(maxVal-minVal) + minVal
 }
 
 // Returns a normally distributed float64

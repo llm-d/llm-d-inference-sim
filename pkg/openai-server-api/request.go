@@ -73,10 +73,10 @@ type baseCompletionRequest struct {
 	DoRemoteDecode bool `json:"do_remote_decode"`
 	// DoRemotePrefill boolean value, true when request's prefill was done on remote pod
 	DoRemotePrefill bool `json:"do_remote_prefill"`
-	// RemoteBlockIds is a list of block identifiers to process remotely for distributed decoding
-	RemoteBlockIds []string `json:"remote_block_ids"`
-	// RemoteEngineId is an identifier of the remote inference engine or backend to use for processing requests
-	RemoteEngineId string `json:"remote_engine_id"`
+	// RemoteBlockIDs is a list of block identifiers to process remotely for distributed decoding
+	RemoteBlockIDs []string `json:"remote_block_ids"`
+	// RemoteEngineID is an identifier of the remote inference engine or backend to use for processing requests
+	RemoteEngineID string `json:"remote_engine_id"`
 	// RemoteHost is a hostname or IP address of the remote server handling prefill
 	RemoteHost string `json:"remote_host"`
 	// RemotePort is a port of the remote server handling prefill
@@ -197,10 +197,10 @@ func (c *ChatCompletionRequest) GetMaxCompletionTokens() *int64 {
 
 // getLastUserMsg returns last message from this request's messages with user role,
 // if does not exist - returns an empty string
-func (req *ChatCompletionRequest) getLastUserMsg() string {
-	for i := len(req.Messages) - 1; i >= 0; i-- {
-		if req.Messages[i].Role == RoleUser {
-			return req.Messages[i].Content.PlainText()
+func (c *ChatCompletionRequest) getLastUserMsg() string {
+	for i := len(c.Messages) - 1; i >= 0; i-- {
+		if c.Messages[i].Role == RoleUser {
+			return c.Messages[i].Content.PlainText()
 		}
 	}
 
@@ -210,15 +210,15 @@ func (req *ChatCompletionRequest) getLastUserMsg() string {
 // CreateResponseText creates and returns response payload based on this request,
 // i.e., an array of generated tokens, the finish reason, and the number of created
 // tokens
-func (req ChatCompletionRequest) CreateResponseText(mode string) ([]string, string, int, error) {
-	maxTokens, err := common.GetMaxTokens(req.MaxCompletionTokens, req.MaxTokens)
+func (c ChatCompletionRequest) CreateResponseText(mode string) ([]string, string, int, error) {
+	maxTokens, err := common.GetMaxTokens(c.MaxCompletionTokens, c.MaxTokens)
 	if err != nil {
 		return nil, "", 0, err
 	}
 
 	var text, finishReason string
 	if mode == common.ModeEcho {
-		text, finishReason = common.GetResponseText(maxTokens, req.getLastUserMsg())
+		text, finishReason = common.GetResponseText(maxTokens, c.getLastUserMsg())
 	} else {
 		text, finishReason = common.GetRandomResponseText(maxTokens)
 	}
@@ -250,30 +250,30 @@ func (t *TextCompletionRequest) GetNumberOfPromptTokens() int {
 	return len(common.Tokenize(t.GetPrompt()))
 }
 
-func (c *TextCompletionRequest) GetTools() []Tool {
+func (t *TextCompletionRequest) GetTools() []Tool {
 	return nil
 }
 
-func (c *TextCompletionRequest) GetToolChoice() string {
+func (t *TextCompletionRequest) GetToolChoice() string {
 	return ""
 }
 
-func (c *TextCompletionRequest) GetMaxCompletionTokens() *int64 {
-	return c.MaxTokens
+func (t *TextCompletionRequest) GetMaxCompletionTokens() *int64 {
+	return t.MaxTokens
 }
 
 // CreateResponseText creates and returns response payload based on this request,
 // i.e., an array of generated tokens, the finish reason, and the number of created
 // tokens
-func (req TextCompletionRequest) CreateResponseText(mode string) ([]string, string, int, error) {
-	maxTokens, err := common.GetMaxTokens(nil, req.MaxTokens)
+func (t TextCompletionRequest) CreateResponseText(mode string) ([]string, string, int, error) {
+	maxTokens, err := common.GetMaxTokens(nil, t.MaxTokens)
 	if err != nil {
 		return nil, "", 0, err
 	}
 
 	var text, finishReason string
 	if mode == common.ModeEcho {
-		text, finishReason = common.GetResponseText(maxTokens, req.Prompt)
+		text, finishReason = common.GetResponseText(maxTokens, t.Prompt)
 	} else {
 		text, finishReason = common.GetRandomResponseText(maxTokens)
 	}

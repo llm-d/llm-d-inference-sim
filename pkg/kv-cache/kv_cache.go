@@ -27,14 +27,14 @@ import (
 	"github.com/llm-d/llm-d-kv-cache-manager/pkg/tokenization"
 )
 
-type KVCacheHelper struct {
+type Helper struct {
 	tokenizer       tokenization.Tokenizer
 	tokensProcessor kvblock.TokenProcessor // turns tokens to kv block keys
 	logger          logr.Logger
 	blockCache      *blockCache
 }
 
-func NewKVCacheHelper(config *common.Configuration, logger logr.Logger) (*KVCacheHelper, error) {
+func NewKVCacheHelper(config *common.Configuration, logger logr.Logger) (*Helper, error) {
 	tokenProcConfig := kvblock.DefaultTokenProcessorConfig()
 	tokenProcConfig.BlockSize = config.TokenBlockSize
 	if config.HashSeed != "" {
@@ -54,7 +54,7 @@ func NewKVCacheHelper(config *common.Configuration, logger logr.Logger) (*KVCach
 	if err != nil {
 		return nil, fmt.Errorf("failed to create block cache: %w", err)
 	}
-	return &KVCacheHelper{
+	return &Helper{
 		tokenizer:       tokenizer,
 		tokensProcessor: tokensProcessor,
 		blockCache:      blockCache,
@@ -63,11 +63,11 @@ func NewKVCacheHelper(config *common.Configuration, logger logr.Logger) (*KVCach
 }
 
 // Run starts the helper.
-func (h *KVCacheHelper) Run(ctx context.Context) {
+func (h *Helper) Run(ctx context.Context) {
 	h.blockCache.start(ctx)
 }
 
-func (h *KVCacheHelper) OnRequestStart(vllmReq openaiserverapi.CompletionRequest) error {
+func (h *Helper) OnRequestStart(vllmReq openaiserverapi.CompletionRequest) error {
 	h.logger.Info("KV cache - process request")
 
 	prompt := vllmReq.GetPrompt()
@@ -93,6 +93,6 @@ func (h *KVCacheHelper) OnRequestStart(vllmReq openaiserverapi.CompletionRequest
 	return h.blockCache.startRequest(requestID, blockHashes)
 }
 
-func (h *KVCacheHelper) OnRequestEnd(vllmReq openaiserverapi.CompletionRequest) error {
+func (h *Helper) OnRequestEnd(vllmReq openaiserverapi.CompletionRequest) error {
 	return h.blockCache.finishRequest(vllmReq.GetRequestID())
 }

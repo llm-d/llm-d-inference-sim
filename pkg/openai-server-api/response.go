@@ -42,10 +42,10 @@ type BaseCompletionResponse struct {
 	DoRemoteDecode bool `json:"do_remote_decode"`
 	// DoRemotePrefill boolean value, true when request's prefill was done on remote pod
 	DoRemotePrefill bool `json:"do_remote_prefill"`
-	// RemoteBlockIds is a list of block identifiers to process remotely for distributed decoding
-	RemoteBlockIds []string `json:"remote_block_ids"`
-	// RemoteEngineId is an identifier of the remote inference engine or backend to use for processing requests
-	RemoteEngineId string `json:"remote_engine_id"`
+	// RemoteBlockIDs is a list of block identifiers to process remotely for distributed decoding
+	RemoteBlockIDs []string `json:"remote_block_ids"`
+	// RemoteEngineID is an identifier of the remote inference engine or backend to use for processing requests
+	RemoteEngineID string `json:"remote_engine_id"`
 	// RemoteHost is a hostname or IP address of the remote server handling prefill
 	RemoteHost string `json:"remote_host"`
 	// RemotePort is a port of the remote server handling prefill
@@ -100,7 +100,7 @@ type ContentBlock struct {
 }
 
 type ImageBlock struct {
-	Url string `json:"url,omitempty"`
+	URL string `json:"url,omitempty"`
 }
 
 // UnmarshalJSON allow use both format

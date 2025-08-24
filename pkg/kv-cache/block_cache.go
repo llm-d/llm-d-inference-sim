@@ -72,11 +72,11 @@ func (b *blockCache) start(ctx context.Context) {
 }
 
 // startRequest adds a request with its associated block hashes to the cache
-func (bc *blockCache) startRequest(requestID string, blocks []uint64) error {
-	bc.mu.Lock()
-	defer bc.mu.Unlock()
+func (b *blockCache) startRequest(requestID string, blocks []uint64) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 
-	if _, exists := bc.requestToBlocks[requestID]; exists {
+	if _, exists := b.requestToBlocks[requestID]; exists {
 		// request with the same id already exists
 		return fmt.Errorf("request already exists for id %s", requestID)
 	}
@@ -93,67 +93,67 @@ func (bc *blockCache) startRequest(requestID string, blocks []uint64) error {
 	// count number of new blocks + number of blocks that are in the unused blocks
 	// don't update the data until we are sure that it's ok
 	for _, blockHash := range blocks {
-		if _, exists := bc.unusedBlocks[blockHash]; exists {
+		if _, exists := b.unusedBlocks[blockHash]; exists {
 			blockToMoveToUsed = append(blockToMoveToUsed, blockHash)
-		} else if _, exists := bc.usedBlocks[blockHash]; !exists {
+		} else if _, exists := b.usedBlocks[blockHash]; !exists {
 			blocksToAdd = append(blocksToAdd, blockHash)
 		} else {
 			blockAreadyInUse = append(blockAreadyInUse, blockHash)
 		}
 	}
 
-	if len(bc.usedBlocks)+len(blocksToAdd)+len(blockToMoveToUsed) > bc.maxBlocks {
+	if len(b.usedBlocks)+len(blocksToAdd)+len(blockToMoveToUsed) > b.maxBlocks {
 		return errors.New(capacityError)
 	}
 
 	// for blocks that are already in use - update the reference
 	for _, block := range blockAreadyInUse {
-		bc.usedBlocks[block] += 1
+		b.usedBlocks[block]++
 	}
 
 	// for block used in the past - move them to the used blocks collection
 	for _, block := range blockToMoveToUsed {
-		bc.usedBlocks[block] = 1
-		delete(bc.unusedBlocks, block)
+		b.usedBlocks[block] = 1
+		delete(b.unusedBlocks, block)
 	}
 
 	// for new block - add them, if there is no empty slots - evict the oldest block
 	for _, block := range blocksToAdd {
-		if len(bc.usedBlocks)+len(bc.unusedBlocks) == bc.maxBlocks {
+		if len(b.usedBlocks)+len(b.unusedBlocks) == b.maxBlocks {
 			// cache is full but contains unused blocks - evict the oldest
 			var oldestUnusedHash uint64
 			oldestUnusedTime := time.Now()
 
-			for hash, t := range bc.unusedBlocks {
+			for hash, t := range b.unusedBlocks {
 				if t.Before(oldestUnusedTime) {
 					oldestUnusedHash = hash
 					oldestUnusedTime = t
 				}
 			}
 
-			delete(bc.unusedBlocks, oldestUnusedHash)
-			bc.eventChan <- EventData{action: eventActionRemove, hashValues: []uint64{oldestUnusedHash}}
+			delete(b.unusedBlocks, oldestUnusedHash)
+			b.eventChan <- EventData{action: eventActionRemove, hashValues: []uint64{oldestUnusedHash}}
 		}
 
 		// Add the new block
-		bc.usedBlocks[block] = 1
-		bc.eventChan <- EventData{action: eventActionStore, hashValues: []uint64{block}}
+		b.usedBlocks[block] = 1
+		b.eventChan <- EventData{action: eventActionStore, hashValues: []uint64{block}}
 	}
 
 	// store the request mapping
-	bc.requestToBlocks[requestID] = make([]uint64, len(blocks))
-	copy(bc.requestToBlocks[requestID], blocks)
+	b.requestToBlocks[requestID] = make([]uint64, len(blocks))
+	copy(b.requestToBlocks[requestID], blocks)
 
 	return nil
 }
 
 // finishRequest processes the completion of a request, decreasing reference counts
-func (bc *blockCache) finishRequest(requestID string) error {
-	bc.mu.Lock()
-	defer bc.mu.Unlock()
+func (b *blockCache) finishRequest(requestID string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
 
 	// Get blocks associated with this request
-	blockHashes, exists := bc.requestToBlocks[requestID]
+	blockHashes, exists := b.requestToBlocks[requestID]
 	if !exists {
 		return errors.New("request not found")
 	}
@@ -163,14 +163,14 @@ func (bc *blockCache) finishRequest(requestID string) error {
 	// Decrease reference count for each block
 	errBlocks := make([]uint64, 0)
 	for _, blockHash := range blockHashes {
-		if refCount, exists := bc.usedBlocks[blockHash]; exists {
+		if refCount, exists := b.usedBlocks[blockHash]; exists {
 			if refCount > 1 {
 				// this block is in use by another request, just update reference count
-				bc.usedBlocks[blockHash] = refCount - 1
+				b.usedBlocks[blockHash] = refCount - 1
 			} else {
 				// this was the last block usage - move this block to unused
-				bc.unusedBlocks[blockHash] = now
-				delete(bc.usedBlocks, blockHash)
+				b.unusedBlocks[blockHash] = now
+				delete(b.usedBlocks, blockHash)
 			}
 		} else {
 			errBlocks = append(errBlocks, blockHash)
@@ -178,12 +178,12 @@ func (bc *blockCache) finishRequest(requestID string) error {
 	}
 
 	// Remove the request mapping
-	delete(bc.requestToBlocks, requestID)
+	delete(b.requestToBlocks, requestID)
 
 	if len(errBlocks) > 0 {
 		errMsg := "Not existing blocks "
-		for _, b := range errBlocks {
-			errMsg += fmt.Sprintf("%d, ", b)
+		for _, bl := range errBlocks {
+			errMsg += fmt.Sprintf("%d, ", bl)
 		}
 		return fmt.Errorf("%s for request %s", errMsg[:len(errMsg)-2], requestID)
 	}
@@ -192,26 +192,26 @@ func (bc *blockCache) finishRequest(requestID string) error {
 }
 
 // GetStats returns current cache statistics (for testing/debugging)
-func (bc *blockCache) getStats() (int, int, int) {
-	bc.mu.RLock()
-	defer bc.mu.RUnlock()
+func (b *blockCache) getStats() (int, int, int) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
 
-	return len(bc.requestToBlocks), len(bc.usedBlocks) + len(bc.unusedBlocks), len(bc.unusedBlocks)
+	return len(b.requestToBlocks), len(b.usedBlocks) + len(b.unusedBlocks), len(b.unusedBlocks)
 }
 
 // getBlockInfo returns reference count and if it's in the cache for a specific block (for testing)
 // if block is in use by currently running requests the count will be positive, boolean is true
 // if block is in the unused list - count is 0, boolean is true
 // if block is not in both collections - count is 0, boolean is false
-func (bc *blockCache) getBlockInfo(blockHash uint64) (int, bool) {
-	bc.mu.RLock()
-	defer bc.mu.RUnlock()
+func (b *blockCache) getBlockInfo(blockHash uint64) (int, bool) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
 
-	refCount, exists := bc.usedBlocks[blockHash]
+	refCount, exists := b.usedBlocks[blockHash]
 	if exists {
 		return refCount, true
 	}
-	_, exists = bc.unusedBlocks[blockHash]
+	_, exists = b.unusedBlocks[blockHash]
 	if exists {
 		return 0, true
 	}
