@@ -20,6 +20,7 @@ package llmdinferencesim
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -717,8 +718,7 @@ func (s *VllmSimulator) getDisplayedModelName(reqModel string) string {
 
 func (s *VllmSimulator) showConfig(tgtLgr logr.Logger) error {
 	if tgtLgr == logr.Discard() {
-		err := fmt.Errorf("target logger is nil, cannot show configuration")
-		return err
+		return errors.New("target logger is nil, cannot show configuration")
 	}
 	cfgJSON, err := json.Marshal(s.config)
 	if err != nil {
