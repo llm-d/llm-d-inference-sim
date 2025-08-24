@@ -733,27 +733,11 @@ func (s *VllmSimulator) showConfig(tgtLgr logr.Logger) error {
 	}
 	m["lora-modules"] = m["LoraModules"]
 	delete(m, "LoraModules")
-	if m["lora-modules"] == nil {
-		m["lora-modules"] = ""
-	}
 	delete(m, "LoraModulesString")
 
 	// clean fake-metrics field
-	if m["fake-metrics"] != nil {
-		var fakeMetricsM map[string]interface{}
-		fakeMetricsJSON, err := json.Marshal(m["fake-metrics"])
-		if err != nil {
-			return fmt.Errorf("failed to marshal fake-metrics to JSON: %w", err)
-		}
-		err = json.Unmarshal(fakeMetricsJSON, &fakeMetricsM)
-		if err != nil {
-			return fmt.Errorf("failed to unmarshal fake-metrics to map: %w", err)
-		}
-		delete(fakeMetricsM, "LorasString")
-		// set fake-metrics
-		m["fake-metrics"] = fakeMetricsM
-	} else {
-		m["fake-metrics"] = ""
+	if field, ok := m["fake-metrics"].(map[string]interface{}); ok {
+		delete(field, "LorasString")
 	}
 
 	// show in JSON
