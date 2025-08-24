@@ -761,8 +761,8 @@ var _ = Describe("Simulator", func() {
 				simulator.config.InterTokenLatency = interTokenLatency
 				simulator.config.InterTokenLatencyStdDev = stddev
 				interToken := simulator.getInterTokenLatency()
-				Expect(interToken).To(BeNumerically(">=", int(float64(interTokenLatency)*0.3)))
-				Expect(interToken).To(BeNumerically("<=", int(float64(interTokenLatency)*1.7)))
+				Expect(interToken).To(BeNumerically(">=", int(float32(interTokenLatency)*0.3)))
+				Expect(interToken).To(BeNumerically("<=", int(float32(interTokenLatency)*1.7)))
 			},
 			func(interTokenLatency int, stddev int) string {
 				return fmt.Sprintf("interTokenLatency: %d stddev: %d", interTokenLatency, stddev)
