@@ -93,21 +93,33 @@ For more details see the <a href="https://docs.vllm.ai/en/stable/getting_started
 - `port`: the port the simulator listents on, default is 8000
 - `model`: the currently 'loaded' model, mandatory
 - `served-model-name`: model names exposed by the API (a list of space-separated strings)
+---
 - `lora-modules`: a list of LoRA adapters (a list of space-separated JSON strings): '{"name": "name", "path": "lora_path", "base_model_name": "id"}', optional, empty by default
 - `max-loras`: maximum number of LoRAs in a single batch, optional, default is one
 - `max-cpu-loras`: maximum number of LoRAs to store in CPU memory, optional, must be >= than max-loras, default is max-loras
+---
 - `max-model-len`: model's context window, maximum number of tokens in a single request including input and output, optional, default is 1024
 - `max-num-seqs`: maximum number of sequences per iteration (maximum number of inference requests that could be processed at the same time), default is 5
 - `mode`: the simulator mode, optional, by default `random`
     - `echo`: returns the same text that was sent in the request
     - `random`: returns a sentence chosen at random from a set of pre-defined sentences
+---
 - `time-to-first-token`: the time to the first token (in milliseconds), optional, by default zero
 - `time-to-first-token-std-dev`: standard deviation for time before the first token will be returned, in milliseconds, optional, default is 0, can't be more than 30% of `time-to-first-token`, will not cause the actual time to first token to differ by more than 70% from `time-to-first-token`
 - `inter-token-latency`: the time to 'generate' each additional token (in milliseconds), optional, by default zero
 - `inter-token-latency-std-dev`: standard deviation for time between generated tokens, in milliseconds, optional, default is 0, can't be more than 30% of `inter-token-latency`, will not cause the actual inter token latency to differ by more than 70% from `inter-token-latency`
 - `kv-cache-transfer-latency`: time for KV-cache transfer from a remote vLLM (in milliseconds), by default zero. Usually much shorter than `time-to-first-token`
 - `kv-cache-transfer-latency-std-dev`: standard deviation for time to "transfer" kv-cache from another vLLM instance in case P/D is activated, in milliseconds, optional, default is 0, can't be more than 30% of `kv-cache-transfer-latency`, will not cause the actual latency to differ by more than 70% from `kv-cache-transfer-latency`
+---
+- `prefill-overhead`: The base overhead in milliseconds for prefilling a single token. This value, in conjunction with `prefill-complexity` and `prefill-overhead-std-dev`, determines the overall time taken to prefill the entire context. It's an optional parameter with a default of `0` and is ignored if `time-to-first-token` is not `0`.
+- `prefill-complexity`: Defines how the prefill time scales with the number of prompt tokens. This is required if `prefill-overhead` is used. Options are `"n^2"` and `"nlog(n)"`, with a default of `"n^2"`.
+- `prefill-overhead-std-dev`: The standard deviation in milliseconds for the time taken before the first token is returned. This is required if `prefill-overhead` is used, with a default of `0`.
+- `kv-cache-transfer-overhead`: The base overhead in milliseconds for transferring the KV-cache of a single token from another vLLM instance when P/D is activated. Along with `kv-cache-transfer-complexity` and `kv-cache-transfer-overhead-std-dev`, it defines the total time for the KV-cache transfer of the entire context. This parameter is optional with a default of `0` and is ignored if `kv-cache-transfer-latency` is not `0`.
+- `kv-cache-transfer-complexity`: The complexity of the KV-cache transfer relative to the number of prompt tokens. This is required if `kv-cache-transfer-overhead` is used. Options are `"linear"` and `"in-place"`, with a default of `"linear"`.
+- `kv-cache-transfer-overhead-std-dev`: The standard deviation in milliseconds for the time taken to transfer the KV-cache. This is required if `kv-cache-transfer-overhead` is used, with a default of `0`.
+---
 - `seed`: random seed for operations (if not set, current Unix time in nanoseconds is used)
+---
 - `max-tool-call-integer-param`: the maximum possible value of integer parameters in a tool call, optional, defaults to 100
 - `min-tool-call-integer-param`: the minimum possible value of integer parameters in a tool call, optional, defaults to 0
 - `max-tool-call-number-param`: the maximum possible value of number (float) parameters in a tool call, optional, defaults to 100
@@ -116,6 +128,7 @@ For more details see the <a href="https://docs.vllm.ai/en/stable/getting_started
 - `min-tool-call-array-param-length`: the minimum possible length of array parameters in a tool call, optional, defaults to 1
 - `tool-call-not-required-param-probability`: the probability to add a parameter, that is not required, in a tool call, optional, defaults to 50
 - `object-tool-call-not-required-field-probability`: the probability to add a field, that is not required, in an object in a tool call, optional, defaults to 50
+---
 - `enable-kvcache`: if true, the KV cache support will be enabled in the simulator. In this case, the KV cache will be simulated, and ZQM events will be published when a KV cache block is added or evicted. 
 - `kv-cache-size`: the maximum number of token blocks in kv cache
 - `block-size`: token block size for contiguous chunks of tokens, possible values: 8,16,32,64,128
@@ -124,6 +137,7 @@ For more details see the <a href="https://docs.vllm.ai/en/stable/getting_started
 - `zmq-endpoint`: ZMQ address to publish events
 - `zmq-max-connect-attempts`: the maximum number of ZMQ connection attempts, defaults to 0, maximum: 10
 - `event-batch-size`: the maximum number of kv-cache events to be sent together, defaults to 16
+---
 - `fake-metrics`: represents a predefined set of metrics to be sent to Prometheus as a substitute for the real metrics. When specified, only these fake metrics will be reported — real metrics and fake metrics will never be reported together. The set should include values for 
     - `running-requests`
     - `waiting-requests`
@@ -174,9 +188,9 @@ To run the vLLM Simulator image under Docker, run:
 ```bash
 docker run --rm --publish 8000:8000 ghcr.io/llm-d/llm-d-inference-sim:dev  --port 8000 --model "Qwen/Qwen2.5-1.5B-Instruct"  --lora-modules '{"name":"tweet-summary-0"}' '{"name":"tweet-summary-1"}'
 ```
-**Note:** To run the vLLM Simulator with the latest release version, in the above docker command replace `dev` with the current release which can be found on [GitHub](https://github.com/llm-d/llm-d-inference-sim/pkgs/container/llm-d-inference-sim).
+Note: To run the vLLM Simulator with the latest release version, in the above docker command replace `dev` with the current release which can be found on [GitHub](https://github.com/llm-d/llm-d-inference-sim/pkgs/container/llm-d-inference-sim).
 
-**Note:** The above command exposes the simulator on port 8000, and serves the Qwen/Qwen2.5-1.5B-Instruct model.
+Note: The above command exposes the simulator on port 8000, and serves the Qwen/Qwen2.5-1.5B-Instruct model.
 
 ## Standalone testing
 

@@ -53,9 +53,9 @@ type CompletionRequest interface {
 	GetToolChoice() string
 	// GetMaxCompletionTokens returns the maximum completion tokens requested
 	GetMaxCompletionTokens() *int64
-	// IsDoRemoteDecode() returns true if do_remote_decode field is true in the request, this means that this is prefill request
+	// IsDoRemoteDecode() returns true if do_remote_decode field is true in the request, this means that this is decode request
 	IsDoRemoteDecode() bool
-	// IsDoRemotePrefill() returns true if do_remote_prefill field is true in the request, this means that this is decode request
+	// IsDoRemotePrefill() returns true if do_remote_prefill field is true in the request, this means that this is prefill request
 	IsDoRemotePrefill() bool
 }
 

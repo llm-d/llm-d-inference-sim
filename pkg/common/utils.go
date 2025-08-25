@@ -261,3 +261,22 @@ func init() {
 func Tokenize(text string) []string {
 	return re.FindAllString(text, -1)
 }
+
+// Calculate standard deviation of an int array
+func StdDevInt(data []int) float64 {
+	var sum int
+	for _, value := range data {
+		sum += value
+	}
+	mean := sum / len(data)
+
+	var sumSquares int
+	for _, value := range data {
+		diff := value - mean
+		sumSquares += diff * diff
+	}
+
+	variance := sumSquares / len(data)
+
+	return math.Sqrt(float64(variance))
+}

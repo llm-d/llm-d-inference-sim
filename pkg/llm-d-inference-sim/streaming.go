@@ -39,7 +39,7 @@ type streamingContext struct {
 // as defined by isChatCompletion
 // response content is wrapped according SSE format
 // First token is send after timeToFirstToken milliseconds, every other token is sent after interTokenLatency milliseconds
-func (s *VllmSimulator) sendStreamingResponse(context *streamingContext, responseTokens []string, toolCalls []openaiserverapi.ToolCall,
+func (s *VllmSimulator) sendStreamingResponse(context *streamingContext, nPromptTokens int, responseTokens []string, toolCalls []openaiserverapi.ToolCall,
 	finishReason string, usageData *openaiserverapi.Usage) {
 	context.ctx.SetContentType("text/event-stream")
 	context.ctx.SetStatusCode(fasthttp.StatusOK)
@@ -67,11 +67,11 @@ func (s *VllmSimulator) sendStreamingResponse(context *streamingContext, respons
 			if len(toolCalls) > 0 {
 				s.logger.Info("Going to send tools calls")
 				for _, tc := range toolCalls {
-					s.sendTokenChunks(context, w, tc.Function.TokenizedArguments, &tc, finishReason)
+					s.sendTokenChunks(context, w, nPromptTokens, tc.Function.TokenizedArguments, &tc, finishReason)
 				}
 			} else {
 				s.logger.Info("Going to send text", "number of tokens", len(responseTokens))
-				s.sendTokenChunks(context, w, responseTokens, nil, finishReason)
+				s.sendTokenChunks(context, w, nPromptTokens, responseTokens, nil, finishReason)
 			}
 		}
 
@@ -94,11 +94,11 @@ func (s *VllmSimulator) sendStreamingResponse(context *streamingContext, respons
 }
 
 // sendTokenChunks creates and sends response chunks
-func (s *VllmSimulator) sendTokenChunks(context *streamingContext, w *bufio.Writer, tokens []string, tc *openaiserverapi.ToolCall, finishReason string) {
+func (s *VllmSimulator) sendTokenChunks(context *streamingContext, w *bufio.Writer, nPromptTokens int, genTokens []string, tc *openaiserverapi.ToolCall, finishReason string) {
 	// time to first token delay
-	time.Sleep(time.Duration(s.getTimeToFirstToken(context.doRemotePrefill)) * time.Millisecond)
+	time.Sleep(time.Duration(s.getTimeToFirstToken(nPromptTokens, context.doRemotePrefill)) * time.Millisecond)
 
-	for i, token := range tokens {
+	for i, token := range genTokens {
 		if i != 0 {
 			time.Sleep(time.Duration(s.getInterTokenLatency()) * time.Millisecond)
 		}
@@ -119,7 +119,7 @@ func (s *VllmSimulator) sendTokenChunks(context *streamingContext, w *bufio.Writ
 
 		var chunk openaiserverapi.CompletionRespChunk
 		var finishReasonToSend *string
-		if i == len(tokens)-1 && (finishReason == common.LengthFinishReason || finishReason == common.ToolsFinishReason) {
+		if i == len(genTokens)-1 && (finishReason == common.LengthFinishReason || finishReason == common.ToolsFinishReason) {
 			finishReasonToSend = &finishReason
 		}
 		if context.isChatCompletion {

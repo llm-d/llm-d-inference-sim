@@ -156,4 +156,16 @@ var _ = Describe("Utils", Ordered, func() {
 		}
 	})
 
+	Context("Standard Deviation", func() {
+		It("should return 0 for a single element", func() {
+			data := []int{42}
+			Expect(StdDevInt(data)).To(Equal(0.0))
+		})
+
+		It("should return the correct standard deviation for multiple elements", func() {
+			data := []int{1, 2, 3, 4, 5}
+			Expect(StdDevInt(data)).To(Equal(1.4142135623730951))
+		})
+	})
+
 })
