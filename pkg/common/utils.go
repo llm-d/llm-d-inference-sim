@@ -167,9 +167,13 @@ func GetRandomResponseText(maxCompletionTokens *int64) (string, string) {
 	if maxCompletionTokens == nil {
 		numOfTokens = GetRandomResponseLen()
 	} else {
+		maxTokens := int(*maxCompletionTokens)
 		// max tokens is defined - generate real length of the response based on it
-		numOfTokens = getResponseLengthByHistogram(int(*maxCompletionTokens))
-		finishReason = GetRandomFinishReason()
+		numOfTokens = getResponseLengthByHistogram(maxTokens)
+		if numOfTokens == maxTokens {
+			// if response should be create with maximum number of tokens - finish reason will be 'length'
+			finishReason = LengthFinishReason
+		}
 	}
 
 	text := GetRandomText(numOfTokens)

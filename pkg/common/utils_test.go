@@ -38,16 +38,28 @@ var _ = Describe("Utils", Ordered, func() {
 		It("should return short text", func() {
 			maxCompletionTokens := int64(2)
 			text, finishReason := GetRandomResponseText(&maxCompletionTokens)
-			Expect(int64(len(Tokenize(text)))).Should(Equal(maxCompletionTokens))
-			Expect([]string{StopFinishReason, LengthFinishReason}).Should(ContainElement(finishReason))
+			tokensCnt := int64(len(Tokenize(text)))
+			Expect(tokensCnt).Should(BeNumerically("<=", maxCompletionTokens))
+			if tokensCnt == maxCompletionTokens {
+				Expect(finishReason).To(Equal(LengthFinishReason))
+			} else {
+				Expect(tokensCnt).To(BeNumerically("<", maxCompletionTokens))
+				Expect(finishReason).To(Equal(StopFinishReason))
+			}
 		})
 		It("should return long text", func() {
 			// return required number of tokens although it is higher than ResponseLenMax
 			maxCompletionTokens := int64(ResponseLenMax * 5)
 			text, finishReason := GetRandomResponseText(&maxCompletionTokens)
-			Expect(int64(len(Tokenize(text)))).Should(Equal(maxCompletionTokens))
+			tokensCnt := int64(len(Tokenize(text)))
+			Expect(tokensCnt).Should(BeNumerically("<=", maxCompletionTokens))
 			Expect(IsValidText(text)).To(BeTrue())
-			Expect([]string{StopFinishReason, LengthFinishReason}).Should(ContainElement(finishReason))
+			if tokensCnt == maxCompletionTokens {
+				Expect(finishReason).To(Equal(LengthFinishReason))
+			} else {
+				Expect(tokensCnt).To(BeNumerically("<", maxCompletionTokens))
+				Expect(finishReason).To(Equal(StopFinishReason))
+			}
 		})
 	})
 
