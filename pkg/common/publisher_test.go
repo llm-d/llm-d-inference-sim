@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/binary"
 
+	"net"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -29,11 +30,9 @@ import (
 )
 
 const (
-	topic       = "test-topic"
-	subEndpoint = "tcp://*:5557"
-	pubEndpoint = "tcp://localhost:5557"
-	data        = "Hello"
-	retries     = 0
+	topic   = "test-topic"
+	data    = "Hello"
+	retries = 0
 )
 
 var _ = Describe("Publisher", func() {
@@ -42,7 +41,9 @@ var _ = Describe("Publisher", func() {
 		Expect(err).NotTo(HaveOccurred())
 		sub, err := zctx.NewSocket(zmq.SUB)
 		Expect(err).NotTo(HaveOccurred())
-		err = sub.Bind(subEndpoint)
+		err = sub.Bind("tcp://127.0.0.1:0")
+		Expect(err).NotTo(HaveOccurred())
+		endpoint, err := sub.GetLastEndpoint()
 		Expect(err).NotTo(HaveOccurred())
 		err = sub.SetSubscribe(topic)
 		Expect(err).NotTo(HaveOccurred())
@@ -51,7 +52,7 @@ var _ = Describe("Publisher", func() {
 
 		time.Sleep(100 * time.Millisecond)
 
-		pub, err := NewPublisher(pubEndpoint, retries)
+		pub, err := NewPublisher(endpoint, retries)
 		Expect(err).NotTo(HaveOccurred())
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -94,9 +95,14 @@ var _ = Describe("Publisher", func() {
 		}
 	})
 	It("should retry connection successfully", func() {
+		listener, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			panic(err)
+		}
+		endpoint := "tcp://" + listener.Addr().String()
 		// Step 1: Try to connect to a temporarily non-existent service
 		// This will trigger the retry mechanism
-		go func() {
+		go func(listener net.Listener, endpoint string) {
 			// Delay starting the server to simulate service recovery
 			time.Sleep(2 * time.Second)
 
@@ -105,13 +111,15 @@ var _ = Describe("Publisher", func() {
 			Expect(err).NotTo(HaveOccurred())
 			//nolint
 			defer sub.Close()
-			err = sub.Bind(subEndpoint)
+			err = listener.Close() // Free the port for ZMQ
 			Expect(err).NotTo(HaveOccurred())
-		}()
+			err = sub.Bind(endpoint)
+			Expect(err).NotTo(HaveOccurred())
+		}(listener, endpoint)
 
 		// Step 2: Publisher will retry connection and eventually succeed
-		pub, err := NewPublisher(pubEndpoint, 5) // 5 retries
-		Expect(err).NotTo(HaveOccurred())        // Should eventually succeed
+		pub, err := NewPublisher(endpoint, 5) // 5 retries
+		Expect(err).NotTo(HaveOccurred())     // Should eventually succeed
 		//nolint
 		defer pub.Close()
 	})
