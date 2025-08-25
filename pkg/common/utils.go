@@ -39,6 +39,9 @@ const (
 	RemoteDecodeFinishReason = "remote_decode"
 )
 
+var randomValuesBuckets = []float64{0.2, 0.3, 0.2, 0.05, 0.1, 0.15}
+var cumulativeBuckets []float64
+
 // list of responses to use in random mode for comepltion requests
 var chatCompletionFakeResponses = []string{
 	`Testing@, #testing 1$ ,2%,3^, [4&*5], 6~, 7-_ + (8 : 9) / \ < > .`,
@@ -52,6 +55,16 @@ var chatCompletionFakeResponses = []string{
 	`Alas, poor Yorick! I knew him, Horatio: A fellow of infinite jest`,
 	`The rest is silence. `,
 	`Give a man a fish and you feed him for a day; teach a man to fish and you feed him for a lifetime`,
+}
+
+func init() {
+	cumulativeBuckets = make([]float64, len(randomValuesBuckets))
+	sum := 0.0
+
+	for i, val := range randomValuesBuckets {
+		sum += val
+		cumulativeBuckets[i] = sum
+	}
 }
 
 // returns the max tokens or error if incorrect
@@ -154,12 +167,56 @@ func GetRandomResponseText(maxCompletionTokens *int64) (string, string) {
 	if maxCompletionTokens == nil {
 		numOfTokens = GetRandomResponseLen()
 	} else {
-		numOfTokens = int(*maxCompletionTokens)
+		// max tokens is defined - generate real length of the response based on it
+		numOfTokens = getResponseLengthByHistogram(int(*maxCompletionTokens))
 		finishReason = GetRandomFinishReason()
 	}
 
 	text := GetRandomText(numOfTokens)
 	return text, finishReason
+}
+
+// length is distributed to 6 buckets:
+// 15% - max tokens
+// other values are divided to 5 additional buckets with the following probabilities starting from the bucket for one token
+// 20%, 30%, 20%, 5%, 10%
+func getResponseLengthByHistogram(maxTokens int) int {
+	if maxTokens <= 1 {
+		return maxTokens
+	}
+	if maxTokens <= len(cumulativeBuckets) {
+		res := RandomInt(1, maxTokens)
+		return res
+	}
+
+	r := RandomFloat(0, 1)
+
+	// probability to return maxToken
+	if r > cumulativeBuckets[len(cumulativeBuckets)-2] {
+		return maxTokens
+	}
+
+	// determine which bucket to use
+	bucketIndex := 0
+	for i, c := range cumulativeBuckets {
+		if r <= c {
+			bucketIndex = i
+			break
+		}
+	}
+
+	// compute bucket ranges
+	nonMaxCount := maxTokens - 1
+	bucketSize := float64(nonMaxCount) / 5.0
+
+	start := int(bucketSize*float64(bucketIndex)) + 1
+	end := int(bucketSize * float64(bucketIndex+1))
+	if end >= maxTokens {
+		end = maxTokens - 1
+	}
+
+	// Pick uniformly within the bucket’s range
+	return RandomInt(start, end)
 }
 
 // GetResponseText returns response text, from a given text
