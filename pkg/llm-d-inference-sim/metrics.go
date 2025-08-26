@@ -21,7 +21,6 @@ package llmdinferencesim
 import (
 	"strconv"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -152,25 +151,30 @@ func (s *VllmSimulator) reportLoras() {
 }
 
 // reportRunningRequests sets information about running completion requests
-func (s *VllmSimulator) reportRunningRequests() {
+func (s *VllmSimulator) reportRunningRequests(nRunningReqs int64) {
 	if s.config.FakeMetrics != nil {
 		return
 	}
 	if s.runningRequests != nil {
-		nRunningReqs := atomic.LoadInt64(&(s.nRunningReqs))
 		s.runningRequests.WithLabelValues(
 			s.getDisplayedModelName(s.config.Model)).Set(float64(nRunningReqs))
 	}
 }
 
 // reportWaitingRequests sets information about waiting completion requests
-func (s *VllmSimulator) reportWaitingRequests() {
+func (s *VllmSimulator) reportWaitingRequests(nWaitingReqs int64) {
 	if s.config.FakeMetrics != nil {
 		return
 	}
 	if s.waitingRequests != nil {
-		nWaitingReqs := atomic.LoadInt64(&(s.nWaitingReqs))
 		s.waitingRequests.WithLabelValues(
 			s.getDisplayedModelName(s.config.Model)).Set(float64(nWaitingReqs))
 	}
+}
+
+func (s *VllmSimulator) unregisterPrometheus() {
+	prometheus.Unregister(s.loraInfo)
+	prometheus.Unregister(s.runningRequests)
+	prometheus.Unregister(s.waitingRequests)
+	prometheus.Unregister(s.kvCacheUsagePercentage)
 }

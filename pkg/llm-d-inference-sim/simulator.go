@@ -26,7 +26,6 @@ import (
 	"os"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/buaazp/fasthttprouter"
@@ -69,8 +68,12 @@ type VllmSimulator struct {
 	waitingLoras sync.Map
 	// nRunningReqs is the number of inference requests that are currently being processed
 	nRunningReqs int64
+	// runReqChan is a channel to update nRunningReqs
+	runReqChan chan int64
 	// nWaitingReqs is the number of inference requests that are waiting to be processed
 	nWaitingReqs int64
+	// waitingReqChan is a channel to update nWaitingReqs
+	waitingReqChan chan int64
 	// loraInfo is prometheus gauge
 	loraInfo *prometheus.GaugeVec
 	// runningRequests is prometheus gauge
@@ -105,6 +108,8 @@ func New(logger logr.Logger) (*VllmSimulator, error) {
 		kvcacheHelper:  nil, // kvcache helper will be created only if required after reading configuration
 		namespace:      os.Getenv(podNsEnv),
 		pod:            os.Getenv(podNameEnv),
+		runReqChan:     make(chan int64, 1000),
+		waitingReqChan: make(chan int64, 1000),
 	}, nil
 }
 
@@ -148,6 +153,9 @@ func (s *VllmSimulator) Start(ctx context.Context) error {
 	for i := 1; i <= s.config.MaxNumSeqs; i++ {
 		go s.reqProcessingWorker(ctx, i)
 	}
+
+	go s.metricsUpdater(ctx)
+
 	listener, err := s.newListener()
 	if err != nil {
 		return err
@@ -155,6 +163,22 @@ func (s *VllmSimulator) Start(ctx context.Context) error {
 
 	// start the http server with context support
 	return s.startServer(ctx, listener)
+}
+
+// metricsUpdater updates the metrics by listening on the relevant channels
+func (s *VllmSimulator) metricsUpdater(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case inc := <-s.waitingReqChan:
+			s.nWaitingReqs += inc
+			s.reportWaitingRequests(s.nWaitingReqs)
+		case inc := <-s.runReqChan:
+			s.nRunningReqs += inc
+			s.reportRunningRequests(s.nRunningReqs)
+		}
+	}
 }
 
 func (s *VllmSimulator) newListener() (net.Listener, error) {
@@ -378,9 +402,8 @@ func (s *VllmSimulator) handleCompletions(ctx *fasthttp.RequestCtx, isChatComple
 		IsChatCompletion: isChatCompletion,
 		Wg:               &wg,
 	}
+	s.waitingReqChan <- 1
 	s.reqChan <- reqCtx
-	atomic.StoreInt64(&(s.nWaitingReqs), int64(len(s.reqChan)))
-	s.reportWaitingRequests()
 	wg.Wait()
 }
 
@@ -395,8 +418,8 @@ func (s *VllmSimulator) reqProcessingWorker(ctx context.Context, id int) {
 				s.logger.Info("reqProcessingWorker worker exiting: reqChan closed")
 				return
 			}
-			atomic.StoreInt64(&(s.nWaitingReqs), int64(len(s.reqChan)))
-			s.reportWaitingRequests()
+
+			s.waitingReqChan <- -1
 
 			req := reqCtx.CompletionReq
 			model := req.GetModel()
@@ -419,8 +442,8 @@ func (s *VllmSimulator) reqProcessingWorker(ctx context.Context, id int) {
 				// TODO - check if this request went to the waiting queue - add it to waiting map
 				s.reportLoras()
 			}
-			atomic.AddInt64(&(s.nRunningReqs), 1)
-			s.reportRunningRequests()
+
+			s.runReqChan <- 1
 
 			var responseTokens []string
 			var finishReason string
@@ -491,9 +514,7 @@ func (s *VllmSimulator) reqProcessingWorker(ctx context.Context, id int) {
 
 // decrease model usage reference number
 func (s *VllmSimulator) responseSentCallback(model string) {
-
-	atomic.AddInt64(&(s.nRunningReqs), -1)
-	s.reportRunningRequests()
+	s.runReqChan <- -1
 
 	// Only LoRA models require reference-count handling.
 	if !s.isLora(model) {

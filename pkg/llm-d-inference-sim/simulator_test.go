@@ -49,10 +49,12 @@ func startServer(ctx context.Context, mode string) (*http.Client, error) {
 }
 
 func startServerWithArgs(ctx context.Context, mode string, args []string, envs map[string]string) (*http.Client, error) {
-	return startServerWithArgsAndMetrics(ctx, mode, args, envs, false)
+	_, client, err := startServerWithArgsAndMetrics(ctx, mode, args, envs, false)
+	return client, err
 }
 
-func startServerWithArgsAndMetrics(ctx context.Context, mode string, args []string, envs map[string]string, setMetrics bool) (*http.Client, error) {
+func startServerWithArgsAndMetrics(ctx context.Context, mode string, args []string, envs map[string]string,
+	setMetrics bool) (*VllmSimulator, *http.Client, error) {
 	oldArgs := os.Args
 	defer func() {
 		os.Args = oldArgs
@@ -82,11 +84,11 @@ func startServerWithArgsAndMetrics(ctx context.Context, mode string, args []stri
 
 	s, err := New(logger)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	config, err := common.ParseCommandParamsAndLoadConfig()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	s.config = config
 
@@ -99,7 +101,7 @@ func startServerWithArgsAndMetrics(ctx context.Context, mode string, args []stri
 	if setMetrics {
 		err = s.createAndRegisterPrometheus()
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 
@@ -112,6 +114,8 @@ func startServerWithArgsAndMetrics(ctx context.Context, mode string, args []stri
 		go s.reqProcessingWorker(ctx, i)
 	}
 
+	go s.metricsUpdater(ctx)
+
 	listener := fasthttputil.NewInmemoryListener()
 
 	// start the http server
@@ -121,7 +125,7 @@ func startServerWithArgsAndMetrics(ctx context.Context, mode string, args []stri
 		}
 	}()
 
-	return &http.Client{
+	return s, &http.Client{
 		Transport: &http.Transport{
 			DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
 				return listener.Dial()
@@ -429,209 +433,211 @@ var _ = Describe("Simulator", func() {
 		Expect(resp.StatusCode).To(Equal(http.StatusOK))
 	})
 
-	It("Should not include namespace and pod headers in chat completion response when env is not set", func() {
-		ctx := context.TODO()
+	Context("namespace and pod headers", func() {
+		It("Should not include namespace and pod headers in chat completion response when env is not set", func() {
+			ctx := context.TODO()
 
-		client, err := startServer(ctx, common.ModeRandom)
-		Expect(err).NotTo(HaveOccurred())
+			client, err := startServer(ctx, common.ModeRandom)
+			Expect(err).NotTo(HaveOccurred())
 
-		openaiclient := openai.NewClient(
-			option.WithBaseURL(baseURL),
-			option.WithHTTPClient(client))
+			openaiclient := openai.NewClient(
+				option.WithBaseURL(baseURL),
+				option.WithHTTPClient(client))
 
-		params := openai.ChatCompletionNewParams{
-			Messages: []openai.ChatCompletionMessageParamUnion{
-				openai.UserMessage(userMessage),
-			},
-			Model: model,
-		}
+			params := openai.ChatCompletionNewParams{
+				Messages: []openai.ChatCompletionMessageParamUnion{
+					openai.UserMessage(userMessage),
+				},
+				Model: model,
+			}
 
-		var httpResp *http.Response
-		resp, err := openaiclient.Chat.Completions.New(ctx, params, option.WithResponseInto(&httpResp))
-		Expect(err).NotTo(HaveOccurred())
-		Expect(resp).NotTo(BeNil())
+			var httpResp *http.Response
+			resp, err := openaiclient.Chat.Completions.New(ctx, params, option.WithResponseInto(&httpResp))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp).NotTo(BeNil())
 
-		// Check for namespace and pod headers
-		namespaceHeader := httpResp.Header.Get(namespaceHeader)
-		podHeader := httpResp.Header.Get(podHeader)
+			// Check for namespace and pod headers
+			namespaceHeader := httpResp.Header.Get(namespaceHeader)
+			podHeader := httpResp.Header.Get(podHeader)
 
-		Expect(namespaceHeader).To(BeEmpty(), "Expected namespace header not to be present")
-		Expect(podHeader).To(BeEmpty(), "Expected pod header not to be present")
-	})
+			Expect(namespaceHeader).To(BeEmpty(), "Expected namespace header not to be present")
+			Expect(podHeader).To(BeEmpty(), "Expected pod header not to be present")
+		})
 
-	It("Should include namespace and pod headers in chat completion response", func() {
-		ctx := context.TODO()
+		It("Should include namespace and pod headers in chat completion response", func() {
+			ctx := context.TODO()
 
-		testNamespace := "test-namespace"
-		testPod := "test-pod"
-		envs := map[string]string{
-			podNameEnv: testPod,
-			podNsEnv:   testNamespace,
-		}
-		client, err := startServerWithArgs(ctx, common.ModeRandom, nil, envs)
-		Expect(err).NotTo(HaveOccurred())
+			testNamespace := "test-namespace"
+			testPod := "test-pod"
+			envs := map[string]string{
+				podNameEnv: testPod,
+				podNsEnv:   testNamespace,
+			}
+			client, err := startServerWithArgs(ctx, common.ModeRandom, nil, envs)
+			Expect(err).NotTo(HaveOccurred())
 
-		openaiclient := openai.NewClient(
-			option.WithBaseURL(baseURL),
-			option.WithHTTPClient(client))
+			openaiclient := openai.NewClient(
+				option.WithBaseURL(baseURL),
+				option.WithHTTPClient(client))
 
-		params := openai.ChatCompletionNewParams{
-			Messages: []openai.ChatCompletionMessageParamUnion{
-				openai.UserMessage(userMessage),
-			},
-			Model: model,
-		}
+			params := openai.ChatCompletionNewParams{
+				Messages: []openai.ChatCompletionMessageParamUnion{
+					openai.UserMessage(userMessage),
+				},
+				Model: model,
+			}
 
-		var httpResp *http.Response
-		resp, err := openaiclient.Chat.Completions.New(ctx, params, option.WithResponseInto(&httpResp))
-		Expect(err).NotTo(HaveOccurred())
-		Expect(resp).NotTo(BeNil())
+			var httpResp *http.Response
+			resp, err := openaiclient.Chat.Completions.New(ctx, params, option.WithResponseInto(&httpResp))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp).NotTo(BeNil())
 
-		// Check for namespace and pod headers
-		namespaceHeader := httpResp.Header.Get(namespaceHeader)
-		podHeader := httpResp.Header.Get(podHeader)
+			// Check for namespace and pod headers
+			namespaceHeader := httpResp.Header.Get(namespaceHeader)
+			podHeader := httpResp.Header.Get(podHeader)
 
-		Expect(namespaceHeader).To(Equal(testNamespace), "Expected namespace header to be present")
-		Expect(podHeader).To(Equal(testPod), "Expected pod header to be present")
-	})
+			Expect(namespaceHeader).To(Equal(testNamespace), "Expected namespace header to be present")
+			Expect(podHeader).To(Equal(testPod), "Expected pod header to be present")
+		})
 
-	It("Should include namespace and pod headers in chat completion streaming response", func() {
-		ctx := context.TODO()
+		It("Should include namespace and pod headers in chat completion streaming response", func() {
+			ctx := context.TODO()
 
-		testNamespace := "stream-test-namespace"
-		testPod := "stream-test-pod"
-		envs := map[string]string{
-			podNameEnv: testPod,
-			podNsEnv:   testNamespace,
-		}
-		client, err := startServerWithArgs(ctx, common.ModeRandom, nil, envs)
-		Expect(err).NotTo(HaveOccurred())
+			testNamespace := "stream-test-namespace"
+			testPod := "stream-test-pod"
+			envs := map[string]string{
+				podNameEnv: testPod,
+				podNsEnv:   testNamespace,
+			}
+			client, err := startServerWithArgs(ctx, common.ModeRandom, nil, envs)
+			Expect(err).NotTo(HaveOccurred())
 
-		openaiclient := openai.NewClient(
-			option.WithBaseURL(baseURL),
-			option.WithHTTPClient(client))
+			openaiclient := openai.NewClient(
+				option.WithBaseURL(baseURL),
+				option.WithHTTPClient(client))
 
-		params := openai.ChatCompletionNewParams{
-			Messages: []openai.ChatCompletionMessageParamUnion{
-				openai.UserMessage(userMessage),
-			},
-			Model:         model,
-			StreamOptions: openai.ChatCompletionStreamOptionsParam{IncludeUsage: param.NewOpt(true)},
-		}
+			params := openai.ChatCompletionNewParams{
+				Messages: []openai.ChatCompletionMessageParamUnion{
+					openai.UserMessage(userMessage),
+				},
+				Model:         model,
+				StreamOptions: openai.ChatCompletionStreamOptionsParam{IncludeUsage: param.NewOpt(true)},
+			}
 
-		var httpResp *http.Response
-		resp, err := openaiclient.Chat.Completions.New(ctx, params, option.WithResponseInto(&httpResp))
-		Expect(err).NotTo(HaveOccurred())
-		Expect(resp).NotTo(BeNil())
+			var httpResp *http.Response
+			resp, err := openaiclient.Chat.Completions.New(ctx, params, option.WithResponseInto(&httpResp))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp).NotTo(BeNil())
 
-		// Check for namespace and pod headers
-		namespaceHeader := httpResp.Header.Get(namespaceHeader)
-		podHeader := httpResp.Header.Get(podHeader)
+			// Check for namespace and pod headers
+			namespaceHeader := httpResp.Header.Get(namespaceHeader)
+			podHeader := httpResp.Header.Get(podHeader)
 
-		Expect(namespaceHeader).To(Equal(testNamespace), "Expected namespace header to be present")
-		Expect(podHeader).To(Equal(testPod), "Expected pod header to be present")
-	})
+			Expect(namespaceHeader).To(Equal(testNamespace), "Expected namespace header to be present")
+			Expect(podHeader).To(Equal(testPod), "Expected pod header to be present")
+		})
 
-	It("Should not include namespace and pod headers in chat completion streaming response when env is not set", func() {
-		ctx := context.TODO()
+		It("Should not include namespace and pod headers in chat completion streaming response when env is not set", func() {
+			ctx := context.TODO()
 
-		client, err := startServer(ctx, common.ModeRandom)
-		Expect(err).NotTo(HaveOccurred())
+			client, err := startServer(ctx, common.ModeRandom)
+			Expect(err).NotTo(HaveOccurred())
 
-		openaiclient := openai.NewClient(
-			option.WithBaseURL(baseURL),
-			option.WithHTTPClient(client))
+			openaiclient := openai.NewClient(
+				option.WithBaseURL(baseURL),
+				option.WithHTTPClient(client))
 
-		params := openai.ChatCompletionNewParams{
-			Messages: []openai.ChatCompletionMessageParamUnion{
-				openai.UserMessage(userMessage),
-			},
-			Model:         model,
-			StreamOptions: openai.ChatCompletionStreamOptionsParam{IncludeUsage: param.NewOpt(true)},
-		}
+			params := openai.ChatCompletionNewParams{
+				Messages: []openai.ChatCompletionMessageParamUnion{
+					openai.UserMessage(userMessage),
+				},
+				Model:         model,
+				StreamOptions: openai.ChatCompletionStreamOptionsParam{IncludeUsage: param.NewOpt(true)},
+			}
 
-		var httpResp *http.Response
-		resp, err := openaiclient.Chat.Completions.New(ctx, params, option.WithResponseInto(&httpResp))
-		Expect(err).NotTo(HaveOccurred())
-		Expect(resp).NotTo(BeNil())
+			var httpResp *http.Response
+			resp, err := openaiclient.Chat.Completions.New(ctx, params, option.WithResponseInto(&httpResp))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp).NotTo(BeNil())
 
-		// Check for namespace and pod headers
-		namespaceHeader := httpResp.Header.Get(namespaceHeader)
-		podHeader := httpResp.Header.Get(podHeader)
+			// Check for namespace and pod headers
+			namespaceHeader := httpResp.Header.Get(namespaceHeader)
+			podHeader := httpResp.Header.Get(podHeader)
 
-		Expect(namespaceHeader).To(BeEmpty(), "Expected namespace header not to be present")
-		Expect(podHeader).To(BeEmpty(), "Expected pod header not to be present")
-	})
+			Expect(namespaceHeader).To(BeEmpty(), "Expected namespace header not to be present")
+			Expect(podHeader).To(BeEmpty(), "Expected pod header not to be present")
+		})
 
-	It("Should include namespace and pod headers in completion response", func() {
-		ctx := context.TODO()
+		It("Should include namespace and pod headers in completion response", func() {
+			ctx := context.TODO()
 
-		testNamespace := "test-namespace"
-		testPod := "test-pod"
-		envs := map[string]string{
-			podNameEnv: testPod,
-			podNsEnv:   testNamespace,
-		}
-		client, err := startServerWithArgs(ctx, common.ModeRandom, nil, envs)
-		Expect(err).NotTo(HaveOccurred())
+			testNamespace := "test-namespace"
+			testPod := "test-pod"
+			envs := map[string]string{
+				podNameEnv: testPod,
+				podNsEnv:   testNamespace,
+			}
+			client, err := startServerWithArgs(ctx, common.ModeRandom, nil, envs)
+			Expect(err).NotTo(HaveOccurred())
 
-		openaiclient := openai.NewClient(
-			option.WithBaseURL(baseURL),
-			option.WithHTTPClient(client))
+			openaiclient := openai.NewClient(
+				option.WithBaseURL(baseURL),
+				option.WithHTTPClient(client))
 
-		params := openai.CompletionNewParams{
-			Prompt: openai.CompletionNewParamsPromptUnion{
-				OfString: openai.String(userMessage),
-			},
-			Model: openai.CompletionNewParamsModel(model),
-		}
-		var httpResp *http.Response
-		resp, err := openaiclient.Completions.New(ctx, params, option.WithResponseInto(&httpResp))
-		Expect(err).NotTo(HaveOccurred())
-		Expect(resp).NotTo(BeNil())
+			params := openai.CompletionNewParams{
+				Prompt: openai.CompletionNewParamsPromptUnion{
+					OfString: openai.String(userMessage),
+				},
+				Model: openai.CompletionNewParamsModel(model),
+			}
+			var httpResp *http.Response
+			resp, err := openaiclient.Completions.New(ctx, params, option.WithResponseInto(&httpResp))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp).NotTo(BeNil())
 
-		// Check for namespace and pod headers
-		namespaceHeader := httpResp.Header.Get(namespaceHeader)
-		podHeader := httpResp.Header.Get(podHeader)
+			// Check for namespace and pod headers
+			namespaceHeader := httpResp.Header.Get(namespaceHeader)
+			podHeader := httpResp.Header.Get(podHeader)
 
-		Expect(namespaceHeader).To(Equal(testNamespace), "Expected namespace header to be present")
-		Expect(podHeader).To(Equal(testPod), "Expected pod header to be present")
-	})
+			Expect(namespaceHeader).To(Equal(testNamespace), "Expected namespace header to be present")
+			Expect(podHeader).To(Equal(testPod), "Expected pod header to be present")
+		})
 
-	It("Should include namespace and pod headers in completion streaming response", func() {
-		ctx := context.TODO()
+		It("Should include namespace and pod headers in completion streaming response", func() {
+			ctx := context.TODO()
 
-		testNamespace := "stream-test-namespace"
-		testPod := "stream-test-pod"
-		envs := map[string]string{
-			podNameEnv: testPod,
-			podNsEnv:   testNamespace,
-		}
-		client, err := startServerWithArgs(ctx, common.ModeRandom, nil, envs)
-		Expect(err).NotTo(HaveOccurred())
+			testNamespace := "stream-test-namespace"
+			testPod := "stream-test-pod"
+			envs := map[string]string{
+				podNameEnv: testPod,
+				podNsEnv:   testNamespace,
+			}
+			client, err := startServerWithArgs(ctx, common.ModeRandom, nil, envs)
+			Expect(err).NotTo(HaveOccurred())
 
-		openaiclient := openai.NewClient(
-			option.WithBaseURL(baseURL),
-			option.WithHTTPClient(client))
+			openaiclient := openai.NewClient(
+				option.WithBaseURL(baseURL),
+				option.WithHTTPClient(client))
 
-		params := openai.CompletionNewParams{
-			Prompt: openai.CompletionNewParamsPromptUnion{
-				OfString: openai.String(userMessage),
-			},
-			Model:         openai.CompletionNewParamsModel(model),
-			StreamOptions: openai.ChatCompletionStreamOptionsParam{IncludeUsage: param.NewOpt(true)},
-		}
-		var httpResp *http.Response
-		resp, err := openaiclient.Completions.New(ctx, params, option.WithResponseInto(&httpResp))
-		Expect(err).NotTo(HaveOccurred())
-		Expect(resp).NotTo(BeNil())
+			params := openai.CompletionNewParams{
+				Prompt: openai.CompletionNewParamsPromptUnion{
+					OfString: openai.String(userMessage),
+				},
+				Model:         openai.CompletionNewParamsModel(model),
+				StreamOptions: openai.ChatCompletionStreamOptionsParam{IncludeUsage: param.NewOpt(true)},
+			}
+			var httpResp *http.Response
+			resp, err := openaiclient.Completions.New(ctx, params, option.WithResponseInto(&httpResp))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp).NotTo(BeNil())
 
-		// Check for namespace and pod headers
-		namespaceHeader := httpResp.Header.Get(namespaceHeader)
-		podHeader := httpResp.Header.Get(podHeader)
+			// Check for namespace and pod headers
+			namespaceHeader := httpResp.Header.Get(namespaceHeader)
+			podHeader := httpResp.Header.Get(podHeader)
 
-		Expect(namespaceHeader).To(Equal(testNamespace), "Expected namespace header to be present")
-		Expect(podHeader).To(Equal(testPod), "Expected pod header to be present")
+			Expect(namespaceHeader).To(Equal(testNamespace), "Expected namespace header to be present")
+			Expect(podHeader).To(Equal(testPod), "Expected pod header to be present")
+		})
 	})
 
 	Context("max-model-len context window validation", func() {
@@ -824,30 +830,4 @@ var _ = Describe("Simulator", func() {
 		)
 	})
 
-	Context("fake metrics", func() {
-		It("Should respond with fake metrics to /metrics", func() {
-			ctx := context.TODO()
-			args := []string{"cmd", "--model", model, "--mode", common.ModeRandom,
-				"--fake-metrics",
-				"{\"running-requests\":10,\"waiting-requests\":30,\"kv-cache-usage\":0.4,\"loras\":[{\"running\":\"lora4,lora2\",\"waiting\":\"lora3\",\"timestamp\":1257894567},{\"running\":\"lora4,lora3\",\"waiting\":\"\",\"timestamp\":1257894569}]}",
-			}
-
-			client, err := startServerWithArgsAndMetrics(ctx, common.ModeRandom, args, nil, true)
-			Expect(err).NotTo(HaveOccurred())
-
-			resp, err := client.Get("http://localhost/metrics")
-			Expect(err).NotTo(HaveOccurred())
-			Expect(resp.StatusCode).To(Equal(http.StatusOK))
-
-			data, err := io.ReadAll(resp.Body)
-			Expect(err).NotTo(HaveOccurred())
-			metrics := string(data)
-			Expect(metrics).To(ContainSubstring("vllm:num_requests_running{model_name=\"my_model\"} 10"))
-			Expect(metrics).To(ContainSubstring("vllm:num_requests_waiting{model_name=\"my_model\"} 30"))
-			Expect(metrics).To(ContainSubstring("vllm:gpu_cache_usage_perc{model_name=\"my_model\"} 0.4"))
-			Expect(metrics).To(ContainSubstring("vllm:lora_requests_info{max_lora=\"1\",running_lora_adapters=\"lora4,lora2\",waiting_lora_adapters=\"lora3\"} 1.257894567e+09"))
-			Expect(metrics).To(ContainSubstring("vllm:lora_requests_info{max_lora=\"1\",running_lora_adapters=\"lora4,lora3\",waiting_lora_adapters=\"\"} 1.257894569e+09"))
-
-		})
-	})
 })
