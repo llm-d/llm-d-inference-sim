@@ -39,8 +39,8 @@ const (
 	RemoteDecodeFinishReason = "remote_decode"
 )
 
-var randomValuesBuckets = []float64{0.2, 0.3, 0.2, 0.05, 0.1, 0.15}
-var cumulativeBuckets []float64
+var respLenBucketsProbabilities = [...]float64{0.2, 0.3, 0.2, 0.05, 0.1, 0.15}
+var cumulativeBucketsProbabilities []float64
 
 // list of responses to use in random mode for comepltion requests
 var chatCompletionFakeResponses = []string{
@@ -58,12 +58,12 @@ var chatCompletionFakeResponses = []string{
 }
 
 func init() {
-	cumulativeBuckets = make([]float64, len(randomValuesBuckets))
+	cumulativeBucketsProbabilities = make([]float64, len(respLenBucketsProbabilities))
 	sum := 0.0
 
-	for i, val := range randomValuesBuckets {
+	for i, val := range respLenBucketsProbabilities {
 		sum += val
-		cumulativeBuckets[i] = sum
+		cumulativeBucketsProbabilities[i] = sum
 	}
 }
 
@@ -180,15 +180,15 @@ func GetRandomResponseText(maxCompletionTokens *int64) (string, string) {
 	return text, finishReason
 }
 
-// length is distributed to 6 buckets:
-// 15% - max tokens
-// other values are divided to 5 additional buckets with the following probabilities starting from the bucket for one token
-// 20%, 30%, 20%, 5%, 10%
+// getResponseLengthByHistogram calculates length of the response based on the max tokens value and pre-defined buckets
+// response length is distributed according the probabilities defined in respLenBucketsProbabilities
+// the last element defines probability of reposnse with maxToken tokens
+// other values define probabilities for equal sized buckets
 func getResponseLengthByHistogram(maxTokens int) int {
 	if maxTokens <= 1 {
 		return maxTokens
 	}
-	if maxTokens <= len(cumulativeBuckets) {
+	if maxTokens <= len(cumulativeBucketsProbabilities) {
 		res := RandomInt(1, maxTokens)
 		return res
 	}
@@ -196,22 +196,21 @@ func getResponseLengthByHistogram(maxTokens int) int {
 	r := RandomFloat(0, 1)
 
 	// probability to return maxToken
-	if r > cumulativeBuckets[len(cumulativeBuckets)-2] {
+	if r > cumulativeBucketsProbabilities[len(cumulativeBucketsProbabilities)-2] {
 		return maxTokens
 	}
 
 	// determine which bucket to use
-	bucketIndex := 0
-	for i, c := range cumulativeBuckets {
+	bucketIndex := len(cumulativeBucketsProbabilities) - 1
+	for i, c := range cumulativeBucketsProbabilities {
 		if r <= c {
 			bucketIndex = i
 			break
 		}
 	}
 
-	// compute bucket ranges
-	nonMaxCount := maxTokens - 1
-	bucketSize := float64(nonMaxCount) / 5.0
+	// compute bucket ranges (maxToken is out of scope)
+	bucketSize := float64(maxTokens-1) / float64(len(cumulativeBucketsProbabilities)-1)
 
 	start := int(bucketSize*float64(bucketIndex)) + 1
 	end := int(bucketSize * float64(bucketIndex+1))
