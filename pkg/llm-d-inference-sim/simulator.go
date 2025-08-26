@@ -51,6 +51,8 @@ const (
 	namespaceHeader = "x-inference-namespace"
 	podNameEnv      = "POD_NAME"
 	podNsEnv        = "POD_NAMESPACE"
+
+	maxNumberOfRequests = 1000
 )
 
 // VllmSimulator simulates vLLM server supporting OpenAI API
@@ -96,20 +98,20 @@ type VllmSimulator struct {
 
 // New creates a new VllmSimulator instance with the given logger
 func New(logger logr.Logger) (*VllmSimulator, error) {
-	toolsValidtor, err := openaiserverapi.CreateValidator()
+	toolsValidator, err := openaiserverapi.CreateValidator()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create tools validator: %s", err)
 	}
 
 	return &VllmSimulator{
 		logger:         logger,
-		reqChan:        make(chan *openaiserverapi.CompletionReqCtx, 1000),
-		toolsValidator: toolsValidtor,
+		reqChan:        make(chan *openaiserverapi.CompletionReqCtx, maxNumberOfRequests),
+		toolsValidator: toolsValidator,
 		kvcacheHelper:  nil, // kvcache helper will be created only if required after reading configuration
 		namespace:      os.Getenv(podNsEnv),
 		pod:            os.Getenv(podNameEnv),
-		runReqChan:     make(chan int64, 1000),
-		waitingReqChan: make(chan int64, 1000),
+		runReqChan:     make(chan int64, maxNumberOfRequests),
+		waitingReqChan: make(chan int64, maxNumberOfRequests),
 	}, nil
 }
 
@@ -154,7 +156,7 @@ func (s *VllmSimulator) Start(ctx context.Context) error {
 		go s.reqProcessingWorker(ctx, i)
 	}
 
-	go s.metricsUpdater(ctx)
+	s.startMetricsUpdaters(ctx)
 
 	listener, err := s.newListener()
 	if err != nil {
@@ -163,22 +165,6 @@ func (s *VllmSimulator) Start(ctx context.Context) error {
 
 	// start the http server with context support
 	return s.startServer(ctx, listener)
-}
-
-// metricsUpdater updates the metrics by listening on the relevant channels
-func (s *VllmSimulator) metricsUpdater(ctx context.Context) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case inc := <-s.waitingReqChan:
-			s.nWaitingReqs += inc
-			s.reportWaitingRequests(s.nWaitingReqs)
-		case inc := <-s.runReqChan:
-			s.nRunningReqs += inc
-			s.reportRunningRequests(s.nRunningReqs)
-		}
-	}
 }
 
 func (s *VllmSimulator) newListener() (net.Listener, error) {

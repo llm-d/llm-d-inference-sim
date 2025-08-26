@@ -114,7 +114,7 @@ func startServerWithArgsAndMetrics(ctx context.Context, mode string, args []stri
 		go s.reqProcessingWorker(ctx, i)
 	}
 
-	go s.metricsUpdater(ctx)
+	s.startMetricsUpdaters(ctx)
 
 	listener := fasthttputil.NewInmemoryListener()
 
