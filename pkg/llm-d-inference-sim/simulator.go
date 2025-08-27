@@ -55,6 +55,21 @@ const (
 	maxNumberOfRequests = 1000
 )
 
+type loraUsageState int
+
+const (
+	waitingUsageState loraUsageState = iota
+	runningUsageState
+	doneUsageState
+)
+
+type loraUsage struct {
+	// the lora adapter name
+	name string
+	// if true reference count ofthe given lora should be encreased, otherwise decreased
+	state loraUsageState
+}
+
 // VllmSimulator simulates vLLM server supporting OpenAI API
 type VllmSimulator struct {
 	// logger is used for information and errors logging
@@ -63,11 +78,12 @@ type VllmSimulator struct {
 	config *common.Configuration
 	// loraAdaptors contains list of LoRA available adaptors
 	loraAdaptors sync.Map
-	// runningLoras is a collection of running loras, key of lora's name, value is number of requests using this lora
+	// runningLoras is a collection of running loras, key is lora's name, value is number of running requests using this lora
 	runningLoras sync.Map
-	// waitingLoras will represent collection of loras defined in requests in the queue - Not implemented yet
-	// nolint:unused
+	// waitingLoras is a collection of waiting loras, key is lora's name, value is number of waiting requests using this lora
 	waitingLoras sync.Map
+	// lorasChan is a channel to update waitingLoras and runningLoras
+	lorasChan chan loraUsage
 	// nRunningReqs is the number of inference requests that are currently being processed
 	nRunningReqs int64
 	// runReqChan is a channel to update nRunningReqs
@@ -112,6 +128,7 @@ func New(logger logr.Logger) (*VllmSimulator, error) {
 		pod:            os.Getenv(podNameEnv),
 		runReqChan:     make(chan int64, maxNumberOfRequests),
 		waitingReqChan: make(chan int64, maxNumberOfRequests),
+		lorasChan:      make(chan loraUsage, maxNumberOfRequests),
 	}, nil
 }
 
@@ -388,7 +405,13 @@ func (s *VllmSimulator) handleCompletions(ctx *fasthttp.RequestCtx, isChatComple
 		IsChatCompletion: isChatCompletion,
 		Wg:               &wg,
 	}
+	// update metrics that there is a new waiting request
 	s.waitingReqChan <- 1
+	if s.isLora(reqCtx.CompletionReq.GetModel()) {
+		// update metrics that there is a new waiting lora request
+		s.lorasChan <- loraUsage{reqCtx.CompletionReq.GetModel(), waitingUsageState}
+	}
+	// send request to the waiting queue (channel)
 	s.reqChan <- reqCtx
 	wg.Wait()
 }
@@ -405,31 +428,18 @@ func (s *VllmSimulator) reqProcessingWorker(ctx context.Context, id int) {
 				return
 			}
 
-			s.waitingReqChan <- -1
-
 			req := reqCtx.CompletionReq
 			model := req.GetModel()
 			displayModel := s.getDisplayedModelName(model)
 
-			if s.isLora(model) {
-				// if current request's model is LoRA, add it to the list of running loras
-				value, ok := s.runningLoras.Load(model)
-				intValue := 0
-
-				if !ok {
-					s.logger.Info("Create reference counter", "model", model)
-					intValue = 0
-				} else {
-					intValue = value.(int)
-				}
-				s.runningLoras.Store(model, intValue+1)
-				s.logger.Info("Update LoRA reference counter", "model", model, "old value", intValue, "new value", intValue+1)
-
-				// TODO - check if this request went to the waiting queue - add it to waiting map
-				s.reportLoras()
-			}
-
+			// update metrics that one request moved from the waiting to the running state
+			s.waitingReqChan <- -1
 			s.runReqChan <- 1
+
+			if s.isLora(model) {
+				// update metrics that one lora request moved from the waiting to the running state
+				s.lorasChan <- loraUsage{model, runningUsageState}
+			}
 
 			var responseTokens []string
 			var finishReason string
@@ -500,31 +510,13 @@ func (s *VllmSimulator) reqProcessingWorker(ctx context.Context, id int) {
 
 // decrease model usage reference number
 func (s *VllmSimulator) responseSentCallback(model string) {
+	// update metrics that one request's processing has been finished
 	s.runReqChan <- -1
 
-	// Only LoRA models require reference-count handling.
-	if !s.isLora(model) {
-		return
+	if s.isLora(model) {
+		// update metrics that one lora request's processing has been finished
+		s.lorasChan <- loraUsage{model, doneUsageState}
 	}
-
-	value, ok := s.runningLoras.Load(model)
-
-	if !ok {
-		s.logger.Info("Error: nil reference counter", "model", model)
-		s.logger.Error(nil, "Zero model reference", "model", model)
-	} else {
-		intValue := value.(int)
-		if intValue > 1 {
-			s.runningLoras.Store(model, intValue-1)
-			s.logger.Info("Update LoRA reference counter", "model", model, "prev value", intValue, "new value", intValue-1)
-		} else {
-			// last lora instance stopped its execution - remove from the map
-			s.runningLoras.Delete(model)
-			s.logger.Info("Remove LoRA from set of running loras", "model", model)
-		}
-	}
-
-	s.reportLoras()
 }
 
 // sendCompletionError sends an error response for the current completion request
