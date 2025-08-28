@@ -31,7 +31,8 @@ linters:
   - prealloc
   - unparam
   - unused
-  settings:
+
+linters-settings:
     revive:
       rules:
         - name: dot-imports
