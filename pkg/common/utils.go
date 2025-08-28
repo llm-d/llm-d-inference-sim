@@ -39,7 +39,7 @@ const (
 	RemoteDecodeFinishReason = "remote_decode"
 )
 
-// this array defines probabilities for buckets used for generation of number of tokens in response
+// this array defines the probabilities for the buckets to be used for the generation of number of tokens in response
 var respLenBucketsProbabilities = [...]float64{0.2, 0.3, 0.2, 0.05, 0.1, 0.15}
 var cumulativeBucketsProbabilities []float64
 
@@ -181,17 +181,17 @@ func GetRandomResponseText(maxCompletionTokens *int64) (string, string) {
 	return text, finishReason
 }
 
-// getResponseLengthByHistogram calculates number of tokens to be returned in a response based on the max tokens value and pre-defined buckets.
-// the response length is distributed according the probabilities defined in respLenBucketsProbabilities
-// the histogram contains equal sized buckets + the last special bucket with contains only maxTokens value
-// the last element of respLenBucketsProbabilities defines probability of reposnse with maxToken tokens
-// other values define probabilities for the equal sized buckets
-// if maxToken is small (smaller than number of buckets) - the response length is randomly selected from the range [1, maxTokens]
+// getResponseLengthByHistogram calculates the number of tokens to be returned in a response based on the max tokens value and the pre-defined buckets.
+// The response length is distributed according to the probabilities, defined in respLenBucketsProbabilities.
+// The histogram contains equally sized buckets and the last special bucket, which contains only the maxTokens value.
+// The last element of respLenBucketsProbabilities defines the probability of a reposnse with maxToken tokens.
+// Other values define probabilities for the equally sized buckets.
+// If maxToken is small (smaller than number of buckets) - the response length is randomly selected from the range [1, maxTokens]
 func getResponseLengthByHistogram(maxTokens int) int {
 	if maxTokens <= 1 {
 		return maxTokens
 	}
-	// maxTokens is pretty small - no need to use the histogram of probabilities, just select a random value in the range [1, maxTokens]
+	// maxTokens is small - no need to use the histogram of probabilities, just select a random value in the range [1, maxTokens]
 	if maxTokens <= len(cumulativeBucketsProbabilities) {
 		res := RandomInt(1, maxTokens)
 		return res
@@ -199,13 +199,13 @@ func getResponseLengthByHistogram(maxTokens int) int {
 
 	r := RandomFloat(0, 1)
 
-	// check if r is in the last bucket - the maxToken should be returned
+	// check if r is in the last bucket, then maxTokens should be returned
 	if r > cumulativeBucketsProbabilities[len(cumulativeBucketsProbabilities)-2] {
 		return maxTokens
 	}
 
-	// determine which bucket to use, bucket with cumulative probability larger than r - means this is the bicket to use
-	// initialize bucketIndex with the last bucket for case (shouln'd happen) when probabilities sum is lower than 1
+	// determine which bucket to use, the bucket with a cumulative probability larger than r is the bucket to use
+	// initialize bucketIndex with the last bucket to handle the case (which should not happen) when the probabilities sum is less than 1
 	bucketIndex := len(cumulativeBucketsProbabilities) - 1
 	for i, c := range cumulativeBucketsProbabilities {
 		if r <= c {
@@ -214,7 +214,7 @@ func getResponseLengthByHistogram(maxTokens int) int {
 		}
 	}
 
-	// calculate size of all buckets (except the special last bucket)
+	// calculate the size of all of the buckets (except the special last bucket)
 	bucketSize := float64(maxTokens-1) / float64(len(cumulativeBucketsProbabilities)-1)
 	// start is the minimum number in the required bucket
 	start := int(bucketSize*float64(bucketIndex)) + 1
