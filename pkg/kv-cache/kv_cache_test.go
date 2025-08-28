@@ -33,11 +33,10 @@ import (
 )
 
 const (
-	req1ID      = "req1"
-	req2ID      = "req2"
-	req3ID      = "req3"
-	subEndpoint = "tcp://*:5557"
-	pubEndpoint = "tcp://localhost:5557"
+	req1ID   = "req1"
+	req2ID   = "req2"
+	req3ID   = "req3"
+	endpoint = "tcp://*:*"
 )
 
 type ActionType int
@@ -204,7 +203,6 @@ var _ = Describe("KV cache", Ordered, func() {
 					Port:                  1234,
 					Model:                 "model",
 					KVCacheSize:           test.cacheSize,
-					ZMQEndpoint:           pubEndpoint,
 					ZMQMaxConnectAttempts: 3,
 					EventBatchSize:        1,
 				}
@@ -308,7 +306,6 @@ var _ = Describe("KV cache", Ordered, func() {
 				Port:                  1234,
 				Model:                 "model",
 				KVCacheSize:           4,
-				ZMQEndpoint:           pubEndpoint,
 				ZMQMaxConnectAttempts: 3,
 			}
 
@@ -418,7 +415,6 @@ var _ = Describe("KV cache", Ordered, func() {
 					Port:                  1234,
 					Model:                 "model",
 					KVCacheSize:           testCase.cacheSize,
-					ZMQEndpoint:           pubEndpoint,
 					ZMQMaxConnectAttempts: 3,
 				}
 				blockCache, err := newBlockCache(&config, GinkgoLogr)
@@ -535,8 +531,12 @@ func createSub(config *common.Configuration) (*zmq.Socket, string) {
 	Expect(err).NotTo(HaveOccurred())
 	sub, err := zctx.NewSocket(zmq.SUB)
 	Expect(err).NotTo(HaveOccurred())
-	err = sub.Bind(subEndpoint)
+	err = sub.Bind(endpoint)
 	Expect(err).NotTo(HaveOccurred())
+	// get the actual port
+	endpoint, err := sub.GetLastEndpoint()
+	Expect(err).NotTo(HaveOccurred())
+	config.ZMQEndpoint = endpoint
 	topic := createTopic(config)
 	err = sub.SetSubscribe(topic)
 	Expect(err).NotTo(HaveOccurred())

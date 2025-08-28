@@ -5,3 +5,4 @@ vendor
 .devcontainer
 # MacOSX
 .DS_Store
+*.test

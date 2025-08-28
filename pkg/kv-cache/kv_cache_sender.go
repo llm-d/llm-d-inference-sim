@@ -159,6 +159,11 @@ func (s *KVEventSender) publishHelper(ctx context.Context) error {
 		DataParallelRank: &dpRank,
 	}
 
+	if s.publisher == nil {
+		s.logger.Info("No publisher configured, skip publishing event batch", "topic", s.topic)
+		return nil
+	}
+
 	err := s.publisher.PublishEvent(ctx, s.topic, eventBatch)
 
 	// reset batch
