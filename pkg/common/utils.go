@@ -186,7 +186,7 @@ func GetRandomResponseText(maxCompletionTokens *int64) (string, string) {
 // the histogram contains equal sized buckets + the last special bucket with contains only maxTokens value
 // the last element of respLenBucketsProbabilities defines probability of reposnse with maxToken tokens
 // other values define probabilities for the equal sized buckets
-// if maxToken is small (smaller than number of buckets) - the reponse length is randomly selected from the range [1, maxTokens]
+// if maxToken is small (smaller than number of buckets) - the response length is randomly selected from the range [1, maxTokens]
 func getResponseLengthByHistogram(maxTokens int) int {
 	if maxTokens <= 1 {
 		return maxTokens
