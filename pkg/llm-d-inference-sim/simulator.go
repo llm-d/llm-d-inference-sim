@@ -66,7 +66,7 @@ const (
 type loraUsage struct {
 	// the lora adapter name
 	name string
-	// if true reference count ofthe given lora should be encreased, otherwise decreased
+	// if true reference count ofthe given lora should be increased, otherwise decreased
 	state loraUsageState
 }
 

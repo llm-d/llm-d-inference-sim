@@ -141,8 +141,7 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 
 		data, err := io.ReadAll(metricsResp.Body)
 		Expect(err).NotTo(HaveOccurred())
-		metrics := string(data)
-		metricsArr := strings.Split(metrics, "\n")
+		metrics := strings.Split(string(data), "\n")
 
 		// We sent two sequentual requests to two different LoRAs, we expect to see (in this order)
 		// 1. running: empty, waiting: lora1
@@ -150,30 +149,30 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 		// 3. running: empty, waiting: lora2
 		// 4. running: lora2, waiting: empty
 		// 5. running: empty, waiting: empty
-		Expect(isLoraLinePresent(metricsArr, emptyArray, lora1Arr)).To(BeTrue())
-		Expect(isLoraLinePresent(metricsArr, lora1Arr, emptyArray)).To(BeTrue())
-		Expect(isLoraLinePresent(metricsArr, emptyArray, lora2Arr)).To(BeTrue())
-		Expect(isLoraLinePresent(metricsArr, lora2Arr, emptyArray)).To(BeTrue())
-		Expect(isLoraLinePresent(metricsArr, emptyArray, emptyArray)).To(BeTrue())
+		Expect(isLoraMetricPresent(metrics, emptyArray, lora1Arr)).To(BeTrue())
+		Expect(isLoraMetricPresent(metrics, lora1Arr, emptyArray)).To(BeTrue())
+		Expect(isLoraMetricPresent(metrics, emptyArray, lora2Arr)).To(BeTrue())
+		Expect(isLoraMetricPresent(metrics, lora2Arr, emptyArray)).To(BeTrue())
+		Expect(isLoraMetricPresent(metrics, emptyArray, emptyArray)).To(BeTrue())
 
 		// Check the order
-		timestamp1, err := getLoraTimestamp(metricsArr, emptyArray, lora1Arr)
+		timestamp1, err := getLoraTimestamp(metrics, emptyArray, lora1Arr)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(timestamp1).ToNot(BeNil())
 
-		timestamp2, err := getLoraTimestamp(metricsArr, lora1Arr, emptyArray)
+		timestamp2, err := getLoraTimestamp(metrics, lora1Arr, emptyArray)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(timestamp2).ToNot(BeNil())
 
-		timestamp3, err := getLoraTimestamp(metricsArr, emptyArray, lora2Arr)
+		timestamp3, err := getLoraTimestamp(metrics, emptyArray, lora2Arr)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(timestamp3).ToNot(BeNil())
 
-		timestamp4, err := getLoraTimestamp(metricsArr, lora2Arr, emptyArray)
+		timestamp4, err := getLoraTimestamp(metrics, lora2Arr, emptyArray)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(timestamp4).ToNot(BeNil())
 
-		timestamp5, err := getLoraTimestamp(metricsArr, emptyArray, emptyArray)
+		timestamp5, err := getLoraTimestamp(metrics, emptyArray, emptyArray)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(timestamp5).ToNot(BeNil())
 
@@ -229,8 +228,7 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 
 		data, err := io.ReadAll(metricsResp.Body)
 		Expect(err).NotTo(HaveOccurred())
-		metrics := string(data)
-		metricsArr := strings.Split(metrics, "\n")
+		metrics := strings.Split(string(data), "\n")
 
 		// We sent 3 requests, we expect to see (in this order)
 		// 1. running: empty, waiting: lora1
@@ -239,35 +237,35 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 		// 4. running: lora1, lora2 (in any order), waiting: empty
 		// 5. running: lora1, waiting: empty
 		// 6. running: empty, waiting: empty
-		Expect(isLoraLinePresent(metricsArr, emptyArray, lora1Arr)).To(BeTrue())
-		Expect(isLoraLinePresent(metricsArr, lora1Arr, lora2Arr)).To(BeTrue())
-		Expect(isLoraLinePresent(metricsArr, []string{lora1, lora2}, lora1Arr)).To(BeTrue())
-		Expect(isLoraLinePresent(metricsArr, []string{lora1, lora2}, emptyArray)).To(BeTrue())
-		Expect(isLoraLinePresent(metricsArr, lora1Arr, emptyArray)).To(BeTrue())
-		Expect(isLoraLinePresent(metricsArr, emptyArray, emptyArray)).To(BeTrue())
+		Expect(isLoraMetricPresent(metrics, emptyArray, lora1Arr)).To(BeTrue())
+		Expect(isLoraMetricPresent(metrics, lora1Arr, lora2Arr)).To(BeTrue())
+		Expect(isLoraMetricPresent(metrics, []string{lora1, lora2}, lora1Arr)).To(BeTrue())
+		Expect(isLoraMetricPresent(metrics, []string{lora1, lora2}, emptyArray)).To(BeTrue())
+		Expect(isLoraMetricPresent(metrics, lora1Arr, emptyArray)).To(BeTrue())
+		Expect(isLoraMetricPresent(metrics, emptyArray, emptyArray)).To(BeTrue())
 
 		// Check the order
-		timestamp1, err := getLoraTimestamp(metricsArr, emptyArray, lora1Arr)
+		timestamp1, err := getLoraTimestamp(metrics, emptyArray, lora1Arr)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(timestamp1).ToNot(BeNil())
 
-		timestamp2, err := getLoraTimestamp(metricsArr, lora1Arr, lora2Arr)
+		timestamp2, err := getLoraTimestamp(metrics, lora1Arr, lora2Arr)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(timestamp2).ToNot(BeNil())
 
-		timestamp3, err := getLoraTimestamp(metricsArr, []string{lora1, lora2}, lora1Arr)
+		timestamp3, err := getLoraTimestamp(metrics, []string{lora1, lora2}, lora1Arr)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(timestamp3).ToNot(BeNil())
 
-		timestamp4, err := getLoraTimestamp(metricsArr, []string{lora1, lora2}, emptyArray)
+		timestamp4, err := getLoraTimestamp(metrics, []string{lora1, lora2}, emptyArray)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(timestamp4).ToNot(BeNil())
 
-		timestamp5, err := getLoraTimestamp(metricsArr, lora1Arr, emptyArray)
+		timestamp5, err := getLoraTimestamp(metrics, lora1Arr, emptyArray)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(timestamp5).ToNot(BeNil())
 
-		timestamp6, err := getLoraTimestamp(metricsArr, emptyArray, emptyArray)
+		timestamp6, err := getLoraTimestamp(metrics, emptyArray, emptyArray)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(timestamp6).ToNot(BeNil())
 
@@ -317,8 +315,7 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 
 		data, err := io.ReadAll(metricsResp.Body)
 		Expect(err).NotTo(HaveOccurred())
-		metrics := string(data)
-		metricsArr := strings.Split(metrics, "\n")
+		metrics := strings.Split(string(data), "\n")
 
 		// We sent two parallel requests: first to lora1 and then to lora2,
 		// we expect to see metrics in this order:
@@ -326,18 +323,18 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 		// 2. running: another lora, waiting: one of loras
 		// 3. running: both lora2 and lora1 (the order of LoRAs doesn't matter here), waiting: empty
 		// 4. running: empty, waiting: empty
-		Expect(isLoraLinePresent(metricsArr, emptyArray, lora1Arr) || isLoraLinePresent(metricsArr, emptyArray, lora2Arr)).To(BeTrue())
-		Expect(isLoraLinePresent(metricsArr, lora1Arr, lora2Arr) || isLoraLinePresent(metricsArr, lora2Arr, lora1Arr)).To(BeTrue())
-		Expect(isLoraLinePresent(metricsArr, []string{lora1, lora2}, emptyArray)).To(BeTrue())
-		Expect(isLoraLinePresent(metricsArr, emptyArray, emptyArray)).To(BeTrue())
+		Expect(isLoraMetricPresent(metrics, emptyArray, lora1Arr) || isLoraMetricPresent(metrics, emptyArray, lora2Arr)).To(BeTrue())
+		Expect(isLoraMetricPresent(metrics, lora1Arr, lora2Arr) || isLoraMetricPresent(metrics, lora2Arr, lora1Arr)).To(BeTrue())
+		Expect(isLoraMetricPresent(metrics, []string{lora1, lora2}, emptyArray)).To(BeTrue())
+		Expect(isLoraMetricPresent(metrics, emptyArray, emptyArray)).To(BeTrue())
 
 		// Check the order:
 		// 1. one of loras in waiting
 		// 2. both loras in running
 		// 3. empty
-		l1WaitingTimestamp, err := getLoraTimestamp(metricsArr, emptyArray, lora1Arr)
+		l1WaitingTimestamp, err := getLoraTimestamp(metrics, emptyArray, lora1Arr)
 		Expect(err).NotTo(HaveOccurred())
-		l2WaitingTimestamp, err := getLoraTimestamp(metricsArr, emptyArray, lora2Arr)
+		l2WaitingTimestamp, err := getLoraTimestamp(metrics, emptyArray, lora2Arr)
 		Expect(err).NotTo(HaveOccurred())
 		Expect((l1WaitingTimestamp != nil)).ToNot(Equal((l2WaitingTimestamp != nil)))
 		var singleWaitingTimestamp float64
@@ -347,11 +344,11 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 			singleWaitingTimestamp = *l2WaitingTimestamp
 		}
 
-		bothRunningTimestamp, err := getLoraTimestamp(metricsArr, []string{lora1, lora2}, emptyArray)
+		bothRunningTimestamp, err := getLoraTimestamp(metrics, []string{lora1, lora2}, emptyArray)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(bothRunningTimestamp).ToNot(BeNil())
 
-		emptyTimestamp, err := getLoraTimestamp(metricsArr, emptyArray, emptyArray)
+		emptyTimestamp, err := getLoraTimestamp(metrics, emptyArray, emptyArray)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(emptyTimestamp).ToNot(BeNil())
 
@@ -388,21 +385,24 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 	})
 })
 
-// isLoraLinePresent checks if a matching line exists
-func isLoraLinePresent(metrics []string, running, waiting []string) bool {
-	return findLoraLine(metrics, running, waiting) != ""
+// isLoraMetricPresent checks if a matching metric exists
+// metrics: the list of metrics
+// running: list of loras in the running metrics, the order does not matter
+// waiting: list of loras in the waiting metrics, the order does not matter
+func isLoraMetricPresent(metrics []string, running, waiting []string) bool {
+	return findLoraMetric(metrics, running, waiting) != ""
 }
 
 // getLoraTimestamp returns timestamp or nil, error
 func getLoraTimestamp(metrics []string, running, waiting []string) (*float64, error) {
-	line := findLoraLine(metrics, running, waiting)
-	if line == "" {
+	mertic := findLoraMetric(metrics, running, waiting)
+	if mertic == "" {
 		return nil, nil // not found
 	}
 	// Extract timestamp: last part after space
-	parts := strings.Split(line, " ")
+	parts := strings.Split(mertic, " ")
 	if len(parts) < 2 {
-		return nil, errors.New("invalid line format")
+		return nil, errors.New("invalid metric format")
 	}
 	timestampStr := parts[len(parts)-1]
 	timestamp, err := strconv.ParseFloat(timestampStr, 64)
@@ -411,8 +411,8 @@ func getLoraTimestamp(metrics []string, running, waiting []string) (*float64, er
 	return &timestamp, nil
 }
 
-// findLoraLine finds the relevant line by comparing sets (ignoring order)
-func findLoraLine(metrics []string, running, waiting []string) string {
+// findLoraMetric finds the relevant mertic by comparing sets (ignoring order)
+func findLoraMetric(metrics []string, running, waiting []string) string {
 	// Sort input slices for set comparison
 	sortedRun := make([]string, len(running))
 	sortedWait := make([]string, len(waiting))
@@ -423,20 +423,20 @@ func findLoraLine(metrics []string, running, waiting []string) string {
 	runStr := strings.Join(sortedRun, ",")
 	waitStr := strings.Join(sortedWait, ",")
 
-	// Regex to extract lora lines and values
+	// Regex to extract lora metrics and values
 	re := regexp.MustCompile(`vllm:lora_requests_info\{.*running_lora_adapters="([^"]*)".*waiting_lora_adapters="([^"]*)".*\}\s+([0-9.e\+\-]+)`)
-	for _, line := range metrics {
-		matches := re.FindStringSubmatch(line)
+	for _, metric := range metrics {
+		matches := re.FindStringSubmatch(metric)
 		if len(matches) == 4 {
-			// Split and sort in line for set comparison
-			lineRun := splitString(matches[1])
-			lineWait := splitString(matches[2])
-			sort.Strings(lineRun)
-			sort.Strings(lineWait)
-			if strings.Join(lineRun, ",") == runStr && strings.Join(lineWait, ",") == waitStr {
-				return line
+			// Split and sort in metric for set comparison
+			metricRun := splitString(matches[1])
+			metricWait := splitString(matches[2])
+			sort.Strings(metricRun)
+			sort.Strings(metricWait)
+			if strings.Join(metricRun, ",") == runStr && strings.Join(metricWait, ",") == waitStr {
+				return metric
 			}
-		} // if the line not in the required format - skip it
+		} // if the metric not in the required format - skip it
 	}
 	return ""
 }
