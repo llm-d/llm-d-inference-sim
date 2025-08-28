@@ -242,20 +242,16 @@ func (s *VllmSimulator) lorasUpdater(ctx context.Context) {
 }
 
 func (s *VllmSimulator) incrementLoraRefCount(lora string, theMap *sync.Map) {
-	value, ok := theMap.Load(lora)
 	count := 0
-
-	if ok {
+	if value, ok := theMap.Load(lora); ok {
 		// if lora is already in the map - increment its counter
 		count = value.(int)
 	}
-
 	theMap.Store(lora, count+1)
 }
 
 func (s *VllmSimulator) decrementLoraRefCount(lora string, theMap *sync.Map) {
-	value, ok := theMap.Load(lora)
-	if ok {
+	if value, ok := theMap.Load(lora); ok {
 		count := value.(int)
 		if count > 1 {
 			theMap.Store(lora, count-1)

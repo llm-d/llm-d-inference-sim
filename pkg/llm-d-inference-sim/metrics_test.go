@@ -156,30 +156,16 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 		Expect(isLoraMetricPresent(metrics, emptyArray, emptyArray)).To(BeTrue())
 
 		// Check the order
-		timestamp1, err := getLoraTimestamp(metrics, emptyArray, lora1Arr)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(timestamp1).ToNot(BeNil())
+		timestamp1 := getLoraValidTimestamp(metrics, emptyArray, lora1Arr)
+		timestamp2 := getLoraValidTimestamp(metrics, lora1Arr, emptyArray)
+		timestamp3 := getLoraValidTimestamp(metrics, emptyArray, lora2Arr)
+		timestamp4 := getLoraValidTimestamp(metrics, lora2Arr, emptyArray)
+		timestamp5 := getLoraValidTimestamp(metrics, emptyArray, emptyArray)
 
-		timestamp2, err := getLoraTimestamp(metrics, lora1Arr, emptyArray)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(timestamp2).ToNot(BeNil())
-
-		timestamp3, err := getLoraTimestamp(metrics, emptyArray, lora2Arr)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(timestamp3).ToNot(BeNil())
-
-		timestamp4, err := getLoraTimestamp(metrics, lora2Arr, emptyArray)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(timestamp4).ToNot(BeNil())
-
-		timestamp5, err := getLoraTimestamp(metrics, emptyArray, emptyArray)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(timestamp5).ToNot(BeNil())
-
-		Expect(*timestamp1 <= *timestamp2).To(BeTrue())
-		Expect(*timestamp2 <= *timestamp3).To(BeTrue())
-		Expect(*timestamp3 <= *timestamp4).To(BeTrue())
-		Expect(*timestamp4 <= *timestamp5).To(BeTrue())
+		Expect(timestamp1 <= timestamp2).To(BeTrue())
+		Expect(timestamp2 <= timestamp3).To(BeTrue())
+		Expect(timestamp3 <= timestamp4).To(BeTrue())
+		Expect(timestamp4 <= timestamp5).To(BeTrue())
 	})
 
 	It("Should send correct lora metrics for parallel requests with delay", func() {
@@ -201,7 +187,7 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 		var wg sync.WaitGroup
 		wg.Add(1)
 
-		// sends three request with delay of 0.5 second between them
+		// sends three requests with a delay of 0.5 second between them
 		// request1 for lora1, request2 for lora2, and request 3 for lora1
 		go func() {
 			time.Sleep(500 * time.Millisecond)
@@ -245,36 +231,19 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 		Expect(isLoraMetricPresent(metrics, emptyArray, emptyArray)).To(BeTrue())
 
 		// Check the order
-		timestamp1, err := getLoraTimestamp(metrics, emptyArray, lora1Arr)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(timestamp1).ToNot(BeNil())
-
-		timestamp2, err := getLoraTimestamp(metrics, lora1Arr, lora2Arr)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(timestamp2).ToNot(BeNil())
-
-		timestamp3, err := getLoraTimestamp(metrics, []string{lora1, lora2}, lora1Arr)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(timestamp3).ToNot(BeNil())
-
-		timestamp4, err := getLoraTimestamp(metrics, []string{lora1, lora2}, emptyArray)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(timestamp4).ToNot(BeNil())
-
-		timestamp5, err := getLoraTimestamp(metrics, lora1Arr, emptyArray)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(timestamp5).ToNot(BeNil())
-
-		timestamp6, err := getLoraTimestamp(metrics, emptyArray, emptyArray)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(timestamp6).ToNot(BeNil())
+		timestamp1 := getLoraValidTimestamp(metrics, emptyArray, lora1Arr)
+		timestamp2 := getLoraValidTimestamp(metrics, lora1Arr, lora2Arr)
+		timestamp3 := getLoraValidTimestamp(metrics, []string{lora1, lora2}, lora1Arr)
+		timestamp4 := getLoraValidTimestamp(metrics, []string{lora1, lora2}, emptyArray)
+		timestamp5 := getLoraValidTimestamp(metrics, lora1Arr, emptyArray)
+		timestamp6 := getLoraValidTimestamp(metrics, emptyArray, emptyArray)
 
 		// in case of requests sent with delay the order is well-defined
-		Expect(*timestamp1 <= *timestamp2).To(BeTrue())
-		Expect(*timestamp2 <= *timestamp3).To(BeTrue())
-		Expect(*timestamp3 <= *timestamp4).To(BeTrue())
-		Expect(*timestamp4 <= *timestamp5).To(BeTrue())
-		Expect(*timestamp5 <= *timestamp6).To(BeTrue())
+		Expect(timestamp1 <= timestamp2).To(BeTrue())
+		Expect(timestamp2 <= timestamp3).To(BeTrue())
+		Expect(timestamp3 <= timestamp4).To(BeTrue())
+		Expect(timestamp4 <= timestamp5).To(BeTrue())
+		Expect(timestamp5 <= timestamp6).To(BeTrue())
 	})
 
 	It("Should send correct lora metrics for parallel requests without delay", func() {
@@ -320,7 +289,7 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 		// We sent two parallel requests: first to lora1 and then to lora2,
 		// we expect to see metrics in this order:
 		// 1. running: empty, waiting: lora1 or lora2 (depends which request received first)
-		// 2. running: another lora, waiting: one of loras
+		// 2. running: one of the loras, waiting: another lora
 		// 3. running: both lora2 and lora1 (the order of LoRAs doesn't matter here), waiting: empty
 		// 4. running: empty, waiting: empty
 		Expect(isLoraMetricPresent(metrics, emptyArray, lora1Arr) || isLoraMetricPresent(metrics, emptyArray, lora2Arr)).To(BeTrue())
@@ -329,8 +298,8 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 		Expect(isLoraMetricPresent(metrics, emptyArray, emptyArray)).To(BeTrue())
 
 		// Check the order:
-		// 1. one of loras in waiting
-		// 2. both loras in running
+		// 1. one of the loras in the waiting list
+		// 2. both loras in the running list
 		// 3. empty
 		l1WaitingTimestamp, err := getLoraTimestamp(metrics, emptyArray, lora1Arr)
 		Expect(err).NotTo(HaveOccurred())
@@ -344,16 +313,11 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 			singleWaitingTimestamp = *l2WaitingTimestamp
 		}
 
-		bothRunningTimestamp, err := getLoraTimestamp(metrics, []string{lora1, lora2}, emptyArray)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(bothRunningTimestamp).ToNot(BeNil())
+		bothRunningTimestamp := getLoraValidTimestamp(metrics, []string{lora1, lora2}, emptyArray)
+		emptyTimestamp := getLoraValidTimestamp(metrics, emptyArray, emptyArray)
 
-		emptyTimestamp, err := getLoraTimestamp(metrics, emptyArray, emptyArray)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(emptyTimestamp).ToNot(BeNil())
-
-		Expect(singleWaitingTimestamp <= *bothRunningTimestamp).To(BeTrue())
-		Expect(*bothRunningTimestamp <= *emptyTimestamp).To(BeTrue())
+		Expect(singleWaitingTimestamp <= bothRunningTimestamp).To(BeTrue())
+		Expect(bothRunningTimestamp <= emptyTimestamp).To(BeTrue())
 	})
 
 	Context("fake metrics", func() {
@@ -387,8 +351,8 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 
 // isLoraMetricPresent checks if a matching metric exists
 // metrics: the list of metrics
-// running: list of loras in the running metrics, the order does not matter
-// waiting: list of loras in the waiting metrics, the order does not matter
+// running: list of loras in running_lora_adapters, the order does not matter
+// waiting: list of loras in waiting_lora_adapters, the order does not matter
 func isLoraMetricPresent(metrics []string, running, waiting []string) bool {
 	return findLoraMetric(metrics, running, waiting) != ""
 }
@@ -411,33 +375,47 @@ func getLoraTimestamp(metrics []string, running, waiting []string) (*float64, er
 	return &timestamp, nil
 }
 
-// findLoraMetric finds the relevant mertic by comparing sets (ignoring order)
-func findLoraMetric(metrics []string, running, waiting []string) string {
-	// Sort input slices for set comparison
-	sortedRun := make([]string, len(running))
-	sortedWait := make([]string, len(waiting))
-	copy(sortedRun, running)
-	copy(sortedWait, waiting)
-	sort.Strings(sortedRun)
-	sort.Strings(sortedWait)
-	runStr := strings.Join(sortedRun, ",")
-	waitStr := strings.Join(sortedWait, ",")
+func getLoraValidTimestamp(metrics []string, running, waiting []string) float64 {
+	timestamp, err := getLoraTimestamp(metrics, running, waiting)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(timestamp).ToNot(BeNil())
+	return *timestamp
+}
 
-	// Regex to extract lora metrics and values
+// findLoraMetric finds the relevant metric by comparing with the given loras sets (ignoring order)
+// metrics: lines of metrics
+// running: list of running loras to find
+// waiting: list of waiting loras to find
+// Looks for a line with the given running and waiting loras sets, the comparison is order agnostic.
+// Return metric should match in both running and waiting sets.
+// E.g. for input running=["l1", "l2", "l3"] and waiting=[] will return metric
+// with running_lora_adapters=["l3", "l1", "l2"] and waiting_lora_adapters=[]
+func findLoraMetric(metrics []string, running, waiting []string) string {
+	// sort input arrays before compare, create string of all values, separated by comma
+	sort.Strings(running)
+	sort.Strings(waiting)
+	runStr := strings.Join(running, ",")
+	waitStr := strings.Join(waiting, ",")
+
+	// regex to extract lora metrics and values
 	re := regexp.MustCompile(`vllm:lora_requests_info\{.*running_lora_adapters="([^"]*)".*waiting_lora_adapters="([^"]*)".*\}\s+([0-9.e\+\-]+)`)
 	for _, metric := range metrics {
 		matches := re.FindStringSubmatch(metric)
 		if len(matches) == 4 {
-			// Split and sort in metric for set comparison
+			// this line contains loraInfo metric, check running and waiting loras lists
+			// split and sort metric's running and waiting loras lists for the comparison
 			metricRun := splitString(matches[1])
 			metricWait := splitString(matches[2])
 			sort.Strings(metricRun)
 			sort.Strings(metricWait)
+			// if both lists are the same - return the metric
 			if strings.Join(metricRun, ",") == runStr && strings.Join(metricWait, ",") == waitStr {
 				return metric
 			}
-		} // if the metric not in the required format - skip it
+		} // if the metric is not in the required format - skip it
 	}
+
+	// required metric was not found
 	return ""
 }
 

@@ -66,7 +66,7 @@ const (
 type loraUsage struct {
 	// the lora adapter name
 	name string
-	// if true reference count ofthe given lora should be increased, otherwise decreased
+	// state of the lora usage - waiting/running/done
 	state loraUsageState
 }
 
@@ -78,9 +78,11 @@ type VllmSimulator struct {
 	config *common.Configuration
 	// loraAdaptors contains list of LoRA available adaptors
 	loraAdaptors sync.Map
-	// runningLoras is a collection of running loras, key is lora's name, value is number of running requests using this lora
+	// runningLoras is a collection of running loras,
+	// the key is lora's name, the value is the number of running requests using this lora
 	runningLoras sync.Map
-	// waitingLoras is a collection of waiting loras, key is lora's name, value is number of waiting requests using this lora
+	// waitingLoras is a collection of waiting loras,
+	// the key is lora's name, the value is the number of waiting requests using this lora
 	waitingLoras sync.Map
 	// lorasChan is a channel to update waitingLoras and runningLoras
 	lorasChan chan loraUsage
@@ -405,13 +407,13 @@ func (s *VllmSimulator) handleCompletions(ctx *fasthttp.RequestCtx, isChatComple
 		IsChatCompletion: isChatCompletion,
 		Wg:               &wg,
 	}
-	// update metrics that there is a new waiting request
+	// increment the waiting requests metric
 	s.waitingReqChan <- 1
 	if s.isLora(reqCtx.CompletionReq.GetModel()) {
-		// update metrics that there is a new waiting lora request
+		// update loraInfo metrics with the new waiting request
 		s.lorasChan <- loraUsage{reqCtx.CompletionReq.GetModel(), waitingUsageState}
 	}
-	// send request to the waiting queue (channel)
+	// send the request to the waiting queue (channel)
 	s.reqChan <- reqCtx
 	wg.Wait()
 }
@@ -432,12 +434,13 @@ func (s *VllmSimulator) reqProcessingWorker(ctx context.Context, id int) {
 			model := req.GetModel()
 			displayModel := s.getDisplayedModelName(model)
 
-			// update metrics that one request moved from the waiting to the running state
+			// decriment waiting and increment running requests count
 			s.waitingReqChan <- -1
 			s.runReqChan <- 1
 
 			if s.isLora(model) {
-				// update metrics that one lora request moved from the waiting to the running state
+				// update loraInfo metric to reflect that
+				// the request has changed its status from waiting to running
 				s.lorasChan <- loraUsage{model, runningUsageState}
 			}
 
@@ -510,11 +513,11 @@ func (s *VllmSimulator) reqProcessingWorker(ctx context.Context, id int) {
 
 // decrease model usage reference number
 func (s *VllmSimulator) responseSentCallback(model string) {
-	// update metrics that one request's processing has been finished
+	// decriment running requests count
 	s.runReqChan <- -1
 
 	if s.isLora(model) {
-		// update metrics that one lora request's processing has been finished
+		// update loraInfo metrics to reflect that the request processing has been finished
 		s.lorasChan <- loraUsage{model, doneUsageState}
 	}
 }
