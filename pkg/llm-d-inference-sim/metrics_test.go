@@ -339,7 +339,7 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 		Expect(err).NotTo(HaveOccurred())
 		l2WaitingTimestamp, err := getLoraTimestamp(metricsArr, emptyArray, lora2Arr)
 		Expect(err).NotTo(HaveOccurred())
-		Expect((l1WaitingTimestamp != nil) != (l2WaitingTimestamp != nil)).To(BeTrue())
+		Expect((l1WaitingTimestamp != nil)).ToNot(Equal((l2WaitingTimestamp != nil)))
 		var singleWaitingTimestamp float64
 		if l1WaitingTimestamp != nil {
 			singleWaitingTimestamp = *l1WaitingTimestamp
