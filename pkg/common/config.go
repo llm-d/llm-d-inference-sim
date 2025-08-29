@@ -72,6 +72,7 @@ type Configuration struct {
 	// in milliseconds, optional, default is 0, can't be more than 30% of TimeToFirstToken, will not
 	// cause the actual time to first token to differ by more than 70% from TimeToFirstToken
 	TimeToFirstTokenStdDev int `yaml:"time-to-first-token-std-dev" json:"time-to-first-token-std-dev"`
+
 	// InterTokenLatency time between generated tokens, in milliseconds
 	InterTokenLatency int `yaml:"inter-token-latency" json:"inter-token-latency"`
 	// InterTokenLatencyStdDev standard deviation for time between generated tokens, in milliseconds,
@@ -86,6 +87,21 @@ type Configuration struct {
 	// than 30% of KVCacheTransferLatency, will not cause the actual latency to differ by more than 70% from
 	// KVCacheTransferLatency
 	KVCacheTransferLatencyStdDev int `yaml:"kv-cache-transfer-latency-std-dev" json:"kv-cache-transfer-latency-std-dev"`
+
+	// $Total Prefill Time = PrefillOverhead + n * PrefillTimePerToken$
+	// the assumption is that n is less than k, where k is the number of prallelism units of GPU
+	// PrefillOverhead time taken to prefill the context, in milliseconds
+	PrefillOverhead     int `yaml:"prefill-overhead" json:"prefill-overhead"`
+	PrefillTimePerToken int `yaml:"prefill-time-per-token" json:"prefill-time-per-token"`
+	// PrefillOverheadStdDev similar to TimeToFirstTokenStdDev
+	PrefillTimeStdDev int `yaml:"prefill-time-std-dev" json:"prefill-time-std-dev"`
+	// $Total KV Cache Transfer Time = n * KVCacheTransferTimePerToken$
+	// the assumption is that the cache blocks are all missed at the remote pod
+	// KVCacheTransfer overhead time taken to transfer kv-cache from another vLLM instance in case P/D is activated,
+	// in milliseconds.
+	KVCacheTransferTimePerToken int `yaml:"kv-cache-transfer-time-per-token" json:"kv-cache-transfer-time-per-token"`
+	// KVCacheTransferOverheadStdDev similar to TimeToFirstTokenStdDev
+	KVCacheTransferTimeStdDev int `yaml:"kv-cache-transfer-time-std-dev" json:"kv-cache-transfer-time-std-dev"`
 
 	// Mode defines the simulator response generation mode, valid values: echo, random
 	Mode string `yaml:"mode" json:"mode"`
@@ -307,6 +323,24 @@ func (c *Configuration) validate() error {
 	if float32(c.TimeToFirstTokenStdDev) > 0.3*float32(c.TimeToFirstToken) {
 		return errors.New("time to first token standard deviation cannot be more than 30% of time to first token")
 	}
+
+	if c.PrefillOverhead < 0 {
+		return errors.New("prefill overhead cannot be negative")
+	}
+	if c.PrefillTimePerToken < 0 {
+		return errors.New("prefill time per token cannot be negative")
+	}
+	if c.PrefillTimeStdDev < 0 {
+		return errors.New("prefill time standard deviation cannot be negative")
+	}
+
+	if c.KVCacheTransferTimePerToken < 0 {
+		return errors.New("kv-cache tranfer time per token cannot be negative")
+	}
+	if c.KVCacheTransferTimeStdDev < 0 {
+		return errors.New("kv-cache tranfer time standard deviation cannot be negative")
+	}
+
 	if c.KVCacheTransferLatency < 0 {
 		return errors.New("kv-cache tranfer time cannot be negative")
 	}
@@ -316,6 +350,7 @@ func (c *Configuration) validate() error {
 	if float32(c.KVCacheTransferLatencyStdDev) > 0.3*float32(c.KVCacheTransferLatency) {
 		return errors.New("kv-cache tranfer standard deviation cannot be more than 30% of kv-cache tranfer")
 	}
+
 	if c.MaxLoras < 1 {
 		return errors.New("max LoRAs cannot be less than 1")
 	}
@@ -433,6 +468,13 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 	f.StringVar(&config.Mode, "mode", config.Mode, "Simulator mode: echo - returns the same text that was sent in the request, for chat completion returns the last message; random - returns random sentence from a bank of pre-defined sentences")
 	f.IntVar(&config.InterTokenLatency, "inter-token-latency", config.InterTokenLatency, "Time to generate one token (in milliseconds)")
 	f.IntVar(&config.TimeToFirstToken, "time-to-first-token", config.TimeToFirstToken, "Time to first token (in milliseconds)")
+
+	f.IntVar(&config.PrefillOverhead, "prefill-overhead", config.PrefillOverhead, "Time to prefill in milliseconds. This argument is ignored if <time-to-first-token> is not 0.")
+	f.IntVar(&config.PrefillTimePerToken, "prefill-time-per-token", config.PrefillTimePerToken, "Time to prefill per token (in milliseconds)")
+	f.IntVar(&config.PrefillTimeStdDev, "prefill-time-std-dev", config.PrefillTimeStdDev, "Standard deviation for time to prefill (in milliseconds)")
+	f.IntVar(&config.KVCacheTransferTimePerToken, "kv-cache-transfer-time-per-token", config.KVCacheTransferTimePerToken, "Time for KV-cache transfer per token from a remote vLLM (in milliseconds)")
+	f.IntVar(&config.KVCacheTransferTimeStdDev, "kv-cache-transfer-time-std-dev", config.KVCacheTransferTimeStdDev, "Standard deviation for time for KV-cache transfer per token from a remote vLLM (in milliseconds)")
+
 	f.IntVar(&config.KVCacheTransferLatency, "kv-cache-transfer-latency", config.KVCacheTransferLatency, "Time for KV-cache transfer from a remote vLLM (in milliseconds)")
 	f.IntVar(&config.InterTokenLatencyStdDev, "inter-token-latency-std-dev", config.InterTokenLatencyStdDev, "Standard deviation for time between generated tokens (in milliseconds)")
 	f.IntVar(&config.TimeToFirstTokenStdDev, "time-to-first-token-std-dev", config.TimeToFirstTokenStdDev, "Standard deviation for time before the first token will be returned (in milliseconds)")

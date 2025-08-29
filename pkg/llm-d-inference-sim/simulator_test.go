@@ -807,7 +807,7 @@ var _ = Describe("Simulator", func() {
 				simulator.config.TimeToFirstTokenStdDev = timeToFirstTokenStdDev
 				simulator.config.KVCacheTransferLatency = kvCacheLatency
 				simulator.config.KVCacheTransferLatencyStdDev = kvCacheLatencyStdDev
-				timeToFirst := simulator.getTimeToFirstToken(doREmotePrefill)
+				timeToFirst := simulator.getTimeToFirstToken(1, doREmotePrefill)
 				if doREmotePrefill {
 					Expect(timeToFirst).To(BeNumerically(">=", int(float32(kvCacheLatency)*0.3)))
 					Expect(timeToFirst).To(BeNumerically("<=", int(float32(kvCacheLatency)*1.7)))
@@ -828,5 +828,104 @@ var _ = Describe("Simulator", func() {
 			Entry(nil, 10000, 0, 1000, 0, true),
 			Entry(nil, 10000, 0, 1000, 0, false),
 		)
+
+		It("when <time-to-first-token> is not 0, ignore <prefill-overhead>", func() {
+			timeToFirstToken := 1000
+			simulator.config.TimeToFirstToken = timeToFirstToken
+			simulator.config.TimeToFirstTokenStdDev = 0
+
+			simulator.config.PrefillOverhead = 100
+			simulator.config.PrefillTimePerToken = 200
+			simulator.config.PrefillTimeStdDev = 80
+
+			ttft := simulator.getTimeToFirstToken(128, false)
+
+			Expect(ttft).To(BeNumerically("==", timeToFirstToken))
+		})
+
+		It("when <time-to-first-token> is 0, and <prefill-overhead> is not 0, use <prefill-overhead>", func() {
+			simulator.config.TimeToFirstToken = 0
+			simulator.config.TimeToFirstTokenStdDev = 0
+
+			simulator.config.PrefillOverhead = 100
+			simulator.config.PrefillTimePerToken = 200
+			simulator.config.PrefillTimeStdDev = 80
+
+			ttft := simulator.getTimeToFirstToken(128, false)
+			Expect(ttft).NotTo(BeNumerically("==", 0))
+		})
+
+		DescribeTable("time to first token is against number of prompt tokens",
+			func(prefillOverhead int, prefillTimePerToken int, stdDev int, nTokens int) {
+				simulator.config.TimeToFirstToken = 0
+				simulator.config.PrefillOverhead = prefillOverhead
+				simulator.config.PrefillTimePerToken = prefillTimePerToken
+				simulator.config.PrefillTimeStdDev = stdDev
+
+				ttft := simulator.getTimeToFirstToken(nTokens, false)
+
+				expectedTTFT := prefillOverhead + prefillTimePerToken*nTokens
+				Expect(ttft).To(BeNumerically(">=", int(float64(expectedTTFT)*0.3)))
+				Expect(ttft).To(BeNumerically("<=", int(float64(expectedTTFT)*1.7)))
+
+			},
+			func(prefillOverhead int, prefillTimePerToken, stdDev int, nTokens int) string {
+				return fmt.Sprintf("prefillOverhead: %d, prefillTimePerToken: %d, stdDev: %d, nTokens: %d",
+					prefillOverhead, prefillTimePerToken, stdDev, nTokens)
+			},
+			Entry("single token", 100, 50, 70, 1),
+			Entry("stddev is 0", 100, 50, 0, 1),
+			Entry("medium overhead, 512 tokens", 200, 1000, 150, 512),
+			Entry("large overhead, 1024 tokens", 2000, 3000, 1800, 1024),
+			Entry("very long prompt", 150, 200, 100, 20000),
+		)
+
+		It("when <kv-cache-transfer-latency> not 0, ignore <kv-cache-transfer-overhead>", func() {
+			simulator.config.KVCacheTransferLatency = 200
+			simulator.config.KVCacheTransferLatencyStdDev = 0
+
+			simulator.config.KVCacheTransferTimePerToken = 100
+			simulator.config.KVCacheTransferTimeStdDev = 0
+
+			ttft := simulator.getTimeToFirstToken(128, true)
+			Expect(ttft).To(BeNumerically("==", 200))
+		})
+
+		It("when <kv-cache-transfer-latency> is 0, and <kv-cache-transfer-overhead> is not 0, use <kv-cache-transfer-overhead>", func() {
+			simulator.config.KVCacheTransferLatency = 0
+			simulator.config.KVCacheTransferLatencyStdDev = 0
+
+			simulator.config.KVCacheTransferTimePerToken = 100
+			simulator.config.KVCacheTransferTimeStdDev = 0
+
+			ttft := simulator.getTimeToFirstToken(128, true)
+			Expect(ttft).To(BeNumerically("==", 12800))
+		})
+
+		DescribeTable("kv cache transfer time against number of prompt tokens",
+			func(kvCacheTransTPT int, stddev int, nTokens int) {
+				simulator.config.TimeToFirstToken = 0
+				simulator.config.PrefillOverhead = 1
+				simulator.config.KVCacheTransferTimePerToken = kvCacheTransTPT
+				simulator.config.KVCacheTransferTimeStdDev = stddev
+
+				ttft := simulator.getTimeToFirstToken(nTokens, true)
+
+				expectedTTFT := kvCacheTransTPT * nTokens
+				Expect(ttft).To(BeNumerically(">=", int(float64(expectedTTFT)*0.3)))
+				Expect(ttft).To(BeNumerically("<=", int(float64(expectedTTFT)*1.7)))
+
+			},
+			func(kvCacheTransferTimePerToken int, stddev int, nTokens int) string {
+				return fmt.Sprintf("kvCacheTransferTimePerToken: %d stddev: %d nTokens: %d",
+					kvCacheTransferTimePerToken, stddev, nTokens)
+			},
+			Entry("single token", 100, 70, 1),
+			Entry("stddev is 0", 100, 0, 1),
+			Entry("medium overhead, 512 tokens", 200, 150, 512),
+			Entry("large overhead, 1024 tokens", 2000, 1800, 1024),
+			Entry("very long prompt", 150, 100, 20000),
+		)
+
 	})
 })

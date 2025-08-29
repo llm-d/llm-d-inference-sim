@@ -401,6 +401,31 @@ var _ = Describe("Simulator configuration", func() {
 			name: "invalid (negative) zmq-max-connect-attempts for config file",
 			args: []string{"cmd", "--config", "../../manifests/invalid-config.yaml"},
 		},
+		{
+			name: "invalid (negative) prefill-overhead",
+			args: []string{"cmd", "--prefill-overhead", "-1",
+				"--config", "../../manifests/config.yaml"},
+		},
+		{
+			name: "invalid (negative) prefill-time-per-token",
+			args: []string{"cmd", "--prefill-time-per-token", "-1",
+				"--config", "../../manifests/config.yaml"},
+		},
+		{
+			name: "invalid (negative) prefill-time-std-dev",
+			args: []string{"cmd", "--prefill-time-std-dev", "-1",
+				"--config", "../../manifests/config.yaml"},
+		},
+		{
+			name: "invalid (negative) kv-cache-transfer-time-per-token",
+			args: []string{"cmd", "--kv-cache-transfer-time-per-token", "-1",
+				"--config", "../../manifests/config.yaml"},
+		},
+		{
+			name: "invalid (negative) kv-cache-transfer-time-std-dev",
+			args: []string{"cmd", "--kv-cache-transfer-time-std-dev", "-1",
+				"--config", "../../manifests/config.yaml"},
+		},
 	}
 
 	for _, test := range invalidTests {

@@ -101,13 +101,22 @@ For more details see the <a href="https://docs.vllm.ai/en/stable/getting_started
 - `mode`: the simulator mode, optional, by default `random`
     - `echo`: returns the same text that was sent in the request
     - `random`: returns a sentence chosen at random from a set of pre-defined sentences
+---
 - `time-to-first-token`: the time to the first token (in milliseconds), optional, by default zero
 - `time-to-first-token-std-dev`: standard deviation for time before the first token will be returned, in milliseconds, optional, default is 0, can't be more than 30% of `time-to-first-token`, will not cause the actual time to first token to differ by more than 70% from `time-to-first-token`
 - `inter-token-latency`: the time to 'generate' each additional token (in milliseconds), optional, by default zero
 - `inter-token-latency-std-dev`: standard deviation for time between generated tokens, in milliseconds, optional, default is 0, can't be more than 30% of `inter-token-latency`, will not cause the actual inter token latency to differ by more than 70% from `inter-token-latency`
 - `kv-cache-transfer-latency`: time for KV-cache transfer from a remote vLLM (in milliseconds), by default zero. Usually much shorter than `time-to-first-token`
 - `kv-cache-transfer-latency-std-dev`: standard deviation for time to "transfer" kv-cache from another vLLM instance in case P/D is activated, in milliseconds, optional, default is 0, can't be more than 30% of `kv-cache-transfer-latency`, will not cause the actual latency to differ by more than 70% from `kv-cache-transfer-latency`
+---
+- `prefill-overhead`: constant overhead time for prefill (in milliseconds), optional, by default zero, used in calculating time to first token, this will be ignored if `time-to-first-token` is not `0`
+- `prefill-time-per-token`: time taken to generate each token during prefill (in milliseconds), optional, by default zero, this will be ignored if `time-to-first-token` is not `0`
+- `prefill-time-std-dev`: similar to `time-to-first-token-std-dev`, but is applied on the final prefill time, which is calculated by `prefill-overhead`, `prefill-time-per-token`, and number of prompt tokens, this will be ignored if `time-to-first-token` is not `0`
+- `kv-cache-transfer-time-per-token`: time taken to transfer cache for each token in case P/D is enabled (in milliseconds), optional, by default zero, this will be ignored if `kv-cache-transfer-latency` is not `0`
+- `kv-cache-transfer-time-std-dev`: similar to `time-to-first-token-std-dev`, but is applied on the final kv cache transfer time in case P/D is enabled (in milliseconds), which is calculated by `kv-cache-transfer-time-per-token` and number of prompt tokens, this will be ignored if `kv-cache-transfer-latency` is not `0`
+---
 - `seed`: random seed for operations (if not set, current Unix time in nanoseconds is used)
+---
 - `max-tool-call-integer-param`: the maximum possible value of integer parameters in a tool call, optional, defaults to 100
 - `min-tool-call-integer-param`: the minimum possible value of integer parameters in a tool call, optional, defaults to 0
 - `max-tool-call-number-param`: the maximum possible value of number (float) parameters in a tool call, optional, defaults to 100
@@ -116,6 +125,7 @@ For more details see the <a href="https://docs.vllm.ai/en/stable/getting_started
 - `min-tool-call-array-param-length`: the minimum possible length of array parameters in a tool call, optional, defaults to 1
 - `tool-call-not-required-param-probability`: the probability to add a parameter, that is not required, in a tool call, optional, defaults to 50
 - `object-tool-call-not-required-field-probability`: the probability to add a field, that is not required, in an object in a tool call, optional, defaults to 50
+---
 - `enable-kvcache`: if true, the KV cache support will be enabled in the simulator. In this case, the KV cache will be simulated, and ZQM events will be published when a KV cache block is added or evicted. 
 - `kv-cache-size`: the maximum number of token blocks in kv cache
 - `block-size`: token block size for contiguous chunks of tokens, possible values: 8,16,32,64,128
@@ -124,8 +134,10 @@ For more details see the <a href="https://docs.vllm.ai/en/stable/getting_started
 - `zmq-endpoint`: ZMQ address to publish events
 - `zmq-max-connect-attempts`: the maximum number of ZMQ connection attempts, defaults to 0, maximum: 10
 - `event-batch-size`: the maximum number of kv-cache events to be sent together, defaults to 16
+---
 - `failure-injection-rate`: probability (0-100) of injecting failures, optional, default is 0
 - `failure-types`: list of specific failure types to inject (rate_limit, invalid_api_key, context_length, server_error, invalid_request, model_not_found), optional, if empty all types are used
+---
 - `fake-metrics`: represents a predefined set of metrics to be sent to Prometheus as a substitute for the real metrics. When specified, only these fake metrics will be reported — real metrics and fake metrics will never be reported together. The set should include values for 
     - `running-requests`
     - `waiting-requests`

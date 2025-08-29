@@ -495,7 +495,7 @@ func (s *VllmSimulator) reqProcessingWorker(ctx context.Context, id int) {
 							model:            displayModel,
 							doRemotePrefill:  req.IsDoRemotePrefill(),
 						},
-						responseTokens, toolCalls, finishReason, usageDataToSend,
+						usageDataToSend.PromptTokens, responseTokens, toolCalls, finishReason, usageDataToSend,
 					)
 				} else {
 					if req.IsDoRemoteDecode() {
@@ -646,8 +646,9 @@ func (s *VllmSimulator) sendResponse(isChatCompletion bool, ctx *fasthttp.Reques
 	}
 
 	// calculate how long to wait before returning the response, time is based on number of tokens
-	numOfTokens := usageData.CompletionTokens
-	totalMillisToWait := s.getTimeToFirstToken(doRemotePrefill) + s.getTotalInterTokenLatency(numOfTokens)
+	nPromptTokens := usageData.PromptTokens
+	nGenTokens := usageData.CompletionTokens
+	totalMillisToWait := s.getTimeToFirstToken(nPromptTokens, doRemotePrefill) + s.getTotalInterTokenLatency(nGenTokens)
 	time.Sleep(time.Duration(totalMillisToWait) * time.Millisecond)
 
 	ctx.Response.Header.SetContentType("application/json")
@@ -665,13 +666,19 @@ func (s *VllmSimulator) sendResponse(isChatCompletion bool, ctx *fasthttp.Reques
 }
 
 // returns time to first token based on the current request's doRemotePrefill
-func (s *VllmSimulator) getTimeToFirstToken(doRemotePrefill bool) int {
-	mean := float64(s.config.TimeToFirstToken)
-	stddev := float64(s.config.TimeToFirstTokenStdDev)
-	if doRemotePrefill {
-		mean = float64(s.config.KVCacheTransferLatency)
-		stddev = float64(s.config.KVCacheTransferLatencyStdDev)
+func (s *VllmSimulator) getTimeToFirstToken(nPromptTokens int, doRemotePrefill bool) int {
+	if s.config.TimeToFirstToken == 0 && s.config.TimeToFirstTokenStdDev == 0 {
+		return s.calcPrefillOverhead(nPromptTokens, doRemotePrefill)
 	}
+
+	if !doRemotePrefill {
+		mean := float64(s.config.TimeToFirstToken)
+		stddev := float64(s.config.TimeToFirstTokenStdDev)
+		return int(common.RandomNorm(mean, stddev))
+	}
+
+	mean := float64(s.config.KVCacheTransferLatency)
+	stddev := float64(s.config.KVCacheTransferLatencyStdDev)
 	return int(common.RandomNorm(mean, stddev))
 }
 
@@ -689,6 +696,30 @@ func (s *VllmSimulator) getTotalInterTokenLatency(numOfTokens int) int {
 		total += s.getInterTokenLatency()
 	}
 	return total
+}
+
+// calc the prefill overhead against number of tokens
+func (s *VllmSimulator) calcPrefillOverhead(nPromptTokens int, doRemotePrefill bool) int {
+	if !doRemotePrefill {
+		constOverhead := s.config.PrefillOverhead
+		ptpt := s.config.PrefillTimePerToken
+		prefillTime := constOverhead + nPromptTokens*ptpt
+
+		stdDev := s.config.PrefillTimeStdDev
+		return int(common.RandomNorm(float64(prefillTime), float64(stdDev)))
+	}
+
+	if s.config.KVCacheTransferLatency != 0 || s.config.KVCacheTransferLatencyStdDev != 0 {
+		mean := float64(s.config.KVCacheTransferLatency)
+		stddev := float64(s.config.KVCacheTransferLatencyStdDev)
+		return int(common.RandomNorm(mean, stddev))
+	}
+
+	kvCacheTransTPT := s.config.KVCacheTransferTimePerToken
+	kvCacheTransT := kvCacheTransTPT * nPromptTokens
+
+	stdDev := s.config.KVCacheTransferTimeStdDev
+	return int(common.RandomNorm(float64(kvCacheTransT), float64(stdDev)))
 }
 
 // createModelsResponse creates and returns ModelResponse for the current state, returned array of models contains the base model + LoRA adapters if exist
