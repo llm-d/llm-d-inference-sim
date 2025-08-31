@@ -220,15 +220,6 @@ func getResponseLengthByHistogram(maxTokens int) int {
 	}
 
 	// calculate the size of all of the buckets (except the special last bucket)
-	// bucketSize := float64(maxTokens-1) / float64(len(cumulativeBucketsProbabilities)-1)
-	// // start is the minimum number in the required bucket
-	// start := int(bucketSize*float64(bucketIndex)) + 1
-	// // end is the maximum number in the required bucket
-	// end := int(bucketSize * float64(bucketIndex+1))
-	// // sometimes end could be maxTokens because of rounding, change the value to maxToken-1
-	// if end >= maxTokens {
-	// 	end = maxTokens - 1
-	// }
 	start, end := calcBucketBoundaries(maxTokens, bucketIndex)
 
 	// pick uniformly within the bucket’s range
