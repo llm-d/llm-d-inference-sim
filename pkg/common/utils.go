@@ -43,6 +43,11 @@ const (
 var respLenBucketsProbabilities = [...]float64{0.2, 0.3, 0.2, 0.05, 0.1, 0.15}
 var cumulativeBucketsProbabilities []float64
 
+const (
+	flexBucketIndex    = 3
+	maxFixedBucketSize = 20
+)
+
 // list of responses to use in random mode for comepltion requests
 var chatCompletionFakeResponses = []string{
 	`Testing@, #testing 1$ ,2%,3^, [4&*5], 6~, 7-_ + (8 : 9) / \ < > .`,
@@ -215,18 +220,68 @@ func getResponseLengthByHistogram(maxTokens int) int {
 	}
 
 	// calculate the size of all of the buckets (except the special last bucket)
-	bucketSize := float64(maxTokens-1) / float64(len(cumulativeBucketsProbabilities)-1)
-	// start is the minimum number in the required bucket
-	start := int(bucketSize*float64(bucketIndex)) + 1
-	// end is the maximum number in the required bucket
-	end := int(bucketSize * float64(bucketIndex+1))
+	// bucketSize := float64(maxTokens-1) / float64(len(cumulativeBucketsProbabilities)-1)
+	// // start is the minimum number in the required bucket
+	// start := int(bucketSize*float64(bucketIndex)) + 1
+	// // end is the maximum number in the required bucket
+	// end := int(bucketSize * float64(bucketIndex+1))
+	// // sometimes end could be maxTokens because of rounding, change the value to maxToken-1
+	// if end >= maxTokens {
+	// 	end = maxTokens - 1
+	// }
+	start, end := calcBucketBoundaries(maxTokens, bucketIndex)
+
+	// pick uniformly within the bucket’s range
+	return RandomInt(start, end)
+}
+
+// calcBucketBoundaries calculates boundaries of a bucket with the given index.
+// Maximum size for equally sized buckets is defined by maxFixedBucketSize.
+// [maxFixedBucketSize*(number-of-buckets-1)+1] is the value of maxTokens for which
+// division to equally size buckets will give buckets with size maxFixedBucketSize.
+// If maxTokens is [maxFixedBucketSize*(number-of-buckets-1)+1] or less,
+// all buckets will be of equal size, except the last bucket, which contains only one value.
+// If maxTokens is higher than [maxFixedBucketSize*(number-of-buckets-1)+1],
+// and flexBucketIndex is valid (between 0 and number of buckets - 1) the buckets sizes will not be equal.
+// In this case, all buckets except the one at flexBucketIndex index will have size 20 (and the last is with size 1),
+// and the bucket at flexBucketIndex index will 'stretch' to cover the remaining range.
+func calcBucketBoundaries(maxTokens int, bucketIndex int) (start int, end int) {
+	maxEquallyBucketsSz := maxFixedBucketSize*(len(cumulativeBucketsProbabilities)-1) + 1
+
+	if maxTokens <= maxEquallyBucketsSz || flexBucketIndex < 0 || flexBucketIndex >= len(cumulativeBucketsProbabilities)-1 {
+		// create equally size buckets
+		// calculate the size of all of the buckets (except the special last bucket)
+		bucketSize := float64(maxTokens-1) / float64(len(cumulativeBucketsProbabilities)-1)
+		start = int(bucketSize*float64(bucketIndex)) + 1
+		end = int(bucketSize * float64(bucketIndex+1))
+	} else {
+		// create non-equally sized buckets and find boundaries of the required bucket
+		if bucketIndex < flexBucketIndex {
+			// the relevant bucket is before the flex bucket, all buckets are of the same size (maxFixedBucketSize)
+			// start is the minimum number in the required bucket
+			start = maxFixedBucketSize*bucketIndex + 1
+			end = maxFixedBucketSize * (bucketIndex + 1)
+		} else {
+			flexBucketSize := maxTokens - (maxFixedBucketSize * (len(cumulativeBucketsProbabilities) - 2))
+
+			if bucketIndex == flexBucketIndex {
+				// the relevant bucket is the flex bucket
+				start = int(maxFixedBucketSize*float64(bucketIndex)) + 1
+				end = maxFixedBucketSize*bucketIndex + flexBucketSize
+			} else {
+				// the relevant bucket is one of buckets after the flex bucket
+				start = int(maxFixedBucketSize*float64(bucketIndex-1)) + flexBucketSize + 1
+				end = maxFixedBucketSize*bucketIndex + flexBucketSize
+			}
+		}
+	}
+
 	// sometimes end could be maxTokens because of rounding, change the value to maxToken-1
 	if end >= maxTokens {
 		end = maxTokens - 1
 	}
 
-	// pick uniformly within the bucket’s range
-	return RandomInt(start, end)
+	return start, end
 }
 
 // GetResponseText returns response text, from a given text

@@ -168,4 +168,30 @@ var _ = Describe("Utils", Ordered, func() {
 		}
 	})
 
+	Context("validateBucketsBoundaries", func() {
+		type bucketBoundaries struct {
+			start int
+			end   int
+		}
+		type bucketTest struct {
+			maxTokens       int
+			expectedBuckets []bucketBoundaries
+		}
+
+		tests := []bucketTest{{500, []bucketBoundaries{{1, 20}, {21, 40}, {41, 60}, {61, 480}, {481, 499}}},
+			{47, []bucketBoundaries{{1, 9}, {10, 18}, {19, 27}, {28, 36}, {37, 46}}},
+			{50, []bucketBoundaries{{1, 9}, {10, 19}, {20, 29}, {30, 39}, {40, 49}}}}
+
+		for _, test := range tests {
+			Expect(test.expectedBuckets).To(HaveLen(len(cumulativeBucketsProbabilities) - 1))
+
+			It(fmt.Sprintf("should return bucket boundaries for maxTokens %d", test.maxTokens), func() {
+				for i := range len(cumulativeBucketsProbabilities) - 1 {
+					start, end := calcBucketBoundaries(test.maxTokens, i)
+					Expect(start).To(Equal(test.expectedBuckets[i].start))
+					Expect(end).To(Equal(test.expectedBuckets[i].end))
+				}
+			})
+		}
+	})
 })
