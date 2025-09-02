@@ -142,7 +142,20 @@ install-docker: check-container-tool ## Install app using $(CONTAINER_TOOL)
 uninstall-docker: check-container-tool ## Uninstall app from $(CONTAINER_TOOL)
 	@echo "Stopping and removing container in $(CONTAINER_TOOL)..."
 	-$(CONTAINER_TOOL) stop $(PROJECT_NAME)-container && $(CONTAINER_TOOL) rm $(PROJECT_NAME)-container
-@echo "$(CONTAINER_TOOL) uninstallation complete. Remove alias if set: unalias $(PROJECT_NAME)"
+	@echo "$(CONTAINER_TOOL) uninstallation complete. Remove alias if set: unalias $(PROJECT_NAME)"
+
+### Helm Targets
+.PHONY: install-helm
+install-helm: check-helm ## Install app using Helm
+	@echo "Installing chart with Helm..."
+	helm upgrade --install $(PROJECT_NAME) helm/$(PROJECT_NAME) --namespace default
+	@echo "Helm installation complete."
+
+.PHONY: uninstall-helm
+uninstall-helm: check-helm ## Uninstall app using Helm
+	@echo "Uninstalling chart with Helm..."
+	helm uninstall $(PROJECT_NAME) --namespace default
+	@echo "Helm uninstallation complete."
 
 .PHONY: env
 env: ## Print environment variables
@@ -152,13 +165,13 @@ env: ## Print environment variables
 
 
 ##@ Tools
-
 .PHONY: check-tools
-check-tools: \
-  check-go \
-  check-ginkgo \
-  check-golangci-lint \
-  check-container-tool 
+check-tools:
+	check-go \
+	check-ginkgo \
+	check-golangci-lint \
+	check-container-tool \
+	check-helm
 	@echo "✅ All required tools are installed."
 
 .PHONY: check-go
@@ -181,6 +194,12 @@ check-container-tool:
 	@command -v $(CONTAINER_TOOL) >/dev/null 2>&1 || { \
 	  echo "❌ $(CONTAINER_TOOL) is not installed."; \
 	  echo "🔧 Try: sudo apt install $(CONTAINER_TOOL) OR brew install $(CONTAINER_TOOL)"; exit 1; }
+
+.PHONY: check-helm
+check-helm:
+	@command -v helm >/dev/null 2>&1 || { \
+	  echo "❌ helm is not installed. Install it from https://helm.sh/docs/intro/install/"; exit 1; }
+
 
 .PHONY: check-builder
 check-builder:

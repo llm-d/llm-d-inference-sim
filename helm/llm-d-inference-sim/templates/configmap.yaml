@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "llm-d-inference-sim.fullname" . }}-config
+  labels:
+    {{- include "llm-d-inference-sim.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    port: {{ .Values.config.port }}
+    model: "{{ .Values.config.model }}"
+    served-model-name:
+    {{- toYaml .Values.config.servedModelName | nindent 4 }}
+    max-loras: {{ .Values.config.maxLoras }}
+    max-cpu-loras: {{ .Values.config.maxCpuLoras }}
+    max-num-seqs: {{ .Values.config.maxNumSeqs }}
+    max-model-len: {{ .Values.config.maxModelLen }}
+    lora-modules:
+    {{- toYaml .Values.config.loraModules | nindent 4 }}
+    mode: "{{ .Values.config.mode }}"
+    time-to-first-token: {{ .Values.config.timeToFirstToken }}
+    inter-token-latency: {{ .Values.config.interTokenLatency }}
+    kv-cache-transfer-latency: {{ .Values.config.kvCacheTransferLatency }}
+    seed: {{ .Values.config.seed }}
