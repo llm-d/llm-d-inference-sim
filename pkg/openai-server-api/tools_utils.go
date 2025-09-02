@@ -60,11 +60,11 @@ func CreateToolCalls(tools []Tool, toolChoice string, config *common.Configurati
 	// In case of 'required' at least one tool call has to be created, and we randomly choose
 	// the number of calls starting from one. Otherwise, we start from 0, and in case we randomly
 	// choose the number of calls to be 0, response text will be generated instead of a tool call.
-	min := 0
+	minVal := 0
 	if toolChoice == ToolChoiceRequired {
-		min = 1
+		minVal = 1
 	}
-	numberOfCalls := common.RandomInt(min, len(tools))
+	numberOfCalls := common.RandomInt(minVal, len(tools))
 	if numberOfCalls == 0 {
 		return nil, "", 0, nil
 	}
@@ -77,15 +77,15 @@ func CreateToolCalls(tools []Tool, toolChoice string, config *common.Configurati
 		if err != nil {
 			return nil, "", 0, err
 		}
-		argsJson, err := json.Marshal(args)
+		argsJSON, err := json.Marshal(args)
 		if err != nil {
 			return nil, "", 0, err
 		}
 
 		call := ToolCall{
 			Function: FunctionCall{
-				Arguments:          string(argsJson),
-				TokenizedArguments: common.Tokenize(string(argsJson)),
+				Arguments:          string(argsJSON),
+				TokenizedArguments: common.Tokenize(string(argsJSON)),
 				Name:               &tools[index].Function.Name,
 			},
 			ID:    "chatcmpl-tool-" + common.RandomNumericString(10),

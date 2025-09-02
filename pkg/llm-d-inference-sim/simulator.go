@@ -107,7 +107,7 @@ type VllmSimulator struct {
 	// schema validator for tools parameters
 	toolsValidator *openaiserverapi.Validator
 	// kv cache functionality
-	kvcacheHelper *kvcache.KVCacheHelper
+	kvcacheHelper *kvcache.Helper
 	// namespace where simulator is running
 	namespace string
 	// pod name of simulator
@@ -267,12 +267,12 @@ func (s *VllmSimulator) readRequest(ctx *fasthttp.RequestCtx, isChatCompletion b
 		}
 
 		for _, tool := range req.Tools {
-			toolJson, err := json.Marshal(tool.Function)
+			toolJSON, err := json.Marshal(tool.Function)
 			if err != nil {
 				s.logger.Error(err, "failed to marshal request tools")
 				return nil, err
 			}
-			err = s.toolsValidator.ValidateTool(toolJson)
+			err = s.toolsValidator.ValidateTool(toolJSON)
 			if err != nil {
 				s.logger.Error(err, "tool validation failed")
 				return nil, err
@@ -596,8 +596,8 @@ func (s *VllmSimulator) createCompletionResponse(isChatCompletion bool, respToke
 		baseResp.DoRemoteDecode = true
 		baseResp.DoRemotePrefill = false
 		// currently remote prefill information is hard-coded
-		baseResp.RemoteBlockIds = []string{"DUMMY_ID"}
-		baseResp.RemoteEngineId = "DUMMY_ID"
+		baseResp.RemoteBlockIDs = []string{"DUMMY_ID"}
+		baseResp.RemoteEngineID = "DUMMY_ID"
 		baseResp.RemoteHost = "DUMMY"
 		baseResp.RemotePort = 1234
 	}
