@@ -49,7 +49,9 @@ WORKDIR /
 USER root
 RUN microdnf install -y dnf && \
     dnf install -y 'https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm' && \
-    dnf install -y zeromq
+    dnf install -y zeromq && \
+    dnf clean all && \
+    rm -rf /var/cache/dnf /var/lib/dnf
 
 COPY --from=builder /workspace/bin/llm-d-inference-sim /app/llm-d-inference-sim
 
