@@ -879,7 +879,7 @@ var _ = Describe("Simulator", func() {
 			Entry("large overhead, 1024 tokens", 2000, 3000, 800, 1024, 0),
 			Entry("very long prompt", 150, 200, 70, 20000, 0),
 			Entry("medium overhead, 512 tokens, 256 cached", 200, 1000, 150, 512, 256),
-			Entry("large overhead, 1024 tokens, 128 cached", 2000, 3000, 800, 1024, 1008),
+			Entry("large overhead, 1024 tokens, 1008 cached", 2000, 3000, 800, 1024, 1008),
 			Entry("very long prompt, 1024 cached", 150, 200, 70, 20000, 1024),
 		)
 
