@@ -45,6 +45,12 @@ type CompletionRequest interface {
 	IncludeUsage() bool
 	// GetNumberOfPromptTokens returns the number of tokens in the prompt
 	GetNumberOfPromptTokens() int
+	// GetNumberOfCachedPromptTokens returns the number of tokens in the prompt that are
+	// in the local KV Cache
+	GetNumberOfCachedPromptTokens() int
+	// SetNumberOfCachedPromptTokens sets the number of tokens in the prompt that are
+	// in the local KV Cache
+	SetNumberOfCachedPromptTokens(cachedPromptTokens int)
 	// GetPrompt returns the prompt
 	GetPrompt() string
 	// GetTools() returns tools to use (in chat completion)
@@ -85,6 +91,8 @@ type baseCompletionRequest struct {
 	RemoteHost string `json:"remote_host"`
 	// RemotePort is a port of the remote server handling prefill
 	RemotePort int `json:"remote_port"`
+	// The number of tokens in the prompt that are in the local KV Cache
+	cachedPromptTokens int
 }
 
 // StreamOptions defines streaming options for streaming requests
@@ -115,6 +123,18 @@ func (b *baseCompletionRequest) IsDoRemoteDecode() bool {
 
 func (b *baseCompletionRequest) IsDoRemotePrefill() bool {
 	return b.DoRemotePrefill
+}
+
+// GetNumberOfCachedPromptTokens returns the number of tokens in the prompt that are
+// in the local KV Cache
+func (b *baseCompletionRequest) GetNumberOfCachedPromptTokens() int {
+	return b.cachedPromptTokens
+}
+
+// SetNumberOfCachedPromptTokens sets the number of tokens in the prompt that are
+// in the local KV Cache
+func (b *baseCompletionRequest) SetNumberOfCachedPromptTokens(cachedPromptTokens int) {
+	b.cachedPromptTokens = cachedPromptTokens
 }
 
 // CompletionReqCtx is a context passed in the simulator's flow, it contains the request data needed

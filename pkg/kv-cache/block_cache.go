@@ -76,13 +76,14 @@ func (b *blockCache) start(ctx context.Context) {
 }
 
 // startRequest adds a request with its associated block hashes to the cache
-func (bc *blockCache) startRequest(requestID string, blocks []uint64) error {
+// and returns the number of blocks that were already in the cache
+func (bc *blockCache) startRequest(requestID string, blocks []uint64) (int, error) {
 	bc.mu.Lock()
 	defer bc.mu.Unlock()
 
 	if _, exists := bc.requestToBlocks[requestID]; exists {
 		// request with the same id already exists
-		return fmt.Errorf("request already exists for id %s", requestID)
+		return 0, fmt.Errorf("request already exists for id %s", requestID)
 	}
 
 	// divide list of blocks to three lists:
@@ -107,7 +108,7 @@ func (bc *blockCache) startRequest(requestID string, blocks []uint64) error {
 	}
 
 	if len(bc.usedBlocks)+len(blocksToAdd)+len(blockToMoveToUsed) > bc.maxBlocks {
-		return errors.New(capacityError)
+		return 0, errors.New(capacityError)
 	}
 
 	// for blocks that are already in use - update the reference
@@ -148,7 +149,7 @@ func (bc *blockCache) startRequest(requestID string, blocks []uint64) error {
 	bc.requestToBlocks[requestID] = make([]uint64, len(blocks))
 	copy(bc.requestToBlocks[requestID], blocks)
 
-	return nil
+	return len(blockAreadyInUse) + len(blockToMoveToUsed), nil
 }
 
 // finishRequest processes the completion of a request, decreasing reference counts
@@ -159,7 +160,7 @@ func (bc *blockCache) finishRequest(requestID string) error {
 	// Get blocks associated with this request
 	blockHashes, exists := bc.requestToBlocks[requestID]
 	if !exists {
-		return errors.New("request not found")
+		return nil
 	}
 
 	now := time.Now()

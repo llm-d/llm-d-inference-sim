@@ -340,6 +340,9 @@ func (c *Configuration) validate() error {
 	if c.KVCacheTransferTimeStdDev < 0 {
 		return errors.New("kv-cache tranfer time standard deviation cannot be negative")
 	}
+	if float32(c.KVCacheTransferTimeStdDev) > 0.3*float32(c.KVCacheTransferTimePerToken) {
+		return errors.New("kv-cache tranfer time standard deviation cannot be more than 30% of kv-cache tranfer time")
+	}
 
 	if c.KVCacheTransferLatency < 0 {
 		return errors.New("kv-cache tranfer time cannot be negative")

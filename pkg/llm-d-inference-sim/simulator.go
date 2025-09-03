@@ -382,7 +382,6 @@ func (s *VllmSimulator) handleCompletions(ctx *fasthttp.RequestCtx, isChatComple
 		if s.config.EnableKVCache && !isChatCompletion {
 			err := s.kvcacheHelper.OnRequestEnd(vllmReq)
 			if err != nil {
-				// TODO should it be an error with http response error or just a warning?
 				s.logger.Error(err, "kv cache failed to process request end")
 			}
 		}
@@ -391,8 +390,7 @@ func (s *VllmSimulator) handleCompletions(ctx *fasthttp.RequestCtx, isChatComple
 		// kv cache is currently supported for /completion API only
 		err = s.kvcacheHelper.OnRequestStart(vllmReq)
 		if err != nil {
-			// TODO should it be an error with http response error or just a warning?
-			s.logger.Error(err, "kv cache failed to process request start")
+			s.sendCompletionError(ctx, openaiserverapi.NewCompletionError(err.Error(), fasthttp.StatusInternalServerError, nil), false)
 		}
 	}
 
@@ -490,12 +488,14 @@ func (s *VllmSimulator) reqProcessingWorker(ctx context.Context, id int) {
 					}
 					s.sendStreamingResponse(
 						&streamingContext{
-							ctx:              reqCtx.HTTPReqCtx,
-							isChatCompletion: reqCtx.IsChatCompletion,
-							model:            displayModel,
-							doRemotePrefill:  req.IsDoRemotePrefill(),
+							ctx:                 reqCtx.HTTPReqCtx,
+							isChatCompletion:    reqCtx.IsChatCompletion,
+							model:               displayModel,
+							doRemotePrefill:     req.IsDoRemotePrefill(),
+							nPromptTokens:       usageData.PromptTokens,
+							nCachedPromptTokens: reqCtx.CompletionReq.GetNumberOfCachedPromptTokens(),
 						},
-						usageData.PromptTokens, responseTokens, toolCalls, finishReason, usageDataToSend,
+						responseTokens, toolCalls, finishReason, usageDataToSend,
 					)
 				} else {
 					if req.IsDoRemoteDecode() {
@@ -503,15 +503,7 @@ func (s *VllmSimulator) reqProcessingWorker(ctx context.Context, id int) {
 						finishReason = common.RemoteDecodeFinishReason
 					}
 
-					s.sendResponse(reqCtx.IsChatCompletion,
-						reqCtx.HTTPReqCtx,
-						responseTokens,
-						toolCalls,
-						displayModel,
-						finishReason,
-						&usageData,
-						req.IsDoRemoteDecode(),
-						req.IsDoRemotePrefill())
+					s.sendResponse(reqCtx, responseTokens, toolCalls, displayModel, finishReason, &usageData)
 				}
 			}
 			reqCtx.Wg.Done()
@@ -628,17 +620,19 @@ func (s *VllmSimulator) createCompletionResponse(isChatCompletion bool, respToke
 }
 
 // sendResponse sends response for completion API, supports both completions (text and chat)
-// according the value of isChatCompletion
+// according the value of isChatCompletion in reqCtx
 // respTokens - tokenized content to be sent in the response
 // toolCalls - tool calls to be sent in the response
 // modelName - display name returned to the client and used in metrics. It is either the first alias
 // from --served-model-name (for a base-model request) or the LoRA adapter name (for a LoRA request).
 // finishReason - a pointer to string that represents finish reason, can be nil, stop, length, or tools
 // usageData - usage (tokens statistics) for this response
-func (s *VllmSimulator) sendResponse(isChatCompletion bool, ctx *fasthttp.RequestCtx, respTokens []string, toolCalls []openaiserverapi.ToolCall,
-	modelName string, finishReason string, usageData *openaiserverapi.Usage, doRemoteDecode bool, doRemotePrefill bool) {
-	resp := s.createCompletionResponse(isChatCompletion, respTokens, toolCalls, &finishReason, usageData, modelName, doRemoteDecode)
+func (s *VllmSimulator) sendResponse(reqCtx *openaiserverapi.CompletionReqCtx, respTokens []string, toolCalls []openaiserverapi.ToolCall,
+	modelName string, finishReason string, usageData *openaiserverapi.Usage) {
+	resp := s.createCompletionResponse(reqCtx.IsChatCompletion, respTokens, toolCalls, &finishReason, usageData, modelName,
+		reqCtx.CompletionReq.IsDoRemoteDecode())
 
+	ctx := reqCtx.HTTPReqCtx
 	data, err := json.Marshal(resp)
 	if err != nil {
 		ctx.Error("Response body creation failed, "+err.Error(), fasthttp.StatusInternalServerError)
@@ -647,8 +641,10 @@ func (s *VllmSimulator) sendResponse(isChatCompletion bool, ctx *fasthttp.Reques
 
 	// calculate how long to wait before returning the response, time is based on number of tokens
 	nPromptTokens := usageData.PromptTokens
+	nCachedPromptTokens := reqCtx.CompletionReq.GetNumberOfCachedPromptTokens()
 	nGenTokens := usageData.CompletionTokens
-	totalMillisToWait := s.getTimeToFirstToken(nPromptTokens, doRemotePrefill) + s.getTotalInterTokenLatency(nGenTokens)
+	ttft := s.getTimeToFirstToken(nPromptTokens, nCachedPromptTokens, reqCtx.CompletionReq.IsDoRemotePrefill())
+	totalMillisToWait := ttft + s.getTotalInterTokenLatency(nGenTokens)
 	time.Sleep(time.Duration(totalMillisToWait) * time.Millisecond)
 
 	ctx.Response.Header.SetContentType("application/json")
@@ -666,7 +662,7 @@ func (s *VllmSimulator) sendResponse(isChatCompletion bool, ctx *fasthttp.Reques
 }
 
 // returns time to first token based on the current request's doRemotePrefill
-func (s *VllmSimulator) getTimeToFirstToken(nPromptTokens int, doRemotePrefill bool) int {
+func (s *VllmSimulator) getTimeToFirstToken(nPromptTokens int, nCachedPromptTokens int, doRemotePrefill bool) int {
 	if doRemotePrefill {
 		if s.config.KVCacheTransferLatency == 0 && s.config.KVCacheTransferLatencyStdDev == 0 {
 			// is disaggregated PD and ttft is calculated using number of prompt tokens
@@ -677,9 +673,12 @@ func (s *VllmSimulator) getTimeToFirstToken(nPromptTokens int, doRemotePrefill b
 		return int(common.RandomNorm(float64(s.config.KVCacheTransferLatency), float64(s.config.KVCacheTransferLatencyStdDev)))
 	}
 	if s.config.TimeToFirstToken == 0 && s.config.TimeToFirstTokenStdDev == 0 {
-		// is aggregated PD and ttft is calculated using number of prompt tokens
-		prefillTime := s.config.PrefillOverhead + nPromptTokens*s.config.PrefillTimePerToken
-		return int(common.RandomNorm(float64(prefillTime), float64(s.config.PrefillTimeStdDev)))
+		// is aggregated PD and ttft is calculated using number of prompt tokens that are not in kv cache
+		prefillTime := s.config.PrefillOverhead + (nPromptTokens-nCachedPromptTokens)*s.config.PrefillTimePerToken
+		fmt.Println("prefillTime ", prefillTime, " float ", float64(prefillTime))
+		res := int(common.RandomNorm(float64(prefillTime), float64(s.config.PrefillTimeStdDev)))
+		fmt.Println("res ", res)
+		return res
 	}
 	// is aggregated PD and *not* using number of prompt tokens
 	return int(common.RandomNorm(float64(s.config.TimeToFirstToken), float64(s.config.TimeToFirstTokenStdDev)))

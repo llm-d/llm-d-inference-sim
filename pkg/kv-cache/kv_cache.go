@@ -32,6 +32,7 @@ type KVCacheHelper struct {
 	tokensProcessor kvblock.TokenProcessor // turns tokens to kv block keys
 	logger          logr.Logger
 	blockCache      *blockCache
+	blockSize       int
 }
 
 func NewKVCacheHelper(config *common.Configuration, logger logr.Logger) (*KVCacheHelper, error) {
@@ -59,6 +60,7 @@ func NewKVCacheHelper(config *common.Configuration, logger logr.Logger) (*KVCach
 		tokensProcessor: tokensProcessor,
 		blockCache:      blockCache,
 		logger:          logger,
+		blockSize:       config.TokenBlockSize,
 	}, nil
 }
 
@@ -78,7 +80,7 @@ func (h *KVCacheHelper) OnRequestStart(vllmReq openaiserverapi.CompletionRequest
 	tokens, _, err := h.tokenizer.Encode(prompt, modelName)
 	if err != nil {
 		h.logger.Info("Prompt tokenization failed", "error", err.Error())
-		return h.blockCache.startRequest(requestID, make([]uint64, 0))
+		return err
 	}
 
 	// get block keys
@@ -90,7 +92,9 @@ func (h *KVCacheHelper) OnRequestStart(vllmReq openaiserverapi.CompletionRequest
 		blockHashes[i] = key.ChunkHash
 	}
 
-	return h.blockCache.startRequest(requestID, blockHashes)
+	nExistingBlocks, err := h.blockCache.startRequest(requestID, blockHashes)
+	vllmReq.SetNumberOfCachedPromptTokens(nExistingBlocks * h.blockSize)
+	return err
 }
 
 func (h *KVCacheHelper) OnRequestEnd(vllmReq openaiserverapi.CompletionRequest) error {
