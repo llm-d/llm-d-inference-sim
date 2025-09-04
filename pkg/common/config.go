@@ -373,6 +373,10 @@ func (c *Configuration) validate() error {
 		return errors.New("max model len cannot be less than 1")
 	}
 
+	if c.MaxNumSeqs < 1 {
+		return errors.New("max num seqs cannot be less than 1")
+	}
+
 	for _, lora := range c.LoraModules {
 		if lora.Name == "" {
 			return errors.New("empty LoRA name")

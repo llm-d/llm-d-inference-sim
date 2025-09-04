@@ -431,6 +431,16 @@ var _ = Describe("Simulator configuration", func() {
 			args: []string{"cmd", "--data-parallel-size", "15",
 				"--config", "../../manifests/config.yaml"},
 		},
+		{
+			name: "invalid max-num-seqs",
+			args: []string{"cmd", "--max-num-seqs", "0",
+				"--config", "../../manifests/config.yaml"},
+		},
+		{
+			name: "invalid max-num-seqs",
+			args: []string{"cmd", "--max-num-seqs", "-1",
+				"--config", "../../manifests/config.yaml"},
+		},
 	}
 
 	for _, test := range invalidTests {
