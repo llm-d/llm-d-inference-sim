@@ -346,22 +346,24 @@ func RandomFloat(min float64, max float64) float64 {
 	return randomGenerator.Float64()*(max-min) + min
 }
 
-// Returns a normally distributed float64
+// Returns a normally distributed int
 // If the generated value differs by more than 70% from mean, the returned
 // value will be 70% of mean
-func RandomNorm(mean float64, stddev float64) float64 {
+func RandomNorm(mean int, stddev int) int {
 	if stddev == 0 {
 		return mean
 	}
 	randMutex.Lock()
 	defer randMutex.Unlock()
-	value := randomGenerator.NormFloat64()*stddev + mean
-	if value < 0.3*mean {
-		value = 0.3 * mean
-	} else if value > 1.7*mean {
-		value = 1.7 * mean
+	mean_ := float64(mean)
+	stddev_ := float64(stddev)
+	value := randomGenerator.NormFloat64()*stddev_ + mean_
+	if value < 0.3*mean_ {
+		value = 0.3 * mean_
+	} else if value > 1.7*mean_ {
+		value = 1.7 * mean_
 	}
-	return value
+	return int(value)
 }
 
 // GenerateUUIDString generates a UUID string under a lock

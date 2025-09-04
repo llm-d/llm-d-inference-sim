@@ -701,25 +701,23 @@ func (s *VllmSimulator) getTimeToFirstToken(nPromptTokens int, nCachedPromptToke
 		if s.config.KVCacheTransferLatency == 0 && s.config.KVCacheTransferLatencyStdDev == 0 {
 			// is disaggregated PD and ttft is calculated using number of prompt tokens
 			kvCacheTransT := s.config.KVCacheTransferTimePerToken * nPromptTokens
-			return int(common.RandomNorm(float64(kvCacheTransT), float64(s.config.KVCacheTransferTimeStdDev)))
+			return common.RandomNorm(kvCacheTransT, s.config.KVCacheTransferTimeStdDev)
 		}
 		// is disaggregated PD and *not* using number of prompt tokens
-		return int(common.RandomNorm(float64(s.config.KVCacheTransferLatency), float64(s.config.KVCacheTransferLatencyStdDev)))
+		return common.RandomNorm(s.config.KVCacheTransferLatency, s.config.KVCacheTransferLatencyStdDev)
 	}
 	if s.config.TimeToFirstToken == 0 && s.config.TimeToFirstTokenStdDev == 0 {
 		// is aggregated PD and ttft is calculated using number of prompt tokens that are not in kv cache
 		prefillTime := s.config.PrefillOverhead + (nPromptTokens-nCachedPromptTokens)*s.config.PrefillTimePerToken
-		return int(common.RandomNorm(float64(prefillTime), float64(s.config.PrefillTimeStdDev)))
+		return common.RandomNorm(prefillTime, s.config.PrefillTimeStdDev)
 	}
 	// is aggregated PD and *not* using number of prompt tokens
-	return int(common.RandomNorm(float64(s.config.TimeToFirstToken), float64(s.config.TimeToFirstTokenStdDev)))
+	return common.RandomNorm(s.config.TimeToFirstToken, s.config.TimeToFirstTokenStdDev)
 }
 
 // returns inter token latency
 func (s *VllmSimulator) getInterTokenLatency() int {
-	mean := float64(s.config.InterTokenLatency)
-	stddev := float64(s.config.InterTokenLatencyStdDev)
-	return int(common.RandomNorm(mean, stddev))
+	return common.RandomNorm(s.config.InterTokenLatency, s.config.InterTokenLatencyStdDev)
 }
 
 // returns total inter token latency for the given number of tokens
