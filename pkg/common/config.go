@@ -175,6 +175,17 @@ type Configuration struct {
 	DPSize int `yaml:"data-parallel-size" json:"data-parallel-size"`
 }
 
+func (c *Configuration) calcLoadFactor(runReqChan *chan int64) float64 {
+	if c.MaxNumSeqs <= 1 {
+		return 1.0
+	}
+	return 1 + (c.TimeFactorUnderLoad-1)*float64(len(*runReqChan)-1)/float64(c.MaxNumSeqs-1)
+}
+
+func (c *Configuration) GetTimeToFirstToken(runReqChan *chan int64) int {
+	return int(float64(c.TimeToFirstToken) * c.calcLoadFactor(runReqChan))
+}
+
 type Metrics struct {
 	// LoraMetrics
 	LoraMetrics []LorasMetrics `json:"loras"`
