@@ -20,7 +20,6 @@ package llmdinferencesim
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -34,6 +33,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/valyala/fasthttp"
 	"github.com/valyala/fasthttp/fasthttpadaptor"
+	"golang.org/x/sync/errgroup"
+	"k8s.io/klog/v2"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	kvcache "github.com/llm-d/llm-d-inference-sim/pkg/kv-cache"
@@ -94,6 +95,8 @@ type VllmSimulator struct {
 	nWaitingReqs int64
 	// waitingReqChan is a channel to update nWaitingReqs
 	waitingReqChan chan int64
+	// registry is a Prometheus registry
+	registry *prometheus.Registry
 	// loraInfo is prometheus gauge
 	loraInfo *prometheus.GaugeVec
 	// runningRequests is prometheus gauge
@@ -136,27 +139,54 @@ func New(logger logr.Logger) (*VllmSimulator, error) {
 
 // Start starts the simulator
 func (s *VllmSimulator) Start(ctx context.Context) error {
+	var err error
 	// parse command line parameters
-	config, err := common.ParseCommandParamsAndLoadConfig()
+	s.config, err = common.ParseCommandParamsAndLoadConfig()
 	if err != nil {
 		return err
 	}
 
-	s.config = config
-
-	err = s.showConfig(s.logger)
+	err = s.showConfig(s.config.DPSize > 1)
 	if err != nil {
 		return err
 	}
 
-	for _, lora := range config.LoraModules {
+	// For Data Parallel, start data-parallel-size - 1 additional simulators
+	if s.config.DPSize > 1 {
+		g, ctx := errgroup.WithContext(context.Background())
+		for i := 2; i <= s.config.DPSize; i++ {
+			newConfig, err := s.config.Copy()
+			if err != nil {
+				return err
+			}
+			dpRank := i - 1
+			newConfig.Port = s.config.Port + dpRank
+			newSim, err := New(klog.LoggerWithValues(s.logger, "rank", dpRank))
+			if err != nil {
+				return err
+			}
+			newSim.config = newConfig
+			g.Go(func() error {
+				return newSim.startSim(ctx)
+			})
+		}
+		if err := g.Wait(); err != nil {
+			return err
+		}
+		s.logger = klog.LoggerWithValues(s.logger, "rank", 0)
+	}
+	return s.startSim(ctx)
+}
+
+func (s *VllmSimulator) startSim(ctx context.Context) error {
+	for _, lora := range s.config.LoraModules {
 		s.loraAdaptors.Store(lora.Name, "")
 	}
 
 	common.InitRandom(s.config.Seed)
 
 	// initialize prometheus metrics
-	err = s.createAndRegisterPrometheus()
+	err := s.createAndRegisterPrometheus()
 	if err != nil {
 		return err
 	}
@@ -208,7 +238,7 @@ func (s *VllmSimulator) startServer(ctx context.Context, listener net.Listener) 
 	r.POST("/v1/load_lora_adapter", s.HandleLoadLora)
 	r.POST("/v1/unload_lora_adapter", s.HandleUnloadLora)
 	// supports /metrics prometheus API
-	r.GET("/metrics", fasthttpadaptor.NewFastHTTPHandler(promhttp.Handler()))
+	r.GET("/metrics", fasthttpadaptor.NewFastHTTPHandler(promhttp.HandlerFor(s.registry, promhttp.HandlerOpts{})))
 	// supports standard Kubernetes health and readiness checks
 	r.GET("/health", s.HandleHealth)
 	r.GET("/ready", s.HandleReady)
@@ -755,21 +785,22 @@ func (s *VllmSimulator) getDisplayedModelName(reqModel string) string {
 	return s.config.ServedModelNames[0]
 }
 
-func (s *VllmSimulator) showConfig(tgtLgr logr.Logger) error {
-	if tgtLgr == logr.Discard() {
-		return errors.New("target logger is nil, cannot show configuration")
-	}
+func (s *VllmSimulator) showConfig(dp bool) error {
 	cfgJSON, err := json.Marshal(s.config)
 	if err != nil {
 		return fmt.Errorf("failed to marshal configuration to JSON: %w", err)
 	}
 
-	// clean LoraModulesString field
 	var m map[string]interface{}
 	err = json.Unmarshal(cfgJSON, &m)
 	if err != nil {
 		return fmt.Errorf("failed to unmarshal JSON to map: %w", err)
 	}
+	if dp {
+		// remove the port
+		delete(m, "port")
+	}
+	// clean LoraModulesString field
 	m["lora-modules"] = m["LoraModules"]
 	delete(m, "LoraModules")
 	delete(m, "LoraModulesString")
@@ -784,6 +815,6 @@ func (s *VllmSimulator) showConfig(tgtLgr logr.Logger) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal configuration to JSON: %w", err)
 	}
-	tgtLgr.Info("Configuration:", "", string(cfgJSON))
+	s.logger.Info("Configuration:", "", string(cfgJSON))
 	return nil
 }

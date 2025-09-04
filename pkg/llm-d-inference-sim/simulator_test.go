@@ -49,12 +49,6 @@ func startServer(ctx context.Context, mode string) (*http.Client, error) {
 }
 
 func startServerWithArgs(ctx context.Context, mode string, args []string, envs map[string]string) (*http.Client, error) {
-	_, client, err := startServerWithArgsAndMetrics(ctx, mode, args, envs, false)
-	return client, err
-}
-
-func startServerWithArgsAndMetrics(ctx context.Context, mode string, args []string, envs map[string]string,
-	setMetrics bool) (*VllmSimulator, *http.Client, error) {
 	oldArgs := os.Args
 	defer func() {
 		os.Args = oldArgs
@@ -84,11 +78,11 @@ func startServerWithArgsAndMetrics(ctx context.Context, mode string, args []stri
 
 	s, err := New(logger)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	config, err := common.ParseCommandParamsAndLoadConfig()
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	s.config = config
 
@@ -98,11 +92,8 @@ func startServerWithArgsAndMetrics(ctx context.Context, mode string, args []stri
 
 	common.InitRandom(s.config.Seed)
 
-	if setMetrics {
-		err = s.createAndRegisterPrometheus()
-		if err != nil {
-			return nil, nil, err
-		}
+	if err := s.createAndRegisterPrometheus(); err != nil {
+		return nil, err
 	}
 
 	// calculate number of tokens for user message,
@@ -125,7 +116,7 @@ func startServerWithArgsAndMetrics(ctx context.Context, mode string, args []stri
 		}
 	}()
 
-	return s, &http.Client{
+	return &http.Client{
 		Transport: &http.Transport{
 			DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
 				return listener.Dial()

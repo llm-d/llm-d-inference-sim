@@ -69,9 +69,8 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 		args := []string{"cmd", "--model", modelName, "--mode", common.ModeRandom,
 			"--time-to-first-token", "3000", "--max-num-seqs", "2"}
 
-		s, client, err := startServerWithArgsAndMetrics(ctx, common.ModeRandom, args, nil, true)
+		client, err := startServerWithArgs(ctx, common.ModeRandom, args, nil)
 		Expect(err).NotTo(HaveOccurred())
-		defer s.unregisterPrometheus()
 
 		openaiclient := openai.NewClient(
 			option.WithBaseURL(baseURL),
@@ -121,9 +120,8 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 			"--lora-modules", "{\"name\":\"lora1\",\"path\":\"/path/to/lora1\"}",
 			"{\"name\":\"lora2\",\"path\":\"/path/to/lora2\"}"}
 
-		s, client, err := startServerWithArgsAndMetrics(ctx, common.ModeRandom, args, nil, true)
+		client, err := startServerWithArgs(ctx, common.ModeRandom, args, nil)
 		Expect(err).NotTo(HaveOccurred())
-		defer s.unregisterPrometheus()
 
 		openaiclient := openai.NewClient(
 			option.WithBaseURL(baseURL),
@@ -175,10 +173,8 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 			"--lora-modules", "{\"name\":\"lora1\",\"path\":\"/path/to/lora1\"}",
 			"{\"name\":\"lora2\",\"path\":\"/path/to/lora2\"}"}
 
-		s, client, err := startServerWithArgsAndMetrics(ctx, common.ModeRandom, args, nil, true)
+		client, err := startServerWithArgs(ctx, common.ModeRandom, args, nil)
 		Expect(err).NotTo(HaveOccurred())
-
-		defer s.unregisterPrometheus()
 
 		openaiclient := openai.NewClient(
 			option.WithBaseURL(baseURL),
@@ -253,10 +249,8 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 			"--lora-modules", "{\"name\":\"lora1\",\"path\":\"/path/to/lora1\"}",
 			"{\"name\":\"lora2\",\"path\":\"/path/to/lora2\"}"}
 
-		s, client, err := startServerWithArgsAndMetrics(ctx, common.ModeRandom, args, nil, true)
+		client, err := startServerWithArgs(ctx, common.ModeRandom, args, nil)
 		Expect(err).NotTo(HaveOccurred())
-
-		defer s.unregisterPrometheus()
 
 		openaiclient := openai.NewClient(
 			option.WithBaseURL(baseURL),
@@ -328,10 +322,8 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 				"{\"running-requests\":10,\"waiting-requests\":30,\"kv-cache-usage\":0.4,\"loras\":[{\"running\":\"lora4,lora2\",\"waiting\":\"lora3\",\"timestamp\":1257894567},{\"running\":\"lora4,lora3\",\"waiting\":\"\",\"timestamp\":1257894569}]}",
 			}
 
-			s, client, err := startServerWithArgsAndMetrics(ctx, common.ModeRandom, args, nil, true)
+			client, err := startServerWithArgs(ctx, common.ModeRandom, args, nil)
 			Expect(err).NotTo(HaveOccurred())
-
-			defer s.unregisterPrometheus()
 
 			resp, err := client.Get(metricsUrl)
 			Expect(err).NotTo(HaveOccurred())

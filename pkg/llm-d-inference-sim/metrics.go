@@ -34,6 +34,8 @@ import (
 // Metrics reported:
 // - lora_requests_info
 func (s *VllmSimulator) createAndRegisterPrometheus() error {
+	s.registry = prometheus.NewRegistry()
+
 	s.loraInfo = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: "",
@@ -43,7 +45,7 @@ func (s *VllmSimulator) createAndRegisterPrometheus() error {
 		[]string{vllmapi.PromLabelMaxLora, vllmapi.PromLabelRunningLoraAdapters, vllmapi.PromLabelWaitingLoraAdapters},
 	)
 
-	if err := prometheus.Register(s.loraInfo); err != nil {
+	if err := s.registry.Register(s.loraInfo); err != nil {
 		s.logger.Error(err, "Prometheus lora info gauge register failed")
 		return err
 	}
@@ -57,7 +59,7 @@ func (s *VllmSimulator) createAndRegisterPrometheus() error {
 		[]string{vllmapi.PromLabelModelName},
 	)
 
-	if err := prometheus.Register(s.runningRequests); err != nil {
+	if err := s.registry.Register(s.runningRequests); err != nil {
 		s.logger.Error(err, "Prometheus number of running requests gauge register failed")
 		return err
 	}
@@ -72,7 +74,7 @@ func (s *VllmSimulator) createAndRegisterPrometheus() error {
 		[]string{vllmapi.PromLabelModelName},
 	)
 
-	if err := prometheus.Register(s.waitingRequests); err != nil {
+	if err := s.registry.Register(s.waitingRequests); err != nil {
 		s.logger.Error(err, "Prometheus number of requests in queue gauge register failed")
 		return err
 	}
@@ -87,7 +89,7 @@ func (s *VllmSimulator) createAndRegisterPrometheus() error {
 		[]string{vllmapi.PromLabelModelName},
 	)
 
-	if err := prometheus.Register(s.kvCacheUsagePercentage); err != nil {
+	if err := s.registry.Register(s.kvCacheUsagePercentage); err != nil {
 		s.logger.Error(err, "Prometheus kv cache usage percentage gauge register failed")
 		return err
 	}
@@ -177,13 +179,6 @@ func (s *VllmSimulator) reportWaitingRequests() {
 		s.waitingRequests.WithLabelValues(
 			s.getDisplayedModelName(s.config.Model)).Set(float64(s.nWaitingReqs))
 	}
-}
-
-func (s *VllmSimulator) unregisterPrometheus() {
-	prometheus.Unregister(s.loraInfo)
-	prometheus.Unregister(s.runningRequests)
-	prometheus.Unregister(s.waitingRequests)
-	prometheus.Unregister(s.kvCacheUsagePercentage)
 }
 
 // startMetricsUpdaters starts the various metrics updaters

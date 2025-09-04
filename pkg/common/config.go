@@ -34,6 +34,8 @@ const (
 	vLLMDefaultPort = 8000
 	ModeRandom      = "random"
 	ModeEcho        = "echo"
+	dummy           = "dummy"
+
 	// Failure type constants
 	FailureTypeRateLimit      = "rate_limit"
 	FailureTypeInvalidAPIKey  = "invalid_api_key"
@@ -41,7 +43,6 @@ const (
 	FailureTypeServerError    = "server_error"
 	FailureTypeInvalidRequest = "invalid_request"
 	FailureTypeModelNotFound  = "model_not_found"
-	dummy                     = "dummy"
 )
 
 type Configuration struct {
@@ -162,6 +163,9 @@ type Configuration struct {
 	FailureInjectionRate int `yaml:"failure-injection-rate" json:"failure-injection-rate"`
 	// FailureTypes is a list of specific failure types to inject (empty means all types)
 	FailureTypes []string `yaml:"failure-types" json:"failure-types"`
+
+	// DPSize is data parallel size - a number of ranks to run, minimum is 1, maximum is 8, default is 1
+	DPSize int `yaml:"data-parallel-size" json:"data-parallel-size"`
 }
 
 type Metrics struct {
@@ -265,6 +269,7 @@ func newConfig() *Configuration {
 		TokenBlockSize: 16,
 		ZMQEndpoint:    "tcp://localhost:5557",
 		EventBatchSize: 16,
+		DPSize:         1,
 	}
 }
 
@@ -440,7 +445,21 @@ func (c *Configuration) validate() error {
 			return errors.New("fake metrics KV cache usage must be between 0 ans 1")
 		}
 	}
+
+	if c.DPSize < 1 || c.DPSize > 8 {
+		return errors.New("data parallel size must be between 1 ans 8")
+	}
 	return nil
+}
+
+func (c *Configuration) Copy() (*Configuration, error) {
+	var dst Configuration
+	data, err := json.Marshal(c)
+	if err != nil {
+		return nil, err
+	}
+	err = json.Unmarshal(data, &dst)
+	return &dst, err
 }
 
 // ParseCommandParamsAndLoadConfig loads configuration, parses command line parameters, merges the values
@@ -501,12 +520,15 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 	f.StringVar(&config.ZMQEndpoint, "zmq-endpoint", config.ZMQEndpoint, "ZMQ address to publish events")
 	f.UintVar(&config.ZMQMaxConnectAttempts, "zmq-max-connect-attempts", config.ZMQMaxConnectAttempts, "Maximum number of times to try ZMQ connect")
 	f.IntVar(&config.EventBatchSize, "event-batch-size", config.EventBatchSize, "Maximum number of kv-cache events to be sent together")
+	f.IntVar(&config.DPSize, "data-parallel-size", config.DPSize, "Number of ranks to run")
 
 	f.IntVar(&config.FailureInjectionRate, "failure-injection-rate", config.FailureInjectionRate, "Probability (0-100) of injecting failures")
-
 	failureTypes := getParamValueFromArgs("failure-types")
 	var dummyFailureTypes multiString
-	f.Var(&dummyFailureTypes, "failure-types", "List of specific failure types to inject (rate_limit, invalid_api_key, context_length, server_error, invalid_request, model_not_found)")
+	failureTypesDescription := fmt.Sprintf("List of specific failure types to inject (%s, %s, %s, %s, %s, %s)",
+		FailureTypeRateLimit, FailureTypeInvalidAPIKey, FailureTypeContextLength, FailureTypeServerError, FailureTypeInvalidRequest,
+		FailureTypeModelNotFound)
+	f.Var(&dummyFailureTypes, "failure-types", failureTypesDescription)
 	f.Lookup("failure-types").NoOptDefVal = dummy
 
 	// These values were manually parsed above in getParamValueFromArgs, we leave this in order to get these flags in --help
