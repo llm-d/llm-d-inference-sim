@@ -338,6 +338,9 @@ func (c *Configuration) validate() error {
 	if c.PrefillTimeStdDev < 0 {
 		return errors.New("prefill time standard deviation cannot be negative")
 	}
+	if float32(c.PrefillTimeStdDev) > 0.3*float32(c.PrefillTimePerToken) {
+		return errors.New("prefill time standard deviation cannot be more than 30% of prefill time per token")
+	}
 
 	if c.KVCacheTransferTimePerToken < 0 {
 		return errors.New("kv-cache tranfer time per token cannot be negative")
