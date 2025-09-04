@@ -104,6 +104,13 @@ type Configuration struct {
 	// KVCacheTransferOverheadStdDev similar to TimeToFirstTokenStdDev
 	KVCacheTransferTimeStdDev int `yaml:"kv-cache-transfer-time-std-dev" json:"kv-cache-transfer-time-std-dev"`
 
+	// TimeFactorUnderLoad is a multiplicative factor that affects the overall time taken for requests
+	// when parallel requests are being processed. The value of this factor must be >= 1.0, with a default of 1.0.
+	// If this factor is 1.0, no extra time is added. When the factor is x (where x > 1.0) and there are MaxNumSeqs
+	// requests, the total time will be multiplied by x.
+	// The extra time then decreases multiplicatively to 1.0 when the number of requests is less than MaxNumSeqs.
+	TimeFactorUnderLoad float64 `yaml:"time-factor-under-load" json:"time-factor-under-load"`
+
 	// Mode defines the simulator response generation mode, valid values: echo, random
 	Mode string `yaml:"mode" json:"mode"`
 	// Seed defines random seed for operations
@@ -259,6 +266,7 @@ func newConfig() *Configuration {
 		MaxModelLen:                         1024,
 		Mode:                                ModeRandom,
 		Seed:                                time.Now().UnixNano(),
+		TimeFactorUnderLoad:                 1.0,
 		MaxToolCallIntegerParam:             100,
 		MaxToolCallNumberParam:              100,
 		MaxToolCallArrayParamLength:         5,
@@ -360,6 +368,10 @@ func (c *Configuration) validate() error {
 	}
 	if float32(c.KVCacheTransferLatencyStdDev) > 0.3*float32(c.KVCacheTransferLatency) {
 		return errors.New("kv-cache tranfer standard deviation cannot be more than 30% of kv-cache tranfer")
+	}
+
+	if c.TimeFactorUnderLoad < 1.0 {
+		return errors.New("time factor under load cannot be less than 1.0")
 	}
 
 	if c.MaxLoras < 1 {
@@ -509,6 +521,7 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 	f.IntVar(&config.TimeToFirstTokenStdDev, "time-to-first-token-std-dev", config.TimeToFirstTokenStdDev, "Standard deviation for time before the first token will be returned (in milliseconds)")
 	f.IntVar(&config.KVCacheTransferLatencyStdDev, "kv-cache-transfer-latency-std-dev", config.KVCacheTransferLatencyStdDev, "Standard deviation for time for KV-cache transfer from a remote vLLM (in milliseconds)")
 	f.Int64Var(&config.Seed, "seed", config.Seed, "Random seed for operations (if not set, current Unix time in nanoseconds is used)")
+	f.Float64Var(&config.TimeFactorUnderLoad, "time-factor-under-load", config.TimeFactorUnderLoad, "Time factor under load (must be >= 1.0)")
 
 	f.IntVar(&config.MaxToolCallIntegerParam, "max-tool-call-integer-param", config.MaxToolCallIntegerParam, "Maximum possible value of integer parameters in a tool call")
 	f.IntVar(&config.MinToolCallIntegerParam, "min-tool-call-integer-param", config.MinToolCallIntegerParam, "Minimum possible value of integer parameters in a tool call")
