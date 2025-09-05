@@ -6,3 +6,4 @@ vendor
 # MacOSX
 .DS_Store
 *.test
+manifests/dev-config.yaml

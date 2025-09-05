@@ -978,12 +978,7 @@ var _ = Describe("Simulator", func() {
 				simulator.config.TimeToFirstTokenStdDev = 0
 				simulator.config.TimeFactorUnderLoad = timeFactorUnderLoad
 				simulator.config.MaxNumSeqs = maxNumOfReq
-				for len(simulator.runReqChan) > 0 {
-					<-simulator.runReqChan
-				}
-				for range maxNumOfReq {
-					simulator.runReqChan <- 1
-				}
+				simulator.nRunningReqs = int64(maxNumOfReq)
 
 				ttft := simulator.getTimeToFirstToken(128, 0, false)
 				Expect(ttft).To(Equal(int(float64(42) * timeFactorUnderLoad)))
@@ -1006,13 +1001,7 @@ var _ = Describe("Simulator", func() {
 				simulator.config.TimeToFirstTokenStdDev = 0
 				simulator.config.TimeFactorUnderLoad = timeFactorUnderLoad
 				simulator.config.MaxNumSeqs = maxNumOfReq
-
-				for len(simulator.runReqChan) > 0 {
-					<-simulator.runReqChan
-				}
-				for range nCurrNumOfReq {
-					simulator.runReqChan <- 1
-				}
+				simulator.nRunningReqs = int64(nCurrNumOfReq)
 
 				ttft := simulator.getTimeToFirstToken(128, 0, false)
 				max := timeFactorUnderLoad * float64(42)

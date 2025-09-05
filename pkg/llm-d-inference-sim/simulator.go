@@ -708,11 +708,11 @@ func (s *VllmSimulator) getTimeToFirstToken(nPromptTokens int, nCachedPromptToke
 	}
 	if s.config.TimeToFirstToken == 0 && s.config.TimeToFirstTokenStdDev == 0 {
 		// is aggregated PD and ttft is calculated using number of prompt tokens that are not in kv cache
-		prefillTime := s.config.GetPrefillOverhead(&s.runReqChan) + (nPromptTokens-nCachedPromptTokens)*s.config.GetPrefillTimePerToken(&s.runReqChan)
+		prefillTime := s.config.GetPrefillOverhead(s.nRunningReqs) + (nPromptTokens-nCachedPromptTokens)*s.config.GetPrefillTimePerToken(s.nRunningReqs)
 		return common.RandomNorm(prefillTime, s.config.PrefillTimeStdDev)
 	}
 	// is aggregated PD and *not* using number of prompt tokens
-	return common.RandomNorm(s.config.GetTimeToFirstToken(&s.runReqChan), s.config.TimeToFirstTokenStdDev)
+	return common.RandomNorm(s.config.GetTimeToFirstToken(s.nRunningReqs), s.config.TimeToFirstTokenStdDev)
 }
 
 // returns inter token latency

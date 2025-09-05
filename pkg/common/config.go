@@ -104,7 +104,7 @@ type Configuration struct {
 	// KVCacheTransferOverheadStdDev similar to TimeToFirstTokenStdDev
 	KVCacheTransferTimeStdDev int `yaml:"kv-cache-transfer-time-std-dev" json:"kv-cache-transfer-time-std-dev"`
 
-	// TimeFactorUnderLoad is a multiplicative factor that affects the overall time taken for requests when parallel 
+	// TimeFactorUnderLoad is a multiplicative factor that affects the overall time taken for requests when parallel
 	// requests are being processed.
 	// The value of this factor must be >= 1.0, with a default of 1.0.
 	// - If this factor is 1.0, no extra time is added.
@@ -176,27 +176,27 @@ type Configuration struct {
 	DPSize int `yaml:"data-parallel-size" json:"data-parallel-size"`
 }
 
-func (c *Configuration) calcLoadFactor(runReqChan *chan int64) float64 {
+func (c *Configuration) calcLoadFactor(nRunningReqs int64) float64 {
 	if c.MaxNumSeqs <= 1 {
 		return 1.0
 	}
-	return 1 + (c.TimeFactorUnderLoad-1)*float64(len(*runReqChan)-1)/float64(c.MaxNumSeqs-1)
+	return 1 + (c.TimeFactorUnderLoad-1)*float64(nRunningReqs-1)/float64(c.MaxNumSeqs-1)
 }
 
-func (c *Configuration) GetTimeToFirstToken(runReqChan *chan int64) int {
-	return int(float64(c.TimeToFirstToken) * c.calcLoadFactor(runReqChan))
+func (c *Configuration) GetTimeToFirstToken(nRunningReqs int64) int {
+	return int(float64(c.TimeToFirstToken) * c.calcLoadFactor(nRunningReqs))
 }
 
-func (c *Configuration) GetPrefillOverhead(runReqChan *chan int64) int {
-	return int(float64(c.PrefillOverhead) * c.calcLoadFactor(runReqChan))
+func (c *Configuration) GetPrefillOverhead(nRunningReqs int64) int {
+	return int(float64(c.PrefillOverhead) * c.calcLoadFactor(nRunningReqs))
 }
 
-func (c *Configuration) GetPrefillTimePerToken(runReqChan *chan int64) int {
-	return int(float64(c.PrefillTimePerToken) * c.calcLoadFactor(runReqChan))
+func (c *Configuration) GetPrefillTimePerToken(nRunningReqs int64) int {
+	return int(float64(c.PrefillTimePerToken) * c.calcLoadFactor(nRunningReqs))
 }
 
-func (c *Configuration) GetInterTokenLatency(runReqChan *chan int64) int {
-	return int(float64(c.InterTokenLatency) * c.calcLoadFactor(runReqChan))
+func (c *Configuration) GetInterTokenLatency(nRunningReqs int64) int {
+	return int(float64(c.InterTokenLatency) * c.calcLoadFactor(nRunningReqs))
 }
 
 type Metrics struct {

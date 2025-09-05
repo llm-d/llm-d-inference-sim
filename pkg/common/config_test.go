@@ -466,28 +466,18 @@ var _ = Describe("Simulator configuration", func() {
 		c := newConfig()
 		c.TimeFactorUnderLoad = 1.0
 		c.MaxNumSeqs = 11
-		reqChan := make(chan int64, 3)
-		for i := 0; i < 3; i++ {
-			reqChan <- 1
-		}
 
-		factor := c.calcLoadFactor(&reqChan)
+		factor := c.calcLoadFactor(3)
 		Expect(factor).To(BeNumerically("==", 1.0))
-		close(reqChan)
 	})
 
 	It("when TimeFactorUnderLoad is > 1.0, and sim is fully loaded, calcLoadFactor should give TimeFactorUnderLoad", func() {
 		c := newConfig()
 		c.TimeFactorUnderLoad = 2.0
 		c.MaxNumSeqs = 11
-		reqChan := make(chan int64, c.MaxNumSeqs)
-		for i := 0; i < c.MaxNumSeqs; i++ {
-			reqChan <- 1
-		}
 
-		factor := c.calcLoadFactor(&reqChan)
+		factor := c.calcLoadFactor(11)
 		Expect(factor).To(BeNumerically("==", c.TimeFactorUnderLoad))
-		close(reqChan)
 
 	})
 
@@ -495,14 +485,8 @@ var _ = Describe("Simulator configuration", func() {
 		c := newConfig()
 		c.TimeFactorUnderLoad = 2.0
 		c.MaxNumSeqs = 11
-		reqChan := make(chan int64, c.MaxNumSeqs)
-		for i := 0; i < c.MaxNumSeqs/2; i++ {
-			reqChan <- 1
-		}
-		factor := c.calcLoadFactor(&reqChan)
+		factor := c.calcLoadFactor(6)
 		Expect(factor).To(BeNumerically(">", 1.0))
 		Expect(factor).To(BeNumerically("<", c.TimeFactorUnderLoad))
-		close(reqChan)
-
 	})
 })
