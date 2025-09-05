@@ -104,6 +104,14 @@ type Configuration struct {
 	// KVCacheTransferOverheadStdDev similar to TimeToFirstTokenStdDev
 	KVCacheTransferTimeStdDev int `yaml:"kv-cache-transfer-time-std-dev" json:"kv-cache-transfer-time-std-dev"`
 
+	// TimeFactorUnderLoad is a multiplicative factor that affects the overall time taken for requests when parallel
+	// requests are being processed.
+	// The value of this factor must be >= 1.0, with a default of 1.0.
+	// - If this factor is 1.0, no extra time is added.
+	// - When the factor is x (where x > 1.0) and there are MaxNumSeqs requests, the total time will be multiplied by x.
+	// - The extra time then decreases multiplicatively to 1.0 when the number of requests is less than MaxNumSeqs.
+	TimeFactorUnderLoad float64 `yaml:"time-factor-under-load" json:"time-factor-under-load"`
+
 	// Mode defines the simulator response generation mode, valid values: echo, random
 	Mode string `yaml:"mode" json:"mode"`
 	// Seed defines random seed for operations
@@ -166,6 +174,29 @@ type Configuration struct {
 
 	// DPSize is data parallel size - a number of ranks to run, minimum is 1, maximum is 8, default is 1
 	DPSize int `yaml:"data-parallel-size" json:"data-parallel-size"`
+}
+
+func (c *Configuration) calcLoadFactor(nRunningReqs int64) float64 {
+	if c.MaxNumSeqs <= 1 {
+		return 1.0
+	}
+	return 1 + (c.TimeFactorUnderLoad-1)*float64(nRunningReqs-1)/float64(c.MaxNumSeqs-1)
+}
+
+func (c *Configuration) GetTimeToFirstToken(nRunningReqs int64) int {
+	return int(float64(c.TimeToFirstToken) * c.calcLoadFactor(nRunningReqs))
+}
+
+func (c *Configuration) GetPrefillOverhead(nRunningReqs int64) int {
+	return int(float64(c.PrefillOverhead) * c.calcLoadFactor(nRunningReqs))
+}
+
+func (c *Configuration) GetPrefillTimePerToken(nRunningReqs int64) int {
+	return int(float64(c.PrefillTimePerToken) * c.calcLoadFactor(nRunningReqs))
+}
+
+func (c *Configuration) GetInterTokenLatency(nRunningReqs int64) int {
+	return int(float64(c.InterTokenLatency) * c.calcLoadFactor(nRunningReqs))
 }
 
 type Metrics struct {
@@ -259,6 +290,7 @@ func newConfig() *Configuration {
 		MaxModelLen:                         1024,
 		Mode:                                ModeRandom,
 		Seed:                                time.Now().UnixNano(),
+		TimeFactorUnderLoad:                 1.0,
 		MaxToolCallIntegerParam:             100,
 		MaxToolCallNumberParam:              100,
 		MaxToolCallArrayParamLength:         5,
@@ -338,6 +370,9 @@ func (c *Configuration) validate() error {
 	if c.PrefillTimeStdDev < 0 {
 		return errors.New("prefill time standard deviation cannot be negative")
 	}
+	if float32(c.PrefillTimeStdDev) > 0.3*float32(c.PrefillTimePerToken) {
+		return errors.New("prefill time standard deviation cannot be more than 30% of prefill time per token")
+	}
 
 	if c.KVCacheTransferTimePerToken < 0 {
 		return errors.New("kv-cache tranfer time per token cannot be negative")
@@ -359,6 +394,10 @@ func (c *Configuration) validate() error {
 		return errors.New("kv-cache tranfer standard deviation cannot be more than 30% of kv-cache tranfer")
 	}
 
+	if c.TimeFactorUnderLoad < 1.0 {
+		return errors.New("time factor under load cannot be less than 1.0")
+	}
+
 	if c.MaxLoras < 1 {
 		return errors.New("max LoRAs cannot be less than 1")
 	}
@@ -371,6 +410,10 @@ func (c *Configuration) validate() error {
 	}
 	if c.MaxModelLen < 1 {
 		return errors.New("max model len cannot be less than 1")
+	}
+
+	if c.MaxNumSeqs < 1 {
+		return errors.New("max num seqs cannot be less than 1")
 	}
 
 	for _, lora := range c.LoraModules {
@@ -502,6 +545,7 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 	f.IntVar(&config.TimeToFirstTokenStdDev, "time-to-first-token-std-dev", config.TimeToFirstTokenStdDev, "Standard deviation for time before the first token will be returned (in milliseconds)")
 	f.IntVar(&config.KVCacheTransferLatencyStdDev, "kv-cache-transfer-latency-std-dev", config.KVCacheTransferLatencyStdDev, "Standard deviation for time for KV-cache transfer from a remote vLLM (in milliseconds)")
 	f.Int64Var(&config.Seed, "seed", config.Seed, "Random seed for operations (if not set, current Unix time in nanoseconds is used)")
+	f.Float64Var(&config.TimeFactorUnderLoad, "time-factor-under-load", config.TimeFactorUnderLoad, "Time factor under load (must be >= 1.0)")
 
 	f.IntVar(&config.MaxToolCallIntegerParam, "max-tool-call-integer-param", config.MaxToolCallIntegerParam, "Maximum possible value of integer parameters in a tool call")
 	f.IntVar(&config.MinToolCallIntegerParam, "min-tool-call-integer-param", config.MinToolCallIntegerParam, "Minimum possible value of integer parameters in a tool call")

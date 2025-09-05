@@ -945,5 +945,80 @@ var _ = Describe("Simulator", func() {
 			Entry("very long prompt", 150, 100, 20000),
 		)
 
+		It("when time-factor-under-load is 1, the time to first token should be equal to time-to-first-token", func() {
+			simulator.config.TimeToFirstToken = 42
+			simulator.config.TimeToFirstTokenStdDev = 0
+			simulator.config.TimeFactorUnderLoad = 1.0
+
+			simulator.runReqChan <- 100
+
+			ttft := simulator.getTimeToFirstToken(128, 0, false)
+			Expect(ttft).To(Equal(42))
+		})
+
+		It("when time-factor-under-load is > 1, but max-num-seqs is 1, the factor will not take effect", func() {
+			simulator.config.TimeToFirstToken = 42
+			simulator.config.TimeToFirstTokenStdDev = 0
+			simulator.config.TimeFactorUnderLoad = 100.0
+			simulator.config.MaxNumSeqs = 1
+
+			for len(simulator.runReqChan) > 0 {
+				<-simulator.runReqChan
+			}
+
+			simulator.runReqChan <- 1
+
+			ttft := simulator.getTimeToFirstToken(128, 0, false)
+			Expect(ttft).To(Equal(42))
+		})
+
+		DescribeTable("when time-factor-under-load is > 1, and the sim is fully loaded, the time to first token should be time-factor-under-load * time-to-first-token",
+			func(timeFactorUnderLoad float64, maxNumOfReq int) {
+				simulator.config.TimeToFirstToken = 42
+				simulator.config.TimeToFirstTokenStdDev = 0
+				simulator.config.TimeFactorUnderLoad = timeFactorUnderLoad
+				simulator.config.MaxNumSeqs = maxNumOfReq
+				simulator.nRunningReqs = int64(maxNumOfReq)
+
+				ttft := simulator.getTimeToFirstToken(128, 0, false)
+				Expect(ttft).To(Equal(int(float64(42) * timeFactorUnderLoad)))
+
+			},
+			func(timeFactorUnderLoad float64, maxNumOfReq int64) string {
+				return fmt.Sprintf("timeFactorUnderLoad: %f maxNumOfReq: %d",
+					timeFactorUnderLoad, maxNumOfReq)
+			},
+
+			Entry("factor: 1.5", 1.5, 70),
+			Entry("factor: 2.0", 2.0, 2),
+			Entry("factor: 100.0", 100.0, 150),
+			Entry("factor: 20000.0", 20000.0, 310),
+		)
+
+		DescribeTable("when time-factor-under-load is > 1, and the sim is partially loaded, the time to first token should be linear interpolation between time-to-first-token and time-factor-under-load * time-to-first-token",
+			func(timeFactorUnderLoad float64, maxNumOfReq int, nCurrNumOfReq int) {
+				simulator.config.TimeToFirstToken = 42
+				simulator.config.TimeToFirstTokenStdDev = 0
+				simulator.config.TimeFactorUnderLoad = timeFactorUnderLoad
+				simulator.config.MaxNumSeqs = maxNumOfReq
+				simulator.nRunningReqs = int64(nCurrNumOfReq)
+
+				ttft := simulator.getTimeToFirstToken(128, 0, false)
+				max := timeFactorUnderLoad * float64(42)
+				Expect(ttft).To(BeNumerically(">=", 42))
+				Expect(ttft).To(BeNumerically("<=", max))
+
+			},
+			func(timeFactorUnderLoad float64, maxNumOfReq int, nCurrNumOfReq int) string {
+				return fmt.Sprintf("timeFactorUnderLoad: %f maxNumOfReq: %d nCurrNumOfReq: %d",
+					timeFactorUnderLoad, maxNumOfReq, nCurrNumOfReq)
+			},
+
+			Entry("factor: 1.5", 1.5, 70, 35),
+			Entry("factor: 2.0", 2.0, 2, 1),
+			Entry("factor: 100.0", 100.0, 150, 75),
+			Entry("factor: 20000.0", 20000.0, 310, 155),
+		)
+
 	})
 })
