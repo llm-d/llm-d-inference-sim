@@ -798,7 +798,7 @@ var _ = Describe("Simulator", func() {
 				simulator.config.TimeToFirstTokenStdDev = timeToFirstTokenStdDev
 				simulator.config.KVCacheTransferLatency = kvCacheLatency
 				simulator.config.KVCacheTransferLatencyStdDev = kvCacheLatencyStdDev
-				timeToFirst := simulator.getTimeToFirstToken(1, 0, doREmotePrefill, &simulator.runReqChan)
+				timeToFirst := simulator.getTimeToFirstToken(1, 0, doREmotePrefill)
 				if doREmotePrefill {
 					Expect(timeToFirst).To(BeNumerically(">=", int(float32(kvCacheLatency)*0.3)))
 					Expect(timeToFirst).To(BeNumerically("<=", int(float32(kvCacheLatency)*1.7)))
@@ -829,7 +829,7 @@ var _ = Describe("Simulator", func() {
 			simulator.config.PrefillTimePerToken = 200
 			simulator.config.PrefillTimeStdDev = 80
 
-			ttft := simulator.getTimeToFirstToken(128, 0, false, &simulator.runReqChan)
+			ttft := simulator.getTimeToFirstToken(128, 0, false)
 
 			Expect(ttft).To(BeNumerically("==", timeToFirstToken))
 		})
@@ -842,7 +842,7 @@ var _ = Describe("Simulator", func() {
 			simulator.config.PrefillTimePerToken = 200
 			simulator.config.PrefillTimeStdDev = 80
 
-			ttft := simulator.getTimeToFirstToken(128, 0, false, &simulator.runReqChan)
+			ttft := simulator.getTimeToFirstToken(128, 0, false)
 			Expect(ttft).NotTo(BeNumerically("==", 0))
 		})
 
@@ -853,7 +853,7 @@ var _ = Describe("Simulator", func() {
 				simulator.config.PrefillTimePerToken = prefillTimePerToken
 				simulator.config.PrefillTimeStdDev = stdDev
 
-				ttft := simulator.getTimeToFirstToken(nTokens, nCachedTokens, false, &simulator.runReqChan)
+				ttft := simulator.getTimeToFirstToken(nTokens, nCachedTokens, false)
 
 				expectedTTFT := prefillOverhead + prefillTimePerToken*(nTokens-nCachedTokens)
 				Expect(ttft).To(BeNumerically(">=", int(float64(expectedTTFT)*0.3)))
@@ -881,7 +881,7 @@ var _ = Describe("Simulator", func() {
 				simulator.config.PrefillTimePerToken = prefillTimePerToken
 				simulator.config.PrefillTimeStdDev = 0
 
-				ttft := simulator.getTimeToFirstToken(nTokens, nCachedTokens, false, &simulator.runReqChan)
+				ttft := simulator.getTimeToFirstToken(nTokens, nCachedTokens, false)
 				expectedTTFT := prefillOverhead + prefillTimePerToken*(nTokens-nCachedTokens)
 				Expect(ttft).To(Equal(expectedTTFT))
 			},
@@ -905,7 +905,7 @@ var _ = Describe("Simulator", func() {
 			simulator.config.KVCacheTransferTimePerToken = 100
 			simulator.config.KVCacheTransferTimeStdDev = 0
 
-			ttft := simulator.getTimeToFirstToken(128, 0, true, &simulator.runReqChan)
+			ttft := simulator.getTimeToFirstToken(128, 0, true)
 			Expect(ttft).To(BeNumerically("==", 200))
 		})
 
@@ -916,7 +916,7 @@ var _ = Describe("Simulator", func() {
 			simulator.config.KVCacheTransferTimePerToken = 100
 			simulator.config.KVCacheTransferTimeStdDev = 0
 
-			ttft := simulator.getTimeToFirstToken(128, 0, true, &simulator.runReqChan)
+			ttft := simulator.getTimeToFirstToken(128, 0, true)
 			Expect(ttft).To(BeNumerically("==", 12800))
 		})
 
@@ -927,7 +927,7 @@ var _ = Describe("Simulator", func() {
 				simulator.config.KVCacheTransferTimePerToken = kvCacheTransTPT
 				simulator.config.KVCacheTransferTimeStdDev = stddev
 
-				ttft := simulator.getTimeToFirstToken(nTokens, 0, true, &simulator.runReqChan)
+				ttft := simulator.getTimeToFirstToken(nTokens, 0, true)
 
 				expectedTTFT := kvCacheTransTPT * nTokens
 				Expect(ttft).To(BeNumerically(">=", int(float64(expectedTTFT)*0.3)))
@@ -952,7 +952,7 @@ var _ = Describe("Simulator", func() {
 
 			simulator.runReqChan <- 100
 
-			ttft := simulator.getTimeToFirstToken(128, 0, false, &simulator.runReqChan)
+			ttft := simulator.getTimeToFirstToken(128, 0, false)
 			Expect(ttft).To(Equal(42))
 		})
 
@@ -968,7 +968,7 @@ var _ = Describe("Simulator", func() {
 
 			simulator.runReqChan <- 1
 
-			ttft := simulator.getTimeToFirstToken(128, 0, false, &simulator.runReqChan)
+			ttft := simulator.getTimeToFirstToken(128, 0, false)
 			Expect(ttft).To(Equal(42))
 		})
 
@@ -985,7 +985,7 @@ var _ = Describe("Simulator", func() {
 					simulator.runReqChan <- 1
 				}
 
-				ttft := simulator.getTimeToFirstToken(128, 0, false, &simulator.runReqChan)
+				ttft := simulator.getTimeToFirstToken(128, 0, false)
 				Expect(ttft).To(Equal(int(float64(42) * timeFactorUnderLoad)))
 
 			},
@@ -1014,7 +1014,7 @@ var _ = Describe("Simulator", func() {
 					simulator.runReqChan <- 1
 				}
 
-				ttft := simulator.getTimeToFirstToken(128, 0, false, &simulator.runReqChan)
+				ttft := simulator.getTimeToFirstToken(128, 0, false)
 				max := timeFactorUnderLoad * float64(42)
 				Expect(ttft).To(BeNumerically(">=", 42))
 				Expect(ttft).To(BeNumerically("<=", max))

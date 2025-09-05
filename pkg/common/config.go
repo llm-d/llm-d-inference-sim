@@ -186,6 +186,18 @@ func (c *Configuration) GetTimeToFirstToken(runReqChan *chan int64) int {
 	return int(float64(c.TimeToFirstToken) * c.calcLoadFactor(runReqChan))
 }
 
+func (c *Configuration) GetPrefillOverhead(runReqChan *chan int64) int {
+	return int(float64(c.PrefillOverhead) * c.calcLoadFactor(runReqChan))
+}
+
+func (c *Configuration) GetPrefillTimePerToken(runReqChan *chan int64) int {
+	return int(float64(c.PrefillTimePerToken) * c.calcLoadFactor(runReqChan))
+}
+
+func (c *Configuration) GetInterTokenLatency(runReqChan *chan int64) int {
+	return int(float64(c.InterTokenLatency) * c.calcLoadFactor(runReqChan))
+}
+
 type Metrics struct {
 	// LoraMetrics
 	LoraMetrics []LorasMetrics `json:"loras"`

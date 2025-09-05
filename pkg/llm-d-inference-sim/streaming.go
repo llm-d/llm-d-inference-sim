@@ -69,11 +69,11 @@ func (s *VllmSimulator) sendStreamingResponse(context *streamingContext, respons
 			if len(toolCalls) > 0 {
 				s.logger.Info("Going to send tools calls")
 				for _, tc := range toolCalls {
-					s.sendTokenChunks(context, w, tc.Function.TokenizedArguments, &tc, finishReason, &s.runReqChan)
+					s.sendTokenChunks(context, w, tc.Function.TokenizedArguments, &tc, finishReason)
 				}
 			} else {
 				s.logger.Info("Going to send text", "number of tokens", len(responseTokens))
-				s.sendTokenChunks(context, w, responseTokens, nil, finishReason, &s.runReqChan)
+				s.sendTokenChunks(context, w, responseTokens, nil, finishReason)
 			}
 		}
 
@@ -97,9 +97,9 @@ func (s *VllmSimulator) sendStreamingResponse(context *streamingContext, respons
 
 // sendTokenChunks creates and sends response chunks
 func (s *VllmSimulator) sendTokenChunks(context *streamingContext, w *bufio.Writer, genTokens []string,
-	tc *openaiserverapi.ToolCall, finishReason string, runReqChan *chan int64) {
+	tc *openaiserverapi.ToolCall, finishReason string) {
 	// time to first token delay
-	ttft := s.getTimeToFirstToken(context.nPromptTokens, context.nCachedPromptTokens, context.doRemotePrefill, runReqChan)
+	ttft := s.getTimeToFirstToken(context.nPromptTokens, context.nCachedPromptTokens, context.doRemotePrefill)
 	time.Sleep(time.Duration(ttft) * time.Millisecond)
 
 	for i, token := range genTokens {

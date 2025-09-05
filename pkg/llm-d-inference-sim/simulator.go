@@ -537,7 +537,7 @@ func (s *VllmSimulator) reqProcessingWorker(ctx context.Context, id int) {
 						finishReason = common.RemoteDecodeFinishReason
 					}
 
-					s.sendResponse(reqCtx, responseTokens, toolCalls, displayModel, finishReason, &s.runReqChan, &usageData)
+					s.sendResponse(reqCtx, responseTokens, toolCalls, displayModel, finishReason, &usageData)
 				}
 			}
 			reqCtx.Wg.Done()
@@ -662,7 +662,7 @@ func (s *VllmSimulator) createCompletionResponse(isChatCompletion bool, respToke
 // finishReason - a pointer to string that represents finish reason, can be nil, stop, length, or tools
 // usageData - usage (tokens statistics) for this response
 func (s *VllmSimulator) sendResponse(reqCtx *openaiserverapi.CompletionReqCtx, respTokens []string, toolCalls []openaiserverapi.ToolCall,
-	modelName string, finishReason string, runReqChan *chan int64, usageData *openaiserverapi.Usage) {
+	modelName string, finishReason string, usageData *openaiserverapi.Usage) {
 	resp := s.createCompletionResponse(reqCtx.IsChatCompletion, respTokens, toolCalls, &finishReason, usageData, modelName,
 		reqCtx.CompletionReq.IsDoRemoteDecode())
 
@@ -677,7 +677,7 @@ func (s *VllmSimulator) sendResponse(reqCtx *openaiserverapi.CompletionReqCtx, r
 	nPromptTokens := usageData.PromptTokens
 	nCachedPromptTokens := reqCtx.CompletionReq.GetNumberOfCachedPromptTokens()
 	nGenTokens := usageData.CompletionTokens
-	ttft := s.getTimeToFirstToken(nPromptTokens, nCachedPromptTokens, reqCtx.CompletionReq.IsDoRemotePrefill(), runReqChan)
+	ttft := s.getTimeToFirstToken(nPromptTokens, nCachedPromptTokens, reqCtx.CompletionReq.IsDoRemotePrefill())
 	totalMillisToWait := ttft + s.getTotalInterTokenLatency(nGenTokens)
 	time.Sleep(time.Duration(totalMillisToWait) * time.Millisecond)
 
@@ -696,7 +696,7 @@ func (s *VllmSimulator) sendResponse(reqCtx *openaiserverapi.CompletionReqCtx, r
 }
 
 // returns time to first token based on the current request's doRemotePrefill
-func (s *VllmSimulator) getTimeToFirstToken(nPromptTokens int, nCachedPromptTokens int, doRemotePrefill bool, runReqChan *chan int64) int {
+func (s *VllmSimulator) getTimeToFirstToken(nPromptTokens int, nCachedPromptTokens int, doRemotePrefill bool) int {
 	if doRemotePrefill {
 		if s.config.KVCacheTransferLatency == 0 && s.config.KVCacheTransferLatencyStdDev == 0 {
 			// is disaggregated PD and ttft is calculated using number of prompt tokens
@@ -708,11 +708,11 @@ func (s *VllmSimulator) getTimeToFirstToken(nPromptTokens int, nCachedPromptToke
 	}
 	if s.config.TimeToFirstToken == 0 && s.config.TimeToFirstTokenStdDev == 0 {
 		// is aggregated PD and ttft is calculated using number of prompt tokens that are not in kv cache
-		prefillTime := s.config.PrefillOverhead + (nPromptTokens-nCachedPromptTokens)*s.config.PrefillTimePerToken
+		prefillTime := s.config.GetPrefillOverhead(&s.runReqChan) + (nPromptTokens-nCachedPromptTokens)*s.config.GetPrefillTimePerToken(&s.runReqChan)
 		return common.RandomNorm(prefillTime, s.config.PrefillTimeStdDev)
 	}
 	// is aggregated PD and *not* using number of prompt tokens
-	return common.RandomNorm(s.config.TimeToFirstToken, s.config.TimeToFirstTokenStdDev)
+	return common.RandomNorm(s.config.GetTimeToFirstToken(&s.runReqChan), s.config.TimeToFirstTokenStdDev)
 }
 
 // returns inter token latency
