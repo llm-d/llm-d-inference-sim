@@ -104,11 +104,12 @@ type Configuration struct {
 	// KVCacheTransferOverheadStdDev similar to TimeToFirstTokenStdDev
 	KVCacheTransferTimeStdDev int `yaml:"kv-cache-transfer-time-std-dev" json:"kv-cache-transfer-time-std-dev"`
 
-	// TimeFactorUnderLoad is a multiplicative factor that affects the overall time taken for requests
-	// when parallel requests are being processed. The value of this factor must be >= 1.0, with a default of 1.0.
-	// If this factor is 1.0, no extra time is added. When the factor is x (where x > 1.0) and there are MaxNumSeqs
-	// requests, the total time will be multiplied by x.
-	// The extra time then decreases multiplicatively to 1.0 when the number of requests is less than MaxNumSeqs.
+	// TimeFactorUnderLoad is a multiplicative factor that affects the overall time taken for requests when parallel 
+	// requests are being processed.
+	// The value of this factor must be >= 1.0, with a default of 1.0.
+	// - If this factor is 1.0, no extra time is added.
+	// - When the factor is x (where x > 1.0) and there are MaxNumSeqs requests, the total time will be multiplied by x.
+	// - The extra time then decreases multiplicatively to 1.0 when the number of requests is less than MaxNumSeqs.
 	TimeFactorUnderLoad float64 `yaml:"time-factor-under-load" json:"time-factor-under-load"`
 
 	// Mode defines the simulator response generation mode, valid values: echo, random
