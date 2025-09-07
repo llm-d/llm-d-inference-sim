@@ -717,7 +717,7 @@ func (s *VllmSimulator) getTimeToFirstToken(nPromptTokens int, nCachedPromptToke
 
 // returns inter token latency
 func (s *VllmSimulator) getInterTokenLatency() int {
-	return common.RandomNorm(s.config.InterTokenLatency, s.config.InterTokenLatencyStdDev)
+	return common.RandomNorm(s.config.GetInterTokenLatency(s.nRunningReqs), s.config.InterTokenLatencyStdDev)
 }
 
 // returns total inter token latency for the given number of tokens
