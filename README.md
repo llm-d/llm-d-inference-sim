@@ -115,6 +115,7 @@ For more details see the <a href="https://docs.vllm.ai/en/stable/getting_started
 - `kv-cache-transfer-time-per-token`: time taken to transfer cache for each token in case P/D is enabled (in milliseconds), optional, by default zero, this will be ignored if `kv-cache-transfer-latency` is not `0`
 - `kv-cache-transfer-time-std-dev`: similar to `time-to-first-token-std-dev`, but is applied on the final kv cache transfer time in case P/D is enabled (in milliseconds), which is calculated by `kv-cache-transfer-time-per-token` and number of prompt tokens, this will be ignored if `kv-cache-transfer-latency` is not `0`
 ---
+- `time-factor-under-load`: a multiplicative factor that affects the overall time taken for requests when parallelrequests are being processed. The value of this factor must be >= 1.0, with a default of 1.0. If this factor is 1.0, no extra time is added.  When the factor is x (where x > 1.0) and there are `max-num-seqs` requests, the total time will be multiplied by x. The extra time then decreases multiplicatively to 1.0 when the number of requests is less than MaxNumSeqs.
 - `seed`: random seed for operations (if not set, current Unix time in nanoseconds is used)
 ---
 - `max-tool-call-integer-param`: the maximum possible value of integer parameters in a tool call, optional, defaults to 100
