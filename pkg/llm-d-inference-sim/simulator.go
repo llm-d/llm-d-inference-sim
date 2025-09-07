@@ -678,8 +678,12 @@ func (s *VllmSimulator) sendResponse(reqCtx *openaiserverapi.CompletionReqCtx, r
 	nCachedPromptTokens := reqCtx.CompletionReq.GetNumberOfCachedPromptTokens()
 	nGenTokens := usageData.CompletionTokens
 	ttft := s.getTimeToFirstToken(nPromptTokens, nCachedPromptTokens, reqCtx.CompletionReq.IsDoRemotePrefill())
-	totalMillisToWait := ttft + s.getTotalInterTokenLatency(nGenTokens)
-	time.Sleep(time.Duration(totalMillisToWait) * time.Millisecond)
+
+	time.Sleep(time.Duration(ttft) * time.Microsecond)
+	for range nGenTokens - 1 {
+		perTokenLatency := s.getInterTokenLatency()
+		time.Sleep(time.Duration(perTokenLatency) * time.Microsecond)
+	}
 
 	ctx.Response.Header.SetContentType("application/json")
 	ctx.Response.Header.SetStatusCode(fasthttp.StatusOK)
@@ -718,15 +722,6 @@ func (s *VllmSimulator) getTimeToFirstToken(nPromptTokens int, nCachedPromptToke
 // returns inter token latency
 func (s *VllmSimulator) getInterTokenLatency() int {
 	return common.RandomNorm(s.config.GetInterTokenLatency(s.nRunningReqs), s.config.InterTokenLatencyStdDev)
-}
-
-// returns total inter token latency for the given number of tokens
-func (s *VllmSimulator) getTotalInterTokenLatency(numOfTokens int) int {
-	total := 0
-	for range numOfTokens - 1 {
-		total += s.getInterTokenLatency()
-	}
-	return total
 }
 
 // createModelsResponse creates and returns ModelResponse for the current state, returned array of models contains the base model + LoRA adapters if exist
