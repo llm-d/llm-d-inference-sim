@@ -461,32 +461,4 @@ var _ = Describe("Simulator configuration", func() {
 			})
 		})
 	}
-
-	It("when TimeFactorUnderLoad is 1.0, calcLoadFactor should give 1", func() {
-		c := newConfig()
-		c.TimeFactorUnderLoad = 1.0
-		c.MaxNumSeqs = 11
-
-		factor := c.calcLoadFactor(3)
-		Expect(factor).To(BeNumerically("==", 1.0))
-	})
-
-	It("when TimeFactorUnderLoad is > 1.0, and sim is fully loaded, calcLoadFactor should give TimeFactorUnderLoad", func() {
-		c := newConfig()
-		c.TimeFactorUnderLoad = 2.0
-		c.MaxNumSeqs = 11
-
-		factor := c.calcLoadFactor(11)
-		Expect(factor).To(BeNumerically("==", c.TimeFactorUnderLoad))
-
-	})
-
-	It("when TimeFactorUnderLoad is > 1.0, and sim is partially loaded, calcLoadFactor should give a value between 1 and TimeFactorUnderLoad", func() {
-		c := newConfig()
-		c.TimeFactorUnderLoad = 2.0
-		c.MaxNumSeqs = 11
-		factor := c.calcLoadFactor(6)
-		Expect(factor).To(BeNumerically(">", 1.0))
-		Expect(factor).To(BeNumerically("<", c.TimeFactorUnderLoad))
-	})
 })

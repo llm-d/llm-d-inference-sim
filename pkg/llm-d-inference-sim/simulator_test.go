@@ -1025,5 +1025,35 @@ var _ = Describe("Simulator", func() {
 			Entry("factor: 20000.0", 20000.0, 310, 155),
 		)
 
+		It("when TimeFactorUnderLoad is 1.0, calcLoadFactor should give 1", func() {
+			simulator.config.TimeFactorUnderLoad = 1.0
+			simulator.config.MaxNumSeqs = 11
+			simulator.nRunningReqs = 3
+
+			factor := simulator.getRealtimeFactor()
+			Expect(factor).To(BeNumerically("==", 1.0))
+		})
+
+		It("when TimeFactorUnderLoad is > 1.0, and sim is fully loaded, calcLoadFactor should give TimeFactorUnderLoad", func() {
+			simulator.config.TimeFactorUnderLoad = 2.0
+			simulator.config.MaxNumSeqs = 11
+			simulator.nRunningReqs = 11
+
+			factor := simulator.getRealtimeFactor()
+			Expect(factor).To(BeNumerically("==", simulator.config.TimeFactorUnderLoad))
+
+		})
+
+		It("when TimeFactorUnderLoad is > 1.0, and sim is partially loaded, calcLoadFactor should give a value between 1 and TimeFactorUnderLoad", func() {
+			simulator.config.TimeFactorUnderLoad = 2.0
+			simulator.config.MaxNumSeqs = 11
+			simulator.nRunningReqs = 6
+
+			factor := simulator.getRealtimeFactor()
+			Expect(factor).To(BeNumerically(">", 1.0))
+			Expect(factor).To(BeNumerically("<", simulator.config.TimeFactorUnderLoad))
+		})
+
 	})
+
 })

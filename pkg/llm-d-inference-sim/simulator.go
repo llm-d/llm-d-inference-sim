@@ -709,16 +709,16 @@ func (s *VllmSimulator) getTimeToFirstToken(nPromptTokens int, nCachedPromptToke
 	}
 	if s.config.TimeToFirstToken == 0 && s.config.TimeToFirstTokenStdDev == 0 {
 		// is aggregated PD and ttft is calculated using number of prompt tokens that are not in kv cache
-		prefillTime := s.config.GetPrefillOverhead(s.nRunningReqs) + (nPromptTokens-nCachedPromptTokens)*s.config.GetPrefillTimePerToken(s.nRunningReqs)
+		prefillTime := s.GetPrefillOverhead() + (nPromptTokens-nCachedPromptTokens)*s.GetPrefillTimePerToken()
 		return common.RandomNorm(prefillTime, s.config.PrefillTimeStdDev)
 	}
 	// is aggregated PD and *not* using number of prompt tokens
-	return common.RandomNorm(s.config.GetTimeToFirstToken(s.nRunningReqs), s.config.TimeToFirstTokenStdDev)
+	return common.RandomNorm(s.GetTimeToFirstToken(), s.config.TimeToFirstTokenStdDev)
 }
 
 // returns inter token latency
 func (s *VllmSimulator) getInterTokenLatency() int {
-	return common.RandomNorm(s.config.GetInterTokenLatency(s.nRunningReqs), s.config.InterTokenLatencyStdDev)
+	return common.RandomNorm(s.GetInterTokenLatency(), s.config.InterTokenLatencyStdDev)
 }
 
 // createModelsResponse creates and returns ModelResponse for the current state, returned array of models contains the base model + LoRA adapters if exist
@@ -811,4 +811,27 @@ func (s *VllmSimulator) showConfig(dp bool) error {
 	}
 	s.logger.Info("Configuration:", "", string(cfgJSON))
 	return nil
+}
+
+func (s *VllmSimulator) getRealtimeFactor() float64 {
+	if s.config.MaxNumSeqs <= 1 {
+		return 1.0
+	}
+	return 1 + (s.config.TimeFactorUnderLoad-1)*float64(s.nRunningReqs-1)/float64(s.config.MaxNumSeqs-1)
+}
+
+func (s *VllmSimulator) GetTimeToFirstToken() int {
+	return int(float64(s.config.TimeToFirstToken) * s.getRealtimeFactor())
+}
+
+func (s *VllmSimulator) GetPrefillOverhead() int {
+	return int(float64(s.config.PrefillOverhead) * s.getRealtimeFactor())
+}
+
+func (s *VllmSimulator) GetPrefillTimePerToken() int {
+	return int(float64(s.config.PrefillTimePerToken) * s.getRealtimeFactor())
+}
+
+func (s *VllmSimulator) GetInterTokenLatency() int {
+	return int(float64(s.config.InterTokenLatency) * s.getRealtimeFactor())
 }

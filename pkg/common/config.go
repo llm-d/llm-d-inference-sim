@@ -176,29 +176,6 @@ type Configuration struct {
 	DPSize int `yaml:"data-parallel-size" json:"data-parallel-size"`
 }
 
-func (c *Configuration) calcLoadFactor(nRunningReqs int64) float64 {
-	if c.MaxNumSeqs <= 1 {
-		return 1.0
-	}
-	return 1 + (c.TimeFactorUnderLoad-1)*float64(nRunningReqs-1)/float64(c.MaxNumSeqs-1)
-}
-
-func (c *Configuration) GetTimeToFirstToken(nRunningReqs int64) int {
-	return int(float64(c.TimeToFirstToken) * c.calcLoadFactor(nRunningReqs))
-}
-
-func (c *Configuration) GetPrefillOverhead(nRunningReqs int64) int {
-	return int(float64(c.PrefillOverhead) * c.calcLoadFactor(nRunningReqs))
-}
-
-func (c *Configuration) GetPrefillTimePerToken(nRunningReqs int64) int {
-	return int(float64(c.PrefillTimePerToken) * c.calcLoadFactor(nRunningReqs))
-}
-
-func (c *Configuration) GetInterTokenLatency(nRunningReqs int64) int {
-	return int(float64(c.InterTokenLatency) * c.calcLoadFactor(nRunningReqs))
-}
-
 type Metrics struct {
 	// LoraMetrics
 	LoraMetrics []LorasMetrics `json:"loras"`
