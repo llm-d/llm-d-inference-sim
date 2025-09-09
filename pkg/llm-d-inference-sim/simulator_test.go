@@ -1030,7 +1030,7 @@ var _ = Describe("Simulator", func() {
 			simulator.config.MaxNumSeqs = 11
 			simulator.nRunningReqs = 3
 
-			factor := simulator.getRealtimeFactor()
+			factor := simulator.getCurrTimeFactorUnderLoad()
 			Expect(factor).To(BeNumerically("==", 1.0))
 		})
 
@@ -1039,7 +1039,7 @@ var _ = Describe("Simulator", func() {
 			simulator.config.MaxNumSeqs = 11
 			simulator.nRunningReqs = 11
 
-			factor := simulator.getRealtimeFactor()
+			factor := simulator.getCurrTimeFactorUnderLoad()
 			Expect(factor).To(BeNumerically("==", simulator.config.TimeFactorUnderLoad))
 
 		})
@@ -1049,7 +1049,7 @@ var _ = Describe("Simulator", func() {
 			simulator.config.MaxNumSeqs = 11
 			simulator.nRunningReqs = 6
 
-			factor := simulator.getRealtimeFactor()
+			factor := simulator.getCurrTimeFactorUnderLoad()
 			Expect(factor).To(BeNumerically(">", 1.0))
 			Expect(factor).To(BeNumerically("<", simulator.config.TimeFactorUnderLoad))
 		})
