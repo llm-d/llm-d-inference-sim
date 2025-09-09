@@ -513,11 +513,11 @@ func parseEvent(parts [][]byte, expectedTopic string, expectedSeq uint64) ([]uin
 		Expect(err).NotTo(HaveOccurred())
 
 		switch tag {
-		case BlockStored:
+		case kvevents.BlockStoredEventTag:
 			var bs kvevents.BlockStored
 			err = msgpack.Unmarshal(payloadBytes, &bs)
 			stored = append(stored, bs.BlockHashes...)
-		case BlockRemoved:
+		case kvevents.BlockRemovedEventTag:
 			var br kvevents.BlockRemoved
 			err = msgpack.Unmarshal(payloadBytes, &br)
 			removed = append(removed, br.BlockHashes...)

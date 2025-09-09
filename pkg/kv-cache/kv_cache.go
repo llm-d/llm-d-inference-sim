@@ -93,10 +93,7 @@ func (h *KVCacheHelper) OnRequestStart(vllmReq openaiserverapi.CompletionRequest
 	}
 
 	nBlocksAlreadyInCache, err := h.blockCache.startRequest(requestID, blockHashes)
-	if err == nil {
-		vllmReq.SetNumberOfCachedPromptTokens(nBlocksAlreadyInCache * h.blockSize)
-	}
-
+	vllmReq.SetNumberOfCachedPromptTokens(nBlocksAlreadyInCache * h.blockSize)
 	return err
 }
 
