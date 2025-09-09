@@ -813,7 +813,7 @@ func (s *VllmSimulator) showConfig(dp bool) error {
 	return nil
 }
 
-func (s *VllmSimulator) getCurrTimeFactorUnderLoad() float64 {
+func (s *VllmSimulator) getCurrFactor() float64 {
 	if s.config.MaxNumSeqs <= 1 {
 		return 1.0
 	}
@@ -821,17 +821,17 @@ func (s *VllmSimulator) getCurrTimeFactorUnderLoad() float64 {
 }
 
 func (s *VllmSimulator) GetTimeToFirstToken() int {
-	return int(float64(s.config.TimeToFirstToken) * s.getCurrTimeFactorUnderLoad())
+	return int(float64(s.config.TimeToFirstToken) * s.getCurrFactor())
 }
 
 func (s *VllmSimulator) GetPrefillOverhead() int {
-	return int(float64(s.config.PrefillOverhead) * s.getCurrTimeFactorUnderLoad())
+	return int(float64(s.config.PrefillOverhead) * s.getCurrFactor())
 }
 
 func (s *VllmSimulator) GetPrefillTimePerToken() int {
-	return int(float64(s.config.PrefillTimePerToken) * s.getCurrTimeFactorUnderLoad())
+	return int(float64(s.config.PrefillTimePerToken) * s.getCurrFactor())
 }
 
 func (s *VllmSimulator) GetInterTokenLatency() int {
-	return int(float64(s.config.InterTokenLatency) * s.getCurrTimeFactorUnderLoad())
+	return int(float64(s.config.InterTokenLatency) * s.getCurrFactor())
 }
