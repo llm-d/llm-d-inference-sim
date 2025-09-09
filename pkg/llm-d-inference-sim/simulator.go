@@ -172,9 +172,9 @@ func (s *VllmSimulator) Start(ctx context.Context) error {
 		}
 		s.logger = klog.LoggerWithValues(s.logger, "rank", 0)
 	}
-	if err := s.startSim(ctx); err != nil {
-		return err
-	}
+	g.Go(func() error {
+		return s.startSim(ctx)
+	})
 	if err := g.Wait(); err != nil {
 		return err
 	}
