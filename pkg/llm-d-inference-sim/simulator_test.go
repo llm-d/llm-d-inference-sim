@@ -777,6 +777,8 @@ var _ = Describe("Simulator", func() {
 			func(interTokenLatency int, stddev int, numberOfTokens int) {
 				simulator.config.InterTokenLatency = interTokenLatency
 				simulator.config.InterTokenLatencyStdDev = stddev
+				simulator.config.MaxNumSeqs = 1
+				simulator.config.TimeFactorUnderLoad = 1.0
 
 				latency := 0
 				for range numberOfTokens - 1 {
