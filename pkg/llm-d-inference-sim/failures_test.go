@@ -127,7 +127,7 @@ var _ = Describe("Failures", func() {
 			BeforeEach(func() {
 				ctx = context.Background()
 				var err error
-				client, err = startServerWithArgs(ctx, "failure", []string{
+				client, err = startServerWithArgs(ctx, "", []string{
 					"cmd", "--model", model,
 					"--failure-injection-rate", "100",
 				}, nil)
@@ -185,7 +185,7 @@ var _ = Describe("Failures", func() {
 			BeforeEach(func() {
 				ctx = context.Background()
 				var err error
-				client, err = startServerWithArgs(ctx, "failure", []string{
+				client, err = startServerWithArgs(ctx, "", []string{
 					"cmd", "--model", model,
 					"--failure-injection-rate", "100",
 					"--failure-types", common.FailureTypeRateLimit,
@@ -221,7 +221,7 @@ var _ = Describe("Failures", func() {
 			BeforeEach(func() {
 				ctx = context.Background()
 				var err error
-				client, err = startServerWithArgs(ctx, "failure", []string{
+				client, err = startServerWithArgs(ctx, "", []string{
 					"cmd", "--model", model,
 					"--failure-injection-rate", "100",
 					"--failure-types", common.FailureTypeInvalidAPIKey, common.FailureTypeServerError,
@@ -262,7 +262,7 @@ var _ = Describe("Failures", func() {
 			BeforeEach(func() {
 				ctx = context.Background()
 				var err error
-				client, err = startServerWithArgs(ctx, "failure", []string{
+				client, err = startServerWithArgs(ctx, "", []string{
 					"cmd", "--model", model,
 					"--failure-injection-rate", "0",
 				}, nil)
@@ -293,7 +293,7 @@ var _ = Describe("Failures", func() {
 			DescribeTable("should return correct error for each failure type",
 				func(failureType string, expectedStatusCode int, expectedErrorType string) {
 					ctx := context.Background()
-					client, err := startServerWithArgs(ctx, "failure", []string{
+					client, err := startServerWithArgs(ctx, "", []string{
 						"cmd", "--model", model,
 						"--failure-injection-rate", "100",
 						"--failure-types", failureType,

@@ -35,6 +35,7 @@ type streamingContext struct {
 	doRemotePrefill     bool
 	nPromptTokens       int
 	nCachedPromptTokens int
+	requestID           string
 }
 
 // sendStreamingResponse creates and sends a streaming response for completion requests of both types (text and chat)
@@ -91,7 +92,7 @@ func (s *VllmSimulator) sendStreamingResponse(context *streamingContext, respons
 			context.ctx.Error("Sending last stream chunk failed, "+err.Error(), fasthttp.StatusInternalServerError)
 			return
 		}
-		s.responseSentCallback(context.model)
+		s.responseSentCallback(context.model, context.isChatCompletion, context.requestID)
 	})
 }
 

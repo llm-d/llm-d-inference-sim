@@ -35,7 +35,7 @@ type KVCacheHelper struct {
 	blockSize       int
 }
 
-func NewKVCacheHelper(config *common.Configuration, logger logr.Logger) (*KVCacheHelper, error) {
+func NewKVCacheHelper(config *common.Configuration, logger logr.Logger, usageChan chan float64) (*KVCacheHelper, error) {
 	tokenProcConfig := kvblock.DefaultTokenProcessorConfig()
 	tokenProcConfig.BlockSize = config.TokenBlockSize
 	if config.HashSeed != "" {
@@ -51,7 +51,7 @@ func NewKVCacheHelper(config *common.Configuration, logger logr.Logger) (*KVCach
 	if err != nil {
 		return nil, fmt.Errorf("failed to create tokenizer: %w", err)
 	}
-	blockCache, err := newBlockCache(config, logger)
+	blockCache, err := newBlockCache(config, logger, usageChan)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create block cache: %w", err)
 	}
@@ -92,11 +92,14 @@ func (h *KVCacheHelper) OnRequestStart(vllmReq openaiserverapi.CompletionRequest
 		blockHashes[i] = key.ChunkHash
 	}
 
-	nExistingBlocks, err := h.blockCache.startRequest(requestID, blockHashes)
-	vllmReq.SetNumberOfCachedPromptTokens(nExistingBlocks * h.blockSize)
+	nBlocksAlreadyInCache, err := h.blockCache.startRequest(requestID, blockHashes)
+	if err != nil {
+		vllmReq.SetNumberOfCachedPromptTokens(nBlocksAlreadyInCache * h.blockSize)
+	}
+
 	return err
 }
 
-func (h *KVCacheHelper) OnRequestEnd(vllmReq openaiserverapi.CompletionRequest) error {
-	return h.blockCache.finishRequest(vllmReq.GetRequestID())
+func (h *KVCacheHelper) OnRequestEnd(requestID string) error {
+	return h.blockCache.finishRequest(requestID)
 }

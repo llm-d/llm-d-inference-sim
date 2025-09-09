@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
+	kvcache "github.com/llm-d/llm-d-inference-sim/pkg/kv-cache"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/openai/openai-go"
@@ -94,6 +95,15 @@ func startServerWithArgs(ctx context.Context, mode string, args []string, envs m
 
 	if err := s.createAndRegisterPrometheus(); err != nil {
 		return nil, err
+	}
+
+	if s.config.EnableKVCache {
+		s.kvcacheHelper, err = kvcache.NewKVCacheHelper(s.config, s.logger, s.kvCacheUsageChan)
+		if err != nil {
+			return nil, err
+		}
+
+		go s.kvcacheHelper.Run(ctx)
 	}
 
 	// calculate number of tokens for user message,

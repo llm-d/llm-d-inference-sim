@@ -21,6 +21,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"os"
 	"regexp"
 	"sort"
 	"strconv"
@@ -312,6 +313,160 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 
 		Expect(singleWaitingTimestamp <= bothRunningTimestamp).To(BeTrue())
 		Expect(bothRunningTimestamp <= emptyTimestamp).To(BeTrue())
+	})
+
+	Context("kv cache metrics", func() {
+		tmpDir := "./tests-tmp/"
+		AfterAll(func() {
+			os.RemoveAll(tmpDir)
+		})
+		It("Should send correct kv cache usage metrics", func() {
+			modelName := "Qwen/Qwen2-0.5B"
+			// Three requests, there are should be two blocks in the kv cache, because
+			// the first and the second prompt share a block.
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", modelName, "--mode", common.ModeRandom,
+				"--enable-kvcache", "true", "--kv-cache-size", "16", "--block-size", "8",
+				"--time-to-first-token", "5000", "--tokenizers-cache-dir", tmpDir}
+
+			client, err := startServerWithArgs(ctx, common.ModeRandom, args, nil)
+			Expect(err).NotTo(HaveOccurred())
+
+			openaiclient := openai.NewClient(
+				option.WithBaseURL(baseURL),
+				option.WithHTTPClient(client))
+
+			paramsArray := []openai.CompletionNewParams{
+				{
+					Prompt: openai.CompletionNewParamsPromptUnion{
+						OfString: openai.String("What is the weather like in Haifa today? Is it cold?"),
+					},
+					Model: openai.CompletionNewParamsModel(modelName),
+				},
+				{
+					Prompt: openai.CompletionNewParamsPromptUnion{
+						OfString: openai.String("What is the weather like in Haifa today?"),
+					},
+					Model: openai.CompletionNewParamsModel(modelName),
+				},
+				{
+					Prompt: openai.CompletionNewParamsPromptUnion{
+						OfString: openai.String("What is the weather like in New York today?"),
+					},
+					Model: openai.CompletionNewParamsModel(modelName),
+				},
+			}
+
+			for _, params := range paramsArray {
+				go func() {
+					defer GinkgoRecover()
+					_, err := openaiclient.Completions.New(ctx, params)
+					Expect(err).NotTo(HaveOccurred())
+				}()
+			}
+
+			var wg sync.WaitGroup
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				defer GinkgoRecover()
+
+				time.Sleep(4 * time.Second)
+				metricsResp, err := client.Get(metricsUrl)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
+
+				data, err := io.ReadAll(metricsResp.Body)
+				Expect(err).NotTo(HaveOccurred())
+				metrics := string(data)
+				// Expect three running requests and two blocks in the kv cache - usage 2/16=0.125
+				Expect(metrics).To(ContainSubstring("vllm:num_requests_running{model_name=\"Qwen/Qwen2-0.5B\"} 3"))
+				Expect(metrics).To(ContainSubstring("vllm:num_requests_waiting{model_name=\"Qwen/Qwen2-0.5B\"} 0"))
+				Expect(metrics).To(ContainSubstring("vllm:gpu_cache_usage_perc{model_name=\"Qwen/Qwen2-0.5B\"} 0.125"))
+
+				time.Sleep(3 * time.Second)
+				metricsResp, err = client.Get(metricsUrl)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
+
+				data, err = io.ReadAll(metricsResp.Body)
+				Expect(err).NotTo(HaveOccurred())
+				metrics = string(data)
+				// The requests finished running, expect 0 usage
+				Expect(metrics).To(ContainSubstring("vllm:num_requests_running{model_name=\"Qwen/Qwen2-0.5B\"} 0"))
+				Expect(metrics).To(ContainSubstring("vllm:num_requests_waiting{model_name=\"Qwen/Qwen2-0.5B\"} 0"))
+				Expect(metrics).To(ContainSubstring("vllm:gpu_cache_usage_perc{model_name=\"Qwen/Qwen2-0.5B\"} 0"))
+			}()
+			wg.Wait()
+		})
+
+		It("Should send correct kv cache usage metrics for sequentual requests", func() {
+			modelName := "Qwen/Qwen2-0.5B"
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", modelName, "--mode", common.ModeRandom,
+				"--enable-kvcache", "true", "--kv-cache-size", "16", "--block-size", "8",
+				"--time-to-first-token", "5000", "--tokenizers-cache-dir", tmpDir, "--max-num-seqs", "2"}
+
+			client, err := startServerWithArgs(ctx, common.ModeRandom, args, nil)
+			Expect(err).NotTo(HaveOccurred())
+
+			openaiclient := openai.NewClient(
+				option.WithBaseURL(baseURL),
+				option.WithHTTPClient(client))
+
+			paramsArray := []openai.CompletionNewParams{
+				{
+					Prompt: openai.CompletionNewParamsPromptUnion{
+						OfString: openai.String("What is the weather like in Haifa today? Is it cold?"),
+					},
+					Model: openai.CompletionNewParamsModel(modelName),
+				},
+				{
+					Prompt: openai.CompletionNewParamsPromptUnion{
+						OfString: openai.String("What is the weather like in Haifa today?"),
+					},
+					Model: openai.CompletionNewParamsModel(modelName),
+				},
+				{
+					Prompt: openai.CompletionNewParamsPromptUnion{
+						OfString: openai.String("What is the weather like in New York today?"),
+					},
+					Model: openai.CompletionNewParamsModel(modelName),
+				},
+			}
+
+			for i, params := range paramsArray {
+				go func() {
+					defer GinkgoRecover()
+					time.Sleep(time.Duration(i*500) * time.Millisecond)
+					_, err := openaiclient.Completions.New(ctx, params)
+					Expect(err).NotTo(HaveOccurred())
+				}()
+			}
+
+			var wg sync.WaitGroup
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				defer GinkgoRecover()
+
+				time.Sleep(3 * time.Second)
+				metricsResp, err := client.Get(metricsUrl)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
+
+				data, err := io.ReadAll(metricsResp.Body)
+				Expect(err).NotTo(HaveOccurred())
+				metrics := string(data)
+				// The requests were sent with 500 millisecond intervals, and the first two should be still running.
+				// The third is waiting, and is still not in the kv-cache.
+				// We expect one block in the kv-cache, usage 1/16=0.0625.
+				Expect(metrics).To(ContainSubstring("vllm:num_requests_running{model_name=\"Qwen/Qwen2-0.5B\"} 2"))
+				Expect(metrics).To(ContainSubstring("vllm:num_requests_waiting{model_name=\"Qwen/Qwen2-0.5B\"} 1"))
+				Expect(metrics).To(ContainSubstring("vllm:gpu_cache_usage_perc{model_name=\"Qwen/Qwen2-0.5B\"} 0.0625"))
+			}()
+			wg.Wait()
+		})
 	})
 
 	Context("fake metrics", func() {

@@ -40,11 +40,12 @@ type blockCache struct {
 	maxBlocks       int                  // maximum number of blocks in the cache
 	eventSender     *KVEventSender       // emmits kv events
 	eventChan       chan EventData       // channel for asynchronous event processing
+	usageChan       chan float64         // channel for usage reporting
 	logger          logr.Logger
 }
 
 // newBlockCache creates a new blockCache with the specified maximum number of blocks
-func newBlockCache(config *common.Configuration, logger logr.Logger) (*blockCache, error) {
+func newBlockCache(config *common.Configuration, logger logr.Logger, usageChan chan float64) (*blockCache, error) {
 	// TODO read size of channel from config
 	eChan := make(chan EventData, 10000)
 
@@ -63,6 +64,7 @@ func newBlockCache(config *common.Configuration, logger logr.Logger) (*blockCach
 		unusedBlocks:    make(map[uint64]time.Time),
 		maxBlocks:       config.KVCacheSize,
 		eventChan:       eChan,
+		usageChan:       usageChan,
 		eventSender:     NewKVEventSender(publisher, createTopic(config), eChan, config.EventBatchSize, delay, logger),
 		logger:          logger,
 	}, nil
@@ -149,6 +151,9 @@ func (bc *blockCache) startRequest(requestID string, blocks []uint64) (int, erro
 	bc.requestToBlocks[requestID] = make([]uint64, len(blocks))
 	copy(bc.requestToBlocks[requestID], blocks)
 
+	if bc.usageChan != nil {
+		bc.usageChan <- float64(len(bc.usedBlocks)) / float64(bc.maxBlocks)
+	}
 	return len(blockAreadyInUse) + len(blockToMoveToUsed), nil
 }
 
@@ -180,6 +185,10 @@ func (bc *blockCache) finishRequest(requestID string) error {
 		} else {
 			errBlocks = append(errBlocks, blockHash)
 		}
+	}
+
+	if bc.usageChan != nil {
+		bc.usageChan <- float64(len(bc.usedBlocks)) / float64(bc.maxBlocks)
 	}
 
 	// Remove the request mapping

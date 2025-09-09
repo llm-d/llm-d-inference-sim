@@ -216,7 +216,7 @@ var _ = Describe("KV cache", Ordered, func() {
 				wg := sync.WaitGroup{}
 				wg.Add(1)
 
-				blockCache, err := newBlockCache(config, GinkgoLogr)
+				blockCache, err := newBlockCache(config, GinkgoLogr, nil)
 				Expect(err).NotTo(HaveOccurred())
 
 				go func() {
@@ -318,7 +318,7 @@ var _ = Describe("KV cache", Ordered, func() {
 			wg := sync.WaitGroup{}
 			wg.Add(1)
 
-			blockCache, err := newBlockCache(config, GinkgoLogr)
+			blockCache, err := newBlockCache(config, GinkgoLogr, nil)
 			Expect(err).NotTo(HaveOccurred())
 
 			go func() {
@@ -422,7 +422,7 @@ var _ = Describe("KV cache", Ordered, func() {
 					KVCacheSize:           testCase.cacheSize,
 					ZMQMaxConnectAttempts: 3,
 				}
-				blockCache, err := newBlockCache(&config, GinkgoLogr)
+				blockCache, err := newBlockCache(&config, GinkgoLogr, nil)
 				Expect(err).NotTo(HaveOccurred())
 				var wg sync.WaitGroup
 

@@ -95,6 +95,8 @@ type VllmSimulator struct {
 	nWaitingReqs int64
 	// waitingReqChan is a channel to update nWaitingReqs
 	waitingReqChan chan int64
+	// kvCacheUsageChan is a channel to update kvCacheUsagePercentage
+	kvCacheUsageChan chan float64
 	// registry is a Prometheus registry
 	registry *prometheus.Registry
 	// loraInfo is prometheus gauge
@@ -125,15 +127,16 @@ func New(logger logr.Logger) (*VllmSimulator, error) {
 	}
 
 	return &VllmSimulator{
-		logger:         logger,
-		reqChan:        make(chan *openaiserverapi.CompletionReqCtx, maxNumberOfRequests),
-		toolsValidator: toolsValidator,
-		kvcacheHelper:  nil, // kvcache helper will be created only if required after reading configuration
-		namespace:      os.Getenv(podNsEnv),
-		pod:            os.Getenv(podNameEnv),
-		runReqChan:     make(chan int64, maxNumberOfRequests),
-		waitingReqChan: make(chan int64, maxNumberOfRequests),
-		lorasChan:      make(chan loraUsage, maxNumberOfRequests),
+		logger:           logger,
+		reqChan:          make(chan *openaiserverapi.CompletionReqCtx, maxNumberOfRequests),
+		toolsValidator:   toolsValidator,
+		kvcacheHelper:    nil, // kvcache helper will be created only if required after reading configuration
+		namespace:        os.Getenv(podNsEnv),
+		pod:              os.Getenv(podNameEnv),
+		runReqChan:       make(chan int64, maxNumberOfRequests),
+		waitingReqChan:   make(chan int64, maxNumberOfRequests),
+		lorasChan:        make(chan loraUsage, maxNumberOfRequests),
+		kvCacheUsageChan: make(chan float64, maxNumberOfRequests),
 	}, nil
 }
 
@@ -192,7 +195,7 @@ func (s *VllmSimulator) startSim(ctx context.Context) error {
 	}
 
 	if s.config.EnableKVCache {
-		s.kvcacheHelper, err = kvcache.NewKVCacheHelper(s.config, s.logger)
+		s.kvcacheHelper, err = kvcache.NewKVCacheHelper(s.config, s.logger, s.kvCacheUsageChan)
 		if err != nil {
 			return err
 		}
@@ -360,6 +363,15 @@ func (s *VllmSimulator) validateRequest(req openaiserverapi.CompletionRequest) (
 		return "Ignore_eos is true but max_completion_tokens (or max_tokens) is not set", fasthttp.StatusBadRequest
 	}
 
+	// Validate context window constraints
+	promptTokens := req.GetNumberOfPromptTokens()
+	completionTokens := req.GetMaxCompletionTokens()
+	isValid, actualCompletionTokens, totalTokens := common.ValidateContextWindow(promptTokens, completionTokens, s.config.MaxModelLen)
+	if !isValid {
+		message := fmt.Sprintf("This model's maximum context length is %d tokens. However, you requested %d tokens (%d in the messages, %d in the completion). Please reduce the length of the messages or completion",
+			s.config.MaxModelLen, totalTokens, promptTokens, actualCompletionTokens)
+		return message, fasthttp.StatusBadRequest
+	}
 	return "", fasthttp.StatusOK
 }
 
@@ -412,33 +424,6 @@ func (s *VllmSimulator) handleCompletions(ctx *fasthttp.RequestCtx, isChatComple
 		return
 	}
 
-	defer func() {
-		if s.config.EnableKVCache && !isChatCompletion {
-			err := s.kvcacheHelper.OnRequestEnd(vllmReq)
-			if err != nil {
-				s.logger.Error(err, "kv cache failed to process request end")
-			}
-		}
-	}()
-	if s.config.EnableKVCache && !isChatCompletion {
-		// kv cache is currently supported for /completion API only
-		err = s.kvcacheHelper.OnRequestStart(vllmReq)
-		if err != nil {
-			s.sendCompletionError(ctx, openaiserverapi.NewCompletionError(err.Error(), fasthttp.StatusInternalServerError, nil), false)
-		}
-	}
-
-	// Validate context window constraints
-	promptTokens := vllmReq.GetNumberOfPromptTokens()
-	completionTokens := vllmReq.GetMaxCompletionTokens()
-	isValid, actualCompletionTokens, totalTokens := common.ValidateContextWindow(promptTokens, completionTokens, s.config.MaxModelLen)
-	if !isValid {
-		message := fmt.Sprintf("This model's maximum context length is %d tokens. However, you requested %d tokens (%d in the messages, %d in the completion). Please reduce the length of the messages or completion",
-			s.config.MaxModelLen, totalTokens, promptTokens, actualCompletionTokens)
-		s.sendCompletionError(ctx, openaiserverapi.NewCompletionError(message, fasthttp.StatusBadRequest, nil), false)
-		return
-	}
-
 	var wg sync.WaitGroup
 	wg.Add(1)
 	reqCtx := &openaiserverapi.CompletionReqCtx{
@@ -474,7 +459,7 @@ func (s *VllmSimulator) reqProcessingWorker(ctx context.Context, id int) {
 			model := req.GetModel()
 			displayModel := s.getDisplayedModelName(model)
 
-			// decriment waiting and increment running requests count
+			// decrement waiting and increment running requests count
 			s.waitingReqChan <- -1
 			s.runReqChan <- 1
 
@@ -482,6 +467,13 @@ func (s *VllmSimulator) reqProcessingWorker(ctx context.Context, id int) {
 				// update loraInfo metric to reflect that
 				// the request has changed its status from waiting to running
 				s.lorasChan <- loraUsage{model, runningUsageState}
+			}
+
+			if s.config.EnableKVCache && !reqCtx.IsChatCompletion {
+				// kv cache is currently supported for /completion API only
+				if err := s.kvcacheHelper.OnRequestStart(req); err != nil {
+					s.sendCompletionError(reqCtx.HTTPReqCtx, openaiserverapi.NewCompletionError(err.Error(), fasthttp.StatusInternalServerError, nil), false)
+				}
 			}
 
 			var responseTokens []string
@@ -545,14 +537,20 @@ func (s *VllmSimulator) reqProcessingWorker(ctx context.Context, id int) {
 	}
 }
 
-// decrease model usage reference number
-func (s *VllmSimulator) responseSentCallback(model string) {
+// request processing finished
+func (s *VllmSimulator) responseSentCallback(model string, isChatCompletion bool, requestID string) {
 	// decriment running requests count
 	s.runReqChan <- -1
 
 	if s.isLora(model) {
 		// update loraInfo metrics to reflect that the request processing has been finished
 		s.lorasChan <- loraUsage{model, doneUsageState}
+	}
+
+	if s.config.EnableKVCache && !isChatCompletion {
+		if err := s.kvcacheHelper.OnRequestEnd(requestID); err != nil {
+			s.logger.Error(err, "kv cache failed to process request end")
+		}
 	}
 }
 
@@ -692,7 +690,7 @@ func (s *VllmSimulator) sendResponse(reqCtx *openaiserverapi.CompletionReqCtx, r
 	}
 	ctx.Response.SetBody(data)
 
-	s.responseSentCallback(modelName)
+	s.responseSentCallback(modelName, reqCtx.IsChatCompletion, reqCtx.CompletionReq.GetRequestID())
 }
 
 // returns time to first token based on the current request's doRemotePrefill

@@ -181,11 +181,23 @@ func (s *VllmSimulator) reportWaitingRequests() {
 	}
 }
 
+// reportKVCacheUsage sets information about kv cache usage
+func (s *VllmSimulator) reportKVCacheUsage(value float64) {
+	if s.config.FakeMetrics != nil {
+		return
+	}
+	if s.kvCacheUsagePercentage != nil {
+		s.kvCacheUsagePercentage.WithLabelValues(
+			s.getDisplayedModelName(s.config.Model)).Set(value)
+	}
+}
+
 // startMetricsUpdaters starts the various metrics updaters
 func (s *VllmSimulator) startMetricsUpdaters(ctx context.Context) {
 	go s.waitingRequestsUpdater(ctx)
 	go s.runningRequestsUpdater(ctx)
 	go s.lorasUpdater(ctx)
+	go s.kvCacheUsageUpdater(ctx)
 }
 
 // waitingRequestsUpdater updates the waiting requests metric by listening on the relevant channel
@@ -210,6 +222,18 @@ func (s *VllmSimulator) runningRequestsUpdater(ctx context.Context) {
 		case inc := <-s.runReqChan:
 			s.nRunningReqs += inc
 			s.reportRunningRequests()
+		}
+	}
+}
+
+// kvCacheUsageUpdater updates the kv cache usage  metric by listening on the relevant channel
+func (s *VllmSimulator) kvCacheUsageUpdater(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case value := <-s.kvCacheUsageChan:
+			s.reportKVCacheUsage(value)
 		}
 	}
 }
