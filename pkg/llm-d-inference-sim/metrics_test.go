@@ -318,7 +318,8 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 	Context("kv cache metrics", func() {
 		tmpDir := "./tests-tmp/"
 		AfterAll(func() {
-			os.RemoveAll(tmpDir)
+			err := os.RemoveAll(tmpDir)
+			Expect(err).NotTo(HaveOccurred())
 		})
 		It("Should send correct kv cache usage metrics", func() {
 			modelName := "Qwen/Qwen2-0.5B"
