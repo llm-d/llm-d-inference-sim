@@ -152,8 +152,8 @@ func (s *VllmSimulator) Start(ctx context.Context) error {
 	}
 
 	// For Data Parallel, start data-parallel-size - 1 additional simulators
+	g, ctx := errgroup.WithContext(ctx)
 	if s.config.DPSize > 1 {
-		g, ctx := errgroup.WithContext(context.Background())
 		for i := 2; i <= s.config.DPSize; i++ {
 			newConfig, err := s.config.Copy()
 			if err != nil {
@@ -170,12 +170,15 @@ func (s *VllmSimulator) Start(ctx context.Context) error {
 				return newSim.startSim(ctx)
 			})
 		}
-		if err := g.Wait(); err != nil {
-			return err
-		}
 		s.logger = klog.LoggerWithValues(s.logger, "rank", 0)
 	}
-	return s.startSim(ctx)
+	if err := s.startSim(ctx); err != nil {
+		return err
+	}
+	if err := g.Wait(); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (s *VllmSimulator) startSim(ctx context.Context) error {
