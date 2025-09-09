@@ -677,10 +677,10 @@ func (s *VllmSimulator) sendResponse(reqCtx *openaiserverapi.CompletionReqCtx, r
 	// calculate how long to wait before returning the response, time is based on number of tokens
 	nCachedPromptTokens := reqCtx.CompletionReq.GetNumberOfCachedPromptTokens()
 	ttft := s.getTimeToFirstToken(usageData.PromptTokens, nCachedPromptTokens, reqCtx.CompletionReq.IsDoRemotePrefill())
-	time.Sleep(time.Duration(ttft) * time.Millisecond)
+	common.SleepMilliSec(ttft)
 	for range usageData.CompletionTokens - 1 {
 		perTokenLatency := s.getInterTokenLatency()
-		time.Sleep(time.Duration(perTokenLatency) * time.Millisecond)
+		common.SleepMilliSec(perTokenLatency)
 	}
 
 	ctx.Response.Header.SetContentType("application/json")

@@ -197,7 +197,7 @@ var _ = Describe("KV cache", Ordered, func() {
 
 		for _, test := range testCases {
 			It(test.name, func() {
-				time.Sleep(300 * time.Millisecond)
+				common.SleepMilliSec(300)
 
 				config := &common.Configuration{
 					Port:                  1234,
@@ -231,7 +231,7 @@ var _ = Describe("KV cache", Ordered, func() {
 
 				go func() {
 					// Make sure that the subscriber listens before the events are published
-					time.Sleep(time.Second)
+					common.SleepSec(1)
 
 					for _, action := range test.actions {
 						var err error
@@ -336,7 +336,7 @@ var _ = Describe("KV cache", Ordered, func() {
 
 			go func() {
 				// Make sure that the subscriber listens before the events are published
-				time.Sleep(time.Second)
+				common.SleepSec(1)
 
 				req1 := testRequest{"req1", []uint64{1, 2}}
 				req2 := testRequest{"req2", []uint64{3, 4}}
@@ -443,7 +443,7 @@ var _ = Describe("KV cache", Ordered, func() {
 								continue
 							}
 
-							time.Sleep(time.Duration(common.RandomInt(1, 100)) * time.Microsecond)
+							common.SleepMicroSec(common.RandomInt(1, 100))
 
 							err = blockCache.finishRequest(reqID)
 							Expect(err).NotTo(HaveOccurred())

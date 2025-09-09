@@ -23,7 +23,6 @@ import (
 	"errors"
 	"fmt"
 	"sync/atomic"
-	"time"
 
 	zmq "github.com/pebbe/zmq4"
 	"github.com/vmihailenco/msgpack/v5"
@@ -58,7 +57,7 @@ func NewPublisher(endpoint string, retries uint) (*Publisher, error) {
 
 		// If not the last attempt, wait before retrying
 		if i < retries {
-			time.Sleep(1 * time.Second)
+			SleepSec(1)
 		}
 	}
 
