@@ -41,7 +41,7 @@ func (t *TokenizeRequest) GetPrompt() string {
 		return t.Prompt
 	}
 
-	var messages []string
+	messages := make([]string, 0)
 	for _, message := range t.Messages {
 		messages = append(messages, message.Content.PlainText())
 	}

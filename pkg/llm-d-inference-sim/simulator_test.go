@@ -42,6 +42,7 @@ import (
 )
 
 const model = "my_model"
+const qwenModelName = "Qwen/Qwen2-0.5B"
 const baseURL = "http://localhost/v1"
 const userMessage = "This is a test."
 const invalidMaxTokensErrMsg = "Max completion tokens and max tokens should be positive"
@@ -1081,10 +1082,10 @@ var _ = Describe("Simulator", func() {
 
 	It("Should return correct response to /tokenize chat", func() {
 		ctx := context.TODO()
-		modelName := "Qwen/Qwen2-0.5B"
-		tmpDir := "./tests-tmp/"
+		tmpDir := "./tmp/"
+		//nolint
 		defer os.RemoveAll(tmpDir)
-		args := []string{"cmd", "--model", modelName, "--mode", common.ModeRandom,
+		args := []string{"cmd", "--model", qwenModelName, "--mode", common.ModeRandom,
 			"--tokenizers-cache-dir", tmpDir}
 		client, err := startServerWithArgs(ctx, common.ModeRandom, args, nil)
 		Expect(err).NotTo(HaveOccurred())
@@ -1113,10 +1114,10 @@ var _ = Describe("Simulator", func() {
 
 	It("Should return correct response to /tokenize text", func() {
 		ctx := context.TODO()
-		modelName := "Qwen/Qwen2-0.5B"
-		tmpDir := "./tests-tmp/"
+		tmpDir := "./tmp/"
+		//nolint
 		defer os.RemoveAll(tmpDir)
-		args := []string{"cmd", "--model", modelName, "--mode", common.ModeRandom,
+		args := []string{"cmd", "--model", qwenModelName, "--mode", common.ModeRandom,
 			"--tokenizers-cache-dir", tmpDir}
 		client, err := startServerWithArgs(ctx, common.ModeRandom, args, nil)
 		Expect(err).NotTo(HaveOccurred())
