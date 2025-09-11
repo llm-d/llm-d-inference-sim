@@ -35,7 +35,8 @@ type KVCacheHelper struct {
 	blockSize       int
 }
 
-func NewKVCacheHelper(config *common.Configuration, logger logr.Logger, usageChan chan float64) (*KVCacheHelper, error) {
+func NewKVCacheHelper(config *common.Configuration, logger logr.Logger, usageChan chan float64,
+	tokenizer tokenization.Tokenizer) (*KVCacheHelper, error) {
 	tokenProcConfig := kvblock.DefaultTokenProcessorConfig()
 	tokenProcConfig.BlockSize = config.TokenBlockSize
 	if config.HashSeed != "" {
@@ -43,14 +44,6 @@ func NewKVCacheHelper(config *common.Configuration, logger logr.Logger, usageCha
 	}
 	tokensProcessor := kvblock.NewChunkedTokenDatabase(tokenProcConfig)
 
-	tokenizationConfig := tokenization.DefaultConfig()
-	if config.TokenizersCacheDir != "" {
-		tokenizationConfig.TokenizersCacheDir = config.TokenizersCacheDir
-	}
-	tokenizer, err := tokenization.NewCachedHFTokenizer(tokenizationConfig.HFTokenizerConfig)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create tokenizer: %w", err)
-	}
 	blockCache, err := newBlockCache(config, logger, usageChan)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create block cache: %w", err)

@@ -40,6 +40,7 @@ import (
 	kvcache "github.com/llm-d/llm-d-inference-sim/pkg/kv-cache"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	vllmapi "github.com/llm-d/llm-d-inference-sim/pkg/vllm-api"
+	"github.com/llm-d/llm-d-kv-cache-manager/pkg/tokenization"
 )
 
 const (
@@ -117,6 +118,8 @@ type VllmSimulator struct {
 	namespace string
 	// pod name of simulator
 	pod string
+	// tokenizer is currently used in kv-cache and in /tokenize
+	tokenizer tokenization.Tokenizer
 }
 
 // New creates a new VllmSimulator instance with the given logger
@@ -197,8 +200,17 @@ func (s *VllmSimulator) startSim(ctx context.Context) error {
 		return err
 	}
 
+	tokenizationConfig := tokenization.DefaultConfig()
+	if s.config.TokenizersCacheDir != "" {
+		tokenizationConfig.TokenizersCacheDir = s.config.TokenizersCacheDir
+	}
+	s.tokenizer, err = tokenization.NewCachedHFTokenizer(tokenizationConfig.HFTokenizerConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create tokenizer: %w", err)
+	}
+
 	if s.config.EnableKVCache {
-		s.kvcacheHelper, err = kvcache.NewKVCacheHelper(s.config, s.logger, s.kvCacheUsageChan)
+		s.kvcacheHelper, err = kvcache.NewKVCacheHelper(s.config, s.logger, s.kvCacheUsageChan, s.tokenizer)
 		if err != nil {
 			return err
 		}
@@ -248,6 +260,7 @@ func (s *VllmSimulator) startServer(ctx context.Context, listener net.Listener) 
 	// supports standard Kubernetes health and readiness checks
 	r.GET("/health", s.HandleHealth)
 	r.GET("/ready", s.HandleReady)
+	r.POST("/tokenize", s.HandleTokenize)
 
 	server := fasthttp.Server{
 		ErrorHandler: s.HandleError,
@@ -337,6 +350,59 @@ func (s *VllmSimulator) HandleChatCompletions(ctx *fasthttp.RequestCtx) {
 func (s *VllmSimulator) HandleTextCompletions(ctx *fasthttp.RequestCtx) {
 	s.logger.Info("completion request received")
 	s.handleCompletions(ctx, false)
+}
+
+// readTokenizeRequest reads and parses data from the body of the given request
+func (s *VllmSimulator) readTokenizeRequest(ctx *fasthttp.RequestCtx) (*vllmapi.TokenizeRequest, error) {
+	var tokenizeReq vllmapi.TokenizeRequest
+	if err := json.Unmarshal(ctx.Request.Body(), &tokenizeReq); err != nil {
+		s.logger.Error(err, "failed to unmarshal tokenize request body")
+		return nil, err
+	}
+	return &tokenizeReq, nil
+}
+
+// HandleTokenize http handler for /tokenize
+func (s *VllmSimulator) HandleTokenize(ctx *fasthttp.RequestCtx) {
+	s.logger.Info("tokenize request received")
+	req, err := s.readTokenizeRequest(ctx)
+	if err != nil {
+		s.logger.Error(err, "failed to read and parse tokenize request body")
+		ctx.Error("Failed to read and parse tokenize request body, "+err.Error(), fasthttp.StatusBadRequest)
+		return
+	}
+
+	// Check that the request has only one input to tokenize
+	if req.Prompt != "" && req.Messages != nil {
+		s.sendCompletionError(ctx, openaiserverapi.NewCompletionError("both prompt and messages fields in tokenize request",
+			fasthttp.StatusBadRequest, nil), false)
+		return
+	}
+	// Model is optional, if not set, the model from the configuration will be used
+	model := req.Model
+	if model == "" {
+		model = s.config.Model
+	}
+
+	tokens, _, err := s.tokenizer.Encode(req.GetPrompt(), model)
+	if err != nil {
+		s.logger.Error(err, "failed to tokenize")
+		ctx.Error("Failed to tokenize, "+err.Error(), fasthttp.StatusInternalServerError)
+		return
+	}
+	resp := vllmapi.TokenizeResponse{
+		Count:       len(tokens),
+		Tokens:      tokens,
+		MaxModelLen: s.config.MaxModelLen,
+	}
+	data, err := json.Marshal(resp)
+	if err != nil {
+		ctx.Error("Response body creation failed, "+err.Error(), fasthttp.StatusInternalServerError)
+		return
+	}
+	ctx.Response.Header.SetContentType("application/json")
+	ctx.Response.Header.SetStatusCode(fasthttp.StatusOK)
+	ctx.Response.SetBody(data)
 }
 
 func (s *VllmSimulator) HandleLoadLora(ctx *fasthttp.RequestCtx) {

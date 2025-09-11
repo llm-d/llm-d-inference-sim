@@ -18,6 +18,7 @@ package llmdinferencesim
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -29,6 +30,8 @@ import (
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	kvcache "github.com/llm-d/llm-d-inference-sim/pkg/kv-cache"
+	vllmapi "github.com/llm-d/llm-d-inference-sim/pkg/vllm-api"
+	"github.com/llm-d/llm-d-kv-cache-manager/pkg/tokenization"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/openai/openai-go"
@@ -97,8 +100,17 @@ func startServerWithArgs(ctx context.Context, mode string, args []string, envs m
 		return nil, err
 	}
 
+	tokenizationConfig := tokenization.DefaultConfig()
+	if s.config.TokenizersCacheDir != "" {
+		tokenizationConfig.TokenizersCacheDir = s.config.TokenizersCacheDir
+	}
+	s.tokenizer, err = tokenization.NewCachedHFTokenizer(tokenizationConfig.HFTokenizerConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create tokenizer: %w", err)
+	}
+
 	if s.config.EnableKVCache {
-		s.kvcacheHelper, err = kvcache.NewKVCacheHelper(s.config, s.logger, s.kvCacheUsageChan)
+		s.kvcacheHelper, err = kvcache.NewKVCacheHelper(s.config, s.logger, s.kvCacheUsageChan, s.tokenizer)
 		if err != nil {
 			return nil, err
 		}
@@ -1065,7 +1077,69 @@ var _ = Describe("Simulator", func() {
 			Expect(factor).To(BeNumerically(">", 1.0))
 			Expect(factor).To(BeNumerically("<", simulator.config.TimeFactorUnderLoad))
 		})
-
 	})
 
+	It("Should return correct response to /tokenize chat", func() {
+		ctx := context.TODO()
+		modelName := "Qwen/Qwen2-0.5B"
+		tmpDir := "./tests-tmp/"
+		defer os.RemoveAll(tmpDir)
+		args := []string{"cmd", "--model", modelName, "--mode", common.ModeRandom,
+			"--tokenizers-cache-dir", tmpDir}
+		client, err := startServerWithArgs(ctx, common.ModeRandom, args, nil)
+		Expect(err).NotTo(HaveOccurred())
+
+		reqBody := `{
+				"messages": [{"role": "user", "content": "This is a test"}],
+				"model": "Qwen/Qwen2-0.5B"
+			}`
+		resp, err := client.Post("http://localhost/tokenize", "application/json", strings.NewReader(reqBody))
+		Expect(err).NotTo(HaveOccurred())
+		defer func() {
+			err := resp.Body.Close()
+			Expect(err).NotTo(HaveOccurred())
+		}()
+
+		body, err := io.ReadAll(resp.Body)
+		Expect(err).NotTo(HaveOccurred())
+
+		var tokenizeResp vllmapi.TokenizeResponse
+		err = json.Unmarshal(body, &tokenizeResp)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(tokenizeResp.Count).To(Equal(4))
+		Expect(tokenizeResp.Tokens).To(HaveLen(4))
+		Expect(tokenizeResp.MaxModelLen).To(Equal(1024))
+	})
+
+	It("Should return correct response to /tokenize text", func() {
+		ctx := context.TODO()
+		modelName := "Qwen/Qwen2-0.5B"
+		tmpDir := "./tests-tmp/"
+		defer os.RemoveAll(tmpDir)
+		args := []string{"cmd", "--model", modelName, "--mode", common.ModeRandom,
+			"--tokenizers-cache-dir", tmpDir}
+		client, err := startServerWithArgs(ctx, common.ModeRandom, args, nil)
+		Expect(err).NotTo(HaveOccurred())
+
+		reqBody := `{
+				"prompt": "This is a test",
+				"model": "Qwen/Qwen2-0.5B"
+			}`
+		resp, err := client.Post("http://localhost/tokenize", "application/json", strings.NewReader(reqBody))
+		Expect(err).NotTo(HaveOccurred())
+		defer func() {
+			err := resp.Body.Close()
+			Expect(err).NotTo(HaveOccurred())
+		}()
+
+		body, err := io.ReadAll(resp.Body)
+		Expect(err).NotTo(HaveOccurred())
+
+		var tokenizeResp vllmapi.TokenizeResponse
+		err = json.Unmarshal(body, &tokenizeResp)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(tokenizeResp.Count).To(Equal(4))
+		Expect(tokenizeResp.Tokens).To(HaveLen(4))
+		Expect(tokenizeResp.MaxModelLen).To(Equal(1024))
+	})
 })

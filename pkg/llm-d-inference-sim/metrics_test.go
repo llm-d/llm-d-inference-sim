@@ -385,7 +385,7 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 				Expect(metrics).To(ContainSubstring("vllm:num_requests_waiting{model_name=\"Qwen/Qwen2-0.5B\"} 0"))
 				Expect(metrics).To(ContainSubstring("vllm:gpu_cache_usage_perc{model_name=\"Qwen/Qwen2-0.5B\"} 0.125"))
 
-				time.Sleep(3 * time.Second)
+				time.Sleep(4 * time.Second)
 				metricsResp, err = client.Get(metricsUrl)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
