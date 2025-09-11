@@ -100,7 +100,7 @@ func (s *VllmSimulator) sendStreamingResponse(context *streamingContext, respons
 func (s *VllmSimulator) sendTokenChunks(context *streamingContext, w *bufio.Writer, genTokens []string,
 	tc *openaiserverapi.ToolCall, finishReason string) {
 	// time to first token delay
-	ttft := s.getTimeToFirstToken(context.nPromptTokens, context.nCachedPromptTokens, context.doRemotePrefill)
+	ttft := s.getWaitTimeToFirstToken(context.nPromptTokens, context.nCachedPromptTokens, context.doRemotePrefill)
 	time.Sleep(time.Duration(ttft) * time.Millisecond)
 
 	for i, token := range genTokens {
