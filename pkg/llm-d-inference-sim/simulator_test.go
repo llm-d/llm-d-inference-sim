@@ -1080,67 +1080,69 @@ var _ = Describe("Simulator", func() {
 		})
 	})
 
-	It("Should return correct response to /tokenize chat", func() {
-		ctx := context.TODO()
-		tmpDir := "./tmp/"
-		//nolint
-		defer os.RemoveAll(tmpDir)
-		args := []string{"cmd", "--model", qwenModelName, "--mode", common.ModeRandom,
-			"--tokenizers-cache-dir", tmpDir}
-		client, err := startServerWithArgs(ctx, common.ModeRandom, args, nil)
-		Expect(err).NotTo(HaveOccurred())
+	Context("tokenize", Ordered, func() {
+		tmpDir := "./tests-tmp/"
+		AfterAll(func() {
+			err := os.RemoveAll(tmpDir)
+			Expect(err).NotTo(HaveOccurred())
+		})
 
-		reqBody := `{
+		It("Should return correct response to /tokenize chat", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", qwenModelName, "--mode", common.ModeRandom,
+				"--tokenizers-cache-dir", tmpDir, "--max-model-len", "2048"}
+			client, err := startServerWithArgs(ctx, common.ModeRandom, args, nil)
+			Expect(err).NotTo(HaveOccurred())
+
+			reqBody := `{
 				"messages": [{"role": "user", "content": "This is a test"}],
 				"model": "Qwen/Qwen2-0.5B"
 			}`
-		resp, err := client.Post("http://localhost/tokenize", "application/json", strings.NewReader(reqBody))
-		Expect(err).NotTo(HaveOccurred())
-		defer func() {
-			err := resp.Body.Close()
+			resp, err := client.Post("http://localhost/tokenize", "application/json", strings.NewReader(reqBody))
 			Expect(err).NotTo(HaveOccurred())
-		}()
+			defer func() {
+				err := resp.Body.Close()
+				Expect(err).NotTo(HaveOccurred())
+			}()
 
-		body, err := io.ReadAll(resp.Body)
-		Expect(err).NotTo(HaveOccurred())
+			body, err := io.ReadAll(resp.Body)
+			Expect(err).NotTo(HaveOccurred())
 
-		var tokenizeResp vllmapi.TokenizeResponse
-		err = json.Unmarshal(body, &tokenizeResp)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(tokenizeResp.Count).To(Equal(4))
-		Expect(tokenizeResp.Tokens).To(HaveLen(4))
-		Expect(tokenizeResp.MaxModelLen).To(Equal(1024))
-	})
+			var tokenizeResp vllmapi.TokenizeResponse
+			err = json.Unmarshal(body, &tokenizeResp)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(tokenizeResp.Count).To(Equal(4))
+			Expect(tokenizeResp.Tokens).To(HaveLen(4))
+			Expect(tokenizeResp.MaxModelLen).To(Equal(2048))
+		})
 
-	It("Should return correct response to /tokenize text", func() {
-		ctx := context.TODO()
-		tmpDir := "./tmp/"
-		//nolint
-		defer os.RemoveAll(tmpDir)
-		args := []string{"cmd", "--model", qwenModelName, "--mode", common.ModeRandom,
-			"--tokenizers-cache-dir", tmpDir}
-		client, err := startServerWithArgs(ctx, common.ModeRandom, args, nil)
-		Expect(err).NotTo(HaveOccurred())
+		It("Should return correct response to /tokenize text", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", qwenModelName, "--mode", common.ModeRandom,
+				"--tokenizers-cache-dir", tmpDir, "--max-model-len", "2048"}
+			client, err := startServerWithArgs(ctx, common.ModeRandom, args, nil)
+			Expect(err).NotTo(HaveOccurred())
 
-		reqBody := `{
+			reqBody := `{
 				"prompt": "This is a test",
 				"model": "Qwen/Qwen2-0.5B"
 			}`
-		resp, err := client.Post("http://localhost/tokenize", "application/json", strings.NewReader(reqBody))
-		Expect(err).NotTo(HaveOccurred())
-		defer func() {
-			err := resp.Body.Close()
+			resp, err := client.Post("http://localhost/tokenize", "application/json", strings.NewReader(reqBody))
 			Expect(err).NotTo(HaveOccurred())
-		}()
+			defer func() {
+				err := resp.Body.Close()
+				Expect(err).NotTo(HaveOccurred())
+			}()
 
-		body, err := io.ReadAll(resp.Body)
-		Expect(err).NotTo(HaveOccurred())
+			body, err := io.ReadAll(resp.Body)
+			Expect(err).NotTo(HaveOccurred())
 
-		var tokenizeResp vllmapi.TokenizeResponse
-		err = json.Unmarshal(body, &tokenizeResp)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(tokenizeResp.Count).To(Equal(4))
-		Expect(tokenizeResp.Tokens).To(HaveLen(4))
-		Expect(tokenizeResp.MaxModelLen).To(Equal(1024))
+			var tokenizeResp vllmapi.TokenizeResponse
+			err = json.Unmarshal(body, &tokenizeResp)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(tokenizeResp.Count).To(Equal(4))
+			Expect(tokenizeResp.Tokens).To(HaveLen(4))
+			Expect(tokenizeResp.MaxModelLen).To(Equal(2048))
+		})
 	})
 })
