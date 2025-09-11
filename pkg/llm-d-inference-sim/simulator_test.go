@@ -426,7 +426,7 @@ var _ = Describe("Simulator", func() {
 
 	Context("namespace and pod headers", func() {
 		It("Should not include namespace and pod headers in chat completion response when env is not set", func() {
-			_, httpResp := sendSimpleChatRequest(nil, false)
+			httpResp := sendSimpleChatRequest(nil, false)
 
 			// Check for namespace and pod headers
 			namespaceHeader := httpResp.Header.Get(namespaceHeader)
@@ -443,7 +443,7 @@ var _ = Describe("Simulator", func() {
 				podNameEnv: testPod,
 				podNsEnv:   testNamespace,
 			}
-			_, httpResp := sendSimpleChatRequest(envs, false)
+			httpResp := sendSimpleChatRequest(envs, false)
 
 			// Check for namespace and pod headers
 			namespaceHeader := httpResp.Header.Get(namespaceHeader)
@@ -460,7 +460,7 @@ var _ = Describe("Simulator", func() {
 				podNameEnv: testPod,
 				podNsEnv:   testNamespace,
 			}
-			_, httpResp := sendSimpleChatRequest(envs, true)
+			httpResp := sendSimpleChatRequest(envs, true)
 
 			// Check for namespace and pod headers
 			namespaceHeader := httpResp.Header.Get(namespaceHeader)
@@ -471,7 +471,7 @@ var _ = Describe("Simulator", func() {
 		})
 
 		It("Should not include namespace and pod headers in chat completion streaming response when env is not set", func() {
-			_, httpResp := sendSimpleChatRequest(nil, true)
+			httpResp := sendSimpleChatRequest(nil, true)
 
 			// Check for namespace and pod headers
 			namespaceHeader := httpResp.Header.Get(namespaceHeader)
@@ -661,7 +661,7 @@ var _ = Describe("Simulator", func() {
 	})
 })
 
-func sendSimpleChatRequest(envs map[string]string, streaming bool) (*openai.ChatCompletion, *http.Response) {
+func sendSimpleChatRequest(envs map[string]string, streaming bool) *http.Response {
 	ctx := context.TODO()
 
 	client, err := startServerWithArgs(ctx, common.ModeRandom, nil, envs)
@@ -689,5 +689,5 @@ func sendSimpleChatRequest(envs map[string]string, streaming bool) (*openai.Chat
 	Expect(resp.Choices).ShouldNot(BeEmpty())
 	Expect(string(resp.Object)).To(Equal(chatCompletionObject))
 
-	return resp, httpResp
+	return httpResp
 }
