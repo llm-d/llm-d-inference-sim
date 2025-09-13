@@ -29,7 +29,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/valyala/fasthttp"
 	"golang.org/x/sync/errgroup"
-	"gopkg.in/yaml.v3"
 	"k8s.io/klog/v2"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
@@ -498,89 +497,3 @@ func (s *VllmSimulator) createModelsResponse() *vllmapi.ModelsResponse {
 
 	return &modelsResp
 }
-<<<<<<< HEAD
-=======
-
-// HandleHealth http handler for /health
-func (s *VllmSimulator) HandleHealth(ctx *fasthttp.RequestCtx) {
-	s.logger.V(4).Info("health request received")
-	ctx.Response.Header.SetContentType("application/json")
-	ctx.Response.Header.SetStatusCode(fasthttp.StatusOK)
-	ctx.Response.SetBody([]byte("{}"))
-}
-
-// HandleReady http handler for /ready
-func (s *VllmSimulator) HandleReady(ctx *fasthttp.RequestCtx) {
-	s.logger.V(4).Info("readiness request received")
-	ctx.Response.Header.SetContentType("application/json")
-	ctx.Response.Header.SetStatusCode(fasthttp.StatusOK)
-	ctx.Response.SetBody([]byte("{}"))
-}
-
-// getDisplayedModelName returns the model name that must appear in API
-// responses.  LoRA adapters keep their explicit name, while all base-model
-// requests are surfaced as the first alias from --served-model-name.
-func (s *VllmSimulator) getDisplayedModelName(reqModel string) string {
-	if s.isLora(reqModel) {
-		return reqModel
-	}
-	return s.config.ServedModelNames[0]
-}
-
-func (s *VllmSimulator) showConfig(dp bool) error {
-	cfgYAML, err := yaml.Marshal(s.config)
-	if err != nil {
-		return fmt.Errorf("failed to marshal configuration to YAML: %w", err)
-	}
-
-	var m map[string]interface{}
-	err = yaml.Unmarshal(cfgYAML, &m)
-	if err != nil {
-		return fmt.Errorf("failed to unmarshal YAML to map: %w", err)
-	}
-	if dp {
-		// remove the port
-		delete(m, "port")
-	}
-	// clean LoraModulesString field
-	m["lora-modules"] = m["LoraModules"]
-	delete(m, "LoraModules")
-	delete(m, "LoraModulesString")
-
-	// clean fake-metrics field
-	if field, ok := m["fake-metrics"].(map[string]interface{}); ok {
-		delete(field, "LorasString")
-	}
-
-	// show in YAML
-	cfgYAML, err = yaml.Marshal(m)
-	if err != nil {
-		return fmt.Errorf("failed to marshal configuration to YAML: %w", err)
-	}
-	s.logger.Info("Configuration:", "", string(cfgYAML))
-	return nil
-}
-
-func (s *VllmSimulator) getCurrFactor() float64 {
-	if s.config.MaxNumSeqs <= 1 {
-		return 1.0
-	}
-	return 1 + (s.config.TimeFactorUnderLoad-1)*float64(s.nRunningReqs-1)/float64(s.config.MaxNumSeqs-1)
-}
-
-func (s *VllmSimulator) GetTimeToFirstToken() int {
-	return int(float64(s.config.TimeToFirstToken) * s.getCurrFactor())
-}
-
-func (s *VllmSimulator) GetPrefillOverhead() int {
-	return int(float64(s.config.PrefillOverhead) * s.getCurrFactor())
-}
-
-func (s *VllmSimulator) GetPrefillTimePerToken() int {
-	return int(float64(s.config.PrefillTimePerToken) * s.getCurrFactor())
-}
-
-func (s *VllmSimulator) GetInterTokenLatency() int {
-	return int(float64(s.config.InterTokenLatency) * s.getCurrFactor())
-}
->>>>>>> 482434e (Show config in yaml)

@@ -181,6 +181,19 @@ type Configuration struct {
 	SSLKeyFile string `yaml:"ssl-keyfile" json:"ssl-keyfile"`
 	// SelfSignedCerts enables automatic generation of self-signed certificates for HTTPS
 	SelfSignedCerts bool `yaml:"self-signed-certs" json:"self-signed-certs"`
+	// Dataset configuration for response generation from a dataset. sqlite db file is expected.
+	Dataset Dataset
+}
+
+type Dataset struct {
+	// Path is the local path to the sqlite db file, default is empty
+	// when path is empty Url will be checked
+	Path string `yaml:"path" json:"path"`
+	// Url is the URL to download the sqlite db file if set, default is empty
+	Url string `yaml:"url" json:"url"`
+	// SavePath is the local path to save the downloaded sqlite db file
+	// if Url is set but SavePath is not, "~/.llmd/dataset.db" will be used
+	SavePath string `yaml:"save-path" json:"save-path"`
 }
 
 type Metrics struct {
