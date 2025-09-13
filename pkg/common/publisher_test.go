@@ -20,8 +20,6 @@ import (
 	"context"
 	"encoding/binary"
 
-	"time"
-
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	zmq "github.com/pebbe/zmq4"
@@ -50,7 +48,7 @@ var _ = Describe("Publisher", func() {
 		//nolint
 		defer sub.Close()
 
-		time.Sleep(100 * time.Millisecond)
+		SleepMilliSec(100)
 
 		pub, err := NewPublisher(endpoint, retries)
 		Expect(err).NotTo(HaveOccurred())
@@ -60,7 +58,7 @@ var _ = Describe("Publisher", func() {
 
 		go func() {
 			// Make sure that sub.RecvMessageBytes is called before pub.PublishEvent
-			time.Sleep(time.Second)
+			SleepSec(1)
 			err := pub.PublishEvent(ctx, topic, data)
 			Expect(err).NotTo(HaveOccurred())
 		}()
@@ -107,12 +105,12 @@ var _ = Describe("Publisher", func() {
 		// This will trigger the retry mechanism
 		go func(sub *zmq.Socket, endpoint string) {
 			// Delay releasing the ephemeral addr
-			time.Sleep(1950 * time.Millisecond)
+			SleepMilliSec(1950)
 			err := sub.Close()
 			Expect(err).NotTo(HaveOccurred())
 
 			// Delay starting the server to simulate service recovery
-			time.Sleep(2 * time.Second)
+			SleepSec(2)
 
 			// Start subscriber as server
 			sub, err = zmq.NewSocket(zmq.SUB)

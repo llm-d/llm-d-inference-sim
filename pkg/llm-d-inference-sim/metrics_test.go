@@ -99,7 +99,7 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 			defer wg.Done()
 			defer GinkgoRecover()
 
-			time.Sleep(300 * time.Millisecond)
+			common.SleepMilliSec(300)
 			metricsResp, err := client.Get(metricsUrl)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
@@ -187,13 +187,13 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 		// sends three requests with a delay of 0.5 second between them
 		// request1 for lora1, request2 for lora2, and request 3 for lora1
 		go func() {
-			time.Sleep(500 * time.Millisecond)
+			common.SleepMilliSec(500)
 			defer GinkgoRecover()
 			_, err := openaiclient.Chat.Completions.New(ctx, paramsLora2)
 			Expect(err).NotTo(HaveOccurred())
 		}()
 		go func() {
-			time.Sleep(1 * time.Second)
+			common.SleepSec(1)
 			defer wg.Done()
 			defer GinkgoRecover()
 			_, err := openaiclient.Chat.Completions.New(ctx, paramsLora1)

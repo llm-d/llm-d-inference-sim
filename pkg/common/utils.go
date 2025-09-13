@@ -23,6 +23,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -382,4 +383,19 @@ func init() {
 
 func Tokenize(text string) []string {
 	return re.FindAllString(text, -1)
+}
+
+// SleepSec sleep seconds, the only param, duration, is the second(s) to sleep
+func SleepSec(duration int) {
+	time.Sleep(time.Duration(duration) * time.Second)
+}
+
+// SleepMilliSec sleep milliseconds, the only param, duration, is the millisecond(s) to sleep
+func SleepMilliSec(duration int) {
+	time.Sleep(time.Duration(duration) * time.Millisecond)
+}
+
+// SleepMicroSec sleep microseconds, the only param, duration, is the microsecond(s) to sleep
+func SleepMicroSec(duration int) {
+	time.Sleep(time.Duration(duration) * time.Microsecond)
 }
