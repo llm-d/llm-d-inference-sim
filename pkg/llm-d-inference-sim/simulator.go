@@ -34,6 +34,7 @@ import (
 	"github.com/valyala/fasthttp"
 	"github.com/valyala/fasthttp/fasthttpadaptor"
 	"golang.org/x/sync/errgroup"
+	"gopkg.in/yaml.v3"
 	"k8s.io/klog/v2"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
@@ -847,15 +848,15 @@ func (s *VllmSimulator) getDisplayedModelName(reqModel string) string {
 }
 
 func (s *VllmSimulator) showConfig(dp bool) error {
-	cfgJSON, err := json.Marshal(s.config)
+	cfgYAML, err := yaml.Marshal(s.config)
 	if err != nil {
-		return fmt.Errorf("failed to marshal configuration to JSON: %w", err)
+		return fmt.Errorf("failed to marshal configuration to YAML: %w", err)
 	}
 
 	var m map[string]interface{}
-	err = json.Unmarshal(cfgJSON, &m)
+	err = yaml.Unmarshal(cfgYAML, &m)
 	if err != nil {
-		return fmt.Errorf("failed to unmarshal JSON to map: %w", err)
+		return fmt.Errorf("failed to unmarshal YAML to map: %w", err)
 	}
 	if dp {
 		// remove the port
@@ -871,12 +872,12 @@ func (s *VllmSimulator) showConfig(dp bool) error {
 		delete(field, "LorasString")
 	}
 
-	// show in JSON
-	cfgJSON, err = json.MarshalIndent(m, "", "  ")
+	// show in YAML
+	cfgYAML, err = yaml.Marshal(m)
 	if err != nil {
-		return fmt.Errorf("failed to marshal configuration to JSON: %w", err)
+		return fmt.Errorf("failed to marshal configuration to YAML: %w", err)
 	}
-	s.logger.Info("Configuration:", "", string(cfgJSON))
+	s.logger.Info("Configuration:", "", string(cfgYAML))
 	return nil
 }
 
