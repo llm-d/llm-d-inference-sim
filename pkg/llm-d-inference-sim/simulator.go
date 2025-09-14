@@ -154,14 +154,18 @@ func (s *VllmSimulator) Start(ctx context.Context) error {
 		return err
 	}
 
-	dataset := &Dataset{
-		logger: s.logger,
+	if s.config.Dataset.Path == "" && s.config.Dataset.Url == "" && s.config.Dataset.SavePath == "" {
+		s.dataset = nil
+	} else {
+		dataset := &Dataset{
+			logger: s.logger,
+		}
+		err = dataset.Init(s.config.Dataset.Path, s.config.Dataset.Url, s.config.Dataset.SavePath)
+		if err != nil {
+			return err
+		}
+		s.dataset = dataset
 	}
-	err = dataset.Init(s.config.Dataset.Path, s.config.Dataset.Url, s.config.Dataset.SavePath)
-	if err != nil {
-		return err
-	}
-	s.dataset = dataset
 
 	// For Data Parallel, start data-parallel-size - 1 additional simulators
 	g, ctx := errgroup.WithContext(ctx)
