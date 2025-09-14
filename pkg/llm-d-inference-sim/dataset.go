@@ -38,6 +38,17 @@ type Dataset struct {
 	logger logr.Logger
 }
 
+// use constants for expected column names and types
+const (
+	tableName         = "llmd"
+	promptHashCol     = "prompt_hash"
+	genTokensCol      = "gen_tokens"
+	nGenTokensCol     = "n_gen_tokens"
+	promptHashColType = "BLOB"
+	genTokensColType  = "JSON"
+	nGenTokensColType = "INTEGER"
+)
+
 func (d *Dataset) downloadDataset(url string, savePath string) error {
 	// Set up signal handling for Ctrl+C (SIGINT)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -169,7 +180,73 @@ func (pr *progressReader) logProgress(pct int) {
 	}
 }
 
+func (d *Dataset) verifyDB() error {
+	rows, err := d.db.Query("PRAGMA table_info(" + tableName + ");")
+	if err != nil {
+		return fmt.Errorf("failed to query table info for `%s`: %w", tableName, err)
+	}
+	defer func() {
+		if cerr := rows.Close(); cerr != nil {
+			d.logger.Error(cerr, "failed to close rows after querying table info")
+		}
+	}()
+
+	expectedColumns := map[string]string{
+		promptHashCol: promptHashColType,
+		genTokensCol:  genTokensColType,
+		nGenTokensCol: nGenTokensColType,
+	}
+
+	columnsFound := make(map[string]bool)
+
+	var (
+		columnName string
+		columnType string
+		cid        int
+		notnull    int
+		dfltValue  interface{}
+		pk         int
+	)
+
+	for rows.Next() {
+		err := rows.Scan(&cid, &columnName, &columnType, &notnull, &dfltValue, &pk)
+		if err != nil {
+			return fmt.Errorf("failed to scan table info row: %w", err)
+		}
+		if expectedType, exists := expectedColumns[columnName]; exists {
+			if columnType != expectedType {
+				return fmt.Errorf("column %s has incorrect type: expected %s, got %s", columnName, expectedType, columnType)
+			}
+			columnsFound[columnName] = true
+		}
+	}
+
+	for col := range expectedColumns {
+		if !columnsFound[col] {
+			return fmt.Errorf("missing expected column in %s table: %s", tableName, col)
+		}
+	}
+
+	return nil
+}
+
+func (d *Dataset) getRecordsCount() (int, error) {
+	var count int
+	err := d.db.QueryRow("SELECT COUNT(" + promptHashCol + ") FROM " + tableName + ";").Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("failed to query database: %w", err)
+	}
+	return count, nil
+}
+
 func (d *Dataset) connectToDB(path string) error {
+	if d.db != nil {
+		err := d.db.Close()
+		if err != nil {
+			d.logger.Error(err, "failed to close existing database connection")
+		}
+		d.db = nil
+	}
 	// check if file exists
 	_, err := os.Stat(path)
 	if err != nil {
@@ -180,13 +257,15 @@ func (d *Dataset) connectToDB(path string) error {
 		return fmt.Errorf("failed to open database: %w", err)
 	}
 
-	var count int
-	err = d.db.QueryRow("SELECT COUNT(generated) FROM llmd;").Scan(&count)
+	err = d.verifyDB()
+
 	if err != nil {
-		err := d.db.Close()
-		if err != nil {
-			d.logger.Error(err, "failed to close database after query failure")
-		}
+		return fmt.Errorf("failed to verify database: %w", err)
+	}
+
+	count, err := d.getRecordsCount()
+	if err != nil {
+		d.logger.Error(err, "failed to get records count")
 		return fmt.Errorf("failed to query database: %w", err)
 	}
 	d.logger.Info("Database connected successfully", "path", path, "records count", count)
