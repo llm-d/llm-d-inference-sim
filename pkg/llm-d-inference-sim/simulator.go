@@ -116,7 +116,7 @@ type VllmSimulator struct {
 	// tokenizer is currently used in kv-cache and in /tokenize
 	tokenizer tokenization.Tokenizer
 	// dataset is used for managing dataset files
-	dataset *Dataset
+	dataset *common.Dataset
 }
 
 // New creates a new VllmSimulator instance with the given logger
@@ -219,8 +219,8 @@ func (s *VllmSimulator) startSim(ctx context.Context) error {
 		s.dataset = nil
 		s.logger.Info("No dataset provided, will generate random responses")
 	} else {
-		dataset := &Dataset{
-			logger: s.logger,
+		dataset := &common.Dataset{
+			Logger: s.logger,
 		}
 		err = dataset.Init(s.config.Dataset.Path, s.config.Dataset.Url, s.config.Dataset.SavePath)
 		if err != nil {

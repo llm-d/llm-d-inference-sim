@@ -146,7 +146,7 @@ func GetRandomText(numOfTokens int) string {
 // - finish reason is stop
 // if ignore_eos is true - the response will be generated with exactly maxCompletionTokens tokens
 // - request was validated so that when ignore_eos is true, maxCompletionTokens must be defined
-func GetRandomTokens(maxCompletionTokens *int64, ignore_eos bool) ([]string, string) {
+func GetRandomTokens(maxCompletionTokens *int64, ignore_eos bool, dataset *Dataset) ([]string, string) {
 	numOfTokens := 0
 	finishReason := StopFinishReason
 
@@ -260,9 +260,9 @@ func calcBucketBoundaries(maxTokens int, bucketIndex int) (start int, end int) {
 	return start, end
 }
 
-// GetResponseTokens returns needed tokens, from a given text
+// EchoResponseTokens returns needed tokens, from a given text
 // considering max completion tokens if it is not nil, and a finish reason (stop or length)
-func GetResponseTokens(maxCompletionTokens *int64, text string) ([]string, string) {
+func EchoResponseTokens(maxCompletionTokens *int64, text string) ([]string, string) {
 	tokens := Tokenize(text)
 	// no max completion tokens, return entire text
 	if maxCompletionTokens == nil {

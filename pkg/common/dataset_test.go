@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package llmdinferencesim
+package common
 
 import (
 	"encoding/json"
@@ -42,7 +42,7 @@ var _ = Describe("Dataset", func() {
 
 	BeforeEach(func() {
 		dataset = &Dataset{
-			logger: logr.Discard(),
+			Logger: logr.Discard(),
 		}
 		file_folder = ".llm-d"
 		savePath = file_folder + "/test.sqlite3"

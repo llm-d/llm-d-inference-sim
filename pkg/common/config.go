@@ -182,10 +182,10 @@ type Configuration struct {
 	// SelfSignedCerts enables automatic generation of self-signed certificates for HTTPS
 	SelfSignedCerts bool `yaml:"self-signed-certs" json:"self-signed-certs"`
 	// Dataset configuration for response generation from a dataset. sqlite db file is expected.
-	Dataset Dataset
+	Dataset DatasetConf
 }
 
-type Dataset struct {
+type DatasetConf struct {
 	// Path is the local path to the sqlite db file, default is empty
 	// when path is empty Url will be checked
 	Path string `yaml:"path" json:"path"`
