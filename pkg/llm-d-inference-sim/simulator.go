@@ -115,6 +115,8 @@ type VllmSimulator struct {
 	pod string
 	// tokenizer is currently used in kv-cache and in /tokenize
 	tokenizer tokenization.Tokenizer
+	// dataset is used for managing dataset files
+	dataset *Dataset
 }
 
 // New creates a new VllmSimulator instance with the given logger
@@ -151,6 +153,15 @@ func (s *VllmSimulator) Start(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+
+	dataset := &Dataset{
+		logger: s.logger,
+	}
+	err = dataset.Init(s.config.Dataset.Path, s.config.Dataset.Url, s.config.Dataset.SavePath)
+	if err != nil {
+		return err
+	}
+	s.dataset = dataset
 
 	// For Data Parallel, start data-parallel-size - 1 additional simulators
 	g, ctx := errgroup.WithContext(ctx)

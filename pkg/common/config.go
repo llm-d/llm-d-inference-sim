@@ -192,7 +192,7 @@ type Dataset struct {
 	// Url is the URL to download the sqlite db file if set, default is empty
 	Url string `yaml:"url" json:"url"`
 	// SavePath is the local path to save the downloaded sqlite db file
-	// if Url is set but SavePath is not, "~/.llmd/dataset.db" will be used
+	// if Url is set but SavePath is not, "USER_HOME/.llm-d/dataset.db" will be used
 	SavePath string `yaml:"save-path" json:"save-path"`
 }
 
