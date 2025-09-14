@@ -17,7 +17,6 @@ limitations under the License.
 package common
 
 import (
-	"fmt"
 	"math"
 	"math/rand"
 	"regexp"
@@ -71,26 +70,6 @@ func init() {
 		sum += val
 		cumulativeBucketsProbabilities[i] = sum
 	}
-}
-
-// returns the max tokens or error if incorrect
-func GetMaxTokens(maxCompletionTokens *int64, maxTokens *int64) (*int64, error) {
-	var typeToken string
-	var tokens *int64
-	// if both arguments are passed,
-	// use maxCompletionTokens
-	// as in the real vllm
-	if maxCompletionTokens != nil {
-		tokens = maxCompletionTokens
-		typeToken = "max_completion_tokens"
-	} else if maxTokens != nil {
-		tokens = maxTokens
-		typeToken = "max_tokens"
-	}
-	if tokens != nil && *tokens < 1 {
-		return nil, fmt.Errorf("%s must be at least 1, got %d", typeToken, *tokens)
-	}
-	return tokens, nil
 }
 
 // ValidateContextWindow checks if the request fits within the model's context window
@@ -157,7 +136,7 @@ func GetRandomText(numOfTokens int) string {
 	return strings.Join(allTokens, "")
 }
 
-// GetRandomResponseText generates text to be returned in a response, and the finish reason (stop or length)
+// GetRandomTokens generates tokens to be returned in a response, and the finish reason (stop or length)
 // if maxCompletionTokens is defined
 // - currently, the generated number of words in the text will be equal to it value
 // - in future - need to find statistics about generated tokens distribution and return less tokens in part os requests
@@ -167,7 +146,7 @@ func GetRandomText(numOfTokens int) string {
 // - finish reason is stop
 // if ignore_eos is true - the response will be generated with exactly maxCompletionTokens tokens
 // - request was validated so that when ignore_eos is true, maxCompletionTokens must be defined
-func GetRandomResponseText(maxCompletionTokens *int64, ignore_eos bool) (string, string) {
+func GetRandomTokens(maxCompletionTokens *int64, ignore_eos bool) ([]string, string) {
 	numOfTokens := 0
 	finishReason := StopFinishReason
 
@@ -189,8 +168,7 @@ func GetRandomResponseText(maxCompletionTokens *int64, ignore_eos bool) (string,
 		}
 	}
 
-	text := GetRandomText(numOfTokens)
-	return text, finishReason
+	return Tokenize(GetRandomText(numOfTokens)), finishReason
 }
 
 // getResponseLengthByHistogram calculates the number of tokens to be returned in a response based on the max tokens value and the pre-defined buckets.
@@ -282,23 +260,20 @@ func calcBucketBoundaries(maxTokens int, bucketIndex int) (start int, end int) {
 	return start, end
 }
 
-// GetResponseText returns response text, from a given text
+// GetResponseTokens returns needed tokens, from a given text
 // considering max completion tokens if it is not nil, and a finish reason (stop or length)
-func GetResponseText(maxCompletionTokens *int64, text string) (string, string) {
+func GetResponseTokens(maxCompletionTokens *int64, text string) ([]string, string) {
+	tokens := Tokenize(text)
 	// no max completion tokens, return entire text
 	if maxCompletionTokens == nil {
-		return text, StopFinishReason
+		return tokens, StopFinishReason
 	}
 
-	// create tokens from text, splitting by spaces
-	tokens := Tokenize(text)
-
-	// return entire text
 	if *maxCompletionTokens >= int64(len(tokens)) {
-		return text, StopFinishReason
+		return tokens, StopFinishReason
 	}
 	// return truncated text
-	return strings.Join(tokens[0:*maxCompletionTokens], " "), LengthFinishReason
+	return tokens[0:*maxCompletionTokens], LengthFinishReason
 }
 
 func RandomNumericString(length int) string {
