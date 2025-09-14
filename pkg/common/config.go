@@ -176,10 +176,10 @@ type Configuration struct {
 	DPSize int `yaml:"data-parallel-size" json:"data-parallel-size"`
 
 	// Dataset configuration for response generation from a dataset. sqlite db file is expected.
-	Dataset Dataset
+	Dataset DatasetConf
 }
 
-type Dataset struct {
+type DatasetConf struct {
 	// Path is the local path to the sqlite db file, default is empty
 	// when path is empty Url will be checked
 	Path string `yaml:"path" json:"path"`

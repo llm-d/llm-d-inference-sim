@@ -7,5 +7,5 @@ vendor
 .DS_Store
 *.test
 manifests/dev-config.yaml
-pkg/llm-d-inference-sim/.llm-d
+pkg/common/.llm-d
 pkg/llm-d-inference-sim/tests-tmp/

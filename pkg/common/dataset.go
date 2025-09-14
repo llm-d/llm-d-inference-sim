@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package llmdinferencesim
+package common
 
 import (
 	"context"
@@ -35,7 +35,7 @@ import (
 
 type Dataset struct {
 	db     *sql.DB
-	logger logr.Logger
+	Logger logr.Logger
 }
 
 // use constants for expected column names and types
@@ -60,7 +60,7 @@ func (d *Dataset) downloadDataset(url string, savePath string) error {
 	// Goroutine to listen for signal
 	go func() {
 		<-sigs
-		d.logger.Info("Interrupt signal received, cancelling download...")
+		d.Logger.Info("Interrupt signal received, cancelling download...")
 		cancel()
 	}()
 
@@ -71,7 +71,7 @@ func (d *Dataset) downloadDataset(url string, savePath string) error {
 	defer func() {
 		cerr := out.Close()
 		if cerr != nil {
-			d.logger.Error(cerr, "failed to close file after download")
+			d.Logger.Error(cerr, "failed to close file after download")
 		}
 	}()
 
@@ -82,7 +82,7 @@ func (d *Dataset) downloadDataset(url string, savePath string) error {
 	defer func() {
 		cerr := resp.Body.Close()
 		if cerr != nil {
-			d.logger.Error(cerr, "failed to close response body after download")
+			d.Logger.Error(cerr, "failed to close response body after download")
 		}
 	}()
 
@@ -94,7 +94,7 @@ func (d *Dataset) downloadDataset(url string, savePath string) error {
 	pr := &progressReader{
 		Reader:        resp.Body,
 		total:         resp.ContentLength,
-		logger:        d.logger,
+		logger:        d.Logger,
 		ctx:           ctx,
 		startTime:     time.Now(),
 		hasShownSpeed: false,
@@ -105,7 +105,7 @@ func (d *Dataset) downloadDataset(url string, savePath string) error {
 		// Remove incomplete file
 		cerr := os.Remove(savePath)
 		if cerr != nil {
-			d.logger.Error(cerr, "failed to remove incomplete file after download")
+			d.Logger.Error(cerr, "failed to remove incomplete file after download")
 		}
 		// If context was cancelled, return a specific error
 		if errors.Is(err, context.Canceled) {
@@ -117,7 +117,7 @@ func (d *Dataset) downloadDataset(url string, savePath string) error {
 	if written == 0 {
 		cerr := os.Remove(savePath)
 		if cerr != nil {
-			d.logger.Error(cerr, "failed to remove empty file after download")
+			d.Logger.Error(cerr, "failed to remove empty file after download")
 		}
 		return errors.New("downloaded file is empty")
 	}
@@ -126,7 +126,7 @@ func (d *Dataset) downloadDataset(url string, savePath string) error {
 	if err := out.Sync(); err != nil {
 		cerr := os.Remove(savePath)
 		if cerr != nil {
-			d.logger.Error(cerr, "failed to remove incomplete file after download")
+			d.Logger.Error(cerr, "failed to remove incomplete file after download")
 		}
 		return fmt.Errorf("failed to sync file: %w", err)
 	}
@@ -187,7 +187,7 @@ func (d *Dataset) verifyDB() error {
 	}
 	defer func() {
 		if cerr := rows.Close(); cerr != nil {
-			d.logger.Error(cerr, "failed to close rows after querying table info")
+			d.Logger.Error(cerr, "failed to close rows after querying table info")
 		}
 	}()
 
@@ -243,7 +243,7 @@ func (d *Dataset) connectToDB(path string) error {
 	if d.db != nil {
 		err := d.db.Close()
 		if err != nil {
-			d.logger.Error(err, "failed to close existing database connection")
+			d.Logger.Error(err, "failed to close existing database connection")
 		}
 		d.db = nil
 	}
@@ -265,10 +265,10 @@ func (d *Dataset) connectToDB(path string) error {
 
 	count, err := d.getRecordsCount()
 	if err != nil {
-		d.logger.Error(err, "failed to get records count")
+		d.Logger.Error(err, "failed to get records count")
 		return fmt.Errorf("failed to query database: %w", err)
 	}
-	d.logger.Info("Database connected successfully", "path", path, "records count", count)
+	d.Logger.Info("Database connected successfully", "path", path, "records count", count)
 
 	return nil
 }
@@ -294,13 +294,13 @@ func (d *Dataset) Init(path string, url string, savePath string) error {
 			if err != nil {
 				return fmt.Errorf("failed to create parent directory: %w", err)
 			}
-			d.logger.Info("Downloading dataset from URL", "url", url, "to", savePath)
+			d.Logger.Info("Downloading dataset from URL", "url", url, "to", savePath)
 			err = d.downloadDataset(url, savePath)
 			if err != nil {
 				return fmt.Errorf("failed to download dataset: %w", err)
 			}
 		}
-		d.logger.Info("Using dataset from", "path", savePath)
+		d.Logger.Info("Using dataset from", "path", savePath)
 
 		return d.connectToDB(savePath)
 	}

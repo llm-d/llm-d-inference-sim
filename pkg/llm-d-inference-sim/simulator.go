@@ -117,7 +117,7 @@ type VllmSimulator struct {
 	// tokenizer is currently used in kv-cache and in /tokenize
 	tokenizer tokenization.Tokenizer
 	// dataset is used for managing dataset files
-	dataset *Dataset
+	dataset *common.Dataset
 }
 
 // New creates a new VllmSimulator instance with the given logger
@@ -220,8 +220,8 @@ func (s *VllmSimulator) startSim(ctx context.Context) error {
 		s.dataset = nil
 		s.logger.Info("No dataset provided, will generate random responses")
 	} else {
-		dataset := &Dataset{
-			logger: s.logger,
+		dataset := &common.Dataset{
+			Logger: s.logger,
 		}
 		err = dataset.Init(s.config.Dataset.Path, s.config.Dataset.Url, s.config.Dataset.SavePath)
 		if err != nil {
@@ -618,10 +618,10 @@ func (s *VllmSimulator) generateTokens(req openaiserverapi.CompletionRequest) ([
 	var finishReason string
 	var tokens []string
 	if s.config.Mode == common.ModeEcho {
-		tokens, finishReason = common.GetResponseTokens(maxTokens, prompt)
+		tokens, finishReason = common.EchoResponseTokens(maxTokens, prompt)
 		return tokens, finishReason, len(tokens), nil
 	}
-	tokens, finishReason = common.GetRandomTokens(maxTokens, ignoreEOS)
+	tokens, finishReason = common.GetRandomTokens(maxTokens, ignoreEOS, s.dataset)
 	return tokens, finishReason, len(tokens), nil
 }
 >>>>>>> 48ec8bc (Move token generation to simulator)
