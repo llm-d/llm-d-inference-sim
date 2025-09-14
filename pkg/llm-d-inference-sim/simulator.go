@@ -338,7 +338,7 @@ func (s *VllmSimulator) reqProcessingWorker(ctx context.Context, id int) {
 			if toolCalls == nil && err == nil {
 				// Either no tool calls were defined, or we randomly chose not to create tool calls,
 				// so we generate a response text.
-				responseTokens, finishReason, completionTokens, err = req.CreateResponseText(s.config.Mode)
+				responseTokens, finishReason, completionTokens, err = s.generateTokens(req)
 			}
 			if err != nil {
 				prefix := ""
