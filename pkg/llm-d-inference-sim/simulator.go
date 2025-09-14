@@ -339,7 +339,7 @@ func (s *VllmSimulator) reqProcessingWorker(ctx context.Context, id int) {
 			if toolCalls == nil && err == nil {
 				// Either no tool calls were defined, or we randomly chose not to create tool calls,
 				// so we generate a response text.
-				responseTokens, finishReason, completionTokens, err = req.CreateResponseText(s.config.Mode)
+				responseTokens, finishReason, completionTokens, err = s.generateTokens(req)
 			}
 			if err != nil {
 				prefix := ""
@@ -514,8 +514,6 @@ func (s *VllmSimulator) createModelsResponse() *vllmapi.ModelsResponse {
 
 	return &modelsResp
 }
-<<<<<<< HEAD
-=======
 
 // HandleHealth http handler for /health
 func (s *VllmSimulator) HandleHealth(ctx *fasthttp.RequestCtx) {
@@ -599,4 +597,38 @@ func (s *VllmSimulator) GetPrefillTimePerToken() int {
 func (s *VllmSimulator) GetInterTokenLatency() int {
 	return int(float64(s.config.InterTokenLatency) * s.getCurrFactor())
 }
->>>>>>> 482434e (Show config in yaml)
+
+// generateTokens creates and returns response payload based on this request,
+// i.e., an array of generated tokens, the finish reason, and the number of created tokens
+func (s *VllmSimulator) generateTokens(req openaiserverapi.CompletionRequest) ([]string, string, int, error) {
+	// if req is ChatCompletionRequest
+	ignoreEOS := req.GetIgnoreEOS()
+	var maxTokens *int64
+	var prompt string
+
+	if chatReq, ok := req.(*openaiserverapi.ChatCompletionRequest); ok {
+		maxTokens = chatReq.GetMaxCompletionTokens()
+		prompt = chatReq.GetLastUserMsg()
+	} else if textReq, ok := req.(*openaiserverapi.TextCompletionRequest); ok {
+		maxTokens = textReq.MaxTokens
+		prompt = textReq.GetPrompt()
+	} else {
+		return nil, "", 0, fmt.Errorf("unknown request type: %T", req)
+	}
+
+	maxTokensValue, err := common.GetMaxTokens(nil, maxTokens)
+	if err != nil {
+		return nil, "", 0, err
+	}
+
+	var text, finishReason string
+	if s.config.Mode == common.ModeEcho {
+		text, finishReason = common.GetResponseText(maxTokensValue, prompt)
+	} else {
+		text, finishReason = common.GetRandomResponseText(maxTokensValue, ignoreEOS)
+	}
+
+	tokens := common.Tokenize(text)
+	return tokens, finishReason, len(tokens), nil
+}
+>>>>>>> 48ec8bc (Move token generation to simulator)

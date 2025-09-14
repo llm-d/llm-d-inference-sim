@@ -33,10 +33,6 @@ const (
 type CompletionRequest interface {
 	// GetRequestID returns the unique request id
 	GetRequestID() string
-	// CreateResponseText creates and returns response payload based on this request,
-	// i.e., an array of generated tokens, the finish reason, and the number of created
-	// tokens
-	CreateResponseText(mode string) ([]string, string, int, error)
 	// IsStream returns boolean that defines is response should be streamed
 	IsStream() bool
 	// GetModel returns model name as defined in the request
@@ -230,7 +226,7 @@ func (c *ChatCompletionRequest) GetMaxCompletionTokens() *int64 {
 
 // getLastUserMsg returns last message from this request's messages with user role,
 // if does not exist - returns an empty string
-func (req *ChatCompletionRequest) getLastUserMsg() string {
+func (req *ChatCompletionRequest) GetLastUserMsg() string {
 	for i := len(req.Messages) - 1; i >= 0; i-- {
 		if req.Messages[i].Role == RoleUser {
 			return req.Messages[i].Content.PlainText()
@@ -238,31 +234,6 @@ func (req *ChatCompletionRequest) getLastUserMsg() string {
 	}
 
 	return ""
-}
-
-// CreateResponseText creates and returns response payload based on this request,
-// i.e., an array of generated tokens, the finish reason, and the number of created
-// tokens
-func (req ChatCompletionRequest) CreateResponseText(mode string) ([]string, string, int, error) {
-	return generateResponseText(mode, req.GetMaxCompletionTokens(), req.getLastUserMsg(), req.GetIgnoreEOS())
-}
-
-// Helper function to generate response text
-func generateResponseText(mode string, maxTokens *int64, prompt string, ignoreEOS bool) ([]string, string, int, error) {
-	maxTokensValue, err := common.GetMaxTokens(nil, maxTokens)
-	if err != nil {
-		return nil, "", 0, err
-	}
-
-	var text, finishReason string
-	if mode == common.ModeEcho {
-		text, finishReason = common.GetResponseText(maxTokensValue, prompt)
-	} else {
-		text, finishReason = common.GetRandomResponseText(maxTokensValue, ignoreEOS)
-	}
-
-	tokens := common.Tokenize(text)
-	return tokens, finishReason, len(tokens), nil
 }
 
 // v1/completion
@@ -298,11 +269,4 @@ func (c *TextCompletionRequest) GetToolChoice() string {
 
 func (c *TextCompletionRequest) GetMaxCompletionTokens() *int64 {
 	return c.MaxTokens
-}
-
-// CreateResponseText creates and returns response payload based on this request,
-// i.e., an array of generated tokens, the finish reason, and the number of created
-// tokens
-func (req TextCompletionRequest) CreateResponseText(mode string) ([]string, string, int, error) {
-	return generateResponseText(mode, req.MaxTokens, req.Prompt, req.GetIgnoreEOS())
 }

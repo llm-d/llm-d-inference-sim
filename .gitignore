@@ -8,4 +8,4 @@ vendor
 *.test
 manifests/dev-config.yaml
 pkg/llm-d-inference-sim/.llm-d
-.llm-d/
+pkg/llm-d-inference-sim/tests-tmp/
