@@ -244,16 +244,21 @@ func (req *ChatCompletionRequest) getLastUserMsg() string {
 // i.e., an array of generated tokens, the finish reason, and the number of created
 // tokens
 func (req ChatCompletionRequest) CreateResponseText(mode string) ([]string, string, int, error) {
-	maxTokens, err := common.GetMaxTokens(req.MaxCompletionTokens, req.MaxTokens)
+	return generateResponseText(mode, req.GetMaxCompletionTokens(), req.getLastUserMsg(), req.GetIgnoreEOS())
+}
+
+// Helper function to generate response text
+func generateResponseText(mode string, maxTokens *int64, prompt string, ignoreEOS bool) ([]string, string, int, error) {
+	maxTokensValue, err := common.GetMaxTokens(nil, maxTokens)
 	if err != nil {
 		return nil, "", 0, err
 	}
 
 	var text, finishReason string
 	if mode == common.ModeEcho {
-		text, finishReason = common.GetResponseText(maxTokens, req.getLastUserMsg())
+		text, finishReason = common.GetResponseText(maxTokensValue, prompt)
 	} else {
-		text, finishReason = common.GetRandomResponseText(maxTokens, req.GetIgnoreEOS())
+		text, finishReason = common.GetRandomResponseText(maxTokensValue, ignoreEOS)
 	}
 
 	tokens := common.Tokenize(text)
@@ -299,18 +304,5 @@ func (c *TextCompletionRequest) GetMaxCompletionTokens() *int64 {
 // i.e., an array of generated tokens, the finish reason, and the number of created
 // tokens
 func (req TextCompletionRequest) CreateResponseText(mode string) ([]string, string, int, error) {
-	maxTokens, err := common.GetMaxTokens(nil, req.MaxTokens)
-	if err != nil {
-		return nil, "", 0, err
-	}
-
-	var text, finishReason string
-	if mode == common.ModeEcho {
-		text, finishReason = common.GetResponseText(maxTokens, req.Prompt)
-	} else {
-		text, finishReason = common.GetRandomResponseText(maxTokens, req.GetIgnoreEOS())
-	}
-
-	tokens := common.Tokenize(text)
-	return tokens, finishReason, len(tokens), nil
+	return generateResponseText(mode, req.MaxTokens, req.Prompt, req.GetIgnoreEOS())
 }

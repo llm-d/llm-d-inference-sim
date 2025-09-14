@@ -110,13 +110,13 @@ var _ = Describe("Dataset", func() {
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("database file does not exist"))
 	})
-	
+
 	It("should return error for invalid DB file", func() {
 		err := dataset.connectToDB(pathToInvalidDB)
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("file is not a database"))
 	})
-	
+
 	It("should return error for DB with invalid table", func() {
 		err := dataset.connectToDB(pathToInvalidTableDB)
 		Expect(err).To(HaveOccurred())
@@ -128,7 +128,7 @@ var _ = Describe("Dataset", func() {
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("missing expected column"))
 	})
-	
+
 	It("should return error for DB with invalid column type", func() {
 		err := dataset.connectToDB(pathToInvalidTypeDB)
 		Expect(err).To(HaveOccurred())
