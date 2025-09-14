@@ -76,20 +76,18 @@ var _ = Describe("Dataset", func() {
 		err := dataset.Init(validDBPath, "", "")
 		Expect(err).NotTo(HaveOccurred())
 
-		// read from the db to verify it's valid
-		row := dataset.db.QueryRow("SELECT * FROM t;")
+		row := dataset.db.QueryRow("SELECT generated FROM llmd WHERE prompt_hash=X'b94d27b9934d041c52e5b721d7373f13a07ed5e79179d63c5d8a0c102a9d00b2';")
 		var value string
 		err = row.Scan(&value)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(value).To(Equal("llm-d"))
+		Expect(value).To(Equal("world!"))
 	})
 
 	It("should raise err with invalid DB content", func() {
 		err := dataset.connectToDB(file_folder)
-		Expect(err).NotTo(HaveOccurred())
-
+		Expect(err).To(HaveOccurred())
 		// read from the db to verify it's not valid
-		row := dataset.db.QueryRow("SELECT * FROM t;")
+		row := dataset.db.QueryRow("SELECT * FROM llmd;")
 		var value string
 		err = row.Scan(&value)
 		Expect(err).To(HaveOccurred())

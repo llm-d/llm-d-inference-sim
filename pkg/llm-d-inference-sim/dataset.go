@@ -81,11 +81,11 @@ func (d *Dataset) downloadDataset(url string, savePath string) error {
 
 	// Progress reader with context
 	pr := &progressReader{
-		Reader:    resp.Body,
-		total:     resp.ContentLength,
-		logger:    d.logger,
-		ctx:       ctx,
-		startTime: time.Now(),
+		Reader:        resp.Body,
+		total:         resp.ContentLength,
+		logger:        d.logger,
+		ctx:           ctx,
+		startTime:     time.Now(),
 		hasShownSpeed: false,
 	}
 
@@ -126,12 +126,12 @@ func (d *Dataset) downloadDataset(url string, savePath string) error {
 // progressReader wraps an io.Reader and logs download progress.
 type progressReader struct {
 	io.Reader
-	total      int64
-	downloaded int64
-	startTime  time.Time
-	lastPct    int
-	logger     logr.Logger
-	ctx        context.Context
+	total         int64
+	downloaded    int64
+	startTime     time.Time
+	lastPct       int
+	logger        logr.Logger
+	ctx           context.Context
 	hasShownSpeed bool
 }
 
@@ -161,7 +161,7 @@ func (pr *progressReader) Read(p []byte) (int, error) {
 func (pr *progressReader) logProgress(pct int) {
 	elapsedTime := time.Since(pr.startTime).Seconds()
 	speed := float64(pr.downloaded) / (1024 * 1024 * elapsedTime)
-	remainingTime := float64(pr.total-pr.downloaded) / (float64(pr.downloaded) / elapsedTime) 
+	remainingTime := float64(pr.total-pr.downloaded) / (float64(pr.downloaded) / elapsedTime)
 	if pct != 100 {
 		pr.logger.Info(fmt.Sprintf("Download progress: %d%%, Speed: %.2f MB/s, Remaining time: %.2fs", pct, speed, remainingTime))
 	} else {
@@ -179,7 +179,17 @@ func (d *Dataset) connectToDB(path string) error {
 	if err != nil {
 		return fmt.Errorf("failed to open database: %w", err)
 	}
-	// Test the connection
+
+	var count int
+	err = d.db.QueryRow("SELECT COUNT(generated) FROM llmd;").Scan(&count)
+	if err != nil {
+		err := d.db.Close()
+		if err != nil {
+			d.logger.Error(err, "failed to close database after query failure")
+		}
+		return fmt.Errorf("failed to query database: %w", err)
+	}
+	d.logger.Info("Database connected successfully", "path", path, "records count", count)
 
 	return nil
 }
