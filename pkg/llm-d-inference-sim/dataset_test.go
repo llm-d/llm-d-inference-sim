@@ -17,6 +17,7 @@ limitations under the License.
 package llmdinferencesim
 
 import (
+	"fmt"
 	"os"
 
 	"github.com/go-logr/logr"
@@ -28,19 +29,31 @@ import (
 
 var _ = Describe("Dataset", func() {
 	var (
-		dataset     *Dataset
-		file_folder string
-		savePath    string
+		dataset               *Dataset
+		file_folder           string
+		savePath              string
+		validDBPath           string
+		pathToInvalidDB       string
+		pathNotExist          string
+		pathToInvalidTableDB  string
+		pathToInvalidColumnDB string
+		pathToInvalidTypeDB   string
 	)
 
 	BeforeEach(func() {
 		dataset = &Dataset{
 			logger: logr.Discard(),
 		}
-		file_folder = "./.llm-d"
+		file_folder = ".llm-d"
 		savePath = file_folder + "/test.sqlite3"
 		err := os.MkdirAll(file_folder, os.ModePerm)
 		Expect(err).NotTo(HaveOccurred())
+		validDBPath = file_folder + "/test.valid.sqlite3"
+		pathNotExist = file_folder + "/test.notexist.sqlite3"
+		pathToInvalidDB = file_folder + "/test.invalid.sqlite3"
+		pathToInvalidTableDB = file_folder + "/test.invalid.table.sqlite3"
+		pathToInvalidColumnDB = file_folder + "/test.invalid.column.sqlite3"
+		pathToInvalidTypeDB = file_folder + "/test.invalid.type.sqlite3"
 	})
 
 	AfterEach(func() {
@@ -72,24 +85,47 @@ var _ = Describe("Dataset", func() {
 	})
 
 	It("should successfully init dataset", func() {
-		validDBPath := file_folder + "/test.valid.sqlite3"
 		err := dataset.Init(validDBPath, "", "")
+		// debug: get the realpath
+		wd, _ := os.Getwd()
+		realpath := fmt.Sprintf("%s/%s", wd, validDBPath)
+		fmt.Println("Using realpath:", realpath)
 		Expect(err).NotTo(HaveOccurred())
 
-		row := dataset.db.QueryRow("SELECT generated FROM llmd WHERE prompt_hash=X'b94d27b9934d041c52e5b721d7373f13a07ed5e79179d63c5d8a0c102a9d00b2';")
-		var value string
-		err = row.Scan(&value)
+		row := dataset.db.QueryRow("SELECT n_gen_tokens FROM llmd WHERE prompt_hash=X'b94d27b9934d041c52e5b721d7373f13a07ed5e79179d63c5d8a0c102a9d00b2';")
+		var n_gen_tokens int
+		err = row.Scan(&n_gen_tokens)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(value).To(Equal("world!"))
+		Expect(n_gen_tokens).To(Equal(3))
 	})
 
-	It("should raise err with invalid DB content", func() {
-		err := dataset.connectToDB(file_folder)
+	It("should return error for non-existing DB path", func() {
+		err := dataset.connectToDB(pathNotExist)
 		Expect(err).To(HaveOccurred())
-		// read from the db to verify it's not valid
-		row := dataset.db.QueryRow("SELECT * FROM llmd;")
-		var value string
-		err = row.Scan(&value)
+		Expect(err.Error()).To(ContainSubstring("database file does not exist"))
+	})
+	
+	It("should return error for invalid DB file", func() {
+		err := dataset.connectToDB(pathToInvalidDB)
 		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("file is not a database"))
+	})
+	
+	It("should return error for DB with invalid table", func() {
+		err := dataset.connectToDB(pathToInvalidTableDB)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("failed to verify database"))
+	})
+
+	It("should return error for DB with invalid column", func() {
+		err := dataset.connectToDB(pathToInvalidColumnDB)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("missing expected column"))
+	})
+	
+	It("should return error for DB with invalid column type", func() {
+		err := dataset.connectToDB(pathToInvalidTypeDB)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("incorrect type"))
 	})
 })

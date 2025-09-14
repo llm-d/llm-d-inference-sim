@@ -220,7 +220,7 @@ func (s *VllmSimulator) startSim(ctx context.Context) error {
 		s.logger.Info("No dataset provided, will generate random responses")
 	} else {
 		dataset := &Dataset{
-			logger:   s.logger,
+			logger: s.logger,
 		}
 		err = dataset.Init(s.config.Dataset.Path, s.config.Dataset.Url, s.config.Dataset.SavePath)
 		if err != nil {
