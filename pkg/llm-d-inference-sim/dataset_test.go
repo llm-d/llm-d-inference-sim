@@ -17,7 +17,7 @@ limitations under the License.
 package llmdinferencesim
 
 import (
-	"fmt"
+	"encoding/json"
 	"os"
 
 	"github.com/go-logr/logr"
@@ -86,10 +86,6 @@ var _ = Describe("Dataset", func() {
 
 	It("should successfully init dataset", func() {
 		err := dataset.Init(validDBPath, "", "")
-		// debug: get the realpath
-		wd, _ := os.Getwd()
-		realpath := fmt.Sprintf("%s/%s", wd, validDBPath)
-		fmt.Println("Using realpath:", realpath)
 		Expect(err).NotTo(HaveOccurred())
 
 		row := dataset.db.QueryRow("SELECT n_gen_tokens FROM llmd WHERE prompt_hash=X'b94d27b9934d041c52e5b721d7373f13a07ed5e79179d63c5d8a0c102a9d00b2';")
@@ -97,6 +93,16 @@ var _ = Describe("Dataset", func() {
 		err = row.Scan(&n_gen_tokens)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(n_gen_tokens).To(Equal(3))
+
+		var jsonStr string
+		row = dataset.db.QueryRow("SELECT gen_tokens FROM llmd WHERE prompt_hash=X'b94d27b9934d041c52e5b721d7373f13a07ed5e79179d63c5d8a0c102a9d00b2';")
+		err = row.Scan(&jsonStr)
+		Expect(err).NotTo(HaveOccurred())
+		var tokens []string
+		err = json.Unmarshal([]byte(jsonStr), &tokens)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(tokens).To(Equal([]string{"Hello", "world", "!"}))
+
 	})
 
 	It("should return error for non-existing DB path", func() {
