@@ -18,6 +18,7 @@ package common
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -29,16 +30,17 @@ var _ = Describe("Utils", Ordered, func() {
 		InitRandom(time.Now().UnixNano())
 	})
 
-	Context("GetRandomResponseText", func() {
+	Context("GetRandomTokens", func() {
 		It("should return complete text", func() {
-			text, finishReason := GetRandomResponseText(nil, false)
+			tokens, finishReason := GetRandomTokens(nil, false)
+			text := strings.Join(tokens, "")
 			Expect(IsValidText(text)).To(BeTrue())
 			Expect(finishReason).Should(Equal(StopFinishReason))
 		})
 		It("should return short text", func() {
 			maxCompletionTokens := int64(2)
-			text, finishReason := GetRandomResponseText(&maxCompletionTokens, false)
-			tokensCnt := int64(len(Tokenize(text)))
+			tokens, finishReason := GetRandomTokens(&maxCompletionTokens, false)
+			tokensCnt := int64(len(tokens))
 			Expect(tokensCnt).Should(BeNumerically("<=", maxCompletionTokens))
 			if tokensCnt == maxCompletionTokens {
 				Expect(finishReason).To(Equal(LengthFinishReason))
@@ -50,9 +52,10 @@ var _ = Describe("Utils", Ordered, func() {
 		It("should return long text", func() {
 			// return required number of tokens although it is higher than ResponseLenMax
 			maxCompletionTokens := int64(ResponseLenMax * 5)
-			text, finishReason := GetRandomResponseText(&maxCompletionTokens, false)
-			tokensCnt := int64(len(Tokenize(text)))
+			tokens, finishReason := GetRandomTokens(&maxCompletionTokens, false)
+			tokensCnt := int64(len(tokens))
 			Expect(tokensCnt).Should(BeNumerically("<=", maxCompletionTokens))
+			text := strings.Join(tokens, "")
 			Expect(IsValidText(text)).To(BeTrue())
 			if tokensCnt == maxCompletionTokens {
 				Expect(finishReason).To(Equal(LengthFinishReason))
@@ -65,8 +68,8 @@ var _ = Describe("Utils", Ordered, func() {
 		DescribeTable("should return exact num of tokens",
 			func(maxCompletionTokens int) {
 				n := int64(maxCompletionTokens)
-				text, finishReason := GetRandomResponseText(&n, true)
-				nGenTokens := int64(len(Tokenize(text)))
+				tokens, finishReason := GetRandomTokens(&n, true)
+				nGenTokens := int64(len(tokens))
 				Expect(nGenTokens).Should(Equal(n))
 				Expect(finishReason).To(Equal(LengthFinishReason))
 			},
@@ -80,24 +83,25 @@ var _ = Describe("Utils", Ordered, func() {
 		)
 	})
 
-	Context("GetResponseText", func() {
+	Context("GetResponseTokens", func() {
 		theText := "Give a man a fish and you feed him for a day; teach a man to fish and you feed him for a lifetime"
+		theTokens := Tokenize(theText)
 
 		It("should return the same text since max tokens is not defined", func() {
-			text, finishReason := GetResponseText(nil, theText)
-			Expect(text).Should(Equal(theText))
+			tokens, finishReason := GetResponseTokens(nil, theText)
+			Expect(tokens).Should(Equal(theTokens))
 			Expect(finishReason).Should(Equal(StopFinishReason))
 		})
 		It("should return the same text since max tokens is higher than the text length", func() {
 			maxCompletionTokens := int64(1000)
-			text, finishReason := GetResponseText(&maxCompletionTokens, theText)
-			Expect(text).Should(Equal(theText))
+			tokens, finishReason := GetResponseTokens(&maxCompletionTokens, theText)
+			Expect(tokens).Should(Equal(theTokens))
 			Expect(finishReason).Should(Equal(StopFinishReason))
 		})
 		It("should return partial text", func() {
 			maxCompletionTokens := int64(2)
-			text, finishReason := GetResponseText(&maxCompletionTokens, theText)
-			Expect(int64(len(Tokenize(text)))).Should(Equal(maxCompletionTokens))
+			tokens, finishReason := GetResponseTokens(&maxCompletionTokens, theText)
+			Expect(int64(len(tokens))).Should(Equal(maxCompletionTokens))
 			Expect(finishReason).Should(Equal(LengthFinishReason))
 		})
 	})

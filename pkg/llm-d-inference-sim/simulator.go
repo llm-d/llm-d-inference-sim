@@ -599,9 +599,8 @@ func (s *VllmSimulator) GetInterTokenLatency() int {
 }
 
 // generateTokens creates and returns response payload based on this request,
-// i.e., an array of generated tokens, the finish reason, and the number of created tokens
+// i.e., an array of generated tokens, the finish reason, and the number of generated tokens
 func (s *VllmSimulator) generateTokens(req openaiserverapi.CompletionRequest) ([]string, string, int, error) {
-	// if req is ChatCompletionRequest
 	ignoreEOS := req.GetIgnoreEOS()
 	var maxTokens *int64
 	var prompt string
@@ -616,19 +615,13 @@ func (s *VllmSimulator) generateTokens(req openaiserverapi.CompletionRequest) ([
 		return nil, "", 0, fmt.Errorf("unknown request type: %T", req)
 	}
 
-	maxTokensValue, err := common.GetMaxTokens(nil, maxTokens)
-	if err != nil {
-		return nil, "", 0, err
-	}
-
-	var text, finishReason string
+	var finishReason string
+	var tokens []string
 	if s.config.Mode == common.ModeEcho {
-		text, finishReason = common.GetResponseText(maxTokensValue, prompt)
-	} else {
-		text, finishReason = common.GetRandomResponseText(maxTokensValue, ignoreEOS)
+		tokens, finishReason = common.GetResponseTokens(maxTokens, prompt)
+		return tokens, finishReason, len(tokens), nil
 	}
-
-	tokens := common.Tokenize(text)
+	tokens, finishReason = common.GetRandomTokens(maxTokens, ignoreEOS)
 	return tokens, finishReason, len(tokens), nil
 }
 >>>>>>> 48ec8bc (Move token generation to simulator)
