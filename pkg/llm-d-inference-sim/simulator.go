@@ -154,19 +154,6 @@ func (s *VllmSimulator) Start(ctx context.Context) error {
 		return err
 	}
 
-	if s.config.Dataset.Path == "" && s.config.Dataset.Url == "" && s.config.Dataset.SavePath == "" {
-		s.dataset = nil
-	} else {
-		dataset := &Dataset{
-			logger: s.logger,
-		}
-		err = dataset.Init(s.config.Dataset.Path, s.config.Dataset.Url, s.config.Dataset.SavePath)
-		if err != nil {
-			return err
-		}
-		s.dataset = dataset
-	}
-
 	// For Data Parallel, start data-parallel-size - 1 additional simulators
 	g, ctx := errgroup.WithContext(ctx)
 	if s.config.DPSize > 1 {
@@ -226,6 +213,20 @@ func (s *VllmSimulator) startSim(ctx context.Context) error {
 		}
 
 		go s.kvcacheHelper.Run(ctx)
+	}
+
+	if s.config.Dataset.Path == "" && s.config.Dataset.Url == "" && s.config.Dataset.SavePath == "" {
+		s.dataset = nil
+		s.logger.Info("No dataset provided, will generate random responses")
+	} else {
+		dataset := &Dataset{
+			logger:   s.logger,
+		}
+		err = dataset.Init(s.config.Dataset.Path, s.config.Dataset.Url, s.config.Dataset.SavePath)
+		if err != nil {
+			return err
+		}
+		s.dataset = dataset
 	}
 
 	// run request processing workers
