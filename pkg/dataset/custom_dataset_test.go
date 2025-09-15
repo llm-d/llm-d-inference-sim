@@ -27,7 +27,7 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-var _ = Describe("Dataset", func() {
+var _ = Describe("CustomDataset", func() {
 	var (
 		dataset               *CustomDataset
 		file_folder           string
@@ -42,7 +42,7 @@ var _ = Describe("Dataset", func() {
 
 	BeforeEach(func() {
 		dataset = &CustomDataset{
-			Dataset: Dataset{
+			BaseDataset: BaseDataset{
 				Logger: logr.Discard(),
 			},
 		}

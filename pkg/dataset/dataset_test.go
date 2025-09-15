@@ -19,6 +19,7 @@ package dataset
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
@@ -27,30 +28,31 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var _ = Describe("Utils", Ordered, func() {
+var _ = Describe("Dataset", Ordered, func() {
 	var (
-		dataset *Dataset
+		dataset *BaseDataset
 	)
 
+	BeforeAll(func() {
+		common.InitRandom(time.Now().UnixNano())
+	})
 	BeforeEach(func() {
-		dataset = &Dataset{
+		dataset = &BaseDataset{
 			Logger: logr.Discard(),
 		}
 	})
 
 	Context("GetRandomTokens", func() {
+
 		It("should return complete text", func() {
-			var n int64
-			req := &openaiserverapi.ChatCompletionRequest{
-				MaxTokens:           &n,
-				MaxCompletionTokens: &n,
-			}
+			req := &openaiserverapi.ChatCompletionRequest{}
 			tokens, finishReason, err := dataset.GetTokens(req, common.ModeRandom)
 			Expect(err).ShouldNot(HaveOccurred())
 			text := strings.Join(tokens, "")
 			Expect(IsValidText(text)).To(BeTrue())
 			Expect(finishReason).Should(Equal(StopFinishReason))
 		})
+
 		It("should return short text", func() {
 			maxCompletionTokens := int64(2)
 			req := &openaiserverapi.ChatCompletionRequest{
@@ -67,6 +69,7 @@ var _ = Describe("Utils", Ordered, func() {
 				Expect(finishReason).To(Equal(StopFinishReason))
 			}
 		})
+		
 		It("should return long text", func() {
 			// return required number of tokens although it is higher than ResponseLenMax
 			maxCompletionTokens := int64(ResponseLenMax * 5)
