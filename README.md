@@ -149,7 +149,10 @@ For more details see the <a href="https://docs.vllm.ai/en/stable/getting_started
       {"running-requests":10,"waiting-requests":30,"kv-cache-usage":0.4,"loras":[{"running":"lora4,lora2","waiting":"lora3","timestamp":1257894567},{"running":"lora4,lora3","waiting":"","timestamp":1257894569}]}
 ---
 - `data-parallel-size`: number of ranks to run in Data Parallel deployment, from 1 to 8, default is 1. The ports will be assigned as follows: rank 0 will run on the configured `port`, rank 1 on `port`+1, etc.      
-
+---
+- `dataset-path`: local path to the sqlite db file for response generation from a dataset, optional, if not set, but `dataset-url` is set, the default path `<USER_HOME>/.llm-d/dataset.sqlite3` will be used. If neither dataset-path nor dataset-url are set, response is randomly generated. See [llm-d converted ShareGPT](https://huggingface.co/datasets/llm-d/inference-sim-datasets/tree/980e326f222e3e7390eef9df02a4f5e77d2a6da0/huggingface/ShareGPT_Vicuna_unfiltered) for more details on the expected format of the sqlite db file.
+- `dataset-url`: URL to download the sqlite db file for response generation from a dataset, optional, if set, the sqlite db file will be downloaded to the path specified by `dataset-path`. If the file already exists at that path, it will not be downloaded again. Example url: `https://huggingface.co/datasets/llm-d/inference-sim-datasets/resolve/980e326f222e3e7390eef9df02a4f5e77d2a6da0/huggingface/ShareGPT_Vicuna_unfiltered/conversations.sqlite3?download=true`
+---
 In addition, as we are using klog, the following parameters are available:
 - `add_dir_header`: if true, adds the file directory to the header of the log messages
 - `alsologtostderr`: log to standard error as well as files (no effect when -logtostderr=true)
