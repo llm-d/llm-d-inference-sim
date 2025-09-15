@@ -22,11 +22,13 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"reflect"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"testing"
 	"time"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
@@ -103,6 +105,49 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 		}()
 
 		wg.Wait()
+	})
+
+	It("Should record correct prompt and generation token counts", func() {
+		modelName := "testmodel"
+		prompt := strings.Repeat("hello ", 10)
+		maxTokens := 25
+
+		ctx := context.TODO()
+		args := []string{"cmd", "--model", modelName, "--mode", common.ModeRandom,
+			"--time-to-first-token", "100", "--max-num-seqs", "4"}
+
+		client, err := startServerWithArgs(ctx, common.ModeRandom, args, nil)
+		Expect(err).NotTo(HaveOccurred())
+
+		openaiclient := openai.NewClient(
+			option.WithBaseURL(baseURL),
+			option.WithHTTPClient(client))
+
+		params := openai.ChatCompletionNewParams{
+			Messages: []openai.ChatCompletionMessageParamUnion{
+				openai.UserMessage(prompt),
+			},
+			Model:       modelName,
+			MaxTokens:   openai.Int(int64(maxTokens)),
+			Temperature: openai.Float(0.0),
+		}
+
+		_, err = openaiclient.Chat.Completions.New(ctx, params)
+		Expect(err).NotTo(HaveOccurred())
+
+		time.Sleep(500 * time.Millisecond)
+
+		metricsResp, err := client.Get(metricsUrl)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
+
+		data, err := io.ReadAll(metricsResp.Body)
+		Expect(err).NotTo(HaveOccurred())
+		metrics := string(data)
+		Expect(metrics).To(ContainSubstring(`vllm:request_prompt_tokens_bucket{model_name="testmodel",le="50"} 1`))
+		Expect(metrics).To(ContainSubstring(`vllm:request_params_max_tokens_bucket{model_name="testmodel",le="50"} 1`))
+		Expect(metrics).To(ContainSubstring(`vllm:request_generation_tokens_count{model_name="testmodel"} 1`))
+		Expect(metrics).To(ContainSubstring(`vllm:request_success_total{finish_reason="stop",model_name="testmodel"} 1`))
 	})
 
 	It("Should send correct lora metrics", func() {
@@ -770,4 +815,78 @@ func findIntMetric(metrics []string, metricPrefix string) *int {
 		return nil
 	}
 	return &val
+}
+
+// TestBuild125Buckets tests the build125Buckets function with various inputs.
+func TestBuild125Buckets(t *testing.T) {
+	tests := []struct {
+		name     string
+		maxValue int
+		want     []float64
+	}{
+		{
+			name:     "max_value zero",
+			maxValue: 0,
+			want:     []float64{}, // no bucket <= 0
+		},
+		{
+			name:     "max_value one",
+			maxValue: 1,
+			want:     []float64{1},
+		},
+		{
+			name:     "max_value five",
+			maxValue: 5,
+			want:     []float64{1, 2, 5},
+		},
+		{
+			name:     "max_value ten",
+			maxValue: 10,
+			want:     []float64{1, 2, 5, 10},
+		},
+		{
+			name:     "max_value 100",
+			maxValue: 100,
+			want:     []float64{1, 2, 5, 10, 20, 50, 100},
+		},
+		{
+			name:     "max_value 999",
+			maxValue: 999,
+			want:     []float64{1, 2, 5, 10, 20, 50, 100, 200, 500},
+		},
+		{
+			name:     "max_value 1024",
+			maxValue: 1024,
+			want:     []float64{1, 2, 5, 10, 20, 50, 100, 200, 500, 1000},
+		},
+		{
+			name:     "max_value 4096",
+			maxValue: 4096,
+			want:     []float64{1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000},
+		},
+		{
+			name:     "max_value 32768",
+			maxValue: 32768,
+			want:     []float64{1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000},
+		},
+		{
+			name:     "max_value just below power of 10",
+			maxValue: 99,
+			want:     []float64{1, 2, 5, 10, 20, 50},
+		},
+		{
+			name:     "max_value negative",
+			maxValue: -1,
+			want:     []float64{}, // no positive bucket <= -1
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := build125Buckets(tt.maxValue)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("build125Buckets(%d) = %v, want %v", tt.maxValue, got, tt.want)
+			}
+		})
+	}
 }

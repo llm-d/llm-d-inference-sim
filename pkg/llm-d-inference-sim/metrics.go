@@ -20,6 +20,7 @@ package llmdinferencesim
 
 import (
 	"context"
+	"math"
 	"strconv"
 	"strings"
 	"sync"
@@ -65,6 +66,7 @@ func (s *VllmSimulator) createAndRegisterPrometheus() error {
 		return err
 	}
 
+	// not supported for now, reports constant value
 	s.waitingRequests = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: "",
@@ -123,6 +125,61 @@ func (s *VllmSimulator) createAndRegisterPrometheus() error {
 		return err
 	}
 
+	s.requestPromptTokens = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Subsystem: "",
+			Name:      "vllm:request_prompt_tokens",
+			Help:      "Number of prefill tokens processed.",
+			Buckets:   build125Buckets(s.config.MaxModelLen),
+		},
+		[]string{vllmapi.PromLabelModelName},
+	)
+	if err := s.registry.Register(s.requestPromptTokens); err != nil {
+		s.logger.Error(err, "Prometheus request_prompt_tokens histogram register failed")
+		return err
+	}
+
+	s.requestGenerationTokens = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Subsystem: "",
+			Name:      "vllm:request_generation_tokens",
+			Help:      "Number of generation tokens processed.",
+			Buckets:   build125Buckets(s.config.MaxModelLen),
+		},
+		[]string{vllmapi.PromLabelModelName},
+	)
+	if err := s.registry.Register(s.requestGenerationTokens); err != nil {
+		s.logger.Error(err, "Prometheus request_generation_tokens histogram register failed")
+		return err
+	}
+
+	s.requestParamsMaxTokens = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Subsystem: "",
+			Name:      "vllm:request_params_max_tokens",
+			Help:      "Histogram of the max_tokens request parameter.",
+			Buckets:   build125Buckets(s.config.MaxModelLen),
+		},
+		[]string{vllmapi.PromLabelModelName},
+	)
+	if err := s.registry.Register(s.requestParamsMaxTokens); err != nil {
+		s.logger.Error(err, "Prometheus request_params_max_tokens histogram register failed")
+		return err
+	}
+
+	s.requestSuccessTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Subsystem: "",
+			Name:      "vllm:request_success_total",
+			Help:      "Count of successfully processed requests.",
+		},
+		[]string{vllmapi.PromLabelModelName, vllmapi.PromLabelFinishReason},
+	)
+	if err := s.registry.Register(s.requestSuccessTotal); err != nil {
+		s.logger.Error(err, "Prometheus request_success_total counter register failed")
+		return err
+	}
+
 	s.setInitialPrometheusMetrics()
 
 	return nil
@@ -132,6 +189,7 @@ func (s *VllmSimulator) createAndRegisterPrometheus() error {
 // the fake metrics if set
 func (s *VllmSimulator) setInitialPrometheusMetrics() {
 	var nRunningReqs, nWaitingReqs, kvCacheUsage float64
+	modelName := s.getDisplayedModelName(s.config.Model)
 	if s.config.FakeMetrics != nil {
 		nRunningReqs = float64(s.config.FakeMetrics.RunningRequests)
 		nWaitingReqs = float64(s.config.FakeMetrics.WaitingRequests)
@@ -144,9 +202,21 @@ func (s *VllmSimulator) setInitialPrometheusMetrics() {
 		if s.config.FakeMetrics.TPOTBucketValues != nil {
 			s.initFakeHistogram(s.tpot, common.TPOTBucketsBoundaries, s.config.FakeMetrics.TPOTBucketValues)
 		}
+		for _, requestPromptToken := range s.config.FakeMetrics.RequestPromptTokens {
+			s.requestPromptTokens.WithLabelValues(modelName).Observe(requestPromptToken)
+		}
+		for _, requestGenerationToken := range s.config.FakeMetrics.RequestGenerationTokens {
+			s.requestGenerationTokens.WithLabelValues(modelName).Observe(requestGenerationToken)
+		}
+		for _, requestParamsMaxToken := range s.config.FakeMetrics.RequestParamsMaxTokens {
+			s.requestParamsMaxTokens.WithLabelValues(modelName).Observe(requestParamsMaxToken)
+		}
+		for reason, requestSuccessTotal := range s.config.FakeMetrics.RequestSuccessTotal {
+			s.requestSuccessTotal.WithLabelValues(modelName, reason).Add(float64(requestSuccessTotal))
+		}
+
 	}
 
-	modelName := s.getDisplayedModelName(s.config.Model)
 	s.runningRequests.WithLabelValues(modelName).Set(nRunningReqs)
 	s.waitingRequests.WithLabelValues(modelName).Set(nWaitingReqs)
 	s.kvCacheUsagePercentage.WithLabelValues(modelName).Set(kvCacheUsage)
@@ -288,6 +358,7 @@ func (s *VllmSimulator) startMetricsUpdaters(ctx context.Context) {
 	go s.kvCacheUsageUpdater(ctx)
 	go s.ttftUpdater(ctx)
 	go s.tpotUpdater(ctx)
+	go s.recordRequestUpdater(ctx)
 }
 
 // waitingRequestsUpdater updates the waiting requests metric by listening on the relevant channel
@@ -395,4 +466,76 @@ func (s *VllmSimulator) decrementLoraRefCount(lora string, theMap *sync.Map) {
 	} else {
 		s.logger.Error(nil, "Zero model reference", "model", lora)
 	}
+}
+
+// recordRequestUpdater listens on requestSuccessChan and drives the Prometheus metric
+// for successfully completed requests.
+func (s *VllmSimulator) recordRequestUpdater(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case event := <-s.requestSuccessChan:
+			s.recordRequestMetricsOnSuccess(
+				event.promptTokens,
+				event.generationTokens,
+				event.maxTokens,
+				event.finishReason,
+			)
+		}
+	}
+}
+
+// requestSuccessEvent represents the data associated with a successfully completed request,
+// which is sent through the requestSuccessChan for asynchronous metrics recording.
+type requestSuccessEvent struct {
+	// promptTokens is the number of input (prompt) tokens in the request
+	promptTokens int
+	// generationTokens is the number of generated (output) tokens in the response
+	generationTokens int
+	// maxTokens is the maximum number of tokens allowed for generation (if specified in the request)
+	maxTokens *int64
+	// finishReason indicates why the generation stopped (e.g., "stop", "length", "tool_calls")
+	finishReason string
+}
+
+// recordRequestMetricsOnSuccess records metrics for a successfully completed request
+func (s *VllmSimulator) recordRequestMetricsOnSuccess(promptTokens,
+	generationTokens int, maxTokens *int64, finishReason string) {
+	modelName := s.getDisplayedModelName(s.config.Model)
+	s.requestPromptTokens.WithLabelValues(modelName).Observe(float64(promptTokens))
+	s.requestGenerationTokens.WithLabelValues(modelName).Observe(float64(generationTokens))
+	if maxTokens != nil {
+		s.requestParamsMaxTokens.WithLabelValues(modelName).Observe(float64(*maxTokens))
+	}
+	s.requestSuccessTotal.WithLabelValues(modelName, finishReason).Inc()
+}
+
+// build125Buckets generates histogram buckets in powers of 10 scaled by [1,2,5].
+// This matches vLLM's build_1_2_5_buckets() in metrics.py.
+//
+// Reference: https://github.com/vllm-project/vllm/blob/main/vllm/engine/metrics.py#L175
+func build125Buckets(maxValue int) []float64 {
+	if maxValue <= 0 {
+		return []float64{}
+	}
+	var buckets []float64
+	exponent := 0
+	mantissa := []int{1, 2, 5}
+
+	for {
+		complete := true
+		for _, m := range mantissa {
+			value := m * int(math.Pow10(exponent))
+			if value <= maxValue {
+				buckets = append(buckets, float64(value))
+				complete = false
+			}
+		}
+		if complete {
+			break
+		}
+		exponent++
+	}
+	return buckets
 }
