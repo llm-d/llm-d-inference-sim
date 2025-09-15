@@ -190,10 +190,9 @@ type DatasetConf struct {
 	// when path is empty Url will be checked
 	Path string `yaml:"path" json:"path"`
 	// Url is the URL to download the sqlite db file if set, default is empty
+	// if Path is not provided and Url is provided, the file will be downloaded
+	// to "USER_HOME/.llm-d/dataset.db"
 	Url string `yaml:"url" json:"url"`
-	// SavePath is the local path to save the downloaded sqlite db file
-	// if Url is set but SavePath is not, "USER_HOME/.llm-d/dataset.db" will be used
-	SavePath string `yaml:"save-path" json:"save-path"`
 }
 
 type Metrics struct {
