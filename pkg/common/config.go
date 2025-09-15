@@ -576,6 +576,9 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 	f.IntVar(&config.EventBatchSize, "event-batch-size", config.EventBatchSize, "Maximum number of kv-cache events to be sent together")
 	f.IntVar(&config.DPSize, "data-parallel-size", config.DPSize, "Number of ranks to run")
 
+	f.StringVar(&config.Dataset.Path, "dataset-path", config.Dataset.Path, "Local path to the sqlite db file for response generation from a dataset")
+	f.StringVar(&config.Dataset.Url, "dataset-url", config.Dataset.Url, "URL to download the sqlite db file for response generation from a dataset")
+
 	f.IntVar(&config.FailureInjectionRate, "failure-injection-rate", config.FailureInjectionRate, "Probability (0-100) of injecting failures")
 	failureTypes := getParamValueFromArgs("failure-types")
 	var dummyFailureTypes multiString
