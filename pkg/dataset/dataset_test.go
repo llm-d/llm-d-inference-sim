@@ -36,6 +36,7 @@ var _ = Describe("Dataset", Ordered, func() {
 	BeforeAll(func() {
 		common.InitRandom(time.Now().UnixNano())
 	})
+
 	BeforeEach(func() {
 		dataset = &BaseDataset{
 			Logger: logr.Discard(),

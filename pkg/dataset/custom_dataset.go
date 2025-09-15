@@ -25,7 +25,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math/rand"
 	"net/http"
 	"os"
 	"os/signal"
@@ -385,6 +384,6 @@ func (d *CustomDataset) GenerateTokens(req openaiserverapi.CompletionRequest, nT
 		return GenPresetRandomTokens(nTokens), nil
 	}
 	d.hasWarned = false
-	randIndex := rand.Intn(len(tokensList))
+	randIndex := common.RandomInt(0, len(tokensList)-1)
 	return tokensList[randIndex], nil
 }
