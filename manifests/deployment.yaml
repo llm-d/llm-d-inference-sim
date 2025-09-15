@@ -40,3 +40,19 @@ spec:
         - containerPort: 8000
           name: http
           protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm-llama3-8b-instruct-svc
+  labels:
+    app: vllm-llama3-8b-instruct
+spec:
+  selector:
+    app: vllm-llama3-8b-instruct
+  ports:
+    - protocol: TCP
+      port: 8000
+      targetPort: 8000
+      name: http
+  type: ClusterIP
