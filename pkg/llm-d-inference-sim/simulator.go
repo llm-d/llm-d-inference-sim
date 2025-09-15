@@ -33,6 +33,7 @@ import (
 	"k8s.io/klog/v2"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
+	"github.com/llm-d/llm-d-inference-sim/pkg/dataset"
 	kvcache "github.com/llm-d/llm-d-inference-sim/pkg/kv-cache"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	vllmapi "github.com/llm-d/llm-d-inference-sim/pkg/vllm-api"
@@ -117,7 +118,7 @@ type VllmSimulator struct {
 	// tokenizer is currently used in kv-cache and in /tokenize
 	tokenizer tokenization.Tokenizer
 	// dataset is used for managing dataset files
-	dataset *common.Dataset
+	dataset *dataset.Dataset
 }
 
 // New creates a new VllmSimulator instance with the given logger
@@ -220,7 +221,7 @@ func (s *VllmSimulator) startSim(ctx context.Context) error {
 		s.dataset = nil
 		s.logger.Info("No dataset provided, will generate random responses")
 	} else {
-		dataset := &common.Dataset{
+		dataset := &dataset.Dataset{
 			Logger: s.logger,
 		}
 		err = dataset.Init(s.config.Dataset.Path, s.config.Dataset.Url, s.config.Dataset.SavePath)
@@ -333,13 +334,15 @@ func (s *VllmSimulator) reqProcessingWorker(ctx context.Context, id int) {
 			if reqCtx.IsChatCompletion &&
 				req.GetToolChoice() != openaiserverapi.ToolChoiceNone &&
 				req.GetTools() != nil {
-				toolCalls, finishReason, completionTokens, err =
+				toolCalls, completionTokens, err =
 					openaiserverapi.CreateToolCalls(req.GetTools(), req.GetToolChoice(), s.config)
+				finishReason = dataset.ToolsFinishReason
 			}
 			if toolCalls == nil && err == nil {
 				// Either no tool calls were defined, or we randomly chose not to create tool calls,
 				// so we generate a response text.
-				responseTokens, finishReason, completionTokens, err = s.generateTokens(req)
+				responseTokens, finishReason, err = s.dataset.GetTokens(req, s.config.Mode)
+				completionTokens += len(responseTokens)
 			}
 			if err != nil {
 				prefix := ""
@@ -375,7 +378,7 @@ func (s *VllmSimulator) reqProcessingWorker(ctx context.Context, id int) {
 				} else {
 					if req.IsDoRemoteDecode() {
 						// in case this is prefill pod processing, return special finish reason
-						finishReason = common.RemoteDecodeFinishReason
+						finishReason = dataset.RemoteDecodeFinishReason
 					}
 
 					s.sendResponse(reqCtx, responseTokens, toolCalls, displayModel, finishReason, &usageData)
@@ -597,6 +600,7 @@ func (s *VllmSimulator) GetPrefillTimePerToken() int {
 func (s *VllmSimulator) GetInterTokenLatency() int {
 	return int(float64(s.config.InterTokenLatency) * s.getCurrFactor())
 }
+<<<<<<< HEAD
 
 // generateTokens creates and returns response payload based on this request,
 // i.e., an array of generated tokens, the finish reason, and the number of generated tokens
@@ -624,4 +628,3 @@ func (s *VllmSimulator) generateTokens(req openaiserverapi.CompletionRequest) ([
 	tokens, finishReason = common.GetRandomTokens(maxTokens, ignoreEOS, s.dataset)
 	return tokens, finishReason, len(tokens), nil
 }
->>>>>>> 48ec8bc (Move token generation to simulator)

@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package common
+package dataset
 
 import (
 	"encoding/json"
@@ -29,7 +29,7 @@ import (
 
 var _ = Describe("Dataset", func() {
 	var (
-		dataset               *Dataset
+		dataset               *CustomDataset
 		file_folder           string
 		savePath              string
 		validDBPath           string
@@ -41,8 +41,10 @@ var _ = Describe("Dataset", func() {
 	)
 
 	BeforeEach(func() {
-		dataset = &Dataset{
-			Logger: logr.Discard(),
+		dataset = &CustomDataset{
+			Dataset: Dataset{
+				Logger: logr.Discard(),
+			},
 		}
 		file_folder = ".llm-d"
 		savePath = file_folder + "/test.sqlite3"

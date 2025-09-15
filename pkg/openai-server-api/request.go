@@ -67,8 +67,8 @@ type CompletionRequest interface {
 	IsDoRemotePrefill() bool
 }
 
-// baseCompletionRequest contains base completion request related information
-type baseCompletionRequest struct {
+// BaseCompletionRequest contains base completion request related information
+type BaseCompletionRequest struct {
 	// RequestID is the unique id of this request
 	RequestID string
 	// Stream is a boolean value, defines whether response should be sent as a Stream
@@ -101,44 +101,44 @@ type StreamOptions struct {
 	IncludeUsage bool `json:"include_usage"`
 }
 
-func (b *baseCompletionRequest) GetRequestID() string {
+func (b *BaseCompletionRequest) GetRequestID() string {
 	return b.RequestID
 }
 
-func (b *baseCompletionRequest) IsStream() bool {
+func (b *BaseCompletionRequest) IsStream() bool {
 	return b.Stream
 }
 
-func (b *baseCompletionRequest) GetModel() string {
+func (b *BaseCompletionRequest) GetModel() string {
 	return b.Model
 }
 
-func (b *baseCompletionRequest) IncludeUsage() bool {
+func (b *BaseCompletionRequest) IncludeUsage() bool {
 	return !b.Stream || b.StreamOptions.IncludeUsage
 }
 
-func (b *baseCompletionRequest) IsDoRemoteDecode() bool {
+func (b *BaseCompletionRequest) IsDoRemoteDecode() bool {
 	return b.DoRemoteDecode
 }
 
-func (b *baseCompletionRequest) IsDoRemotePrefill() bool {
+func (b *BaseCompletionRequest) IsDoRemotePrefill() bool {
 	return b.DoRemotePrefill
 }
 
 // GetNumberOfCachedPromptTokens returns the number of tokens in the prompt that are
 // in the local KV Cache
-func (b *baseCompletionRequest) GetNumberOfCachedPromptTokens() int {
+func (b *BaseCompletionRequest) GetNumberOfCachedPromptTokens() int {
 	return b.cachedPromptTokens
 }
 
 // GetIgnoreEOS returns the value of IgnoreEOS
-func (b *baseCompletionRequest) GetIgnoreEOS() bool {
+func (b *BaseCompletionRequest) GetIgnoreEOS() bool {
 	return b.IgnoreEOS
 }
 
 // SetNumberOfCachedPromptTokens sets the number of tokens in the prompt that are
 // in the local KV Cache
-func (b *baseCompletionRequest) SetNumberOfCachedPromptTokens(cachedPromptTokens int) {
+func (b *BaseCompletionRequest) SetNumberOfCachedPromptTokens(cachedPromptTokens int) {
 	b.cachedPromptTokens = cachedPromptTokens
 }
 
@@ -153,7 +153,7 @@ type CompletionReqCtx struct {
 
 // ChatCompletionRequest defines structure of /chat/completion request
 type ChatCompletionRequest struct {
-	baseCompletionRequest
+	BaseCompletionRequest
 	// Messages list of request's Messages
 	Messages []Message `json:"messages"`
 
@@ -239,7 +239,7 @@ func (req *ChatCompletionRequest) GetLastUserMsg() string {
 // v1/completion
 // TextCompletionRequest defines structure of /completion request
 type TextCompletionRequest struct {
-	baseCompletionRequest
+	BaseCompletionRequest
 	// Prompt defines request's content
 	Prompt string `json:"prompt"`
 
