@@ -118,6 +118,11 @@ func startServerWithArgs(ctx context.Context, mode string, args []string, envs m
 		go s.kvcacheHelper.Run(ctx)
 	}
 
+	err = s.initDataset()
+	if err != nil {
+		return nil, fmt.Errorf("dataset initialization error: %w", err)
+	}
+
 	// calculate number of tokens for user message,
 	// must be activated after parseCommandParamsAndLoadConfig since it initializes the random engine
 	userMsgTokens = int64(len(common.Tokenize(userMessage)))

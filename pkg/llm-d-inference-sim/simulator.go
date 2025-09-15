@@ -116,8 +116,8 @@ type VllmSimulator struct {
 	pod string
 	// tokenizer is currently used in kv-cache and in /tokenize
 	tokenizer tokenization.Tokenizer
-	// dataset is used for managing dataset files
-	dataset *dataset.Dataset
+	// dataset is used for token generation in responses
+	dataset dataset.Dataset
 }
 
 // New creates a new VllmSimulator instance with the given logger
@@ -216,18 +216,9 @@ func (s *VllmSimulator) startSim(ctx context.Context) error {
 		go s.kvcacheHelper.Run(ctx)
 	}
 
-	if s.config.Dataset.Path == "" && s.config.Dataset.Url == "" && s.config.Dataset.SavePath == "" {
-		s.dataset = nil
-		s.logger.Info("No dataset provided, will generate random responses")
-	} else {
-		dataset := &dataset.Dataset{
-			Logger: s.logger,
-		}
-		err = dataset.Init(s.config.Dataset.Path, s.config.Dataset.Url, s.config.Dataset.SavePath)
-		if err != nil {
-			return err
-		}
-		s.dataset = dataset
+	err = s.initDataset()
+	if err != nil {
+		return fmt.Errorf("dataset initialization error: %w", err)
 	}
 
 	// run request processing workers
@@ -239,11 +230,96 @@ func (s *VllmSimulator) startSim(ctx context.Context) error {
 
 	listener, err := s.newListener()
 	if err != nil {
-		return err
+		s.logger.Error(err, "Failed to create listener")
+		return fmt.Errorf("listener creation error: %w", err)
 	}
 
 	// start the http server with context support
 	return s.startServer(ctx, listener)
+}
+
+func (s *VllmSimulator) initDataset() error {
+	randDataset := &dataset.BaseDataset{
+		Logger: s.logger,
+	}
+
+	if s.config.Dataset.Path == "" && s.config.Dataset.Url == "" && s.config.Dataset.SavePath == "" {
+		s.logger.Info("No dataset provided, will generate random responses")
+		s.dataset = randDataset
+	} else {
+		s.logger.Info("Custom dataset configuration detected")
+		s.dataset = &dataset.CustomDataset{
+			BaseDataset: *randDataset,
+		}
+	}
+
+	if err := s.dataset.Init(s.config.Dataset.Path, s.config.Dataset.Url, s.config.Dataset.SavePath); err != nil {
+		return fmt.Errorf("dataset initialization error: %w", err)
+	}
+	return nil
+}
+
+func (s *VllmSimulator) newListener() (net.Listener, error) {
+	s.logger.Info("Server starting", "port", s.config.Port)
+	listener, err := net.Listen("tcp4", fmt.Sprintf(":%d", s.config.Port))
+	if err != nil {
+		return nil, err
+	}
+	return listener, nil
+}
+
+// startServer starts http server on port defined in command line
+func (s *VllmSimulator) startServer(ctx context.Context, listener net.Listener) error {
+	r := fasthttprouter.New()
+
+	// support completion APIs
+	r.POST("/v1/chat/completions", s.HandleChatCompletions)
+	r.POST("/v1/completions", s.HandleTextCompletions)
+	// supports /models API
+	r.GET("/v1/models", s.HandleModels)
+	// support load/unload of lora adapter
+	r.POST("/v1/load_lora_adapter", s.HandleLoadLora)
+	r.POST("/v1/unload_lora_adapter", s.HandleUnloadLora)
+	// supports /metrics prometheus API
+	r.GET("/metrics", fasthttpadaptor.NewFastHTTPHandler(promhttp.HandlerFor(s.registry, promhttp.HandlerOpts{})))
+	// supports standard Kubernetes health and readiness checks
+	r.GET("/health", s.HandleHealth)
+	r.GET("/ready", s.HandleReady)
+	r.POST("/tokenize", s.HandleTokenize)
+
+	server := fasthttp.Server{
+		ErrorHandler: s.HandleError,
+		Handler:      r.Handler,
+		Logger:       s,
+	}
+
+	// Start server in a goroutine
+	serverErr := make(chan error, 1)
+	go func() {
+		s.logger.Info("HTTP server starting")
+		serverErr <- server.Serve(listener)
+	}()
+
+	// Wait for either context cancellation or server error
+	select {
+	case <-ctx.Done():
+		s.logger.Info("Shutdown signal received, shutting down HTTP server gracefully")
+
+		// Gracefully shutdown the server
+		if err := server.Shutdown(); err != nil {
+			s.logger.Error(err, "Error during server shutdown")
+			return err
+		}
+
+		s.logger.Info("HTTP server stopped")
+		return nil
+
+	case err := <-serverErr:
+		if err != nil {
+			s.logger.Error(err, "HTTP server failed")
+		}
+		return err
+	}
 }
 
 // Print prints to a log, implementation of fasthttp.Logger

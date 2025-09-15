@@ -28,16 +28,18 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"syscall"
 	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/google/uuid"
+	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	_ "github.com/mattn/go-sqlite3"
 )
 
 type CustomDataset struct {
-	Dataset
+	BaseDataset
 	db        *sql.DB
 	hasWarned bool
 }
@@ -53,7 +55,7 @@ const (
 	nGenTokensColType = "INTEGER"
 )
 
-func (d CustomDataset) downloadDataset(url string, savePath string) error {
+func (d *CustomDataset) downloadDataset(url string, savePath string) error {
 	// Set up signal handling for Ctrl+C (SIGINT)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -184,7 +186,7 @@ func (pr *progressReader) logProgress(pct int) {
 	}
 }
 
-func (d CustomDataset) verifyDB() error {
+func (d *CustomDataset) verifyDB() error {
 	rows, err := d.db.Query("PRAGMA table_info(" + tableName + ");")
 	if err != nil {
 		return fmt.Errorf("failed to query table info for `%s`: %w", tableName, err)
@@ -234,7 +236,7 @@ func (d CustomDataset) verifyDB() error {
 	return nil
 }
 
-func (d CustomDataset) getRecordsCount() (int, error) {
+func (d *CustomDataset) getRecordsCount() (int, error) {
 	var count int
 	err := d.db.QueryRow("SELECT COUNT(" + promptHashCol + ") FROM " + tableName + ";").Scan(&count)
 	if err != nil {
@@ -243,7 +245,7 @@ func (d CustomDataset) getRecordsCount() (int, error) {
 	return count, nil
 }
 
-func (d CustomDataset) connectToDB(path string) error {
+func (d *CustomDataset) connectToDB(path string) error {
 	if d.db != nil {
 		err := d.db.Close()
 		if err != nil {
@@ -277,7 +279,7 @@ func (d CustomDataset) connectToDB(path string) error {
 	return nil
 }
 
-func (d CustomDataset) Init(path string, url string, savePath string) error {
+func (d *CustomDataset) Init(path string, url string, savePath string) error {
 	d.hasWarned = false
 	if path != "" {
 		return d.connectToDB(path)
@@ -312,7 +314,7 @@ func (d CustomDataset) Init(path string, url string, savePath string) error {
 	return errors.New("no dataset path or url provided")
 }
 
-func (d CustomDataset) Close() error {
+func (d *CustomDataset) Close() error {
 	if d.db != nil {
 		return d.db.Close()
 	}
@@ -336,11 +338,11 @@ func unmarshalAllRecords(rows *sql.Rows) ([][]string, error) {
 	return tokensList, nil
 }
 
-func (d CustomDataset) getRandomTokens(n_gen_tokens int) []string {
-	return nil
+func (d *CustomDataset) getRandomTokens(n_gen_tokens int) []string {
+	return []string{"<|random_tokens|>", strconv.Itoa(n_gen_tokens)}
 }
 
-func (d *CustomDataset) GetTokens(prompt string, n_gen_tokens int) []string {
+func (d *CustomDataset) readTokensFromDB(prompt string, n_gen_tokens int) []string {
 	promptHash := uuid.NewSHA1(uuid.NameSpaceOID, []byte(prompt)).NodeID()
 	rows, err := d.db.Query("SELECT "+genTokensCol+" FROM "+tableName+" WHERE "+promptHashCol+" = ?;", promptHash)
 	if err != nil {
@@ -368,4 +370,9 @@ func (d *CustomDataset) GetTokens(prompt string, n_gen_tokens int) []string {
 	d.hasWarned = false
 	randIndex := rand.Intn(len(tokensList))
 	return tokensList[randIndex]
+}
+
+func (d *CustomDataset) GenerateTokens(req openaiserverapi.CompletionRequest, nTokens int) ([]string, error) {
+	tokens := d.readTokensFromDB("", nTokens)
+	return tokens, nil
 }
