@@ -55,7 +55,7 @@ const (
 	nGenTokensColType = "INTEGER"
 )
 
-func (d *CustomDataset) downloadDataset(url string, savePath string) error {
+func (d *CustomDataset) downloadDataset(url string, path string) error {
 	// Set up signal handling for Ctrl+C (SIGINT)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -70,7 +70,7 @@ func (d *CustomDataset) downloadDataset(url string, savePath string) error {
 		cancel()
 	}()
 
-	out, err := os.Create(savePath)
+	out, err := os.Create(path)
 	if err != nil {
 		return err
 	}
@@ -109,7 +109,7 @@ func (d *CustomDataset) downloadDataset(url string, savePath string) error {
 	written, err := io.Copy(out, pr)
 	if err != nil {
 		// Remove incomplete file
-		cerr := os.Remove(savePath)
+		cerr := os.Remove(path)
 		if cerr != nil {
 			d.Logger.Error(cerr, "failed to remove incomplete file after download")
 		}
@@ -121,7 +121,7 @@ func (d *CustomDataset) downloadDataset(url string, savePath string) error {
 	}
 	// Check if file size is zero or suspiciously small
 	if written == 0 {
-		cerr := os.Remove(savePath)
+		cerr := os.Remove(path)
 		if cerr != nil {
 			d.Logger.Error(cerr, "failed to remove empty file after download")
 		}
@@ -130,7 +130,7 @@ func (d *CustomDataset) downloadDataset(url string, savePath string) error {
 
 	// Ensure file is fully flushed and closed before returning success
 	if err := out.Sync(); err != nil {
-		cerr := os.Remove(savePath)
+		cerr := os.Remove(path)
 		if cerr != nil {
 			d.Logger.Error(cerr, "failed to remove incomplete file after download")
 		}
@@ -279,37 +279,39 @@ func (d *CustomDataset) connectToDB(path string) error {
 	return nil
 }
 
-func (d *CustomDataset) Init(path string, url string, savePath string) error {
+func (d *CustomDataset) Init(path string, url string) error {
 	d.hasWarned = false
-	if path != "" {
+	if path != "" && url == "" {
+		d.Logger.Info("Using dataset from", "path", path)
 		return d.connectToDB(path)
 	}
 	if url != "" {
-		if savePath == "" {
+		d.Logger.Info("Url detected", "url", url)
+		if path == "" {
 			user, err := os.UserHomeDir()
 			if err != nil {
 				return fmt.Errorf("failed to get user home directory: %w", err)
 			}
-			savePath = filepath.Join(user, ".llm-d", "dataset.sqlite3")
+			path = filepath.Join(user, ".llm-d", "dataset.sqlite3")
+			d.Logger.Info("Using default for dataset", "path", path)
+		} else {
+			d.Logger.Info("Using provided path for dataset", "path", path)
 		}
 
-		_, err := os.Stat(savePath)
+		_, err := os.Stat(path)
 		if err != nil {
 			// file does not exist, download it
-			folder := filepath.Dir(savePath)
+			folder := filepath.Dir(path)
 			err := os.MkdirAll(folder, 0755)
 			if err != nil {
 				return fmt.Errorf("failed to create parent directory: %w", err)
 			}
-			d.Logger.Info("Downloading dataset from URL", "url", url, "to", savePath)
-			err = d.downloadDataset(url, savePath)
+			err = d.downloadDataset(url, path)
 			if err != nil {
 				return fmt.Errorf("failed to download dataset: %w", err)
 			}
 		}
-		d.Logger.Info("Using dataset from", "path", savePath)
-
-		return d.connectToDB(savePath)
+		return d.connectToDB(path)
 	}
 	return errors.New("no dataset path or url provided")
 }

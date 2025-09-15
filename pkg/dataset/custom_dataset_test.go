@@ -38,7 +38,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 	var (
 		dataset               *CustomDataset
 		file_folder           string
-		savePath              string
+		path                  string
 		validDBPath           string
 		pathToInvalidDB       string
 		pathNotExist          string
@@ -58,7 +58,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 			},
 		}
 		file_folder = ".llm-d"
-		savePath = file_folder + "/test.sqlite3"
+		path = file_folder + "/test.sqlite3"
 		err := os.MkdirAll(file_folder, os.ModePerm)
 		Expect(err).NotTo(HaveOccurred())
 		validDBPath = file_folder + "/test.valid.sqlite3"
@@ -83,22 +83,22 @@ var _ = Describe("CustomDataset", Ordered, func() {
 
 	It("should download file from url", func() {
 		url := "https://llm-d.ai"
-		err := dataset.downloadDataset(url, savePath)
+		err := dataset.downloadDataset(url, path)
 		Expect(err).NotTo(HaveOccurred())
-		_, err = os.Stat(savePath)
+		_, err = os.Stat(path)
 		Expect(err).NotTo(HaveOccurred())
-		err = os.Remove(savePath)
+		err = os.Remove(path)
 		Expect(err).NotTo(HaveOccurred())
 	})
 
 	It("should not download file from url", func() {
 		url := "https://256.256.256.256" // invalid url
-		err := dataset.downloadDataset(url, savePath)
+		err := dataset.downloadDataset(url, path)
 		Expect(err).To(HaveOccurred())
 	})
 
 	It("should successfully init dataset", func() {
-		err := dataset.Init(validDBPath, "", "")
+		err := dataset.Init(validDBPath, "")
 		Expect(err).NotTo(HaveOccurred())
 
 		row := dataset.db.QueryRow("SELECT n_gen_tokens FROM llmd WHERE prompt_hash=X'74bf14c09c038321cba39717dae1dc732823ae4abd8e155959367629a3c109a8';")
@@ -173,7 +173,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 	})
 
 	It("should return tokens for existing prompt", func() {
-		err := dataset.Init(validDBPath, "", "")
+		err := dataset.Init(validDBPath, "")
 		Expect(err).NotTo(HaveOccurred())
 
 		req := &openaiserverapi.TextCompletionRequest{
