@@ -69,7 +69,7 @@ var _ = Describe("Dataset", Ordered, func() {
 				Expect(finishReason).To(Equal(StopFinishReason))
 			}
 		})
-		
+
 		It("should return long text", func() {
 			// return required number of tokens although it is higher than ResponseLenMax
 			maxCompletionTokens := int64(ResponseLenMax * 5)

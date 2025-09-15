@@ -244,7 +244,7 @@ func (s *VllmSimulator) initDataset() error {
 	}
 
 	if s.config.Dataset.Path == "" && s.config.Dataset.Url == "" && s.config.Dataset.SavePath == "" {
-		s.logger.Info("No dataset provided, will generate random responses")
+		s.logger.Info("No dataset provided, will generate random responses from preset text")
 		s.dataset = randDataset
 	} else {
 		s.logger.Info("Custom dataset configuration detected")

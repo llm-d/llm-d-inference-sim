@@ -65,6 +65,8 @@ type CompletionRequest interface {
 	// when the field is true, the prefill phase should be done on remote pod,
 	// whereas decode phase is done on local pod, thus this is a decode request
 	IsDoRemotePrefill() bool
+	// GetFullPrompt returns the full prompt including system and user prompts
+	GetFullPrompt() string
 }
 
 // BaseCompletionRequest contains base completion request related information
@@ -236,6 +238,21 @@ func (req *ChatCompletionRequest) GetLastUserMsg() string {
 	return ""
 }
 
+func (req *ChatCompletionRequest) GetFullPrompt() string {
+	prompt := ""
+	for _, msg := range req.Messages {
+		switch msg.Role {
+		case RoleUser:
+			prompt += "### user:\n" + msg.Content.Raw + "\n"
+		case RoleAssistant:
+			prompt += "### assistant:\n" + msg.Content.Raw + "\n"
+		default:
+			prompt += "### unknown:\n" + msg.Content.Raw + "\n"
+		}
+	}
+	return prompt
+}
+
 // v1/completion
 // TextCompletionRequest defines structure of /completion request
 type TextCompletionRequest struct {
@@ -269,4 +286,8 @@ func (c *TextCompletionRequest) GetToolChoice() string {
 
 func (c *TextCompletionRequest) GetMaxCompletionTokens() *int64 {
 	return c.MaxTokens
+}
+
+func (t *TextCompletionRequest) GetFullPrompt() string {
+	return "### user:\n" + t.Prompt + "\n"
 }

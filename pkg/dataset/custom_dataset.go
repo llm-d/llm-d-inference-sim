@@ -18,7 +18,9 @@ package dataset
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -28,12 +30,11 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strconv"
 	"syscall"
 	"time"
 
 	"github.com/go-logr/logr"
-	"github.com/google/uuid"
+	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -338,19 +339,35 @@ func unmarshalAllRecords(rows *sql.Rows) ([][]string, error) {
 	return tokensList, nil
 }
 
-func (d *CustomDataset) getRandomTokens(n_gen_tokens int) []string {
-	return []string{"<|random_tokens|>", strconv.Itoa(n_gen_tokens)}
+func (d *CustomDataset) GetPromptHash(req openaiserverapi.CompletionRequest) []byte {
+	hashArray := sha256.Sum256([]byte(req.GetFullPrompt()))
+	return hashArray[:]
 }
 
-func (d *CustomDataset) readTokensFromDB(prompt string, n_gen_tokens int) []string {
-	promptHash := uuid.NewSHA1(uuid.NameSpaceOID, []byte(prompt)).NodeID()
-	rows, err := d.db.Query("SELECT "+genTokensCol+" FROM "+tableName+" WHERE "+promptHashCol+" = ?;", promptHash)
+func (d *CustomDataset) GetPromptHashHex(hashBytes []byte) string {
+	return hex.EncodeToString(hashBytes)
+}
+
+// GetTokens returns tokens and finishReason for the given request and mode (echo or random)
+func (d *CustomDataset) GetTokens(req openaiserverapi.CompletionRequest, mode string) ([]string, string, error) {
+	if mode == common.ModeEcho {
+		return d.echo(req)
+	}
+	nTokensToGen, finishReason := howManyTokensToGen(d.extractMaxTokens(req), req.GetIgnoreEOS())
+	tokens, err := d.GenerateTokens(req, nTokensToGen)
+	return tokens, finishReason, err
+}
+
+func (d *CustomDataset) GenerateTokens(req openaiserverapi.CompletionRequest, nTokens int) ([]string, error) {
+	promptHash := d.GetPromptHash(req)
+	promptHashHex := d.GetPromptHashHex(promptHash)
+	rows, err := d.db.Query("SELECT " + genTokensCol + " FROM " + tableName + " WHERE " + promptHashCol + "=X'" + promptHashHex + "';")
 	if err != nil {
 		if !d.hasWarned {
 			d.Logger.Error(err, "failed to query database. Ensure the prompt hash exists in the dataset. Will generate random tokens instead.")
 			d.hasWarned = true
 		}
-		return d.getRandomTokens(n_gen_tokens)
+		return GenPresetRandomTokens(nTokens), nil
 	}
 	defer func() {
 		if cerr := rows.Close(); cerr != nil {
@@ -361,18 +378,13 @@ func (d *CustomDataset) readTokensFromDB(prompt string, n_gen_tokens int) []stri
 	tokensList, err := unmarshalAllRecords(rows)
 	if err != nil {
 		d.Logger.Error(err, "failed to unmarshal records from database")
-		return d.getRandomTokens(n_gen_tokens)
+		return GenPresetRandomTokens(nTokens), nil
 	}
 
 	if len(tokensList) == 0 {
-		return d.getRandomTokens(n_gen_tokens)
+		return GenPresetRandomTokens(nTokens), nil
 	}
 	d.hasWarned = false
 	randIndex := rand.Intn(len(tokensList))
-	return tokensList[randIndex]
-}
-
-func (d *CustomDataset) GenerateTokens(req openaiserverapi.CompletionRequest, nTokens int) ([]string, error) {
-	tokens := d.readTokensFromDB("", nTokens)
-	return tokens, nil
+	return tokensList[randIndex], nil
 }
