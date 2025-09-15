@@ -14,14 +14,16 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package common
+package dataset
 
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
 	"os"
 	"os/signal"
@@ -30,12 +32,14 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/google/uuid"
 	_ "github.com/mattn/go-sqlite3"
 )
 
-type Dataset struct {
-	db     *sql.DB
-	Logger logr.Logger
+type CustomDataset struct {
+	Dataset
+	db        *sql.DB
+	hasWarned bool
 }
 
 // use constants for expected column names and types
@@ -49,7 +53,7 @@ const (
 	nGenTokensColType = "INTEGER"
 )
 
-func (d *Dataset) downloadDataset(url string, savePath string) error {
+func (d CustomDataset) downloadDataset(url string, savePath string) error {
 	// Set up signal handling for Ctrl+C (SIGINT)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -180,7 +184,7 @@ func (pr *progressReader) logProgress(pct int) {
 	}
 }
 
-func (d *Dataset) verifyDB() error {
+func (d CustomDataset) verifyDB() error {
 	rows, err := d.db.Query("PRAGMA table_info(" + tableName + ");")
 	if err != nil {
 		return fmt.Errorf("failed to query table info for `%s`: %w", tableName, err)
@@ -230,7 +234,7 @@ func (d *Dataset) verifyDB() error {
 	return nil
 }
 
-func (d *Dataset) getRecordsCount() (int, error) {
+func (d CustomDataset) getRecordsCount() (int, error) {
 	var count int
 	err := d.db.QueryRow("SELECT COUNT(" + promptHashCol + ") FROM " + tableName + ";").Scan(&count)
 	if err != nil {
@@ -239,7 +243,7 @@ func (d *Dataset) getRecordsCount() (int, error) {
 	return count, nil
 }
 
-func (d *Dataset) connectToDB(path string) error {
+func (d CustomDataset) connectToDB(path string) error {
 	if d.db != nil {
 		err := d.db.Close()
 		if err != nil {
@@ -273,7 +277,8 @@ func (d *Dataset) connectToDB(path string) error {
 	return nil
 }
 
-func (d *Dataset) Init(path string, url string, savePath string) error {
+func (d CustomDataset) Init(path string, url string, savePath string) error {
+	d.hasWarned = false
 	if path != "" {
 		return d.connectToDB(path)
 	}
@@ -307,9 +312,60 @@ func (d *Dataset) Init(path string, url string, savePath string) error {
 	return errors.New("no dataset path or url provided")
 }
 
-func (d *Dataset) Close() error {
+func (d CustomDataset) Close() error {
 	if d.db != nil {
 		return d.db.Close()
 	}
 	return nil
+}
+
+func unmarshalAllRecords(rows *sql.Rows) ([][]string, error) {
+	var tokensList [][]string
+	for rows.Next() {
+		var tokensJSON string
+		if err := rows.Scan(&tokensJSON); err != nil {
+			return nil, fmt.Errorf("failed to scan row: %w", err)
+		}
+
+		var tokens []string
+		if err := json.Unmarshal([]byte(tokensJSON), &tokens); err != nil {
+			return nil, fmt.Errorf("failed to unmarshal tokens JSON: %w", err)
+		}
+		tokensList = append(tokensList, tokens)
+	}
+	return tokensList, nil
+}
+
+func (d CustomDataset) getRandomTokens(n_gen_tokens int) []string {
+	return nil
+}
+
+func (d *CustomDataset) GetTokens(prompt string, n_gen_tokens int) []string {
+	promptHash := uuid.NewSHA1(uuid.NameSpaceOID, []byte(prompt)).NodeID()
+	rows, err := d.db.Query("SELECT "+genTokensCol+" FROM "+tableName+" WHERE "+promptHashCol+" = ?;", promptHash)
+	if err != nil {
+		if !d.hasWarned {
+			d.Logger.Error(err, "failed to query database. Ensure the prompt hash exists in the dataset. Will generate random tokens instead.")
+			d.hasWarned = true
+		}
+		return d.getRandomTokens(n_gen_tokens)
+	}
+	defer func() {
+		if cerr := rows.Close(); cerr != nil {
+			d.Logger.Error(cerr, "failed to close rows after query")
+		}
+	}()
+
+	tokensList, err := unmarshalAllRecords(rows)
+	if err != nil {
+		d.Logger.Error(err, "failed to unmarshal records from database")
+		return d.getRandomTokens(n_gen_tokens)
+	}
+
+	if len(tokensList) == 0 {
+		return d.getRandomTokens(n_gen_tokens)
+	}
+	d.hasWarned = false
+	randIndex := rand.Intn(len(tokensList))
+	return tokensList[randIndex]
 }

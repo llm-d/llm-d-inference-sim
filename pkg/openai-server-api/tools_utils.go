@@ -55,7 +55,7 @@ var fakeStringArguments = []string{
 // CreateToolCalls creates and returns response payload based on this request
 // (tool calls or nothing in case we randomly choose not to generate calls),
 // and the number of generated completion token sand the finish reason
-func CreateToolCalls(tools []Tool, toolChoice string, config *common.Configuration) ([]ToolCall, string, int, error) {
+func CreateToolCalls(tools []Tool, toolChoice string, config *common.Configuration) ([]ToolCall, int, error) {
 	// This function is called if tool choice is either 'required' or 'auto'.
 	// In case of 'required' at least one tool call has to be created, and we randomly choose
 	// the number of calls starting from one. Otherwise, we start from 0, and in case we randomly
@@ -66,7 +66,7 @@ func CreateToolCalls(tools []Tool, toolChoice string, config *common.Configurati
 	}
 	numberOfCalls := common.RandomInt(min, len(tools))
 	if numberOfCalls == 0 {
-		return nil, "", 0, nil
+		return nil, 0, nil
 	}
 
 	calls := make([]ToolCall, 0)
@@ -75,11 +75,11 @@ func CreateToolCalls(tools []Tool, toolChoice string, config *common.Configurati
 		index := common.RandomInt(0, len(tools)-1)
 		args, err := GenerateToolArguments(tools[index], config)
 		if err != nil {
-			return nil, "", 0, err
+			return nil, 0, err
 		}
 		argsJson, err := json.Marshal(args)
 		if err != nil {
-			return nil, "", 0, err
+			return nil, 0, err
 		}
 
 		call := ToolCall{
@@ -95,7 +95,7 @@ func CreateToolCalls(tools []Tool, toolChoice string, config *common.Configurati
 		calls = append(calls, call)
 	}
 
-	return calls, common.ToolsFinishReason, CountTokensForToolCalls(calls), nil
+	return calls, CountTokensForToolCalls(calls), nil
 }
 
 func GetRequiredAsMap(property map[string]any) map[string]struct{} {

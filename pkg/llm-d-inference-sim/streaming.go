@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
+	"github.com/llm-d/llm-d-inference-sim/pkg/dataset"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	"github.com/valyala/fasthttp"
 )
@@ -124,7 +125,7 @@ func (s *VllmSimulator) sendTokenChunks(context *streamingContext, w *bufio.Writ
 
 		var chunk openaiserverapi.CompletionRespChunk
 		var finishReasonToSend *string
-		if i == len(genTokens)-1 && (finishReason == common.LengthFinishReason || finishReason == common.ToolsFinishReason) {
+		if i == len(genTokens)-1 && (finishReason == dataset.LengthFinishReason || finishReason == dataset.ToolsFinishReason) {
 			finishReasonToSend = &finishReason
 		}
 		if context.isChatCompletion {
@@ -141,7 +142,7 @@ func (s *VllmSimulator) sendTokenChunks(context *streamingContext, w *bufio.Writ
 
 	// send the last chunk if finish reason is stop
 	var chunk openaiserverapi.CompletionRespChunk
-	if finishReason == common.StopFinishReason {
+	if finishReason == dataset.StopFinishReason {
 		if context.isChatCompletion {
 			chunk = s.createChatCompletionChunk(context, "", nil, "", &finishReason)
 		} else {

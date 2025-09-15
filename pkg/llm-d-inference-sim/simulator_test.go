@@ -28,6 +28,7 @@ import (
 	"strings"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
+	"github.com/llm-d/llm-d-inference-sim/pkg/dataset"
 	kvcache "github.com/llm-d/llm-d-inference-sim/pkg/kv-cache"
 	"github.com/llm-d/llm-d-kv-cache-manager/pkg/tokenization"
 	. "github.com/onsi/ginkgo/v2"
@@ -190,7 +191,7 @@ var _ = Describe("Simulator", func() {
 			msg := strings.Join(tokens, "")
 			if mode == common.ModeRandom {
 				// in case of random mode ensure that the returned message could be output of the random text generator
-				Expect(common.IsValidText(msg)).To(BeTrue())
+				Expect(dataset.IsValidText(msg)).To(BeTrue())
 			} else {
 				// in case of echo mode check that the text is returned as-is
 				Expect(msg).Should(Equal(userMessage))
@@ -239,7 +240,7 @@ var _ = Describe("Simulator", func() {
 			text := strings.Join(tokens, "")
 			if mode == common.ModeRandom {
 				// in case of random mode ensure that the returned message could be output of the random text generator
-				Expect(common.IsValidText(text)).To(BeTrue())
+				Expect(dataset.IsValidText(text)).To(BeTrue())
 			} else {
 				// in case of echo mode check that the text is returned as-is
 				Expect(text).Should(Equal(userMessage))
@@ -300,7 +301,7 @@ var _ = Describe("Simulator", func() {
 			} else {
 				if mode == common.ModeRandom {
 					// in case of random mode ensure that the returned message could be output of the random text generator
-					Expect(common.IsValidText(msg)).To(BeTrue())
+					Expect(dataset.IsValidText(msg)).To(BeTrue())
 				} else {
 					// in case of echo mode check that the text is returned as-is
 					Expect(msg).Should(Equal(userMessage))
@@ -371,7 +372,7 @@ var _ = Describe("Simulator", func() {
 			} else {
 				if mode == common.ModeRandom {
 					// in case of random mode ensure that the returned message could be output of the random text generator
-					Expect(common.IsValidText(text)).To(BeTrue())
+					Expect(dataset.IsValidText(text)).To(BeTrue())
 				} else {
 					// in case of echo mode check that the text is returned as-is
 					Expect(text).Should(Equal(userMessage))
