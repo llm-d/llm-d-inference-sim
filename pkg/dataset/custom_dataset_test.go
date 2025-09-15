@@ -19,6 +19,7 @@ package dataset
 import (
 	"encoding/json"
 	"os"
+	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
@@ -33,7 +34,7 @@ const (
 	testPrompt = "Hello world!"
 )
 
-var _ = Describe("CustomDataset", func() {
+var _ = Describe("CustomDataset", Ordered, func() {
 	var (
 		dataset               *CustomDataset
 		file_folder           string
@@ -45,6 +46,10 @@ var _ = Describe("CustomDataset", func() {
 		pathToInvalidColumnDB string
 		pathToInvalidTypeDB   string
 	)
+
+	BeforeAll(func() {
+		common.InitRandom(time.Now().UnixNano())
+	})
 
 	BeforeEach(func() {
 		dataset = &CustomDataset{
