@@ -288,21 +288,23 @@ func (d *BaseDataset) Close() error {
 	return nil
 }
 
+func (d *BaseDataset) echo(req openaiserverapi.CompletionRequest) ([]string, string, error) {
+	nMaxTokens := d.extractMaxTokens(req)
+	prompt, err := d.extractPrompt(req)
+	if err != nil {
+		return nil, "", err
+	}
+	tokens, finishReason := EchoResponseTokens(nMaxTokens, prompt)
+	return tokens, finishReason, nil
+}
+
 // GetTokens returns tokens and finishReason for the given request and mode (echo or random)
 func (d *BaseDataset) GetTokens(req openaiserverapi.CompletionRequest, mode string) ([]string, string, error) {
-	nMaxTokens := d.extractMaxTokens(req)
 	if mode == common.ModeEcho {
-		prompt, err := d.extractPrompt(req)
-		if err != nil {
-			return nil, "", err
-		}
-		tokens, finishReason := EchoResponseTokens(nMaxTokens, prompt)
-		return tokens, finishReason, nil
+		return d.echo(req)
 	}
-
-	nTokensToGen, finishReason := howManyTokensToGen(nMaxTokens, req.GetIgnoreEOS())
-	tokens, err := d.GenerateTokens(req, nTokensToGen)
-	return tokens, finishReason, err
+	nTokensToGen, finishReason := howManyTokensToGen(d.extractMaxTokens(req), req.GetIgnoreEOS())
+	return GenPresetRandomTokens(nTokensToGen), finishReason, nil
 }
 
 // extractMaxTokens extracts the max tokens from the request
@@ -327,11 +329,4 @@ func (d *BaseDataset) extractPrompt(req openaiserverapi.CompletionRequest) (stri
 		return textReq.GetPrompt(), nil
 	}
 	return "", errors.New("unknown request type")
-}
-
-// GenerateTokens generates random tokens for the required number of tokens
-// other dataset types should override this function
-func (d *BaseDataset) GenerateTokens(req openaiserverapi.CompletionRequest, nTokens int) ([]string, error) {
-	tokens := GenPresetRandomTokens(nTokens)
-	return tokens, nil
 }
