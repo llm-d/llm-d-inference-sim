@@ -26,7 +26,6 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/openai/openai-go"
-	"github.com/openai/openai-go/option"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
@@ -135,18 +134,8 @@ var _ = Describe("Failures", func() {
 			})
 
 			It("should always return an error response for chat completions", func() {
-				openaiClient := openai.NewClient(
-					option.WithBaseURL(baseURL),
-					option.WithHTTPClient(client),
-				)
-
-				_, err := openaiClient.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
-					Model: model,
-					Messages: []openai.ChatCompletionMessageParamUnion{
-						openai.UserMessage(userMessage),
-					},
-				})
-
+				openaiClient, params := getOpenAIClentAndChatParams(client, model, userMessage, false)
+				_, err := openaiClient.Chat.Completions.New(ctx, params)
 				Expect(err).To(HaveOccurred())
 
 				var openaiError *openai.Error
@@ -158,18 +147,8 @@ var _ = Describe("Failures", func() {
 			})
 
 			It("should always return an error response for text completions", func() {
-				openaiClient := openai.NewClient(
-					option.WithBaseURL(baseURL),
-					option.WithHTTPClient(client),
-				)
-
-				_, err := openaiClient.Completions.New(ctx, openai.CompletionNewParams{
-					Model: openai.CompletionNewParamsModel(model),
-					Prompt: openai.CompletionNewParamsPromptUnion{
-						OfString: openai.String(userMessage),
-					},
-				})
-
+				openaiClient, params := getOpenAIClentAndChatParams(client, model, userMessage, false)
+				_, err := openaiClient.Chat.Completions.New(ctx, params)
 				Expect(err).To(HaveOccurred())
 
 				var openaiError *openai.Error
@@ -194,18 +173,8 @@ var _ = Describe("Failures", func() {
 			})
 
 			It("should return only rate limit errors", func() {
-				openaiClient := openai.NewClient(
-					option.WithBaseURL(baseURL),
-					option.WithHTTPClient(client),
-				)
-
-				_, err := openaiClient.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
-					Model: model,
-					Messages: []openai.ChatCompletionMessageParamUnion{
-						openai.UserMessage(userMessage),
-					},
-				})
-
+				openaiClient, params := getOpenAIClentAndChatParams(client, model, userMessage, false)
+				_, err := openaiClient.Chat.Completions.New(ctx, params)
 				Expect(err).To(HaveOccurred())
 
 				var openaiError *openai.Error
@@ -230,20 +199,11 @@ var _ = Describe("Failures", func() {
 			})
 
 			It("should return only specified error types", func() {
-				openaiClient := openai.NewClient(
-					option.WithBaseURL(baseURL),
-					option.WithHTTPClient(client),
-				)
+				openaiClient, params := getOpenAIClentAndChatParams(client, model, userMessage, false)
 
 				// Make multiple requests to verify we get the expected error types
 				for i := 0; i < 10; i++ {
-					_, err := openaiClient.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
-						Model: model,
-						Messages: []openai.ChatCompletionMessageParamUnion{
-							openai.UserMessage(userMessage),
-						},
-					})
-
+					_, err := openaiClient.Chat.Completions.New(ctx, params)
 					Expect(err).To(HaveOccurred())
 
 					var openaiError *openai.Error
@@ -270,18 +230,8 @@ var _ = Describe("Failures", func() {
 			})
 
 			It("should never return errors and behave like random mode", func() {
-				openaiClient := openai.NewClient(
-					option.WithBaseURL(baseURL),
-					option.WithHTTPClient(client),
-				)
-
-				resp, err := openaiClient.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
-					Model: model,
-					Messages: []openai.ChatCompletionMessageParamUnion{
-						openai.UserMessage(userMessage),
-					},
-				})
-
+				openaiClient, params := getOpenAIClentAndChatParams(client, model, userMessage, false)
+				resp, err := openaiClient.Chat.Completions.New(ctx, params)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(resp.Choices).To(HaveLen(1))
 				Expect(resp.Choices[0].Message.Content).ToNot(BeEmpty())
@@ -300,18 +250,8 @@ var _ = Describe("Failures", func() {
 					}, nil)
 					Expect(err).ToNot(HaveOccurred())
 
-					openaiClient := openai.NewClient(
-						option.WithBaseURL(baseURL),
-						option.WithHTTPClient(client),
-					)
-
-					_, err = openaiClient.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
-						Model: model,
-						Messages: []openai.ChatCompletionMessageParamUnion{
-							openai.UserMessage(userMessage),
-						},
-					})
-
+					openaiClient, params := getOpenAIClentAndChatParams(client, model, userMessage, false)
+					_, err = openaiClient.Chat.Completions.New(ctx, params)
 					Expect(err).To(HaveOccurred())
 
 					var openaiError *openai.Error

@@ -73,16 +73,7 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 		client, err := startServerWithArgs(ctx, common.ModeRandom, args, nil)
 		Expect(err).NotTo(HaveOccurred())
 
-		openaiclient := openai.NewClient(
-			option.WithBaseURL(baseURL),
-			option.WithHTTPClient(client))
-
-		params := openai.ChatCompletionNewParams{
-			Messages: []openai.ChatCompletionMessageParamUnion{
-				openai.UserMessage(userMessage),
-			},
-			Model: modelName,
-		}
+		openaiclient, params := getOpenAIClentAndChatParams(client, modelName, userMessage, false)
 
 		var wg sync.WaitGroup
 		wg.Add(1)

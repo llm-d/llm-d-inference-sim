@@ -40,17 +40,8 @@ var _ = Describe("LoRAs", func() {
 					"{\"name\":\"lora4\",\"path\":\"/path/to/lora4\"}"}, nil)
 			Expect(err).NotTo(HaveOccurred())
 
-			openaiclient := openai.NewClient(
-				option.WithBaseURL(baseURL),
-				option.WithHTTPClient(client))
-
 			// Request to lora3
-			params := openai.ChatCompletionNewParams{
-				Messages: []openai.ChatCompletionMessageParamUnion{
-					openai.UserMessage(userMessage),
-				},
-				Model: "lora3",
-			}
+			openaiclient, params := getOpenAIClentAndChatParams(client, "lora3", userMessage, false)
 			resp, err := openaiclient.Chat.Completions.New(ctx, params)
 			Expect(err).ToNot(HaveOccurred())
 

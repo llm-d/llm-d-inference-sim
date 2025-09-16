@@ -320,7 +320,7 @@ var _ = Describe("Check random latencies", Ordered, func() {
 		simulator.config.MaxNumSeqs = 11
 		simulator.nRunningReqs = 3
 
-		factor := simulator.getCurrFactor()
+		factor := simulator.getCurrLoadFactor()
 		Expect(factor).To(BeNumerically("==", 1.0))
 	})
 
@@ -329,7 +329,7 @@ var _ = Describe("Check random latencies", Ordered, func() {
 		simulator.config.MaxNumSeqs = 11
 		simulator.nRunningReqs = 11
 
-		factor := simulator.getCurrFactor()
+		factor := simulator.getCurrLoadFactor()
 		Expect(factor).To(BeNumerically("==", simulator.config.TimeFactorUnderLoad))
 
 	})
@@ -339,7 +339,7 @@ var _ = Describe("Check random latencies", Ordered, func() {
 		simulator.config.MaxNumSeqs = 11
 		simulator.nRunningReqs = 6
 
-		factor := simulator.getCurrFactor()
+		factor := simulator.getCurrLoadFactor()
 		Expect(factor).To(BeNumerically(">", 1.0))
 		Expect(factor).To(BeNumerically("<", simulator.config.TimeFactorUnderLoad))
 	})

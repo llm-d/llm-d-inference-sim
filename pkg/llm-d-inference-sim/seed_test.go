@@ -23,7 +23,6 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/openai/openai-go"
-	"github.com/openai/openai-go/option"
 )
 
 var _ = Describe("Simulator with seed", func() {
@@ -36,17 +35,8 @@ var _ = Describe("Simulator with seed", func() {
 				[]string{"cmd", "--model", model, "--mode", common.ModeRandom, "--seed", "100"}, nil)
 			Expect(err).NotTo(HaveOccurred())
 
-			openaiclient := openai.NewClient(
-				option.WithBaseURL(baseURL),
-				option.WithHTTPClient(client))
-			params := openai.CompletionNewParams{
-				Prompt: openai.CompletionNewParamsPromptUnion{
-					OfString: openai.String(userMessage),
-				},
-				Model:     openai.CompletionNewParamsModel(model),
-				MaxTokens: openai.Int(10),
-			}
-
+			openaiclient, params := getOpenAIClentAndCompletionParams(client, model, userMessage, false)
+			params.MaxTokens = openai.Int(10)
 			resp, err := openaiclient.Completions.New(ctx, params)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resp.Choices).ShouldNot(BeEmpty())
@@ -77,16 +67,7 @@ var _ = Describe("Simulator with seed", func() {
 			client, err := startServer(ctx, common.ModeRandom)
 			Expect(err).NotTo(HaveOccurred())
 
-			openaiclient := openai.NewClient(
-				option.WithBaseURL(baseURL),
-				option.WithHTTPClient(client))
-			params := openai.CompletionNewParams{
-				Prompt: openai.CompletionNewParamsPromptUnion{
-					OfString: openai.String(userMessage),
-				},
-				Model: openai.CompletionNewParamsModel(model),
-			}
-
+			openaiclient, params := getOpenAIClentAndCompletionParams(client, model, userMessage, false)
 			resp, err := openaiclient.Completions.New(ctx, params)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resp.Choices).ShouldNot(BeEmpty())

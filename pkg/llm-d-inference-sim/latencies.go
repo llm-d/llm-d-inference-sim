@@ -19,7 +19,7 @@ package llmdinferencesim
 
 import "github.com/llm-d/llm-d-inference-sim/pkg/common"
 
-func (s *VllmSimulator) getCurrFactor() float64 {
+func (s *VllmSimulator) getCurrLoadFactor() float64 {
 	if s.config.MaxNumSeqs <= 1 {
 		return 1.0
 	}
@@ -27,15 +27,15 @@ func (s *VllmSimulator) getCurrFactor() float64 {
 }
 
 func (s *VllmSimulator) getTimeToFirstToken() int {
-	return int(float64(s.config.TimeToFirstToken) * s.getCurrFactor())
+	return int(float64(s.config.TimeToFirstToken) * s.getCurrLoadFactor())
 }
 
 func (s *VllmSimulator) getPrefillOverhead() int {
-	return int(float64(s.config.PrefillOverhead) * s.getCurrFactor())
+	return int(float64(s.config.PrefillOverhead) * s.getCurrLoadFactor())
 }
 
 func (s *VllmSimulator) getPrefillTimePerToken() int {
-	return int(float64(s.config.PrefillTimePerToken) * s.getCurrFactor())
+	return int(float64(s.config.PrefillTimePerToken) * s.getCurrLoadFactor())
 }
 
 // returns time to first token based on the current request's doRemotePrefill
@@ -60,6 +60,6 @@ func (s *VllmSimulator) getWaitTimeToFirstToken(nPromptTokens int, nCachedPrompt
 
 // returns inter token latency
 func (s *VllmSimulator) getInterTokenLatency() int {
-	latency := int(float64(s.config.InterTokenLatency) * s.getCurrFactor())
+	latency := int(float64(s.config.InterTokenLatency) * s.getCurrLoadFactor())
 	return common.RandomNorm(latency, s.config.InterTokenLatencyStdDev)
 }
