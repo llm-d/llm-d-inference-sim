@@ -356,7 +356,7 @@ func (d *CustomDataset) GetTokens(req openaiserverapi.CompletionRequest, mode st
 		return d.echo(req)
 	}
 	nTokensToGen, finishReason := howManyTokensToGen(d.extractMaxTokens(req), req.GetIgnoreEOS())
-	tokens, err := d.GenerateTokens(req, nTokensToGen)
+	tokens, err := d.GenerateTokens(req, nTokensToGen, finishReason)
 	return tokens, finishReason, err
 }
 
@@ -377,17 +377,36 @@ func (d *CustomDataset) query(query string, nTokens int) ([][]string, error) {
 	return unmarshalAllRecords(rows)
 }
 
-func (d *CustomDataset) GenerateTokens(req openaiserverapi.CompletionRequest, nTokens int) ([]string, error) {
+func (d *CustomDataset) GenerateTokens(req openaiserverapi.CompletionRequest, nTokens int, finishReason string) ([]string, error) {
 	// query by prompt hash first
 	promptHash := d.GetPromptHash(req)
 	promptHashHex := d.GetPromptHashHex(promptHash)
 	query := "SELECT " + genTokensCol + " FROM " + tableName + " WHERE " + promptHashCol + "=X'" + promptHashHex + "';"
 	tokensList, err := d.query(query, nTokens)
 
-	if err != nil || len(tokensList) == 0 {
-		// if query by prompt hash fails, fallback to query by number of tokens
-		query = "SELECT " + genTokensCol + " FROM " + tableName + " WHERE " + nGenTokensCol + "=" + strconv.Itoa(nTokens) + ";"
-		tokensList, err = d.query(query, nTokens)
+	// filter out results according to finish reason
+	var filteredTokensList [][]string
+	if finishReason != LengthFinishReason && finishReason != StopFinishReason {
+		d.Logger.Error(errors.New("unknown finish reason"), "Unexpected finish reason", "reason", finishReason)
+	}
+	for _, tokens := range tokensList {
+		if finishReason == StopFinishReason && len(tokens) <= nTokens {
+			filteredTokensList = append(filteredTokensList, tokens)
+		} else if finishReason == LengthFinishReason && len(tokens) == nTokens {
+			filteredTokensList = append(filteredTokensList, tokens)
+		}
+	}
+	tokensList = filteredTokensList
+
+	if err != nil || len(filteredTokensList) == 0 {
+		switch finishReason {
+		case LengthFinishReason:
+			query = "SELECT " + genTokensCol + " FROM " + tableName + " WHERE " + nGenTokensCol + "=" + strconv.Itoa(nTokens) + ";"
+			tokensList, err = d.query(query, nTokens)
+		case StopFinishReason:
+			query = "SELECT " + genTokensCol + " FROM " + tableName + " WHERE " + nGenTokensCol + "<=" + strconv.Itoa(nTokens) + ";"
+			tokensList, err = d.query(query, nTokens)
+		}
 	}
 
 	if err != nil || len(tokensList) == 0 {
