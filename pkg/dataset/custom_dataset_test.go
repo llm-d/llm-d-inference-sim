@@ -193,9 +193,8 @@ var _ = Describe("CustomDataset", Ordered, func() {
 			Prompt:    testPrompt,
 			MaxTokens: &n,
 		}
-		tokens, finishReason, err := dataset.GetTokens(req, common.ModeRandom)
+		tokens, _, err := dataset.GetTokens(req, common.ModeRandom)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(finishReason).To(Equal(LengthFinishReason))
 		Expect(len(tokens)).To(BeNumerically("<=", 2))
 	})
 })

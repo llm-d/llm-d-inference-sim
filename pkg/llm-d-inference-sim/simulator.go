@@ -29,7 +29,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/valyala/fasthttp"
 	"golang.org/x/sync/errgroup"
-	"gopkg.in/yaml.v3"
 	"k8s.io/klog/v2"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
@@ -258,69 +257,6 @@ func (s *VllmSimulator) initDataset() error {
 		return fmt.Errorf("dataset initialization error: %w", err)
 	}
 	return nil
-}
-
-func (s *VllmSimulator) newListener() (net.Listener, error) {
-	s.logger.Info("Server starting", "port", s.config.Port)
-	listener, err := net.Listen("tcp4", fmt.Sprintf(":%d", s.config.Port))
-	if err != nil {
-		return nil, err
-	}
-	return listener, nil
-}
-
-// startServer starts http server on port defined in command line
-func (s *VllmSimulator) startServer(ctx context.Context, listener net.Listener) error {
-	r := fasthttprouter.New()
-
-	// support completion APIs
-	r.POST("/v1/chat/completions", s.HandleChatCompletions)
-	r.POST("/v1/completions", s.HandleTextCompletions)
-	// supports /models API
-	r.GET("/v1/models", s.HandleModels)
-	// support load/unload of lora adapter
-	r.POST("/v1/load_lora_adapter", s.HandleLoadLora)
-	r.POST("/v1/unload_lora_adapter", s.HandleUnloadLora)
-	// supports /metrics prometheus API
-	r.GET("/metrics", fasthttpadaptor.NewFastHTTPHandler(promhttp.HandlerFor(s.registry, promhttp.HandlerOpts{})))
-	// supports standard Kubernetes health and readiness checks
-	r.GET("/health", s.HandleHealth)
-	r.GET("/ready", s.HandleReady)
-	r.POST("/tokenize", s.HandleTokenize)
-
-	server := fasthttp.Server{
-		ErrorHandler: s.HandleError,
-		Handler:      r.Handler,
-		Logger:       s,
-	}
-
-	// Start server in a goroutine
-	serverErr := make(chan error, 1)
-	go func() {
-		s.logger.Info("HTTP server starting")
-		serverErr <- server.Serve(listener)
-	}()
-
-	// Wait for either context cancellation or server error
-	select {
-	case <-ctx.Done():
-		s.logger.Info("Shutdown signal received, shutting down HTTP server gracefully")
-
-		// Gracefully shutdown the server
-		if err := server.Shutdown(); err != nil {
-			s.logger.Error(err, "Error during server shutdown")
-			return err
-		}
-
-		s.logger.Info("HTTP server stopped")
-		return nil
-
-	case err := <-serverErr:
-		if err != nil {
-			s.logger.Error(err, "HTTP server failed")
-		}
-		return err
-	}
 }
 
 // Print prints to a log, implementation of fasthttp.Logger
@@ -594,66 +530,6 @@ func (s *VllmSimulator) createModelsResponse() *vllmapi.ModelsResponse {
 	return &modelsResp
 }
 
-// HandleHealth http handler for /health
-func (s *VllmSimulator) HandleHealth(ctx *fasthttp.RequestCtx) {
-	s.logger.V(4).Info("health request received")
-	ctx.Response.Header.SetContentType("application/json")
-	ctx.Response.Header.SetStatusCode(fasthttp.StatusOK)
-	ctx.Response.SetBody([]byte("{}"))
-}
-
-// HandleReady http handler for /ready
-func (s *VllmSimulator) HandleReady(ctx *fasthttp.RequestCtx) {
-	s.logger.V(4).Info("readiness request received")
-	ctx.Response.Header.SetContentType("application/json")
-	ctx.Response.Header.SetStatusCode(fasthttp.StatusOK)
-	ctx.Response.SetBody([]byte("{}"))
-}
-
-// getDisplayedModelName returns the model name that must appear in API
-// responses.  LoRA adapters keep their explicit name, while all base-model
-// requests are surfaced as the first alias from --served-model-name.
-func (s *VllmSimulator) getDisplayedModelName(reqModel string) string {
-	if s.isLora(reqModel) {
-		return reqModel
-	}
-	return s.config.ServedModelNames[0]
-}
-
-func (s *VllmSimulator) showConfig(dp bool) error {
-	cfgYAML, err := yaml.Marshal(s.config)
-	if err != nil {
-		return fmt.Errorf("failed to marshal configuration to YAML: %w", err)
-	}
-
-	var m map[string]interface{}
-	err = yaml.Unmarshal(cfgYAML, &m)
-	if err != nil {
-		return fmt.Errorf("failed to unmarshal YAML to map: %w", err)
-	}
-	if dp {
-		// remove the port
-		delete(m, "port")
-	}
-	// clean LoraModulesString field
-	m["lora-modules"] = m["LoraModules"]
-	delete(m, "LoraModules")
-	delete(m, "LoraModulesString")
-
-	// clean fake-metrics field
-	if field, ok := m["fake-metrics"].(map[string]interface{}); ok {
-		delete(field, "LorasString")
-	}
-
-	// show in YAML
-	cfgYAML, err = yaml.Marshal(m)
-	if err != nil {
-		return fmt.Errorf("failed to marshal configuration to YAML: %w", err)
-	}
-	s.logger.Info("Configuration:", "", string(cfgYAML))
-	return nil
-}
-
 func (s *VllmSimulator) getCurrFactor() float64 {
 	if s.config.MaxNumSeqs <= 1 {
 		return 1.0
@@ -675,32 +551,4 @@ func (s *VllmSimulator) GetPrefillTimePerToken() int {
 
 func (s *VllmSimulator) GetInterTokenLatency() int {
 	return int(float64(s.config.InterTokenLatency) * s.getCurrFactor())
-}
-<<<<<<< HEAD
-
-// generateTokens creates and returns response payload based on this request,
-// i.e., an array of generated tokens, the finish reason, and the number of generated tokens
-func (s *VllmSimulator) generateTokens(req openaiserverapi.CompletionRequest) ([]string, string, int, error) {
-	ignoreEOS := req.GetIgnoreEOS()
-	var maxTokens *int64
-	var prompt string
-
-	if chatReq, ok := req.(*openaiserverapi.ChatCompletionRequest); ok {
-		maxTokens = chatReq.GetMaxCompletionTokens()
-		prompt = chatReq.GetLastUserMsg()
-	} else if textReq, ok := req.(*openaiserverapi.TextCompletionRequest); ok {
-		maxTokens = textReq.MaxTokens
-		prompt = textReq.GetPrompt()
-	} else {
-		return nil, "", 0, fmt.Errorf("unknown request type: %T", req)
-	}
-
-	var finishReason string
-	var tokens []string
-	if s.config.Mode == common.ModeEcho {
-		tokens, finishReason = common.EchoResponseTokens(maxTokens, prompt)
-		return tokens, finishReason, len(tokens), nil
-	}
-	tokens, finishReason = common.GetRandomTokens(maxTokens, ignoreEOS, s.dataset)
-	return tokens, finishReason, len(tokens), nil
 }
