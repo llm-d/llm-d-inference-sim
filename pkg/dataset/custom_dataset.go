@@ -29,6 +29,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -359,33 +360,43 @@ func (d *CustomDataset) GetTokens(req openaiserverapi.CompletionRequest, mode st
 	return tokens, finishReason, err
 }
 
-func (d *CustomDataset) GenerateTokens(req openaiserverapi.CompletionRequest, nTokens int) ([]string, error) {
-	promptHash := d.GetPromptHash(req)
-	promptHashHex := d.GetPromptHashHex(promptHash)
-	rows, err := d.db.Query("SELECT " + genTokensCol + " FROM " + tableName + " WHERE " + promptHashCol + "=X'" + promptHashHex + "';")
+func (d *CustomDataset) query(query string, nTokens int) ([][]string, error) {
+	rows, err := d.db.Query(query)
 	if err != nil {
 		if !d.hasWarned {
-			d.Logger.Error(err, "failed to query database. Ensure the prompt hash exists in the dataset. Will generate random tokens instead.")
+			d.Logger.Error(err, "Failed to query database. Ensure dataset file is still valid. Will generate random tokens instead.")
 			d.hasWarned = true
 		}
-		return GenPresetRandomTokens(nTokens), nil
+		return [][]string{GenPresetRandomTokens(nTokens)}, nil
 	}
 	defer func() {
 		if cerr := rows.Close(); cerr != nil {
 			d.Logger.Error(cerr, "failed to close rows after query")
 		}
 	}()
+	return unmarshalAllRecords(rows)
+}
 
-	tokensList, err := unmarshalAllRecords(rows)
-	if err != nil {
-		d.Logger.Error(err, "failed to unmarshal records from database")
-		return GenPresetRandomTokens(nTokens), nil
+func (d *CustomDataset) GenerateTokens(req openaiserverapi.CompletionRequest, nTokens int) ([]string, error) {
+	// query by prompt hash first
+	promptHash := d.GetPromptHash(req)
+	promptHashHex := d.GetPromptHashHex(promptHash)
+	query := "SELECT " + genTokensCol + " FROM " + tableName + " WHERE " + promptHashCol + "=X'" + promptHashHex + "';"
+	tokensList, err := d.query(query, nTokens)
+
+	if err != nil || len(tokensList) == 0 {
+		// if query by prompt hash fails, fallback to query by number of tokens
+		query = "SELECT " + genTokensCol + " FROM " + tableName + " WHERE " + nGenTokensCol + "=" + strconv.Itoa(nTokens) + ";"
+		tokensList, err = d.query(query, nTokens)
 	}
 
-	if len(tokensList) == 0 {
+	if err != nil || len(tokensList) == 0 {
+		// if both queries fail or return no results, generate random tokens
 		return GenPresetRandomTokens(nTokens), nil
 	}
-	d.hasWarned = false
+	if d.hasWarned {
+		d.hasWarned = false
+	}
 	randIndex := common.RandomInt(0, len(tokensList)-1)
 	return tokensList[randIndex], nil
 }
