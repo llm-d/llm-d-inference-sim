@@ -259,69 +259,6 @@ func (s *VllmSimulator) initDataset() error {
 	return nil
 }
 
-func (s *VllmSimulator) newListener() (net.Listener, error) {
-	s.logger.Info("Server starting", "port", s.config.Port)
-	listener, err := net.Listen("tcp4", fmt.Sprintf(":%d", s.config.Port))
-	if err != nil {
-		return nil, err
-	}
-	return listener, nil
-}
-
-// startServer starts http server on port defined in command line
-func (s *VllmSimulator) startServer(ctx context.Context, listener net.Listener) error {
-	r := fasthttprouter.New()
-
-	// support completion APIs
-	r.POST("/v1/chat/completions", s.HandleChatCompletions)
-	r.POST("/v1/completions", s.HandleTextCompletions)
-	// supports /models API
-	r.GET("/v1/models", s.HandleModels)
-	// support load/unload of lora adapter
-	r.POST("/v1/load_lora_adapter", s.HandleLoadLora)
-	r.POST("/v1/unload_lora_adapter", s.HandleUnloadLora)
-	// supports /metrics prometheus API
-	r.GET("/metrics", fasthttpadaptor.NewFastHTTPHandler(promhttp.HandlerFor(s.registry, promhttp.HandlerOpts{})))
-	// supports standard Kubernetes health and readiness checks
-	r.GET("/health", s.HandleHealth)
-	r.GET("/ready", s.HandleReady)
-	r.POST("/tokenize", s.HandleTokenize)
-
-	server := fasthttp.Server{
-		ErrorHandler: s.HandleError,
-		Handler:      r.Handler,
-		Logger:       s,
-	}
-
-	// Start server in a goroutine
-	serverErr := make(chan error, 1)
-	go func() {
-		s.logger.Info("HTTP server starting")
-		serverErr <- server.Serve(listener)
-	}()
-
-	// Wait for either context cancellation or server error
-	select {
-	case <-ctx.Done():
-		s.logger.Info("Shutdown signal received, shutting down HTTP server gracefully")
-
-		// Gracefully shutdown the server
-		if err := server.Shutdown(); err != nil {
-			s.logger.Error(err, "Error during server shutdown")
-			return err
-		}
-
-		s.logger.Info("HTTP server stopped")
-		return nil
-
-	case err := <-serverErr:
-		if err != nil {
-			s.logger.Error(err, "HTTP server failed")
-		}
-		return err
-	}
-}
-
 // Print prints to a log, implementation of fasthttp.Logger
 func (s *VllmSimulator) Printf(format string, args ...interface{}) {
 	s.logger.Info("Server error", "msg", fmt.Sprintf(format, args...))
