@@ -89,7 +89,7 @@ post-deploy-test: ## Run post deployment tests
 	@echo "Post-deployment tests passed."
 	
 .PHONY: lint
-lint: check-golangci-lint ## Run lint
+lint: check-golangci-lint check-golangci-lint-version ## Run lint
 	@printf "\033[33;1m==== Running linting ====\033[0m\n"
 	golangci-lint run
 
@@ -188,6 +188,14 @@ check-ginkgo:
 check-golangci-lint:
 	@command -v golangci-lint >/dev/null 2>&1 || { \
 	  echo "❌ golangci-lint is not installed. Install from https://golangci-lint.run/docs/welcome/install/"; exit 1; }
+
+.PHONY: check-golangci-lint-version
+check-golangci-lint-version:
+	@version=$$(golangci-lint --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1); \
+	if [[ $$version != 2.* ]]; then \
+	  echo "❌ golangci-lint version 2.x is required. Current version: $$version"; \
+	  exit 1; \
+	fi
 
 .PHONY: check-container-tool
 check-container-tool:
