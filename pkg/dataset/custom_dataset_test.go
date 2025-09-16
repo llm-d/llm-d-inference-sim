@@ -184,4 +184,18 @@ var _ = Describe("CustomDataset", Ordered, func() {
 		Expect(finishReason).To(Equal(StopFinishReason))
 		Expect(tokens).To(Equal([]string{"Hello", " llm-d ", "world", "!"}))
 	})
+
+	It("should return at most 2 tokens for existing prompt", func() {
+		err := dataset.Init(validDBPath, "")
+		Expect(err).NotTo(HaveOccurred())
+		n := int64(2)
+		req := &openaiserverapi.TextCompletionRequest{
+			Prompt:    testPrompt,
+			MaxTokens: &n,
+		}
+		tokens, finishReason, err := dataset.GetTokens(req, common.ModeRandom)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(finishReason).To(Equal(LengthFinishReason))
+		Expect(len(tokens)).To(BeNumerically("<=", 2))
+	})
 })
