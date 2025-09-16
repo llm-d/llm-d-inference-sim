@@ -624,6 +624,7 @@ func getOpenAIClentAndChatParams(client option.HTTPClient, model string, message
 	return openaiclient, params
 }
 
+// nolint
 func getOpenAIClentAndCompletionParams(client option.HTTPClient, model string, message string,
 	streaming bool) (openai.Client, openai.CompletionNewParams) {
 	openaiclient := openai.NewClient(
