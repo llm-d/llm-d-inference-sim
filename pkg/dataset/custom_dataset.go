@@ -294,9 +294,6 @@ func (d *CustomDataset) Init(path string, url string) error {
 				return fmt.Errorf("failed to get user home directory: %w", err)
 			}
 			path = filepath.Join(user, ".llm-d", "dataset.sqlite3")
-			d.Logger.Info("Using default for dataset", "path", path)
-		} else {
-			d.Logger.Info("Using provided path for dataset", "path", path)
 		}
 
 		_, err := os.Stat(path)
