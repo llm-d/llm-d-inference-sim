@@ -78,7 +78,7 @@ format: ## Format Go source files
 test: check-ginkgo download-tokenizer download-zmq ## Run tests
 	@printf "\033[33;1m==== Running tests ====\033[0m\n"
 ifdef GINKGO_FOCUS
-	CGO_ENABLED=1 ginkgo -ldflags="$(GO_LDFLAGS)" -v -r --focus="$(GINKGO_FOCUS)"
+	CGO_ENABLED=1 ginkgo -ldflags="$(GO_LDFLAGS)" -v -r -- -ginkgo.v -ginkgo.focus="$(GINKGO_FOCUS)"
 else
 	CGO_ENABLED=1 ginkgo -ldflags="$(GO_LDFLAGS)" -v -r
 endif

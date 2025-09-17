@@ -32,6 +32,7 @@ import (
 	"k8s.io/klog/v2"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
+	"github.com/llm-d/llm-d-inference-sim/pkg/dataset"
 	kvcache "github.com/llm-d/llm-d-inference-sim/pkg/kv-cache"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	vllmapi "github.com/llm-d/llm-d-inference-sim/pkg/vllm-api"
@@ -115,6 +116,8 @@ type VllmSimulator struct {
 	pod string
 	// tokenizer is currently used in kv-cache and in /tokenize
 	tokenizer tokenization.Tokenizer
+	// dataset is used for token generation in responses
+	dataset dataset.Dataset
 }
 
 // New creates a new VllmSimulator instance with the given logger
@@ -213,6 +216,11 @@ func (s *VllmSimulator) startSim(ctx context.Context) error {
 		go s.kvcacheHelper.Run(ctx)
 	}
 
+	err = s.initDataset()
+	if err != nil {
+		return fmt.Errorf("dataset initialization error: %w", err)
+	}
+
 	// run request processing workers
 	for i := 1; i <= s.config.MaxNumSeqs; i++ {
 		go s.reqProcessingWorker(ctx, i)
@@ -222,11 +230,33 @@ func (s *VllmSimulator) startSim(ctx context.Context) error {
 
 	listener, err := s.newListener()
 	if err != nil {
-		return err
+		s.logger.Error(err, "Failed to create listener")
+		return fmt.Errorf("listener creation error: %w", err)
 	}
 
 	// start the http server with context support
 	return s.startServer(ctx, listener)
+}
+
+func (s *VllmSimulator) initDataset() error {
+	randDataset := &dataset.BaseDataset{
+		Logger: s.logger,
+	}
+
+	if s.config.Dataset.Path == "" && s.config.Dataset.Url == "" {
+		s.logger.Info("No dataset provided, will generate random responses from preset text")
+		s.dataset = randDataset
+	} else {
+		s.logger.Info("Custom dataset configuration detected")
+		s.dataset = &dataset.CustomDataset{
+			BaseDataset: *randDataset,
+		}
+	}
+
+	if err := s.dataset.Init(s.config.Dataset.Path, s.config.Dataset.Url); err != nil {
+		return fmt.Errorf("dataset initialization error: %w", err)
+	}
+	return nil
 }
 
 // Print prints to a log, implementation of fasthttp.Logger
@@ -316,13 +346,15 @@ func (s *VllmSimulator) reqProcessingWorker(ctx context.Context, id int) {
 			if reqCtx.IsChatCompletion &&
 				req.GetToolChoice() != openaiserverapi.ToolChoiceNone &&
 				req.GetTools() != nil {
-				toolCalls, finishReason, completionTokens, err =
+				toolCalls, completionTokens, err =
 					openaiserverapi.CreateToolCalls(req.GetTools(), req.GetToolChoice(), s.config)
+				finishReason = dataset.ToolsFinishReason
 			}
 			if toolCalls == nil && err == nil {
 				// Either no tool calls were defined, or we randomly chose not to create tool calls,
 				// so we generate a response text.
-				responseTokens, finishReason, completionTokens, err = req.CreateResponseText(s.config.Mode)
+				responseTokens, finishReason, err = s.dataset.GetTokens(req, s.config.Mode)
+				completionTokens += len(responseTokens)
 			}
 			if err != nil {
 				prefix := ""
@@ -358,7 +390,7 @@ func (s *VllmSimulator) reqProcessingWorker(ctx context.Context, id int) {
 				} else {
 					if req.IsDoRemoteDecode() {
 						// in case this is prefill pod processing, return special finish reason
-						finishReason = common.RemoteDecodeFinishReason
+						finishReason = dataset.RemoteDecodeFinishReason
 					}
 
 					s.sendResponse(reqCtx, responseTokens, toolCalls, displayModel, finishReason, &usageData)
@@ -496,4 +528,27 @@ func (s *VllmSimulator) createModelsResponse() *vllmapi.ModelsResponse {
 	}
 
 	return &modelsResp
+}
+
+func (s *VllmSimulator) getCurrFactor() float64 {
+	if s.config.MaxNumSeqs <= 1 {
+		return 1.0
+	}
+	return 1 + (s.config.TimeFactorUnderLoad-1)*float64(s.nRunningReqs-1)/float64(s.config.MaxNumSeqs-1)
+}
+
+func (s *VllmSimulator) GetTimeToFirstToken() int {
+	return int(float64(s.config.TimeToFirstToken) * s.getCurrFactor())
+}
+
+func (s *VllmSimulator) GetPrefillOverhead() int {
+	return int(float64(s.config.PrefillOverhead) * s.getCurrFactor())
+}
+
+func (s *VllmSimulator) GetPrefillTimePerToken() int {
+	return int(float64(s.config.PrefillTimePerToken) * s.getCurrFactor())
+}
+
+func (s *VllmSimulator) GetInterTokenLatency() int {
+	return int(float64(s.config.InterTokenLatency) * s.getCurrFactor())
 }

@@ -174,6 +174,19 @@ type Configuration struct {
 
 	// DPSize is data parallel size - a number of ranks to run, minimum is 1, maximum is 8, default is 1
 	DPSize int `yaml:"data-parallel-size" json:"data-parallel-size"`
+
+	// Dataset configuration for response generation from a dataset. sqlite db file is expected.
+	Dataset DatasetConf
+}
+
+type DatasetConf struct {
+	// Path is the local path to the sqlite db file, default is empty
+	// when path is empty Url will be checked
+	Path string `yaml:"path" json:"path"`
+	// Url is the URL to download the sqlite db file if set, default is empty
+	// if Path is not provided and Url is provided, the file will be downloaded
+	// to "USER_HOME/.llm-d/dataset.db"
+	Url string `yaml:"url" json:"url"`
 }
 
 type Metrics struct {
@@ -542,6 +555,9 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 	f.UintVar(&config.ZMQMaxConnectAttempts, "zmq-max-connect-attempts", config.ZMQMaxConnectAttempts, "Maximum number of times to try ZMQ connect")
 	f.IntVar(&config.EventBatchSize, "event-batch-size", config.EventBatchSize, "Maximum number of kv-cache events to be sent together")
 	f.IntVar(&config.DPSize, "data-parallel-size", config.DPSize, "Number of ranks to run")
+
+	f.StringVar(&config.Dataset.Path, "dataset-path", config.Dataset.Path, "Local path to the sqlite db file for response generation from a dataset")
+	f.StringVar(&config.Dataset.Url, "dataset-url", config.Dataset.Url, "URL to download the sqlite db file for response generation from a dataset")
 
 	f.IntVar(&config.FailureInjectionRate, "failure-injection-rate", config.FailureInjectionRate, "Probability (0-100) of injecting failures")
 	failureTypes := getParamValueFromArgs("failure-types")
