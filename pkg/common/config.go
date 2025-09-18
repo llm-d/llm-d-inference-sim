@@ -174,6 +174,13 @@ type Configuration struct {
 
 	// DPSize is data parallel size - a number of ranks to run, minimum is 1, maximum is 8, default is 1
 	DPSize int `yaml:"data-parallel-size" json:"data-parallel-size"`
+
+	// SSLCertFile is the path to the SSL certificate file for HTTPS
+	SSLCertFile string `yaml:"ssl-certfile" json:"ssl-certfile"`
+	// SSLKeyFile is the path to the SSL private key file for HTTPS
+	SSLKeyFile string `yaml:"ssl-keyfile" json:"ssl-keyfile"`
+	// SelfSignedCerts enables automatic generation of self-signed certificates for HTTPS
+	SelfSignedCerts bool `yaml:"self-signed-certs" json:"self-signed-certs"`
 }
 
 type Metrics struct {
@@ -469,7 +476,21 @@ func (c *Configuration) validate() error {
 	if c.DPSize < 1 || c.DPSize > 8 {
 		return errors.New("data parallel size must be between 1 ans 8")
 	}
+
+	if (c.SSLCertFile == "") != (c.SSLKeyFile == "") {
+		return errors.New("both ssl-certfile and ssl-keyfile must be provided together")
+	}
+
+	if c.SelfSignedCerts && (c.SSLCertFile != "" || c.SSLKeyFile != "") {
+		return errors.New("cannot use both self-signed-certs and explicit ssl-certfile/ssl-keyfile")
+	}
+
 	return nil
+}
+
+// SSLEnabled returns true if SSL is enabled either via certificate files or self-signed certificates
+func (c *Configuration) SSLEnabled() bool {
+	return (c.SSLCertFile != "" && c.SSLKeyFile != "") || c.SelfSignedCerts
 }
 
 func (c *Configuration) Copy() (*Configuration, error) {
@@ -551,6 +572,10 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 		FailureTypeModelNotFound)
 	f.Var(&dummyFailureTypes, "failure-types", failureTypesDescription)
 	f.Lookup("failure-types").NoOptDefVal = dummy
+
+	f.StringVar(&config.SSLCertFile, "ssl-certfile", config.SSLCertFile, "Path to SSL certificate file for HTTPS (optional)")
+	f.StringVar(&config.SSLKeyFile, "ssl-keyfile", config.SSLKeyFile, "Path to SSL private key file for HTTPS (optional)")
+	f.BoolVar(&config.SelfSignedCerts, "self-signed-certs", config.SelfSignedCerts, "Enable automatic generation of self-signed certificates for HTTPS")
 
 	// These values were manually parsed above in getParamValueFromArgs, we leave this in order to get these flags in --help
 	var dummyString string

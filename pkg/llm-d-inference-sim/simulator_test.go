@@ -18,6 +18,7 @@ package llmdinferencesim
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -140,6 +141,9 @@ func startServerWithArgs(ctx context.Context, mode string, args []string, envs m
 		Transport: &http.Transport{
 			DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
 				return listener.Dial()
+			},
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true,
 			},
 		},
 	}, nil

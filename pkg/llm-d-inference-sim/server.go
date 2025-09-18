@@ -42,7 +42,7 @@ func (s *VllmSimulator) newListener() (net.Listener, error) {
 	return listener, nil
 }
 
-// startServer starts http server on port defined in command line
+// startServer starts http/https server on port defined in command line
 func (s *VllmSimulator) startServer(ctx context.Context, listener net.Listener) error {
 	r := fasthttprouter.New()
 
@@ -61,23 +61,32 @@ func (s *VllmSimulator) startServer(ctx context.Context, listener net.Listener) 
 	r.GET("/ready", s.HandleReady)
 	r.POST("/tokenize", s.HandleTokenize)
 
-	server := fasthttp.Server{
+	server := &fasthttp.Server{
 		ErrorHandler: s.HandleError,
 		Handler:      r.Handler,
 		Logger:       s,
 	}
 
+	if err := s.configureSSL(server); err != nil {
+		return err
+	}
+
 	// Start server in a goroutine
 	serverErr := make(chan error, 1)
 	go func() {
-		s.logger.Info("HTTP server starting")
-		serverErr <- server.Serve(listener)
+		if s.config.SSLEnabled() {
+			s.logger.Info("Server starting", "protocol", "HTTPS", "port", s.config.Port)
+			serverErr <- server.ServeTLS(listener, "", "")
+		} else {
+			s.logger.Info("Server starting", "protocol", "HTTP", "port", s.config.Port)
+			serverErr <- server.Serve(listener)
+		}
 	}()
 
 	// Wait for either context cancellation or server error
 	select {
 	case <-ctx.Done():
-		s.logger.Info("Shutdown signal received, shutting down HTTP server gracefully")
+		s.logger.Info("Shutdown signal received, shutting down server gracefully")
 
 		// Gracefully shutdown the server
 		if err := server.Shutdown(); err != nil {
@@ -85,12 +94,12 @@ func (s *VllmSimulator) startServer(ctx context.Context, listener net.Listener) 
 			return err
 		}
 
-		s.logger.Info("HTTP server stopped")
+		s.logger.Info("Server stopped")
 		return nil
 
 	case err := <-serverErr:
 		if err != nil {
-			s.logger.Error(err, "HTTP server failed")
+			s.logger.Error(err, "Server failed")
 		}
 		return err
 	}
