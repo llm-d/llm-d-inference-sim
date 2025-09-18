@@ -12,6 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+LOCALBIN ?= $(shell pwd)/bin
+$(LOCALBIN):
+	mkdir -p $(LOCALBIN)
+
+# Project-specific Go tooling is defined in Makefile.tools.mk.
+include Makefile.tools.mk
+
 # Makefile for the llm-d-inference-sim project
 
 SHELL := /usr/bin/env bash
@@ -75,12 +82,12 @@ format: ## Format Go source files
 	@gofmt -l -w $(SRC)
 
 .PHONY: test
-test: check-ginkgo download-tokenizer download-zmq ## Run tests
+test: $(GINKGO) download-tokenizer download-zmq ## Run tests
 	@printf "\033[33;1m==== Running tests ====\033[0m\n"
 ifdef GINKGO_FOCUS
-	CGO_ENABLED=1 ginkgo -ldflags="$(GO_LDFLAGS)" -v -r --focus="$(GINKGO_FOCUS)"
+	CGO_ENABLED=1 $(GINKGO) -ldflags="$(GO_LDFLAGS)" -v -r --focus="$(GINKGO_FOCUS)"
 else
-	CGO_ENABLED=1 ginkgo -ldflags="$(GO_LDFLAGS)" -v -r
+	CGO_ENABLED=1 $(GINKGO) -ldflags="$(GO_LDFLAGS)" -v -r
 endif
 
 .PHONY: post-deploy-test
@@ -89,16 +96,16 @@ post-deploy-test: ## Run post deployment tests
 	@echo "Post-deployment tests passed."
 	
 .PHONY: lint
-lint: check-golangci-lint check-golangci-lint-version ## Run lint
+lint: $(GOLANGCI_LINT) ## Run lint
 	@printf "\033[33;1m==== Running linting ====\033[0m\n"
-	golangci-lint run
+	$(GOLANGCI_LINT) run
 
 ##@ Build
 
 .PHONY: build
 build: check-go download-tokenizer download-zmq 
 	@printf "\033[33;1m==== Building ====\033[0m\n"
-	go build -ldflags="$(GO_LDFLAGS)" -o bin/$(PROJECT_NAME) cmd/$(PROJECT_NAME)/main.go
+	go build -ldflags="$(GO_LDFLAGS)" -o $(LOCALBIN)/$(PROJECT_NAME) cmd/$(PROJECT_NAME)/main.go
 
 ##@ Container Build/Push
 
@@ -163,39 +170,11 @@ env: ## Print environment variables
 	@echo "IMG=$(IMG)"
 	@echo "CONTAINER_TOOL=$(CONTAINER_TOOL)"
 
-
 ##@ Tools
-.PHONY: check-tools
-check-tools:
-	check-go \
-	check-ginkgo \
-	check-golangci-lint \
-	check-container-tool \
-	check-helm
-	@echo "✅ All required tools are installed."
-
 .PHONY: check-go
 check-go:
 	@command -v go >/dev/null 2>&1 || { \
 	  echo "❌ Go is not installed. Install it from https://golang.org/dl/"; exit 1; }
-
-.PHONY: check-ginkgo
-check-ginkgo:
-	@command -v ginkgo >/dev/null 2>&1 || { \
-	  echo "❌ ginkgo is not installed. Install with: go install github.com/onsi/ginkgo/v2/ginkgo@latest"; exit 1; }
-
-.PHONY: check-golangci-lint
-check-golangci-lint:
-	@command -v golangci-lint >/dev/null 2>&1 || { \
-	  echo "❌ golangci-lint is not installed. Install from https://golangci-lint.run/docs/welcome/install/"; exit 1; }
-
-.PHONY: check-golangci-lint-version
-check-golangci-lint-version:
-	@version=$$(golangci-lint --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1); \
-	if [[ $$version != 2.* ]]; then \
-	  echo "❌ golangci-lint version 2.x is required. Current version: $$version"; \
-	  exit 1; \
-	fi
 
 .PHONY: check-container-tool
 check-container-tool:
@@ -207,7 +186,6 @@ check-container-tool:
 check-helm:
 	@command -v helm >/dev/null 2>&1 || { \
 	  echo "❌ helm is not installed. Install it from https://helm.sh/docs/intro/install/"; exit 1; }
-
 
 .PHONY: check-builder
 check-builder:
