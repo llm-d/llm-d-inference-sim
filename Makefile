@@ -241,29 +241,29 @@ install-hooks: ## Install git hooks
 
 .PHONY: download-zmq
 download-zmq: ## Install ZMQ dependencies based on OS/ARCH
-	@echo "Checking if ZMQ is already installed..."
+	@echo "⏳ Checking if ZMQ is already installed..."
 	@if pkg-config --exists libzmq; then \
 	  echo "✅ ZMQ is already installed."; \
 	else \
-	  echo "Installing ZMQ dependencies..."; \
+	  echo "⏳ Installing ZMQ dependencies..."; \
 	  if [ "$(TARGETOS)" = "linux" ]; then \
-	    if [ -x "$(command -v apt)" ]; then \
-	      apt update && apt install -y libzmq3-dev; \
-	    elif [ -x "$(command -v dnf)" ]; then \
-	      dnf install -y zeromq-devel; \
+	    if command -v apt >/dev/null 2>&1; then \
+	      sudo apt update && sudo apt install -y libzmq3-dev; \
+	    elif command -v dnf >/dev/null 2>&1; then \
+	      sudo dnf install -y zeromq-devel; \
 	    else \
-	      echo "Unsupported Linux package manager. Install libzmq manually."; \
+	      echo -e "⚠️ Unsupported Linux package manager. Follow installation guides: https://github.com/zeromq/libzmq#installation-of-binary-packages-\n"; \
 	      exit 1; \
 	    fi; \
 	  elif [ "$(TARGETOS)" = "darwin" ]; then \
-	    if [ -x "$(command -v brew)" ]; then \
+	    if command -v brew >/dev/null 2>&1; then \
 	      brew install zeromq; \
 	    else \
-	      echo "Homebrew is not installed and is required to install zeromq. Install it from https://brew.sh/"; \
+	      echo "⚠️ Homebrew is not installed and is required to install zeromq. Install it from https://brew.sh/"; \
 	      exit 1; \
 	    fi; \
 	  else \
-	    echo "Unsupported OS: $(TARGETOS). Install libzmq manually - check https://zeromq.org/download/ for guidance."; \
+	    echo "⚠️ Unsupported OS: $(TARGETOS). Install libzmq manually - see https://zeromq.org/download/"; \
 	    exit 1; \
 	  fi; \
 	  echo "✅ ZMQ dependencies installed."; \

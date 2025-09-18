@@ -24,7 +24,7 @@ jobs:
       - name: Install libzmq dependencies (kvcache/kvevents)
         run: |
           sudo apt-get update
-          sudo apt-get install -y libzmq3-dev pkg-config
+          make download-zmq
 
       - name: Set PKG_CONFIG_PATH
         run: echo "PKG_CONFIG_PATH=/usr/lib/pkgconfig" >> $GITHUB_ENV
