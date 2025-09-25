@@ -193,6 +193,13 @@ type Metrics struct {
 	WaitingRequests int64 `yaml:"waiting-requests" json:"waiting-requests"`
 	// KVCacheUsagePercentage  is the fraction of KV-cache blocks currently in use (from 0 to 1)
 	KVCacheUsagePercentage float32 `yaml:"kv-cache-usage" json:"kv-cache-usage"`
+	// RequestPromptTokens RequestGenerationTokens RequestParamsMaxTokens Histogram fake-observation arrays for init.
+	// Each value will be passed to Observe() once at start-up.
+	RequestPromptTokens     []float64 `yaml:"request-prompt-tokens" json:"request-prompt-tokens"`         // prompt-length samples
+	RequestGenerationTokens []float64 `yaml:"request-generation-tokens" json:"request-generation-tokens"` // generation-length samples
+	RequestParamsMaxTokens  []float64 `yaml:"request-params-max-tokens" json:"request-params-max-tokens"` // max_tokens parameter samples
+	// RequestSuccessTotal is the number of successful requests, key: finish-reason (stop, length, etc.).
+	RequestSuccessTotal map[string]int64 `yaml:"request-success-total" json:"request-success-total"`
 }
 
 type LorasMetrics struct {
@@ -470,6 +477,34 @@ func (c *Configuration) validate() error {
 		}
 		if c.FakeMetrics.KVCacheUsagePercentage < 0 || c.FakeMetrics.KVCacheUsagePercentage > 1 {
 			return errors.New("fake metrics KV cache usage must be between 0 ans 1")
+		}
+		if c.FakeMetrics.RequestSuccessTotal != nil {
+			for reason, count := range c.FakeMetrics.RequestSuccessTotal {
+				if count < 0 {
+					return fmt.Errorf("fake metrics request-success-total.%s cannot be negative, got %d", reason, count)
+				}
+			}
+			requiredReasons := []string{StopFinishReason, LengthFinishReason, ToolsFinishReason, RemoteDecodeFinishReason}
+			for _, reason := range requiredReasons {
+				if _, exists := c.FakeMetrics.RequestSuccessTotal[reason]; !exists {
+					return fmt.Errorf("missing required finish reason in request-success-total: %s", reason)
+				}
+			}
+		}
+		for _, v := range c.FakeMetrics.RequestPromptTokens {
+			if v < 0 {
+				return errors.New("fake metrics request-prompt-tokens cannot contain negative values")
+			}
+		}
+		for _, v := range c.FakeMetrics.RequestGenerationTokens {
+			if v < 0 {
+				return errors.New("fake metrics request-generation-tokens cannot contain negative values")
+			}
+		}
+		for _, v := range c.FakeMetrics.RequestParamsMaxTokens {
+			if v < 0 {
+				return errors.New("fake metrics request-params-max-tokens cannot contain negative values")
+			}
 		}
 	}
 
