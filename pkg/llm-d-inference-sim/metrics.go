@@ -164,17 +164,20 @@ func (s *VllmSimulator) setInitialPrometheusMetrics() {
 		nRunningReqs = float64(s.config.FakeMetrics.RunningRequests)
 		nWaitingReqs = float64(s.config.FakeMetrics.WaitingRequests)
 		kvCacheUsage = float64(s.config.FakeMetrics.KVCacheUsagePercentage)
-		for _, requestPromptToken := range s.config.FakeMetrics.RequestPromptTokens {
-			s.requestPromptTokens.WithLabelValues(modelName).Observe(requestPromptToken)
-		}
-		for _, requestGenerationToken := range s.config.FakeMetrics.RequestGenerationTokens {
-			s.requestGenerationTokens.WithLabelValues(modelName).Observe(requestGenerationToken)
-		}
-		for _, requestParamsMaxToken := range s.config.FakeMetrics.RequestParamsMaxTokens {
-			s.requestParamsMaxTokens.WithLabelValues(modelName).Observe(requestParamsMaxToken)
-		}
 		for reason, requestSuccessTotal := range s.config.FakeMetrics.RequestSuccessTotal {
 			s.requestSuccessTotal.WithLabelValues(modelName, reason).Add(float64(requestSuccessTotal))
+		}
+		buckets := build125Buckets(s.config.MaxModelLen)
+		for _, sample := range generateSamplesFromBuckets(buckets, s.config.FakeMetrics.RequestPromptTokens) {
+			s.requestPromptTokens.WithLabelValues(modelName).Observe(sample)
+		}
+
+		for _, sample := range generateSamplesFromBuckets(buckets, s.config.FakeMetrics.RequestGenerationTokens) {
+			s.requestGenerationTokens.WithLabelValues(modelName).Observe(sample)
+		}
+
+		for _, sample := range generateSamplesFromBuckets(buckets, s.config.FakeMetrics.RequestParamsMaxTokens) {
+			s.requestParamsMaxTokens.WithLabelValues(modelName).Observe(sample)
 		}
 
 	}
@@ -423,4 +426,22 @@ func build125Buckets(maxValue int) []float64 {
 		exponent++
 	}
 	return buckets
+}
+
+func generateSamplesFromBuckets(boundaries []float64, counts []float64) []float64 {
+	var samples []float64
+	prev := 0.0
+	for i, count := range counts {
+		boundary := boundaries[i]
+		// 在 (prev, boundary] 区间内取一个中间值作为样本代表
+		val := (prev + boundary) / 2
+		if val >= boundary {
+			val = boundary * 0.9 // 防止越界
+		}
+		for j := int64(0); j < int64(count); j++ {
+			samples = append(samples, val)
+		}
+		prev = boundary
+	}
+	return samples
 }
