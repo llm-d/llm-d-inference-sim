@@ -508,6 +508,34 @@ func (c *Configuration) validate() error {
 		if c.FakeMetrics.KVCacheUsagePercentage < 0 || c.FakeMetrics.KVCacheUsagePercentage > 1 {
 			return errors.New("fake metrics KV cache usage must be between 0 ans 1")
 		}
+		if c.FakeMetrics.RequestSuccessTotal != nil {
+			for reason, count := range c.FakeMetrics.RequestSuccessTotal {
+				if count < 0 {
+					return fmt.Errorf("fake metrics request-success-total.%s cannot be negative, got %d", reason, count)
+				}
+			}
+			requiredReasons := []string{StopFinishReason, LengthFinishReason, ToolsFinishReason, RemoteDecodeFinishReason}
+			for _, reason := range requiredReasons {
+				if _, exists := c.FakeMetrics.RequestSuccessTotal[reason]; !exists {
+					return fmt.Errorf("missing required finish reason in request-success-total: %s", reason)
+				}
+			}
+		}
+		for _, v := range c.FakeMetrics.RequestPromptTokens {
+			if v < 0 {
+				return errors.New("fake metrics request-prompt-tokens cannot contain negative values")
+			}
+		}
+		for _, v := range c.FakeMetrics.RequestGenerationTokens {
+			if v < 0 {
+				return errors.New("fake metrics request-generation-tokens cannot contain negative values")
+			}
+		}
+		for _, v := range c.FakeMetrics.RequestParamsMaxTokens {
+			if v < 0 {
+				return errors.New("fake metrics request-params-max-tokens cannot contain negative values")
+			}
+		}
 	}
 
 	if c.DPSize < 1 || c.DPSize > 8 {
