@@ -71,7 +71,7 @@ var chatCompletionFakeResponses = []string{
 
 type Dataset interface {
 	// Init initializes the dataset using configs
-	Init(ctx context.Context, logger logr.Logger, path string, url string) error
+	Init(ctx context.Context, logger logr.Logger, path string, url string, useInMemory bool) error
 	// Close closes the dataset
 	Close() error
 	// GetTokens returns tokens for the given request and mode (echo or random)
@@ -281,7 +281,7 @@ type BaseDataset struct {
 	logger logr.Logger
 }
 
-func (d *BaseDataset) Init(ctx context.Context, logger logr.Logger, path string, url string) error {
+func (d *BaseDataset) Init(ctx context.Context, logger logr.Logger, path string, url string, useInMemory bool) error {
 	d.logger = logger
 	return nil
 }

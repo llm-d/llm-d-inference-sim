@@ -74,7 +74,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 	})
 
 	It("should return error for invalid DB path", func() {
-		err := dataset.connectToDB("/invalid/path/to/db.sqlite")
+		err := dataset.connectToDB("/invalid/path/to/db.sqlite", false)
 		Expect(err).To(HaveOccurred())
 	})
 
@@ -102,7 +102,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 	})
 
 	It("should successfully init dataset", func() {
-		err := dataset.Init(context.Background(), logr.Discard(), validDBPath, "")
+		err := dataset.Init(context.Background(), logr.Discard(), validDBPath, "", false)
 		Expect(err).NotTo(HaveOccurred())
 
 		row := dataset.db.QueryRow("SELECT n_gen_tokens FROM llmd WHERE prompt_hash=X'74bf14c09c038321cba39717dae1dc732823ae4abd8e155959367629a3c109a8';")
@@ -123,30 +123,30 @@ var _ = Describe("CustomDataset", Ordered, func() {
 	})
 
 	It("should return error for non-existing DB path", func() {
-		err := dataset.connectToDB(pathNotExist)
+		err := dataset.connectToDB(pathNotExist, false)
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("database file does not exist"))
 	})
 
 	It("should return error for invalid DB file", func() {
-		err := dataset.connectToDB(pathToInvalidDB)
+		err := dataset.connectToDB(pathToInvalidDB, false)
 		Expect(err).To(HaveOccurred())
 	})
 
 	It("should return error for DB with invalid table", func() {
-		err := dataset.connectToDB(pathToInvalidTableDB)
+		err := dataset.connectToDB(pathToInvalidTableDB, false)
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("failed to verify database"))
 	})
 
 	It("should return error for DB with invalid column", func() {
-		err := dataset.connectToDB(pathToInvalidColumnDB)
+		err := dataset.connectToDB(pathToInvalidColumnDB, false)
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("missing expected column"))
 	})
 
 	It("should return error for DB with invalid column type", func() {
-		err := dataset.connectToDB(pathToInvalidTypeDB)
+		err := dataset.connectToDB(pathToInvalidTypeDB, false)
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("incorrect type"))
 	})
@@ -176,7 +176,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 	})
 
 	It("should return tokens for existing prompt", func() {
-		err := dataset.Init(context.Background(), logr.Discard(), validDBPath, "")
+		err := dataset.Init(context.Background(), logr.Discard(), validDBPath, "", false)
 		Expect(err).NotTo(HaveOccurred())
 
 		req := &openaiserverapi.TextCompletionRequest{
@@ -189,7 +189,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 	})
 
 	It("should return at most 2 tokens for existing prompt", func() {
-		err := dataset.Init(context.Background(), logr.Discard(), validDBPath, "")
+		err := dataset.Init(context.Background(), logr.Discard(), validDBPath, "", false)
 		Expect(err).NotTo(HaveOccurred())
 		n := int64(2)
 		req := &openaiserverapi.TextCompletionRequest{
@@ -199,5 +199,18 @@ var _ = Describe("CustomDataset", Ordered, func() {
 		tokens, _, err := dataset.GetTokens(req, common.ModeRandom)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(len(tokens)).To(BeNumerically("<=", 2))
+	})
+
+	It("should successfully init dataset with in-memory option", func() {
+		err := dataset.Init(context.Background(), logr.Discard(), validDBPath, "", true)
+		Expect(err).NotTo(HaveOccurred())
+
+		req := &openaiserverapi.TextCompletionRequest{
+			Prompt: testPrompt,
+		}
+		tokens, finishReason, err := dataset.GetTokens(req, common.ModeRandom)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(finishReason).To(Equal(StopFinishReason))
+		Expect(tokens).To(Equal([]string{"Hello", " llm-d ", "world", "!"}))
 	})
 })

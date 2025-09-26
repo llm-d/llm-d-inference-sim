@@ -245,7 +245,87 @@ func (d *CustomDataset) getRecordsCount() (int, error) {
 	return count, nil
 }
 
-func (d *CustomDataset) connectToDB(path string) error {
+func (d *CustomDataset) loadDatabaseInMemory(path string) error {
+	d.logger.Info("Loading database into memory...")
+	start := time.Now()
+
+	// Create in-memory database
+	var err error
+	d.db, err = sql.Open("sqlite3", ":memory:")
+	if err != nil {
+		return fmt.Errorf("failed to create in-memory database: %w", err)
+	}
+
+	// Attach the disk database and copy all data to in-memory database
+	_, err = d.db.Exec("ATTACH DATABASE ? AS disk", path)
+	if err != nil {
+		if closeErr := d.db.Close(); closeErr != nil {
+			d.logger.Error(closeErr, "failed to close in-memory database after failing to attach disk database")
+		}
+		d.db = nil
+		return fmt.Errorf("failed to attach disk database: %w", err)
+	}
+
+	// Copy the schema and data from disk to memory
+	// First get all tables from the disk database
+	rows, err := d.db.Query("SELECT sql FROM disk.sqlite_master WHERE type='table'")
+	if err != nil {
+		if closeErr := d.db.Close(); closeErr != nil {
+			d.logger.Error(closeErr, "failed to close in-memory database after schema query failure")
+		}
+		d.db = nil
+		return fmt.Errorf("failed to query disk database schema: %w", err)
+	}
+
+	var createStatements []string
+	for rows.Next() {
+		var sql string
+		if err := rows.Scan(&sql); err != nil {
+			rows.Close()
+			if closeErr := d.db.Close(); closeErr != nil {
+				d.logger.Error(closeErr, "failed to close in-memory database after schema scan failure")
+			}
+			d.db = nil
+			return fmt.Errorf("failed to scan schema: %w", err)
+		}
+		createStatements = append(createStatements, sql)
+	}
+	rows.Close()
+
+	// Create tables in memory
+	for _, createSQL := range createStatements {
+		_, err = d.db.Exec(createSQL)
+		if err != nil {
+			if closeErr := d.db.Close(); closeErr != nil {
+				d.logger.Error(closeErr, "failed to close in-memory database after table creation failure")
+			}
+			d.db = nil
+			return fmt.Errorf("failed to create table in memory: %w", err)
+		}
+	}
+
+	// Copy data from disk to memory
+	_, err = d.db.Exec("INSERT INTO main.llmd SELECT * FROM disk.llmd")
+	if err != nil {
+		if closeErr := d.db.Close(); closeErr != nil {
+			d.logger.Error(closeErr, "failed to close in-memory database after data copy failure")
+		}
+		d.db = nil
+		return fmt.Errorf("failed to copy data to memory: %w", err)
+	}
+
+	// Detach the disk database
+	_, err = d.db.Exec("DETACH DATABASE disk")
+	if err != nil {
+		d.logger.Error(err, "failed to detach disk database")
+	}
+
+	loadTime := time.Since(start)
+	d.logger.Info("Database loaded into memory", "load_time", loadTime.String())
+	return nil
+}
+
+func (d *CustomDataset) connectToDB(path string, useInMemory bool) error {
 	if d.db != nil {
 		err := d.db.Close()
 		if err != nil {
@@ -258,24 +338,31 @@ func (d *CustomDataset) connectToDB(path string) error {
 	if err != nil {
 		return fmt.Errorf("database file does not exist: %w", err)
 	}
-	d.db, err = sql.Open("sqlite3", path)
-	if err != nil {
-		return fmt.Errorf("failed to open database: %w", err)
-	}
 
-	// Check if there are other connections to the database
-	_, err = d.db.Exec("BEGIN EXCLUSIVE;")
-	if err != nil {
-		err := d.db.Close()
+	if useInMemory {
+		err = d.loadDatabaseInMemory(path)
 		if err != nil {
-			d.logger.Error(err, "failed to close database after failing to acquire exclusive lock")
+			return err
 		}
-		d.db = nil
-		return fmt.Errorf("database is locked or has other active connections: %w", err)
+	} else {
+		// Use file-based database (original behavior)
+		d.db, err = sql.Open("sqlite3", path)
+		if err != nil {
+			return fmt.Errorf("failed to open database: %w", err)
+		}
+
+		// Check if there are other connections to the database
+		_, err = d.db.Exec("BEGIN EXCLUSIVE;")
+		if err != nil {
+			if closeErr := d.db.Close(); closeErr != nil {
+				d.logger.Error(closeErr, "failed to close database after failing to acquire exclusive lock")
+			}
+			d.db = nil
+			return fmt.Errorf("database is locked or has other active connections: %w", err)
+		}
 	}
 
 	err = d.verifyDB()
-
 	if err != nil {
 		return fmt.Errorf("failed to verify database: %w", err)
 	}
@@ -285,11 +372,16 @@ func (d *CustomDataset) connectToDB(path string) error {
 		d.logger.Error(err, "failed to get records count")
 		return fmt.Errorf("failed to query database: %w", err)
 	}
-	d.logger.Info("Database connected successfully", "path", path, "records count", count)
+
+	if useInMemory {
+		d.logger.Info("In-memory database connected successfully", "path", path, "records count", count)
+	} else {
+		d.logger.Info("Database connected successfully", "path", path, "records count", count)
+	}
 	return nil
 }
 
-func (d *CustomDataset) Init(ctx context.Context, logger logr.Logger, path string, url string) error {
+func (d *CustomDataset) Init(ctx context.Context, logger logr.Logger, path string, url string, useInMemory bool) error {
 	d.logger = logger
 	if path == "" {
 		return errors.New("no dataset path provided")
@@ -297,7 +389,7 @@ func (d *CustomDataset) Init(ctx context.Context, logger logr.Logger, path strin
 	d.hasWarned = false
 	if url == "" {
 		d.logger.Info("Using dataset from", "path", path)
-		return d.connectToDB(path)
+		return d.connectToDB(path, useInMemory)
 	}
 	_, err := os.Stat(path)
 	if err != nil {
@@ -316,11 +408,11 @@ func (d *CustomDataset) Init(ctx context.Context, logger logr.Logger, path strin
 	}
 	d.logger.Info("Using dataset path", "dataset-path", path)
 
-	return d.connectToDB(path)
+	return d.connectToDB(path, useInMemory)
 }
 
 func (d *CustomDataset) Close() error {
-	// Release db lock
+	// Release db lock (only for file-based databases)
 	_, err := d.db.Exec("ROLLBACK;")
 	if err != nil {
 		if cerr := d.db.Close(); cerr != nil {

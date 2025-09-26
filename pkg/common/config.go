@@ -195,6 +195,8 @@ type Configuration struct {
 	//   - If the file already exists at the `dataset-path`, it will not be downloaded again
 	//   - Example URL `https://huggingface.co/datasets/hf07397/inference-sim-datasets/resolve/91ffa7aafdfd6b3b1af228a517edc1e8f22cd274/huggingface/ShareGPT_Vicuna_unfiltered/conversations.sqlite3`
 	DatasetURL string `yaml:"dataset-url" json:"dataset-url"`
+	// DatasetInMemory defines whether to load the entire dataset into memory for faster access.
+	DatasetInMemory bool `yaml:"dataset-in-memory" json:"dataset-in-memory"`
 }
 
 type Metrics struct {
@@ -584,6 +586,7 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 
 	f.StringVar(&config.DatasetPath, "dataset-path", config.DatasetPath, "Local path to the sqlite db file for response generation from a dataset")
 	f.StringVar(&config.DatasetURL, "dataset-url", config.DatasetURL, "URL to download the sqlite db file for response generation from a dataset")
+	f.BoolVar(&config.DatasetInMemory, "dataset-in-memory", config.DatasetInMemory, "Load the entire dataset into memory for faster access")
 
 	f.IntVar(&config.FailureInjectionRate, "failure-injection-rate", config.FailureInjectionRate, "Probability (0-100) of injecting failures")
 	failureTypes := getParamValueFromArgs("failure-types")

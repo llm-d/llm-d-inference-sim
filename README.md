@@ -161,6 +161,7 @@ For more details see the <a href="https://docs.vllm.ai/en/stable/getting_started
   - If the file needs to be downloaded, it will be saved to the location specified by `dataset-path`.
   - If the file already exists at the `dataset-path`, it will not be downloaded again
   - Example URL `https://huggingface.co/datasets/hf07397/inference-sim-datasets/resolve/91ffa7aafdfd6b3b1af228a517edc1e8f22cd274/huggingface/ShareGPT_Vicuna_unfiltered/conversations.sqlite3`
+- `dataset-in-memory`: If true, the entire dataset will be loaded into memory for faster access. This may require significant memory depending on the size of the dataset. Default is false.
 ---
 In addition, as we are using klog, the following parameters are available:
 - `add_dir_header`: if true, adds the file directory to the header of the log messages
