@@ -17,6 +17,7 @@ limitations under the License.
 package dataset
 
 import (
+	"context"
 	"errors"
 	"math"
 	"math/rand"
@@ -70,7 +71,7 @@ var chatCompletionFakeResponses = []string{
 
 type Dataset interface {
 	// Init initializes the dataset using configs
-	Init(path string, url string) error
+	Init(ctx context.Context, path string, url string) error
 	// Close closes the dataset
 	Close() error
 	// GetTokens returns tokens for the given request and mode (echo or random)
@@ -280,7 +281,7 @@ type BaseDataset struct {
 	Logger logr.Logger
 }
 
-func (d *BaseDataset) Init(path string, url string) error {
+func (d *BaseDataset) Init(ctx context.Context, path string, url string) error {
 	return nil
 }
 

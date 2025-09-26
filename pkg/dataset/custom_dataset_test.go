@@ -17,6 +17,7 @@ limitations under the License.
 package dataset
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"time"
@@ -83,7 +84,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 
 	It("should download file from url", func() {
 		url := "https://llm-d.ai"
-		err := dataset.downloadDataset(url, path)
+		err := dataset.downloadDataset(context.Background(), url, path)
 		Expect(err).NotTo(HaveOccurred())
 		_, err = os.Stat(path)
 		Expect(err).NotTo(HaveOccurred())
@@ -93,12 +94,12 @@ var _ = Describe("CustomDataset", Ordered, func() {
 
 	It("should not download file from url", func() {
 		url := "https://256.256.256.256" // invalid url
-		err := dataset.downloadDataset(url, path)
+		err := dataset.downloadDataset(context.Background(), url, path)
 		Expect(err).To(HaveOccurred())
 	})
 
 	It("should successfully init dataset", func() {
-		err := dataset.Init(validDBPath, "")
+		err := dataset.Init(context.Background(), validDBPath, "")
 		Expect(err).NotTo(HaveOccurred())
 
 		row := dataset.db.QueryRow("SELECT n_gen_tokens FROM llmd WHERE prompt_hash=X'74bf14c09c038321cba39717dae1dc732823ae4abd8e155959367629a3c109a8';")
@@ -173,7 +174,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 	})
 
 	It("should return tokens for existing prompt", func() {
-		err := dataset.Init(validDBPath, "")
+		err := dataset.Init(context.Background(), validDBPath, "")
 		Expect(err).NotTo(HaveOccurred())
 
 		req := &openaiserverapi.TextCompletionRequest{
@@ -186,7 +187,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 	})
 
 	It("should return at most 2 tokens for existing prompt", func() {
-		err := dataset.Init(validDBPath, "")
+		err := dataset.Init(context.Background(), validDBPath, "")
 		Expect(err).NotTo(HaveOccurred())
 		n := int64(2)
 		req := &openaiserverapi.TextCompletionRequest{

@@ -216,7 +216,7 @@ func (s *VllmSimulator) startSim(ctx context.Context) error {
 		go s.kvcacheHelper.Run(ctx)
 	}
 
-	err = s.initDataset()
+	err = s.initDataset(ctx)
 	if err != nil {
 		return fmt.Errorf("dataset initialization error: %w", err)
 	}
@@ -238,7 +238,7 @@ func (s *VllmSimulator) startSim(ctx context.Context) error {
 	return s.startServer(ctx, listener)
 }
 
-func (s *VllmSimulator) initDataset() error {
+func (s *VllmSimulator) initDataset(ctx context.Context) error {
 	randDataset := &dataset.BaseDataset{
 		Logger: s.logger,
 	}
@@ -253,7 +253,7 @@ func (s *VllmSimulator) initDataset() error {
 		}
 	}
 
-	if err := s.dataset.Init(s.config.DatasetPath, s.config.DatasetURL); err != nil {
+	if err := s.dataset.Init(ctx, s.config.DatasetPath, s.config.DatasetURL); err != nil {
 		return fmt.Errorf("dataset initialization error: %w", err)
 	}
 	return nil

@@ -27,10 +27,8 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/signal"
 	"path/filepath"
 	"strconv"
-	"syscall"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -56,20 +54,7 @@ const (
 	nGenTokensColType = "INTEGER"
 )
 
-func (d *CustomDataset) downloadDataset(url string, path string) error {
-	// Set up signal handling for Ctrl+C (SIGINT)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	sigs := make(chan os.Signal, 1)
-	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
-	defer signal.Stop(sigs)
-
-	// Goroutine to listen for signal
-	go func() {
-		<-sigs
-		d.Logger.Info("Interrupt signal received, cancelling download...")
-		cancel()
-	}()
+func (d *CustomDataset) downloadDataset(ctx context.Context, url string, path string) error {
 
 	out, err := os.Create(path)
 	if err != nil {
@@ -280,7 +265,7 @@ func (d *CustomDataset) connectToDB(path string) error {
 	return nil
 }
 
-func (d *CustomDataset) Init(path string, url string) error {
+func (d *CustomDataset) Init(ctx context.Context, path string, url string) error {
 	d.hasWarned = false
 	if path != "" && url == "" {
 		d.Logger.Info("Using dataset from", "path", path)
@@ -304,7 +289,7 @@ func (d *CustomDataset) Init(path string, url string) error {
 			if err != nil {
 				return fmt.Errorf("failed to create parent directory: %w", err)
 			}
-			err = d.downloadDataset(url, path)
+			err = d.downloadDataset(ctx, url, path)
 			if err != nil {
 				return fmt.Errorf("failed to download dataset: %w", err)
 			}

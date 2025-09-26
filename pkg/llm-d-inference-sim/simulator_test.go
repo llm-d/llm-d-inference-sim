@@ -118,7 +118,7 @@ func startServerWithArgs(ctx context.Context, mode string, args []string, envs m
 		go s.kvcacheHelper.Run(ctx)
 	}
 
-	err = s.initDataset()
+	err = s.initDataset(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("dataset initialization error: %w", err)
 	}
