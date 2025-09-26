@@ -243,7 +243,7 @@ func (s *VllmSimulator) initDataset() error {
 		Logger: s.logger,
 	}
 
-	if s.config.Dataset.Path == "" && s.config.Dataset.Url == "" {
+	if s.config.DatasetPath == "" && s.config.DatasetURL == "" {
 		s.logger.Info("No dataset provided, will generate random responses from preset text")
 		s.dataset = randDataset
 	} else {
@@ -253,7 +253,7 @@ func (s *VllmSimulator) initDataset() error {
 		}
 	}
 
-	if err := s.dataset.Init(s.config.Dataset.Path, s.config.Dataset.Url); err != nil {
+	if err := s.dataset.Init(s.config.DatasetPath, s.config.DatasetURL); err != nil {
 		return fmt.Errorf("dataset initialization error: %w", err)
 	}
 	return nil

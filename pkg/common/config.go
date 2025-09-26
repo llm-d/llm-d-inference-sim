@@ -181,18 +181,14 @@ type Configuration struct {
 	SSLKeyFile string `yaml:"ssl-keyfile" json:"ssl-keyfile"`
 	// SelfSignedCerts enables automatic generation of self-signed certificates for HTTPS
 	SelfSignedCerts bool `yaml:"self-signed-certs" json:"self-signed-certs"`
-	// Dataset configuration for response generation from a dataset. sqlite db file is expected.
-	Dataset DatasetConf
-}
 
-type DatasetConf struct {
-	// Path is the local path to the sqlite db file, default is empty
-	// when path is empty Url will be checked
-	Path string `yaml:"path" json:"path"`
-	// Url is the URL to download the sqlite db file if set, default is empty
-	// if Path is not provided and Url is provided, the file will be downloaded
+	// DatasetPath is the local path to the sqlite db file, default is empty
+	// when path is empty DatasetUrl will be checked
+	DatasetPath string `yaml:"dataset-path" json:"dataset-path"`
+	// DatasetURL is the URL to download the sqlite db file if set, default is empty
+	// if DatasetPath is not provided and DatasetURL is provided, the file will be downloaded
 	// to "USER_HOME/.llm-d/dataset.db"
-	Url string `yaml:"url" json:"url"`
+	DatasetURL string `yaml:"dataset-url" json:"dataset-url"`
 }
 
 type Metrics struct {
@@ -576,8 +572,8 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 	f.IntVar(&config.EventBatchSize, "event-batch-size", config.EventBatchSize, "Maximum number of kv-cache events to be sent together")
 	f.IntVar(&config.DPSize, "data-parallel-size", config.DPSize, "Number of ranks to run")
 
-	f.StringVar(&config.Dataset.Path, "dataset-path", config.Dataset.Path, "Local path to the sqlite db file for response generation from a dataset")
-	f.StringVar(&config.Dataset.Url, "dataset-url", config.Dataset.Url, "URL to download the sqlite db file for response generation from a dataset")
+	f.StringVar(&config.DatasetPath, "dataset-path", config.DatasetPath, "Local path to the sqlite db file for response generation from a dataset")
+	f.StringVar(&config.DatasetURL, "dataset-url", config.DatasetURL, "URL to download the sqlite db file for response generation from a dataset")
 
 	f.IntVar(&config.FailureInjectionRate, "failure-injection-rate", config.FailureInjectionRate, "Probability (0-100) of injecting failures")
 	failureTypes := getParamValueFromArgs("failure-types")
