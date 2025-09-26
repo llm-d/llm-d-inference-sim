@@ -244,19 +244,28 @@ func (s *VllmSimulator) initDataset(ctx context.Context) error {
 	}
 
 	if s.config.DatasetPath == "" && s.config.DatasetURL == "" {
-		s.logger.Info("No dataset provided, will generate random responses from preset text")
+		s.logger.Info("No dataset path or URL provided, using random text for responses")
 		s.dataset = randDataset
-	} else {
-		s.logger.Info("Custom dataset configuration detected")
-		s.dataset = &dataset.CustomDataset{
-			BaseDataset: *randDataset,
-		}
+		return nil
 	}
 
-	if err := s.dataset.Init(ctx, s.config.DatasetPath, s.config.DatasetURL); err != nil {
-		return fmt.Errorf("dataset initialization error: %w", err)
+	custDataset := &dataset.CustomDataset{
+		BaseDataset: *randDataset,
 	}
-	return nil
+	err := custDataset.Init(ctx, s.config.DatasetPath, s.config.DatasetURL)
+
+	if err == nil {
+		s.dataset = custDataset
+		return nil
+	}
+
+	if strings.HasPrefix(err.Error(), "database is locked") {
+		s.logger.Info("Database is locked by another process, will use preset text for responses instead")
+		s.dataset = randDataset
+		return nil
+	}
+
+	return err
 }
 
 // Print prints to a log, implementation of fasthttp.Logger

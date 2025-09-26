@@ -182,12 +182,18 @@ type Configuration struct {
 	// SelfSignedCerts enables automatic generation of self-signed certificates for HTTPS
 	SelfSignedCerts bool `yaml:"self-signed-certs" json:"self-signed-certs"`
 
-	// DatasetPath is the local path to the sqlite db file, default is empty
-	// when path is empty DatasetUrl will be checked
+	// DatasetPath Optional local file path to the SQLite database file used for generating responses from a dataset.
+	//   - If not set, hardcoded preset responses will be used.
+	//   - If set but the file does not exist the `dataset-url` will be used to download the database to the path specified by `dataset-path`.
+	//   - If the file exists but is currently occupied by another process, responses will be randomly generated from preset text (the same behavior as if the path were not set).
+	//   - Responses are retrieved from the dataset by the hash of the conversation history, with a fallback to a random dataset response, constrained by the maximum output tokens and EoS token handling, if no matching history is found.
+	//   - Refer to [llm-d converted ShareGPT](https://huggingface.co/datasets/hf07397/inference-sim-datasets/blob/0b7ac1a4daf0aace1556326964bd75633372299e/README.md) for detailed information on the expected format of the SQLite database file.
 	DatasetPath string `yaml:"dataset-path" json:"dataset-path"`
-	// DatasetURL is the URL to download the sqlite db file if set, default is empty
-	// if DatasetPath is not provided and DatasetURL is provided, the file will be downloaded
-	// to "USER_HOME/.llm-d/dataset.db"
+	// DatasetURL Optional URL for downloading the SQLite database file used for response generation.
+	//   - This parameter is only used if the `dataset-path` is also set and the file does not exist at that path.
+	//   - If the file needs to be downloaded, it will be saved to the location specified by `dataset-path`.
+	//   - If the file already exists at the `dataset-path`, it will not be downloaded again
+	//   - Example URL `https://huggingface.co/datasets/hf07397/inference-sim-datasets/resolve/91ffa7aafdfd6b3b1af228a517edc1e8f22cd274/huggingface/ShareGPT_Vicuna_unfiltered/conversations.sqlite3`
 	DatasetURL string `yaml:"dataset-url" json:"dataset-url"`
 }
 
@@ -491,6 +497,10 @@ func (c *Configuration) validate() error {
 
 	if c.SelfSignedCerts && (c.SSLCertFile != "" || c.SSLKeyFile != "") {
 		return errors.New("cannot use both self-signed-certs and explicit ssl-certfile/ssl-keyfile")
+	}
+
+	if c.DatasetPath == "" && c.DatasetURL != "" {
+		return errors.New("dataset-path is required when dataset-url is set")
 	}
 
 	return nil

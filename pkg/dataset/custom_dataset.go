@@ -55,6 +55,16 @@ const (
 )
 
 func (d *CustomDataset) downloadDataset(ctx context.Context, url string, path string) error {
+	folder := filepath.Dir(path)
+	err := os.MkdirAll(folder, 0755)
+	if err != nil {
+		return fmt.Errorf("failed to create parent directory: %w", err)
+	}
+
+	if _, err := os.Stat(path); err == nil {
+		// file already exists
+		return  errors.New("Dataset file already exists, should not download: " + path)
+	}
 
 	out, err := os.Create(path)
 	if err != nil {
@@ -67,6 +77,7 @@ func (d *CustomDataset) downloadDataset(ctx context.Context, url string, path st
 		}
 	}()
 
+	d.Logger.Info("Using dataset-url", "dataset-url", url)
 	resp, err := http.Get(url)
 	if err != nil {
 		return err
@@ -249,6 +260,17 @@ func (d *CustomDataset) connectToDB(path string) error {
 		return fmt.Errorf("failed to open database: %w", err)
 	}
 
+	// Check if there are other connections to the database
+	_, err = d.db.Exec("BEGIN EXCLUSIVE;")
+	if err != nil {
+		err := d.db.Close()
+		if err != nil {
+			d.Logger.Error(err, "failed to close database after failing to acquire exclusive lock")
+		}
+		d.db = nil
+		return fmt.Errorf("database is locked or has other active connections: %w", err)
+	}
+
 	err = d.verifyDB()
 
 	if err != nil {
@@ -261,45 +283,49 @@ func (d *CustomDataset) connectToDB(path string) error {
 		return fmt.Errorf("failed to query database: %w", err)
 	}
 	d.Logger.Info("Database connected successfully", "path", path, "records count", count)
-
 	return nil
 }
 
 func (d *CustomDataset) Init(ctx context.Context, path string, url string) error {
+	if path == "" {
+		return errors.New("no dataset path provided")
+	}
 	d.hasWarned = false
-	if path != "" && url == "" {
+	if url == "" {
 		d.Logger.Info("Using dataset from", "path", path)
 		return d.connectToDB(path)
 	}
-	if url != "" {
-		d.Logger.Info("Url detected", "url", url)
-		if path == "" {
-			user, err := os.UserHomeDir()
-			if err != nil {
-				return fmt.Errorf("failed to get user home directory: %w", err)
-			}
-			path = filepath.Join(user, ".llm-d", "dataset.sqlite3")
-		}
-
-		_, err := os.Stat(path)
+	_, err := os.Stat(path)
+	if err != nil {
+		// file does not exist, download it
+		err = d.downloadDataset(ctx, url, path)
 		if err != nil {
-			// file does not exist, download it
-			folder := filepath.Dir(path)
-			err := os.MkdirAll(folder, 0755)
-			if err != nil {
-				return fmt.Errorf("failed to create parent directory: %w", err)
+			// if the file is created but incomplete, remove it
+			if _, statErr := os.Stat(path); statErr == nil {
+				cerr := os.Remove(path)
+				if cerr != nil {
+					d.Logger.Error(cerr, "failed to remove incomplete file after download")
+				}
 			}
-			err = d.downloadDataset(ctx, url, path)
-			if err != nil {
-				return fmt.Errorf("failed to download dataset: %w", err)
-			}
+			return fmt.Errorf("failed to download dataset: %w", err)
 		}
-		return d.connectToDB(path)
 	}
-	return errors.New("no dataset path or url provided")
+	d.Logger.Info("Using dataset path", "dataset-path", path)
+
+	return d.connectToDB(path)
 }
 
 func (d *CustomDataset) Close() error {
+	// Release db lock
+	_, err := d.db.Exec("ROLLBACK;")
+	if err != nil {
+		if cerr := d.db.Close(); cerr != nil {
+			d.Logger.Error(cerr, "failed to close database after failing to acquire exclusive lock")
+		}
+		d.db = nil
+		return fmt.Errorf("failed to release exclusive lock: %w", err)
+	}
+
 	if d.db != nil {
 		return d.db.Close()
 	}

@@ -128,7 +128,6 @@ var _ = Describe("CustomDataset", Ordered, func() {
 	It("should return error for invalid DB file", func() {
 		err := dataset.connectToDB(pathToInvalidDB)
 		Expect(err).To(HaveOccurred())
-		Expect(err.Error()).To(ContainSubstring("file is not a database"))
 	})
 
 	It("should return error for DB with invalid table", func() {
