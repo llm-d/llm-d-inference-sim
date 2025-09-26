@@ -149,7 +149,20 @@ For more details see the <a href="https://docs.vllm.ai/en/stable/getting_started
       {"running-requests":10,"waiting-requests":30,"kv-cache-usage":0.4,"loras":[{"running":"lora4,lora2","waiting":"lora3","timestamp":1257894567},{"running":"lora4,lora3","waiting":"","timestamp":1257894569}]}
 ---
 - `data-parallel-size`: number of ranks to run in Data Parallel deployment, from 1 to 8, default is 1. The ports will be assigned as follows: rank 0 will run on the configured `port`, rank 1 on `port`+1, etc.      
-
+---
+- `dataset-path`: Optional local file path to the SQLite database file used for generating responses from a dataset.
+  - If not set, hardcoded preset responses will be used.
+  - If set but the file does not exist the `dataset-url` will be used to download the database to the path specified by `dataset-path`.
+  - If the file exists but is currently occupied by another process, responses will be randomly generated from preset text (the same behavior as if the path were not set).
+  - Responses are retrieved from the dataset by the hash of the conversation history, with a fallback to a random dataset response, constrained by the maximum output tokens and EoS token handling, if no matching history is found.
+  - Refer to [llm-d converted ShareGPT](https://huggingface.co/datasets/hf07397/inference-sim-datasets/blob/0b7ac1a4daf0aace1556326964bd75633372299e/README.md) for detailed information on the expected format of the SQLite database file.
+- `dataset-url`: Optional URL for downloading the SQLite database file used for response generation.
+  - This parameter is only used if the `dataset-path` is also set and the file does not exist at that path.
+  - If the file needs to be downloaded, it will be saved to the location specified by `dataset-path`.
+  - If the file already exists at the `dataset-path`, it will not be downloaded again
+  - Example URL `https://huggingface.co/datasets/hf07397/inference-sim-datasets/resolve/91ffa7aafdfd6b3b1af228a517edc1e8f22cd274/huggingface/ShareGPT_Vicuna_unfiltered/conversations.sqlite3`
+- `dataset-in-memory`: If true, the entire dataset will be loaded into memory for faster access. This may require significant memory depending on the size of the dataset. Default is false.
+---
 In addition, as we are using klog, the following parameters are available:
 - `add_dir_header`: if true, adds the file directory to the header of the log messages
 - `alsologtostderr`: log to standard error as well as files (no effect when -logtostderr=true)

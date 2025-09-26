@@ -33,10 +33,6 @@ const (
 type CompletionRequest interface {
 	// GetRequestID returns the unique request id
 	GetRequestID() string
-	// CreateResponseText creates and returns response payload based on this request,
-	// i.e., an array of generated tokens, the finish reason, and the number of created
-	// tokens
-	CreateResponseText(mode string) ([]string, string, int, error)
 	// IsStream returns boolean that defines is response should be streamed
 	IsStream() bool
 	// GetModel returns model name as defined in the request
@@ -69,10 +65,12 @@ type CompletionRequest interface {
 	// when the field is true, the prefill phase should be done on remote pod,
 	// whereas decode phase is done on local pod, thus this is a decode request
 	IsDoRemotePrefill() bool
+	// GetFullPrompt returns the full prompt including system and user prompts
+	GetFullPrompt() string
 }
 
-// baseCompletionRequest contains base completion request related information
-type baseCompletionRequest struct {
+// BaseCompletionRequest contains base completion request related information
+type BaseCompletionRequest struct {
 	// RequestID is the unique id of this request
 	RequestID string
 	// Stream is a boolean value, defines whether response should be sent as a Stream
@@ -105,44 +103,44 @@ type StreamOptions struct {
 	IncludeUsage bool `json:"include_usage"`
 }
 
-func (b *baseCompletionRequest) GetRequestID() string {
+func (b *BaseCompletionRequest) GetRequestID() string {
 	return b.RequestID
 }
 
-func (b *baseCompletionRequest) IsStream() bool {
+func (b *BaseCompletionRequest) IsStream() bool {
 	return b.Stream
 }
 
-func (b *baseCompletionRequest) GetModel() string {
+func (b *BaseCompletionRequest) GetModel() string {
 	return b.Model
 }
 
-func (b *baseCompletionRequest) IncludeUsage() bool {
+func (b *BaseCompletionRequest) IncludeUsage() bool {
 	return !b.Stream || b.StreamOptions.IncludeUsage
 }
 
-func (b *baseCompletionRequest) IsDoRemoteDecode() bool {
+func (b *BaseCompletionRequest) IsDoRemoteDecode() bool {
 	return b.DoRemoteDecode
 }
 
-func (b *baseCompletionRequest) IsDoRemotePrefill() bool {
+func (b *BaseCompletionRequest) IsDoRemotePrefill() bool {
 	return b.DoRemotePrefill
 }
 
 // GetNumberOfCachedPromptTokens returns the number of tokens in the prompt that are
 // in the local KV Cache
-func (b *baseCompletionRequest) GetNumberOfCachedPromptTokens() int {
+func (b *BaseCompletionRequest) GetNumberOfCachedPromptTokens() int {
 	return b.cachedPromptTokens
 }
 
 // GetIgnoreEOS returns the value of IgnoreEOS
-func (b *baseCompletionRequest) GetIgnoreEOS() bool {
+func (b *BaseCompletionRequest) GetIgnoreEOS() bool {
 	return b.IgnoreEOS
 }
 
 // SetNumberOfCachedPromptTokens sets the number of tokens in the prompt that are
 // in the local KV Cache
-func (b *baseCompletionRequest) SetNumberOfCachedPromptTokens(cachedPromptTokens int) {
+func (b *BaseCompletionRequest) SetNumberOfCachedPromptTokens(cachedPromptTokens int) {
 	b.cachedPromptTokens = cachedPromptTokens
 }
 
@@ -157,7 +155,7 @@ type CompletionReqCtx struct {
 
 // ChatCompletionRequest defines structure of /chat/completion request
 type ChatCompletionRequest struct {
-	baseCompletionRequest
+	BaseCompletionRequest
 	// Messages list of request's Messages
 	Messages []Message `json:"messages"`
 
@@ -230,7 +228,7 @@ func (c *ChatCompletionRequest) GetMaxCompletionTokens() *int64 {
 
 // getLastUserMsg returns last message from this request's messages with user role,
 // if does not exist - returns an empty string
-func (req *ChatCompletionRequest) getLastUserMsg() string {
+func (req *ChatCompletionRequest) GetLastUserMsg() string {
 	for i := len(req.Messages) - 1; i >= 0; i-- {
 		if req.Messages[i].Role == RoleUser {
 			return req.Messages[i].Content.PlainText()
@@ -240,30 +238,25 @@ func (req *ChatCompletionRequest) getLastUserMsg() string {
 	return ""
 }
 
-// CreateResponseText creates and returns response payload based on this request,
-// i.e., an array of generated tokens, the finish reason, and the number of created
-// tokens
-func (req ChatCompletionRequest) CreateResponseText(mode string) ([]string, string, int, error) {
-	maxTokens, err := common.GetMaxTokens(req.MaxCompletionTokens, req.MaxTokens)
-	if err != nil {
-		return nil, "", 0, err
+func (req *ChatCompletionRequest) GetFullPrompt() string {
+	prompt := ""
+	for _, msg := range req.Messages {
+		switch msg.Role {
+		case RoleUser:
+			prompt += "### user:\n" + msg.Content.Raw + "\n"
+		case RoleAssistant:
+			prompt += "### assistant:\n" + msg.Content.Raw + "\n"
+		default:
+			prompt += "### unknown:\n" + msg.Content.Raw + "\n"
+		}
 	}
-
-	var text, finishReason string
-	if mode == common.ModeEcho {
-		text, finishReason = common.GetResponseText(maxTokens, req.getLastUserMsg())
-	} else {
-		text, finishReason = common.GetRandomResponseText(maxTokens, req.GetIgnoreEOS())
-	}
-
-	tokens := common.Tokenize(text)
-	return tokens, finishReason, len(tokens), nil
+	return prompt
 }
 
 // v1/completion
 // TextCompletionRequest defines structure of /completion request
 type TextCompletionRequest struct {
-	baseCompletionRequest
+	BaseCompletionRequest
 	// Prompt defines request's content
 	Prompt string `json:"prompt"`
 
@@ -295,22 +288,6 @@ func (c *TextCompletionRequest) GetMaxCompletionTokens() *int64 {
 	return c.MaxTokens
 }
 
-// CreateResponseText creates and returns response payload based on this request,
-// i.e., an array of generated tokens, the finish reason, and the number of created
-// tokens
-func (req TextCompletionRequest) CreateResponseText(mode string) ([]string, string, int, error) {
-	maxTokens, err := common.GetMaxTokens(nil, req.MaxTokens)
-	if err != nil {
-		return nil, "", 0, err
-	}
-
-	var text, finishReason string
-	if mode == common.ModeEcho {
-		text, finishReason = common.GetResponseText(maxTokens, req.Prompt)
-	} else {
-		text, finishReason = common.GetRandomResponseText(maxTokens, req.GetIgnoreEOS())
-	}
-
-	tokens := common.Tokenize(text)
-	return tokens, finishReason, len(tokens), nil
+func (t *TextCompletionRequest) GetFullPrompt() string {
+	return "### user:\n" + t.Prompt + "\n"
 }
