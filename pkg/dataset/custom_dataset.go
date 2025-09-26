@@ -63,7 +63,7 @@ func (d *CustomDataset) downloadDataset(ctx context.Context, url string, path st
 
 	if _, err := os.Stat(path); err == nil {
 		// file already exists
-		return  errors.New("Dataset file already exists, should not download: " + path)
+		return errors.New("Dataset file already exists, should not download: " + path)
 	}
 
 	out, err := os.Create(path)
@@ -73,11 +73,11 @@ func (d *CustomDataset) downloadDataset(ctx context.Context, url string, path st
 	defer func() {
 		cerr := out.Close()
 		if cerr != nil {
-			d.Logger.Error(cerr, "failed to close file after download")
+			d.logger.Error(cerr, "failed to close file after download")
 		}
 	}()
 
-	d.Logger.Info("Using dataset-url", "dataset-url", url)
+	d.logger.Info("Using dataset-url", "dataset-url", url)
 	resp, err := http.Get(url)
 	if err != nil {
 		return err
@@ -85,7 +85,7 @@ func (d *CustomDataset) downloadDataset(ctx context.Context, url string, path st
 	defer func() {
 		cerr := resp.Body.Close()
 		if cerr != nil {
-			d.Logger.Error(cerr, "failed to close response body after download")
+			d.logger.Error(cerr, "failed to close response body after download")
 		}
 	}()
 
@@ -97,7 +97,7 @@ func (d *CustomDataset) downloadDataset(ctx context.Context, url string, path st
 	pr := &progressReader{
 		Reader:        resp.Body,
 		total:         resp.ContentLength,
-		logger:        d.Logger,
+		logger:        d.logger,
 		ctx:           ctx,
 		startTime:     time.Now(),
 		hasShownSpeed: false,
@@ -108,7 +108,7 @@ func (d *CustomDataset) downloadDataset(ctx context.Context, url string, path st
 		// Remove incomplete file
 		cerr := os.Remove(path)
 		if cerr != nil {
-			d.Logger.Error(cerr, "failed to remove incomplete file after download")
+			d.logger.Error(cerr, "failed to remove incomplete file after download")
 		}
 		// If context was cancelled, return a specific error
 		if errors.Is(err, context.Canceled) {
@@ -120,7 +120,7 @@ func (d *CustomDataset) downloadDataset(ctx context.Context, url string, path st
 	if written == 0 {
 		cerr := os.Remove(path)
 		if cerr != nil {
-			d.Logger.Error(cerr, "failed to remove empty file after download")
+			d.logger.Error(cerr, "failed to remove empty file after download")
 		}
 		return errors.New("downloaded file is empty")
 	}
@@ -129,7 +129,7 @@ func (d *CustomDataset) downloadDataset(ctx context.Context, url string, path st
 	if err := out.Sync(); err != nil {
 		cerr := os.Remove(path)
 		if cerr != nil {
-			d.Logger.Error(cerr, "failed to remove incomplete file after download")
+			d.logger.Error(cerr, "failed to remove incomplete file after download")
 		}
 		return fmt.Errorf("failed to sync file: %w", err)
 	}
@@ -190,7 +190,7 @@ func (d *CustomDataset) verifyDB() error {
 	}
 	defer func() {
 		if cerr := rows.Close(); cerr != nil {
-			d.Logger.Error(cerr, "failed to close rows after querying table info")
+			d.logger.Error(cerr, "failed to close rows after querying table info")
 		}
 	}()
 
@@ -246,7 +246,7 @@ func (d *CustomDataset) connectToDB(path string) error {
 	if d.db != nil {
 		err := d.db.Close()
 		if err != nil {
-			d.Logger.Error(err, "failed to close existing database connection")
+			d.logger.Error(err, "failed to close existing database connection")
 		}
 		d.db = nil
 	}
@@ -265,7 +265,7 @@ func (d *CustomDataset) connectToDB(path string) error {
 	if err != nil {
 		err := d.db.Close()
 		if err != nil {
-			d.Logger.Error(err, "failed to close database after failing to acquire exclusive lock")
+			d.logger.Error(err, "failed to close database after failing to acquire exclusive lock")
 		}
 		d.db = nil
 		return fmt.Errorf("database is locked or has other active connections: %w", err)
@@ -279,20 +279,21 @@ func (d *CustomDataset) connectToDB(path string) error {
 
 	count, err := d.getRecordsCount()
 	if err != nil {
-		d.Logger.Error(err, "failed to get records count")
+		d.logger.Error(err, "failed to get records count")
 		return fmt.Errorf("failed to query database: %w", err)
 	}
-	d.Logger.Info("Database connected successfully", "path", path, "records count", count)
+	d.logger.Info("Database connected successfully", "path", path, "records count", count)
 	return nil
 }
 
-func (d *CustomDataset) Init(ctx context.Context, path string, url string) error {
+func (d *CustomDataset) Init(ctx context.Context, logger logr.Logger, path string, url string) error {
+	d.logger = logger
 	if path == "" {
 		return errors.New("no dataset path provided")
 	}
 	d.hasWarned = false
 	if url == "" {
-		d.Logger.Info("Using dataset from", "path", path)
+		d.logger.Info("Using dataset from", "path", path)
 		return d.connectToDB(path)
 	}
 	_, err := os.Stat(path)
@@ -304,13 +305,13 @@ func (d *CustomDataset) Init(ctx context.Context, path string, url string) error
 			if _, statErr := os.Stat(path); statErr == nil {
 				cerr := os.Remove(path)
 				if cerr != nil {
-					d.Logger.Error(cerr, "failed to remove incomplete file after download")
+					d.logger.Error(cerr, "failed to remove incomplete file after download")
 				}
 			}
 			return fmt.Errorf("failed to download dataset: %w", err)
 		}
 	}
-	d.Logger.Info("Using dataset path", "dataset-path", path)
+	d.logger.Info("Using dataset path", "dataset-path", path)
 
 	return d.connectToDB(path)
 }
@@ -320,7 +321,7 @@ func (d *CustomDataset) Close() error {
 	_, err := d.db.Exec("ROLLBACK;")
 	if err != nil {
 		if cerr := d.db.Close(); cerr != nil {
-			d.Logger.Error(cerr, "failed to close database after failing to acquire exclusive lock")
+			d.logger.Error(cerr, "failed to close database after failing to acquire exclusive lock")
 		}
 		d.db = nil
 		return fmt.Errorf("failed to release exclusive lock: %w", err)
@@ -372,14 +373,14 @@ func (d *CustomDataset) query(query string, nTokens int) ([][]string, error) {
 	rows, err := d.db.Query(query)
 	if err != nil {
 		if !d.hasWarned {
-			d.Logger.Error(err, "Failed to query database. Ensure dataset file is still valid. Will generate random tokens instead.")
+			d.logger.Error(err, "Failed to query database. Ensure dataset file is still valid. Will generate random tokens instead.")
 			d.hasWarned = true
 		}
 		return [][]string{GenPresetRandomTokens(nTokens)}, nil
 	}
 	defer func() {
 		if cerr := rows.Close(); cerr != nil {
-			d.Logger.Error(cerr, "failed to close rows after query")
+			d.logger.Error(cerr, "failed to close rows after query")
 		}
 	}()
 	return unmarshalAllRecords(rows)
@@ -395,7 +396,7 @@ func (d *CustomDataset) GenerateTokens(req openaiserverapi.CompletionRequest, nT
 	// filter out results according to finish reason
 	var filteredTokensList [][]string
 	if finishReason != LengthFinishReason && finishReason != StopFinishReason {
-		d.Logger.Error(errors.New("unknown finish reason"), "Unexpected finish reason", "reason", finishReason)
+		d.logger.Error(errors.New("unknown finish reason"), "Unexpected finish reason", "reason", finishReason)
 	}
 	for _, tokens := range tokensList {
 		if finishReason == StopFinishReason && len(tokens) <= nTokens {

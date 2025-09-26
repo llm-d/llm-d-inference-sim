@@ -239,8 +239,10 @@ func (s *VllmSimulator) startSim(ctx context.Context) error {
 }
 
 func (s *VllmSimulator) initDataset(ctx context.Context) error {
-	randDataset := &dataset.BaseDataset{
-		Logger: s.logger,
+	randDataset := &dataset.BaseDataset{}
+	err := randDataset.Init(ctx, s.logger, "", "")
+	if err != nil {
+		return fmt.Errorf("failed to initialize random dataset: %w", err)
 	}
 
 	if s.config.DatasetPath == "" && s.config.DatasetURL == "" {
@@ -249,10 +251,8 @@ func (s *VllmSimulator) initDataset(ctx context.Context) error {
 		return nil
 	}
 
-	custDataset := &dataset.CustomDataset{
-		BaseDataset: *randDataset,
-	}
-	err := custDataset.Init(ctx, s.config.DatasetPath, s.config.DatasetURL)
+	custDataset := &dataset.CustomDataset{}
+	err = custDataset.Init(ctx, s.logger, s.config.DatasetPath, s.config.DatasetURL)
 
 	if err == nil {
 		s.dataset = custDataset

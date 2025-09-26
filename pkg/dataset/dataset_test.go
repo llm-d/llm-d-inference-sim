@@ -21,7 +21,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-logr/logr"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	. "github.com/onsi/ginkgo/v2"
@@ -38,9 +37,7 @@ var _ = Describe("Dataset", Ordered, func() {
 	})
 
 	BeforeEach(func() {
-		dataset = &BaseDataset{
-			Logger: logr.Discard(),
-		}
+		dataset = &BaseDataset{}
 	})
 
 	Context("GetRandomTokens", func() {
