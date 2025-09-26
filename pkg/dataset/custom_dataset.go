@@ -45,13 +45,15 @@ type CustomDataset struct {
 
 // use constants for expected column names and types
 const (
-	tableName         = "llmd"
-	promptHashCol     = "prompt_hash"
-	genTokensCol      = "gen_tokens"
-	nGenTokensCol     = "n_gen_tokens"
-	promptHashColType = "BLOB"
-	genTokensColType  = "JSON"
-	nGenTokensColType = "INTEGER"
+	tableName                  = "llmd"
+	promptHashCol              = "prompt_hash"
+	genTokensCol               = "gen_tokens"
+	nGenTokensCol              = "n_gen_tokens"
+	promptHashColType          = "BLOB"
+	genTokensColType           = "JSON"
+	nGenTokensColType          = "INTEGER"
+	progressLogTimeInterval    = 5 * time.Second
+	progressLogPercentInterval = 10
 )
 
 func (d *CustomDataset) downloadDataset(ctx context.Context, url string, path string) error {
@@ -95,12 +97,11 @@ func (d *CustomDataset) downloadDataset(ctx context.Context, url string, path st
 
 	// Progress reader with context
 	pr := &progressReader{
-		Reader:        resp.Body,
-		total:         resp.ContentLength,
-		logger:        d.logger,
-		ctx:           ctx,
-		startTime:     time.Now(),
-		hasShownSpeed: false,
+		Reader:    resp.Body,
+		total:     resp.ContentLength,
+		logger:    d.logger,
+		ctx:       ctx,
+		startTime: time.Now(),
 	}
 
 	written, err := io.Copy(out, pr)
@@ -116,7 +117,7 @@ func (d *CustomDataset) downloadDataset(ctx context.Context, url string, path st
 		}
 		return fmt.Errorf("failed to download file: %w", err)
 	}
-	// Check if file size is zero or suspiciously small
+	// Check if file size is zero
 	if written == 0 {
 		cerr := os.Remove(path)
 		if cerr != nil {
@@ -140,13 +141,13 @@ func (d *CustomDataset) downloadDataset(ctx context.Context, url string, path st
 // progressReader wraps an io.Reader and logs download progress.
 type progressReader struct {
 	io.Reader
-	total         int64
-	downloaded    int64
-	startTime     time.Time
-	lastPct       int
-	logger        logr.Logger
-	ctx           context.Context
-	hasShownSpeed bool
+	total       int64
+	downloaded  int64
+	startTime   time.Time
+	lastPct     int
+	lastLogTime time.Time
+	logger      logr.Logger
+	ctx         context.Context
 }
 
 func (pr *progressReader) Read(p []byte) (int, error) {
@@ -159,14 +160,16 @@ func (pr *progressReader) Read(p []byte) (int, error) {
 	pr.downloaded += int64(n)
 	if pr.total > 0 {
 		pct := int(float64(pr.downloaded) * 100 / float64(pr.total))
-		if !pr.hasShownSpeed && time.Since(pr.startTime).Seconds() > 2 {
-			pr.hasShownSpeed = true
+		now := time.Now()
+
+		timeSinceLastLog := now.Sub(pr.lastLogTime).Seconds()
+		pctDiff := pct - pr.lastPct
+
+		if timeSinceLastLog >= progressLogTimeInterval.Seconds() || (pctDiff >= progressLogPercentInterval && pct != pr.lastPct) {
+			// progress will be shown every interval seconds or every interval percent of progress
 			pr.logProgress(pct)
 			pr.lastPct = pct
-		}
-		if pct != pr.lastPct && pct%10 == 0 {
-			pr.logProgress(pct)
-			pr.lastPct = pct
+			pr.lastLogTime = now
 		}
 	}
 	return n, err
