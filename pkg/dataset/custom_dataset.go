@@ -34,7 +34,6 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
-	_ "github.com/mattn/go-sqlite3"
 )
 
 type CustomDataset struct {
@@ -46,9 +45,11 @@ type CustomDataset struct {
 // use constants for expected column names and types
 const (
 	tableName                  = "llmd"
+	idCol                      = "id"
 	promptHashCol              = "prompt_hash"
 	genTokensCol               = "gen_tokens"
 	nGenTokensCol              = "n_gen_tokens"
+	idColType                  = "INTEGER"
 	promptHashColType          = "BLOB"
 	genTokensColType           = "JSON"
 	nGenTokensColType          = "INTEGER"
@@ -198,6 +199,7 @@ func (d *CustomDataset) verifyDB() error {
 	}()
 
 	expectedColumns := map[string]string{
+		idCol:         idColType,
 		promptHashCol: promptHashColType,
 		genTokensCol:  genTokensColType,
 		nGenTokensCol: nGenTokensColType,
@@ -256,68 +258,46 @@ func (d *CustomDataset) loadDatabaseInMemory(path string) error {
 		return fmt.Errorf("failed to create in-memory database: %w", err)
 	}
 
-	// Attach the disk database and copy all data to in-memory database
-	_, err = d.db.Exec("ATTACH DATABASE ? AS disk", path)
+	// Use ATTACH to copy the database
+	attachSQL := fmt.Sprintf("ATTACH DATABASE '%s' AS source", path)
+	_, err = d.db.Exec(attachSQL)
 	if err != nil {
 		if closeErr := d.db.Close(); closeErr != nil {
-			d.logger.Error(closeErr, "failed to close in-memory database after failing to attach disk database")
+			d.logger.Error(closeErr, "failed to close in-memory database after attach failure")
 		}
 		d.db = nil
-		return fmt.Errorf("failed to attach disk database: %w", err)
+		return fmt.Errorf("failed to attach source database: %w", err)
 	}
 
-	// Copy the schema and data from disk to memory
-	// First get all tables from the disk database
-	rows, err := d.db.Query("SELECT sql FROM disk.sqlite_master WHERE type='table'")
+	// Copy the table structure first
+	_, err = d.db.Exec(`CREATE TABLE llmd (
+		id INTEGER PRIMARY KEY,
+		prompt_hash BLOB,
+		gen_tokens JSON,
+		n_gen_tokens INTEGER
+	)`)
 	if err != nil {
 		if closeErr := d.db.Close(); closeErr != nil {
-			d.logger.Error(closeErr, "failed to close in-memory database after schema query failure")
+			d.logger.Error(closeErr, "failed to close in-memory database after create table failure")
 		}
 		d.db = nil
-		return fmt.Errorf("failed to query disk database schema: %w", err)
+		return fmt.Errorf("failed to create table: %w", err)
 	}
 
-	var createStatements []string
-	for rows.Next() {
-		var sql string
-		if err := rows.Scan(&sql); err != nil {
-			rows.Close()
-			if closeErr := d.db.Close(); closeErr != nil {
-				d.logger.Error(closeErr, "failed to close in-memory database after schema scan failure")
-			}
-			d.db = nil
-			return fmt.Errorf("failed to scan schema: %w", err)
-		}
-		createStatements = append(createStatements, sql)
-	}
-	rows.Close()
-
-	// Create tables in memory
-	for _, createSQL := range createStatements {
-		_, err = d.db.Exec(createSQL)
-		if err != nil {
-			if closeErr := d.db.Close(); closeErr != nil {
-				d.logger.Error(closeErr, "failed to close in-memory database after table creation failure")
-			}
-			d.db = nil
-			return fmt.Errorf("failed to create table in memory: %w", err)
-		}
-	}
-
-	// Copy data from disk to memory
-	_, err = d.db.Exec("INSERT INTO main.llmd SELECT * FROM disk.llmd")
+	// Copy the data
+	_, err = d.db.Exec("INSERT INTO llmd SELECT * FROM source.llmd")
 	if err != nil {
 		if closeErr := d.db.Close(); closeErr != nil {
-			d.logger.Error(closeErr, "failed to close in-memory database after data copy failure")
+			d.logger.Error(closeErr, "failed to close in-memory database after copy failure")
 		}
 		d.db = nil
-		return fmt.Errorf("failed to copy data to memory: %w", err)
+		return fmt.Errorf("failed to copy data: %w", err)
 	}
 
-	// Detach the disk database
-	_, err = d.db.Exec("DETACH DATABASE disk")
+	// Detach the source database
+	_, err = d.db.Exec("DETACH DATABASE source")
 	if err != nil {
-		d.logger.Error(err, "failed to detach disk database")
+		d.logger.Error(err, "failed to detach source database")
 	}
 
 	loadTime := time.Since(start)
