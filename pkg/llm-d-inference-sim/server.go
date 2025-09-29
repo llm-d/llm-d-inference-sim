@@ -34,7 +34,6 @@ import (
 )
 
 func (s *VllmSimulator) newListener() (net.Listener, error) {
-	s.logger.Info("Server starting", "port", s.config.Port)
 	listener, err := net.Listen("tcp4", fmt.Sprintf(":%d", s.config.Port))
 	if err != nil {
 		return nil, err
