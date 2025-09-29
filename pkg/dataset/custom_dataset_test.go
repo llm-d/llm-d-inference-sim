@@ -22,11 +22,11 @@ import (
 	"os"
 	"time"
 
-	"github.com/go-logr/logr"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"k8s.io/klog/v2"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -102,7 +102,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 	})
 
 	It("should successfully init dataset", func() {
-		err := dataset.Init(context.Background(), logr.Discard(), validDBPath, "", false)
+		err := dataset.Init(context.Background(), klog.Background(), validDBPath, "", false)
 		Expect(err).NotTo(HaveOccurred())
 
 		row := dataset.db.QueryRow("SELECT n_gen_tokens FROM llmd WHERE prompt_hash=X'74bf14c09c038321cba39717dae1dc732823ae4abd8e155959367629a3c109a8';")
@@ -176,7 +176,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 	})
 
 	It("should return tokens for existing prompt", func() {
-		err := dataset.Init(context.Background(), logr.Discard(), validDBPath, "", false)
+		err := dataset.Init(context.Background(), klog.Background(), validDBPath, "", false)
 		Expect(err).NotTo(HaveOccurred())
 
 		req := &openaiserverapi.TextCompletionRequest{
@@ -189,7 +189,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 	})
 
 	It("should return at most 2 tokens for existing prompt", func() {
-		err := dataset.Init(context.Background(), logr.Discard(), validDBPath, "", false)
+		err := dataset.Init(context.Background(), klog.Background(), validDBPath, "", false)
 		Expect(err).NotTo(HaveOccurred())
 		n := int64(2)
 		req := &openaiserverapi.TextCompletionRequest{
@@ -202,7 +202,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 	})
 
 	It("should successfully init dataset with in-memory option", func() {
-		err := dataset.Init(context.Background(), logr.Discard(), validDBPath, "", true)
+		err := dataset.Init(context.Background(), klog.Background(), validDBPath, "", true)
 		Expect(err).NotTo(HaveOccurred())
 
 		req := &openaiserverapi.TextCompletionRequest{
