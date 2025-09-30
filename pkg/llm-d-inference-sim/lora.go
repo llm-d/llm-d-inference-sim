@@ -47,7 +47,7 @@ func (s *VllmSimulator) getLoras() []string {
 	return loras
 }
 
-func (s *VllmSimulator) loadLora(ctx *fasthttp.RequestCtx) {
+func (s *VllmSimulator) loadLoraAdaptor(ctx *fasthttp.RequestCtx) {
 	var req loadLoraRequest
 	err := json.Unmarshal(ctx.Request.Body(), &req)
 	if err != nil {
@@ -59,7 +59,7 @@ func (s *VllmSimulator) loadLora(ctx *fasthttp.RequestCtx) {
 	s.loraAdaptors.Store(req.LoraName, "")
 }
 
-func (s *VllmSimulator) unloadLora(ctx *fasthttp.RequestCtx) {
+func (s *VllmSimulator) unloadLoraAdaptor(ctx *fasthttp.RequestCtx) {
 	var req unloadLoraRequest
 	err := json.Unmarshal(ctx.Request.Body(), &req)
 	if err != nil {
@@ -69,4 +69,78 @@ func (s *VllmSimulator) unloadLora(ctx *fasthttp.RequestCtx) {
 	}
 
 	s.loraAdaptors.Delete(req.LoraName)
+}
+
+// Checks if a request with this model can run under maxLoras limit
+func (s *VllmSimulator) loraIsLoaded(model string) bool {
+	if !s.isLora(model) {
+		return true
+	}
+
+	s.loras.mux.RLock()
+	defer s.loras.mux.RUnlock()
+
+	_, ok := s.loras.usedLoras[model]
+	s.logger.Info("is loaded", "lora", model, "ok", ok)
+
+	return ok
+}
+
+// Checks if a request with this model can run under maxLoras limit
+func (s *VllmSimulator) loadLora(model string) bool {
+	if !s.isLora(model) {
+		return true
+	}
+
+	s.loras.mux.Lock()
+	defer s.loras.mux.Unlock()
+
+	// check if this lora is already loaded or within maxLoras slots
+	_, ok := s.loras.usedLoras[model]
+	ok = ok || len(s.loras.usedLoras) < s.loras.maxLoras
+	s.logger.Info("load", "lora", model, "count", s.loras.usedLoras[model], "size", len(s.loras.usedLoras), "ok", ok)
+	if !ok {
+		for lora, count := range s.loras.usedLoras {
+			s.logger.Info("loop", "lora", lora, "count", count)
+			if count == 0 {
+				s.logger.Info("loop delete", "lora", lora)
+				delete(s.loras.usedLoras, lora)
+				ok = true
+				break
+			}
+		}
+	}
+	if ok {
+		s.loras.usedLoras[model]++
+	}
+	s.logger.Info("load", "ok", ok, "lora", model, "count", s.loras.usedLoras[model], "size", len(s.loras.usedLoras))
+
+	return ok
+}
+
+func (s *VllmSimulator) incrementLora(model string) {
+	if !s.isLora(model) {
+		return
+	}
+
+	s.loras.mux.Lock()
+	defer s.loras.mux.Unlock()
+	s.loras.usedLoras[model]++
+}
+
+func (s *VllmSimulator) decrementLora(model string) {
+	if !s.isLora(model) {
+		return
+	}
+
+	s.loras.mux.Lock()
+	defer s.loras.mux.Unlock()
+
+	s.loras.usedLoras[model] -= 1
+	s.logger.Info("decrement", "lora", model)
+	if s.loras.usedLoras[model] <= 0 {
+		// last usage of this lora - remove it from the used loras list
+		// delete(s.loras.usedLoras, model)
+		s.loras.loraRemovable <- 1
+	}
 }

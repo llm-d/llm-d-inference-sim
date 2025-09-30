@@ -245,7 +245,7 @@ var _ = Describe("Check random latencies", Ordered, func() {
 		simulator.config.TimeToFirstTokenStdDev = 0
 		simulator.config.TimeFactorUnderLoad = 1.0
 
-		simulator.runReqChan <- 100
+		simulator.metrics.runReqChan <- 100
 
 		ttft := simulator.getWaitTimeToFirstToken(128, 0, false)
 		Expect(ttft).To(Equal(42))
@@ -257,11 +257,11 @@ var _ = Describe("Check random latencies", Ordered, func() {
 		simulator.config.TimeFactorUnderLoad = 100.0
 		simulator.config.MaxNumSeqs = 1
 
-		for len(simulator.runReqChan) > 0 {
-			<-simulator.runReqChan
+		for len(simulator.metrics.runReqChan) > 0 {
+			<-simulator.metrics.runReqChan
 		}
 
-		simulator.runReqChan <- 1
+		simulator.metrics.runReqChan <- 1
 
 		ttft := simulator.getWaitTimeToFirstToken(128, 0, false)
 		Expect(ttft).To(Equal(42))
@@ -273,7 +273,7 @@ var _ = Describe("Check random latencies", Ordered, func() {
 			simulator.config.TimeToFirstTokenStdDev = 0
 			simulator.config.TimeFactorUnderLoad = timeFactorUnderLoad
 			simulator.config.MaxNumSeqs = maxNumOfReq
-			simulator.nRunningReqs = int64(maxNumOfReq)
+			simulator.metrics.nRunningReqs = int64(maxNumOfReq)
 
 			ttft := simulator.getWaitTimeToFirstToken(128, 0, false)
 			Expect(ttft).To(Equal(int(float64(42) * timeFactorUnderLoad)))
@@ -296,7 +296,7 @@ var _ = Describe("Check random latencies", Ordered, func() {
 			simulator.config.TimeToFirstTokenStdDev = 0
 			simulator.config.TimeFactorUnderLoad = timeFactorUnderLoad
 			simulator.config.MaxNumSeqs = maxNumOfReq
-			simulator.nRunningReqs = int64(nCurrNumOfReq)
+			simulator.metrics.nRunningReqs = int64(nCurrNumOfReq)
 
 			ttft := simulator.getWaitTimeToFirstToken(128, 0, false)
 			max := timeFactorUnderLoad * float64(42)
@@ -318,7 +318,7 @@ var _ = Describe("Check random latencies", Ordered, func() {
 	It("when TimeFactorUnderLoad is 1.0, calcLoadFactor should give 1", func() {
 		simulator.config.TimeFactorUnderLoad = 1.0
 		simulator.config.MaxNumSeqs = 11
-		simulator.nRunningReqs = 3
+		simulator.metrics.nRunningReqs = 3
 
 		factor := simulator.getCurrLoadFactor()
 		Expect(factor).To(BeNumerically("==", 1.0))
@@ -327,7 +327,7 @@ var _ = Describe("Check random latencies", Ordered, func() {
 	It("when TimeFactorUnderLoad is > 1.0, and sim is fully loaded, calcLoadFactor should give TimeFactorUnderLoad", func() {
 		simulator.config.TimeFactorUnderLoad = 2.0
 		simulator.config.MaxNumSeqs = 11
-		simulator.nRunningReqs = 11
+		simulator.metrics.nRunningReqs = 11
 
 		factor := simulator.getCurrLoadFactor()
 		Expect(factor).To(BeNumerically("==", simulator.config.TimeFactorUnderLoad))
@@ -337,7 +337,7 @@ var _ = Describe("Check random latencies", Ordered, func() {
 	It("when TimeFactorUnderLoad is > 1.0, and sim is partially loaded, calcLoadFactor should give a value between 1 and TimeFactorUnderLoad", func() {
 		simulator.config.TimeFactorUnderLoad = 2.0
 		simulator.config.MaxNumSeqs = 11
-		simulator.nRunningReqs = 6
+		simulator.metrics.nRunningReqs = 6
 
 		factor := simulator.getCurrLoadFactor()
 		Expect(factor).To(BeNumerically(">", 1.0))

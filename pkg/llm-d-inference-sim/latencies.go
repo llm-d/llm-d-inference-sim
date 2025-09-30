@@ -23,7 +23,7 @@ func (s *VllmSimulator) getCurrLoadFactor() float64 {
 	if s.config.MaxNumSeqs <= 1 {
 		return 1.0
 	}
-	return 1 + (s.config.TimeFactorUnderLoad-1)*float64(s.nRunningReqs-1)/float64(s.config.MaxNumSeqs-1)
+	return 1 + (s.config.TimeFactorUnderLoad-1)*float64(s.metrics.nRunningReqs-1)/float64(s.config.MaxNumSeqs-1)
 }
 
 func (s *VllmSimulator) getTimeToFirstToken() int {

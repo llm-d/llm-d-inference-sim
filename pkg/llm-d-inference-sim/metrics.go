@@ -34,9 +34,9 @@ import (
 // Metrics reported:
 // - lora_requests_info
 func (s *VllmSimulator) createAndRegisterPrometheus() error {
-	s.registry = prometheus.NewRegistry()
+	s.metrics.registry = prometheus.NewRegistry()
 
-	s.loraInfo = prometheus.NewGaugeVec(
+	s.metrics.loraInfo = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: "",
 			Name:      "vllm:lora_requests_info",
@@ -45,12 +45,12 @@ func (s *VllmSimulator) createAndRegisterPrometheus() error {
 		[]string{vllmapi.PromLabelMaxLora, vllmapi.PromLabelRunningLoraAdapters, vllmapi.PromLabelWaitingLoraAdapters},
 	)
 
-	if err := s.registry.Register(s.loraInfo); err != nil {
+	if err := s.metrics.registry.Register(s.metrics.loraInfo); err != nil {
 		s.logger.Error(err, "Prometheus lora info gauge register failed")
 		return err
 	}
 
-	s.runningRequests = prometheus.NewGaugeVec(
+	s.metrics.runningRequests = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: "",
 			Name:      "vllm:num_requests_running",
@@ -59,13 +59,13 @@ func (s *VllmSimulator) createAndRegisterPrometheus() error {
 		[]string{vllmapi.PromLabelModelName},
 	)
 
-	if err := s.registry.Register(s.runningRequests); err != nil {
+	if err := s.metrics.registry.Register(s.metrics.runningRequests); err != nil {
 		s.logger.Error(err, "Prometheus number of running requests gauge register failed")
 		return err
 	}
 
 	// not supported for now, reports constant value
-	s.waitingRequests = prometheus.NewGaugeVec(
+	s.metrics.waitingRequests = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: "",
 			Name:      "vllm:num_requests_waiting",
@@ -74,13 +74,13 @@ func (s *VllmSimulator) createAndRegisterPrometheus() error {
 		[]string{vllmapi.PromLabelModelName},
 	)
 
-	if err := s.registry.Register(s.waitingRequests); err != nil {
+	if err := s.metrics.registry.Register(s.metrics.waitingRequests); err != nil {
 		s.logger.Error(err, "Prometheus number of requests in queue gauge register failed")
 		return err
 	}
 
 	// not supported for now, reports constant value
-	s.kvCacheUsagePercentage = prometheus.NewGaugeVec(
+	s.metrics.kvCacheUsagePercentage = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: "",
 			Name:      "vllm:gpu_cache_usage_perc",
@@ -89,7 +89,7 @@ func (s *VllmSimulator) createAndRegisterPrometheus() error {
 		[]string{vllmapi.PromLabelModelName},
 	)
 
-	if err := s.registry.Register(s.kvCacheUsagePercentage); err != nil {
+	if err := s.metrics.registry.Register(s.metrics.kvCacheUsagePercentage); err != nil {
 		s.logger.Error(err, "Prometheus kv cache usage percentage gauge register failed")
 		return err
 	}
@@ -109,19 +109,19 @@ func (s *VllmSimulator) setInitialPrometheusMetrics() {
 		kvCacheUsage = float64(s.config.FakeMetrics.KVCacheUsagePercentage)
 	}
 	modelName := s.getDisplayedModelName(s.config.Model)
-	s.runningRequests.WithLabelValues(modelName).Set(nRunningReqs)
-	s.waitingRequests.WithLabelValues(modelName).Set(nWaitingReqs)
-	s.kvCacheUsagePercentage.WithLabelValues(modelName).Set(kvCacheUsage)
+	s.metrics.runningRequests.WithLabelValues(modelName).Set(nRunningReqs)
+	s.metrics.waitingRequests.WithLabelValues(modelName).Set(nWaitingReqs)
+	s.metrics.kvCacheUsagePercentage.WithLabelValues(modelName).Set(kvCacheUsage)
 
 	if s.config.FakeMetrics != nil && len(s.config.FakeMetrics.LoraMetrics) != 0 {
 		for _, metrics := range s.config.FakeMetrics.LoraMetrics {
-			s.loraInfo.WithLabelValues(
+			s.metrics.loraInfo.WithLabelValues(
 				strconv.Itoa(s.config.MaxLoras),
 				metrics.RunningLoras,
 				metrics.WaitingLoras).Set(metrics.Timestamp)
 		}
 	} else {
-		s.loraInfo.WithLabelValues(
+		s.metrics.loraInfo.WithLabelValues(
 			strconv.Itoa(s.config.MaxLoras),
 			"",
 			"").Set(float64(time.Now().Unix()))
@@ -133,27 +133,27 @@ func (s *VllmSimulator) reportLoras() {
 	if s.config.FakeMetrics != nil {
 		return
 	}
-	if s.loraInfo == nil {
+	if s.metrics.loraInfo == nil {
 		// Happens in the tests
 		return
 	}
 
 	var runningLoras []string
-	s.runningLoras.Range(func(key any, _ any) bool {
+	s.metrics.runningLoras.Range(func(key any, _ any) bool {
 		if lora, ok := key.(string); ok {
 			runningLoras = append(runningLoras, lora)
 		}
 		return true
 	})
 	var waitingLoras []string
-	s.waitingLoras.Range(func(key any, _ any) bool {
+	s.metrics.waitingLoras.Range(func(key any, _ any) bool {
 		if lora, ok := key.(string); ok {
 			waitingLoras = append(waitingLoras, lora)
 		}
 		return true
 	})
 
-	s.loraInfo.WithLabelValues(
+	s.metrics.loraInfo.WithLabelValues(
 		strconv.Itoa(s.config.MaxLoras),
 		strings.Join(runningLoras, ","),
 		strings.Join(waitingLoras, ",")).Set(float64(time.Now().Unix()))
@@ -164,9 +164,9 @@ func (s *VllmSimulator) reportRunningRequests() {
 	if s.config.FakeMetrics != nil {
 		return
 	}
-	if s.runningRequests != nil {
-		s.runningRequests.WithLabelValues(
-			s.getDisplayedModelName(s.config.Model)).Set(float64(s.nRunningReqs))
+	if s.metrics.runningRequests != nil {
+		s.metrics.runningRequests.WithLabelValues(
+			s.getDisplayedModelName(s.config.Model)).Set(float64(s.metrics.nRunningReqs))
 	}
 }
 
@@ -175,9 +175,9 @@ func (s *VllmSimulator) reportWaitingRequests() {
 	if s.config.FakeMetrics != nil {
 		return
 	}
-	if s.waitingRequests != nil {
-		s.waitingRequests.WithLabelValues(
-			s.getDisplayedModelName(s.config.Model)).Set(float64(s.nWaitingReqs))
+	if s.metrics.waitingRequests != nil {
+		s.metrics.waitingRequests.WithLabelValues(
+			s.getDisplayedModelName(s.config.Model)).Set(float64(s.metrics.nWaitingReqs))
 	}
 }
 
@@ -186,8 +186,8 @@ func (s *VllmSimulator) reportKVCacheUsage(value float64) {
 	if s.config.FakeMetrics != nil {
 		return
 	}
-	if s.kvCacheUsagePercentage != nil {
-		s.kvCacheUsagePercentage.WithLabelValues(
+	if s.metrics.kvCacheUsagePercentage != nil {
+		s.metrics.kvCacheUsagePercentage.WithLabelValues(
 			s.getDisplayedModelName(s.config.Model)).Set(value)
 	}
 }
@@ -206,8 +206,8 @@ func (s *VllmSimulator) waitingRequestsUpdater(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case inc := <-s.waitingReqChan:
-			s.nWaitingReqs += inc
+		case inc := <-s.metrics.waitingReqChan:
+			s.metrics.nWaitingReqs += inc
 			s.reportWaitingRequests()
 		}
 	}
@@ -219,8 +219,8 @@ func (s *VllmSimulator) runningRequestsUpdater(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case inc := <-s.runReqChan:
-			s.nRunningReqs += inc
+		case inc := <-s.metrics.runReqChan:
+			s.metrics.nRunningReqs += inc
 			s.reportRunningRequests()
 		}
 	}
@@ -232,7 +232,7 @@ func (s *VllmSimulator) kvCacheUsageUpdater(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case value := <-s.kvCacheUsageChan:
+		case value := <-s.metrics.kvCacheUsageChan:
 			s.reportKVCacheUsage(value)
 		}
 	}
@@ -245,15 +245,15 @@ func (s *VllmSimulator) lorasUpdater(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case loraUpdate := <-s.lorasChan:
+		case loraUpdate := <-s.metrics.lorasChan:
 			switch loraUpdate.state {
 			case waitingUsageState:
-				s.incrementLoraRefCount(loraUpdate.name, &s.waitingLoras)
+				s.incrementLoraRefCount(loraUpdate.name, &s.metrics.waitingLoras)
 			case runningUsageState:
-				s.decrementLoraRefCount(loraUpdate.name, &s.waitingLoras)
-				s.incrementLoraRefCount(loraUpdate.name, &s.runningLoras)
+				s.decrementLoraRefCount(loraUpdate.name, &s.metrics.waitingLoras)
+				s.incrementLoraRefCount(loraUpdate.name, &s.metrics.runningLoras)
 			case doneUsageState:
-				s.decrementLoraRefCount(loraUpdate.name, &s.runningLoras)
+				s.decrementLoraRefCount(loraUpdate.name, &s.metrics.runningLoras)
 			}
 			s.reportLoras()
 		}
@@ -278,7 +278,5 @@ func (s *VllmSimulator) decrementLoraRefCount(lora string, theMap *sync.Map) {
 			// last lora instance stopped its execution - remove from the map
 			theMap.Delete(lora)
 		}
-	} else {
-		s.logger.Error(nil, "Zero model reference", "model", lora)
 	}
 }

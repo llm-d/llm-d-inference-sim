@@ -18,7 +18,9 @@ limitations under the License.
 package llmdinferencesim
 
 import (
+	"container/list"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -68,14 +70,8 @@ type loraUsage struct {
 	state loraUsageState
 }
 
-// VllmSimulator simulates vLLM server supporting OpenAI API
-type VllmSimulator struct {
-	// logger is used for information and errors logging
-	logger logr.Logger
-	// config is the simulator's configuration
-	config *common.Configuration
-	// loraAdaptors contains list of LoRA available adaptors
-	loraAdaptors sync.Map
+// Prometheus metrics
+type metricsData struct {
 	// runningLoras is a collection of running loras,
 	// the key is lora's name, the value is the number of running requests using this lora
 	runningLoras sync.Map
@@ -104,8 +100,31 @@ type VllmSimulator struct {
 	waitingRequests *prometheus.GaugeVec
 	// kvCacheUsagePercentage is prometheus gauge
 	kvCacheUsagePercentage *prometheus.GaugeVec
-	// channel for requeasts to be passed to workers
-	reqChan chan *openaiserverapi.CompletionReqCtx
+}
+
+// LoRAs usage info for requests execution
+type lorasUsageInfo struct {
+	mux sync.RWMutex
+	// lora adapter name -> reference count (number of currently running requests)
+	usedLoras map[string]int
+	// channel for "there is a LoRA that can be removed" event
+	loraRemovable chan int
+	// maximum number of LoRAs that can be used simultaneously
+	maxLoras int
+}
+
+// VllmSimulator simulates vLLM server supporting OpenAI API
+type VllmSimulator struct {
+	// logger is used for information and errors logging
+	logger logr.Logger
+	// config is the simulator's configuration
+	config *common.Configuration
+	// loraAdaptors contains list of LoRA available adaptors
+	loraAdaptors sync.Map
+
+	// // channel for requests to be passed to workers
+	// reqChan chan *openaiserverapi.CompletionReqCtx
+
 	// schema validator for tools parameters
 	toolsValidator *openaiserverapi.Validator
 	// kv cache functionality
@@ -118,6 +137,18 @@ type VllmSimulator struct {
 	tokenizer tokenization.Tokenizer
 	// dataset is used for token generation in responses
 	dataset dataset.Dataset
+	// metrics contains all Prometheus metrics related data
+	metrics metricsData
+	// loras contains information about which LoRAs are in use
+	loras *lorasUsageInfo
+
+	workers        chan *worker
+	workerFinished chan *worker
+	// waiting requests queue
+	mux sync.Mutex
+	// bi-directional list of *openaiserverapi.CompletionReqCtx
+	waitingQueue  *list.List
+	queueCapacity int
 }
 
 // New creates a new VllmSimulator instance with the given logger
@@ -128,16 +159,23 @@ func New(logger logr.Logger) (*VllmSimulator, error) {
 	}
 
 	return &VllmSimulator{
-		logger:           logger,
-		reqChan:          make(chan *openaiserverapi.CompletionReqCtx, maxNumberOfRequests),
-		toolsValidator:   toolsValidator,
-		kvcacheHelper:    nil, // kvcache helper will be created only if required after reading configuration
-		namespace:        os.Getenv(podNsEnv),
-		pod:              os.Getenv(podNameEnv),
-		runReqChan:       make(chan int64, maxNumberOfRequests),
-		waitingReqChan:   make(chan int64, maxNumberOfRequests),
-		lorasChan:        make(chan loraUsage, maxNumberOfRequests),
-		kvCacheUsageChan: make(chan float64, maxNumberOfRequests),
+		logger:         logger,
+		toolsValidator: toolsValidator,
+		kvcacheHelper:  nil, // kvcache helper will be created only if required after reading configuration
+		namespace:      os.Getenv(podNsEnv),
+		pod:            os.Getenv(podNameEnv),
+		metrics: metricsData{
+			runReqChan:       make(chan int64, maxNumberOfRequests),
+			waitingReqChan:   make(chan int64, maxNumberOfRequests),
+			lorasChan:        make(chan loraUsage, maxNumberOfRequests),
+			kvCacheUsageChan: make(chan float64, maxNumberOfRequests),
+		},
+		loras: &lorasUsageInfo{
+			usedLoras:     make(map[string]int),
+			loraRemovable: make(chan int, maxNumberOfRequests),
+		},
+		queueCapacity: maxNumberOfRequests, // ?????
+		waitingQueue:  list.New(),
 	}, nil
 }
 
@@ -189,6 +227,7 @@ func (s *VllmSimulator) startSim(ctx context.Context) error {
 	for _, lora := range s.config.LoraModules {
 		s.loraAdaptors.Store(lora.Name, "")
 	}
+	s.loras.maxLoras = s.config.MaxLoras
 
 	common.InitRandom(s.config.Seed)
 
@@ -208,7 +247,7 @@ func (s *VllmSimulator) startSim(ctx context.Context) error {
 	}
 
 	if s.config.EnableKVCache {
-		s.kvcacheHelper, err = kvcache.NewKVCacheHelper(s.config, s.logger, s.kvCacheUsageChan, s.tokenizer)
+		s.kvcacheHelper, err = kvcache.NewKVCacheHelper(s.config, s.logger, s.metrics.kvCacheUsageChan, s.tokenizer)
 		if err != nil {
 			return err
 		}
@@ -222,11 +261,23 @@ func (s *VllmSimulator) startSim(ctx context.Context) error {
 	}
 
 	// run request processing workers
+	s.workers = make(chan *worker, s.config.MaxNumSeqs)
+	s.workerFinished = make(chan *worker, s.config.MaxNumSeqs)
 	for i := 1; i <= s.config.MaxNumSeqs; i++ {
-		go s.reqProcessingWorker(ctx, i)
+		worker := &worker{
+			id:       i,
+			ctx:      ctx,
+			finished: s.workerFinished,
+			wc:       make(chan *openaiserverapi.CompletionReqCtx),
+			s:        s,
+		}
+		go worker.waitForRequests()
+		s.workers <- worker
 	}
 
 	s.startMetricsUpdaters(ctx)
+
+	go s.processing(ctx)
 
 	listener, err := s.newListener()
 	if err != nil {
@@ -273,6 +324,52 @@ func (s *VllmSimulator) Printf(format string, args ...interface{}) {
 	s.logger.Info("Server error", "msg", fmt.Sprintf(format, args...))
 }
 
+func (s *VllmSimulator) processing(ctx context.Context) {
+	s.logger.Info("Start processing routine")
+
+	for {
+		select {
+		case <-ctx.Done():
+			s.logger.Info("Done")
+			return
+		case worker := <-s.workerFinished:
+			s.logger.Info(" worker finished", "worker", worker.id)
+			// there is a free worker - find a request for it
+			nextReq := s.dequeue()
+			if nextReq != nil {
+				// send this request for processing in this worker
+				s.logger.Info("Free worker and request were found - send to processing", "req", nextReq.CompletionReq.GetRequestID(), "worker", worker.id)
+				worker.wc <- nextReq
+			} else {
+				// no waiting request, return worker to be free
+				s.logger.Info(" no waiting requests, freeing", "worker", worker.id)
+				s.workers <- worker
+			}
+		case <-s.loras.loraRemovable:
+			s.logger.Info(" lora removable")
+
+			for {
+				worker := s.getFreeWorker()
+				if worker == nil {
+					break
+				}
+				s.logger.Info(" free worker", "worker", worker.id)
+				nextReq := s.dequeue()
+				if nextReq != nil {
+					// send this request for processing in this worker
+					// s.logger.Info("Free worker and request were found - send to processing", "req", nextReq.id, "worker", worker.id)
+					s.logger.Info("Free worker and request were found - send to processing", "req", nextReq.CompletionReq.GetRequestID(), "worker", worker.id)
+					worker.wc <- nextReq
+				} else {
+					s.logger.Info("from lora removable: no waiting requests, freeing", "worker", worker.id)
+					s.workers <- worker
+					break
+				}
+			}
+		}
+	}
+}
+
 // handleCompletions general completion requests handler, support both text and chat completion APIs
 func (s *VllmSimulator) handleCompletions(ctx *fasthttp.RequestCtx, isChatCompletion bool) {
 	// Check if we should inject a failure
@@ -304,120 +401,54 @@ func (s *VllmSimulator) handleCompletions(ctx *fasthttp.RequestCtx, isChatComple
 		Wg:               &wg,
 	}
 	// increment the waiting requests metric
-	s.waitingReqChan <- 1
-	if s.isLora(reqCtx.CompletionReq.GetModel()) {
-		// update loraInfo metrics with the new waiting request
-		s.lorasChan <- loraUsage{reqCtx.CompletionReq.GetModel(), waitingUsageState}
-	}
-	// send the request to the waiting queue (channel)
-	s.reqChan <- reqCtx
-	wg.Wait()
-}
+	s.metrics.waitingReqChan <- 1
 
-func (s *VllmSimulator) reqProcessingWorker(ctx context.Context, id int) {
-	for {
-		select {
-		case <-ctx.Done():
-			s.logger.Info("reqProcessingWorker stopped:", "worker id", id)
-			return
-		case reqCtx, ok := <-s.reqChan:
-			if !ok {
-				s.logger.Info("reqProcessingWorker worker exiting: reqChan closed")
+	worker := s.getFreeWorker()
+	if worker == nil {
+		s.logger.Info("No free worker - send request to the waiting queue", "lora", reqCtx.CompletionReq.GetModel(), "req", reqCtx.CompletionReq.GetRequestID())
+		// no free worker, add this request to the waiting queue
+		if err := s.enqueue(reqCtx); err != nil {
+			s.logger.Error(err, "failed to enqueue request")
+			ctx.Error("Failed to enqueue request, "+err.Error(), fasthttp.StatusTooManyRequests)
+		}
+		// update loraInfo metrics with the new waiting request
+		s.metrics.lorasChan <- loraUsage{reqCtx.CompletionReq.GetModel(), waitingUsageState}
+		wg.Wait()
+		return
+	}
+
+	model := reqCtx.CompletionReq.GetModel()
+	if s.isLora(model) {
+		// check if lora usage allows request to run
+		if !s.loadLora(model) {
+			s.workerFinished <- worker // free the worker
+			s.logger.Info("Lora cannot be loaded - send request to waiting queue", "lora", model, "req", reqCtx.CompletionReq.GetRequestID())
+			// LoRA max reached, try to enqueue
+			if err := s.enqueue(reqCtx); err != nil {
+				s.logger.Error(err, "failed to enqueue request")
+				ctx.Error("Failed to enqueue request, "+err.Error(), fasthttp.StatusTooManyRequests)
 				return
 			}
-
-			req := reqCtx.CompletionReq
-			model := req.GetModel()
-			displayModel := s.getDisplayedModelName(model)
-
-			// decrement waiting and increment running requests count
-			s.waitingReqChan <- -1
-			s.runReqChan <- 1
-
-			if s.isLora(model) {
-				// update loraInfo metric to reflect that
-				// the request has changed its status from waiting to running
-				s.lorasChan <- loraUsage{model, runningUsageState}
-			}
-
-			if s.config.EnableKVCache && !reqCtx.IsChatCompletion {
-				// kv cache is currently supported for /completion API only
-				if err := s.kvcacheHelper.OnRequestStart(req); err != nil {
-					s.sendCompletionError(reqCtx.HTTPReqCtx, openaiserverapi.NewCompletionError(err.Error(), fasthttp.StatusInternalServerError, nil), false)
-				}
-			}
-
-			var responseTokens []string
-			var finishReason string
-			var err error
-			var toolCalls []openaiserverapi.ToolCall
-			var completionTokens int
-			if reqCtx.IsChatCompletion &&
-				req.GetToolChoice() != openaiserverapi.ToolChoiceNone &&
-				req.GetTools() != nil {
-				toolCalls, completionTokens, err =
-					openaiserverapi.CreateToolCalls(req.GetTools(), req.GetToolChoice(), s.config)
-				finishReason = dataset.ToolsFinishReason
-			}
-			if toolCalls == nil && err == nil {
-				// Either no tool calls were defined, or we randomly chose not to create tool calls,
-				// so we generate a response text.
-				responseTokens, finishReason, err = s.dataset.GetTokens(req, s.config.Mode)
-				completionTokens += len(responseTokens)
-			}
-			if err != nil {
-				prefix := ""
-				if reqCtx.IsChatCompletion {
-					prefix = "failed to create chat response"
-				} else {
-					prefix = "failed to create text response"
-				}
-				s.logger.Error(err, prefix)
-				reqCtx.HTTPReqCtx.Error(prefix+err.Error(), fasthttp.StatusBadRequest)
-			} else {
-				usageData := openaiserverapi.Usage{
-					PromptTokens:     req.GetNumberOfPromptTokens(),
-					CompletionTokens: completionTokens,
-					TotalTokens:      req.GetNumberOfPromptTokens() + completionTokens,
-				}
-				if req.IsStream() {
-					var usageDataToSend *openaiserverapi.Usage
-					if req.IncludeUsage() {
-						usageDataToSend = &usageData
-					}
-					s.sendStreamingResponse(
-						&streamingContext{
-							ctx:                 reqCtx.HTTPReqCtx,
-							isChatCompletion:    reqCtx.IsChatCompletion,
-							model:               displayModel,
-							doRemotePrefill:     req.IsDoRemotePrefill(),
-							nPromptTokens:       usageData.PromptTokens,
-							nCachedPromptTokens: reqCtx.CompletionReq.GetNumberOfCachedPromptTokens(),
-						},
-						responseTokens, toolCalls, finishReason, usageDataToSend,
-					)
-				} else {
-					if req.IsDoRemoteDecode() {
-						// in case this is prefill pod processing, return special finish reason
-						finishReason = dataset.RemoteDecodeFinishReason
-					}
-
-					s.sendResponse(reqCtx, responseTokens, toolCalls, displayModel, finishReason, &usageData)
-				}
-			}
-			reqCtx.Wg.Done()
+			// update loraInfo metrics with the new waiting request
+			s.metrics.lorasChan <- loraUsage{reqCtx.CompletionReq.GetModel(), waitingUsageState}
+			wg.Wait()
+			return
 		}
 	}
+
+	s.logger.Info("Send request to processing channel", "req", reqCtx.CompletionReq.GetRequestID(), "worker", worker.id, "lora", model)
+	worker.wc <- reqCtx
+	wg.Wait()
 }
 
 // request processing finished
 func (s *VllmSimulator) responseSentCallback(model string, isChatCompletion bool, requestID string) {
 	// decriment running requests count
-	s.runReqChan <- -1
+	s.metrics.runReqChan <- -1
 
 	if s.isLora(model) {
 		// update loraInfo metrics to reflect that the request processing has been finished
-		s.lorasChan <- loraUsage{model, doneUsageState}
+		s.metrics.lorasChan <- loraUsage{model, doneUsageState}
 	}
 
 	if s.config.EnableKVCache && !isChatCompletion {
@@ -501,7 +532,6 @@ func (s *VllmSimulator) sendResponse(reqCtx *openaiserverapi.CompletionReqCtx, r
 		perTokenLatency := s.getInterTokenLatency()
 		time.Sleep(time.Duration(perTokenLatency) * time.Millisecond)
 	}
-
 	s.sendCompletionResponse(reqCtx.HTTPReqCtx, resp)
 
 	s.responseSentCallback(modelName, reqCtx.IsChatCompletion, reqCtx.CompletionReq.GetRequestID())
@@ -537,4 +567,48 @@ func (s *VllmSimulator) createModelsResponse() *vllmapi.ModelsResponse {
 	}
 
 	return &modelsResp
+}
+
+func (s *VllmSimulator) enqueue(req *openaiserverapi.CompletionReqCtx) error {
+	// logger.Info("Enqueue", "req", req)
+
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	if s.waitingQueue.Len() >= s.queueCapacity {
+		return errors.New("waiting requests queue is full")
+	}
+	s.waitingQueue.PushBack(req)
+	return nil
+}
+
+// go though the queue and find the first request that can be executed, while taking into consideration the max lora limitation
+func (s *VllmSimulator) dequeue() *openaiserverapi.CompletionReqCtx {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	// Find first request for a loaded LoRA
+	for elem := s.waitingQueue.Front(); elem != nil; elem = elem.Next() {
+		req, ok := elem.Value.(*openaiserverapi.CompletionReqCtx)
+		if ok && req != nil && s.loraIsLoaded(req.CompletionReq.GetModel()) {
+			// found the request that can be processed from the lora point of view
+			// logger.Info("Dequeue element", "req", req)
+			s.waitingQueue.Remove(elem)
+			s.incrementLora(req.CompletionReq.GetModel())
+			return req
+		}
+	}
+
+	// All the requests require a LoRA that is not loaded, check if we can load a LoRA
+	for elem := s.waitingQueue.Front(); elem != nil; elem = elem.Next() {
+		req, ok := elem.Value.(*openaiserverapi.CompletionReqCtx)
+		if ok && req != nil && s.loadLora(req.CompletionReq.GetModel()) {
+			// found the request that can be processed from the lora point of view
+			// logger.Info("Dequeue element", "req", req)
+			s.waitingQueue.Remove(elem)
+			return req
+		}
+	}
+
+	return nil
 }
