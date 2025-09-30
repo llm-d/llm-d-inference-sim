@@ -88,6 +88,8 @@ type VllmSimulator struct {
 	nRunningReqs int64
 	// runReqChan is a channel to update nRunningReqs
 	runReqChan chan int64
+	// requestSuccessChan is a channel to update requestSuccessReqs
+	requestSuccessChan chan requestSuccessEvent
 	// nWaitingReqs is the number of inference requests that are waiting to be processed
 	nWaitingReqs int64
 	// waitingReqChan is a channel to update nWaitingReqs
@@ -104,6 +106,14 @@ type VllmSimulator struct {
 	waitingRequests *prometheus.GaugeVec
 	// kvCacheUsagePercentage is prometheus gauge
 	kvCacheUsagePercentage *prometheus.GaugeVec
+	// requestPromptTokens is prometheus histogram for number of input (prompt) tokens in request
+	requestPromptTokens *prometheus.HistogramVec
+	// requestGenerationTokens is prometheus histogram for number of generated tokens in request
+	requestGenerationTokens *prometheus.HistogramVec
+	// requestParamsMaxTokens is prometheus histogram for 'max_tokens' parameter in request
+	requestParamsMaxTokens *prometheus.HistogramVec
+	// requestSuccessTotal is prometheus counter for total number of successful requests
+	requestSuccessTotal *prometheus.CounterVec
 	// channel for requeasts to be passed to workers
 	reqChan chan *openaiserverapi.CompletionReqCtx
 	// schema validator for tools parameters
@@ -128,16 +138,17 @@ func New(logger logr.Logger) (*VllmSimulator, error) {
 	}
 
 	return &VllmSimulator{
-		logger:           logger,
-		reqChan:          make(chan *openaiserverapi.CompletionReqCtx, maxNumberOfRequests),
-		toolsValidator:   toolsValidator,
-		kvcacheHelper:    nil, // kvcache helper will be created only if required after reading configuration
-		namespace:        os.Getenv(podNsEnv),
-		pod:              os.Getenv(podNameEnv),
-		runReqChan:       make(chan int64, maxNumberOfRequests),
-		waitingReqChan:   make(chan int64, maxNumberOfRequests),
-		lorasChan:        make(chan loraUsage, maxNumberOfRequests),
-		kvCacheUsageChan: make(chan float64, maxNumberOfRequests),
+		logger:             logger,
+		reqChan:            make(chan *openaiserverapi.CompletionReqCtx, maxNumberOfRequests),
+		toolsValidator:     toolsValidator,
+		kvcacheHelper:      nil, // kvcache helper will be created only if required after reading configuration
+		namespace:          os.Getenv(podNsEnv),
+		pod:                os.Getenv(podNameEnv),
+		runReqChan:         make(chan int64, maxNumberOfRequests),
+		waitingReqChan:     make(chan int64, maxNumberOfRequests),
+		lorasChan:          make(chan loraUsage, maxNumberOfRequests),
+		kvCacheUsageChan:   make(chan float64, maxNumberOfRequests),
+		requestSuccessChan: make(chan requestSuccessEvent, maxNumberOfRequests),
 	}, nil
 }
 
@@ -401,8 +412,17 @@ func (s *VllmSimulator) reqProcessingWorker(ctx context.Context, id int) {
 						// in case this is prefill pod processing, return special finish reason
 						finishReason = dataset.RemoteDecodeFinishReason
 					}
-
 					s.sendResponse(reqCtx, responseTokens, toolCalls, displayModel, finishReason, &usageData)
+				}
+				select {
+				case s.requestSuccessChan <- requestSuccessEvent{
+					promptTokens:     usageData.PromptTokens,
+					generationTokens: usageData.CompletionTokens,
+					maxTokens:        reqCtx.CompletionReq.GetMaxCompletionTokens(),
+					finishReason:     finishReason,
+				}:
+				default:
+					s.logger.V(1).Info("requestSuccessChan full, dropping success event")
 				}
 			}
 			reqCtx.Wg.Done()

@@ -203,6 +203,15 @@ var _ = Describe("Simulator configuration", func() {
 			"{\"running\":\"lora1,lora2\",\"waiting\":\"lora3\",\"timestamp\":1257894567}",
 			"{\"running\":\"lora1,lora3\",\"waiting\":\"\",\"timestamp\":1257894569}",
 		},
+		RequestPromptTokens:     []float64{10, 20, 30, 15},
+		RequestGenerationTokens: []float64{50, 60, 40},
+		RequestParamsMaxTokens:  []float64{128, 256, 512},
+		RequestSuccessTotal: map[string]int64{
+			StopFinishReason:         20,
+			LengthFinishReason:       0,
+			ToolsFinishReason:        0,
+			RemoteDecodeFinishReason: 0,
+		},
 	}
 	test = testCase{
 		name:           "config with fake metrics file",
