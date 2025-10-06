@@ -130,18 +130,18 @@ func startServerWithArgs(ctx context.Context, mode string, args []string, envs m
 	userMsgTokens = int64(len(common.Tokenize(userMessage)))
 
 	// run request processing workers
-	s.workers = make(chan *worker, s.config.MaxNumSeqs)
+	s.freeWorkers = make(chan *worker, s.config.MaxNumSeqs)
 	s.workerFinished = make(chan *worker, s.config.MaxNumSeqs)
 	for i := 1; i <= s.config.MaxNumSeqs; i++ {
 		worker := &worker{
 			id:       i,
 			ctx:      ctx,
 			finished: s.workerFinished,
-			wc:       make(chan *openaiserverapi.CompletionReqCtx),
+			reqChan:  make(chan *openaiserverapi.CompletionReqCtx),
 			s:        s,
 		}
 		go worker.waitForRequests()
-		s.workers <- worker
+		s.freeWorkers <- worker
 	}
 
 	s.startMetricsUpdaters(ctx)

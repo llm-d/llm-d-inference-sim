@@ -25,22 +25,26 @@ import (
 	"github.com/valyala/fasthttp"
 )
 
+// worker runs simulators requests
 type worker struct {
-	ctx      context.Context
-	id       int
-	wc       chan *openaiserverapi.CompletionReqCtx
+	ctx context.Context
+	// worker's id
+	id int
+	// a channel for requests
+	reqChan chan *openaiserverapi.CompletionReqCtx
+	// a channel to indicate that the worker finished processing a request
 	finished chan *worker
-	s        *VllmSimulator
+	// the simulator
+	s *VllmSimulator
 }
 
 func (w *worker) waitForRequests() {
 	for {
 		select {
 		case <-w.ctx.Done():
-			w.s.logger.Info("worker done")
+			w.s.logger.V(4).Info("worker done")
 			return
-		case req := <-w.wc:
-			// w.s.incrementLora(req.CompletionReq.GetModel())
+		case req := <-w.reqChan:
 			w.s.processRequest(req)
 			w.s.decrementLora(req.CompletionReq.GetModel())
 			w.finished <- w
@@ -66,11 +70,11 @@ func (s *VllmSimulator) processRequest(reqCtx *openaiserverapi.CompletionReqCtx)
 	if s.config.EnableKVCache && !reqCtx.IsChatCompletion {
 		// kv cache is currently supported for /completion API only
 		if err := s.kvcacheHelper.OnRequestStart(req); err != nil {
-			s.sendCompletionError(reqCtx.HTTPReqCtx, openaiserverapi.NewCompletionError(err.Error(), fasthttp.StatusInternalServerError, nil), false)
+			s.sendCompletionError(reqCtx.HTTPReqCtx,
+				openaiserverapi.NewCompletionError(err.Error(), fasthttp.StatusInternalServerError, nil),
+				false)
 		}
 	}
-
-	s.logger.Info("handling", "req", reqCtx.CompletionReq.GetRequestID())
 
 	var responseTokens []string
 	var finishReason string
@@ -100,8 +104,6 @@ func (s *VllmSimulator) processRequest(reqCtx *openaiserverapi.CompletionReqCtx)
 		s.logger.Error(err, prefix)
 		reqCtx.HTTPReqCtx.Error(prefix+err.Error(), fasthttp.StatusBadRequest)
 	} else {
-		s.logger.Info("handling OK", "req", reqCtx.CompletionReq.GetRequestID())
-
 		usageData := openaiserverapi.Usage{
 			PromptTokens:     req.GetNumberOfPromptTokens(),
 			CompletionTokens: completionTokens,
@@ -131,7 +133,7 @@ func (s *VllmSimulator) processRequest(reqCtx *openaiserverapi.CompletionReqCtx)
 			s.sendResponse(reqCtx, responseTokens, toolCalls, displayModel, finishReason, &usageData)
 		}
 	}
-	s.logger.Info("response sent", "id", req.GetRequestID())
+	s.logger.V(4).Info("Finished processing request", "id", req.GetRequestID())
 
 	reqCtx.Wg.Done()
 }
@@ -139,11 +141,9 @@ func (s *VllmSimulator) processRequest(reqCtx *openaiserverapi.CompletionReqCtx)
 // getFreeWorker returns a free worker or nil if none are available (non-blocking)
 func (s *VllmSimulator) getFreeWorker() *worker {
 	select {
-	case w := <-s.workers:
-		s.logger.Info("GetFreeWorker", "worker", w.id)
+	case w := <-s.freeWorkers:
 		return w
 	default:
-		s.logger.Info("GetFreeWorker", "worker", "no free workers")
 		return nil
 	}
 }

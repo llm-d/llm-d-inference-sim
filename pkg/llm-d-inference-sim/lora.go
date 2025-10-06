@@ -71,7 +71,7 @@ func (s *VllmSimulator) unloadLoraAdaptor(ctx *fasthttp.RequestCtx) {
 	s.loraAdaptors.Delete(req.LoraName)
 }
 
-// Checks if a request with this model can run under maxLoras limit
+// Checks if the LoRA adaptor is loaded
 func (s *VllmSimulator) loraIsLoaded(model string) bool {
 	if !s.isLora(model) {
 		return true
@@ -81,12 +81,10 @@ func (s *VllmSimulator) loraIsLoaded(model string) bool {
 	defer s.loras.mux.RUnlock()
 
 	_, ok := s.loras.usedLoras[model]
-	s.logger.Info("is loaded", "lora", model, "ok", ok)
-
 	return ok
 }
 
-// Checks if a request with this model can run under maxLoras limit
+// Load the LoRA adaptor if possible. Return false if not.
 func (s *VllmSimulator) loadLora(model string) bool {
 	if !s.isLora(model) {
 		return true
@@ -95,15 +93,14 @@ func (s *VllmSimulator) loadLora(model string) bool {
 	s.loras.mux.Lock()
 	defer s.loras.mux.Unlock()
 
-	// check if this lora is already loaded or within maxLoras slots
+	// check if this LoRA is already loaded or within maxLoras slots
 	_, ok := s.loras.usedLoras[model]
 	ok = ok || len(s.loras.usedLoras) < s.loras.maxLoras
-	s.logger.Info("load", "lora", model, "count", s.loras.usedLoras[model], "size", len(s.loras.usedLoras), "ok", ok)
 	if !ok {
+		// if this LoRA is not loaded, and the numbers of loaded LoRAs reached
+		// maxLoras, try to find a LoRA that is not in use, and unload it
 		for lora, count := range s.loras.usedLoras {
-			s.logger.Info("loop", "lora", lora, "count", count)
 			if count == 0 {
-				s.logger.Info("loop delete", "lora", lora)
 				delete(s.loras.usedLoras, lora)
 				ok = true
 				break
@@ -113,8 +110,6 @@ func (s *VllmSimulator) loadLora(model string) bool {
 	if ok {
 		s.loras.usedLoras[model]++
 	}
-	s.logger.Info("load", "ok", ok, "lora", model, "count", s.loras.usedLoras[model], "size", len(s.loras.usedLoras))
-
 	return ok
 }
 
@@ -137,10 +132,8 @@ func (s *VllmSimulator) decrementLora(model string) {
 	defer s.loras.mux.Unlock()
 
 	s.loras.usedLoras[model] -= 1
-	s.logger.Info("decrement", "lora", model)
 	if s.loras.usedLoras[model] <= 0 {
-		// last usage of this lora - remove it from the used loras list
-		// delete(s.loras.usedLoras, model)
+		// last usage of this LoRA
 		s.loras.loraRemovable <- 1
 	}
 }

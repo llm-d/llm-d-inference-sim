@@ -61,6 +61,27 @@ var paramsLora2 openai.ChatCompletionNewParams = openai.ChatCompletionNewParams{
 	Model: "lora2",
 }
 
+var paramsLora3 openai.ChatCompletionNewParams = openai.ChatCompletionNewParams{
+	Messages: []openai.ChatCompletionMessageParamUnion{
+		openai.UserMessage(userMessage),
+	},
+	Model: "lora3",
+}
+
+var paramsLora4 openai.ChatCompletionNewParams = openai.ChatCompletionNewParams{
+	Messages: []openai.ChatCompletionMessageParamUnion{
+		openai.UserMessage(userMessage),
+	},
+	Model: "lora4",
+}
+
+var paramsLora5 openai.ChatCompletionNewParams = openai.ChatCompletionNewParams{
+	Messages: []openai.ChatCompletionMessageParamUnion{
+		openai.UserMessage(userMessage),
+	},
+	Model: "lora5",
+}
+
 var _ = Describe("Simulator metrics", Ordered, func() {
 	It("Should send correct running and waiting requests metrics", func() {
 		modelName := "testmodel"

@@ -43,34 +43,22 @@ var _ = Describe("Simulator requests scheduling", Ordered, func() {
 
 			client, err := startServerWithArgs(ctx, common.ModeEcho, args, nil)
 			Expect(err).NotTo(HaveOccurred())
-
-			openaiclient := openai.NewClient(
-				option.WithBaseURL(baseURL),
+			openaiclient := openai.NewClient(option.WithBaseURL(baseURL),
 				option.WithHTTPClient(client))
 
 			numberOfRequests := 4
+			orderOfRequests := make([]int, 0)
 			var wg sync.WaitGroup
 			wg.Add(numberOfRequests)
-
-			orderOfRequests := make([]int, 0)
 			var mux sync.RWMutex
 
 			// Send simultaneously half of the requests to lora1 and the second half to lora2
 			for reqNum := range numberOfRequests {
-				go func() {
-					defer GinkgoRecover()
-					defer wg.Done()
-					params := paramsLora2
-					if reqNum%2 == 0 {
-						params = paramsLora1
-					}
-
-					_, err := openaiclient.Chat.Completions.New(ctx, params)
-					Expect(err).NotTo(HaveOccurred())
-					mux.Lock()
-					orderOfRequests = append(orderOfRequests, reqNum)
-					mux.Unlock()
-				}()
+				params := paramsLora2
+				if reqNum%2 == 0 {
+					params = paramsLora1
+				}
+				go sendReq(ctx, openaiclient, &wg, 0, params, reqNum, &mux, &orderOfRequests)
 			}
 			wg.Wait()
 
@@ -102,63 +90,162 @@ var _ = Describe("Simulator requests scheduling", Ordered, func() {
 				client, err := startServerWithArgs(ctx, common.ModeEcho, args, nil)
 				Expect(err).NotTo(HaveOccurred())
 
-				openaiclient := openai.NewClient(
-					option.WithBaseURL(baseURL),
+				openaiclient := openai.NewClient(option.WithBaseURL(baseURL),
 					option.WithHTTPClient(client))
 
 				numberOfRequests := 8
+				orderOfRequests := make([]int, 0)
 				var wg sync.WaitGroup
 				wg.Add(numberOfRequests)
-
-				orderOfRequests := make([]int, 0)
-
 				var mux sync.RWMutex
 
+				// Send three requests to lora1, after 100 milliseconds four requests to lora2,
+				// and after 400 milliseconds a request to lora1 again.
 				for reqNum := range 3 {
-					go func() {
-						defer GinkgoRecover()
-						defer wg.Done()
-						_, err := openaiclient.Chat.Completions.New(ctx, paramsLora1)
-						Expect(err).NotTo(HaveOccurred())
-						mux.Lock()
-						orderOfRequests = append(orderOfRequests, reqNum)
-						mux.Unlock()
-					}()
+					go sendReq(ctx, openaiclient, &wg, 0, paramsLora1, reqNum, &mux, &orderOfRequests)
 				}
-
 				for reqNum := 4; reqNum < 8; reqNum++ {
-					go func() {
-						defer GinkgoRecover()
-						defer wg.Done()
-						time.Sleep(100 * time.Millisecond)
-						_, err := openaiclient.Chat.Completions.New(ctx, paramsLora2)
-						Expect(err).NotTo(HaveOccurred())
-						mux.Lock()
-						orderOfRequests = append(orderOfRequests, reqNum)
-						mux.Unlock()
-					}()
+					go sendReq(ctx, openaiclient, &wg, 100, paramsLora2, reqNum, &mux, &orderOfRequests)
 				}
-
-				go func() {
-					defer GinkgoRecover()
-					defer wg.Done()
-					time.Sleep(500 * time.Millisecond)
-					_, err := openaiclient.Chat.Completions.New(ctx, paramsLora1)
-					Expect(err).NotTo(HaveOccurred())
-					mux.Lock()
-					orderOfRequests = append(orderOfRequests, 3)
-					mux.Unlock()
-				}()
+				go sendReq(ctx, openaiclient, &wg, 500, paramsLora1, 3, &mux, &orderOfRequests)
 
 				wg.Wait()
 
 				// Check the order in which the requests are handled
 				checkOrder(orderOfRequests)
 			},
-			Entry("5 workers, max loras 1", "5", "1", checkOderMaxLora1Workers5),
-			Entry("2 workers, max loras 1", "2", "1", checkOderMaxLora1Workers2),
-			Entry("5 workers, max loras 5", "5", "5", checkOderMaxLora5Workers5),
-			Entry("1 worker, max loras 5", "1", "5", checkOderMaxLora5Workers1),
+			Entry("5 workers, max loras 1", "5", "1", checkOrderMaxLora1Workers5),
+			Entry("2 workers, max loras 1", "2", "1", checkOrderMaxLora1Workers2),
+			Entry("5 workers, max loras 5", "5", "5", checkOrderMaxLora5Workers5),
+			Entry("1 worker, max loras 5", "1", "5", checkOrderMaxLora5Workers1),
+		)
+
+		It("Should keep the order of requests with one worker", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", model, "--mode", common.ModeEcho,
+				"--time-to-first-token", "500",
+				"--max-num-seqs", "1", "--max-loras", "1",
+				"--lora-modules",
+				"{\"name\":\"lora1\",\"path\":\"/path/to/lora1\"}",
+				"{\"name\":\"lora3\",\"path\":\"/path/to/lora3\"}",
+				"{\"name\":\"lora4\",\"path\":\"/path/to/lora4\"}",
+				"{\"name\":\"lora2\",\"path\":\"/path/to/lora2\"}"}
+
+			client, err := startServerWithArgs(ctx, common.ModeEcho, args, nil)
+			Expect(err).NotTo(HaveOccurred())
+
+			openaiclient := openai.NewClient(option.WithBaseURL(baseURL),
+				option.WithHTTPClient(client))
+
+			numberOfRequests := 9
+			orderOfRequests := make([]int, 0)
+			var wg sync.WaitGroup
+			wg.Add(numberOfRequests)
+			var mux sync.RWMutex
+
+			// The order of the requests is:
+			// 0-lora1 1-lora1 2-lora2 3-lora3 4-lora4 5-lora1 6-lora2 7-lora3 8-lora4
+			go sendReq(ctx, openaiclient, &wg, 0, paramsLora1, 0, &mux, &orderOfRequests)
+			go sendReq(ctx, openaiclient, &wg, 50, paramsLora1, 1, &mux, &orderOfRequests)
+			go sendReq(ctx, openaiclient, &wg, 100, paramsLora2, 2, &mux, &orderOfRequests)
+			go sendReq(ctx, openaiclient, &wg, 200, paramsLora3, 3, &mux, &orderOfRequests)
+			go sendReq(ctx, openaiclient, &wg, 300, paramsLora4, 4, &mux, &orderOfRequests)
+			go sendReq(ctx, openaiclient, &wg, 400, paramsLora1, 5, &mux, &orderOfRequests)
+			go sendReq(ctx, openaiclient, &wg, 500, paramsLora2, 6, &mux, &orderOfRequests)
+			go sendReq(ctx, openaiclient, &wg, 600, paramsLora3, 7, &mux, &orderOfRequests)
+			go sendReq(ctx, openaiclient, &wg, 700, paramsLora4, 8, &mux, &orderOfRequests)
+			wg.Wait()
+
+			// Check the order in which the requests are handled
+			checkOrderMaxLora1Workers1(orderOfRequests)
+		})
+
+		It("Should keep the order of requests with two workers", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", model, "--mode", common.ModeEcho,
+				"--time-to-first-token", "500",
+				"--max-num-seqs", "2", "--max-loras", "1",
+				"--lora-modules",
+				"{\"name\":\"lora1\",\"path\":\"/path/to/lora1\"}",
+				"{\"name\":\"lora3\",\"path\":\"/path/to/lora3\"}",
+				"{\"name\":\"lora4\",\"path\":\"/path/to/lora4\"}",
+				"{\"name\":\"lora2\",\"path\":\"/path/to/lora2\"}"}
+
+			client, err := startServerWithArgs(ctx, common.ModeEcho, args, nil)
+			Expect(err).NotTo(HaveOccurred())
+
+			openaiclient := openai.NewClient(option.WithBaseURL(baseURL),
+				option.WithHTTPClient(client))
+
+			numberOfRequests := 8
+			orderOfRequests := make([]int, 0)
+			var wg sync.WaitGroup
+			wg.Add(numberOfRequests)
+			var mux sync.RWMutex
+
+			// The order of the requests is:
+			// 0-lora1 1-lora1 2-lora2 3-lora3 4-lora4 5-lora2 6-lora3 7-lora4
+			go sendReq(ctx, openaiclient, &wg, 0, paramsLora1, 0, &mux, &orderOfRequests)
+			go sendReq(ctx, openaiclient, &wg, 0, paramsLora1, 1, &mux, &orderOfRequests)
+			go sendReq(ctx, openaiclient, &wg, 100, paramsLora2, 2, &mux, &orderOfRequests)
+			go sendReq(ctx, openaiclient, &wg, 200, paramsLora3, 3, &mux, &orderOfRequests)
+			go sendReq(ctx, openaiclient, &wg, 300, paramsLora4, 4, &mux, &orderOfRequests)
+			go sendReq(ctx, openaiclient, &wg, 400, paramsLora2, 5, &mux, &orderOfRequests)
+			go sendReq(ctx, openaiclient, &wg, 500, paramsLora3, 6, &mux, &orderOfRequests)
+			go sendReq(ctx, openaiclient, &wg, 600, paramsLora4, 7, &mux, &orderOfRequests)
+			wg.Wait()
+
+			// Check the order in which the requests are handled
+			checkOrderWorkers2(orderOfRequests)
+		})
+
+		DescribeTable("Should keep the order of requests with multiple workers and loras",
+			func(maxNumSeq string, maxLoras string, checkOrder func([]int)) {
+				ctx := context.TODO()
+				args := []string{"cmd", "--model", model, "--mode", common.ModeEcho,
+					"--time-to-first-token", "1000",
+					"--max-num-seqs", maxNumSeq, "--max-loras", maxLoras,
+					"--lora-modules",
+					"{\"name\":\"lora1\",\"path\":\"/path/to/lora1\"}",
+					"{\"name\":\"lora3\",\"path\":\"/path/to/lora3\"}",
+					"{\"name\":\"lora4\",\"path\":\"/path/to/lora4\"}",
+					"{\"name\":\"lora5\",\"path\":\"/path/to/lora5\"}",
+					"{\"name\":\"lora2\",\"path\":\"/path/to/lora2\"}"}
+
+				client, err := startServerWithArgs(ctx, common.ModeEcho, args, nil)
+				Expect(err).NotTo(HaveOccurred())
+
+				openaiclient := openai.NewClient(option.WithBaseURL(baseURL),
+					option.WithHTTPClient(client))
+
+				numberOfRequests := 11
+				orderOfRequests := make([]int, 0)
+				var wg sync.WaitGroup
+				wg.Add(numberOfRequests)
+				var mux sync.RWMutex
+
+				// The order of the requests is:
+				// 0-lora1 1-lora1 2-lora2 3-lora3 4-lora4 5-lora5
+				// 6-lora1 7-lora2 8-lora3 9-lora4 10-lora5
+				go sendReq(ctx, openaiclient, &wg, 0, paramsLora1, 0, &mux, &orderOfRequests)
+				go sendReq(ctx, openaiclient, &wg, 100, paramsLora1, 1, &mux, &orderOfRequests)
+				go sendReq(ctx, openaiclient, &wg, 200, paramsLora2, 2, &mux, &orderOfRequests)
+				go sendReq(ctx, openaiclient, &wg, 300, paramsLora3, 3, &mux, &orderOfRequests)
+				go sendReq(ctx, openaiclient, &wg, 400, paramsLora4, 4, &mux, &orderOfRequests)
+				go sendReq(ctx, openaiclient, &wg, 500, paramsLora5, 5, &mux, &orderOfRequests)
+				go sendReq(ctx, openaiclient, &wg, 600, paramsLora1, 6, &mux, &orderOfRequests)
+				go sendReq(ctx, openaiclient, &wg, 700, paramsLora2, 7, &mux, &orderOfRequests)
+				go sendReq(ctx, openaiclient, &wg, 800, paramsLora3, 8, &mux, &orderOfRequests)
+				go sendReq(ctx, openaiclient, &wg, 900, paramsLora4, 9, &mux, &orderOfRequests)
+				go sendReq(ctx, openaiclient, &wg, 1000, paramsLora5, 10, &mux, &orderOfRequests)
+				wg.Wait()
+
+				// Check the order in which the requests are handled
+				checkOrder(orderOfRequests)
+			},
+			Entry("4 workers, max loras 3", "4", "3", checkOrderMaxLora3),
+			Entry("5 workers, max loras 3", "5", "3", checkOrderMaxLora3),
+			Entry("5 workers, max loras 5", "5", "5", checkOrderMaxLora5),
 		)
 	})
 
@@ -240,6 +327,18 @@ var _ = Describe("Simulator requests scheduling", Ordered, func() {
 	})
 })
 
+func sendReq(ctx context.Context, openaiclient openai.Client, wg *sync.WaitGroup, delay time.Duration,
+	params openai.ChatCompletionNewParams, reqNum int, mux *sync.RWMutex, orderOfRequests *[]int) {
+	defer GinkgoRecover()
+	defer wg.Done()
+	time.Sleep(delay * time.Millisecond)
+	_, err := openaiclient.Chat.Completions.New(ctx, params)
+	Expect(err).NotTo(HaveOccurred())
+	mux.Lock()
+	*orderOfRequests = append(*orderOfRequests, reqNum)
+	mux.Unlock()
+}
+
 // Check the order of the delayed requests with max-loras=1 and five workers
 // Three requests to lora1 (req numbers 0-2)
 // after a delay four requests to lora2 (req numbers 4-7),
@@ -247,8 +346,7 @@ var _ = Describe("Simulator requests scheduling", Ordered, func() {
 // All the requests to lora1 should be handled before the requests to lora2.
 // The exact order of the first three requests to lora1 and the requests to lora 2
 // is not important.
-func checkOderMaxLora1Workers5(orderOfRequests []int) {
-	fmt.Println(orderOfRequests)
+func checkOrderMaxLora1Workers5(orderOfRequests []int) {
 	Expect(orderOfRequests).To(HaveLen(8))
 	for i, reqNum := range orderOfRequests {
 		if i < 3 {
@@ -269,8 +367,7 @@ func checkOderMaxLora1Workers5(orderOfRequests []int) {
 // The first two requests have to be 0-2, the next two should be one of the requests
 // from the first batch (0-2) and the last request to lora1 (req number 3), the
 // next four should be requests to lora2 (4-7) in no particular order.
-func checkOderMaxLora1Workers2(orderOfRequests []int) {
-	fmt.Println(orderOfRequests)
+func checkOrderMaxLora1Workers2(orderOfRequests []int) {
 	Expect(orderOfRequests).To(HaveLen(8))
 	for i, reqNum := range orderOfRequests {
 		if i < 2 {
@@ -292,8 +389,7 @@ func checkOderMaxLora1Workers2(orderOfRequests []int) {
 // requests to lora2 is not important.
 // The first three should be 0-2, the next two should be 4-7,
 // the rest can be in any order.
-func checkOderMaxLora5Workers5(orderOfRequests []int) {
-	fmt.Println(orderOfRequests)
+func checkOrderMaxLora5Workers5(orderOfRequests []int) {
 	for i, reqNum := range orderOfRequests {
 		if i < 3 {
 			Expect(reqNum < 3).To(BeTrue())
@@ -314,8 +410,7 @@ func checkOderMaxLora5Workers5(orderOfRequests []int) {
 // requests to lora2 is not important.
 // The first three should be 0-2, the next one should be 3,
 // the rest 4-7.
-func checkOderMaxLora5Workers1(orderOfRequests []int) {
-	fmt.Println(orderOfRequests)
+func checkOrderMaxLora5Workers1(orderOfRequests []int) {
 	for i, reqNum := range orderOfRequests {
 		if i < 3 {
 			Expect(reqNum < 3).To(BeTrue())
@@ -327,36 +422,69 @@ func checkOderMaxLora5Workers1(orderOfRequests []int) {
 	}
 }
 
-/*
-stress:
-1000 simultaneously
-/metrics when they are still running
-5 loras, max 2
-check running and waiting, loras 2 running waiting 5 - last entry
+// Check the order of requests sent in specific order with one worker
+// The requests are sent with delays to make sure they enter the queue
+// in the order they are sent.
+// The order of the requests is:
+// 0-lora1 1-lora1 2-lora2 3-lora3 4-lora4 5-lora1 6-lora2 7-lora3 8-lora4
+// The expected order of processing:
+// 015263748
+func checkOrderMaxLora1Workers1(orderOfRequests []int) {
+	expected := []int{0, 1, 5, 2, 6, 3, 7, 4, 8}
+	Expect(orderOfRequests).To(HaveLen(9))
+	for i, reqNum := range orderOfRequests {
+		Expect(reqNum).To(Equal(expected[i]))
+	}
+}
 
+// Check the order of requests sent in specific order with one worker
+// The requests are sent with delays to make sure they enter the queue
+// in the order they are sent.
+// The order of the requests is:
+// 0-lora1 1-lora1 2-lora2 3-lora3 4-lora4 5-lora2 6-lora3 7-lora4
+// The expected order of processing:
+// {01}{25}{36}{47} - the order inside the brackets doesn't matter
+func checkOrderWorkers2(orderOfRequests []int) {
+	expected1 := []int{0, 1, 2, 5, 3, 6, 4, 7}
+	expected2 := []int{1, 0, 5, 2, 6, 3, 7, 4}
+	Expect(orderOfRequests).To(HaveLen(8))
+	for i, reqNum := range orderOfRequests {
+		Expect(reqNum).To(Or(Equal(expected1[i]), Equal(expected2[i])))
+	}
+}
 
-ttft 1000 delay 100
-max lora 1 workers 5
-3 - lora1, delay 4 - lora2 , delay 2 - lora1
-check first all lora1, then 2
+// Check the order of requests sent in specific order with max loras = 3
+// The requests are sent with delays to make sure they enter the queue
+// in the order they are sent.
+// The order of the requests is:
+// 0-lora1 1-lora1 2-lora2 3-lora3 4-lora4 5-lora5
+// 6-lora1 7-lora2 8-lora3 9-lora4 10-lora5
+// The expected order of processing:
+// 0, 1, 2, 3, 6, 7, 8, {4, 9}, {5, 10} - the order inside the brackets doesn't matter
+func checkOrderMaxLora3(orderOfRequests []int) {
+	expected1 := []int{0, 1, 2, 3, 6, 7, 8, 4, 9, 5, 10}
+	expected2 := []int{0, 1, 2, 3, 6, 7, 8, 4, 9, 10, 5}
+	expected3 := []int{0, 1, 2, 3, 6, 7, 8, 9, 4, 5, 10}
+	expected4 := []int{0, 1, 2, 3, 6, 7, 8, 9, 4, 10, 5}
+	Expect(orderOfRequests).To(HaveLen(11))
+	for i, reqNum := range orderOfRequests {
+		Expect(reqNum).To(Or(Equal(expected1[i]), Equal(expected2[i]),
+			Equal(expected3[i]), Equal(expected4[i])))
+	}
+}
 
-same with workers 2
-response from lora2 after 4 secs
-
----------
-
-max lora 5 w 2
-3 - lora1, delay 4 - lora2 , delay 2 - lora1
-should be in this order - can't check the real order when they wait
-
-same all with delays between all - still can't guarantee the exact order
-check the order of reqs not just loras
-----------
-
-max lora 3 w 3
-reqs to 5 loras
-input: 11234512345
-order of running: 11231234545
-
-max lora 3 w 5
-*/
+// Check the order of requests sent in specific order with max loras = 5
+// The requests are sent with delays to make sure they enter the queue
+// in the order they are sent.
+// The order of the requests is:
+// 0-lora1 1-lora1 2-lora2 3-lora3 4-lora4 5-lora5
+// 6-lora1 7-lora2 8-lora3 9-lora4 10-lora5
+// The expected order of processing:
+// 0, 1, 2, 3, 4, 6, 7, 8, 9, 5, 10
+func checkOrderMaxLora5(orderOfRequests []int) {
+	expected := []int{0, 1, 2, 3, 4, 6, 7, 8, 9, 5, 10}
+	Expect(orderOfRequests).To(HaveLen(11))
+	for i, reqNum := range orderOfRequests {
+		Expect(reqNum).To(Equal(expected[i]))
+	}
+}
