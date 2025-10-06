@@ -264,11 +264,12 @@ func (s *VllmSimulator) startSim(ctx context.Context) error {
 	s.workerFinished = make(chan *worker, s.config.MaxNumSeqs)
 	for i := 1; i <= s.config.MaxNumSeqs; i++ {
 		worker := &worker{
-			id:       i,
-			ctx:      ctx,
-			finished: s.workerFinished,
-			reqChan:  make(chan *openaiserverapi.CompletionReqCtx),
-			s:        s,
+			id:           i,
+			ctx:          ctx,
+			logger:       s.logger,
+			finishedChan: s.workerFinished,
+			reqChan:      make(chan *openaiserverapi.CompletionReqCtx),
+			processor:    s,
 		}
 		go worker.waitForRequests()
 		s.freeWorkers <- worker
@@ -336,7 +337,7 @@ func (s *VllmSimulator) processing(ctx context.Context) {
 			nextReq := s.dequeue()
 			if nextReq != nil {
 				// send this request for processing in this worker
-				s.logger.V(4).Info("Worker finished and a request was found - send to processing",
+				s.logger.V(4).Info("Worker finished and a request was found - sending to processing",
 					"model", nextReq.CompletionReq.GetModel(),
 					"req", nextReq.CompletionReq.GetRequestID(), "worker", worker.id)
 				worker.reqChan <- nextReq
@@ -358,7 +359,7 @@ func (s *VllmSimulator) processing(ctx context.Context) {
 				nextReq := s.dequeue()
 				if nextReq != nil {
 					// send this request for processing in this worker
-					s.logger.V(4).Info("LoRA can be removed: a free worker and request were found - send to processing",
+					s.logger.V(4).Info("LoRA can be removed: a free worker and request were found - sending to processing",
 						"model", nextReq.CompletionReq.GetModel(),
 						"req", nextReq.CompletionReq.GetRequestID(), "worker", worker.id)
 					worker.reqChan <- nextReq
@@ -394,6 +395,8 @@ func (s *VllmSimulator) handleCompletions(ctx *fasthttp.RequestCtx, isChatComple
 		return
 	}
 
+	s.logger.V(4).Info("Completion request received", "req id", vllmReq.GetRequestID(), "isChat", isChatCompletion)
+
 	var wg sync.WaitGroup
 	wg.Add(1)
 	reqCtx := &openaiserverapi.CompletionReqCtx{
@@ -409,7 +412,7 @@ func (s *VllmSimulator) handleCompletions(ctx *fasthttp.RequestCtx, isChatComple
 
 	worker := s.getFreeWorker()
 	if worker == nil {
-		s.logger.V(4).Info("No free worker - send request to the waiting queue",
+		s.logger.V(4).Info("No free worker - sending the request to the waiting queue",
 			"model", reqCtx.CompletionReq.GetModel(), "req id", reqCtx.CompletionReq.GetRequestID())
 		// no free worker, add this request to the waiting queue
 		if err := s.enqueue(reqCtx); err != nil {
@@ -431,7 +434,7 @@ func (s *VllmSimulator) handleCompletions(ctx *fasthttp.RequestCtx, isChatComple
 			// free the worker, but not directly add it to freeWorkers,
 			// we want to make sure that there is no new request in the queue that can run
 			s.workerFinished <- worker
-			s.logger.V(4).Info("LoRA cannot be loaded - send request to the waiting queue",
+			s.logger.V(4).Info("LoRA cannot be loaded - sending the request to the waiting queue",
 				"LoRA", model, "req id", reqCtx.CompletionReq.GetRequestID())
 			// LoRA max reached, try to enqueue
 			if err := s.enqueue(reqCtx); err != nil {
@@ -446,7 +449,7 @@ func (s *VllmSimulator) handleCompletions(ctx *fasthttp.RequestCtx, isChatComple
 		}
 	}
 
-	s.logger.V(4).Info("Send request to processing channel", "model", model,
+	s.logger.V(4).Info("Sending the request to the processing channel", "model", model,
 		"req id", reqCtx.CompletionReq.GetRequestID(), "worker", worker.id)
 	worker.reqChan <- reqCtx
 	wg.Wait()

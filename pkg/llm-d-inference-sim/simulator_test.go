@@ -134,11 +134,12 @@ func startServerWithArgs(ctx context.Context, mode string, args []string, envs m
 	s.workerFinished = make(chan *worker, s.config.MaxNumSeqs)
 	for i := 1; i <= s.config.MaxNumSeqs; i++ {
 		worker := &worker{
-			id:       i,
-			ctx:      ctx,
-			finished: s.workerFinished,
-			reqChan:  make(chan *openaiserverapi.CompletionReqCtx),
-			s:        s,
+			id:           i,
+			ctx:          ctx,
+			logger:       s.logger,
+			finishedChan: s.workerFinished,
+			reqChan:      make(chan *openaiserverapi.CompletionReqCtx),
+			processor:    s,
 		}
 		go worker.waitForRequests()
 		s.freeWorkers <- worker

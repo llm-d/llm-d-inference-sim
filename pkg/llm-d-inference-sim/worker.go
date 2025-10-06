@@ -20,6 +20,7 @@ package llmdinferencesim
 import (
 	"context"
 
+	"github.com/go-logr/logr"
 	"github.com/llm-d/llm-d-inference-sim/pkg/dataset"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	"github.com/valyala/fasthttp"
@@ -27,29 +28,33 @@ import (
 
 // worker runs simulators requests
 type worker struct {
-	ctx context.Context
+	ctx    context.Context
+	logger logr.Logger
 	// worker's id
 	id int
 	// a channel for requests
 	reqChan chan *openaiserverapi.CompletionReqCtx
 	// a channel to indicate that the worker finished processing a request
-	finished chan *worker
-	// the simulator
-	s *VllmSimulator
+	finishedChan chan *worker
+	// the request processor
+	processor requestProcessor
 }
 
 func (w *worker) waitForRequests() {
 	for {
 		select {
 		case <-w.ctx.Done():
-			w.s.logger.V(4).Info("worker done")
+			w.logger.V(4).Info("worker done", "id", w.id)
 			return
 		case req := <-w.reqChan:
-			w.s.processRequest(req)
-			w.s.decrementLora(req.CompletionReq.GetModel())
-			w.finished <- w
+			w.processor.processRequest(req)
+			w.finishedChan <- w
 		}
 	}
+}
+
+type requestProcessor interface {
+	processRequest(reqCtx *openaiserverapi.CompletionReqCtx)
 }
 
 func (s *VllmSimulator) processRequest(reqCtx *openaiserverapi.CompletionReqCtx) {
@@ -134,6 +139,8 @@ func (s *VllmSimulator) processRequest(reqCtx *openaiserverapi.CompletionReqCtx)
 		}
 	}
 	s.logger.V(4).Info("Finished processing request", "id", req.GetRequestID())
+
+	s.decrementLora(model)
 
 	reqCtx.Wg.Done()
 }

@@ -144,14 +144,11 @@ func (s *VllmSimulator) readRequest(ctx *fasthttp.RequestCtx, isChatCompletion b
 
 // HandleChatCompletions http handler for /v1/chat/completions
 func (s *VllmSimulator) HandleChatCompletions(ctx *fasthttp.RequestCtx) {
-	s.logger.Info("chat completion request received")
-	s.logger.Info("request", "body", string(ctx.Request.Body()))
 	s.handleCompletions(ctx, true)
 }
 
 // HandleTextCompletions http handler for /v1/completions
 func (s *VllmSimulator) HandleTextCompletions(ctx *fasthttp.RequestCtx) {
-	s.logger.Info("completion request received")
 	s.handleCompletions(ctx, false)
 }
 
