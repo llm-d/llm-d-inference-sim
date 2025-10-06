@@ -139,12 +139,12 @@ func (bc *blockCache) startRequest(requestID string, blocks []uint64) (int, erro
 			}
 
 			delete(bc.unusedBlocks, oldestUnusedHash)
-			bc.eventChan <- EventData{action: eventActionRemove, hashValues: []uint64{oldestUnusedHash}}
+			bc.eventChan <- EventData{action: eventActionRemove, hashValues: []any{oldestUnusedHash}}
 		}
 
 		// Add the new block
 		bc.usedBlocks[block] = 1
-		bc.eventChan <- EventData{action: eventActionStore, hashValues: []uint64{block}}
+		bc.eventChan <- EventData{action: eventActionStore, hashValues: []any{block}}
 	}
 
 	// store the request mapping

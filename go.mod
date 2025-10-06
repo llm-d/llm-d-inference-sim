@@ -8,7 +8,7 @@ require (
 	github.com/buaazp/fasthttprouter v0.1.1
 	github.com/go-logr/logr v1.4.2
 	github.com/google/uuid v1.6.0
-	github.com/llm-d/llm-d-kv-cache-manager v0.3.0-rc1
+	github.com/llm-d/llm-d-kv-cache-manager v0.3.2
 	github.com/onsi/ginkgo/v2 v2.23.4
 	github.com/onsi/gomega v1.37.0
 	github.com/openai/openai-go v0.1.0-beta.10
@@ -21,6 +21,11 @@ require (
 	golang.org/x/sync v0.12.0
 	gopkg.in/yaml.v3 v3.0.1
 	k8s.io/klog/v2 v2.130.1
+)
+
+require (
+	github.com/dgraph-io/ristretto/v2 v2.3.0 // indirect
+	github.com/dustin/go-humanize v1.0.1 // indirect
 )
 
 require (
@@ -64,7 +69,7 @@ require (
 	go.uber.org/automaxprocs v1.6.0 // indirect
 	golang.org/x/net v0.38.0 // indirect
 	golang.org/x/oauth2 v0.27.0 // indirect
-	golang.org/x/sys v0.32.0 // indirect
+	golang.org/x/sys v0.35.0 // indirect
 	golang.org/x/term v0.30.0 // indirect
 	golang.org/x/text v0.23.0 // indirect
 	golang.org/x/time v0.9.0 // indirect
