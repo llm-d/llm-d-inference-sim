@@ -49,9 +49,13 @@ WORKDIR /
 USER root
 RUN microdnf install -y dnf && \
     dnf install -y 'https://dl.fedoraproject.org/pub/epel/epel-release-latest-9.noarch.rpm' && \
-    dnf install -y zeromq && \
+    dnf install -y zeromq curl && \
     dnf clean all && \
     rm -rf /var/cache/dnf /var/lib/dnf
+
+# Copy readiness probe script
+COPY scripts/readiness_probe.sh /usr/local/bin/readiness_probe.sh
+RUN chmod +x /usr/local/bin/readiness_probe.sh
 
 COPY --from=builder /workspace/bin/llm-d-inference-sim /app/llm-d-inference-sim
 
