@@ -68,8 +68,10 @@ var _ = Describe("Simulator requests scheduling", Ordered, func() {
 			firstReqIsEven := orderOfRequests[0]%2 == 0
 			for i, reqNum := range orderOfRequests {
 				if i < numberOfRequests/2 {
+					// nolint
 					Expect(reqNum%2 == 0).To(Equal(firstReqIsEven))
 				} else {
+					// nolint
 					Expect(reqNum%2 == 0).NotTo(Equal(firstReqIsEven))
 				}
 			}
@@ -327,11 +329,11 @@ var _ = Describe("Simulator requests scheduling", Ordered, func() {
 	})
 })
 
-func sendReq(ctx context.Context, openaiclient openai.Client, wg *sync.WaitGroup, delay time.Duration,
+func sendReq(ctx context.Context, openaiclient openai.Client, wg *sync.WaitGroup, delay int,
 	params openai.ChatCompletionNewParams, reqNum int, mux *sync.RWMutex, orderOfRequests *[]int) {
 	defer GinkgoRecover()
 	defer wg.Done()
-	time.Sleep(delay * time.Millisecond)
+	time.Sleep(time.Duration(delay) * time.Millisecond)
 	_, err := openaiclient.Chat.Completions.New(ctx, params)
 	Expect(err).NotTo(HaveOccurred())
 	mux.Lock()
@@ -349,11 +351,12 @@ func sendReq(ctx context.Context, openaiclient openai.Client, wg *sync.WaitGroup
 func checkOrderMaxLora1Workers5(orderOfRequests []int) {
 	Expect(orderOfRequests).To(HaveLen(8))
 	for i, reqNum := range orderOfRequests {
-		if i < 3 {
-			Expect(reqNum < 4).To(BeTrue())
-		} else if i == 3 {
+		switch {
+		case i < 3:
+			Expect(reqNum).To(BeNumerically("<", 4))
+		case i == 3:
 			Expect(reqNum).To(Equal(3))
-		} else {
+		default:
 			Expect(reqNum >= 4 && reqNum < 8).To(BeTrue())
 		}
 	}
@@ -370,11 +373,12 @@ func checkOrderMaxLora1Workers5(orderOfRequests []int) {
 func checkOrderMaxLora1Workers2(orderOfRequests []int) {
 	Expect(orderOfRequests).To(HaveLen(8))
 	for i, reqNum := range orderOfRequests {
-		if i < 2 {
-			Expect(reqNum < 3).To(BeTrue())
-		} else if i < 4 {
-			Expect(reqNum < 4).To(BeTrue())
-		} else {
+		switch {
+		case i < 2:
+			Expect(reqNum).To(BeNumerically("<", 3))
+		case i < 4:
+			Expect(reqNum).To(BeNumerically("<", 4))
+		default:
 			Expect(reqNum >= 4 && reqNum < 8).To(BeTrue())
 		}
 	}
@@ -391,12 +395,13 @@ func checkOrderMaxLora1Workers2(orderOfRequests []int) {
 // the rest can be in any order.
 func checkOrderMaxLora5Workers5(orderOfRequests []int) {
 	for i, reqNum := range orderOfRequests {
-		if i < 3 {
-			Expect(reqNum < 3).To(BeTrue())
-		} else if i < 5 {
+		switch {
+		case i < 3:
+			Expect(reqNum).To(BeNumerically("<", 3))
+		case i < 5:
 			Expect(reqNum >= 4 && reqNum <= 7).To(BeTrue())
-		} else {
-			Expect(reqNum >= 3).To(BeTrue())
+		default:
+			Expect(reqNum).To(BeNumerically(">=", 3))
 		}
 	}
 }
@@ -412,12 +417,13 @@ func checkOrderMaxLora5Workers5(orderOfRequests []int) {
 // the rest 4-7.
 func checkOrderMaxLora5Workers1(orderOfRequests []int) {
 	for i, reqNum := range orderOfRequests {
-		if i < 3 {
-			Expect(reqNum < 3).To(BeTrue())
-		} else if i == 3 {
+		switch {
+		case i < 3:
+			Expect(reqNum).To(BeNumerically("<", 3))
+		case i == 3:
 			Expect(reqNum).To(Equal(3))
-		} else {
-			Expect(reqNum > 3).To(BeTrue())
+		default:
+			Expect(reqNum).To(BeNumerically(">", 3))
 		}
 	}
 }
@@ -437,7 +443,7 @@ func checkOrderMaxLora1Workers1(orderOfRequests []int) {
 	}
 }
 
-// Check the order of requests sent in specific order with one worker
+// Check the order of requests sent in specific order with two workers
 // The requests are sent with delays to make sure they enter the queue
 // in the order they are sent.
 // The order of the requests is:

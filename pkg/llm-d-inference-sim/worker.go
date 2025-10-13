@@ -35,7 +35,7 @@ type worker struct {
 	// a channel for requests
 	reqChan chan *openaiserverapi.CompletionReqCtx
 	// a channel to indicate that the worker finished processing a request
-	finishedChan chan *worker
+	finishedChan chan *requestCompleted
 	// the request processor
 	processor requestProcessor
 }
@@ -48,7 +48,7 @@ func (w *worker) waitForRequests() {
 			return
 		case req := <-w.reqChan:
 			w.processor.processRequest(req)
-			w.finishedChan <- w
+			w.finishedChan <- &requestCompleted{worker: w, model: req.CompletionReq.GetModel()}
 		}
 	}
 }
@@ -139,8 +139,6 @@ func (s *VllmSimulator) processRequest(reqCtx *openaiserverapi.CompletionReqCtx)
 		}
 	}
 	s.logger.V(4).Info("Finished processing request", "id", req.GetRequestID())
-
-	s.decrementLora(model)
 
 	reqCtx.Wg.Done()
 }

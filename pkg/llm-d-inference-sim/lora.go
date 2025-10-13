@@ -124,7 +124,7 @@ func (s *VllmSimulator) incrementLora(model string) {
 }
 
 func (s *VllmSimulator) decrementLora(model string) {
-	if !s.isLora(model) {
+	if model == "" || !s.isLora(model) {
 		return
 	}
 

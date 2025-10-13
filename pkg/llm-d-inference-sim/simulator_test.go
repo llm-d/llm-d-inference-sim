@@ -131,7 +131,7 @@ func startServerWithArgs(ctx context.Context, mode string, args []string, envs m
 
 	// run request processing workers
 	s.freeWorkers = make(chan *worker, s.config.MaxNumSeqs)
-	s.workerFinished = make(chan *worker, s.config.MaxNumSeqs)
+	s.workerFinished = make(chan *requestCompleted, s.config.MaxNumSeqs)
 	for i := 1; i <= s.config.MaxNumSeqs; i++ {
 		worker := &worker{
 			id:           i,
