@@ -33,6 +33,8 @@ import (
 	"github.com/openai/openai-go/option"
 )
 
+const modelName = "testmodel"
+
 var _ = Describe("Simulator requests scheduling", Ordered, func() {
 	Context("Requests for already loaded loras should be handled first", func() {
 		DescribeTable("Should process in correct order simultaneous requests to two loras", func(maxNumSeq string) {
@@ -255,7 +257,6 @@ var _ = Describe("Simulator requests scheduling", Ordered, func() {
 
 	Context("Stress", func() {
 		It("Should work correctly with many simultaneous requests", func() {
-			modelName := "testmodel"
 			ctx := context.TODO()
 			args := []string{"cmd", "--model", modelName, "--mode", common.ModeRandom,
 				"--time-to-first-token", "3000", "--max-num-seqs", "12", "--max-loras", "2",
@@ -327,7 +328,6 @@ var _ = Describe("Simulator requests scheduling", Ordered, func() {
 		})
 
 		It("Should work correctly with many simultaneous requests with many workers", func() {
-			modelName := "testmodel"
 			runningMetric := "vllm:num_requests_running{model_name=\"testmodel\"}"
 			waitingMetric := "vllm:num_requests_waiting{model_name=\"testmodel\"}"
 			ctx := context.TODO()

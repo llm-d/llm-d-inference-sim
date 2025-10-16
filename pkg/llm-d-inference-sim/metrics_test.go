@@ -84,7 +84,6 @@ var paramsLora5 openai.ChatCompletionNewParams = openai.ChatCompletionNewParams{
 
 var _ = Describe("Simulator metrics", Ordered, func() {
 	It("Should send correct running and waiting requests metrics", func() {
-		modelName := "testmodel"
 		// Three requests, only two can run in parallel, we expect
 		// two running requests and one waiting request in the metrics
 		ctx := context.TODO()
