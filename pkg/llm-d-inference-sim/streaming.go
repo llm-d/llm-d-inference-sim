@@ -105,6 +105,9 @@ func (s *VllmSimulator) sendTokenChunks(context *streamingContext, w *bufio.Writ
 	ttft := s.getWaitTimeToFirstToken(context.nPromptTokens, context.nCachedPromptTokens, context.doRemotePrefill)
 	time.Sleep(time.Duration(ttft) * time.Millisecond)
 
+	// Calculate finish reason condition once before the loop
+	shouldSendFinishReason := finishReason == dataset.LengthFinishReason || finishReason == dataset.ToolsFinishReason
+
 	for i, token := range genTokens {
 		if i != 0 {
 			time.Sleep(time.Duration(s.getInterTokenLatency()) * time.Millisecond)
@@ -126,7 +129,7 @@ func (s *VllmSimulator) sendTokenChunks(context *streamingContext, w *bufio.Writ
 
 		var chunk openaiserverapi.CompletionRespChunk
 		var finishReasonToSend *string
-		if i == len(genTokens)-1 && (finishReason == dataset.LengthFinishReason || finishReason == dataset.ToolsFinishReason) {
+		if i == len(genTokens)-1 && shouldSendFinishReason {
 			finishReasonToSend = &finishReason
 		}
 
