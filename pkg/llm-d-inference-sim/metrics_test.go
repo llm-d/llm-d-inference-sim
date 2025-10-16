@@ -593,6 +593,21 @@ func findLoraMetric(metrics []string, running, waiting []string) string {
 	return ""
 }
 
+func findMetric(metrics []string, metricName string) string {
+	// regex to extract metrics and values
+	for _, metric := range metrics {
+		if strings.Contains(metric, metricName) {
+			arr := strings.Split(metric, " ")
+			if len(arr) == 2 {
+				return arr[1]
+			}
+			break
+		}
+	}
+	// required metric was not found
+	return ""
+}
+
 // splits the given string to array of strings with separator = ","
 func splitString(str string) []string {
 	if str == "" {

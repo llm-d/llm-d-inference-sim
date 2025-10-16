@@ -41,6 +41,8 @@ var _ = Describe("Check random latencies", Ordered, func() {
 			KVCacheTransferLatencyStdDev: 2048,
 		}
 
+		simulator.metrics.runReqChan = make(chan int64, 100)
+
 		common.InitRandom(time.Now().UnixNano())
 	})
 

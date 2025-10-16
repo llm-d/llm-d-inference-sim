@@ -28,10 +28,13 @@ import (
 	"strings"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
+<<<<<<< HEAD
 	"github.com/llm-d/llm-d-inference-sim/pkg/dataset"
 	kvcache "github.com/llm-d/llm-d-inference-sim/pkg/kv-cache"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	"github.com/llm-d/llm-d-kv-cache-manager/pkg/tokenization"
+=======
+>>>>>>> b5dce9e (Tests)
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/openai/openai-go"
@@ -91,63 +94,13 @@ func startServerWithArgs(ctx context.Context, mode string, args []string, envs m
 	}
 	s.config = config
 
-	for _, lora := range config.LoraModules {
-		s.loraAdaptors.Store(lora.Name, "")
-	}
-	s.loras.maxLoras = s.config.MaxLoras
-
-	common.InitRandom(s.config.Seed)
-
-	if err := s.createAndRegisterPrometheus(); err != nil {
-		return nil, err
-	}
-
-	tokenizationConfig := tokenization.DefaultConfig()
-	if s.config.TokenizersCacheDir != "" {
-		tokenizationConfig.TokenizersCacheDir = s.config.TokenizersCacheDir
-	}
-	s.tokenizer, err = tokenization.NewCachedHFTokenizer(tokenizationConfig.HFTokenizerConfig)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create tokenizer: %w", err)
-	}
-
-	if s.config.EnableKVCache {
-		s.kvcacheHelper, err = kvcache.NewKVCacheHelper(s.config, s.logger, s.metrics.kvCacheUsageChan, s.tokenizer)
-		if err != nil {
-			return nil, err
-		}
-
-		go s.kvcacheHelper.Run(ctx)
-	}
-
-	err = s.initDataset(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("dataset initialization error: %w", err)
-	}
-
 	// calculate number of tokens for user message,
 	// must be activated after parseCommandParamsAndLoadConfig since it initializes the random engine
 	userMsgTokens = int64(len(common.Tokenize(userMessage)))
 
-	// run request processing workers
-	s.freeWorkers = make(chan *worker, s.config.MaxNumSeqs)
-	s.workerFinished = make(chan *requestCompleted, s.config.MaxNumSeqs)
-	for i := 1; i <= s.config.MaxNumSeqs; i++ {
-		worker := &worker{
-			id:           i,
-			ctx:          ctx,
-			logger:       s.logger,
-			finishedChan: s.workerFinished,
-			reqChan:      make(chan *openaiserverapi.CompletionReqCtx),
-			processor:    s,
-		}
-		go worker.waitForRequests()
-		s.freeWorkers <- worker
+	if err := s.initializeSim(ctx); err != nil {
+		return nil, err
 	}
-
-	s.startMetricsUpdaters(ctx)
-
-	go s.processing(ctx)
 
 	listener := fasthttputil.NewInmemoryListener()
 

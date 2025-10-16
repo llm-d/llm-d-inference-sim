@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -249,13 +250,12 @@ var _ = Describe("Simulator requests scheduling", Ordered, func() {
 			Entry("5 workers, max loras 3", "5", "3", checkOrderMaxLora3),
 			Entry("5 workers, max loras 5", "5", "5", checkOrderMaxLora5),
 		)
+
 	})
 
 	Context("Stress", func() {
 		It("Should work correctly with many simultaneous requests", func() {
 			modelName := "testmodel"
-			// Three requests, only two can run in parallel, we expect
-			// two running requests and one waiting request in the metrics
 			ctx := context.TODO()
 			args := []string{"cmd", "--model", modelName, "--mode", common.ModeRandom,
 				"--time-to-first-token", "3000", "--max-num-seqs", "12", "--max-loras", "2",
@@ -274,8 +274,8 @@ var _ = Describe("Simulator requests scheduling", Ordered, func() {
 				option.WithBaseURL(baseURL),
 				option.WithHTTPClient(client))
 
-			// Run 999 requests for 5 loras simultaneously
-			numberOfRequests := 999
+			// Run 1000 requests for 5 loras simultaneously
+			numberOfRequests := 1000
 			for i := range numberOfRequests {
 				go func() {
 					defer GinkgoRecover()
@@ -300,9 +300,9 @@ var _ = Describe("Simulator requests scheduling", Ordered, func() {
 			metrics := string(data)
 
 			// max-num-seqs is 12, so number of running requests should be 12
-			// and the number of waiting requests 999-12=987
+			// and the number of waiting requests 1000-12=988
 			Expect(metrics).To(ContainSubstring("vllm:num_requests_running{model_name=\"testmodel\"} 12"))
-			Expect(metrics).To(ContainSubstring("vllm:num_requests_waiting{model_name=\"testmodel\"} 987"))
+			Expect(metrics).To(ContainSubstring("vllm:num_requests_waiting{model_name=\"testmodel\"} 988"))
 
 			// max-loras is 2, so the last lora metric should be:
 			// running: two loras (doesn't matter which two)
@@ -326,6 +326,123 @@ var _ = Describe("Simulator requests scheduling", Ordered, func() {
 				To(BeTrue())
 		})
 
+		It("Should work correctly with many simultaneous requests with many workers", func() {
+			modelName := "testmodel"
+			runningMetric := "vllm:num_requests_running{model_name=\"testmodel\"}"
+			waitingMetric := "vllm:num_requests_waiting{model_name=\"testmodel\"}"
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", modelName, "--mode", common.ModeRandom,
+				"--time-to-first-token", "2000", "--time-to-first-token-std-dev", "600",
+				"--max-num-seqs", "1000", "--max-loras", "2", "--max-waiting-queue-length", "1500",
+				"--lora-modules",
+				"{\"name\":\"lora0\",\"path\":\"/path/to/lora0\"}",
+				"{\"name\":\"lora1\",\"path\":\"/path/to/lora1\"}",
+			}
+
+			client, err := startServerWithArgs(ctx, common.ModeRandom, args, nil)
+			Expect(err).NotTo(HaveOccurred())
+
+			openaiclient := openai.NewClient(
+				option.WithBaseURL(baseURL),
+				option.WithHTTPClient(client))
+
+			// Run 2000 requests for 5 loras simultaneously
+			numberOfRequests := 2000
+			for i := range numberOfRequests {
+				go func() {
+					defer GinkgoRecover()
+					params := openai.ChatCompletionNewParams{
+						Messages: []openai.ChatCompletionMessageParamUnion{
+							openai.UserMessage(userMessage),
+						},
+						Model: fmt.Sprintf("lora%d", i%2),
+					}
+					_, err := openaiclient.Chat.Completions.New(ctx, params)
+					Expect(err).NotTo(HaveOccurred())
+				}()
+			}
+
+			time.Sleep(400 * time.Millisecond)
+			metricsResp, err := client.Get(metricsUrl)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
+
+			data, err := io.ReadAll(metricsResp.Body)
+			Expect(err).NotTo(HaveOccurred())
+			metrics := strings.Split(string(data), "\n")
+
+			// max-num-seqs is 1000, so number of running requests should be 1000
+			// and the number of waiting requests 2000-1000=2000
+			runningStr := findMetric(metrics, runningMetric)
+			Expect(runningStr).NotTo(Equal(""))
+			running, err := strconv.Atoi(runningStr)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(running).To(Equal(1000))
+			waitingStr := findMetric(metrics, waitingMetric)
+			waiting, err := strconv.Atoi(waitingStr)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(waiting).To(Equal(1000))
+
+			time.Sleep(1500 * time.Millisecond)
+
+			// After about 2 secs (the mean ttft), send 500 more requests
+			numberOfRequests = 500
+			for i := range numberOfRequests {
+				go func() {
+					defer GinkgoRecover()
+					params := openai.ChatCompletionNewParams{
+						Messages: []openai.ChatCompletionMessageParamUnion{
+							openai.UserMessage(userMessage),
+						},
+						Model: fmt.Sprintf("lora%d", i%2),
+					}
+					_, err := openaiclient.Chat.Completions.New(ctx, params)
+					Expect(err).NotTo(HaveOccurred())
+				}()
+			}
+			time.Sleep(400 * time.Millisecond)
+			metricsResp, err = client.Get(metricsUrl)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
+
+			data, err = io.ReadAll(metricsResp.Body)
+			Expect(err).NotTo(HaveOccurred())
+			metrics = strings.Split(string(data), "\n")
+
+			// We sent 2500 requests, after about 2.5 seconds
+			// number of running requests should be 1000
+			// and the number of waiting requests should be less than 1000
+			runningStr = findMetric(metrics, runningMetric)
+			Expect(runningStr).NotTo(Equal(""))
+			running, err = strconv.Atoi(runningStr)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(running).To(Equal(1000))
+			waitingStr = findMetric(metrics, waitingMetric)
+			waiting, err = strconv.Atoi(waitingStr)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(waiting).To(BeNumerically("<", 1000))
+
+			// Wait another second
+			time.Sleep(1000 * time.Millisecond)
+			metricsResp, err = client.Get(metricsUrl)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
+			data, err = io.ReadAll(metricsResp.Body)
+			Expect(err).NotTo(HaveOccurred())
+			metrics = strings.Split(string(data), "\n")
+
+			// number of running requests should be 1000
+			// and the number of waiting requests should be less than 1000
+			runningStr = findMetric(metrics, runningMetric)
+			Expect(runningStr).NotTo(Equal(""))
+			running, err = strconv.Atoi(runningStr)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(running).To(Equal(1000))
+			waitingStr = findMetric(metrics, waitingMetric)
+			waiting, err = strconv.Atoi(waitingStr)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(waiting).To(BeNumerically("<", 1000))
+		})
 	})
 })
 
