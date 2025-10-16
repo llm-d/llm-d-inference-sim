@@ -51,8 +51,6 @@ const (
 	namespaceHeader = "x-inference-namespace"
 	podNameEnv      = "POD_NAME"
 	podNsEnv        = "POD_NAMESPACE"
-
-	maxNumberOfRequests = 1000
 )
 
 type loraUsageState int
@@ -170,19 +168,10 @@ func New(logger logr.Logger) (*VllmSimulator, error) {
 		kvcacheHelper:  nil, // kvcache helper will be created only if required after reading configuration
 		namespace:      os.Getenv(podNsEnv),
 		pod:            os.Getenv(podNameEnv),
-		metrics: metricsData{
-			runReqChan:       make(chan int64, maxNumberOfRequests),
-			waitingReqChan:   make(chan int64, maxNumberOfRequests),
-			lorasChan:        make(chan loraUsage, maxNumberOfRequests),
-			kvCacheUsageChan: make(chan float64, maxNumberOfRequests),
-		},
 		loras: &lorasUsageInfo{
-			usedLoras:     make(map[string]int),
-			loraRemovable: make(chan int, maxNumberOfRequests),
+			usedLoras: make(map[string]int),
 		},
-		queueCapacity: maxNumberOfRequests,
-		waitingQueue:  list.New(),
-		newRequests:   make(chan *openaiserverapi.CompletionReqCtx, maxNumberOfRequests),
+		waitingQueue: list.New(),
 	}, nil
 }
 
@@ -231,12 +220,38 @@ func (s *VllmSimulator) Start(ctx context.Context) error {
 }
 
 func (s *VllmSimulator) startSim(ctx context.Context) error {
+	if err := s.initializeSim(ctx); err != nil {
+		return err
+	}
+
+	listener, err := s.newListener()
+	if err != nil {
+		s.logger.Error(err, "Failed to create listener")
+		return fmt.Errorf("listener creation error: %w", err)
+	}
+
+	// start the http server with context support
+	return s.startServer(ctx, listener)
+}
+
+func (s *VllmSimulator) initializeSim(ctx context.Context) error {
+	common.InitRandom(s.config.Seed)
+
 	for _, lora := range s.config.LoraModules {
 		s.loraAdaptors.Store(lora.Name, "")
 	}
 	s.loras.maxLoras = s.config.MaxLoras
+	s.loras.loraRemovable = make(chan int, s.config.MaxNumSeqs)
 
-	common.InitRandom(s.config.Seed)
+	s.queueCapacity = s.config.MaxWaitingQueueLength
+
+	maxNumberOfRequests := s.config.MaxNumSeqs + s.config.MaxWaitingQueueLength
+	s.metrics.runReqChan = make(chan int64, maxNumberOfRequests)
+	s.metrics.waitingReqChan = make(chan int64, maxNumberOfRequests)
+	s.metrics.lorasChan = make(chan loraUsage, maxNumberOfRequests)
+	s.metrics.kvCacheUsageChan = make(chan float64, maxNumberOfRequests)
+
+	s.newRequests = make(chan *openaiserverapi.CompletionReqCtx, maxNumberOfRequests)
 
 	// initialize prometheus metrics
 	err := s.createAndRegisterPrometheus()
@@ -286,15 +301,7 @@ func (s *VllmSimulator) startSim(ctx context.Context) error {
 	s.startMetricsUpdaters(ctx)
 
 	go s.processing(ctx)
-
-	listener, err := s.newListener()
-	if err != nil {
-		s.logger.Error(err, "Failed to create listener")
-		return fmt.Errorf("listener creation error: %w", err)
-	}
-
-	// start the http server with context support
-	return s.startServer(ctx, listener)
+	return nil
 }
 
 func (s *VllmSimulator) initDataset(ctx context.Context) error {
