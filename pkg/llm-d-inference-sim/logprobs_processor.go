@@ -26,7 +26,7 @@ import (
 
 // LogprobData represents cached logprob information for a token
 type LogprobData struct {
-	MainLogprob float64                                `json:"main_logprob"`
+	MainLogprob float64                                 `json:"main_logprob"`
 	TopLogprobs []openaiserverapi.ChatCompletionLogProb `json:"top_logprobs"`
 }
 
