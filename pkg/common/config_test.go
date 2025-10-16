@@ -442,6 +442,16 @@ var _ = Describe("Simulator configuration", func() {
 				"--config", "../../manifests/config.yaml"},
 		},
 		{
+			name: "invalid max-waiting-queue-length",
+			args: []string{"cmd", "--max-waiting-queue-length", "0",
+				"--config", "../../manifests/config.yaml"},
+		},
+		{
+			name: "invalid max-waiting-queue-length",
+			args: []string{"cmd", "--max-waiting-queue-length", "-1",
+				"--config", "../../manifests/config.yaml"},
+		},
+		{
 			name: "invalid time-factor-under-load",
 			args: []string{"cmd", "--time-factor-under-load", "0",
 				"--config", "../../manifests/config.yaml"},

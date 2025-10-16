@@ -59,6 +59,8 @@ type Configuration struct {
 	// MaxNumSeqs is maximum number of sequences per iteration (the maximum
 	// number of inference requests that could be processed at the same time)
 	MaxNumSeqs int `yaml:"max-num-seqs" json:"max-num-seqs"`
+	// MaxWaitingQueueLength defines maximum size of waiting requests queue
+	MaxWaitingQueueLength int `yaml:"max-waiting-queue-length" json:"max-waiting-queue-length"`
 	// MaxModelLen is the model's context window, the maximum number of tokens
 	// in a single request including input and output. Default value is 1024.
 	MaxModelLen int `yaml:"max-model-len" json:"max-model-len"`
@@ -287,6 +289,7 @@ func newConfig() *Configuration {
 		Port:                                vLLMDefaultPort,
 		MaxLoras:                            1,
 		MaxNumSeqs:                          5,
+		MaxWaitingQueueLength:               1000,
 		MaxModelLen:                         1024,
 		Mode:                                ModeRandom,
 		Seed:                                time.Now().UnixNano(),
@@ -416,6 +419,10 @@ func (c *Configuration) validate() error {
 		return errors.New("max num seqs cannot be less than 1")
 	}
 
+	if c.MaxWaitingQueueLength < 1 {
+		return errors.New("max waiting queue size cannot be less than 1")
+	}
+
 	for _, lora := range c.LoraModules {
 		if lora.Name == "" {
 			return errors.New("empty LoRA name")
@@ -543,7 +550,8 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 
 	f.IntVar(&config.Port, "port", config.Port, "Port")
 	f.StringVar(&config.Model, "model", config.Model, "Currently 'loaded' model")
-	f.IntVar(&config.MaxNumSeqs, "max-num-seqs", config.MaxNumSeqs, "Maximum number of inference requests that could be processed at the same time (parameter to simulate requests waiting queue)")
+	f.IntVar(&config.MaxNumSeqs, "max-num-seqs", config.MaxNumSeqs, "Maximum number of inference requests that could be processed at the same time")
+	f.IntVar(&config.MaxWaitingQueueLength, "max-waiting-queue-length", config.MaxWaitingQueueLength, "Maximum length of inference requests waiting queue")
 	f.IntVar(&config.MaxLoras, "max-loras", config.MaxLoras, "Maximum number of LoRAs in a single batch")
 	f.IntVar(&config.MaxCPULoras, "max-cpu-loras", config.MaxCPULoras, "Maximum number of LoRAs to store in CPU memory")
 	f.IntVar(&config.MaxModelLen, "max-model-len", config.MaxModelLen, "Model's context window, maximum number of tokens in a single request including input and output")
