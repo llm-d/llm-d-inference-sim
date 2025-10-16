@@ -37,6 +37,7 @@ type streamingContext struct {
 	nPromptTokens       int
 	nCachedPromptTokens int
 	requestID           string
+	request             openaiserverapi.CompletionRequest
 }
 
 // sendStreamingResponse creates and sends a streaming response for completion requests of both types (text and chat)
@@ -62,7 +63,7 @@ func (s *VllmSimulator) sendStreamingResponse(context *streamingContext, respons
 		if len(responseTokens) > 0 || len(toolCalls) > 0 {
 			if context.isChatCompletion {
 				// in chat completion first chunk contains the role
-				chunk := s.createChatCompletionChunk(context, "", nil, openaiserverapi.RoleAssistant, nil)
+				chunk := s.createChatCompletionChunk(context, "", nil, openaiserverapi.RoleAssistant, nil, false, 0)
 				if err := s.sendChunk(w, chunk, ""); err != nil {
 					context.ctx.Error("Sending stream first chunk failed, "+err.Error(), fasthttp.StatusInternalServerError)
 					return
@@ -128,8 +129,16 @@ func (s *VllmSimulator) sendTokenChunks(context *streamingContext, w *bufio.Writ
 		if i == len(genTokens)-1 && (finishReason == dataset.LengthFinishReason || finishReason == dataset.ToolsFinishReason) {
 			finishReasonToSend = &finishReason
 		}
+
+		// Determine if we should include logprobs for this token
+		shouldIncludeLogprobs := context.request != nil && context.request.ShouldIncludeLogprobs()
+		topK := 0
+		if shouldIncludeLogprobs && context.request != nil {
+			topK = context.request.GetTopLogprobs()
+		}
+
 		if context.isChatCompletion {
-			chunk = s.createChatCompletionChunk(context, token, toolChunkInsert, "", finishReasonToSend)
+			chunk = s.createChatCompletionChunk(context, token, toolChunkInsert, "", finishReasonToSend, shouldIncludeLogprobs, topK)
 		} else {
 			chunk = s.createTextCompletionChunk(context, token, finishReasonToSend)
 		}
@@ -144,7 +153,7 @@ func (s *VllmSimulator) sendTokenChunks(context *streamingContext, w *bufio.Writ
 	var chunk openaiserverapi.CompletionRespChunk
 	if finishReason == dataset.StopFinishReason {
 		if context.isChatCompletion {
-			chunk = s.createChatCompletionChunk(context, "", nil, "", &finishReason)
+			chunk = s.createChatCompletionChunk(context, "", nil, "", &finishReason, false, 0)
 		} else {
 			chunk = s.createTextCompletionChunk(context, "", &finishReason)
 		}
@@ -201,7 +210,7 @@ func (s *VllmSimulator) createTextCompletionChunk(context *streamingContext, tok
 // createChatCompletionChunk creates and returns a CompletionRespChunk, a single chunk of streamed completion
 // API response, for chat completion. It sets either role, or token, or tool call info in the message.
 func (s *VllmSimulator) createChatCompletionChunk(context *streamingContext, token string, tool *openaiserverapi.ToolCall,
-	role string, finishReason *string) openaiserverapi.CompletionRespChunk {
+	role string, finishReason *string, includeLogprobs bool, topK int) openaiserverapi.CompletionRespChunk {
 	chunk := openaiserverapi.ChatCompletionRespChunk{
 		BaseCompletionResponse: openaiserverapi.BaseCompletionResponse{
 			ID:      chatComplIDPrefix + common.GenerateUUIDString(),
@@ -224,6 +233,28 @@ func (s *VllmSimulator) createChatCompletionChunk(context *streamingContext, tok
 		chunk.Choices[0].Delta.ToolCalls = []openaiserverapi.ToolCall{*tool}
 	} else if len(token) > 0 {
 		chunk.Choices[0].Delta.Content.Raw = token
+
+		// Generate logprobs for this token if requested
+		if includeLogprobs {
+			mainLogprob, topLps := s.generateSimulatedLogprobs(token, topK)
+
+			// Convert token to bytes
+			bytes := make([]int, len(token))
+			for i, b := range []byte(token) {
+				bytes[i] = int(b)
+			}
+
+			chunk.Choices[0].Logprobs = &openaiserverapi.ChatCompletionLogProbs{
+				Content: []openaiserverapi.ChatCompletionLogProbsContent{
+					{
+						Token:       token,
+						Logprob:     mainLogprob,
+						Bytes:       bytes,
+						TopLogprobs: topLps,
+					},
+				},
+			}
+		}
 	}
 
 	return &chunk

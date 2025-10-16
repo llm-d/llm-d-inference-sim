@@ -67,6 +67,10 @@ type CompletionRequest interface {
 	IsDoRemotePrefill() bool
 	// GetFullPrompt returns the full prompt including system and user prompts
 	GetFullPrompt() string
+	// ShouldIncludeLogprobs returns true if logprobs should be included in the response
+	ShouldIncludeLogprobs() bool
+	// GetTopLogprobs returns the number of top logprobs to include (0 if not requested)
+	GetTopLogprobs() int
 }
 
 // BaseCompletionRequest contains base completion request related information
@@ -178,6 +182,13 @@ type ChatCompletionRequest struct {
 	// possible values: none, auto, required.
 	// Sending an object with a specific tool, is currently not supported.
 	ToolChoice string `json:"tool_choice,omitempty"`
+
+	// Logprobs indicates whether to return log probabilities of the output tokens
+	Logprobs *bool `json:"logprobs,omitempty"`
+
+	// TopLogprobs specifies how many log probability values to return per token (0-20)
+	// Requires Logprobs to be set to true
+	TopLogprobs *int `json:"top_logprobs,omitempty"`
 }
 
 // function defines a tool
@@ -253,6 +264,17 @@ func (req *ChatCompletionRequest) GetFullPrompt() string {
 	return prompt
 }
 
+func (c *ChatCompletionRequest) ShouldIncludeLogprobs() bool {
+	return c.Logprobs != nil && *c.Logprobs
+}
+
+func (c *ChatCompletionRequest) GetTopLogprobs() int {
+	if c.TopLogprobs != nil {
+		return *c.TopLogprobs
+	}
+	return 0
+}
+
 // v1/completion
 // TextCompletionRequest defines structure of /completion request
 type TextCompletionRequest struct {
@@ -266,6 +288,9 @@ type TextCompletionRequest struct {
 	// The token count of your prompt plus `max_tokens` cannot exceed the model's
 	// context length.
 	MaxTokens *int64 `json:"max_tokens"`
+
+	// Logprobs specifies how many log probability values to return (0-5)
+	Logprobs *int `json:"logprobs,omitempty"`
 }
 
 func (t *TextCompletionRequest) GetPrompt() string {
@@ -290,4 +315,15 @@ func (c *TextCompletionRequest) GetMaxCompletionTokens() *int64 {
 
 func (t *TextCompletionRequest) GetFullPrompt() string {
 	return "### user:\n" + t.Prompt + "\n"
+}
+
+func (t *TextCompletionRequest) ShouldIncludeLogprobs() bool {
+	return t.Logprobs != nil && *t.Logprobs > 0
+}
+
+func (t *TextCompletionRequest) GetTopLogprobs() int {
+	if t.Logprobs != nil {
+		return *t.Logprobs
+	}
+	return 0
 }

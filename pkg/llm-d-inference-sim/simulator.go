@@ -118,6 +118,8 @@ type VllmSimulator struct {
 	tokenizer tokenization.Tokenizer
 	// dataset is used for token generation in responses
 	dataset dataset.Dataset
+	// logprobsProcessor handles logprobs generation and caching following vLLM architecture
+	logprobsProcessor *LogprobsProcessor
 }
 
 // New creates a new VllmSimulator instance with the given logger
@@ -128,16 +130,17 @@ func New(logger logr.Logger) (*VllmSimulator, error) {
 	}
 
 	return &VllmSimulator{
-		logger:           logger,
-		reqChan:          make(chan *openaiserverapi.CompletionReqCtx, maxNumberOfRequests),
-		toolsValidator:   toolsValidator,
-		kvcacheHelper:    nil, // kvcache helper will be created only if required after reading configuration
-		namespace:        os.Getenv(podNsEnv),
-		pod:              os.Getenv(podNameEnv),
-		runReqChan:       make(chan int64, maxNumberOfRequests),
-		waitingReqChan:   make(chan int64, maxNumberOfRequests),
-		lorasChan:        make(chan loraUsage, maxNumberOfRequests),
-		kvCacheUsageChan: make(chan float64, maxNumberOfRequests),
+		logger:            logger,
+		reqChan:           make(chan *openaiserverapi.CompletionReqCtx, maxNumberOfRequests),
+		toolsValidator:    toolsValidator,
+		kvcacheHelper:     nil, // kvcache helper will be created only if required after reading configuration
+		namespace:         os.Getenv(podNsEnv),
+		pod:               os.Getenv(podNameEnv),
+		runReqChan:        make(chan int64, maxNumberOfRequests),
+		waitingReqChan:    make(chan int64, maxNumberOfRequests),
+		lorasChan:         make(chan loraUsage, maxNumberOfRequests),
+		kvCacheUsageChan:  make(chan float64, maxNumberOfRequests),
+		logprobsProcessor: NewLogprobsProcessor(10000), // Initialize with 10k cache size following vLLM patterns
 	}, nil
 }
 
@@ -393,6 +396,8 @@ func (s *VllmSimulator) reqProcessingWorker(ctx context.Context, id int) {
 							doRemotePrefill:     req.IsDoRemotePrefill(),
 							nPromptTokens:       usageData.PromptTokens,
 							nCachedPromptTokens: reqCtx.CompletionReq.GetNumberOfCachedPromptTokens(),
+							requestID:           req.GetRequestID(),
+							request:             req,
 						},
 						responseTokens, toolCalls, finishReason, usageDataToSend,
 					)
@@ -427,15 +432,35 @@ func (s *VllmSimulator) responseSentCallback(model string, isChatCompletion bool
 	}
 }
 
+// generateSimulatedLogprobs creates synthetic but realistic-looking logprobs for a token
+// Delegates to LogprobsProcessor following vLLM architecture patterns
+// Returns the main token's logprob and a list of top-k alternative tokens with their logprobs
+func (s *VllmSimulator) generateSimulatedLogprobs(token string, topK int) (float64, []openaiserverapi.ChatCompletionLogProb) {
+	return s.logprobsProcessor.GetLogprobs(token, topK)
+}
+
+// generateChatLogprobs creates logprobs data for chat completions
+// Delegates to LogprobsProcessor following vLLM architecture patterns
+func (s *VllmSimulator) generateChatLogprobs(tokens []string, topK int) *openaiserverapi.ChatCompletionLogProbs {
+	return s.logprobsProcessor.ProcessChatLogprobs(tokens, topK)
+}
+
+// generateTextLogprobs creates logprobs data for text completions
+// Delegates to LogprobsProcessor following vLLM architecture patterns
+func (s *VllmSimulator) generateTextLogprobs(tokens []string, topK int) *openaiserverapi.CompletionLogProbs {
+	return s.logprobsProcessor.ProcessTextLogprobs(tokens, topK)
+}
+
 // createCompletionResponse creates the response for completion requests, supports both completion request types (text and chat)
 // as defined by isChatCompletion
+// req - the original completion request
 // respTokens - tokenized content to be sent in the response
 // toolCalls - tool calls to be sent in the response
 // finishReason - a pointer to string that represents finish reason, can be nil or stop or length, ...
 // usageData - usage (tokens statistics) for this response
 // modelName - display name returned to the client and used in metrics. It is either the first alias
 // from --served-model-name (for a base-model request) or the LoRA adapter name (for a LoRA request).
-func (s *VllmSimulator) createCompletionResponse(isChatCompletion bool, respTokens []string, toolCalls []openaiserverapi.ToolCall,
+func (s *VllmSimulator) createCompletionResponse(req openaiserverapi.CompletionRequest, isChatCompletion bool, respTokens []string, toolCalls []openaiserverapi.ToolCall,
 	finishReason *string, usageData *openaiserverapi.Usage, modelName string, doRemoteDecode bool) openaiserverapi.CompletionResponse {
 	baseResp := openaiserverapi.BaseCompletionResponse{
 		ID:      chatComplIDPrefix + common.GenerateUUIDString(),
@@ -467,16 +492,30 @@ func (s *VllmSimulator) createCompletionResponse(isChatCompletion bool, respToke
 		} else {
 			message.Content = openaiserverapi.Content{Raw: respText}
 		}
+
+		// Generate logprobs if requested
+		var logprobs *openaiserverapi.ChatCompletionLogProbs
+		if req.ShouldIncludeLogprobs() && len(respTokens) > 0 {
+			logprobs = s.generateChatLogprobs(respTokens, req.GetTopLogprobs())
+		}
+
 		return &openaiserverapi.ChatCompletionResponse{
 			BaseCompletionResponse: baseResp,
-			Choices:                []openaiserverapi.ChatRespChoice{{Message: message, BaseResponseChoice: baseChoice}},
+			Choices:                []openaiserverapi.ChatRespChoice{{Message: message, BaseResponseChoice: baseChoice, Logprobs: logprobs}},
 		}
 	}
 
 	baseResp.Object = textCompletionObject
+
+	// Generate logprobs if requested (for text completion)
+	var logprobs *openaiserverapi.CompletionLogProbs
+	if req.ShouldIncludeLogprobs() && len(respTokens) > 0 {
+		logprobs = s.generateTextLogprobs(respTokens, req.GetTopLogprobs())
+	}
+
 	return &openaiserverapi.TextCompletionResponse{
 		BaseCompletionResponse: baseResp,
-		Choices:                []openaiserverapi.TextRespChoice{{BaseResponseChoice: baseChoice, Text: respText}},
+		Choices:                []openaiserverapi.TextRespChoice{{BaseResponseChoice: baseChoice, Text: respText, Logprobs: logprobs}},
 	}
 }
 
@@ -490,7 +529,7 @@ func (s *VllmSimulator) createCompletionResponse(isChatCompletion bool, respToke
 // usageData - usage (tokens statistics) for this response
 func (s *VllmSimulator) sendResponse(reqCtx *openaiserverapi.CompletionReqCtx, respTokens []string, toolCalls []openaiserverapi.ToolCall,
 	modelName string, finishReason string, usageData *openaiserverapi.Usage) {
-	resp := s.createCompletionResponse(reqCtx.IsChatCompletion, respTokens, toolCalls, &finishReason, usageData, modelName,
+	resp := s.createCompletionResponse(reqCtx.CompletionReq, reqCtx.IsChatCompletion, respTokens, toolCalls, &finishReason, usageData, modelName,
 		reqCtx.CompletionReq.IsDoRemoteDecode())
 
 	// calculate how long to wait before returning the response, time is based on number of tokens

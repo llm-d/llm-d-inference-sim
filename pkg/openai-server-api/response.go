@@ -170,11 +170,41 @@ type ToolCall struct {
 	Index int `json:"index"`
 }
 
+// ChatCompletionLogProb represents a single token's log probability information
+type ChatCompletionLogProb struct {
+	// Token is the token string
+	Token string `json:"token"`
+	// Logprob is the log probability of this token
+	Logprob float64 `json:"logprob"`
+	// Bytes is the list of UTF-8 bytes for the token
+	Bytes []int `json:"bytes,omitempty"`
+}
+
+// ChatCompletionLogProbsContent represents log probability information for a single output token
+type ChatCompletionLogProbsContent struct {
+	// Token is the selected token
+	Token string `json:"token"`
+	// Logprob is the log probability of the selected token
+	Logprob float64 `json:"logprob"`
+	// Bytes is the list of UTF-8 bytes for the token
+	Bytes []int `json:"bytes,omitempty"`
+	// TopLogprobs is the list of top log probability candidates
+	TopLogprobs []ChatCompletionLogProb `json:"top_logprobs"`
+}
+
+// ChatCompletionLogProbs represents log probability information for the output
+type ChatCompletionLogProbs struct {
+	// Content is the list of log probabilities for each output token
+	Content []ChatCompletionLogProbsContent `json:"content,omitempty"`
+}
+
 // ChatRespChoice represents a single chat completion response choise
 type ChatRespChoice struct {
 	BaseResponseChoice
 	// Message contains choice's Message
 	Message Message `json:"message"`
+	// Logprobs contains log probability information for the output tokens
+	Logprobs *ChatCompletionLogProbs `json:"logprobs,omitempty"`
 }
 
 // TextCompletionResponse defines structure of /completion response
@@ -184,11 +214,25 @@ type TextCompletionResponse struct {
 	Choices []TextRespChoice `json:"choices"`
 }
 
+// CompletionLogProbs represents log probability information for text completions
+type CompletionLogProbs struct {
+	// TextOffset is the character offset from the start of the completion
+	TextOffset []int `json:"text_offset"`
+	// TokenLogprobs is the log probability of each token
+	TokenLogprobs []float64 `json:"token_logprobs"`
+	// Tokens is the list of tokens
+	Tokens []string `json:"tokens"`
+	// TopLogprobs is the list of top log probability candidates for each token position
+	TopLogprobs []map[string]float64 `json:"top_logprobs,omitempty"`
+}
+
 // TextRespChoice represents a single text completion response choise
 type TextRespChoice struct {
 	BaseResponseChoice
 	// Text defines request's content
 	Text string `json:"text"`
+	// Logprobs contains log probability information
+	Logprobs *CompletionLogProbs `json:"logprobs,omitempty"`
 }
 
 // CompletionRespChunk is an interface that defines a single response chunk
@@ -206,6 +250,8 @@ type ChatRespChunkChoice struct {
 	BaseResponseChoice
 	// Delta is a content of the chunk
 	Delta Message `json:"delta"`
+	// Logprobs contains log probability information for the chunk tokens
+	Logprobs *ChatCompletionLogProbs `json:"logprobs,omitempty"`
 }
 
 // CompletionError defines the simulator's response in case of an error
