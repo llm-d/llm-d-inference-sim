@@ -18,9 +18,12 @@ package llmdinferencesim
 
 import (
 	"testing"
+
+	. "github.com/onsi/gomega"
 )
 
 func TestLogprobsProcessor_Caching(t *testing.T) {
+	RegisterTestingT(t)
 	processor := NewLogprobsProcessor(100)
 
 	// Test that same token generates same logprobs (deterministic)
@@ -31,42 +34,30 @@ func TestLogprobsProcessor_Caching(t *testing.T) {
 	logprob2, topLogprobs2 := processor.GetLogprobs(token, topK)
 
 	// Should be identical (deterministic)
-	if logprob1 != logprob2 {
-		t.Errorf("Expected same logprob for same token, got %.4f and %.4f", logprob1, logprob2)
-	}
-	if len(topLogprobs1) != len(topLogprobs2) {
-		t.Errorf("Expected same topLogprobs length, got %d and %d", len(topLogprobs1), len(topLogprobs2))
-	}
-	if len(topLogprobs1) != topK {
-		t.Errorf("Expected topLogprobs length %d, got %d", topK, len(topLogprobs1))
-	}
+	Expect(logprob1).To(Equal(logprob2))
+	Expect(len(topLogprobs1)).To(Equal(len(topLogprobs2)))
+	Expect(len(topLogprobs1)).To(Equal(topK))
 
 	// Check cache stats
 	hits, misses, hitRate := processor.GetCacheStats()
-	if hits != 1 {
-		t.Errorf("Expected 1 cache hit, got %d", hits)
-	}
-	if misses != 1 {
-		t.Errorf("Expected 1 cache miss, got %d", misses)
-	}
-	if hitRate != 0.5 {
-		t.Errorf("Expected 50%% hit rate, got %.2f", hitRate)
-	}
+	Expect(hits).To(Equal(int64(1)))
+	Expect(misses).To(Equal(int64(1)))
+	Expect(hitRate).To(Equal(0.5))
 }
 
 func TestLogprobsProcessor_DifferentTokens(t *testing.T) {
+	RegisterTestingT(t)
 	processor := NewLogprobsProcessor(100)
 
 	// Test that different tokens generate different logprobs
 	logprob1, _ := processor.GetLogprobs("hello", 2)
 	logprob2, _ := processor.GetLogprobs("world", 2)
 
-	if logprob1 == logprob2 {
-		t.Errorf("Different tokens should have different logprobs, both got %.4f", logprob1)
-	}
+	Expect(logprob1).NotTo(Equal(logprob2))
 }
 
 func TestLogprobsProcessor_DifferentTopK(t *testing.T) {
+	RegisterTestingT(t)
 	processor := NewLogprobsProcessor(100)
 
 	// Test that same token with different topK generates different results
@@ -75,15 +66,12 @@ func TestLogprobsProcessor_DifferentTopK(t *testing.T) {
 	_, topLogprobs1 := processor.GetLogprobs(token, 2)
 	_, topLogprobs2 := processor.GetLogprobs(token, 5)
 
-	if len(topLogprobs1) != 2 {
-		t.Errorf("Expected 2 top logprobs, got %d", len(topLogprobs1))
-	}
-	if len(topLogprobs2) != 5 {
-		t.Errorf("Expected 5 top logprobs, got %d", len(topLogprobs2))
-	}
+	Expect(len(topLogprobs1)).To(Equal(2))
+	Expect(len(topLogprobs2)).To(Equal(5))
 }
 
 func TestLogprobsProcessor_ChatLogprobs(t *testing.T) {
+	RegisterTestingT(t)
 	processor := NewLogprobsProcessor(100)
 
 	tokens := []string{"Hello", "world", "!"}
@@ -91,30 +79,19 @@ func TestLogprobsProcessor_ChatLogprobs(t *testing.T) {
 
 	logprobs := processor.ProcessChatLogprobs(tokens, topK)
 
-	if logprobs == nil {
-		t.Fatal("Expected non-nil chat logprobs")
-	}
-	if len(logprobs.Content) != len(tokens) {
-		t.Errorf("Expected %d content items, got %d", len(tokens), len(logprobs.Content))
-	}
+	Expect(logprobs).NotTo(BeNil())
+	Expect(len(logprobs.Content)).To(Equal(len(tokens)))
 
 	for i, content := range logprobs.Content {
-		if content.Token != tokens[i] {
-			t.Errorf("Expected token %s at index %d, got %s", tokens[i], i, content.Token)
-		}
-		if content.Logprob >= 0 {
-			t.Errorf("Expected negative logprob, got %.4f", content.Logprob)
-		}
-		if len(content.TopLogprobs) != topK {
-			t.Errorf("Expected %d top logprobs, got %d", topK, len(content.TopLogprobs))
-		}
-		if content.Bytes == nil {
-			t.Error("Expected non-nil bytes")
-		}
+		Expect(content.Token).To(Equal(tokens[i]))
+		Expect(content.Logprob).To(BeNumerically("<", 0))
+		Expect(len(content.TopLogprobs)).To(Equal(topK))
+		Expect(content.Bytes).NotTo(BeNil())
 	}
 }
 
 func TestLogprobsProcessor_TextLogprobs(t *testing.T) {
+	RegisterTestingT(t)
 	processor := NewLogprobsProcessor(100)
 
 	tokens := []string{"Hello", "world"}
@@ -122,70 +99,47 @@ func TestLogprobsProcessor_TextLogprobs(t *testing.T) {
 
 	logprobs := processor.ProcessTextLogprobs(tokens, topK)
 
-	if logprobs == nil {
-		t.Fatal("Expected non-nil text logprobs")
-	}
-	if len(logprobs.Tokens) != len(tokens) {
-		t.Errorf("Expected %d tokens, got %d", len(tokens), len(logprobs.Tokens))
-	}
-	if len(logprobs.TokenLogprobs) != len(tokens) {
-		t.Errorf("Expected %d token logprobs, got %d", len(tokens), len(logprobs.TokenLogprobs))
-	}
-	if len(logprobs.TextOffset) != len(tokens) {
-		t.Errorf("Expected %d text offsets, got %d", len(tokens), len(logprobs.TextOffset))
-	}
-	if len(logprobs.TopLogprobs) != len(tokens) {
-		t.Errorf("Expected %d top logprobs arrays, got %d", len(tokens), len(logprobs.TopLogprobs))
-	}
+	Expect(logprobs).NotTo(BeNil())
+	Expect(len(logprobs.Tokens)).To(Equal(len(tokens)))
+	Expect(len(logprobs.TokenLogprobs)).To(Equal(len(tokens)))
+	Expect(len(logprobs.TextOffset)).To(Equal(len(tokens)))
+	Expect(len(logprobs.TopLogprobs)).To(Equal(len(tokens)))
 
 	// Check text offsets are cumulative
 	expectedOffset := 0
 	for i, token := range tokens {
-		if logprobs.TextOffset[i] != expectedOffset {
-			t.Errorf("Expected offset %d at index %d, got %d", expectedOffset, i, logprobs.TextOffset[i])
-		}
-		if logprobs.Tokens[i] != token {
-			t.Errorf("Expected token %s at index %d, got %s", token, i, logprobs.Tokens[i])
-		}
-		if logprobs.TokenLogprobs[i] >= 0 {
-			t.Errorf("Expected negative logprob at index %d, got %.4f", i, logprobs.TokenLogprobs[i])
-		}
-		if len(logprobs.TopLogprobs[i]) != topK {
-			t.Errorf("Expected %d top logprobs at index %d, got %d", topK, i, len(logprobs.TopLogprobs[i]))
-		}
+		Expect(logprobs.TextOffset[i]).To(Equal(expectedOffset))
+		Expect(logprobs.Tokens[i]).To(Equal(token))
+		Expect(logprobs.TokenLogprobs[i]).To(BeNumerically("<", 0))
+		Expect(len(logprobs.TopLogprobs[i])).To(Equal(topK))
 		expectedOffset += len(token)
 	}
 }
 
 func TestLogprobsProcessor_EmptyTokens(t *testing.T) {
+	RegisterTestingT(t)
 	processor := NewLogprobsProcessor(100)
 
 	// Test empty token lists
 	chatLogprobs := processor.ProcessChatLogprobs([]string{}, 3)
 	textLogprobs := processor.ProcessTextLogprobs([]string{}, 3)
 
-	if chatLogprobs != nil {
-		t.Error("Expected nil chat logprobs for empty tokens")
-	}
-	if textLogprobs != nil {
-		t.Error("Expected nil text logprobs for empty tokens")
-	}
+	Expect(chatLogprobs).To(BeNil())
+	Expect(textLogprobs).To(BeNil())
 }
 
 func TestLogprobsProcessor_ZeroTopK(t *testing.T) {
+	RegisterTestingT(t)
 	processor := NewLogprobsProcessor(100)
 
 	logprob, topLogprobs := processor.GetLogprobs("test", 0)
 
-	if logprob >= 0 {
-		t.Errorf("Expected negative logprob, got %.4f", logprob)
-	}
-	if topLogprobs != nil {
-		t.Error("Expected nil top logprobs for topK=0")
-	}
+	Expect(logprob).To(BeNumerically("<", 0))
+	Expect(topLogprobs).To(BeNil())
 }
 
 func TestLogprobsProcessor_CacheEviction(t *testing.T) {
+	RegisterTestingT(t)
 	// Test with very small cache size to trigger eviction
 	processor := NewLogprobsProcessor(2)
 
@@ -195,22 +149,14 @@ func TestLogprobsProcessor_CacheEviction(t *testing.T) {
 	processor.GetLogprobs("token3", 1) // Should trigger eviction
 
 	hits, misses, _ := processor.GetCacheStats()
-	if hits != 0 {
-		t.Errorf("Expected 0 cache hits, got %d", hits)
-	}
-	if misses != 3 {
-		t.Errorf("Expected 3 cache misses, got %d", misses)
-	}
+	Expect(hits).To(Equal(int64(0)))
+	Expect(misses).To(Equal(int64(3)))
 
 	// Access one of the earlier tokens - may or may not be in cache due to eviction
 	processor.GetLogprobs("token1", 1)
 
 	// Cache should be working (some entries may have been evicted)
 	hits2, misses2, _ := processor.GetCacheStats()
-	if hits2 < 0 {
-		t.Errorf("Expected non-negative cache hits, got %d", hits2)
-	}
-	if misses2 < 3 {
-		t.Errorf("Expected at least 3 cache misses, got %d", misses2)
-	}
+	Expect(hits2).To(BeNumerically(">=", 0))
+	Expect(misses2).To(BeNumerically(">=", 3))
 }
