@@ -27,6 +27,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
+	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	vllmapi "github.com/llm-d/llm-d-inference-sim/pkg/vllm-api"
 )
 
@@ -64,7 +65,6 @@ func (s *VllmSimulator) createAndRegisterPrometheus() error {
 		return err
 	}
 
-	// not supported for now, reports constant value
 	s.waitingRequests = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: "",
@@ -79,7 +79,36 @@ func (s *VllmSimulator) createAndRegisterPrometheus() error {
 		return err
 	}
 
-	// not supported for now, reports constant value
+	s.ttft = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Subsystem: "",
+			Name:      "vllm:time_to_first_token_seconds",
+			Help:      "Histogram of time to first token in seconds.",
+			Buckets:   common.TTFTBucketsBoundaries,
+		},
+		[]string{vllmapi.PromLabelModelName},
+	)
+
+	if err := s.registry.Register(s.ttft); err != nil {
+		s.logger.Error(err, "Prometheus time to first token histogram register failed")
+		return err
+	}
+
+	s.tpot = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Subsystem: "",
+			Name:      "vllm:time_per_output_token_seconds",
+			Help:      "Histogram of time per output token in seconds.",
+			Buckets:   common.TPOTBucketsBoundaries,
+		},
+		[]string{vllmapi.PromLabelModelName},
+	)
+
+	if err := s.registry.Register(s.tpot); err != nil {
+		s.logger.Error(err, "Prometheus time per output token histogram register failed")
+		return err
+	}
+
 	s.kvCacheUsagePercentage = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: "",
@@ -107,7 +136,26 @@ func (s *VllmSimulator) setInitialPrometheusMetrics() {
 		nRunningReqs = float64(s.config.FakeMetrics.RunningRequests)
 		nWaitingReqs = float64(s.config.FakeMetrics.WaitingRequests)
 		kvCacheUsage = float64(s.config.FakeMetrics.KVCacheUsagePercentage)
+
+		if s.config.FakeMetrics.TTFTBucketValues != nil {
+			for i, bucketVal := range s.config.FakeMetrics.TTFTBucketValues {
+				for range bucketVal {
+					s.ttft.WithLabelValues(s.getDisplayedModelName(s.config.Model)).
+						Observe(common.TTFTBucketsBoundaries[i])
+				}
+			}
+		}
+
+		if s.config.FakeMetrics.TPOTBucketValues != nil {
+			for i, bucketVal := range s.config.FakeMetrics.TPOTBucketValues {
+				for range bucketVal {
+					s.tpot.WithLabelValues(s.getDisplayedModelName(s.config.Model)).
+						Observe(common.TPOTBucketsBoundaries[i])
+				}
+			}
+		}
 	}
+
 	modelName := s.getDisplayedModelName(s.config.Model)
 	s.runningRequests.WithLabelValues(modelName).Set(nRunningReqs)
 	s.waitingRequests.WithLabelValues(modelName).Set(nWaitingReqs)
@@ -181,6 +229,28 @@ func (s *VllmSimulator) reportWaitingRequests() {
 	}
 }
 
+// reportTTFT sets information about time to first token
+func (s *VllmSimulator) reportTTFT(ttftInSecs float64) {
+	if s.config.FakeMetrics != nil {
+		return
+	}
+	if s.ttft != nil {
+		s.ttft.WithLabelValues(
+			s.getDisplayedModelName(s.config.Model)).Observe(ttftInSecs)
+	}
+}
+
+// reportTTFT sets information about time per output token
+func (s *VllmSimulator) reportTPOT(tpotInSecs float64) {
+	if s.config.FakeMetrics != nil {
+		return
+	}
+	if s.tpot != nil {
+		s.tpot.WithLabelValues(
+			s.getDisplayedModelName(s.config.Model)).Observe(tpotInSecs)
+	}
+}
+
 // reportKVCacheUsage sets information about kv cache usage
 func (s *VllmSimulator) reportKVCacheUsage(value float64) {
 	if s.config.FakeMetrics != nil {
@@ -198,6 +268,8 @@ func (s *VllmSimulator) startMetricsUpdaters(ctx context.Context) {
 	go s.runningRequestsUpdater(ctx)
 	go s.lorasUpdater(ctx)
 	go s.kvCacheUsageUpdater(ctx)
+	go s.ttftUpdater(ctx)
+	go s.tpotUpdater(ctx)
 }
 
 // waitingRequestsUpdater updates the waiting requests metric by listening on the relevant channel
@@ -234,6 +306,30 @@ func (s *VllmSimulator) kvCacheUsageUpdater(ctx context.Context) {
 			return
 		case value := <-s.kvCacheUsageChan:
 			s.reportKVCacheUsage(value)
+		}
+	}
+}
+
+// ttftUpdater updates the time to first token metric by listening on the relevant channel
+func (s *VllmSimulator) ttftUpdater(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case value := <-s.ttftChan:
+			s.reportTTFT(value)
+		}
+	}
+}
+
+// tpotUpdater updates the time per output token metric by listening on the relevant channel
+func (s *VllmSimulator) tpotUpdater(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case value := <-s.tpotChan:
+			s.reportTPOT(value)
 		}
 	}
 }

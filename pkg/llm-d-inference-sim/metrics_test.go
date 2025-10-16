@@ -464,7 +464,7 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 			ctx := context.TODO()
 			args := []string{"cmd", "--model", model, "--mode", common.ModeRandom,
 				"--fake-metrics",
-				"{\"running-requests\":10,\"waiting-requests\":30,\"kv-cache-usage\":0.4,\"loras\":[{\"running\":\"lora4,lora2\",\"waiting\":\"lora3\",\"timestamp\":1257894567},{\"running\":\"lora4,lora3\",\"waiting\":\"\",\"timestamp\":1257894569}]}",
+				"{\"running-requests\":10,\"waiting-requests\":30,\"kv-cache-usage\":0.4,\"loras\":[{\"running\":\"lora4,lora2\",\"waiting\":\"lora3\",\"timestamp\":1257894567},{\"running\":\"lora4,lora3\",\"waiting\":\"\",\"timestamp\":1257894569}],\"ttft-buckets-values\":[1, 2, 3],\"tpot-buckets-values\": [0, 0, 1, 2, 3]}",
 			}
 
 			client, err := startServerWithArgs(ctx, common.ModeRandom, args, nil)
@@ -482,6 +482,18 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 			Expect(metrics).To(ContainSubstring("vllm:gpu_cache_usage_perc{model_name=\"my_model\"} 0.4"))
 			Expect(metrics).To(ContainSubstring("vllm:lora_requests_info{max_lora=\"1\",running_lora_adapters=\"lora4,lora2\",waiting_lora_adapters=\"lora3\"} 1.257894567e+09"))
 			Expect(metrics).To(ContainSubstring("vllm:lora_requests_info{max_lora=\"1\",running_lora_adapters=\"lora4,lora3\",waiting_lora_adapters=\"\"} 1.257894569e+09"))
+
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"0.001\"} 1"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"0.005\"} 3"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"0.01\"} 6"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"0.02\"} 6"))
+
+			Expect(metrics).To(ContainSubstring("vllm:time_per_output_token_seconds_bucket{model_name=\"my_model\",le=\"0.01\"} 0"))
+			Expect(metrics).To(ContainSubstring("vllm:time_per_output_token_seconds_bucket{model_name=\"my_model\",le=\"0.025\"} 0"))
+			Expect(metrics).To(ContainSubstring("vllm:time_per_output_token_seconds_bucket{model_name=\"my_model\",le=\"0.05\"} 1"))
+			Expect(metrics).To(ContainSubstring("vllm:time_per_output_token_seconds_bucket{model_name=\"my_model\",le=\"0.075\"} 3"))
+			Expect(metrics).To(ContainSubstring("vllm:time_per_output_token_seconds_bucket{model_name=\"my_model\",le=\"0.1\"} 6"))
+			Expect(metrics).To(ContainSubstring("vllm:time_per_output_token_seconds_bucket{model_name=\"my_model\",le=\"0.15\"} 6"))
 		})
 	})
 })
