@@ -167,10 +167,10 @@ func (s *VllmSimulator) setInitialPrometheusMetrics() {
 }
 
 // initFakeHistogram initializes the given histogram values based on the input
-// bucketsBoundaries - upper boudaries of all buckets except the last one. Actual number pf buckets is len(bucketsBoundaries)+1.
+// bucketsBoundaries - upper boudaries of all buckets except the last one. Actual number of buckets is len(bucketsBoundaries)+1.
 // This includes the last bucket (last_boundary, +Inf].
 // bucketsSamplesCount - array containing number of samples per bucket, starting from the first bucket.
-// Trailing empty buckets are not included in this array, so it length could be <= len(bucketsBoundaries)+1
+// Trailing empty buckets are not included in this array, so its length can be <= len(bucketsBoundaries)+1
 func (s *VllmSimulator) initFakeHistogram(hist *prometheus.HistogramVec, bucketsBoundaries []float64, bucketsSamplesCount []int) {
 	var valueToObserve float64
 	numOfBoundaries := len(bucketsBoundaries)

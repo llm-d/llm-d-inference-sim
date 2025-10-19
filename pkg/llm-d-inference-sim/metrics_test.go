@@ -374,7 +374,7 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 			Expect(metrics).To(ContainSubstring("vllm:time_per_output_token_seconds_bucket{model_name=\"my_model\",le=\"0.05\"} 0"))
 			Expect(metrics).To(ContainSubstring("vllm:time_per_output_token_seconds_bucket{model_name=\"my_model\",le=\"0.075\"} 0"))
 
-			metricsLines := strings.Split(string(metrics), "\n")
+			metricsLines := strings.Split(metrics, "\n")
 			// the following values should be greater than 0, we don't know the exact value since it depends on the random response length
 			count := findIntMetric(metricsLines, "vllm:time_per_output_token_seconds_bucket{model_name=\"my_model\",le=\"0.1\"}")
 			Expect(count).ToNot(BeNil())
