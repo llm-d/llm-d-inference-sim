@@ -28,13 +28,7 @@ import (
 	"strings"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
-<<<<<<< HEAD
 	"github.com/llm-d/llm-d-inference-sim/pkg/dataset"
-	kvcache "github.com/llm-d/llm-d-inference-sim/pkg/kv-cache"
-	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
-	"github.com/llm-d/llm-d-kv-cache-manager/pkg/tokenization"
-=======
->>>>>>> b5dce9e (Tests)
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/openai/openai-go"
