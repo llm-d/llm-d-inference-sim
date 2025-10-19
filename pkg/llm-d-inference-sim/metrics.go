@@ -169,6 +169,7 @@ func (s *VllmSimulator) setInitialPrometheusMetrics() {
 func (s *VllmSimulator) initFakeHistogram(hist *prometheus.HistogramVec, bucketsBoundaries []float64, bucketValues []int) {
 	var valueToObserve float64
 	numOfBuckets := len(bucketsBoundaries)
+	modelName := s.getDisplayedModelName(s.config.Model)
 
 	for i, bucketVal := range bucketValues {
 		if i < numOfBuckets {
@@ -179,8 +180,7 @@ func (s *VllmSimulator) initFakeHistogram(hist *prometheus.HistogramVec, buckets
 		}
 
 		for range bucketVal {
-			hist.WithLabelValues(s.getDisplayedModelName(s.config.Model)).
-				Observe(valueToObserve)
+			hist.WithLabelValues(modelName).Observe(valueToObserve)
 		}
 	}
 }
