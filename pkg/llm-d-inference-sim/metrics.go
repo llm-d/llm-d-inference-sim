@@ -138,21 +138,11 @@ func (s *VllmSimulator) setInitialPrometheusMetrics() {
 		kvCacheUsage = float64(s.config.FakeMetrics.KVCacheUsagePercentage)
 
 		if s.config.FakeMetrics.TTFTBucketValues != nil {
-			for i, bucketVal := range s.config.FakeMetrics.TTFTBucketValues {
-				for range bucketVal {
-					s.ttft.WithLabelValues(s.getDisplayedModelName(s.config.Model)).
-						Observe(common.TTFTBucketsBoundaries[i])
-				}
-			}
+			s.initFakeHistogram(s.ttft, common.TTFTBucketsBoundaries, s.config.FakeMetrics.TTFTBucketValues)
 		}
 
 		if s.config.FakeMetrics.TPOTBucketValues != nil {
-			for i, bucketVal := range s.config.FakeMetrics.TPOTBucketValues {
-				for range bucketVal {
-					s.tpot.WithLabelValues(s.getDisplayedModelName(s.config.Model)).
-						Observe(common.TPOTBucketsBoundaries[i])
-				}
-			}
+			s.initFakeHistogram(s.tpot, common.TPOTBucketsBoundaries, s.config.FakeMetrics.TPOTBucketValues)
 		}
 	}
 
@@ -173,6 +163,25 @@ func (s *VllmSimulator) setInitialPrometheusMetrics() {
 			strconv.Itoa(s.config.MaxLoras),
 			"",
 			"").Set(float64(time.Now().Unix()))
+	}
+}
+
+func (s *VllmSimulator) initFakeHistogram(hist *prometheus.HistogramVec, bucketsBoundaries []float64, bucketValues []int) {
+	var valueToObserve float64
+	numOfBuckets := len(bucketsBoundaries)
+
+	for i, bucketVal := range bucketValues {
+		if i < numOfBuckets {
+			valueToObserve = bucketsBoundaries[i]
+		} else {
+			// this is last bucket - use number larger than the upper bound of the last bucket
+			valueToObserve = bucketsBoundaries[len(bucketsBoundaries)-1] + 1
+		}
+
+		for range bucketVal {
+			hist.WithLabelValues(s.getDisplayedModelName(s.config.Model)).
+				Observe(valueToObserve)
+		}
 	}
 }
 

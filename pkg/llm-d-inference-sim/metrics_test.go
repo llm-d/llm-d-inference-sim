@@ -19,6 +19,7 @@ package llmdinferencesim
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -494,6 +495,54 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 			Expect(metrics).To(ContainSubstring("vllm:time_per_output_token_seconds_bucket{model_name=\"my_model\",le=\"0.075\"} 3"))
 			Expect(metrics).To(ContainSubstring("vllm:time_per_output_token_seconds_bucket{model_name=\"my_model\",le=\"0.1\"} 6"))
 			Expect(metrics).To(ContainSubstring("vllm:time_per_output_token_seconds_bucket{model_name=\"my_model\",le=\"0.15\"} 6"))
+		})
+	})
+
+	Context("fake ttft metrics", func() {
+		It("Should respond with fake ttft metrics to /metrics", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", model, "--mode", common.ModeRandom,
+				"--fake-metrics",
+				"{\"ttft-buckets-values\":[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]}",
+			}
+
+			client, err := startServerWithArgs(ctx, common.ModeRandom, args, nil)
+			Expect(err).NotTo(HaveOccurred())
+
+			resp, err := client.Get(metricsUrl)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+			data, err := io.ReadAll(resp.Body)
+			Expect(err).NotTo(HaveOccurred())
+			metrics := string(data)
+
+			fmt.Println("---MAYA---")
+			fmt.Println(metrics)
+
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"0.001\"} 0"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"0.005\"} 0"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"0.01\"} 0"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"0.02\"} 0"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"0.04\"} 0"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"0.06\"} 0"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"0.08\"} 0"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"0.1\"} 0"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"0.25\"} 0"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"0.5\"} 0"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"0.75\"} 0"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"1\"} 0"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"2.5\"} 0"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"5\"} 0"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"7.5\"} 0"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"10\"} 0"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"20\"} 0"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"40\"} 0"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"80\"} 0"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"160\"} 0"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"640\"} 0"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"2560\"} 0"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"+Inf\"} 1"))
 		})
 	})
 })
