@@ -108,13 +108,11 @@ func (s *VllmSimulator) sendTokenChunks(context *streamingContext, w *bufio.Writ
 
 	for i, token := range genTokens {
 		if i != 0 {
-			time.Sleep(time.Duration(s.getInterTokenLatency()) * time.Millisecond)
+			interTokenLat := s.getInterTokenLatency()
+			time.Sleep(time.Duration(interTokenLat) * time.Millisecond)
+			// report tpot in seconds
+			s.tpotChan <- float64(interTokenLat) / 1000
 		}
-
-		interTokenLat := s.getInterTokenLatency()
-		time.Sleep(time.Duration(interTokenLat) * time.Millisecond)
-		// report tpot in seconds
-		s.tpotChan <- float64(interTokenLat) / 1000
 
 		var toolChunkInsert *openaiserverapi.ToolCall
 		if tc != nil {

@@ -458,6 +458,11 @@ var _ = Describe("Simulator configuration", func() {
 			args: []string{"cmd", "--ttft-buckets-values", "[1, 2, -10, 1]",
 				"--config", "../../manifests/config.yaml"},
 		},
+		{
+			name: "invalid tpot",
+			args: []string{"cmd", "--tpot-buckets-values", "[1, 2, -10, 1]",
+				"--config", "../../manifests/config.yaml"},
+		},
 	}
 
 	for _, test := range invalidTests {

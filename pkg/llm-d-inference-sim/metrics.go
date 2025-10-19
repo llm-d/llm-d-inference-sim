@@ -166,20 +166,29 @@ func (s *VllmSimulator) setInitialPrometheusMetrics() {
 	}
 }
 
-func (s *VllmSimulator) initFakeHistogram(hist *prometheus.HistogramVec, bucketsBoundaries []float64, bucketValues []int) {
+// initFakeHistogram initializes the given histogram values based on the input
+// bucketsBoundaries - upper boudaries of all buckets except the last one. Actual number pf buckets is len(bucketsBoundaries)+1.
+// This includes the last bucket (last_boundary, +Inf].
+// bucketsSamplesCount - array containing number of samples per bucket, starting from the first bucket.
+// Trailing empty buckets are not included in this array, so it length could be <= len(bucketsBoundaries)+1
+func (s *VllmSimulator) initFakeHistogram(hist *prometheus.HistogramVec, bucketsBoundaries []float64, bucketsSamplesCount []int) {
 	var valueToObserve float64
-	numOfBuckets := len(bucketsBoundaries)
+	numOfBoundaries := len(bucketsBoundaries)
 	modelName := s.getDisplayedModelName(s.config.Model)
 
-	for i, bucketVal := range bucketValues {
-		if i < numOfBuckets {
+	for i, bucketSamplesCount := range bucketsSamplesCount {
+		// for each bucket calculate value to use for Observe function
+		// for all buckets except the last one it will be the upper boundary (which is included in the bucket)
+		// for the last bucket it will be top boundary of the previous bucket + 1
+		if i < numOfBoundaries {
 			valueToObserve = bucketsBoundaries[i]
 		} else {
-			// this is last bucket - use number larger than the upper bound of the last bucket
-			valueToObserve = bucketsBoundaries[len(bucketsBoundaries)-1] + 1
+			// this is last bucket - use number larger than the upper bound of the previous bucket
+			valueToObserve = bucketsBoundaries[numOfBoundaries-1] + 1
 		}
 
-		for range bucketVal {
+		for range bucketSamplesCount {
+			// create required number of observations for the calculated sample
 			hist.WithLabelValues(modelName).Observe(valueToObserve)
 		}
 	}
@@ -249,7 +258,7 @@ func (s *VllmSimulator) reportTTFT(ttftInSecs float64) {
 	}
 }
 
-// reportTTFT sets information about time per output token
+// reportTPOT sets information about time per output token
 func (s *VllmSimulator) reportTPOT(tpotInSecs float64) {
 	if s.config.FakeMetrics != nil {
 		return

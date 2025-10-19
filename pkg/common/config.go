@@ -209,17 +209,17 @@ type Metrics struct {
 	WaitingRequests int64 `yaml:"waiting-requests" json:"waiting-requests"`
 	// KVCacheUsagePercentage  is the fraction of KV-cache blocks currently in use (from 0 to 1)
 	KVCacheUsagePercentage float32 `yaml:"kv-cache-usage" json:"kv-cache-usage"`
-	// TTFTBuckets  is an array of values for time-to-first-token buckets,
+	// TTFTBuckets is an array of values for time-to-first-token buckets,
 	// each value in this array is a value for the corresponding bucket.
-	// Array may contain less values than number of buckets, all missing values assumed as 0.
-	// Buckets upper boundaries are:
+	// Array may contain less values than number of buckets, all trailing missing values assumed as 0.
+	// Buckets upper boundaries in seconds are:
 	// 0.001, 0.005, 0.01, 0.02, 0.04, 0.06, 0.08, 0.1, 0.25, 0.5,
 	// 0.75, 1.0, 2.5, 5.0, 7.5, 10.0, 20.0, 40.0, 80.0, 160.0, 640.0, 2560.0, +Inf
 	TTFTBucketValues []int `yaml:"ttft-buckets-values" json:"ttft-buckets-values"`
-	// TPOTBuckets  is an array of values for time-per-output-token buckets,
+	// TPOTBuckets is an array of values for time-per-output-token buckets,
 	// each value in this array is a value for the corresponding bucket.
-	// Array may contain less values than number of buckets, all missing values assumed as 0.
-	// Buckets upper boundaries are:
+	// Array may contain less values than number of buckets, all trailing missing values assumed as 0.
+	// Buckets upper boundaries in seconds are:
 	// 0.01, 0.025, 0.05, 0.075, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5, 0.75,
 	// 1.0, 2.5, 5.0, 7.5, 10.0, 20.0, 40.0, 80.0, +Inf
 	TPOTBucketValues []int `yaml:"tpot-buckets-values" json:"tpot-buckets-values"`
