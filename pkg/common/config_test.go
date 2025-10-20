@@ -203,6 +203,8 @@ var _ = Describe("Simulator configuration", func() {
 			"{\"running\":\"lora1,lora2\",\"waiting\":\"lora3\",\"timestamp\":1257894567}",
 			"{\"running\":\"lora1,lora3\",\"waiting\":\"\",\"timestamp\":1257894569}",
 		},
+		TTFTBucketValues: []int{10, 20, 30, 10},
+		TPOTBucketValues: []int{0, 0, 10, 20, 30},
 	}
 	test = testCase{
 		name:           "config with fake metrics file",
@@ -449,6 +451,16 @@ var _ = Describe("Simulator configuration", func() {
 		{
 			name: "invalid time-factor-under-load",
 			args: []string{"cmd", "--time-factor-under-load", "-1",
+				"--config", "../../manifests/config.yaml"},
+		},
+		{
+			name: "invalid ttft",
+			args: []string{"cmd", "--ttft-buckets-values", "[1, 2, -10, 1]",
+				"--config", "../../manifests/config.yaml"},
+		},
+		{
+			name: "invalid tpot",
+			args: []string{"cmd", "--tpot-buckets-values", "[1, 2, -10, 1]",
 				"--config", "../../manifests/config.yaml"},
 		},
 	}

@@ -24,6 +24,13 @@ import (
 	"github.com/google/uuid"
 )
 
+// Definition of buckets for time-to-first-token and time-per-output-token metrics, each value is an upper boundary of a bucket
+var TTFTBucketsBoundaries = []float64{0.001, 0.005, 0.01, 0.02, 0.04, 0.06, 0.08, 0.1, 0.25, 0.5,
+	0.75, 1.0, 2.5, 5.0, 7.5, 10.0, 20.0, 40.0, 80.0, 160.0, 640.0,
+	2560.0}
+var TPOTBucketsBoundaries = []float64{0.01, 0.025, 0.05, 0.075, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5, 0.75,
+	1.0, 2.5, 5.0, 7.5, 10.0, 20.0, 40.0, 80.0}
+
 // ValidateContextWindow checks if the request fits within the model's context window
 // Returns validation result, actual completion tokens, and total tokens
 func ValidateContextWindow(promptTokens int, maxCompletionTokens *int64, maxModelLen int) (bool, int64, int64) {

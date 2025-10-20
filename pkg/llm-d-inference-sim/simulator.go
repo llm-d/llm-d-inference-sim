@@ -92,6 +92,10 @@ type VllmSimulator struct {
 	nWaitingReqs int64
 	// waitingReqChan is a channel to update nWaitingReqs
 	waitingReqChan chan int64
+	// ttftChan is a channel to update time to first token
+	ttftChan chan float64
+	// tpotChan is a channel to update time per output token
+	tpotChan chan float64
 	// kvCacheUsageChan is a channel to update kvCacheUsagePercentage
 	kvCacheUsageChan chan float64
 	// registry is a Prometheus registry
@@ -102,6 +106,10 @@ type VllmSimulator struct {
 	runningRequests *prometheus.GaugeVec
 	// waitingRequests is prometheus gauge for number of queued requests
 	waitingRequests *prometheus.GaugeVec
+	// ttft is prometheus histogram for time to first token in seconds
+	ttft *prometheus.HistogramVec
+	// tpot is prometheus histogram for time per output token in seconds
+	tpot *prometheus.HistogramVec
 	// kvCacheUsagePercentage is prometheus gauge
 	kvCacheUsagePercentage *prometheus.GaugeVec
 	// channel for requeasts to be passed to workers
@@ -136,6 +144,8 @@ func New(logger logr.Logger) (*VllmSimulator, error) {
 		pod:              os.Getenv(podNameEnv),
 		runReqChan:       make(chan int64, maxNumberOfRequests),
 		waitingReqChan:   make(chan int64, maxNumberOfRequests),
+		ttftChan:         make(chan float64, maxNumberOfRequests),
+		tpotChan:         make(chan float64, maxNumberOfRequests),
 		lorasChan:        make(chan loraUsage, maxNumberOfRequests),
 		kvCacheUsageChan: make(chan float64, maxNumberOfRequests),
 	}, nil
@@ -497,9 +507,16 @@ func (s *VllmSimulator) sendResponse(reqCtx *openaiserverapi.CompletionReqCtx, r
 	nCachedPromptTokens := reqCtx.CompletionReq.GetNumberOfCachedPromptTokens()
 	ttft := s.getWaitTimeToFirstToken(usageData.PromptTokens, nCachedPromptTokens, reqCtx.CompletionReq.IsDoRemotePrefill())
 	time.Sleep(time.Duration(ttft) * time.Millisecond)
+
+	// report ttft in seconds
+	s.ttftChan <- (float64(ttft) / 1000)
+
 	for range usageData.CompletionTokens - 1 {
 		perTokenLatency := s.getInterTokenLatency()
 		time.Sleep(time.Duration(perTokenLatency) * time.Millisecond)
+
+		// report tpot in seconds
+		s.tpotChan <- float64(perTokenLatency) / 1000
 	}
 
 	s.sendCompletionResponse(reqCtx.HTTPReqCtx, resp)

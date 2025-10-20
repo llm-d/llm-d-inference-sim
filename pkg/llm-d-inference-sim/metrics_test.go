@@ -306,6 +306,129 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 		Expect(bothRunningTimestamp <= emptyTimestamp).To(BeTrue())
 	})
 
+	It("Should send correct ttft and tpot metrics", func() {
+		modelName := "my_model"
+		// Send one request, check that ttft and tpot are as defined in the simulator command line params
+		ctx := context.TODO()
+		args := []string{"cmd", "--model", modelName, "--mode", common.ModeRandom,
+			"--time-to-first-token", "200", "--inter-token-latency", "100"}
+
+		client, err := startServerWithArgs(ctx, common.ModeRandom, args, nil)
+		Expect(err).NotTo(HaveOccurred())
+
+		openaiclient, params := getOpenAIClentAndChatParams(client, modelName, userMessage, false)
+		params.MaxTokens = openai.Int(5)
+
+		var reqWg, metricsWg sync.WaitGroup
+		metricsWg.Add(1)
+		reqWg.Add(1)
+
+		go func() {
+			defer reqWg.Done()
+			defer GinkgoRecover()
+
+			_, err := openaiclient.Chat.Completions.New(ctx, params)
+			Expect(err).NotTo(HaveOccurred())
+		}()
+
+		go func() {
+			defer metricsWg.Done()
+			defer GinkgoRecover()
+
+			reqWg.Wait()
+			time.Sleep(300 * time.Millisecond)
+			metricsResp, err := client.Get(metricsUrl)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
+
+			data, err := io.ReadAll(metricsResp.Body)
+			Expect(err).NotTo(HaveOccurred())
+			metrics := string(data)
+			// ttft
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"0.001\"} 0"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"0.005\"} 0"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"0.01\"} 0"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"0.02\"} 0"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"0.04\"} 0"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"0.06\"} 0"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"0.08\"} 0"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"0.1\"} 0"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"0.25\"} 1"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"0.5\"} 1"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"0.75\"} 1"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"1\"} 1"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"2.5\"} 1"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"5\"} 1"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"7.5\"} 1"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"10\"} 1"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"20\"} 1"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"40\"} 1"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"80\"} 1"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"160\"} 1"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"640\"} 1"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"2560\"} 1"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"+Inf\"} 1"))
+			// tpot
+			Expect(metrics).To(ContainSubstring("vllm:time_per_output_token_seconds_bucket{model_name=\"my_model\",le=\"0.01\"} 0"))
+			Expect(metrics).To(ContainSubstring("vllm:time_per_output_token_seconds_bucket{model_name=\"my_model\",le=\"0.025\"} 0"))
+			Expect(metrics).To(ContainSubstring("vllm:time_per_output_token_seconds_bucket{model_name=\"my_model\",le=\"0.05\"} 0"))
+			Expect(metrics).To(ContainSubstring("vllm:time_per_output_token_seconds_bucket{model_name=\"my_model\",le=\"0.075\"} 0"))
+
+			metricsLines := strings.Split(metrics, "\n")
+			// the following values should be greater than 0, we don't know the exact value since it depends on the random response length
+			count := findIntMetric(metricsLines, "vllm:time_per_output_token_seconds_bucket{model_name=\"my_model\",le=\"0.1\"}")
+			Expect(count).ToNot(BeNil())
+			Expect(*count).To(BeNumerically(">", 0))
+			count = findIntMetric(metricsLines, "vllm:time_per_output_token_seconds_bucket{model_name=\"my_model\",le=\"0.15\"}")
+			Expect(count).ToNot(BeNil())
+			Expect(*count).To(BeNumerically(">", 0))
+			count = findIntMetric(metricsLines, "vllm:time_per_output_token_seconds_bucket{model_name=\"my_model\",le=\"0.2\"}")
+			Expect(count).ToNot(BeNil())
+			Expect(*count).To(BeNumerically(">", 0))
+			count = findIntMetric(metricsLines, "vllm:time_per_output_token_seconds_bucket{model_name=\"my_model\",le=\"0.3\"}")
+			Expect(count).ToNot(BeNil())
+			Expect(*count).To(BeNumerically(">", 0))
+			count = findIntMetric(metricsLines, "vllm:time_per_output_token_seconds_bucket{model_name=\"my_model\",le=\"0.4\"}")
+			Expect(count).ToNot(BeNil())
+			Expect(*count).To(BeNumerically(">", 0))
+			count = findIntMetric(metricsLines, "vllm:time_per_output_token_seconds_bucket{model_name=\"my_model\",le=\"0.5\"}")
+			Expect(count).ToNot(BeNil())
+			Expect(*count).To(BeNumerically(">", 0))
+			count = findIntMetric(metricsLines, "vllm:time_per_output_token_seconds_bucket{model_name=\"my_model\",le=\"0.75\"}")
+			Expect(count).ToNot(BeNil())
+			Expect(*count).To(BeNumerically(">", 0))
+			count = findIntMetric(metricsLines, "vllm:time_per_output_token_seconds_bucket{model_name=\"my_model\",le=\"1\"}")
+			Expect(count).ToNot(BeNil())
+			Expect(*count).To(BeNumerically(">", 0))
+			count = findIntMetric(metricsLines, "vllm:time_per_output_token_seconds_bucket{model_name=\"my_model\",le=\"2.5\"}")
+			Expect(count).ToNot(BeNil())
+			Expect(*count).To(BeNumerically(">", 0))
+			count = findIntMetric(metricsLines, "vllm:time_per_output_token_seconds_bucket{model_name=\"my_model\",le=\"5\"}")
+			Expect(count).ToNot(BeNil())
+			Expect(*count).To(BeNumerically(">", 0))
+			count = findIntMetric(metricsLines, "vllm:time_per_output_token_seconds_bucket{model_name=\"my_model\",le=\"7.5\"}")
+			Expect(count).ToNot(BeNil())
+			Expect(*count).To(BeNumerically(">", 0))
+			count = findIntMetric(metricsLines, "vllm:time_per_output_token_seconds_bucket{model_name=\"my_model\",le=\"10\"}")
+			Expect(count).ToNot(BeNil())
+			Expect(*count).To(BeNumerically(">", 0))
+			count = findIntMetric(metricsLines, "vllm:time_per_output_token_seconds_bucket{model_name=\"my_model\",le=\"20\"}")
+			Expect(count).ToNot(BeNil())
+			Expect(*count).To(BeNumerically(">", 0))
+			count = findIntMetric(metricsLines, "vllm:time_per_output_token_seconds_bucket{model_name=\"my_model\",le=\"40\"}")
+			Expect(count).ToNot(BeNil())
+			Expect(*count).To(BeNumerically(">", 0))
+			count = findIntMetric(metricsLines, "vllm:time_per_output_token_seconds_bucket{model_name=\"my_model\",le=\"80\"}")
+			Expect(count).ToNot(BeNil())
+			Expect(*count).To(BeNumerically(">", 0))
+			count = findIntMetric(metricsLines, "vllm:time_per_output_token_seconds_bucket{model_name=\"my_model\",le=\"+Inf\"}")
+			Expect(count).ToNot(BeNil())
+			Expect(*count).To(BeNumerically(">", 0))
+		}()
+
+		metricsWg.Wait()
+	})
+
 	Context("kv cache metrics", func() {
 		tmpDir := "./tests-tmp/"
 		AfterAll(func() {
@@ -464,7 +587,7 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 			ctx := context.TODO()
 			args := []string{"cmd", "--model", model, "--mode", common.ModeRandom,
 				"--fake-metrics",
-				"{\"running-requests\":10,\"waiting-requests\":30,\"kv-cache-usage\":0.4,\"loras\":[{\"running\":\"lora4,lora2\",\"waiting\":\"lora3\",\"timestamp\":1257894567},{\"running\":\"lora4,lora3\",\"waiting\":\"\",\"timestamp\":1257894569}]}",
+				"{\"running-requests\":10,\"waiting-requests\":30,\"kv-cache-usage\":0.4,\"loras\":[{\"running\":\"lora4,lora2\",\"waiting\":\"lora3\",\"timestamp\":1257894567},{\"running\":\"lora4,lora3\",\"waiting\":\"\",\"timestamp\":1257894569}],\"ttft-buckets-values\":[1, 2, 3],\"tpot-buckets-values\": [0, 0, 1, 2, 3]}",
 			}
 
 			client, err := startServerWithArgs(ctx, common.ModeRandom, args, nil)
@@ -482,6 +605,63 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 			Expect(metrics).To(ContainSubstring("vllm:gpu_cache_usage_perc{model_name=\"my_model\"} 0.4"))
 			Expect(metrics).To(ContainSubstring("vllm:lora_requests_info{max_lora=\"1\",running_lora_adapters=\"lora4,lora2\",waiting_lora_adapters=\"lora3\"} 1.257894567e+09"))
 			Expect(metrics).To(ContainSubstring("vllm:lora_requests_info{max_lora=\"1\",running_lora_adapters=\"lora4,lora3\",waiting_lora_adapters=\"\"} 1.257894569e+09"))
+
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"0.001\"} 1"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"0.005\"} 3"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"0.01\"} 6"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"0.02\"} 6"))
+
+			Expect(metrics).To(ContainSubstring("vllm:time_per_output_token_seconds_bucket{model_name=\"my_model\",le=\"0.01\"} 0"))
+			Expect(metrics).To(ContainSubstring("vllm:time_per_output_token_seconds_bucket{model_name=\"my_model\",le=\"0.025\"} 0"))
+			Expect(metrics).To(ContainSubstring("vllm:time_per_output_token_seconds_bucket{model_name=\"my_model\",le=\"0.05\"} 1"))
+			Expect(metrics).To(ContainSubstring("vllm:time_per_output_token_seconds_bucket{model_name=\"my_model\",le=\"0.075\"} 3"))
+			Expect(metrics).To(ContainSubstring("vllm:time_per_output_token_seconds_bucket{model_name=\"my_model\",le=\"0.1\"} 6"))
+			Expect(metrics).To(ContainSubstring("vllm:time_per_output_token_seconds_bucket{model_name=\"my_model\",le=\"0.15\"} 6"))
+		})
+	})
+
+	Context("fake ttft metrics", func() {
+		It("Should respond with fake ttft metrics to /metrics", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", model, "--mode", common.ModeRandom,
+				"--fake-metrics",
+				"{\"ttft-buckets-values\":[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]}",
+			}
+
+			client, err := startServerWithArgs(ctx, common.ModeRandom, args, nil)
+			Expect(err).NotTo(HaveOccurred())
+
+			resp, err := client.Get(metricsUrl)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+			data, err := io.ReadAll(resp.Body)
+			Expect(err).NotTo(HaveOccurred())
+			metrics := string(data)
+
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"0.001\"} 0"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"0.005\"} 0"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"0.01\"} 0"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"0.02\"} 0"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"0.04\"} 0"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"0.06\"} 0"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"0.08\"} 0"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"0.1\"} 0"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"0.25\"} 0"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"0.5\"} 0"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"0.75\"} 0"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"1\"} 0"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"2.5\"} 0"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"5\"} 0"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"7.5\"} 0"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"10\"} 0"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"20\"} 0"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"40\"} 0"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"80\"} 0"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"160\"} 0"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"640\"} 0"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"2560\"} 0"))
+			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"+Inf\"} 1"))
 		})
 	})
 })
@@ -562,4 +742,32 @@ func splitString(str string) []string {
 		return []string{}
 	}
 	return strings.Split(str, ",")
+}
+
+func findMetric(metrics []string, metricPrefix string) string {
+	// regex to extract metrics and values
+	for _, metric := range metrics {
+		if strings.Contains(metric, metricPrefix) {
+			arr := strings.Split(metric, " ")
+			if len(arr) == 2 {
+				return arr[1]
+			}
+			break
+		}
+	}
+	// required metric was not found
+	return ""
+}
+
+func findIntMetric(metrics []string, metricPrefix string) *int {
+	valueStr := findMetric(metrics, metricPrefix)
+	if valueStr == "" {
+		return nil
+	}
+
+	val, err := strconv.Atoi(valueStr)
+	if err != nil {
+		return nil
+	}
+	return &val
 }
