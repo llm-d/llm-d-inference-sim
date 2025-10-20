@@ -146,18 +146,18 @@ func New(logger logr.Logger) (*VllmSimulator, error) {
 	}
 
 	return &VllmSimulator{
-		logger:           logger,
-		reqChan:          make(chan *openaiserverapi.CompletionReqCtx, maxNumberOfRequests),
-		toolsValidator:   toolsValidator,
-		kvcacheHelper:    nil, // kvcache helper will be created only if required after reading configuration
-		namespace:        os.Getenv(podNsEnv),
-		pod:              os.Getenv(podNameEnv),
-		runReqChan:       make(chan int64, maxNumberOfRequests),
-		waitingReqChan:   make(chan int64, maxNumberOfRequests),
-		ttftChan:         make(chan float64, maxNumberOfRequests),
-		tpotChan:         make(chan float64, maxNumberOfRequests),
-		lorasChan:        make(chan loraUsage, maxNumberOfRequests),
-		kvCacheUsageChan: make(chan float64, maxNumberOfRequests),
+		logger:             logger,
+		reqChan:            make(chan *openaiserverapi.CompletionReqCtx, maxNumberOfRequests),
+		toolsValidator:     toolsValidator,
+		kvcacheHelper:      nil, // kvcache helper will be created only if required after reading configuration
+		namespace:          os.Getenv(podNsEnv),
+		pod:                os.Getenv(podNameEnv),
+		runReqChan:         make(chan int64, maxNumberOfRequests),
+		waitingReqChan:     make(chan int64, maxNumberOfRequests),
+		ttftChan:           make(chan float64, maxNumberOfRequests),
+		tpotChan:           make(chan float64, maxNumberOfRequests),
+		lorasChan:          make(chan loraUsage, maxNumberOfRequests),
+		kvCacheUsageChan:   make(chan float64, maxNumberOfRequests),
 		requestSuccessChan: make(chan requestSuccessEvent, maxNumberOfRequests),
 	}, nil
 }

@@ -194,8 +194,6 @@ func (s *VllmSimulator) setInitialPrometheusMetrics() {
 		nRunningReqs = float64(s.config.FakeMetrics.RunningRequests)
 		nWaitingReqs = float64(s.config.FakeMetrics.WaitingRequests)
 		kvCacheUsage = float64(s.config.FakeMetrics.KVCacheUsagePercentage)
-<<<<<<< HEAD
-
 		if s.config.FakeMetrics.TTFTBucketValues != nil {
 			s.initFakeHistogram(s.ttft, common.TTFTBucketsBoundaries, s.config.FakeMetrics.TTFTBucketValues)
 		}
@@ -203,33 +201,20 @@ func (s *VllmSimulator) setInitialPrometheusMetrics() {
 		if s.config.FakeMetrics.TPOTBucketValues != nil {
 			s.initFakeHistogram(s.tpot, common.TPOTBucketsBoundaries, s.config.FakeMetrics.TPOTBucketValues)
 		}
-		for _, requestPromptToken := range s.config.FakeMetrics.RequestPromptTokens {
-			s.requestPromptTokens.WithLabelValues(modelName).Observe(requestPromptToken)
+		buckets := build125Buckets(s.config.MaxModelLen)
+		if s.config.FakeMetrics.RequestPromptTokens != nil {
+			s.initFakeHistogram(s.requestPromptTokens, buckets, s.config.FakeMetrics.RequestPromptTokens)
 		}
-		for _, requestGenerationToken := range s.config.FakeMetrics.RequestGenerationTokens {
-			s.requestGenerationTokens.WithLabelValues(modelName).Observe(requestGenerationToken)
+		if s.config.FakeMetrics.RequestGenerationTokens != nil {
+			s.initFakeHistogram(s.requestParamsMaxTokens, buckets, s.config.FakeMetrics.RequestGenerationTokens)
 		}
-		for _, requestParamsMaxToken := range s.config.FakeMetrics.RequestParamsMaxTokens {
-			s.requestParamsMaxTokens.WithLabelValues(modelName).Observe(requestParamsMaxToken)
+		if s.config.FakeMetrics.RequestParamsMaxTokens != nil {
+			s.initFakeHistogram(s.requestGenerationTokens, buckets, s.config.FakeMetrics.RequestParamsMaxTokens)
 		}
-=======
->>>>>>> 02bc5c3 (fix review comment)
+
 		for reason, requestSuccessTotal := range s.config.FakeMetrics.RequestSuccessTotal {
 			s.requestSuccessTotal.WithLabelValues(modelName, reason).Add(float64(requestSuccessTotal))
 		}
-		buckets := build125Buckets(s.config.MaxModelLen)
-		for _, sample := range generateSamplesFromBuckets(buckets, s.config.FakeMetrics.RequestPromptTokens) {
-			s.requestPromptTokens.WithLabelValues(modelName).Observe(sample)
-		}
-
-		for _, sample := range generateSamplesFromBuckets(buckets, s.config.FakeMetrics.RequestGenerationTokens) {
-			s.requestGenerationTokens.WithLabelValues(modelName).Observe(sample)
-		}
-
-		for _, sample := range generateSamplesFromBuckets(buckets, s.config.FakeMetrics.RequestParamsMaxTokens) {
-			s.requestParamsMaxTokens.WithLabelValues(modelName).Observe(sample)
-		}
-
 	}
 
 	s.runningRequests.WithLabelValues(modelName).Set(nRunningReqs)
@@ -553,56 +538,4 @@ func build125Buckets(maxValue int) []float64 {
 		exponent++
 	}
 	return buckets
-}
-
-// padCountsToFull pads the counts slice to length len(boundaries)+1 by appending zeros.
-func padCountsToFull(boundaries []float64, counts []float64) []float64 {
-	fullLen := len(boundaries) + 1
-	if len(counts) > fullLen {
-		return counts[:fullLen] // just return limit len
-	}
-	padded := make([]float64, fullLen)
-	copy(padded, counts)
-	// rest are zero by default
-	return padded
-}
-
-func generateSamplesFromBuckets(boundaries []float64, counts []float64) []float64 {
-	fullCounts := padCountsToFull(boundaries, counts)
-	var samples []float64
-
-	for i, count := range fullCounts {
-		if count == 0 {
-			continue
-		}
-
-		var val float64
-		if len(boundaries) == 0 {
-			// No boundaries → one bucket (-Inf, +Inf)
-			val = 1.0
-		} else if i == 0 {
-			// Bucket: (-Inf, boundaries[0]]
-			val = boundaries[0] - 1.0
-			if val <= 0 { // avoid non-positive if boundary is small
-				val = boundaries[0] * 0.5
-			}
-		} else if i < len(boundaries) {
-			// Bucket: (boundaries[i-1], boundaries[i]]
-			lower := boundaries[i-1]
-			upper := boundaries[i]
-			val = (lower + upper) / 2.0
-			// Ensure it's strictly > lower and <= upper
-			if val <= lower {
-				val = upper - (upper-lower)*0.1
-			}
-		} else {
-			// Last bucket: (boundaries[len-1], +Inf)
-			val = boundaries[len(boundaries)-1] + 1.0
-		}
-
-		for j := 0; j < int(count); j++ {
-			samples = append(samples, val)
-		}
-	}
-	return samples
 }

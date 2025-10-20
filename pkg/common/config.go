@@ -43,6 +43,27 @@ const (
 	FailureTypeServerError    = "server_error"
 	FailureTypeInvalidRequest = "invalid_request"
 	FailureTypeModelNotFound  = "model_not_found"
+
+	StopFinishReason         = "stop"
+	LengthFinishReason       = "length"
+	ToolsFinishReason        = "tool_calls"
+	RemoteDecodeFinishReason = "remote_decode"
+)
+
+var (
+	requiredFinishReasons = []string{
+		StopFinishReason,
+		LengthFinishReason,
+		ToolsFinishReason,
+		RemoteDecodeFinishReason,
+	}
+
+	validFinishReasons = map[string]struct{}{
+		StopFinishReason:         {},
+		LengthFinishReason:       {},
+		ToolsFinishReason:        {},
+		RemoteDecodeFinishReason: {},
+	}
 )
 
 type Configuration struct {
@@ -225,9 +246,9 @@ type Metrics struct {
 	TPOTBucketValues []int `yaml:"tpot-buckets-values" json:"tpot-buckets-values"`
 	// RequestPromptTokens RequestGenerationTokens RequestParamsMaxTokens Histogram fake-observation arrays for init.
 	// Each value will be passed to Observe() once at start-up.
-	RequestPromptTokens     []float64 `yaml:"request-prompt-tokens" json:"request-prompt-tokens"`         // prompt-length samples
-	RequestGenerationTokens []float64 `yaml:"request-generation-tokens" json:"request-generation-tokens"` // generation-length samples
-	RequestParamsMaxTokens  []float64 `yaml:"request-params-max-tokens" json:"request-params-max-tokens"` // max_tokens parameter samples
+	RequestPromptTokens     []int `yaml:"request-prompt-tokens" json:"request-prompt-tokens"`         // prompt-length samples
+	RequestGenerationTokens []int `yaml:"request-generation-tokens" json:"request-generation-tokens"` // generation-length samples
+	RequestParamsMaxTokens  []int `yaml:"request-params-max-tokens" json:"request-params-max-tokens"` // max_tokens parameter samples
 	// RequestSuccessTotal is the number of successful requests, key: finish-reason (stop, length, etc.).
 	RequestSuccessTotal map[string]int64 `yaml:"request-success-total" json:"request-success-total"`
 }
@@ -508,16 +529,40 @@ func (c *Configuration) validate() error {
 		if c.FakeMetrics.KVCacheUsagePercentage < 0 || c.FakeMetrics.KVCacheUsagePercentage > 1 {
 			return errors.New("fake metrics KV cache usage must be between 0 ans 1")
 		}
+		if c.FakeMetrics.TTFTBucketValues != nil {
+			if len(c.FakeMetrics.TTFTBucketValues) > len(TTFTBucketsBoundaries)+1 {
+				return errors.New("fake time-to-first-token array is too long")
+			}
+			for v := range c.FakeMetrics.TTFTBucketValues {
+				if v < 0 {
+					return errors.New("time-to-first-token fake metrics should contain only non-negative values")
+				}
+			}
+		}
+		if c.FakeMetrics.TPOTBucketValues != nil {
+			if len(c.FakeMetrics.TPOTBucketValues) > len(TPOTBucketsBoundaries)+1 {
+				return errors.New("fake time-per-output-token array is too long")
+			}
+			for v := range c.FakeMetrics.TPOTBucketValues {
+				if v < 0 {
+					return errors.New("time-per-output-token fake metrics should contain only non-negative values")
+				}
+			}
+		}
 		if c.FakeMetrics.RequestSuccessTotal != nil {
 			for reason, count := range c.FakeMetrics.RequestSuccessTotal {
 				if count < 0 {
-					return fmt.Errorf("fake metrics request-success-total.%s cannot be negative, got %d", reason, count)
+					return fmt.Errorf("fake metrics request-success-total.%s "+
+						"cannot be negative, got %d", reason, count)
+				}
+				if _, ok := validFinishReasons[reason]; !ok {
+					return fmt.Errorf("invalid finish reason in request-success-total: "+
+						"%s (valid reasons: %v)", reason, requiredFinishReasons)
 				}
 			}
-			requiredReasons := []string{StopFinishReason, LengthFinishReason, ToolsFinishReason, RemoteDecodeFinishReason}
-			for _, reason := range requiredReasons {
+			for _, reason := range requiredFinishReasons {
 				if _, exists := c.FakeMetrics.RequestSuccessTotal[reason]; !exists {
-					return fmt.Errorf("missing required finish reason in request-success-total: %s", reason)
+					c.FakeMetrics.RequestSuccessTotal[reason] = 0
 				}
 			}
 		}
@@ -541,7 +586,25 @@ func (c *Configuration) validate() error {
 	if c.DPSize < 1 || c.DPSize > 8 {
 		return errors.New("data parallel size must be between 1 ans 8")
 	}
+
+	if (c.SSLCertFile == "") != (c.SSLKeyFile == "") {
+		return errors.New("both ssl-certfile and ssl-keyfile must be provided together")
+	}
+
+	if c.SelfSignedCerts && (c.SSLCertFile != "" || c.SSLKeyFile != "") {
+		return errors.New("cannot use both self-signed-certs and explicit ssl-certfile/ssl-keyfile")
+	}
+
+	if c.DatasetPath == "" && c.DatasetURL != "" {
+		return errors.New("dataset-path is required when dataset-url is set")
+	}
+
 	return nil
+}
+
+// SSLEnabled returns true if SSL is enabled either via certificate files or self-signed certificates
+func (c *Configuration) SSLEnabled() bool {
+	return (c.SSLCertFile != "" && c.SSLKeyFile != "") || c.SelfSignedCerts
 }
 
 func (c *Configuration) Copy() (*Configuration, error) {
@@ -627,6 +690,10 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 		FailureTypeModelNotFound)
 	f.Var(&dummyFailureTypes, "failure-types", failureTypesDescription)
 	f.Lookup("failure-types").NoOptDefVal = dummy
+
+	f.StringVar(&config.SSLCertFile, "ssl-certfile", config.SSLCertFile, "Path to SSL certificate file for HTTPS (optional)")
+	f.StringVar(&config.SSLKeyFile, "ssl-keyfile", config.SSLKeyFile, "Path to SSL private key file for HTTPS (optional)")
+	f.BoolVar(&config.SelfSignedCerts, "self-signed-certs", config.SelfSignedCerts, "Enable automatic generation of self-signed certificates for HTTPS")
 
 	// These values were manually parsed above in getParamValueFromArgs, we leave this in order to get these flags in --help
 	var dummyString string

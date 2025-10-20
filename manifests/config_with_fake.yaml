@@ -13,9 +13,6 @@ fake-metrics:
   kv-cache-usage: 0.3
   request-success-total:
     stop: 20
-    length: 0
-    tool_calls: 0
-    remote_decode: 0
   request-prompt-tokens: [ 10, 20, 30, 15 ]
   request-generation-tokens: [ 50, 60, 40 ]
   request-params-max-tokens: [ 128, 256, 512 ]
