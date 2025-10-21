@@ -104,7 +104,7 @@ type metricsData struct {
 type lorasUsageInfo struct {
 	mux sync.RWMutex
 	// lora adapter name -> reference count (number of currently running requests)
-	usedLoras map[string]int
+	loadedLoras map[string]int
 	// channel for "there is a LoRA that can be removed" event
 	loraRemovable chan int
 	// maximum number of LoRAs that can be used simultaneously
@@ -169,7 +169,7 @@ func New(logger logr.Logger) (*VllmSimulator, error) {
 		namespace:      os.Getenv(podNsEnv),
 		pod:            os.Getenv(podNameEnv),
 		loras: &lorasUsageInfo{
-			usedLoras: make(map[string]int),
+			loadedLoras: make(map[string]int),
 		},
 		waitingQueue: list.New(),
 	}, nil
@@ -348,41 +348,28 @@ func (s *VllmSimulator) processing(ctx context.Context) {
 			s.logger.Info("Request processing done")
 			return
 		case completedReq := <-s.workerFinished:
+			s.logger.V(4).Info("Worker finished")
 			worker := completedReq.worker
 			s.decrementLora(completedReq.model)
-			// there is a free worker - find a request for it
-			nextReq := s.dequeue()
-			if nextReq != nil {
-				// send this request for processing in this worker
-				s.logger.V(4).Info("Worker finished and a request was found - sending to processing",
-					"model", nextReq.CompletionReq.GetModel(),
-					"req", nextReq.CompletionReq.GetRequestID(), "worker", worker.id)
-				worker.reqChan <- nextReq
-			} else {
-				// no waiting request, return worker to be free
-				s.freeWorkers <- worker
-			}
+			// there is a free worker - find a request for it and send this request for
+			// processing with this worker
+			s.findRequestAndSendToProcess(worker)
 		case <-s.loras.loraRemovable:
 			// there is a LoRA that can be removed, go through availbale workers
 			// and queued requests and find requests that can run now,
 			// stop if there are no free workers, or no requests
+			s.logger.V(4).Info("LoRA can be removed")
 			for {
 				// check if there is a free worker
 				worker := s.getFreeWorker()
 				if worker == nil {
 					break
 				}
-				// check if there is a request that can run
-				nextReq := s.dequeue()
-				if nextReq != nil {
-					// send this request for processing in this worker
-					s.logger.V(4).Info("LoRA can be removed: a free worker and request were found - sending to processing",
-						"model", nextReq.CompletionReq.GetModel(),
-						"req", nextReq.CompletionReq.GetRequestID(), "worker", worker.id)
-					worker.reqChan <- nextReq
-				} else {
+				// check if there is a request that can run and send this request for
+				// processing with this worker
+				requestFound := s.findRequestAndSendToProcess(worker)
+				if !requestFound {
 					// there are no requests to run (either the queue is empty or maxLoras was reached)
-					s.freeWorkers <- worker
 					break
 				}
 			}
@@ -395,34 +382,19 @@ func (s *VllmSimulator) processing(ctx context.Context) {
 				s.logger.V(4).Info("No free worker - sending the request to the waiting queue",
 					"model", reqCtx.CompletionReq.GetModel(), "req id", reqCtx.CompletionReq.GetRequestID())
 				// no free worker, add this request to the waiting queue
-				if err := s.enqueue(reqCtx); err != nil {
-					s.logger.Error(err, "failed to enqueue request")
-					reqCtx.HTTPReqCtx.Error("Failed to enqueue request, "+err.Error(), fasthttp.StatusTooManyRequests)
-					reqCtx.Wg.Done()
-					break
-				}
-				// update loraInfo metrics with the new waiting request
-				s.metrics.lorasChan <- loraUsage{reqCtx.CompletionReq.GetModel(), waitingUsageState}
+				s.addRequestToQueue(reqCtx)
 				break
 			}
 
 			if s.isLora(model) {
 				// check if lora usage allows the request to run
 				if !s.loadLora(model) {
-					// free the worker, but not directly add it to freeWorkers,
-					// we want to make sure that there is no new request in the queue that can run
-					s.workerFinished <- &requestCompleted{worker: worker, model: ""}
+					// free the worker
+					s.freeWorkers <- worker
 					s.logger.V(4).Info("LoRA cannot be loaded - sending the request to the waiting queue",
 						"LoRA", model, "req id", reqCtx.CompletionReq.GetRequestID())
 					// LoRA max reached, try to enqueue
-					if err := s.enqueue(reqCtx); err != nil {
-						s.logger.Error(err, "failed to enqueue request")
-						reqCtx.HTTPReqCtx.Error("Failed to enqueue request, "+err.Error(), fasthttp.StatusTooManyRequests)
-						reqCtx.Wg.Done()
-						break
-					}
-					// update loraInfo metrics with the new waiting request
-					s.metrics.lorasChan <- loraUsage{reqCtx.CompletionReq.GetModel(), waitingUsageState}
+					s.addRequestToQueue(reqCtx)
 					break
 				}
 			}
@@ -432,6 +404,36 @@ func (s *VllmSimulator) processing(ctx context.Context) {
 			worker.reqChan <- reqCtx
 		}
 	}
+}
+
+func (s *VllmSimulator) findRequestAndSendToProcess(worker *worker) bool {
+	nextReq := s.dequeue()
+	if nextReq != nil {
+		// send this request for processing in this worker
+		s.logger.V(4).Info("Sending request to processing", "model", nextReq.CompletionReq.GetModel(),
+			"req", nextReq.CompletionReq.GetRequestID(), "worker", worker.id)
+		worker.reqChan <- nextReq
+		// decrement waiting requests metric
+		s.metrics.waitingReqChan <- -1
+		return true
+	}
+
+	// no waiting request, return worker to be free
+	s.freeWorkers <- worker
+	return false
+}
+
+func (s *VllmSimulator) addRequestToQueue(reqCtx *openaiserverapi.CompletionReqCtx) {
+	if err := s.enqueue(reqCtx); err != nil {
+		s.logger.Error(err, "failed to enqueue request")
+		reqCtx.HTTPReqCtx.Error("Failed to enqueue request, "+err.Error(), fasthttp.StatusTooManyRequests)
+		reqCtx.Wg.Done()
+		return
+	}
+	// increment the waiting requests metric
+	s.metrics.waitingReqChan <- 1
+	// update loraInfo metrics with the new waiting request
+	s.metrics.lorasChan <- loraUsage{reqCtx.CompletionReq.GetModel(), waitingUsageState}
 }
 
 // handleCompletions general completion requests handler, support both text and chat completion APIs
@@ -466,8 +468,6 @@ func (s *VllmSimulator) handleCompletions(ctx *fasthttp.RequestCtx, isChatComple
 		IsChatCompletion: isChatCompletion,
 		Wg:               &wg,
 	}
-	// increment the waiting requests metric
-	s.metrics.waitingReqChan <- 1
 	s.newRequests <- reqCtx
 	wg.Wait()
 }

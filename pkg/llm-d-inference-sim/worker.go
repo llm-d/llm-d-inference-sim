@@ -62,8 +62,7 @@ func (s *VllmSimulator) processRequest(reqCtx *openaiserverapi.CompletionReqCtx)
 	model := req.GetModel()
 	displayModel := s.getDisplayedModelName(model)
 
-	// decrement waiting and increment running requests count
-	s.metrics.waitingReqChan <- -1
+	// increment running requests count
 	s.metrics.runReqChan <- 1
 
 	if s.isLora(model) {
