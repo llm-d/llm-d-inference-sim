@@ -396,17 +396,15 @@ func (s *VllmSimulator) processing(ctx context.Context) {
 				break
 			}
 
-			if s.isLora(model) {
-				// check if lora usage allows the request to run
-				if !s.loadLora(model) {
-					// free the worker
-					s.freeWorkers <- worker
-					s.logger.V(4).Info("LoRA cannot be loaded - sending the request to the waiting queue",
-						"LoRA", model, "req id", reqCtx.CompletionReq.GetRequestID())
-					// LoRA max reached, try to enqueue
-					s.addRequestToQueue(reqCtx)
-					break
-				}
+			// check if lora usage allows the request to run
+			if s.isLora(model) && !s.loadLora(model) {
+				// free the worker
+				s.freeWorkers <- worker
+				s.logger.V(4).Info("LoRA cannot be loaded - sending the request to the waiting queue",
+					"LoRA", model, "req id", reqCtx.CompletionReq.GetRequestID())
+				// LoRA max reached, try to enqueue
+				s.addRequestToQueue(reqCtx)
+				break
 			}
 
 			s.logger.V(4).Info("Sending the request to the processing channel", "model", model,
