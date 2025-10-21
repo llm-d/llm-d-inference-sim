@@ -90,7 +90,7 @@ func (s *VllmSimulator) createAndRegisterPrometheus() error {
 		[]string{vllmapi.PromLabelModelName},
 	)
 
-	if err := s.registry.Register(s.ttft); err != nil {
+	if err := s.metrics.registry.Register(s.metrics.ttft); err != nil {
 		s.logger.Error(err, "Prometheus time to first token histogram register failed")
 		return err
 	}
@@ -105,7 +105,7 @@ func (s *VllmSimulator) createAndRegisterPrometheus() error {
 		[]string{vllmapi.PromLabelModelName},
 	)
 
-	if err := s.registry.Register(s.tpot); err != nil {
+	if err := s.metrics.registry.Register(s.metrics.tpot); err != nil {
 		s.logger.Error(err, "Prometheus time per output token histogram register failed")
 		return err
 	}
@@ -139,11 +139,11 @@ func (s *VllmSimulator) setInitialPrometheusMetrics() {
 		kvCacheUsage = float64(s.config.FakeMetrics.KVCacheUsagePercentage)
 
 		if s.config.FakeMetrics.TTFTBucketValues != nil {
-			s.initFakeHistogram(s.ttft, common.TTFTBucketsBoundaries, s.config.FakeMetrics.TTFTBucketValues)
+			s.initFakeHistogram(s.metrics.ttft, common.TTFTBucketsBoundaries, s.config.FakeMetrics.TTFTBucketValues)
 		}
 
 		if s.config.FakeMetrics.TPOTBucketValues != nil {
-			s.initFakeHistogram(s.tpot, common.TPOTBucketsBoundaries, s.config.FakeMetrics.TPOTBucketValues)
+			s.initFakeHistogram(s.metrics.tpot, common.TPOTBucketsBoundaries, s.config.FakeMetrics.TPOTBucketValues)
 		}
 	}
 
@@ -253,8 +253,8 @@ func (s *VllmSimulator) reportTTFT(ttftInSecs float64) {
 	if s.config.FakeMetrics != nil {
 		return
 	}
-	if s.ttft != nil {
-		s.ttft.WithLabelValues(
+	if s.metrics.ttft != nil {
+		s.metrics.ttft.WithLabelValues(
 			s.getDisplayedModelName(s.config.Model)).Observe(ttftInSecs)
 	}
 }
@@ -264,8 +264,8 @@ func (s *VllmSimulator) reportTPOT(tpotInSecs float64) {
 	if s.config.FakeMetrics != nil {
 		return
 	}
-	if s.tpot != nil {
-		s.tpot.WithLabelValues(
+	if s.metrics.tpot != nil {
+		s.metrics.tpot.WithLabelValues(
 			s.getDisplayedModelName(s.config.Model)).Observe(tpotInSecs)
 	}
 }
@@ -335,7 +335,7 @@ func (s *VllmSimulator) ttftUpdater(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case value := <-s.ttftChan:
+		case value := <-s.metrics.ttftChan:
 			s.reportTTFT(value)
 		}
 	}
@@ -347,7 +347,7 @@ func (s *VllmSimulator) tpotUpdater(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case value := <-s.tpotChan:
+		case value := <-s.metrics.tpotChan:
 			s.reportTPOT(value)
 		}
 	}

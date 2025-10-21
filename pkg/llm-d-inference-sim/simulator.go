@@ -571,14 +571,14 @@ func (s *VllmSimulator) sendResponse(reqCtx *openaiserverapi.CompletionReqCtx, r
 	time.Sleep(time.Duration(ttft) * time.Millisecond)
 
 	// report ttft in seconds
-	s.ttftChan <- (float64(ttft) / 1000)
+	s.metrics.ttftChan <- (float64(ttft) / 1000)
 
 	for range usageData.CompletionTokens - 1 {
 		perTokenLatency := s.getInterTokenLatency()
 		time.Sleep(time.Duration(perTokenLatency) * time.Millisecond)
 
 		// report tpot in seconds
-		s.tpotChan <- float64(perTokenLatency) / 1000
+		s.metrics.tpotChan <- float64(perTokenLatency) / 1000
 	}
 	s.sendCompletionResponse(reqCtx.HTTPReqCtx, resp)
 
