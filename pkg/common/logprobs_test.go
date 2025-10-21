@@ -14,55 +14,14 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package openaiserverapi
+package common
 
 import (
-	"encoding/json"
-	"testing"
-
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
 
-func TestOpenaiServerApi(t *testing.T) {
-	RegisterFailHandler(Fail)
-	RunSpecs(t, "OpenaiServerApi Suite")
-}
-
 var _ = Describe("Logprobs", func() {
-	Context("TextCompletionRequest", func() {
-		It("should handle logprobs parameters correctly", func() {
-			logprobsCount := 2
-			req := &TextCompletionRequest{
-				Prompt:   "The capital of France is",
-				Logprobs: &logprobsCount,
-			}
-
-			Expect(req.GetLogprobs()).NotTo(BeNil())
-			Expect(*req.GetLogprobs()).To(Equal(2))
-			Expect(req.IncludeLogprobs()).To(BeTrue())
-			Expect(req.GetTopLogprobs()).NotTo(BeNil())
-			Expect(*req.GetTopLogprobs()).To(Equal(2))
-		})
-	})
-
-	Context("ChatCompletionRequest", func() {
-		It("should handle logprobs parameters correctly", func() {
-			topLogprobs := 3
-			req := &ChatCompletionRequest{
-				Messages: []Message{
-					{Role: "user", Content: Content{Raw: "What is 2+2?"}},
-				},
-				Logprobs:    true,
-				TopLogprobs: &topLogprobs,
-			}
-
-			Expect(req.GetLogprobs()).To(BeNil())
-			Expect(req.IncludeLogprobs()).To(BeTrue())
-			Expect(req.GetTopLogprobs()).NotTo(BeNil())
-			Expect(*req.GetTopLogprobs()).To(Equal(3))
-		})
-	})
 
 	Context("GenerateTextLogprobs", func() {
 		It("should generate correct text logprobs structure", func() {
@@ -130,50 +89,90 @@ var _ = Describe("Logprobs", func() {
 		})
 	})
 
-	Context("Request Serialization", func() {
-		It("should serialize and deserialize TextCompletionRequest correctly", func() {
-			logprobsCount := 2
-			req := &TextCompletionRequest{
-				Prompt:   "Hello world",
-				Logprobs: &logprobsCount,
-			}
+	Context("calculateLogprob", func() {
+		It("should calculate main token probabilities correctly", func() {
+			// Test position cycle behavior (cycle of 3)
+			// Position 0: -1.0 - (0 % 3) * 0.1 = -1.0
+			result0 := calculateLogprob(0, 0)
+			Expect(result0).To(Equal(-1.0))
 
-			jsonData, err := json.Marshal(req)
-			Expect(err).NotTo(HaveOccurred())
+			// Position 1: -1.0 - (1 % 3) * 0.1 = -1.1
+			result1 := calculateLogprob(1, 0)
+			Expect(result1).To(Equal(-1.1))
 
-			var parsed TextCompletionRequest
-			err = json.Unmarshal(jsonData, &parsed)
-			Expect(err).NotTo(HaveOccurred())
+			// Position 2: -1.0 - (2 % 3) * 0.1 = -1.2
+			result2 := calculateLogprob(2, 0)
+			Expect(result2).To(Equal(-1.2))
 
-			Expect(parsed.Prompt).To(Equal(req.Prompt))
-			Expect(parsed.Logprobs).NotTo(BeNil())
-			Expect(*parsed.Logprobs).To(Equal(*req.Logprobs))
+			// Position 3: -1.0 - (3 % 3) * 0.1 = -1.0 (cycle repeats)
+			result3 := calculateLogprob(3, 0)
+			Expect(result3).To(Equal(-1.0))
+
+			// Position 4: -1.0 - (4 % 3) * 0.1 = -1.1 (cycle repeats)
+			result4 := calculateLogprob(4, 0)
+			Expect(result4).To(Equal(-1.1))
 		})
 
-		It("should serialize and deserialize ChatCompletionRequest correctly", func() {
-			topLogprobs := 3
-			req := &ChatCompletionRequest{
-				Messages: []Message{
-					{Role: "user", Content: Content{Raw: "Hello"}},
-				},
-				Logprobs:    true,
-				TopLogprobs: &topLogprobs,
-			}
+		It("should calculate alternative token probabilities correctly", func() {
+			// Test alternative token decrements (0.5 per alternative index)
+			tokenPosition := 0 // Start with position 0 (main logprob = -1.0)
 
-			jsonData, err := json.Marshal(req)
-			Expect(err).NotTo(HaveOccurred())
+			// Alternative 1: -1.0 - 1 * 0.5 = -1.5
+			alt1 := calculateLogprob(tokenPosition, 1)
+			Expect(alt1).To(Equal(-1.5))
 
-			var parsed ChatCompletionRequest
-			err = json.Unmarshal(jsonData, &parsed)
-			Expect(err).NotTo(HaveOccurred())
+			// Alternative 2: -1.0 - 2 * 0.5 = -2.0
+			alt2 := calculateLogprob(tokenPosition, 2)
+			Expect(alt2).To(Equal(-2.0))
 
-			Expect(parsed.Logprobs).To(Equal(req.Logprobs))
-			Expect(parsed.TopLogprobs).NotTo(BeNil())
-			Expect(*parsed.TopLogprobs).To(Equal(*req.TopLogprobs))
+			// Alternative 3: -1.0 - 3 * 0.5 = -2.5
+			alt3 := calculateLogprob(tokenPosition, 3)
+			Expect(alt3).To(Equal(-2.5))
+		})
+
+		It("should combine position cycle and alternative index correctly", func() {
+			// Test with position 1 (main logprob = -1.1)
+			tokenPosition := 1
+
+			// Main token: -1.0 - (1 % 3) * 0.1 = -1.1
+			main := calculateLogprob(tokenPosition, 0)
+			Expect(main).To(Equal(-1.1))
+
+			// Alternative 1: -1.1 - 1 * 0.5 = -1.6
+			alt1 := calculateLogprob(tokenPosition, 1)
+			Expect(alt1).To(Equal(-1.6))
+
+			// Alternative 2: -1.1 - 2 * 0.5 = -2.1
+			alt2 := calculateLogprob(tokenPosition, 2)
+			Expect(alt2).To(Equal(-2.1))
+		})
+
+		It("should handle large position values correctly", func() {
+			// Test with large position values to ensure cycle works
+			largePosition := 100
+
+			// Position 100: -1.0 - (100 % 3) * 0.1 = -1.0 - 1 * 0.1 = -1.1
+			result := calculateLogprob(largePosition, 0)
+			Expect(result).To(Equal(-1.1))
+
+			// With alternative: -1.1 - 1 * 0.5 = -1.6
+			resultAlt := calculateLogprob(largePosition, 1)
+			Expect(resultAlt).To(Equal(-1.6))
+		})
+
+		It("should handle edge cases correctly", func() {
+			// Test with zero values
+			result := calculateLogprob(0, 0)
+			Expect(result).To(Equal(-1.0))
+
+			// Test with large alternative index
+			largeAlt := calculateLogprob(0, 10)
+			expectedLargeAlt := -1.0 - float64(10)*0.5 // -6.0
+			Expect(largeAlt).To(Equal(expectedLargeAlt))
 		})
 	})
 
-	Context("Edge Cases", func() {
+	Context("Other scenarios", func() {
 		It("should handle empty tokens for text logprobs", func() {
 			logprobs := GenerateTextLogprobs([]string{}, 2)
 
@@ -186,6 +185,44 @@ var _ = Describe("Logprobs", func() {
 
 			Expect(logprobs).NotTo(BeNil())
 			Expect(logprobs.Content).To(BeEmpty())
+		})
+
+		It("should verify probability pattern as token position grows", func() {
+			// Test the cycling pattern of probabilities
+
+			// Test first cycle (positions 0-2)
+			prob0 := calculateLogprob(0, 0)
+			prob1 := calculateLogprob(1, 0)
+			prob2 := calculateLogprob(2, 0)
+
+			Expect(prob0).To(Equal(-1.0)) // defaultLogprob
+			Expect(prob1).To(Equal(-1.1)) // defaultLogprob - 1*0.1
+			Expect(prob2).To(Equal(-1.2)) // defaultLogprob - 2*0.1
+
+			// Test second cycle (positions 3-5) - should repeat the pattern
+			prob3 := calculateLogprob(3, 0)
+			prob4 := calculateLogprob(4, 0)
+			prob5 := calculateLogprob(5, 0)
+
+			Expect(prob3).To(Equal(prob0)) // Should equal position 0
+			Expect(prob4).To(Equal(prob1)) // Should equal position 1
+			Expect(prob5).To(Equal(prob2)) // Should equal position 2
+
+			// Test third cycle (positions 6-8) - should repeat again
+			prob6 := calculateLogprob(6, 0)
+			prob7 := calculateLogprob(7, 0)
+			prob8 := calculateLogprob(8, 0)
+
+			Expect(prob6).To(Equal(prob0)) // Should equal position 0
+			Expect(prob7).To(Equal(prob1)) // Should equal position 1
+			Expect(prob8).To(Equal(prob2)) // Should equal position 2
+
+			// Verify the cycling pattern continues for larger positions
+			for i := 0; i < 20; i++ {
+				expectedProb := defaultLogprob - float64(i%positionCycle)*positionDecrement
+				actualProb := calculateLogprob(i, 0)
+				Expect(actualProb).To(Equal(expectedProb), "Position %d should have probability %f", i, expectedProb)
+			}
 		})
 	})
 

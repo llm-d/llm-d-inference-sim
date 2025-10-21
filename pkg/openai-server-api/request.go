@@ -73,6 +73,8 @@ type CompletionRequest interface {
 	IncludeLogprobs() bool
 	// GetTopLogprobs returns the number of top logprobs to include (for chat completions)
 	GetTopLogprobs() *int
+	// GetTopLogprobsCount returns the computed count of top logprobs to include
+	GetTopLogprobsCount() int
 }
 
 // BaseCompletionRequest contains base completion request related information
@@ -266,8 +268,15 @@ func (req *ChatCompletionRequest) GetFullPrompt() string {
 }
 
 func (c *ChatCompletionRequest) GetLogprobs() *int {
-	// For chat completions, this method returns nil
-	return nil
+	if !c.Logprobs {
+		return nil // No logprobs requested
+	}
+	if c.TopLogprobs != nil {
+		return c.TopLogprobs // Return the top_logprobs value
+	}
+	// Default to 1 if logprobs=true but no top_logprobs specified
+	defaultVal := 1
+	return &defaultVal
 }
 
 func (c *ChatCompletionRequest) IncludeLogprobs() bool {
@@ -276,6 +285,17 @@ func (c *ChatCompletionRequest) IncludeLogprobs() bool {
 
 func (c *ChatCompletionRequest) GetTopLogprobs() *int {
 	return c.TopLogprobs
+}
+
+func (c *ChatCompletionRequest) GetTopLogprobsCount() int {
+	if c.Logprobs {
+		if c.TopLogprobs != nil {
+			return *c.TopLogprobs
+		}
+		// Default to 1 if logprobs=true but no top_logprobs specified
+		return 1
+	}
+	return 0
 }
 
 // v1/completion
@@ -334,4 +354,11 @@ func (t *TextCompletionRequest) IncludeLogprobs() bool {
 func (t *TextCompletionRequest) GetTopLogprobs() *int {
 	// For text completions, this method returns the same as GetLogprobs
 	return t.Logprobs
+}
+
+func (t *TextCompletionRequest) GetTopLogprobsCount() int {
+	if t.Logprobs != nil && *t.Logprobs > 0 {
+		return *t.Logprobs
+	}
+	return 0
 }

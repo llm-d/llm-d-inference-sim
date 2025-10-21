@@ -22,41 +22,12 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/valyala/fasthttp"
 )
 
 // CompletionResponse interface representing both completion response types (text and chat)
 type CompletionResponse interface{}
-
-// LogprobsContent represents logprobs for a single token in chat completions
-type LogprobsContent struct {
-	// Token is the token string
-	Token string `json:"token"`
-	// Logprob is the log probability of the token
-	Logprob float64 `json:"logprob"`
-	// Bytes is the byte representation of the token
-	Bytes []int `json:"bytes"`
-	// TopLogprobs is the list of top alternative tokens along their log probabilities
-	TopLogprobs []LogprobsContent `json:"top_logprobs,omitempty"`
-}
-
-// ChatLogprobs represents logprobs for chat completion responses
-type ChatLogprobs struct {
-	// Content is an array of logprobs for each token in the content
-	Content []LogprobsContent `json:"content"`
-}
-
-// TextLogprobs represents logprobs for text completion responses
-type TextLogprobs struct {
-	// Tokens is an array of tokens
-	Tokens []string `json:"tokens"`
-	// TokenLogprobs is an array of log probabilities for each token
-	TokenLogprobs []float64 `json:"token_logprobs"`
-	// TopLogprobs is an array of objects containing the top alternative tokens
-	TopLogprobs []map[string]float64 `json:"top_logprobs"`
-	// TextOffset is an array of character offsets
-	TextOffset []int `json:"text_offset"`
-}
 
 // BaseCompletionResponse contains base completion response related information
 type BaseCompletionResponse struct {
@@ -206,7 +177,7 @@ type ChatRespChoice struct {
 	// Message contains choice's Message
 	Message Message `json:"message"`
 	// Logprobs contains the log probabilities for the response
-	Logprobs *ChatLogprobs `json:"logprobs,omitempty"`
+	Logprobs *common.ChatLogprobs `json:"logprobs,omitempty"`
 }
 
 // TextCompletionResponse defines structure of /completion response
@@ -222,7 +193,7 @@ type TextRespChoice struct {
 	// Text defines request's content
 	Text string `json:"text"`
 	// Logprobs contains the log probabilities for the response
-	Logprobs *TextLogprobs `json:"logprobs,omitempty"`
+	Logprobs *common.TextLogprobs `json:"logprobs,omitempty"`
 }
 
 // CompletionRespChunk is an interface that defines a single response chunk
@@ -240,6 +211,8 @@ type ChatRespChunkChoice struct {
 	BaseResponseChoice
 	// Delta is a content of the chunk
 	Delta Message `json:"delta"`
+	// Logprobs contains the log probabilities for the response chunk
+	Logprobs *common.ChatLogprobs `json:"logprobs,omitempty"`
 }
 
 // CompletionError defines the simulator's response in case of an error
