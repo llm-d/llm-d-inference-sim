@@ -498,7 +498,9 @@ func (s *VllmSimulator) createCompletionResponse(logprobData *LogprobData, isCha
 
 		// Generate logprobs if requested
 		if logprobData != nil && logprobData.IncludeLogprobs && toolCalls == nil {
-			choice.Logprobs = common.GenerateChatLogprobs(respTokens, logprobData.TopLogprobs)
+			if logprobs := common.GenerateChatLogprobs(respTokens, logprobData.TopLogprobs); logprobs != nil && len(logprobs.Content) > 0 {
+				choice.Logprobs = logprobs
+			}
 		}
 
 		return &openaiserverapi.ChatCompletionResponse{
@@ -514,7 +516,9 @@ func (s *VllmSimulator) createCompletionResponse(logprobData *LogprobData, isCha
 
 	// Generate logprobs if requested for text completion
 	if logprobData != nil && logprobData.Logprobs != nil && *logprobData.Logprobs > 0 {
-		choice.Logprobs = common.GenerateTextLogprobs(respTokens, *logprobData.Logprobs)
+		if logprobs := common.GenerateTextLogprobs(respTokens, *logprobData.Logprobs); logprobs != nil && len(logprobs.Tokens) > 0 {
+			choice.Logprobs = logprobs
+		}
 	}
 
 	baseResp.Object = textCompletionObject
@@ -536,11 +540,13 @@ func (s *VllmSimulator) sendResponse(reqCtx *openaiserverapi.CompletionReqCtx, r
 	modelName string, finishReason string, usageData *openaiserverapi.Usage) {
 	// Extract logprob data from request (if needed)
 	var logprobData *LogprobData
-	if reqCtx.CompletionReq.GetLogprobs() != nil && toolCalls == nil {
+	logprobsPtr := reqCtx.CompletionReq.GetLogprobs()
+	// Only create logprobData if logprobs are requested (value > 0)
+	if logprobsPtr != nil && *logprobsPtr > 0 && toolCalls == nil {
 		logprobData = &LogprobData{
 			IncludeLogprobs: true,
-			TopLogprobs:     *reqCtx.CompletionReq.GetLogprobs(),
-			Logprobs:        reqCtx.CompletionReq.GetLogprobs(),
+			TopLogprobs:     *logprobsPtr,
+			Logprobs:        logprobsPtr,
 		}
 	}
 
