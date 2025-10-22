@@ -33,9 +33,9 @@ import (
 	"github.com/llm-d/llm-d-kv-cache-manager/pkg/tokenization"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/openai/openai-go"
-	"github.com/openai/openai-go/option"
-	"github.com/openai/openai-go/packages/param"
+	"github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/option"
+	"github.com/openai/openai-go/v3/packages/param"
 	"github.com/valyala/fasthttp/fasthttputil"
 	"k8s.io/klog/v2"
 )

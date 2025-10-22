@@ -27,51 +27,14 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/dataset"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/openai/openai-go"
-	"github.com/openai/openai-go/option"
-	"github.com/openai/openai-go/packages/param"
+	"github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/option"
+	"github.com/openai/openai-go/v3/packages/param"
 )
 
-var tools = []openai.ChatCompletionToolParam{
+var tools = []openai.ChatCompletionToolUnionParam{
 	{
-		Function: openai.FunctionDefinitionParam{
-			Name:        "get_weather",
-			Description: openai.String("Get weather at the given location"),
-			Parameters: openai.FunctionParameters{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"location": map[string]string{
-						"type": "string",
-					},
-				},
-				"required": []string{"location"},
-			},
-		},
-	},
-	{
-		Function: openai.FunctionDefinitionParam{
-			Name:        "get_temperature",
-			Description: openai.String("Get temperature at the given location"),
-			Parameters: openai.FunctionParameters{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"city": map[string]string{
-						"type": "string",
-					},
-					"unit": map[string]interface{}{
-						"type": "string",
-						"enum": []string{"C", "F"},
-					},
-				},
-				"required": []string{"city", "unit"},
-			},
-		},
-	},
-}
-
-var invalidTools = [][]openai.ChatCompletionToolParam{
-	{
-		{
+		OfFunction: &openai.ChatCompletionFunctionToolParam{
 			Function: openai.FunctionDefinitionParam{
 				Name:        "get_weather",
 				Description: openai.String("Get weather at the given location"),
@@ -86,7 +49,9 @@ var invalidTools = [][]openai.ChatCompletionToolParam{
 				},
 			},
 		},
-		{
+	},
+	{
+		OfFunction: &openai.ChatCompletionFunctionToolParam{
 			Function: openai.FunctionDefinitionParam{
 				Name:        "get_temperature",
 				Description: openai.String("Get temperature at the given location"),
@@ -98,7 +63,7 @@ var invalidTools = [][]openai.ChatCompletionToolParam{
 						},
 						"unit": map[string]interface{}{
 							"type": "string",
-							"enum": []int{5, 6},
+							"enum": []string{"C", "F"},
 						},
 					},
 					"required": []string{"city", "unit"},
@@ -106,233 +71,294 @@ var invalidTools = [][]openai.ChatCompletionToolParam{
 			},
 		},
 	},
+}
+
+var invalidTools = [][]openai.ChatCompletionToolUnionParam{
+	{
+		{
+			OfFunction: &openai.ChatCompletionFunctionToolParam{
+				Function: openai.FunctionDefinitionParam{
+					Name:        "get_weather",
+					Description: openai.String("Get weather at the given location"),
+					Parameters: openai.FunctionParameters{
+						"type": "object",
+						"properties": map[string]interface{}{
+							"location": map[string]string{
+								"type": "string",
+							},
+						},
+						"required": []string{"location"},
+					},
+				},
+			},
+		},
+		{
+			OfFunction: &openai.ChatCompletionFunctionToolParam{
+				Function: openai.FunctionDefinitionParam{
+					Name:        "get_temperature",
+					Description: openai.String("Get temperature at the given location"),
+					Parameters: openai.FunctionParameters{
+						"type": "object",
+						"properties": map[string]interface{}{
+							"city": map[string]string{
+								"type": "string",
+							},
+							"unit": map[string]interface{}{
+								"type": "string",
+								"enum": []int{5, 6},
+							},
+						},
+						"required": []string{"city", "unit"},
+					},
+				},
+			},
+		},
+	},
 
 	{
 		{
+			OfFunction: &openai.ChatCompletionFunctionToolParam{
+				Function: openai.FunctionDefinitionParam{
+					Name:        "get_weather",
+					Description: openai.String("Get weather at the given location"),
+					Parameters: openai.FunctionParameters{
+						"type": "object",
+						"properties": map[string]interface{}{
+							"location": map[string]string{
+								"type": "stringstring",
+							},
+						},
+						"required": []string{"location"},
+					},
+				},
+			},
+		},
+	},
+
+	{
+		{
+			OfFunction: &openai.ChatCompletionFunctionToolParam{
+				Function: openai.FunctionDefinitionParam{
+					Name:        "get_weather",
+					Description: openai.String("Get weather at the given location"),
+				},
+			},
+		},
+	},
+}
+
+var toolWithArray = []openai.ChatCompletionToolUnionParam{
+	{
+		OfFunction: &openai.ChatCompletionFunctionToolParam{
 			Function: openai.FunctionDefinitionParam{
-				Name:        "get_weather",
-				Description: openai.String("Get weather at the given location"),
+				Name:        "multiply_numbers",
+				Description: openai.String("Multiply an array of numbers"),
 				Parameters: openai.FunctionParameters{
 					"type": "object",
 					"properties": map[string]interface{}{
-						"location": map[string]string{
-							"type": "stringstring",
+						"numbers": map[string]interface{}{
+							"type":        "array",
+							"items":       map[string]string{"type": "number"},
+							"description": "List of numbers to multiply",
 						},
 					},
-					"required": []string{"location"},
+					"required": []string{"numbers"},
 				},
 			},
 		},
 	},
+}
 
+var toolWith3DArray = []openai.ChatCompletionToolUnionParam{
 	{
-		{
+		OfFunction: &openai.ChatCompletionFunctionToolParam{
 			Function: openai.FunctionDefinitionParam{
-				Name:        "get_weather",
-				Description: openai.String("Get weather at the given location"),
-			},
-		},
-	},
-}
-
-var toolWithArray = []openai.ChatCompletionToolParam{
-	{
-		Function: openai.FunctionDefinitionParam{
-			Name:        "multiply_numbers",
-			Description: openai.String("Multiply an array of numbers"),
-			Parameters: openai.FunctionParameters{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"numbers": map[string]interface{}{
-						"type":        "array",
-						"items":       map[string]string{"type": "number"},
-						"description": "List of numbers to multiply",
-					},
-				},
-				"required": []string{"numbers"},
-			},
-		},
-	},
-}
-
-var toolWith3DArray = []openai.ChatCompletionToolParam{
-	{
-		Function: openai.FunctionDefinitionParam{
-			Name:        "process_tensor",
-			Description: openai.String("Process a 3D tensor of strings"),
-			Parameters: openai.FunctionParameters{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"tensor": map[string]interface{}{
-						"type":     "array",
-						"minItems": 2,
-						"items": map[string]any{
+				Name:        "process_tensor",
+				Description: openai.String("Process a 3D tensor of strings"),
+				Parameters: openai.FunctionParameters{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"tensor": map[string]interface{}{
 							"type":     "array",
-							"minItems": 0,
-							"maxItems": 1,
+							"minItems": 2,
 							"items": map[string]any{
 								"type":     "array",
-								"items":    map[string]string{"type": "string"},
-								"maxItems": 3,
-							},
-						},
-						"description": "List of strings",
-					},
-				},
-				"required": []string{"tensor"},
-			},
-		},
-	},
-}
-
-var toolWithWrongMinMax = []openai.ChatCompletionToolParam{
-	{
-		Function: openai.FunctionDefinitionParam{
-			Name:        "multiply_numbers",
-			Description: openai.String("Multiply an array of numbers"),
-			Parameters: openai.FunctionParameters{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"numbers": map[string]interface{}{
-						"type":        "array",
-						"items":       map[string]string{"type": "number"},
-						"description": "List of numbers to multiply",
-						"minItems":    3,
-						"maxItems":    1,
-					},
-				},
-				"required": []string{"numbers"},
-			},
-		},
-	},
-}
-
-var toolWithObjects = []openai.ChatCompletionToolParam{
-	{
-		Function: openai.FunctionDefinitionParam{
-			Name:        "process_order",
-			Description: openai.String("Process a customer order"),
-			Parameters: openai.FunctionParameters{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"order_info": map[string]interface{}{
-						"type": "object",
-						"properties": map[string]interface{}{
-							"item": map[string]interface{}{
-								"type": "string",
-							},
-							"quantity": map[string]string{
-								"type": "integer",
-							},
-							"address": map[string]interface{}{
-								"type": "object",
-								"properties": map[string]interface{}{
-									"street": map[string]interface{}{
-										"type": "string",
-									},
-									"number": map[string]interface{}{
-										"type": "integer",
-									},
-									"home": map[string]interface{}{
-										"type": "boolean",
-									},
+								"minItems": 0,
+								"maxItems": 1,
+								"items": map[string]any{
+									"type":     "array",
+									"items":    map[string]string{"type": "string"},
+									"maxItems": 3,
 								},
-								"required": []string{"street", "number", "home"},
 							},
+							"description": "List of strings",
 						},
-						"required": []string{"item", "quantity", "address"},
 					},
-					"name": map[string]interface{}{
-						"type": "string",
-					},
-				},
-				"required": []string{"order_info", "name"},
-			},
-		},
-	},
-}
-
-var toolWithObjectAndArray = []openai.ChatCompletionToolParam{
-	{
-		Function: openai.FunctionDefinitionParam{
-			Name:        "submit_survey",
-			Description: openai.String("Submit a survey with user information."),
-			Parameters: openai.FunctionParameters{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"user_info": map[string]interface{}{
-						"type": "object",
-						"properties": map[string]interface{}{
-							"name": map[string]interface{}{
-								"type":        "string",
-								"description": "The user's name",
-							},
-							"age": map[string]string{
-								"type":        "integer",
-								"description": "The user's age",
-							},
-							"hobbies": map[string]interface{}{
-								"type":        "array",
-								"items":       map[string]string{"type": "string"},
-								"description": "A list of the user's hobbies",
-							},
-						},
-						"required": []string{"name", "age", "hobbies"},
-					},
-				},
-				"required": []string{"user_info"},
-			},
-		},
-	},
-}
-
-var toolWithoutRequiredParams = []openai.ChatCompletionToolParam{
-	{
-		Function: openai.FunctionDefinitionParam{
-			Name:        "get_temperature",
-			Description: openai.String("Get temperature at the given location"),
-			Parameters: openai.FunctionParameters{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"city": map[string]string{
-						"type": "string",
-					},
-					"country": map[string]string{
-						"type": "string",
-					},
-					"unit": map[string]interface{}{
-						"type": "string",
-						"enum": []string{"C", "F"},
-					},
+					"required": []string{"tensor"},
 				},
 			},
 		},
 	},
 }
 
-var toolWithObjectWithoutRequiredParams = []openai.ChatCompletionToolParam{
+var toolWithWrongMinMax = []openai.ChatCompletionToolUnionParam{
 	{
-		Function: openai.FunctionDefinitionParam{
-			Name: "process_order",
-			Parameters: openai.FunctionParameters{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"order_info": map[string]interface{}{
-						"type": "object",
-						"properties": map[string]interface{}{
-							"item": map[string]interface{}{
-								"type": "string",
+		OfFunction: &openai.ChatCompletionFunctionToolParam{
+			Function: openai.FunctionDefinitionParam{
+				Name:        "multiply_numbers",
+				Description: openai.String("Multiply an array of numbers"),
+				Parameters: openai.FunctionParameters{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"numbers": map[string]interface{}{
+							"type":        "array",
+							"items":       map[string]string{"type": "number"},
+							"description": "List of numbers to multiply",
+							"minItems":    3,
+							"maxItems":    1,
+						},
+					},
+					"required": []string{"numbers"},
+				},
+			},
+		},
+	},
+}
+
+var toolWithObjects = []openai.ChatCompletionToolUnionParam{
+	{
+		OfFunction: &openai.ChatCompletionFunctionToolParam{
+			Function: openai.FunctionDefinitionParam{
+				Name:        "process_order",
+				Description: openai.String("Process a customer order"),
+				Parameters: openai.FunctionParameters{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"order_info": map[string]interface{}{
+							"type": "object",
+							"properties": map[string]interface{}{
+								"item": map[string]interface{}{
+									"type": "string",
+								},
+								"quantity": map[string]string{
+									"type": "integer",
+								},
+								"address": map[string]interface{}{
+									"type": "object",
+									"properties": map[string]interface{}{
+										"street": map[string]interface{}{
+											"type": "string",
+										},
+										"number": map[string]interface{}{
+											"type": "integer",
+										},
+										"home": map[string]interface{}{
+											"type": "boolean",
+										},
+									},
+									"required": []string{"street", "number", "home"},
+								},
 							},
-							"quantity": map[string]string{
-								"type": "integer",
+							"required": []string{"item", "quantity", "address"},
+						},
+						"name": map[string]interface{}{
+							"type": "string",
+						},
+					},
+					"required": []string{"order_info", "name"},
+				},
+			},
+		},
+	},
+}
+
+var toolWithObjectAndArray = []openai.ChatCompletionToolUnionParam{
+	{
+		OfFunction: &openai.ChatCompletionFunctionToolParam{
+			Function: openai.FunctionDefinitionParam{
+				Name:        "submit_survey",
+				Description: openai.String("Submit a survey with user information."),
+				Parameters: openai.FunctionParameters{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"user_info": map[string]interface{}{
+							"type": "object",
+							"properties": map[string]interface{}{
+								"name": map[string]interface{}{
+									"type":        "string",
+									"description": "The user's name",
+								},
+								"age": map[string]string{
+									"type":        "integer",
+									"description": "The user's age",
+								},
+								"hobbies": map[string]interface{}{
+									"type":        "array",
+									"items":       map[string]string{"type": "string"},
+									"description": "A list of the user's hobbies",
+								},
 							},
-							"address": map[string]interface{}{
-								"type": "string",
-							},
+							"required": []string{"name", "age", "hobbies"},
+						},
+					},
+					"required": []string{"user_info"},
+				},
+			},
+		},
+	},
+}
+
+var toolWithoutRequiredParams = []openai.ChatCompletionToolUnionParam{
+	{
+		OfFunction: &openai.ChatCompletionFunctionToolParam{
+			Function: openai.FunctionDefinitionParam{
+				Name:        "get_temperature",
+				Description: openai.String("Get temperature at the given location"),
+				Parameters: openai.FunctionParameters{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"city": map[string]string{
+							"type": "string",
+						},
+						"country": map[string]string{
+							"type": "string",
+						},
+						"unit": map[string]interface{}{
+							"type": "string",
+							"enum": []string{"C", "F"},
 						},
 					},
 				},
-				"required": []string{"order_info"},
+			},
+		},
+	},
+}
+
+var toolWithObjectWithoutRequiredParams = []openai.ChatCompletionToolUnionParam{
+	{
+		OfFunction: &openai.ChatCompletionFunctionToolParam{
+			Function: openai.FunctionDefinitionParam{
+				Name: "process_order",
+				Parameters: openai.FunctionParameters{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"order_info": map[string]interface{}{
+							"type": "object",
+							"properties": map[string]interface{}{
+								"item": map[string]interface{}{
+									"type": "string",
+								},
+								"quantity": map[string]string{
+									"type": "integer",
+								},
+								"address": map[string]interface{}{
+									"type": "string",
+								},
+							},
+						},
+					},
+					"required": []string{"order_info"},
+				},
 			},
 		},
 	},

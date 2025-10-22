@@ -23,8 +23,8 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/openai/openai-go"
-	"github.com/openai/openai-go/option"
+	"github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/option"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	vllmapi "github.com/llm-d/llm-d-inference-sim/pkg/vllm-api"

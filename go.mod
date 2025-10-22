@@ -11,7 +11,7 @@ require (
 	github.com/llm-d/llm-d-kv-cache-manager v0.3.0-rc1
 	github.com/onsi/ginkgo/v2 v2.23.4
 	github.com/onsi/gomega v1.37.0
-	github.com/openai/openai-go v0.1.0-beta.10
+	github.com/openai/openai-go/v3 v3.6.1
 	github.com/pebbe/zmq4 v1.4.0
 	github.com/prometheus/client_golang v1.22.0
 	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1
