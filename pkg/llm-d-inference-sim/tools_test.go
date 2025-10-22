@@ -475,7 +475,7 @@ var _ = Describe("Simulator for request with tools", func() {
 			for _, tc := range toolCalls {
 				Expect(tc.Function.Name).To(Or(Equal("get_weather"), Equal("get_temperature")))
 				Expect(tc.ID).NotTo(BeEmpty())
-				Expect(string(tc.Type)).To(Equal("function"))
+				Expect(tc.Type).To(Equal("function"))
 				args := make(map[string]string)
 				err := json.Unmarshal([]byte(tc.Function.Arguments), &args)
 				Expect(err).NotTo(HaveOccurred())
@@ -560,7 +560,7 @@ var _ = Describe("Simulator for request with tools", func() {
 			tc := toolCalls[0]
 			Expect(tc.Function.Name).To(Equal("multiply_numbers"))
 			Expect(tc.ID).NotTo(BeEmpty())
-			Expect(string(tc.Type)).To(Equal("function"))
+			Expect(tc.Type).To(Equal("function"))
 			args := make(map[string][]float64)
 			err = json.Unmarshal([]byte(tc.Function.Arguments), &args)
 			Expect(err).NotTo(HaveOccurred())
@@ -609,7 +609,7 @@ var _ = Describe("Simulator for request with tools", func() {
 			tc := toolCalls[0]
 			Expect(tc.Function.Name).To(Equal("process_tensor"))
 			Expect(tc.ID).NotTo(BeEmpty())
-			Expect(string(tc.Type)).To(Equal("function"))
+			Expect(tc.Type).To(Equal("function"))
 
 			args := make(map[string][][][]string)
 			err = json.Unmarshal([]byte(tc.Function.Arguments), &args)
@@ -681,7 +681,7 @@ var _ = Describe("Simulator for request with tools", func() {
 			tc := toolCalls[0]
 			Expect(tc.Function.Name).To(Equal("process_order"))
 			Expect(tc.ID).NotTo(BeEmpty())
-			Expect(string(tc.Type)).To(Equal("function"))
+			Expect(tc.Type).To(Equal("function"))
 
 			args := make(map[string]any)
 			err = json.Unmarshal([]byte(tc.Function.Arguments), &args)
@@ -736,7 +736,7 @@ var _ = Describe("Simulator for request with tools", func() {
 			tc := toolCalls[0]
 			Expect(tc.Function.Name).To(Equal("submit_survey"))
 			Expect(tc.ID).NotTo(BeEmpty())
-			Expect(string(tc.Type)).To(Equal("function"))
+			Expect(tc.Type).To(Equal("function"))
 
 			args := make(map[string]any)
 			err = json.Unmarshal([]byte(tc.Function.Arguments), &args)
@@ -780,7 +780,7 @@ var _ = Describe("Simulator for request with tools", func() {
 			tc := toolCalls[0]
 			Expect(tc.Function.Name).To(Equal("get_temperature"))
 			Expect(tc.ID).NotTo(BeEmpty())
-			Expect(string(tc.Type)).To(Equal("function"))
+			Expect(tc.Type).To(Equal("function"))
 			args := make(map[string]string)
 			err = json.Unmarshal([]byte(tc.Function.Arguments), &args)
 			Expect(err).NotTo(HaveOccurred())
@@ -818,7 +818,7 @@ var _ = Describe("Simulator for request with tools", func() {
 			tc := toolCalls[0]
 			Expect(tc.Function.Name).To(Equal("process_order"))
 			Expect(tc.ID).NotTo(BeEmpty())
-			Expect(string(tc.Type)).To(Equal("function"))
+			Expect(tc.Type).To(Equal("function"))
 
 			args := make(map[string]any)
 			err = json.Unmarshal([]byte(tc.Function.Arguments), &args)
