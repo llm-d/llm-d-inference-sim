@@ -134,7 +134,7 @@ var _ = Describe("Failures", func() {
 			})
 
 			It("should always return an error response for chat completions", func() {
-				openaiClient, params := getOpenAIClentAndChatParams(client, model, userMessage, false)
+				openaiClient, params := getOpenAIClientAndChatParams(client, model, userMessage, false)
 				_, err := openaiClient.Chat.Completions.New(ctx, params)
 				Expect(err).To(HaveOccurred())
 
@@ -147,7 +147,7 @@ var _ = Describe("Failures", func() {
 			})
 
 			It("should always return an error response for text completions", func() {
-				openaiClient, params := getOpenAIClentAndChatParams(client, model, userMessage, false)
+				openaiClient, params := getOpenAIClientAndChatParams(client, model, userMessage, false)
 				_, err := openaiClient.Chat.Completions.New(ctx, params)
 				Expect(err).To(HaveOccurred())
 
@@ -173,7 +173,7 @@ var _ = Describe("Failures", func() {
 			})
 
 			It("should return only rate limit errors", func() {
-				openaiClient, params := getOpenAIClentAndChatParams(client, model, userMessage, false)
+				openaiClient, params := getOpenAIClientAndChatParams(client, model, userMessage, false)
 				_, err := openaiClient.Chat.Completions.New(ctx, params)
 				Expect(err).To(HaveOccurred())
 
@@ -199,7 +199,7 @@ var _ = Describe("Failures", func() {
 			})
 
 			It("should return only specified error types", func() {
-				openaiClient, params := getOpenAIClentAndChatParams(client, model, userMessage, false)
+				openaiClient, params := getOpenAIClientAndChatParams(client, model, userMessage, false)
 
 				// Make multiple requests to verify we get the expected error types
 				for i := 0; i < 10; i++ {
@@ -230,7 +230,7 @@ var _ = Describe("Failures", func() {
 			})
 
 			It("should never return errors and behave like random mode", func() {
-				openaiClient, params := getOpenAIClentAndChatParams(client, model, userMessage, false)
+				openaiClient, params := getOpenAIClientAndChatParams(client, model, userMessage, false)
 				resp, err := openaiClient.Chat.Completions.New(ctx, params)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(resp.Choices).To(HaveLen(1))
@@ -250,7 +250,7 @@ var _ = Describe("Failures", func() {
 					}, nil)
 					Expect(err).ToNot(HaveOccurred())
 
-					openaiClient, params := getOpenAIClentAndChatParams(client, model, userMessage, false)
+					openaiClient, params := getOpenAIClientAndChatParams(client, model, userMessage, false)
 					_, err = openaiClient.Chat.Completions.New(ctx, params)
 					Expect(err).To(HaveOccurred())
 

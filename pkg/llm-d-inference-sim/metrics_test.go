@@ -73,7 +73,7 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 		client, err := startServerWithArgs(ctx, common.ModeRandom, args, nil)
 		Expect(err).NotTo(HaveOccurred())
 
-		openaiclient, params := getOpenAIClentAndChatParams(client, modelName, userMessage, false)
+		openaiclient, params := getOpenAIClientAndChatParams(client, modelName, userMessage, false)
 
 		var wg sync.WaitGroup
 		wg.Add(1)
@@ -316,7 +316,7 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 		client, err := startServerWithArgs(ctx, common.ModeRandom, args, nil)
 		Expect(err).NotTo(HaveOccurred())
 
-		openaiclient, params := getOpenAIClentAndChatParams(client, modelName, userMessage, false)
+		openaiclient, params := getOpenAIClientAndChatParams(client, modelName, userMessage, false)
 		params.MaxTokens = openai.Int(5)
 
 		var reqWg, metricsWg sync.WaitGroup

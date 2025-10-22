@@ -163,7 +163,7 @@ var _ = Describe("Simulator", func() {
 			client, err := startServer(ctx, mode)
 			Expect(err).NotTo(HaveOccurred())
 
-			openaiclient, params := getOpenAIClentAndChatParams(client, model, userMessage, true)
+			openaiclient, params := getOpenAIClientAndChatParams(client, model, userMessage, true)
 			stream := openaiclient.Chat.Completions.NewStreaming(ctx, params)
 			defer func() {
 				err := stream.Close()
@@ -264,7 +264,7 @@ var _ = Describe("Simulator", func() {
 			client, err := startServer(ctx, mode)
 			Expect(err).NotTo(HaveOccurred())
 
-			openaiclient, params := getOpenAIClentAndChatParams(client, model, userMessage, false)
+			openaiclient, params := getOpenAIClientAndChatParams(client, model, userMessage, false)
 			numTokens := 0
 			// if maxTokens and maxCompletionTokens are passsed
 			// maxCompletionTokens is used
@@ -539,7 +539,7 @@ var _ = Describe("Simulator", func() {
 			Expect(string(body)).To(ContainSubstring("BadRequestError"))
 
 			// Also test with OpenAI client to ensure it gets an error
-			openaiclient, params := getOpenAIClentAndChatParams(client, model, "This is a test message", false)
+			openaiclient, params := getOpenAIClientAndChatParams(client, model, "This is a test message", false)
 			params.MaxTokens = openai.Int(8)
 
 			_, err = openaiclient.Chat.Completions.New(ctx, params)
@@ -556,7 +556,7 @@ var _ = Describe("Simulator", func() {
 			client, err := startServerWithArgs(ctx, common.ModeEcho, args, nil)
 			Expect(err).NotTo(HaveOccurred())
 
-			openaiclient, params := getOpenAIClentAndChatParams(client, model, "Hello", false)
+			openaiclient, params := getOpenAIClientAndChatParams(client, model, "Hello", false)
 			params.MaxTokens = openai.Int(5)
 
 			// Send a request within the context window
@@ -604,7 +604,7 @@ func sendSimpleChatRequest(envs map[string]string, streaming bool) *http.Respons
 	client, err := startServerWithArgs(ctx, common.ModeRandom, nil, envs)
 	Expect(err).NotTo(HaveOccurred())
 
-	openaiclient, params := getOpenAIClentAndChatParams(client, model, userMessage, streaming)
+	openaiclient, params := getOpenAIClientAndChatParams(client, model, userMessage, streaming)
 	var httpResp *http.Response
 	resp, err := openaiclient.Chat.Completions.New(ctx, params, option.WithResponseInto(&httpResp))
 	Expect(err).NotTo(HaveOccurred())
@@ -616,7 +616,7 @@ func sendSimpleChatRequest(envs map[string]string, streaming bool) *http.Respons
 	return httpResp
 }
 
-func getOpenAIClentAndChatParams(client option.HTTPClient, model string, message string,
+func getOpenAIClientAndChatParams(client option.HTTPClient, model string, message string,
 	streaming bool) (openai.Client, openai.ChatCompletionNewParams) {
 	openaiclient := openai.NewClient(
 		option.WithBaseURL(baseURL),

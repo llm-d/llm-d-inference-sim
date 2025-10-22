@@ -41,7 +41,7 @@ var _ = Describe("LoRAs", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			// Request to lora3
-			openaiclient, params := getOpenAIClentAndChatParams(client, "lora3", userMessage, false)
+			openaiclient, params := getOpenAIClientAndChatParams(client, "lora3", userMessage, false)
 			resp, err := openaiclient.Chat.Completions.New(ctx, params)
 			Expect(err).ToNot(HaveOccurred())
 
