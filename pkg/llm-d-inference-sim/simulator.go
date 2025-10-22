@@ -116,8 +116,6 @@ type metricsData struct {
 	requestParamsMaxTokens *prometheus.HistogramVec
 	// requestSuccessTotal is prometheus counter for total number of successful requests
 	requestSuccessTotal *prometheus.CounterVec
-	// channel for requeasts to be passed to workers
-	reqChan chan *openaiserverapi.CompletionReqCtx
 }
 
 // LoRAs usage info for requests execution
