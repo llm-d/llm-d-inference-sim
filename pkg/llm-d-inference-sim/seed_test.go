@@ -22,7 +22,7 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/openai/openai-go"
+	"github.com/openai/openai-go/v3"
 )
 
 var _ = Describe("Simulator with seed", func() {

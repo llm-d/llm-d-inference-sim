@@ -82,8 +82,6 @@ type metricsData struct {
 	nRunningReqs int64
 	// runReqChan is a channel to update nRunningReqs
 	runReqChan chan int64
-	// requestSuccessChan is a channel to update requestSuccessReqs
-	requestSuccessChan chan requestSuccessEvent
 	// nWaitingReqs is the number of inference requests that are waiting to be processed
 	nWaitingReqs int64
 	// waitingReqChan is a channel to update nWaitingReqs
@@ -108,16 +106,6 @@ type metricsData struct {
 	tpot *prometheus.HistogramVec
 	// kvCacheUsagePercentage is prometheus gauge
 	kvCacheUsagePercentage *prometheus.GaugeVec
-	// requestPromptTokens is prometheus histogram for number of input (prompt) tokens in request
-	requestPromptTokens *prometheus.HistogramVec
-	// requestGenerationTokens is prometheus histogram for number of generated tokens in request
-	requestGenerationTokens *prometheus.HistogramVec
-	// requestParamsMaxTokens is prometheus histogram for 'max_tokens' parameter in request
-	requestParamsMaxTokens *prometheus.HistogramVec
-	// requestSuccessTotal is prometheus counter for total number of successful requests
-	requestSuccessTotal *prometheus.CounterVec
-	// channel for requeasts to be passed to workers
-	reqChan chan *openaiserverapi.CompletionReqCtx
 }
 
 // LoRAs usage info for requests execution
@@ -272,7 +260,6 @@ func (s *VllmSimulator) initializeSim(ctx context.Context) error {
 	s.metrics.kvCacheUsageChan = make(chan float64, maxNumberOfRequests)
 	s.metrics.ttftChan = make(chan float64, maxNumberOfRequests)
 	s.metrics.tpotChan = make(chan float64, maxNumberOfRequests)
-	s.metrics.requestSuccessChan = make(chan requestSuccessEvent, maxNumberOfRequests)
 
 	s.newRequests = make(chan *openaiserverapi.CompletionReqCtx, maxNumberOfRequests)
 

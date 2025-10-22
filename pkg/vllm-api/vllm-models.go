@@ -25,6 +25,7 @@ const (
 	PromLabelRunningLoraAdapters = "running_lora_adapters"
 	PromLabelMaxLora             = "max_lora"
 	PromLabelModelName           = "model_name"
+	PromLabelFinishReason        = "finish_reason"
 
 	VllmLoraRequestInfo    = "vllm:lora_requests_info"
 	VllmNumRequestsRunning = "vllm:num_requests_running"

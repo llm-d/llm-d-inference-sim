@@ -136,10 +136,9 @@ func (s *VllmSimulator) processRequest(reqCtx *openaiserverapi.CompletionReqCtx)
 			}
 			s.sendResponse(reqCtx, responseTokens, toolCalls, displayModel, finishReason, &usageData)
 		}
-	}
-	
-	select {
-		case s.requestSuccessChan <- requestSuccessEvent{
+
+		select {
+		case s.metrics.requestSuccessChan <- requestSuccessEvent{
 			promptTokens:     usageData.PromptTokens,
 			generationTokens: usageData.CompletionTokens,
 			maxTokens:        reqCtx.CompletionReq.GetMaxCompletionTokens(),
@@ -147,8 +146,9 @@ func (s *VllmSimulator) processRequest(reqCtx *openaiserverapi.CompletionReqCtx)
 		}:
 		default:
 			s.logger.V(1).Info("requestSuccessChan full, dropping success event")
+		}
 	}
-	
+
 	s.logger.V(4).Info("Finished processing request", "id", req.GetRequestID())
 
 	reqCtx.Wg.Done()

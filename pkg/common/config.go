@@ -43,6 +43,27 @@ const (
 	FailureTypeServerError    = "server_error"
 	FailureTypeInvalidRequest = "invalid_request"
 	FailureTypeModelNotFound  = "model_not_found"
+
+	StopFinishReason         = "stop"
+	LengthFinishReason       = "length"
+	ToolsFinishReason        = "tool_calls"
+	RemoteDecodeFinishReason = "remote_decode"
+)
+
+var (
+	requiredFinishReasons = []string{
+		StopFinishReason,
+		LengthFinishReason,
+		ToolsFinishReason,
+		RemoteDecodeFinishReason,
+	}
+
+	validFinishReasons = map[string]struct{}{
+		StopFinishReason:         {},
+		LengthFinishReason:       {},
+		ToolsFinishReason:        {},
+		RemoteDecodeFinishReason: {},
+	}
 )
 
 type Configuration struct {
@@ -225,6 +246,13 @@ type Metrics struct {
 	// 0.01, 0.025, 0.05, 0.075, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5, 0.75,
 	// 1.0, 2.5, 5.0, 7.5, 10.0, 20.0, 40.0, 80.0, +Inf
 	TPOTBucketValues []int `yaml:"tpot-buckets-values" json:"tpot-buckets-values"`
+	// RequestPromptTokens RequestGenerationTokens RequestParamsMaxTokens Histogram fake-observation arrays for init.
+	// Each value will be passed to Observe() once at start-up.
+	RequestPromptTokens     []int `yaml:"request-prompt-tokens" json:"request-prompt-tokens"`         // prompt-length samples
+	RequestGenerationTokens []int `yaml:"request-generation-tokens" json:"request-generation-tokens"` // generation-length samples
+	RequestParamsMaxTokens  []int `yaml:"request-params-max-tokens" json:"request-params-max-tokens"` // max_tokens parameter samples
+	// RequestSuccessTotal is the number of successful requests, key: finish-reason (stop, length, etc.).
+	RequestSuccessTotal map[string]int64 `yaml:"request-success-total" json:"request-success-total"`
 }
 
 type LorasMetrics struct {
@@ -526,6 +554,38 @@ func (c *Configuration) validate() error {
 				if v < 0 {
 					return errors.New("time-per-output-token fake metrics should contain only non-negative values")
 				}
+			}
+		}
+		if c.FakeMetrics.RequestSuccessTotal != nil {
+			for reason, count := range c.FakeMetrics.RequestSuccessTotal {
+				if count < 0 {
+					return fmt.Errorf("fake metrics request-success-total.%s "+
+						"cannot be negative, got %d", reason, count)
+				}
+				if _, ok := validFinishReasons[reason]; !ok {
+					return fmt.Errorf("invalid finish reason in request-success-total: "+
+						"%s (valid reasons: %v)", reason, requiredFinishReasons)
+				}
+			}
+			for _, reason := range requiredFinishReasons {
+				if _, exists := c.FakeMetrics.RequestSuccessTotal[reason]; !exists {
+					c.FakeMetrics.RequestSuccessTotal[reason] = 0
+				}
+			}
+		}
+		for _, v := range c.FakeMetrics.RequestPromptTokens {
+			if v < 0 {
+				return errors.New("fake metrics request-prompt-tokens cannot contain negative values")
+			}
+		}
+		for _, v := range c.FakeMetrics.RequestGenerationTokens {
+			if v < 0 {
+				return errors.New("fake metrics request-generation-tokens cannot contain negative values")
+			}
+		}
+		for _, v := range c.FakeMetrics.RequestParamsMaxTokens {
+			if v < 0 {
+				return errors.New("fake metrics request-params-max-tokens cannot contain negative values")
 			}
 		}
 	}

@@ -22,18 +22,20 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"reflect"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"testing"
 	"time"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/openai/openai-go"
-	"github.com/openai/openai-go/option"
+	"github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/option"
 )
 
 const (
@@ -93,7 +95,7 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 		client, err := startServerWithArgs(ctx, common.ModeRandom, args, nil)
 		Expect(err).NotTo(HaveOccurred())
 
-		openaiclient, params := getOpenAIClentAndChatParams(client, modelName, userMessage, false)
+		openaiclient, params := getOpenAIClientAndChatParams(client, modelName, userMessage, false)
 
 		for range 3 {
 			go func() {
@@ -113,6 +115,77 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 		metrics := string(data)
 		Expect(metrics).To(ContainSubstring("vllm:num_requests_running{model_name=\"testmodel\"} 2"))
 		Expect(metrics).To(ContainSubstring("vllm:num_requests_waiting{model_name=\"testmodel\"} 1"))
+	})
+
+	It("Should record correct prompt and generation token counts", func() {
+		modelName := "testmodel"
+		prompt := strings.Repeat("hello ", 25)
+		maxTokens := 25
+
+		ctx := context.TODO()
+		args := []string{"cmd", "--model", modelName, "--mode", common.ModeRandom,
+			"--time-to-first-token", "100", "--max-num-seqs", "4"}
+
+		client, err := startServerWithArgs(ctx, common.ModeRandom, args, nil)
+		Expect(err).NotTo(HaveOccurred())
+
+		openaiclient := openai.NewClient(
+			option.WithBaseURL(baseURL),
+			option.WithHTTPClient(client))
+
+		params := openai.ChatCompletionNewParams{
+			Messages: []openai.ChatCompletionMessageParamUnion{
+				openai.UserMessage(prompt),
+			},
+			Model:       modelName,
+			MaxTokens:   openai.Int(int64(maxTokens)),
+			Temperature: openai.Float(0.0),
+		}
+
+		_, err = openaiclient.Chat.Completions.New(ctx, params)
+		Expect(err).NotTo(HaveOccurred())
+
+		time.Sleep(500 * time.Millisecond)
+
+		metricsResp, err := client.Get(metricsUrl)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
+
+		data, err := io.ReadAll(metricsResp.Body)
+		Expect(err).NotTo(HaveOccurred())
+		metrics := string(data)
+		// request_prompt_tokens_bucket
+		Expect(metrics).To(ContainSubstring(`vllm:request_prompt_tokens_bucket{model_name="testmodel",le="1"} 0`))
+		Expect(metrics).To(ContainSubstring(`vllm:request_prompt_tokens_bucket{model_name="testmodel",le="2"} 0`))
+		Expect(metrics).To(ContainSubstring(`vllm:request_prompt_tokens_bucket{model_name="testmodel",le="5"} 0`))
+		Expect(metrics).To(ContainSubstring(`vllm:request_prompt_tokens_bucket{model_name="testmodel",le="10"} 0`))
+		Expect(metrics).To(ContainSubstring(`vllm:request_prompt_tokens_bucket{model_name="testmodel",le="20"} 0`))
+		Expect(metrics).To(ContainSubstring(`vllm:request_prompt_tokens_bucket{model_name="testmodel",le="50"} 1`))
+		Expect(metrics).To(ContainSubstring(`vllm:request_prompt_tokens_bucket{model_name="testmodel",le="100"} 1`))
+		Expect(metrics).To(ContainSubstring(`vllm:request_prompt_tokens_bucket{model_name="testmodel",le="200"} 1`))
+		Expect(metrics).To(ContainSubstring(`vllm:request_prompt_tokens_bucket{model_name="testmodel",le="500"} 1`))
+		Expect(metrics).To(ContainSubstring(`vllm:request_prompt_tokens_bucket{model_name="testmodel",le="100"} 1`))
+		Expect(metrics).To(ContainSubstring(`vllm:request_prompt_tokens_bucket{model_name="testmodel",le="+Inf"} 1`))
+		// request_params_max_tokens_bucket
+		Expect(metrics).To(ContainSubstring(`vllm:request_params_max_tokens_bucket{model_name="testmodel",le="1"} 0`))
+		Expect(metrics).To(ContainSubstring(`vllm:request_params_max_tokens_bucket{model_name="testmodel",le="2"} 0`))
+		Expect(metrics).To(ContainSubstring(`vllm:request_params_max_tokens_bucket{model_name="testmodel",le="5"} 0`))
+		Expect(metrics).To(ContainSubstring(`vllm:request_params_max_tokens_bucket{model_name="testmodel",le="10"} 0`))
+		Expect(metrics).To(ContainSubstring(`vllm:request_params_max_tokens_bucket{model_name="testmodel",le="20"} 0`))
+		Expect(metrics).To(ContainSubstring(`vllm:request_params_max_tokens_bucket{model_name="testmodel",le="50"} 1`))
+		Expect(metrics).To(ContainSubstring(`vllm:request_params_max_tokens_bucket{model_name="testmodel",le="100"} 1`))
+		Expect(metrics).To(ContainSubstring(`vllm:request_params_max_tokens_bucket{model_name="testmodel",le="200"} 1`))
+		Expect(metrics).To(ContainSubstring(`vllm:request_params_max_tokens_bucket{model_name="testmodel",le="500"} 1`))
+		Expect(metrics).To(ContainSubstring(`vllm:request_params_max_tokens_bucket{model_name="testmodel",le="1000"} 1`))
+		Expect(metrics).To(ContainSubstring(`vllm:request_params_max_tokens_bucket{model_name="testmodel",le="+Inf"} 1`))
+		// request_generation_tokens
+		// We do not verify the distribution of the number of tokens generated per request,
+		// as the number of generated tokens is unpredictable in this test.
+		// Therefore, we only verify the number of requests and the total number of generated tokens,
+		// and skip the bucket distribution.
+		Expect(metrics).To(ContainSubstring(`vllm:request_generation_tokens_count{model_name="testmodel"} 1`))
+		// request_success_total
+		Expect(metrics).To(MatchRegexp(`vllm:request_success_total{finish_reason="(stop|length)",model_name="testmodel"} 1`))
 	})
 
 	It("Should send correct lora metrics", func() {
@@ -326,7 +399,7 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 		client, err := startServerWithArgs(ctx, common.ModeRandom, args, nil)
 		Expect(err).NotTo(HaveOccurred())
 
-		openaiclient, params := getOpenAIClentAndChatParams(client, modelName, userMessage, false)
+		openaiclient, params := getOpenAIClientAndChatParams(client, modelName, userMessage, false)
 		params.MaxTokens = openai.Int(5)
 
 		var reqWg, metricsWg sync.WaitGroup
@@ -597,7 +670,34 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 			ctx := context.TODO()
 			args := []string{"cmd", "--model", model, "--mode", common.ModeRandom,
 				"--fake-metrics",
-				"{\"running-requests\":10,\"waiting-requests\":30,\"kv-cache-usage\":0.4,\"loras\":[{\"running\":\"lora4,lora2\",\"waiting\":\"lora3\",\"timestamp\":1257894567},{\"running\":\"lora4,lora3\",\"waiting\":\"\",\"timestamp\":1257894569}],\"ttft-buckets-values\":[1, 2, 3],\"tpot-buckets-values\": [0, 0, 1, 2, 3]}",
+				`{` +
+					`"running-requests":10,` +
+					`"waiting-requests":30,` +
+					`"kv-cache-usage":0.4,` +
+					`"request-success-total":{` +
+					`"stop":20,` +
+					`"length":0,` +
+					`"tool_calls":0,` +
+					`"remote_decode":0` +
+					`},` +
+					`"request-prompt-tokens":[10,20,30],` +
+					`"request-generation-tokens":[10,20,30],` +
+					`"request-params-max-tokens":[10,20,30],` +
+					`"ttft-buckets-values":[1,2,3],` +
+					`"tpot-buckets-values":[0,0,1,2,3],` +
+					`"loras":[` +
+					`{` +
+					`"running":"lora4,lora2",` +
+					`"waiting":"lora3",` +
+					`"timestamp":1257894567` +
+					`},` +
+					`{` +
+					`"running":"lora4,lora3",` +
+					`"waiting":"",` +
+					`"timestamp":1257894569` +
+					`}` +
+					`]` +
+					`}`,
 			}
 
 			client, err := startServerWithArgs(ctx, common.ModeRandom, args, nil)
@@ -627,6 +727,47 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 			Expect(metrics).To(ContainSubstring("vllm:time_per_output_token_seconds_bucket{model_name=\"my_model\",le=\"0.075\"} 3"))
 			Expect(metrics).To(ContainSubstring("vllm:time_per_output_token_seconds_bucket{model_name=\"my_model\",le=\"0.1\"} 6"))
 			Expect(metrics).To(ContainSubstring("vllm:time_per_output_token_seconds_bucket{model_name=\"my_model\",le=\"0.15\"} 6"))
+
+			Expect(metrics).To(ContainSubstring(`vllm:request_generation_tokens_bucket{model_name="my_model",le="1"} 10`))
+			Expect(metrics).To(ContainSubstring(`vllm:request_generation_tokens_bucket{model_name="my_model",le="2"} 30`))
+			Expect(metrics).To(ContainSubstring(`vllm:request_generation_tokens_bucket{model_name="my_model",le="5"} 60`))
+			Expect(metrics).To(ContainSubstring(`vllm:request_generation_tokens_bucket{model_name="my_model",le="10"} 60`))
+			Expect(metrics).To(ContainSubstring(`vllm:request_generation_tokens_bucket{model_name="my_model",le="20"} 60`))
+			Expect(metrics).To(ContainSubstring(`vllm:request_generation_tokens_bucket{model_name="my_model",le="50"} 60`))
+			Expect(metrics).To(ContainSubstring(`vllm:request_generation_tokens_bucket{model_name="my_model",le="100"} 60`))
+			Expect(metrics).To(ContainSubstring(`vllm:request_generation_tokens_bucket{model_name="my_model",le="200"} 60`))
+			Expect(metrics).To(ContainSubstring(`vllm:request_generation_tokens_bucket{model_name="my_model",le="500"} 60`))
+			Expect(metrics).To(ContainSubstring(`vllm:request_generation_tokens_bucket{model_name="my_model",le="1000"} 60`))
+			Expect(metrics).To(ContainSubstring(`vllm:request_generation_tokens_bucket{model_name="my_model",le="+Inf"} 60`))
+
+			Expect(metrics).To(ContainSubstring(`vllm:request_prompt_tokens_bucket{model_name="my_model",le="1"} 10`))
+			Expect(metrics).To(ContainSubstring(`vllm:request_prompt_tokens_bucket{model_name="my_model",le="2"} 30`))
+			Expect(metrics).To(ContainSubstring(`vllm:request_prompt_tokens_bucket{model_name="my_model",le="5"} 60`))
+			Expect(metrics).To(ContainSubstring(`vllm:request_prompt_tokens_bucket{model_name="my_model",le="10"} 60`))
+			Expect(metrics).To(ContainSubstring(`vllm:request_prompt_tokens_bucket{model_name="my_model",le="20"} 60`))
+			Expect(metrics).To(ContainSubstring(`vllm:request_prompt_tokens_bucket{model_name="my_model",le="50"} 60`))
+			Expect(metrics).To(ContainSubstring(`vllm:request_prompt_tokens_bucket{model_name="my_model",le="100"} 60`))
+			Expect(metrics).To(ContainSubstring(`vllm:request_prompt_tokens_bucket{model_name="my_model",le="200"} 60`))
+			Expect(metrics).To(ContainSubstring(`vllm:request_prompt_tokens_bucket{model_name="my_model",le="500"} 60`))
+			Expect(metrics).To(ContainSubstring(`vllm:request_prompt_tokens_bucket{model_name="my_model",le="1000"} 60`))
+			Expect(metrics).To(ContainSubstring(`vllm:request_prompt_tokens_bucket{model_name="my_model",le="+Inf"} 60`))
+
+			Expect(metrics).To(ContainSubstring(`vllm:request_params_max_tokens_bucket{model_name="my_model",le="1"} 10`))
+			Expect(metrics).To(ContainSubstring(`vllm:request_params_max_tokens_bucket{model_name="my_model",le="2"} 30`))
+			Expect(metrics).To(ContainSubstring(`vllm:request_params_max_tokens_bucket{model_name="my_model",le="5"} 60`))
+			Expect(metrics).To(ContainSubstring(`vllm:request_params_max_tokens_bucket{model_name="my_model",le="10"} 60`))
+			Expect(metrics).To(ContainSubstring(`vllm:request_params_max_tokens_bucket{model_name="my_model",le="20"} 60`))
+			Expect(metrics).To(ContainSubstring(`vllm:request_params_max_tokens_bucket{model_name="my_model",le="50"} 60`))
+			Expect(metrics).To(ContainSubstring(`vllm:request_params_max_tokens_bucket{model_name="my_model",le="100"} 60`))
+			Expect(metrics).To(ContainSubstring(`vllm:request_params_max_tokens_bucket{model_name="my_model",le="200"} 60`))
+			Expect(metrics).To(ContainSubstring(`vllm:request_params_max_tokens_bucket{model_name="my_model",le="500"} 60`))
+			Expect(metrics).To(ContainSubstring(`vllm:request_params_max_tokens_bucket{model_name="my_model",le="1000"} 60`))
+			Expect(metrics).To(ContainSubstring(`vllm:request_params_max_tokens_bucket{model_name="my_model",le="+Inf"} 60`))
+
+			Expect(metrics).To(ContainSubstring(`vllm:request_success_total{finish_reason="length",model_name="my_model"} 0`))
+			Expect(metrics).To(ContainSubstring(`vllm:request_success_total{finish_reason="remote_decode",model_name="my_model"} 0`))
+			Expect(metrics).To(ContainSubstring(`vllm:request_success_total{finish_reason="stop",model_name="my_model"} 20`))
+			Expect(metrics).To(ContainSubstring(`vllm:request_success_total{finish_reason="tool_calls",model_name="my_model"} 0`))
 		})
 	})
 
@@ -806,4 +947,78 @@ func findIntMetric(metrics []string, metricPrefix string) *int {
 		return nil
 	}
 	return &val
+}
+
+// TestBuild125Buckets tests the build125Buckets function with various inputs.
+func TestBuild125Buckets(t *testing.T) {
+	tests := []struct {
+		name     string
+		maxValue int
+		want     []float64
+	}{
+		{
+			name:     "max_value zero",
+			maxValue: 0,
+			want:     []float64{}, // no bucket <= 0
+		},
+		{
+			name:     "max_value one",
+			maxValue: 1,
+			want:     []float64{1},
+		},
+		{
+			name:     "max_value five",
+			maxValue: 5,
+			want:     []float64{1, 2, 5},
+		},
+		{
+			name:     "max_value ten",
+			maxValue: 10,
+			want:     []float64{1, 2, 5, 10},
+		},
+		{
+			name:     "max_value 100",
+			maxValue: 100,
+			want:     []float64{1, 2, 5, 10, 20, 50, 100},
+		},
+		{
+			name:     "max_value 999",
+			maxValue: 999,
+			want:     []float64{1, 2, 5, 10, 20, 50, 100, 200, 500},
+		},
+		{
+			name:     "max_value 1024",
+			maxValue: 1024,
+			want:     []float64{1, 2, 5, 10, 20, 50, 100, 200, 500, 1000},
+		},
+		{
+			name:     "max_value 4096",
+			maxValue: 4096,
+			want:     []float64{1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000},
+		},
+		{
+			name:     "max_value 32768",
+			maxValue: 32768,
+			want:     []float64{1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000},
+		},
+		{
+			name:     "max_value just below power of 10",
+			maxValue: 99,
+			want:     []float64{1, 2, 5, 10, 20, 50},
+		},
+		{
+			name:     "max_value negative",
+			maxValue: -1,
+			want:     []float64{}, // no positive bucket <= -1
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := build125Buckets(tt.maxValue)
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("build125Buckets(%d) = %v, want %v", tt.maxValue, got, tt.want)
+			}
+		})
+	}
 }
