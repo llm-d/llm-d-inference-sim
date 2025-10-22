@@ -67,6 +67,14 @@ type CompletionRequest interface {
 	IsDoRemotePrefill() bool
 	// GetFullPrompt returns the full prompt including system and user prompts
 	GetFullPrompt() string
+	// GetLogprobs returns the logprobs parameter (for text completions)
+	GetLogprobs() *int
+	// IncludeLogprobs returns true if logprobs should be included (for chat completions)
+	IncludeLogprobs() bool
+	// GetTopLogprobs returns the number of top logprobs to include (for chat completions)
+	GetTopLogprobs() *int
+	// GetTopLogprobsCount returns the computed count of top logprobs to include
+	GetTopLogprobsCount() int
 }
 
 // BaseCompletionRequest contains base completion request related information
@@ -178,6 +186,12 @@ type ChatCompletionRequest struct {
 	// possible values: none, auto, required.
 	// Sending an object with a specific tool, is currently not supported.
 	ToolChoice string `json:"tool_choice,omitempty"`
+
+	// Logprobs controls whether log probabilities are included in the response
+	Logprobs bool `json:"logprobs,omitempty"`
+
+	// TopLogprobs controls how many alternative tokens to include in the logprobs
+	TopLogprobs *int `json:"top_logprobs,omitempty"`
 }
 
 // function defines a tool
@@ -253,6 +267,37 @@ func (req *ChatCompletionRequest) GetFullPrompt() string {
 	return prompt
 }
 
+func (c *ChatCompletionRequest) GetLogprobs() *int {
+	if !c.Logprobs {
+		return nil // No logprobs requested
+	}
+	if c.TopLogprobs != nil {
+		return c.TopLogprobs // Return the top_logprobs value
+	}
+	// Default to 1 if logprobs=true but no top_logprobs specified
+	defaultVal := 1
+	return &defaultVal
+}
+
+func (c *ChatCompletionRequest) IncludeLogprobs() bool {
+	return c.Logprobs
+}
+
+func (c *ChatCompletionRequest) GetTopLogprobs() *int {
+	return c.TopLogprobs
+}
+
+func (c *ChatCompletionRequest) GetTopLogprobsCount() int {
+	if c.Logprobs {
+		if c.TopLogprobs != nil {
+			return *c.TopLogprobs
+		}
+		// Default to 1 if logprobs=true but no top_logprobs specified
+		return 1
+	}
+	return 0
+}
+
 // v1/completion
 // TextCompletionRequest defines structure of /completion request
 type TextCompletionRequest struct {
@@ -266,6 +311,12 @@ type TextCompletionRequest struct {
 	// The token count of your prompt plus `max_tokens` cannot exceed the model's
 	// context length.
 	MaxTokens *int64 `json:"max_tokens"`
+
+	// Logprobs includes the log probabilities on the logprobs most likely tokens,
+	// as well the chosen tokens. For example, if logprobs is 5, the API will return
+	// a list of the 5 most likely tokens. The API will always return the logprob
+	// of the sampled token, so there may be up to logprobs+1 elements in the response.
+	Logprobs *int `json:"logprobs,omitempty"`
 }
 
 func (t *TextCompletionRequest) GetPrompt() string {
@@ -290,4 +341,24 @@ func (c *TextCompletionRequest) GetMaxCompletionTokens() *int64 {
 
 func (t *TextCompletionRequest) GetFullPrompt() string {
 	return "### user:\n" + t.Prompt + "\n"
+}
+
+func (t *TextCompletionRequest) GetLogprobs() *int {
+	return t.Logprobs
+}
+
+func (t *TextCompletionRequest) IncludeLogprobs() bool {
+	return t.Logprobs != nil && *t.Logprobs > 0
+}
+
+func (t *TextCompletionRequest) GetTopLogprobs() *int {
+	// For text completions, this method returns the same as GetLogprobs
+	return t.Logprobs
+}
+
+func (t *TextCompletionRequest) GetTopLogprobsCount() int {
+	if t.Logprobs != nil && *t.Logprobs > 0 {
+		return *t.Logprobs
+	}
+	return 0
 }

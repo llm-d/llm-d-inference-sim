@@ -22,6 +22,7 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/valyala/fasthttp"
 )
 
@@ -175,6 +176,8 @@ type ChatRespChoice struct {
 	BaseResponseChoice
 	// Message contains choice's Message
 	Message Message `json:"message"`
+	// Logprobs contains the log probabilities for the response
+	Logprobs *common.ChatLogprobs `json:"logprobs,omitempty"`
 }
 
 // TextCompletionResponse defines structure of /completion response
@@ -189,6 +192,8 @@ type TextRespChoice struct {
 	BaseResponseChoice
 	// Text defines request's content
 	Text string `json:"text"`
+	// Logprobs contains the log probabilities for the response
+	Logprobs *common.TextLogprobs `json:"logprobs,omitempty"`
 }
 
 // CompletionRespChunk is an interface that defines a single response chunk
@@ -206,6 +211,8 @@ type ChatRespChunkChoice struct {
 	BaseResponseChoice
 	// Delta is a content of the chunk
 	Delta Message `json:"delta"`
+	// Logprobs contains the log probabilities for the response chunk
+	Logprobs *common.ChatLogprobs `json:"logprobs,omitempty"`
 }
 
 // CompletionError defines the simulator's response in case of an error

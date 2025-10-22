@@ -37,6 +37,10 @@ type streamingContext struct {
 	nPromptTokens       int
 	nCachedPromptTokens int
 	requestID           string
+	// Logprobs configuration
+	includeLogprobs bool
+	topLogprobs     int
+	logprobsCount   *int // Text completions
 }
 
 // sendStreamingResponse creates and sends a streaming response for completion requests of both types (text and chat)
@@ -186,9 +190,9 @@ func (s *VllmSimulator) createUsageChunk(context *streamingContext, usageData *o
 }
 
 // createTextCompletionChunk creates and returns a CompletionRespChunk, a single chunk of streamed completion API response,
-// for text completion
+// for text completion.
 func (s *VllmSimulator) createTextCompletionChunk(context *streamingContext, token string, finishReason *string) openaiserverapi.CompletionRespChunk {
-	return &openaiserverapi.TextCompletionResponse{
+	chunk := &openaiserverapi.TextCompletionResponse{
 		BaseCompletionResponse: openaiserverapi.BaseCompletionResponse{
 			ID:      chatComplIDPrefix + common.GenerateUUIDString(),
 			Created: context.creationTime,
@@ -202,6 +206,18 @@ func (s *VllmSimulator) createTextCompletionChunk(context *streamingContext, tok
 			},
 		},
 	}
+
+	// Generate logprobs if requested and token is not empty
+	if context.includeLogprobs && token != "" && context.logprobsCount != nil && *context.logprobsCount > 0 {
+		// Use token position based on current time
+		tokenPosition := int(context.creationTime) % 1000 // Simple position simulation
+		logprobs := common.GenerateSingleTokenTextLogprobs(token, tokenPosition, *context.logprobsCount)
+		if logprobs != nil {
+			chunk.Choices[0].Logprobs = logprobs
+		}
+	}
+
+	return chunk
 }
 
 // createChatCompletionChunk creates and returns a CompletionRespChunk, a single chunk of streamed completion
@@ -230,6 +246,18 @@ func (s *VllmSimulator) createChatCompletionChunk(context *streamingContext, tok
 		chunk.Choices[0].Delta.ToolCalls = []openaiserverapi.ToolCall{*tool}
 	} else if len(token) > 0 {
 		chunk.Choices[0].Delta.Content.Raw = token
+
+		// Generate logprobs if requested and token is not empty
+		if context.includeLogprobs {
+			// Use token position based on current time
+			tokenPosition := int(context.creationTime) % 1000 // Simple position simulation
+			logprobs := common.GenerateSingleTokenChatLogprobs(token, tokenPosition, context.topLogprobs)
+			if logprobs != nil {
+				chunk.Choices[0].Logprobs = &common.ChatLogprobs{
+					Content: []common.LogprobsContent{*logprobs},
+				}
+			}
+		}
 	}
 
 	return &chunk
