@@ -174,7 +174,7 @@ func (s *VllmSimulator) createAndRegisterPrometheus() error {
 	s.metrics.reqDecodeTime = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Subsystem: "",
-			Name:      "vllm:request_queue_time_seconds",
+			Name:      "vllm:request_decode_time_seconds",
 			Help:      "Histogram of time spent in DECODE phase for request.",
 			Buckets:   common.RequestLatencyBucketsBoundaries,
 		},
