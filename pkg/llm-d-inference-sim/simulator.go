@@ -93,6 +93,8 @@ type metricsData struct {
 	ttftChan chan float64
 	// tpotChan is a channel to update time per output token
 	tpotChan chan float64
+	// e2eReqLatencyChan is a channel to update request e2e latency
+	e2eReqLatencyChan chan float64
 	// kvCacheUsageChan is a channel to update kvCacheUsagePercentage
 	kvCacheUsageChan chan float64
 	// registry is a Prometheus registry
@@ -107,6 +109,8 @@ type metricsData struct {
 	ttft *prometheus.HistogramVec
 	// tpot is prometheus histogram for time per output token in seconds
 	tpot *prometheus.HistogramVec
+	// e2eReqLatency is prometheus histogram of end to end request latency in seconds
+	e2eReqLatency *prometheus.HistogramVec
 	// kvCacheUsagePercentage is prometheus gauge
 	kvCacheUsagePercentage *prometheus.GaugeVec
 	// requestPromptTokens is prometheus histogram for number of input (prompt) tokens in request
@@ -271,6 +275,7 @@ func (s *VllmSimulator) initializeSim(ctx context.Context) error {
 	s.metrics.kvCacheUsageChan = make(chan float64, maxNumberOfRequests)
 	s.metrics.ttftChan = make(chan float64, maxNumberOfRequests)
 	s.metrics.tpotChan = make(chan float64, maxNumberOfRequests)
+	s.metrics.e2eReqLatencyChan = make(chan float64, maxNumberOfRequests)
 	s.metrics.requestSuccessChan = make(chan requestSuccessEvent, maxNumberOfRequests)
 
 	s.newRequests = make(chan *openaiserverapi.CompletionReqCtx, maxNumberOfRequests)
@@ -460,6 +465,11 @@ func (s *VllmSimulator) addRequestToQueue(reqCtx *openaiserverapi.CompletionReqC
 
 // handleCompletions general completion requests handler, support both text and chat completion APIs
 func (s *VllmSimulator) handleCompletions(ctx *fasthttp.RequestCtx, isChatCompletion bool) {
+	startTime := time.Now()
+	defer func() {
+		s.metrics.e2eReqLatencyChan <- time.Since(startTime).Seconds()
+	}()
+
 	// Check if we should inject a failure
 	if shouldInjectFailure(s.config) {
 		failure := getRandomFailure(s.config)

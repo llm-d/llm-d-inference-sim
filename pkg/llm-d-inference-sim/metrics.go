@@ -111,6 +111,21 @@ func (s *VllmSimulator) createAndRegisterPrometheus() error {
 		return err
 	}
 
+	s.metrics.e2eReqLatency = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Subsystem: "",
+			Name:      "vllm:e2e_request_latency_seconds",
+			Help:      "Histogram of end to end request latency in seconds.",
+			Buckets:   common.E2ERequestLatencyBucketsBoundaries,
+		},
+		[]string{vllmapi.PromLabelModelName},
+	)
+
+	if err := s.metrics.registry.Register(s.metrics.e2eReqLatency); err != nil {
+		s.logger.Error(err, "Prometheus end to end request latency histogram register failed")
+		return err
+	}
+
 	s.metrics.kvCacheUsagePercentage = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: "",
@@ -215,6 +230,10 @@ func (s *VllmSimulator) setInitialPrometheusMetrics() {
 		for reason, requestSuccessTotal := range s.config.FakeMetrics.RequestSuccessTotal {
 			s.metrics.requestSuccessTotal.WithLabelValues(modelName, reason).Add(float64(requestSuccessTotal))
 		}
+
+		if s.config.FakeMetrics.E2ERequestLatencyBucketValues != nil {
+			s.initFakeHistogram(s.metrics.tpot, common.E2ERequestLatencyBucketsBoundaries, s.config.FakeMetrics.E2ERequestLatencyBucketValues)
+		}
 	}
 
 	s.metrics.runningRequests.WithLabelValues(modelName).Set(nRunningReqs)
@@ -317,25 +336,14 @@ func (s *VllmSimulator) reportWaitingRequests() {
 	}
 }
 
-// reportTTFT sets information about time to first token
-func (s *VllmSimulator) reportTTFT(ttftInSecs float64) {
+// reportHistogramValue sets the given value in the given histogram
+func (s *VllmSimulator) reportHistogramValue(hist *prometheus.HistogramVec, val float64) {
 	if s.config.FakeMetrics != nil {
 		return
 	}
-	if s.metrics.ttft != nil {
-		s.metrics.ttft.WithLabelValues(
-			s.getDisplayedModelName(s.config.Model)).Observe(ttftInSecs)
-	}
-}
-
-// reportTPOT sets information about time per output token
-func (s *VllmSimulator) reportTPOT(tpotInSecs float64) {
-	if s.config.FakeMetrics != nil {
-		return
-	}
-	if s.metrics.tpot != nil {
-		s.metrics.tpot.WithLabelValues(
-			s.getDisplayedModelName(s.config.Model)).Observe(tpotInSecs)
+	if hist != nil {
+		hist.WithLabelValues(
+			s.getDisplayedModelName(s.config.Model)).Observe(val)
 	}
 }
 
@@ -359,6 +367,7 @@ func (s *VllmSimulator) startMetricsUpdaters(ctx context.Context) {
 	go s.ttftUpdater(ctx)
 	go s.tpotUpdater(ctx)
 	go s.recordRequestUpdater(ctx)
+	go s.e2eReqLatencyUpdater(ctx)
 }
 
 // waitingRequestsUpdater updates the waiting requests metric by listening on the relevant channel
@@ -406,7 +415,7 @@ func (s *VllmSimulator) ttftUpdater(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case value := <-s.metrics.ttftChan:
-			s.reportTTFT(value)
+			s.reportHistogramValue(s.metrics.ttft, value)
 		}
 	}
 }
@@ -418,7 +427,19 @@ func (s *VllmSimulator) tpotUpdater(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case value := <-s.metrics.tpotChan:
-			s.reportTPOT(value)
+			s.reportHistogramValue(s.metrics.tpot, value)
+		}
+	}
+}
+
+// tpotUpdater updates the time per output token metric by listening on the relevant channel
+func (s *VllmSimulator) e2eReqLatencyUpdater(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case value := <-s.metrics.e2eReqLatencyChan:
+			s.reportHistogramValue(s.metrics.e2eReqLatency, value)
 		}
 	}
 }

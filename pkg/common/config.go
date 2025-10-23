@@ -253,6 +253,13 @@ type Metrics struct {
 	RequestParamsMaxTokens  []int `yaml:"request-params-max-tokens" json:"request-params-max-tokens"` // max_tokens parameter samples
 	// RequestSuccessTotal is the number of successful requests, key: finish-reason (stop, length, etc.).
 	RequestSuccessTotal map[string]int64 `yaml:"request-success-total" json:"request-success-total"`
+	// E2ERequestLatencyBucketValues is an array of values for e2e request latency buckets,
+	// each value in this array is a value for the corresponding bucket.
+	// Array may contain less values than number of buckets, all trailing missing values assumed as 0.
+	// Buckets upper boundaries in seconds are:
+	// 0.3, 0.5, 0.8, 1.0, 1.5, 2.0, 2.5, 5.0, 10.0, 15.0,
+	// 20.0, 30.0, 40.0, 50.0, 60.0, 120.0, 240.0, 480.0, 960.0, 1920.0, 7680.0, +Inf
+	E2ERequestLatencyBucketValues []int `yaml:"e2erl-buckets-values" json:"e2erl-buckets-values"`
 }
 
 type LorasMetrics struct {
