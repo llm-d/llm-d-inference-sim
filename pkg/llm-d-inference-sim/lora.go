@@ -20,6 +20,7 @@ package llmdinferencesim
 import (
 	"encoding/json"
 
+	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/valyala/fasthttp"
 )
 
@@ -139,6 +140,6 @@ func (s *VllmSimulator) decrementLora(model string) {
 	s.loras.loadedLoras[model]--
 	if s.loras.loadedLoras[model] <= 0 {
 		// last usage of this LoRA
-		s.loras.loraRemovable <- 1
+		common.WriteToChannel(s.loras.loraRemovable, 1, s.logger, "loraRemovable")
 	}
 }

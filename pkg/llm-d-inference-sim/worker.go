@@ -21,6 +21,7 @@ import (
 	"context"
 
 	"github.com/go-logr/logr"
+	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/dataset"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	"github.com/valyala/fasthttp"
@@ -63,12 +64,13 @@ func (s *VllmSimulator) processRequest(reqCtx *openaiserverapi.CompletionReqCtx)
 	displayModel := s.getDisplayedModelName(model)
 
 	// increment running requests count
-	s.metrics.runReqChan <- 1
+	common.WriteToChannel(s.metrics.runReqChan, 1, s.logger, "metrics.runReqChan")
 
 	if s.isLora(model) {
 		// update loraInfo metric to reflect that
 		// the request has changed its status from waiting to running
-		s.metrics.lorasChan <- loraUsage{model, runningUsageState}
+		common.WriteToChannel(s.metrics.lorasChan, loraUsage{model, runningUsageState}, s.logger,
+			"metrics.lorasChan")
 	}
 
 	if s.config.EnableKVCache && !reqCtx.IsChatCompletion {
@@ -137,16 +139,13 @@ func (s *VllmSimulator) processRequest(reqCtx *openaiserverapi.CompletionReqCtx)
 			s.sendResponse(reqCtx, responseTokens, toolCalls, displayModel, finishReason, &usageData)
 		}
 
-		select {
-		case s.metrics.requestSuccessChan <- requestSuccessEvent{
-			promptTokens:     usageData.PromptTokens,
-			generationTokens: usageData.CompletionTokens,
-			maxTokens:        reqCtx.CompletionReq.GetMaxCompletionTokens(),
-			finishReason:     finishReason,
-		}:
-		default:
-			s.logger.V(1).Info("requestSuccessChan full, dropping success event")
-		}
+		common.WriteToChannel(s.metrics.requestSuccessChan,
+			requestSuccessEvent{
+				promptTokens:     usageData.PromptTokens,
+				generationTokens: usageData.CompletionTokens,
+				maxTokens:        reqCtx.CompletionReq.GetMaxCompletionTokens(),
+				finishReason:     finishReason},
+			s.logger, "metrics.requestSuccessChan")
 	}
 
 	s.logger.V(4).Info("Finished processing request", "id", req.GetRequestID())

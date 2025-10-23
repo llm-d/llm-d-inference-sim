@@ -70,10 +70,10 @@ func newBlockCache(config *common.Configuration, logger logr.Logger, usageChan c
 	}, nil
 }
 
-func (b *blockCache) start(ctx context.Context) {
-	err := b.eventSender.Run(ctx)
+func (bc *blockCache) start(ctx context.Context) {
+	err := bc.eventSender.Run(ctx)
 	if err != nil {
-		b.logger.Info("sender stopped with error", "error", err)
+		bc.logger.Info("sender stopped with error", "error", err)
 	}
 }
 
@@ -139,12 +139,16 @@ func (bc *blockCache) startRequest(requestID string, blocks []uint64) (int, erro
 			}
 
 			delete(bc.unusedBlocks, oldestUnusedHash)
-			bc.eventChan <- EventData{action: eventActionRemove, hashValues: []uint64{oldestUnusedHash}}
+			common.WriteToChannel(bc.eventChan,
+				EventData{action: eventActionRemove, hashValues: []uint64{oldestUnusedHash}},
+				bc.logger, "block cache eventChan")
 		}
 
 		// Add the new block
 		bc.usedBlocks[block] = 1
-		bc.eventChan <- EventData{action: eventActionStore, hashValues: []uint64{block}}
+		common.WriteToChannel(bc.eventChan,
+			EventData{action: eventActionStore, hashValues: []uint64{block}},
+			bc.logger, "block cache eventChan")
 	}
 
 	// store the request mapping
@@ -152,7 +156,8 @@ func (bc *blockCache) startRequest(requestID string, blocks []uint64) (int, erro
 	copy(bc.requestToBlocks[requestID], blocks)
 
 	if bc.usageChan != nil {
-		bc.usageChan <- float64(len(bc.usedBlocks)) / float64(bc.maxBlocks)
+		common.WriteToChannel(bc.usageChan, float64(len(bc.usedBlocks))/float64(bc.maxBlocks),
+			bc.logger, "block cache usageChan")
 	}
 	return len(blockAreadyInUse) + len(blockToMoveToUsed), nil
 }
@@ -188,7 +193,8 @@ func (bc *blockCache) finishRequest(requestID string) error {
 	}
 
 	if bc.usageChan != nil {
-		bc.usageChan <- float64(len(bc.usedBlocks)) / float64(bc.maxBlocks)
+		common.WriteToChannel(bc.usageChan, float64(len(bc.usedBlocks))/float64(bc.maxBlocks),
+			bc.logger, "block cache usageChan")
 	}
 
 	// Remove the request mapping

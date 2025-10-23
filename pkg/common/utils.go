@@ -21,6 +21,7 @@ import (
 	"regexp"
 	"sync"
 
+	"github.com/go-logr/logr"
 	"github.com/google/uuid"
 )
 
@@ -126,4 +127,12 @@ func init() {
 
 func Tokenize(text string) []string {
 	return re.FindAllString(text, -1)
+}
+
+func WriteToChannel[T any](channel chan T, object T, logger logr.Logger, channelName string) {
+	select {
+	case channel <- object:
+	default:
+		logger.V(1).Info("failed to write to", "channel", channelName, "dropping value")
+	}
 }

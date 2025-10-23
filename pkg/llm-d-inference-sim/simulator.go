@@ -420,7 +420,7 @@ func (s *VllmSimulator) processing(ctx context.Context) {
 
 			s.logger.V(4).Info("Sending the request to the processing channel", "model", model,
 				"req id", reqCtx.CompletionReq.GetRequestID(), "worker", worker.id)
-			worker.reqChan <- reqCtx
+			common.WriteToChannel(worker.reqChan, reqCtx, s.logger, "worker's reqChan")
 		}
 	}
 }
@@ -431,9 +431,9 @@ func (s *VllmSimulator) findRequestAndSendToProcess(worker *worker) bool {
 		// send this request for processing in this worker
 		s.logger.V(4).Info("Sending request to processing", "model", nextReq.CompletionReq.GetModel(),
 			"req", nextReq.CompletionReq.GetRequestID(), "worker", worker.id)
-		worker.reqChan <- nextReq
+		common.WriteToChannel(worker.reqChan, nextReq, s.logger, "worker's reqChan")
 		// decrement waiting requests metric
-		s.metrics.waitingReqChan <- -1
+		common.WriteToChannel(s.metrics.waitingReqChan, -1, s.logger, "metrics.waitingReqChan")
 		return true
 	}
 
@@ -450,9 +450,11 @@ func (s *VllmSimulator) addRequestToQueue(reqCtx *openaiserverapi.CompletionReqC
 		return
 	}
 	// increment the waiting requests metric
-	s.metrics.waitingReqChan <- 1
+	common.WriteToChannel(s.metrics.waitingReqChan, 1, s.logger, "metrics.waitingReqChan")
 	// update loraInfo metrics with the new waiting request
-	s.metrics.lorasChan <- loraUsage{reqCtx.CompletionReq.GetModel(), waitingUsageState}
+	common.WriteToChannel(s.metrics.lorasChan, loraUsage{reqCtx.CompletionReq.GetModel(), waitingUsageState},
+		s.logger, "metrics.lorasChan")
+
 }
 
 // handleCompletions general completion requests handler, support both text and chat completion APIs
@@ -487,18 +489,19 @@ func (s *VllmSimulator) handleCompletions(ctx *fasthttp.RequestCtx, isChatComple
 		IsChatCompletion: isChatCompletion,
 		Wg:               &wg,
 	}
-	s.newRequests <- reqCtx
+	common.WriteToChannel(s.newRequests, reqCtx, s.logger, "newRequests")
 	wg.Wait()
 }
 
 // request processing finished
 func (s *VllmSimulator) responseSentCallback(model string, isChatCompletion bool, requestID string) {
 	// decrement running requests count
-	s.metrics.runReqChan <- -1
+	common.WriteToChannel(s.metrics.runReqChan, -1, s.logger, "metrics.runReqChan")
 
 	if s.isLora(model) {
 		// update loraInfo metrics to reflect that the request processing has been finished
-		s.metrics.lorasChan <- loraUsage{model, doneUsageState}
+		common.WriteToChannel(s.metrics.lorasChan, loraUsage{model, doneUsageState},
+			s.logger, "metrics.lorasChan")
 	}
 
 	if s.config.EnableKVCache && !isChatCompletion {
@@ -580,14 +583,14 @@ func (s *VllmSimulator) sendResponse(reqCtx *openaiserverapi.CompletionReqCtx, r
 	time.Sleep(time.Duration(ttft) * time.Millisecond)
 
 	// report ttft in seconds
-	s.metrics.ttftChan <- (float64(ttft) / 1000)
+	common.WriteToChannel(s.metrics.ttftChan, (float64(ttft) / 1000), s.logger, "metrics.ttftChan")
 
 	for range usageData.CompletionTokens - 1 {
 		perTokenLatency := s.getInterTokenLatency()
 		time.Sleep(time.Duration(perTokenLatency) * time.Millisecond)
 
 		// report tpot in seconds
-		s.metrics.tpotChan <- float64(perTokenLatency) / 1000
+		common.WriteToChannel(s.metrics.tpotChan, (float64(perTokenLatency) / 1000), s.logger, "metrics.tpotChan")
 	}
 	s.sendCompletionResponse(reqCtx.HTTPReqCtx, resp)
 
