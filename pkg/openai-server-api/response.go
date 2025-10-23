@@ -28,8 +28,8 @@ import (
 // CompletionResponse interface representing both completion response types (text and chat)
 type CompletionResponse interface{}
 
-// BaseCompletionResponse contains base completion response related information
-type BaseCompletionResponse struct {
+// baseCompletionResponse contains base completion response related information
+type baseCompletionResponse struct {
 	// ID defines the response ID
 	ID string `json:"id"`
 	// Created defines the response creation timestamp
@@ -66,13 +66,13 @@ type Usage struct {
 
 // ChatCompletionResponse defines structure of /chat/completion response
 type ChatCompletionResponse struct {
-	BaseCompletionResponse
+	baseCompletionResponse
 	// Choices list of Choices of the response, according of OpenAI API
 	Choices []ChatRespChoice `json:"choices"`
 }
 
-// BaseResponseChoice contains base completion response's choice related information
-type BaseResponseChoice struct {
+// baseResponseChoice contains base completion response's choice related information
+type baseResponseChoice struct {
 	// Index defines completion response choise Index
 	Index int `json:"index"`
 	// FinishReason defines finish reason for response or for chunks, for not last chinks is defined as null
@@ -172,21 +172,21 @@ type ToolCall struct {
 
 // ChatRespChoice represents a single chat completion response choise
 type ChatRespChoice struct {
-	BaseResponseChoice
+	baseResponseChoice
 	// Message contains choice's Message
 	Message Message `json:"message"`
 }
 
 // TextCompletionResponse defines structure of /completion response
 type TextCompletionResponse struct {
-	BaseCompletionResponse
+	baseCompletionResponse
 	// Choices list of Choices of the response, according of OpenAI API
 	Choices []TextRespChoice `json:"choices"`
 }
 
 // TextRespChoice represents a single text completion response choise
 type TextRespChoice struct {
-	BaseResponseChoice
+	baseResponseChoice
 	// Text defines request's content
 	Text string `json:"text"`
 }
@@ -196,14 +196,14 @@ type CompletionRespChunk interface{}
 
 // ChatCompletionRespChunk is a single chat completion response chunk
 type ChatCompletionRespChunk struct {
-	BaseCompletionResponse
+	baseCompletionResponse
 	// Choices list of Choices of the response, according of OpenAI API
 	Choices []ChatRespChunkChoice `json:"choices"`
 }
 
 // ChatRespChunkChoice represents a single chat completion response choise in case of streaming
 type ChatRespChunkChoice struct {
-	BaseResponseChoice
+	baseResponseChoice
 	// Delta is a content of the chunk
 	Delta Message `json:"delta"`
 }
@@ -259,4 +259,36 @@ func ErrorCodeToType(code int) string {
 		}
 	}
 	return errorType
+}
+
+func CreateBaseResponseChoice(index int, finishReason *string) baseResponseChoice {
+	return baseResponseChoice{Index: index, FinishReason: finishReason}
+}
+
+func CreateChatRespChoice(base baseResponseChoice, message Message) ChatRespChoice {
+	return ChatRespChoice{baseResponseChoice: base, Message: message}
+}
+
+func CreateChatRespChunkChoice(base baseResponseChoice, message Message) ChatRespChunkChoice {
+	return ChatRespChunkChoice{baseResponseChoice: base, Delta: message}
+}
+
+func CreateTextRespChoice(base baseResponseChoice, text string) TextRespChoice {
+	return TextRespChoice{baseResponseChoice: base, Text: text}
+}
+
+func CreateBaseCompletionResponse(id string, created int64, model string, usage *Usage) baseCompletionResponse {
+	return baseCompletionResponse{ID: id, Created: created, Model: model, Usage: usage}
+}
+
+func CreateChatCompletionResponse(base baseCompletionResponse, choices []ChatRespChoice) *ChatCompletionResponse {
+	return &ChatCompletionResponse{baseCompletionResponse: base, Choices: choices}
+}
+
+func CreateTextCompletionResponse(base baseCompletionResponse, choices []TextRespChoice) *TextCompletionResponse {
+	return &TextCompletionResponse{baseCompletionResponse: base, Choices: choices}
+}
+
+func CreateChatCompletionRespChunk(base baseCompletionResponse, choices []ChatRespChunkChoice) *ChatCompletionRespChunk {
+	return &ChatCompletionRespChunk{baseCompletionResponse: base, Choices: choices}
 }

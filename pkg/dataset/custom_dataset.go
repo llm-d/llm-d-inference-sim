@@ -439,7 +439,7 @@ func (d *CustomDataset) GetTokens(req openaiserverapi.CompletionRequest, mode st
 	if mode == common.ModeEcho {
 		return d.echo(req)
 	}
-	nTokensToGen, finishReason := howManyTokensToGen(d.extractMaxTokens(req), req.GetIgnoreEOS())
+	nTokensToGen, finishReason := howManyTokensToGen(req.ExtractMaxTokens(), req.GetIgnoreEOS())
 	tokens, err := d.GenerateTokens(req, nTokensToGen, finishReason)
 	return tokens, finishReason, err
 }

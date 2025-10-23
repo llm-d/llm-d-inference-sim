@@ -18,7 +18,6 @@ package dataset
 
 import (
 	"context"
-	"errors"
 	"math"
 	"math/rand"
 
@@ -291,12 +290,7 @@ func (d *BaseDataset) Close() error {
 }
 
 func (d *BaseDataset) echo(req openaiserverapi.CompletionRequest) ([]string, string, error) {
-	nMaxTokens := d.extractMaxTokens(req)
-	prompt, err := d.extractPrompt(req)
-	if err != nil {
-		return nil, "", err
-	}
-	tokens, finishReason := EchoResponseTokens(nMaxTokens, prompt)
+	tokens, finishReason := EchoResponseTokens(req.ExtractMaxTokens(), req.ExtractPrompt())
 	return tokens, finishReason, nil
 }
 
@@ -305,30 +299,6 @@ func (d *BaseDataset) GetTokens(req openaiserverapi.CompletionRequest, mode stri
 	if mode == common.ModeEcho {
 		return d.echo(req)
 	}
-	nTokensToGen, finishReason := howManyTokensToGen(d.extractMaxTokens(req), req.GetIgnoreEOS())
+	nTokensToGen, finishReason := howManyTokensToGen(req.ExtractMaxTokens(), req.GetIgnoreEOS())
 	return GenPresetRandomTokens(nTokensToGen), finishReason, nil
-}
-
-// extractMaxTokens extracts the max tokens from the request
-// for chat completion - max_completion_tokens field is used
-// for text completion - max_tokens field is used
-func (d *BaseDataset) extractMaxTokens(req openaiserverapi.CompletionRequest) *int64 {
-	if chatReq, ok := req.(*openaiserverapi.ChatCompletionRequest); ok {
-		return chatReq.GetMaxCompletionTokens()
-	} else if textReq, ok := req.(*openaiserverapi.TextCompletionRequest); ok {
-		return textReq.MaxTokens
-	}
-	return nil
-}
-
-// extractPrompt extracts the prompt from the request
-// for chat completion - the last user message is used as the prompt
-// for text completion - the prompt field is used
-func (d *BaseDataset) extractPrompt(req openaiserverapi.CompletionRequest) (string, error) {
-	if chatReq, ok := req.(*openaiserverapi.ChatCompletionRequest); ok {
-		return chatReq.GetLastUserMsg(), nil
-	} else if textReq, ok := req.(*openaiserverapi.TextCompletionRequest); ok {
-		return textReq.GetPrompt(), nil
-	}
-	return "", errors.New("unknown request type")
 }

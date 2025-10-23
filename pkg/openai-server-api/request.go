@@ -20,7 +20,6 @@ package openaiserverapi
 import (
 	"sync"
 
-	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/valyala/fasthttp"
 )
 
@@ -39,8 +38,6 @@ type CompletionRequest interface {
 	GetModel() string
 	// IncludeUsage returns true if usage statistics should be include in the response
 	IncludeUsage() bool
-	// GetNumberOfPromptTokens returns the number of tokens in the prompt
-	GetNumberOfPromptTokens() int
 	// GetNumberOfCachedPromptTokens returns the number of tokens in the prompt that are
 	// in the local KV Cache
 	GetNumberOfCachedPromptTokens() int
@@ -67,10 +64,18 @@ type CompletionRequest interface {
 	IsDoRemotePrefill() bool
 	// GetFullPrompt returns the full prompt including system and user prompts
 	GetFullPrompt() string
+	// ExtractPrompt extracts the prompt from the request
+	// for chat completion - the last user message is used as the prompt
+	// for text completion - the prompt field is used
+	ExtractPrompt() string
+	// ExtractMaxTokens extracts the max tokens from the request
+	// for chat completion - max_completion_tokens field is used
+	// for text completion - max_tokens field is used
+	ExtractMaxTokens() *int64
 }
 
-// BaseCompletionRequest contains base completion request related information
-type BaseCompletionRequest struct {
+// baseCompletionRequest contains base completion request related information
+type baseCompletionRequest struct {
 	// RequestID is the unique id of this request
 	RequestID string
 	// Stream is a boolean value, defines whether response should be sent as a Stream
@@ -103,44 +108,49 @@ type StreamOptions struct {
 	IncludeUsage bool `json:"include_usage"`
 }
 
-func (b *BaseCompletionRequest) GetRequestID() string {
+func (b *baseCompletionRequest) GetRequestID() string {
 	return b.RequestID
 }
 
-func (b *BaseCompletionRequest) IsStream() bool {
+func (b *baseCompletionRequest) IsStream() bool {
 	return b.Stream
 }
 
-func (b *BaseCompletionRequest) GetModel() string {
+func (b *baseCompletionRequest) GetModel() string {
 	return b.Model
 }
 
-func (b *BaseCompletionRequest) IncludeUsage() bool {
+func (b *baseCompletionRequest) IncludeUsage() bool {
 	return !b.Stream || b.StreamOptions.IncludeUsage
 }
 
-func (b *BaseCompletionRequest) IsDoRemoteDecode() bool {
+func (b *baseCompletionRequest) IsDoRemoteDecode() bool {
 	return b.DoRemoteDecode
 }
 
-func (b *BaseCompletionRequest) IsDoRemotePrefill() bool {
+func (b *baseCompletionRequest) IsDoRemotePrefill() bool {
 	return b.DoRemotePrefill
 }
 
 // GetNumberOfCachedPromptTokens returns the number of tokens in the prompt that are
 // in the local KV Cache
-func (b *BaseCompletionRequest) GetNumberOfCachedPromptTokens() int {
+func (b *baseCompletionRequest) GetNumberOfCachedPromptTokens() int {
 	return b.cachedPromptTokens
 }
 
 // GetIgnoreEOS returns the value of IgnoreEOS
-func (b *BaseCompletionRequest) GetIgnoreEOS() bool {
+func (b *baseCompletionRequest) GetIgnoreEOS() bool {
 	return b.IgnoreEOS
+}
+
+// SetIgnoreEOS sets the value of IgnoreEOS
+func (b *baseCompletionRequest) SetIgnoreEOS(ignorEOS bool) {
+	b.IgnoreEOS = ignorEOS
 }
 
 // SetNumberOfCachedPromptTokens sets the number of tokens in the prompt that are
 // in the local KV Cache
-func (b *BaseCompletionRequest) SetNumberOfCachedPromptTokens(cachedPromptTokens int) {
+func (b *baseCompletionRequest) SetNumberOfCachedPromptTokens(cachedPromptTokens int) {
 	b.cachedPromptTokens = cachedPromptTokens
 }
 
@@ -155,7 +165,7 @@ type CompletionReqCtx struct {
 
 // ChatCompletionRequest defines structure of /chat/completion request
 type ChatCompletionRequest struct {
-	BaseCompletionRequest
+	baseCompletionRequest
 	// Messages list of request's Messages
 	Messages []Message `json:"messages"`
 
@@ -207,10 +217,6 @@ func (c *ChatCompletionRequest) GetPrompt() string {
 	return messages
 }
 
-func (c *ChatCompletionRequest) GetNumberOfPromptTokens() int {
-	return len(common.Tokenize(c.GetPrompt()))
-}
-
 func (c *ChatCompletionRequest) GetTools() []Tool {
 	return c.Tools
 }
@@ -253,10 +259,22 @@ func (req *ChatCompletionRequest) GetFullPrompt() string {
 	return prompt
 }
 
+// ExtractPrompt extracts the prompt from the request
+// for chat completion - the last user message is used as the prompt
+func (req *ChatCompletionRequest) ExtractPrompt() string {
+	return req.GetLastUserMsg()
+}
+
+// ExtractMaxTokens extracts the max tokens from the request
+// for chat completion - max_completion_tokens field is used
+func (req *ChatCompletionRequest) ExtractMaxTokens() *int64 {
+	return req.GetMaxCompletionTokens()
+}
+
 // v1/completion
 // TextCompletionRequest defines structure of /completion request
 type TextCompletionRequest struct {
-	BaseCompletionRequest
+	baseCompletionRequest
 	// Prompt defines request's content
 	Prompt string `json:"prompt"`
 
@@ -270,10 +288,6 @@ type TextCompletionRequest struct {
 
 func (t *TextCompletionRequest) GetPrompt() string {
 	return t.Prompt
-}
-
-func (t *TextCompletionRequest) GetNumberOfPromptTokens() int {
-	return len(common.Tokenize(t.GetPrompt()))
 }
 
 func (c *TextCompletionRequest) GetTools() []Tool {
@@ -290,4 +304,16 @@ func (c *TextCompletionRequest) GetMaxCompletionTokens() *int64 {
 
 func (t *TextCompletionRequest) GetFullPrompt() string {
 	return "### user:\n" + t.Prompt + "\n"
+}
+
+// ExtractPrompt extracts the prompt from the request
+// for text completion - the prompt field is used
+func (req *TextCompletionRequest) ExtractPrompt() string {
+	return req.GetPrompt()
+}
+
+// ExtractMaxTokens extracts the max tokens from the request
+// for text completion - max_tokens field is used
+func (req *TextCompletionRequest) ExtractMaxTokens() *int64 {
+	return req.MaxTokens
 }

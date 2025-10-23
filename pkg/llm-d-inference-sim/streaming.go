@@ -164,64 +164,40 @@ func (s *VllmSimulator) sendTokenChunks(context *streamingContext, w *bufio.Writ
 // createUsageChunk creates and returns a CompletionRespChunk with usage data, a single chunk of streamed completion API response,
 // supports both modes (text and chat)
 func (s *VllmSimulator) createUsageChunk(context *streamingContext, usageData *openaiserverapi.Usage) openaiserverapi.CompletionRespChunk {
-	baseChunk := openaiserverapi.BaseCompletionResponse{
-		ID:      chatComplIDPrefix + common.GenerateUUIDString(),
-		Created: context.creationTime,
-		Model:   context.model,
-		Usage:   usageData,
-	}
+	baseChunk := openaiserverapi.CreateBaseCompletionResponse(chatComplIDPrefix+common.GenerateUUIDString(),
+		context.creationTime, context.model, usageData)
+
 	if context.isChatCompletion {
 		baseChunk.Object = chatCompletionChunkObject
-		return &openaiserverapi.ChatCompletionResponse{
-			BaseCompletionResponse: baseChunk,
-			Choices:                []openaiserverapi.ChatRespChoice{},
-		}
+		return openaiserverapi.CreateChatCompletionResponse(baseChunk, []openaiserverapi.ChatRespChoice{})
 	}
 	baseChunk.Object = textCompletionObject
 
-	return &openaiserverapi.TextCompletionResponse{
-		BaseCompletionResponse: baseChunk,
-		Choices:                []openaiserverapi.TextRespChoice{},
-	}
+	return openaiserverapi.CreateTextCompletionResponse(baseChunk, []openaiserverapi.TextRespChoice{})
 }
 
 // createTextCompletionChunk creates and returns a CompletionRespChunk, a single chunk of streamed completion API response,
 // for text completion
 func (s *VllmSimulator) createTextCompletionChunk(context *streamingContext, token string, finishReason *string) openaiserverapi.CompletionRespChunk {
-	return &openaiserverapi.TextCompletionResponse{
-		BaseCompletionResponse: openaiserverapi.BaseCompletionResponse{
-			ID:      chatComplIDPrefix + common.GenerateUUIDString(),
-			Created: context.creationTime,
-			Model:   context.model,
-			Object:  textCompletionObject,
-		},
-		Choices: []openaiserverapi.TextRespChoice{
-			{
-				BaseResponseChoice: openaiserverapi.BaseResponseChoice{Index: 0, FinishReason: finishReason},
-				Text:               token,
-			},
-		},
-	}
+	baseChunk := openaiserverapi.CreateBaseCompletionResponse(chatComplIDPrefix+common.GenerateUUIDString(),
+		context.creationTime, context.model, nil)
+	baseChunk.Object = textCompletionObject
+	return openaiserverapi.CreateTextCompletionResponse(baseChunk,
+		[]openaiserverapi.TextRespChoice{
+			openaiserverapi.CreateTextRespChoice(openaiserverapi.CreateBaseResponseChoice(0, finishReason), token)})
 }
 
 // createChatCompletionChunk creates and returns a CompletionRespChunk, a single chunk of streamed completion
 // API response, for chat completion. It sets either role, or token, or tool call info in the message.
 func (s *VllmSimulator) createChatCompletionChunk(context *streamingContext, token string, tool *openaiserverapi.ToolCall,
 	role string, finishReason *string) openaiserverapi.CompletionRespChunk {
-	chunk := openaiserverapi.ChatCompletionRespChunk{
-		BaseCompletionResponse: openaiserverapi.BaseCompletionResponse{
-			ID:      chatComplIDPrefix + common.GenerateUUIDString(),
-			Created: context.creationTime,
-			Model:   context.model,
-			Object:  chatCompletionChunkObject,
-		},
-		Choices: []openaiserverapi.ChatRespChunkChoice{
-			{
-				Delta:              openaiserverapi.Message{},
-				BaseResponseChoice: openaiserverapi.BaseResponseChoice{Index: 0, FinishReason: finishReason},
-			},
-		},
-	}
+	baseChunk := openaiserverapi.CreateBaseCompletionResponse(chatComplIDPrefix+common.GenerateUUIDString(),
+		context.creationTime, context.model, nil)
+	baseChunk.Object = chatCompletionChunkObject
+	chunk := openaiserverapi.CreateChatCompletionRespChunk(baseChunk,
+		[]openaiserverapi.ChatRespChunkChoice{
+			openaiserverapi.CreateChatRespChunkChoice(
+				openaiserverapi.CreateBaseResponseChoice(0, finishReason), openaiserverapi.Message{})})
 
 	if len(role) > 0 {
 		chunk.Choices[0].Delta.Role = role

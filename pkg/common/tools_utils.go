@@ -14,13 +14,13 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package openaiserverapi
+package common
 
 import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/llm-d/llm-d-inference-sim/pkg/common"
+	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	"github.com/santhosh-tekuri/jsonschema/v5"
 )
 
@@ -30,7 +30,7 @@ const (
 	ToolChoiceRequired = "required"
 )
 
-func CountTokensForToolCalls(toolCalls []ToolCall) int {
+func CountTokensForToolCalls(toolCalls []openaiserverapi.ToolCall) int {
 	numberOfTokens := 0
 	for _, tc := range toolCalls {
 		// 3 - name, id, and type
@@ -55,7 +55,7 @@ var fakeStringArguments = []string{
 // CreateToolCalls creates and returns response payload based on this request
 // (tool calls or nothing in case we randomly choose not to generate calls),
 // and the number of generated completion token sand the finish reason
-func CreateToolCalls(tools []Tool, toolChoice string, config *common.Configuration) ([]ToolCall, int, error) {
+func CreateToolCalls(tools []openaiserverapi.Tool, toolChoice string, config *Configuration) ([]openaiserverapi.ToolCall, int, error) {
 	// This function is called if tool choice is either 'required' or 'auto'.
 	// In case of 'required' at least one tool call has to be created, and we randomly choose
 	// the number of calls starting from one. Otherwise, we start from 0, and in case we randomly
@@ -64,16 +64,16 @@ func CreateToolCalls(tools []Tool, toolChoice string, config *common.Configurati
 	if toolChoice == ToolChoiceRequired {
 		min = 1
 	}
-	numberOfCalls := common.RandomInt(min, len(tools))
+	numberOfCalls := RandomInt(min, len(tools))
 	if numberOfCalls == 0 {
 		return nil, 0, nil
 	}
 
-	calls := make([]ToolCall, 0)
+	calls := make([]openaiserverapi.ToolCall, 0)
 	for i := range numberOfCalls {
 		// Randomly choose which tools to call. We may call the same tool more than once.
-		index := common.RandomInt(0, len(tools)-1)
-		args, err := GenerateToolArguments(tools[index], config)
+		index := RandomInt(0, len(tools)-1)
+		args, err := generateToolArguments(tools[index], config)
 		if err != nil {
 			return nil, 0, err
 		}
@@ -82,13 +82,13 @@ func CreateToolCalls(tools []Tool, toolChoice string, config *common.Configurati
 			return nil, 0, err
 		}
 
-		call := ToolCall{
-			Function: FunctionCall{
+		call := openaiserverapi.ToolCall{
+			Function: openaiserverapi.FunctionCall{
 				Arguments:          string(argsJson),
-				TokenizedArguments: common.Tokenize(string(argsJson)),
+				TokenizedArguments: Tokenize(string(argsJson)),
 				Name:               &tools[index].Function.Name,
 			},
-			ID:    "chatcmpl-tool-" + common.RandomNumericString(10),
+			ID:    "chatcmpl-tool-" + RandomNumericString(10),
 			Type:  "function",
 			Index: i,
 		}
@@ -98,7 +98,7 @@ func CreateToolCalls(tools []Tool, toolChoice string, config *common.Configurati
 	return calls, CountTokensForToolCalls(calls), nil
 }
 
-func GetRequiredAsMap(property map[string]any) map[string]struct{} {
+func getRequiredAsMap(property map[string]any) map[string]struct{} {
 	required := make(map[string]struct{})
 	requiredParams, ok := property["required"]
 	if ok {
@@ -111,18 +111,18 @@ func GetRequiredAsMap(property map[string]any) map[string]struct{} {
 	return required
 }
 
-func GenerateToolArguments(tool Tool, config *common.Configuration) (map[string]any, error) {
+func generateToolArguments(tool openaiserverapi.Tool, config *Configuration) (map[string]any, error) {
 	arguments := make(map[string]any)
 	properties, _ := tool.Function.Parameters["properties"].(map[string]any)
 
-	required := GetRequiredAsMap(tool.Function.Parameters)
+	required := getRequiredAsMap(tool.Function.Parameters)
 
 	for param, property := range properties {
 		_, paramIsRequired := required[param]
-		if !paramIsRequired && !common.RandomBool(config.ToolCallNotRequiredParamProbability) {
+		if !paramIsRequired && !RandomBool(config.ToolCallNotRequiredParamProbability) {
 			continue
 		}
-		arg, err := CreateArgument(property, config)
+		arg, err := createArgument(property, config)
 		if err != nil {
 			return nil, err
 		}
@@ -132,7 +132,7 @@ func GenerateToolArguments(tool Tool, config *common.Configuration) (map[string]
 	return arguments, nil
 }
 
-func CreateArgument(property any, config *common.Configuration) (any, error) {
+func createArgument(property any, config *Configuration) (any, error) {
 	propertyMap, _ := property.(map[string]any)
 	paramType := propertyMap["type"]
 
@@ -141,20 +141,20 @@ func CreateArgument(property any, config *common.Configuration) (any, error) {
 	if ok {
 		enumArray, ok := enum.([]any)
 		if ok && len(enumArray) > 0 {
-			index := common.RandomInt(0, len(enumArray)-1)
+			index := RandomInt(0, len(enumArray)-1)
 			return enumArray[index], nil
 		}
 	}
 
 	switch paramType {
 	case "string":
-		return GetStringArgument(), nil
+		return getStringArgument(), nil
 	case "integer":
-		return common.RandomInt(config.MinToolCallIntegerParam, config.MaxToolCallIntegerParam), nil
+		return RandomInt(config.MinToolCallIntegerParam, config.MaxToolCallIntegerParam), nil
 	case "number":
-		return common.RandomFloat(config.MinToolCallNumberParam, config.MaxToolCallNumberParam), nil
+		return RandomFloat(config.MinToolCallNumberParam, config.MaxToolCallNumberParam), nil
 	case "boolean":
-		return common.FlipCoin(), nil
+		return FlipCoin(), nil
 	case "array":
 		items := propertyMap["items"]
 		itemsMap := items.(map[string]any)
@@ -169,10 +169,10 @@ func CreateArgument(property any, config *common.Configuration) (any, error) {
 		if minItems > maxItems {
 			return nil, fmt.Errorf("minItems (%d) is greater than maxItems(%d)", minItems, maxItems)
 		}
-		numberOfElements := common.RandomInt(minItems, maxItems)
+		numberOfElements := RandomInt(minItems, maxItems)
 		array := make([]any, numberOfElements)
 		for i := range numberOfElements {
-			elem, err := CreateArgument(itemsMap, config)
+			elem, err := createArgument(itemsMap, config)
 			if err != nil {
 				return nil, err
 			}
@@ -180,15 +180,15 @@ func CreateArgument(property any, config *common.Configuration) (any, error) {
 		}
 		return array, nil
 	case "object":
-		required := GetRequiredAsMap(propertyMap)
+		required := getRequiredAsMap(propertyMap)
 		objectProperties := propertyMap["properties"].(map[string]any)
 		object := make(map[string]interface{})
 		for fieldName, fieldProperties := range objectProperties {
 			_, fieldIsRequired := required[fieldName]
-			if !fieldIsRequired && !common.RandomBool(config.ObjectToolCallNotRequiredParamProbability) {
+			if !fieldIsRequired && !RandomBool(config.ObjectToolCallNotRequiredParamProbability) {
 				continue
 			}
-			fieldValue, err := CreateArgument(fieldProperties, config)
+			fieldValue, err := createArgument(fieldProperties, config)
 			if err != nil {
 				return nil, err
 			}
@@ -200,24 +200,24 @@ func CreateArgument(property any, config *common.Configuration) (any, error) {
 	}
 }
 
-func GetStringArgument() string {
-	index := common.RandomInt(0, len(fakeStringArguments)-1)
+func getStringArgument() string {
+	index := RandomInt(0, len(fakeStringArguments)-1)
 	return fakeStringArguments[index]
 }
 
-type Validator struct {
+type ToolsValidator struct {
 	schema *jsonschema.Schema
 }
 
-func CreateValidator() (*Validator, error) {
+func CreateToolsValidator() (*ToolsValidator, error) {
 	sch, err := jsonschema.CompileString("schema.json", schema)
 	if err != nil {
 		return nil, err
 	}
-	return &Validator{schema: sch}, nil
+	return &ToolsValidator{schema: sch}, nil
 }
 
-func (v *Validator) ValidateTool(tool []byte) error {
+func (v *ToolsValidator) ValidateTool(tool []byte) error {
 	var value interface{}
 	if err := json.Unmarshal(tool, &value); err != nil {
 		return err

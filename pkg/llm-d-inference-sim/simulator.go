@@ -143,7 +143,7 @@ type VllmSimulator struct {
 	// loraAdaptors contains list of LoRA available adaptors
 	loraAdaptors sync.Map
 	// schema validator for tools parameters
-	toolsValidator *openaiserverapi.Validator
+	toolsValidator *common.ToolsValidator
 	// kv cache functionality
 	kvcacheHelper *kvcache.KVCacheHelper
 	// namespace where simulator is running
@@ -175,7 +175,7 @@ type VllmSimulator struct {
 
 // New creates a new VllmSimulator instance with the given logger
 func New(logger logr.Logger) (*VllmSimulator, error) {
-	toolsValidator, err := openaiserverapi.CreateValidator()
+	toolsValidator, err := common.CreateToolsValidator()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create tools validator: %s", err)
 	}
@@ -521,12 +521,8 @@ func (s *VllmSimulator) responseSentCallback(model string, isChatCompletion bool
 // from --served-model-name (for a base-model request) or the LoRA adapter name (for a LoRA request).
 func (s *VllmSimulator) createCompletionResponse(isChatCompletion bool, respTokens []string, toolCalls []openaiserverapi.ToolCall,
 	finishReason *string, usageData *openaiserverapi.Usage, modelName string, doRemoteDecode bool) openaiserverapi.CompletionResponse {
-	baseResp := openaiserverapi.BaseCompletionResponse{
-		ID:      chatComplIDPrefix + common.GenerateUUIDString(),
-		Created: time.Now().Unix(),
-		Model:   modelName,
-		Usage:   usageData,
-	}
+	baseResp := openaiserverapi.CreateBaseCompletionResponse(chatComplIDPrefix+common.GenerateUUIDString(),
+		time.Now().Unix(), modelName, usageData)
 
 	if doRemoteDecode {
 		// add special fields related to the prefill pod special behavior
@@ -539,7 +535,7 @@ func (s *VllmSimulator) createCompletionResponse(isChatCompletion bool, respToke
 		baseResp.RemotePort = 1234
 	}
 
-	baseChoice := openaiserverapi.BaseResponseChoice{Index: 0, FinishReason: finishReason}
+	baseChoice := openaiserverapi.CreateBaseResponseChoice(0, finishReason)
 
 	respText := strings.Join(respTokens, "")
 	if isChatCompletion {
@@ -551,17 +547,13 @@ func (s *VllmSimulator) createCompletionResponse(isChatCompletion bool, respToke
 		} else {
 			message.Content = openaiserverapi.Content{Raw: respText}
 		}
-		return &openaiserverapi.ChatCompletionResponse{
-			BaseCompletionResponse: baseResp,
-			Choices:                []openaiserverapi.ChatRespChoice{{Message: message, BaseResponseChoice: baseChoice}},
-		}
+		return openaiserverapi.CreateChatCompletionResponse(baseResp,
+			[]openaiserverapi.ChatRespChoice{openaiserverapi.CreateChatRespChoice(baseChoice, message)})
 	}
 
 	baseResp.Object = textCompletionObject
-	return &openaiserverapi.TextCompletionResponse{
-		BaseCompletionResponse: baseResp,
-		Choices:                []openaiserverapi.TextRespChoice{{BaseResponseChoice: baseChoice, Text: respText}},
-	}
+	return openaiserverapi.CreateTextCompletionResponse(baseResp,
+		[]openaiserverapi.TextRespChoice{openaiserverapi.CreateTextRespChoice(baseChoice, respText)})
 }
 
 // sendResponse sends response for completion API, supports both completions (text and chat)

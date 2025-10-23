@@ -92,11 +92,9 @@ var _ = Describe("Dataset", Ordered, func() {
 			func(maxCompletionTokens int) {
 				n := int64(maxCompletionTokens)
 				req := &openaiserverapi.ChatCompletionRequest{
-					BaseCompletionRequest: openaiserverapi.BaseCompletionRequest{
-						IgnoreEOS: true,
-					},
 					MaxTokens: &n,
 				}
+				req.SetIgnoreEOS(true)
 				tokens, finishReason, err := dataset.GetTokens(req, common.ModeRandom)
 				Expect(err).ShouldNot(HaveOccurred())
 				nGenTokens := int64(len(tokens))

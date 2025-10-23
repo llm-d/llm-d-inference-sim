@@ -20,6 +20,9 @@ package llmdinferencesim
 import (
 	"encoding/json"
 	"fmt"
+
+	"github.com/llm-d/llm-d-inference-sim/pkg/common"
+	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 )
 
 // isValidModel checks if the given model is the base model or one of "loaded" LoRAs
@@ -91,4 +94,8 @@ func (s *VllmSimulator) showConfig(dp bool) error {
 	}
 	s.logger.Info("Configuration:", "", string(cfgJSON))
 	return nil
+}
+
+func (s *VllmSimulator) getNumberOfPromptTokens(req openaiserverapi.CompletionRequest) int {
+	return len(common.Tokenize(req.GetPrompt()))
 }

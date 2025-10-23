@@ -233,7 +233,7 @@ func (s *VllmSimulator) validateRequest(req openaiserverapi.CompletionRequest) (
 	}
 
 	// Validate context window constraints
-	promptTokens := req.GetNumberOfPromptTokens()
+	promptTokens := s.getNumberOfPromptTokens(req)
 	completionTokens := req.GetMaxCompletionTokens()
 	isValid, actualCompletionTokens, totalTokens := common.ValidateContextWindow(promptTokens, completionTokens, s.config.MaxModelLen)
 	if !isValid {

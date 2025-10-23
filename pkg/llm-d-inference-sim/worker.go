@@ -88,10 +88,10 @@ func (s *VllmSimulator) processRequest(reqCtx *openaiserverapi.CompletionReqCtx)
 	var toolCalls []openaiserverapi.ToolCall
 	var completionTokens int
 	if reqCtx.IsChatCompletion &&
-		req.GetToolChoice() != openaiserverapi.ToolChoiceNone &&
+		req.GetToolChoice() != common.ToolChoiceNone &&
 		req.GetTools() != nil {
 		toolCalls, completionTokens, err =
-			openaiserverapi.CreateToolCalls(req.GetTools(), req.GetToolChoice(), s.config)
+			common.CreateToolCalls(req.GetTools(), req.GetToolChoice(), s.config)
 		finishReason = dataset.ToolsFinishReason
 	}
 	if toolCalls == nil && err == nil {
@@ -111,9 +111,9 @@ func (s *VllmSimulator) processRequest(reqCtx *openaiserverapi.CompletionReqCtx)
 		reqCtx.HTTPReqCtx.Error(prefix+err.Error(), fasthttp.StatusBadRequest)
 	} else {
 		usageData := openaiserverapi.Usage{
-			PromptTokens:     req.GetNumberOfPromptTokens(),
+			PromptTokens:     s.getNumberOfPromptTokens(req),
 			CompletionTokens: completionTokens,
-			TotalTokens:      req.GetNumberOfPromptTokens() + completionTokens,
+			TotalTokens:      s.getNumberOfPromptTokens(req) + completionTokens,
 		}
 		if req.IsStream() {
 			var usageDataToSend *openaiserverapi.Usage
