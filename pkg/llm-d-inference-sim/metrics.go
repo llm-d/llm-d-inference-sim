@@ -116,13 +116,73 @@ func (s *VllmSimulator) createAndRegisterPrometheus() error {
 			Subsystem: "",
 			Name:      "vllm:e2e_request_latency_seconds",
 			Help:      "Histogram of end to end request latency in seconds.",
-			Buckets:   common.E2ERequestLatencyBucketsBoundaries,
+			Buckets:   common.RequestLatencyBucketsBoundaries,
 		},
 		[]string{vllmapi.PromLabelModelName},
 	)
 
 	if err := s.metrics.registry.Register(s.metrics.e2eReqLatency); err != nil {
 		s.logger.Error(err, "Prometheus end to end request latency histogram register failed")
+		return err
+	}
+
+	s.metrics.reqQueueTime = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Subsystem: "",
+			Name:      "vllm:request_queue_time_seconds",
+			Help:      "Histogram of time spent in WAITING phase for request.",
+			Buckets:   common.RequestLatencyBucketsBoundaries,
+		},
+		[]string{vllmapi.PromLabelModelName},
+	)
+
+	if err := s.metrics.registry.Register(s.metrics.reqQueueTime); err != nil {
+		s.logger.Error(err, "Prometheus request queue time histogram register failed")
+		return err
+	}
+
+	s.metrics.reqInferenceTime = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Subsystem: "",
+			Name:      "vllm:request_inference_time_seconds",
+			Help:      "Histogram of time spent in RUNNING phase for request.",
+			Buckets:   common.RequestLatencyBucketsBoundaries,
+		},
+		[]string{vllmapi.PromLabelModelName},
+	)
+
+	if err := s.metrics.registry.Register(s.metrics.reqInferenceTime); err != nil {
+		s.logger.Error(err, "Prometheus request inerence time histogram register failed")
+		return err
+	}
+
+	s.metrics.reqPrefillTime = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Subsystem: "",
+			Name:      "vllm:request_prefill_time_seconds",
+			Help:      "Histogram of time spent in PREFILL phase for request.",
+			Buckets:   common.RequestLatencyBucketsBoundaries,
+		},
+		[]string{vllmapi.PromLabelModelName},
+	)
+
+	if err := s.metrics.registry.Register(s.metrics.reqPrefillTime); err != nil {
+		s.logger.Error(err, "Prometheus request prefill time histogram register failed")
+		return err
+	}
+
+	s.metrics.reqDecodeTime = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Subsystem: "",
+			Name:      "vllm:request_queue_time_seconds",
+			Help:      "Histogram of time spent in DECODE phase for request.",
+			Buckets:   common.RequestLatencyBucketsBoundaries,
+		},
+		[]string{vllmapi.PromLabelModelName},
+	)
+
+	if err := s.metrics.registry.Register(s.metrics.reqDecodeTime); err != nil {
+		s.logger.Error(err, "Prometheus request decode time histogram register failed")
 		return err
 	}
 
@@ -232,7 +292,7 @@ func (s *VllmSimulator) setInitialPrometheusMetrics() {
 		}
 
 		if s.config.FakeMetrics.E2ERequestLatencyBucketValues != nil {
-			s.initFakeHistogram(s.metrics.tpot, common.E2ERequestLatencyBucketsBoundaries, s.config.FakeMetrics.E2ERequestLatencyBucketValues)
+			s.initFakeHistogram(s.metrics.tpot, common.RequestLatencyBucketsBoundaries, s.config.FakeMetrics.E2ERequestLatencyBucketValues)
 		}
 	}
 
@@ -368,6 +428,10 @@ func (s *VllmSimulator) startMetricsUpdaters(ctx context.Context) {
 	go s.tpotUpdater(ctx)
 	go s.recordRequestUpdater(ctx)
 	go s.e2eReqLatencyUpdater(ctx)
+	go s.reqQueueTimeUpdater(ctx)
+	go s.reqInferenceTimeUpdater(ctx)
+	go s.reqPrefillTimeUpdater(ctx)
+	go s.reqDecodeTimeUpdater(ctx)
 }
 
 // waitingRequestsUpdater updates the waiting requests metric by listening on the relevant channel
@@ -432,7 +496,7 @@ func (s *VllmSimulator) tpotUpdater(ctx context.Context) {
 	}
 }
 
-// tpotUpdater updates the time per output token metric by listening on the relevant channel
+// e2eReqLatencyUpdater updates the e2e request latency metric by listening on the relevant channel
 func (s *VllmSimulator) e2eReqLatencyUpdater(ctx context.Context) {
 	for {
 		select {
@@ -440,6 +504,54 @@ func (s *VllmSimulator) e2eReqLatencyUpdater(ctx context.Context) {
 			return
 		case value := <-s.metrics.e2eReqLatencyChan:
 			s.reportHistogramValue(s.metrics.e2eReqLatency, value)
+		}
+	}
+}
+
+// reqQueueTimeUpdater updates the request queue time metric by listening on the relevant channel
+func (s *VllmSimulator) reqQueueTimeUpdater(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case value := <-s.metrics.reqQueueTimeChan:
+			s.reportHistogramValue(s.metrics.reqQueueTime, value)
+		}
+	}
+}
+
+// reqInferenceTimeUpdater updates the request inference time metric by listening on the relevant channel
+func (s *VllmSimulator) reqInferenceTimeUpdater(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case value := <-s.metrics.reqInferenceTimeChan:
+			s.reportHistogramValue(s.metrics.reqInferenceTime, value)
+		}
+	}
+}
+
+// reqPrefillTimeUpdater updates the request prefill time metric by listening on the relevant channel
+func (s *VllmSimulator) reqPrefillTimeUpdater(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case value := <-s.metrics.reqPrefillTimeChan:
+			s.reportHistogramValue(s.metrics.reqPrefillTime, value)
+		}
+	}
+}
+
+// reqDecodeTimeUpdater updates the request decode time metric by listening on the relevant channel
+func (s *VllmSimulator) reqDecodeTimeUpdater(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case value := <-s.metrics.reqDecodeTimeChan:
+			s.reportHistogramValue(s.metrics.reqDecodeTime, value)
 		}
 	}
 }

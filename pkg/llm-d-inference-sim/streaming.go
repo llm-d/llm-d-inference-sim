@@ -102,12 +102,15 @@ func (s *VllmSimulator) sendStreamingResponse(context *streamingContext, respons
 // sendTokenChunks creates and sends response chunks
 func (s *VllmSimulator) sendTokenChunks(context *streamingContext, w *bufio.Writer, genTokens []string,
 	tc *openaiserverapi.ToolCall, finishReason string) {
+	startPrefill := time.Now()
 	// time to first token delay
 	ttft := s.getWaitTimeToFirstToken(context.nPromptTokens, context.nCachedPromptTokens, context.doRemotePrefill)
 	time.Sleep(time.Duration(ttft) * time.Millisecond)
 	// report ttft in seconds
 	common.WriteToChannel(s.metrics.ttftChan, (float64(ttft) / 1000), s.logger, "metrics.ttftChan")
+	common.WriteToChannel(s.metrics.reqPrefillTimeChan, time.Since(startPrefill).Seconds(), s.logger, "metrics.reqPrefillTimeChan")
 
+	startDecode := time.Now()
 	for i, token := range genTokens {
 		if i != 0 {
 			interTokenLat := s.getInterTokenLatency()
@@ -147,6 +150,8 @@ func (s *VllmSimulator) sendTokenChunks(context *streamingContext, w *bufio.Writ
 			return
 		}
 	}
+
+	s.metrics.reqDecodeTimeChan <- time.Since(startDecode).Seconds()
 
 	// send the last chunk if finish reason is stop
 	var chunk openaiserverapi.CompletionRespChunk

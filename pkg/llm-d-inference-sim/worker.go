@@ -19,6 +19,7 @@ package llmdinferencesim
 
 import (
 	"context"
+	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
@@ -59,6 +60,11 @@ type requestProcessor interface {
 }
 
 func (s *VllmSimulator) processRequest(reqCtx *openaiserverapi.CompletionReqCtx) {
+	start := time.Now()
+	defer func() {
+		s.metrics.reqInferenceTimeChan <- time.Since(start).Seconds()
+	}()
+
 	req := reqCtx.CompletionReq
 	model := req.GetModel()
 	displayModel := s.getDisplayedModelName(model)
