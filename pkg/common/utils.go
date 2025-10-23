@@ -133,6 +133,6 @@ func WriteToChannel[T any](channel chan T, object T, logger logr.Logger, channel
 	select {
 	case channel <- object:
 	default:
-		logger.V(1).Info("failed to write to", "channel", channelName, "dropping value")
+		logger.V(1).Info("failed to write to", "channel", channelName)
 	}
 }
