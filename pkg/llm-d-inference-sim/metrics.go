@@ -32,6 +32,14 @@ import (
 	vllmapi "github.com/llm-d/llm-d-inference-sim/pkg/vllm-api"
 )
 
+const (
+	e2eReqLatencyMetricName    = "vllm:e2e_request_latency_seconds"
+	reqQueueTimeMetricName     = "vllm:request_queue_time_seconds"
+	reqInferenceTimeMetricName = "vllm:request_inference_time_seconds"
+	prefillTimeMetricName      = "vllm:request_prefill_time_seconds"
+	decodeTimeMetricName       = "vllm:request_decode_time_seconds"
+)
+
 // createAndRegisterPrometheus creates and registers prometheus metrics used by vLLM simulator
 // Metrics reported:
 // - lora_requests_info
@@ -114,7 +122,7 @@ func (s *VllmSimulator) createAndRegisterPrometheus() error {
 	s.metrics.e2eReqLatency = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Subsystem: "",
-			Name:      "vllm:e2e_request_latency_seconds",
+			Name:      e2eReqLatencyMetricName,
 			Help:      "Histogram of end to end request latency in seconds.",
 			Buckets:   common.RequestLatencyBucketsBoundaries,
 		},
@@ -129,7 +137,7 @@ func (s *VllmSimulator) createAndRegisterPrometheus() error {
 	s.metrics.reqQueueTime = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Subsystem: "",
-			Name:      "vllm:request_queue_time_seconds",
+			Name:      reqQueueTimeMetricName,
 			Help:      "Histogram of time spent in WAITING phase for request.",
 			Buckets:   common.RequestLatencyBucketsBoundaries,
 		},
@@ -144,7 +152,7 @@ func (s *VllmSimulator) createAndRegisterPrometheus() error {
 	s.metrics.reqInferenceTime = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Subsystem: "",
-			Name:      "vllm:request_inference_time_seconds",
+			Name:      reqInferenceTimeMetricName,
 			Help:      "Histogram of time spent in RUNNING phase for request.",
 			Buckets:   common.RequestLatencyBucketsBoundaries,
 		},
@@ -159,7 +167,7 @@ func (s *VllmSimulator) createAndRegisterPrometheus() error {
 	s.metrics.reqPrefillTime = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Subsystem: "",
-			Name:      "vllm:request_prefill_time_seconds",
+			Name:      prefillTimeMetricName,
 			Help:      "Histogram of time spent in PREFILL phase for request.",
 			Buckets:   common.RequestLatencyBucketsBoundaries,
 		},
@@ -174,7 +182,7 @@ func (s *VllmSimulator) createAndRegisterPrometheus() error {
 	s.metrics.reqDecodeTime = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Subsystem: "",
-			Name:      "vllm:request_decode_time_seconds",
+			Name:      decodeTimeMetricName,
 			Help:      "Histogram of time spent in DECODE phase for request.",
 			Buckets:   common.RequestLatencyBucketsBoundaries,
 		},
