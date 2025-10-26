@@ -20,6 +20,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
@@ -51,7 +52,7 @@ func (s *VllmSimulator) sendStreamingResponse(context *streamingContext, respons
 	// Add pod and namespace information to response headers for testing/debugging
 	if s.pod != "" {
 		context.ctx.Response.Header.Add(podHeader, s.pod)
-		context.ctx.Response.Header.Add(portHeader, fmt.Sprintf("%d", s.config.Port))
+		context.ctx.Response.Header.Add(portHeader, strconv.Itoa(s.config.Port))
 	}
 	if s.namespace != "" {
 		context.ctx.Response.Header.Add(namespaceHeader, s.namespace)
