@@ -256,6 +256,7 @@ func (s *VllmSimulator) sendCompletionResponse(ctx *fasthttp.RequestCtx, resp op
 	// Add pod and namespace information to response headers for testing/debugging
 	if s.pod != "" {
 		ctx.Response.Header.Add(podHeader, s.pod)
+		ctx.Response.Header.Add(portHeader, fmt.Sprintf("%d", s.config.Port))
 	}
 	if s.namespace != "" {
 		ctx.Response.Header.Add(namespaceHeader, s.namespace)

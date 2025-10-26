@@ -360,18 +360,20 @@ var _ = Describe("Simulator", func() {
 	)
 
 	Context("namespace and pod headers", func() {
-		It("Should not include namespace and pod headers in chat completion response when env is not set", func() {
+		It("Should not include namespace, pod and port headers in chat completion response when env is not set", func() {
 			httpResp := sendSimpleChatRequest(nil, false)
 
-			// Check for namespace and pod headers
+			// Check for namespace, pod and port headers
 			namespaceHeader := httpResp.Header.Get(namespaceHeader)
 			podHeader := httpResp.Header.Get(podHeader)
+			portHeader := httpResp.Header.Get(portHeader)
 
 			Expect(namespaceHeader).To(BeEmpty(), "Expected namespace header not to be present")
 			Expect(podHeader).To(BeEmpty(), "Expected pod header not to be present")
+			Expect(portHeader).To(BeEmpty(), "Expected port header not to be present")
 		})
 
-		It("Should include namespace and pod headers in chat completion response", func() {
+		It("Should include namespace, pod and port headers in chat completion response", func() {
 			testNamespace := "test-namespace"
 			testPod := "test-pod"
 			envs := map[string]string{
@@ -380,15 +382,17 @@ var _ = Describe("Simulator", func() {
 			}
 			httpResp := sendSimpleChatRequest(envs, false)
 
-			// Check for namespace and pod headers
+			// Check for namespace, pod and port headers
 			namespaceHeader := httpResp.Header.Get(namespaceHeader)
 			podHeader := httpResp.Header.Get(podHeader)
+			portHeader := httpResp.Header.Get(portHeader)
 
 			Expect(namespaceHeader).To(Equal(testNamespace), "Expected namespace header to be present")
 			Expect(podHeader).To(Equal(testPod), "Expected pod header to be present")
+			Expect(portHeader).To(Equal("8000"), "Expected port header to be present")
 		})
 
-		It("Should include namespace and pod headers in chat completion streaming response", func() {
+		It("Should include namespace, pod and port headers in chat completion streaming response", func() {
 			testNamespace := "stream-test-namespace"
 			testPod := "stream-test-pod"
 			envs := map[string]string{
@@ -397,26 +401,30 @@ var _ = Describe("Simulator", func() {
 			}
 			httpResp := sendSimpleChatRequest(envs, true)
 
-			// Check for namespace and pod headers
+			// Check for namespace, pod and port headers
 			namespaceHeader := httpResp.Header.Get(namespaceHeader)
 			podHeader := httpResp.Header.Get(podHeader)
+			portHeader := httpResp.Header.Get(portHeader)
 
 			Expect(namespaceHeader).To(Equal(testNamespace), "Expected namespace header to be present")
 			Expect(podHeader).To(Equal(testPod), "Expected pod header to be present")
+			Expect(portHeader).To(Equal("8000"), "Expected port header to be present")
 		})
 
-		It("Should not include namespace and pod headers in chat completion streaming response when env is not set", func() {
+		It("Should not include namespace, pod and port headers in chat completion streaming response when env is not set", func() {
 			httpResp := sendSimpleChatRequest(nil, true)
 
-			// Check for namespace and pod headers
+			// Check for namespace, pod and port headers
 			namespaceHeader := httpResp.Header.Get(namespaceHeader)
 			podHeader := httpResp.Header.Get(podHeader)
+			portHeader := httpResp.Header.Get(portHeader)
 
 			Expect(namespaceHeader).To(BeEmpty(), "Expected namespace header not to be present")
 			Expect(podHeader).To(BeEmpty(), "Expected pod header not to be present")
+			Expect(portHeader).To(BeEmpty(), "Expected port header not to be present")
 		})
 
-		It("Should include namespace and pod headers in completion response", func() {
+		It("Should include namespace, pod and port headers in completion response", func() {
 			ctx := context.TODO()
 
 			testNamespace := "test-namespace"
@@ -434,15 +442,17 @@ var _ = Describe("Simulator", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resp).NotTo(BeNil())
 
-			// Check for namespace and pod headers
+			// Check for namespace, pod and port headers
 			namespaceHeader := httpResp.Header.Get(namespaceHeader)
 			podHeader := httpResp.Header.Get(podHeader)
+			portHeader := httpResp.Header.Get(portHeader)
 
 			Expect(namespaceHeader).To(Equal(testNamespace), "Expected namespace header to be present")
 			Expect(podHeader).To(Equal(testPod), "Expected pod header to be present")
+			Expect(portHeader).To(Equal("8000"), "Expected port header to be present")
 		})
 
-		It("Should include namespace and pod headers in completion streaming response", func() {
+		It("Should include namespace, pod and port headers in completion streaming response", func() {
 			ctx := context.TODO()
 
 			testNamespace := "stream-test-namespace"
@@ -460,12 +470,14 @@ var _ = Describe("Simulator", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resp).NotTo(BeNil())
 
-			// Check for namespace and pod headers
+			// Check for namespace, pod and port headers
 			namespaceHeader := httpResp.Header.Get(namespaceHeader)
 			podHeader := httpResp.Header.Get(podHeader)
+			portHeader := httpResp.Header.Get(portHeader)
 
 			Expect(namespaceHeader).To(Equal(testNamespace), "Expected namespace header to be present")
 			Expect(podHeader).To(Equal(testPod), "Expected pod header to be present")
+			Expect(portHeader).To(Equal("8000"), "Expected port header to be present")
 		})
 	})
 

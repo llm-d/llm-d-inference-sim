@@ -48,6 +48,7 @@ const (
 	chatCompletionChunkObject = "chat.completion.chunk"
 
 	podHeader       = "x-inference-pod"
+	portHeader      = "x-inference-port"
 	namespaceHeader = "x-inference-namespace"
 	podNameEnv      = "POD_NAME"
 	podNsEnv        = "POD_NAMESPACE"
