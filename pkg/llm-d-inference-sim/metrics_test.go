@@ -820,88 +820,26 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 
 	Context("latency metrics", func() {
 		DescribeTable("should calculate all latency related metrics correctly for a single request",
-			func(testName string, doRemotePrefill bool, doRemoteDecode bool, kvcacheTransferLatency int, kvCacheTransferTimePerToken int,
-				ttft int, prefillTimePerToken int, interTokenLatency int) {
-				// Expect(true).To(BeFalse())
-				// send a single request with a prompt of 5 token and echo mode, so output tokens number of 5 too
+			func(testNamePrefix string, ttft int, prefillTimePerToken int, interTokenLatency int) {
+				// send a single request with a prompt of 4 tokens and echo mode, so output tokens number of 4 too
 				modelName := "my_model"
-				// Send one request, check that ttft and tpot are as defined in the simulator command line params
-				ctx := context.TODO()
-				args := []string{"cmd", "--model", modelName, "--mode", common.ModeEcho,
-					"--kv-cache-transfer-latency", strconv.Itoa(kvcacheTransferLatency),
-					"--kv-cache-transfer-time-per-token", strconv.Itoa(kvCacheTransferTimePerToken),
-					"--time-to-first-token", strconv.Itoa(ttft),
-					"--prefill-time-per-token", strconv.Itoa(prefillTimePerToken),
-					"--inter-token-latency", strconv.Itoa(interTokenLatency),
-				}
+				prompt := "1 2 3 4"
 
-				client, err := startServerWithArgs(ctx, common.ModeRandom, args, nil)
-				Expect(err).NotTo(HaveOccurred())
+				client := sendRequest(modelName, prompt, false, ttft, prefillTimePerToken, interTokenLatency)
+				checkLatencyMertics(client, modelName, prompt, ttft, prefillTimePerToken, interTokenLatency)
 
-				// TODO - pass isStreaming
-				openaiclient, params := getOpenAIClientAndChatParams(client, modelName, "1 2 3 4", false)
-				// TODO - how to test remote prefill/decode
-
-				var reqWg, metricsWg sync.WaitGroup
-				metricsWg.Add(1)
-				reqWg.Add(1)
-
-				// send a single request
-				go func() {
-					defer reqWg.Done()
-					defer GinkgoRecover()
-
-					_, err := openaiclient.Chat.Completions.New(ctx, params)
-					Expect(err).NotTo(HaveOccurred())
-				}()
-
-				// wait untill request processing was finished, send /mertics request
-				reqWg.Wait()
-				time.Sleep(300 * time.Millisecond)
-				metricsResp, err := client.Get(metricsUrl)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
-
-				data, err := io.ReadAll(metricsResp.Body)
-				Expect(err).NotTo(HaveOccurred())
-				metrics := string(data)
-
-				numOfTokens := 4
-				var expectedPrefillTime float64
-				// TODO take into consideration remote prefill
-				if ttft > 0 {
-					// time-to-first-token overwrites calculation of prefill time based on number of input tokens
-					expectedPrefillTime = float64(ttft) / 1000
-
-				} else {
-					expectedPrefillTime = float64(numOfTokens*prefillTimePerToken) / 1000
-				}
-				expectedDecodeTime := float64(interTokenLatency*(numOfTokens-1)) / 1000
-				expectedE2ELatency := expectedPrefillTime + expectedDecodeTime
-
-				prevBoundary := math.Inf(-1)
-
-				for _, bucketBoudary := range common.RequestLatencyBucketsBoundaries {
-					checkBucketBoundary(metrics, modelName, prefillTimeMetricName, bucketBoudary, prevBoundary, expectedPrefillTime)
-					checkBucketBoundary(metrics, modelName, decodeTimeMetricName, bucketBoudary, prevBoundary, expectedDecodeTime)
-					checkBucketBoundary(metrics, modelName, e2eReqLatencyMetricName, bucketBoudary, prevBoundary, expectedE2ELatency)
-
-					prevBoundary = bucketBoudary
-				}
-				// check the last bucket
-				lastBoundary := common.RequestLatencyBucketsBoundaries[len(common.RequestLatencyBucketsBoundaries)-1]
-				checkBucketBoundary(metrics, modelName, prefillTimeMetricName, math.Inf(1), lastBoundary, expectedPrefillTime)
-				checkBucketBoundary(metrics, modelName, decodeTimeMetricName, math.Inf(1), lastBoundary, expectedDecodeTime)
-				checkBucketBoundary(metrics, modelName, e2eReqLatencyMetricName, math.Inf(1), lastBoundary, expectedE2ELatency)
+				// same in streaming mode
+				client = sendRequest(modelName, prompt, true, ttft, prefillTimePerToken, interTokenLatency)
+				checkLatencyMertics(client, modelName, prompt, ttft, prefillTimePerToken, interTokenLatency)
 			},
-			func(testName string, doRemotePrefill bool, doRemoteDecode bool, kvcacheTransferLatency int, kvCacheTransferTimePerToken int,
-				ttft int, prefillTimePerToken int, interTokenLatency int) string {
-				return fmt.Sprintf("%s\ndoRemotePrefill: %v, doRemoteDecode: %v, kvcacheTransferLatency: %d, kvCacheTransferTimePerToken: %d, ttft: %d, prefillTimePerToken: %d, interTokenLatency: %d",
-					testName, doRemotePrefill, doRemoteDecode, kvcacheTransferLatency, kvCacheTransferTimePerToken, ttft, prefillTimePerToken, interTokenLatency)
+			func(testNamePrefix string, ttft int, prefillTimePerToken int, interTokenLatency int) string {
+				return fmt.Sprintf("%s\nttft: %d, prefillTimePerToken: %d, interTokenLatency: %d", testNamePrefix, ttft, prefillTimePerToken, interTokenLatency)
 			},
-			// pay attention: do not define times close to bucket boundaries, this can lead to test failure
-			Entry(nil, "constant prefil + inter token time", false, false, 0, 0, 900, 0, 100),
-			Entry(nil, "prefill per token + inter token time", false, false, 0, 0, 0, 100, 100),
+			// Params order: testName, ttft, prefillTimePerToken, interTokenLatency
+			Entry(nil, "constant prefill + inter token time", 0, 0, 100),
+			Entry(nil, "constant prefill + inter token time", 900, 0, 100),
+			Entry(nil, "constant prefill + inter token time", 1000, 0, 100),
+			Entry(nil, "prefill per token + inter token time", 0, 100, 100),
 		)
 	})
 })
@@ -1122,8 +1060,8 @@ func getFloatBucketMetricLine(model string, metric string, bucketBoundary float6
 
 func checkBucketBoundary(metrics string, modelName string, metricName string, bucketBoudary float64,
 	prevBoundary float64, expectedValue float64) {
-	if expectedValue > prevBoundary && bucketBoudary > expectedValue && (bucketBoudary-expectedValue) < 0.005 {
-		// expected time is too close to the bucket boudary
+	if expectedValue > prevBoundary && bucketBoudary >= expectedValue && (bucketBoudary-expectedValue) < 0.005 {
+		// expected time is too close to the bucket's boudary
 		// it's possiblt that in theory we expect 1 in this bucket but will get 0 and this situation is ok
 		// since there is some additional calculation time
 		fmt.Printf("Expected value is too close to the boundary - skip test for this bucket (%.4f - %.4f] and expected value %.4f\n",
@@ -1135,5 +1073,67 @@ func checkBucketBoundary(metrics string, modelName string, metricName string, bu
 		expectedCount = 1
 	}
 	Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(modelName, metricName, bucketBoudary, expectedCount)))
+}
 
+// send a single request with the given prompt and echo mode
+func sendRequest(modelName string, prompt string, isStreaming bool, ttft int, prefillTimePerToken int, interTokenLatency int) *http.Client {
+	ctx := context.TODO()
+	args := []string{"cmd", "--model", modelName, "--mode", common.ModeEcho,
+		// "--kv-cache-transfer-latency", strconv.Itoa(kvcacheTransferLatency),
+		// "--kv-cache-transfer-time-per-token", strconv.Itoa(kvCacheTransferTimePerToken),
+		"--time-to-first-token", strconv.Itoa(ttft),
+		"--prefill-time-per-token", strconv.Itoa(prefillTimePerToken),
+		"--inter-token-latency", strconv.Itoa(interTokenLatency),
+	}
+
+	client, err := startServerWithArgs(ctx, common.ModeRandom, args, nil)
+	Expect(err).NotTo(HaveOccurred())
+
+	openaiclient, params := getOpenAIClientAndChatParams(client, modelName, prompt, isStreaming)
+
+	// send a single request in a serial way
+	_, err = openaiclient.Chat.Completions.New(ctx, params)
+	Expect(err).NotTo(HaveOccurred())
+
+	return client
+}
+
+func checkLatencyMertics(client *http.Client, modelName string, prompt string, ttft int, prefillTimePerToken int, interTokenLatency int) {
+	// wait a little bit and check metrics
+	time.Sleep(300 * time.Millisecond)
+	metricsResp, err := client.Get(metricsUrl)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
+
+	data, err := io.ReadAll(metricsResp.Body)
+	Expect(err).NotTo(HaveOccurred())
+	metrics := string(data)
+
+	numOfTokens := len(common.Tokenize(prompt))
+	var expectedPrefillTime float64
+	// TODO take into consideration remote prefill
+	if ttft > 0 {
+		// time-to-first-token overwrites calculation of prefill time based on number of input tokens
+		expectedPrefillTime = float64(ttft) / 1000
+
+	} else {
+		expectedPrefillTime = float64(numOfTokens*prefillTimePerToken) / 1000
+	}
+	expectedDecodeTime := float64(interTokenLatency*(numOfTokens-1)) / 1000
+	expectedE2ELatency := expectedPrefillTime + expectedDecodeTime
+
+	prevBoundary := math.Inf(-1)
+
+	for _, bucketBoudary := range common.RequestLatencyBucketsBoundaries {
+		checkBucketBoundary(metrics, modelName, prefillTimeMetricName, bucketBoudary, prevBoundary, expectedPrefillTime)
+		checkBucketBoundary(metrics, modelName, decodeTimeMetricName, bucketBoudary, prevBoundary, expectedDecodeTime)
+		checkBucketBoundary(metrics, modelName, e2eReqLatencyMetricName, bucketBoudary, prevBoundary, expectedE2ELatency)
+
+		prevBoundary = bucketBoudary
+	}
+	// check the last bucket
+	lastBoundary := common.RequestLatencyBucketsBoundaries[len(common.RequestLatencyBucketsBoundaries)-1]
+	checkBucketBoundary(metrics, modelName, prefillTimeMetricName, math.Inf(1), lastBoundary, expectedPrefillTime)
+	checkBucketBoundary(metrics, modelName, decodeTimeMetricName, math.Inf(1), lastBoundary, expectedDecodeTime)
+	checkBucketBoundary(metrics, modelName, e2eReqLatencyMetricName, math.Inf(1), lastBoundary, expectedE2ELatency)
 }
