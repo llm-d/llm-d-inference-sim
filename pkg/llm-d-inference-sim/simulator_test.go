@@ -18,13 +18,10 @@ package llmdinferencesim
 
 import (
 	"context"
-	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
-	"os"
 	"strings"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
@@ -34,88 +31,9 @@ import (
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
 	"github.com/openai/openai-go/v3/packages/param"
-	"github.com/valyala/fasthttp/fasthttputil"
-	"k8s.io/klog/v2"
 )
 
-const model = "my_model"
-const qwenModelName = "Qwen/Qwen2-0.5B"
-const baseURL = "http://localhost/v1"
-const userMessage = "This is a test."
 const invalidMaxTokensErrMsg = "Max completion tokens and max tokens should be positive"
-
-var userMsgTokens int64
-
-func startServer(ctx context.Context, mode string) (*http.Client, error) {
-	return startServerWithArgs(ctx, mode, nil, nil)
-}
-
-func startServerWithArgs(ctx context.Context, mode string, args []string, envs map[string]string) (*http.Client, error) {
-	oldArgs := os.Args
-	defer func() {
-		os.Args = oldArgs
-	}()
-
-	if args != nil {
-		os.Args = args
-	} else {
-		os.Args = []string{"cmd", "--model", model, "--mode", mode}
-	}
-
-	if envs != nil {
-		for k, v := range envs {
-			err := os.Setenv(k, v)
-			Expect(err).NotTo(HaveOccurred())
-		}
-
-		defer func() {
-			for k := range envs {
-				err := os.Unsetenv(k)
-				Expect(err).NotTo(HaveOccurred())
-			}
-		}()
-	}
-
-	logger := klog.Background()
-
-	s, err := New(logger)
-	if err != nil {
-		return nil, err
-	}
-	config, err := common.ParseCommandParamsAndLoadConfig()
-	if err != nil {
-		return nil, err
-	}
-	s.config = config
-
-	// calculate number of tokens for user message,
-	// must be activated after parseCommandParamsAndLoadConfig since it initializes the random engine
-	userMsgTokens = int64(len(common.Tokenize(userMessage)))
-
-	if err := s.initializeSim(ctx); err != nil {
-		return nil, err
-	}
-
-	listener := fasthttputil.NewInmemoryListener()
-
-	// start the http server
-	go func() {
-		if err := s.startServer(ctx, listener); err != nil {
-			logger.Error(err, "error starting server")
-		}
-	}()
-
-	return &http.Client{
-		Transport: &http.Transport{
-			DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
-				return listener.Dial()
-			},
-			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: true,
-			},
-		},
-	}, nil
-}
 
 var _ = Describe("Simulator", func() {
 
@@ -125,7 +43,7 @@ var _ = Describe("Simulator", func() {
 			client, err := startServer(ctx, mode)
 			Expect(err).NotTo(HaveOccurred())
 
-			openaiclient, params := getOpenAIClientAndChatParams(client, model, userMessage, true)
+			openaiclient, params := getOpenAIClientAndChatParams(client, testModel, testUserMessage, true)
 			stream := openaiclient.Chat.Completions.NewStreaming(ctx, params)
 			defer func() {
 				err := stream.Close()
@@ -161,7 +79,7 @@ var _ = Describe("Simulator", func() {
 				Expect(dataset.IsValidText(msg)).To(BeTrue())
 			} else {
 				// in case of echo mode check that the text is returned as-is
-				Expect(msg).Should(Equal(userMessage))
+				Expect(msg).Should(Equal(testUserMessage))
 			}
 			Expect(role).Should(Equal("assistant"))
 		},
@@ -178,7 +96,7 @@ var _ = Describe("Simulator", func() {
 			client, err := startServer(ctx, mode)
 			Expect(err).NotTo(HaveOccurred())
 
-			openaiclient, params := getOpenAIClentAndCompletionParams(client, model, userMessage, true)
+			openaiclient, params := getOpenAIClentAndCompletionParams(client, testModel, testUserMessage, true)
 			stream := openaiclient.Completions.NewStreaming(ctx, params)
 			defer func() {
 				err := stream.Close()
@@ -210,7 +128,7 @@ var _ = Describe("Simulator", func() {
 				Expect(dataset.IsValidText(text)).To(BeTrue())
 			} else {
 				// in case of echo mode check that the text is returned as-is
-				Expect(text).Should(Equal(userMessage))
+				Expect(text).Should(Equal(testUserMessage))
 			}
 		},
 		func(mode string) string {
@@ -226,7 +144,7 @@ var _ = Describe("Simulator", func() {
 			client, err := startServer(ctx, mode)
 			Expect(err).NotTo(HaveOccurred())
 
-			openaiclient, params := getOpenAIClientAndChatParams(client, model, userMessage, false)
+			openaiclient, params := getOpenAIClientAndChatParams(client, testModel, testUserMessage, false)
 			numTokens := 0
 			// if maxTokens and maxCompletionTokens are passsed
 			// maxCompletionTokens is used
@@ -271,7 +189,7 @@ var _ = Describe("Simulator", func() {
 					Expect(dataset.IsValidText(msg)).To(BeTrue())
 				} else {
 					// in case of echo mode check that the text is returned as-is
-					Expect(msg).Should(Equal(userMessage))
+					Expect(msg).Should(Equal(testUserMessage))
 				}
 			}
 		},
@@ -303,7 +221,7 @@ var _ = Describe("Simulator", func() {
 			client, err := startServer(ctx, mode)
 			Expect(err).NotTo(HaveOccurred())
 
-			openaiclient, params := getOpenAIClentAndCompletionParams(client, model, userMessage, false)
+			openaiclient, params := getOpenAIClentAndCompletionParams(client, testModel, testUserMessage, false)
 			numTokens := 0
 			if maxTokens != 0 {
 				params.MaxTokens = param.NewOpt(int64(maxTokens))
@@ -342,7 +260,7 @@ var _ = Describe("Simulator", func() {
 					Expect(dataset.IsValidText(text)).To(BeTrue())
 				} else {
 					// in case of echo mode check that the text is returned as-is
-					Expect(text).Should(Equal(userMessage))
+					Expect(text).Should(Equal(testUserMessage))
 				}
 			}
 		},
@@ -433,10 +351,10 @@ var _ = Describe("Simulator", func() {
 				podNameEnv: testPod,
 				podNsEnv:   testNamespace,
 			}
-			client, err := startServerWithArgs(ctx, common.ModeRandom, nil, envs)
+			client, err := startServerWithEnv(ctx, common.ModeRandom, envs)
 			Expect(err).NotTo(HaveOccurred())
 
-			openaiclient, params := getOpenAIClentAndCompletionParams(client, model, userMessage, false)
+			openaiclient, params := getOpenAIClentAndCompletionParams(client, testModel, testUserMessage, false)
 			var httpResp *http.Response
 			resp, err := openaiclient.Completions.New(ctx, params, option.WithResponseInto(&httpResp))
 			Expect(err).NotTo(HaveOccurred())
@@ -461,10 +379,10 @@ var _ = Describe("Simulator", func() {
 				podNameEnv: testPod,
 				podNsEnv:   testNamespace,
 			}
-			client, err := startServerWithArgs(ctx, common.ModeRandom, nil, envs)
+			client, err := startServerWithEnv(ctx, common.ModeRandom, envs)
 			Expect(err).NotTo(HaveOccurred())
 
-			openaiclient, params := getOpenAIClentAndCompletionParams(client, model, userMessage, true)
+			openaiclient, params := getOpenAIClentAndCompletionParams(client, testModel, testUserMessage, true)
 			var httpResp *http.Response
 			resp, err := openaiclient.Completions.New(ctx, params, option.WithResponseInto(&httpResp))
 			Expect(err).NotTo(HaveOccurred())
@@ -485,14 +403,14 @@ var _ = Describe("Simulator", func() {
 		It("Should reject requests exceeding context window", func() {
 			ctx := context.TODO()
 			// Start server with max-model-len=10
-			args := []string{"cmd", "--model", model, "--mode", common.ModeRandom, "--max-model-len", "10"}
-			client, err := startServerWithArgs(ctx, common.ModeRandom, args, nil)
+			args := []string{"cmd", "--model", testModel, "--mode", common.ModeRandom, "--max-model-len", "10"}
+			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
 			// Test with raw HTTP to verify the error response format
 			reqBody := `{
 				"messages": [{"role": "user", "content": "This is a test message"}],
-				"model": "my_model",
+				"model": "testmodel",
 				"max_tokens": 8
 			}`
 
@@ -513,7 +431,7 @@ var _ = Describe("Simulator", func() {
 			Expect(string(body)).To(ContainSubstring("BadRequestError"))
 
 			// Also test with OpenAI client to ensure it gets an error
-			openaiclient, params := getOpenAIClientAndChatParams(client, model, "This is a test message", false)
+			openaiclient, params := getOpenAIClientAndChatParams(client, testModel, "This is a test message", false)
 			params.MaxTokens = openai.Int(8)
 
 			_, err = openaiclient.Chat.Completions.New(ctx, params)
@@ -526,11 +444,11 @@ var _ = Describe("Simulator", func() {
 		It("Should accept requests within context window", func() {
 			ctx := context.TODO()
 			// Start server with max-model-len=50
-			args := []string{"cmd", "--model", model, "--mode", common.ModeEcho, "--max-model-len", "50"}
-			client, err := startServerWithArgs(ctx, common.ModeEcho, args, nil)
+			args := []string{"cmd", "--model", testModel, "--mode", common.ModeEcho, "--max-model-len", "50"}
+			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
-			openaiclient, params := getOpenAIClientAndChatParams(client, model, "Hello", false)
+			openaiclient, params := getOpenAIClientAndChatParams(client, testModel, "Hello", false)
 			params.MaxTokens = openai.Int(5)
 
 			// Send a request within the context window
@@ -538,20 +456,20 @@ var _ = Describe("Simulator", func() {
 
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resp.Choices).To(HaveLen(1))
-			Expect(resp.Model).To(Equal(model))
+			Expect(resp.Model).To(Equal(testModel))
 		})
 
 		It("Should handle text completion requests exceeding context window", func() {
 			ctx := context.TODO()
 			// Start server with max-model-len=10
-			args := []string{"cmd", "--model", model, "--mode", common.ModeRandom, "--max-model-len", "10"}
-			client, err := startServerWithArgs(ctx, common.ModeRandom, args, nil)
+			args := []string{"cmd", "--model", testModel, "--mode", common.ModeRandom, "--max-model-len", "10"}
+			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
 			// Test with raw HTTP for text completion
 			reqBody := `{
 				"prompt": "This is a long test prompt with many words",
-				"model": "my_model",
+				"model": "testmodel",
 				"max_tokens": 5
 			}`
 
@@ -571,58 +489,3 @@ var _ = Describe("Simulator", func() {
 		})
 	})
 })
-
-func sendSimpleChatRequest(envs map[string]string, streaming bool) *http.Response {
-	ctx := context.TODO()
-
-	client, err := startServerWithArgs(ctx, common.ModeRandom, nil, envs)
-	Expect(err).NotTo(HaveOccurred())
-
-	openaiclient, params := getOpenAIClientAndChatParams(client, model, userMessage, streaming)
-	var httpResp *http.Response
-	resp, err := openaiclient.Chat.Completions.New(ctx, params, option.WithResponseInto(&httpResp))
-	Expect(err).NotTo(HaveOccurred())
-	Expect(resp).NotTo(BeNil())
-
-	Expect(resp.Choices).ShouldNot(BeEmpty())
-	Expect(string(resp.Object)).To(Equal(chatCompletionObject))
-
-	return httpResp
-}
-
-func getOpenAIClientAndChatParams(client option.HTTPClient, model string, message string,
-	streaming bool) (openai.Client, openai.ChatCompletionNewParams) {
-	openaiclient := openai.NewClient(
-		option.WithBaseURL(baseURL),
-		option.WithHTTPClient(client))
-
-	params := openai.ChatCompletionNewParams{
-		Messages: []openai.ChatCompletionMessageParamUnion{
-			openai.UserMessage(message),
-		},
-		Model: model,
-	}
-	if streaming {
-		params.StreamOptions = openai.ChatCompletionStreamOptionsParam{IncludeUsage: param.NewOpt(true)}
-	}
-	return openaiclient, params
-}
-
-// nolint
-func getOpenAIClentAndCompletionParams(client option.HTTPClient, model string, message string,
-	streaming bool) (openai.Client, openai.CompletionNewParams) {
-	openaiclient := openai.NewClient(
-		option.WithBaseURL(baseURL),
-		option.WithHTTPClient(client))
-
-	params := openai.CompletionNewParams{
-		Prompt: openai.CompletionNewParamsPromptUnion{
-			OfString: openai.String(message),
-		},
-		Model: openai.CompletionNewParamsModel(model),
-	}
-	if streaming {
-		params.StreamOptions = openai.ChatCompletionStreamOptionsParam{IncludeUsage: param.NewOpt(true)}
-	}
-	return openaiclient, params
-}

@@ -63,7 +63,7 @@ var _ = Describe("Server", func() {
 			ctx := context.TODO()
 			args := []string{"cmd", "--model", qwenModelName, "--mode", common.ModeRandom,
 				"--tokenizers-cache-dir", tmpDir, "--max-model-len", "2048"}
-			client, err := startServerWithArgs(ctx, common.ModeRandom, args, nil)
+			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
 			reqBody := `{
@@ -92,7 +92,7 @@ var _ = Describe("Server", func() {
 			ctx := context.TODO()
 			args := []string{"cmd", "--model", qwenModelName, "--mode", common.ModeRandom,
 				"--tokenizers-cache-dir", tmpDir, "--max-model-len", "2048"}
-			client, err := startServerWithArgs(ctx, common.ModeRandom, args, nil)
+			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
 			reqBody := `{
@@ -129,7 +129,7 @@ var _ = Describe("Server", func() {
 				os.Args = oldArgs
 			}()
 
-			os.Args = []string{"cmd", "--model", model, "--ssl-certfile", certFile, "--ssl-keyfile", keyFile}
+			os.Args = []string{"cmd", "--model", testModel, "--ssl-certfile", certFile, "--ssl-keyfile", keyFile}
 			config, err := common.ParseCommandParamsAndLoadConfig()
 			Expect(err).NotTo(HaveOccurred())
 			Expect(config.SSLEnabled()).To(BeTrue())
@@ -143,7 +143,7 @@ var _ = Describe("Server", func() {
 				os.Args = oldArgs
 			}()
 
-			os.Args = []string{"cmd", "--model", model, "--self-signed-certs"}
+			os.Args = []string{"cmd", "--model", testModel, "--self-signed-certs"}
 			config, err := common.ParseCommandParamsAndLoadConfig()
 			Expect(err).NotTo(HaveOccurred())
 			Expect(config.SSLEnabled()).To(BeTrue())
@@ -168,7 +168,7 @@ var _ = Describe("Server", func() {
 			certFile, _, err := GenerateTempCerts(tempDir)
 			Expect(err).NotTo(HaveOccurred())
 
-			os.Args = []string{"cmd", "--model", model, "--ssl-certfile", certFile}
+			os.Args = []string{"cmd", "--model", testModel, "--ssl-certfile", certFile}
 			_, err = common.ParseCommandParamsAndLoadConfig()
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("both ssl-certfile and ssl-keyfile must be provided together"))
@@ -176,7 +176,7 @@ var _ = Describe("Server", func() {
 			_, keyFile, err := GenerateTempCerts(tempDir)
 			Expect(err).NotTo(HaveOccurred())
 
-			os.Args = []string{"cmd", "--model", model, "--ssl-keyfile", keyFile}
+			os.Args = []string{"cmd", "--model", testModel, "--ssl-keyfile", keyFile}
 			_, err = common.ParseCommandParamsAndLoadConfig()
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("both ssl-certfile and ssl-keyfile must be provided together"))
@@ -187,9 +187,9 @@ var _ = Describe("Server", func() {
 			certFile, keyFile, err := GenerateTempCerts(tempDir)
 			Expect(err).NotTo(HaveOccurred())
 
-			args := []string{"cmd", "--model", model, "--mode", common.ModeRandom,
+			args := []string{"cmd", "--model", testModel, "--mode", common.ModeRandom,
 				"--ssl-certfile", certFile, "--ssl-keyfile", keyFile}
-			client, err := startServerWithArgs(ctx, common.ModeRandom, args, nil)
+			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
 			resp, err := client.Get("https://localhost/health")
@@ -198,8 +198,8 @@ var _ = Describe("Server", func() {
 		})
 
 		It("Should start HTTPS server with self-signed certificates", func(ctx SpecContext) {
-			args := []string{"cmd", "--model", model, "--mode", common.ModeRandom, "--self-signed-certs"}
-			client, err := startServerWithArgs(ctx, common.ModeRandom, args, nil)
+			args := []string{"cmd", "--model", testModel, "--mode", common.ModeRandom, "--self-signed-certs"}
+			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
 			resp, err := client.Get("https://localhost/health")

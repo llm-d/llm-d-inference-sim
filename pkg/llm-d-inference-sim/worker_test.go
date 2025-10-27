@@ -33,18 +33,16 @@ import (
 	"github.com/openai/openai-go/v3/option"
 )
 
-const modelName = "testmodel"
-
 var _ = Describe("Simulator requests scheduling", Ordered, func() {
 	Context("Requests for already loaded loras should be handled first", func() {
 		DescribeTable("Should process in correct order simultaneous requests to two loras", func(maxNumSeq string) {
 			ctx := context.TODO()
-			args := []string{"cmd", "--model", model, "--mode", common.ModeEcho,
+			args := []string{"cmd", "--model", testModel, "--mode", common.ModeEcho,
 				"--time-to-first-token", "500", "--max-num-seqs", maxNumSeq,
 				"--lora-modules", "{\"name\":\"lora1\",\"path\":\"/path/to/lora1\"}",
 				"{\"name\":\"lora2\",\"path\":\"/path/to/lora2\"}"}
 
-			client, err := startServerWithArgs(ctx, common.ModeEcho, args, nil)
+			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 			openaiclient := openai.NewClient(option.WithBaseURL(baseURL),
 				option.WithHTTPClient(client))
@@ -86,13 +84,13 @@ var _ = Describe("Simulator requests scheduling", Ordered, func() {
 		DescribeTable("Should process in correct order delayed requests to two loras",
 			func(maxNumSeq string, maxLoras string, checkOrder func([]int)) {
 				ctx := context.TODO()
-				args := []string{"cmd", "--model", model, "--mode", common.ModeEcho,
+				args := []string{"cmd", "--model", testModel, "--mode", common.ModeEcho,
 					"--time-to-first-token", "1000",
 					"--max-num-seqs", maxNumSeq, "--max-loras", maxLoras,
 					"--lora-modules", "{\"name\":\"lora1\",\"path\":\"/path/to/lora1\"}",
 					"{\"name\":\"lora2\",\"path\":\"/path/to/lora2\"}"}
 
-				client, err := startServerWithArgs(ctx, common.ModeEcho, args, nil)
+				client, err := startServerWithArgs(ctx, args)
 				Expect(err).NotTo(HaveOccurred())
 
 				openaiclient := openai.NewClient(option.WithBaseURL(baseURL),
@@ -127,7 +125,7 @@ var _ = Describe("Simulator requests scheduling", Ordered, func() {
 
 		It("Should keep the order of requests with one worker", func() {
 			ctx := context.TODO()
-			args := []string{"cmd", "--model", model, "--mode", common.ModeEcho,
+			args := []string{"cmd", "--model", testModel, "--mode", common.ModeEcho,
 				"--time-to-first-token", "500",
 				"--max-num-seqs", "1", "--max-loras", "1",
 				"--lora-modules",
@@ -136,7 +134,7 @@ var _ = Describe("Simulator requests scheduling", Ordered, func() {
 				"{\"name\":\"lora4\",\"path\":\"/path/to/lora4\"}",
 				"{\"name\":\"lora2\",\"path\":\"/path/to/lora2\"}"}
 
-			client, err := startServerWithArgs(ctx, common.ModeEcho, args, nil)
+			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
 			openaiclient := openai.NewClient(option.WithBaseURL(baseURL),
@@ -167,7 +165,7 @@ var _ = Describe("Simulator requests scheduling", Ordered, func() {
 
 		It("Should keep the order of requests with two workers", func() {
 			ctx := context.TODO()
-			args := []string{"cmd", "--model", model, "--mode", common.ModeEcho,
+			args := []string{"cmd", "--model", testModel, "--mode", common.ModeEcho,
 				"--time-to-first-token", "500",
 				"--max-num-seqs", "2", "--max-loras", "1",
 				"--lora-modules",
@@ -176,7 +174,7 @@ var _ = Describe("Simulator requests scheduling", Ordered, func() {
 				"{\"name\":\"lora4\",\"path\":\"/path/to/lora4\"}",
 				"{\"name\":\"lora2\",\"path\":\"/path/to/lora2\"}"}
 
-			client, err := startServerWithArgs(ctx, common.ModeEcho, args, nil)
+			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
 			openaiclient := openai.NewClient(option.WithBaseURL(baseURL),
@@ -207,7 +205,7 @@ var _ = Describe("Simulator requests scheduling", Ordered, func() {
 		DescribeTable("Should keep the order of requests with multiple workers and loras",
 			func(maxNumSeq string, maxLoras string, checkOrder func([]int)) {
 				ctx := context.TODO()
-				args := []string{"cmd", "--model", model, "--mode", common.ModeEcho,
+				args := []string{"cmd", "--model", testModel, "--mode", common.ModeEcho,
 					"--time-to-first-token", "1000",
 					"--max-num-seqs", maxNumSeq, "--max-loras", maxLoras,
 					"--lora-modules",
@@ -217,7 +215,7 @@ var _ = Describe("Simulator requests scheduling", Ordered, func() {
 					"{\"name\":\"lora5\",\"path\":\"/path/to/lora5\"}",
 					"{\"name\":\"lora2\",\"path\":\"/path/to/lora2\"}"}
 
-				client, err := startServerWithArgs(ctx, common.ModeEcho, args, nil)
+				client, err := startServerWithArgs(ctx, args)
 				Expect(err).NotTo(HaveOccurred())
 
 				openaiclient := openai.NewClient(option.WithBaseURL(baseURL),
@@ -258,7 +256,7 @@ var _ = Describe("Simulator requests scheduling", Ordered, func() {
 	Context("Stress", func() {
 		It("Should work correctly with many simultaneous requests", func() {
 			ctx := context.TODO()
-			args := []string{"cmd", "--model", modelName, "--mode", common.ModeRandom,
+			args := []string{"cmd", "--model", testModel, "--mode", common.ModeRandom,
 				"--time-to-first-token", "3000", "--max-num-seqs", "12", "--max-loras", "2",
 				"--lora-modules",
 				"{\"name\":\"lora0\",\"path\":\"/path/to/lora0\"}",
@@ -268,7 +266,7 @@ var _ = Describe("Simulator requests scheduling", Ordered, func() {
 				"{\"name\":\"lora4\",\"path\":\"/path/to/lora4\"}",
 			}
 
-			client, err := startServerWithArgs(ctx, common.ModeRandom, args, nil)
+			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
 			openaiclient := openai.NewClient(
@@ -282,7 +280,7 @@ var _ = Describe("Simulator requests scheduling", Ordered, func() {
 					defer GinkgoRecover()
 					params := openai.ChatCompletionNewParams{
 						Messages: []openai.ChatCompletionMessageParamUnion{
-							openai.UserMessage(userMessage),
+							openai.UserMessage(testUserMessage),
 						},
 						Model: fmt.Sprintf("lora%d", i%5),
 					}
@@ -331,7 +329,7 @@ var _ = Describe("Simulator requests scheduling", Ordered, func() {
 			runningMetric := "vllm:num_requests_running{model_name=\"testmodel\"}"
 			waitingMetric := "vllm:num_requests_waiting{model_name=\"testmodel\"}"
 			ctx := context.TODO()
-			args := []string{"cmd", "--model", modelName, "--mode", common.ModeRandom,
+			args := []string{"cmd", "--model", testModel, "--mode", common.ModeRandom,
 				"--time-to-first-token", "2000", "--time-to-first-token-std-dev", "600",
 				"--max-num-seqs", "1000", "--max-loras", "2", "--max-waiting-queue-length", "1500",
 				"--lora-modules",
@@ -339,7 +337,7 @@ var _ = Describe("Simulator requests scheduling", Ordered, func() {
 				"{\"name\":\"lora1\",\"path\":\"/path/to/lora1\"}",
 			}
 
-			client, err := startServerWithArgs(ctx, common.ModeRandom, args, nil)
+			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
 			openaiclient := openai.NewClient(
@@ -353,7 +351,7 @@ var _ = Describe("Simulator requests scheduling", Ordered, func() {
 					defer GinkgoRecover()
 					params := openai.ChatCompletionNewParams{
 						Messages: []openai.ChatCompletionMessageParamUnion{
-							openai.UserMessage(userMessage),
+							openai.UserMessage(testUserMessage),
 						},
 						Model: fmt.Sprintf("lora%d", i%2),
 					}
@@ -392,7 +390,7 @@ var _ = Describe("Simulator requests scheduling", Ordered, func() {
 					defer GinkgoRecover()
 					params := openai.ChatCompletionNewParams{
 						Messages: []openai.ChatCompletionMessageParamUnion{
-							openai.UserMessage(userMessage),
+							openai.UserMessage(testUserMessage),
 						},
 						Model: fmt.Sprintf("lora%d", i%2),
 					}

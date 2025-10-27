@@ -34,14 +34,14 @@ var _ = Describe("LoRAs", func() {
 	Context("LoRAs config and load", func() {
 		It("Should config, load and load LoRAs correctly", func() {
 			ctx := context.TODO()
-			client, err := startServerWithArgs(ctx, "",
-				[]string{"cmd", "--model", model, "--mode", common.ModeEcho,
+			client, err := startServerWithArgs(ctx,
+				[]string{"cmd", "--model", testModel, "--mode", common.ModeEcho,
 					"--lora-modules", "{\"name\":\"lora3\",\"path\":\"/path/to/lora3\"}",
-					"{\"name\":\"lora4\",\"path\":\"/path/to/lora4\"}"}, nil)
+					"{\"name\":\"lora4\",\"path\":\"/path/to/lora4\"}"})
 			Expect(err).NotTo(HaveOccurred())
 
 			// Request to lora3
-			openaiclient, params := getOpenAIClientAndChatParams(client, "lora3", userMessage, false)
+			openaiclient, params := getOpenAIClientAndChatParams(client, "lora3", testUserMessage, false)
 			resp, err := openaiclient.Chat.Completions.New(ctx, params)
 			Expect(err).ToNot(HaveOccurred())
 
@@ -49,7 +49,7 @@ var _ = Describe("LoRAs", func() {
 			Expect(string(resp.Object)).To(Equal(chatCompletionObject))
 
 			msg := resp.Choices[0].Message.Content
-			Expect(msg).Should(Equal(userMessage))
+			Expect(msg).Should(Equal(testUserMessage))
 
 			// Unknown model, should return 404
 			params.Model = "lora1"
@@ -88,7 +88,7 @@ var _ = Describe("LoRAs", func() {
 			Expect(string(resp.Object)).To(Equal(chatCompletionObject))
 
 			msg = resp.Choices[0].Message.Content
-			Expect(msg).Should(Equal(userMessage))
+			Expect(msg).Should(Equal(testUserMessage))
 
 			// Unload lora3
 			payload = map[string]string{
