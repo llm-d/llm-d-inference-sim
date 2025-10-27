@@ -393,14 +393,14 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 		modelName := "my_model"
 		// Send one request, check that ttft and tpot are as defined in the simulator command line params
 		ctx := context.TODO()
-		args := []string{"cmd", "--model", modelName, "--mode", common.ModeRandom,
+		// use mode echo to be sure that response is more than one token - this makes sure that tpot is reported to prometheus
+		args := []string{"cmd", "--model", modelName, "--mode", common.ModeEcho,
 			"--time-to-first-token", "200", "--inter-token-latency", "100"}
 
 		client, err := startServerWithArgs(ctx, common.ModeRandom, args, nil)
 		Expect(err).NotTo(HaveOccurred())
 
 		openaiclient, params := getOpenAIClientAndChatParams(client, modelName, userMessage, false)
-		params.MaxTokens = openai.Int(5)
 
 		var reqWg, metricsWg sync.WaitGroup
 		metricsWg.Add(1)
@@ -451,7 +451,7 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"640\"} 1"))
 			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"2560\"} 1"))
 			Expect(metrics).To(ContainSubstring("vllm:time_to_first_token_seconds_bucket{model_name=\"my_model\",le=\"+Inf\"} 1"))
-			// tpot
+			// check tpot only is it exists in metrics, when a single
 			Expect(metrics).To(ContainSubstring("vllm:time_per_output_token_seconds_bucket{model_name=\"my_model\",le=\"0.01\"} 0"))
 			Expect(metrics).To(ContainSubstring("vllm:time_per_output_token_seconds_bucket{model_name=\"my_model\",le=\"0.025\"} 0"))
 			Expect(metrics).To(ContainSubstring("vllm:time_per_output_token_seconds_bucket{model_name=\"my_model\",le=\"0.05\"} 0"))
