@@ -18,9 +18,11 @@ package common
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
+	"github.com/openai/openai-go/v3/packages/param"
 	"github.com/santhosh-tekuri/jsonschema/v5"
 )
 
@@ -52,50 +54,125 @@ var fakeStringArguments = []string{
 	`lifetime`,
 }
 
-// CreateToolCalls creates and returns response payload based on this request
-// (tool calls or nothing in case we randomly choose not to generate calls),
-// and the number of generated completion token sand the finish reason
-func CreateToolCalls(tools []openaiserverapi.Tool, toolChoice string, config *Configuration) ([]openaiserverapi.ToolCall, int, error) {
-	// This function is called if tool choice is either 'required' or 'auto'.
-	// In case of 'required' at least one tool call has to be created, and we randomly choose
-	// the number of calls starting from one. Otherwise, we start from 0, and in case we randomly
-	// choose the number of calls to be 0, response text will be generated instead of a tool call.
+// IsToolChoiceNone checks if the tool_choice is set to "none".
+func IsToolChoiceNone(toolChoice openaiserverapi.ToolChoice) bool {
+	if !param.IsOmitted(toolChoice.OfAuto) {
+		val := toolChoice.OfAuto.Or("")
+		return val == ToolChoiceNone
+	}
+	return false
+}
+
+// CreateToolCalls creates and returns tool calls based on the request's tool
+// definitions and the tool_choice parameter.
+//
+// The [tool_choice](https://platform.openai.com/docs/guides/function-calling#tool-choice)
+// parameter controls how the model responds to function calls.
+//
+// This function handles the following cases for tool_choice:
+//   - "none": The model will not call any tools. In this scenario, this function
+//     should ideally be bypassed, as no tool calls will be generated.
+//   - "auto": This is the default behavior where the model autonomously decides
+//     whether to generate a message or call one or more tools from the provided list.
+//   - "required": The model is constrained to call one or more of the available tools.
+//   - Forced Function: A specific tool can be forced by providing an object with the
+//     structure `{"type": "function", "function": {"name": "my_function"}}`.
+//     The model will be restricted to calling only that specified tool.
+//
+// This function currently does not handle the following `tool_choice` scenarios:
+//   - Forced Custom Tool: If `tool_choice` is set to `{"type": "custom", "name": "my_custom"}`,
+//     this function will not be able to enforce the calling of a custom tool, as custom
+//     tool types are not yet supported.
+//   - Allowed Tools Subset: The functionality to restrict the model's tool-calling
+//     capabilities to a specific subset of the available tools has not been implemented.
+//
+// This function returns the generated tool calls, the number of completion
+// tokens used, and an error if one occurs (e.g., if a specified tool is not found).
+func CreateToolCalls(
+	tools []openaiserverapi.Tool,
+	toolChoice openaiserverapi.ToolChoice,
+	config *Configuration,
+) ([]openaiserverapi.ToolCall, int, error) {
+	generateCalls := func(availableTools []openaiserverapi.Tool, minCalls int) ([]openaiserverapi.ToolCall, int, error) {
+		if len(availableTools) == 0 {
+			// If no tools are available to choose from, no calls can be made.
+			return nil, 0, errors.New("no tools available to create tool calls")
+		}
+
+		numberOfCalls := minCalls
+		if len(availableTools) > minCalls {
+			// Randomly decide how many tools to call, between minCalls and the total available.
+			numberOfCalls = RandomInt(minCalls, len(availableTools))
+		}
+
+		if numberOfCalls == 0 {
+			return nil, 0, nil
+		}
+
+		calls := make([]openaiserverapi.ToolCall, 0, numberOfCalls)
+		for i := range numberOfCalls {
+			// Randomly choose which tool to call. We may call the same tool more than once.
+			index := 0
+			if len(availableTools) > 1 {
+				index = RandomInt(0, len(availableTools)-1)
+			}
+			chosenTool := availableTools[index]
+
+			args, err := generateToolArguments(chosenTool, config)
+			if err != nil {
+				return nil, 0, err
+			}
+			argsJson, err := json.Marshal(args)
+			if err != nil {
+				return nil, 0, err
+			}
+
+			call := openaiserverapi.ToolCall{
+				Function: openaiserverapi.FunctionCall{
+					Arguments:          string(argsJson),
+					TokenizedArguments: Tokenize(string(argsJson)),
+					Name:               &chosenTool.Function.Name,
+				},
+				ID:    "chatcmpl-tool-" + RandomNumericString(10),
+				Type:  "function",
+				Index: i,
+			}
+			calls = append(calls, call)
+		}
+		return calls, CountTokensForToolCalls(calls), nil
+	}
+
+	// A specific function is forced.
+	if functionChoice := toolChoice.GetFunction(); functionChoice != nil {
+		requiredFuncName := functionChoice.Name
+		var targetTool *openaiserverapi.Tool
+
+		// Find the specified tool in the list of available tools.
+		for i, tool := range tools {
+			if tool.Function.Name == requiredFuncName {
+				targetTool = &tools[i]
+				break
+			}
+		}
+
+		if targetTool == nil {
+			return nil, 0, fmt.Errorf("tool with name '%s' requested in tool_choice but not found in the tools list", requiredFuncName)
+		}
+
+		specificTools := []openaiserverapi.Tool{*targetTool}
+
+		// Generate arguments for the specific tool.
+		return generateCalls(specificTools, len(specificTools))
+	}
+
+	// Default behavior for "auto" or "required".
+	// The model can choose from any of the provided tools.
 	min := 0
-	if toolChoice == ToolChoiceRequired {
+	if !param.IsOmitted(toolChoice.OfAuto) && toolChoice.OfAuto.Or("") == ToolChoiceRequired {
 		min = 1
 	}
-	numberOfCalls := RandomInt(min, len(tools))
-	if numberOfCalls == 0 {
-		return nil, 0, nil
-	}
 
-	calls := make([]openaiserverapi.ToolCall, 0)
-	for i := range numberOfCalls {
-		// Randomly choose which tools to call. We may call the same tool more than once.
-		index := RandomInt(0, len(tools)-1)
-		args, err := generateToolArguments(tools[index], config)
-		if err != nil {
-			return nil, 0, err
-		}
-		argsJson, err := json.Marshal(args)
-		if err != nil {
-			return nil, 0, err
-		}
-
-		call := openaiserverapi.ToolCall{
-			Function: openaiserverapi.FunctionCall{
-				Arguments:          string(argsJson),
-				TokenizedArguments: Tokenize(string(argsJson)),
-				Name:               &tools[index].Function.Name,
-			},
-			ID:    "chatcmpl-tool-" + RandomNumericString(10),
-			Type:  "function",
-			Index: i,
-		}
-		calls = append(calls, call)
-	}
-
-	return calls, CountTokensForToolCalls(calls), nil
+	return generateCalls(tools, min)
 }
 
 func getRequiredAsMap(property map[string]any) map[string]struct{} {

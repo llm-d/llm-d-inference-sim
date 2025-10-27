@@ -88,7 +88,7 @@ func (s *VllmSimulator) processRequest(reqCtx *openaiserverapi.CompletionReqCtx)
 	var toolCalls []openaiserverapi.ToolCall
 	var completionTokens int
 	if reqCtx.IsChatCompletion &&
-		req.GetToolChoice() != common.ToolChoiceNone &&
+		!common.IsToolChoiceNone(req.GetToolChoice()) &&
 		req.GetTools() != nil {
 		toolCalls, completionTokens, err =
 			common.CreateToolCalls(req.GetTools(), req.GetToolChoice(), s.config)

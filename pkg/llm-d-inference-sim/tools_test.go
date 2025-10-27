@@ -32,11 +32,16 @@ import (
 	"github.com/openai/openai-go/v3/packages/param"
 )
 
+const (
+	functionNameGetWeather     = "get_weather"
+	functionNameGetTemperature = "get_temperature"
+)
+
 var tools = []openai.ChatCompletionToolUnionParam{
 	{
 		OfFunction: &openai.ChatCompletionFunctionToolParam{
 			Function: openai.FunctionDefinitionParam{
-				Name:        "get_weather",
+				Name:        functionNameGetWeather,
 				Description: openai.String("Get weather at the given location"),
 				Parameters: openai.FunctionParameters{
 					"type": "object",
@@ -53,7 +58,7 @@ var tools = []openai.ChatCompletionToolUnionParam{
 	{
 		OfFunction: &openai.ChatCompletionFunctionToolParam{
 			Function: openai.FunctionDefinitionParam{
-				Name:        "get_temperature",
+				Name:        functionNameGetTemperature,
 				Description: openai.String("Get temperature at the given location"),
 				Parameters: openai.FunctionParameters{
 					"type": "object",
@@ -78,7 +83,7 @@ var invalidTools = [][]openai.ChatCompletionToolUnionParam{
 		{
 			OfFunction: &openai.ChatCompletionFunctionToolParam{
 				Function: openai.FunctionDefinitionParam{
-					Name:        "get_weather",
+					Name:        functionNameGetWeather,
 					Description: openai.String("Get weather at the given location"),
 					Parameters: openai.FunctionParameters{
 						"type": "object",
@@ -95,7 +100,7 @@ var invalidTools = [][]openai.ChatCompletionToolUnionParam{
 		{
 			OfFunction: &openai.ChatCompletionFunctionToolParam{
 				Function: openai.FunctionDefinitionParam{
-					Name:        "get_temperature",
+					Name:        functionNameGetTemperature,
 					Description: openai.String("Get temperature at the given location"),
 					Parameters: openai.FunctionParameters{
 						"type": "object",
@@ -119,7 +124,7 @@ var invalidTools = [][]openai.ChatCompletionToolUnionParam{
 		{
 			OfFunction: &openai.ChatCompletionFunctionToolParam{
 				Function: openai.FunctionDefinitionParam{
-					Name:        "get_weather",
+					Name:        functionNameGetWeather,
 					Description: openai.String("Get weather at the given location"),
 					Parameters: openai.FunctionParameters{
 						"type": "object",
@@ -139,7 +144,7 @@ var invalidTools = [][]openai.ChatCompletionToolUnionParam{
 		{
 			OfFunction: &openai.ChatCompletionFunctionToolParam{
 				Function: openai.FunctionDefinitionParam{
-					Name:        "get_weather",
+					Name:        functionNameGetWeather,
 					Description: openai.String("Get weather at the given location"),
 				},
 			},
@@ -312,7 +317,7 @@ var toolWithoutRequiredParams = []openai.ChatCompletionToolUnionParam{
 	{
 		OfFunction: &openai.ChatCompletionFunctionToolParam{
 			Function: openai.FunctionDefinitionParam{
-				Name:        "get_temperature",
+				Name:        functionNameGetTemperature,
 				Description: openai.String("Get temperature at the given location"),
 				Parameters: openai.FunctionParameters{
 					"type": "object",
@@ -398,7 +403,7 @@ var _ = Describe("Simulator for request with tools", func() {
 						tc := toolCalls[0]
 						Expect(tc.Index).To(Or(BeNumerically("==", lastIndex), BeNumerically("==", lastIndex+1)))
 						if tc.Index > int64(lastIndex) {
-							Expect(tc.Function.Name).To(Or(Equal("get_weather"), Equal("get_temperature")))
+							Expect(tc.Function.Name).To(Or(Equal(functionNameGetWeather), Equal(functionNameGetTemperature)))
 							lastIndex++
 							args[tc.Function.Name] = []string{tc.Function.Arguments}
 							functionName = tc.Function.Name
@@ -429,7 +434,7 @@ var _ = Describe("Simulator for request with tools", func() {
 				err := json.Unmarshal([]byte(joinedArgs), &argsMap)
 				Expect(err).NotTo(HaveOccurred())
 
-				if functionName == "get_weather" {
+				if functionName == functionNameGetWeather {
 					Expect(joinedArgs).To(ContainSubstring("location"))
 				} else {
 					Expect(joinedArgs).To(ContainSubstring("city"))
@@ -473,14 +478,14 @@ var _ = Describe("Simulator for request with tools", func() {
 			toolCalls := resp.Choices[0].Message.ToolCalls
 			Expect(toolCalls).ToNot(BeEmpty())
 			for _, tc := range toolCalls {
-				Expect(tc.Function.Name).To(Or(Equal("get_weather"), Equal("get_temperature")))
+				Expect(tc.Function.Name).To(Or(Equal(functionNameGetWeather), Equal(functionNameGetTemperature)))
 				Expect(tc.ID).NotTo(BeEmpty())
 				Expect(tc.Type).To(Equal("function"))
 				args := make(map[string]string)
 				err := json.Unmarshal([]byte(tc.Function.Arguments), &args)
 				Expect(err).NotTo(HaveOccurred())
 
-				if tc.Function.Name == "get_weather" {
+				if tc.Function.Name == functionNameGetWeather {
 					Expect(tc.Function.Arguments).To(ContainSubstring("location"))
 				} else {
 					Expect(tc.Function.Arguments).To(ContainSubstring("city"))
@@ -497,6 +502,59 @@ var _ = Describe("Simulator for request with tools", func() {
 		Entry(nil, common.ModeRandom),
 		Entry(nil, common.ModeRandom),
 		Entry(nil, common.ModeRandom),
+	)
+
+	DescribeTable("no streaming, a specific tool",
+		func(mode string, specificTool string) {
+			ctx := context.TODO()
+			client, err := startServer(ctx, mode)
+			Expect(err).NotTo(HaveOccurred())
+
+			openaiclient, params := getOpenAIClientAndChatParams(client, model, userMessage, false)
+			params.ToolChoice = openai.ToolChoiceOptionFunctionToolChoice(openai.ChatCompletionNamedToolChoiceFunctionParam{
+				Name: specificTool,
+			})
+			params.Tools = tools
+
+			resp, err := openaiclient.Chat.Completions.New(ctx, params)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.Choices).ShouldNot(BeEmpty())
+			Expect(string(resp.Object)).To(Equal(chatCompletionObject))
+
+			Expect(resp.Usage.PromptTokens).To(Equal(userMsgTokens))
+			Expect(resp.Usage.CompletionTokens).To(BeNumerically(">", 0))
+			Expect(resp.Usage.TotalTokens).To(Equal(resp.Usage.PromptTokens + resp.Usage.CompletionTokens))
+
+			content := resp.Choices[0].Message.Content
+			Expect(content).Should(BeEmpty())
+
+			toolCalls := resp.Choices[0].Message.ToolCalls
+			Expect(toolCalls).ToNot(BeEmpty())
+			for _, tc := range toolCalls {
+				Expect(tc.Function.Name).To(Equal(specificTool))
+				Expect(tc.ID).NotTo(BeEmpty())
+				Expect(tc.Type).To(Equal("function"))
+				args := make(map[string]string)
+				err := json.Unmarshal([]byte(tc.Function.Arguments), &args)
+				Expect(err).NotTo(HaveOccurred())
+
+				if tc.Function.Name == functionNameGetWeather {
+					Expect(tc.Function.Arguments).To(ContainSubstring("location"))
+				} else {
+					Expect(tc.Function.Arguments).To(ContainSubstring("city"))
+					Expect(tc.Function.Arguments).To(ContainSubstring("unit"))
+					Expect(args["unit"]).To(Or(Equal("C"), Equal("F")))
+				}
+			}
+		},
+		func(mode string, specificTool string) string {
+			return "mode: " + mode + ", specificTool: " + specificTool
+		},
+		// Call several times because the tools and arguments are chosen randomly
+		Entry(nil, common.ModeRandom, functionNameGetWeather),
+		Entry(nil, common.ModeRandom, functionNameGetTemperature),
+		Entry(nil, common.ModeRandom, functionNameGetWeather),
+		Entry(nil, common.ModeRandom, functionNameGetTemperature),
 	)
 
 	DescribeTable("check validator",
@@ -778,7 +836,7 @@ var _ = Describe("Simulator for request with tools", func() {
 			toolCalls := resp.Choices[0].Message.ToolCalls
 			Expect(toolCalls).To(HaveLen(1))
 			tc := toolCalls[0]
-			Expect(tc.Function.Name).To(Equal("get_temperature"))
+			Expect(tc.Function.Name).To(Equal(functionNameGetTemperature))
 			Expect(tc.ID).NotTo(BeEmpty())
 			Expect(tc.Type).To(Equal("function"))
 			args := make(map[string]string)

@@ -46,10 +46,10 @@ type CompletionRequest interface {
 	SetNumberOfCachedPromptTokens(cachedPromptTokens int)
 	// GetPrompt returns the prompt
 	GetPrompt() string
-	// GetTools() returns tools to use (in chat completion)
+	// GetTools returns tools to use (in chat completion)
 	GetTools() []Tool
-	// GetToolChoice() returns tool choice (in chat completion)
-	GetToolChoice() string
+	// GetToolChoice returns tool choice (in chat completion)
+	GetToolChoice() ToolChoice
 	// GetMaxCompletionTokens returns the maximum completion tokens requested
 	GetMaxCompletionTokens() *int64
 	// GetIgnoreEOS returns true if the end-of-sequence tokens will be ignored
@@ -184,11 +184,12 @@ type ChatCompletionRequest struct {
 	// Tools is a list of tools the model may call.
 	Tools []Tool `json:"tools,omitempty"`
 
-	// ToolChoice controls which (if any) tool is called by the model,
-	// possible values: none, auto, required.
-	// Sending an object with a specific tool, is currently not supported.
-	ToolChoice string `json:"tool_choice,omitempty"`
+	// ToolChoice controls which (if any) tool is called by the model.
+	// It can be a string ("none", "auto", "required") or an object specifying the function.
+	ToolChoice ToolChoice `json:"tool_choice,omitzero"`
 }
+
+var _ CompletionRequest = (*ChatCompletionRequest)(nil)
 
 // function defines a tool
 type function struct {
@@ -221,7 +222,7 @@ func (c *ChatCompletionRequest) GetTools() []Tool {
 	return c.Tools
 }
 
-func (c *ChatCompletionRequest) GetToolChoice() string {
+func (c *ChatCompletionRequest) GetToolChoice() ToolChoice {
 	return c.ToolChoice
 }
 
@@ -286,6 +287,8 @@ type TextCompletionRequest struct {
 	MaxTokens *int64 `json:"max_tokens"`
 }
 
+var _ CompletionRequest = (*TextCompletionRequest)(nil)
+
 func (t *TextCompletionRequest) GetPrompt() string {
 	return t.Prompt
 }
@@ -294,8 +297,8 @@ func (c *TextCompletionRequest) GetTools() []Tool {
 	return nil
 }
 
-func (c *TextCompletionRequest) GetToolChoice() string {
-	return ""
+func (c *TextCompletionRequest) GetToolChoice() ToolChoice {
+	return ToolChoice{}
 }
 
 func (c *TextCompletionRequest) GetMaxCompletionTokens() *int64 {
