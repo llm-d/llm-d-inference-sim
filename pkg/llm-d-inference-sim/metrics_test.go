@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"os"
 	"strings"
@@ -808,7 +809,7 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 		})
 	})
 
-	Context("latency metrics", func() {
+	Context("single request latency metrics", func() {
 		numOfTokens := len(common.Tokenize(testUserMessage))
 
 		DescribeTable("should calculate all latency related metrics correctly for a single request",
@@ -830,6 +831,56 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 			Entry(nil, "constant prefill + inter token time", 1000, 0, 100),
 			Entry(nil, "prefill per token + inter token time", 0, 100, 100),
 		)
+	})
+
+	Context("multiple requests latency metrics", func() {
+		It("should calculate waiting and inference time correctly", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", testModel, "--mode", common.ModeEcho,
+				"--time-to-first-token", "1000", "--max-num-seqs", "1",
+			}
+
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			openaiclient, params := getOpenAIClientAndChatParams(client, testModel, testUserMessage, false)
+
+			var reqWg sync.WaitGroup
+			reqWg.Add(2)
+
+			// send two requests
+			for range 2 {
+				go func() {
+					defer reqWg.Done()
+					defer GinkgoRecover()
+
+					_, err := openaiclient.Chat.Completions.New(ctx, params)
+					Expect(err).NotTo(HaveOccurred())
+				}()
+			}
+
+			reqWg.Wait()
+			time.Sleep(300 * time.Millisecond)
+			metricsResp, err := client.Get(metricsUrl)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
+
+			data, err := io.ReadAll(metricsResp.Body)
+			Expect(err).NotTo(HaveOccurred())
+			metrics := string(data)
+
+			for _, boundary := range common.RequestLatencyBucketsBoundaries {
+				if boundary < 1.5 {
+					Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(testModel, reqInferenceTimeMetricName, boundary, 0)))
+					Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(testModel, reqQueueTimeMetricName, boundary, 0)))
+				} else {
+					Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(testModel, reqInferenceTimeMetricName, boundary, 2)))
+					Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(testModel, reqQueueTimeMetricName, boundary, 1)))
+				}
+			}
+			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(testModel, reqInferenceTimeMetricName, math.Inf(1), 2)))
+			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(testModel, reqQueueTimeMetricName, math.Inf(1), 1)))
+		})
 	})
 })
 
