@@ -170,7 +170,7 @@ func (s *VllmSimulator) createAndRegisterPrometheus() error {
 	)
 
 	if err := s.metrics.registry.Register(s.metrics.reqInferenceTime); err != nil {
-		s.logger.Error(err, "Prometheus request inerence time histogram register failed")
+		s.logger.Error(err, "Prometheus request inference time histogram register failed")
 		return err
 	}
 
@@ -310,7 +310,23 @@ func (s *VllmSimulator) setInitialPrometheusMetrics() {
 		}
 
 		if s.config.FakeMetrics.E2ERequestLatencyBucketValues != nil {
-			s.initFakeHistogram(s.metrics.tpot, common.RequestLatencyBucketsBoundaries, s.config.FakeMetrics.E2ERequestLatencyBucketValues)
+			s.initFakeHistogram(s.metrics.e2eReqLatency, common.RequestLatencyBucketsBoundaries, s.config.FakeMetrics.E2ERequestLatencyBucketValues)
+		}
+
+		if s.config.FakeMetrics.ReqQueueTimeBucketValues != nil {
+			s.initFakeHistogram(s.metrics.reqQueueTime, common.RequestLatencyBucketsBoundaries, s.config.FakeMetrics.ReqQueueTimeBucketValues)
+		}
+
+		if s.config.FakeMetrics.ReqInfTimeBucketValues != nil {
+			s.initFakeHistogram(s.metrics.reqInferenceTime, common.RequestLatencyBucketsBoundaries, s.config.FakeMetrics.ReqInfTimeBucketValues)
+		}
+
+		if s.config.FakeMetrics.ReqPrefillTimeBucketValues != nil {
+			s.initFakeHistogram(s.metrics.reqPrefillTime, common.RequestLatencyBucketsBoundaries, s.config.FakeMetrics.ReqPrefillTimeBucketValues)
+		}
+
+		if s.config.FakeMetrics.ReqDecodeTimeBucketValues != nil {
+			s.initFakeHistogram(s.metrics.reqDecodeTime, common.RequestLatencyBucketsBoundaries, s.config.FakeMetrics.ReqDecodeTimeBucketValues)
 		}
 	}
 
