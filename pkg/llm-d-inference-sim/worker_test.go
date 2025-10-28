@@ -300,8 +300,8 @@ var _ = Describe("Simulator requests scheduling", Ordered, func() {
 
 			// max-num-seqs is 12, so number of running requests should be 12
 			// and the number of waiting requests 1000-12=988
-			Expect(metrics).To(ContainSubstring("vllm:num_requests_running{model_name=\"testmodel\"} 12"))
-			Expect(metrics).To(ContainSubstring("vllm:num_requests_waiting{model_name=\"testmodel\"} 988"))
+			Expect(metrics).To(ContainSubstring(getCountMetricLine(testModel, reqRunningMetricName, 12)))
+			Expect(metrics).To(ContainSubstring(getCountMetricLine(testModel, reqWaitingMetricName, 988)))
 
 			// max-loras is 2, so the last lora metric should be:
 			// running: two loras (doesn't matter which two)
@@ -326,8 +326,8 @@ var _ = Describe("Simulator requests scheduling", Ordered, func() {
 		})
 
 		It("Should work correctly with many simultaneous requests with many workers", func() {
-			runningMetric := "vllm:num_requests_running{model_name=\"testmodel\"}"
-			waitingMetric := "vllm:num_requests_waiting{model_name=\"testmodel\"}"
+			runningMetric := getCountMetricPrefix(testModel, reqRunningMetricName)
+			waitingMetric := getCountMetricPrefix(testModel, reqWaitingMetricName)
 			ctx := context.TODO()
 			args := []string{"cmd", "--model", testModel, "--mode", common.ModeRandom,
 				"--time-to-first-token", "2000", "--time-to-first-token-std-dev", "600",

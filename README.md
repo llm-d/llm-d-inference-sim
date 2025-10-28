@@ -26,7 +26,18 @@ In addition, it supports a subset of vLLM's Prometheus metrics. These metrics ar
 | vllm:lora_requests_info | Running stats on LoRA requests |
 | vllm:num_requests_running | Number of requests currently running on GPU |
 | vllm:num_requests_waiting | Prometheus metric for the number of queued requests |
-
+| vllm:e2e_request_latency_seconds | Histogram of end to end request latency in seconds |
+| vllm:request_inference_time_seconds | Histogram of time spent in RUNNING phase for request |
+| vllm:request_queue_time_seconds | Histogram of time spent in WAITING phase for request |
+| vllm:request_prefill_time_seconds | Histogram of time spent in PREFILL phase for request |
+| vllm:request_decode_time_seconds | Histogram of time spent in DECODE phase for request |
+| vllm:time_to_first_token_seconds | Histogram of time to first token in seconds |
+| vllm:time_per_output_token_seconds | Histogram of time per output token in seconds |
+| vllm:request_generation_tokens | Number of generation tokens processed |
+| vllm:request_params_max_tokens | Histogram of the max_tokens request parameter | 
+| vllm:request_prompt_tokens | Number of prefill tokens processed |
+| vllm:request_success_total | Count of successfully processed requests |
+  
 The simulated inference has no connection with the model and LoRA adapters specified in the command line parameters or via the /v1/load_lora_adapter HTTP REST endpoint. The /v1/models endpoint returns simulated results based on those same command line parameters and those loaded via the /v1/load_lora_adapter HTTP REST endpoint.
 
 The simulator supports two modes of operation:

@@ -26,9 +26,6 @@ const (
 	PromLabelMaxLora             = "max_lora"
 	PromLabelModelName           = "model_name"
 	PromLabelFinishReason        = "finish_reason"
-
-	VllmLoraRequestInfo    = "vllm:lora_requests_info"
-	VllmNumRequestsRunning = "vllm:num_requests_running"
 )
 
 // modelInfo defines data about model returned by /models API

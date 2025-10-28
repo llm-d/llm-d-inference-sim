@@ -43,6 +43,11 @@ const (
 	generationTokensMetricName = "vllm:request_generation_tokens"
 	paramMaxTokensMetricName   = "vllm:request_params_max_tokens"
 	promptTokensMetricName     = "vllm:request_prompt_tokens"
+	successTotalMetricName     = "vllm:request_success_total"
+	loraRequestsMetricName     = "vllm:lora_requests_info"
+	reqRunningMetricName       = "vllm:num_requests_running"
+	reqWaitingMetricName       = "vllm:num_requests_waiting"
+	gpuCacheUsageMetricName    = "vllm:gpu_cache_usage_perc"
 )
 
 // createAndRegisterPrometheus creates and registers prometheus metrics used by vLLM simulator
@@ -54,7 +59,7 @@ func (s *VllmSimulator) createAndRegisterPrometheus() error {
 	s.metrics.loraInfo = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: "",
-			Name:      "vllm:lora_requests_info",
+			Name:      loraRequestsMetricName,
 			Help:      "Running stats on lora requests.",
 		},
 		[]string{vllmapi.PromLabelMaxLora, vllmapi.PromLabelRunningLoraAdapters, vllmapi.PromLabelWaitingLoraAdapters},
@@ -68,7 +73,7 @@ func (s *VllmSimulator) createAndRegisterPrometheus() error {
 	s.metrics.runningRequests = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: "",
-			Name:      "vllm:num_requests_running",
+			Name:      reqRunningMetricName,
 			Help:      "Number of requests currently running on GPU.",
 		},
 		[]string{vllmapi.PromLabelModelName},
@@ -83,7 +88,7 @@ func (s *VllmSimulator) createAndRegisterPrometheus() error {
 	s.metrics.waitingRequests = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: "",
-			Name:      "vllm:num_requests_waiting",
+			Name:      reqWaitingMetricName,
 			Help:      "Prometheus metric for the number of queued requests.",
 		},
 		[]string{vllmapi.PromLabelModelName},
@@ -202,7 +207,7 @@ func (s *VllmSimulator) createAndRegisterPrometheus() error {
 	s.metrics.kvCacheUsagePercentage = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: "",
-			Name:      "vllm:gpu_cache_usage_perc",
+			Name:      gpuCacheUsageMetricName,
 			Help:      "Prometheus metric for the fraction of KV-cache blocks currently in use (from 0 to 1).",
 		},
 		[]string{vllmapi.PromLabelModelName},
@@ -258,7 +263,7 @@ func (s *VllmSimulator) createAndRegisterPrometheus() error {
 	s.metrics.requestSuccessTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Subsystem: "",
-			Name:      "vllm:request_success_total",
+			Name:      successTotalMetricName,
 			Help:      "Count of successfully processed requests.",
 		},
 		[]string{vllmapi.PromLabelModelName, vllmapi.PromLabelFinishReason},

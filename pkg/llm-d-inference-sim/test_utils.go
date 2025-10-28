@@ -245,7 +245,7 @@ func getLastLoraMetrics(metrics []string) ([]string, error) {
 	lastTimestamp := float64(0)
 	var lastMetrics []string
 	for _, metric := range metrics {
-		if strings.HasPrefix(metric, "vllm:lora_requests_info") {
+		if strings.HasPrefix(metric, loraRequestsMetricName) {
 			timestamp, err := extractTimestamp(metric)
 			if err != nil {
 				return nil, err
@@ -345,6 +345,14 @@ func findIntMetric(metrics []string, metricPrefix string) *int {
 // count bucket samples count
 func getFloatBucketMetricLine(model string, metric string, bucketBoundary float64, count int) string {
 	return fmt.Sprintf("%s %d", getFloatBucketMetricPrefix(model, metric, bucketBoundary), count)
+}
+
+func getCountMetricPrefix(model string, metric string) string {
+	return fmt.Sprintf("%s{model_name=\"%s\"}", metric, model)
+}
+
+func getCountMetricLine(model string, metric string, count float64) string {
+	return fmt.Sprintf("%s %g", getCountMetricPrefix(model, metric), count)
 }
 
 // same as getFloatBucketMetricLine but without the value part

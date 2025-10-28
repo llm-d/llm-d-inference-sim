@@ -232,16 +232,17 @@ type Metrics struct {
 	WaitingRequests int64 `yaml:"waiting-requests" json:"waiting-requests"`
 	// KVCacheUsagePercentage  is the fraction of KV-cache blocks currently in use (from 0 to 1)
 	KVCacheUsagePercentage float32 `yaml:"kv-cache-usage" json:"kv-cache-usage"`
-	// TTFTBuckets is an array of values for time-to-first-token buckets,
-	// each value in this array is a value for the corresponding bucket.
+
+	// Histogram metrics - defined by array of values.
+	// Each value in this array is a value for the corresponding bucket.
 	// Array may contain less values than number of buckets, all trailing missing values assumed as 0.
+
+	// TTFTBuckets is an array of values for time-to-first-token buckets.
 	// Buckets upper boundaries in seconds are:
 	// 0.001, 0.005, 0.01, 0.02, 0.04, 0.06, 0.08, 0.1, 0.25, 0.5,
 	// 0.75, 1.0, 2.5, 5.0, 7.5, 10.0, 20.0, 40.0, 80.0, 160.0, 640.0, 2560.0, +Inf
 	TTFTBucketValues []int `yaml:"ttft-buckets-values" json:"ttft-buckets-values"`
-	// TPOTBuckets is an array of values for time-per-output-token buckets,
-	// each value in this array is a value for the corresponding bucket.
-	// Array may contain less values than number of buckets, all trailing missing values assumed as 0.
+	// TPOTBuckets is an array of values for time-per-output-token buckets.
 	// Buckets upper boundaries in seconds are:
 	// 0.01, 0.025, 0.05, 0.075, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5, 0.75,
 	// 1.0, 2.5, 5.0, 7.5, 10.0, 20.0, 40.0, 80.0, +Inf
@@ -253,13 +254,21 @@ type Metrics struct {
 	RequestParamsMaxTokens  []int `yaml:"request-params-max-tokens" json:"request-params-max-tokens"` // max_tokens parameter samples
 	// RequestSuccessTotal is the number of successful requests, key: finish-reason (stop, length, etc.).
 	RequestSuccessTotal map[string]int64 `yaml:"request-success-total" json:"request-success-total"`
-	// E2ERequestLatencyBucketValues is an array of values for e2e request latency buckets,
-	// each value in this array is a value for the corresponding bucket.
-	// Array may contain less values than number of buckets, all trailing missing values assumed as 0.
-	// Buckets upper boundaries in seconds are:
+
+	// Latency histograms - have same buckets upper boundaries in seconds are:
 	// 0.3, 0.5, 0.8, 1.0, 1.5, 2.0, 2.5, 5.0, 10.0, 15.0,
 	// 20.0, 30.0, 40.0, 50.0, 60.0, 120.0, 240.0, 480.0, 960.0, 1920.0, 7680.0, +Inf
+
+	// E2ERequestLatencyBucketValues is an array of values for e2e request latency buckets.
 	E2ERequestLatencyBucketValues []int `yaml:"e2erl-buckets-values" json:"e2erl-buckets-values"`
+	// ReqQueueTimeBucketValues is an array of values for request queue time buckets.
+	ReqQueueTimeBucketValues []int `yaml:"queue-time-buckets-values" json:"queue-time-buckets-values"`
+	// ReqInfTimeBucketValues is an array of values for request inference time buckets.
+	ReqInfTimeBucketValues []int `yaml:"inf-time-buckets-values" json:"inf-time-buckets-values"`
+	// ReqPrefillTimeBucketValues is an array of values for request prefill time buckets.
+	ReqPrefillTimeBucketValues []int `yaml:"prefill-time-buckets-values" json:"prefill-time-buckets-values"`
+	// ReqDecodeTimeBucketValues is an array of values for request decode time buckets.
+	ReqDecodeTimeBucketValues []int `yaml:"decode-time-buckets-values" json:"decode-time-buckets-values"`
 }
 
 type LorasMetrics struct {
@@ -593,6 +602,38 @@ func (c *Configuration) validate() error {
 		for _, v := range c.FakeMetrics.RequestParamsMaxTokens {
 			if v < 0 {
 				return errors.New("fake metrics request-params-max-tokens cannot contain negative values")
+			}
+		}
+
+		for _, v := range c.FakeMetrics.RequestParamsMaxTokens {
+			if v < 0 {
+				return errors.New("fake metrics request-params-max-tokens cannot contain negative values")
+			}
+		}
+
+		for _, v := range c.FakeMetrics.E2ERequestLatencyBucketValues {
+			if v < 0 {
+				return errors.New("fake metrics e2erl-buckets-values cannot contain negative values")
+			}
+		}
+		for _, v := range c.FakeMetrics.ReqQueueTimeBucketValues {
+			if v < 0 {
+				return errors.New("fake metrics queue-time-buckets-values cannot contain negative values")
+			}
+		}
+		for _, v := range c.FakeMetrics.ReqInfTimeBucketValues {
+			if v < 0 {
+				return errors.New("fake metrics inf-time-buckets-values cannot contain negative values")
+			}
+		}
+		for _, v := range c.FakeMetrics.ReqPrefillTimeBucketValues {
+			if v < 0 {
+				return errors.New("fake metrics prefill-time-buckets-values cannot contain negative values")
+			}
+		}
+		for _, v := range c.FakeMetrics.ReqDecodeTimeBucketValues {
+			if v < 0 {
+				return errors.New("fake metrics decode-time-buckets-values cannot contain negative values")
 			}
 		}
 	}
