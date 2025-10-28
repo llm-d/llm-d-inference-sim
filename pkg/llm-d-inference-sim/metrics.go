@@ -38,6 +38,11 @@ const (
 	reqInferenceTimeMetricName = "vllm:request_inference_time_seconds"
 	prefillTimeMetricName      = "vllm:request_prefill_time_seconds"
 	decodeTimeMetricName       = "vllm:request_decode_time_seconds"
+	ttftMetricName             = "vllm:time_to_first_token_seconds"
+	tpotMetricName             = "vllm:time_per_output_token_seconds"
+	generationTokensMetricName = "vllm:request_generation_tokens"
+	paramMaxTokensMetricName   = "vllm:request_params_max_tokens"
+	promptTokensMetricName     = "vllm:request_prompt_tokens"
 )
 
 // createAndRegisterPrometheus creates and registers prometheus metrics used by vLLM simulator
@@ -92,7 +97,7 @@ func (s *VllmSimulator) createAndRegisterPrometheus() error {
 	s.metrics.ttft = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Subsystem: "",
-			Name:      "vllm:time_to_first_token_seconds",
+			Name:      ttftMetricName,
 			Help:      "Histogram of time to first token in seconds.",
 			Buckets:   common.TTFTBucketsBoundaries,
 		},
@@ -107,7 +112,7 @@ func (s *VllmSimulator) createAndRegisterPrometheus() error {
 	s.metrics.tpot = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Subsystem: "",
-			Name:      "vllm:time_per_output_token_seconds",
+			Name:      tpotMetricName,
 			Help:      "Histogram of time per output token in seconds.",
 			Buckets:   common.TPOTBucketsBoundaries,
 		},
@@ -211,7 +216,7 @@ func (s *VllmSimulator) createAndRegisterPrometheus() error {
 	s.metrics.requestPromptTokens = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Subsystem: "",
-			Name:      "vllm:request_prompt_tokens",
+			Name:      promptTokensMetricName,
 			Help:      "Number of prefill tokens processed.",
 			Buckets:   build125Buckets(s.config.MaxModelLen),
 		},
@@ -225,7 +230,7 @@ func (s *VllmSimulator) createAndRegisterPrometheus() error {
 	s.metrics.requestGenerationTokens = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Subsystem: "",
-			Name:      "vllm:request_generation_tokens",
+			Name:      generationTokensMetricName,
 			Help:      "Number of generation tokens processed.",
 			Buckets:   build125Buckets(s.config.MaxModelLen),
 		},
@@ -239,7 +244,7 @@ func (s *VllmSimulator) createAndRegisterPrometheus() error {
 	s.metrics.requestParamsMaxTokens = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Subsystem: "",
-			Name:      "vllm:request_params_max_tokens",
+			Name:      paramMaxTokensMetricName,
 			Help:      "Histogram of the max_tokens request parameter.",
 			Buckets:   build125Buckets(s.config.MaxModelLen),
 		},

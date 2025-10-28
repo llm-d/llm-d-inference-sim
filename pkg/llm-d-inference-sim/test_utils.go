@@ -344,11 +344,16 @@ func findIntMetric(metrics []string, metricPrefix string) *int {
 // bucketBoundary the upper bucket boundary, Inf(1) defines the last bucket
 // count bucket samples count
 func getFloatBucketMetricLine(model string, metric string, bucketBoundary float64, count int) string {
+	return fmt.Sprintf("%s %d", getFloatBucketMetricPrefix(model, metric, bucketBoundary), count)
+}
+
+// same as getFloatBucketMetricLine but without the value part
+func getFloatBucketMetricPrefix(model string, metric string, bucketBoundary float64) string {
 	buckerBoundStr := "+Inf"
 	if bucketBoundary != math.Inf(1) {
 		buckerBoundStr = fmt.Sprintf("%g", bucketBoundary)
 	}
-	return fmt.Sprintf("%s_bucket{model_name=\"%s\",le=\"%s\"} %d", metric, model, buckerBoundStr, count)
+	return fmt.Sprintf("%s_bucket{model_name=\"%s\",le=\"%s\"}", metric, model, buckerBoundStr)
 }
 
 // checkBucketBoundary checks that the given bucket's samples count is valid according the given parameters
