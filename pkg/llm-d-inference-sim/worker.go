@@ -62,7 +62,7 @@ type requestProcessor interface {
 func (s *VllmSimulator) processRequest(reqCtx *openaiserverapi.CompletionReqCtx) {
 	start := time.Now()
 	defer func() {
-		s.metrics.reqInferenceTimeChan <- time.Since(start).Seconds()
+		common.WriteToChannel(s.metrics.reqInferenceTimeChan, time.Since(start).Seconds(), s.logger, "metrics.reqInferenceTimeChan")
 	}()
 
 	req := reqCtx.CompletionReq

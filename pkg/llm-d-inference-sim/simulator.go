@@ -492,7 +492,7 @@ func (s *VllmSimulator) addRequestToQueue(reqCtx *openaiserverapi.CompletionReqC
 func (s *VllmSimulator) handleCompletions(ctx *fasthttp.RequestCtx, isChatCompletion bool) {
 	startTime := time.Now()
 	defer func() {
-		s.metrics.e2eReqLatencyChan <- time.Since(startTime).Seconds()
+		common.WriteToChannel(s.metrics.e2eReqLatencyChan, time.Since(startTime).Seconds(), s.logger, "metrics.e2eReqLatencyChan")
 	}()
 
 	// Check if we should inject a failure
@@ -623,7 +623,7 @@ func (s *VllmSimulator) sendResponse(reqCtx *openaiserverapi.CompletionReqCtx, r
 		// report tpot in seconds
 		common.WriteToChannel(s.metrics.tpotChan, (float64(perTokenLatency) / 1000), s.logger, "metrics.tpotChan")
 	}
-	s.metrics.reqDecodeTimeChan <- time.Since(startDecode).Seconds()
+	common.WriteToChannel(s.metrics.reqDecodeTimeChan, time.Since(startDecode).Seconds(), s.logger, "metrics.reqDecodeTimeChan")
 
 	s.sendCompletionResponse(reqCtx.HTTPReqCtx, resp)
 	s.responseSentCallback(modelName, reqCtx.IsChatCompletion, reqCtx.CompletionReq.GetRequestID())
@@ -683,7 +683,7 @@ func (s *VllmSimulator) dequeue() *openaiserverapi.CompletionReqCtx {
 		if ok && item.reqCtx != nil && s.loraIsLoaded(item.reqCtx.CompletionReq.GetModel()) {
 			s.waitingQueue.Remove(elem)
 			s.incrementLora(item.reqCtx.CompletionReq.GetModel())
-			s.metrics.reqQueueTimeChan <- time.Since(item.enqueueTime).Seconds()
+			common.WriteToChannel(s.metrics.reqQueueTimeChan, time.Since(item.enqueueTime).Seconds(), s.logger, "metrics.reqQueueTimeChan")
 			return item.reqCtx
 		}
 	}
@@ -693,7 +693,7 @@ func (s *VllmSimulator) dequeue() *openaiserverapi.CompletionReqCtx {
 		item, ok := elem.Value.(waitingQueueItem)
 		if ok && item.reqCtx != nil && s.loadLora(item.reqCtx.CompletionReq.GetModel()) {
 			s.waitingQueue.Remove(elem)
-			s.metrics.reqQueueTimeChan <- time.Since(item.enqueueTime).Seconds()
+			common.WriteToChannel(s.metrics.reqQueueTimeChan, time.Since(item.enqueueTime).Seconds(), s.logger, "metrics.reqQueueTimeChan")
 			return item.reqCtx
 		}
 	}

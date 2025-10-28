@@ -151,7 +151,7 @@ func (s *VllmSimulator) sendTokenChunks(context *streamingContext, w *bufio.Writ
 		}
 	}
 
-	s.metrics.reqDecodeTimeChan <- time.Since(startDecode).Seconds()
+	common.WriteToChannel(s.metrics.reqDecodeTimeChan, time.Since(startDecode).Seconds(), s.logger, "metrics.reqDecodeTimeChan")
 
 	// send the last chunk if finish reason is stop
 	var chunk openaiserverapi.CompletionRespChunk
