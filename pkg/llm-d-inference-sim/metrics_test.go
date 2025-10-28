@@ -664,26 +664,26 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(testModel, tpotMetricName, 0.15, 6)))
 
 			buckets := build125Buckets(1024)
+			var expectedCount int
 
-			for _, boudary := range buckets {
-				switch boudary {
+			for _, boundary := range buckets {
+				switch boundary {
 				case 1.0:
-					Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(testModel, generationTokensMetricName, 1, 10)))
-					Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(testModel, promptTokensMetricName, 1, 10)))
-					Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(testModel, paramMaxTokensMetricName, 1, 10)))
+					expectedCount = 10
 				case 2.0:
-					Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(testModel, generationTokensMetricName, 2, 30)))
-					Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(testModel, promptTokensMetricName, 2, 30)))
-					Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(testModel, paramMaxTokensMetricName, 2, 30)))
+					expectedCount = 30
 				default:
-					Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(testModel, generationTokensMetricName, boudary, 60)))
-					Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(testModel, promptTokensMetricName, boudary, 60)))
-					Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(testModel, paramMaxTokensMetricName, boudary, 60)))
+					expectedCount = 60
 				}
+
+				Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(testModel, generationTokensMetricName, boundary, expectedCount)))
+				Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(testModel, promptTokensMetricName, boundary, expectedCount)))
+				Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(testModel, paramMaxTokensMetricName, boundary, expectedCount)))
+
 			}
-			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(testModel, generationTokensMetricName, math.Inf(1), 60)))
-			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(testModel, promptTokensMetricName, math.Inf(1), 60)))
-			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(testModel, paramMaxTokensMetricName, math.Inf(1), 60)))
+			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(testModel, generationTokensMetricName, math.Inf(1), expectedCount)))
+			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(testModel, promptTokensMetricName, math.Inf(1), expectedCount)))
+			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(testModel, paramMaxTokensMetricName, math.Inf(1), expectedCount)))
 
 			Expect(metrics).To(ContainSubstring(`vllm:request_success_total{finish_reason="length",model_name="testmodel"} 0`))
 			Expect(metrics).To(ContainSubstring(`vllm:request_success_total{finish_reason="remote_decode",model_name="testmodel"} 0`))
@@ -715,6 +715,58 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 				Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(testModel, ttftMetricName, boundary, 0)))
 			}
 			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(testModel, ttftMetricName, math.Inf(1), 1)))
+		})
+	})
+
+	Context("fake latency metrics", func() {
+		It("should respond with valid fake latency metrics to /metrics", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", testModel, "--mode", common.ModeEcho,
+				"--fake-metrics",
+				`{` +
+					`"e2erl-buckets-values":[0, 1, 2],` +
+					`"queue-time-buckets-values":[0, 1, 2],` +
+					`"inf-time-buckets-values":[0, 1, 2],` +
+					`"prefill-time-buckets-values":[0, 1, 2],` +
+					`"decode-time-buckets-values":[0, 1, 2]` +
+					`}`,
+			}
+
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			resp, err := client.Get(metricsUrl)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+			data, err := io.ReadAll(resp.Body)
+			Expect(err).NotTo(HaveOccurred())
+			metrics := string(data)
+
+			// buckets counts should be 0, 1, 3, 3, 3, ...
+			var expectedCount int
+
+			for i, boundary := range common.RequestLatencyBucketsBoundaries {
+				switch i {
+				case 0:
+					expectedCount = 0
+				case 1:
+					expectedCount = 1
+				default:
+					expectedCount = 3
+				}
+
+				Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(testModel, e2eReqLatencyMetricName, boundary, expectedCount)))
+				Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(testModel, reqInferenceTimeMetricName, boundary, expectedCount)))
+				Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(testModel, reqQueueTimeMetricName, boundary, expectedCount)))
+				Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(testModel, prefillTimeMetricName, boundary, expectedCount)))
+				Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(testModel, decodeTimeMetricName, boundary, expectedCount)))
+			}
+			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(testModel, e2eReqLatencyMetricName, math.Inf(1), 3)))
+			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(testModel, reqInferenceTimeMetricName, math.Inf(1), 3)))
+			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(testModel, reqQueueTimeMetricName, math.Inf(1), 3)))
+			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(testModel, prefillTimeMetricName, math.Inf(1), 3)))
+			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(testModel, decodeTimeMetricName, math.Inf(1), 3)))
 		})
 	})
 
