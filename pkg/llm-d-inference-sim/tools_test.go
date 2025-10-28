@@ -510,7 +510,7 @@ var _ = Describe("Simulator for request with tools", func() {
 			client, err := startServer(ctx, mode)
 			Expect(err).NotTo(HaveOccurred())
 
-			openaiclient, params := getOpenAIClientAndChatParams(client, model, userMessage, false)
+			openaiclient, params := getOpenAIClientAndChatParams(client, testModel, testUserMessage, false)
 			params.ToolChoice = openai.ToolChoiceOptionFunctionToolChoice(openai.ChatCompletionNamedToolChoiceFunctionParam{
 				Name: specificTool,
 			})
