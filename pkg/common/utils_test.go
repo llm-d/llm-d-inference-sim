@@ -17,17 +17,11 @@ limitations under the License.
 package common
 
 import (
-	"time"
-
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
 
 var _ = Describe("Utils", Ordered, func() {
-	BeforeAll(func() {
-		InitRandom(time.Now().UnixNano())
-	})
-
 	Context("validateContextWindow", func() {
 		It("should pass when total tokens are within limit", func() {
 			promptTokens := 100

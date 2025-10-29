@@ -33,8 +33,9 @@ import (
 
 var _ = Describe("Failures", func() {
 	Describe("getRandomFailure", Ordered, func() {
+		var random *common.Random
 		BeforeAll(func() {
-			common.InitRandom(time.Now().UnixNano())
+			random = common.NewRandom(time.Now().UnixNano())
 		})
 
 		It("should return a failure from all types when none specified", func() {
@@ -42,7 +43,7 @@ var _ = Describe("Failures", func() {
 				Model:        "test-model",
 				FailureTypes: []string{},
 			}
-			failure := getRandomFailure(config)
+			failure := getRandomFailure(config, random)
 			Expect(failure.Code).To(BeNumerically(">=", 400))
 			Expect(failure.Message).ToNot(BeEmpty())
 			Expect(failure.Type).ToNot(BeEmpty())
@@ -53,7 +54,7 @@ var _ = Describe("Failures", func() {
 				Model:        "test-model",
 				FailureTypes: []string{common.FailureTypeRateLimit},
 			}
-			failure := getRandomFailure(config)
+			failure := getRandomFailure(config, random)
 			Expect(failure.Code).To(Equal(429))
 			Expect(failure.Type).To(Equal(openaiserverapi.ErrorCodeToType(429)))
 			Expect(strings.Contains(failure.Message, "test-model")).To(BeTrue())
@@ -63,7 +64,7 @@ var _ = Describe("Failures", func() {
 			config := &common.Configuration{
 				FailureTypes: []string{common.FailureTypeInvalidAPIKey},
 			}
-			failure := getRandomFailure(config)
+			failure := getRandomFailure(config, random)
 			Expect(failure.Code).To(Equal(401))
 			Expect(failure.Type).To(Equal(openaiserverapi.ErrorCodeToType(401)))
 			Expect(failure.Message).To(Equal("Incorrect API key provided."))
@@ -73,7 +74,7 @@ var _ = Describe("Failures", func() {
 			config := &common.Configuration{
 				FailureTypes: []string{common.FailureTypeContextLength},
 			}
-			failure := getRandomFailure(config)
+			failure := getRandomFailure(config, random)
 			Expect(failure.Code).To(Equal(400))
 			Expect(failure.Type).To(Equal(openaiserverapi.ErrorCodeToType(400)))
 			Expect(failure.Param).ToNot(BeNil())
@@ -84,7 +85,7 @@ var _ = Describe("Failures", func() {
 			config := &common.Configuration{
 				FailureTypes: []string{common.FailureTypeServerError},
 			}
-			failure := getRandomFailure(config)
+			failure := getRandomFailure(config, random)
 			Expect(failure.Code).To(Equal(503))
 			Expect(failure.Type).To(Equal(openaiserverapi.ErrorCodeToType(503)))
 		})
@@ -94,7 +95,7 @@ var _ = Describe("Failures", func() {
 				Model:        "test-model",
 				FailureTypes: []string{common.FailureTypeModelNotFound},
 			}
-			failure := getRandomFailure(config)
+			failure := getRandomFailure(config, random)
 			Expect(failure.Code).To(Equal(404))
 			Expect(failure.Type).To(Equal(openaiserverapi.ErrorCodeToType(404)))
 			Expect(strings.Contains(failure.Message, "test-model-nonexistent")).To(BeTrue())
@@ -105,7 +106,7 @@ var _ = Describe("Failures", func() {
 				FailureTypes: []string{},
 			}
 			// This test is probabilistic since it randomly selects, but we can test structure
-			failure := getRandomFailure(config)
+			failure := getRandomFailure(config, random)
 			Expect(failure.Code).To(BeNumerically(">=", 400))
 			Expect(failure.Type).ToNot(BeEmpty())
 		})

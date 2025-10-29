@@ -46,10 +46,11 @@ var _ = Describe("CustomDataset", Ordered, func() {
 		pathToInvalidTableDB  string
 		pathToInvalidColumnDB string
 		pathToInvalidTypeDB   string
+		random                *common.Random
 	)
 
 	BeforeAll(func() {
-		common.InitRandom(time.Now().UnixNano())
+		random = common.NewRandom(time.Now().UnixNano())
 	})
 
 	BeforeEach(func() {
@@ -182,7 +183,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 		req := &openaiserverapi.TextCompletionRequest{
 			Prompt: testPrompt,
 		}
-		tokens, finishReason, err := dataset.GetTokens(req, common.ModeRandom)
+		tokens, finishReason, err := dataset.GetTokens(req, common.ModeRandom, random)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(finishReason).To(Equal(StopFinishReason))
 		Expect(tokens).To(Equal([]string{"Hello", " llm-d ", "world", "!"}))
@@ -196,7 +197,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 			Prompt:    testPrompt,
 			MaxTokens: &n,
 		}
-		tokens, _, err := dataset.GetTokens(req, common.ModeRandom)
+		tokens, _, err := dataset.GetTokens(req, common.ModeRandom, random)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(len(tokens)).To(BeNumerically("<=", 2))
 	})
@@ -208,7 +209,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 		req := &openaiserverapi.TextCompletionRequest{
 			Prompt: testPrompt,
 		}
-		tokens, finishReason, err := dataset.GetTokens(req, common.ModeRandom)
+		tokens, finishReason, err := dataset.GetTokens(req, common.ModeRandom, random)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(finishReason).To(Equal(StopFinishReason))
 		Expect(tokens).To(Equal([]string{"Hello", " llm-d ", "world", "!"}))

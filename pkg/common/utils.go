@@ -49,63 +49,66 @@ func ValidateContextWindow(promptTokens int, maxCompletionTokens *int64, maxMode
 	return isValid, completionTokens, totalTokens
 }
 
-func RandomNumericString(length int) string {
-	digits := "0123456789"
-	result := make([]byte, length)
-	for i := 0; i < length; i++ {
-		num := RandomInt(0, 9)
-		result[i] = digits[num]
-	}
-	return string(result)
+type Random struct {
+	randomGenerator *rand.Rand
+	randMutex       sync.Mutex
 }
 
-var randomGenerator *rand.Rand
-var randMutex sync.Mutex
-
-func InitRandom(seed int64) {
+func NewRandom(seed int64) *Random {
 	src := rand.NewSource(seed)
-	randomGenerator = rand.New(src)
-	uuid.SetRand(randomGenerator)
+	randomGenerator := rand.New(src)
+	uuid.SetRand(rand.New(rand.NewSource(seed)))
+	return &Random{randomGenerator: randomGenerator}
 }
 
 // Returns an integer between min and max (included)
-func RandomInt(min int, max int) int {
-	randMutex.Lock()
-	defer randMutex.Unlock()
-	return randomGenerator.Intn(max-min+1) + min
+func (r *Random) RandomInt(min int, max int) int {
+	r.randMutex.Lock()
+	defer r.randMutex.Unlock()
+
+	return r.randomGenerator.Intn(max-min+1) + min
 }
 
 // Returns true or false randomly
-func FlipCoin() bool {
-	return RandomInt(0, 1) != 0
+func (r *Random) FlipCoin() bool {
+	return r.RandomInt(0, 1) != 0
 }
 
 // probability is an integer between 0 and 100
-func RandomBool(probability int) bool {
-	randMutex.Lock()
-	defer randMutex.Unlock()
-	return randomGenerator.Float64() < float64(probability)/100
+func (r *Random) RandomBool(probability int) bool {
+	r.randMutex.Lock()
+	defer r.randMutex.Unlock()
+
+	return r.randomGenerator.Float64() < float64(probability)/100
 }
 
 // Returns a random float64 in the range [min, max)
-func RandomFloat(min float64, max float64) float64 {
-	randMutex.Lock()
-	defer randMutex.Unlock()
-	return randomGenerator.Float64()*(max-min) + min
+func (r *Random) RandomFloat(min float64, max float64) float64 {
+	r.randMutex.Lock()
+	defer r.randMutex.Unlock()
+
+	return r.randomGenerator.Float64()*(max-min) + min
+}
+
+// Returns a normally distributed float64
+func (r *Random) RandomNorm(mean int, stddev int) float64 {
+	if stddev == 0 {
+		return float64(mean)
+	}
+	r.randMutex.Lock()
+	defer r.randMutex.Unlock()
+
+	mean_ := float64(mean)
+	stddev_ := float64(stddev)
+	return r.randomGenerator.NormFloat64()*stddev_ + mean_
 }
 
 // Returns a normally distributed int
 // If the generated value differs by more than 70% from mean, the returned
 // value will be 70% of mean
-func RandomNorm(mean int, stddev int) int {
-	if stddev == 0 {
-		return mean
-	}
-	randMutex.Lock()
-	defer randMutex.Unlock()
+func (r *Random) RandomNormTruncated(mean int, stddev int) int {
+	value := r.RandomNorm(mean, stddev)
 	mean_ := float64(mean)
-	stddev_ := float64(stddev)
-	value := randomGenerator.NormFloat64()*stddev_ + mean_
 	if value < 0.3*mean_ {
 		value = 0.3 * mean_
 	} else if value > 1.7*mean_ {
@@ -115,10 +118,20 @@ func RandomNorm(mean int, stddev int) int {
 }
 
 // GenerateUUIDString generates a UUID string under a lock
-func GenerateUUIDString() string {
-	randMutex.Lock()
-	defer randMutex.Unlock()
+func (r *Random) GenerateUUIDString() string {
+	r.randMutex.Lock()
+	defer r.randMutex.Unlock()
 	return uuid.NewString()
+}
+
+func (r *Random) RandomNumericString(length int) string {
+	digits := "0123456789"
+	result := make([]byte, length)
+	for i := 0; i < length; i++ {
+		num := r.RandomInt(0, 9)
+		result[i] = digits[num]
+	}
+	return string(result)
 }
 
 // Regular expression for the response tokenization

@@ -171,7 +171,7 @@ func (s *VllmSimulator) sendTokenChunks(context *streamingContext, w *bufio.Writ
 // createUsageChunk creates and returns a CompletionRespChunk with usage data, a single chunk of streamed completion API response,
 // supports both modes (text and chat)
 func (s *VllmSimulator) createUsageChunk(context *streamingContext, usageData *openaiserverapi.Usage) openaiserverapi.CompletionRespChunk {
-	baseChunk := openaiserverapi.CreateBaseCompletionResponse(chatComplIDPrefix+common.GenerateUUIDString(),
+	baseChunk := openaiserverapi.CreateBaseCompletionResponse(chatComplIDPrefix+s.random.GenerateUUIDString(),
 		context.creationTime, context.model, usageData)
 
 	if context.isChatCompletion {
@@ -186,7 +186,7 @@ func (s *VllmSimulator) createUsageChunk(context *streamingContext, usageData *o
 // createTextCompletionChunk creates and returns a CompletionRespChunk, a single chunk of streamed completion API response,
 // for text completion
 func (s *VllmSimulator) createTextCompletionChunk(context *streamingContext, token string, finishReason *string) openaiserverapi.CompletionRespChunk {
-	baseChunk := openaiserverapi.CreateBaseCompletionResponse(chatComplIDPrefix+common.GenerateUUIDString(),
+	baseChunk := openaiserverapi.CreateBaseCompletionResponse(chatComplIDPrefix+s.random.GenerateUUIDString(),
 		context.creationTime, context.model, nil)
 	baseChunk.Object = textCompletionObject
 	return openaiserverapi.CreateTextCompletionResponse(baseChunk,
@@ -198,7 +198,7 @@ func (s *VllmSimulator) createTextCompletionChunk(context *streamingContext, tok
 // API response, for chat completion. It sets either role, or token, or tool call info in the message.
 func (s *VllmSimulator) createChatCompletionChunk(context *streamingContext, token string, tool *openaiserverapi.ToolCall,
 	role string, finishReason *string) openaiserverapi.CompletionRespChunk {
-	baseChunk := openaiserverapi.CreateBaseCompletionResponse(chatComplIDPrefix+common.GenerateUUIDString(),
+	baseChunk := openaiserverapi.CreateBaseCompletionResponse(chatComplIDPrefix+s.random.GenerateUUIDString(),
 		context.creationTime, context.model, nil)
 	baseChunk.Object = chatCompletionChunkObject
 	chunk := openaiserverapi.CreateChatCompletionRespChunk(baseChunk,

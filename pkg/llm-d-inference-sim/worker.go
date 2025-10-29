@@ -97,13 +97,13 @@ func (s *VllmSimulator) processRequest(reqCtx *openaiserverapi.CompletionReqCtx)
 		!common.IsToolChoiceNone(req.GetToolChoice()) &&
 		req.GetTools() != nil {
 		toolCalls, completionTokens, err =
-			common.CreateToolCalls(req.GetTools(), req.GetToolChoice(), s.config)
+			common.CreateToolCalls(req.GetTools(), req.GetToolChoice(), s.config, s.random)
 		finishReason = dataset.ToolsFinishReason
 	}
 	if toolCalls == nil && err == nil {
 		// Either no tool calls were defined, or we randomly chose not to create tool calls,
 		// so we generate a response text.
-		responseTokens, finishReason, err = s.dataset.GetTokens(req, s.config.Mode)
+		responseTokens, finishReason, err = s.dataset.GetTokens(req, s.config.Mode, s.random)
 		completionTokens += len(responseTokens)
 	}
 	if err != nil {

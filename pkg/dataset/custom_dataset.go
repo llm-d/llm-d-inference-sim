@@ -435,23 +435,23 @@ func (d *CustomDataset) GetPromptHashHex(hashBytes []byte) string {
 }
 
 // GetTokens returns tokens and finishReason for the given request and mode (echo or random)
-func (d *CustomDataset) GetTokens(req openaiserverapi.CompletionRequest, mode string) ([]string, string, error) {
+func (d *CustomDataset) GetTokens(req openaiserverapi.CompletionRequest, mode string, random *common.Random) ([]string, string, error) {
 	if mode == common.ModeEcho {
 		return d.echo(req)
 	}
-	nTokensToGen, finishReason := howManyTokensToGen(req.ExtractMaxTokens(), req.GetIgnoreEOS())
-	tokens, err := d.GenerateTokens(req, nTokensToGen, finishReason)
+	nTokensToGen, finishReason := howManyTokensToGen(req.ExtractMaxTokens(), req.GetIgnoreEOS(), random)
+	tokens, err := d.GenerateTokens(req, nTokensToGen, finishReason, random)
 	return tokens, finishReason, err
 }
 
-func (d *CustomDataset) query(query string, nTokens int) ([][]string, error) {
+func (d *CustomDataset) query(query string, nTokens int, random *common.Random) ([][]string, error) {
 	rows, err := d.db.Query(query)
 	if err != nil {
 		if !d.hasWarned {
 			d.logger.Error(err, "Failed to query database. Ensure dataset file is still valid. Will generate random tokens instead.")
 			d.hasWarned = true
 		}
-		return [][]string{GenPresetRandomTokens(nTokens)}, nil
+		return [][]string{GenPresetRandomTokens(random, nTokens)}, nil
 	}
 	defer func() {
 		if cerr := rows.Close(); cerr != nil {
@@ -461,12 +461,13 @@ func (d *CustomDataset) query(query string, nTokens int) ([][]string, error) {
 	return unmarshalAllRecords(rows)
 }
 
-func (d *CustomDataset) GenerateTokens(req openaiserverapi.CompletionRequest, nTokens int, finishReason string) ([]string, error) {
+func (d *CustomDataset) GenerateTokens(req openaiserverapi.CompletionRequest, nTokens int, finishReason string,
+	random *common.Random) ([]string, error) {
 	// query by prompt hash first
 	promptHash := d.GetPromptHash(req)
 	promptHashHex := d.GetPromptHashHex(promptHash)
 	query := "SELECT " + genTokensCol + " FROM " + tableName + " WHERE " + promptHashCol + "=X'" + promptHashHex + "';"
-	tokensList, err := d.query(query, nTokens)
+	tokensList, err := d.query(query, nTokens, random)
 
 	// filter out results according to finish reason
 	var filteredTokensList [][]string
@@ -486,20 +487,20 @@ func (d *CustomDataset) GenerateTokens(req openaiserverapi.CompletionRequest, nT
 		switch finishReason {
 		case LengthFinishReason:
 			query = "SELECT " + genTokensCol + " FROM " + tableName + " WHERE " + nGenTokensCol + "=" + strconv.Itoa(nTokens) + ";"
-			tokensList, err = d.query(query, nTokens)
+			tokensList, err = d.query(query, nTokens, random)
 		case StopFinishReason:
 			query = "SELECT " + genTokensCol + " FROM " + tableName + " WHERE " + nGenTokensCol + "<=" + strconv.Itoa(nTokens) + ";"
-			tokensList, err = d.query(query, nTokens)
+			tokensList, err = d.query(query, nTokens, random)
 		}
 	}
 
 	if err != nil || len(tokensList) == 0 {
 		// if both queries fail or return no results, generate random tokens
-		return GenPresetRandomTokens(nTokens), nil
+		return GenPresetRandomTokens(random, nTokens), nil
 	}
 	if d.hasWarned {
 		d.hasWarned = false
 	}
-	randIndex := common.RandomInt(0, len(tokensList)-1)
+	randIndex := random.RandomInt(0, len(tokensList)-1)
 	return tokensList[randIndex], nil
 }

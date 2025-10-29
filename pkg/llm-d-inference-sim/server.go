@@ -107,7 +107,7 @@ func (s *VllmSimulator) startServer(ctx context.Context, listener net.Listener) 
 
 // readRequest reads and parses data from the body of the given request according the type defined by isChatCompletion
 func (s *VllmSimulator) readRequest(ctx *fasthttp.RequestCtx, isChatCompletion bool) (openaiserverapi.CompletionRequest, error) {
-	requestID := common.GenerateUUIDString()
+	requestID := s.random.GenerateUUIDString()
 
 	if isChatCompletion {
 		var req openaiserverapi.ChatCompletionRequest

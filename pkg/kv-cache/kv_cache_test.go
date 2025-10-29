@@ -121,7 +121,7 @@ type threadTestCase struct {
 }
 
 var _ = Describe("KV cache", Ordered, func() {
-	common.InitRandom(time.Now().UnixNano())
+	random := common.NewRandom(time.Now().UnixNano())
 
 	Context("general tests", func() {
 		// check single request processing, ensure cache is valid after request processing started
@@ -434,7 +434,8 @@ var _ = Describe("KV cache", Ordered, func() {
 
 						for j := range testCase.numOperations {
 							reqID := fmt.Sprintf("req_%d_%d", id, j)
-							blocks := createRandomArray(testCase.minBlockLen, testCase.maxBlockLen, testCase.maxHashValue)
+							blocks := createRandomArray(testCase.minBlockLen, testCase.maxBlockLen,
+								testCase.maxHashValue, random)
 
 							_, err := blockCache.startRequest(reqID, blocks)
 							if err != nil {
@@ -443,7 +444,7 @@ var _ = Describe("KV cache", Ordered, func() {
 								continue
 							}
 
-							time.Sleep(time.Duration(common.RandomInt(1, 100)) * time.Microsecond)
+							time.Sleep(time.Duration(random.RandomInt(1, 100)) * time.Microsecond)
 
 							err = blockCache.finishRequest(reqID)
 							Expect(err).NotTo(HaveOccurred())
@@ -465,16 +466,16 @@ var _ = Describe("KV cache", Ordered, func() {
 	})
 })
 
-func createRandomArray(minArrLen, maxArrLen int, maxValue uint64) []uint64 {
+func createRandomArray(minArrLen, maxArrLen int, maxValue uint64, random *common.Random) []uint64 {
 	// Random length between a and b (inclusive)
-	length := common.RandomInt(minArrLen, maxArrLen)
+	length := random.RandomInt(minArrLen, maxArrLen)
 
 	// Create array with random values
 	arr := make([]uint64, 0)
 	seen := make(map[uint64]struct{})
 
 	for len(arr) < length {
-		val := uint64(common.RandomInt(0, int(maxValue)))
+		val := uint64(random.RandomInt(0, int(maxValue)))
 		if _, exists := seen[val]; !exists {
 			seen[val] = struct{}{}
 			arr = append(arr, val)

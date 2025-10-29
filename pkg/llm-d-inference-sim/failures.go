@@ -44,16 +44,16 @@ var predefinedFailures = map[string]openaiserverapi.CompletionError{
 }
 
 // shouldInjectFailure determines whether to inject a failure based on configuration
-func shouldInjectFailure(config *common.Configuration) bool {
+func shouldInjectFailure(config *common.Configuration, random *common.Random) bool {
 	if config.FailureInjectionRate == 0 {
 		return false
 	}
 
-	return common.RandomInt(1, 100) <= config.FailureInjectionRate
+	return random.RandomInt(1, 100) <= config.FailureInjectionRate
 }
 
 // getRandomFailure returns a random failure from configured types or all types if none specified
-func getRandomFailure(config *common.Configuration) openaiserverapi.CompletionError {
+func getRandomFailure(config *common.Configuration, random *common.Random) openaiserverapi.CompletionError {
 	var availableFailures []string
 	if len(config.FailureTypes) == 0 {
 		// Use all failure types if none specified
@@ -69,7 +69,7 @@ func getRandomFailure(config *common.Configuration) openaiserverapi.CompletionEr
 		return predefinedFailures[common.FailureTypeServerError]
 	}
 
-	randomIndex := common.RandomInt(0, len(availableFailures)-1)
+	randomIndex := random.RandomInt(0, len(availableFailures)-1)
 	randomType := availableFailures[randomIndex]
 
 	// Customize message with current model name

@@ -17,8 +17,6 @@ limitations under the License.
 // Package vllmsim implements the vLLM simulator.
 package llmdinferencesim
 
-import "github.com/llm-d/llm-d-inference-sim/pkg/common"
-
 func (s *VllmSimulator) getCurrLoadFactor() float64 {
 	if s.config.MaxNumSeqs <= 1 {
 		return 1.0
@@ -44,22 +42,22 @@ func (s *VllmSimulator) getWaitTimeToFirstToken(nPromptTokens int, nCachedPrompt
 		if s.config.KVCacheTransferLatency == 0 && s.config.KVCacheTransferLatencyStdDev == 0 {
 			// is disaggregated PD and ttft is calculated using number of prompt tokens
 			kvCacheTransT := s.config.KVCacheTransferTimePerToken * nPromptTokens
-			return common.RandomNorm(kvCacheTransT, s.config.KVCacheTransferTimeStdDev)
+			return s.random.RandomNormTruncated(kvCacheTransT, s.config.KVCacheTransferTimeStdDev)
 		}
 		// is disaggregated PD and *not* using number of prompt tokens
-		return common.RandomNorm(s.config.KVCacheTransferLatency, s.config.KVCacheTransferLatencyStdDev)
+		return s.random.RandomNormTruncated(s.config.KVCacheTransferLatency, s.config.KVCacheTransferLatencyStdDev)
 	}
 	if s.config.TimeToFirstToken == 0 && s.config.TimeToFirstTokenStdDev == 0 {
 		// is aggregated PD and ttft is calculated using number of prompt tokens that are not in kv cache
 		prefillTime := s.getPrefillOverhead() + (nPromptTokens-nCachedPromptTokens)*s.getPrefillTimePerToken()
-		return common.RandomNorm(prefillTime, s.config.PrefillTimeStdDev)
+		return s.random.RandomNormTruncated(prefillTime, s.config.PrefillTimeStdDev)
 	}
 	// is aggregated PD and *not* using number of prompt tokens
-	return common.RandomNorm(s.getTimeToFirstToken(), s.config.TimeToFirstTokenStdDev)
+	return s.random.RandomNormTruncated(s.getTimeToFirstToken(), s.config.TimeToFirstTokenStdDev)
 }
 
 // returns inter token latency
 func (s *VllmSimulator) getInterTokenLatency() int {
 	latency := int(float64(s.config.InterTokenLatency) * s.getCurrLoadFactor())
-	return common.RandomNorm(latency, s.config.InterTokenLatencyStdDev)
+	return s.random.RandomNormTruncated(latency, s.config.InterTokenLatencyStdDev)
 }

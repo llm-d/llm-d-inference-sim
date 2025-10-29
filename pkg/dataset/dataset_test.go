@@ -30,10 +30,11 @@ import (
 var _ = Describe("Dataset", Ordered, func() {
 	var (
 		dataset *BaseDataset
+		random  *common.Random
 	)
 
 	BeforeAll(func() {
-		common.InitRandom(time.Now().UnixNano())
+		random = common.NewRandom(time.Now().UnixNano())
 	})
 
 	BeforeEach(func() {
@@ -44,7 +45,7 @@ var _ = Describe("Dataset", Ordered, func() {
 
 		It("should return complete text", func() {
 			req := &openaiserverapi.ChatCompletionRequest{}
-			tokens, finishReason, err := dataset.GetTokens(req, common.ModeRandom)
+			tokens, finishReason, err := dataset.GetTokens(req, common.ModeRandom, random)
 			Expect(err).ShouldNot(HaveOccurred())
 			text := strings.Join(tokens, "")
 			Expect(IsValidText(text)).To(BeTrue())
@@ -56,7 +57,7 @@ var _ = Describe("Dataset", Ordered, func() {
 			req := &openaiserverapi.ChatCompletionRequest{
 				MaxCompletionTokens: &maxCompletionTokens,
 			}
-			tokens, finishReason, err := dataset.GetTokens(req, common.ModeRandom)
+			tokens, finishReason, err := dataset.GetTokens(req, common.ModeRandom, random)
 			Expect(err).ShouldNot(HaveOccurred())
 			tokensCnt := int64(len(tokens))
 			Expect(tokensCnt).Should(BeNumerically("<=", maxCompletionTokens))
@@ -74,7 +75,7 @@ var _ = Describe("Dataset", Ordered, func() {
 			req := &openaiserverapi.ChatCompletionRequest{
 				MaxTokens: &maxCompletionTokens,
 			}
-			tokens, finishReason, err := dataset.GetTokens(req, common.ModeRandom)
+			tokens, finishReason, err := dataset.GetTokens(req, common.ModeRandom, random)
 			Expect(err).ShouldNot(HaveOccurred())
 			tokensCnt := int64(len(tokens))
 			Expect(tokensCnt).Should(BeNumerically("<=", maxCompletionTokens))
@@ -95,7 +96,7 @@ var _ = Describe("Dataset", Ordered, func() {
 					MaxTokens: &n,
 				}
 				req.SetIgnoreEOS(true)
-				tokens, finishReason, err := dataset.GetTokens(req, common.ModeRandom)
+				tokens, finishReason, err := dataset.GetTokens(req, common.ModeRandom, random)
 				Expect(err).ShouldNot(HaveOccurred())
 				nGenTokens := int64(len(tokens))
 				Expect(nGenTokens).Should(Equal(n))
@@ -140,7 +141,7 @@ var _ = Describe("Dataset", Ordered, func() {
 		for _, len := range lenArr {
 			name := fmt.Sprintf("should return text with %d tokens", len)
 			It(name, func() {
-				tokens := GenPresetRandomTokens(len)
+				tokens := GenPresetRandomTokens(random, len)
 				Expect(tokens).Should(HaveLen(len))
 			})
 		}

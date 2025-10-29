@@ -184,6 +184,8 @@ type VllmSimulator struct {
 	metrics metricsData
 	// loras contains information about which LoRAs are in use
 	loras *lorasUsageInfo
+	// rand with a configurable seed to generate reproducible random responses
+	random *common.Random
 
 	// a channel for free workers
 	freeWorkers chan *worker
@@ -279,7 +281,7 @@ func (s *VllmSimulator) startSim(ctx context.Context) error {
 }
 
 func (s *VllmSimulator) initializeSim(ctx context.Context) error {
-	common.InitRandom(s.config.Seed)
+	s.random = common.NewRandom(s.config.Seed)
 
 	for _, lora := range s.config.LoraModules {
 		s.loraAdaptors.Store(lora.Name, "")
@@ -496,8 +498,8 @@ func (s *VllmSimulator) handleCompletions(ctx *fasthttp.RequestCtx, isChatComple
 	}()
 
 	// Check if we should inject a failure
-	if shouldInjectFailure(s.config) {
-		failure := getRandomFailure(s.config)
+	if shouldInjectFailure(s.config, s.random) {
+		failure := getRandomFailure(s.config, s.random)
 		s.sendCompletionError(ctx, failure, true)
 		return
 	}
@@ -557,7 +559,7 @@ func (s *VllmSimulator) responseSentCallback(model string, isChatCompletion bool
 // from --served-model-name (for a base-model request) or the LoRA adapter name (for a LoRA request).
 func (s *VllmSimulator) createCompletionResponse(isChatCompletion bool, respTokens []string, toolCalls []openaiserverapi.ToolCall,
 	finishReason *string, usageData *openaiserverapi.Usage, modelName string, doRemoteDecode bool) openaiserverapi.CompletionResponse {
-	baseResp := openaiserverapi.CreateBaseCompletionResponse(chatComplIDPrefix+common.GenerateUUIDString(),
+	baseResp := openaiserverapi.CreateBaseCompletionResponse(chatComplIDPrefix+s.random.GenerateUUIDString(),
 		time.Now().Unix(), modelName, usageData)
 
 	if doRemoteDecode {

@@ -19,7 +19,6 @@ package dataset
 import (
 	"context"
 	"math"
-	"math/rand"
 
 	"github.com/go-logr/logr"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
@@ -74,7 +73,7 @@ type Dataset interface {
 	// Close closes the dataset
 	Close() error
 	// GetTokens returns tokens for the given request and mode (echo or random)
-	GetTokens(req openaiserverapi.CompletionRequest, mode string) ([]string, string, error)
+	GetTokens(req openaiserverapi.CompletionRequest, mode string, random *common.Random) ([]string, string, error)
 }
 
 func init() {
@@ -89,9 +88,9 @@ func init() {
 
 // GetRandomResponseLen returns int in range [1, responseLenMax]
 // numbers are chosen according a gaussian distribution with mean responseLenMean, and standard deviation responseLenStddev
-func GetRandomResponseLen() int {
+func GetRandomResponseLen(random *common.Random) int {
 	for {
-		val := rand.NormFloat64()*responseLenStddev + responseLenMean
+		val := random.RandomNorm(responseLenMean, responseLenStddev)
 		if val >= 1 && val <= ResponseLenMax {
 			return int(math.Round(val))
 		}
@@ -100,8 +99,8 @@ func GetRandomResponseLen() int {
 }
 
 // GetRandomFinishReason returns finish reason with the probability for 'stop' as defined by stopFinishReasonProbability
-func GetRandomFinishReason() string {
-	if rand.Float64() < stopFinishReasonProbability {
+func GetRandomFinishReason(random *common.Random) string {
+	if random.RandomFloat(0, 1) < stopFinishReasonProbability {
 		return StopFinishReason
 	}
 	return LengthFinishReason
@@ -111,11 +110,11 @@ func GetRandomFinishReason() string {
 // select randomly a sentence from chatCompletionFakeResponses,
 // if number of tokens is lower than required - select another sentence,
 // continue until the required number of tokens is achieved
-func GenPresetRandomTokens(numOfTokens int) []string {
+func GenPresetRandomTokens(random *common.Random, numOfTokens int) []string {
 	allTokens := make([]string, 0)
 
 	for len(allTokens) < numOfTokens {
-		index := common.RandomInt(0, len(chatCompletionFakeResponses)-1)
+		index := random.RandomInt(0, len(chatCompletionFakeResponses)-1)
 		// create tokens from text, splitting by spaces and special characters
 		tokens := common.Tokenize(chatCompletionFakeResponses[index])
 		remaining := numOfTokens - len(allTokens)
@@ -146,13 +145,13 @@ func GenPresetRandomTokens(numOfTokens int) []string {
 // - finish reason is stop
 // if ignore_eos is true - the response will be generated with exactly maxCompletionTokens tokens
 // - request was validated so that when ignore_eos is true, maxCompletionTokens must be defined
-func howManyTokensToGen(maxCompletionTokens *int64, ignore_eos bool) (int, string) {
+func howManyTokensToGen(maxCompletionTokens *int64, ignore_eos bool, random *common.Random) (int, string) {
 	numOfTokens := 0
 	finishReason := StopFinishReason
 
 	// no max completion tokens, return text with random length
 	if maxCompletionTokens == nil {
-		numOfTokens = GetRandomResponseLen()
+		numOfTokens = GetRandomResponseLen(random)
 	} else {
 		maxTokens := int(*maxCompletionTokens)
 		if ignore_eos {
@@ -160,7 +159,7 @@ func howManyTokensToGen(maxCompletionTokens *int64, ignore_eos bool) (int, strin
 			finishReason = LengthFinishReason
 		} else {
 			// max tokens is defined - generate real length of the response based on it
-			numOfTokens = getResponseLengthByHistogram(maxTokens)
+			numOfTokens = getResponseLengthByHistogram(random, maxTokens)
 			if numOfTokens == maxTokens {
 				// if response should be create with maximum number of tokens - finish reason will be 'length'
 				finishReason = LengthFinishReason
@@ -177,17 +176,17 @@ func howManyTokensToGen(maxCompletionTokens *int64, ignore_eos bool) (int, strin
 // The last element of respLenBucketsProbabilities defines the probability of a reposnse with maxToken tokens.
 // Other values define probabilities for the equally sized buckets.
 // If maxToken is small (smaller than number of buckets) - the response length is randomly selected from the range [1, maxTokens]
-func getResponseLengthByHistogram(maxTokens int) int {
+func getResponseLengthByHistogram(random *common.Random, maxTokens int) int {
 	if maxTokens <= 1 {
 		return maxTokens
 	}
 	// maxTokens is small - no need to use the histogram of probabilities, just select a random value in the range [1, maxTokens]
 	if maxTokens <= len(cumulativeBucketsProbabilities) {
-		res := common.RandomInt(1, maxTokens)
+		res := random.RandomInt(1, maxTokens)
 		return res
 	}
 
-	r := common.RandomFloat(0, 1)
+	r := random.RandomFloat(0, 1)
 
 	// check if r is in the last bucket, then maxTokens should be returned
 	if r > cumulativeBucketsProbabilities[len(cumulativeBucketsProbabilities)-2] {
@@ -208,7 +207,7 @@ func getResponseLengthByHistogram(maxTokens int) int {
 	start, end := calcBucketBoundaries(maxTokens, bucketIndex)
 
 	// pick uniformly within the bucket’s range
-	return common.RandomInt(start, end)
+	return random.RandomInt(start, end)
 }
 
 // calcBucketBoundaries calculates boundaries of a bucket with the given index.
@@ -295,10 +294,11 @@ func (d *BaseDataset) echo(req openaiserverapi.CompletionRequest) ([]string, str
 }
 
 // GetTokens returns tokens and finishReason for the given request and mode (echo or random)
-func (d *BaseDataset) GetTokens(req openaiserverapi.CompletionRequest, mode string) ([]string, string, error) {
+func (d *BaseDataset) GetTokens(req openaiserverapi.CompletionRequest, mode string,
+	random *common.Random) ([]string, string, error) {
 	if mode == common.ModeEcho {
 		return d.echo(req)
 	}
-	nTokensToGen, finishReason := howManyTokensToGen(req.ExtractMaxTokens(), req.GetIgnoreEOS())
-	return GenPresetRandomTokens(nTokensToGen), finishReason, nil
+	nTokensToGen, finishReason := howManyTokensToGen(req.ExtractMaxTokens(), req.GetIgnoreEOS(), random)
+	return GenPresetRandomTokens(random, nTokensToGen), finishReason, nil
 }
