@@ -23,6 +23,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/google/uuid"
+	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 )
 
 // Definition of buckets for time-to-first-token and time-per-output-token metrics, each value is an upper boundary of a bucket
@@ -149,6 +150,6 @@ func WriteToChannel[T any](channel chan T, object T, logger logr.Logger, channel
 	select {
 	case channel <- object:
 	default:
-		logger.V(1).Info("failed to write to", "channel", channelName)
+		logger.V(logging.WARN).Info("failed to write to", "channel", channelName)
 	}
 }

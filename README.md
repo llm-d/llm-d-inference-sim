@@ -65,32 +65,97 @@ API responses contains a subset of the fields provided by the OpenAI API.
         - messages
             - role
             - content
+            - tool_calls
+              - function
+                - name
+                - arguments
+	            - id
+              - type
+              - index
+        - max_tokens
+        - max_completion_tokens
+        - tools 
+          - type
+          - function
+            - name
+            - arguments
+        - tool_choice
+        - logprobs
+        - top_logprobs
+        - stream_options
+          - include_usage
+        - do_remote_decode
+        - do_remote_prefill
+        - remote_block_ids
+        - remote_engine_id
+        - remote_host
+        - remote_port
+        - ignore_eos
     - **response**
         - id
         - created
         - model
         - choices
-            - index
-            - finish_reason
-            - message
+          - index
+          - finish_reason
+          - message
+          - logprobs
+            - content
+              - token
+              - logprob
+              - bytes
+              - top_logprobs
+        - usage
+        - object
+        - do_remote_decode
+        - do_remote_prefill
+        - remote_block_ids
+        - remote_engine_id
+        - remote_host
+        - remote_port
 - `/v1/completions`
     - **request**
         - stream
         - model
         - prompt
-        - max_tokens (for future usage)
+        - max_tokens
+        - stream_options
+          - include_usage
+        - do_remote_decode
+        - do_remote_prefill
+        - remote_block_ids
+        - remote_engine_id
+        - remote_host
+        - remote_port
+        - ignore_eos
+        - logprobs
     - **response**
         - id
         - created
         - model
         - choices
-            - text
+          - index
+          - finish_reason
+          - text
+          - logprobs
+            - tokens
+            - token_logprobs
+            - top_logprobs
+            - text_offset
+        - usage
+        - object
+        - do_remote_decode
+        - do_remote_prefill
+        - remote_block_ids
+        - remote_engine_id
+        - remote_host
+        - remote_port
 - `/v1/models`
     - **response**
-        - object (list)
+        - object
         - data
             - id
-            - object (model)
+            - object
             - created
             - owned_by
             - root
@@ -158,8 +223,22 @@ For more details see the <a href="https://docs.vllm.ai/en/stable/getting_started
     - `loras` - an array containing LoRA information objects, each with the fields: `running` (a comma-separated list of LoRAs in use by running requests), `waiting` (a comma-separated list of LoRAs to be used by waiting requests), and `timestamp` (seconds since Jan 1 1970, the timestamp of this metric). 
     - `ttft-buckets-values` - array of values for time-to-first-token buckets, each value in this array is a value for the corresponding bucket. Array may contain less values than number of buckets, all trailing missing values assumed as 0. Buckets upper boundaries are: 0.001, 0.005, 0.01, 0.02, 0.04, 0.06, 0.08, 0.1, 0.25, 0.5, 0.75, 1.0, 2.5, 5.0, 7.5, 10.0, 20.0, 40.0, 80.0, 160.0, 640.0, 2560.0, +Inf.
     - `tpot-buckets-values` - array of values for time-per-output-token buckets, each value in this array is a value for the corresponding bucket. Array may contain less values than number of buckets, all trailing missing values assumed as 0. Buckets upper boundaries are: 0.01, 0.025, 0.05, 0.075, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5, 0.75, 1.0, 2.5, 5.0, 7.5, 10.0, 20.0, 40.0, 80.0, +Inf.
+    - `e2erl-buckets-values` - array of values for e2e request latency buckets, each value in this array is a value for the corresponding bucket. Array may contain less values than number of buckets, all trailing missing values assumed as 0. Buckets upper boundaries are: 0.3, 0.5, 0.8, 1.0, 1.5, 2.0, 2.5, 5.0, 10.0, 15.0, 20.0, 30.0, 40.0, 50.0, 60.0, 120.0, 240.0, 480.0, 
+    960.0, 1920.0, 7680.0, +Inf.
+    - `queue-time-buckets-values` - array of values for request queue time buckets, each value in this array is a value for the corresponding bucket. Array may contain less values than number of buckets, all trailing missing values assumed as 0. Buckets upper boundaries are: 0.3, 0.5, 0.8, 1.0, 1.5, 2.0, 2.5, 5.0, 10.0, 15.0, 20.0, 30.0, 40.0, 50.0, 60.0, 120.0, 240.0, 480.0, 
+    960.0, 1920.0, 7680.0, +Inf.
+    - `inf-time-buckets-values` - array of values for request inference time buckets, each value in this array is a value for the corresponding bucket. Array may contain less values than number of buckets, all trailing missing values assumed as 0. Buckets upper boundaries are: 0.3, 0.5, 0.8, 1.0, 1.5, 2.0, 2.5, 5.0, 10.0, 15.0, 20.0, 30.0, 40.0, 50.0, 60.0, 120.0, 240.0, 480.0, 
+    960.0, 1920.0, 7680.0, +Inf.
+    - `prefill-time-buckets-values` -  array of values for request prefill time buckets, each value in this array is a value for the corresponding bucket. Array may contain less values than number of buckets, all trailing missing values assumed as 0. Buckets upper boundaries are: 0.3, 0.5, 0.8, 1.0, 1.5, 2.0, 2.5, 5.0, 10.0, 15.0, 20.0, 30.0, 40.0, 50.0, 60.0, 120.0, 240.0, 480.0, 
+    960.0, 1920.0, 7680.0, +Inf.
+    - `decode-time-buckets-values` - array of values for request decode time buckets, each value in this array is a value for the corresponding bucket. Array may contain less values than number of buckets, all trailing missing values assumed as 0. Buckets upper boundaries are: 0.3, 0.5, 0.8, 1.0, 1.5, 2.0, 2.5, 5.0, 10.0, 15.0, 20.0, 30.0, 40.0, 50.0, 60.0, 120.0, 240.0, 480.0, 
+    960.0, 1920.0, 7680.0, +Inf.
+    - `request-prompt-tokens` - array of values for prompt-length buckets
+    - `request-generation-tokens` - array of values for generation-length buckets
+    - `request-params-max-tokens` - array of values for  max_tokens parameter buckets
+    - `request-success-total` - number of successful requests per finish reason, key: finish-reason (stop, length, etc.).
     <br>
-    Example:<br>
+    **Example:**<br>
       --fake-metrics '{"running-requests":10,"waiting-requests":30,"kv-cache-usage":0.4,"loras":[{"running":"lora4,lora2","waiting":"lora3","timestamp":1257894567},{"running":"lora4,lora3","waiting":"","timestamp":1257894569}]}'
 ---
 - `data-parallel-size`: number of ranks to run in Data Parallel deployment, from 1 to 8, default is 1. The ports will be assigned as follows: rank 0 will run on the configured `port`, rank 1 on `port`+1, etc.      
@@ -177,6 +256,10 @@ For more details see the <a href="https://docs.vllm.ai/en/stable/getting_started
   - Example URL `https://huggingface.co/datasets/hf07397/inference-sim-datasets/resolve/91ffa7aafdfd6b3b1af228a517edc1e8f22cd274/huggingface/ShareGPT_Vicuna_unfiltered/conversations.sqlite3`
 - `dataset-in-memory`: If true, the entire dataset will be loaded into memory for faster access. This may require significant memory depending on the size of the dataset. Default is false.
 ---
+- `ssl-certfile`: Path to SSL certificate file for HTTPS (optional)
+- `ssl-keyfile`: Path to SSL private key file for HTTPS (optional)
+- `self-signed-certs`: Enable automatic generation of self-signed certificates for HTTPS
+---
 In addition, as we are using klog, the following parameters are available:
 - `add_dir_header`: if true, adds the file directory to the header of the log messages
 - `alsologtostderr`: log to standard error as well as files (no effect when -logtostderr=true)
@@ -189,7 +272,11 @@ In addition, as we are using klog, the following parameters are available:
 - `skip_headers`: if true, avoid header prefixes in the log messages
 - `skip_log_headers`: if true, avoid headers when opening log files (no effect when -logtostderr=true)
 - `stderrthreshold`: logs at or above this threshold go to stderr when writing to files and stderr (no effect when -logtostderr=true or -alsologtostderr=true) (default 2)
-- `v`: number for the log level verbosity
+- `v`: number for the log level verbosity. Supported levels:
+  - Warning (1) - warning messages
+  - Info (2) - general application messages, e.g., loaded configuration content, which responses dataset was loaded, etc.
+  - Debug (4) - debugging messages, e.g. /completions and /chat/completions request received, load/unload lora request processed, etc.
+  - Trace (5) - highest verbosity, e.g. detailed messages on completions request handling and request queue processing, etc.
 - `vmodule`: comma-separated list of pattern=N settings for file-filtered logging
 
 ## Environment variables

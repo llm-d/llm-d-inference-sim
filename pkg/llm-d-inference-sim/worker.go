@@ -23,6 +23,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
+	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 	"github.com/llm-d/llm-d-inference-sim/pkg/dataset"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	"github.com/valyala/fasthttp"
@@ -46,7 +47,7 @@ func (w *worker) waitForRequests() {
 	for {
 		select {
 		case <-w.ctx.Done():
-			w.logger.V(4).Info("worker done", "id", w.id)
+			w.logger.V(logging.TRACE).Info("worker done", "id", w.id)
 			return
 		case req := <-w.reqChan:
 			w.processor.processRequest(req)
@@ -157,7 +158,7 @@ func (s *VllmSimulator) processRequest(reqCtx *openaiserverapi.CompletionReqCtx)
 			s.logger, "metrics.requestSuccessChan")
 	}
 
-	s.logger.V(4).Info("Finished processing request", "id", req.GetRequestID())
+	s.logger.V(logging.DEBUG).Info("Finished processing request", "id", req.GetRequestID())
 
 	reqCtx.Wg.Done()
 }

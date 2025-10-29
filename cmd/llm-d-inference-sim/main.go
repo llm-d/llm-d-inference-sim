@@ -24,6 +24,7 @@ import (
 	"k8s.io/klog/v2"
 
 	"github.com/llm-d/llm-d-inference-sim/cmd/signals"
+	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 	vllmsim "github.com/llm-d/llm-d-inference-sim/pkg/llm-d-inference-sim"
 )
 
@@ -33,11 +34,11 @@ func main() {
 	ctx := klog.NewContext(context.Background(), logger)
 	ctx = signals.SetupSignalHandler(ctx)
 
-	logger.Info("Starting vLLM simulator")
+	logger.V(logging.INFO).Info("Starting vLLM simulator")
 
 	vllmSim, err := vllmsim.New(logger)
 	if err != nil {
-		logger.Error(err, "Failed to create vLLM simulator")
+		logger.Error(err, "failed to create vLLM simulator")
 		return
 	}
 	if err := vllmSim.Start(ctx); err != nil {

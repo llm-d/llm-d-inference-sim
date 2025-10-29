@@ -22,6 +22,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
+	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	"github.com/llm-d/llm-d-kv-cache-manager/pkg/kvcache/kvblock"
 	"github.com/llm-d/llm-d-kv-cache-manager/pkg/tokenization"
@@ -63,7 +64,7 @@ func (h *KVCacheHelper) Run(ctx context.Context) {
 }
 
 func (h *KVCacheHelper) OnRequestStart(vllmReq openaiserverapi.CompletionRequest) error {
-	h.logger.Info("KV cache - process request")
+	h.logger.V(logging.TRACE).Info("KV cache - process request")
 
 	prompt := vllmReq.GetPrompt()
 	modelName := vllmReq.GetModel()
@@ -72,13 +73,13 @@ func (h *KVCacheHelper) OnRequestStart(vllmReq openaiserverapi.CompletionRequest
 	// tokenize the input
 	tokens, _, err := h.tokenizer.Encode(prompt, modelName)
 	if err != nil {
-		h.logger.Info("Prompt tokenization failed", "error", err.Error())
+		h.logger.Error(err, "prompt tokenization failed")
 		return err
 	}
 
 	// get block keys
 	blockKeys := h.tokensProcessor.TokensToKVBlockKeys(tokens, modelName)
-	h.logger.Info("found tokens", "tokens", tokens, "block-keys", blockKeys)
+	h.logger.V(logging.TRACE).Info("Found tokens", "tokens", tokens, "block-keys", blockKeys)
 
 	blockHashes := make([]uint64, len(blockKeys))
 	for i, key := range blockKeys {

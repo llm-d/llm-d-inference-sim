@@ -27,6 +27,7 @@ import (
 	"math/big"
 	"time"
 
+	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 	"github.com/valyala/fasthttp"
 )
 
@@ -40,10 +41,10 @@ func (s *VllmSimulator) configureSSL(server *fasthttp.Server) error {
 	var err error
 
 	if s.config.SSLCertFile != "" && s.config.SSLKeyFile != "" {
-		s.logger.Info("HTTPS server starting with certificate files", "cert", s.config.SSLCertFile, "key", s.config.SSLKeyFile)
+		s.logger.V(logging.INFO).Info("HTTPS server starting with certificate files", "cert", s.config.SSLCertFile, "key", s.config.SSLKeyFile)
 		cert, err = tls.LoadX509KeyPair(s.config.SSLCertFile, s.config.SSLKeyFile)
 	} else if s.config.SelfSignedCerts {
-		s.logger.Info("HTTPS server starting with self-signed certificate")
+		s.logger.V(logging.INFO).Info("HTTPS server starting with self-signed certificate")
 		cert, err = CreateSelfSignedTLSCertificate()
 	}
 

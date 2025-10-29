@@ -73,7 +73,7 @@ func newBlockCache(config *common.Configuration, logger logr.Logger, usageChan c
 func (bc *blockCache) start(ctx context.Context) {
 	err := bc.eventSender.Run(ctx)
 	if err != nil {
-		bc.logger.Info("sender stopped with error", "error", err)
+		bc.logger.Error(err, "Sender stopped with error")
 	}
 }
 

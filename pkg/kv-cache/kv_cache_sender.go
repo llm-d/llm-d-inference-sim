@@ -22,6 +22,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
+	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 	"github.com/llm-d/llm-d-kv-cache-manager/pkg/kvcache/kvevents"
 	"github.com/vmihailenco/msgpack/v5"
 )
@@ -70,7 +71,7 @@ func (s *KVEventSender) Run(ctx context.Context) error {
 		case <-ctx.Done():
 			// Exiting, discard remaining events if any
 			if len(s.batch) > 0 {
-				s.logger.Info("Existing, discard remaining events", "num of events", len(s.batch))
+				s.logger.V(logging.INFO).Info("Exiting, discard remaining events", "num of events", len(s.batch))
 			}
 			return ctx.Err()
 
@@ -78,7 +79,7 @@ func (s *KVEventSender) Run(ctx context.Context) error {
 			if !ok {
 				// Channel closed, discard remaining events and exit
 				if len(s.batch) > 0 {
-					s.logger.Info("Channel closed, discard remaining events", "num of events", len(s.batch))
+					s.logger.V(logging.INFO).Info("Channel closed, discard remaining events", "num of events", len(s.batch))
 				}
 				return nil
 			}
