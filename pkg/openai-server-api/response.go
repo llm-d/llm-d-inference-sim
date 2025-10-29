@@ -64,6 +64,36 @@ type Usage struct {
 	TotalTokens int `json:"total_tokens"`
 }
 
+// LogprobsContent represents logprobs for a single token in chat completions
+type LogprobsContent struct {
+	// Token is the token string
+	Token string `json:"token"`
+	// Logprob is the log probability of the token
+	Logprob float64 `json:"logprob"`
+	// Bytes is the byte representation of the token
+	Bytes []int `json:"bytes"`
+	// TopLogprobs is the list of top alternative tokens along their log probabilities
+	TopLogprobs []LogprobsContent `json:"top_logprobs,omitempty"`
+}
+
+// ChatLogprobs represents logprobs for chat completion responses
+type ChatLogprobs struct {
+	// Content is an array of logprobs for each token in the content
+	Content []LogprobsContent `json:"content"`
+}
+
+// TextLogprobs represents logprobs for text completion responses
+type TextLogprobs struct {
+	// Tokens is an array of tokens
+	Tokens []string `json:"tokens"`
+	// TokenLogprobs is an array of log probabilities for each token
+	TokenLogprobs []float64 `json:"token_logprobs"`
+	// TopLogprobs is an array of objects containing the top alternative tokens
+	TopLogprobs []map[string]float64 `json:"top_logprobs"`
+	// TextOffset is an array of character offsets
+	TextOffset []int `json:"text_offset"`
+}
+
 // ChatCompletionResponse defines structure of /chat/completion response
 type ChatCompletionResponse struct {
 	baseCompletionResponse
@@ -175,6 +205,8 @@ type ChatRespChoice struct {
 	baseResponseChoice
 	// Message contains choice's Message
 	Message Message `json:"message"`
+	// Logprobs contains the log probabilities for the response
+	Logprobs *ChatLogprobs `json:"logprobs,omitempty"`
 }
 
 // TextCompletionResponse defines structure of /completion response
@@ -189,6 +221,8 @@ type TextRespChoice struct {
 	baseResponseChoice
 	// Text defines request's content
 	Text string `json:"text"`
+	// Logprobs contains the log probabilities for the response
+	Logprobs *TextLogprobs `json:"logprobs,omitempty"`
 }
 
 // CompletionRespChunk is an interface that defines a single response chunk
@@ -206,6 +240,8 @@ type ChatRespChunkChoice struct {
 	baseResponseChoice
 	// Delta is a content of the chunk
 	Delta Message `json:"delta"`
+	// Logprobs contains the log probabilities for the response chunk
+	Logprobs *ChatLogprobs `json:"logprobs,omitempty"`
 }
 
 // CompletionError defines the simulator's response in case of an error
@@ -266,15 +302,15 @@ func CreateBaseResponseChoice(index int, finishReason *string) baseResponseChoic
 }
 
 func CreateChatRespChoice(base baseResponseChoice, message Message) ChatRespChoice {
-	return ChatRespChoice{baseResponseChoice: base, Message: message}
+	return ChatRespChoice{baseResponseChoice: base, Message: message, Logprobs: nil}
 }
 
 func CreateChatRespChunkChoice(base baseResponseChoice, message Message) ChatRespChunkChoice {
-	return ChatRespChunkChoice{baseResponseChoice: base, Delta: message}
+	return ChatRespChunkChoice{baseResponseChoice: base, Delta: message, Logprobs: nil}
 }
 
 func CreateTextRespChoice(base baseResponseChoice, text string) TextRespChoice {
-	return TextRespChoice{baseResponseChoice: base, Text: text}
+	return TextRespChoice{baseResponseChoice: base, Text: text, Logprobs: nil}
 }
 
 func CreateBaseCompletionResponse(id string, created int64, model string, usage *Usage) baseCompletionResponse {

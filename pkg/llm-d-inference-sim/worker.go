@@ -134,6 +134,9 @@ func (s *VllmSimulator) processRequest(reqCtx *openaiserverapi.CompletionReqCtx)
 					doRemotePrefill:     req.IsDoRemotePrefill(),
 					nPromptTokens:       usageData.PromptTokens,
 					nCachedPromptTokens: reqCtx.CompletionReq.GetNumberOfCachedPromptTokens(),
+					requestID:           req.GetRequestID(),
+					// Logprobs configuration
+					logprobs: req.GetLogprobs(),
 				},
 				responseTokens, toolCalls, finishReason, usageDataToSend,
 			)

@@ -72,6 +72,8 @@ type CompletionRequest interface {
 	// for chat completion - max_completion_tokens field is used
 	// for text completion - max_tokens field is used
 	ExtractMaxTokens() *int64
+	// GetLogprobs returns nil if no logprobs needed, or pointer to number of logprob options to include
+	GetLogprobs() *int
 }
 
 // baseCompletionRequest contains base completion request related information
@@ -187,6 +189,12 @@ type ChatCompletionRequest struct {
 	// ToolChoice controls which (if any) tool is called by the model.
 	// It can be a string ("none", "auto", "required") or an object specifying the function.
 	ToolChoice ToolChoice `json:"tool_choice,omitzero"`
+
+	// Logprobs controls whether log probabilities are included in the response
+	Logprobs bool `json:"logprobs,omitempty"`
+
+	// TopLogprobs controls how many alternative tokens to include in the logprobs
+	TopLogprobs *int `json:"top_logprobs,omitempty"`
 }
 
 var _ CompletionRequest = (*ChatCompletionRequest)(nil)
@@ -272,6 +280,18 @@ func (req *ChatCompletionRequest) ExtractMaxTokens() *int64 {
 	return req.GetMaxCompletionTokens()
 }
 
+func (c *ChatCompletionRequest) GetLogprobs() *int {
+	if !c.Logprobs {
+		return nil // No logprobs requested
+	}
+	if c.TopLogprobs != nil {
+		return c.TopLogprobs // Return the top_logprobs value
+	}
+	// Default to 1 if logprobs=true but no top_logprobs specified
+	defaultVal := 1
+	return &defaultVal
+}
+
 // v1/completion
 // TextCompletionRequest defines structure of /completion request
 type TextCompletionRequest struct {
@@ -285,6 +305,12 @@ type TextCompletionRequest struct {
 	// The token count of your prompt plus `max_tokens` cannot exceed the model's
 	// context length.
 	MaxTokens *int64 `json:"max_tokens"`
+
+	// Logprobs includes the log probabilities on the logprobs most likely tokens,
+	// as well the chosen tokens. For example, if logprobs is 5, the API will return
+	// a list of the 5 most likely tokens. The API will always return the logprob
+	// of the sampled token, so there may be up to logprobs+1 elements in the response.
+	Logprobs *int `json:"logprobs,omitempty"`
 }
 
 var _ CompletionRequest = (*TextCompletionRequest)(nil)
@@ -319,4 +345,8 @@ func (req *TextCompletionRequest) ExtractPrompt() string {
 // for text completion - max_tokens field is used
 func (req *TextCompletionRequest) ExtractMaxTokens() *int64 {
 	return req.MaxTokens
+}
+
+func (t *TextCompletionRequest) GetLogprobs() *int {
+	return t.Logprobs
 }

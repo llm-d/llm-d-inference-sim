@@ -551,13 +551,14 @@ func (s *VllmSimulator) responseSentCallback(model string, isChatCompletion bool
 
 // createCompletionResponse creates the response for completion requests, supports both completion request types (text and chat)
 // as defined by isChatCompletion
+// logprobs - nil if no logprobs needed, otherwise number of logprob options to include
 // respTokens - tokenized content to be sent in the response
 // toolCalls - tool calls to be sent in the response
 // finishReason - a pointer to string that represents finish reason, can be nil or stop or length, ...
 // usageData - usage (tokens statistics) for this response
 // modelName - display name returned to the client and used in metrics. It is either the first alias
 // from --served-model-name (for a base-model request) or the LoRA adapter name (for a LoRA request).
-func (s *VllmSimulator) createCompletionResponse(isChatCompletion bool, respTokens []string, toolCalls []openaiserverapi.ToolCall,
+func (s *VllmSimulator) createCompletionResponse(logprobs *int, isChatCompletion bool, respTokens []string, toolCalls []openaiserverapi.ToolCall,
 	finishReason *string, usageData *openaiserverapi.Usage, modelName string, doRemoteDecode bool) openaiserverapi.CompletionResponse {
 	baseResp := openaiserverapi.CreateBaseCompletionResponse(chatComplIDPrefix+s.random.GenerateUUIDString(),
 		time.Now().Unix(), modelName, usageData)
@@ -585,13 +586,42 @@ func (s *VllmSimulator) createCompletionResponse(isChatCompletion bool, respToke
 		} else {
 			message.Content = openaiserverapi.Content{Raw: respText}
 		}
-		return openaiserverapi.CreateChatCompletionResponse(baseResp,
-			[]openaiserverapi.ChatRespChoice{openaiserverapi.CreateChatRespChoice(baseChoice, message)})
+
+		choice := openaiserverapi.CreateChatRespChoice(baseChoice, message)
+
+		// Generate logprobs if requested
+		if logprobs != nil && toolCalls == nil {
+			if logprobsData := common.GenerateChatLogprobs(respTokens, *logprobs); logprobsData != nil && len(logprobsData.Content) > 0 {
+				choice.Logprobs = logprobsData
+			} else {
+				// Set to nil if generation failed or content is empty
+				choice.Logprobs = nil
+			}
+		} else {
+			// Explicitly ensure logprobs is nil when not requested
+			choice.Logprobs = nil
+		}
+
+		return openaiserverapi.CreateChatCompletionResponse(baseResp, []openaiserverapi.ChatRespChoice{choice})
+	}
+
+	choice := openaiserverapi.CreateTextRespChoice(baseChoice, respText)
+
+	// Generate logprobs if requested for text completion
+	if logprobs != nil && *logprobs > 0 {
+		if logprobsData := common.GenerateTextLogprobs(respTokens, *logprobs); logprobsData != nil && len(logprobsData.Tokens) > 0 {
+			choice.Logprobs = logprobsData
+		} else {
+			// Set to nil if generation failed or tokens is empty
+			choice.Logprobs = nil
+		}
+	} else {
+		// Explicitly ensure logprobs is nil when not requested
+		choice.Logprobs = nil
 	}
 
 	baseResp.Object = textCompletionObject
-	return openaiserverapi.CreateTextCompletionResponse(baseResp,
-		[]openaiserverapi.TextRespChoice{openaiserverapi.CreateTextRespChoice(baseChoice, respText)})
+	return openaiserverapi.CreateTextCompletionResponse(baseResp, []openaiserverapi.TextRespChoice{choice})
 }
 
 // sendResponse sends response for completion API, supports both completions (text and chat)
@@ -604,7 +634,13 @@ func (s *VllmSimulator) createCompletionResponse(isChatCompletion bool, respToke
 // usageData - usage (tokens statistics) for this response
 func (s *VllmSimulator) sendResponse(reqCtx *openaiserverapi.CompletionReqCtx, respTokens []string,
 	toolCalls []openaiserverapi.ToolCall, modelName string, finishReason string, usageData *openaiserverapi.Usage) {
-	resp := s.createCompletionResponse(reqCtx.IsChatCompletion, respTokens, toolCalls, &finishReason, usageData, modelName,
+	// Extract logprob data from request (unified approach)
+	var logprobs *int
+	if toolCalls == nil {
+		logprobs = reqCtx.CompletionReq.GetLogprobs()
+	}
+
+	resp := s.createCompletionResponse(logprobs, reqCtx.IsChatCompletion, respTokens, toolCalls, &finishReason, usageData, modelName,
 		reqCtx.CompletionReq.IsDoRemoteDecode())
 
 	// calculate how long to wait before returning the response, time is based on number of tokens

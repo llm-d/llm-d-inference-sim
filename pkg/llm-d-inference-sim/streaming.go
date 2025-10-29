@@ -38,6 +38,8 @@ type streamingContext struct {
 	nPromptTokens       int
 	nCachedPromptTokens int
 	requestID           string
+	// Logprobs configuration - nil if no logprobs, otherwise number of options
+	logprobs *int
 }
 
 // sendStreamingResponse creates and sends a streaming response for completion requests of both types (text and chat)
@@ -184,14 +186,25 @@ func (s *VllmSimulator) createUsageChunk(context *streamingContext, usageData *o
 }
 
 // createTextCompletionChunk creates and returns a CompletionRespChunk, a single chunk of streamed completion API response,
-// for text completion
+// for text completion.
 func (s *VllmSimulator) createTextCompletionChunk(context *streamingContext, token string, finishReason *string) openaiserverapi.CompletionRespChunk {
 	baseChunk := openaiserverapi.CreateBaseCompletionResponse(chatComplIDPrefix+s.random.GenerateUUIDString(),
 		context.creationTime, context.model, nil)
 	baseChunk.Object = textCompletionObject
-	return openaiserverapi.CreateTextCompletionResponse(baseChunk,
-		[]openaiserverapi.TextRespChoice{
-			openaiserverapi.CreateTextRespChoice(openaiserverapi.CreateBaseResponseChoice(0, finishReason), token)})
+
+	choice := openaiserverapi.CreateTextRespChoice(openaiserverapi.CreateBaseResponseChoice(0, finishReason), token)
+
+	// Generate logprobs if requested and token is not empty
+	if context.logprobs != nil && token != "" && *context.logprobs > 0 {
+		// Use token position based on current time
+		tokenPosition := int(context.creationTime) % 1000 // Simple position simulation
+		logprobs := common.GenerateSingleTokenTextLogprobs(token, tokenPosition, *context.logprobs)
+		if logprobs != nil {
+			choice.Logprobs = logprobs
+		}
+	}
+
+	return openaiserverapi.CreateTextCompletionResponse(baseChunk, []openaiserverapi.TextRespChoice{choice})
 }
 
 // createChatCompletionChunk creates and returns a CompletionRespChunk, a single chunk of streamed completion
@@ -213,6 +226,18 @@ func (s *VllmSimulator) createChatCompletionChunk(context *streamingContext, tok
 		chunk.Choices[0].Delta.ToolCalls = []openaiserverapi.ToolCall{*tool}
 	} else if len(token) > 0 {
 		chunk.Choices[0].Delta.Content.Raw = token
+
+		// Generate logprobs if requested and token is not empty
+		if context.logprobs != nil {
+			// Use token position based on current time
+			tokenPosition := int(context.creationTime) % 1000 // Simple position simulation
+			logprobs := common.GenerateSingleTokenChatLogprobs(token, tokenPosition, *context.logprobs)
+			if logprobs != nil {
+				chunk.Choices[0].Logprobs = &openaiserverapi.ChatLogprobs{
+					Content: []openaiserverapi.LogprobsContent{*logprobs},
+				}
+			}
+		}
 	}
 
 	return &chunk

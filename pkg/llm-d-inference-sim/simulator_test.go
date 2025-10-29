@@ -399,6 +399,207 @@ var _ = Describe("Simulator", func() {
 		})
 	})
 
+	Context("logprobs functionality", func() {
+		DescribeTable("streaming chat completions with logprobs",
+			func(mode string, logprobs bool, topLogprobs int) {
+				ctx := context.TODO()
+				client, err := startServer(ctx, mode)
+				Expect(err).NotTo(HaveOccurred())
+
+				openaiclient, params := getOpenAIClientAndChatParams(client, testModel, testUserMessage, true)
+				params.Logprobs = param.NewOpt(logprobs)
+				if logprobs && topLogprobs > 0 {
+					params.TopLogprobs = param.NewOpt(int64(topLogprobs))
+				}
+
+				stream := openaiclient.Chat.Completions.NewStreaming(ctx, params)
+				defer func() {
+					err := stream.Close()
+					Expect(err).NotTo(HaveOccurred())
+				}()
+
+				tokens := []string{}
+				chunksWithLogprobs := 0
+
+				for stream.Next() {
+					chunk := stream.Current()
+					for _, choice := range chunk.Choices {
+						if choice.FinishReason == "" && choice.Delta.Content != "" {
+							tokens = append(tokens, choice.Delta.Content)
+
+							// Check logprobs in streaming chunks
+							if logprobs && len(choice.Logprobs.Content) > 0 {
+								chunksWithLogprobs++
+								logprobContent := choice.Logprobs.Content[0]
+								Expect(logprobContent.Token).To(Equal(choice.Delta.Content))
+								Expect(logprobContent.Logprob).To(BeNumerically("<=", 0))
+
+								if topLogprobs > 0 {
+									Expect(logprobContent.TopLogprobs).To(HaveLen(topLogprobs))
+									Expect(logprobContent.TopLogprobs[0].Token).To(Equal(choice.Delta.Content))
+								}
+							}
+						}
+					}
+				}
+
+				msg := strings.Join(tokens, "")
+				if mode == common.ModeRandom {
+					Expect(dataset.IsValidText(msg)).To(BeTrue())
+				} else {
+					Expect(msg).Should(Equal(testUserMessage))
+				}
+
+				// Verify logprobs behaviour
+				if logprobs {
+					Expect(chunksWithLogprobs).To(BeNumerically(">", 0), "Should have chunks with logprobs")
+				} else {
+					Expect(chunksWithLogprobs).To(Equal(0), "Should not have chunks with logprobs when not requested")
+				}
+			},
+			func(mode string, logprobs bool, topLogprobs int) string {
+				return fmt.Sprintf("mode: %s logprobs: %t top_logprobs: %d", mode, logprobs, topLogprobs)
+			},
+			Entry(nil, common.ModeEcho, true, 0),  // logprobs=true, default top_logprobs
+			Entry(nil, common.ModeEcho, true, 2),  // logprobs=true, top_logprobs=2
+			Entry(nil, common.ModeEcho, false, 0), // logprobs=false
+		)
+
+		DescribeTable("streaming text completions with logprobs",
+			func(mode string, logprobsCount int) {
+				ctx := context.TODO()
+				client, err := startServer(ctx, mode)
+				Expect(err).NotTo(HaveOccurred())
+
+				openaiclient, params := getOpenAIClentAndCompletionParams(client, testModel, testUserMessage, true)
+				if logprobsCount > 0 {
+					params.Logprobs = param.NewOpt(int64(logprobsCount))
+				}
+
+				stream := openaiclient.Completions.NewStreaming(ctx, params)
+				defer func() {
+					err := stream.Close()
+					Expect(err).NotTo(HaveOccurred())
+				}()
+
+				tokens := []string{}
+				chunksWithLogprobs := 0
+
+				for stream.Next() {
+					chunk := stream.Current()
+					for _, choice := range chunk.Choices {
+						if choice.FinishReason == "" && choice.Text != "" {
+							tokens = append(tokens, choice.Text)
+
+							// Check logprobs in streaming chunks
+							if logprobsCount > 0 && len(choice.Logprobs.Tokens) > 0 {
+								chunksWithLogprobs++
+								Expect(choice.Logprobs.Tokens[0]).To(Equal(choice.Text))
+								Expect(choice.Logprobs.TokenLogprobs[0]).To(BeNumerically("<=", 0))
+								Expect(choice.Logprobs.TopLogprobs[0]).To(HaveLen(logprobsCount))
+								Expect(choice.Logprobs.TopLogprobs[0]).To(HaveKey(choice.Text))
+							}
+						}
+					}
+				}
+
+				text := strings.Join(tokens, "")
+				if mode == common.ModeRandom {
+					Expect(dataset.IsValidText(text)).To(BeTrue())
+				} else {
+					Expect(text).Should(Equal(testUserMessage))
+				}
+
+				// Verify logprobs behaviour
+				if logprobsCount > 0 {
+					Expect(chunksWithLogprobs).To(BeNumerically(">", 0), "Should have chunks with logprobs")
+				} else {
+					Expect(chunksWithLogprobs).To(Equal(0), "Should not have chunks with logprobs when not requested")
+				}
+			},
+			func(mode string, logprobsCount int) string {
+				return fmt.Sprintf("mode: %s logprobs: %d", mode, logprobsCount)
+			},
+			Entry(nil, common.ModeEcho, 0), // No logprobs
+			Entry(nil, common.ModeEcho, 2), // logprobs=2
+		)
+
+		DescribeTable("non-streaming completions with logprobs",
+			func(isChat bool, mode string, logprobsParam interface{}) {
+				ctx := context.TODO()
+				client, err := startServer(ctx, mode)
+				Expect(err).NotTo(HaveOccurred())
+
+				var resp interface{}
+
+				if isChat {
+					openaiclient, params := getOpenAIClientAndChatParams(client, testModel, testUserMessage, false)
+					if logprobsParam != nil {
+						if logprobs, ok := logprobsParam.(bool); ok && logprobs {
+							params.Logprobs = param.NewOpt(true)
+							params.TopLogprobs = param.NewOpt(int64(2))
+						}
+					}
+					resp, err = openaiclient.Chat.Completions.New(ctx, params)
+				} else {
+					openaiclient, params := getOpenAIClentAndCompletionParams(client, testModel, testUserMessage, false)
+					if logprobsParam != nil {
+						if logprobsCount, ok := logprobsParam.(int); ok && logprobsCount > 0 {
+							params.Logprobs = param.NewOpt(int64(logprobsCount))
+						}
+					}
+					resp, err = openaiclient.Completions.New(ctx, params)
+				}
+
+				Expect(err).NotTo(HaveOccurred())
+
+				// Verify logprobs in non-streaming response
+				if isChat {
+					chatResp := resp.(*openai.ChatCompletion)
+					Expect(chatResp.Choices).ShouldNot(BeEmpty())
+
+					if logprobsParam != nil {
+						// When logprobs requested, Content should be populated
+						Expect(chatResp.Choices[0].Logprobs.Content).NotTo(BeEmpty())
+
+						tokens := common.Tokenize(chatResp.Choices[0].Message.Content)
+						Expect(chatResp.Choices[0].Logprobs.Content).To(HaveLen(len(tokens)))
+					} else {
+						// When logprobs not requested, Content should be empty/nil
+						// Note: SDK uses nullable types, so we check the Content field
+						Expect(chatResp.Choices[0].Logprobs.Content).To(BeNil())
+					}
+				} else {
+					textResp := resp.(*openai.Completion)
+					Expect(textResp.Choices).ShouldNot(BeEmpty())
+
+					if logprobsParam != nil {
+						// When logprobs requested, fields should be populated
+						Expect(textResp.Choices[0].Logprobs.Tokens).NotTo(BeNil())
+
+						tokens := common.Tokenize(textResp.Choices[0].Text)
+						Expect(textResp.Choices[0].Logprobs.Tokens).To(HaveLen(len(tokens)))
+					} else {
+						// When logprobs not requested, all fields should be empty/nil
+						Expect(textResp.Choices[0].Logprobs.Tokens).To(BeNil())
+					}
+				}
+			},
+			func(isChat bool, mode string, logprobsParam interface{}) string {
+				apiType := "text"
+				if isChat {
+					apiType = "chat"
+				}
+				return fmt.Sprintf("%s mode: %s logprobs: %v", apiType, mode, logprobsParam)
+			},
+			Entry(nil, true, common.ModeEcho, true), // Chat with logprobs
+			Entry(nil, true, common.ModeEcho, nil),  // Chat without logprobs
+			Entry(nil, false, common.ModeEcho, 2),   // Text with logprobs=2
+			Entry(nil, false, common.ModeEcho, nil), // Text without logprobs
+		)
+
+	})
+
 	Context("max-model-len context window validation", func() {
 		It("Should reject requests exceeding context window", func() {
 			ctx := context.TODO()
