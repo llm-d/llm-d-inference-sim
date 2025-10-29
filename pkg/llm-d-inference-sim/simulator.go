@@ -345,7 +345,7 @@ func (s *VllmSimulator) initializeSim(ctx context.Context) error {
 			ctx:          ctx,
 			logger:       s.logger,
 			finishedChan: s.workerFinished,
-			reqChan:      make(chan *openaiserverapi.CompletionReqCtx),
+			reqChan:      make(chan *openaiserverapi.CompletionReqCtx, 1),
 			processor:    s,
 		}
 		go worker.waitForRequests()
@@ -402,8 +402,8 @@ func (s *VllmSimulator) processing(ctx context.Context) {
 			s.logger.Info("Request processing done")
 			return
 		case completedReq := <-s.workerFinished:
-			s.logger.V(4).Info("Worker finished")
 			worker := completedReq.worker
+			s.logger.V(4).Info("Worker finished", "worker", worker.id)
 			s.decrementLora(completedReq.model)
 			// there is a free worker - find a request for it and send this request for
 			// processing with this worker
