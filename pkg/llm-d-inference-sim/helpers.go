@@ -22,6 +22,7 @@ import (
 	"fmt"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
+	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 )
 
@@ -92,7 +93,7 @@ func (s *VllmSimulator) showConfig(dp bool) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal configuration to JSON: %w", err)
 	}
-	s.logger.Info("Configuration:", "", string(cfgJSON))
+	s.logger.V(logging.INFO).Info("Configuration:", "", string(cfgJSON))
 	return nil
 }
 

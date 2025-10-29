@@ -34,6 +34,7 @@ import (
 	"k8s.io/klog/v2"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
+	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 	"github.com/llm-d/llm-d-inference-sim/pkg/dataset"
 	kvcache "github.com/llm-d/llm-d-inference-sim/pkg/kv-cache"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
@@ -272,7 +273,7 @@ func (s *VllmSimulator) startSim(ctx context.Context) error {
 
 	listener, err := s.newListener()
 	if err != nil {
-		s.logger.Error(err, "Failed to create listener")
+		s.logger.Error(err, "failed to create listener")
 		return fmt.Errorf("listener creation error: %w", err)
 	}
 
@@ -366,7 +367,7 @@ func (s *VllmSimulator) initDataset(ctx context.Context) error {
 	}
 
 	if s.config.DatasetPath == "" && s.config.DatasetURL == "" {
-		s.logger.Info("No dataset path or URL provided, using random text for responses")
+		s.logger.V(logging.INFO).Info("No dataset path or URL provided, using random text for responses")
 		s.dataset = randDataset
 		return nil
 	}
@@ -380,7 +381,7 @@ func (s *VllmSimulator) initDataset(ctx context.Context) error {
 	}
 
 	if strings.HasPrefix(err.Error(), "database is locked") {
-		s.logger.Info("Database is locked by another process, will use preset text for responses instead")
+		s.logger.V(logging.WARN).Info("Database is locked by another process, will use preset text for responses instead")
 		s.dataset = randDataset
 		return nil
 	}
@@ -390,20 +391,20 @@ func (s *VllmSimulator) initDataset(ctx context.Context) error {
 
 // Print prints to a log, implementation of fasthttp.Logger
 func (s *VllmSimulator) Printf(format string, args ...interface{}) {
-	s.logger.Info("Server error", "msg", fmt.Sprintf(format, args...))
+	s.logger.V(logging.WARN).Info("Server error", "msg", fmt.Sprintf(format, args...))
 }
 
 func (s *VllmSimulator) processing(ctx context.Context) {
-	s.logger.Info("Start processing routine")
+	s.logger.V(logging.INFO).Info("Start processing routine")
 
 	for {
 		select {
 		case <-ctx.Done():
-			s.logger.Info("Request processing done")
+			s.logger.V(logging.INFO).Info("Request processing done")
 			return
 		case completedReq := <-s.workerFinished:
 			worker := completedReq.worker
-			s.logger.V(4).Info("Worker finished", "worker", worker.id)
+			s.logger.V(logging.TRACE).Info("Worker finished", "worker", worker.id)
 			s.decrementLora(completedReq.model)
 			// there is a free worker - find a request for it and send this request for
 			// processing with this worker
@@ -412,7 +413,7 @@ func (s *VllmSimulator) processing(ctx context.Context) {
 			// there is a LoRA that can be removed, go through availbale workers
 			// and queued requests and find requests that can run now,
 			// stop if there are no free workers, or no requests
-			s.logger.V(4).Info("LoRA can be removed")
+			s.logger.V(logging.TRACE).Info("LoRA can be removed")
 			for {
 				// check if there is a free worker
 				worker := s.getFreeWorker()
@@ -433,7 +434,7 @@ func (s *VllmSimulator) processing(ctx context.Context) {
 
 			worker := s.getFreeWorker()
 			if worker == nil {
-				s.logger.V(4).Info("No free worker - sending the request to the waiting queue",
+				s.logger.V(logging.TRACE).Info("No free worker - sending the request to the waiting queue",
 					"model", reqCtx.CompletionReq.GetModel(), "req id", reqCtx.CompletionReq.GetRequestID())
 				// no free worker, add this request to the waiting queue
 				s.addRequestToQueue(reqCtx)
@@ -444,14 +445,14 @@ func (s *VllmSimulator) processing(ctx context.Context) {
 			if s.isLora(model) && !s.loadLora(model) {
 				// free the worker
 				s.freeWorkers <- worker
-				s.logger.V(4).Info("LoRA cannot be loaded - sending the request to the waiting queue",
+				s.logger.V(logging.TRACE).Info("LoRA cannot be loaded - sending the request to the waiting queue",
 					"LoRA", model, "req id", reqCtx.CompletionReq.GetRequestID())
 				// LoRA max reached, try to enqueue
 				s.addRequestToQueue(reqCtx)
 				break
 			}
 
-			s.logger.V(4).Info("Sending the request to the processing channel", "model", model,
+			s.logger.V(logging.TRACE).Info("Sending the request to the processing channel", "model", model,
 				"req id", reqCtx.CompletionReq.GetRequestID(), "worker", worker.id)
 			common.WriteToChannel(worker.reqChan, reqCtx, s.logger, "worker's reqChan")
 		}
@@ -462,7 +463,7 @@ func (s *VllmSimulator) findRequestAndSendToProcess(worker *worker) bool {
 	nextReq := s.dequeue()
 	if nextReq != nil {
 		// send this request for processing in this worker
-		s.logger.V(4).Info("Sending request to processing", "model", nextReq.CompletionReq.GetModel(),
+		s.logger.V(logging.TRACE).Info("Sending request to processing", "model", nextReq.CompletionReq.GetModel(),
 			"req", nextReq.CompletionReq.GetRequestID(), "worker", worker.id)
 		common.WriteToChannel(worker.reqChan, nextReq, s.logger, "worker's reqChan")
 		// decrement waiting requests metric
@@ -517,7 +518,7 @@ func (s *VllmSimulator) handleCompletions(ctx *fasthttp.RequestCtx, isChatComple
 		return
 	}
 
-	s.logger.V(4).Info("Completion request received", "req id", vllmReq.GetRequestID(), "isChat", isChatCompletion)
+	s.logger.V(logging.DEBUG).Info("Completion request received", "req id", vllmReq.GetRequestID(), "isChat", isChatCompletion)
 
 	var wg sync.WaitGroup
 	wg.Add(1)

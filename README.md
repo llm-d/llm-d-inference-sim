@@ -189,7 +189,11 @@ In addition, as we are using klog, the following parameters are available:
 - `skip_headers`: if true, avoid header prefixes in the log messages
 - `skip_log_headers`: if true, avoid headers when opening log files (no effect when -logtostderr=true)
 - `stderrthreshold`: logs at or above this threshold go to stderr when writing to files and stderr (no effect when -logtostderr=true or -alsologtostderr=true) (default 2)
-- `v`: number for the log level verbosity
+- `v`: number for the log level verbosity. Supported levels:
+  - Warning (1) - warning messages
+  - Info (2) - general application messages, e.g., loaded configuration content, which responses dataset was loaded, etc.
+  - Debug (4) - debugging messages, e.g. /completions and /chat/completions request received, load/unload lora request processed, etc.
+  - Trace (5) - highest verbosity, e.g. detailed messages on completions request handling and request queue processing, etc.
 - `vmodule`: comma-separated list of pattern=N settings for file-filtered logging
 
 ## Environment variables

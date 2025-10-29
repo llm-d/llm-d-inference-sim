@@ -25,6 +25,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 	zmq "github.com/pebbe/zmq4"
 	"github.com/vmihailenco/msgpack/v5"
 	"k8s.io/klog/v2"
@@ -93,7 +94,7 @@ func (p *Publisher) PublishEvent(ctx context.Context, topic string, batch interf
 		return fmt.Errorf("failed to send message to topic %s: %w", topic, err)
 	}
 
-	logger.Info("Published event batch", "topic", topic, "seq", seq)
+	logger.V(logging.TRACE).Info("Published event batch", "topic", topic, "seq", seq)
 	return nil
 }
 

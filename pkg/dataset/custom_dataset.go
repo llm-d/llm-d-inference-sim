@@ -33,6 +33,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
+	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 )
 
@@ -80,7 +81,7 @@ func (d *CustomDataset) downloadDataset(ctx context.Context, url string, path st
 		}
 	}()
 
-	d.logger.Info("Using dataset-url", "dataset-url", url)
+	d.logger.V(logging.INFO).Info("Using dataset-url", "dataset-url", url)
 	resp, err := http.Get(url)
 	if err != nil {
 		return err
@@ -181,9 +182,9 @@ func (pr *progressReader) logProgress(pct int) {
 	speed := float64(pr.downloaded) / (1024 * 1024 * elapsedTime)
 	remainingTime := float64(pr.total-pr.downloaded) / (float64(pr.downloaded) / elapsedTime)
 	if pct != 100 {
-		pr.logger.Info(fmt.Sprintf("Download progress: %d%%, Speed: %.2f MB/s, Remaining time: %.2fs", pct, speed, remainingTime))
+		pr.logger.V(logging.INFO).Info("Dataset download progress", "%", pct, "speed (MB/s)", speed, "remaining time (s)", remainingTime)
 	} else {
-		pr.logger.Info(fmt.Sprintf("Download completed: 100%%, Average Speed: %.2f MB/s, Total time: %.2fs", speed, elapsedTime))
+		pr.logger.V(logging.INFO).Info("Download completed", "average speed (MB/s)", speed, "total time (s)", elapsedTime)
 	}
 }
 
@@ -248,7 +249,7 @@ func (d *CustomDataset) getRecordsCount() (int, error) {
 }
 
 func (d *CustomDataset) loadDatabaseInMemory(path string) error {
-	d.logger.Info("Loading database into memory...")
+	d.logger.V(logging.INFO).Info("Loading database into memory...")
 	start := time.Now()
 
 	// Create in-memory database
@@ -301,7 +302,7 @@ func (d *CustomDataset) loadDatabaseInMemory(path string) error {
 	}
 
 	loadTime := time.Since(start)
-	d.logger.Info("Database loaded into memory", "load_time", loadTime.String())
+	d.logger.V(logging.INFO).Info("Database loaded into memory", "load_time", loadTime.String())
 	return nil
 }
 
@@ -354,9 +355,9 @@ func (d *CustomDataset) connectToDB(path string, useInMemory bool) error {
 	}
 
 	if useInMemory {
-		d.logger.Info("In-memory database connected successfully", "path", path, "records count", count)
+		d.logger.V(logging.INFO).Info("In-memory database connected successfully", "path", path, "records count", count)
 	} else {
-		d.logger.Info("Database connected successfully", "path", path, "records count", count)
+		d.logger.V(logging.INFO).Info("Database connected successfully", "path", path, "records count", count)
 	}
 	return nil
 }
@@ -368,7 +369,7 @@ func (d *CustomDataset) Init(ctx context.Context, logger logr.Logger, path strin
 	}
 	d.hasWarned = false
 	if url == "" {
-		d.logger.Info("Using dataset from", "path", path)
+		d.logger.V(logging.INFO).Info("Using dataset from", "path", path)
 		return d.connectToDB(path, useInMemory)
 	}
 	_, err := os.Stat(path)
@@ -386,7 +387,7 @@ func (d *CustomDataset) Init(ctx context.Context, logger logr.Logger, path strin
 			return fmt.Errorf("failed to download dataset: %w", err)
 		}
 	}
-	d.logger.Info("Using dataset path", "dataset-path", path)
+	d.logger.V(logging.INFO).Info("Using dataset path", "dataset-path", path)
 
 	return d.connectToDB(path, useInMemory)
 }
@@ -448,7 +449,7 @@ func (d *CustomDataset) query(query string, nTokens int, random *common.Random) 
 	rows, err := d.db.Query(query)
 	if err != nil {
 		if !d.hasWarned {
-			d.logger.Error(err, "Failed to query database. Ensure dataset file is still valid. Will generate random tokens instead.")
+			d.logger.Error(err, "failed to query database. Ensure dataset file is still valid. Will generate random tokens instead.")
 			d.hasWarned = true
 		}
 		return [][]string{GenPresetRandomTokens(random, nTokens)}, nil
@@ -472,7 +473,7 @@ func (d *CustomDataset) GenerateTokens(req openaiserverapi.CompletionRequest, nT
 	// filter out results according to finish reason
 	var filteredTokensList [][]string
 	if finishReason != LengthFinishReason && finishReason != StopFinishReason {
-		d.logger.Error(errors.New("unknown finish reason"), "Unexpected finish reason", "reason", finishReason)
+		d.logger.Error(errors.New("unknown finish reason"), "unexpected finish reason", "reason", finishReason)
 	}
 	for _, tokens := range tokensList {
 		if finishReason == StopFinishReason && len(tokens) <= nTokens {

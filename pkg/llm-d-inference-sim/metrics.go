@@ -66,7 +66,7 @@ func (s *VllmSimulator) createAndRegisterPrometheus() error {
 	)
 
 	if err := s.metrics.registry.Register(s.metrics.loraInfo); err != nil {
-		s.logger.Error(err, "Prometheus lora info gauge register failed")
+		s.logger.Error(err, "prometheus lora info gauge register failed")
 		return err
 	}
 
@@ -80,7 +80,7 @@ func (s *VllmSimulator) createAndRegisterPrometheus() error {
 	)
 
 	if err := s.metrics.registry.Register(s.metrics.runningRequests); err != nil {
-		s.logger.Error(err, "Prometheus number of running requests gauge register failed")
+		s.logger.Error(err, "prometheus number of running requests gauge register failed")
 		return err
 	}
 
@@ -95,7 +95,7 @@ func (s *VllmSimulator) createAndRegisterPrometheus() error {
 	)
 
 	if err := s.metrics.registry.Register(s.metrics.waitingRequests); err != nil {
-		s.logger.Error(err, "Prometheus number of requests in queue gauge register failed")
+		s.logger.Error(err, "prometheus number of requests in queue gauge register failed")
 		return err
 	}
 
@@ -110,7 +110,7 @@ func (s *VllmSimulator) createAndRegisterPrometheus() error {
 	)
 
 	if err := s.metrics.registry.Register(s.metrics.ttft); err != nil {
-		s.logger.Error(err, "Prometheus time to first token histogram register failed")
+		s.logger.Error(err, "prometheus time to first token histogram register failed")
 		return err
 	}
 
@@ -125,7 +125,7 @@ func (s *VllmSimulator) createAndRegisterPrometheus() error {
 	)
 
 	if err := s.metrics.registry.Register(s.metrics.tpot); err != nil {
-		s.logger.Error(err, "Prometheus time per output token histogram register failed")
+		s.logger.Error(err, "prometheus time per output token histogram register failed")
 		return err
 	}
 
@@ -214,7 +214,7 @@ func (s *VllmSimulator) createAndRegisterPrometheus() error {
 	)
 
 	if err := s.metrics.registry.Register(s.metrics.kvCacheUsagePercentage); err != nil {
-		s.logger.Error(err, "Prometheus kv cache usage percentage gauge register failed")
+		s.logger.Error(err, "prometheus kv cache usage percentage gauge register failed")
 		return err
 	}
 
@@ -228,7 +228,7 @@ func (s *VllmSimulator) createAndRegisterPrometheus() error {
 		[]string{vllmapi.PromLabelModelName},
 	)
 	if err := s.metrics.registry.Register(s.metrics.requestPromptTokens); err != nil {
-		s.logger.Error(err, "Prometheus request_prompt_tokens histogram register failed")
+		s.logger.Error(err, "prometheus request_prompt_tokens histogram register failed")
 		return err
 	}
 
@@ -242,7 +242,7 @@ func (s *VllmSimulator) createAndRegisterPrometheus() error {
 		[]string{vllmapi.PromLabelModelName},
 	)
 	if err := s.metrics.registry.Register(s.metrics.requestGenerationTokens); err != nil {
-		s.logger.Error(err, "Prometheus request_generation_tokens histogram register failed")
+		s.logger.Error(err, "prometheus request_generation_tokens histogram register failed")
 		return err
 	}
 
@@ -256,7 +256,7 @@ func (s *VllmSimulator) createAndRegisterPrometheus() error {
 		[]string{vllmapi.PromLabelModelName},
 	)
 	if err := s.metrics.registry.Register(s.metrics.requestParamsMaxTokens); err != nil {
-		s.logger.Error(err, "Prometheus request_params_max_tokens histogram register failed")
+		s.logger.Error(err, "prometheus request_params_max_tokens histogram register failed")
 		return err
 	}
 
@@ -269,7 +269,7 @@ func (s *VllmSimulator) createAndRegisterPrometheus() error {
 		[]string{vllmapi.PromLabelModelName, vllmapi.PromLabelFinishReason},
 	)
 	if err := s.metrics.registry.Register(s.metrics.requestSuccessTotal); err != nil {
-		s.logger.Error(err, "Prometheus request_success_total counter register failed")
+		s.logger.Error(err, "prometheus request_success_total counter register failed")
 		return err
 	}
 

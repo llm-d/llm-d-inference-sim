@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
+	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 	"github.com/valyala/fasthttp"
 )
 
@@ -40,7 +41,7 @@ func (s *VllmSimulator) getLoras() []string {
 		if lora, ok := key.(string); ok {
 			loras = append(loras, lora)
 		} else {
-			s.logger.Info("Stored LoRA is not a string", "value", key)
+			s.logger.V(logging.WARN).Info("Stored LoRA is not a string", "value", key)
 		}
 		return true
 	})

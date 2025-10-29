@@ -30,6 +30,7 @@ import (
 	"github.com/valyala/fasthttp/fasthttpadaptor"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
+	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	vllmapi "github.com/llm-d/llm-d-inference-sim/pkg/vllm-api"
 )
@@ -75,10 +76,10 @@ func (s *VllmSimulator) startServer(ctx context.Context, listener net.Listener) 
 	serverErr := make(chan error, 1)
 	go func() {
 		if s.config.SSLEnabled() {
-			s.logger.Info("Server starting", "protocol", "HTTPS", "port", s.config.Port)
+			s.logger.V(logging.INFO).Info("Server starting", "protocol", "HTTPS", "port", s.config.Port)
 			serverErr <- server.ServeTLS(listener, "", "")
 		} else {
-			s.logger.Info("Server starting", "protocol", "HTTP", "port", s.config.Port)
+			s.logger.V(logging.INFO).Info("Server starting", "protocol", "HTTP", "port", s.config.Port)
 			serverErr <- server.Serve(listener)
 		}
 	}()
@@ -86,20 +87,20 @@ func (s *VllmSimulator) startServer(ctx context.Context, listener net.Listener) 
 	// Wait for either context cancellation or server error
 	select {
 	case <-ctx.Done():
-		s.logger.Info("Shutdown signal received, shutting down server gracefully")
+		s.logger.V(logging.INFO).Info("Shutdown signal received, shutting down server gracefully")
 
 		// Gracefully shutdown the server
 		if err := server.Shutdown(); err != nil {
-			s.logger.Error(err, "Error during server shutdown")
+			s.logger.Error(err, "error during server shutdown")
 			return err
 		}
 
-		s.logger.Info("Server stopped")
+		s.logger.V(logging.INFO).Info("Server stopped")
 		return nil
 
 	case err := <-serverErr:
 		if err != nil {
-			s.logger.Error(err, "Server failed")
+			s.logger.Error(err, "server failed")
 		}
 		return err
 	}
@@ -165,7 +166,7 @@ func (s *VllmSimulator) readTokenizeRequest(ctx *fasthttp.RequestCtx) (*vllmapi.
 
 // HandleTokenize http handler for /tokenize
 func (s *VllmSimulator) HandleTokenize(ctx *fasthttp.RequestCtx) {
-	s.logger.Info("tokenize request received")
+	s.logger.V(logging.TRACE).Info("Tokenize request received")
 	req, err := s.readTokenizeRequest(ctx)
 	if err != nil {
 		s.logger.Error(err, "failed to read and parse tokenize request body")
@@ -207,12 +208,12 @@ func (s *VllmSimulator) HandleTokenize(ctx *fasthttp.RequestCtx) {
 }
 
 func (s *VllmSimulator) HandleLoadLora(ctx *fasthttp.RequestCtx) {
-	s.logger.Info("load lora request received")
+	s.logger.V(logging.DEBUG).Info("Load lora request received")
 	s.loadLoraAdaptor(ctx)
 }
 
 func (s *VllmSimulator) HandleUnloadLora(ctx *fasthttp.RequestCtx) {
-	s.logger.Info("unload lora request received")
+	s.logger.V(logging.DEBUG).Info("Unload lora request received")
 	s.unloadLoraAdaptor(ctx)
 }
 
@@ -270,7 +271,7 @@ func (s *VllmSimulator) sendCompletionResponse(ctx *fasthttp.RequestCtx, resp op
 func (s *VllmSimulator) sendCompletionError(ctx *fasthttp.RequestCtx,
 	compErr openaiserverapi.CompletionError, isInjected bool) {
 	if isInjected {
-		s.logger.Info("Injecting failure", "type", compErr.Type, "message", compErr.Message)
+		s.logger.V(logging.TRACE).Info("Injecting failure", "type", compErr.Type, "message", compErr.Message)
 	} else {
 		s.logger.Error(nil, compErr.Message)
 	}
@@ -291,11 +292,12 @@ func (s *VllmSimulator) sendCompletionError(ctx *fasthttp.RequestCtx,
 
 // HandleModels handles /v1/models request according the data stored in the simulator
 func (s *VllmSimulator) HandleModels(ctx *fasthttp.RequestCtx) {
+	s.logger.V(logging.TRACE).Info("/models request received")
 	modelsResp := s.createModelsResponse()
 
 	data, err := json.Marshal(modelsResp)
 	if err != nil {
-		s.logger.Error(err, "Failed to marshal models response")
+		s.logger.Error(err, "failed to marshal models response")
 		ctx.Error("Failed to marshal models response, "+err.Error(), fasthttp.StatusInternalServerError)
 		return
 	}
@@ -306,12 +308,12 @@ func (s *VllmSimulator) HandleModels(ctx *fasthttp.RequestCtx) {
 }
 
 func (s *VllmSimulator) HandleError(_ *fasthttp.RequestCtx, err error) {
-	s.logger.Error(err, "VLLM server error")
+	s.logger.Error(err, "vLLM server error")
 }
 
 // HandleHealth http handler for /health
 func (s *VllmSimulator) HandleHealth(ctx *fasthttp.RequestCtx) {
-	s.logger.V(4).Info("health request received")
+	s.logger.V(logging.TRACE).Info("Health request received")
 	ctx.Response.Header.SetContentType("application/json")
 	ctx.Response.Header.SetStatusCode(fasthttp.StatusOK)
 	ctx.Response.SetBody([]byte("{}"))
@@ -319,7 +321,7 @@ func (s *VllmSimulator) HandleHealth(ctx *fasthttp.RequestCtx) {
 
 // HandleReady http handler for /ready
 func (s *VllmSimulator) HandleReady(ctx *fasthttp.RequestCtx) {
-	s.logger.V(4).Info("readiness request received")
+	s.logger.V(logging.TRACE).Info("Readiness request received")
 	ctx.Response.Header.SetContentType("application/json")
 	ctx.Response.Header.SetStatusCode(fasthttp.StatusOK)
 	ctx.Response.SetBody([]byte("{}"))
