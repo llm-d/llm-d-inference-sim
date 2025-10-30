@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
@@ -47,7 +48,7 @@ type streamingContext struct {
 // response content is wrapped according SSE format
 // First token is send after timeToFirstToken milliseconds, every other token is sent after interTokenLatency milliseconds
 func (s *VllmSimulator) sendStreamingResponse(context *streamingContext, responseTokens []string, toolCalls []openaiserverapi.ToolCall,
-	finishReason string, usageData *openaiserverapi.Usage) {
+	finishReason string, usageData *openaiserverapi.Usage, wg *sync.WaitGroup) {
 	context.ctx.SetContentType("text/event-stream")
 	context.ctx.SetStatusCode(fasthttp.StatusOK)
 
@@ -78,8 +79,9 @@ func (s *VllmSimulator) sendStreamingResponse(context *streamingContext, respons
 					s.sendTokenChunks(context, w, tc.Function.TokenizedArguments, &tc, finishReason)
 				}
 			} else {
-				s.logger.Info("Going to send text", "number of tokens", len(responseTokens))
+				s.logger.V(4).Info("Going to send text", "number of tokens", len(responseTokens))
 				s.sendTokenChunks(context, w, responseTokens, nil, finishReason)
+				s.logger.V(4).Info("Finished sending text", "number of tokens", len(responseTokens))
 			}
 		}
 
@@ -98,6 +100,7 @@ func (s *VllmSimulator) sendStreamingResponse(context *streamingContext, respons
 			return
 		}
 		s.responseSentCallback(context.model, context.isChatCompletion, context.requestID)
+		wg.Done()
 	})
 }
 

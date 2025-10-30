@@ -19,6 +19,7 @@ package llmdinferencesim
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -49,17 +50,23 @@ func (w *worker) waitForRequests() {
 			w.logger.V(4).Info("worker done", "id", w.id)
 			return
 		case req := <-w.reqChan:
-			w.processor.processRequest(req)
+			wg := sync.WaitGroup{}
+			wg.Add(1)
+
+			go w.processor.processRequest(req, &wg)
+
+			wg.Wait()
 			w.finishedChan <- &requestCompleted{worker: w, model: req.CompletionReq.GetModel()}
 		}
+
 	}
 }
 
 type requestProcessor interface {
-	processRequest(reqCtx *openaiserverapi.CompletionReqCtx)
+	processRequest(reqCtx *openaiserverapi.CompletionReqCtx, wg *sync.WaitGroup)
 }
 
-func (s *VllmSimulator) processRequest(reqCtx *openaiserverapi.CompletionReqCtx) {
+func (s *VllmSimulator) processRequest(reqCtx *openaiserverapi.CompletionReqCtx, wg *sync.WaitGroup) {
 	start := time.Now()
 	defer func() {
 		common.WriteToChannel(s.metrics.reqInferenceTimeChan, time.Since(start).Seconds(), s.logger, "metrics.reqInferenceTimeChan")
@@ -138,7 +145,7 @@ func (s *VllmSimulator) processRequest(reqCtx *openaiserverapi.CompletionReqCtx)
 					// Logprobs configuration
 					logprobs: req.GetLogprobs(),
 				},
-				responseTokens, toolCalls, finishReason, usageDataToSend,
+				responseTokens, toolCalls, finishReason, usageDataToSend, wg,
 			)
 		} else {
 			if req.IsDoRemoteDecode() {
@@ -146,6 +153,7 @@ func (s *VllmSimulator) processRequest(reqCtx *openaiserverapi.CompletionReqCtx)
 				finishReason = dataset.RemoteDecodeFinishReason
 			}
 			s.sendResponse(reqCtx, responseTokens, toolCalls, displayModel, finishReason, &usageData)
+			wg.Done()
 		}
 
 		common.WriteToChannel(s.metrics.requestSuccessChan,
