@@ -151,11 +151,25 @@ func startServerAndSendRequest(modelName string, prompt string, isStreaming bool
 	client, err := startServerWithArgs(ctx, args)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	openaiclient, params := getOpenAIClientAndChatParams(client, modelName, prompt, isStreaming)
+	openaitextclient, params := getOpenAIClientAndTextParams(client, modelName, prompt, isStreaming)
 
-	// send a single request in a serial way
-	_, err = openaiclient.Chat.Completions.New(ctx, params)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	if isStreaming {
+		// send a single request in a serial way
+		stream := openaitextclient.Completions.NewStreaming(ctx, params)
+		chunksCnt := 0
+
+		for stream.Next() {
+			chunksCnt++
+		}
+		if err := stream.Err(); err != nil {
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		}
+		// number of chunks is number of tokens + 2 (one chunk with usage info and one closing chunk)
+		gomega.Expect(chunksCnt).To(gomega.BeNumerically("==", len(common.Tokenize(prompt))+2))
+	} else {
+		_, err = openaitextclient.Completions.New(ctx, params)
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}
 
 	return client
 }
@@ -191,6 +205,22 @@ func getOpenAIClientAndChatParams(client option.HTTPClient, model string, messag
 			openai.UserMessage(message),
 		},
 		Model: model,
+	}
+	if streaming {
+		params.StreamOptions = openai.ChatCompletionStreamOptionsParam{IncludeUsage: param.NewOpt(true)}
+	}
+	return openaiclient, params
+}
+
+// getOpenAIClientAndTextParams - creates an openai client and params for /completions call based on the given parameters
+func getOpenAIClientAndTextParams(client option.HTTPClient, model string, message string, streaming bool) (openai.Client, openai.CompletionNewParams) {
+	openaiclient := openai.NewClient(
+		option.WithBaseURL(baseURL),
+		option.WithHTTPClient(client))
+
+	params := openai.CompletionNewParams{
+		Prompt: openai.CompletionNewParamsPromptUnion{OfString: param.Opt[string]{Value: message}},
+		Model:  openai.CompletionNewParamsModel(model),
 	}
 	if streaming {
 		params.StreamOptions = openai.ChatCompletionStreamOptionsParam{IncludeUsage: param.NewOpt(true)}

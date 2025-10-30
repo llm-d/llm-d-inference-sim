@@ -19,6 +19,7 @@ package openaiserverapi
 
 import (
 	"sync"
+	"time"
 
 	"github.com/valyala/fasthttp"
 )
@@ -163,6 +164,7 @@ type CompletionReqCtx struct {
 	HTTPReqCtx       *fasthttp.RequestCtx
 	IsChatCompletion bool
 	Wg               *sync.WaitGroup
+	StartProcessing  time.Time
 }
 
 // ChatCompletionRequest defines structure of /chat/completion request

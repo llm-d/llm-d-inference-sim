@@ -491,12 +491,8 @@ func (s *VllmSimulator) addRequestToQueue(reqCtx *openaiserverapi.CompletionReqC
 }
 
 // handleCompletions general completion requests handler, support both text and chat completion APIs
+// Importan note: for requests in streaming mode, this function exists before all chunk are sent to the client
 func (s *VllmSimulator) handleCompletions(ctx *fasthttp.RequestCtx, isChatCompletion bool) {
-	startTime := time.Now()
-	defer func() {
-		common.WriteToChannel(s.metrics.e2eReqLatencyChan, time.Since(startTime).Seconds(), s.logger, "metrics.e2eReqLatencyChan")
-	}()
-
 	// Check if we should inject a failure
 	if shouldInjectFailure(s.config, s.random) {
 		failure := getRandomFailure(s.config, s.random)
@@ -526,6 +522,7 @@ func (s *VllmSimulator) handleCompletions(ctx *fasthttp.RequestCtx, isChatComple
 		HTTPReqCtx:       ctx,
 		IsChatCompletion: isChatCompletion,
 		Wg:               &wg,
+		StartProcessing:  time.Now(),
 	}
 	common.WriteToChannel(s.newRequests, reqCtx, s.logger, "newRequests")
 	wg.Wait()
