@@ -774,23 +774,33 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 		numOfTokens := len(common.Tokenize(testUserMessage))
 
 		DescribeTable("should calculate all latency related metrics correctly for a single request",
-			func(testNamePrefix string, ttft int, prefillTimePerToken int, interTokenLatency int) {
+			func(testNamePrefix string, ttft int, prefillTimePerToken int, interTokenLatency int,
+				kvcacheTransferLatency int, kvCacheTransferTimePerToken int, doRemotePrefill bool) {
 				// send a single request with a prompt of 4 tokens and echo mode, so output tokens number of 4 too
-				client := startServerAndSendRequest(testModel, testUserMessage, false, ttft, prefillTimePerToken, interTokenLatency)
-				checkLatencyMertics(client, testModel, numOfTokens, numOfTokens, ttft, prefillTimePerToken, interTokenLatency)
+				client := startServerForLatencyTest(testModel, ttft, prefillTimePerToken, interTokenLatency, kvcacheTransferLatency, kvCacheTransferTimePerToken)
+				sendCompletionRequestForLatencyTest(client, testModel, testUserMessage, false, doRemotePrefill)
+				checkLatencyMertics(client, testModel, numOfTokens, numOfTokens, ttft, prefillTimePerToken, interTokenLatency, kvcacheTransferLatency,
+					kvCacheTransferTimePerToken, doRemotePrefill)
 
-				// same in streaming modeq
-				client = startServerAndSendRequest(testModel, testUserMessage, true, ttft, prefillTimePerToken, interTokenLatency)
-				checkLatencyMertics(client, testModel, numOfTokens, numOfTokens, ttft, prefillTimePerToken, interTokenLatency)
+				// restart the server and run same test in streaming mode
+				client = startServerForLatencyTest(testModel, ttft, prefillTimePerToken, interTokenLatency, kvcacheTransferLatency, kvCacheTransferTimePerToken)
+				sendCompletionRequestForLatencyTest(client, testModel, testUserMessage, false, doRemotePrefill)
+				checkLatencyMertics(client, testModel, numOfTokens, numOfTokens, ttft, prefillTimePerToken, interTokenLatency,
+					kvcacheTransferLatency, kvCacheTransferTimePerToken, doRemotePrefill)
 			},
-			func(testNamePrefix string, ttft int, prefillTimePerToken int, interTokenLatency int) string {
-				return fmt.Sprintf("%s\nttft: %d, prefillTimePerToken: %d, interTokenLatency: %d", testNamePrefix, ttft, prefillTimePerToken, interTokenLatency)
+			func(testNamePrefix string, ttft int, prefillTimePerToken int, interTokenLatency int,
+				kvcacheTransferLatency int, kvCacheTransferTimePerToken int, doRemotePrefill bool) string {
+				return fmt.Sprintf("%s\nttft: %d, prefillTimePerToken: %d, interTokenLatency: %d, kvcacheTransferLatency: %d, kvCacheTransferTimePerToken: %d, doRemotePrefill: %t",
+					testNamePrefix, ttft, prefillTimePerToken, interTokenLatency, kvcacheTransferLatency, kvCacheTransferTimePerToken, doRemotePrefill)
 			},
-			// Params order: testName, ttft, prefillTimePerToken, interTokenLatency
-			Entry(nil, "constant prefill + inter token time", 0, 0, 100),
-			Entry(nil, "constant prefill + inter token time", 900, 0, 100),
-			Entry(nil, "constant prefill + inter token time", 1000, 0, 100),
-			Entry(nil, "prefill per token + inter token time", 0, 100, 100),
+			// Params order: testName, ttft, prefillTimePerToken, interTokenLatency, kvcacheTransferLatency, kvCacheTransferTimePerToken, doRemotePrefill)
+			Entry(nil, "constant prefill + inter token time", 0, 0, 100, 0, 0, false),
+			Entry(nil, "constant prefill + inter token time", 900, 0, 100, 0, 0, false),
+			Entry(nil, "constant prefill + inter token time", 1000, 0, 100, 0, 0, false),
+			Entry(nil, "prefill per token + inter token time", 0, 100, 100, 0, 0, false),
+			Entry(nil, "remote prefill constant time", 0, 0, 0, 1000, 0, true),
+			Entry(nil, "remote prefill constant time with non-remote times", 5000, 5000, 0, 1000, 0, true),
+			Entry(nil, "remote prefill time per transfered token", 0, 0, 0, 0, 100, true),
 		)
 	})
 
