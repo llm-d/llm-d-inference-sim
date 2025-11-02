@@ -137,10 +137,10 @@ func startServerWithArgsAndEnv(ctx context.Context, mode string, args []string, 
 	}, nil
 }
 
-// startServerForLatencyTest - starts server configured according the given latency parameters in echo mode,
+// startServerForLatencyTest - starts server configured according the given latency parameters in echo modes
 func startServerForLatencyTest(modelName string, ttft int, prefillTimePerToken int, interTokenLatency int, kvcacheTransferLatency int, kvCacheTransferTimePerToken int) *http.Client {
 	ctx := context.TODO()
-	args := []string{"cmd", "--model", modelName, "--mode", common.ModeEcho, "--v=4",
+	args := []string{"cmd", "--model", modelName, "--mode", common.ModeEcho,
 		"--kv-cache-transfer-latency", strconv.Itoa(kvcacheTransferLatency),
 		"--kv-cache-transfer-time-per-token", strconv.Itoa(kvCacheTransferTimePerToken),
 		"--time-to-first-token", strconv.Itoa(ttft),
@@ -152,6 +152,15 @@ func startServerForLatencyTest(modelName string, ttft int, prefillTimePerToken i
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	return client
+}
+
+func singleRequestLatencyTest(ttft int, prefillTimePerToken int, interTokenLatency int, kvcacheTransferLatency int,
+	kvCacheTransferTimePerToken int, isStreaming bool, numOfTokens int, doRemotePrefill bool) {
+	client := startServerForLatencyTest(testModel, ttft, prefillTimePerToken, interTokenLatency, kvcacheTransferLatency, kvCacheTransferTimePerToken)
+	sendCompletionRequestForLatencyTest(client, testModel, testUserMessage, isStreaming, doRemotePrefill)
+	checkLatencyMetrics(client, testModel, numOfTokens, numOfTokens, ttft, prefillTimePerToken, interTokenLatency, kvcacheTransferLatency,
+		kvCacheTransferTimePerToken, doRemotePrefill)
+
 }
 
 // sendCompletionRequestForLatencyTest sends completion request according the given parameters
@@ -450,14 +459,14 @@ func checkBucketBoundary(metrics string, modelName string, metricName string, bu
 	gomega.Expect(metrics).To(gomega.ContainSubstring(getFloatBucketMetricLine(modelName, metricName, bucketBoudary, expectedCount)))
 }
 
-// checkLatencyMertics sends /metrics request and checks that latency related values are valid
+// checkLatencyMetrics sends /metrics request and checks that latency related values are valid
 // client the http client to be used for request send
 // modelName the model name
 // numOfOutputTokens number of tokens in the output of the completion request we want to validate
 // ttft time to first token parameter
 // prefillTimePerToken prefill time per input tokens
 // interTokenLatency processing time per output token
-func checkLatencyMertics(client *http.Client, modelName string, numOfInputTokens int, numOfOutputTokens int, ttft int,
+func checkLatencyMetrics(client *http.Client, modelName string, numOfInputTokens int, numOfOutputTokens int, ttft int,
 	prefillTimePerToken int, interTokenLatency int, kvcacheTransferLatency int, kvCacheTransferTimePerToken int, doRemotePrefill bool) {
 	// wait a little bit and check metrics
 	time.Sleep(300 * time.Millisecond)
@@ -471,11 +480,11 @@ func checkLatencyMertics(client *http.Client, modelName string, numOfInputTokens
 
 	expectedPrefillTimeInSecs := 0.0
 	if doRemotePrefill {
-		// when doRemotePrefill is true, this means that this is decode request and prefill was executed on remote vllm,
+		// when doRemotePrefill is true, this means that this is decode request and prefill was executed on remote vllm
 		if kvcacheTransferLatency != 0 {
 			expectedPrefillTimeInSecs = float64(kvcacheTransferLatency) / 1000
 		} else {
-			expectedPrefillTimeInSecs = float64(kvCacheTransferTimePerToken*numOfOutputTokens) / 1000
+			expectedPrefillTimeInSecs = float64(kvCacheTransferTimePerToken*numOfInputTokens) / 1000
 		}
 	} else {
 		if ttft > 0 {

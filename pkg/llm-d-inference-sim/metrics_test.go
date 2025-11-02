@@ -777,16 +777,10 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 			func(testNamePrefix string, ttft int, prefillTimePerToken int, interTokenLatency int,
 				kvcacheTransferLatency int, kvCacheTransferTimePerToken int, doRemotePrefill bool) {
 				// send a single request with a prompt of 4 tokens and echo mode, so output tokens number of 4 too
-				client := startServerForLatencyTest(testModel, ttft, prefillTimePerToken, interTokenLatency, kvcacheTransferLatency, kvCacheTransferTimePerToken)
-				sendCompletionRequestForLatencyTest(client, testModel, testUserMessage, false, doRemotePrefill)
-				checkLatencyMertics(client, testModel, numOfTokens, numOfTokens, ttft, prefillTimePerToken, interTokenLatency, kvcacheTransferLatency,
-					kvCacheTransferTimePerToken, doRemotePrefill)
-
-				// restart the server and run same test in streaming mode
-				client = startServerForLatencyTest(testModel, ttft, prefillTimePerToken, interTokenLatency, kvcacheTransferLatency, kvCacheTransferTimePerToken)
-				sendCompletionRequestForLatencyTest(client, testModel, testUserMessage, false, doRemotePrefill)
-				checkLatencyMertics(client, testModel, numOfTokens, numOfTokens, ttft, prefillTimePerToken, interTokenLatency,
-					kvcacheTransferLatency, kvCacheTransferTimePerToken, doRemotePrefill)
+				singleRequestLatencyTest(ttft, prefillTimePerToken, interTokenLatency, kvcacheTransferLatency,
+					kvCacheTransferTimePerToken, false, numOfTokens, doRemotePrefill)
+				singleRequestLatencyTest(ttft, prefillTimePerToken, interTokenLatency, kvcacheTransferLatency,
+					kvCacheTransferTimePerToken, true, numOfTokens, doRemotePrefill)
 			},
 			func(testNamePrefix string, ttft int, prefillTimePerToken int, interTokenLatency int,
 				kvcacheTransferLatency int, kvCacheTransferTimePerToken int, doRemotePrefill bool) string {
@@ -800,7 +794,7 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 			Entry(nil, "prefill per token + inter token time", 0, 100, 100, 0, 0, false),
 			Entry(nil, "remote prefill constant time", 0, 0, 0, 1000, 0, true),
 			Entry(nil, "remote prefill constant time with non-remote times", 5000, 5000, 0, 1000, 0, true),
-			Entry(nil, "remote prefill time per transfered token", 0, 0, 0, 0, 100, true),
+			Entry(nil, "remote prefill time per transferfed token", 0, 0, 0, 0, 100, true),
 		)
 	})
 
