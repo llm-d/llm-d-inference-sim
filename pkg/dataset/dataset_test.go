@@ -34,7 +34,7 @@ var _ = Describe("Dataset", Ordered, func() {
 	)
 
 	BeforeAll(func() {
-		random = common.NewRandom(time.Now().UnixNano())
+		random = common.NewRandom(time.Now().UnixNano(), 8080)
 	})
 
 	BeforeEach(func() {

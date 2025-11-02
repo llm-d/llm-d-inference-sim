@@ -43,7 +43,7 @@ var _ = Describe("Check random latencies", Ordered, func() {
 
 		simulator.metrics.runReqChan = make(chan int64, 100)
 
-		simulator.random = common.NewRandom(time.Now().UnixNano())
+		simulator.random = common.NewRandom(time.Now().UnixNano(), 8080)
 	})
 
 	DescribeTable("should calculate inter token latency correctly",

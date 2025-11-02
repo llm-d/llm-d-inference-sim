@@ -121,7 +121,7 @@ type threadTestCase struct {
 }
 
 var _ = Describe("KV cache", Ordered, func() {
-	random := common.NewRandom(time.Now().UnixNano())
+	random := common.NewRandom(time.Now().UnixNano(), 8080)
 
 	Context("general tests", func() {
 		// check single request processing, ensure cache is valid after request processing started

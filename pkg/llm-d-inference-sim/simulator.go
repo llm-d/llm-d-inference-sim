@@ -282,7 +282,7 @@ func (s *VllmSimulator) startSim(ctx context.Context) error {
 }
 
 func (s *VllmSimulator) initializeSim(ctx context.Context) error {
-	s.random = common.NewRandom(s.config.Seed)
+	s.random = common.NewRandom(s.config.Seed, s.config.Port)
 
 	for _, lora := range s.config.LoraModules {
 		s.loraAdaptors.Store(lora.Name, "")

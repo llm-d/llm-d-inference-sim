@@ -17,6 +17,7 @@ limitations under the License.
 package common
 
 import (
+	"fmt"
 	"math/rand"
 	"regexp"
 	"sync"
@@ -53,13 +54,18 @@ func ValidateContextWindow(promptTokens int, maxCompletionTokens *int64, maxMode
 type Random struct {
 	randomGenerator *rand.Rand
 	randMutex       sync.Mutex
+	uuidNamespace   uuid.UUID
+	uuidName        string
+	uuidCount       int
 }
 
-func NewRandom(seed int64) *Random {
+func NewRandom(seed int64, port int) *Random {
 	src := rand.NewSource(seed)
 	randomGenerator := rand.New(src)
-	uuid.SetRand(rand.New(rand.NewSource(seed)))
-	return &Random{randomGenerator: randomGenerator}
+	return &Random{randomGenerator: randomGenerator,
+		uuidNamespace: uuid.NameSpaceURL,
+		uuidName:      fmt.Sprintf("%d-%d", seed, port),
+	}
 }
 
 // Returns an integer between min and max (included)
@@ -122,7 +128,9 @@ func (r *Random) RandomNormTruncated(mean int, stddev int) int {
 func (r *Random) GenerateUUIDString() string {
 	r.randMutex.Lock()
 	defer r.randMutex.Unlock()
-	return uuid.NewString()
+	name := fmt.Sprintf("%s-%d", r.uuidName, r.uuidCount)
+	r.uuidCount++
+	return uuid.NewSHA1(r.uuidNamespace, []byte(name)).String()
 }
 
 func (r *Random) RandomNumericString(length int) string {

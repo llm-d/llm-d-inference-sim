@@ -35,7 +35,7 @@ var _ = Describe("Failures", func() {
 	Describe("getRandomFailure", Ordered, func() {
 		var random *common.Random
 		BeforeAll(func() {
-			random = common.NewRandom(time.Now().UnixNano())
+			random = common.NewRandom(time.Now().UnixNano(), 8080)
 		})
 
 		It("should return a failure from all types when none specified", func() {
