@@ -32,6 +32,8 @@ import (
 	. "github.com/onsi/gomega"
 )
 
+const tmpDir = "./tests-tmp/"
+
 var _ = Describe("Server", func() {
 
 	It("Should respond to /health", func() {
@@ -55,7 +57,6 @@ var _ = Describe("Server", func() {
 	})
 
 	Context("tokenize", Ordered, func() {
-		tmpDir := "./tests-tmp/"
 		AfterAll(func() {
 			err := os.RemoveAll(tmpDir)
 			Expect(err).NotTo(HaveOccurred())
@@ -212,7 +213,6 @@ var _ = Describe("Server", func() {
 	})
 
 	Context("sleep mode", Ordered, func() {
-		tmpDir := "./tests-tmp/"
 		AfterAll(func() {
 			err := os.RemoveAll(tmpDir)
 			Expect(err).NotTo(HaveOccurred())

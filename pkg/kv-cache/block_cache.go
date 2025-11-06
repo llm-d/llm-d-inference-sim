@@ -76,7 +76,7 @@ func newBlockCache(config *common.Configuration, logger logr.Logger, usageChan c
 }
 
 func (bc *blockCache) start(ctx context.Context) {
-	bc.logger.V(logging.TRACE).Info("Starting KV cache")
+	bc.logger.V(logging.INFO).Info("Starting KV cache")
 	err := bc.eventSender.Run(ctx)
 	if err != nil {
 		bc.logger.Error(err, "Sender stopped with error")
@@ -84,7 +84,7 @@ func (bc *blockCache) start(ctx context.Context) {
 }
 
 func (bc *blockCache) discard() {
-	bc.logger.V(logging.TRACE).Info("Discarding KV cache")
+	bc.logger.V(logging.INFO).Info("Discarding KV cache")
 
 	bc.mu.Lock()
 	defer bc.mu.Unlock()
@@ -101,7 +101,7 @@ func (bc *blockCache) discard() {
 }
 
 func (bc *blockCache) activate() {
-	bc.logger.V(logging.TRACE).Info("Activating KV cache")
+	bc.logger.V(logging.INFO).Info("Activating KV cache")
 
 	bc.mu.Lock()
 	defer bc.mu.Unlock()
