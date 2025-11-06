@@ -18,16 +18,11 @@ package kvcache
 
 import (
 	"context"
-	"encoding/binary"
 	"fmt"
 	"sync"
 	"time"
 
-	zmq "github.com/pebbe/zmq4"
-	"github.com/vmihailenco/msgpack/v5"
-
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
-	"github.com/llm-d/llm-d-kv-cache-manager/pkg/kvcache/kvevents"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -207,7 +202,9 @@ var _ = Describe("KV cache", Ordered, func() {
 					EventBatchSize:        1,
 				}
 
-				sub, topic := createSub(config)
+				topic := CreateKVEventsTopic(config.Port, config.Model)
+				sub, endpoint := common.CreateSub(topic)
+				config.ZMQEndpoint = endpoint
 				//nolint
 				defer sub.Close()
 
@@ -289,7 +286,7 @@ var _ = Describe("KV cache", Ordered, func() {
 				for i := range test.expectedRemovedBlocks + test.expectedStoredBlocks {
 					parts, err := sub.RecvMessageBytes(0)
 					Expect(err).NotTo(HaveOccurred())
-					stored, removed := parseEvent(parts, topic, uint64(i+1))
+					stored, removed, _ := ParseKVEvent(parts, topic, uint64(i+1))
 					storedCount += len(stored)
 					removedCount += len(removed)
 				}
@@ -309,7 +306,9 @@ var _ = Describe("KV cache", Ordered, func() {
 				ZMQMaxConnectAttempts: 3,
 			}
 
-			sub, topic := createSub(config)
+			topic := CreateKVEventsTopic(config.Port, config.Model)
+			sub, endpoint := common.CreateSub(topic)
+			config.ZMQEndpoint = endpoint
 			//nolint
 			defer sub.Close()
 
@@ -378,7 +377,7 @@ var _ = Describe("KV cache", Ordered, func() {
 			for {
 				parts, err := sub.RecvMessageBytes(0)
 				Expect(err).NotTo(HaveOccurred())
-				stored, removed := parseEvent(parts, topic, count)
+				stored, removed, _ := ParseKVEvent(parts, topic, count)
 				storedBlocks = append(storedBlocks, stored...)
 				removedBlocks = append(removedBlocks, removed...)
 				count++
@@ -483,68 +482,4 @@ func createRandomArray(minArrLen, maxArrLen int, maxValue uint64, random *common
 	}
 
 	return arr
-}
-
-func parseEvent(parts [][]byte, expectedTopic string, expectedSeq uint64) ([]uint64, []uint64) {
-	// The message should be [topic, seq, payload]
-	Expect(parts).To(HaveLen(3))
-
-	Expect(string(parts[0])).To(Equal(expectedTopic))
-
-	seq := binary.BigEndian.Uint64(parts[1])
-	Expect(seq).To(Equal(expectedSeq))
-
-	removed := make([]uint64, 0)
-	stored := make([]uint64, 0)
-
-	var eventBatch kvevents.EventBatch
-	err := msgpack.Unmarshal(parts[2], &eventBatch)
-	Expect(err).NotTo(HaveOccurred())
-	for _, rawEvent := range eventBatch.Events {
-		var taggedUnion []msgpack.RawMessage
-		err := msgpack.Unmarshal(rawEvent, &taggedUnion)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(len(taggedUnion)).To(BeNumerically(">", 1))
-
-		payloadBytes, err := msgpack.Marshal(taggedUnion[1:])
-		Expect(err).NotTo(HaveOccurred())
-
-		var tag string
-		err = msgpack.Unmarshal(taggedUnion[0], &tag)
-		Expect(err).NotTo(HaveOccurred())
-
-		switch tag {
-		case kvevents.BlockStoredEventTag:
-			var bs kvevents.BlockStored
-			err = msgpack.Unmarshal(payloadBytes, &bs)
-			stored = append(stored, bs.BlockHashes...)
-		case kvevents.BlockRemovedEventTag:
-			var br kvevents.BlockRemoved
-			err = msgpack.Unmarshal(payloadBytes, &br)
-			removed = append(removed, br.BlockHashes...)
-
-		default:
-			Fail("unexpected tag " + tag)
-			continue
-		}
-		Expect(err).NotTo(HaveOccurred())
-	}
-	return stored, removed
-}
-
-func createSub(config *common.Configuration) (*zmq.Socket, string) {
-	zctx, err := zmq.NewContext()
-	Expect(err).NotTo(HaveOccurred())
-	sub, err := zctx.NewSocket(zmq.SUB)
-	Expect(err).NotTo(HaveOccurred())
-	err = sub.Bind(wildcardEndpoint)
-	Expect(err).NotTo(HaveOccurred())
-	// get the actual port
-	endpoint, err := sub.GetLastEndpoint()
-	Expect(err).NotTo(HaveOccurred())
-	config.ZMQEndpoint = endpoint
-	topic := createTopic(config)
-	err = sub.SetSubscribe(topic)
-	Expect(err).NotTo(HaveOccurred())
-	return sub, topic
 }

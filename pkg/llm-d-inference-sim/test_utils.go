@@ -213,6 +213,14 @@ func sendSimpleChatRequest(envs map[string]string, streaming bool) *http.Respons
 	return httpResp
 }
 
+// sendTextCompletionRequest sends one text completions request
+func sendTextCompletionRequest(ctx context.Context, client *http.Client, streaming bool, message string) {
+	openaiclient, params := getOpenAIClientAndTextParams(client, qwenModelName, message, streaming)
+	resp, err := openaiclient.Completions.New(ctx, params)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(resp).NotTo(gomega.BeNil())
+}
+
 // getOpenAIClientAndChatParams - creates an openai client and params for /chat/completions call based on the given parameters
 func getOpenAIClientAndChatParams(client option.HTTPClient, model string, message string,
 	streaming bool) (openai.Client, openai.ChatCompletionNewParams) {
@@ -512,4 +520,19 @@ func checkLatencyMetrics(client *http.Client, modelName string, numOfInputTokens
 	checkBucketBoundary(metrics, modelName, prefillTimeMetricName, math.Inf(1), lastBoundary, expectedPrefillTimeInSecs)
 	checkBucketBoundary(metrics, modelName, decodeTimeMetricName, math.Inf(1), lastBoundary, expectedDecodeTimeInSecs)
 	checkBucketBoundary(metrics, modelName, e2eReqLatencyMetricName, math.Inf(1), lastBoundary, expectedE2ELatency)
+}
+
+func checkSimSleeping(client *http.Client, expectedToSleep bool) {
+	resp, err := client.Get("http://localhost/is_sleeping")
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(resp.StatusCode).To(gomega.Equal(http.StatusOK))
+	defer func() {
+		err := resp.Body.Close()
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	}()
+
+	body, err := io.ReadAll(resp.Body)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	expect := fmt.Sprintf("{\"is_sleeping\":%t}", expectedToSleep)
+	gomega.Expect(string(body)).To(gomega.Equal(expect))
 }

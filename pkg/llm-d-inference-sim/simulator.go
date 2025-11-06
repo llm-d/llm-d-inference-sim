@@ -190,6 +190,16 @@ type VllmSimulator struct {
 	// rand with a configurable seed to generate reproducible random responses
 	random *common.Random
 
+	// indication whether the simulator is sleeping
+	isSleeping bool
+	// indication whether the simulator is in development mode, set by environment
+	// variable VLLM_SERVER_DEV_MODE
+	isInDevMode bool
+	// in sleep mode, and if woken up with weights only, kv cache is disabled
+	kvCacheDisabled bool
+	// a mutex for sleep-wake up
+	sleepMutex sync.RWMutex
+
 	// a channel for free workers
 	freeWorkers chan *worker
 	// a channel to indicate that a worker finished working on a request
@@ -217,6 +227,7 @@ func New(logger logr.Logger) (*VllmSimulator, error) {
 		kvcacheHelper:  nil, // kvcache helper will be created only if required after reading configuration
 		namespace:      os.Getenv(podNsEnv),
 		pod:            os.Getenv(podNameEnv),
+		isInDevMode:    os.Getenv("VLLM_SERVER_DEV_MODE") == "1",
 		loras: &lorasUsageInfo{
 			loadedLoras: make(map[string]int),
 		},

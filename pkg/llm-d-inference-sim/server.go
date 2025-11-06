@@ -61,6 +61,9 @@ func (s *VllmSimulator) startServer(ctx context.Context, listener net.Listener) 
 	r.GET("/health", s.HandleHealth)
 	r.GET("/ready", s.HandleReady)
 	r.POST("/tokenize", s.HandleTokenize)
+	r.POST("/sleep", s.HandleSleep)
+	r.POST("/wake_up", s.HandleWakeUp)
+	r.GET("/is_sleeping", s.HandleIsSleeping)
 
 	server := &fasthttp.Server{
 		ErrorHandler: s.HandleError,
@@ -325,4 +328,70 @@ func (s *VllmSimulator) HandleReady(ctx *fasthttp.RequestCtx) {
 	ctx.Response.Header.SetContentType("application/json")
 	ctx.Response.Header.SetStatusCode(fasthttp.StatusOK)
 	ctx.Response.SetBody([]byte("{}"))
+}
+
+// HandleIsSleeping handles /is_sleeping request according
+func (s *VllmSimulator) HandleIsSleeping(ctx *fasthttp.RequestCtx) {
+	s.logger.V(logging.TRACE).Info("/is_sleeping request received")
+
+	s.sleepMutex.RLock()
+	defer s.sleepMutex.RUnlock()
+	data, err := json.Marshal(map[string]bool{"is_sleeping": s.isSleeping})
+	if err != nil {
+		s.logger.Error(err, "failed to marshal isSleeping response")
+		ctx.Error("Failed to marshal isSleeping response, "+err.Error(), fasthttp.StatusInternalServerError)
+		return
+	}
+
+	ctx.Response.Header.SetContentType("application/json")
+	ctx.Response.Header.SetStatusCode(fasthttp.StatusOK)
+	ctx.Response.SetBody(data)
+}
+
+// HandleSleep http handler for /sleep
+func (s *VllmSimulator) HandleSleep(ctx *fasthttp.RequestCtx) {
+	s.logger.V(logging.INFO).Info("Sleep request received")
+
+	if s.config.EnableSleepMode && s.isInDevMode {
+		s.sleepMutex.Lock()
+		defer s.sleepMutex.Unlock()
+
+		s.isSleeping = true
+		s.kvCacheDisabled = true
+		if s.config.EnableKVCache {
+			s.kvcacheHelper.Discard()
+		}
+	}
+
+	ctx.Response.Header.SetStatusCode(fasthttp.StatusOK)
+}
+
+// HandleWakeUp http handler for /wake_up
+func (s *VllmSimulator) HandleWakeUp(ctx *fasthttp.RequestCtx) {
+	s.logger.V(logging.INFO).Info("Wake up request received")
+
+	var wakeUpWeights, wakeUpKVCache bool
+	tags := ctx.QueryArgs().Peek("tags")
+	if tags != nil {
+		if string(tags) == "weights" {
+			wakeUpWeights = true
+		} else if string(tags) == "kv_cache" {
+			wakeUpKVCache = true
+		}
+	}
+
+	s.sleepMutex.Lock()
+	defer s.sleepMutex.Unlock()
+
+	// Activate the kv cache if either the sim is sleeping and the wake up tags are not
+	// "only weights", or the sim is not sleeping but the cache is still disabled
+	// and the tags are "only kv cache"
+	if s.config.EnableKVCache && (s.isSleeping && !wakeUpWeights) || (!s.isSleeping && s.kvCacheDisabled && wakeUpKVCache) {
+		s.kvCacheDisabled = false
+		s.kvcacheHelper.Activate()
+	}
+
+	s.isSleeping = false
+
+	ctx.Response.Header.SetStatusCode(fasthttp.StatusOK)
 }

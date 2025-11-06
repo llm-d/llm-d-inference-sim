@@ -63,6 +63,14 @@ func (h *KVCacheHelper) Run(ctx context.Context) {
 	h.blockCache.start(ctx)
 }
 
+func (h *KVCacheHelper) Discard() {
+	h.blockCache.discard()
+}
+
+func (h *KVCacheHelper) Activate() {
+	h.blockCache.activate()
+}
+
 func (h *KVCacheHelper) OnRequestStart(vllmReq openaiserverapi.CompletionRequest) error {
 	h.logger.V(logging.TRACE).Info("KV cache - process request")
 

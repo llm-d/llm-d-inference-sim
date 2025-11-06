@@ -32,6 +32,7 @@ type EventAction int
 const (
 	eventActionStore EventAction = iota
 	eventActionRemove
+	eventActionAllBlocksCleared
 )
 
 type EventData struct {
@@ -97,6 +98,8 @@ func (s *KVEventSender) Run(ctx context.Context) error {
 				payload, err = msgpack.Marshal(kvevents.BlockStored{BlockHashes: eventData.hashValues}.ToTaggedUnion())
 			case eventActionRemove:
 				payload, err = msgpack.Marshal(kvevents.BlockRemoved{BlockHashes: eventData.hashValues}.ToTaggedUnion())
+			case eventActionAllBlocksCleared:
+				payload, err = msgpack.Marshal(kvevents.AllBlocksCleared{}.ToTaggedUnion())
 			default:
 				return fmt.Errorf("invalid event action %d", eventData.action)
 			}

@@ -24,6 +24,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
+	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 )
 
 const (
@@ -42,6 +43,7 @@ type blockCache struct {
 	eventChan       chan EventData       // channel for asynchronous event processing
 	usageChan       chan float64         // channel for usage reporting
 	logger          logr.Logger
+	disabled        bool // indicated whether the cache is disabled
 }
 
 // newBlockCache creates a new blockCache with the specified maximum number of blocks
@@ -58,6 +60,9 @@ func newBlockCache(config *common.Configuration, logger logr.Logger, usageChan c
 		}
 	}
 
+	eventSender := NewKVEventSender(publisher, CreateKVEventsTopic(config.Port, config.Model),
+		eChan, config.EventBatchSize, delay, logger)
+
 	return &blockCache{
 		requestToBlocks: make(map[string][]uint64),
 		usedBlocks:      make(map[uint64]int),
@@ -65,16 +70,43 @@ func newBlockCache(config *common.Configuration, logger logr.Logger, usageChan c
 		maxBlocks:       config.KVCacheSize,
 		eventChan:       eChan,
 		usageChan:       usageChan,
-		eventSender:     NewKVEventSender(publisher, createTopic(config), eChan, config.EventBatchSize, delay, logger),
+		eventSender:     eventSender,
 		logger:          logger,
 	}, nil
 }
 
 func (bc *blockCache) start(ctx context.Context) {
+	bc.logger.V(logging.TRACE).Info("Starting KV cache")
 	err := bc.eventSender.Run(ctx)
 	if err != nil {
 		bc.logger.Error(err, "Sender stopped with error")
 	}
+}
+
+func (bc *blockCache) discard() {
+	bc.logger.V(logging.TRACE).Info("Discarding KV cache")
+
+	bc.mu.Lock()
+	defer bc.mu.Unlock()
+
+	bc.disabled = true
+
+	bc.requestToBlocks = make(map[string][]uint64)
+	bc.usedBlocks = make(map[uint64]int)
+	bc.unusedBlocks = make(map[uint64]time.Time)
+
+	common.WriteToChannel(bc.eventChan,
+		EventData{action: eventActionAllBlocksCleared},
+		bc.logger, "block cache eventChan")
+}
+
+func (bc *blockCache) activate() {
+	bc.logger.V(logging.TRACE).Info("Activating KV cache")
+
+	bc.mu.Lock()
+	defer bc.mu.Unlock()
+
+	bc.disabled = false
 }
 
 // startRequest adds a request with its associated block hashes to the cache
@@ -82,6 +114,11 @@ func (bc *blockCache) start(ctx context.Context) {
 func (bc *blockCache) startRequest(requestID string, blocks []uint64) (int, error) {
 	bc.mu.Lock()
 	defer bc.mu.Unlock()
+
+	if bc.disabled {
+		bc.logger.V(logging.TRACE).Info("KV cache is disabled, request is not added to the kv cache")
+		return 0, nil
+	}
 
 	if _, exists := bc.requestToBlocks[requestID]; exists {
 		// request with the same id already exists
@@ -167,6 +204,11 @@ func (bc *blockCache) finishRequest(requestID string) error {
 	bc.mu.Lock()
 	defer bc.mu.Unlock()
 
+	if bc.disabled {
+		bc.logger.V(logging.TRACE).Info("KV cache is disabled, request completion is not processed by the kv cache")
+		return nil
+	}
+
 	// Get blocks associated with this request
 	blockHashes, exists := bc.requestToBlocks[requestID]
 	if !exists {
@@ -239,6 +281,6 @@ func (bc *blockCache) getBlockInfo(blockHash uint64) (int, bool) {
 	return 0, false
 }
 
-func createTopic(config *common.Configuration) string {
-	return fmt.Sprintf("kv@$localhost:%d@%s", config.Port, config.Model)
+func CreateKVEventsTopic(port int, model string) string {
+	return fmt.Sprintf("kv@$localhost:%d@%s", port, model)
 }
