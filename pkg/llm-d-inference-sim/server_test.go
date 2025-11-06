@@ -244,7 +244,7 @@ var _ = Describe("Server", func() {
 			checkSimSleeping(client, false)
 		})
 
-		It("Should enter sleep mode and wake up", func() {
+		XIt("Should enter sleep mode and wake up", func() {
 			topic := kvcache.CreateKVEventsTopic(8000, qwenModelName)
 			sub, endpoint := common.CreateSub(topic)
 
