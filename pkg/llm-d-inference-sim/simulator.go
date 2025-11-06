@@ -195,8 +195,6 @@ type VllmSimulator struct {
 	// indication whether the simulator is in development mode, set by environment
 	// variable VLLM_SERVER_DEV_MODE
 	isInDevMode bool
-	// in sleep mode, and if woken up with weights only, kv cache is disabled
-	kvCacheDisabled bool
 	// a mutex for sleep-wake up
 	sleepMutex sync.RWMutex
 

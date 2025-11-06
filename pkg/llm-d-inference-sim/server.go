@@ -357,7 +357,6 @@ func (s *VllmSimulator) HandleSleep(ctx *fasthttp.RequestCtx) {
 		defer s.sleepMutex.Unlock()
 
 		s.isSleeping = true
-		s.kvCacheDisabled = true
 		if s.config.EnableKVCache {
 			s.kvcacheHelper.Discard()
 		}
@@ -370,24 +369,21 @@ func (s *VllmSimulator) HandleSleep(ctx *fasthttp.RequestCtx) {
 func (s *VllmSimulator) HandleWakeUp(ctx *fasthttp.RequestCtx) {
 	s.logger.V(logging.INFO).Info("Wake up request received")
 
-	var wakeUpWeights, wakeUpKVCache bool
+	var wakeUpKVCache bool
 	tags := ctx.QueryArgs().Peek("tags")
 	if tags != nil {
-		if string(tags) == "weights" {
-			wakeUpWeights = true
-		} else if string(tags) == "kv_cache" {
+		if string(tags) == "kv_cache" {
 			wakeUpKVCache = true
 		}
+	} else {
+		wakeUpKVCache = true
 	}
 
 	s.sleepMutex.Lock()
 	defer s.sleepMutex.Unlock()
 
-	// Activate the kv cache if either the sim is sleeping and the wake up tags are not
-	// "only weights", or the sim is not sleeping but the cache is still disabled
-	// and the tags are "only kv cache"
-	if s.config.EnableKVCache && (s.isSleeping && !wakeUpWeights) || (!s.isSleeping && s.kvCacheDisabled && wakeUpKVCache) {
-		s.kvCacheDisabled = false
+	// Activate the kv cache if either the tags are "kv_cache" or there are no tags
+	if s.config.EnableKVCache && wakeUpKVCache {
 		s.kvcacheHelper.Activate()
 	}
 

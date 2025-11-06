@@ -211,7 +211,13 @@ var _ = Describe("Server", func() {
 
 	})
 
-	Context("sleep mode", func() {
+	Context("sleep mode", Ordered, func() {
+		tmpDir := "./tests-tmp/"
+		AfterAll(func() {
+			err := os.RemoveAll(tmpDir)
+			Expect(err).NotTo(HaveOccurred())
+		})
+
 		It("Should respond to /is_sleeping", func() {
 			ctx := context.TODO()
 			client, err := startServer(ctx, common.ModeRandom)
@@ -252,7 +258,8 @@ var _ = Describe("Server", func() {
 			ctx := context.TODO()
 			client, err := startServerWithArgsAndEnv(ctx, common.ModeRandom,
 				[]string{"cmd", "--model", qwenModelName, "--mode", common.ModeRandom, "--enable-sleep-mode",
-					"--enable-kvcache", "--v", "5", "--port", "8000", "--zmq-endpoint", endpoint},
+					"--enable-kvcache", "--v", "5", "--port", "8000", "--zmq-endpoint", endpoint,
+					"--tokenizers-cache-dir", tmpDir},
 				map[string]string{"VLLM_SERVER_DEV_MODE": "1"})
 			Expect(err).NotTo(HaveOccurred())
 
@@ -284,10 +291,7 @@ var _ = Describe("Server", func() {
 			checkSimSleeping(client, true)
 
 			// Send a request
-			go func() {
-				time.Sleep(200 * time.Millisecond)
-				sendTextCompletionRequest(ctx, client)
-			}()
+			go sendTextCompletionRequest(ctx, client)
 
 			resp, err := client.Post("http://localhost/wake_up", "", nil)
 			Expect(err).NotTo(HaveOccurred())
