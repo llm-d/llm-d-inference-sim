@@ -258,10 +258,8 @@ var _ = Describe("Server", func() {
 			//nolint
 			defer sub.Close()
 
-			message := "aa bb cc dd ee ff gg hh ii jj aa bb cc dd ee ff gg hh ii jj"
-
 			// Send a request, check that a kv event BlockStored was sent
-			go sendTextCompletionRequest(ctx, client, false, message)
+			go sendTextCompletionRequest(ctx, client)
 			parts, err := sub.RecvMessageBytes(0)
 			Expect(err).NotTo(HaveOccurred())
 			stored, _, _ := kvcache.ParseKVEvent(parts, topic, uint64(1))
@@ -281,7 +279,7 @@ var _ = Describe("Server", func() {
 			checkSimSleeping(client, true)
 
 			// Send a request
-			go sendTextCompletionRequest(ctx, client, false, message)
+			go sendTextCompletionRequest(ctx, client)
 
 			resp, err := client.Post("http://localhost/wake_up", "", nil)
 			Expect(err).NotTo(HaveOccurred())
@@ -292,7 +290,7 @@ var _ = Describe("Server", func() {
 			// Send a request, check that a kv event BlockStored was sent,
 			// this checks that in sleep mode the kv cache was disabled.
 			// The sequence number of the event is an addition check.
-			go sendTextCompletionRequest(ctx, client, false, message)
+			go sendTextCompletionRequest(ctx, client)
 			parts, err = sub.RecvMessageBytes(0)
 			Expect(err).NotTo(HaveOccurred())
 			stored, _, _ = kvcache.ParseKVEvent(parts, topic, uint64(3))
@@ -320,7 +318,7 @@ var _ = Describe("Server", func() {
 			checkSimSleeping(client, false)
 
 			// Send a request
-			go sendTextCompletionRequest(ctx, client, false, message)
+			go sendTextCompletionRequest(ctx, client)
 
 			// Now wake up the cache
 			resp, err = client.Post("http://localhost/wake_up?tags=kv_cache", "", nil)
@@ -332,7 +330,7 @@ var _ = Describe("Server", func() {
 			// Send a request, check that a kv event BlockStored was sent,
 			// this checks that the kv cache was disabled after waking up with weights.
 			// The sequence number of the event is an addition check.
-			go sendTextCompletionRequest(ctx, client, false, message)
+			go sendTextCompletionRequest(ctx, client)
 			parts, err = sub.RecvMessageBytes(0)
 			Expect(err).NotTo(HaveOccurred())
 			stored, _, _ = kvcache.ParseKVEvent(parts, topic, uint64(5))

@@ -58,6 +58,7 @@ func startServer(ctx context.Context, mode string) (*http.Client, error) {
 }
 
 // Starts server in the given mode and environment variables
+// nolint
 func startServerWithEnv(ctx context.Context, mode string, envs map[string]string) (*http.Client, error) {
 	return startServerWithArgsAndEnv(ctx, mode, nil, envs)
 }
@@ -214,8 +215,9 @@ func sendSimpleChatRequest(envs map[string]string, streaming bool) *http.Respons
 }
 
 // sendTextCompletionRequest sends one text completions request
-func sendTextCompletionRequest(ctx context.Context, client *http.Client, streaming bool, message string) {
-	openaiclient, params := getOpenAIClientAndTextParams(client, qwenModelName, message, streaming)
+func sendTextCompletionRequest(ctx context.Context, client *http.Client) {
+	message := "aa bb cc dd ee ff gg hh ii jj aa bb cc dd ee ff gg hh ii jj"
+	openaiclient, params := getOpenAIClientAndTextParams(client, qwenModelName, message, false)
 	resp, err := openaiclient.Completions.New(ctx, params)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	gomega.Expect(resp).NotTo(gomega.BeNil())

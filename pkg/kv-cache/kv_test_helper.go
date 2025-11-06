@@ -45,7 +45,7 @@ func ParseKVEvent(parts [][]byte, expectedTopic string, expectedSeq uint64) ([]u
 		var taggedUnion []msgpack.RawMessage
 		err := msgpack.Unmarshal(rawEvent, &taggedUnion)
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(len(taggedUnion)).To(gomega.BeNumerically(">=", 1))
+		gomega.Expect(taggedUnion).ToNot(gomega.BeEmpty())
 
 		payloadBytes, err := msgpack.Marshal(taggedUnion[1:])
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
