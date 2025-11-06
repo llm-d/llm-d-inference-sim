@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	kvcache "github.com/llm-d/llm-d-inference-sim/pkg/kv-cache"
@@ -244,7 +245,7 @@ var _ = Describe("Server", func() {
 			checkSimSleeping(client, false)
 		})
 
-		XIt("Should enter sleep mode and wake up", func() {
+		It("Should enter sleep mode and wake up", func() {
 			topic := kvcache.CreateKVEventsTopic(8000, qwenModelName)
 			sub, endpoint := common.CreateSub(topic)
 
@@ -259,7 +260,10 @@ var _ = Describe("Server", func() {
 			defer sub.Close()
 
 			// Send a request, check that a kv event BlockStored was sent
-			go sendTextCompletionRequest(ctx, client)
+			go func() {
+				time.Sleep(200 * time.Millisecond)
+				sendTextCompletionRequest(ctx, client)
+			}()
 			parts, err := sub.RecvMessageBytes(0)
 			Expect(err).NotTo(HaveOccurred())
 			stored, _, _ := kvcache.ParseKVEvent(parts, topic, uint64(1))
@@ -267,6 +271,7 @@ var _ = Describe("Server", func() {
 
 			// Sleep and check that AllBlocksCleared event was sent
 			go func() {
+				time.Sleep(200 * time.Millisecond)
 				resp, err := client.Post("http://localhost/sleep", "", nil)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(resp.StatusCode).To(Equal(http.StatusOK))
@@ -279,7 +284,10 @@ var _ = Describe("Server", func() {
 			checkSimSleeping(client, true)
 
 			// Send a request
-			go sendTextCompletionRequest(ctx, client)
+			go func() {
+				time.Sleep(200 * time.Millisecond)
+				sendTextCompletionRequest(ctx, client)
+			}()
 
 			resp, err := client.Post("http://localhost/wake_up", "", nil)
 			Expect(err).NotTo(HaveOccurred())
@@ -290,7 +298,10 @@ var _ = Describe("Server", func() {
 			// Send a request, check that a kv event BlockStored was sent,
 			// this checks that in sleep mode the kv cache was disabled.
 			// The sequence number of the event is an addition check.
-			go sendTextCompletionRequest(ctx, client)
+			go func() {
+				time.Sleep(200 * time.Millisecond)
+				sendTextCompletionRequest(ctx, client)
+			}()
 			parts, err = sub.RecvMessageBytes(0)
 			Expect(err).NotTo(HaveOccurred())
 			stored, _, _ = kvcache.ParseKVEvent(parts, topic, uint64(3))
@@ -298,6 +309,7 @@ var _ = Describe("Server", func() {
 
 			// Sleep again and wait for AllBlocksCleared
 			go func() {
+				time.Sleep(200 * time.Millisecond)
 				resp, err := client.Post("http://localhost/sleep", "", nil)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(resp.StatusCode).To(Equal(http.StatusOK))
@@ -330,7 +342,10 @@ var _ = Describe("Server", func() {
 			// Send a request, check that a kv event BlockStored was sent,
 			// this checks that the kv cache was disabled after waking up with weights.
 			// The sequence number of the event is an addition check.
-			go sendTextCompletionRequest(ctx, client)
+			go func() {
+				time.Sleep(200 * time.Millisecond)
+				sendTextCompletionRequest(ctx, client)
+			}()
 			parts, err = sub.RecvMessageBytes(0)
 			Expect(err).NotTo(HaveOccurred())
 			stored, _, _ = kvcache.ParseKVEvent(parts, topic, uint64(5))
