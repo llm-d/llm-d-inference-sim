@@ -49,6 +49,7 @@ const (
 	reqRunningMetricName             = "vllm:num_requests_running"
 	reqWaitingMetricName             = "vllm:num_requests_waiting"
 	gpuCacheUsageMetricName          = "vllm:gpu_cache_usage_perc"
+	cacheConfigName                  = "vllm:cache_config_info"
 )
 
 // createAndRegisterPrometheus creates and registers prometheus metrics used by vLLM simulator
@@ -85,7 +86,6 @@ func (s *VllmSimulator) createAndRegisterPrometheus() error {
 		return err
 	}
 
-	// not supported for now, reports constant value
 	s.metrics.waitingRequests = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: "",
@@ -288,14 +288,27 @@ func (s *VllmSimulator) createAndRegisterPrometheus() error {
 		return err
 	}
 
-	s.setInitialPrometheusMetrics()
+	cacheConfig := prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: "",
+			Name:      cacheConfigName,
+			Help:      "Information of the LLMEngine CacheConfig.",
+		},
+		[]string{vllmapi.PromLabelCacheBlockSize, vllmapi.PromLabelCacheNumGPUBlocks},
+	)
+	if err := s.metrics.registry.Register(cacheConfig); err != nil {
+		s.logger.Error(err, "prometheus cache config register failed")
+		return err
+	}
+
+	s.setInitialPrometheusMetrics(cacheConfig)
 
 	return nil
 }
 
 // setInitialPrometheusMetrics sends the default values to prometheus or
 // the fake metrics if set
-func (s *VllmSimulator) setInitialPrometheusMetrics() {
+func (s *VllmSimulator) setInitialPrometheusMetrics(cacheConfig *prometheus.GaugeVec) {
 	var nRunningReqs, nWaitingReqs, kvCacheUsage float64
 	modelName := s.getDisplayedModelName(s.config.Model)
 	if s.config.FakeMetrics != nil {
@@ -351,6 +364,8 @@ func (s *VllmSimulator) setInitialPrometheusMetrics() {
 	s.metrics.runningRequests.WithLabelValues(modelName).Set(nRunningReqs)
 	s.metrics.waitingRequests.WithLabelValues(modelName).Set(nWaitingReqs)
 	s.metrics.kvCacheUsagePercentage.WithLabelValues(modelName).Set(kvCacheUsage)
+
+	cacheConfig.WithLabelValues(strconv.Itoa(s.config.TokenBlockSize), strconv.Itoa(s.config.KVCacheSize)).Set(1)
 
 	if s.config.FakeMetrics != nil && len(s.config.FakeMetrics.LoraMetrics) != 0 {
 		for _, metrics := range s.config.FakeMetrics.LoraMetrics {

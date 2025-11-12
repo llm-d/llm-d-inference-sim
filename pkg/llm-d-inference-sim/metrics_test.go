@@ -598,6 +598,24 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 			}()
 			wg.Wait()
 		})
+
+		It("Should send correct kv cache config metrics", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", qwenModelName, "--mode", common.ModeRandom,
+				"--kv-cache-size", "16", "--block-size", "8"}
+
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			metricsResp, err := client.Get(metricsUrl)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
+
+			data, err := io.ReadAll(metricsResp.Body)
+			Expect(err).NotTo(HaveOccurred())
+			metrics := string(data)
+			Expect(metrics).To(ContainSubstring("vllm:cache_config_info{block_size=\"8\",num_gpu_blocks=\"16\"} 1"))
+		})
 	})
 
 	Context("fake metrics", func() {
