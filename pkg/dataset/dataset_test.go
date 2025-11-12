@@ -17,39 +17,53 @@ limitations under the License.
 package dataset
 
 import (
+	"context"
 	"fmt"
 	"strings"
+
 	"time"
 
+	"github.com/go-logr/logr"
+	"github.com/go-logr/logr/funcr"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
 
+func NewStdoutLogger() logr.Logger {
+	return funcr.New(func(prefix, args string) {
+		if prefix != "" {
+			fmt.Printf("%s: %s\n", prefix, args)
+		} else {
+			fmt.Println(args)
+		}
+	}, funcr.Options{})
+}
+
 var _ = Describe("Dataset", Ordered, func() {
 	var (
 		dataset *BaseDataset
-		random  *common.Random
 	)
 
-	BeforeAll(func() {
-		random = common.NewRandom(time.Now().UnixNano(), 8080)
-	})
+	createDataset := func() {
+		dataset = &BaseDataset{}
+		err := dataset.Init(context.Background(), NewStdoutLogger(), common.NewRandom(time.Now().UnixNano(), 8080), 1024)
+		Expect(err).ShouldNot(HaveOccurred())
+	}
 
 	BeforeEach(func() {
-		dataset = &BaseDataset{}
+		createDataset()
 	})
 
 	Context("GetRandomTokens", func() {
-
 		It("should return complete text", func() {
 			req := &openaiserverapi.ChatCompletionRequest{}
-			tokens, finishReason, err := dataset.GetTokens(req, common.ModeRandom, random)
+			tokens, finishReason, err := dataset.GetTokens(req, common.ModeRandom)
 			Expect(err).ShouldNot(HaveOccurred())
 			text := strings.Join(tokens, "")
 			Expect(IsValidText(text)).To(BeTrue())
-			Expect(finishReason).Should(Equal(StopFinishReason))
+			Expect(finishReason).Should(Equal(common.StopFinishReason))
 		})
 
 		It("should return short text", func() {
@@ -57,35 +71,34 @@ var _ = Describe("Dataset", Ordered, func() {
 			req := &openaiserverapi.ChatCompletionRequest{
 				MaxCompletionTokens: &maxCompletionTokens,
 			}
-			tokens, finishReason, err := dataset.GetTokens(req, common.ModeRandom, random)
+			tokens, finishReason, err := dataset.GetTokens(req, common.ModeRandom)
 			Expect(err).ShouldNot(HaveOccurred())
 			tokensCnt := int64(len(tokens))
 			Expect(tokensCnt).Should(BeNumerically("<=", maxCompletionTokens))
 			if tokensCnt == maxCompletionTokens {
-				Expect(finishReason).To(Equal(LengthFinishReason))
+				Expect(finishReason).To(Equal(common.LengthFinishReason))
 			} else {
 				Expect(tokensCnt).To(BeNumerically("<", maxCompletionTokens))
-				Expect(finishReason).To(Equal(StopFinishReason))
+				Expect(finishReason).To(Equal(common.StopFinishReason))
 			}
 		})
 
 		It("should return long text", func() {
-			// return required number of tokens although it is higher than ResponseLenMax
-			maxCompletionTokens := int64(ResponseLenMax * 5)
+			maxCompletionTokens := int64(1000)
 			req := &openaiserverapi.ChatCompletionRequest{
 				MaxTokens: &maxCompletionTokens,
 			}
-			tokens, finishReason, err := dataset.GetTokens(req, common.ModeRandom, random)
+			tokens, finishReason, err := dataset.GetTokens(req, common.ModeRandom)
 			Expect(err).ShouldNot(HaveOccurred())
 			tokensCnt := int64(len(tokens))
 			Expect(tokensCnt).Should(BeNumerically("<=", maxCompletionTokens))
 			text := strings.Join(tokens, "")
 			Expect(IsValidText(text)).To(BeTrue())
 			if tokensCnt == maxCompletionTokens {
-				Expect(finishReason).To(Equal(LengthFinishReason))
+				Expect(finishReason).To(Equal(common.LengthFinishReason))
 			} else {
 				Expect(tokensCnt).To(BeNumerically("<", maxCompletionTokens))
-				Expect(finishReason).To(Equal(StopFinishReason))
+				Expect(finishReason).To(Equal(common.StopFinishReason))
 			}
 		})
 
@@ -96,11 +109,11 @@ var _ = Describe("Dataset", Ordered, func() {
 					MaxTokens: &n,
 				}
 				req.SetIgnoreEOS(true)
-				tokens, finishReason, err := dataset.GetTokens(req, common.ModeRandom, random)
+				tokens, finishReason, err := dataset.GetTokens(req, common.ModeRandom)
 				Expect(err).ShouldNot(HaveOccurred())
 				nGenTokens := int64(len(tokens))
 				Expect(nGenTokens).Should(Equal(n))
-				Expect(finishReason).To(Equal(LengthFinishReason))
+				Expect(finishReason).To(Equal(common.LengthFinishReason))
 			},
 			func(maxCompletionTokens int) string {
 				return fmt.Sprintf("maxCompletionTokens: %d", maxCompletionTokens)
@@ -116,22 +129,36 @@ var _ = Describe("Dataset", Ordered, func() {
 		theText := "Give a man a fish and you feed him for a day; teach a man to fish and you feed him for a lifetime"
 		theTokens := common.Tokenize(theText)
 
-		It("should return the same text since max tokens is not defined", func() {
-			tokens, finishReason := EchoResponseTokens(nil, theText)
+		It("should return the same text, max tokens is not defined", func() {
+			req := &openaiserverapi.TextCompletionRequest{
+				Prompt: theText,
+			}
+			tokens, finishReason, err := dataset.getTokensInEchoMode(req)
+			Expect(err).ShouldNot(HaveOccurred())
 			Expect(tokens).Should(Equal(theTokens))
-			Expect(finishReason).Should(Equal(StopFinishReason))
+			Expect(finishReason).Should(Equal(common.StopFinishReason))
 		})
-		It("should return the same text since max tokens is higher than the text length", func() {
-			maxCompletionTokens := int64(1000)
-			tokens, finishReason := EchoResponseTokens(&maxCompletionTokens, theText)
+		It("should return the same text, max tokens is higher than the text length", func() {
+			maxTokens := int64(1000)
+			req := &openaiserverapi.TextCompletionRequest{
+				Prompt:    theText,
+				MaxTokens: &maxTokens,
+			}
+			tokens, finishReason, err := dataset.getTokensInEchoMode(req)
+			Expect(err).ShouldNot(HaveOccurred())
 			Expect(tokens).Should(Equal(theTokens))
-			Expect(finishReason).Should(Equal(StopFinishReason))
+			Expect(finishReason).Should(Equal(common.StopFinishReason))
 		})
-		It("should return partial text", func() {
-			maxCompletionTokens := int64(2)
-			tokens, finishReason := EchoResponseTokens(&maxCompletionTokens, theText)
-			Expect(int64(len(tokens))).Should(Equal(maxCompletionTokens))
-			Expect(finishReason).Should(Equal(LengthFinishReason))
+		It("should return the same text, finish reason is stop", func() {
+			maxTokens := int64(2)
+			req := &openaiserverapi.TextCompletionRequest{
+				Prompt:    theText,
+				MaxTokens: &maxTokens,
+			}
+			tokens, finishReason, err := dataset.getTokensInEchoMode(req)
+			Expect(err).ShouldNot(HaveOccurred())
+			Expect(tokens).Should(Equal(theTokens))
+			Expect(finishReason).Should(Equal(common.LengthFinishReason))
 		})
 	})
 
@@ -141,7 +168,7 @@ var _ = Describe("Dataset", Ordered, func() {
 		for _, len := range lenArr {
 			name := fmt.Sprintf("should return text with %d tokens", len)
 			It(name, func() {
-				tokens := GenPresetRandomTokens(random, len)
+				tokens := dataset.generatePresetRandomTokens(len)
 				Expect(tokens).Should(HaveLen(len))
 			})
 		}
@@ -151,15 +178,15 @@ var _ = Describe("Dataset", Ordered, func() {
 		validTxts := make([]string, 0)
 		invalidTxts := make([]string, 0)
 
-		validTxts = append(validTxts, chatCompletionFakeResponses[0][:4])
-		validTxts = append(validTxts, chatCompletionFakeResponses[1])
-		validTxts = append(validTxts, chatCompletionFakeResponses[1]+" "+chatCompletionFakeResponses[2])
+		validTxts = append(validTxts, completionFakeResponses[0][:4])
+		validTxts = append(validTxts, completionFakeResponses[1])
+		validTxts = append(validTxts, completionFakeResponses[1]+" "+completionFakeResponses[2])
 
-		invalidTxts = append(invalidTxts, (chatCompletionFakeResponses[1] + " " + chatCompletionFakeResponses[2])[3:4])
-		invalidTxts = append(invalidTxts, chatCompletionFakeResponses[0][4:])
-		invalidTxts = append(invalidTxts, chatCompletionFakeResponses[1]+"-"+chatCompletionFakeResponses[2])
-		invalidTxts = append(invalidTxts, chatCompletionFakeResponses[1]+" ")
-		invalidTxts = append(invalidTxts, chatCompletionFakeResponses[1]+"   "+chatCompletionFakeResponses[2])
+		invalidTxts = append(invalidTxts, (completionFakeResponses[1] + " " + completionFakeResponses[2])[3:4])
+		invalidTxts = append(invalidTxts, completionFakeResponses[0][4:])
+		invalidTxts = append(invalidTxts, completionFakeResponses[1]+"-"+completionFakeResponses[2])
+		invalidTxts = append(invalidTxts, completionFakeResponses[1]+" ")
+		invalidTxts = append(invalidTxts, completionFakeResponses[1]+"   "+completionFakeResponses[2])
 
 		for _, txt := range validTxts {
 			It("text should be valid", func() {
@@ -175,6 +202,9 @@ var _ = Describe("Dataset", Ordered, func() {
 	})
 
 	Context("validateBucketsBoundaries", func() {
+		// create dataset earlier than BeforeEach since it's helper is used before It execution
+		createDataset()
+
 		type bucketBoundaries struct {
 			start int
 			end   int
@@ -189,11 +219,11 @@ var _ = Describe("Dataset", Ordered, func() {
 			{50, []bucketBoundaries{{1, 9}, {10, 19}, {20, 29}, {30, 39}, {40, 49}}}}
 
 		for _, test := range tests {
-			Expect(test.expectedBuckets).To(HaveLen(len(cumulativeBucketsProbabilities) - 1))
+			Expect(test.expectedBuckets).To(HaveLen(len(dataset.histogramHelper.cumulativeBucketsProbabilities) - 1))
 
 			It(fmt.Sprintf("should return bucket boundaries for maxTokens %d", test.maxTokens), func() {
-				for i := range len(cumulativeBucketsProbabilities) - 1 {
-					start, end := calcBucketBoundaries(test.maxTokens, i)
+				for i := range len(dataset.histogramHelper.cumulativeBucketsProbabilities) - 1 {
+					start, end := dataset.histogramHelper.calcBucketBoundaries(test.maxTokens, i)
 					Expect(start).To(Equal(test.expectedBuckets[i].start))
 					Expect(end).To(Equal(test.expectedBuckets[i].end))
 				}

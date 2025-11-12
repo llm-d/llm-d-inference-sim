@@ -180,16 +180,16 @@ var _ = Describe("Simulator", func() {
 			msg := resp.Choices[0].Message.Content
 			Expect(msg).ShouldNot(BeEmpty())
 
-			if numTokens > 0 {
-				tokens := common.Tokenize(msg)
-				Expect(int64(len(tokens))).Should(BeNumerically("<=", numTokens))
+			if mode == common.ModeEcho {
+				// in case of echo mode check that the text is returned as-is
+				Expect(msg).Should(Equal(testUserMessage))
 			} else {
-				if mode == common.ModeRandom {
+				if numTokens > 0 {
+					tokens := common.Tokenize(msg)
+					Expect(int64(len(tokens))).Should(BeNumerically("<=", numTokens))
+				} else {
 					// in case of random mode ensure that the returned message could be output of the random text generator
 					Expect(dataset.IsValidText(msg)).To(BeTrue())
-				} else {
-					// in case of echo mode check that the text is returned as-is
-					Expect(msg).Should(Equal(testUserMessage))
 				}
 			}
 		},
@@ -251,16 +251,16 @@ var _ = Describe("Simulator", func() {
 			text := resp.Choices[0].Text
 			Expect(text).ShouldNot(BeEmpty())
 
-			if numTokens != 0 {
-				tokens := common.Tokenize(text)
-				Expect(int64(len(tokens))).Should(BeNumerically("<=", numTokens))
+			if mode == common.ModeEcho {
+				// in case of echo mode check that the text is returned as-is
+				Expect(text).Should(Equal(testUserMessage))
 			} else {
-				if mode == common.ModeRandom {
+				if numTokens != 0 {
+					tokens := common.Tokenize(text)
+					Expect(int64(len(tokens))).Should(BeNumerically("<=", numTokens))
+				} else {
 					// in case of random mode ensure that the returned message could be output of the random text generator
 					Expect(dataset.IsValidText(text)).To(BeTrue())
-				} else {
-					// in case of echo mode check that the text is returned as-is
-					Expect(text).Should(Equal(testUserMessage))
 				}
 			}
 		},

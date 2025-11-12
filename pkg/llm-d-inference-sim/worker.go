@@ -25,7 +25,6 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
-	"github.com/llm-d/llm-d-inference-sim/pkg/dataset"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	"github.com/valyala/fasthttp"
 )
@@ -109,12 +108,12 @@ func (s *VllmSimulator) processRequestAsync(reqCtx *openaiserverapi.CompletionRe
 		req.GetTools() != nil {
 		toolCalls, completionTokens, err =
 			common.CreateToolCalls(req.GetTools(), req.GetToolChoice(), s.config, s.random)
-		finishReason = dataset.ToolsFinishReason
+		finishReason = common.ToolsFinishReason
 	}
 	if toolCalls == nil && err == nil {
 		// Either no tool calls were defined, or we randomly chose not to create tool calls,
 		// so we generate a response text.
-		responseTokens, finishReason, err = s.dataset.GetTokens(req, s.config.Mode, s.random)
+		responseTokens, finishReason, err = s.dataset.GetTokens(req, s.config.Mode)
 		completionTokens += len(responseTokens)
 	}
 	if err != nil {
@@ -154,7 +153,7 @@ func (s *VllmSimulator) processRequestAsync(reqCtx *openaiserverapi.CompletionRe
 		} else {
 			if req.IsDoRemoteDecode() {
 				// in case this is prefill pod processing, return special finish reason
-				finishReason = dataset.RemoteDecodeFinishReason
+				finishReason = common.RemoteDecodeFinishReason
 			}
 			s.sendResponse(reqCtx, responseTokens, toolCalls, displayModel, finishReason, &usageData)
 			wg.Done()

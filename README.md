@@ -362,3 +362,53 @@ curl -X POST http://localhost:8000/v1/chat/completions \
     ]
   }'
 ```
+
+## Response generation
+
+The `/v1/completions` and `/v1/chat/completions` endpoints produce responses based on simulator configurations and the specific request parameters.
+
+### Echo mode
+In `echo` mode, responses always mirror the request content. Parameters `max_tokens`, `max_completions_tokens` or `ignore_eos` are ignored in this mode.
+
+### Random mode
+In `random` mode, the fields `max_tokens`, `max_completions_tokens` and `ignore_eos` from the request are used during response generation.
+
+#### Use predefined texts for response generation
+The simulator can generate responses from a predefined list of sentences.
+If `max_tokens` or`max_completions_tokens` is specified, the response length is caclulated using a histogramwith six buckets and the following probabilities: 20%, 30%, 20%, 5%, 10%, 15%.
+For a maximum length ≤ 120, bucket sizes are equal.
+For a maximum length > 120, all buckets except forth are of size 20;
+the forth bucket covers the remaining range.
+After buckets are set, response length is sampled according to these probabilities.
+
+
+Exmaples: <br>
+max-len = 120: buckets are 1-20, 21-40, 41-60, 61-80, 81-100, 101-120. <br>
+max-len = 200: buckets are 1-20, 21-40, 41-60, 61-160, 161-180, 181-200. <br>
+
+If the maximum response length is not specified, it defaults to `<model length>-<input-length>`.
+In this case, response length is sampled from a Gaussian distribution with mean 40 and standard deviation 20.
+
+
+After determining the response length:
+
+A random sentence from the predefined list is chosen and trimmed if it exceeds the required length.
+If the sentence is shorter, additional random sentences are concatenated until the required token count is met.
+
+If `ignore_eos` is true, the response always reaches the maximum allowed length.
+
+The finish_reason is set to LENGTH if the response length equals the maximum; otherwise, it is set to STOP.
+
+
+#### Use responses dataset for response generation
+If `dataset-url` is set in command line, the dataset is downloaded to the location specified by `dataset-path`.
+
+If a valid dataset exists in the `dataset-path`, it is used for response selection:
+The request prompt is hashed, and this value is matched against dataset entries.
+If all matches are longer, a random match is selected and then trimmed.
+
+If `ignore_eos` is true is true and no match meets the required length, the response is completed with random tokens from the predefined list.
+
+If the prompt hash is not present in the dataset, a random response of length ≤ maximum is selected;
+if all responses are longer, a random response is chosen and trimmed.
+

@@ -26,34 +26,8 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
-const (
-	RoleAssistant = "assistant"
-	RoleUser      = "user"
-)
-
-const (
-	ResponseLenMax              = 128
-	responseLenMean             = 40
-	responseLenStddev           = 20
-	stopFinishReasonProbability = 0.8
-
-	StopFinishReason         = "stop"
-	LengthFinishReason       = "length"
-	ToolsFinishReason        = "tool_calls"
-	RemoteDecodeFinishReason = "remote_decode"
-)
-
-// this array defines the probabilities for the buckets to be used for the generation of number of tokens in response
-var respLenBucketsProbabilities = [...]float64{0.2, 0.3, 0.2, 0.05, 0.1, 0.15}
-var cumulativeBucketsProbabilities []float64
-
-const (
-	flexBucketIndex    = 3
-	maxFixedBucketSize = 20
-)
-
 // list of responses to use in random mode for completion requests
-var chatCompletionFakeResponses = []string{
+var completionFakeResponses = []string{
 	`Testing@, #testing 1$ ,2%,3^, [4&*5], 6~, 7-_ + (8 : 9) / \ < > .`,
 	`Testing, testing 1,2,3.`,
 	`I am fine, how are you today?`,
@@ -68,55 +42,113 @@ var chatCompletionFakeResponses = []string{
 }
 
 type Dataset interface {
-	// Init initializes the dataset using configs
-	Init(ctx context.Context, logger logr.Logger, path string, url string, useInMemory bool) error
 	// Close closes the dataset
 	Close() error
 	// GetTokens returns tokens for the given request and mode (echo or random)
-	GetTokens(req openaiserverapi.CompletionRequest, mode string, random *common.Random) ([]string, string, error)
+	GetTokens(req openaiserverapi.CompletionRequest, mode string) ([]string, string, error)
 }
 
-func init() {
-	cumulativeBucketsProbabilities = make([]float64, len(respLenBucketsProbabilities))
-	sum := 0.0
+type BaseDataset struct {
+	logger          logr.Logger
+	maxModelLen     int
+	random          *common.Random
+	histogramHelper *histogramHelper
+}
 
-	for i, val := range respLenBucketsProbabilities {
-		sum += val
-		cumulativeBucketsProbabilities[i] = sum
+func (d *BaseDataset) Init(ctx context.Context, logger logr.Logger, random *common.Random, maxModelLen int) error {
+	d.logger = logger
+	d.maxModelLen = maxModelLen
+	d.random = random
+	d.histogramHelper = newHistogramHelper(d.random)
+
+	return nil
+}
+
+func (d *BaseDataset) Close() error {
+	return nil
+}
+
+// GetTokens returns tokens and finishReason for the given request and mode (echo or random)
+func (d *BaseDataset) GetTokens(req openaiserverapi.CompletionRequest, mode string) ([]string, string, error) {
+	if mode == common.ModeEcho {
+		return d.getTokensInEchoMode(req)
 	}
+
+	maxRespTokens, isMaxTokensInReq := d.calculateResponseMaxLen(req)
+
+	numOfRespTokens := 0
+	finishReason := common.StopFinishReason
+
+	switch {
+	case req.GetIgnoreEOS():
+		// ignore_eos is true - response must have the maximum number of tokens
+		numOfRespTokens = maxRespTokens
+	case isMaxTokensInReq:
+		// max tokens is defined in the request - generate number of tokens in the response based on the histogram
+		numOfRespTokens = d.histogramHelper.getResponseLengthByHistogram(maxRespTokens)
+	default:
+		// no tokens limitation in the request - use gaussian with the mean (currently hard-coded)
+		numOfRespTokens = d.getRandomResponseLenByGaussian(maxRespTokens)
+	}
+
+	if numOfRespTokens == maxRespTokens {
+		// if response should be create with maximum number of tokens - finish reason will be 'length'
+		finishReason = common.LengthFinishReason
+	}
+
+	return d.generatePresetRandomTokens(numOfRespTokens), finishReason, nil
 }
 
-// GetRandomResponseLen returns int in range [1, responseLenMax]
+func (d *BaseDataset) getTokensInEchoMode(req openaiserverapi.CompletionRequest) ([]string, string, error) {
+	tokens := common.Tokenize(req.ExtractPrompt())
+	maxTokens := req.GetMaxCompletionTokens()
+	finishReason := common.StopFinishReason
+
+	if maxTokens != nil && len(tokens) >= int(*maxTokens) {
+		finishReason = common.LengthFinishReason
+	}
+
+	return tokens, finishReason, nil
+}
+
+// calculateResponseMaxLen - calculates maximum length of a response to be randomly chosen from the dataset
+// for the given request and the simulator configuration.
+// If max-tokens/max-completion-tokens is defined - use it,
+// otherwise use <model content window size> - <number of input tokens>
+// boolean returned value defines whether max tokens number was passed in the request
+func (d *BaseDataset) calculateResponseMaxLen(req openaiserverapi.CompletionRequest) (int, bool) {
+	maxTokens := req.GetMaxCompletionTokens()
+
+	if maxTokens != nil {
+		return int(*maxTokens), true
+	}
+
+	return d.maxModelLen - len(common.Tokenize(req.GetFullPrompt())), false
+}
+
+// getRandomResponseLenByDistribution returns int in range [1, responseLenMax]
 // numbers are chosen according a gaussian distribution with mean responseLenMean, and standard deviation responseLenStddev
-func GetRandomResponseLen(random *common.Random) int {
+func (d *BaseDataset) getRandomResponseLenByGaussian(maxLen int) int {
 	for {
-		val := random.RandomNorm(responseLenMean, responseLenStddev)
-		if val >= 1 && val <= ResponseLenMax {
+		val := d.random.RandomNorm(responseLenMean, responseLenStddev)
+		if val >= 1 && val <= float64(maxLen) {
 			return int(math.Round(val))
 		}
 		// else reject and resample
 	}
 }
 
-// GetRandomFinishReason returns finish reason with the probability for 'stop' as defined by stopFinishReasonProbability
-func GetRandomFinishReason(random *common.Random) string {
-	if random.RandomFloat(0, 1) < stopFinishReasonProbability {
-		return StopFinishReason
-	}
-	return LengthFinishReason
-}
-
-// GenPresetRandomTokens generates random tokens for the required number of tokens,
+// generatePresetRandomTokens generates random tokens for the required number of tokens,
 // select randomly a sentence from chatCompletionFakeResponses,
 // if number of tokens is lower than required - select another sentence,
-// continue until the required number of tokens is achieved
-func GenPresetRandomTokens(random *common.Random, numOfTokens int) []string {
+// continue until the required number of tokens is achieved,
+// returned exactly <numOfTokens> tokens
+func (d BaseDataset) generatePresetRandomTokens(numOfTokens int) []string {
 	allTokens := make([]string, 0)
 
 	for len(allTokens) < numOfTokens {
-		index := random.RandomInt(0, len(chatCompletionFakeResponses)-1)
-		// create tokens from text, splitting by spaces and special characters
-		tokens := common.Tokenize(chatCompletionFakeResponses[index])
+		index := d.random.RandomInt(0, len(completionFakeResponses)-1)
+		tokens := common.Tokenize(completionFakeResponses[index])
 		remaining := numOfTokens - len(allTokens)
 
 		if len(tokens) > remaining {
@@ -133,172 +165,4 @@ func GenPresetRandomTokens(random *common.Random, numOfTokens int) []string {
 	}
 
 	return allTokens
-}
-
-// howManyTokensToGen generates the number of tokens to be returned in a response, and the finish reason (see constants)
-// if maxCompletionTokens is defined
-// - currently, the generated number of words in the text will be equal to it value
-// - in future - need to find statistics about generated tokens distribution and return less tokens in part os requests
-// - finish reason will be chosen randomly from the collection (stop, length) with 80% for stop and 20% for length
-// if maxCompletionTokens is nil
-// - the response text's length is randomly chosen from the range [1, responseLenMax] according additional parameters
-// - finish reason is stop
-// if ignore_eos is true - the response will be generated with exactly maxCompletionTokens tokens
-// - request was validated so that when ignore_eos is true, maxCompletionTokens must be defined
-func howManyTokensToGen(maxCompletionTokens *int64, ignore_eos bool, random *common.Random) (int, string) {
-	numOfTokens := 0
-	finishReason := StopFinishReason
-
-	// no max completion tokens, return text with random length
-	if maxCompletionTokens == nil {
-		numOfTokens = GetRandomResponseLen(random)
-	} else {
-		maxTokens := int(*maxCompletionTokens)
-		if ignore_eos {
-			numOfTokens = maxTokens
-			finishReason = LengthFinishReason
-		} else {
-			// max tokens is defined - generate real length of the response based on it
-			numOfTokens = getResponseLengthByHistogram(random, maxTokens)
-			if numOfTokens == maxTokens {
-				// if response should be create with maximum number of tokens - finish reason will be 'length'
-				finishReason = LengthFinishReason
-			}
-		}
-	}
-
-	return numOfTokens, finishReason
-}
-
-// getResponseLengthByHistogram calculates the number of tokens to be returned in a response based on the max tokens value and the pre-defined buckets.
-// The response length is distributed according to the probabilities, defined in respLenBucketsProbabilities.
-// The histogram contains equally sized buckets and the last special bucket, which contains only the maxTokens value.
-// The last element of respLenBucketsProbabilities defines the probability of a reposnse with maxToken tokens.
-// Other values define probabilities for the equally sized buckets.
-// If maxToken is small (smaller than number of buckets) - the response length is randomly selected from the range [1, maxTokens]
-func getResponseLengthByHistogram(random *common.Random, maxTokens int) int {
-	if maxTokens <= 1 {
-		return maxTokens
-	}
-	// maxTokens is small - no need to use the histogram of probabilities, just select a random value in the range [1, maxTokens]
-	if maxTokens <= len(cumulativeBucketsProbabilities) {
-		res := random.RandomInt(1, maxTokens)
-		return res
-	}
-
-	r := random.RandomFloat(0, 1)
-
-	// check if r is in the last bucket, then maxTokens should be returned
-	if r > cumulativeBucketsProbabilities[len(cumulativeBucketsProbabilities)-2] {
-		return maxTokens
-	}
-
-	// determine which bucket to use, the bucket with a cumulative probability larger than r is the bucket to use
-	// initialize bucketIndex with the last bucket to handle the case (which should not happen) when the probabilities sum is less than 1
-	bucketIndex := len(cumulativeBucketsProbabilities) - 1
-	for i, c := range cumulativeBucketsProbabilities {
-		if r <= c {
-			bucketIndex = i
-			break
-		}
-	}
-
-	// calculate the size of all of the buckets (except the special last bucket)
-	start, end := calcBucketBoundaries(maxTokens, bucketIndex)
-
-	// pick uniformly within the bucket’s range
-	return random.RandomInt(start, end)
-}
-
-// calcBucketBoundaries calculates boundaries of a bucket with the given index.
-// Maximum size for equally sized buckets is defined by maxFixedBucketSize.
-// [maxFixedBucketSize*(number-of-buckets-1)+1] is the value of maxTokens for which
-// division to equally size buckets will give buckets with size maxFixedBucketSize.
-// If maxTokens is [maxFixedBucketSize*(number-of-buckets-1)+1] or less,
-// all buckets will be of equal size, except the last bucket, which contains only one value.
-// If maxTokens is higher than [maxFixedBucketSize*(number-of-buckets-1)+1],
-// and flexBucketIndex is valid (between 0 and number of buckets - 1) the buckets sizes will not be equal.
-// In this case, all buckets except the one at flexBucketIndex index will have size 20 (and the last is with size 1),
-// and the bucket at flexBucketIndex index will 'stretch' to cover the remaining range.
-func calcBucketBoundaries(maxTokens int, bucketIndex int) (start int, end int) {
-	maxEquallyBucketsSz := maxFixedBucketSize*(len(cumulativeBucketsProbabilities)-1) + 1
-
-	if maxTokens <= maxEquallyBucketsSz || flexBucketIndex < 0 || flexBucketIndex >= len(cumulativeBucketsProbabilities)-1 {
-		// create equally size buckets
-		// calculate the size of all of the buckets (except the special last bucket)
-		bucketSize := float64(maxTokens-1) / float64(len(cumulativeBucketsProbabilities)-1)
-		start = int(bucketSize*float64(bucketIndex)) + 1
-		end = int(bucketSize * float64(bucketIndex+1))
-	} else {
-		// create non-equally sized buckets and find boundaries of the required bucket
-		if bucketIndex < flexBucketIndex {
-			// the relevant bucket is before the flex bucket, all buckets are of the same size (maxFixedBucketSize)
-			// start is the minimum number in the required bucket
-			start = maxFixedBucketSize*bucketIndex + 1
-			end = maxFixedBucketSize * (bucketIndex + 1)
-		} else {
-			flexBucketSize := maxTokens - (maxFixedBucketSize * (len(cumulativeBucketsProbabilities) - 2))
-
-			if bucketIndex == flexBucketIndex {
-				// the relevant bucket is the flex bucket
-				start = int(maxFixedBucketSize*float64(bucketIndex)) + 1
-				end = maxFixedBucketSize*bucketIndex + flexBucketSize
-			} else {
-				// the relevant bucket is one of buckets after the flex bucket
-				start = int(maxFixedBucketSize*float64(bucketIndex-1)) + flexBucketSize + 1
-				end = maxFixedBucketSize*bucketIndex + flexBucketSize
-			}
-		}
-	}
-
-	// sometimes end could be maxTokens because of rounding, change the value to maxToken-1
-	if end >= maxTokens {
-		end = maxTokens - 1
-	}
-
-	return start, end
-}
-
-// EchoResponseTokens returns needed tokens, from a given text
-// considering max completion tokens if it is not nil, and a finish reason (stop or length)
-func EchoResponseTokens(maxCompletionTokens *int64, text string) ([]string, string) {
-	tokens := common.Tokenize(text)
-	// no max completion tokens, return entire text
-	if maxCompletionTokens == nil {
-		return tokens, StopFinishReason
-	}
-
-	if *maxCompletionTokens >= int64(len(tokens)) {
-		return tokens, StopFinishReason
-	}
-	// return truncated text
-	return tokens[0:*maxCompletionTokens], LengthFinishReason
-}
-
-type BaseDataset struct {
-	logger logr.Logger
-}
-
-func (d *BaseDataset) Init(ctx context.Context, logger logr.Logger, path string, url string, useInMemory bool) error {
-	d.logger = logger
-	return nil
-}
-
-func (d *BaseDataset) Close() error {
-	return nil
-}
-
-func (d *BaseDataset) echo(req openaiserverapi.CompletionRequest) ([]string, string, error) {
-	tokens, finishReason := EchoResponseTokens(req.ExtractMaxTokens(), req.ExtractPrompt())
-	return tokens, finishReason, nil
-}
-
-// GetTokens returns tokens and finishReason for the given request and mode (echo or random)
-func (d *BaseDataset) GetTokens(req openaiserverapi.CompletionRequest, mode string,
-	random *common.Random) ([]string, string, error) {
-	if mode == common.ModeEcho {
-		return d.echo(req)
-	}
-	nTokensToGen, finishReason := howManyTokensToGen(req.ExtractMaxTokens(), req.GetIgnoreEOS(), random)
-	return GenPresetRandomTokens(random, nTokensToGen), finishReason, nil
 }

@@ -24,7 +24,6 @@ import (
 	"strings"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
-	"github.com/llm-d/llm-d-inference-sim/pkg/dataset"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/openai/openai-go/v3"
@@ -397,7 +396,7 @@ var _ = Describe("Simulator for request with tools", func() {
 				for _, choice := range chunk.Choices {
 					if choice.Delta.Role != "" {
 						role = choice.Delta.Role
-					} else if choice.FinishReason == "" || choice.FinishReason == dataset.ToolsFinishReason {
+					} else if choice.FinishReason == "" || choice.FinishReason == common.ToolsFinishReason {
 						toolCalls := choice.Delta.ToolCalls
 						Expect(toolCalls).To(HaveLen(1))
 						tc := toolCalls[0]

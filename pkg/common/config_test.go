@@ -532,6 +532,12 @@ var _ = Describe("Simulator configuration", func() {
 				"--config", "../../manifests/config.yaml"},
 			expectedError: "fake metrics request-max-generation-tokens cannot contain negative values",
 		},
+		{
+			name: "invalid echo mode with dataset",
+			args: []string{"random", "--model", "test", "--dataset-path", "my/path",
+				"--mode", "echo"},
+			expectedError: "dataset cannot be defined in echo mode",
+		},
 	}
 
 	for _, test := range invalidTests {

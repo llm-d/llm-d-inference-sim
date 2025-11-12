@@ -27,7 +27,7 @@ func IsValidText(text string) bool {
 		textToCheck := text[charsTested:]
 		found := false
 
-		for _, fakeSentence := range chatCompletionFakeResponses {
+		for _, fakeSentence := range completionFakeResponses {
 			if len(textToCheck) <= len(fakeSentence) {
 				if strings.HasPrefix(fakeSentence, textToCheck) {
 					found = true

@@ -247,6 +247,14 @@ func (s *VllmSimulator) Start(ctx context.Context) error {
 		return err
 	}
 
+	if s.config.DatasetURL != "" {
+		// if should use remote responses dataset, download it first (it can take time)
+		downloader := dataset.NewDsDownloader(s.logger)
+		if err := downloader.DownloadDataset(ctx, s.config.DatasetURL, s.config.DatasetPath); err != nil {
+			return err
+		}
+	}
+
 	// For Data Parallel, start data-parallel-size - 1 additional simulators
 	g, ctx := errgroup.WithContext(ctx)
 	if s.config.DPSize > 1 {
@@ -371,29 +379,24 @@ func (s *VllmSimulator) initializeSim(ctx context.Context) error {
 }
 
 func (s *VllmSimulator) initDataset(ctx context.Context) error {
-	randDataset := &dataset.BaseDataset{}
-	err := randDataset.Init(ctx, s.logger, "", "", false)
-	if err != nil {
-		return fmt.Errorf("failed to initialize random dataset: %w", err)
-	}
-
 	if s.config.DatasetPath == "" && s.config.DatasetURL == "" {
+		// use predefined sentences as responses
+		randDataset := &dataset.BaseDataset{}
+		err := randDataset.Init(ctx, s.logger, s.random, s.config.MaxModelLen)
+		if err != nil {
+			return fmt.Errorf("failed to initialize random dataset: %w", err)
+		}
 		s.logger.V(logging.INFO).Info("No dataset path or URL provided, using random text for responses")
 		s.dataset = randDataset
 		return nil
 	}
 
+	// use dataset containing responses
 	custDataset := &dataset.CustomDataset{}
-	err = custDataset.Init(ctx, s.logger, s.config.DatasetPath, s.config.DatasetURL, s.config.DatasetInMemory)
+	err := custDataset.Init(ctx, s.logger, s.random, s.config.DatasetPath, s.config.DatasetInMemory, s.config.MaxModelLen)
 
 	if err == nil {
 		s.dataset = custDataset
-		return nil
-	}
-
-	if strings.HasPrefix(err.Error(), "database is locked") {
-		s.logger.V(logging.WARN).Info("Database is locked by another process, will use preset text for responses instead")
-		s.dataset = randDataset
 		return nil
 	}
 

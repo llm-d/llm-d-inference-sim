@@ -660,6 +660,10 @@ func (c *Configuration) validate() error {
 		return errors.New("dataset-path is required when dataset-url is set")
 	}
 
+	if c.Mode == ModeEcho && (c.DatasetPath != "" || c.DatasetURL != "") {
+		return errors.New("dataset cannot be defined in echo mode")
+	}
+
 	return nil
 }
 
