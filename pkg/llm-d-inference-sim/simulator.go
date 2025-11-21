@@ -333,10 +333,18 @@ func (s *VllmSimulator) initializeSim(ctx context.Context) error {
 		return err
 	}
 
-	tokenizationConfig := tokenization.DefaultConfig()
-	if s.config.TokenizersCacheDir != "" {
-		tokenizationConfig.TokenizersCacheDir = s.config.TokenizersCacheDir
+	tokenizationConfig, err := tokenization.DefaultConfig()
+	if err != nil {
+		return fmt.Errorf("failed to create default tokenization configuration: %w", err)
 	}
+
+	if s.config.TokenizersCacheDir != "" {
+		if tokenizationConfig.HFTokenizerConfig == nil {
+			tokenizationConfig.HFTokenizerConfig = &tokenization.HFTokenizerConfig{}
+		}
+		tokenizationConfig.HFTokenizerConfig.TokenizersCacheDir = s.config.TokenizersCacheDir
+	}
+
 	s.tokenizer, err = tokenization.NewCachedHFTokenizer(tokenizationConfig.HFTokenizerConfig)
 	if err != nil {
 		return fmt.Errorf("failed to create tokenizer: %w", err)

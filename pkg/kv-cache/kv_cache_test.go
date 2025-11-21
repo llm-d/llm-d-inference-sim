@@ -330,8 +330,8 @@ var _ = Describe("KV cache", Ordered, func() {
 				wg.Wait() // wait for goroutine to exit
 			}()
 
-			expectedRemovedBlocks := []uint64{2, 4}
-			expectedStoredBlocks := []uint64{1, 2, 3, 4, 5, 6}
+			expectedRemovedBlocks := []any{uint64(2), uint64(4)}
+			expectedStoredBlocks := []any{uint64(1), uint64(2), uint64(3), uint64(4), uint64(5), uint64(6)}
 
 			go func() {
 				// Make sure that the subscriber listens before the events are published
@@ -371,8 +371,8 @@ var _ = Describe("KV cache", Ordered, func() {
 				Expect(alreadyInCache).To(Equal(0))
 			}()
 
-			removedBlocks := make([]uint64, 0)
-			storedBlocks := make([]uint64, 0)
+			removedBlocks := make([]any, 0)
+			storedBlocks := make([]any, 0)
 			count := uint64(1)
 			for {
 				parts, err := sub.RecvMessageBytes(0)

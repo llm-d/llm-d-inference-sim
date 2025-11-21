@@ -177,14 +177,14 @@ func (bc *blockCache) startRequest(requestID string, blocks []uint64) (int, erro
 
 			delete(bc.unusedBlocks, oldestUnusedHash)
 			common.WriteToChannel(bc.eventChan,
-				EventData{action: eventActionRemove, hashValues: []uint64{oldestUnusedHash}},
+				EventData{action: eventActionRemove, hashValues: []any{oldestUnusedHash}},
 				bc.logger, "block cache eventChan")
 		}
 
 		// Add the new block
 		bc.usedBlocks[block] = 1
 		common.WriteToChannel(bc.eventChan,
-			EventData{action: eventActionStore, hashValues: []uint64{block}},
+			EventData{action: eventActionStore, hashValues: []any{block}},
 			bc.logger, "block cache eventChan")
 	}
 
