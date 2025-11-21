@@ -363,6 +363,9 @@ curl -X POST http://localhost:8000/v1/chat/completions \
   }'
 ```
 
+### Prefill/Decode (P/D) Separation Example
+An example configuration for P/D (Prefill/Decode) disaggregation deployment can be found in [manifests/disaggregation](manifests/disaggregation).
+
 ## Response generation
 
 The `/v1/completions` and `/v1/chat/completions` endpoints produce responses based on simulator configurations and the specific request parameters.
