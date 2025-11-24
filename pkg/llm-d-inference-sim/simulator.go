@@ -347,7 +347,7 @@ func (s *VllmSimulator) initializeSim(ctx context.Context) error {
 
 	s.tokenizer, err = tokenization.NewCachedHFTokenizer(tokenizationConfig.HFTokenizerConfig)
 	if err != nil {
-		return fmt.Errorf("failed to create tokenizer: %w", err)
+		return fmt.Errorf("failed to create hf tokenizer: %w", err)
 	}
 
 	if s.config.EnableKVCache {
