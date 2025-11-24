@@ -57,6 +57,10 @@ jobs:
           CPATH: ${{ env.CPATH }}
           PKG_CONFIG_PATH: ${{ env.PKG_CONFIG_PATH }}
 
+      - name: Build Container image
+        run: |
+          make image-build SIM_TAG=pr-check
+
       - name: Run go test
         shell: bash
         run: |
