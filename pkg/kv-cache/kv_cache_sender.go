@@ -37,7 +37,7 @@ const (
 
 type EventData struct {
 	action     EventAction
-	hashValues []uint64
+	hashValues []any
 }
 
 type KVEventSender struct {

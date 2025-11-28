@@ -21,11 +21,11 @@ import (
 
 	"github.com/llm-d/llm-d-kv-cache-manager/pkg/kvcache/kvevents"
 	"github.com/onsi/ginkgo/v2"
-	gomega "github.com/onsi/gomega"
+	"github.com/onsi/gomega"
 	"github.com/vmihailenco/msgpack/v5"
 )
 
-func ParseKVEvent(parts [][]byte, expectedTopic string, expectedSeq uint64) ([]uint64, []uint64, bool) {
+func ParseKVEvent(parts [][]byte, expectedTopic string, expectedSeq uint64) ([]any, []any, bool) {
 	// The message should be [topic, seq, payload]
 	gomega.Expect(parts).To(gomega.HaveLen(3))
 
@@ -34,8 +34,8 @@ func ParseKVEvent(parts [][]byte, expectedTopic string, expectedSeq uint64) ([]u
 	seq := binary.BigEndian.Uint64(parts[1])
 	gomega.Expect(seq).To(gomega.Equal(expectedSeq))
 
-	removed := make([]uint64, 0)
-	stored := make([]uint64, 0)
+	removed := make([]any, 0)
+	stored := make([]any, 0)
 	allCleared := false
 
 	var eventBatch kvevents.EventBatch
