@@ -25,37 +25,12 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y pkg-config python3-dev python3-pip
-          make download-zmq
+          make install-dependencies
           pip3 install transformers --break-system-packages
 
-      - name: Configure CGO for Python
-        run: |
-          PYTHON_INCLUDE=$(python3 -c "import sysconfig; print(sysconfig.get_path('include'))")
-          echo "CPATH=${PYTHON_INCLUDE}:${CPATH}" >> $GITHUB_ENV
-          echo "CGO_ENABLED=1" >> $GITHUB_ENV
-          echo "CGO_CFLAGS=$(python3-config --cflags --embed)" >> $GITHUB_ENV
-          echo "CGO_LDFLAGS=$(python3-config --ldflags --embed)" >> $GITHUB_ENV
-
-      - name: Set PKG_CONFIG_PATH and PYTHONPATH
-        run: |
-          echo "PKG_CONFIG_PATH=/usr/lib/pkgconfig" >> $GITHUB_ENV
-          GOMODCACHE=$(go env GOMODCACHE)
-          # Extract kv-cache-manager version from go.mod
-          KV_CACHE_MGR_VERSION=$(go list -m -f '{{.Version}}' github.com/llm-d/llm-d-kv-cache-manager)
-          KV_CACHE_MGR_PATH="${GOMODCACHE}/github.com/llm-d/llm-d-kv-cache-manager@${KV_CACHE_MGR_VERSION}/pkg/preprocessing/chat_completions"
-          echo "PYTHONPATH=${KV_CACHE_MGR_PATH}:${PYTHONPATH}" >> $GITHUB_ENV
-
       - name: Run lint checks
-        uses: golangci/golangci-lint-action@v8
-        with:
-          version: 'v2.4.0'
-          args: "--config=./.golangci.yml"
-        env:
-          CGO_ENABLED: ${{ env.CGO_ENABLED }}
-          CGO_CFLAGS: ${{ env.CGO_CFLAGS }}
-          CGO_LDFLAGS: ${{ env.CGO_LDFLAGS }}
-          CPATH: ${{ env.CPATH }}
-          PKG_CONFIG_PATH: ${{ env.PKG_CONFIG_PATH }}
+        run: |
+          make lint
 
       - name: Build Container image
         run: |
@@ -64,12 +39,4 @@ jobs:
       - name: Run go test
         shell: bash
         run: |
-          echo "Running tests with Ginkgo..."
           make test
-        env:
-          CGO_ENABLED: ${{ env.CGO_ENABLED }}
-          CGO_CFLAGS: ${{ env.CGO_CFLAGS }}
-          CGO_LDFLAGS: ${{ env.CGO_LDFLAGS }}
-          CPATH: ${{ env.CPATH }}
-          PKG_CONFIG_PATH: ${{ env.PKG_CONFIG_PATH }}
-          PYTHONPATH: ${{ env.PYTHONPATH }}

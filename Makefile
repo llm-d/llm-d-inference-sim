@@ -53,6 +53,23 @@ SRC = $(shell find . -type f -name '*.go')
 help: ## Print help
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_0-9-]+:.*?##/ { printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
 
+PYTHON_INCLUDE := $(shell python3 -c "import sysconfig; print(sysconfig.get_path('include'))")
+CGO_CFLAGS     := $(shell python3-config --cflags --embed)
+CGO_LDFLAGS    := $(shell python3-config --ldflags --embed)
+
+export PKG_CONFIG_PATH=/usr/lib/pkgconfig
+
+GOMODCACHE := $(shell go env GOMODCACHE)
+KV_CACHE_MGR_VERSION := $(shell go list -m -f '{{.Version}}' github.com/llm-d/llm-d-kv-cache-manager)
+KV_CACHE_MGR_PATH := $(GOMODCACHE)/github.com/llm-d/llm-d-kv-cache-manager@$(KV_CACHE_MGR_VERSION)/pkg/preprocessing/chat_completions
+export PYTHONPATH := $(KV_CACHE_MGR_PATH):$(PYTHONPATH)
+
+# Export them for all targets (optional)
+export CGO_ENABLED=1
+export CGO_CFLAGS
+export CGO_LDFLAGS
+export CPATH := $(PYTHON_INCLUDE):$(CPATH)
+
 GO_LDFLAGS := -extldflags '-L$(shell pwd)/lib $(LDFLAGS)'
 CGO_ENABLED=1
 TOKENIZER_LIB = lib/libtokenizers.a
@@ -82,7 +99,7 @@ format: ## Format Go source files
 	@gofmt -l -w $(SRC)
 
 .PHONY: test
-test: $(GINKGO) download-tokenizer download-zmq ## Run tests
+test: $(GINKGO) install-dependencies ## Run tests
 	@printf "\033[33;1m==== Running tests ====\033[0m\n"
 ifdef GINKGO_FOCUS
 	CGO_ENABLED=1 ginkgo -ldflags="$(GO_LDFLAGS)" -v -r -- -ginkgo.v -ginkgo.focus="$(GINKGO_FOCUS)"
@@ -103,7 +120,7 @@ lint: $(GOLANGCI_LINT) ## Run lint
 ##@ Build
 
 .PHONY: build
-build: check-go download-tokenizer download-zmq 
+build: check-go install-dependencies
 	@printf "\033[33;1m==== Building ====\033[0m\n"
 	go build -ldflags="$(GO_LDFLAGS)" -o $(LOCALBIN)/$(PROJECT_NAME) cmd/$(PROJECT_NAME)/main.go
 
@@ -217,32 +234,41 @@ install-hooks: ## Install git hooks
 
 ##@ ZMQ Setup
 
-.PHONY: download-zmq
-download-zmq: ## Install ZMQ dependencies based on OS/ARCH
-	@echo "⏳ Checking if ZMQ is already installed..."
-	@if pkg-config --exists libzmq; then \
-	  echo "✅ ZMQ is already installed."; \
-	else \
-	  echo "⏳ Installing ZMQ dependencies..."; \
-	  if [ "$(TARGETOS)" = "linux" ]; then \
-	    if command -v apt >/dev/null 2>&1; then \
-	      sudo apt update && sudo apt install -y libzmq3-dev; \
-	    elif command -v dnf >/dev/null 2>&1; then \
-	      sudo dnf install -y zeromq-devel; \
+.PHONY: install-dependencies
+install-dependencies: download-tokenizer ## Install development dependencies based on OS/ARCH
+	@echo "Checking and installing development dependencies..."
+	@if [ "$(TARGETOS)" = "linux" ]; then \
+	  if [ -x "$$(command -v apt)" ]; then \
+	    if ! dpkg -s libzmq3-dev >/dev/null 2>&1 || ! dpkg -s g++ >/dev/null 2>&1; then \
+	      echo "Installing dependencies with apt..."; \
+	      sudo apt-get update && sudo apt-get install -y libzmq3-dev g++; \
 	    else \
-	      echo -e "⚠️ Unsupported Linux package manager. Follow installation guides: https://github.com/zeromq/libzmq#installation-of-binary-packages-\n"; \
-	      exit 1; \
+	      echo "✅ ZMQ and g++ are already installed."; \
 	    fi; \
-	  elif [ "$(TARGETOS)" = "darwin" ]; then \
-	    if command -v brew >/dev/null 2>&1; then \
-	      brew install zeromq; \
+	  elif [ -x "$$(command -v dnf)" ]; then \
+	    if ! dnf -q list installed zeromq-devel >/dev/null 2>&1 || ! dnf -q list installed gcc-c++ >/dev/null 2>&1; then \
+	      echo "Installing dependencies with dnf..."; \
+	      sudo dnf install -y zeromq-devel gcc-c++; \
 	    else \
-	      echo "⚠️ Homebrew is not installed and is required to install zeromq. Install it from https://brew.sh/"; \
-	      exit 1; \
+	      echo "✅ ZMQ and gcc-c++ are already installed."; \
 	    fi; \
 	  else \
-	    echo "⚠️ Unsupported OS: $(TARGETOS). Install libzmq manually - see https://zeromq.org/download/"; \
+	    echo "Unsupported Linux package manager. Install libzmq and g++/gcc-c++ manually."; \
 	    exit 1; \
 	  fi; \
-	  echo "✅ ZMQ dependencies installed."; \
+	elif [ "$(TARGETOS)" = "darwin" ]; then \
+	  if [ -x "$$(command -v brew)" ]; then \
+	    if ! brew list zeromq pkg-config >/dev/null 2>&1; then \
+	      echo "Installing dependencies with brew..."; \
+	      brew install zeromq pkg-config; \
+	    else \
+	      echo "✅ ZeroMQ and pkgconf are already installed."; \
+	    fi; \
+	  else \
+	    echo "Homebrew is not installed and is required to install zeromq. Install it from https://brew.sh/"; \
+	    exit 1; \
+	  fi; \
+	else \
+	  echo "Unsupported OS: $(TARGETOS). Install development dependencies manually."; \
+	  exit 1; \
 	fi
