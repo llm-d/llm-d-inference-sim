@@ -79,6 +79,8 @@ type CompletionRequest interface {
 	ExtractMaxTokens() *int64
 	// GetLogprobs returns nil if no logprobs needed, or pointer to number of logprob options to include
 	GetLogprobs() *int
+	// GetNumCompletionOptions returns the number of chat completion options requested.
+	GetNumCompletionOptions() *int
 }
 
 // baseCompletionRequest contains base completion request related information
@@ -212,6 +214,11 @@ type ChatCompletionRequest struct {
 
 	// TopLogprobs controls how many alternative tokens to include in the logprobs
 	TopLogprobs *int `json:"top_logprobs,omitempty"`
+
+	// NumCompletionOptions is the number of chat completion choices to generate.
+	//
+	// Optional and defaults to 1.
+	NumCompletionOptions *int `json:"n"`
 }
 
 var _ CompletionRequest = (*ChatCompletionRequest)(nil)
@@ -308,6 +315,16 @@ func (c *ChatCompletionRequest) GetLogprobs() *int {
 	return &defaultVal
 }
 
+func (c *ChatCompletionRequest) GetNumCompletionOptions() *int {
+	// If not specified, default to 1.
+	if c.NumCompletionOptions == nil {
+		n := new(int)
+		*n = 1
+		return n
+	}
+	return c.NumCompletionOptions
+}
+
 // v1/completion
 // TextCompletionRequest defines structure of /completion request
 type TextCompletionRequest struct {
@@ -327,6 +344,11 @@ type TextCompletionRequest struct {
 	// a list of the 5 most likely tokens. The API will always return the logprob
 	// of the sampled token, so there may be up to logprobs+1 elements in the response.
 	Logprobs *int `json:"logprobs,omitempty"`
+
+	// NumCompletionOptions is the number of chat completion choices to generate.
+	//
+	// Optional and defaults to 1.
+	NumCompletionOptions *int `json:"n"`
 }
 
 var _ CompletionRequest = (*TextCompletionRequest)(nil)
@@ -365,4 +387,14 @@ func (req *TextCompletionRequest) ExtractMaxTokens() *int64 {
 
 func (t *TextCompletionRequest) GetLogprobs() *int {
 	return t.Logprobs
+}
+
+func (t *TextCompletionRequest) GetNumCompletionOptions() *int {
+	// If not specified, default to 1.
+	if t.NumCompletionOptions == nil {
+		n := new(int)
+		*n = 1
+		return n
+	}
+	return t.NumCompletionOptions
 }
