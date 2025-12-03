@@ -116,8 +116,10 @@ type metricsData struct {
 	waitingRequests *prometheus.GaugeVec
 	// ttft is prometheus histogram for time to first token in seconds
 	ttft *prometheus.HistogramVec
-	// tpot is prometheus histogram for time per output token in seconds
+	// tpot is prometheus histogram for time per output token in seconds (deprecated since vLLM 0.11
 	tpot *prometheus.HistogramVec
+	// interTokenLatency is prometheus histogram for inter-token latency in seconds (replaces tpot since vLLM 0.11)
+	interTokenLatency *prometheus.HistogramVec
 	// e2eReqLatency is prometheus histogram of end to end request latency in seconds
 	e2eReqLatency *prometheus.HistogramVec
 	// reqQueueTime is prometheus histogram of request queue time in seconds

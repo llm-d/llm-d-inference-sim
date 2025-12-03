@@ -374,8 +374,8 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 		}
 	})
 
-	It("Should send correct ttft and tpot metrics", func() {
-		// Send one request, check that ttft and tpot are as defined in the simulator command line params
+	It("Should send correct ttft, tpot and inter_token_latency metrics", func() {
+		// Send one request, check that ttft, tpot, and inter_token_latency are as defined in the simulator command line params
 		ctx := context.TODO()
 		// use mode echo to be sure that response is more than one token - this makes sure that tpot is reported to prometheus
 		args := []string{"cmd", "--model", testModel, "--mode", common.ModeEcho,
@@ -411,6 +411,7 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 			data, err := io.ReadAll(metricsResp.Body)
 			Expect(err).NotTo(HaveOccurred())
 			metrics := string(data)
+			metricsLines := strings.Split(metrics, "\n")
 
 			// ttft
 			for _, boundary := range common.TTFTBucketsBoundaries {
@@ -424,24 +425,29 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 			}
 			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(testModel, ttftMetricName, math.Inf(1), 1)))
 
-			// tpot
-			metricsLines := strings.Split(metrics, "\n")
-			var count *int
-
-			for _, boundary := range common.TPOTBucketsBoundaries {
-				if boundary <= 0.075 {
-					// ensure that values for buckets up to 0.075 have count 0
-					Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(testModel, tpotMetricName, boundary, 0)))
-				} else {
-					// buckets higher than 0.75 should be greater than 0, we don't know the exact value since it depends on the random response length
-					count = findIntMetric(metricsLines, getFloatBucketMetricPrefix(testModel, tpotMetricName, 0.1))
-					Expect(count).ToNot(BeNil())
-					Expect(*count).To(BeNumerically(">", 0))
+			// helper to validate a latency metric (used for both tpot and inter_token_latency)
+			validateLatencyMetric := func(metricName string) {
+				for _, boundary := range common.TPOTBucketsBoundaries {
+					if boundary <= 0.075 {
+						// ensure that values for buckets up to 0.075 have count 0
+						Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(testModel, metricName, boundary, 0)))
+					} else {
+						// buckets higher than 0.75 should be greater than 0, we don't know the exact value since it depends on the random response length
+						count := findIntMetric(metricsLines, getFloatBucketMetricPrefix(testModel, metricName, boundary))
+						Expect(count).ToNot(BeNil())
+						Expect(*count).To(BeNumerically(">", 0))
+					}
 				}
+				count := findIntMetric(metricsLines, getFloatBucketMetricPrefix(testModel, metricName, math.Inf(1)))
+				Expect(count).ToNot(BeNil())
+				Expect(*count).To(BeNumerically(">", 0))
 			}
-			count = findIntMetric(metricsLines, getFloatBucketMetricPrefix(testModel, tpotMetricName, math.Inf(1)))
-			Expect(count).ToNot(BeNil())
-			Expect(*count).To(BeNumerically(">", 0))
+
+			// validate legacy tpot metric
+			validateLatencyMetric(tpotMetricName)
+
+			// validate new inter_token_latency metric
+			validateLatencyMetric(interTokenLatencyMetricName)
 		}()
 
 		metricsWg.Wait()

@@ -40,6 +40,7 @@ const (
 	decodeTimeMetricName             = "vllm:request_decode_time_seconds"
 	ttftMetricName                   = "vllm:time_to_first_token_seconds"
 	tpotMetricName                   = "vllm:time_per_output_token_seconds"
+	interTokenLatencyMetricName      = "vllm:inter_token_latency_seconds"
 	maxNumGenerationTokensMetricName = "vllm:max_num_generation_tokens"
 	generationTokensMetricName       = "vllm:request_generation_tokens"
 	paramMaxTokensMetricName         = "vllm:request_params_max_tokens"
@@ -127,6 +128,22 @@ func (s *VllmSimulator) createAndRegisterPrometheus() error {
 
 	if err := s.metrics.registry.Register(s.metrics.tpot); err != nil {
 		s.logger.Error(err, "prometheus time per output token histogram register failed")
+		return err
+	}
+
+	// Register inter_token_latency_seconds (new standard since vLLM 0.11)
+	s.metrics.interTokenLatency = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Subsystem: "",
+			Name:      interTokenLatencyMetricName,
+			Help:      "Histogram of inter-token latency in seconds.",
+			Buckets:   common.TPOTBucketsBoundaries, // Reuse same buckets as TPOT
+		},
+		[]string{vllmapi.PromLabelModelName},
+	)
+
+	if err := s.metrics.registry.Register(s.metrics.interTokenLatency); err != nil {
+		s.logger.Error(err, "prometheus inter-token latency histogram register failed")
 		return err
 	}
 
@@ -321,6 +338,7 @@ func (s *VllmSimulator) setInitialPrometheusMetrics(cacheConfig *prometheus.Gaug
 
 		if s.config.FakeMetrics.TPOTBucketValues != nil {
 			s.initFakeHistogram(s.metrics.tpot, common.TPOTBucketsBoundaries, s.config.FakeMetrics.TPOTBucketValues)
+			s.initFakeHistogram(s.metrics.interTokenLatency, common.TPOTBucketsBoundaries, s.config.FakeMetrics.TPOTBucketValues)
 		}
 		buckets := build125Buckets(s.config.MaxModelLen)
 		if s.config.FakeMetrics.RequestPromptTokens != nil {
@@ -559,6 +577,7 @@ func (s *VllmSimulator) tpotUpdater(ctx context.Context) {
 			return
 		case value := <-s.metrics.tpotChan:
 			s.reportHistogramValue(s.metrics.tpot, value)
+			s.reportHistogramValue(s.metrics.interTokenLatency, value)
 		}
 	}
 }
