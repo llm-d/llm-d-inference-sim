@@ -262,13 +262,24 @@ type Metrics struct {
 	// 1.0, 2.5, 5.0, 7.5, 10.0, 20.0, 40.0, 80.0, +Inf
 	TPOTBucketValues []int `yaml:"tpot-buckets-values" json:"tpot-buckets-values"`
 	// RequestPromptTokens RequestGenerationTokens RequestParamsMaxTokens Histogram fake-observation arrays for init.
-	// Each value will be passed to Observe() once at start-up.
+	// Each value in these arrays is passed to Observe() exactly once at startup.
+	// By default:
+	//   - The sum of RequestPromptTokens initializes the metric vllm:prompt_tokens_total.
+	//   - The sum of RequestGenerationTokens initializes the metric vllm:generation_tokens_total.
+	//
+	// If TotalPromptTokens or TotalGenerationTokens are explicitly provided,
+	// they override the above sums and are used directly as the initial total token counts.
 	RequestPromptTokens        []int `yaml:"request-prompt-tokens" json:"request-prompt-tokens"`                 // prompt-length samples
 	RequestGenerationTokens    []int `yaml:"request-generation-tokens" json:"request-generation-tokens"`         // generation-length samples
 	RequestParamsMaxTokens     []int `yaml:"request-params-max-tokens" json:"request-params-max-tokens"`         // max_tokens parameter samples
 	RequestMaxGenerationTokens []int `yaml:"request-max-generation-tokens" json:"request-max-generation-tokens"` // request_max_num_generation_tokens samples
 	// RequestSuccessTotal is the number of successful requests, key: finish-reason (stop, length, etc.).
 	RequestSuccessTotal map[string]int64 `yaml:"request-success-total" json:"request-success-total"`
+
+	// TotalPromptTokens is the total number of prompt tokens processed
+	TotalPromptTokens *int64 `json:"total-prompt-tokens,omitempty"`
+	// TotalGenerationTokens is the total number of generated tokens
+	TotalGenerationTokens *int64 `json:"total-generation-tokens,omitempty"`
 
 	// Latency histograms - have same buckets upper boundaries in seconds are:
 	// 0.3, 0.5, 0.8, 1.0, 1.5, 2.0, 2.5, 5.0, 10.0, 15.0,

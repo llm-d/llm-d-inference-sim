@@ -162,6 +162,7 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 		}
 		Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(testModel, promptTokensMetricName, math.Inf(1), 1)))
 		Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(testModel, paramMaxTokensMetricName, math.Inf(1), 1)))
+		Expect(metrics).To(MatchRegexp(`vllm:prompt_tokens_total{model_name="testmodel"} 25`))
 
 		// request_generation_tokens
 		// We do not verify the distribution of the number of tokens generated per request,
@@ -710,11 +711,45 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(testModel, generationTokensMetricName, math.Inf(1), expectedCount)))
 			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(testModel, promptTokensMetricName, math.Inf(1), expectedCount)))
 			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(testModel, paramMaxTokensMetricName, math.Inf(1), expectedCount)))
+			Expect(metrics).To(MatchRegexp(`vllm:generation_tokens_total{model_name="testmodel"} 140`))
+			Expect(metrics).To(MatchRegexp(`vllm:prompt_tokens_total{model_name="testmodel"} 140`))
 
 			Expect(metrics).To(ContainSubstring(`vllm:request_success_total{finish_reason="length",model_name="testmodel"} 0`))
 			Expect(metrics).To(ContainSubstring(`vllm:request_success_total{finish_reason="remote_decode",model_name="testmodel"} 0`))
 			Expect(metrics).To(ContainSubstring(`vllm:request_success_total{finish_reason="stop",model_name="testmodel"} 20`))
 			Expect(metrics).To(ContainSubstring(`vllm:request_success_total{finish_reason="tool_calls",model_name="testmodel"} 0`))
+		})
+		It("Should use TotalPromptTokens and TotalGenerationTokens if provided", func() {
+			ctx := context.TODO()
+			args := []string{
+				"cmd", "--model", testModel, "--mode", common.ModeRandom,
+				"--fake-metrics",
+				`{` +
+					`"running-requests":5,` +
+					`"waiting-requests":2,` +
+					`"kv-cache-usage":0.1,` +
+					`"request-prompt-tokens":[100,200],` +
+					`"request-generation-tokens":[50,150],` +
+					`"total-prompt-tokens":12345,` + // explicit total
+					`"total-generation-tokens":67890,` + // explicit total
+					`"request-success-total":{"stop":10}` +
+					`}`,
+			}
+
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			resp, err := client.Get(metricsUrl)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+			data, err := io.ReadAll(resp.Body)
+			Expect(err).NotTo(HaveOccurred())
+			metrics := string(data)
+
+			// Verify that the explicit totals are used
+			Expect(metrics).To(MatchRegexp(`vllm:prompt_tokens_total{model_name="testmodel"} 12345`))
+			Expect(metrics).To(MatchRegexp(`vllm:generation_tokens_total{model_name="testmodel"} 67890`))
 		})
 	})
 
@@ -943,6 +978,113 @@ var _ = Describe("build125Buckets", Ordered, func() {
 		for _, test := range tests {
 			got := build125Buckets(test.maxValue)
 			Expect(got).To(Equal(test.want))
+		}
+	})
+})
+
+var _ = Describe("estimateTokenTotal", func() {
+	It("should correctly estimate total tokens from bucket counts and boundaries", func() {
+		tests := []struct {
+			name     string
+			counts   []int
+			buckets  []float64
+			expected int64
+		}{
+			{
+				name:     "empty counts",
+				counts:   []int{},
+				buckets:  []float64{1, 2, 5},
+				expected: 0,
+			},
+			{
+				name:     "empty buckets",
+				counts:   []int{10, 20},
+				buckets:  []float64{},
+				expected: 0,
+			},
+			{
+				name:     "only first bucket has requests: [0,10]",
+				counts:   []int{1},
+				buckets:  []float64{10},
+				expected: 5,
+				// bucket0: [0,10] → mid=5 → 1*5 = 5
+				// total = 5
+			},
+			{
+				name:     "first two buckets: [0,10], (10,20]",
+				counts:   []int{2, 3},
+				buckets:  []float64{10, 20},
+				expected: 55,
+				// bucket0: [0,10] → mid=5 → 2*5 = 10
+				// bucket1: (10,20] → mid=15 → 3*15 = 45
+				// total = 10 + 45 = 55
+			},
+			{
+				name:     "three finite buckets + last (+Inf) bucket",
+				counts:   []int{1, 1, 1, 1},
+				buckets:  []float64{10, 20, 50},
+				expected: 130,
+				// bucket0: [0,10] → mid=5 → 1*5 = 5
+				// bucket1: (10,20] → mid=15 → 1*15 = 15
+				// bucket2: (20,50] → mid=35 → 1*35 = 35
+				// bucket3: (50,+Inf) → upper=100, mid=75 → 1*75 = 75
+				// total = 5 + 15 + 35 + 75 = 130
+			},
+			{
+				name:     "zero counts in some buckets",
+				counts:   []int{0, 5, 0, 2},
+				buckets:  []float64{1, 10, 100},
+				expected: 327,
+				// bucket1: (1,10] → mid=5.5 → 5*5.5 = 27.5 → truncated to 27
+				// bucket3: (100,+Inf) → upper=200, mid=150 → 2*150 = 300
+				// total = 27 + 300 = 327
+			},
+			{
+				name:     "only last bucket has requests",
+				counts:   []int{0, 0, 0, 4},
+				buckets:  []float64{10, 100, 1000},
+				expected: 6000,
+				// bucket3: (1000,+Inf) → upper=2000, mid=1500 → 4*1500 = 6000
+				// total = 4*1500 = 6000
+			},
+			{
+				name:     "non-integer midpoints truncated by int64 cast",
+				counts:   []int{1},
+				buckets:  []float64{1},
+				expected: 0,
+				// bucket0: [0,1] → mid=0.5 → 1*0.5 = 0.5 → truncated to 0
+			},
+			{
+				name:     "collaborator example: [10,20,30] with long buckets",
+				counts:   []int{10, 20, 30},
+				buckets:  []float64{1, 2, 5, 10, 20, 50, 100, 200, 500, 1000},
+				expected: 140,
+				// bucket0: [0,1] → mid=0.5 → 10*0.5 = 5
+				// bucket1: (1,2] → mid=1.5 → 20*1.5 = 30
+				// bucket2: (2,5] → mid=3.5 → 30*3.5 = 105
+				// total = 5 + 30 + 105 = 140
+			},
+			{
+				name:     "counts shorter than buckets (trailing zeros omitted)",
+				counts:   []int{1, 1},
+				buckets:  []float64{10, 100, 1000, 10000},
+				expected: 60,
+				// bucket0: [0,10] → mid=5 → 1*5 = 5
+				// bucket1: (10,100] → mid=55 → 1*55 = 55
+				// total = 5 + 55 = 60
+			},
+			{
+				name:     "all zero counts",
+				counts:   []int{0, 0, 0},
+				buckets:  []float64{1, 10, 100},
+				expected: 0,
+				// all buckets have zero requests
+			},
+		}
+
+		for _, test := range tests {
+			result := estimateTokenTotal(test.counts, test.buckets)
+			Expect(result).To(Equal(test.expected), "test case: %s", test.name)
 		}
 	})
 })
