@@ -21,22 +21,22 @@ jobs:
           go-version-file: ./go.mod
           cache-dependency-path: ./go.sum
 
-      - name: Install libzmq dependencies (kvcache/kvevents)
+      - name: Install libzmq and Python dependencies (kvcache/kvevents)
         run: |
           sudo apt-get update
-          make download-zmq
-
-      - name: Set PKG_CONFIG_PATH
-        run: echo "PKG_CONFIG_PATH=/usr/lib/pkgconfig" >> $GITHUB_ENV
+          sudo apt-get install -y pkg-config python3-dev python3-pip
+          make install-dependencies
+          pip3 install transformers --break-system-packages
 
       - name: Run lint checks
-        uses: golangci/golangci-lint-action@v8
-        with:
-          version: 'v2.4.0'
-          args: "--config=./.golangci.yml"
+        run: |
+          make lint
+
+      - name: Build Container image
+        run: |
+          make image-build SIM_TAG=pr-check
 
       - name: Run go test
-        shell: bash 
+        shell: bash
         run: |
-          echo "Running tests with Ginkgo..."
           make test
