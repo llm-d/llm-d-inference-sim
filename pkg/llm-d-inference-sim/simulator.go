@@ -136,6 +136,10 @@ type metricsData struct {
 	requestPromptTokens *prometheus.HistogramVec
 	// requestGenerationTokens is prometheus histogram for number of generated tokens in request
 	requestGenerationTokens *prometheus.HistogramVec
+	// promptTokensTotal is prometheus counter for total number of input (prompt) tokens
+	promptTokensTotal *prometheus.CounterVec
+	// generationTokensTotal is prometheus counter for total number of generated tokens
+	generationTokensTotal *prometheus.CounterVec
 	// maxNumGenerationTokens is prometheus histogram for maximum number of generated tokens in request
 	maxNumGenerationTokens *prometheus.HistogramVec
 	// requestParamsMaxTokens is prometheus histogram for 'max_tokens' parameter in request

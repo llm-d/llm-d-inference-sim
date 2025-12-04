@@ -252,6 +252,9 @@ type Metrics struct {
 	TPOTBucketValues []int `yaml:"tpot-buckets-values" json:"tpot-buckets-values"`
 	// RequestPromptTokens RequestGenerationTokens RequestParamsMaxTokens Histogram fake-observation arrays for init.
 	// Each value will be passed to Observe() once at start-up.
+	// exactly once during initialization. Additionally:
+	//   - The sum of RequestPromptTokens initializes vllm:prompt_tokens_total.
+	//   - The sum of RequestGenerationTokens initializes vllm:generation_tokens_total.
 	RequestPromptTokens        []int `yaml:"request-prompt-tokens" json:"request-prompt-tokens"`                 // prompt-length samples
 	RequestGenerationTokens    []int `yaml:"request-generation-tokens" json:"request-generation-tokens"`         // generation-length samples
 	RequestParamsMaxTokens     []int `yaml:"request-params-max-tokens" json:"request-params-max-tokens"`         // max_tokens parameter samples

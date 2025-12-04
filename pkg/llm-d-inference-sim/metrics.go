@@ -45,6 +45,8 @@ const (
 	generationTokensMetricName       = "vllm:request_generation_tokens"
 	paramMaxTokensMetricName         = "vllm:request_params_max_tokens"
 	promptTokensMetricName           = "vllm:request_prompt_tokens"
+	generationTokensTotalMetricName  = "vllm:generation_tokens_total"
+	promptTokensTotalMetricName      = "vllm:prompt_tokens_total"
 	successTotalMetricName           = "vllm:request_success_total"
 	loraRequestsMetricName           = "vllm:lora_requests_info"
 	reqRunningMetricName             = "vllm:num_requests_running"
@@ -292,6 +294,34 @@ func (s *VllmSimulator) createAndRegisterPrometheus() error {
 		return err
 	}
 
+	s.metrics.promptTokensTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Subsystem: "",
+			Name:      promptTokensTotalMetricName,
+			Help:      "Total number of prompt tokens processed.",
+		},
+		[]string{vllmapi.PromLabelModelName},
+	)
+
+	if err := s.metrics.registry.Register(s.metrics.promptTokensTotal); err != nil {
+		s.logger.Error(err, "prometheus prompt_tokens_total counter register failed")
+		return err
+	}
+
+	s.metrics.generationTokensTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Subsystem: "",
+			Name:      generationTokensTotalMetricName,
+			Help:      "Total number of generated tokens.",
+		},
+		[]string{vllmapi.PromLabelModelName},
+	)
+
+	if err := s.metrics.registry.Register(s.metrics.generationTokensTotal); err != nil {
+		s.logger.Error(err, "prometheus generation_tokens_total counter register failed")
+		return err
+	}
+
 	s.metrics.requestSuccessTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Subsystem: "",
@@ -342,10 +372,20 @@ func (s *VllmSimulator) setInitialPrometheusMetrics(cacheConfig *prometheus.Gaug
 		}
 		buckets := build125Buckets(s.config.MaxModelLen)
 		if s.config.FakeMetrics.RequestPromptTokens != nil {
+			var promptTotal int64
 			s.initFakeHistogram(s.metrics.requestPromptTokens, buckets, s.config.FakeMetrics.RequestPromptTokens)
+			for _, v := range s.config.FakeMetrics.RequestPromptTokens {
+				promptTotal += int64(v)
+			}
+			s.metrics.promptTokensTotal.WithLabelValues(modelName).Add(float64(promptTotal))
 		}
 		if s.config.FakeMetrics.RequestGenerationTokens != nil {
 			s.initFakeHistogram(s.metrics.requestParamsMaxTokens, buckets, s.config.FakeMetrics.RequestGenerationTokens)
+			var genTotal int64
+			for _, v := range s.config.FakeMetrics.RequestGenerationTokens {
+				genTotal += int64(v)
+			}
+			s.metrics.generationTokensTotal.WithLabelValues(modelName).Add(float64(genTotal))
 		}
 		if s.config.FakeMetrics.RequestParamsMaxTokens != nil {
 			s.initFakeHistogram(s.metrics.requestGenerationTokens, buckets, s.config.FakeMetrics.RequestParamsMaxTokens)
@@ -727,6 +767,8 @@ func (s *VllmSimulator) recordRequestMetricsOnSuccess(promptTokens,
 	modelName := s.getDisplayedModelName(s.config.Model)
 	s.metrics.requestPromptTokens.WithLabelValues(modelName).Observe(float64(promptTokens))
 	s.metrics.requestGenerationTokens.WithLabelValues(modelName).Observe(float64(generationTokens))
+	s.metrics.promptTokensTotal.WithLabelValues(modelName).Add(float64(promptTokens))
+	s.metrics.generationTokensTotal.WithLabelValues(modelName).Add(float64(generationTokens))
 	if maxTokens != nil {
 		s.metrics.requestParamsMaxTokens.WithLabelValues(modelName).Observe(float64(*maxTokens))
 	}
