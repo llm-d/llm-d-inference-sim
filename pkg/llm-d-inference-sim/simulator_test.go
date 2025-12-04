@@ -38,12 +38,15 @@ const invalidMaxTokensErrMsg = "Max completion tokens and max tokens should be p
 var _ = Describe("Simulator", func() {
 
 	DescribeTable("chat completions streaming",
-		func(mode string) {
+		func(mode string, numCompletionOptions *int) {
 			ctx := context.TODO()
 			client, err := startServer(ctx, mode)
 			Expect(err).NotTo(HaveOccurred())
 
 			openaiclient, params := getOpenAIClientAndChatParams(client, testModel, testUserMessage, true)
+			if numCompletionOptions != nil {
+				params.N = param.NewOpt(int64(*numCompletionOptions))
+			}
 			stream := openaiclient.Chat.Completions.NewStreaming(ctx, params)
 			defer func() {
 				err := stream.Close()
@@ -53,8 +56,17 @@ var _ = Describe("Simulator", func() {
 			role := ""
 			var chunk openai.ChatCompletionChunk
 			numberOfChunksWithUsage := 0
+			expectedNumChoices := 0
+			if numCompletionOptions == nil {
+				expectedNumChoices = 1
+			} else {
+				expectedNumChoices = *numCompletionOptions
+			}
 			for stream.Next() {
 				chunk = stream.Current()
+				// len(chunk.Choices) >= 0 && len(chunk.Choices) <= expectedNumChoices
+				// We check for >= 0 because choices cane be emply if usage is enabled.
+				Expect(len(chunk.Choices)).To(And(BeNumerically(">=", 0), BeNumerically("<=", expectedNumChoices)))
 				for _, choice := range chunk.Choices {
 					if choice.Delta.Role != "" {
 						role = choice.Delta.Role
@@ -83,20 +95,26 @@ var _ = Describe("Simulator", func() {
 			}
 			Expect(role).Should(Equal("assistant"))
 		},
-		func(mode string) string {
-			return "mode: " + mode
+		func(mode string, numCompletionOptions *int) string {
+			if numCompletionOptions == nil {
+				return fmt.Sprintf("mode: %s, NumCompletionOptions (N): %v", mode, numCompletionOptions)
+			}
+			return fmt.Sprintf("mode: %s, NumCompletionOptions (N): %d", mode, *numCompletionOptions)
 		},
-		Entry(nil, common.ModeRandom),
-		Entry(nil, common.ModeEcho),
+		Entry(nil, common.ModeRandom, intPtr(10)),
+		Entry(nil, common.ModeEcho, nil),
 	)
 
 	DescribeTable("text completions streaming",
-		func(mode string) {
+		func(mode string, numCompletionOptions *int) {
 			ctx := context.TODO()
 			client, err := startServer(ctx, mode)
 			Expect(err).NotTo(HaveOccurred())
 
 			openaiclient, params := getOpenAIClentAndCompletionParams(client, testModel, testUserMessage, true)
+			if numCompletionOptions != nil {
+				params.N = param.NewOpt(int64(*numCompletionOptions))
+			}
 			stream := openaiclient.Completions.NewStreaming(ctx, params)
 			defer func() {
 				err := stream.Close()
@@ -105,8 +123,17 @@ var _ = Describe("Simulator", func() {
 			tokens := []string{}
 			var chunk openai.Completion
 			numberOfChunksWithUsage := 0
+			expectedNumChoices := 0
+			if numCompletionOptions == nil {
+				expectedNumChoices = 1
+			} else {
+				expectedNumChoices = *numCompletionOptions
+			}
 			for stream.Next() {
 				chunk = stream.Current()
+				// len(chunk.Choices) >= 0 && len(chunk.Choices) <= expectedNumChoices
+				// We check for >= 0 because choices cane be emply if usage is enabled.
+				Expect(len(chunk.Choices)).To(And(BeNumerically(">=", 0), BeNumerically("<=", expectedNumChoices)))
 				for _, choice := range chunk.Choices {
 					if choice.FinishReason == "" {
 						tokens = append(tokens, choice.Text)
@@ -131,15 +158,18 @@ var _ = Describe("Simulator", func() {
 				Expect(text).Should(Equal(testUserMessage))
 			}
 		},
-		func(mode string) string {
-			return "mode: " + mode
+		func(mode string, numCompletionOptions *int) string {
+			if numCompletionOptions == nil {
+				return fmt.Sprintf("mode: %s, NumCompletionOptions (N): %v", mode, numCompletionOptions)
+			}
+			return fmt.Sprintf("mode: %s, NumCompletionOptions (N): %d", mode, *numCompletionOptions)
 		},
-		Entry(nil, common.ModeRandom),
-		Entry(nil, common.ModeEcho),
+		Entry(nil, common.ModeRandom, intPtr(10)),
+		Entry(nil, common.ModeEcho, nil),
 	)
 
 	DescribeTable("chat completions",
-		func(mode string, maxTokens int, maxCompletionTokens int) {
+		func(mode string, maxTokens int, maxCompletionTokens int, numCompletionOptions *int) {
 			ctx := context.TODO()
 			client, err := startServer(ctx, mode)
 			Expect(err).NotTo(HaveOccurred())
@@ -155,6 +185,9 @@ var _ = Describe("Simulator", func() {
 			if maxCompletionTokens != 0 {
 				params.MaxCompletionTokens = param.NewOpt(int64(maxCompletionTokens))
 				numTokens = maxCompletionTokens
+			}
+			if numCompletionOptions != nil {
+				params.N = param.NewOpt(int64(*numCompletionOptions))
 			}
 			resp, err := openaiclient.Chat.Completions.New(ctx, params)
 			if err != nil {
@@ -174,49 +207,66 @@ var _ = Describe("Simulator", func() {
 			Expect(string(resp.Object)).To(Equal(chatCompletionObject))
 
 			Expect(resp.Usage.PromptTokens).To(Equal(userMsgTokens))
-			Expect(resp.Usage.CompletionTokens).To(BeNumerically(">", 0))
 			Expect(resp.Usage.TotalTokens).To(Equal(resp.Usage.PromptTokens + resp.Usage.CompletionTokens))
 
-			msg := resp.Choices[0].Message.Content
-			Expect(msg).ShouldNot(BeEmpty())
-
-			if mode == common.ModeEcho {
-				// in case of echo mode check that the text is returned as-is
-				Expect(msg).Should(Equal(testUserMessage))
+			// At this point we've gotten back a response; test the expected
+			// behaviour that the default value of numCompletionOptions (N) is
+			// 1 if nothing is specified.
+			expectedNumChoices := 0
+			if numCompletionOptions != nil {
+				expectedNumChoices = *numCompletionOptions
 			} else {
-				if numTokens > 0 {
-					tokens := common.Tokenize(msg)
-					Expect(int64(len(tokens))).Should(BeNumerically("<=", numTokens))
+				expectedNumChoices = 1
+			}
+			Expect(len(resp.Choices)).To(Equal(expectedNumChoices))
+			if maxTokens > 0 {
+				// completionTokens > 0 && completionTokens <= expectedNumChoices*maxTokens
+				Expect(resp.Usage.CompletionTokens).To(And(BeNumerically(">", 0), BeNumerically("<=", expectedNumChoices*maxTokens)))
+			}
+			for _, choice := range resp.Choices {
+				msg := choice.Message.Content
+				Expect(msg).ShouldNot(BeEmpty())
+				if mode == common.ModeEcho {
+					// in case of echo mode check that the text is returned as-is
+					Expect(msg).Should(Equal(testUserMessage))
 				} else {
-					// in case of random mode ensure that the returned message could be output of the random text generator
-					Expect(dataset.IsValidText(msg)).To(BeTrue())
+					if numTokens > 0 {
+						tokens := common.Tokenize(msg)
+						Expect(int64(len(tokens))).Should(BeNumerically("<=", numTokens))
+					} else {
+						// in case of random mode ensure that the returned message could be output of the random text generator
+						Expect(dataset.IsValidText(msg)).To(BeTrue())
+					}
 				}
 			}
 		},
-		func(mode string, maxTokens int, maxCompletionTokens int) string {
-			return fmt.Sprintf("mode: %s max_tokens: %d max_completion_tokens: %d", mode, maxTokens, maxCompletionTokens)
+		func(mode string, maxTokens int, maxCompletionTokens int, numCompletionOptions *int) string {
+			if numCompletionOptions == nil {
+				return fmt.Sprintf("mode: %s max_tokens: %d max_completion_tokens: %d, N: %v", mode, maxTokens, maxCompletionTokens, numCompletionOptions)
+			}
+			return fmt.Sprintf("mode: %s max_tokens: %d max_completion_tokens: %d, N: %d", mode, maxTokens, maxCompletionTokens, *numCompletionOptions)
 		},
-		Entry(nil, common.ModeRandom, 2, 0),
-		Entry(nil, common.ModeEcho, 2, 0),
-		Entry(nil, common.ModeRandom, 1000, 0),
-		Entry(nil, common.ModeEcho, 1000, 0),
-		Entry(nil, common.ModeRandom, 1000, 2),
-		Entry(nil, common.ModeEcho, 1000, 2),
-		Entry(nil, common.ModeRandom, 0, 2),
-		Entry(nil, common.ModeEcho, 0, 2),
-		Entry(nil, common.ModeRandom, 0, 1000),
-		Entry(nil, common.ModeEcho, 0, 1000),
-		Entry(nil, common.ModeRandom, 0, 0),
-		Entry(nil, common.ModeEcho, 0, 0),
-		Entry(nil, common.ModeRandom, -1, 0),
-		Entry(nil, common.ModeEcho, -1, 0),
-		Entry(nil, common.ModeRandom, 0, -1),
-		Entry(nil, common.ModeEcho, 0, -1),
+		Entry(nil, common.ModeRandom, 2, 0, intPtr(5)),
+		Entry(nil, common.ModeEcho, 2, 0, intPtr(5)),
+		Entry(nil, common.ModeRandom, 1000, 0, intPtr(5)),
+		Entry(nil, common.ModeEcho, 1000, 0, intPtr(10)),
+		Entry(nil, common.ModeRandom, 1000, 2, intPtr(10)),
+		Entry(nil, common.ModeEcho, 1000, 2, intPtr(1)),
+		Entry(nil, common.ModeRandom, 0, 2, intPtr(1)),
+		Entry(nil, common.ModeEcho, 0, 2, nil),
+		Entry(nil, common.ModeRandom, 0, 1000, nil),
+		Entry(nil, common.ModeEcho, 0, 1000, nil),
+		Entry(nil, common.ModeRandom, 0, 0, nil),
+		Entry(nil, common.ModeEcho, 0, 0, nil),
+		Entry(nil, common.ModeRandom, -1, 0, nil),
+		Entry(nil, common.ModeEcho, -1, 0, nil),
+		Entry(nil, common.ModeRandom, 0, -1, nil),
+		Entry(nil, common.ModeEcho, 0, -1, nil),
 	)
 
 	DescribeTable("text completions",
 		// use a function so that httpClient is captured when running
-		func(mode string, maxTokens int) {
+		func(mode string, maxTokens int, numCompletionOptions *int) {
 			ctx := context.TODO()
 			client, err := startServer(ctx, mode)
 			Expect(err).NotTo(HaveOccurred())
@@ -226,6 +276,9 @@ var _ = Describe("Simulator", func() {
 			if maxTokens != 0 {
 				params.MaxTokens = param.NewOpt(int64(maxTokens))
 				numTokens = maxTokens
+			}
+			if numCompletionOptions != nil {
+				params.N = param.NewOpt(int64(*numCompletionOptions))
 			}
 			resp, err := openaiclient.Completions.New(ctx, params)
 			if err != nil {
@@ -245,36 +298,54 @@ var _ = Describe("Simulator", func() {
 			Expect(string(resp.Object)).To(Equal(textCompletionObject))
 
 			Expect(resp.Usage.PromptTokens).To(Equal(userMsgTokens))
-			Expect(resp.Usage.CompletionTokens).To(BeNumerically(">", 0))
 			Expect(resp.Usage.TotalTokens).To(Equal(resp.Usage.PromptTokens + resp.Usage.CompletionTokens))
 
-			text := resp.Choices[0].Text
-			Expect(text).ShouldNot(BeEmpty())
-
-			if mode == common.ModeEcho {
-				// in case of echo mode check that the text is returned as-is
-				Expect(text).Should(Equal(testUserMessage))
+			// At this point we've gotten back a response; test the expected
+			// behaviour that the default value of numCompletionOptions (N) is
+			// 1 if nothing is specified.
+			expectedNumChoices := 0
+			if numCompletionOptions != nil {
+				expectedNumChoices = *numCompletionOptions
 			} else {
-				if numTokens != 0 {
-					tokens := common.Tokenize(text)
-					Expect(int64(len(tokens))).Should(BeNumerically("<=", numTokens))
+				expectedNumChoices = 1
+			}
+			Expect(len(resp.Choices)).To(Equal(expectedNumChoices))
+			if maxTokens > 0 {
+				// completionTokens > 0 && completionTokens <= expectedNumChoices*maxTokens
+				Expect(resp.Usage.CompletionTokens).To(And(BeNumerically(">", 0), BeNumerically("<=", expectedNumChoices*maxTokens)))
+			}
+
+			for _, choice := range resp.Choices {
+				msg := choice.Text
+				Expect(msg).ShouldNot(BeEmpty())
+				if mode == common.ModeEcho {
+					// in case of echo mode check that the text is returned as-is
+					Expect(msg).Should(Equal(testUserMessage))
 				} else {
-					// in case of random mode ensure that the returned message could be output of the random text generator
-					Expect(dataset.IsValidText(text)).To(BeTrue())
+					if numTokens > 0 {
+						tokens := common.Tokenize(msg)
+						Expect(int64(len(tokens))).Should(BeNumerically("<=", numTokens))
+					} else {
+						// in case of random mode ensure that the returned message could be output of the random text generator
+						Expect(dataset.IsValidText(msg)).To(BeTrue())
+					}
 				}
 			}
 		},
-		func(mode string, maxTokens int) string {
-			return fmt.Sprintf("mode: %s max_tokens: %d", mode, maxTokens)
+		func(mode string, maxTokens int, numCompletionOptions *int) string {
+			if numCompletionOptions == nil {
+				return fmt.Sprintf("mode: %s max_tokens: %d, numCompletionOptions (N): %v", mode, maxTokens, numCompletionOptions)
+			}
+			return fmt.Sprintf("mode: %s max_tokens: %d, numCompletionOptions (N): %d", mode, maxTokens, *numCompletionOptions)
 		},
-		Entry(nil, common.ModeRandom, 2),
-		Entry(nil, common.ModeEcho, 2),
-		Entry(nil, common.ModeRandom, 1000),
-		Entry(nil, common.ModeEcho, 1000),
-		Entry(nil, common.ModeRandom, 0),
-		Entry(nil, common.ModeEcho, 0),
-		Entry(nil, common.ModeRandom, -1),
-		Entry(nil, common.ModeEcho, -1),
+		Entry(nil, common.ModeRandom, 2, intPtr(5)),
+		Entry(nil, common.ModeEcho, 2, intPtr(5)),
+		Entry(nil, common.ModeRandom, 1000, intPtr(1)),
+		Entry(nil, common.ModeEcho, 1000, intPtr(1)),
+		Entry(nil, common.ModeRandom, 0, nil),
+		Entry(nil, common.ModeEcho, 0, nil),
+		Entry(nil, common.ModeRandom, -1, nil),
+		Entry(nil, common.ModeEcho, -1, nil),
 	)
 
 	Context("namespace and pod headers", func() {
@@ -690,3 +761,5 @@ var _ = Describe("Simulator", func() {
 		})
 	})
 })
+
+func intPtr(a int) *int { return &a }
