@@ -44,6 +44,8 @@ const (
 	generationTokensMetricName       = "vllm:request_generation_tokens"
 	paramMaxTokensMetricName         = "vllm:request_params_max_tokens"
 	promptTokensMetricName           = "vllm:request_prompt_tokens"
+	generationTokensTotalMetricName  = "vllm:generation_tokens_total"
+	promptTokensTotalMetricName      = "vllm:prompt_tokens_total"
 	successTotalMetricName           = "vllm:request_success_total"
 	loraRequestsMetricName           = "vllm:lora_requests_info"
 	reqRunningMetricName             = "vllm:num_requests_running"
@@ -275,6 +277,34 @@ func (s *VllmSimulator) createAndRegisterPrometheus() error {
 		return err
 	}
 
+	s.metrics.promptTokensTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Subsystem: "",
+			Name:      promptTokensTotalMetricName,
+			Help:      "Total number of prompt tokens processed.",
+		},
+		[]string{vllmapi.PromLabelModelName},
+	)
+
+	if err := s.metrics.registry.Register(s.metrics.promptTokensTotal); err != nil {
+		s.logger.Error(err, "prometheus prompt_tokens_total counter register failed")
+		return err
+	}
+
+	s.metrics.generationTokensTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Subsystem: "",
+			Name:      generationTokensTotalMetricName,
+			Help:      "Total number of generated tokens.",
+		},
+		[]string{vllmapi.PromLabelModelName},
+	)
+
+	if err := s.metrics.registry.Register(s.metrics.generationTokensTotal); err != nil {
+		s.logger.Error(err, "prometheus generation_tokens_total counter register failed")
+		return err
+	}
+
 	s.metrics.requestSuccessTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
 			Subsystem: "",
@@ -325,9 +355,23 @@ func (s *VllmSimulator) setInitialPrometheusMetrics(cacheConfig *prometheus.Gaug
 		buckets := build125Buckets(s.config.MaxModelLen)
 		if s.config.FakeMetrics.RequestPromptTokens != nil {
 			s.initFakeHistogram(s.metrics.requestPromptTokens, buckets, s.config.FakeMetrics.RequestPromptTokens)
+			var promptTotal int64
+			if s.config.FakeMetrics.TotalPromptTokens != nil {
+				promptTotal = *s.config.FakeMetrics.TotalPromptTokens
+			} else {
+				promptTotal = estimateTokenTotal(s.config.FakeMetrics.RequestPromptTokens, buckets)
+			}
+			s.metrics.promptTokensTotal.WithLabelValues(modelName).Add(float64(promptTotal))
 		}
 		if s.config.FakeMetrics.RequestGenerationTokens != nil {
 			s.initFakeHistogram(s.metrics.requestParamsMaxTokens, buckets, s.config.FakeMetrics.RequestGenerationTokens)
+			var genTotal int64
+			if s.config.FakeMetrics.TotalGenerationTokens != nil {
+				genTotal = *s.config.FakeMetrics.TotalGenerationTokens
+			} else {
+				genTotal = estimateTokenTotal(s.config.FakeMetrics.RequestGenerationTokens, buckets)
+			}
+			s.metrics.generationTokensTotal.WithLabelValues(modelName).Add(float64(genTotal))
 		}
 		if s.config.FakeMetrics.RequestParamsMaxTokens != nil {
 			s.initFakeHistogram(s.metrics.requestGenerationTokens, buckets, s.config.FakeMetrics.RequestParamsMaxTokens)
@@ -708,6 +752,8 @@ func (s *VllmSimulator) recordRequestMetricsOnSuccess(promptTokens,
 	modelName := s.getDisplayedModelName(s.config.Model)
 	s.metrics.requestPromptTokens.WithLabelValues(modelName).Observe(float64(promptTokens))
 	s.metrics.requestGenerationTokens.WithLabelValues(modelName).Observe(float64(generationTokens))
+	s.metrics.promptTokensTotal.WithLabelValues(modelName).Add(float64(promptTokens))
+	s.metrics.generationTokensTotal.WithLabelValues(modelName).Add(float64(generationTokens))
 	if maxTokens != nil {
 		s.metrics.requestParamsMaxTokens.WithLabelValues(modelName).Observe(float64(*maxTokens))
 	}
@@ -744,4 +790,48 @@ func build125Buckets(maxValue int) []float64 {
 		exponent++
 	}
 	return buckets
+}
+
+// estimateTokenTotal estimates the total number of tokens based on histogram bucket boundaries
+// and the number of requests in each bucket. It assumes that requests in a bucket have token
+// lengths uniformly distributed between the bucket's lower and upper bounds, and uses the
+// midpoint as a representative value for estimation.
+//
+// The last bucket is treated as [buckets[len(buckets)-1], +Inf), so its upper bound is approximated
+// as twice the lower bound for midpoint calculation.
+func estimateTokenTotal(counts []int, buckets []float64) int64 {
+	if len(counts) == 0 || len(buckets) == 0 {
+		return 0
+	}
+	var total int64
+	nBuckets := len(buckets)
+	nCounts := len(counts)
+
+	for i := 0; i <= nBuckets; i++ {
+		count := 0
+		if i < nCounts {
+			count = counts[i]
+		}
+		if count == 0 {
+			continue
+		}
+		var lower, upper float64
+		switch {
+		case i == 0:
+			// First bucket: [0, buckets[0]]
+			lower = 0.0
+			upper = buckets[0]
+		case i < nBuckets:
+			// Middle buckets: (buckets[i-1], buckets[i]]
+			lower = buckets[i-1]
+			upper = buckets[i]
+		default:
+			// Last bucket: (buckets[nBuckets-1], +Inf)
+			lower = buckets[nBuckets-1]
+			upper = lower * 2
+		}
+		mid := (lower + upper) / 2.0
+		total += int64(float64(count) * mid)
+	}
+	return total
 }
