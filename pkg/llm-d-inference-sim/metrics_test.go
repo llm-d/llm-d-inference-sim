@@ -162,6 +162,7 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 		}
 		Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(testModel, promptTokensMetricName, math.Inf(1), 1)))
 		Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(testModel, paramMaxTokensMetricName, math.Inf(1), 1)))
+		Expect(metrics).To(MatchRegexp(`vllm:prompt_tokens_total{model_name="testmodel"} 25`))
 
 		// request_generation_tokens
 		// We do not verify the distribution of the number of tokens generated per request,
@@ -704,6 +705,8 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(testModel, generationTokensMetricName, math.Inf(1), expectedCount)))
 			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(testModel, promptTokensMetricName, math.Inf(1), expectedCount)))
 			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(testModel, paramMaxTokensMetricName, math.Inf(1), expectedCount)))
+			Expect(metrics).To(MatchRegexp(`vllm:generation_tokens_total{model_name="testmodel"} 60`))
+			Expect(metrics).To(MatchRegexp(`vllm:prompt_tokens_total{model_name="testmodel"} 60`))
 
 			Expect(metrics).To(ContainSubstring(`vllm:request_success_total{finish_reason="length",model_name="testmodel"} 0`))
 			Expect(metrics).To(ContainSubstring(`vllm:request_success_total{finish_reason="remote_decode",model_name="testmodel"} 0`))
