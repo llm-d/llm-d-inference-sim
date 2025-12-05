@@ -109,9 +109,22 @@ func (s *VllmSimulator) startServer(ctx context.Context, listener net.Listener) 
 	}
 }
 
+// getRequestID retrieves the request ID from the X-Request-Id header or generates a new one if not present
+func (s *VllmSimulator) getRequestID(ctx *fasthttp.RequestCtx) string {
+	requestID := s.random.GenerateUUIDString()
+
+	if s.config.EnableRequestIDHeaders {
+		rid := string(ctx.Request.Header.Peek("X-Request-Id"))
+		if rid != "" {
+			requestID = rid
+		}
+	}
+	return requestID
+}
+
 // readRequest reads and parses data from the body of the given request according the type defined by isChatCompletion
 func (s *VllmSimulator) readRequest(ctx *fasthttp.RequestCtx, isChatCompletion bool) (openaiserverapi.CompletionRequest, error) {
-	requestID := s.random.GenerateUUIDString()
+	requestID := s.getRequestID(ctx)
 
 	if isChatCompletion {
 		var req openaiserverapi.ChatCompletionRequest
@@ -250,7 +263,7 @@ func (s *VllmSimulator) validateRequest(req openaiserverapi.CompletionRequest) (
 }
 
 // sendCompletionResponse sends a completion response
-func (s *VllmSimulator) sendCompletionResponse(ctx *fasthttp.RequestCtx, resp openaiserverapi.CompletionResponse) {
+func (s *VllmSimulator) sendCompletionResponse(ctx *fasthttp.RequestCtx, resp openaiserverapi.CompletionResponse, requestID string) {
 	data, err := json.Marshal(resp)
 	if err != nil {
 		ctx.Error("Response body creation failed, "+err.Error(), fasthttp.StatusInternalServerError)
@@ -265,6 +278,9 @@ func (s *VllmSimulator) sendCompletionResponse(ctx *fasthttp.RequestCtx, resp op
 	}
 	if s.namespace != "" {
 		ctx.Response.Header.Add(namespaceHeader, s.namespace)
+	}
+	if s.config.EnableRequestIDHeaders {
+		ctx.Response.Header.Add(requestIDHeader, requestID)
 	}
 	ctx.Response.SetBody(data)
 }

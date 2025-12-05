@@ -212,6 +212,192 @@ var _ = Describe("Server", func() {
 
 	})
 
+	Context("request ID headers", func() {
+		It("Should include X-Request-Id in response when enabled", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", testModel, "--mode", common.ModeEcho,
+				"--enable-request-id-headers"}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			reqBody := `{
+				"messages": [{"role": "user", "content": "Hello"}],
+				"model": "` + testModel + `",
+				"max_tokens": 5
+			}`
+
+			req, err := http.NewRequest("POST", "http://localhost/v1/chat/completions", strings.NewReader(reqBody))
+			Expect(err).NotTo(HaveOccurred())
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("X-Request-Id", "test-request-id-123")
+
+			resp, err := client.Do(req)
+			Expect(err).NotTo(HaveOccurred())
+			defer func() {
+				err := resp.Body.Close()
+				Expect(err).NotTo(HaveOccurred())
+			}()
+
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			Expect(resp.Header.Get("X-Request-Id")).To(Equal("test-request-id-123"))
+		})
+
+		It("Should not include X-Request-Id in response when disabled", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", testModel, "--mode", common.ModeEcho}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			reqBody := `{
+				"messages": [{"role": "user", "content": "Hello"}],
+				"model": "` + testModel + `",
+				"max_tokens": 5
+			}`
+
+			req, err := http.NewRequest("POST", "http://localhost/v1/chat/completions", strings.NewReader(reqBody))
+			Expect(err).NotTo(HaveOccurred())
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("X-Request-Id", "test-request-id-456")
+
+			resp, err := client.Do(req)
+			Expect(err).NotTo(HaveOccurred())
+			defer func() {
+				err := resp.Body.Close()
+				Expect(err).NotTo(HaveOccurred())
+			}()
+
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			Expect(resp.Header.Get("X-Request-Id")).To(BeEmpty())
+		})
+
+		It("Should include X-Request-Id in streaming response when enabled", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", testModel, "--mode", common.ModeEcho,
+				"--enable-request-id-headers"}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			reqBody := `{
+				"messages": [{"role": "user", "content": "Hello"}],
+				"model": "` + testModel + `",
+				"max_tokens": 5,
+				"stream": true
+			}`
+
+			req, err := http.NewRequest("POST", "http://localhost/v1/chat/completions", strings.NewReader(reqBody))
+			Expect(err).NotTo(HaveOccurred())
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("X-Request-Id", "test-streaming-request-789")
+
+			resp, err := client.Do(req)
+			Expect(err).NotTo(HaveOccurred())
+			defer func() {
+				err := resp.Body.Close()
+				Expect(err).NotTo(HaveOccurred())
+			}()
+
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			Expect(resp.Header.Get("X-Request-Id")).To(Equal("test-streaming-request-789"))
+		})
+
+		It("Should use request ID in response body ID field when enabled", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", testModel, "--mode", common.ModeEcho,
+				"--enable-request-id-headers"}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			reqBody := `{
+				"messages": [{"role": "user", "content": "Hello"}],
+				"model": "` + testModel + `",
+				"max_tokens": 5
+			}`
+
+			req, err := http.NewRequest("POST", "http://localhost/v1/chat/completions", strings.NewReader(reqBody))
+			Expect(err).NotTo(HaveOccurred())
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("X-Request-Id", "body-test-request-999")
+
+			resp, err := client.Do(req)
+			Expect(err).NotTo(HaveOccurred())
+			defer func() {
+				err := resp.Body.Close()
+				Expect(err).NotTo(HaveOccurred())
+			}()
+
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+			body, err := io.ReadAll(resp.Body)
+			Expect(err).NotTo(HaveOccurred())
+
+			var completionResp map[string]interface{}
+			err = json.Unmarshal(body, &completionResp)
+			Expect(err).NotTo(HaveOccurred())
+
+			// The response ID should start with "chatcmpl-" followed by the request ID
+			responseID, ok := completionResp["id"].(string)
+			Expect(ok).To(BeTrue())
+			Expect(responseID).To(Equal("chatcmpl-body-test-request-999"))
+		})
+
+		It("Should work with text completions endpoint", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", testModel, "--mode", common.ModeEcho,
+				"--enable-request-id-headers"}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			reqBody := `{
+				"prompt": "Hello world",
+				"model": "` + testModel + `",
+				"max_tokens": 5
+			}`
+
+			req, err := http.NewRequest("POST", "http://localhost/v1/completions", strings.NewReader(reqBody))
+			Expect(err).NotTo(HaveOccurred())
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("X-Request-Id", "text-completion-request-111")
+
+			resp, err := client.Do(req)
+			Expect(err).NotTo(HaveOccurred())
+			defer func() {
+				err := resp.Body.Close()
+				Expect(err).NotTo(HaveOccurred())
+			}()
+
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			Expect(resp.Header.Get("X-Request-Id")).To(Equal("text-completion-request-111"))
+		})
+
+		It("Should generate UUID when no X-Request-Id header provided and feature enabled", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", testModel, "--mode", common.ModeEcho,
+				"--enable-request-id-headers"}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			reqBody := `{
+				"messages": [{"role": "user", "content": "Hello"}],
+				"model": "` + testModel + `",
+				"max_tokens": 5
+			}`
+
+			resp, err := client.Post("http://localhost/v1/chat/completions", "application/json", strings.NewReader(reqBody))
+			Expect(err).NotTo(HaveOccurred())
+			defer func() {
+				err := resp.Body.Close()
+				Expect(err).NotTo(HaveOccurred())
+			}()
+
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			// Should have a generated UUID in the response header
+			requestID := resp.Header.Get("X-Request-Id")
+			Expect(requestID).NotTo(BeEmpty())
+			// UUID format check (basic validation)
+			Expect(len(requestID)).To(BeNumerically(">", 30))
+		})
+	})
+
 	Context("sleep mode", Ordered, func() {
 		AfterAll(func() {
 			err := os.RemoveAll(tmpDir)
