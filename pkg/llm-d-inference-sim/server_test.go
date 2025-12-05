@@ -25,11 +25,13 @@ import (
 	"strings"
 	"time"
 
+	. "github.com/onsi/ginkgo/v2"
+	. "github.com/onsi/gomega"
+	"github.com/valyala/fasthttp"
+
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	kvcache "github.com/llm-d/llm-d-inference-sim/pkg/kv-cache"
 	vllmapi "github.com/llm-d/llm-d-inference-sim/pkg/vllm-api"
-	. "github.com/onsi/ginkgo/v2"
-	. "github.com/onsi/gomega"
 )
 
 const tmpDir = "./tests-tmp/"
@@ -210,6 +212,111 @@ var _ = Describe("Server", func() {
 			Expect(resp.StatusCode).To(Equal(http.StatusOK))
 		})
 
+	})
+
+	Context("request ID headers", func() {
+		testRequestIDHeader := func(enableRequestID bool, endpoint, reqBody, inputRequestID string, expectRequestID *string, validateBody func([]byte)) {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", testModel, "--mode", common.ModeEcho}
+			if enableRequestID {
+				args = append(args, "--enable-request-id-headers")
+			}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			req, err := http.NewRequest("POST", "http://localhost"+endpoint, strings.NewReader(reqBody))
+			Expect(err).NotTo(HaveOccurred())
+			req.Header.Set(fasthttp.HeaderContentType, "application/json")
+			if inputRequestID != "" {
+				req.Header.Set(requestIDHeader, inputRequestID)
+			}
+
+			resp, err := client.Do(req)
+			Expect(err).NotTo(HaveOccurred())
+			defer func() {
+				err := resp.Body.Close()
+				Expect(err).NotTo(HaveOccurred())
+			}()
+
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+			if expectRequestID != nil {
+				actualRequestID := resp.Header.Get(requestIDHeader)
+				if *expectRequestID != "" {
+					// When a request ID is provided, it should be echoed back
+					Expect(actualRequestID).To(Equal(*expectRequestID))
+				} else {
+					// When no request ID is provided, a UUID should be generated
+					Expect(actualRequestID).NotTo(BeEmpty())
+					Expect(len(actualRequestID)).To(BeNumerically(">", 30))
+				}
+			} else {
+				// When request ID headers are disabled, the header should be empty
+				Expect(resp.Header.Get(requestIDHeader)).To(BeEmpty())
+			}
+
+			if validateBody != nil {
+				body, err := io.ReadAll(resp.Body)
+				Expect(err).NotTo(HaveOccurred())
+				validateBody(body)
+			}
+		}
+
+		DescribeTable("request ID behavior",
+			testRequestIDHeader,
+			Entry("includes X-Request-Id when enabled",
+				true,
+				"/v1/chat/completions",
+				`{"messages": [{"role": "user", "content": "Hello"}], "model": "`+testModel+`", "max_tokens": 5}`,
+				"test-request-id-123",
+				ptr("test-request-id-123"),
+				nil,
+			),
+			Entry("excludes X-Request-Id when disabled",
+				false,
+				"/v1/chat/completions",
+				`{"messages": [{"role": "user", "content": "Hello"}], "model": "`+testModel+`", "max_tokens": 5}`,
+				"test-request-id-456",
+				nil,
+				nil,
+			),
+			Entry("includes X-Request-Id in streaming response",
+				true,
+				"/v1/chat/completions",
+				`{"messages": [{"role": "user", "content": "Hello"}], "model": "`+testModel+`", "max_tokens": 5, "stream": true}`,
+				"test-streaming-789",
+				ptr("test-streaming-789"),
+				nil,
+			),
+			Entry("works with text completions endpoint",
+				true,
+				"/v1/completions",
+				`{"prompt": "Hello world", "model": "`+testModel+`", "max_tokens": 5}`,
+				"text-request-111",
+				ptr("text-request-111"),
+				nil,
+			),
+			Entry("generates UUID when no request ID provided",
+				true,
+				"/v1/chat/completions",
+				`{"messages": [{"role": "user", "content": "Hello"}], "model": "`+testModel+`", "max_tokens": 5}`,
+				"",
+				ptr(""),
+				nil,
+			),
+			Entry("uses request ID in response body ID field",
+				true,
+				"/v1/chat/completions",
+				`{"messages": [{"role": "user", "content": "Hello"}], "model": "`+testModel+`", "max_tokens": 5}`,
+				"body-test-999",
+				ptr("body-test-999"),
+				func(body []byte) {
+					var resp map[string]any
+					Expect(json.Unmarshal(body, &resp)).To(Succeed())
+					Expect(resp["id"]).To(Equal("chatcmpl-body-test-999"))
+				},
+			),
+		)
 	})
 
 	Context("sleep mode", Ordered, func() {

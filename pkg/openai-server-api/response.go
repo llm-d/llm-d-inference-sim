@@ -26,7 +26,9 @@ import (
 )
 
 // CompletionResponse interface representing both completion response types (text and chat)
-type CompletionResponse interface{}
+type CompletionResponse interface {
+	GetRequestID() string
+}
 
 // baseCompletionResponse contains base completion response related information
 type baseCompletionResponse struct {
@@ -42,6 +44,8 @@ type baseCompletionResponse struct {
 	Object string `json:"object"`
 	// KVParams kv transfer related fields
 	KVParams *KVTransferParams `json:"kv_transfer_params"`
+	// RequestID is the unique request ID for tracking
+	RequestID string `json:"-"`
 }
 
 // Usage contains token Usage statistics
@@ -303,8 +307,13 @@ func CreateTextRespChoice(base baseResponseChoice, text string) TextRespChoice {
 	return TextRespChoice{baseResponseChoice: base, Text: text, Logprobs: nil}
 }
 
-func CreateBaseCompletionResponse(id string, created int64, model string, usage *Usage) baseCompletionResponse {
-	return baseCompletionResponse{ID: id, Created: created, Model: model, Usage: usage}
+func CreateBaseCompletionResponse(id string, created int64, model string, usage *Usage, requestID string) baseCompletionResponse {
+	return baseCompletionResponse{ID: id, Created: created, Model: model, Usage: usage, RequestID: requestID}
+}
+
+// GetRequestID returns the request ID from the response
+func (b baseCompletionResponse) GetRequestID() string {
+	return b.RequestID
 }
 
 func CreateChatCompletionResponse(base baseCompletionResponse, choices []ChatRespChoice) *ChatCompletionResponse {

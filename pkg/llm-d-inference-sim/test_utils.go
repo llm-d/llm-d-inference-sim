@@ -541,3 +541,7 @@ func checkSimSleeping(client *http.Client, expectedToSleep bool) {
 	expect := fmt.Sprintf("{\"is_sleeping\":%t}", expectedToSleep)
 	gomega.Expect(string(body)).To(gomega.Equal(expect))
 }
+
+func ptr[T any](v T) *T {
+	return &v
+}

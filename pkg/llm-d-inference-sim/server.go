@@ -109,9 +109,20 @@ func (s *VllmSimulator) startServer(ctx context.Context, listener net.Listener) 
 	}
 }
 
+// getRequestID retrieves the request ID from the X-Request-Id header or generates a new one if not present
+func (s *VllmSimulator) getRequestID(ctx *fasthttp.RequestCtx) string {
+	if s.config.EnableRequestIDHeaders {
+		requestID := string(ctx.Request.Header.Peek(requestIDHeader))
+		if requestID != "" {
+			return requestID
+		}
+	}
+	return s.random.GenerateUUIDString()
+}
+
 // readRequest reads and parses data from the body of the given request according the type defined by isChatCompletion
 func (s *VllmSimulator) readRequest(ctx *fasthttp.RequestCtx, isChatCompletion bool) (openaiserverapi.CompletionRequest, error) {
-	requestID := s.random.GenerateUUIDString()
+	requestID := s.getRequestID(ctx)
 
 	if isChatCompletion {
 		var req openaiserverapi.ChatCompletionRequest
@@ -265,6 +276,11 @@ func (s *VllmSimulator) sendCompletionResponse(ctx *fasthttp.RequestCtx, resp op
 	}
 	if s.namespace != "" {
 		ctx.Response.Header.Add(namespaceHeader, s.namespace)
+	}
+	if s.config.EnableRequestIDHeaders {
+		if requestID := resp.GetRequestID(); requestID != "" {
+			ctx.Response.Header.Add(requestIDHeader, requestID)
+		}
 	}
 	ctx.Response.SetBody(data)
 }

@@ -51,6 +51,7 @@ const (
 	podHeader       = "x-inference-pod"
 	portHeader      = "x-inference-port"
 	namespaceHeader = "x-inference-namespace"
+	requestIDHeader = "X-Request-Id"
 	podNameEnv      = "POD_NAME"
 	podNsEnv        = "POD_NAMESPACE"
 )
@@ -581,9 +582,9 @@ func (s *VllmSimulator) responseSentCallback(model string, isChatCompletion bool
 // modelName - display name returned to the client and used in metrics. It is either the first alias
 // from --served-model-name (for a base-model request) or the LoRA adapter name (for a LoRA request).
 func (s *VllmSimulator) createCompletionResponse(logprobs *int, isChatCompletion bool, respTokens []string, toolCalls []openaiserverapi.ToolCall,
-	finishReason *string, usageData *openaiserverapi.Usage, modelName string, doRemoteDecode bool) openaiserverapi.CompletionResponse {
-	baseResp := openaiserverapi.CreateBaseCompletionResponse(chatComplIDPrefix+s.random.GenerateUUIDString(),
-		time.Now().Unix(), modelName, usageData)
+	finishReason *string, usageData *openaiserverapi.Usage, modelName string, doRemoteDecode bool, requestID string) openaiserverapi.CompletionResponse {
+	baseResp := openaiserverapi.CreateBaseCompletionResponse(chatComplIDPrefix+requestID,
+		time.Now().Unix(), modelName, usageData, requestID)
 
 	if doRemoteDecode {
 		baseResp.KVParams = &openaiserverapi.KVTransferParams{}
@@ -663,9 +664,10 @@ func (s *VllmSimulator) sendResponse(reqCtx *openaiserverapi.CompletionReqCtx, r
 	if toolCalls == nil {
 		logprobs = reqCtx.CompletionReq.GetLogprobs()
 	}
+	requestID := reqCtx.CompletionReq.GetRequestID()
 
 	resp := s.createCompletionResponse(logprobs, reqCtx.IsChatCompletion, respTokens, toolCalls, &finishReason, usageData, modelName,
-		reqCtx.CompletionReq.IsDoRemoteDecode())
+		reqCtx.CompletionReq.IsDoRemoteDecode(), requestID)
 
 	// calculate how long to wait before returning the response, time is based on number of tokens
 	nCachedPromptTokens := reqCtx.CompletionReq.GetNumberOfCachedPromptTokens()

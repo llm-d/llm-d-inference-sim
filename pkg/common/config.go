@@ -223,6 +223,9 @@ type Configuration struct {
 
 	// EnableSleepMode enables sleep mode
 	EnableSleepMode bool `yaml:"enable-sleep-mode" json:"enable-sleep-mode"`
+
+	// EnableRequestIDHeaders enables including X-Request-Id header in responses
+	EnableRequestIDHeaders bool `yaml:"enable-request-id-headers" json:"enable-request-id-headers"`
 }
 
 type Metrics struct {
@@ -749,6 +752,7 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 	f.BoolVar(&config.DatasetInMemory, "dataset-in-memory", config.DatasetInMemory, "Load the entire dataset into memory for faster access")
 
 	f.BoolVar(&config.EnableSleepMode, "enable-sleep-mode", config.EnableSleepMode, "Enable sleep mode")
+	f.BoolVar(&config.EnableRequestIDHeaders, "enable-request-id-headers", config.EnableRequestIDHeaders, "Enable including X-Request-Id header in responses")
 
 	f.IntVar(&config.FailureInjectionRate, "failure-injection-rate", config.FailureInjectionRate, "Probability (0-100) of injecting failures")
 	failureTypes := getParamValueFromArgs("failure-types")
