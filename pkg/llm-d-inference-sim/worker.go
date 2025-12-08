@@ -103,6 +103,7 @@ func (s *VllmSimulator) processRequestAsync(reqCtx *openaiserverapi.CompletionRe
 	var err error
 	var toolCalls []openaiserverapi.ToolCall
 	var completionTokens int
+	var numTokensGenerated int
 	if reqCtx.IsChatCompletion &&
 		!common.IsToolChoiceNone(req.GetToolChoice()) &&
 		req.GetTools() != nil {
@@ -114,7 +115,18 @@ func (s *VllmSimulator) processRequestAsync(reqCtx *openaiserverapi.CompletionRe
 		// Either no tool calls were defined, or we randomly chose not to create tool calls,
 		// so we generate a response text.
 		responseTokens, finishReason, err = s.dataset.GetTokens(req, s.config.Mode)
-		completionTokens += len(responseTokens)
+		// To account for max_tokens and max_completion_tokens, the dataset will return a
+		// LengthFinishReason if either of these are exceeded. Check for this reason first
+		// and then based on that, infer the number of tokens actually generated.
+		if finishReason == common.LengthFinishReason {
+			numTokensGenerated = int(*req.GetMaxCompletionTokens())
+		} else {
+			numTokensGenerated = len(responseTokens)
+		}
+		// The content of each of the response choices returned will be
+		// the same set of response tokens from the simulator. Take that
+		// into account for completionTokens calculation.
+		completionTokens += *reqCtx.CompletionReq.GetNumCompletionOptions() * numTokensGenerated
 	}
 	if err != nil {
 		prefix := ""
@@ -160,12 +172,17 @@ func (s *VllmSimulator) processRequestAsync(reqCtx *openaiserverapi.CompletionRe
 			wg.Done()
 		}
 
+		tokensPerChoice := []int{}
+		for range *reqCtx.CompletionReq.GetNumCompletionOptions() {
+			// Currently all responses in the choices block have the same
+			// content. Simply duplicate those counts for the response.
+			tokensPerChoice = append(tokensPerChoice, numTokensGenerated)
+		}
 		common.WriteToChannel(s.metrics.requestSuccessChan,
 			requestSuccessEvent{
-				promptTokens:     usageData.PromptTokens,
-				generationTokens: usageData.CompletionTokens,
-				// currently only responses with a single choice are supported
-				genTokensPerChoice: []int{usageData.CompletionTokens},
+				promptTokens:       usageData.PromptTokens,
+				generationTokens:   usageData.CompletionTokens,
+				genTokensPerChoice: tokensPerChoice,
 				maxTokens:          reqCtx.CompletionReq.GetMaxCompletionTokens(),
 				finishReason:       finishReason},
 			s.logger, "metrics.requestSuccessChan")
