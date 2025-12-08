@@ -32,6 +32,7 @@ const (
 	req2ID           = "req2"
 	req3ID           = "req3"
 	wildcardEndpoint = "tcp://*:*"
+	localhost        = "localhost"
 )
 
 type ActionType int
@@ -202,7 +203,7 @@ var _ = Describe("KV cache", Ordered, func() {
 					EventBatchSize:        1,
 				}
 
-				topic := CreateKVEventsTopic(config.Port, config.Model)
+				topic := CreateKVEventsTopic(localhost, config.Model)
 				sub, endpoint := common.CreateSub(topic)
 				config.ZMQEndpoint = endpoint
 				//nolint
@@ -306,7 +307,7 @@ var _ = Describe("KV cache", Ordered, func() {
 				ZMQMaxConnectAttempts: 3,
 			}
 
-			topic := CreateKVEventsTopic(config.Port, config.Model)
+			topic := CreateKVEventsTopic(localhost, config.Model)
 			sub, endpoint := common.CreateSub(topic)
 			config.ZMQEndpoint = endpoint
 			//nolint

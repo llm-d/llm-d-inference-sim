@@ -28,8 +28,10 @@ import (
 )
 
 const (
-	capacityError = "the kv cache does not have sufficient capacity to store this request"
-	delay         = time.Second
+	capacityError      = "the kv cache does not have sufficient capacity to store this request"
+	delay              = time.Second
+	topicNamePrefix    = "kv"
+	topicNameSeparator = "@"
 )
 
 // blockCache represents a thread-safe cache for blocks with eviction policy
@@ -48,6 +50,10 @@ type blockCache struct {
 
 // newBlockCache creates a new blockCache with the specified maximum number of blocks
 func newBlockCache(config *common.Configuration, logger logr.Logger, usageChan chan float64) (*blockCache, error) {
+	if config.IP == "" {
+		return nil, errors.New("IP should be defined in the environment (POD_IP)")
+	}
+
 	// TODO read size of channel from config
 	eChan := make(chan EventData, 10000)
 
@@ -60,7 +66,7 @@ func newBlockCache(config *common.Configuration, logger logr.Logger, usageChan c
 		}
 	}
 
-	eventSender := NewKVEventSender(publisher, CreateKVEventsTopic(config.Port, config.Model),
+	eventSender := NewKVEventSender(publisher, CreateKVEventsTopic(config.IP, config.Model),
 		eChan, config.EventBatchSize, delay, logger)
 
 	return &blockCache{
@@ -281,6 +287,7 @@ func (bc *blockCache) getBlockInfo(blockHash uint64) (int, bool) {
 	return 0, false
 }
 
-func CreateKVEventsTopic(port int, model string) string {
-	return fmt.Sprintf("kv@$localhost:%d@%s", port, model)
+// ZQM topic format is: kv@<pod-ip>@<model-name>
+func CreateKVEventsTopic(ip string, model string) string {
+	return topicNamePrefix + topicNameSeparator + ip + topicNameSeparator + model
 }

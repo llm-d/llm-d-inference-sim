@@ -252,7 +252,7 @@ var _ = Describe("Server", func() {
 		})
 
 		It("Should enter sleep mode and wake up", func() {
-			topic := kvcache.CreateKVEventsTopic(8000, qwenModelName)
+			topic := kvcache.CreateKVEventsTopic("localhost", qwenModelName)
 			sub, endpoint := common.CreateSub(topic)
 
 			ctx := context.TODO()

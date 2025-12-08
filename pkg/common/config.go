@@ -48,6 +48,8 @@ const (
 	LengthFinishReason       = "length"
 	ToolsFinishReason        = "tool_calls"
 	RemoteDecodeFinishReason = "remote_decode"
+
+	podIPEnv = "POD_IP"
 )
 
 var (
@@ -67,6 +69,8 @@ var (
 )
 
 type Configuration struct {
+	// IP defines on which IP the simulator runs, loaded from env
+	IP string
 	// Port defines on which port the simulator runs
 	Port int `yaml:"port" json:"port"`
 	// Model defines the current base model name
@@ -348,6 +352,7 @@ func (c *Configuration) unmarshalLoraFakeMetrics() error {
 
 func newConfig() *Configuration {
 	return &Configuration{
+		IP:                                  os.Getenv(podIPEnv),
 		Port:                                vLLMDefaultPort,
 		MaxLoras:                            1,
 		MaxNumSeqs:                          5,
