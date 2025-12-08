@@ -467,7 +467,7 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 				"--enable-kvcache", "true", "--kv-cache-size", "16", "--block-size", "8",
 				"--time-to-first-token", "5000", "--tokenizers-cache-dir", tmpDir}
 
-			client, err := startServerWithArgs(ctx, args)
+			client, err := startServerWithArgsAndEnv(ctx, common.ModeRandom, args, map[string]string{"POD_IP": "localhost"})
 			Expect(err).NotTo(HaveOccurred())
 
 			openaiclient := openai.NewClient(
@@ -544,7 +544,7 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 				"--enable-kvcache", "true", "--kv-cache-size", "16", "--block-size", "8",
 				"--time-to-first-token", "5000", "--tokenizers-cache-dir", tmpDir, "--max-num-seqs", "2"}
 
-			client, err := startServerWithArgs(ctx, args)
+			client, err := startServerWithArgsAndEnv(ctx, common.ModeRandom, args, map[string]string{"POD_IP": "localhost"})
 			Expect(err).NotTo(HaveOccurred())
 
 			openaiclient := openai.NewClient(
@@ -610,7 +610,7 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 			args := []string{"cmd", "--model", qwenModelName, "--mode", common.ModeRandom,
 				"--kv-cache-size", "16", "--block-size", "8"}
 
-			client, err := startServerWithArgs(ctx, args)
+			client, err := startServerWithArgsAndEnv(ctx, common.ModeRandom, args, map[string]string{"POD_IP": "localhost"})
 			Expect(err).NotTo(HaveOccurred())
 
 			metricsResp, err := client.Get(metricsUrl)

@@ -260,7 +260,7 @@ var _ = Describe("Server", func() {
 				[]string{"cmd", "--model", qwenModelName, "--mode", common.ModeRandom, "--enable-sleep-mode",
 					"--enable-kvcache", "--v", "5", "--port", "8000", "--zmq-endpoint", endpoint,
 					"--tokenizers-cache-dir", tmpDir},
-				map[string]string{"VLLM_SERVER_DEV_MODE": "1"})
+				map[string]string{"VLLM_SERVER_DEV_MODE": "1", "POD_IP": "localhost"})
 			Expect(err).NotTo(HaveOccurred())
 
 			//nolint

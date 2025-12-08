@@ -196,6 +196,7 @@ var _ = Describe("KV cache", Ordered, func() {
 				time.Sleep(300 * time.Millisecond)
 
 				config := &common.Configuration{
+					IP:                    localhost,
 					Port:                  1234,
 					Model:                 "model",
 					KVCacheSize:           test.cacheSize,
@@ -301,6 +302,7 @@ var _ = Describe("KV cache", Ordered, func() {
 
 		It("should send events correctly", func() {
 			config := &common.Configuration{
+				IP:                    localhost,
 				Port:                  1234,
 				Model:                 "model",
 				KVCacheSize:           4,
@@ -417,6 +419,7 @@ var _ = Describe("KV cache", Ordered, func() {
 		for _, testCase := range testCases {
 			It(testCase.name, func() {
 				config := common.Configuration{
+					IP:                    localhost,
 					Port:                  1234,
 					Model:                 "model",
 					KVCacheSize:           testCase.cacheSize,
