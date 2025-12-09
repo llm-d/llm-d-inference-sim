@@ -44,6 +44,7 @@ import (
 
 const (
 	chatComplIDPrefix         = "chatcmpl-"
+	textComplIDPrefix         = "cmpl-"
 	textCompletionObject      = "text_completion"
 	chatCompletionObject      = "chat.completion"
 	chatCompletionChunkObject = "chat.completion.chunk"
@@ -583,7 +584,13 @@ func (s *VllmSimulator) responseSentCallback(model string, isChatCompletion bool
 // from --served-model-name (for a base-model request) or the LoRA adapter name (for a LoRA request).
 func (s *VllmSimulator) createCompletionResponse(logprobs *int, isChatCompletion bool, respTokens []string, toolCalls []openaiserverapi.ToolCall,
 	finishReason *string, usageData *openaiserverapi.Usage, modelName string, doRemoteDecode bool, requestID string) openaiserverapi.CompletionResponse {
-	baseResp := openaiserverapi.CreateBaseCompletionResponse(chatComplIDPrefix+requestID,
+	var idPrefix string
+	if isChatCompletion {
+		idPrefix = chatComplIDPrefix
+	} else {
+		idPrefix = textComplIDPrefix
+	}
+	baseResp := openaiserverapi.CreateBaseCompletionResponse(idPrefix+requestID,
 		time.Now().Unix(), modelName, usageData, requestID)
 
 	if doRemoteDecode {

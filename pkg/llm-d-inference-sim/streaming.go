@@ -179,7 +179,13 @@ func (s *VllmSimulator) sendTokenChunks(context *streamingContext, w *bufio.Writ
 // createUsageChunk creates and returns a CompletionRespChunk with usage data, a single chunk of streamed completion API response,
 // supports both modes (text and chat)
 func (s *VllmSimulator) createUsageChunk(context *streamingContext, usageData *openaiserverapi.Usage) openaiserverapi.CompletionRespChunk {
-	baseChunk := openaiserverapi.CreateBaseCompletionResponse(chatComplIDPrefix+context.requestID,
+	var idPrefix string
+	if context.isChatCompletion {
+		idPrefix = chatComplIDPrefix
+	} else {
+		idPrefix = textComplIDPrefix
+	}
+	baseChunk := openaiserverapi.CreateBaseCompletionResponse(idPrefix+context.requestID,
 		context.creationTime, context.model, usageData, context.requestID)
 
 	if context.isChatCompletion {
@@ -194,7 +200,7 @@ func (s *VllmSimulator) createUsageChunk(context *streamingContext, usageData *o
 // createTextCompletionChunk creates and returns a CompletionRespChunk, a single chunk of streamed completion API response,
 // for text completion.
 func (s *VllmSimulator) createTextCompletionChunk(context *streamingContext, token string, finishReason *string) openaiserverapi.CompletionRespChunk {
-	baseChunk := openaiserverapi.CreateBaseCompletionResponse(chatComplIDPrefix+context.requestID,
+	baseChunk := openaiserverapi.CreateBaseCompletionResponse(textComplIDPrefix+context.requestID,
 		context.creationTime, context.model, nil, context.requestID)
 	baseChunk.Object = textCompletionObject
 
