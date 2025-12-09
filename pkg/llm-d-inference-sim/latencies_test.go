@@ -75,8 +75,8 @@ var _ = Describe("Check random latencies", Ordered, func() {
 				latency += simulator.getInterTokenLatency()
 			}
 
-			Expect(latency).To(BeNumerically(">=", int(float32(interTokenLatency)*0.3*float32(numberOfTokens))))
-			Expect(latency).To(BeNumerically("<=", int(float32(interTokenLatency)*1.7*float32(numberOfTokens))))
+			Expect(latency).To(BeNumerically(">=", int(float32(interTokenLatency)*0.3*float32(numberOfTokens-1))))
+			Expect(latency).To(BeNumerically("<=", int(float32(interTokenLatency)*1.7*float32(numberOfTokens-1))))
 		},
 		func(interTokenLatency int, stddev int, numberOfTokens int) string {
 			return fmt.Sprintf("interTokenLatency: %d stddev: %d, numberOfTokens: %d", interTokenLatency,
