@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -32,7 +33,7 @@ import (
 
 var _ = Describe("LoRAs", func() {
 	Context("LoRAs config and load", func() {
-		It("Should config, load and load LoRAs correctly", func() {
+		It("Should config, load and unload LoRAs correctly", func() {
 			ctx := context.TODO()
 			client, err := startServerWithArgs(ctx,
 				[]string{"cmd", "--model", testModel, "--mode", common.ModeEcho,
@@ -79,6 +80,15 @@ var _ = Describe("LoRAs", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(modelsResp).NotTo(BeNil())
 			Expect(modelsResp.Data).To(HaveLen(4))
+
+			for _, model := range modelsResp.Data {
+				if strings.HasPrefix(model.ID, "lora") {
+					Expect(model.Parent).ToNot(BeNil())
+					Expect(*model.Parent).To(Equal(testModel))
+				} else {
+					Expect(model.Parent).To(BeNil())
+				}
+			}
 
 			// Request to lora1, should work now
 			resp, err = openaiclient.Chat.Completions.New(ctx, params)
