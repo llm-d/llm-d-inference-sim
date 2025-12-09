@@ -25,6 +25,11 @@ import (
 	"github.com/valyala/fasthttp"
 )
 
+const (
+	chatComplIDPrefix = "chatcmpl-"
+	textComplIDPrefix = "cmpl-"
+)
+
 // CompletionResponse interface representing both completion response types (text and chat)
 type CompletionResponse interface {
 	GetRequestID() string
@@ -307,8 +312,8 @@ func CreateTextRespChoice(base baseResponseChoice, text string) TextRespChoice {
 	return TextRespChoice{baseResponseChoice: base, Text: text, Logprobs: nil}
 }
 
-func CreateBaseCompletionResponse(id string, created int64, model string, usage *Usage, requestID string) baseCompletionResponse {
-	return baseCompletionResponse{ID: id, Created: created, Model: model, Usage: usage, RequestID: requestID}
+func CreateBaseCompletionResponse(created int64, model string, usage *Usage, requestID string) baseCompletionResponse {
+	return baseCompletionResponse{Created: created, Model: model, Usage: usage, RequestID: requestID}
 }
 
 // GetRequestID returns the request ID from the response
@@ -317,13 +322,16 @@ func (b baseCompletionResponse) GetRequestID() string {
 }
 
 func CreateChatCompletionResponse(base baseCompletionResponse, choices []ChatRespChoice) *ChatCompletionResponse {
+	base.ID = chatComplIDPrefix + base.RequestID
 	return &ChatCompletionResponse{baseCompletionResponse: base, Choices: choices}
 }
 
 func CreateTextCompletionResponse(base baseCompletionResponse, choices []TextRespChoice) *TextCompletionResponse {
+	base.ID = textComplIDPrefix + base.RequestID
 	return &TextCompletionResponse{baseCompletionResponse: base, Choices: choices}
 }
 
 func CreateChatCompletionRespChunk(base baseCompletionResponse, choices []ChatRespChunkChoice) *ChatCompletionRespChunk {
+	base.ID = chatComplIDPrefix + base.RequestID
 	return &ChatCompletionRespChunk{baseCompletionResponse: base, Choices: choices}
 }
