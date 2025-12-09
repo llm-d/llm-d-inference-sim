@@ -285,8 +285,8 @@ In addition, as we are using klog, the following parameters are available:
 ## Environment variables
 - `POD_NAME`: the simulator pod name. If defined, the response will contain the HTTP header `x-inference-pod` with this value, and the HTTP header `x-inference-port` with the port that the request was received on 
 - `POD_NAMESPACE`: the simulator pod namespace. If defined, the response will contain the HTTP header `x-inference-namespace` with this value
-- `POD_IP`: the simulator pod IP aggress. Used in kv-events topic name.
-Exmaple of definition in yaml: 
+- `POD_IP`: the simulator pod IP address. Used in kv-events topic name.
+Example of definition in yaml: 
   ```yaml
   env:
     - name: POD_IP
