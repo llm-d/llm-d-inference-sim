@@ -117,7 +117,7 @@ post-deploy-test: ## Run post deployment tests
 .PHONY: lint
 lint: $(GOLANGCI_LINT) ## Run lint
 	@printf "\033[33;1m==== Running linting ====\033[0m\n"
-	$(GOLANGCI_LINT) run
+	CGO_CFLAGS="$(CGO_CFLAGS)" $(GOLANGCI_LINT) run
 
 ##@ Build
 
