@@ -662,7 +662,7 @@ func (c *Configuration) validate() error {
 	}
 
 	if c.Rank > 7 {
-		return errors.New("rank must be between 0 and 7")
+		return errors.New("data parallel rank must be between 0 and 7")
 	}
 
 	if (c.SSLCertFile == "") != (c.SSLKeyFile == "") {
