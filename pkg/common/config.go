@@ -202,6 +202,10 @@ type Configuration struct {
 	// DPSize is data parallel size - a number of ranks to run, minimum is 1, maximum is 8, default is 1
 	DPSize int `yaml:"data-parallel-size" json:"data-parallel-size"`
 
+	// Rank is the vLLM parameter used to specify the rank of this instance. Here only
+	// used when running Data Parallel ranks as separate processes
+	Rank int `yaml:"data-parallel-rank" json:"data-parallel-rank"`
+
 	// SSLCertFile is the path to the SSL certificate file for HTTPS
 	SSLCertFile string `yaml:"ssl-certfile" json:"ssl-certfile"`
 	// SSLKeyFile is the path to the SSL private key file for HTTPS
@@ -375,6 +379,7 @@ func newConfig() *Configuration {
 		ZMQEndpoint:    "tcp://localhost:5557",
 		EventBatchSize: 16,
 		DPSize:         1,
+		Rank:           -1,
 	}
 }
 
@@ -653,7 +658,11 @@ func (c *Configuration) validate() error {
 	}
 
 	if c.DPSize < 1 || c.DPSize > 8 {
-		return errors.New("data parallel size must be between 1 ans 8")
+		return errors.New("data parallel size must be between 1 and 8")
+	}
+
+	if c.Rank > 7 {
+		return errors.New("rank must be between 0 and 7")
 	}
 
 	if (c.SSLCertFile == "") != (c.SSLKeyFile == "") {
@@ -751,6 +760,7 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 	f.IntVar(&config.ZMQMaxConnectAttempts, "zmq-max-connect-attempts", config.ZMQMaxConnectAttempts, "Maximum number of times to try ZMQ connect")
 	f.IntVar(&config.EventBatchSize, "event-batch-size", config.EventBatchSize, "Maximum number of kv-cache events to be sent together")
 	f.IntVar(&config.DPSize, "data-parallel-size", config.DPSize, "Number of ranks to run")
+	f.IntVar(&config.Rank, "data-parallel-rank", config.Rank, "The rank when running each rank in a process")
 
 	f.StringVar(&config.DatasetPath, "dataset-path", config.DatasetPath, "Local path to the sqlite db file for response generation from a dataset")
 	f.StringVar(&config.DatasetURL, "dataset-url", config.DatasetURL, "URL to download the sqlite db file for response generation from a dataset")
