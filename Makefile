@@ -53,24 +53,26 @@ SRC = $(shell find . -type f -name '*.go')
 help: ## Print help
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_0-9-]+:.*?##/ { printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
 
-PYTHON_INCLUDE := $(shell python3 -c "import sysconfig; print(sysconfig.get_path('include'))")
-CGO_CFLAGS     := $(shell python3-config --cflags --embed)
-CGO_LDFLAGS    := $(shell python3-config --ldflags --embed)
-
 export PKG_CONFIG_PATH=/usr/lib/pkgconfig
+
+##@ Python Configuration
+
+PYTHON_VERSION := 3.12
+
+# Unified Python configuration detection. This block runs once.
+PYTHON_CONFIG ?= $(shell command -v python$(PYTHON_VERSION)-config || command -v python3-config)
+
+CGO_CFLAGS     := $(shell $(PYTHON_CONFIG) --cflags --embed)
+CGO_LDFLAGS    := $(shell $(PYTHON_CONFIG) --ldflags --embed)
 
 GOMODCACHE := $(shell go env GOMODCACHE)
 KV_CACHE_MGR_VERSION := $(shell go list -m -f '{{.Version}}' github.com/llm-d/llm-d-kv-cache-manager)
 KV_CACHE_MGR_PATH := $(GOMODCACHE)/github.com/llm-d/llm-d-kv-cache-manager@$(KV_CACHE_MGR_VERSION)/pkg/preprocessing/chat_completions
 export PYTHONPATH := $(KV_CACHE_MGR_PATH):$(PYTHONPATH)
 
-# Export them for all targets (optional)
-export CGO_ENABLED=1
-export CGO_CFLAGS
-export CGO_LDFLAGS
-export CPATH := $(PYTHON_INCLUDE):$(CPATH)
+CPATH := $(PYTHON_INCLUDE):$(CPATH)
 
-GO_LDFLAGS := -extldflags '-L$(shell pwd)/lib $(LDFLAGS)'
+GO_LDFLAGS := -extldflags '-L$(shell pwd)/lib $(LDFLAGS) $(CGO_LDFLAGS)'
 CGO_ENABLED=1
 TOKENIZER_LIB = lib/libtokenizers.a
 # Extract TOKENIZER_VERSION from Dockerfile
@@ -102,9 +104,9 @@ format: ## Format Go source files
 test: $(GINKGO) install-dependencies ## Run tests
 	@printf "\033[33;1m==== Running tests ====\033[0m\n"
 ifdef GINKGO_FOCUS
-	CGO_ENABLED=1 ginkgo -ldflags="$(GO_LDFLAGS)" -v -r -- -ginkgo.v -ginkgo.focus="$(GINKGO_FOCUS)"
+	CGO_ENABLED=1 CGO_CFLAGS="$(CGO_CFLAGS)" $(GINKGO) -ldflags="$(GO_LDFLAGS)" -v -r -- -ginkgo.v -ginkgo.focus="$(GINKGO_FOCUS)"
 else
-	CGO_ENABLED=1 $(GINKGO) -ldflags="$(GO_LDFLAGS)" -v -r
+	CGO_ENABLED=1 CGO_CFLAGS="$(CGO_CFLAGS)" $(GINKGO) -ldflags="$(GO_LDFLAGS)" -v -r $(TEST_PKG)
 endif
 
 .PHONY: post-deploy-test
@@ -122,7 +124,7 @@ lint: $(GOLANGCI_LINT) ## Run lint
 .PHONY: build
 build: check-go install-dependencies
 	@printf "\033[33;1m==== Building ====\033[0m\n"
-	go build -ldflags="$(GO_LDFLAGS)" -o $(LOCALBIN)/$(PROJECT_NAME) cmd/$(PROJECT_NAME)/main.go
+	CGO_CFLAGS="$(CGO_CFLAGS)" go build -ldflags="$(GO_LDFLAGS)" -o $(LOCALBIN)/$(PROJECT_NAME) cmd/$(PROJECT_NAME)/main.go
 
 ##@ Container Build/Push
 
