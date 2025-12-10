@@ -277,6 +277,8 @@ func (s *VllmSimulator) Start(ctx context.Context) error {
 			})
 		}
 		s.logger = klog.LoggerWithValues(s.logger, "rank", 0)
+	} else if s.config.Rank >= 0 {
+		s.logger = klog.LoggerWithValues(s.logger, "rank", s.config.Rank)
 	}
 	g.Go(func() error {
 		return s.startSim(ctx)
