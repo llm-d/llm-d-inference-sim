@@ -479,6 +479,12 @@ var _ = Describe("Simulator configuration", func() {
 			expectedError: "data parallel size must be between 1 and 8",
 		},
 		{
+			name: "invalid data-parallel-rank",
+			args: []string{"cmd", "--data-parallel-rank", "15",
+				"--config", "../../manifests/config.yaml"},
+			expectedError: "data parallel rank must be between 0 and 7",
+		},
+		{
 			name: "invalid max-num-seqs",
 			args: []string{"cmd", "--max-num-seqs", "0",
 				"--config", "../../manifests/config.yaml"},
