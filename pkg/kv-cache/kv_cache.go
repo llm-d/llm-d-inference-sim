@@ -19,24 +19,33 @@ package kvcache
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/go-logr/logr"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	"github.com/llm-d/llm-d-kv-cache-manager/pkg/kvcache/kvblock"
+	preprocessing "github.com/llm-d/llm-d-kv-cache-manager/pkg/preprocessing/chat_completions"
 	"github.com/llm-d/llm-d-kv-cache-manager/pkg/tokenization"
 )
 
+const (
+	envHFToken = "HF_TOKEN"
+)
+
 type KVCacheHelper struct {
-	tokenizer       tokenization.Tokenizer
-	tokensProcessor kvblock.TokenProcessor // turns tokens to kv block keys
-	logger          logr.Logger
-	blockCache      *blockCache
-	blockSize       int
+	tokenizer          tokenization.Tokenizer
+	tokensProcessor    kvblock.TokenProcessor // turns tokens to kv block keys
+	logger             logr.Logger
+	blockCache         *blockCache
+	blockSize          int
+	chatTemplate       string
+	chatTemplateKWArgs map[string]interface{}
+	baseModel          string
 }
 
-func NewKVCacheHelper(config *common.Configuration, logger logr.Logger, usageChan chan float64,
+func NewKVCacheHelper(ctx context.Context, config *common.Configuration, logger logr.Logger, usageChan chan float64,
 	tokenizer tokenization.Tokenizer) (*KVCacheHelper, error) {
 	tokenProcConfig := kvblock.DefaultTokenProcessorConfig()
 	tokenProcConfig.BlockSize = config.TokenBlockSize
@@ -49,12 +58,33 @@ func NewKVCacheHelper(config *common.Configuration, logger logr.Logger, usageCha
 	if err != nil {
 		return nil, fmt.Errorf("failed to create block cache: %w", err)
 	}
+
+	templateReq := preprocessing.FetchChatTemplateRequest{
+		Model: config.Model,
+		Token: os.Getenv(envHFToken),
+	}
+
+	chatTemplatingProcessor := preprocessing.NewChatTemplatingProcessor()
+	if err := chatTemplatingProcessor.Initialize(); err != nil {
+		return nil, fmt.Errorf("failed to initialize chat-templating processor: %w", err)
+	}
+
+	chatTemplate, chatTemplateKWArgs, err1 := chatTemplatingProcessor.FetchChatTemplate(ctx, templateReq)
+	if err1 != nil {
+		logger.Error(err, "failed to get chat template")
+		return nil, err1
+	}
+	logger.V(logging.DEBUG).Info("Chat template loaded", "template", chatTemplate, "params", chatTemplateKWArgs)
+
 	return &KVCacheHelper{
-		tokenizer:       tokenizer,
-		tokensProcessor: tokensProcessor,
-		blockCache:      blockCache,
-		logger:          logger,
-		blockSize:       config.TokenBlockSize,
+		tokenizer:          tokenizer,
+		tokensProcessor:    tokensProcessor,
+		blockCache:         blockCache,
+		logger:             logger,
+		blockSize:          config.TokenBlockSize,
+		chatTemplate:       chatTemplate,
+		chatTemplateKWArgs: chatTemplateKWArgs,
+		baseModel:          config.Model,
 	}, nil
 }
 
@@ -71,10 +101,42 @@ func (h *KVCacheHelper) Activate() {
 	h.blockCache.activate()
 }
 
-func (h *KVCacheHelper) OnRequestStart(vllmReq openaiserverapi.CompletionRequest) error {
+func (h *KVCacheHelper) OnRequestStart(vllmReq openaiserverapi.CompletionRequest, isChatCompletion bool) error {
 	h.logger.V(logging.TRACE).Info("KV cache - process request")
 
-	prompt := vllmReq.GetPrompt()
+	var prompt string
+
+	if isChatCompletion {
+		renderReq := preprocessing.RenderJinjaTemplateRequest{
+			Conversations:             make([]preprocessing.ChatMessage, 0),
+			Tools:                     make([]interface{}, 0),
+			Documents:                 make([]interface{}, 0),
+			ReturnAssistantTokensMask: false,
+			ContinueFinalMessage:      false,
+			AddGenerationPrompt:       false,
+			ChatTemplate:              h.chatTemplate,
+			ChatTemplateKWArgs:        h.chatTemplateKWArgs,
+		}
+		// Convert messages to the format expected by the renderer
+		for _, msg := range vllmReq.GetMessages() {
+			renderReq.Conversations = append(renderReq.Conversations, preprocessing.ChatMessage{
+				Role:    msg.Role,
+				Content: msg.Content.Raw,
+			})
+		}
+
+		var err error
+		// Don't use vllmReq.GetModel() - it can contain LoRA's name,
+		// this call requires the base model name
+		prompt, err = h.tokenizer.RenderChatTemplate(h.baseModel, &renderReq)
+		if err != nil {
+			h.logger.Error(err, "chat template render failed")
+			return err
+		}
+	} else {
+		prompt = vllmReq.GetPrompt()
+	}
+
 	modelName := vllmReq.GetModel()
 	requestID := vllmReq.GetRequestID()
 

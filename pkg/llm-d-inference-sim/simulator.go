@@ -353,7 +353,7 @@ func (s *VllmSimulator) initializeSim(ctx context.Context) error {
 	}
 
 	if s.config.EnableKVCache {
-		s.kvcacheHelper, err = kvcache.NewKVCacheHelper(s.config, s.logger, s.metrics.kvCacheUsageChan, s.tokenizer)
+		s.kvcacheHelper, err = kvcache.NewKVCacheHelper(ctx, s.config, s.logger, s.metrics.kvCacheUsageChan, s.tokenizer)
 		if err != nil {
 			return err
 		}

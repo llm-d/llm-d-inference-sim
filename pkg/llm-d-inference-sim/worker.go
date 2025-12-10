@@ -89,9 +89,8 @@ func (s *VllmSimulator) processRequestAsync(reqCtx *openaiserverapi.CompletionRe
 			"metrics.lorasChan")
 	}
 
-	if s.config.EnableKVCache && !reqCtx.IsChatCompletion {
-		// kv cache is currently supported for /completion API only
-		if err := s.kvcacheHelper.OnRequestStart(req); err != nil {
+	if s.config.EnableKVCache {
+		if err := s.kvcacheHelper.OnRequestStart(req, reqCtx.IsChatCompletion); err != nil {
 			s.sendCompletionError(reqCtx.HTTPReqCtx,
 				openaiserverapi.NewCompletionError(err.Error(), fasthttp.StatusInternalServerError, nil),
 				false)

@@ -50,6 +50,8 @@ type CompletionRequest interface {
 	SetNumberOfCachedPromptTokens(cachedPromptTokens int)
 	// GetPrompt returns the prompt
 	GetPrompt() string
+	// GetMessages returns request messages (in chat completion)
+	GetMessages() []Message
 	// GetTools returns tools to use (in chat completion)
 	GetTools() []Tool
 	// GetToolChoice returns tool choice (in chat completion)
@@ -243,6 +245,10 @@ func (c *ChatCompletionRequest) GetPrompt() string {
 	return messages
 }
 
+func (c *ChatCompletionRequest) GetMessages() []Message {
+	return c.Messages
+}
+
 func (c *ChatCompletionRequest) GetTools() []Tool {
 	return c.Tools
 }
@@ -333,6 +339,10 @@ var _ CompletionRequest = (*TextCompletionRequest)(nil)
 
 func (t *TextCompletionRequest) GetPrompt() string {
 	return t.Prompt
+}
+
+func (c *TextCompletionRequest) GetMessages() []Message {
+	return make([]Message, 0)
 }
 
 func (c *TextCompletionRequest) GetTools() []Tool {
