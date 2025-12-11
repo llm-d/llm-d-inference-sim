@@ -244,7 +244,8 @@ For more details see the <a href="https://docs.vllm.ai/en/stable/getting_started
     **Example:**<br>
       --fake-metrics '{"running-requests":10,"waiting-requests":30,"kv-cache-usage":0.4,"loras":[{"running":"lora4,lora2","waiting":"lora3","timestamp":1257894567},{"running":"lora4,lora3","waiting":"","timestamp":1257894569}]}'
 ---
-- `data-parallel-size`: number of ranks to run in Data Parallel deployment, from 1 to 8, default is 1. The ports will be assigned as follows: rank 0 will run on the configured `port`, rank 1 on `port`+1, etc.      
+- `data-parallel-size`: number of ranks to run in Data Parallel deployment, from 1 to 8, default is 1. The ports will be assigned as follows: rank 0 will run on the configured `port`, rank 1 on `port`+1, etc.  
+- `data-parallel-rank`: the rank of this instance, used only when running Data Parallel ranks as separate processes
 ---
 - `dataset-path`: Optional local file path to the SQLite database file used for generating responses from a dataset.
   - If not set, hardcoded preset responses will be used.
