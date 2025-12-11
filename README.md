@@ -35,9 +35,11 @@ In addition, it supports a subset of vLLM's Prometheus metrics. These metrics ar
 | vllm:time_per_output_token_seconds | Histogram of time per output token in seconds |
 | vllm:inter_token_latency_seconds | Histogram of inter-token latency in seconds |
 | vllm:request_generation_tokens | Number of generation tokens processed |
+| vllm:generation_tokens_total	 | Total number of generated tokens. |
 | vllm:max_num_generation_tokens | Maximum number of requested generation tokens. Currently same as `vllm:request_generation_tokens` since always only one choice is returned |
 | vllm:request_params_max_tokens | Histogram of the max_tokens request parameter | 
 | vllm:request_prompt_tokens | Number of prefill tokens processed |
+| vllm:prompt_tokens_total	 | Total number of prompt tokens processed |
 | vllm:request_success_total | Count of successfully processed requests |
   
 The simulated inference has no connection with the model and LoRA adapters specified in the command line parameters or via the /v1/load_lora_adapter HTTP REST endpoint. The /v1/models endpoint returns simulated results based on those same command line parameters and those loaded via the /v1/load_lora_adapter HTTP REST endpoint.
