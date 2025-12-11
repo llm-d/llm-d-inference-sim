@@ -23,7 +23,6 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
-	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	"github.com/llm-d/llm-d-kv-cache-manager/pkg/kvcache/kvblock"
 	"github.com/llm-d/llm-d-kv-cache-manager/pkg/tokenization"
 )
@@ -36,7 +35,7 @@ type KVCacheHelper struct {
 	blockSize       int
 }
 
-func NewKVCacheHelper(config *common.Configuration, logger logr.Logger, usageChan chan float64,
+func NewKVCacheHelper(ctx context.Context, config *common.Configuration, logger logr.Logger, usageChan chan float64,
 	tokenizer tokenization.Tokenizer) (*KVCacheHelper, error) {
 	tokenProcConfig := kvblock.DefaultTokenProcessorConfig()
 	tokenProcConfig.BlockSize = config.TokenBlockSize
@@ -49,6 +48,7 @@ func NewKVCacheHelper(config *common.Configuration, logger logr.Logger, usageCha
 	if err != nil {
 		return nil, fmt.Errorf("failed to create block cache: %w", err)
 	}
+
 	return &KVCacheHelper{
 		tokenizer:       tokenizer,
 		tokensProcessor: tokensProcessor,
@@ -71,18 +71,14 @@ func (h *KVCacheHelper) Activate() {
 	h.blockCache.activate()
 }
 
-func (h *KVCacheHelper) OnRequestStart(vllmReq openaiserverapi.CompletionRequest) error {
+func (h *KVCacheHelper) OnRequestStart(prompt, modelName, requestID string) (int, error) {
 	h.logger.V(logging.TRACE).Info("KV cache - process request")
-
-	prompt := vllmReq.GetPrompt()
-	modelName := vllmReq.GetModel()
-	requestID := vllmReq.GetRequestID()
 
 	// tokenize the input
 	tokens, _, err := h.tokenizer.Encode(prompt, modelName)
 	if err != nil {
 		h.logger.Error(err, "prompt tokenization failed")
-		return err
+		return 0, err
 	}
 
 	// get block keys
@@ -95,8 +91,7 @@ func (h *KVCacheHelper) OnRequestStart(vllmReq openaiserverapi.CompletionRequest
 	}
 
 	nBlocksAlreadyInCache, err := h.blockCache.startRequest(requestID, blockHashes)
-	vllmReq.SetNumberOfCachedPromptTokens(nBlocksAlreadyInCache * h.blockSize)
-	return err
+	return nBlocksAlreadyInCache * h.blockSize, err
 }
 
 func (h *KVCacheHelper) OnRequestEnd(requestID string) error {

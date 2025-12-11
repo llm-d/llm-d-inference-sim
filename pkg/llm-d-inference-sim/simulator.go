@@ -39,6 +39,7 @@ import (
 	kvcache "github.com/llm-d/llm-d-inference-sim/pkg/kv-cache"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	vllmapi "github.com/llm-d/llm-d-inference-sim/pkg/vllm-api"
+	preprocessing "github.com/llm-d/llm-d-kv-cache-manager/pkg/preprocessing/chat_completions"
 	"github.com/llm-d/llm-d-kv-cache-manager/pkg/tokenization"
 )
 
@@ -53,6 +54,7 @@ const (
 	requestIDHeader = "X-Request-Id"
 	podNameEnv      = "POD_NAME"
 	podNsEnv        = "POD_NAMESPACE"
+	envHFToken      = "HF_TOKEN"
 )
 
 type loraUsageState int
@@ -212,6 +214,11 @@ type VllmSimulator struct {
 	queueCapacity int
 	// a channel for incoming requests
 	newRequests chan *openaiserverapi.CompletionReqCtx
+
+	// chat template for converting /chat/completions request content to a plain string
+	chatTemplate string
+	// parameters for the chat template
+	chatTemplateKWArgs map[string]interface{}
 }
 
 // New creates a new VllmSimulator instance with the given logger
@@ -355,7 +362,25 @@ func (s *VllmSimulator) initializeSim(ctx context.Context) error {
 	}
 
 	if s.config.EnableKVCache {
-		s.kvcacheHelper, err = kvcache.NewKVCacheHelper(s.config, s.logger, s.metrics.kvCacheUsageChan, s.tokenizer)
+		// initialize chat template, only in case kv cache enabled
+		templateReq := preprocessing.FetchChatTemplateRequest{
+			Model: s.config.Model,
+			Token: os.Getenv(envHFToken),
+		}
+
+		chatTemplatingProcessor := preprocessing.NewChatTemplatingProcessor()
+		if err := chatTemplatingProcessor.Initialize(); err != nil {
+			return fmt.Errorf("failed to initialize chat-templating processor: %w", err)
+		}
+
+		s.chatTemplate, s.chatTemplateKWArgs, err = chatTemplatingProcessor.FetchChatTemplate(ctx, templateReq)
+		if err != nil {
+			s.logger.Error(err, "failed to get chat template")
+			return err
+		}
+		s.logger.V(logging.DEBUG).Info("Chat template loaded", "template", s.chatTemplate, "params", s.chatTemplateKWArgs)
+
+		s.kvcacheHelper, err = kvcache.NewKVCacheHelper(ctx, s.config, s.logger, s.metrics.kvCacheUsageChan, s.tokenizer)
 		if err != nil {
 			return err
 		}
