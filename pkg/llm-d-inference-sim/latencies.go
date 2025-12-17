@@ -17,6 +17,15 @@ limitations under the License.
 // Package vllmsim implements the vLLM simulator.
 package llmdinferencesim
 
+type LatencyCalculator interface {
+	// GetTimeToFirstToken returns time to first token in milliseconds. The simulator will wait
+	// this amount of time before generating the first token.
+	GetTimeToFirstToken(nPromptTokens int, nCachedPromptTokens int, doRemotePrefill bool) int
+	// GetInterTokenLatency returns inter-token latency in milliseconds. The simulator will wait
+	// this amount of time before generating each response token (except the first one).
+	GetInterTokenLatency() int
+}
+
 func (s *VllmSimulator) getCurrLoadFactor() float64 {
 	if s.config.MaxNumSeqs <= 1 {
 		return 1.0
@@ -37,7 +46,7 @@ func (s *VllmSimulator) getPrefillTimePerToken() int {
 }
 
 // returns time to first token based on the current request's doRemotePrefill
-func (s *VllmSimulator) getWaitTimeToFirstToken(nPromptTokens int, nCachedPromptTokens int, doRemotePrefill bool) int {
+func (s *VllmSimulator) GetTimeToFirstToken(nPromptTokens int, nCachedPromptTokens int, doRemotePrefill bool) int {
 	if doRemotePrefill {
 		if s.config.KVCacheTransferLatency == 0 && s.config.KVCacheTransferLatencyStdDev == 0 {
 			// is disaggregated PD and ttft is calculated using number of prompt tokens
@@ -57,7 +66,7 @@ func (s *VllmSimulator) getWaitTimeToFirstToken(nPromptTokens int, nCachedPrompt
 }
 
 // returns inter token latency
-func (s *VllmSimulator) getInterTokenLatency() int {
+func (s *VllmSimulator) GetInterTokenLatency() int {
 	latency := int(float64(s.config.InterTokenLatency) * s.getCurrLoadFactor())
 	return s.random.RandomNormTruncated(latency, s.config.InterTokenLatencyStdDev)
 }

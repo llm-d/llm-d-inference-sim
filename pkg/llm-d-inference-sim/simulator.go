@@ -216,6 +216,8 @@ type VllmSimulator struct {
 	queueCapacity int
 	// a channel for incoming requests
 	newRequests chan *openaiserverapi.CompletionReqCtx
+
+	latencyCalculator LatencyCalculator
 }
 
 // New creates a new VllmSimulator instance with the given logger
@@ -310,6 +312,11 @@ func (s *VllmSimulator) startSim(ctx context.Context) error {
 
 func (s *VllmSimulator) initializeSim(ctx context.Context) error {
 	s.random = common.NewRandom(s.config.Seed, s.config.Port)
+
+	switch s.config.LatencyCalculator {
+	case common.DefaultLatencyCalculator:
+		s.latencyCalculator = s
+	}
 
 	for _, lora := range s.config.LoraModules {
 		s.loraAdaptors.Store(lora.Name, "")
@@ -677,7 +684,7 @@ func (s *VllmSimulator) sendResponse(reqCtx *openaiserverapi.CompletionReqCtx, r
 	// calculate how long to wait before returning the response, time is based on number of tokens
 	nCachedPromptTokens := reqCtx.CompletionReq.GetNumberOfCachedPromptTokens()
 	startPrefill := time.Now()
-	ttft := s.getWaitTimeToFirstToken(usageData.PromptTokens, nCachedPromptTokens, reqCtx.CompletionReq.IsDoRemotePrefill())
+	ttft := s.latencyCalculator.GetTimeToFirstToken(usageData.PromptTokens, nCachedPromptTokens, reqCtx.CompletionReq.IsDoRemotePrefill())
 	time.Sleep(time.Duration(ttft) * time.Millisecond)
 
 	// report ttft in seconds
@@ -686,7 +693,7 @@ func (s *VllmSimulator) sendResponse(reqCtx *openaiserverapi.CompletionReqCtx, r
 
 	startDecode := time.Now()
 	for range usageData.CompletionTokens - 1 {
-		perTokenLatency := s.getInterTokenLatency()
+		perTokenLatency := s.latencyCalculator.GetInterTokenLatency()
 		time.Sleep(time.Duration(perTokenLatency) * time.Millisecond)
 
 		// report tpot in seconds

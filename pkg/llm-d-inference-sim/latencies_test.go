@@ -50,7 +50,7 @@ var _ = Describe("Check random latencies", Ordered, func() {
 		func(interTokenLatency int, stddev int) {
 			simulator.config.InterTokenLatency = interTokenLatency
 			simulator.config.InterTokenLatencyStdDev = stddev
-			interToken := simulator.getInterTokenLatency()
+			interToken := simulator.GetInterTokenLatency()
 			Expect(interToken).To(BeNumerically(">=", int(float32(interTokenLatency)*0.3)))
 			Expect(interToken).To(BeNumerically("<=", int(float32(interTokenLatency)*1.7)))
 		},
@@ -72,7 +72,7 @@ var _ = Describe("Check random latencies", Ordered, func() {
 
 			latency := 0
 			for range numberOfTokens - 1 {
-				latency += simulator.getInterTokenLatency()
+				latency += simulator.GetInterTokenLatency()
 			}
 
 			Expect(latency).To(BeNumerically(">=", int(float32(interTokenLatency)*0.3*float32(numberOfTokens-1))))
@@ -95,7 +95,7 @@ var _ = Describe("Check random latencies", Ordered, func() {
 			simulator.config.TimeToFirstTokenStdDev = timeToFirstTokenStdDev
 			simulator.config.KVCacheTransferLatency = kvCacheLatency
 			simulator.config.KVCacheTransferLatencyStdDev = kvCacheLatencyStdDev
-			timeToFirst := simulator.getWaitTimeToFirstToken(1, 0, doREmotePrefill)
+			timeToFirst := simulator.GetTimeToFirstToken(1, 0, doREmotePrefill)
 			if doREmotePrefill {
 				Expect(timeToFirst).To(BeNumerically(">=", int(float32(kvCacheLatency)*0.3)))
 				Expect(timeToFirst).To(BeNumerically("<=", int(float32(kvCacheLatency)*1.7)))
@@ -126,7 +126,7 @@ var _ = Describe("Check random latencies", Ordered, func() {
 		simulator.config.PrefillTimePerToken = 200
 		simulator.config.PrefillTimeStdDev = 80
 
-		ttft := simulator.getWaitTimeToFirstToken(128, 0, false)
+		ttft := simulator.GetTimeToFirstToken(128, 0, false)
 
 		Expect(ttft).To(BeNumerically("==", timeToFirstToken))
 	})
@@ -139,7 +139,7 @@ var _ = Describe("Check random latencies", Ordered, func() {
 		simulator.config.PrefillTimePerToken = 200
 		simulator.config.PrefillTimeStdDev = 80
 
-		ttft := simulator.getWaitTimeToFirstToken(128, 0, false)
+		ttft := simulator.GetTimeToFirstToken(128, 0, false)
 		Expect(ttft).NotTo(BeNumerically("==", 0))
 	})
 
@@ -150,7 +150,7 @@ var _ = Describe("Check random latencies", Ordered, func() {
 			simulator.config.PrefillTimePerToken = prefillTimePerToken
 			simulator.config.PrefillTimeStdDev = stdDev
 
-			ttft := simulator.getWaitTimeToFirstToken(nTokens, nCachedTokens, false)
+			ttft := simulator.GetTimeToFirstToken(nTokens, nCachedTokens, false)
 
 			expectedTTFT := prefillOverhead + prefillTimePerToken*(nTokens-nCachedTokens)
 			Expect(ttft).To(BeNumerically(">=", int(float64(expectedTTFT)*0.3)))
@@ -178,7 +178,7 @@ var _ = Describe("Check random latencies", Ordered, func() {
 			simulator.config.PrefillTimePerToken = prefillTimePerToken
 			simulator.config.PrefillTimeStdDev = 0
 
-			ttft := simulator.getWaitTimeToFirstToken(nTokens, nCachedTokens, false)
+			ttft := simulator.GetTimeToFirstToken(nTokens, nCachedTokens, false)
 			expectedTTFT := prefillOverhead + prefillTimePerToken*(nTokens-nCachedTokens)
 			Expect(ttft).To(Equal(expectedTTFT))
 		},
@@ -202,7 +202,7 @@ var _ = Describe("Check random latencies", Ordered, func() {
 		simulator.config.KVCacheTransferTimePerToken = 100
 		simulator.config.KVCacheTransferTimeStdDev = 0
 
-		ttft := simulator.getWaitTimeToFirstToken(128, 0, true)
+		ttft := simulator.GetTimeToFirstToken(128, 0, true)
 		Expect(ttft).To(BeNumerically("==", 200))
 	})
 
@@ -213,7 +213,7 @@ var _ = Describe("Check random latencies", Ordered, func() {
 		simulator.config.KVCacheTransferTimePerToken = 100
 		simulator.config.KVCacheTransferTimeStdDev = 0
 
-		ttft := simulator.getWaitTimeToFirstToken(128, 0, true)
+		ttft := simulator.GetTimeToFirstToken(128, 0, true)
 		Expect(ttft).To(BeNumerically("==", 12800))
 	})
 
@@ -224,7 +224,7 @@ var _ = Describe("Check random latencies", Ordered, func() {
 			simulator.config.KVCacheTransferTimePerToken = kvCacheTransTPT
 			simulator.config.KVCacheTransferTimeStdDev = stddev
 
-			ttft := simulator.getWaitTimeToFirstToken(nTokens, 0, true)
+			ttft := simulator.GetTimeToFirstToken(nTokens, 0, true)
 
 			expectedTTFT := kvCacheTransTPT * nTokens
 			Expect(ttft).To(BeNumerically(">=", int(float64(expectedTTFT)*0.3)))
@@ -249,7 +249,7 @@ var _ = Describe("Check random latencies", Ordered, func() {
 
 		simulator.metrics.runReqChan <- 100
 
-		ttft := simulator.getWaitTimeToFirstToken(128, 0, false)
+		ttft := simulator.GetTimeToFirstToken(128, 0, false)
 		Expect(ttft).To(Equal(42))
 	})
 
@@ -265,7 +265,7 @@ var _ = Describe("Check random latencies", Ordered, func() {
 
 		simulator.metrics.runReqChan <- 1
 
-		ttft := simulator.getWaitTimeToFirstToken(128, 0, false)
+		ttft := simulator.GetTimeToFirstToken(128, 0, false)
 		Expect(ttft).To(Equal(42))
 	})
 
@@ -277,7 +277,7 @@ var _ = Describe("Check random latencies", Ordered, func() {
 			simulator.config.MaxNumSeqs = maxNumOfReq
 			simulator.metrics.nRunningReqs = int64(maxNumOfReq)
 
-			ttft := simulator.getWaitTimeToFirstToken(128, 0, false)
+			ttft := simulator.GetTimeToFirstToken(128, 0, false)
 			Expect(ttft).To(Equal(int(float64(42) * timeFactorUnderLoad)))
 
 		},
@@ -300,7 +300,7 @@ var _ = Describe("Check random latencies", Ordered, func() {
 			simulator.config.MaxNumSeqs = maxNumOfReq
 			simulator.metrics.nRunningReqs = int64(nCurrNumOfReq)
 
-			ttft := simulator.getWaitTimeToFirstToken(128, 0, false)
+			ttft := simulator.GetTimeToFirstToken(128, 0, false)
 			max := timeFactorUnderLoad * float64(42)
 			Expect(ttft).To(BeNumerically(">=", 42))
 			Expect(ttft).To(BeNumerically("<=", max))

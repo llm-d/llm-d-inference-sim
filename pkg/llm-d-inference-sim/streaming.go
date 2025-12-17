@@ -112,7 +112,7 @@ func (s *VllmSimulator) sendTokenChunks(context *streamingContext, w *bufio.Writ
 	tc *openaiserverapi.ToolCall, finishReason string) {
 	startPrefill := time.Now()
 	// time to first token delay
-	ttft := s.getWaitTimeToFirstToken(context.nPromptTokens, context.nCachedPromptTokens, context.doRemotePrefill)
+	ttft := s.latencyCalculator.GetTimeToFirstToken(context.nPromptTokens, context.nCachedPromptTokens, context.doRemotePrefill)
 	time.Sleep(time.Duration(ttft) * time.Millisecond)
 	// report ttft in seconds
 	common.WriteToChannel(s.metrics.ttftChan, (float64(ttft) / 1000), s.logger, "metrics.ttftChan")
@@ -121,7 +121,7 @@ func (s *VllmSimulator) sendTokenChunks(context *streamingContext, w *bufio.Writ
 	startDecode := time.Now()
 	for i, token := range genTokens {
 		if i != 0 {
-			interTokenLat := s.getInterTokenLatency()
+			interTokenLat := s.latencyCalculator.GetInterTokenLatency()
 			time.Sleep(time.Duration(interTokenLat) * time.Millisecond)
 			// report tpot in seconds
 			common.WriteToChannel(s.metrics.tpotChan, (float64(interTokenLat) / 1000), s.logger, "metrics.tpotChan")

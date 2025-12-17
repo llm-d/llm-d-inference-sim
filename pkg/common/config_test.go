@@ -540,9 +540,14 @@ var _ = Describe("Simulator configuration", func() {
 		},
 		{
 			name: "invalid echo mode with dataset",
-			args: []string{"random", "--model", "test", "--dataset-path", "my/path",
+			args: []string{"cmd", "--model", "test", "--dataset-path", "my/path",
 				"--mode", "echo"},
 			expectedError: "dataset cannot be defined in echo mode",
+		},
+		{
+			name:          "invalid latency calculator",
+			args:          []string{"cmd", "--config", "../../manifests/config.yaml", "--latency-calculator", "hello"},
+			expectedError: "unknown latency-calculator",
 		},
 	}
 

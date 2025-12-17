@@ -50,6 +50,8 @@ const (
 	RemoteDecodeFinishReason = "remote_decode"
 
 	podIPEnv = "POD_IP"
+
+	DefaultLatencyCalculator = "default"
 )
 
 var (
@@ -234,6 +236,11 @@ type Configuration struct {
 
 	// EnableRequestIDHeaders enables including X-Request-Id header in responses
 	EnableRequestIDHeaders bool `yaml:"enable-request-id-headers" json:"enable-request-id-headers"`
+
+	// LatencyCalculator is the name of latency calculator to use in simulation of response latencies.
+	// The default calculation is based on the current load of the simulator and on the configured latency
+	// parameters, e.g., time-to-first-token and prefill-time-per-token.
+	LatencyCalculator string `yaml:"latency-calculator" json:"latency-calculator"`
 }
 
 type Metrics struct {
@@ -385,12 +392,13 @@ func newConfig() *Configuration {
 		MinToolCallArrayParamLength:         1,
 		ToolCallNotRequiredParamProbability: 50,
 		ObjectToolCallNotRequiredParamProbability: 50,
-		KVCacheSize:    1024,
-		TokenBlockSize: 16,
-		ZMQEndpoint:    "tcp://localhost:5557",
-		EventBatchSize: 16,
-		DPSize:         1,
-		Rank:           -1,
+		KVCacheSize:       1024,
+		TokenBlockSize:    16,
+		ZMQEndpoint:       "tcp://localhost:5557",
+		EventBatchSize:    16,
+		DPSize:            1,
+		Rank:              -1,
+		LatencyCalculator: DefaultLatencyCalculator,
 	}
 }
 
@@ -692,6 +700,11 @@ func (c *Configuration) validate() error {
 		return errors.New("dataset cannot be defined in echo mode")
 	}
 
+	if c.LatencyCalculator != DefaultLatencyCalculator {
+		return fmt.Errorf("unknown latency-calculator %s, supported calculators are: %s",
+			c.LatencyCalculator, DefaultLatencyCalculator)
+	}
+
 	return nil
 }
 
@@ -792,6 +805,10 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 	f.StringVar(&config.SSLCertFile, "ssl-certfile", config.SSLCertFile, "Path to SSL certificate file for HTTPS (optional)")
 	f.StringVar(&config.SSLKeyFile, "ssl-keyfile", config.SSLKeyFile, "Path to SSL private key file for HTTPS (optional)")
 	f.BoolVar(&config.SelfSignedCerts, "self-signed-certs", config.SelfSignedCerts, "Enable automatic generation of self-signed certificates for HTTPS")
+
+	f.StringVar(&config.LatencyCalculator, "latency-calculator", config.LatencyCalculator,
+		`Name of latency calculator to use in response generation (optional). The default calculation is based on the current load of the simulator and on 
+		the configured latency parameters, e.g., time-to-first-token and prefill-time-per-token`)
 
 	// These values were manually parsed above in getParamValueFromArgs, we leave this in order to get these flags in --help
 	var dummyString string
