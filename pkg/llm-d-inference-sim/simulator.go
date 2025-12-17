@@ -313,6 +313,7 @@ func (s *VllmSimulator) startSim(ctx context.Context) error {
 func (s *VllmSimulator) initializeSim(ctx context.Context) error {
 	s.random = common.NewRandom(s.config.Seed, s.config.Port)
 
+	// nolint
 	switch s.config.LatencyCalculator {
 	case common.DefaultLatencyCalculator:
 		s.latencyCalculator = s
