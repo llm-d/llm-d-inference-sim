@@ -686,19 +686,19 @@ func (s *VllmSimulator) sendResponse(reqCtx *openaiserverapi.CompletionReqCtx, r
 	nCachedPromptTokens := reqCtx.CompletionReq.GetNumberOfCachedPromptTokens()
 	startPrefill := time.Now()
 	ttft := s.latencyCalculator.GetTimeToFirstToken(usageData.PromptTokens, nCachedPromptTokens, reqCtx.CompletionReq.IsDoRemotePrefill())
-	time.Sleep(time.Duration(ttft) * time.Millisecond)
+	time.Sleep(ttft)
 
 	// report ttft in seconds
-	common.WriteToChannel(s.metrics.ttftChan, (float64(ttft) / 1000), s.logger, "metrics.ttftChan")
+	common.WriteToChannel(s.metrics.ttftChan, ttft.Seconds(), s.logger, "metrics.ttftChan")
 	common.WriteToChannel(s.metrics.reqPrefillTimeChan, time.Since(startPrefill).Seconds(), s.logger, "metrics.reqPrefillTimeChan")
 
 	startDecode := time.Now()
 	for range usageData.CompletionTokens - 1 {
 		perTokenLatency := s.latencyCalculator.GetInterTokenLatency()
-		time.Sleep(time.Duration(perTokenLatency) * time.Millisecond)
+		time.Sleep(perTokenLatency)
 
 		// report tpot in seconds
-		common.WriteToChannel(s.metrics.tpotChan, (float64(perTokenLatency) / 1000), s.logger, "metrics.tpotChan")
+		common.WriteToChannel(s.metrics.tpotChan, perTokenLatency.Seconds(), s.logger, "metrics.tpotChan")
 	}
 	common.WriteToChannel(s.metrics.reqDecodeTimeChan, time.Since(startDecode).Seconds(), s.logger, "metrics.reqDecodeTimeChan")
 

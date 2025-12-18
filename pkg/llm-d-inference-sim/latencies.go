@@ -17,13 +17,15 @@ limitations under the License.
 // Package vllmsim implements the vLLM simulator.
 package llmdinferencesim
 
+import "time"
+
 type LatencyCalculator interface {
-	// GetTimeToFirstToken returns time to first token in milliseconds. The simulator will wait
+	// GetTimeToFirstToken returns time to first token. The simulator will wait
 	// this amount of time before generating the first token.
-	GetTimeToFirstToken(nPromptTokens int, nCachedPromptTokens int, doRemotePrefill bool) int
-	// GetInterTokenLatency returns inter-token latency in milliseconds. The simulator will wait
+	GetTimeToFirstToken(nPromptTokens int, nCachedPromptTokens int, doRemotePrefill bool) time.Duration
+	// GetInterTokenLatency returns inter-token latency. The simulator will wait
 	// this amount of time before generating each response token (except the first one).
-	GetInterTokenLatency() int
+	GetInterTokenLatency() time.Duration
 }
 
 func (s *VllmSimulator) getCurrLoadFactor() float64 {
@@ -45,28 +47,33 @@ func (s *VllmSimulator) getPrefillTimePerToken() int {
 	return int(float64(s.config.PrefillTimePerToken) * s.getCurrLoadFactor())
 }
 
-// returns time to first token based on the current request's doRemotePrefill
-func (s *VllmSimulator) GetTimeToFirstToken(nPromptTokens int, nCachedPromptTokens int, doRemotePrefill bool) int {
+// returns time to first token
+func (s *VllmSimulator) GetTimeToFirstToken(nPromptTokens int, nCachedPromptTokens int, doRemotePrefill bool) time.Duration {
 	if doRemotePrefill {
 		if s.config.KVCacheTransferLatency == 0 && s.config.KVCacheTransferLatencyStdDev == 0 {
 			// is disaggregated PD and ttft is calculated using number of prompt tokens
 			kvCacheTransT := s.config.KVCacheTransferTimePerToken * nPromptTokens
-			return s.random.RandomNormTruncated(kvCacheTransT, s.config.KVCacheTransferTimeStdDev)
+			return millisToDuration(s.random.RandomNormTruncated(kvCacheTransT, s.config.KVCacheTransferTimeStdDev))
 		}
 		// is disaggregated PD and *not* using number of prompt tokens
-		return s.random.RandomNormTruncated(s.config.KVCacheTransferLatency, s.config.KVCacheTransferLatencyStdDev)
+		return millisToDuration(s.random.RandomNormTruncated(s.config.KVCacheTransferLatency,
+			s.config.KVCacheTransferLatencyStdDev))
 	}
 	if s.config.TimeToFirstToken == 0 && s.config.TimeToFirstTokenStdDev == 0 {
 		// is aggregated PD and ttft is calculated using number of prompt tokens that are not in kv cache
 		prefillTime := s.getPrefillOverhead() + (nPromptTokens-nCachedPromptTokens)*s.getPrefillTimePerToken()
-		return s.random.RandomNormTruncated(prefillTime, s.config.PrefillTimeStdDev)
+		return millisToDuration(s.random.RandomNormTruncated(prefillTime, s.config.PrefillTimeStdDev))
 	}
 	// is aggregated PD and *not* using number of prompt tokens
-	return s.random.RandomNormTruncated(s.getTimeToFirstToken(), s.config.TimeToFirstTokenStdDev)
+	return millisToDuration(s.random.RandomNormTruncated(s.getTimeToFirstToken(), s.config.TimeToFirstTokenStdDev))
 }
 
 // returns inter token latency
-func (s *VllmSimulator) GetInterTokenLatency() int {
+func (s *VllmSimulator) GetInterTokenLatency() time.Duration {
 	latency := int(float64(s.config.InterTokenLatency) * s.getCurrLoadFactor())
-	return s.random.RandomNormTruncated(latency, s.config.InterTokenLatencyStdDev)
+	return millisToDuration(s.random.RandomNormTruncated(latency, s.config.InterTokenLatencyStdDev))
+}
+
+func millisToDuration(ms int) time.Duration {
+	return time.Duration(ms) * time.Millisecond
 }
