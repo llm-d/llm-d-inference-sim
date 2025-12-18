@@ -316,7 +316,7 @@ func (s *VllmSimulator) initializeSim(ctx context.Context) error {
 	// nolint
 	switch s.config.LatencyCalculator {
 	case common.DefaultLatencyCalculator:
-		s.latencyCalculator = s
+		s.latencyCalculator = newDefaultCalculator(s.config, s.random)
 	}
 
 	for _, lora := range s.config.LoraModules {
@@ -685,7 +685,13 @@ func (s *VllmSimulator) sendResponse(reqCtx *openaiserverapi.CompletionReqCtx, r
 	// calculate how long to wait before returning the response, time is based on number of tokens
 	nCachedPromptTokens := reqCtx.CompletionReq.GetNumberOfCachedPromptTokens()
 	startPrefill := time.Now()
-	ttft := s.latencyCalculator.GetTimeToFirstToken(usageData.PromptTokens, nCachedPromptTokens, reqCtx.CompletionReq.IsDoRemotePrefill())
+	params := TTFTParams{
+		PromptTokens:       usageData.PromptTokens,
+		CachedPromptTokens: nCachedPromptTokens,
+		DoRemotePrefill:    reqCtx.CompletionReq.IsDoRemotePrefill(),
+		RunningReqs:        s.metrics.nRunningReqs,
+	}
+	ttft := s.latencyCalculator.GetTimeToFirstToken(&params)
 	time.Sleep(ttft)
 
 	// report ttft in seconds
@@ -694,7 +700,7 @@ func (s *VllmSimulator) sendResponse(reqCtx *openaiserverapi.CompletionReqCtx, r
 
 	startDecode := time.Now()
 	for range usageData.CompletionTokens - 1 {
-		perTokenLatency := s.latencyCalculator.GetInterTokenLatency()
+		perTokenLatency := s.latencyCalculator.GetInterTokenLatency(&InterTokenParams{RunningReqs: s.metrics.nRunningReqs})
 		time.Sleep(perTokenLatency)
 
 		// report tpot in seconds

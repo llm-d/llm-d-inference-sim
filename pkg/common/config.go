@@ -51,7 +51,9 @@ const (
 
 	podIPEnv = "POD_IP"
 
-	DefaultLatencyCalculator = "default"
+	DefaultLatencyCalculator        = ""
+	ConstantLatencyCalculator       = "constant"
+	PerPromptTokenLatencyCalculator = "per-token"
 )
 
 var (
@@ -238,7 +240,7 @@ type Configuration struct {
 	EnableRequestIDHeaders bool `yaml:"enable-request-id-headers" json:"enable-request-id-headers"`
 
 	// LatencyCalculator is the name of latency calculator to use in simulation of response latencies.
-	// The default calculation is based on the current load of the simulator and on the configured latency
+	// The default, legacy, calculation is based on the current load of the simulator and on the configured latency
 	// parameters, e.g., time-to-first-token and prefill-time-per-token.
 	LatencyCalculator string `yaml:"latency-calculator" json:"latency-calculator"`
 }
@@ -392,13 +394,12 @@ func newConfig() *Configuration {
 		MinToolCallArrayParamLength:         1,
 		ToolCallNotRequiredParamProbability: 50,
 		ObjectToolCallNotRequiredParamProbability: 50,
-		KVCacheSize:       1024,
-		TokenBlockSize:    16,
-		ZMQEndpoint:       "tcp://localhost:5557",
-		EventBatchSize:    16,
-		DPSize:            1,
-		Rank:              -1,
-		LatencyCalculator: DefaultLatencyCalculator,
+		KVCacheSize:    1024,
+		TokenBlockSize: 16,
+		ZMQEndpoint:    "tcp://localhost:5557",
+		EventBatchSize: 16,
+		DPSize:         1,
+		Rank:           -1,
 	}
 }
 
@@ -700,9 +701,10 @@ func (c *Configuration) validate() error {
 		return errors.New("dataset cannot be defined in echo mode")
 	}
 
-	if c.LatencyCalculator != DefaultLatencyCalculator {
-		return fmt.Errorf("unknown latency-calculator %s, supported calculators are: %s",
-			c.LatencyCalculator, DefaultLatencyCalculator)
+	if c.LatencyCalculator != DefaultLatencyCalculator && c.LatencyCalculator != ConstantLatencyCalculator &&
+		c.LatencyCalculator != PerPromptTokenLatencyCalculator {
+		return fmt.Errorf("unknown latency-calculator %s, supported calculators are: %s and %s",
+			c.LatencyCalculator, ConstantLatencyCalculator, PerPromptTokenLatencyCalculator)
 	}
 
 	return nil
