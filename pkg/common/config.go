@@ -94,42 +94,44 @@ type Configuration struct {
 	// LoraModules is a list of LoRA adapters
 	LoraModules []LoraModule
 
-	// TimeToFirstToken time before the first token will be returned, in milliseconds
-	TimeToFirstToken int `yaml:"time-to-first-token" json:"time-to-first-token"`
-	// TimeToFirstTokenStdDev standard deviation for time before the first token will be returned,
-	// in milliseconds, optional, default is 0, can't be more than 30% of TimeToFirstToken, will not
-	// cause the actual time to first token to differ by more than 70% from TimeToFirstToken
-	TimeToFirstTokenStdDev int `yaml:"time-to-first-token-std-dev" json:"time-to-first-token-std-dev"`
+	// --- Duration Configuration ---
+	// NOTE: For all duration fields listed below, providing a raw integer (milliseconds) is DEPRECATED
+	// and support will be removed in the next version.
+	// Please use duration strings instead (e.g., "100ms", "1.5s").
 
-	// InterTokenLatency time between generated tokens, in milliseconds
-	InterTokenLatency int `yaml:"inter-token-latency" json:"inter-token-latency"`
-	// InterTokenLatencyStdDev standard deviation for time between generated tokens, in milliseconds,
+	// TimeToFirstToken time before the first token will be returned
+	TimeToFirstToken Duration `yaml:"time-to-first-token" json:"time-to-first-token"`
+	// TimeToFirstTokenStdDev standard deviation for time before the first token will be returned
+	// optional, default is 0, can't be more than 30% of TimeToFirstToken, will not
+	// cause the actual time to first token to differ by more than 70% from TimeToFirstToken
+	TimeToFirstTokenStdDev Duration `yaml:"time-to-first-token-std-dev" json:"time-to-first-token-std-dev"`
+
+	// InterTokenLatency time between generated tokens
+	InterTokenLatency Duration `yaml:"inter-token-latency" json:"inter-token-latency"`
+	// InterTokenLatencyStdDev standard deviation for time between generated tokens
 	// optional, default is 0, can't be more than 30% of InterTokenLatency, will not cause the actual
 	// inter token latency to differ by more than 70% from InterTokenLatency
-	InterTokenLatencyStdDev int `yaml:"inter-token-latency-std-dev" json:"inter-token-latency-std-dev"`
+	InterTokenLatencyStdDev Duration `yaml:"inter-token-latency-std-dev" json:"inter-token-latency-std-dev"`
 	// KVCacheTransferLatency time to "transfer" kv-cache from another vLLM instance in case P/D is activated,
-	// in milliseconds
-	KVCacheTransferLatency int `yaml:"kv-cache-transfer-latency" json:"kv-cache-transfer-latency"`
+	KVCacheTransferLatency Duration `yaml:"kv-cache-transfer-latency" json:"kv-cache-transfer-latency"`
 	// KVCacheTransferLatencyStdDev standard deviation for time to "transfer" kv-cache from another
-	// vLLM instance in case P/D is activated, in milliseconds, optional, default is 0, can't be more
-	// than 30% of KVCacheTransferLatency, will not cause the actual latency to differ by more than 70% from
-	// KVCacheTransferLatency
-	KVCacheTransferLatencyStdDev int `yaml:"kv-cache-transfer-latency-std-dev" json:"kv-cache-transfer-latency-std-dev"`
+	// vLLM instance in case P/D is activated, can't be more than 30% of KVCacheTransferLatency, will not
+	// cause the actual latency to differ by more than 70% from KVCacheTransferLatency
+	KVCacheTransferLatencyStdDev Duration `yaml:"kv-cache-transfer-latency-std-dev" json:"kv-cache-transfer-latency-std-dev"`
 
 	// $Total Prefill Time = PrefillOverhead + n * PrefillTimePerToken$
 	// the assumption is that n is less than k, where k is the number of prallelism units of GPU
-	// PrefillOverhead time taken to prefill the context, in milliseconds
-	PrefillOverhead     int `yaml:"prefill-overhead" json:"prefill-overhead"`
-	PrefillTimePerToken int `yaml:"prefill-time-per-token" json:"prefill-time-per-token"`
+	// PrefillOverhead time taken to prefill the context
+	PrefillOverhead     Duration `yaml:"prefill-overhead" json:"prefill-overhead"`
+	PrefillTimePerToken Duration `yaml:"prefill-time-per-token" json:"prefill-time-per-token"`
 	// PrefillOverheadStdDev similar to TimeToFirstTokenStdDev
-	PrefillTimeStdDev int `yaml:"prefill-time-std-dev" json:"prefill-time-std-dev"`
+	PrefillTimeStdDev Duration `yaml:"prefill-time-std-dev" json:"prefill-time-std-dev"`
 	// $Total KV Cache Transfer Time = n * KVCacheTransferTimePerToken$
 	// the assumption is that the cache blocks are all missed at the remote pod
-	// KVCacheTransfer overhead time taken to transfer kv-cache from another vLLM instance in case P/D is activated,
-	// in milliseconds.
-	KVCacheTransferTimePerToken int `yaml:"kv-cache-transfer-time-per-token" json:"kv-cache-transfer-time-per-token"`
+	// KVCacheTransfer overhead time taken to transfer kv-cache from another vLLM instance in case P/D is activated
+	KVCacheTransferTimePerToken Duration `yaml:"kv-cache-transfer-time-per-token" json:"kv-cache-transfer-time-per-token"`
 	// KVCacheTransferOverheadStdDev similar to TimeToFirstTokenStdDev
-	KVCacheTransferTimeStdDev int `yaml:"kv-cache-transfer-time-std-dev" json:"kv-cache-transfer-time-std-dev"`
+	KVCacheTransferTimeStdDev Duration `yaml:"kv-cache-transfer-time-std-dev" json:"kv-cache-transfer-time-std-dev"`
 
 	// TimeFactorUnderLoad is a multiplicative factor that affects the overall time taken for requests when parallel
 	// requests are being processed.
@@ -737,19 +739,19 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 	f.IntVar(&config.MaxModelLen, "max-model-len", config.MaxModelLen, "Model's context window, maximum number of tokens in a single request including input and output")
 
 	f.StringVar(&config.Mode, "mode", config.Mode, "Simulator mode: echo - returns the same text that was sent in the request, for chat completion returns the last message; random - returns random sentence from a bank of pre-defined sentences")
-	f.IntVar(&config.InterTokenLatency, "inter-token-latency", config.InterTokenLatency, "Time to generate one token (in milliseconds)")
-	f.IntVar(&config.TimeToFirstToken, "time-to-first-token", config.TimeToFirstToken, "Time to first token (in milliseconds)")
+	f.Var(&config.InterTokenLatency, "inter-token-latency", "Time to generate one token (e.g. 100ms. Integer format is deprecated)")
+	f.Var(&config.TimeToFirstToken, "time-to-first-token", "Time to first token (e.g. 100ms. Integer format is deprecated)")
 
-	f.IntVar(&config.PrefillOverhead, "prefill-overhead", config.PrefillOverhead, "Time to prefill in milliseconds. This argument is ignored if <time-to-first-token> is not 0.")
-	f.IntVar(&config.PrefillTimePerToken, "prefill-time-per-token", config.PrefillTimePerToken, "Time to prefill per token (in milliseconds)")
-	f.IntVar(&config.PrefillTimeStdDev, "prefill-time-std-dev", config.PrefillTimeStdDev, "Standard deviation for time to prefill (in milliseconds)")
-	f.IntVar(&config.KVCacheTransferTimePerToken, "kv-cache-transfer-time-per-token", config.KVCacheTransferTimePerToken, "Time for KV-cache transfer per token from a remote vLLM (in milliseconds)")
-	f.IntVar(&config.KVCacheTransferTimeStdDev, "kv-cache-transfer-time-std-dev", config.KVCacheTransferTimeStdDev, "Standard deviation for time for KV-cache transfer per token from a remote vLLM (in milliseconds)")
+	f.Var(&config.PrefillOverhead, "prefill-overhead", "Time to prefill (e.g. 100ms. Integer format is deprecated). This argument is ignored if <time-to-first-token> is not 0.")
+	f.Var(&config.PrefillTimePerToken, "prefill-time-per-token", "Time to prefill per token (e.g. 100ms. Integer format is deprecated)")
+	f.Var(&config.PrefillTimeStdDev, "prefill-time-std-dev", "Standard deviation for time to prefill (e.g. 100ms. Integer format is deprecated)")
+	f.Var(&config.KVCacheTransferTimePerToken, "kv-cache-transfer-time-per-token", "Time for KV-cache transfer per token from a remote vLLM (e.g. 100ms. Integer format is deprecated)")
+	f.Var(&config.KVCacheTransferTimeStdDev, "kv-cache-transfer-time-std-dev", "Standard deviation for time for KV-cache transfer per token from a remote vLLM (e.g. 100ms. Integer format is deprecated)")
 
-	f.IntVar(&config.KVCacheTransferLatency, "kv-cache-transfer-latency", config.KVCacheTransferLatency, "Time for KV-cache transfer from a remote vLLM (in milliseconds)")
-	f.IntVar(&config.InterTokenLatencyStdDev, "inter-token-latency-std-dev", config.InterTokenLatencyStdDev, "Standard deviation for time between generated tokens (in milliseconds)")
-	f.IntVar(&config.TimeToFirstTokenStdDev, "time-to-first-token-std-dev", config.TimeToFirstTokenStdDev, "Standard deviation for time before the first token will be returned (in milliseconds)")
-	f.IntVar(&config.KVCacheTransferLatencyStdDev, "kv-cache-transfer-latency-std-dev", config.KVCacheTransferLatencyStdDev, "Standard deviation for time for KV-cache transfer from a remote vLLM (in milliseconds)")
+	f.Var(&config.KVCacheTransferLatency, "kv-cache-transfer-latency", "Time for KV-cache transfer from a remote vLLM (e.g. 100ms. Integer format is deprecated)")
+	f.Var(&config.InterTokenLatencyStdDev, "inter-token-latency-std-dev", "Standard deviation for time between generated tokens (e.g. 100ms. Integer format is deprecated)")
+	f.Var(&config.TimeToFirstTokenStdDev, "time-to-first-token-std-dev", "Standard deviation for time before the first token will be returned (e.g. 100ms. Integer format is deprecated)")
+	f.Var(&config.KVCacheTransferLatencyStdDev, "kv-cache-transfer-latency-std-dev", "Standard deviation for time for KV-cache transfer from a remote vLLM (e.g. 100ms. Integer format is deprecated)")
 	f.Int64Var(&config.Seed, "seed", config.Seed, "Random seed for operations (if not set, current Unix time in nanoseconds is used)")
 	f.Float64Var(&config.TimeFactorUnderLoad, "time-factor-under-load", config.TimeFactorUnderLoad, "Time factor under load (must be >= 1.0)")
 

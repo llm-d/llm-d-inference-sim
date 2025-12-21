@@ -18,6 +18,7 @@ package common
 
 import (
 	"os"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -46,9 +47,9 @@ func createDefaultConfig(model string) *Configuration {
 	c.MaxNumSeqs = 5
 	c.MaxLoras = 2
 	c.MaxCPULoras = 5
-	c.TimeToFirstToken = 2000
-	c.InterTokenLatency = 1000
-	c.KVCacheTransferLatency = 100
+	c.TimeToFirstToken = Duration(2000 * time.Millisecond)
+	c.InterTokenLatency = Duration(1000 * time.Millisecond)
+	c.KVCacheTransferLatency = Duration(100 * time.Millisecond)
 	c.Seed = 100100100
 	c.LoraModules = []LoraModule{}
 	return c
@@ -176,13 +177,28 @@ var _ = Describe("Simulator configuration", func() {
 	}
 	tests = append(tests, test)
 
+	// Config from config_with_duration_latency.yaml file plus command line args with empty parameter for loras
+	c = createDefaultConfig(qwenModelName)
+	c.Port = 8001
+	c.ServedModelNames = []string{"model1", "model2"}
+	c.LoraModulesString = []string{}
+	c.TimeToFirstToken = Duration(4 * time.Second)
+	c.InterTokenLatency = Duration(2 * time.Second)
+	c.KVCacheTransferLatency = Duration(time.Second)
+	test = testCase{
+		name:           "config file with command line args with empty parameter for loras",
+		args:           []string{"cmd", "--config", "../../manifests/config_with_duration_latency.yaml", "--lora-modules"},
+		expectedConfig: c,
+	}
+	tests = append(tests, test)
+
 	// Config from basic-config.yaml file plus command line args with time to copy cache
 	c = createDefaultConfig(qwenModelName)
 	c.Port = 8001
 	// basic config file does not contain properties related to lora
 	c.MaxLoras = 1
 	c.MaxCPULoras = 1
-	c.KVCacheTransferLatency = 50
+	c.KVCacheTransferLatency = Duration(50 * time.Millisecond)
 	test = testCase{
 		name:           "basic config file with command line args with time to transfer kv-cache",
 		args:           []string{"cmd", "--config", "../../manifests/basic-config.yaml", "--kv-cache-transfer-latency", "50"},

@@ -113,18 +113,18 @@ func (s *VllmSimulator) sendTokenChunks(context *streamingContext, w *bufio.Writ
 	startPrefill := time.Now()
 	// time to first token delay
 	ttft := s.getWaitTimeToFirstToken(context.nPromptTokens, context.nCachedPromptTokens, context.doRemotePrefill)
-	time.Sleep(time.Duration(ttft) * time.Millisecond)
+	time.Sleep(ttft)
 	// report ttft in seconds
-	common.WriteToChannel(s.metrics.ttftChan, (float64(ttft) / 1000), s.logger, "metrics.ttftChan")
+	common.WriteToChannel(s.metrics.ttftChan, ttft.Seconds(), s.logger, "metrics.ttftChan")
 	common.WriteToChannel(s.metrics.reqPrefillTimeChan, time.Since(startPrefill).Seconds(), s.logger, "metrics.reqPrefillTimeChan")
 
 	startDecode := time.Now()
 	for i, token := range genTokens {
 		if i != 0 {
 			interTokenLat := s.getInterTokenLatency()
-			time.Sleep(time.Duration(interTokenLat) * time.Millisecond)
+			time.Sleep(interTokenLat)
 			// report tpot in seconds
-			common.WriteToChannel(s.metrics.tpotChan, (float64(interTokenLat) / 1000), s.logger, "metrics.tpotChan")
+			common.WriteToChannel(s.metrics.tpotChan, interTokenLat.Seconds(), s.logger, "metrics.tpotChan")
 		}
 
 		var toolChunkInsert *openaiserverapi.ToolCall
