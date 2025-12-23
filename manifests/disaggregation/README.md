@@ -79,5 +79,5 @@ This example already configures non-zero latency parameters to reflect real-worl
 ```
 
 Parameter meanings:
-- `prefill-time-per-token`: Average time (in milliseconds) to process each prompt token during the prefill phase. Higher values emphasize the cost of large prompts.
+- `prefill-time-per-token`: Average time (e.g., 100ms. in milliseconds if unit is missing) to process each prompt token during the prefill phase. Higher values emphasize the cost of large prompts.
 - `prefill-time-std-dev`: Standard deviation (in ms) of prefill latency, introducing realistic variation across requests.

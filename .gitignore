@@ -2,6 +2,7 @@ bin
 lib
 vendor
 .vscode
+.idea
 .devcontainer
 # MacOSX
 .DS_Store
