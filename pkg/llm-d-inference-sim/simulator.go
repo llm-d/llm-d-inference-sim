@@ -313,10 +313,13 @@ func (s *VllmSimulator) startSim(ctx context.Context) error {
 func (s *VllmSimulator) initializeSim(ctx context.Context) error {
 	s.random = common.NewRandom(s.config.Seed, s.config.Port)
 
-	// nolint
 	switch s.config.LatencyCalculator {
 	case common.DefaultLatencyCalculator:
 		s.latencyCalculator = newDefaultCalculator(s.config, s.random)
+	case common.ConstantLatencyCalculator:
+		s.latencyCalculator = newConstantCalculator(s.config, s.random)
+	case common.PerPromptTokenLatencyCalculator:
+		s.latencyCalculator = newPerTokenCalculator(s.config, s.random)
 	}
 
 	for _, lora := range s.config.LoraModules {

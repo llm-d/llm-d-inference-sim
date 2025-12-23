@@ -168,7 +168,8 @@ func singleRequestLatencyTest(ttft int, prefillTimePerToken int, interTokenLaten
 
 // sendCompletionRequestForLatencyTest sends completion request according the given parameters
 // uses http.Post and not openai-api function because vllm specific fields should be sent
-func sendCompletionRequestForLatencyTest(client *http.Client, modelName string, prompt string, isStreaming bool, doRemotePrefill bool) {
+func sendCompletionRequestForLatencyTest(client *http.Client, modelName string, prompt string, isStreaming bool,
+	doRemotePrefill bool) (time.Duration, time.Duration) {
 	// send completions request using http post because disagregated PD fields should be included
 	// Test with raw HTTP to verify the error response format
 	req := &openaiserverapi.TextCompletionRequest{Prompt: prompt}
@@ -179,13 +180,14 @@ func sendCompletionRequestForLatencyTest(client *http.Client, modelName string, 
 	body, err := json.Marshal(req)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+	start := time.Now()
 	resp, err := client.Post("http://localhost/v1/completions", "application/json", strings.NewReader(string(body)))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	defer func() {
 		err := resp.Body.Close()
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}()
-
+	ttft := time.Since(start)
 	if isStreaming {
 		reader := bufio.NewReader(resp.Body)
 		for {
@@ -196,6 +198,8 @@ func sendCompletionRequestForLatencyTest(client *http.Client, modelName string, 
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
 		}
 	}
+	totalTime := time.Since(start)
+	return ttft, totalTime
 }
 
 // sendSimpleChatRequest starts server using the given environment variables and sends one chat completions request

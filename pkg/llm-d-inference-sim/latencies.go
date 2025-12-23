@@ -68,6 +68,9 @@ func (b *baseCalculator) randomNorm(mean int, stdDev int) time.Duration {
 	return time.Duration(b.random.RandomNormTruncated(mean, stdDev)) * time.Millisecond
 }
 
+// Default, legacy, latency calculator. Decides whether to use per token or
+// constant latency calculations based on the values of time-to-first-token
+// and kv-cache-transfer-latency.
 type defaultCalculator struct {
 	baseCalculator
 	timeToFirstToken             int
@@ -123,4 +126,82 @@ func (d *defaultCalculator) GetTimeToFirstToken(params *TTFTParams) time.Duratio
 	// is aggregated PD and *not* using number of prompt tokens
 	ttft := int(float64(d.timeToFirstToken) * d.getCurrLoadFactor(params.RunningReqs))
 	return d.randomNorm(ttft, d.timeToFirstTokenStdDev)
+}
+
+// Constant latency calculator doesn't take the prompt size into account, uses
+// time-to-first-token and kv-cache-transfer-latency and their std devs.
+type constantCalculator struct {
+	baseCalculator
+	timeToFirstToken             int
+	timeToFirstTokenStdDev       int
+	kVCacheTransferLatency       int
+	kVCacheTransferLatencyStdDev int
+}
+
+func newConstantCalculator(config *common.Configuration, random *common.Random) *constantCalculator {
+	return &constantCalculator{
+		baseCalculator: baseCalculator{
+			interTokenLatency:       config.InterTokenLatency,
+			interTokenLatencyStdDev: config.InterTokenLatencyStdDev,
+			timeFactorUnderLoad:     config.TimeFactorUnderLoad,
+			maxNumSeqs:              config.MaxNumSeqs,
+			random:                  random,
+		},
+		timeToFirstToken:             config.TimeToFirstToken,
+		timeToFirstTokenStdDev:       config.TimeToFirstTokenStdDev,
+		kVCacheTransferLatency:       config.KVCacheTransferLatency,
+		kVCacheTransferLatencyStdDev: config.KVCacheTransferLatencyStdDev,
+	}
+}
+
+// returns time to first token
+func (c *constantCalculator) GetTimeToFirstToken(params *TTFTParams) time.Duration {
+	if params.DoRemotePrefill {
+		// is disaggregated PD and *not* using number of prompt tokens
+		return c.randomNorm(c.kVCacheTransferLatency, c.kVCacheTransferLatencyStdDev)
+	}
+	// is aggregated PD and *not* using number of prompt tokens
+	ttft := int(float64(c.timeToFirstToken) * c.getCurrLoadFactor(params.RunningReqs))
+	return c.randomNorm(ttft, c.timeToFirstTokenStdDev)
+}
+
+// Per token calculator takes the prompt size into account
+type perTokenCalculator struct {
+	baseCalculator
+	kVCacheTransferTimePerToken int
+	kVCacheTransferTimeStdDev   int
+	prefillOverhead             int
+	prefillTimePerToken         int
+	prefillTimeStdDev           int
+}
+
+func newPerTokenCalculator(config *common.Configuration, random *common.Random) *perTokenCalculator {
+	return &perTokenCalculator{
+		baseCalculator: baseCalculator{
+			interTokenLatency:       config.InterTokenLatency,
+			interTokenLatencyStdDev: config.InterTokenLatencyStdDev,
+			timeFactorUnderLoad:     config.TimeFactorUnderLoad,
+			maxNumSeqs:              config.MaxNumSeqs,
+			random:                  random,
+		},
+		kVCacheTransferTimePerToken: config.KVCacheTransferTimePerToken,
+		kVCacheTransferTimeStdDev:   config.KVCacheTransferTimeStdDev,
+		prefillOverhead:             config.PrefillOverhead,
+		prefillTimePerToken:         config.PrefillTimePerToken,
+		prefillTimeStdDev:           config.PrefillTimeStdDev,
+	}
+}
+
+// returns time to first token
+func (p *perTokenCalculator) GetTimeToFirstToken(params *TTFTParams) time.Duration {
+	if params.DoRemotePrefill {
+		// is disaggregated PD and ttft is calculated using number of prompt tokens
+		kvCacheTransT := p.kVCacheTransferTimePerToken * params.PromptTokens
+		return p.randomNorm(kvCacheTransT, p.kVCacheTransferTimeStdDev)
+	}
+	// is aggregated PD and ttft is calculated using number of prompt tokens that are not in kv cache
+	prefillOverhead := int(float64(p.prefillOverhead) * p.getCurrLoadFactor(params.RunningReqs))
+	prefillTimePerToken := int(float64(p.prefillTimePerToken) * p.getCurrLoadFactor(params.RunningReqs))
+	prefillTime := prefillOverhead + (params.PromptTokens-params.CachedPromptTokens)*prefillTimePerToken
+	return p.randomNorm(prefillTime, p.prefillTimeStdDev)
 }
