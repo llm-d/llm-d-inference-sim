@@ -183,7 +183,7 @@ For more details see the <a href="https://docs.vllm.ai/en/stable/getting_started
     - `echo`: returns the same text that was sent in the request
     - `random`: returns a sentence chosen at random from a set of pre-defined sentences
 ---
-- `latency-calculator`: specifies the latency calculator used to simulate response times. By default, latency is computed based on the simulator’s current load and the configured latency parameters, such as `time-to-first-token` and `prefill-time-per-token`. Supported values are `per-token` and `constant`, indicating whether or not the calculation accounts for the prompt size.
+- `latency-calculator`: specifies the latency calculator to be used to simulate response times. By default, the latency is computed based on the simulator’s current load and the configured latency parameters, such as `time-to-first-token` and `prefill-time-per-token`. Supported values are `per-token` and `constant`, indicating whether or not the calculation accounts for the prompt size.
 - `time-to-first-token`: the time to the first token (e.g. 100ms. Integer format is deprecated), optional, by default zero
 - `time-to-first-token-std-dev`: standard deviation for time before the first token will be returned, e.g., 100ms. in milliseconds if unit is missing, optional, default is 0, can't be more than 30% of `time-to-first-token`, will not cause the actual time to first token to differ by more than 70% from `time-to-first-token`
 - `inter-token-latency`: the time to 'generate' each additional token (e.g. 100ms. Integer format is deprecated), optional, by default zero

@@ -64,7 +64,7 @@ func (b *baseCalculator) getCurrLoadFactor(nRunningReqs int64) float64 {
 	return 1 + (b.timeFactorUnderLoad-1)*float64(nRunningReqs-1)/float64(b.maxNumSeqs-1)
 }
 
-// Default, legacy, latency calculator. Decides whether to use per token or
+// Default latency calculator. Decides whether to use per token or
 // constant latency calculations based on the values of time-to-first-token
 // and kv-cache-transfer-latency.
 type defaultCalculator struct {

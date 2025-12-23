@@ -241,8 +241,8 @@ type Configuration struct {
 	// EnableRequestIDHeaders enables including X-Request-Id header in responses
 	EnableRequestIDHeaders bool `yaml:"enable-request-id-headers" json:"enable-request-id-headers"`
 
-	// LatencyCalculator is the name of latency calculator to use in simulation of response latencies.
-	// The default, legacy, calculation is based on the current load of the simulator and on the configured latency
+	// LatencyCalculator is the name of the latency calculator to use in the simulation of the response latencies.
+	// The default calculation is based on the current load of the simulator and on the configured latency
 	// parameters, e.g., time-to-first-token and prefill-time-per-token.
 	LatencyCalculator string `yaml:"latency-calculator" json:"latency-calculator"`
 }
@@ -811,7 +811,7 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 	f.BoolVar(&config.SelfSignedCerts, "self-signed-certs", config.SelfSignedCerts, "Enable automatic generation of self-signed certificates for HTTPS")
 
 	f.StringVar(&config.LatencyCalculator, "latency-calculator", config.LatencyCalculator,
-		`Name of latency calculator to use in response generation (optional). The default calculation is based on the current load of the simulator and on 
+		`Name of the latency calculator to be used in the response generation (optional). The default calculation is based on the current load of the simulator and on 
 		the configured latency parameters, e.g., time-to-first-token and prefill-time-per-token`)
 
 	// These values were manually parsed above in getParamValueFromArgs, we leave this in order to get these flags in --help
