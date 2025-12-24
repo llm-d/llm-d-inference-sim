@@ -532,40 +532,44 @@ func (s *VllmSimulator) addRequestToQueue(reqCtx *openaiserverapi.CompletionReqC
 
 }
 
-// handleCompletions general completion requests handler, support both text and chat completion APIs
-// Importan note: for requests in streaming mode, this function exists before all chunk are sent to the client
-func (s *VllmSimulator) handleCompletions(ctx *fasthttp.RequestCtx, isChatCompletion bool) {
+// handleRequest is a general requests handler
+// Important note: for requests in streaming mode, this function exits before all chunks are sent to the client
+func (s *VllmSimulator) handleRequest(req common.Request, ctx *fasthttp.RequestCtx) {
 	// Check if we should inject a failure
 	if shouldInjectFailure(s.config, s.random) {
 		failure := getRandomFailure(s.config, s.random)
-		s.sendCompletionError(ctx, failure, true)
+		s.sendError(ctx, failure, true)
 		return
 	}
 
-	vllmReq, err := s.readRequest(ctx, isChatCompletion)
-	if err != nil {
+	if err := req.Unmarshal(ctx.Request.Body()); err != nil {
 		s.logger.Error(err, "failed to read and parse request body")
 		ctx.Error("Failed to read and parse request body, "+err.Error(), fasthttp.StatusBadRequest)
 		return
 	}
 
-	errMsg, errCode := s.validateRequest(vllmReq)
-	if errMsg != "" {
-		s.sendCompletionError(ctx, openaiserverapi.NewCompletionError(errMsg, errCode, nil), false)
+	if !s.isValidModel(req.Model()) {
+		s.sendError(ctx, openaiserverapi.NewError(fmt.Sprintf("The model `%s` does not exist.",
+			req.Model()), fasthttp.StatusNotFound, nil), false)
 		return
 	}
 
-	s.logger.V(logging.DEBUG).Info("Completion request received", "req id", vllmReq.GetRequestID(), "isChat", isChatCompletion)
+	errMsg, errCode := req.Validate(s.config, s.toolsValidator)
+	if errMsg != "" {
+		s.sendError(ctx, openaiserverapi.NewError(errMsg, errCode, nil), false)
+		return
+	}
+
+	requestID := s.getRequestID(ctx)
+	req.SetID(requestID)
+
+	s.logger.V(logging.DEBUG).Info("Received", "new", req.String())
 
 	var wg sync.WaitGroup
 	wg.Add(1)
-	reqCtx := &openaiserverapi.CompletionReqCtx{
-		CompletionReq:    vllmReq,
-		HTTPReqCtx:       ctx,
-		IsChatCompletion: isChatCompletion,
-		Wg:               &wg,
-		StartProcessing:  time.Now(),
-	}
+	reqCtx := req.BuildRequestContext()
+	reqCtx.Wg = &wg
+	reqCtx.HTTPReqCtx = ctx
 	common.WriteToChannel(s.newRequests, reqCtx, s.logger, "newRequests")
 	wg.Wait()
 }

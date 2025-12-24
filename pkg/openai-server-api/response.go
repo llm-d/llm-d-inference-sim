@@ -243,8 +243,8 @@ type ChatRespChunkChoice struct {
 	Logprobs *ChatLogprobs `json:"logprobs,omitempty"`
 }
 
-// CompletionError defines the simulator's response in case of an error
-type CompletionError struct {
+// Error defines the simulator's response in case of an error
+type Error struct {
 	// Message is an error Message
 	Message string `json:"message"`
 	// Type is a type of the error
@@ -255,9 +255,9 @@ type CompletionError struct {
 	Code int `json:"code,omitempty"`
 }
 
-// NewCompletionError creates a new CompletionError
-func NewCompletionError(message string, code int, param *string) CompletionError {
-	return CompletionError{
+// NewError creates a new CompletionError
+func NewError(message string, code int, param *string) Error {
+	return Error{
 		Message: message,
 		Code:    code,
 		Type:    ErrorCodeToType(code),
@@ -267,7 +267,7 @@ func NewCompletionError(message string, code int, param *string) CompletionError
 
 // ErrorResponse wraps the error in the expected OpenAI format
 type ErrorResponse struct {
-	Error CompletionError `json:"error"`
+	Error Error `json:"error"`
 }
 
 // ErrorCodeToType maps error code to error type according to https://www.npmjs.com/package/openai

@@ -24,6 +24,7 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
+	"github.com/valyala/fasthttp"
 )
 
 // isValidModel checks if the given model is the base model or one of "loaded" LoRAs
@@ -97,6 +98,31 @@ func (s *VllmSimulator) showConfig(dp bool) error {
 	return nil
 }
 
-func (s *VllmSimulator) getNumberOfPromptTokens(req openaiserverapi.CompletionRequest) int {
+func getNumberOfPromptTokens(req openaiserverapi.CompletionRequest) int {
 	return len(common.Tokenize(req.GetPrompt()))
+}
+
+func validateRequest(req openaiserverapi.CompletionRequest, config *common.Configuration) (string, int) {
+	if req.GetMaxCompletionTokens() != nil && *req.GetMaxCompletionTokens() <= 0 {
+		return "Max completion tokens and max tokens should be positive", fasthttp.StatusBadRequest
+	}
+
+	if req.IsDoRemoteDecode() && req.IsStream() {
+		return "Prefill does not support streaming", fasthttp.StatusBadRequest
+	}
+
+	if req.GetIgnoreEOS() && req.GetMaxCompletionTokens() == nil {
+		return "Ignore_eos is true but max_completion_tokens (or max_tokens) is not set", fasthttp.StatusBadRequest
+	}
+
+	// Validate context window constraints
+	promptTokens := getNumberOfPromptTokens(req)
+	completionTokens := req.GetMaxCompletionTokens()
+	isValid, actualCompletionTokens, totalTokens := common.ValidateContextWindow(promptTokens, completionTokens, config.MaxModelLen)
+	if !isValid {
+		message := fmt.Sprintf("This model's maximum context length is %d tokens. However, you requested %d tokens (%d in the messages, %d in the completion). Please reduce the length of the messages or completion",
+			config.MaxModelLen, totalTokens, promptTokens, actualCompletionTokens)
+		return message, fasthttp.StatusBadRequest
+	}
+	return "", fasthttp.StatusOK
 }

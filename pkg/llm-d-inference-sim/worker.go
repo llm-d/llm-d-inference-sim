@@ -92,8 +92,8 @@ func (s *VllmSimulator) processRequestAsync(reqCtx *openaiserverapi.CompletionRe
 	if s.config.EnableKVCache && !reqCtx.IsChatCompletion {
 		// kv cache is currently supported for /completion API only
 		if err := s.kvcacheHelper.OnRequestStart(req); err != nil {
-			s.sendCompletionError(reqCtx.HTTPReqCtx,
-				openaiserverapi.NewCompletionError(err.Error(), fasthttp.StatusInternalServerError, nil),
+			s.sendError(reqCtx.HTTPReqCtx,
+				openaiserverapi.NewError(err.Error(), fasthttp.StatusInternalServerError, nil),
 				false)
 		}
 	}
@@ -126,7 +126,7 @@ func (s *VllmSimulator) processRequestAsync(reqCtx *openaiserverapi.CompletionRe
 		s.logger.Error(err, prefix)
 		reqCtx.HTTPReqCtx.Error(prefix+err.Error(), fasthttp.StatusBadRequest)
 	} else {
-		numOfInputTokens := s.getNumberOfPromptTokens(req)
+		numOfInputTokens := getNumberOfPromptTokens(req)
 		usageData := openaiserverapi.Usage{
 			PromptTokens:     numOfInputTokens,
 			CompletionTokens: completionTokens,

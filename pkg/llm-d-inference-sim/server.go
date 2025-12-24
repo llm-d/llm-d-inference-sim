@@ -29,7 +29,6 @@ import (
 	"github.com/valyala/fasthttp"
 	"github.com/valyala/fasthttp/fasthttpadaptor"
 
-	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	vllmapi "github.com/llm-d/llm-d-inference-sim/pkg/vllm-api"
@@ -120,52 +119,14 @@ func (s *VllmSimulator) getRequestID(ctx *fasthttp.RequestCtx) string {
 	return s.random.GenerateUUIDString()
 }
 
-// readRequest reads and parses data from the body of the given request according the type defined by isChatCompletion
-func (s *VllmSimulator) readRequest(ctx *fasthttp.RequestCtx, isChatCompletion bool) (openaiserverapi.CompletionRequest, error) {
-	requestID := s.getRequestID(ctx)
-
-	if isChatCompletion {
-		var req openaiserverapi.ChatCompletionRequest
-
-		err := json.Unmarshal(ctx.Request.Body(), &req)
-		if err != nil {
-			s.logger.Error(err, "failed to unmarshal request body")
-			return nil, err
-		}
-
-		for _, tool := range req.Tools {
-			toolJson, err := json.Marshal(tool.Function)
-			if err != nil {
-				s.logger.Error(err, "failed to marshal request tools")
-				return nil, err
-			}
-			err = s.toolsValidator.ValidateTool(toolJson)
-			if err != nil {
-				s.logger.Error(err, "tool validation failed")
-				return nil, err
-			}
-		}
-		req.RequestID = requestID
-
-		return &req, nil
-	}
-
-	var req openaiserverapi.TextCompletionRequest
-	err := json.Unmarshal(ctx.Request.Body(), &req)
-
-	req.RequestID = requestID
-
-	return &req, err
-}
-
 // HandleChatCompletions http handler for /v1/chat/completions
 func (s *VllmSimulator) HandleChatCompletions(ctx *fasthttp.RequestCtx) {
-	s.handleCompletions(ctx, true)
+	s.handleRequest(&chatCompletionRequest{}, ctx)
 }
 
 // HandleTextCompletions http handler for /v1/completions
 func (s *VllmSimulator) HandleTextCompletions(ctx *fasthttp.RequestCtx) {
-	s.handleCompletions(ctx, false)
+	s.handleRequest(&textCompletionRequest{}, ctx)
 }
 
 // readTokenizeRequest reads and parses data from the body of the given request
@@ -190,7 +151,7 @@ func (s *VllmSimulator) HandleTokenize(ctx *fasthttp.RequestCtx) {
 
 	// Check that the request has only one input to tokenize
 	if req.Prompt != "" && req.Messages != nil {
-		s.sendCompletionError(ctx, openaiserverapi.NewCompletionError("both prompt and messages fields in tokenize request",
+		s.sendError(ctx, openaiserverapi.NewError("both prompt and messages fields in tokenize request",
 			fasthttp.StatusBadRequest, nil), false)
 		return
 	}
@@ -231,35 +192,6 @@ func (s *VllmSimulator) HandleUnloadLora(ctx *fasthttp.RequestCtx) {
 	s.unloadLoraAdaptor(ctx)
 }
 
-func (s *VllmSimulator) validateRequest(req openaiserverapi.CompletionRequest) (string, int) {
-	if !s.isValidModel(req.GetModel()) {
-		return fmt.Sprintf("The model `%s` does not exist.", req.GetModel()), fasthttp.StatusNotFound
-	}
-
-	if req.GetMaxCompletionTokens() != nil && *req.GetMaxCompletionTokens() <= 0 {
-		return "Max completion tokens and max tokens should be positive", fasthttp.StatusBadRequest
-	}
-
-	if req.IsDoRemoteDecode() && req.IsStream() {
-		return "Prefill does not support streaming", fasthttp.StatusBadRequest
-	}
-
-	if req.GetIgnoreEOS() && req.GetMaxCompletionTokens() == nil {
-		return "Ignore_eos is true but max_completion_tokens (or max_tokens) is not set", fasthttp.StatusBadRequest
-	}
-
-	// Validate context window constraints
-	promptTokens := s.getNumberOfPromptTokens(req)
-	completionTokens := req.GetMaxCompletionTokens()
-	isValid, actualCompletionTokens, totalTokens := common.ValidateContextWindow(promptTokens, completionTokens, s.config.MaxModelLen)
-	if !isValid {
-		message := fmt.Sprintf("This model's maximum context length is %d tokens. However, you requested %d tokens (%d in the messages, %d in the completion). Please reduce the length of the messages or completion",
-			s.config.MaxModelLen, totalTokens, promptTokens, actualCompletionTokens)
-		return message, fasthttp.StatusBadRequest
-	}
-	return "", fasthttp.StatusOK
-}
-
 // sendCompletionResponse sends a completion response
 func (s *VllmSimulator) sendCompletionResponse(ctx *fasthttp.RequestCtx, resp openaiserverapi.CompletionResponse) {
 	data, err := json.Marshal(resp)
@@ -285,10 +217,10 @@ func (s *VllmSimulator) sendCompletionResponse(ctx *fasthttp.RequestCtx, resp op
 	ctx.Response.SetBody(data)
 }
 
-// sendCompletionError sends an error response for the current completion request
+// sendError sends an error response for the current request
 // isInjected indicates if this is an injected failure for logging purposes
-func (s *VllmSimulator) sendCompletionError(ctx *fasthttp.RequestCtx,
-	compErr openaiserverapi.CompletionError, isInjected bool) {
+func (s *VllmSimulator) sendError(ctx *fasthttp.RequestCtx,
+	compErr openaiserverapi.Error, isInjected bool) {
 	if isInjected {
 		s.logger.V(logging.TRACE).Info("Injecting failure", "type", compErr.Type, "message", compErr.Message)
 	} else {

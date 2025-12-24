@@ -29,17 +29,17 @@ const (
 	modelNotFoundMessageTemplate = "The model '%s-nonexistent' does not exist"
 )
 
-var predefinedFailures = map[string]openaiserverapi.CompletionError{
-	common.FailureTypeRateLimit:     openaiserverapi.NewCompletionError(rateLimitMessageTemplate, 429, nil),
-	common.FailureTypeInvalidAPIKey: openaiserverapi.NewCompletionError("Incorrect API key provided.", 401, nil),
-	common.FailureTypeContextLength: openaiserverapi.NewCompletionError(
+var predefinedFailures = map[string]openaiserverapi.Error{
+	common.FailureTypeRateLimit:     openaiserverapi.NewError(rateLimitMessageTemplate, 429, nil),
+	common.FailureTypeInvalidAPIKey: openaiserverapi.NewError("Incorrect API key provided.", 401, nil),
+	common.FailureTypeContextLength: openaiserverapi.NewError(
 		"This model's maximum context length is 4096 tokens. However, your messages resulted in 4500 tokens.",
 		400, stringPtr("messages")),
-	common.FailureTypeServerError: openaiserverapi.NewCompletionError(
+	common.FailureTypeServerError: openaiserverapi.NewError(
 		"The server is overloaded or not ready yet.", 503, nil),
-	common.FailureTypeInvalidRequest: openaiserverapi.NewCompletionError(
+	common.FailureTypeInvalidRequest: openaiserverapi.NewError(
 		"Invalid request: missing required parameter 'model'.", 400, stringPtr("model")),
-	common.FailureTypeModelNotFound: openaiserverapi.NewCompletionError(modelNotFoundMessageTemplate,
+	common.FailureTypeModelNotFound: openaiserverapi.NewError(modelNotFoundMessageTemplate,
 		404, stringPtr("model")),
 }
 
@@ -53,7 +53,7 @@ func shouldInjectFailure(config *common.Configuration, random *common.Random) bo
 }
 
 // getRandomFailure returns a random failure from configured types or all types if none specified
-func getRandomFailure(config *common.Configuration, random *common.Random) openaiserverapi.CompletionError {
+func getRandomFailure(config *common.Configuration, random *common.Random) openaiserverapi.Error {
 	var availableFailures []string
 	if len(config.FailureTypes) == 0 {
 		// Use all failure types if none specified
