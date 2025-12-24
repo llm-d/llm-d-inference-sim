@@ -18,7 +18,6 @@ package llmdinferencesim
 
 import (
 	"encoding/json"
-	"fmt"
 	"time"
 
 	"github.com/valyala/fasthttp"
@@ -48,11 +47,11 @@ func (c *chatCompletionRequest) Validate(config *common.Configuration, toolsVali
 	for _, tool := range c.req.Tools {
 		toolJson, err := json.Marshal(tool.Function)
 		if err != nil {
-			return fmt.Sprintf("Failed to marshal request tools: %s", err.Error()), fasthttp.StatusBadRequest
+			return "Failed to marshal request tools: " + err.Error(), fasthttp.StatusBadRequest
 		}
 		err = toolsValidator.ValidateTool(toolJson)
 		if err != nil {
-			return fmt.Sprintf("Tool validation failed: %s", err.Error()), fasthttp.StatusBadRequest
+			return "Tool validation failed: " + err.Error(), fasthttp.StatusBadRequest
 		}
 	}
 
