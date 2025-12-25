@@ -23,12 +23,10 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/go-logr/logr"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/valyala/fasthttp"
 	"golang.org/x/sync/errgroup"
 	"k8s.io/klog/v2"
@@ -55,109 +53,11 @@ const (
 	podNsEnv        = "POD_NAMESPACE"
 )
 
-type loraUsageState int
-
 const (
 	waitingUsageState loraUsageState = iota
 	runningUsageState
 	doneUsageState
 )
-
-type loraUsage struct {
-	// the lora adapter name
-	name string
-	// state of the lora usage - waiting/running/done
-	state loraUsageState
-}
-
-// Prometheus metrics
-type metricsData struct {
-	// runningLoras is a collection of running loras,
-	// the key is lora's name, the value is the number of running requests using this lora
-	runningLoras sync.Map
-	// waitingLoras is a collection of waiting loras,
-	// the key is lora's name, the value is the number of waiting requests using this lora
-	waitingLoras sync.Map
-	// lorasChan is a channel to update waitingLoras and runningLoras
-	lorasChan chan loraUsage
-	// nRunningReqs is the number of inference requests that are currently being processed
-	nRunningReqs int64
-	// runReqChan is a channel to update nRunningReqs
-	runReqChan chan int64
-	// requestSuccessChan is a channel to update requestSuccessReqs
-	requestSuccessChan chan requestSuccessEvent
-	// nWaitingReqs is the number of inference requests that are waiting to be processed
-	nWaitingReqs int64
-	// waitingReqChan is a channel to update nWaitingReqs
-	waitingReqChan chan int64
-	// ttftChan is a channel to update time to first token
-	ttftChan chan float64
-	// tpotChan is a channel to update time per output token
-	tpotChan chan float64
-	// e2eReqLatencyChan is a channel to update request e2e latency
-	e2eReqLatencyChan chan float64
-	// reqQueueTimeChan is a channel to update request queue time
-	reqQueueTimeChan chan float64
-	// reqInferenceTimeChan is a channel to update request inference time
-	reqInferenceTimeChan chan float64
-	// reqPrefillTimeChan is a channel to update request prefill time
-	reqPrefillTimeChan chan float64
-	// reqDecodeTimeChan is a channel to update request decode time
-	reqDecodeTimeChan chan float64
-	// kvCacheUsageChan is a channel to update kvCacheUsagePercentage
-	kvCacheUsageChan chan float64
-	// registry is a Prometheus registry
-	registry *prometheus.Registry
-	// loraInfo is prometheus gauge
-	loraInfo *prometheus.GaugeVec
-	// runningRequests is prometheus gauge
-	runningRequests *prometheus.GaugeVec
-	// waitingRequests is prometheus gauge for number of queued requests
-	waitingRequests *prometheus.GaugeVec
-	// ttft is prometheus histogram for time to first token in seconds
-	ttft *prometheus.HistogramVec
-	// tpot is prometheus histogram for time per output token in seconds (deprecated since vLLM 0.11
-	tpot *prometheus.HistogramVec
-	// interTokenLatency is prometheus histogram for inter-token latency in seconds (replaces tpot since vLLM 0.11)
-	interTokenLatency *prometheus.HistogramVec
-	// e2eReqLatency is prometheus histogram of end to end request latency in seconds
-	e2eReqLatency *prometheus.HistogramVec
-	// reqQueueTime is prometheus histogram of request queue time in seconds
-	reqQueueTime *prometheus.HistogramVec
-	// reqInferenceTime is prometheus histogram of request inference time in seconds
-	reqInferenceTime *prometheus.HistogramVec
-	// reqPrefillTime is prometheus histogram of request prefill time in seconds
-	reqPrefillTime *prometheus.HistogramVec
-	// reqDecodeTime is prometheus histogram of request decode time in seconds
-	reqDecodeTime *prometheus.HistogramVec
-	// kvCacheUsagePercentage is prometheus gauge
-	kvCacheUsagePercentage *prometheus.GaugeVec
-	// requestPromptTokens is prometheus histogram for number of input (prompt) tokens in request
-	requestPromptTokens *prometheus.HistogramVec
-	// requestGenerationTokens is prometheus histogram for number of generated tokens in request
-	requestGenerationTokens *prometheus.HistogramVec
-	// promptTokensTotal is prometheus counter for total number of input (prompt) tokens
-	promptTokensTotal *prometheus.CounterVec
-	// generationTokensTotal is prometheus counter for total number of generated tokens
-	generationTokensTotal *prometheus.CounterVec
-	// maxNumGenerationTokens is prometheus histogram for maximum number of generated tokens in request
-	maxNumGenerationTokens *prometheus.HistogramVec
-	// requestParamsMaxTokens is prometheus histogram for 'max_tokens' parameter in request
-	requestParamsMaxTokens *prometheus.HistogramVec
-	// requestSuccessTotal is prometheus counter for total number of successful requests
-	requestSuccessTotal *prometheus.CounterVec
-}
-
-// LoRAs usage info for requests execution
-type lorasUsageInfo struct {
-	mux sync.RWMutex
-	// lora adapter name -> reference count (number of currently running requests)
-	loadedLoras map[string]int
-	// channel for "there is a LoRA that can be removed" event
-	loraRemovable chan int
-	// maximum number of LoRAs that can be used simultaneously
-	maxLoras int
-}
 
 type requestCompleted struct {
 	worker *worker
@@ -171,30 +71,15 @@ type waitingQueueItem struct {
 
 // VllmSimulator simulates vLLM server supporting OpenAI API
 type VllmSimulator struct {
-	// logger is used for information and errors logging
-	logger logr.Logger
-	// config is the simulator's configuration
-	config *common.Configuration
-	// loraAdaptors contains list of LoRA available adaptors
-	loraAdaptors sync.Map
+	context simContext
 	// schema validator for tools parameters
 	toolsValidator *common.ToolsValidator
-	// kv cache functionality
-	kvcacheHelper *kvcache.KVCacheHelper
 	// namespace where simulator is running
 	namespace string
 	// pod name of simulator
 	pod string
 	// tokenizer is currently used in kv-cache and in /tokenize
 	tokenizer tokenization.Tokenizer
-	// dataset is used for token generation in responses
-	dataset dataset.Dataset
-	// metrics contains all Prometheus metrics related data
-	metrics metricsData
-	// loras contains information about which LoRAs are in use
-	loras *lorasUsageInfo
-	// rand with a configurable seed to generate reproducible random responses
-	random *common.Random
 
 	// indication whether the simulator is sleeping
 	isSleeping bool
@@ -216,8 +101,6 @@ type VllmSimulator struct {
 	queueCapacity int
 	// a channel for incoming requests
 	newRequests chan *openaiserverapi.CompletionReqCtx
-
-	latencyCalculator LatencyCalculator
 }
 
 // New creates a new VllmSimulator instance with the given logger
@@ -228,14 +111,16 @@ func New(logger logr.Logger) (*VllmSimulator, error) {
 	}
 
 	return &VllmSimulator{
-		logger:         logger,
 		toolsValidator: toolsValidator,
-		kvcacheHelper:  nil, // kvcache helper will be created only if required after reading configuration
 		namespace:      os.Getenv(podNsEnv),
 		pod:            os.Getenv(podNameEnv),
 		isInDevMode:    os.Getenv("VLLM_SERVER_DEV_MODE") == "1",
-		loras: &lorasUsageInfo{
-			loadedLoras: make(map[string]int),
+		context: simContext{
+			logger: logger,
+			loras: &lorasUsageInfo{
+				loadedLoras: make(map[string]int),
+			},
+			kvcacheHelper: nil, // kvcache helper will be created only if required after reading configuration
 		},
 		waitingQueue: list.New(),
 	}, nil
@@ -245,46 +130,46 @@ func New(logger logr.Logger) (*VllmSimulator, error) {
 func (s *VllmSimulator) Start(ctx context.Context) error {
 	var err error
 	// parse command line parameters
-	s.config, err = common.ParseCommandParamsAndLoadConfig()
+	s.context.config, err = common.ParseCommandParamsAndLoadConfig()
 	if err != nil {
 		return err
 	}
 
-	err = s.showConfig(s.config.DPSize > 1)
+	err = s.showConfig(s.context.config.DPSize > 1)
 	if err != nil {
 		return err
 	}
 
-	if s.config.DatasetURL != "" {
+	if s.context.config.DatasetURL != "" {
 		// if should use remote responses dataset, download it first (it can take time)
-		downloader := dataset.NewDsDownloader(s.logger)
-		if err := downloader.DownloadDataset(ctx, s.config.DatasetURL, s.config.DatasetPath); err != nil {
+		downloader := dataset.NewDsDownloader(s.context.logger)
+		if err := downloader.DownloadDataset(ctx, s.context.config.DatasetURL, s.context.config.DatasetPath); err != nil {
 			return err
 		}
 	}
 
 	// For Data Parallel, start data-parallel-size - 1 additional simulators
 	g, ctx := errgroup.WithContext(ctx)
-	if s.config.DPSize > 1 {
-		for i := 2; i <= s.config.DPSize; i++ {
-			newConfig, err := s.config.Copy()
+	if s.context.config.DPSize > 1 {
+		for i := 2; i <= s.context.config.DPSize; i++ {
+			newConfig, err := s.context.config.Copy()
 			if err != nil {
 				return err
 			}
 			dpRank := i - 1
-			newConfig.Port = s.config.Port + dpRank
-			newSim, err := New(klog.LoggerWithValues(s.logger, "rank", dpRank))
+			newConfig.Port = s.context.config.Port + dpRank
+			newSim, err := New(klog.LoggerWithValues(s.context.logger, "rank", dpRank))
 			if err != nil {
 				return err
 			}
-			newSim.config = newConfig
+			newSim.context.config = newConfig
 			g.Go(func() error {
 				return newSim.startSim(ctx)
 			})
 		}
-		s.logger = klog.LoggerWithValues(s.logger, "rank", 0)
-	} else if s.config.Rank >= 0 {
-		s.logger = klog.LoggerWithValues(s.logger, "rank", s.config.Rank)
+		s.context.logger = klog.LoggerWithValues(s.context.logger, "rank", 0)
+	} else if s.context.config.Rank >= 0 {
+		s.context.logger = klog.LoggerWithValues(s.context.logger, "rank", s.context.config.Rank)
 	}
 	g.Go(func() error {
 		return s.startSim(ctx)
@@ -302,7 +187,7 @@ func (s *VllmSimulator) startSim(ctx context.Context) error {
 
 	listener, err := s.newListener()
 	if err != nil {
-		s.logger.Error(err, "failed to create listener")
+		s.context.logger.Error(err, "failed to create listener")
 		return fmt.Errorf("listener creation error: %w", err)
 	}
 
@@ -311,43 +196,43 @@ func (s *VllmSimulator) startSim(ctx context.Context) error {
 }
 
 func (s *VllmSimulator) initializeSim(ctx context.Context) error {
-	s.random = common.NewRandom(s.config.Seed, s.config.Port)
+	s.context.random = common.NewRandom(s.context.config.Seed, s.context.config.Port)
 
-	switch s.config.LatencyCalculator {
+	switch s.context.config.LatencyCalculator {
 	case common.DefaultLatencyCalculator:
-		s.latencyCalculator = newDefaultCalculator(s.config, s.random)
+		s.context.latencyCalculator = newDefaultCalculator(s.context.config, s.context.random)
 	case common.ConstantLatencyCalculator:
-		s.latencyCalculator = newConstantCalculator(s.config, s.random)
+		s.context.latencyCalculator = newConstantCalculator(s.context.config, s.context.random)
 	case common.PerPromptTokenLatencyCalculator:
-		s.latencyCalculator = newPerTokenCalculator(s.config, s.random)
+		s.context.latencyCalculator = newPerTokenCalculator(s.context.config, s.context.random)
 	}
 
-	for _, lora := range s.config.LoraModules {
-		s.loraAdaptors.Store(lora.Name, "")
+	for _, lora := range s.context.config.LoraModules {
+		s.context.loraAdaptors.Store(lora.Name, "")
 	}
-	s.loras.maxLoras = s.config.MaxLoras
-	s.loras.loraRemovable = make(chan int, s.config.MaxNumSeqs)
+	s.context.loras.maxLoras = s.context.config.MaxLoras
+	s.context.loras.loraRemovable = make(chan int, s.context.config.MaxNumSeqs)
 
-	s.queueCapacity = s.config.MaxWaitingQueueLength
+	s.queueCapacity = s.context.config.MaxWaitingQueueLength
 
-	maxNumberOfRequests := s.config.MaxNumSeqs + s.config.MaxWaitingQueueLength
-	s.metrics.runReqChan = make(chan int64, maxNumberOfRequests)
-	s.metrics.waitingReqChan = make(chan int64, maxNumberOfRequests)
-	s.metrics.lorasChan = make(chan loraUsage, maxNumberOfRequests)
-	s.metrics.kvCacheUsageChan = make(chan float64, maxNumberOfRequests)
-	s.metrics.ttftChan = make(chan float64, maxNumberOfRequests)
-	s.metrics.tpotChan = make(chan float64, maxNumberOfRequests)
-	s.metrics.e2eReqLatencyChan = make(chan float64, maxNumberOfRequests)
-	s.metrics.reqQueueTimeChan = make(chan float64, maxNumberOfRequests)
-	s.metrics.reqInferenceTimeChan = make(chan float64, maxNumberOfRequests)
-	s.metrics.reqPrefillTimeChan = make(chan float64, maxNumberOfRequests)
-	s.metrics.reqDecodeTimeChan = make(chan float64, maxNumberOfRequests)
-	s.metrics.requestSuccessChan = make(chan requestSuccessEvent, maxNumberOfRequests)
+	maxNumberOfRequests := s.context.config.MaxNumSeqs + s.context.config.MaxWaitingQueueLength
+	s.context.metrics.runReqChan = make(chan int64, maxNumberOfRequests)
+	s.context.metrics.waitingReqChan = make(chan int64, maxNumberOfRequests)
+	s.context.metrics.lorasChan = make(chan loraUsage, maxNumberOfRequests)
+	s.context.metrics.kvCacheUsageChan = make(chan float64, maxNumberOfRequests)
+	s.context.metrics.ttftChan = make(chan float64, maxNumberOfRequests)
+	s.context.metrics.tpotChan = make(chan float64, maxNumberOfRequests)
+	s.context.metrics.e2eReqLatencyChan = make(chan float64, maxNumberOfRequests)
+	s.context.metrics.reqQueueTimeChan = make(chan float64, maxNumberOfRequests)
+	s.context.metrics.reqInferenceTimeChan = make(chan float64, maxNumberOfRequests)
+	s.context.metrics.reqPrefillTimeChan = make(chan float64, maxNumberOfRequests)
+	s.context.metrics.reqDecodeTimeChan = make(chan float64, maxNumberOfRequests)
+	s.context.metrics.requestSuccessChan = make(chan requestSuccessEvent, maxNumberOfRequests)
 
 	s.newRequests = make(chan *openaiserverapi.CompletionReqCtx, maxNumberOfRequests)
 
 	// initialize prometheus metrics
-	err := s.createAndRegisterPrometheus()
+	err := s.context.createAndRegisterPrometheus()
 	if err != nil {
 		return err
 	}
@@ -357,11 +242,11 @@ func (s *VllmSimulator) initializeSim(ctx context.Context) error {
 		return fmt.Errorf("failed to create default tokenization configuration: %w", err)
 	}
 
-	if s.config.TokenizersCacheDir != "" {
+	if s.context.config.TokenizersCacheDir != "" {
 		if tokenizationConfig.HFTokenizerConfig == nil {
 			tokenizationConfig.HFTokenizerConfig = &tokenization.HFTokenizerConfig{}
 		}
-		tokenizationConfig.HFTokenizerConfig.TokenizersCacheDir = s.config.TokenizersCacheDir
+		tokenizationConfig.HFTokenizerConfig.TokenizersCacheDir = s.context.config.TokenizersCacheDir
 	}
 
 	s.tokenizer, err = tokenization.NewCachedHFTokenizer(tokenizationConfig.HFTokenizerConfig)
@@ -369,13 +254,14 @@ func (s *VllmSimulator) initializeSim(ctx context.Context) error {
 		return fmt.Errorf("failed to create hf tokenizer: %w", err)
 	}
 
-	if s.config.EnableKVCache {
-		s.kvcacheHelper, err = kvcache.NewKVCacheHelper(s.config, s.logger, s.metrics.kvCacheUsageChan, s.tokenizer)
+	if s.context.config.EnableKVCache {
+		s.context.kvcacheHelper, err = kvcache.NewKVCacheHelper(s.context.config, s.context.logger,
+			s.context.metrics.kvCacheUsageChan, s.tokenizer)
 		if err != nil {
 			return err
 		}
 
-		go s.kvcacheHelper.Run(ctx)
+		go s.context.kvcacheHelper.Run(ctx)
 	}
 
 	err = s.initDataset(ctx)
@@ -384,13 +270,13 @@ func (s *VllmSimulator) initializeSim(ctx context.Context) error {
 	}
 
 	// run request processing workers
-	s.freeWorkers = make(chan *worker, s.config.MaxNumSeqs)
-	s.workerFinished = make(chan *requestCompleted, s.config.MaxNumSeqs)
-	for i := 1; i <= s.config.MaxNumSeqs; i++ {
+	s.freeWorkers = make(chan *worker, s.context.config.MaxNumSeqs)
+	s.workerFinished = make(chan *requestCompleted, s.context.config.MaxNumSeqs)
+	for i := 1; i <= s.context.config.MaxNumSeqs; i++ {
 		worker := &worker{
 			id:           i,
 			ctx:          ctx,
-			logger:       s.logger,
+			logger:       s.context.logger,
 			finishedChan: s.workerFinished,
 			reqChan:      make(chan *openaiserverapi.CompletionReqCtx, 1),
 			processor:    s,
@@ -399,31 +285,32 @@ func (s *VllmSimulator) initializeSim(ctx context.Context) error {
 		s.freeWorkers <- worker
 	}
 
-	s.startMetricsUpdaters(ctx)
+	s.context.startMetricsUpdaters(ctx)
 
 	go s.processing(ctx)
 	return nil
 }
 
 func (s *VllmSimulator) initDataset(ctx context.Context) error {
-	if s.config.DatasetPath == "" && s.config.DatasetURL == "" {
+	if s.context.config.DatasetPath == "" && s.context.config.DatasetURL == "" {
 		// use predefined sentences as responses
 		randDataset := &dataset.DefaultDataset{}
-		err := randDataset.Init(ctx, s.logger, s.random, s.config.MaxModelLen)
+		err := randDataset.Init(ctx, s.context.logger, s.context.random, s.context.config.MaxModelLen)
 		if err != nil {
 			return fmt.Errorf("failed to initialize random dataset: %w", err)
 		}
-		s.logger.V(logging.INFO).Info("No dataset path or URL provided, using random text for responses")
-		s.dataset = randDataset
+		s.context.logger.V(logging.INFO).Info("No dataset path or URL provided, using random text for responses")
+		s.context.dataset = randDataset
 		return nil
 	}
 
 	// use dataset containing responses
 	custDataset := &dataset.CustomDataset{}
-	err := custDataset.Init(ctx, s.logger, s.random, s.config.DatasetPath, s.config.DatasetInMemory, s.config.MaxModelLen)
+	err := custDataset.Init(ctx, s.context.logger, s.context.random, s.context.config.DatasetPath,
+		s.context.config.DatasetInMemory, s.context.config.MaxModelLen)
 
 	if err == nil {
-		s.dataset = custDataset
+		s.context.dataset = custDataset
 		return nil
 	}
 
@@ -432,29 +319,29 @@ func (s *VllmSimulator) initDataset(ctx context.Context) error {
 
 // Print prints to a log, implementation of fasthttp.Logger
 func (s *VllmSimulator) Printf(format string, args ...interface{}) {
-	s.logger.V(logging.WARN).Info("Server error", "msg", fmt.Sprintf(format, args...))
+	s.context.logger.V(logging.WARN).Info("Server error", "msg", fmt.Sprintf(format, args...))
 }
 
 func (s *VllmSimulator) processing(ctx context.Context) {
-	s.logger.V(logging.INFO).Info("Start processing routine")
+	s.context.logger.V(logging.INFO).Info("Start processing routine")
 
 	for {
 		select {
 		case <-ctx.Done():
-			s.logger.V(logging.INFO).Info("Request processing done")
+			s.context.logger.V(logging.INFO).Info("Request processing done")
 			return
 		case completedReq := <-s.workerFinished:
 			worker := completedReq.worker
-			s.logger.V(logging.TRACE).Info("Worker finished", "worker", worker.id)
-			s.decrementLora(completedReq.model)
+			s.context.logger.V(logging.TRACE).Info("Worker finished", "worker", worker.id)
+			s.context.decrementLora(completedReq.model)
 			// there is a free worker - find a request for it and send this request for
 			// processing with this worker
 			s.findRequestAndSendToProcess(worker)
-		case <-s.loras.loraRemovable:
+		case <-s.context.loras.loraRemovable:
 			// there is a LoRA that can be removed, go through availbale workers
 			// and queued requests and find requests that can run now,
 			// stop if there are no free workers, or no requests
-			s.logger.V(logging.TRACE).Info("LoRA can be removed")
+			s.context.logger.V(logging.TRACE).Info("LoRA can be removed")
 			for {
 				// check if there is a free worker
 				worker := s.getFreeWorker()
@@ -475,7 +362,7 @@ func (s *VllmSimulator) processing(ctx context.Context) {
 
 			worker := s.getFreeWorker()
 			if worker == nil {
-				s.logger.V(logging.TRACE).Info("No free worker - sending the request to the waiting queue",
+				s.context.logger.V(logging.TRACE).Info("No free worker - sending the request to the waiting queue",
 					"model", reqCtx.CompletionReq.GetModel(), "req id", reqCtx.CompletionReq.GetRequestID())
 				// no free worker, add this request to the waiting queue
 				s.addRequestToQueue(reqCtx)
@@ -483,19 +370,19 @@ func (s *VllmSimulator) processing(ctx context.Context) {
 			}
 
 			// check if lora usage allows the request to run
-			if s.isLora(model) && !s.loadLora(model) {
+			if s.context.isLora(model) && !s.context.loadLora(model) {
 				// free the worker
 				s.freeWorkers <- worker
-				s.logger.V(logging.TRACE).Info("LoRA cannot be loaded - sending the request to the waiting queue",
+				s.context.logger.V(logging.TRACE).Info("LoRA cannot be loaded - sending the request to the waiting queue",
 					"LoRA", model, "req id", reqCtx.CompletionReq.GetRequestID())
 				// LoRA max reached, try to enqueue
 				s.addRequestToQueue(reqCtx)
 				break
 			}
 
-			s.logger.V(logging.TRACE).Info("Sending the request to the processing channel", "model", model,
+			s.context.logger.V(logging.TRACE).Info("Sending the request to the processing channel", "model", model,
 				"req id", reqCtx.CompletionReq.GetRequestID(), "worker", worker.id)
-			common.WriteToChannel(worker.reqChan, reqCtx, s.logger, "worker's reqChan")
+			common.WriteToChannel(worker.reqChan, reqCtx, s.context.logger, "worker's reqChan")
 		}
 	}
 }
@@ -504,11 +391,11 @@ func (s *VllmSimulator) findRequestAndSendToProcess(worker *worker) bool {
 	nextReq := s.dequeue()
 	if nextReq != nil {
 		// send this request for processing in this worker
-		s.logger.V(logging.TRACE).Info("Sending request to processing", "model", nextReq.CompletionReq.GetModel(),
+		s.context.logger.V(logging.TRACE).Info("Sending request to processing", "model", nextReq.CompletionReq.GetModel(),
 			"req", nextReq.CompletionReq.GetRequestID(), "worker", worker.id)
-		common.WriteToChannel(worker.reqChan, nextReq, s.logger, "worker's reqChan")
+		common.WriteToChannel(worker.reqChan, nextReq, s.context.logger, "worker's reqChan")
 		// decrement waiting requests metric
-		common.WriteToChannel(s.metrics.waitingReqChan, -1, s.logger, "metrics.waitingReqChan")
+		common.WriteToChannel(s.context.metrics.waitingReqChan, -1, s.context.logger, "metrics.waitingReqChan")
 		return true
 	}
 
@@ -519,16 +406,16 @@ func (s *VllmSimulator) findRequestAndSendToProcess(worker *worker) bool {
 
 func (s *VllmSimulator) addRequestToQueue(reqCtx *openaiserverapi.CompletionReqCtx) {
 	if err := s.enqueue(reqCtx); err != nil {
-		s.logger.Error(err, "failed to enqueue request")
+		s.context.logger.Error(err, "failed to enqueue request")
 		reqCtx.HTTPReqCtx.Error("Failed to enqueue request, "+err.Error(), fasthttp.StatusTooManyRequests)
 		reqCtx.Wg.Done()
 		return
 	}
 	// increment the waiting requests metric
-	common.WriteToChannel(s.metrics.waitingReqChan, 1, s.logger, "metrics.waitingReqChan")
+	common.WriteToChannel(s.context.metrics.waitingReqChan, 1, s.context.logger, "metrics.waitingReqChan")
 	// update loraInfo metrics with the new waiting request
-	common.WriteToChannel(s.metrics.lorasChan, loraUsage{reqCtx.CompletionReq.GetModel(), waitingUsageState},
-		s.logger, "metrics.lorasChan")
+	common.WriteToChannel(s.context.metrics.lorasChan, loraUsage{reqCtx.CompletionReq.GetModel(), waitingUsageState},
+		s.context.logger, "metrics.lorasChan")
 
 }
 
@@ -536,14 +423,14 @@ func (s *VllmSimulator) addRequestToQueue(reqCtx *openaiserverapi.CompletionReqC
 // Important note: for requests in streaming mode, this function exits before all chunks are sent to the client
 func (s *VllmSimulator) handleRequest(req common.Request, ctx *fasthttp.RequestCtx) {
 	// Check if we should inject a failure
-	if shouldInjectFailure(s.config, s.random) {
-		failure := getRandomFailure(s.config, s.random)
+	if shouldInjectFailure(s.context.config, s.context.random) {
+		failure := getRandomFailure(s.context.config, s.context.random)
 		s.sendError(ctx, failure, true)
 		return
 	}
 
 	if err := req.Unmarshal(ctx.Request.Body()); err != nil {
-		s.logger.Error(err, "failed to read and parse request body")
+		s.context.logger.Error(err, "failed to read and parse request body")
 		ctx.Error("Failed to read and parse request body, "+err.Error(), fasthttp.StatusBadRequest)
 		return
 	}
@@ -554,7 +441,7 @@ func (s *VllmSimulator) handleRequest(req common.Request, ctx *fasthttp.RequestC
 		return
 	}
 
-	errMsg, errCode := req.Validate(s.config, s.toolsValidator)
+	errMsg, errCode := req.Validate(s.context.config, s.toolsValidator)
 	if errMsg != "" {
 		s.sendError(ctx, openaiserverapi.NewError(errMsg, errCode, nil), false)
 		return
@@ -563,160 +450,69 @@ func (s *VllmSimulator) handleRequest(req common.Request, ctx *fasthttp.RequestC
 	requestID := s.getRequestID(ctx)
 	req.SetID(requestID)
 
-	s.logger.V(logging.DEBUG).Info("Received", "new", req.String())
+	s.context.logger.V(logging.DEBUG).Info("Received", "new", req.String())
 
 	var wg sync.WaitGroup
 	wg.Add(1)
 	reqCtx := req.BuildRequestContext()
 	reqCtx.Wg = &wg
 	reqCtx.HTTPReqCtx = ctx
-	common.WriteToChannel(s.newRequests, reqCtx, s.logger, "newRequests")
+	common.WriteToChannel(s.newRequests, reqCtx, s.context.logger, "newRequests")
 	wg.Wait()
 }
 
 // request processing finished
 func (s *VllmSimulator) responseSentCallback(model string, isChatCompletion bool, requestID string) {
 	// decrement running requests count
-	common.WriteToChannel(s.metrics.runReqChan, -1, s.logger, "metrics.runReqChan")
+	common.WriteToChannel(s.context.metrics.runReqChan, -1, s.context.logger, "metrics.runReqChan")
 
-	if s.isLora(model) {
+	if s.context.isLora(model) {
 		// update loraInfo metrics to reflect that the request processing has been finished
-		common.WriteToChannel(s.metrics.lorasChan, loraUsage{model, doneUsageState},
-			s.logger, "metrics.lorasChan")
+		common.WriteToChannel(s.context.metrics.lorasChan, loraUsage{model, doneUsageState},
+			s.context.logger, "metrics.lorasChan")
 	}
 
-	if s.config.EnableKVCache && !isChatCompletion {
-		if err := s.kvcacheHelper.OnRequestEnd(requestID); err != nil {
-			s.logger.Error(err, "kv cache failed to process request end")
+	if s.context.config.EnableKVCache && !isChatCompletion {
+		if err := s.context.kvcacheHelper.OnRequestEnd(requestID); err != nil {
+			s.context.logger.Error(err, "kv cache failed to process request end")
 		}
 	}
-}
-
-// createCompletionResponse creates the response for completion requests, supports both completion request types (text and chat)
-// as defined by isChatCompletion
-// logprobs - nil if no logprobs needed, otherwise number of logprob options to include
-// respTokens - tokenized content to be sent in the response
-// toolCalls - tool calls to be sent in the response
-// finishReason - a pointer to string that represents finish reason, can be nil or stop or length, ...
-// usageData - usage (tokens statistics) for this response
-// modelName - display name returned to the client and used in metrics. It is either the first alias
-// from --served-model-name (for a base-model request) or the LoRA adapter name (for a LoRA request).
-func (s *VllmSimulator) createCompletionResponse(logprobs *int, isChatCompletion bool, respTokens []string, toolCalls []openaiserverapi.ToolCall,
-	finishReason *string, usageData *openaiserverapi.Usage, modelName string, doRemoteDecode bool, requestID string) openaiserverapi.CompletionResponse {
-	baseResp := openaiserverapi.CreateBaseCompletionResponse(
-		time.Now().Unix(), modelName, usageData, requestID)
-
-	if doRemoteDecode {
-		baseResp.KVParams = &openaiserverapi.KVTransferParams{}
-		// add special fields related to the prefill pod special behavior
-		baseResp.KVParams.DoRemoteDecode = false
-		baseResp.KVParams.DoRemotePrefill = true
-		// currently remote prefill information is hard-coded
-		baseResp.KVParams.RemoteBlockIds = []string{"DUMMY_ID"}
-		baseResp.KVParams.RemoteEngineId = "DUMMY_ID"
-		baseResp.KVParams.RemoteHost = "DUMMY"
-		baseResp.KVParams.RemotePort = 1234
-		baseResp.KVParams.TPSize = 1
-	}
-
-	baseChoice := openaiserverapi.CreateBaseResponseChoice(0, finishReason)
-
-	respText := strings.Join(respTokens, "")
-	if isChatCompletion {
-		baseResp.Object = chatCompletionObject
-
-		message := openaiserverapi.Message{Role: openaiserverapi.RoleAssistant}
-		if toolCalls != nil {
-			message.ToolCalls = toolCalls
-		} else {
-			message.Content = openaiserverapi.Content{Raw: respText}
-		}
-
-		choice := openaiserverapi.CreateChatRespChoice(baseChoice, message)
-
-		// Generate logprobs if requested
-		if logprobs != nil && toolCalls == nil {
-			if logprobsData := common.GenerateChatLogprobs(respTokens, *logprobs); logprobsData != nil && len(logprobsData.Content) > 0 {
-				choice.Logprobs = logprobsData
-			} else {
-				// Set to nil if generation failed or content is empty
-				choice.Logprobs = nil
-			}
-		} else {
-			// Explicitly ensure logprobs is nil when not requested
-			choice.Logprobs = nil
-		}
-
-		return openaiserverapi.CreateChatCompletionResponse(baseResp, []openaiserverapi.ChatRespChoice{choice})
-	}
-
-	choice := openaiserverapi.CreateTextRespChoice(baseChoice, respText)
-
-	// Generate logprobs if requested for text completion
-	if logprobs != nil && *logprobs > 0 {
-		if logprobsData := common.GenerateTextLogprobs(respTokens, *logprobs); logprobsData != nil && len(logprobsData.Tokens) > 0 {
-			choice.Logprobs = logprobsData
-		} else {
-			// Set to nil if generation failed or tokens is empty
-			choice.Logprobs = nil
-		}
-	} else {
-		// Explicitly ensure logprobs is nil when not requested
-		choice.Logprobs = nil
-	}
-
-	baseResp.Object = textCompletionObject
-	return openaiserverapi.CreateTextCompletionResponse(baseResp, []openaiserverapi.TextRespChoice{choice})
 }
 
 // sendResponse sends response for completion API, supports both completions (text and chat)
 // according the value of isChatCompletion in reqCtx
-// respTokens - tokenized content to be sent in the response
-// toolCalls - tool calls to be sent in the response
-// modelName - display name returned to the client and used in metrics. It is either the first alias
-// from --served-model-name (for a base-model request) or the LoRA adapter name (for a LoRA request).
-// finishReason - a pointer to string that represents finish reason, can be nil, stop, length, or tools
-// usageData - usage (tokens statistics) for this response
-func (s *VllmSimulator) sendResponse(reqCtx *openaiserverapi.CompletionReqCtx, respTokens []string,
-	toolCalls []openaiserverapi.ToolCall, modelName string, finishReason string, usageData *openaiserverapi.Usage) {
-	// Extract logprob data from request (unified approach)
-	var logprobs *int
-	if toolCalls == nil {
-		logprobs = reqCtx.CompletionReq.GetLogprobs()
-	}
-	requestID := reqCtx.CompletionReq.GetRequestID()
-
-	resp := s.createCompletionResponse(logprobs, reqCtx.IsChatCompletion, respTokens, toolCalls, &finishReason, usageData, modelName,
-		reqCtx.CompletionReq.IsDoRemoteDecode(), requestID)
+func (s *VllmSimulator) sendResponse(reqCtx *openaiserverapi.CompletionReqCtx, respCtx *responseContext) {
+	resp := createCompletionResponse(respCtx)
 
 	// calculate how long to wait before returning the response, time is based on number of tokens
 	nCachedPromptTokens := reqCtx.CompletionReq.GetNumberOfCachedPromptTokens()
 	startPrefill := time.Now()
 	params := TTFTParams{
-		PromptTokens:       usageData.PromptTokens,
+		PromptTokens:       respCtx.usageData.PromptTokens,
 		CachedPromptTokens: nCachedPromptTokens,
 		DoRemotePrefill:    reqCtx.CompletionReq.IsDoRemotePrefill(),
-		RunningReqs:        s.metrics.nRunningReqs,
+		RunningReqs:        s.context.metrics.nRunningReqs,
 	}
-	ttft := s.latencyCalculator.GetTimeToFirstToken(&params)
+	ttft := s.context.latencyCalculator.GetTimeToFirstToken(&params)
 	time.Sleep(ttft)
 
 	// report ttft in seconds
-	common.WriteToChannel(s.metrics.ttftChan, ttft.Seconds(), s.logger, "metrics.ttftChan")
-	common.WriteToChannel(s.metrics.reqPrefillTimeChan, time.Since(startPrefill).Seconds(), s.logger, "metrics.reqPrefillTimeChan")
+	common.WriteToChannel(s.context.metrics.ttftChan, ttft.Seconds(), s.context.logger, "metrics.ttftChan")
+	common.WriteToChannel(s.context.metrics.reqPrefillTimeChan, time.Since(startPrefill).Seconds(), s.context.logger, "metrics.reqPrefillTimeChan")
 
 	startDecode := time.Now()
-	for range usageData.CompletionTokens - 1 {
-		perTokenLatency := s.latencyCalculator.GetInterTokenLatency(&InterTokenParams{RunningReqs: s.metrics.nRunningReqs})
+	for range respCtx.usageData.CompletionTokens - 1 {
+		perTokenLatency := s.context.latencyCalculator.GetInterTokenLatency(&InterTokenParams{
+			RunningReqs: s.context.metrics.nRunningReqs})
 		time.Sleep(perTokenLatency)
 
 		// report tpot in seconds
-		common.WriteToChannel(s.metrics.tpotChan, perTokenLatency.Seconds(), s.logger, "metrics.tpotChan")
+		common.WriteToChannel(s.context.metrics.tpotChan, perTokenLatency.Seconds(), s.context.logger, "metrics.tpotChan")
 	}
-	common.WriteToChannel(s.metrics.reqDecodeTimeChan, time.Since(startDecode).Seconds(), s.logger, "metrics.reqDecodeTimeChan")
+	common.WriteToChannel(s.context.metrics.reqDecodeTimeChan, time.Since(startDecode).Seconds(), s.context.logger, "metrics.reqDecodeTimeChan")
 
 	s.sendCompletionResponse(reqCtx.HTTPReqCtx, resp)
-	s.responseSentCallback(modelName, reqCtx.IsChatCompletion, reqCtx.CompletionReq.GetRequestID())
+	s.responseSentCallback(respCtx.displayModel, reqCtx.IsChatCompletion, reqCtx.CompletionReq.GetRequestID())
 }
 
 // createModelsResponse creates and returns ModelResponse for the current state, returned array of models contains the base model + LoRA adapters if exist
@@ -724,7 +520,7 @@ func (s *VllmSimulator) createModelsResponse() *vllmapi.ModelsResponse {
 	modelsResp := vllmapi.ModelsResponse{Object: "list", Data: []vllmapi.ModelsResponseModelInfo{}}
 
 	// Advertise every public model alias
-	for _, alias := range s.config.ServedModelNames {
+	for _, alias := range s.context.config.ServedModelNames {
 		modelsResp.Data = append(modelsResp.Data, vllmapi.ModelsResponseModelInfo{
 			ID:      alias,
 			Object:  vllmapi.ObjectModel,
@@ -736,8 +532,8 @@ func (s *VllmSimulator) createModelsResponse() *vllmapi.ModelsResponse {
 	}
 
 	// add LoRA adapter's info
-	parent := s.config.ServedModelNames[0]
-	for _, lora := range s.getLoras() {
+	parent := s.context.config.ServedModelNames[0]
+	for _, lora := range s.context.getLoras() {
 		modelsResp.Data = append(modelsResp.Data, vllmapi.ModelsResponseModelInfo{
 			ID:      lora,
 			Object:  vllmapi.ObjectModel,
@@ -770,10 +566,11 @@ func (s *VllmSimulator) dequeue() *openaiserverapi.CompletionReqCtx {
 	// Find first request for a loaded LoRA
 	for elem := s.waitingQueue.Front(); elem != nil; elem = elem.Next() {
 		item, ok := elem.Value.(waitingQueueItem)
-		if ok && item.reqCtx != nil && s.loraIsLoaded(item.reqCtx.CompletionReq.GetModel()) {
+		if ok && item.reqCtx != nil && s.context.loraIsLoaded(item.reqCtx.CompletionReq.GetModel()) {
 			s.waitingQueue.Remove(elem)
-			s.incrementLora(item.reqCtx.CompletionReq.GetModel())
-			common.WriteToChannel(s.metrics.reqQueueTimeChan, time.Since(item.enqueueTime).Seconds(), s.logger, "metrics.reqQueueTimeChan")
+			s.context.incrementLora(item.reqCtx.CompletionReq.GetModel())
+			common.WriteToChannel(s.context.metrics.reqQueueTimeChan, time.Since(item.enqueueTime).Seconds(),
+				s.context.logger, "metrics.reqQueueTimeChan")
 			return item.reqCtx
 		}
 	}
@@ -781,9 +578,10 @@ func (s *VllmSimulator) dequeue() *openaiserverapi.CompletionReqCtx {
 	// All the requests require a LoRA that is not loaded, check if we can load a LoRA
 	for elem := s.waitingQueue.Front(); elem != nil; elem = elem.Next() {
 		item, ok := elem.Value.(waitingQueueItem)
-		if ok && item.reqCtx != nil && s.loadLora(item.reqCtx.CompletionReq.GetModel()) {
+		if ok && item.reqCtx != nil && s.context.loadLora(item.reqCtx.CompletionReq.GetModel()) {
 			s.waitingQueue.Remove(elem)
-			common.WriteToChannel(s.metrics.reqQueueTimeChan, time.Since(item.enqueueTime).Seconds(), s.logger, "metrics.reqQueueTimeChan")
+			common.WriteToChannel(s.context.metrics.reqQueueTimeChan, time.Since(item.enqueueTime).Seconds(),
+				s.context.logger, "metrics.reqQueueTimeChan")
 			return item.reqCtx
 		}
 	}

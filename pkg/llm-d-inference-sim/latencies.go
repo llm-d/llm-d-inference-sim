@@ -14,7 +14,6 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package vllmsim implements the vLLM simulator.
 package llmdinferencesim
 
 import (

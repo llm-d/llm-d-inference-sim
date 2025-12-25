@@ -30,107 +30,94 @@ import (
 	"github.com/valyala/fasthttp"
 )
 
-type streamingContext struct {
-	ctx                 *fasthttp.RequestCtx
-	isChatCompletion    bool
-	model               string
-	creationTime        int64
-	doRemotePrefill     bool
-	nPromptTokens       int
-	nCachedPromptTokens int
-	requestID           string
-	// Logprobs configuration - nil if no logprobs, otherwise number of options
-	logprobs *int
-}
-
 // sendStreamingResponse creates and sends a streaming response for completion requests of both types (text and chat)
 // as defined by isChatCompletion
 // response content is wrapped according SSE format
 // First token is send after timeToFirstToken milliseconds, every other token is sent after interTokenLatency milliseconds
-func (s *VllmSimulator) sendStreamingResponse(context *streamingContext, responseTokens []string, toolCalls []openaiserverapi.ToolCall,
-	finishReason string, usageData *openaiserverapi.Usage, wg *sync.WaitGroup) {
-	context.ctx.SetContentType("text/event-stream")
-	context.ctx.SetStatusCode(fasthttp.StatusOK)
+func (s *VllmSimulator) sendStreamingResponse(respCtx *responseContext, ctx *fasthttp.RequestCtx, wg *sync.WaitGroup) {
+	ctx.SetContentType("text/event-stream")
+	ctx.SetStatusCode(fasthttp.StatusOK)
 
 	// Add pod and namespace information to response headers for testing/debugging
 	if s.pod != "" {
-		context.ctx.Response.Header.Add(podHeader, s.pod)
-		context.ctx.Response.Header.Add(portHeader, strconv.Itoa(s.config.Port))
+		ctx.Response.Header.Add(podHeader, s.pod)
+		ctx.Response.Header.Add(portHeader, strconv.Itoa(s.context.config.Port))
 	}
 	if s.namespace != "" {
-		context.ctx.Response.Header.Add(namespaceHeader, s.namespace)
+		ctx.Response.Header.Add(namespaceHeader, s.namespace)
 	}
-	if s.config.EnableRequestIDHeaders {
-		context.ctx.Response.Header.Add(requestIDHeader, context.requestID)
+	if s.context.config.EnableRequestIDHeaders {
+		ctx.Response.Header.Add(requestIDHeader, respCtx.requestID)
 	}
 
-	context.ctx.SetBodyStreamWriter(func(w *bufio.Writer) {
-		context.creationTime = time.Now().Unix()
+	ctx.SetBodyStreamWriter(func(w *bufio.Writer) {
+		respCtx.creationTime = time.Now().Unix()
 
-		if len(responseTokens) > 0 || len(toolCalls) > 0 {
-			if context.isChatCompletion {
+		if len(respCtx.responseTokens) > 0 || len(respCtx.toolCalls) > 0 {
+			if respCtx.isChatCompletion {
 				// in chat completion first chunk contains the role
-				chunk := s.createChatCompletionChunk(context, "", nil, openaiserverapi.RoleAssistant, nil)
+				chunk := createChatCompletionChunk(respCtx, "", nil, openaiserverapi.RoleAssistant, nil)
 				if err := s.sendChunk(w, chunk, ""); err != nil {
-					context.ctx.Error("Sending stream first chunk failed, "+err.Error(), fasthttp.StatusInternalServerError)
+					ctx.Error("Sending stream first chunk failed, "+err.Error(), fasthttp.StatusInternalServerError)
 					return
 				}
 			}
-			if len(toolCalls) > 0 {
-				s.logger.V(logging.TRACE).Info("Going to send tools calls")
-				for _, tc := range toolCalls {
-					s.sendTokenChunks(context, w, tc.Function.TokenizedArguments, &tc, finishReason)
+			if len(respCtx.toolCalls) > 0 {
+				s.context.logger.V(logging.TRACE).Info("Going to send tools calls")
+				for _, tc := range respCtx.toolCalls {
+					s.sendTokenChunks(respCtx, ctx, w, tc.Function.TokenizedArguments, &tc)
 				}
 			} else {
-				s.logger.V(logging.TRACE).Info("Going to send text", "number of tokens", len(responseTokens))
-				s.sendTokenChunks(context, w, responseTokens, nil, finishReason)
-				s.logger.V(4).Info("Finished sending text", "number of tokens", len(responseTokens))
+				s.context.logger.V(logging.TRACE).Info("Going to send text", "number of tokens", len(respCtx.responseTokens))
+				s.sendTokenChunks(respCtx, ctx, w, respCtx.responseTokens, nil)
+				s.context.logger.V(4).Info("Finished sending text", "number of tokens", len(respCtx.responseTokens))
 			}
 		}
 
 		// send usage
-		if usageData != nil {
-			chunk := s.createUsageChunk(context, usageData)
+		if respCtx.sendUsageData {
+			chunk := createUsageChunk(respCtx, respCtx.usageData)
 			if err := s.sendChunk(w, chunk, ""); err != nil {
-				context.ctx.Error("Sending usage chunk failed, "+err.Error(), fasthttp.StatusInternalServerError)
+				ctx.Error("Sending usage chunk failed, "+err.Error(), fasthttp.StatusInternalServerError)
 				return
 			}
 		}
 
 		// finish sse events stream
 		if err := s.sendChunk(w, nil, "[DONE]"); err != nil {
-			context.ctx.Error("Sending last stream chunk failed, "+err.Error(), fasthttp.StatusInternalServerError)
+			ctx.Error("Sending last stream chunk failed, "+err.Error(), fasthttp.StatusInternalServerError)
 			return
 		}
-		s.responseSentCallback(context.model, context.isChatCompletion, context.requestID)
+		s.responseSentCallback(respCtx.displayModel, respCtx.isChatCompletion, respCtx.requestID)
 		wg.Done()
 	})
 }
 
 // sendTokenChunks creates and sends response chunks
-func (s *VllmSimulator) sendTokenChunks(context *streamingContext, w *bufio.Writer, genTokens []string,
-	tc *openaiserverapi.ToolCall, finishReason string) {
+func (s *VllmSimulator) sendTokenChunks(respCtx *responseContext, ctx *fasthttp.RequestCtx, w *bufio.Writer, genTokens []string,
+	tc *openaiserverapi.ToolCall) {
 	startPrefill := time.Now()
 	// time to first token delay
 	params := TTFTParams{
-		PromptTokens:       context.nPromptTokens,
-		CachedPromptTokens: context.nCachedPromptTokens,
-		DoRemotePrefill:    context.doRemotePrefill,
-		RunningReqs:        s.metrics.nRunningReqs,
+		PromptTokens:       respCtx.usageData.PromptTokens,
+		CachedPromptTokens: respCtx.nCachedPromptTokens,
+		DoRemotePrefill:    respCtx.doRemotePrefill,
+		RunningReqs:        s.context.metrics.nRunningReqs,
 	}
-	ttft := s.latencyCalculator.GetTimeToFirstToken(&params)
+	ttft := s.context.latencyCalculator.GetTimeToFirstToken(&params)
 	time.Sleep(ttft)
 	// report ttft in seconds
-	common.WriteToChannel(s.metrics.ttftChan, ttft.Seconds(), s.logger, "metrics.ttftChan")
-	common.WriteToChannel(s.metrics.reqPrefillTimeChan, time.Since(startPrefill).Seconds(), s.logger, "metrics.reqPrefillTimeChan")
+	common.WriteToChannel(s.context.metrics.ttftChan, ttft.Seconds(), s.context.logger, "metrics.ttftChan")
+	common.WriteToChannel(s.context.metrics.reqPrefillTimeChan, time.Since(startPrefill).Seconds(), s.context.logger, "metrics.reqPrefillTimeChan")
 
 	startDecode := time.Now()
 	for i, token := range genTokens {
 		if i != 0 {
-			interTokenLat := s.latencyCalculator.GetInterTokenLatency(&InterTokenParams{RunningReqs: s.metrics.nRunningReqs})
+			interTokenLat := s.context.latencyCalculator.GetInterTokenLatency(&InterTokenParams{
+				RunningReqs: s.context.metrics.nRunningReqs})
 			time.Sleep(interTokenLat)
 			// report tpot in seconds
-			common.WriteToChannel(s.metrics.tpotChan, interTokenLat.Seconds(), s.logger, "metrics.tpotChan")
+			common.WriteToChannel(s.context.metrics.tpotChan, interTokenLat.Seconds(), s.context.logger, "metrics.tpotChan")
 		}
 
 		var toolChunkInsert *openaiserverapi.ToolCall
@@ -150,109 +137,37 @@ func (s *VllmSimulator) sendTokenChunks(context *streamingContext, w *bufio.Writ
 
 		var chunk openaiserverapi.CompletionRespChunk
 		var finishReasonToSend *string
-		if i == len(genTokens)-1 && (finishReason == common.LengthFinishReason || finishReason == common.ToolsFinishReason) {
-			finishReasonToSend = &finishReason
+		if i == len(genTokens)-1 && (*respCtx.finishReason == common.LengthFinishReason ||
+			*respCtx.finishReason == common.ToolsFinishReason) {
+			finishReasonToSend = respCtx.finishReason
 		}
-		if context.isChatCompletion {
-			chunk = s.createChatCompletionChunk(context, token, toolChunkInsert, "", finishReasonToSend)
+		if respCtx.isChatCompletion {
+			chunk = createChatCompletionChunk(respCtx, token, toolChunkInsert, "", finishReasonToSend)
 		} else {
-			chunk = s.createTextCompletionChunk(context, token, finishReasonToSend)
+			chunk = createTextCompletionChunk(respCtx, token, finishReasonToSend)
 		}
 
 		if err := s.sendChunk(w, chunk, ""); err != nil {
-			context.ctx.Error("Sending stream chunk failed, "+err.Error(), fasthttp.StatusInternalServerError)
+			ctx.Error("Sending stream chunk failed, "+err.Error(), fasthttp.StatusInternalServerError)
 			return
 		}
 	}
 
-	common.WriteToChannel(s.metrics.reqDecodeTimeChan, time.Since(startDecode).Seconds(), s.logger, "metrics.reqDecodeTimeChan")
+	common.WriteToChannel(s.context.metrics.reqDecodeTimeChan, time.Since(startDecode).Seconds(), s.context.logger, "metrics.reqDecodeTimeChan")
 
 	// send the last chunk if finish reason is stop
 	var chunk openaiserverapi.CompletionRespChunk
-	if finishReason == common.StopFinishReason {
-		if context.isChatCompletion {
-			chunk = s.createChatCompletionChunk(context, "", nil, "", &finishReason)
+	if *respCtx.finishReason == common.StopFinishReason {
+		if respCtx.isChatCompletion {
+			chunk = createChatCompletionChunk(respCtx, "", nil, "", respCtx.finishReason)
 		} else {
-			chunk = s.createTextCompletionChunk(context, "", &finishReason)
+			chunk = createTextCompletionChunk(respCtx, "", respCtx.finishReason)
 		}
 		if err := s.sendChunk(w, chunk, ""); err != nil {
-			context.ctx.Error("Sending last stream chunk failed, "+err.Error(), fasthttp.StatusInternalServerError)
+			ctx.Error("Sending last stream chunk failed, "+err.Error(), fasthttp.StatusInternalServerError)
 			return
 		}
 	}
-}
-
-// createUsageChunk creates and returns a CompletionRespChunk with usage data, a single chunk of streamed completion API response,
-// supports both modes (text and chat)
-func (s *VllmSimulator) createUsageChunk(context *streamingContext, usageData *openaiserverapi.Usage) openaiserverapi.CompletionRespChunk {
-	baseChunk := openaiserverapi.CreateBaseCompletionResponse(
-		context.creationTime, context.model, usageData, context.requestID)
-
-	if context.isChatCompletion {
-		baseChunk.Object = chatCompletionChunkObject
-		return openaiserverapi.CreateChatCompletionResponse(baseChunk, []openaiserverapi.ChatRespChoice{})
-	}
-	baseChunk.Object = textCompletionObject
-
-	return openaiserverapi.CreateTextCompletionResponse(baseChunk, []openaiserverapi.TextRespChoice{})
-}
-
-// createTextCompletionChunk creates and returns a CompletionRespChunk, a single chunk of streamed completion API response,
-// for text completion.
-func (s *VllmSimulator) createTextCompletionChunk(context *streamingContext, token string, finishReason *string) openaiserverapi.CompletionRespChunk {
-	baseChunk := openaiserverapi.CreateBaseCompletionResponse(
-		context.creationTime, context.model, nil, context.requestID)
-	baseChunk.Object = textCompletionObject
-
-	choice := openaiserverapi.CreateTextRespChoice(openaiserverapi.CreateBaseResponseChoice(0, finishReason), token)
-
-	// Generate logprobs if requested and token is not empty
-	if context.logprobs != nil && token != "" && *context.logprobs > 0 {
-		// Use token position based on current time
-		tokenPosition := int(context.creationTime) % 1000 // Simple position simulation
-		logprobs := common.GenerateSingleTokenTextLogprobs(token, tokenPosition, *context.logprobs)
-		if logprobs != nil {
-			choice.Logprobs = logprobs
-		}
-	}
-
-	return openaiserverapi.CreateTextCompletionResponse(baseChunk, []openaiserverapi.TextRespChoice{choice})
-}
-
-// createChatCompletionChunk creates and returns a CompletionRespChunk, a single chunk of streamed completion
-// API response, for chat completion. It sets either role, or token, or tool call info in the message.
-func (s *VllmSimulator) createChatCompletionChunk(context *streamingContext, token string, tool *openaiserverapi.ToolCall,
-	role string, finishReason *string) openaiserverapi.CompletionRespChunk {
-	baseChunk := openaiserverapi.CreateBaseCompletionResponse(
-		context.creationTime, context.model, nil, context.requestID)
-	baseChunk.Object = chatCompletionChunkObject
-	chunk := openaiserverapi.CreateChatCompletionRespChunk(baseChunk,
-		[]openaiserverapi.ChatRespChunkChoice{
-			openaiserverapi.CreateChatRespChunkChoice(
-				openaiserverapi.CreateBaseResponseChoice(0, finishReason), openaiserverapi.Message{})})
-
-	if len(role) > 0 {
-		chunk.Choices[0].Delta.Role = role
-	}
-	if tool != nil {
-		chunk.Choices[0].Delta.ToolCalls = []openaiserverapi.ToolCall{*tool}
-	} else if len(token) > 0 {
-		chunk.Choices[0].Delta.Content.Raw = token
-
-		// Generate logprobs if requested and token is not empty
-		if context.logprobs != nil {
-			// Use token position based on current time
-			tokenPosition := int(context.creationTime) % 1000 // Simple position simulation
-			logprobs := common.GenerateSingleTokenChatLogprobs(token, tokenPosition, *context.logprobs)
-			if logprobs != nil {
-				chunk.Choices[0].Logprobs = &openaiserverapi.ChatLogprobs{
-					Content: []openaiserverapi.LogprobsContent{*logprobs},
-				}
-			}
-		}
-	}
-
-	return &chunk
 }
 
 // sendChunk send a single token chunk in a streamed completion API response,

@@ -33,23 +33,23 @@ import (
 
 // Based on: https://github.com/kubernetes-sigs/gateway-api-inference-extension/blob/8d01161ec48d6b49cd371f179551b35da46e6fd6/internal/tls/tls.go
 func (s *VllmSimulator) configureSSL(server *fasthttp.Server) error {
-	if !s.config.SSLEnabled() {
+	if !s.context.config.SSLEnabled() {
 		return nil
 	}
 
 	var cert tls.Certificate
 	var err error
 
-	if s.config.SSLCertFile != "" && s.config.SSLKeyFile != "" {
-		s.logger.V(logging.INFO).Info("HTTPS server starting with certificate files", "cert", s.config.SSLCertFile, "key", s.config.SSLKeyFile)
-		cert, err = tls.LoadX509KeyPair(s.config.SSLCertFile, s.config.SSLKeyFile)
-	} else if s.config.SelfSignedCerts {
-		s.logger.V(logging.INFO).Info("HTTPS server starting with self-signed certificate")
+	if s.context.config.SSLCertFile != "" && s.context.config.SSLKeyFile != "" {
+		s.context.logger.V(logging.INFO).Info("HTTPS server starting with certificate files", "cert", s.context.config.SSLCertFile, "key", s.context.config.SSLKeyFile)
+		cert, err = tls.LoadX509KeyPair(s.context.config.SSLCertFile, s.context.config.SSLKeyFile)
+	} else if s.context.config.SelfSignedCerts {
+		s.context.logger.V(logging.INFO).Info("HTTPS server starting with self-signed certificate")
 		cert, err = CreateSelfSignedTLSCertificate()
 	}
 
 	if err != nil {
-		s.logger.Error(err, "failed to create TLS certificate")
+		s.context.logger.Error(err, "failed to create TLS certificate")
 		return err
 	}
 

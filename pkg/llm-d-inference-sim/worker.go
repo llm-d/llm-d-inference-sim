@@ -14,7 +14,6 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package vllmsim implements the vLLM simulator.
 package llmdinferencesim
 
 import (
@@ -70,11 +69,51 @@ func (s *VllmSimulator) processRequest(reqCtx *openaiserverapi.CompletionReqCtx,
 
 	wg.Wait()
 	// calculate inference time and finish e2e latency calculation only when sure that request processing was finished for streaming requests too
-	common.WriteToChannel(s.metrics.e2eReqLatencyChan, time.Since(reqCtx.StartProcessing).Seconds(), s.logger, "metrics.e2eReqLatencyChan")
-	common.WriteToChannel(s.metrics.reqInferenceTimeChan, time.Since(startTime).Seconds(), s.logger, "metrics.reqInferenceTimeChan")
+	common.WriteToChannel(s.context.metrics.e2eReqLatencyChan, time.Since(reqCtx.StartProcessing).Seconds(), s.context.logger, "metrics.e2eReqLatencyChan")
+	common.WriteToChannel(s.context.metrics.reqInferenceTimeChan, time.Since(startTime).Seconds(), s.context.logger, "metrics.reqInferenceTimeChan")
 }
 
 func (s *VllmSimulator) processRequestAsync(reqCtx *openaiserverapi.CompletionReqCtx, wg *sync.WaitGroup) {
+	req := reqCtx.CompletionReq
+	respCtx, badRequestErr, serverErr := s.context.handleRequest(reqCtx)
+	switch {
+	case badRequestErr != "":
+		s.setBadRequestError(reqCtx.HTTPReqCtx, badRequestErr)
+	case serverErr != nil:
+		s.sendError(reqCtx.HTTPReqCtx, *serverErr, false)
+	default:
+		if req.IsStream() {
+			s.sendStreamingResponse(respCtx, reqCtx.HTTPReqCtx, wg)
+		} else {
+			s.sendResponse(reqCtx, respCtx)
+			wg.Done()
+		}
+
+		common.WriteToChannel(s.context.metrics.requestSuccessChan,
+			requestSuccessEvent{
+				promptTokens:     respCtx.usageData.PromptTokens,
+				generationTokens: respCtx.usageData.CompletionTokens,
+				// currently only responses with a single choice are supported
+				genTokensPerChoice: []int{respCtx.usageData.CompletionTokens},
+				maxTokens:          reqCtx.CompletionReq.GetMaxCompletionTokens(),
+				finishReason:       *respCtx.finishReason},
+			s.context.logger, "metrics.requestSuccessChan")
+	}
+	s.context.logger.V(logging.DEBUG).Info("Finished processing request", "id", req.GetRequestID())
+	reqCtx.Wg.Done()
+}
+
+// getFreeWorker returns a free worker or nil if none are available (non-blocking)
+func (s *VllmSimulator) getFreeWorker() *worker {
+	select {
+	case w := <-s.freeWorkers:
+		return w
+	default:
+		return nil
+	}
+}
+
+func (s *simContext) handleRequest(reqCtx *openaiserverapi.CompletionReqCtx) (*responseContext, string, *openaiserverapi.Error) {
 	req := reqCtx.CompletionReq
 	model := req.GetModel()
 	displayModel := s.getDisplayedModelName(model)
@@ -92,9 +131,8 @@ func (s *VllmSimulator) processRequestAsync(reqCtx *openaiserverapi.CompletionRe
 	if s.config.EnableKVCache && !reqCtx.IsChatCompletion {
 		// kv cache is currently supported for /completion API only
 		if err := s.kvcacheHelper.OnRequestStart(req); err != nil {
-			s.sendError(reqCtx.HTTPReqCtx,
-				openaiserverapi.NewError(err.Error(), fasthttp.StatusInternalServerError, nil),
-				false)
+			severError := openaiserverapi.NewError(err.Error(), fasthttp.StatusInternalServerError, nil)
+			return nil, "", &severError
 		}
 	}
 
@@ -124,64 +162,44 @@ func (s *VllmSimulator) processRequestAsync(reqCtx *openaiserverapi.CompletionRe
 			prefix = "failed to create text response"
 		}
 		s.logger.Error(err, prefix)
-		reqCtx.HTTPReqCtx.Error(prefix+err.Error(), fasthttp.StatusBadRequest)
+		return nil, prefix + err.Error(), nil
+	}
+
+	numOfInputTokens := getNumberOfPromptTokens(req)
+	usageData := openaiserverapi.Usage{
+		PromptTokens:     numOfInputTokens,
+		CompletionTokens: completionTokens,
+		TotalTokens:      numOfInputTokens + completionTokens,
+	}
+
+	// Extract logprob data from request (unified approach)
+	var logprobs *int
+	if toolCalls == nil {
+		logprobs = reqCtx.CompletionReq.GetLogprobs()
+	}
+
+	respCtx := &responseContext{
+		responseTokens:      responseTokens,
+		toolCalls:           toolCalls,
+		displayModel:        displayModel,
+		finishReason:        &finishReason,
+		usageData:           &usageData,
+		logprobs:            logprobs,
+		requestID:           reqCtx.CompletionReq.GetRequestID(),
+		doRemotePrefill:     reqCtx.CompletionReq.IsDoRemotePrefill(),
+		doRemoteDecode:      reqCtx.CompletionReq.IsDoRemoteDecode(),
+		isChatCompletion:    reqCtx.IsChatCompletion,
+		nCachedPromptTokens: reqCtx.CompletionReq.GetNumberOfCachedPromptTokens(),
+	}
+
+	if req.IsStream() {
+		respCtx.sendUsageData = req.IncludeUsage()
 	} else {
-		numOfInputTokens := getNumberOfPromptTokens(req)
-		usageData := openaiserverapi.Usage{
-			PromptTokens:     numOfInputTokens,
-			CompletionTokens: completionTokens,
-			TotalTokens:      numOfInputTokens + completionTokens,
+		respCtx.sendUsageData = true
+		if req.IsDoRemoteDecode() {
+			// in case this is prefill pod processing, return special finish reason
+			respCtx.finishReason = strPtr(common.RemoteDecodeFinishReason)
 		}
-		if req.IsStream() {
-			var usageDataToSend *openaiserverapi.Usage
-			if req.IncludeUsage() {
-				usageDataToSend = &usageData
-			}
-			s.sendStreamingResponse(
-				&streamingContext{
-					ctx:                 reqCtx.HTTPReqCtx,
-					isChatCompletion:    reqCtx.IsChatCompletion,
-					model:               displayModel,
-					doRemotePrefill:     req.IsDoRemotePrefill(),
-					nPromptTokens:       usageData.PromptTokens,
-					nCachedPromptTokens: reqCtx.CompletionReq.GetNumberOfCachedPromptTokens(),
-					requestID:           req.GetRequestID(),
-					// Logprobs configuration
-					logprobs: req.GetLogprobs(),
-				},
-				responseTokens, toolCalls, finishReason, usageDataToSend, wg,
-			)
-		} else {
-			if req.IsDoRemoteDecode() {
-				// in case this is prefill pod processing, return special finish reason
-				finishReason = common.RemoteDecodeFinishReason
-			}
-			s.sendResponse(reqCtx, responseTokens, toolCalls, displayModel, finishReason, &usageData)
-			wg.Done()
-		}
-
-		common.WriteToChannel(s.metrics.requestSuccessChan,
-			requestSuccessEvent{
-				promptTokens:     usageData.PromptTokens,
-				generationTokens: usageData.CompletionTokens,
-				// currently only responses with a single choice are supported
-				genTokensPerChoice: []int{usageData.CompletionTokens},
-				maxTokens:          reqCtx.CompletionReq.GetMaxCompletionTokens(),
-				finishReason:       finishReason},
-			s.logger, "metrics.requestSuccessChan")
 	}
-
-	s.logger.V(logging.DEBUG).Info("Finished processing request", "id", req.GetRequestID())
-
-	reqCtx.Wg.Done()
-}
-
-// getFreeWorker returns a free worker or nil if none are available (non-blocking)
-func (s *VllmSimulator) getFreeWorker() *worker {
-	select {
-	case w := <-s.freeWorkers:
-		return w
-	default:
-		return nil
-	}
+	return respCtx, "", nil
 }

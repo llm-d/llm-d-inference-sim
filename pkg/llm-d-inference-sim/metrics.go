@@ -58,7 +58,7 @@ const (
 // createAndRegisterPrometheus creates and registers prometheus metrics used by vLLM simulator
 // Metrics reported:
 // - lora_requests_info
-func (s *VllmSimulator) createAndRegisterPrometheus() error {
+func (s *simContext) createAndRegisterPrometheus() error {
 	s.metrics.registry = prometheus.NewRegistry()
 
 	s.metrics.loraInfo = prometheus.NewGaugeVec(
@@ -355,7 +355,7 @@ func (s *VllmSimulator) createAndRegisterPrometheus() error {
 
 // setInitialPrometheusMetrics sends the default values to prometheus or
 // the fake metrics if set
-func (s *VllmSimulator) setInitialPrometheusMetrics(cacheConfig *prometheus.GaugeVec) {
+func (s *simContext) setInitialPrometheusMetrics(cacheConfig *prometheus.GaugeVec) {
 	var nRunningReqs, nWaitingReqs, kvCacheUsage float64
 	modelName := s.getDisplayedModelName(s.config.Model)
 	if s.config.FakeMetrics != nil {
@@ -449,7 +449,7 @@ func (s *VllmSimulator) setInitialPrometheusMetrics(cacheConfig *prometheus.Gaug
 // This includes the last bucket (last_boundary, +Inf].
 // bucketsSamplesCount - array containing number of samples per bucket, starting from the first bucket.
 // Trailing empty buckets are not included in this array, so its length can be <= len(bucketsBoundaries)+1
-func (s *VllmSimulator) initFakeHistogram(hist *prometheus.HistogramVec, bucketsBoundaries []float64, bucketsSamplesCount []int) {
+func (s *simContext) initFakeHistogram(hist *prometheus.HistogramVec, bucketsBoundaries []float64, bucketsSamplesCount []int) {
 	var valueToObserve float64
 	numOfBoundaries := len(bucketsBoundaries)
 	modelName := s.getDisplayedModelName(s.config.Model)
@@ -473,7 +473,7 @@ func (s *VllmSimulator) initFakeHistogram(hist *prometheus.HistogramVec, buckets
 }
 
 // reportLoras sets information about loaded LoRA adapters
-func (s *VllmSimulator) reportLoras() {
+func (s *simContext) reportLoras() {
 	if s.config.FakeMetrics != nil {
 		return
 	}
@@ -504,7 +504,7 @@ func (s *VllmSimulator) reportLoras() {
 }
 
 // reportRunningRequests sets information about running completion requests
-func (s *VllmSimulator) reportRunningRequests() {
+func (s *simContext) reportRunningRequests() {
 	if s.config.FakeMetrics != nil {
 		return
 	}
@@ -515,7 +515,7 @@ func (s *VllmSimulator) reportRunningRequests() {
 }
 
 // reportWaitingRequests sets information about waiting completion requests
-func (s *VllmSimulator) reportWaitingRequests() {
+func (s *simContext) reportWaitingRequests() {
 	if s.config.FakeMetrics != nil {
 		return
 	}
@@ -526,7 +526,7 @@ func (s *VllmSimulator) reportWaitingRequests() {
 }
 
 // reportHistogramValue sets the given value in the given histogram
-func (s *VllmSimulator) reportHistogramValue(hist *prometheus.HistogramVec, val float64) {
+func (s *simContext) reportHistogramValue(hist *prometheus.HistogramVec, val float64) {
 	if s.config.FakeMetrics != nil {
 		return
 	}
@@ -537,7 +537,7 @@ func (s *VllmSimulator) reportHistogramValue(hist *prometheus.HistogramVec, val 
 }
 
 // reportKVCacheUsage sets information about kv cache usage
-func (s *VllmSimulator) reportKVCacheUsage(value float64) {
+func (s *simContext) reportKVCacheUsage(value float64) {
 	if s.config.FakeMetrics != nil {
 		return
 	}
@@ -548,7 +548,7 @@ func (s *VllmSimulator) reportKVCacheUsage(value float64) {
 }
 
 // startMetricsUpdaters starts the various metrics updaters
-func (s *VllmSimulator) startMetricsUpdaters(ctx context.Context) {
+func (s *simContext) startMetricsUpdaters(ctx context.Context) {
 	go s.waitingRequestsUpdater(ctx)
 	go s.runningRequestsUpdater(ctx)
 	go s.lorasUpdater(ctx)
@@ -564,7 +564,7 @@ func (s *VllmSimulator) startMetricsUpdaters(ctx context.Context) {
 }
 
 // waitingRequestsUpdater updates the waiting requests metric by listening on the relevant channel
-func (s *VllmSimulator) waitingRequestsUpdater(ctx context.Context) {
+func (s *simContext) waitingRequestsUpdater(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -577,7 +577,7 @@ func (s *VllmSimulator) waitingRequestsUpdater(ctx context.Context) {
 }
 
 // runningRequestsUpdater updates the running requests metric by listening on the relevant channel
-func (s *VllmSimulator) runningRequestsUpdater(ctx context.Context) {
+func (s *simContext) runningRequestsUpdater(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -590,7 +590,7 @@ func (s *VllmSimulator) runningRequestsUpdater(ctx context.Context) {
 }
 
 // kvCacheUsageUpdater updates the kv cache usage  metric by listening on the relevant channel
-func (s *VllmSimulator) kvCacheUsageUpdater(ctx context.Context) {
+func (s *simContext) kvCacheUsageUpdater(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -602,7 +602,7 @@ func (s *VllmSimulator) kvCacheUsageUpdater(ctx context.Context) {
 }
 
 // ttftUpdater updates the time to first token metric by listening on the relevant channel
-func (s *VllmSimulator) ttftUpdater(ctx context.Context) {
+func (s *simContext) ttftUpdater(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -614,7 +614,7 @@ func (s *VllmSimulator) ttftUpdater(ctx context.Context) {
 }
 
 // tpotUpdater updates the time per output token metric by listening on the relevant channel
-func (s *VllmSimulator) tpotUpdater(ctx context.Context) {
+func (s *simContext) tpotUpdater(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -627,7 +627,7 @@ func (s *VllmSimulator) tpotUpdater(ctx context.Context) {
 }
 
 // e2eReqLatencyUpdater updates the e2e request latency metric by listening on the relevant channel
-func (s *VllmSimulator) e2eReqLatencyUpdater(ctx context.Context) {
+func (s *simContext) e2eReqLatencyUpdater(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -639,7 +639,7 @@ func (s *VllmSimulator) e2eReqLatencyUpdater(ctx context.Context) {
 }
 
 // reqQueueTimeUpdater updates the request queue time metric by listening on the relevant channel
-func (s *VllmSimulator) reqQueueTimeUpdater(ctx context.Context) {
+func (s *simContext) reqQueueTimeUpdater(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -651,7 +651,7 @@ func (s *VllmSimulator) reqQueueTimeUpdater(ctx context.Context) {
 }
 
 // reqInferenceTimeUpdater updates the request inference time metric by listening on the relevant channel
-func (s *VllmSimulator) reqInferenceTimeUpdater(ctx context.Context) {
+func (s *simContext) reqInferenceTimeUpdater(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -663,7 +663,7 @@ func (s *VllmSimulator) reqInferenceTimeUpdater(ctx context.Context) {
 }
 
 // reqPrefillTimeUpdater updates the request prefill time metric by listening on the relevant channel
-func (s *VllmSimulator) reqPrefillTimeUpdater(ctx context.Context) {
+func (s *simContext) reqPrefillTimeUpdater(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -675,7 +675,7 @@ func (s *VllmSimulator) reqPrefillTimeUpdater(ctx context.Context) {
 }
 
 // reqDecodeTimeUpdater updates the request decode time metric by listening on the relevant channel
-func (s *VllmSimulator) reqDecodeTimeUpdater(ctx context.Context) {
+func (s *simContext) reqDecodeTimeUpdater(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -688,7 +688,7 @@ func (s *VllmSimulator) reqDecodeTimeUpdater(ctx context.Context) {
 
 // lorasUpdater updates the running loras metric by listening on the relevant channel
 // one function updates both waiting and running loras since they a part of the same prometheus gauge
-func (s *VllmSimulator) lorasUpdater(ctx context.Context) {
+func (s *simContext) lorasUpdater(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -708,7 +708,7 @@ func (s *VllmSimulator) lorasUpdater(ctx context.Context) {
 	}
 }
 
-func (s *VllmSimulator) incrementLoraRefCount(lora string, theMap *sync.Map) {
+func (s *simContext) incrementLoraRefCount(lora string, theMap *sync.Map) {
 	count := 0
 	if value, ok := theMap.Load(lora); ok {
 		// if lora is already in the map - increment its counter
@@ -717,7 +717,7 @@ func (s *VllmSimulator) incrementLoraRefCount(lora string, theMap *sync.Map) {
 	theMap.Store(lora, count+1)
 }
 
-func (s *VllmSimulator) decrementLoraRefCount(lora string, theMap *sync.Map) {
+func (s *simContext) decrementLoraRefCount(lora string, theMap *sync.Map) {
 	if value, ok := theMap.Load(lora); ok {
 		count := value.(int)
 		if count > 1 {
@@ -731,7 +731,7 @@ func (s *VllmSimulator) decrementLoraRefCount(lora string, theMap *sync.Map) {
 
 // recordRequestUpdater listens on requestSuccessChan and drives the Prometheus metric
 // for successfully completed requests.
-func (s *VllmSimulator) recordRequestUpdater(ctx context.Context) {
+func (s *simContext) recordRequestUpdater(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -766,7 +766,7 @@ type requestSuccessEvent struct {
 }
 
 // recordRequestMetricsOnSuccess records metrics for a successfully completed request
-func (s *VllmSimulator) recordRequestMetricsOnSuccess(promptTokens,
+func (s *simContext) recordRequestMetricsOnSuccess(promptTokens,
 	generationTokens int, genTokensPerChoice []int, maxTokens *int64, finishReason string) {
 	modelName := s.getDisplayedModelName(s.config.Model)
 	s.metrics.requestPromptTokens.WithLabelValues(modelName).Observe(float64(promptTokens))

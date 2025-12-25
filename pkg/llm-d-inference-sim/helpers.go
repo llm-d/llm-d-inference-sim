@@ -29,43 +29,22 @@ import (
 
 // isValidModel checks if the given model is the base model or one of "loaded" LoRAs
 func (s *VllmSimulator) isValidModel(model string) bool {
-	for _, name := range s.config.ServedModelNames {
+	for _, name := range s.context.config.ServedModelNames {
 		if model == name {
 			return true
 		}
 	}
-	for _, lora := range s.getLoras() {
+	for _, lora := range s.context.getLoras() {
 		if model == lora {
 			return true
 		}
 	}
 
 	return false
-}
-
-// isLora returns true if the given model name is one of loaded LoRAs
-func (s *VllmSimulator) isLora(model string) bool {
-	for _, lora := range s.getLoras() {
-		if model == lora {
-			return true
-		}
-	}
-
-	return false
-}
-
-// getDisplayedModelName returns the model name that must appear in API
-// responses.  LoRA adapters keep their explicit name, while all base-model
-// requests are surfaced as the first alias from --served-model-name.
-func (s *VllmSimulator) getDisplayedModelName(reqModel string) string {
-	if s.isLora(reqModel) {
-		return reqModel
-	}
-	return s.config.ServedModelNames[0]
 }
 
 func (s *VllmSimulator) showConfig(dp bool) error {
-	cfgJSON, err := json.Marshal(s.config)
+	cfgJSON, err := json.Marshal(s.context.config)
 	if err != nil {
 		return fmt.Errorf("failed to marshal configuration to JSON: %w", err)
 	}
@@ -94,7 +73,7 @@ func (s *VllmSimulator) showConfig(dp bool) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal configuration to JSON: %w", err)
 	}
-	s.logger.V(logging.INFO).Info("Configuration:", "", string(cfgJSON))
+	s.context.logger.V(logging.INFO).Info("Configuration:", "", string(cfgJSON))
 	return nil
 }
 
@@ -126,3 +105,5 @@ func validateRequest(req openaiserverapi.CompletionRequest, config *common.Confi
 	}
 	return "", fasthttp.StatusOK
 }
+
+func strPtr(s string) *string { return &s }

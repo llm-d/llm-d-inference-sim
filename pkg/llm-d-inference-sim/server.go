@@ -35,7 +35,7 @@ import (
 )
 
 func (s *VllmSimulator) newListener() (net.Listener, error) {
-	listener, err := net.Listen("tcp4", fmt.Sprintf(":%d", s.config.Port))
+	listener, err := net.Listen("tcp4", fmt.Sprintf(":%d", s.context.config.Port))
 	if err != nil {
 		return nil, err
 	}
@@ -55,7 +55,7 @@ func (s *VllmSimulator) startServer(ctx context.Context, listener net.Listener) 
 	r.POST("/v1/load_lora_adapter", s.HandleLoadLora)
 	r.POST("/v1/unload_lora_adapter", s.HandleUnloadLora)
 	// supports /metrics prometheus API
-	r.GET("/metrics", fasthttpadaptor.NewFastHTTPHandler(promhttp.HandlerFor(s.metrics.registry, promhttp.HandlerOpts{})))
+	r.GET("/metrics", fasthttpadaptor.NewFastHTTPHandler(promhttp.HandlerFor(s.context.metrics.registry, promhttp.HandlerOpts{})))
 	// supports standard Kubernetes health and readiness checks
 	r.GET("/health", s.HandleHealth)
 	r.GET("/ready", s.HandleReady)
@@ -77,11 +77,11 @@ func (s *VllmSimulator) startServer(ctx context.Context, listener net.Listener) 
 	// Start server in a goroutine
 	serverErr := make(chan error, 1)
 	go func() {
-		if s.config.SSLEnabled() {
-			s.logger.V(logging.INFO).Info("Server starting", "protocol", "HTTPS", "port", s.config.Port)
+		if s.context.config.SSLEnabled() {
+			s.context.logger.V(logging.INFO).Info("Server starting", "protocol", "HTTPS", "port", s.context.config.Port)
 			serverErr <- server.ServeTLS(listener, "", "")
 		} else {
-			s.logger.V(logging.INFO).Info("Server starting", "protocol", "HTTP", "port", s.config.Port)
+			s.context.logger.V(logging.INFO).Info("Server starting", "protocol", "HTTP", "port", s.context.config.Port)
 			serverErr <- server.Serve(listener)
 		}
 	}()
@@ -89,20 +89,20 @@ func (s *VllmSimulator) startServer(ctx context.Context, listener net.Listener) 
 	// Wait for either context cancellation or server error
 	select {
 	case <-ctx.Done():
-		s.logger.V(logging.INFO).Info("Shutdown signal received, shutting down server gracefully")
+		s.context.logger.V(logging.INFO).Info("Shutdown signal received, shutting down server gracefully")
 
 		// Gracefully shutdown the server
 		if err := server.Shutdown(); err != nil {
-			s.logger.Error(err, "error during server shutdown")
+			s.context.logger.Error(err, "error during server shutdown")
 			return err
 		}
 
-		s.logger.V(logging.INFO).Info("Server stopped")
+		s.context.logger.V(logging.INFO).Info("Server stopped")
 		return nil
 
 	case err := <-serverErr:
 		if err != nil {
-			s.logger.Error(err, "server failed")
+			s.context.logger.Error(err, "server failed")
 		}
 		return err
 	}
@@ -110,13 +110,13 @@ func (s *VllmSimulator) startServer(ctx context.Context, listener net.Listener) 
 
 // getRequestID retrieves the request ID from the X-Request-Id header or generates a new one if not present
 func (s *VllmSimulator) getRequestID(ctx *fasthttp.RequestCtx) string {
-	if s.config.EnableRequestIDHeaders {
+	if s.context.config.EnableRequestIDHeaders {
 		requestID := string(ctx.Request.Header.Peek(requestIDHeader))
 		if requestID != "" {
 			return requestID
 		}
 	}
-	return s.random.GenerateUUIDString()
+	return s.context.random.GenerateUUIDString()
 }
 
 // HandleChatCompletions http handler for /v1/chat/completions
@@ -133,7 +133,7 @@ func (s *VllmSimulator) HandleTextCompletions(ctx *fasthttp.RequestCtx) {
 func (s *VllmSimulator) readTokenizeRequest(ctx *fasthttp.RequestCtx) (*vllmapi.TokenizeRequest, error) {
 	var tokenizeReq vllmapi.TokenizeRequest
 	if err := json.Unmarshal(ctx.Request.Body(), &tokenizeReq); err != nil {
-		s.logger.Error(err, "failed to unmarshal tokenize request body")
+		s.context.logger.Error(err, "failed to unmarshal tokenize request body")
 		return nil, err
 	}
 	return &tokenizeReq, nil
@@ -141,10 +141,10 @@ func (s *VllmSimulator) readTokenizeRequest(ctx *fasthttp.RequestCtx) (*vllmapi.
 
 // HandleTokenize http handler for /tokenize
 func (s *VllmSimulator) HandleTokenize(ctx *fasthttp.RequestCtx) {
-	s.logger.V(logging.TRACE).Info("Tokenize request received")
+	s.context.logger.V(logging.TRACE).Info("Tokenize request received")
 	req, err := s.readTokenizeRequest(ctx)
 	if err != nil {
-		s.logger.Error(err, "failed to read and parse tokenize request body")
+		s.context.logger.Error(err, "failed to read and parse tokenize request body")
 		ctx.Error("Failed to read and parse tokenize request body, "+err.Error(), fasthttp.StatusBadRequest)
 		return
 	}
@@ -158,19 +158,19 @@ func (s *VllmSimulator) HandleTokenize(ctx *fasthttp.RequestCtx) {
 	// Model is optional, if not set, the model from the configuration will be used
 	model := req.Model
 	if model == "" {
-		model = s.config.Model
+		model = s.context.config.Model
 	}
 
 	tokens, _, err := s.tokenizer.Encode(req.GetPrompt(), model)
 	if err != nil {
-		s.logger.Error(err, "failed to tokenize")
+		s.context.logger.Error(err, "failed to tokenize")
 		ctx.Error("Failed to tokenize, "+err.Error(), fasthttp.StatusInternalServerError)
 		return
 	}
 	resp := vllmapi.TokenizeResponse{
 		Count:       len(tokens),
 		Tokens:      tokens,
-		MaxModelLen: s.config.MaxModelLen,
+		MaxModelLen: s.context.config.MaxModelLen,
 	}
 	data, err := json.Marshal(resp)
 	if err != nil {
@@ -183,13 +183,13 @@ func (s *VllmSimulator) HandleTokenize(ctx *fasthttp.RequestCtx) {
 }
 
 func (s *VllmSimulator) HandleLoadLora(ctx *fasthttp.RequestCtx) {
-	s.logger.V(logging.DEBUG).Info("Load lora request received")
-	s.loadLoraAdaptor(ctx)
+	s.context.logger.V(logging.DEBUG).Info("Load lora request received")
+	s.context.loadLoraAdaptor(ctx)
 }
 
 func (s *VllmSimulator) HandleUnloadLora(ctx *fasthttp.RequestCtx) {
-	s.logger.V(logging.DEBUG).Info("Unload lora request received")
-	s.unloadLoraAdaptor(ctx)
+	s.context.logger.V(logging.DEBUG).Info("Unload lora request received")
+	s.context.unloadLoraAdaptor(ctx)
 }
 
 // sendCompletionResponse sends a completion response
@@ -204,12 +204,12 @@ func (s *VllmSimulator) sendCompletionResponse(ctx *fasthttp.RequestCtx, resp op
 	// Add pod and namespace information to response headers for testing/debugging
 	if s.pod != "" {
 		ctx.Response.Header.Add(podHeader, s.pod)
-		ctx.Response.Header.Add(portHeader, strconv.Itoa(s.config.Port))
+		ctx.Response.Header.Add(portHeader, strconv.Itoa(s.context.config.Port))
 	}
 	if s.namespace != "" {
 		ctx.Response.Header.Add(namespaceHeader, s.namespace)
 	}
-	if s.config.EnableRequestIDHeaders {
+	if s.context.config.EnableRequestIDHeaders {
 		if requestID := resp.GetRequestID(); requestID != "" {
 			ctx.Response.Header.Add(requestIDHeader, requestID)
 		}
@@ -219,12 +219,11 @@ func (s *VllmSimulator) sendCompletionResponse(ctx *fasthttp.RequestCtx, resp op
 
 // sendError sends an error response for the current request
 // isInjected indicates if this is an injected failure for logging purposes
-func (s *VllmSimulator) sendError(ctx *fasthttp.RequestCtx,
-	compErr openaiserverapi.Error, isInjected bool) {
+func (s *VllmSimulator) sendError(ctx *fasthttp.RequestCtx, compErr openaiserverapi.Error, isInjected bool) {
 	if isInjected {
-		s.logger.V(logging.TRACE).Info("Injecting failure", "type", compErr.Type, "message", compErr.Message)
+		s.context.logger.V(logging.TRACE).Info("Injecting failure", "type", compErr.Type, "message", compErr.Message)
 	} else {
-		s.logger.Error(nil, compErr.Message)
+		s.context.logger.Error(nil, compErr.Message)
 	}
 
 	errorResp := openaiserverapi.ErrorResponse{
@@ -241,14 +240,18 @@ func (s *VllmSimulator) sendError(ctx *fasthttp.RequestCtx,
 	}
 }
 
+func (s *VllmSimulator) setBadRequestError(ctx *fasthttp.RequestCtx, message string) {
+	ctx.Error(message, fasthttp.StatusBadRequest)
+}
+
 // HandleModels handles /v1/models request according the data stored in the simulator
 func (s *VllmSimulator) HandleModels(ctx *fasthttp.RequestCtx) {
-	s.logger.V(logging.TRACE).Info("/models request received")
+	s.context.logger.V(logging.TRACE).Info("/models request received")
 	modelsResp := s.createModelsResponse()
 
 	data, err := json.Marshal(modelsResp)
 	if err != nil {
-		s.logger.Error(err, "failed to marshal models response")
+		s.context.logger.Error(err, "failed to marshal models response")
 		ctx.Error("Failed to marshal models response, "+err.Error(), fasthttp.StatusInternalServerError)
 		return
 	}
@@ -259,12 +262,12 @@ func (s *VllmSimulator) HandleModels(ctx *fasthttp.RequestCtx) {
 }
 
 func (s *VllmSimulator) HandleError(_ *fasthttp.RequestCtx, err error) {
-	s.logger.Error(err, "vLLM server error")
+	s.context.logger.Error(err, "vLLM server error")
 }
 
 // HandleHealth http handler for /health
 func (s *VllmSimulator) HandleHealth(ctx *fasthttp.RequestCtx) {
-	s.logger.V(logging.TRACE).Info("Health request received")
+	s.context.logger.V(logging.TRACE).Info("Health request received")
 	ctx.Response.Header.SetContentType("application/json")
 	ctx.Response.Header.SetStatusCode(fasthttp.StatusOK)
 	ctx.Response.SetBody([]byte("{}"))
@@ -272,7 +275,7 @@ func (s *VllmSimulator) HandleHealth(ctx *fasthttp.RequestCtx) {
 
 // HandleReady http handler for /ready
 func (s *VllmSimulator) HandleReady(ctx *fasthttp.RequestCtx) {
-	s.logger.V(logging.TRACE).Info("Readiness request received")
+	s.context.logger.V(logging.TRACE).Info("Readiness request received")
 	ctx.Response.Header.SetContentType("application/json")
 	ctx.Response.Header.SetStatusCode(fasthttp.StatusOK)
 	ctx.Response.SetBody([]byte("{}"))
@@ -280,13 +283,13 @@ func (s *VllmSimulator) HandleReady(ctx *fasthttp.RequestCtx) {
 
 // HandleIsSleeping handles /is_sleeping request according
 func (s *VllmSimulator) HandleIsSleeping(ctx *fasthttp.RequestCtx) {
-	s.logger.V(logging.TRACE).Info("/is_sleeping request received")
+	s.context.logger.V(logging.TRACE).Info("/is_sleeping request received")
 
 	s.sleepMutex.RLock()
 	defer s.sleepMutex.RUnlock()
 	data, err := json.Marshal(map[string]bool{"is_sleeping": s.isSleeping})
 	if err != nil {
-		s.logger.Error(err, "failed to marshal isSleeping response")
+		s.context.logger.Error(err, "failed to marshal isSleeping response")
 		ctx.Error("Failed to marshal isSleeping response, "+err.Error(), fasthttp.StatusInternalServerError)
 		return
 	}
@@ -298,15 +301,15 @@ func (s *VllmSimulator) HandleIsSleeping(ctx *fasthttp.RequestCtx) {
 
 // HandleSleep http handler for /sleep
 func (s *VllmSimulator) HandleSleep(ctx *fasthttp.RequestCtx) {
-	s.logger.V(logging.INFO).Info("Sleep request received")
+	s.context.logger.V(logging.INFO).Info("Sleep request received")
 
-	if s.config.EnableSleepMode && s.isInDevMode {
+	if s.context.config.EnableSleepMode && s.isInDevMode {
 		s.sleepMutex.Lock()
 		defer s.sleepMutex.Unlock()
 
 		s.isSleeping = true
-		if s.config.EnableKVCache {
-			s.kvcacheHelper.Discard()
+		if s.context.config.EnableKVCache {
+			s.context.kvcacheHelper.Discard()
 		}
 	}
 
@@ -315,7 +318,7 @@ func (s *VllmSimulator) HandleSleep(ctx *fasthttp.RequestCtx) {
 
 // HandleWakeUp http handler for /wake_up
 func (s *VllmSimulator) HandleWakeUp(ctx *fasthttp.RequestCtx) {
-	s.logger.V(logging.INFO).Info("Wake up request received")
+	s.context.logger.V(logging.INFO).Info("Wake up request received")
 
 	var wakeUpKVCache bool
 	tags := ctx.QueryArgs().Peek("tags")
@@ -331,8 +334,8 @@ func (s *VllmSimulator) HandleWakeUp(ctx *fasthttp.RequestCtx) {
 	defer s.sleepMutex.Unlock()
 
 	// Activate the kv cache if either the tags are "kv_cache" or there are no tags
-	if s.config.EnableKVCache && wakeUpKVCache {
-		s.kvcacheHelper.Activate()
+	if s.context.config.EnableKVCache && wakeUpKVCache {
+		s.context.kvcacheHelper.Activate()
 	}
 
 	s.isSleeping = false

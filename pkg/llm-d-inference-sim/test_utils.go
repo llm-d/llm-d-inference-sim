@@ -109,7 +109,7 @@ func startServerWithArgsAndEnv(ctx context.Context, mode string, args []string, 
 	if err != nil {
 		return nil, err
 	}
-	s.config = config
+	s.context.config = config
 
 	// calculate number of tokens for user message,
 	// must be activated after parseCommandParamsAndLoadConfig since it initializes the random engine
