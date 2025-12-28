@@ -25,7 +25,6 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
-	"github.com/valyala/fasthttp"
 )
 
 // worker runs simulators requests
@@ -35,11 +34,11 @@ type worker struct {
 	// worker's id
 	id int
 	// a channel for requests
-	reqChan chan *openaiserverapi.CompletionReqCtx
+	reqChan chan requestContext
 	// a channel to indicate that the worker finished processing a request
 	finishedChan chan *requestCompleted
 	// the request processor
-	processor requestProcessor
+	processor requestHandler
 }
 
 func (w *worker) waitForRequests() {
@@ -48,19 +47,19 @@ func (w *worker) waitForRequests() {
 		case <-w.ctx.Done():
 			w.logger.V(logging.TRACE).Info("worker done", "id", w.id)
 			return
-		case req := <-w.reqChan:
-			w.processor.processRequest(req, nil)
-			w.finishedChan <- &requestCompleted{worker: w, model: req.CompletionReq.GetModel()}
+		case reqCtx := <-w.reqChan:
+			w.processor.processRequest(reqCtx, nil)
+			w.finishedChan <- &requestCompleted{worker: w, model: reqCtx.request().GetModel()}
 		}
 
 	}
 }
 
-type requestProcessor interface {
-	processRequest(reqCtx *openaiserverapi.CompletionReqCtx, wg *sync.WaitGroup)
+type requestHandler interface {
+	processRequest(reqCtx requestContext, wg *sync.WaitGroup)
 }
 
-func (s *VllmSimulator) processRequest(reqCtx *openaiserverapi.CompletionReqCtx, _ *sync.WaitGroup) {
+func (s *VllmSimulator) processRequest(reqCtx requestContext, _ *sync.WaitGroup) {
 	startTime := time.Now()
 	wg := sync.WaitGroup{}
 	wg.Add(1)
@@ -69,21 +68,21 @@ func (s *VllmSimulator) processRequest(reqCtx *openaiserverapi.CompletionReqCtx,
 
 	wg.Wait()
 	// calculate inference time and finish e2e latency calculation only when sure that request processing was finished for streaming requests too
-	common.WriteToChannel(s.context.metrics.e2eReqLatencyChan, time.Since(reqCtx.StartProcessing).Seconds(), s.context.logger, "metrics.e2eReqLatencyChan")
+	common.WriteToChannel(s.context.metrics.e2eReqLatencyChan, time.Since(reqCtx.startProcessingTime()).Seconds(), s.context.logger, "metrics.e2eReqLatencyChan")
 	common.WriteToChannel(s.context.metrics.reqInferenceTimeChan, time.Since(startTime).Seconds(), s.context.logger, "metrics.reqInferenceTimeChan")
 }
 
-func (s *VllmSimulator) processRequestAsync(reqCtx *openaiserverapi.CompletionReqCtx, wg *sync.WaitGroup) {
-	req := reqCtx.CompletionReq
+func (s *VllmSimulator) processRequestAsync(reqCtx requestContext, wg *sync.WaitGroup) {
+	req := reqCtx.request()
 	respCtx, badRequestErr, serverErr := s.context.handleRequest(reqCtx)
 	switch {
 	case badRequestErr != "":
-		s.setBadRequestError(reqCtx.HTTPReqCtx, badRequestErr)
+		s.setBadRequestError(reqCtx.httpRequestCtx(), badRequestErr)
 	case serverErr != nil:
-		s.sendError(reqCtx.HTTPReqCtx, *serverErr, false)
+		s.sendError(reqCtx.httpRequestCtx(), *serverErr, false)
 	default:
 		if req.IsStream() {
-			s.sendStreamingResponse(respCtx, reqCtx.HTTPReqCtx, wg)
+			s.sendStreamingResponse(respCtx, reqCtx.httpRequestCtx(), wg)
 		} else {
 			s.sendResponse(reqCtx, respCtx)
 			wg.Done()
@@ -95,12 +94,12 @@ func (s *VllmSimulator) processRequestAsync(reqCtx *openaiserverapi.CompletionRe
 				generationTokens: respCtx.usageData.CompletionTokens,
 				// currently only responses with a single choice are supported
 				genTokensPerChoice: []int{respCtx.usageData.CompletionTokens},
-				maxTokens:          reqCtx.CompletionReq.GetMaxCompletionTokens(),
+				maxTokens:          req.GetMaxCompletionTokens(),
 				finishReason:       *respCtx.finishReason},
 			s.context.logger, "metrics.requestSuccessChan")
 	}
 	s.context.logger.V(logging.DEBUG).Info("Finished processing request", "id", req.GetRequestID())
-	reqCtx.Wg.Done()
+	reqCtx.done()
 }
 
 // getFreeWorker returns a free worker or nil if none are available (non-blocking)
@@ -113,8 +112,8 @@ func (s *VllmSimulator) getFreeWorker() *worker {
 	}
 }
 
-func (s *simContext) handleRequest(reqCtx *openaiserverapi.CompletionReqCtx) (*responseContext, string, *openaiserverapi.Error) {
-	req := reqCtx.CompletionReq
+func (s *simContext) handleRequest(reqCtx requestContext) (*responseContext, string, *openaiserverapi.Error) {
+	req := reqCtx.request()
 	model := req.GetModel()
 	displayModel := s.getDisplayedModelName(model)
 
@@ -128,26 +127,12 @@ func (s *simContext) handleRequest(reqCtx *openaiserverapi.CompletionReqCtx) (*r
 			"metrics.lorasChan")
 	}
 
-	if s.config.EnableKVCache && !reqCtx.IsChatCompletion {
-		// kv cache is currently supported for /completion API only
-		if err := s.kvcacheHelper.OnRequestStart(req); err != nil {
-			severError := openaiserverapi.NewError(err.Error(), fasthttp.StatusInternalServerError, nil)
-			return nil, "", &severError
-		}
+	if err := reqCtx.processor().kvCacheOnRequestStart(reqCtx); err != nil {
+		return nil, "", err
 	}
 
 	var responseTokens []string
-	var finishReason string
-	var err error
-	var toolCalls []openaiserverapi.ToolCall
-	var completionTokens int
-	if reqCtx.IsChatCompletion &&
-		!common.IsToolChoiceNone(req.GetToolChoice()) &&
-		req.GetTools() != nil {
-		toolCalls, completionTokens, err =
-			common.CreateToolCalls(req.GetTools(), req.GetToolChoice(), s.config, s.random)
-		finishReason = common.ToolsFinishReason
-	}
+	toolCalls, completionTokens, finishReason, err := reqCtx.processor().createToolCalls(reqCtx)
 	if toolCalls == nil && err == nil {
 		// Either no tool calls were defined, or we randomly chose not to create tool calls,
 		// so we generate a response text.
@@ -155,12 +140,7 @@ func (s *simContext) handleRequest(reqCtx *openaiserverapi.CompletionReqCtx) (*r
 		completionTokens += len(responseTokens)
 	}
 	if err != nil {
-		prefix := ""
-		if reqCtx.IsChatCompletion {
-			prefix = "failed to create chat response"
-		} else {
-			prefix = "failed to create text response"
-		}
+		prefix := "failed to create response for " + req.asString()
 		s.logger.Error(err, prefix)
 		return nil, prefix + err.Error(), nil
 	}
@@ -175,7 +155,7 @@ func (s *simContext) handleRequest(reqCtx *openaiserverapi.CompletionReqCtx) (*r
 	// Extract logprob data from request (unified approach)
 	var logprobs *int
 	if toolCalls == nil {
-		logprobs = reqCtx.CompletionReq.GetLogprobs()
+		logprobs = req.GetLogprobs()
 	}
 
 	respCtx := &responseContext{
@@ -185,11 +165,11 @@ func (s *simContext) handleRequest(reqCtx *openaiserverapi.CompletionReqCtx) (*r
 		finishReason:        &finishReason,
 		usageData:           &usageData,
 		logprobs:            logprobs,
-		requestID:           reqCtx.CompletionReq.GetRequestID(),
-		doRemotePrefill:     reqCtx.CompletionReq.IsDoRemotePrefill(),
-		doRemoteDecode:      reqCtx.CompletionReq.IsDoRemoteDecode(),
-		isChatCompletion:    reqCtx.IsChatCompletion,
-		nCachedPromptTokens: reqCtx.CompletionReq.GetNumberOfCachedPromptTokens(),
+		requestID:           req.GetRequestID(),
+		doRemotePrefill:     req.IsDoRemotePrefill(),
+		doRemoteDecode:      req.IsDoRemoteDecode(),
+		isChatCompletion:    req.IsChatCompletion(),
+		nCachedPromptTokens: req.GetNumberOfCachedPromptTokens(),
 	}
 
 	if req.IsStream() {

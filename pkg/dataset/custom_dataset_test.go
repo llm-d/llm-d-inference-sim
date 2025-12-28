@@ -207,7 +207,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 		DescribeTable("should work correctly in echo mode",
 			func(maxTokens *int64, ignoreEos bool, isChat bool, expectedFinishReason string) {
 				// tests that in echo mode the right response is returned
-				var req openaiserverapi.CompletionRequest
+				var req openaiserverapi.Request
 				if isChat {
 					chatReq := openaiserverapi.ChatCompletionRequest{MaxTokens: maxTokens}
 					chatReq.Messages = []openaiserverapi.Message{{Role: openaiserverapi.RoleUser, Content: openaiserverapi.Content{Raw: testPrompt}}}
@@ -238,7 +238,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 
 		DescribeTable("should work correctly in random mode with ignore eos",
 			func(prompt string, maxTokens *int64, isChat bool, expectedFinishReason string) {
-				var req openaiserverapi.CompletionRequest
+				var req openaiserverapi.Request
 				if isChat {
 					chatReq := openaiserverapi.ChatCompletionRequest{MaxTokens: maxTokens}
 					chatReq.Messages = []openaiserverapi.Message{{Role: openaiserverapi.RoleUser, Content: openaiserverapi.Content{Raw: prompt}}}

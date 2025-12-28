@@ -19,10 +19,6 @@ package openaiserverapi
 
 import (
 	"fmt"
-	"sync"
-	"time"
-
-	"github.com/valyala/fasthttp"
 )
 
 const (
@@ -32,8 +28,8 @@ const (
 	rolePrefixTemplate = "### %s:\n%s\n"
 )
 
-// CompletionRequest interface representing both completion request types (text and chat)
-type CompletionRequest interface {
+// Request defines an interface for request information retrieval
+type Request interface {
 	// GetRequestID returns the unique request id
 	GetRequestID() string
 	// IsStream returns boolean that defines is response should be streamed
@@ -79,6 +75,8 @@ type CompletionRequest interface {
 	ExtractMaxTokens() *int64
 	// GetLogprobs returns nil if no logprobs needed, or pointer to number of logprob options to include
 	GetLogprobs() *int
+	// IsChatCompletion returns true if this request is a /chat/completions request
+	IsChatCompletion() bool
 }
 
 // baseCompletionRequest contains base completion request related information
@@ -172,16 +170,6 @@ func (b *baseCompletionRequest) addRoleToMessage(role, msg string) string {
 	return fmt.Sprintf(rolePrefixTemplate, role, msg)
 }
 
-// CompletionReqCtx is a context passed in the simulator's flow, it contains the request data needed
-// to generate the simulator's response
-type CompletionReqCtx struct {
-	CompletionReq    CompletionRequest
-	HTTPReqCtx       *fasthttp.RequestCtx
-	IsChatCompletion bool
-	Wg               *sync.WaitGroup
-	StartProcessing  time.Time
-}
-
 // ChatCompletionRequest defines structure of /chat/completion request
 type ChatCompletionRequest struct {
 	baseCompletionRequest
@@ -214,7 +202,7 @@ type ChatCompletionRequest struct {
 	TopLogprobs *int `json:"top_logprobs,omitempty"`
 }
 
-var _ CompletionRequest = (*ChatCompletionRequest)(nil)
+var _ Request = (*ChatCompletionRequest)(nil)
 
 // function defines a tool
 type function struct {
@@ -308,6 +296,10 @@ func (c *ChatCompletionRequest) GetLogprobs() *int {
 	return &defaultVal
 }
 
+func (c *ChatCompletionRequest) IsChatCompletion() bool {
+	return true
+}
+
 // v1/completion
 // TextCompletionRequest defines structure of /completion request
 type TextCompletionRequest struct {
@@ -329,7 +321,7 @@ type TextCompletionRequest struct {
 	Logprobs *int `json:"logprobs,omitempty"`
 }
 
-var _ CompletionRequest = (*TextCompletionRequest)(nil)
+var _ Request = (*TextCompletionRequest)(nil)
 
 func (t *TextCompletionRequest) GetPrompt() string {
 	return t.Prompt
@@ -365,4 +357,8 @@ func (req *TextCompletionRequest) ExtractMaxTokens() *int64 {
 
 func (t *TextCompletionRequest) GetLogprobs() *int {
 	return t.Logprobs
+}
+
+func (t *TextCompletionRequest) IsChatCompletion() bool {
+	return false
 }

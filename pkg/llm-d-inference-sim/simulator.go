@@ -65,7 +65,7 @@ type requestCompleted struct {
 }
 
 type waitingQueueItem struct {
-	reqCtx      *openaiserverapi.CompletionReqCtx
+	reqCtx      requestContext
 	enqueueTime time.Time
 }
 
@@ -95,12 +95,12 @@ type VllmSimulator struct {
 	workerFinished chan *requestCompleted
 	// waiting requests queue mutex
 	queueLock sync.Mutex
-	// bi-directional list of *openaiserverapi.CompletionReqCtx
+	// bi-directional list of requestContext
 	waitingQueue *list.List
 	// the max capacity of the waiting requests queue
 	queueCapacity int
 	// a channel for incoming requests
-	newRequests chan *openaiserverapi.CompletionReqCtx
+	newRequests chan requestContext
 }
 
 // New creates a new VllmSimulator instance with the given logger
@@ -229,7 +229,7 @@ func (s *VllmSimulator) initializeSim(ctx context.Context) error {
 	s.context.metrics.reqDecodeTimeChan = make(chan float64, maxNumberOfRequests)
 	s.context.metrics.requestSuccessChan = make(chan requestSuccessEvent, maxNumberOfRequests)
 
-	s.newRequests = make(chan *openaiserverapi.CompletionReqCtx, maxNumberOfRequests)
+	s.newRequests = make(chan requestContext, maxNumberOfRequests)
 
 	// initialize prometheus metrics
 	err := s.context.createAndRegisterPrometheus()
@@ -278,7 +278,7 @@ func (s *VllmSimulator) initializeSim(ctx context.Context) error {
 			ctx:          ctx,
 			logger:       s.context.logger,
 			finishedChan: s.workerFinished,
-			reqChan:      make(chan *openaiserverapi.CompletionReqCtx, 1),
+			reqChan:      make(chan requestContext, 1),
 			processor:    s,
 		}
 		go worker.waitForRequests()
@@ -358,12 +358,12 @@ func (s *VllmSimulator) processing(ctx context.Context) {
 			}
 		case reqCtx := <-s.newRequests:
 			// A new request was received. Find a free worker, and check that the request can run LoRA wise.
-			model := reqCtx.CompletionReq.GetModel()
+			model := reqCtx.request().GetModel()
 
 			worker := s.getFreeWorker()
 			if worker == nil {
 				s.context.logger.V(logging.TRACE).Info("No free worker - sending the request to the waiting queue",
-					"model", reqCtx.CompletionReq.GetModel(), "req id", reqCtx.CompletionReq.GetRequestID())
+					"model", model, "req id", reqCtx.request().GetRequestID())
 				// no free worker, add this request to the waiting queue
 				s.addRequestToQueue(reqCtx)
 				break
@@ -374,14 +374,14 @@ func (s *VllmSimulator) processing(ctx context.Context) {
 				// free the worker
 				s.freeWorkers <- worker
 				s.context.logger.V(logging.TRACE).Info("LoRA cannot be loaded - sending the request to the waiting queue",
-					"LoRA", model, "req id", reqCtx.CompletionReq.GetRequestID())
+					"LoRA", model, "req id", reqCtx.request().GetRequestID())
 				// LoRA max reached, try to enqueue
 				s.addRequestToQueue(reqCtx)
 				break
 			}
 
 			s.context.logger.V(logging.TRACE).Info("Sending the request to the processing channel", "model", model,
-				"req id", reqCtx.CompletionReq.GetRequestID(), "worker", worker.id)
+				"req id", reqCtx.request().GetRequestID(), "worker", worker.id)
 			common.WriteToChannel(worker.reqChan, reqCtx, s.context.logger, "worker's reqChan")
 		}
 	}
@@ -391,8 +391,8 @@ func (s *VllmSimulator) findRequestAndSendToProcess(worker *worker) bool {
 	nextReq := s.dequeue()
 	if nextReq != nil {
 		// send this request for processing in this worker
-		s.context.logger.V(logging.TRACE).Info("Sending request to processing", "model", nextReq.CompletionReq.GetModel(),
-			"req", nextReq.CompletionReq.GetRequestID(), "worker", worker.id)
+		s.context.logger.V(logging.TRACE).Info("Sending request to processing", "model", nextReq.request().GetModel(),
+			"req", nextReq.request().GetRequestID(), "worker", worker.id)
 		common.WriteToChannel(worker.reqChan, nextReq, s.context.logger, "worker's reqChan")
 		// decrement waiting requests metric
 		common.WriteToChannel(s.context.metrics.waitingReqChan, -1, s.context.logger, "metrics.waitingReqChan")
@@ -404,24 +404,24 @@ func (s *VllmSimulator) findRequestAndSendToProcess(worker *worker) bool {
 	return false
 }
 
-func (s *VllmSimulator) addRequestToQueue(reqCtx *openaiserverapi.CompletionReqCtx) {
+func (s *VllmSimulator) addRequestToQueue(reqCtx requestContext) {
 	if err := s.enqueue(reqCtx); err != nil {
 		s.context.logger.Error(err, "failed to enqueue request")
-		reqCtx.HTTPReqCtx.Error("Failed to enqueue request, "+err.Error(), fasthttp.StatusTooManyRequests)
-		reqCtx.Wg.Done()
+		reqCtx.httpRequestCtx().Error("Failed to enqueue request, "+err.Error(), fasthttp.StatusTooManyRequests)
+		reqCtx.done()
 		return
 	}
 	// increment the waiting requests metric
 	common.WriteToChannel(s.context.metrics.waitingReqChan, 1, s.context.logger, "metrics.waitingReqChan")
 	// update loraInfo metrics with the new waiting request
-	common.WriteToChannel(s.context.metrics.lorasChan, loraUsage{reqCtx.CompletionReq.GetModel(), waitingUsageState},
+	common.WriteToChannel(s.context.metrics.lorasChan, loraUsage{reqCtx.request().GetModel(), waitingUsageState},
 		s.context.logger, "metrics.lorasChan")
 
 }
 
 // handleRequest is a general requests handler
 // Important note: for requests in streaming mode, this function exits before all chunks are sent to the client
-func (s *VllmSimulator) handleRequest(req common.Request, ctx *fasthttp.RequestCtx) {
+func (s *VllmSimulator) handleRequest(req request, ctx *fasthttp.RequestCtx) {
 	// Check if we should inject a failure
 	if shouldInjectFailure(s.context.config, s.context.random) {
 		failure := getRandomFailure(s.context.config, s.context.random)
@@ -429,34 +429,32 @@ func (s *VllmSimulator) handleRequest(req common.Request, ctx *fasthttp.RequestC
 		return
 	}
 
-	if err := req.Unmarshal(ctx.Request.Body()); err != nil {
+	if err := req.unmarshal(ctx.Request.Body()); err != nil {
 		s.context.logger.Error(err, "failed to read and parse request body")
 		ctx.Error("Failed to read and parse request body, "+err.Error(), fasthttp.StatusBadRequest)
 		return
 	}
 
-	if !s.isValidModel(req.Model()) {
+	if !s.isValidModel(req.GetModel()) {
 		s.sendError(ctx, openaiserverapi.NewError(fmt.Sprintf("The model `%s` does not exist.",
-			req.Model()), fasthttp.StatusNotFound, nil), false)
+			req.GetModel()), fasthttp.StatusNotFound, nil), false)
 		return
 	}
 
-	errMsg, errCode := req.Validate(s.context.config, s.toolsValidator)
+	errMsg, errCode := req.validate(s.context.config, s.toolsValidator)
 	if errMsg != "" {
 		s.sendError(ctx, openaiserverapi.NewError(errMsg, errCode, nil), false)
 		return
 	}
 
 	requestID := s.getRequestID(ctx)
-	req.SetID(requestID)
+	req.setID(requestID)
 
-	s.context.logger.V(logging.DEBUG).Info("Received", "new", req.String())
+	s.context.logger.V(logging.DEBUG).Info("Received", "new", req.asString())
 
 	var wg sync.WaitGroup
 	wg.Add(1)
-	reqCtx := req.BuildRequestContext()
-	reqCtx.Wg = &wg
-	reqCtx.HTTPReqCtx = ctx
+	reqCtx := req.buildRequestContext(&s.context, ctx, &wg)
 	common.WriteToChannel(s.newRequests, reqCtx, s.context.logger, "newRequests")
 	wg.Wait()
 }
@@ -481,16 +479,16 @@ func (s *VllmSimulator) responseSentCallback(model string, isChatCompletion bool
 
 // sendResponse sends response for completion API, supports both completions (text and chat)
 // according the value of isChatCompletion in reqCtx
-func (s *VllmSimulator) sendResponse(reqCtx *openaiserverapi.CompletionReqCtx, respCtx *responseContext) {
+func (s *VllmSimulator) sendResponse(reqCtx requestContext, respCtx *responseContext) {
 	resp := createCompletionResponse(respCtx)
 
 	// calculate how long to wait before returning the response, time is based on number of tokens
-	nCachedPromptTokens := reqCtx.CompletionReq.GetNumberOfCachedPromptTokens()
+	nCachedPromptTokens := reqCtx.request().GetNumberOfCachedPromptTokens()
 	startPrefill := time.Now()
 	params := TTFTParams{
 		PromptTokens:       respCtx.usageData.PromptTokens,
 		CachedPromptTokens: nCachedPromptTokens,
-		DoRemotePrefill:    reqCtx.CompletionReq.IsDoRemotePrefill(),
+		DoRemotePrefill:    reqCtx.request().IsDoRemotePrefill(),
 		RunningReqs:        s.context.metrics.nRunningReqs,
 	}
 	ttft := s.context.latencyCalculator.GetTimeToFirstToken(&params)
@@ -511,8 +509,8 @@ func (s *VllmSimulator) sendResponse(reqCtx *openaiserverapi.CompletionReqCtx, r
 	}
 	common.WriteToChannel(s.context.metrics.reqDecodeTimeChan, time.Since(startDecode).Seconds(), s.context.logger, "metrics.reqDecodeTimeChan")
 
-	s.sendCompletionResponse(reqCtx.HTTPReqCtx, resp)
-	s.responseSentCallback(respCtx.displayModel, reqCtx.IsChatCompletion, reqCtx.CompletionReq.GetRequestID())
+	s.sendCompletionResponse(reqCtx.httpRequestCtx(), resp)
+	s.responseSentCallback(respCtx.displayModel, reqCtx.request().IsChatCompletion(), reqCtx.request().GetRequestID())
 }
 
 // createModelsResponse creates and returns ModelResponse for the current state, returned array of models contains the base model + LoRA adapters if exist
@@ -547,7 +545,7 @@ func (s *VllmSimulator) createModelsResponse() *vllmapi.ModelsResponse {
 	return &modelsResp
 }
 
-func (s *VllmSimulator) enqueue(req *openaiserverapi.CompletionReqCtx) error {
+func (s *VllmSimulator) enqueue(req requestContext) error {
 	s.queueLock.Lock()
 	defer s.queueLock.Unlock()
 
@@ -559,16 +557,16 @@ func (s *VllmSimulator) enqueue(req *openaiserverapi.CompletionReqCtx) error {
 }
 
 // go though the queue and find the first request that can be executed, while taking into consideration the max lora limitation
-func (s *VllmSimulator) dequeue() *openaiserverapi.CompletionReqCtx {
+func (s *VllmSimulator) dequeue() requestContext {
 	s.queueLock.Lock()
 	defer s.queueLock.Unlock()
 
 	// Find first request for a loaded LoRA
 	for elem := s.waitingQueue.Front(); elem != nil; elem = elem.Next() {
 		item, ok := elem.Value.(waitingQueueItem)
-		if ok && item.reqCtx != nil && s.context.loraIsLoaded(item.reqCtx.CompletionReq.GetModel()) {
+		if ok && item.reqCtx != nil && s.context.loraIsLoaded(item.reqCtx.request().GetModel()) {
 			s.waitingQueue.Remove(elem)
-			s.context.incrementLora(item.reqCtx.CompletionReq.GetModel())
+			s.context.incrementLora(item.reqCtx.request().GetModel())
 			common.WriteToChannel(s.context.metrics.reqQueueTimeChan, time.Since(item.enqueueTime).Seconds(),
 				s.context.logger, "metrics.reqQueueTimeChan")
 			return item.reqCtx
@@ -578,7 +576,7 @@ func (s *VllmSimulator) dequeue() *openaiserverapi.CompletionReqCtx {
 	// All the requests require a LoRA that is not loaded, check if we can load a LoRA
 	for elem := s.waitingQueue.Front(); elem != nil; elem = elem.Next() {
 		item, ok := elem.Value.(waitingQueueItem)
-		if ok && item.reqCtx != nil && s.context.loadLora(item.reqCtx.CompletionReq.GetModel()) {
+		if ok && item.reqCtx != nil && s.context.loadLora(item.reqCtx.request().GetModel()) {
 			s.waitingQueue.Remove(elem)
 			common.WriteToChannel(s.context.metrics.reqQueueTimeChan, time.Since(item.enqueueTime).Seconds(),
 				s.context.logger, "metrics.reqQueueTimeChan")

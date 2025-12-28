@@ -18,50 +18,61 @@ package llmdinferencesim
 
 import (
 	"encoding/json"
+	"sync"
 	"time"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
+	"github.com/valyala/fasthttp"
 )
 
 type textCompletionRequest struct {
-	req openaiserverapi.TextCompletionRequest
+	openaiserverapi.TextCompletionRequest
+}
+
+type textCompletionReqCtx struct {
+	baseRequestContext
+	req          *textCompletionRequest
+	reqProcessor *textRequestProcessor
+}
+
+func (t *textCompletionReqCtx) request() request {
+	return t.req
+}
+func (t *textCompletionReqCtx) processor() requestProcessor {
+	return t.reqProcessor
 }
 
 // reads and parses data from the body of the given request
-func (t *textCompletionRequest) Unmarshal(data []byte) error {
-	var req openaiserverapi.TextCompletionRequest
-	err := json.Unmarshal(data, &req)
-
-	t.req = req
-	return err
+func (t *textCompletionRequest) unmarshal(data []byte) error {
+	return json.Unmarshal(data, t)
 }
 
-func (t *textCompletionRequest) Validate(config *common.Configuration, toolsValidator *common.ToolsValidator) (string, int) {
-	return validateRequest(&t.req, config)
+func (t *textCompletionRequest) validate(config *common.Configuration, toolsValidator *common.ToolsValidator) (string, int) {
+	return validateRequest(t, config)
 }
 
-func (t *textCompletionRequest) BuildRequestContext() *openaiserverapi.CompletionReqCtx {
-	reqCtx := &openaiserverapi.CompletionReqCtx{
-		CompletionReq:    &t.req,
-		IsChatCompletion: false,
-		StartProcessing:  time.Now(),
+func (t *textCompletionRequest) buildRequestContext(simCtx *simContext, ctx *fasthttp.RequestCtx, wg *sync.WaitGroup) requestContext {
+	reqCtx := &textCompletionReqCtx{
+		baseRequestContext: baseRequestContext{
+			startProcessing: time.Now(),
+			wg:              wg,
+			httpReqCtx:      ctx,
+		},
+		req: t,
+		reqProcessor: &textRequestProcessor{
+			baseRequestProcessor{simCtx},
+		},
 	}
 	return reqCtx
 }
 
-func (t *textCompletionRequest) SetID(id string) {
-	t.req.RequestID = id
+func (t *textCompletionRequest) setID(id string) {
+	t.RequestID = id
 }
 
-func (t *textCompletionRequest) ID() string {
-	return t.req.RequestID
+func (t *textCompletionRequest) asString() string {
+	return "text completion request (req id " + t.RequestID + ")"
 }
 
-func (t *textCompletionRequest) Model() string {
-	return t.req.Model
-}
-
-func (c *textCompletionRequest) String() string {
-	return "text completion request (req id " + c.ID() + ")"
-}
+var _ request = (*textCompletionRequest)(nil)

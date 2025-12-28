@@ -45,7 +45,7 @@ type Dataset interface {
 	// Close closes the dataset
 	Close() error
 	// GetTokens returns tokens for the given request and mode (echo or random)
-	GetTokens(req openaiserverapi.CompletionRequest, mode string) ([]string, string, error)
+	GetTokens(req openaiserverapi.Request, mode string) ([]string, string, error)
 }
 
 type DefaultDataset struct {
@@ -69,7 +69,7 @@ func (d *DefaultDataset) Close() error {
 }
 
 // GetTokens returns tokens and finishReason for the given request and mode (echo or random)
-func (d *DefaultDataset) GetTokens(req openaiserverapi.CompletionRequest, mode string) ([]string, string, error) {
+func (d *DefaultDataset) GetTokens(req openaiserverapi.Request, mode string) ([]string, string, error) {
 	if mode == common.ModeEcho {
 		return d.getTokensInEchoMode(req)
 	}
@@ -104,7 +104,7 @@ func (d *DefaultDataset) GetTokens(req openaiserverapi.CompletionRequest, mode s
 // for /chat/completion request the last user message is returned (if there is no user messages, last message is used)
 // if max-tokens is defined in the request and response's length is >= it value, finish reason is set to LENGTH,
 // otherwise finish reason is STOP
-func (d *DefaultDataset) getTokensInEchoMode(req openaiserverapi.CompletionRequest) ([]string, string, error) {
+func (d *DefaultDataset) getTokensInEchoMode(req openaiserverapi.Request) ([]string, string, error) {
 	tokens := common.Tokenize(req.GetPromptForEcho())
 	maxTokens := req.GetMaxCompletionTokens()
 	finishReason := common.StopFinishReason
@@ -121,7 +121,7 @@ func (d *DefaultDataset) getTokensInEchoMode(req openaiserverapi.CompletionReque
 // If max-tokens/max-completion-tokens is defined - use it,
 // otherwise use <model content window size> - <number of input tokens>
 // boolean returned value defines whether max tokens number was passed in the request
-func (d *DefaultDataset) calculateResponseMaxLen(req openaiserverapi.CompletionRequest) (int, bool) {
+func (d *DefaultDataset) calculateResponseMaxLen(req openaiserverapi.Request) (int, bool) {
 	maxTokens := req.GetMaxCompletionTokens()
 
 	if maxTokens != nil {

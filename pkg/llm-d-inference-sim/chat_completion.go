@@ -18,6 +18,7 @@ package llmdinferencesim
 
 import (
 	"encoding/json"
+	"sync"
 	"time"
 
 	"github.com/valyala/fasthttp"
@@ -27,24 +28,29 @@ import (
 )
 
 type chatCompletionRequest struct {
-	req openaiserverapi.ChatCompletionRequest
+	openaiserverapi.ChatCompletionRequest
+}
+
+type chatCompletionReqCtx struct {
+	baseRequestContext
+	req          *chatCompletionRequest
+	reqProcessor *chatRequestProcessor
+}
+
+func (c *chatCompletionReqCtx) request() request {
+	return c.req
+}
+func (c *chatCompletionReqCtx) processor() requestProcessor {
+	return c.reqProcessor
 }
 
 // reads and parses data from the body of the given request
-func (c *chatCompletionRequest) Unmarshal(data []byte) error {
-	var req openaiserverapi.ChatCompletionRequest
-
-	err := json.Unmarshal(data, &req)
-	if err != nil {
-		return err
-	}
-
-	c.req = req
-	return nil
+func (c *chatCompletionRequest) unmarshal(data []byte) error {
+	return json.Unmarshal(data, c)
 }
 
-func (c *chatCompletionRequest) Validate(config *common.Configuration, toolsValidator *common.ToolsValidator) (string, int) {
-	for _, tool := range c.req.Tools {
+func (c *chatCompletionRequest) validate(config *common.Configuration, toolsValidator *common.ToolsValidator) (string, int) {
+	for _, tool := range c.Tools {
 		toolJson, err := json.Marshal(tool.Function)
 		if err != nil {
 			return "Failed to marshal request tools: " + err.Error(), fasthttp.StatusBadRequest
@@ -55,30 +61,30 @@ func (c *chatCompletionRequest) Validate(config *common.Configuration, toolsVali
 		}
 	}
 
-	return validateRequest(&c.req, config)
+	return validateRequest(c, config)
 }
 
-func (c *chatCompletionRequest) BuildRequestContext() *openaiserverapi.CompletionReqCtx {
-	reqCtx := &openaiserverapi.CompletionReqCtx{
-		CompletionReq:    &c.req,
-		IsChatCompletion: true,
-		StartProcessing:  time.Now(),
+func (c *chatCompletionRequest) buildRequestContext(simCtx *simContext, ctx *fasthttp.RequestCtx, wg *sync.WaitGroup) requestContext {
+	reqCtx := &chatCompletionReqCtx{
+		baseRequestContext: baseRequestContext{
+			startProcessing: time.Now(),
+			wg:              wg,
+			httpReqCtx:      ctx,
+		},
+		req: c,
+		reqProcessor: &chatRequestProcessor{
+			baseRequestProcessor{simCtx},
+		},
 	}
 	return reqCtx
 }
 
-func (c *chatCompletionRequest) SetID(id string) {
-	c.req.RequestID = id
+func (c *chatCompletionRequest) setID(id string) {
+	c.RequestID = id
 }
 
-func (c *chatCompletionRequest) ID() string {
-	return c.req.RequestID
+func (c *chatCompletionRequest) asString() string {
+	return "chat completion request (req id " + c.RequestID + ")"
 }
 
-func (c *chatCompletionRequest) Model() string {
-	return c.req.Model
-}
-
-func (c *chatCompletionRequest) String() string {
-	return "chat completion request (req id " + c.ID() + ")"
-}
+var _ request = (*chatCompletionRequest)(nil)

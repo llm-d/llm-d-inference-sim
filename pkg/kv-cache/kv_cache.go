@@ -71,7 +71,7 @@ func (h *KVCacheHelper) Activate() {
 	h.blockCache.activate()
 }
 
-func (h *KVCacheHelper) OnRequestStart(vllmReq openaiserverapi.CompletionRequest) error {
+func (h *KVCacheHelper) OnRequestStart(vllmReq openaiserverapi.Request) error {
 	h.logger.V(logging.TRACE).Info("KV cache - process request")
 
 	prompt := vllmReq.GetPrompt()

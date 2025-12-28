@@ -77,11 +77,11 @@ func (s *VllmSimulator) showConfig(dp bool) error {
 	return nil
 }
 
-func getNumberOfPromptTokens(req openaiserverapi.CompletionRequest) int {
+func getNumberOfPromptTokens(req openaiserverapi.Request) int {
 	return len(common.Tokenize(req.GetPrompt()))
 }
 
-func validateRequest(req openaiserverapi.CompletionRequest, config *common.Configuration) (string, int) {
+func validateRequest(req openaiserverapi.Request, config *common.Configuration) (string, int) {
 	if req.GetMaxCompletionTokens() != nil && *req.GetMaxCompletionTokens() <= 0 {
 		return "Max completion tokens and max tokens should be positive", fasthttp.StatusBadRequest
 	}

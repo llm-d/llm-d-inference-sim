@@ -47,7 +47,7 @@ func (d *CustomDataset) Init(ctx context.Context, logger logr.Logger, random *co
 	return d.sqliteHelper.connectToDB(path, useInMemory)
 }
 
-func (d *CustomDataset) getPromptHash(req openaiserverapi.CompletionRequest) []byte {
+func (d *CustomDataset) getPromptHash(req openaiserverapi.Request) []byte {
 	hashArray := sha256.Sum256([]byte(req.GetFullPrompt()))
 	return hashArray[:]
 }
@@ -94,7 +94,7 @@ func (d *CustomDataset) getRandomResponse(responses [][]string) []string {
 // and trim it to the required length
 // if ignore_eos=true the response always will have the max response len tokens, missing tokens
 // are randomly selected from the hard-coded collection
-func (d *CustomDataset) GetTokens(req openaiserverapi.CompletionRequest, mode string) ([]string, string, error) {
+func (d *CustomDataset) GetTokens(req openaiserverapi.Request, mode string) ([]string, string, error) {
 	if mode == common.ModeEcho {
 		return d.getTokensInEchoMode(req)
 	}
