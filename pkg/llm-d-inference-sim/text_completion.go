@@ -84,7 +84,7 @@ func (t *textCompletionRequest) createResponseContext(displayModel string, respo
 			finishReasonPtr:     finishReason,
 			usage:               usageData,
 			sendUsage:           sendUsageData,
-			logProbs:            logprobs,
+			logprobs:            logprobs,
 			id:                  t.GetRequestID(),
 			remotePrefill:       t.IsDoRemotePrefill(),
 			remoteDecode:        t.IsDoRemoteDecode(),

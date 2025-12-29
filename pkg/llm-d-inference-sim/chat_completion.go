@@ -96,7 +96,7 @@ func (c *chatCompletionRequest) createResponseContext(displayModel string, respo
 			finishReasonPtr:     finishReason,
 			usage:               usageData,
 			sendUsage:           sendUsageData,
-			logProbs:            logprobs,
+			logprobs:            logprobs,
 			id:                  c.GetRequestID(),
 			remotePrefill:       c.IsDoRemotePrefill(),
 			remoteDecode:        c.IsDoRemoteDecode(),

@@ -65,8 +65,8 @@ type baseResponseContext struct {
 	usage *openaiserverapi.Usage
 	// indicates whether to send usage data in this response
 	sendUsage bool
-	// number of logprob options to include or nil if no logProbs needed
-	logProbs *int
+	// number of logprob options to include or nil if no logprobs needed
+	logprobs *int
 }
 
 type chatCompletionResponseCtx struct {
@@ -97,8 +97,8 @@ func (respCtx *chatCompletionResponseCtx) createCompletionResponse() openaiserve
 	choice := openaiserverapi.CreateChatRespChoice(baseChoice, message)
 
 	// Generate logprobs if requested
-	if respCtx.logProbs != nil && respCtx.toolsCalls == nil {
-		if logprobsData := common.GenerateChatLogprobs(respCtx.respTokens, *respCtx.logProbs); logprobsData != nil &&
+	if respCtx.logprobs != nil && respCtx.toolsCalls == nil {
+		if logprobsData := common.GenerateChatLogprobs(respCtx.respTokens, *respCtx.logprobs); logprobsData != nil &&
 			len(logprobsData.Content) > 0 {
 			choice.Logprobs = logprobsData
 		} else {
@@ -123,8 +123,8 @@ func (respCtx *textCompletionResponseCtx) createCompletionResponse() openaiserve
 	choice := openaiserverapi.CreateTextRespChoice(baseChoice, respText)
 
 	// Generate logprobs if requested for text completion
-	if respCtx.logProbs != nil && *respCtx.logProbs > 0 {
-		if logprobsData := common.GenerateTextLogprobs(respCtx.respTokens, *respCtx.logProbs); logprobsData != nil &&
+	if respCtx.logprobs != nil && *respCtx.logprobs > 0 {
+		if logprobsData := common.GenerateTextLogprobs(respCtx.respTokens, *respCtx.logprobs); logprobsData != nil &&
 			len(logprobsData.Tokens) > 0 {
 			choice.Logprobs = logprobsData
 		} else {
@@ -169,10 +169,10 @@ func (respCtx *textCompletionResponseCtx) createCompletionChunk(token string, to
 	choice := openaiserverapi.CreateTextRespChoice(openaiserverapi.CreateBaseResponseChoice(0, finishReason), token)
 
 	// Generate logprobs if requested and token is not empty
-	if respCtx.logProbs != nil && token != "" && *respCtx.logProbs > 0 {
+	if respCtx.logprobs != nil && token != "" && *respCtx.logprobs > 0 {
 		// Use token position based on current time
 		tokenPosition := int(respCtx.creationTime) % 1000 // Simple position simulation
-		logprobs := common.GenerateSingleTokenTextLogprobs(token, tokenPosition, *respCtx.logProbs)
+		logprobs := common.GenerateSingleTokenTextLogprobs(token, tokenPosition, *respCtx.logprobs)
 		if logprobs != nil {
 			choice.Logprobs = logprobs
 		}
@@ -202,10 +202,10 @@ func (respCtx *chatCompletionResponseCtx) createCompletionChunk(token string, to
 		chunk.Choices[0].Delta.Content.Raw = token
 
 		// Generate logprobs if requested and token is not empty
-		if respCtx.logProbs != nil {
+		if respCtx.logprobs != nil {
 			// Use token position based on current time
 			tokenPosition := int(respCtx.creationTime) % 1000 // Simple position simulation
-			logprobs := common.GenerateSingleTokenChatLogprobs(token, tokenPosition, *respCtx.logProbs)
+			logprobs := common.GenerateSingleTokenChatLogprobs(token, tokenPosition, *respCtx.logprobs)
 			if logprobs != nil {
 				chunk.Choices[0].Logprobs = &openaiserverapi.ChatLogprobs{
 					Content: []openaiserverapi.LogprobsContent{*logprobs},
@@ -222,6 +222,7 @@ func (respCtx *chatCompletionResponseCtx) createFirstCompletionChunk() openaiser
 	return respCtx.createCompletionChunk("", nil, openaiserverapi.RoleAssistant, nil)
 }
 
+// in text completion there is no special first chunk
 func (respCtx *textCompletionResponseCtx) createFirstCompletionChunk() openaiserverapi.CompletionRespChunk {
 	return nil
 }
