@@ -41,6 +41,9 @@ func (c *chatRequestProcessor) kvCacheOnRequestStart(reqCtx requestContext) *ope
 	return nil
 }
 
+func (c *chatRequestProcessor) kvCacheOnRequestEnd(reqCtx requestContext) {
+}
+
 func (c *chatRequestProcessor) createToolCalls(reqCtx requestContext) ([]openaiserverapi.ToolCall, int, string, error) {
 	req, ok := reqCtx.request().(*chatCompletionRequest)
 	if !ok {
@@ -54,7 +57,6 @@ func (c *chatRequestProcessor) createToolCalls(reqCtx requestContext) ([]openais
 		return toolCalls, completionTokens, finishReason, err
 	}
 	return nil, 0, "", nil
-
 }
 
 func (t *textRequestProcessor) kvCacheOnRequestStart(reqCtx requestContext) *openaiserverapi.Error {
@@ -65,7 +67,14 @@ func (t *textRequestProcessor) kvCacheOnRequestStart(reqCtx requestContext) *ope
 		}
 	}
 	return nil
+}
 
+func (t *textRequestProcessor) kvCacheOnRequestEnd(reqCtx requestContext) {
+	if t.sim.config.EnableKVCache {
+		if err := t.sim.kvcacheHelper.OnRequestEnd(reqCtx.request().GetRequestID()); err != nil {
+			t.sim.logger.Error(err, "kv cache failed to process request end")
+		}
+	}
 }
 
 func (t *textRequestProcessor) createToolCalls(reqCtx requestContext) ([]openaiserverapi.ToolCall, int, string, error) {

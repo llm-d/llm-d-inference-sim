@@ -75,8 +75,6 @@ type Request interface {
 	ExtractMaxTokens() *int64
 	// GetLogprobs returns nil if no logprobs needed, or pointer to number of logprob options to include
 	GetLogprobs() *int
-	// IsChatCompletion returns true if this request is a /chat/completions request
-	IsChatCompletion() bool
 }
 
 // baseCompletionRequest contains base completion request related information
@@ -296,10 +294,6 @@ func (c *ChatCompletionRequest) GetLogprobs() *int {
 	return &defaultVal
 }
 
-func (c *ChatCompletionRequest) IsChatCompletion() bool {
-	return true
-}
-
 // v1/completion
 // TextCompletionRequest defines structure of /completion request
 type TextCompletionRequest struct {
@@ -357,8 +351,4 @@ func (req *TextCompletionRequest) ExtractMaxTokens() *int64 {
 
 func (t *TextCompletionRequest) GetLogprobs() *int {
 	return t.Logprobs
-}
-
-func (t *TextCompletionRequest) IsChatCompletion() bool {
-	return false
 }

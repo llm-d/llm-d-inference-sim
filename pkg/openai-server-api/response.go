@@ -312,8 +312,21 @@ func CreateTextRespChoice(base baseResponseChoice, text string) TextRespChoice {
 	return TextRespChoice{baseResponseChoice: base, Text: text, Logprobs: nil}
 }
 
-func CreateBaseCompletionResponse(created int64, model string, usage *Usage, requestID string) baseCompletionResponse {
-	return baseCompletionResponse{Created: created, Model: model, Usage: usage, RequestID: requestID}
+func CreateBaseCompletionResponse(created int64, model string, usage *Usage, requestID string, doRemoteDecode bool) baseCompletionResponse {
+	baseResp := baseCompletionResponse{Created: created, Model: model, Usage: usage, RequestID: requestID}
+	if doRemoteDecode {
+		baseResp.KVParams = &KVTransferParams{}
+		// add special fields related to the prefill pod special behavior
+		baseResp.KVParams.DoRemoteDecode = false
+		baseResp.KVParams.DoRemotePrefill = true
+		// currently remote prefill information is hard-coded
+		baseResp.KVParams.RemoteBlockIds = []string{"DUMMY_ID"}
+		baseResp.KVParams.RemoteEngineId = "DUMMY_ID"
+		baseResp.KVParams.RemoteHost = "DUMMY"
+		baseResp.KVParams.RemotePort = 1234
+		baseResp.KVParams.TPSize = 1
+	}
+	return baseResp
 }
 
 // GetRequestID returns the request ID from the response

@@ -460,7 +460,7 @@ func (s *VllmSimulator) handleRequest(req request, ctx *fasthttp.RequestCtx) {
 }
 
 // request processing finished
-func (s *VllmSimulator) responseSentCallback(model string, isChatCompletion bool, requestID string) {
+func (s *VllmSimulator) responseSentCallback(reqCtx requestContext, model string) {
 	// decrement running requests count
 	common.WriteToChannel(s.context.metrics.runReqChan, -1, s.context.logger, "metrics.runReqChan")
 
@@ -470,23 +470,18 @@ func (s *VllmSimulator) responseSentCallback(model string, isChatCompletion bool
 			s.context.logger, "metrics.lorasChan")
 	}
 
-	if s.context.config.EnableKVCache && !isChatCompletion {
-		if err := s.context.kvcacheHelper.OnRequestEnd(requestID); err != nil {
-			s.context.logger.Error(err, "kv cache failed to process request end")
-		}
-	}
+	reqCtx.processor().kvCacheOnRequestEnd(reqCtx)
 }
 
 // sendResponse sends response for completion API, supports both completions (text and chat)
-// according the value of isChatCompletion in reqCtx
-func (s *VllmSimulator) sendResponse(reqCtx requestContext, respCtx *responseContext) {
-	resp := createCompletionResponse(respCtx)
+func (s *VllmSimulator) sendResponse(reqCtx requestContext, respCtx responseContext) {
+	resp := respCtx.createCompletionResponse()
 
 	// calculate how long to wait before returning the response, time is based on number of tokens
 	nCachedPromptTokens := reqCtx.request().GetNumberOfCachedPromptTokens()
 	startPrefill := time.Now()
 	params := TTFTParams{
-		PromptTokens:       respCtx.usageData.PromptTokens,
+		PromptTokens:       respCtx.usageData().PromptTokens,
 		CachedPromptTokens: nCachedPromptTokens,
 		DoRemotePrefill:    reqCtx.request().IsDoRemotePrefill(),
 		RunningReqs:        s.context.metrics.nRunningReqs,
@@ -499,7 +494,7 @@ func (s *VllmSimulator) sendResponse(reqCtx requestContext, respCtx *responseCon
 	common.WriteToChannel(s.context.metrics.reqPrefillTimeChan, time.Since(startPrefill).Seconds(), s.context.logger, "metrics.reqPrefillTimeChan")
 
 	startDecode := time.Now()
-	for range respCtx.usageData.CompletionTokens - 1 {
+	for range respCtx.usageData().CompletionTokens - 1 {
 		perTokenLatency := s.context.latencyCalculator.GetInterTokenLatency(&InterTokenParams{
 			RunningReqs: s.context.metrics.nRunningReqs})
 		time.Sleep(perTokenLatency)
@@ -510,7 +505,7 @@ func (s *VllmSimulator) sendResponse(reqCtx requestContext, respCtx *responseCon
 	common.WriteToChannel(s.context.metrics.reqDecodeTimeChan, time.Since(startDecode).Seconds(), s.context.logger, "metrics.reqDecodeTimeChan")
 
 	s.sendCompletionResponse(reqCtx.httpRequestCtx(), resp)
-	s.responseSentCallback(respCtx.displayModel, reqCtx.request().IsChatCompletion(), reqCtx.request().GetRequestID())
+	s.responseSentCallback(reqCtx, respCtx.displayModel())
 }
 
 // createModelsResponse creates and returns ModelResponse for the current state, returned array of models contains the base model + LoRA adapters if exist

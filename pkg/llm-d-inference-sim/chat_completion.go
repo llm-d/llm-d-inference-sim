@@ -87,4 +87,23 @@ func (c *chatCompletionRequest) asString() string {
 	return "chat completion request (req id " + c.RequestID + ")"
 }
 
+func (c *chatCompletionRequest) createResponseContext(displayModel string, responseTokens []string, finishReason *string,
+	usageData *openaiserverapi.Usage, sendUsageData bool, logprobs *int, toolCalls []openaiserverapi.ToolCall) responseContext {
+	return &chatCompletionResponseCtx{
+		baseResponseContext: baseResponseContext{
+			respTokens:          responseTokens,
+			displayModelName:    displayModel,
+			finishReasonPtr:     finishReason,
+			usage:               usageData,
+			sendUsage:           sendUsageData,
+			logProbs:            logprobs,
+			id:                  c.GetRequestID(),
+			remotePrefill:       c.IsDoRemotePrefill(),
+			remoteDecode:        c.IsDoRemoteDecode(),
+			nCachedPromptTokens: c.GetNumberOfCachedPromptTokens(),
+		},
+		toolsCalls: toolCalls,
+	}
+}
+
 var _ request = (*chatCompletionRequest)(nil)

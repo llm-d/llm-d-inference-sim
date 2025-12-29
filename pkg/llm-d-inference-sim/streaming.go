@@ -31,10 +31,10 @@ import (
 )
 
 // sendStreamingResponse creates and sends a streaming response for completion requests of both types (text and chat)
-// as defined by isChatCompletion
 // response content is wrapped according SSE format
 // First token is send after timeToFirstToken milliseconds, every other token is sent after interTokenLatency milliseconds
-func (s *VllmSimulator) sendStreamingResponse(respCtx *responseContext, ctx *fasthttp.RequestCtx, wg *sync.WaitGroup) {
+func (s *VllmSimulator) sendStreamingResponse(reqCtx requestContext, respCtx responseContext, wg *sync.WaitGroup) {
+	ctx := reqCtx.httpRequestCtx()
 	ctx.SetContentType("text/event-stream")
 	ctx.SetStatusCode(fasthttp.StatusOK)
 
@@ -47,36 +47,36 @@ func (s *VllmSimulator) sendStreamingResponse(respCtx *responseContext, ctx *fas
 		ctx.Response.Header.Add(namespaceHeader, s.namespace)
 	}
 	if s.context.config.EnableRequestIDHeaders {
-		ctx.Response.Header.Add(requestIDHeader, respCtx.requestID)
+		ctx.Response.Header.Add(requestIDHeader, respCtx.requestID())
 	}
 
 	ctx.SetBodyStreamWriter(func(w *bufio.Writer) {
-		respCtx.creationTime = time.Now().Unix()
+		respCtx.setCreationTime(time.Now().Unix())
 
-		if len(respCtx.responseTokens) > 0 || len(respCtx.toolCalls) > 0 {
-			if respCtx.isChatCompletion {
-				// in chat completion first chunk contains the role
-				chunk := createChatCompletionChunk(respCtx, "", nil, openaiserverapi.RoleAssistant, nil)
+		if len(respCtx.responseTokens()) > 0 || len(respCtx.toolCalls()) > 0 {
+			// in chat completion first chunk contains the role
+			chunk := respCtx.createFirstCompletionChunk()
+			if chunk != nil {
 				if err := s.sendChunk(w, chunk, ""); err != nil {
 					ctx.Error("Sending stream first chunk failed, "+err.Error(), fasthttp.StatusInternalServerError)
 					return
 				}
 			}
-			if len(respCtx.toolCalls) > 0 {
+			if len(respCtx.toolCalls()) > 0 {
 				s.context.logger.V(logging.TRACE).Info("Going to send tools calls")
-				for _, tc := range respCtx.toolCalls {
+				for _, tc := range respCtx.toolCalls() {
 					s.sendTokenChunks(respCtx, ctx, w, tc.Function.TokenizedArguments, &tc)
 				}
 			} else {
-				s.context.logger.V(logging.TRACE).Info("Going to send text", "number of tokens", len(respCtx.responseTokens))
-				s.sendTokenChunks(respCtx, ctx, w, respCtx.responseTokens, nil)
-				s.context.logger.V(4).Info("Finished sending text", "number of tokens", len(respCtx.responseTokens))
+				s.context.logger.V(logging.TRACE).Info("Going to send text", "number of tokens", len(respCtx.responseTokens()))
+				s.sendTokenChunks(respCtx, ctx, w, respCtx.responseTokens(), nil)
+				s.context.logger.V(4).Info("Finished sending text", "number of tokens", len(respCtx.responseTokens()))
 			}
 		}
 
 		// send usage
-		if respCtx.sendUsageData {
-			chunk := createUsageChunk(respCtx, respCtx.usageData)
+		if respCtx.sendUsageData() {
+			chunk := respCtx.createUsageChunk()
 			if err := s.sendChunk(w, chunk, ""); err != nil {
 				ctx.Error("Sending usage chunk failed, "+err.Error(), fasthttp.StatusInternalServerError)
 				return
@@ -88,20 +88,20 @@ func (s *VllmSimulator) sendStreamingResponse(respCtx *responseContext, ctx *fas
 			ctx.Error("Sending last stream chunk failed, "+err.Error(), fasthttp.StatusInternalServerError)
 			return
 		}
-		s.responseSentCallback(respCtx.displayModel, respCtx.isChatCompletion, respCtx.requestID)
+		s.responseSentCallback(reqCtx, respCtx.displayModel())
 		wg.Done()
 	})
 }
 
 // sendTokenChunks creates and sends response chunks
-func (s *VllmSimulator) sendTokenChunks(respCtx *responseContext, ctx *fasthttp.RequestCtx, w *bufio.Writer, genTokens []string,
+func (s *VllmSimulator) sendTokenChunks(respCtx responseContext, ctx *fasthttp.RequestCtx, w *bufio.Writer, genTokens []string,
 	tc *openaiserverapi.ToolCall) {
 	startPrefill := time.Now()
 	// time to first token delay
 	params := TTFTParams{
-		PromptTokens:       respCtx.usageData.PromptTokens,
-		CachedPromptTokens: respCtx.nCachedPromptTokens,
-		DoRemotePrefill:    respCtx.doRemotePrefill,
+		PromptTokens:       respCtx.usageData().PromptTokens,
+		CachedPromptTokens: respCtx.numberCachedPromptTokens(),
+		DoRemotePrefill:    respCtx.doRemotePrefill(),
 		RunningReqs:        s.context.metrics.nRunningReqs,
 	}
 	ttft := s.context.latencyCalculator.GetTimeToFirstToken(&params)
@@ -137,16 +137,11 @@ func (s *VllmSimulator) sendTokenChunks(respCtx *responseContext, ctx *fasthttp.
 
 		var chunk openaiserverapi.CompletionRespChunk
 		var finishReasonToSend *string
-		if i == len(genTokens)-1 && (*respCtx.finishReason == common.LengthFinishReason ||
-			*respCtx.finishReason == common.ToolsFinishReason) {
-			finishReasonToSend = respCtx.finishReason
+		if i == len(genTokens)-1 && (*respCtx.finishReason() == common.LengthFinishReason ||
+			*respCtx.finishReason() == common.ToolsFinishReason) {
+			finishReasonToSend = respCtx.finishReason()
 		}
-		if respCtx.isChatCompletion {
-			chunk = createChatCompletionChunk(respCtx, token, toolChunkInsert, "", finishReasonToSend)
-		} else {
-			chunk = createTextCompletionChunk(respCtx, token, finishReasonToSend)
-		}
-
+		chunk = respCtx.createCompletionChunk(token, toolChunkInsert, "", finishReasonToSend)
 		if err := s.sendChunk(w, chunk, ""); err != nil {
 			ctx.Error("Sending stream chunk failed, "+err.Error(), fasthttp.StatusInternalServerError)
 			return
@@ -157,12 +152,8 @@ func (s *VllmSimulator) sendTokenChunks(respCtx *responseContext, ctx *fasthttp.
 
 	// send the last chunk if finish reason is stop
 	var chunk openaiserverapi.CompletionRespChunk
-	if *respCtx.finishReason == common.StopFinishReason {
-		if respCtx.isChatCompletion {
-			chunk = createChatCompletionChunk(respCtx, "", nil, "", respCtx.finishReason)
-		} else {
-			chunk = createTextCompletionChunk(respCtx, "", respCtx.finishReason)
-		}
+	if *respCtx.finishReason() == common.StopFinishReason {
+		chunk = respCtx.createCompletionChunk("", nil, "", respCtx.finishReason())
 		if err := s.sendChunk(w, chunk, ""); err != nil {
 			ctx.Error("Sending last stream chunk failed, "+err.Error(), fasthttp.StatusInternalServerError)
 			return

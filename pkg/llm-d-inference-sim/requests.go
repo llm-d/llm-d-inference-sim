@@ -31,6 +31,8 @@ type requestBuilder interface {
 	buildRequestContext(simCtx *simContext, ctx *fasthttp.RequestCtx, wg *sync.WaitGroup) requestContext
 	setID(string)
 	asString() string
+	createResponseContext(displayModel string, responseTokens []string, finishReason *string,
+		usageData *openaiserverapi.Usage, sendUsageData bool, logprobs *int, toolCalls []openaiserverapi.ToolCall) responseContext
 }
 
 type request interface {
@@ -40,6 +42,7 @@ type request interface {
 
 type requestProcessor interface {
 	kvCacheOnRequestStart(reqCtx requestContext) *openaiserverapi.Error
+	kvCacheOnRequestEnd(reqCtx requestContext)
 	createToolCalls(reqCtx requestContext) ([]openaiserverapi.ToolCall, int, string, error)
 }
 

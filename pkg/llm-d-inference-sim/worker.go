@@ -82,7 +82,7 @@ func (s *VllmSimulator) processRequestAsync(reqCtx requestContext, wg *sync.Wait
 		s.sendError(reqCtx.httpRequestCtx(), *serverErr, false)
 	default:
 		if req.IsStream() {
-			s.sendStreamingResponse(respCtx, reqCtx.httpRequestCtx(), wg)
+			s.sendStreamingResponse(reqCtx, respCtx, wg)
 		} else {
 			s.sendResponse(reqCtx, respCtx)
 			wg.Done()
@@ -90,12 +90,12 @@ func (s *VllmSimulator) processRequestAsync(reqCtx requestContext, wg *sync.Wait
 
 		common.WriteToChannel(s.context.metrics.requestSuccessChan,
 			requestSuccessEvent{
-				promptTokens:     respCtx.usageData.PromptTokens,
-				generationTokens: respCtx.usageData.CompletionTokens,
+				promptTokens:     respCtx.usageData().PromptTokens,
+				generationTokens: respCtx.usageData().CompletionTokens,
 				// currently only responses with a single choice are supported
-				genTokensPerChoice: []int{respCtx.usageData.CompletionTokens},
+				genTokensPerChoice: []int{respCtx.usageData().CompletionTokens},
 				maxTokens:          req.GetMaxCompletionTokens(),
-				finishReason:       *respCtx.finishReason},
+				finishReason:       *respCtx.finishReason()},
 			s.context.logger, "metrics.requestSuccessChan")
 	}
 	s.context.logger.V(logging.DEBUG).Info("Finished processing request", "id", req.GetRequestID())
@@ -112,10 +112,9 @@ func (s *VllmSimulator) getFreeWorker() *worker {
 	}
 }
 
-func (s *simContext) handleRequest(reqCtx requestContext) (*responseContext, string, *openaiserverapi.Error) {
+func (s *simContext) handleRequest(reqCtx requestContext) (responseContext, string, *openaiserverapi.Error) {
 	req := reqCtx.request()
 	model := req.GetModel()
-	displayModel := s.getDisplayedModelName(model)
 
 	// increment running requests count
 	common.WriteToChannel(s.metrics.runReqChan, 1, s.logger, "metrics.runReqChan")
@@ -158,28 +157,15 @@ func (s *simContext) handleRequest(reqCtx requestContext) (*responseContext, str
 		logprobs = req.GetLogprobs()
 	}
 
-	respCtx := &responseContext{
-		responseTokens:      responseTokens,
-		toolCalls:           toolCalls,
-		displayModel:        displayModel,
-		finishReason:        &finishReason,
-		usageData:           &usageData,
-		logprobs:            logprobs,
-		requestID:           req.GetRequestID(),
-		doRemotePrefill:     req.IsDoRemotePrefill(),
-		doRemoteDecode:      req.IsDoRemoteDecode(),
-		isChatCompletion:    req.IsChatCompletion(),
-		nCachedPromptTokens: req.GetNumberOfCachedPromptTokens(),
-	}
-
+	sendUsageData := true
 	if req.IsStream() {
-		respCtx.sendUsageData = req.IncludeUsage()
-	} else {
-		respCtx.sendUsageData = true
-		if req.IsDoRemoteDecode() {
-			// in case this is prefill pod processing, return special finish reason
-			respCtx.finishReason = strPtr(common.RemoteDecodeFinishReason)
-		}
+		sendUsageData = req.IncludeUsage()
+	} else if req.IsDoRemoteDecode() {
+		// in case this is prefill pod processing, return special finish reason
+		finishReason = common.RemoteDecodeFinishReason
 	}
+	respCtx := req.createResponseContext(s.getDisplayedModelName(model), responseTokens, &finishReason,
+		&usageData, sendUsageData, logprobs, toolCalls)
+
 	return respCtx, "", nil
 }

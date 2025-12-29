@@ -75,4 +75,22 @@ func (t *textCompletionRequest) asString() string {
 	return "text completion request (req id " + t.RequestID + ")"
 }
 
+func (t *textCompletionRequest) createResponseContext(displayModel string, responseTokens []string, finishReason *string,
+	usageData *openaiserverapi.Usage, sendUsageData bool, logprobs *int, toolCalls []openaiserverapi.ToolCall) responseContext {
+	return &textCompletionResponseCtx{
+		baseResponseContext: baseResponseContext{
+			respTokens:          responseTokens,
+			displayModelName:    displayModel,
+			finishReasonPtr:     finishReason,
+			usage:               usageData,
+			sendUsage:           sendUsageData,
+			logProbs:            logprobs,
+			id:                  t.GetRequestID(),
+			remotePrefill:       t.IsDoRemotePrefill(),
+			remoteDecode:        t.IsDoRemoteDecode(),
+			nCachedPromptTokens: t.GetNumberOfCachedPromptTokens(),
+		},
+	}
+}
+
 var _ request = (*textCompletionRequest)(nil)
