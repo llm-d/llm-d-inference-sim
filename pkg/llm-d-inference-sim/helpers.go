@@ -105,5 +105,3 @@ func validateRequest(req openaiserverapi.Request, config *common.Configuration) 
 	}
 	return "", fasthttp.StatusOK
 }
-
-func strPtr(s string) *string { return &s }
