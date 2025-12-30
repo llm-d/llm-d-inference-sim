@@ -45,12 +45,13 @@ const (
 	chatCompletionObject      = "chat.completion"
 	chatCompletionChunkObject = "chat.completion.chunk"
 
-	podHeader       = "x-inference-pod"
-	portHeader      = "x-inference-port"
-	namespaceHeader = "x-inference-namespace"
-	requestIDHeader = "X-Request-Id"
-	podNameEnv      = "POD_NAME"
-	podNsEnv        = "POD_NAMESPACE"
+	podHeader            = "x-inference-pod"
+	portHeader           = "x-inference-port"
+	namespaceHeader      = "x-inference-namespace"
+	requestIDHeader      = "X-Request-Id"
+	cacheThresholdHeader = "X-Cache-Threshold"
+	podNameEnv           = "POD_NAME"
+	podNsEnv             = "POD_NAMESPACE"
 )
 
 const (

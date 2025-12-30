@@ -132,6 +132,12 @@ func (reqCtx *baseRequestContext) handleRequest() (responseContext, string, *ope
 		// in case this is prefill pod processing, return special finish reason
 		finishReason = common.RemoteDecodeFinishReason
 	}
+
+	// Check for cache threshold header
+	if string(reqCtx.httpRequestCtx().Request.Header.Peek(cacheThresholdHeader)) != "" {
+		finishReason = common.CacheThresholdFinishReason
+	}
+
 	respCtx := req.createResponseContext(reqCtx.sim.getDisplayedModelName(model), responseTokens, &finishReason,
 		&usageData, sendUsageData, logprobs, toolCalls)
 
