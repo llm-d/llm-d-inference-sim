@@ -80,48 +80,6 @@ func (b *baseRequestContext) done() {
 	b.wg.Done()
 }
 
-func (c *chatCompletionReqCtx) kvCacheOnRequestStart() *openaiserverapi.Error {
-	// kv cache is currently supported for /completion API only
-	return nil
-}
-
-func (c *chatCompletionReqCtx) kvCacheOnRequestEnd() {
-}
-
-func (c *chatCompletionReqCtx) createToolCalls() ([]openaiserverapi.ToolCall, int, string, error) {
-	req := c.request()
-	if !common.IsToolChoiceNone(req.GetToolChoice()) &&
-		req.GetTools() != nil {
-		toolCalls, completionTokens, err :=
-			common.CreateToolCalls(req.GetTools(), req.GetToolChoice(), c.sim.config, c.sim.random)
-		finishReason := common.ToolsFinishReason
-		return toolCalls, completionTokens, finishReason, err
-	}
-	return nil, 0, "", nil
-}
-
-func (t *textCompletionReqCtx) kvCacheOnRequestStart() *openaiserverapi.Error {
-	if t.sim.config.EnableKVCache {
-		if err := t.sim.kvcacheHelper.OnRequestStart(t.request()); err != nil {
-			serverError := openaiserverapi.NewError(err.Error(), fasthttp.StatusInternalServerError, nil)
-			return &serverError
-		}
-	}
-	return nil
-}
-
-func (t *textCompletionReqCtx) kvCacheOnRequestEnd() {
-	if t.sim.config.EnableKVCache {
-		if err := t.sim.kvcacheHelper.OnRequestEnd(t.request().GetRequestID()); err != nil {
-			t.sim.logger.Error(err, "kv cache failed to process request end")
-		}
-	}
-}
-
-func (t *textCompletionReqCtx) createToolCalls() ([]openaiserverapi.ToolCall, int, string, error) {
-	return nil, 0, "", nil
-}
-
 func (reqCtx *baseRequestContext) handleRequest() (responseContext, string, *openaiserverapi.Error) {
 	req := reqCtx.request()
 	model := req.GetModel()
