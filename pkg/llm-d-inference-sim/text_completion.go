@@ -59,7 +59,7 @@ func (t *textCompletionRequest) buildRequestContext(simCtx *simContext, ctx *fas
 		req: t,
 	}
 	// wire textCompletionReqCtx into embedded requestContext interface
-	reqCtx.baseRequestContext.requestContext = reqCtx
+	reqCtx.requestContext = reqCtx
 	return reqCtx
 }
 

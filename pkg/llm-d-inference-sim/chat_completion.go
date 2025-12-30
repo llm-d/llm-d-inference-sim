@@ -71,7 +71,7 @@ func (c *chatCompletionRequest) buildRequestContext(simCtx *simContext, ctx *fas
 		req: c,
 	}
 	// wire chatCompletionReqCtx into embedded requestContext interface
-	reqCtx.baseRequestContext.requestContext = reqCtx
+	reqCtx.requestContext = reqCtx
 	return reqCtx
 }
 
