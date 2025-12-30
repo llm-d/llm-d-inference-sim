@@ -24,7 +24,6 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
-	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 )
 
 // worker runs simulators requests
@@ -38,7 +37,7 @@ type worker struct {
 	// a channel to indicate that the worker finished processing a request
 	finishedChan chan *requestCompleted
 	// the request processor
-	processor requestHandler
+	processor requestProcessor
 }
 
 func (w *worker) waitForRequests() {
@@ -55,7 +54,7 @@ func (w *worker) waitForRequests() {
 	}
 }
 
-type requestHandler interface {
+type requestProcessor interface {
 	processRequest(reqCtx requestContext, wg *sync.WaitGroup)
 }
 
@@ -74,7 +73,7 @@ func (s *VllmSimulator) processRequest(reqCtx requestContext, _ *sync.WaitGroup)
 
 func (s *VllmSimulator) processRequestAsync(reqCtx requestContext, wg *sync.WaitGroup) {
 	req := reqCtx.request()
-	respCtx, badRequestErr, serverErr := s.context.handleRequest(reqCtx)
+	respCtx, badRequestErr, serverErr := reqCtx.handleRequest()
 	switch {
 	case badRequestErr != "":
 		s.setBadRequestError(reqCtx.httpRequestCtx(), badRequestErr)
@@ -110,62 +109,4 @@ func (s *VllmSimulator) getFreeWorker() *worker {
 	default:
 		return nil
 	}
-}
-
-func (s *simContext) handleRequest(reqCtx requestContext) (responseContext, string, *openaiserverapi.Error) {
-	req := reqCtx.request()
-	model := req.GetModel()
-
-	// increment running requests count
-	common.WriteToChannel(s.metrics.runReqChan, 1, s.logger, "metrics.runReqChan")
-
-	if s.isLora(model) {
-		// update loraInfo metric to reflect that
-		// the request has changed its status from waiting to running
-		common.WriteToChannel(s.metrics.lorasChan, loraUsage{model, runningUsageState}, s.logger,
-			"metrics.lorasChan")
-	}
-
-	if err := reqCtx.processor().kvCacheOnRequestStart(reqCtx); err != nil {
-		return nil, "", err
-	}
-
-	var responseTokens []string
-	toolCalls, completionTokens, finishReason, err := reqCtx.processor().createToolCalls(reqCtx)
-	if toolCalls == nil && err == nil {
-		// Either no tool calls were defined, or we randomly chose not to create tool calls,
-		// so we generate a response text.
-		responseTokens, finishReason, err = s.dataset.GetTokens(req, s.config.Mode)
-		completionTokens += len(responseTokens)
-	}
-	if err != nil {
-		prefix := "failed to create response for " + req.asString()
-		s.logger.Error(err, prefix)
-		return nil, prefix + err.Error(), nil
-	}
-
-	numOfInputTokens := getNumberOfPromptTokens(req)
-	usageData := openaiserverapi.Usage{
-		PromptTokens:     numOfInputTokens,
-		CompletionTokens: completionTokens,
-		TotalTokens:      numOfInputTokens + completionTokens,
-	}
-
-	// Extract logprob data from request (unified approach)
-	var logprobs *int
-	if toolCalls == nil {
-		logprobs = req.GetLogprobs()
-	}
-
-	sendUsageData := true
-	if req.IsStream() {
-		sendUsageData = req.IncludeUsage()
-	} else if req.IsDoRemoteDecode() {
-		// in case this is prefill pod processing, return special finish reason
-		finishReason = common.RemoteDecodeFinishReason
-	}
-	respCtx := req.createResponseContext(s.getDisplayedModelName(model), responseTokens, &finishReason,
-		&usageData, sendUsageData, logprobs, toolCalls)
-
-	return respCtx, "", nil
 }

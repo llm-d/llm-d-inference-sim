@@ -470,12 +470,12 @@ func (s *VllmSimulator) responseSentCallback(reqCtx requestContext, model string
 			s.context.logger, "metrics.lorasChan")
 	}
 
-	reqCtx.processor().kvCacheOnRequestEnd(reqCtx)
+	reqCtx.kvCacheOnRequestEnd()
 }
 
 // sendResponse sends response for completion API, supports both completions (text and chat)
 func (s *VllmSimulator) sendResponse(reqCtx requestContext, respCtx responseContext) {
-	resp := respCtx.createCompletionResponse()
+	resp := respCtx.createResponse()
 
 	// calculate how long to wait before returning the response, time is based on number of tokens
 	nCachedPromptTokens := reqCtx.request().GetNumberOfCachedPromptTokens()

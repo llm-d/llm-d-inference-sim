@@ -40,24 +40,32 @@ type request interface {
 	openaiserverapi.Request
 }
 
-type requestProcessor interface {
-	kvCacheOnRequestStart(reqCtx requestContext) *openaiserverapi.Error
-	kvCacheOnRequestEnd(reqCtx requestContext)
-	createToolCalls(reqCtx requestContext) ([]openaiserverapi.ToolCall, int, string, error)
-}
-
 type requestContext interface {
-	processor() requestProcessor
 	request() request
 	httpRequestCtx() *fasthttp.RequestCtx
 	done()
 	startProcessingTime() time.Time
+	kvCacheOnRequestStart() *openaiserverapi.Error
+	kvCacheOnRequestEnd()
+	createToolCalls() ([]openaiserverapi.ToolCall, int, string, error)
+	handleRequest() (responseContext, string, *openaiserverapi.Error)
 }
 
 type baseRequestContext struct {
+	requestContext
+	sim             *simContext
 	httpReqCtx      *fasthttp.RequestCtx
 	wg              *sync.WaitGroup
 	startProcessing time.Time
+}
+
+func newBaseRequestContext(simCtx *simContext, ctx *fasthttp.RequestCtx, wg *sync.WaitGroup) baseRequestContext {
+	return baseRequestContext{
+		sim:             simCtx,
+		startProcessing: time.Now(),
+		wg:              wg,
+		httpReqCtx:      ctx,
+	}
 }
 
 func (b *baseRequestContext) httpRequestCtx() *fasthttp.RequestCtx {
@@ -70,4 +78,62 @@ func (b *baseRequestContext) startProcessingTime() time.Time {
 
 func (b *baseRequestContext) done() {
 	b.wg.Done()
+}
+
+func (reqCtx *baseRequestContext) handleRequest() (responseContext, string, *openaiserverapi.Error) {
+	req := reqCtx.request()
+	model := req.GetModel()
+
+	// increment running requests count
+	common.WriteToChannel(reqCtx.sim.metrics.runReqChan, 1, reqCtx.sim.logger, "metrics.runReqChan")
+
+	if reqCtx.sim.isLora(model) {
+		// update loraInfo metric to reflect that
+		// the request has changed its status from waiting to running
+		common.WriteToChannel(reqCtx.sim.metrics.lorasChan, loraUsage{model, runningUsageState}, reqCtx.sim.logger,
+			"metrics.lorasChan")
+	}
+
+	if err := reqCtx.kvCacheOnRequestStart(); err != nil {
+		return nil, "", err
+	}
+
+	var responseTokens []string
+	toolCalls, completionTokens, finishReason, err := reqCtx.createToolCalls()
+	if toolCalls == nil && err == nil {
+		// Either no tool calls were defined, or we randomly chose not to create tool calls,
+		// so we generate a response text.
+		responseTokens, finishReason, err = reqCtx.sim.dataset.GetTokens(req, reqCtx.sim.config.Mode)
+		completionTokens += len(responseTokens)
+	}
+	if err != nil {
+		prefix := "failed to create response for " + req.asString()
+		reqCtx.sim.logger.Error(err, prefix)
+		return nil, prefix + err.Error(), nil
+	}
+
+	numOfInputTokens := getNumberOfPromptTokens(req)
+	usageData := openaiserverapi.Usage{
+		PromptTokens:     numOfInputTokens,
+		CompletionTokens: completionTokens,
+		TotalTokens:      numOfInputTokens + completionTokens,
+	}
+
+	// Extract logprob data from request (unified approach)
+	var logprobs *int
+	if toolCalls == nil {
+		logprobs = req.GetLogprobs()
+	}
+
+	sendUsageData := true
+	if req.IsStream() {
+		sendUsageData = req.IncludeUsage()
+	} else if req.IsDoRemoteDecode() {
+		// in case this is prefill pod processing, return special finish reason
+		finishReason = common.RemoteDecodeFinishReason
+	}
+	respCtx := req.createResponseContext(reqCtx.sim.getDisplayedModelName(model), responseTokens, &finishReason,
+		&usageData, sendUsageData, logprobs, toolCalls)
+
+	return respCtx, "", nil
 }
