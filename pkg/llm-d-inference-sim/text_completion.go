@@ -19,7 +19,6 @@ package llmdinferencesim
 import (
 	"encoding/json"
 	"sync"
-	"time"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
@@ -50,13 +49,8 @@ func (t *textCompletionRequest) validate(config *common.Configuration, toolsVali
 
 func (t *textCompletionRequest) buildRequestContext(simCtx *simContext, ctx *fasthttp.RequestCtx, wg *sync.WaitGroup) requestContext {
 	reqCtx := &textCompletionReqCtx{
-		baseRequestContext: baseRequestContext{
-			sim:             simCtx,
-			startProcessing: time.Now(),
-			wg:              wg,
-			httpReqCtx:      ctx,
-		},
-		req: t,
+		baseRequestContext: newBaseRequestContext(simCtx, ctx, wg),
+		req:                t,
 	}
 	// wire textCompletionReqCtx into embedded requestContext interface
 	reqCtx.requestContext = reqCtx

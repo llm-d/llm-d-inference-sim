@@ -59,6 +59,15 @@ type baseRequestContext struct {
 	startProcessing time.Time
 }
 
+func newBaseRequestContext(simCtx *simContext, ctx *fasthttp.RequestCtx, wg *sync.WaitGroup) baseRequestContext {
+	return baseRequestContext{
+		sim:             simCtx,
+		startProcessing: time.Now(),
+		wg:              wg,
+		httpReqCtx:      ctx,
+	}
+}
+
 func (b *baseRequestContext) httpRequestCtx() *fasthttp.RequestCtx {
 	return b.httpReqCtx
 }

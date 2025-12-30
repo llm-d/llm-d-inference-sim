@@ -19,7 +19,6 @@ package llmdinferencesim
 import (
 	"encoding/json"
 	"sync"
-	"time"
 
 	"github.com/valyala/fasthttp"
 
@@ -62,13 +61,8 @@ func (c *chatCompletionRequest) validate(config *common.Configuration, toolsVali
 
 func (c *chatCompletionRequest) buildRequestContext(simCtx *simContext, ctx *fasthttp.RequestCtx, wg *sync.WaitGroup) requestContext {
 	reqCtx := &chatCompletionReqCtx{
-		baseRequestContext: baseRequestContext{
-			sim:             simCtx,
-			startProcessing: time.Now(),
-			wg:              wg,
-			httpReqCtx:      ctx,
-		},
-		req: c,
+		baseRequestContext: newBaseRequestContext(simCtx, ctx, wg),
+		req:                c,
 	}
 	// wire chatCompletionReqCtx into embedded requestContext interface
 	reqCtx.requestContext = reqCtx
