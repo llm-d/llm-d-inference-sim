@@ -27,21 +27,17 @@ import (
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 )
 
-type chatCompletionRequest struct {
-	openaiserverapi.ChatCompletionRequest
-}
-
 type chatCompletionReqCtx struct {
 	baseRequestContext
-	req          *chatCompletionRequest
-	reqProcessor *chatRequestProcessor
+	req *chatCompletionRequest
 }
 
 func (c *chatCompletionReqCtx) request() request {
 	return c.req
 }
-func (c *chatCompletionReqCtx) processor() requestProcessor {
-	return c.reqProcessor
+
+type chatCompletionRequest struct {
+	openaiserverapi.ChatCompletionRequest
 }
 
 // reads and parses data from the body of the given request
@@ -67,15 +63,15 @@ func (c *chatCompletionRequest) validate(config *common.Configuration, toolsVali
 func (c *chatCompletionRequest) buildRequestContext(simCtx *simContext, ctx *fasthttp.RequestCtx, wg *sync.WaitGroup) requestContext {
 	reqCtx := &chatCompletionReqCtx{
 		baseRequestContext: baseRequestContext{
+			sim:             simCtx,
 			startProcessing: time.Now(),
 			wg:              wg,
 			httpReqCtx:      ctx,
 		},
 		req: c,
-		reqProcessor: &chatRequestProcessor{
-			baseRequestProcessor{simCtx},
-		},
 	}
+	// wire chatCompletionReqCtx into embedded requestContext interface
+	reqCtx.baseRequestContext.requestContext = reqCtx
 	return reqCtx
 }
 
@@ -89,20 +85,11 @@ func (c *chatCompletionRequest) asString() string {
 
 func (c *chatCompletionRequest) createResponseContext(displayModel string, responseTokens []string, finishReason *string,
 	usageData *openaiserverapi.Usage, sendUsageData bool, logprobs *int, toolCalls []openaiserverapi.ToolCall) responseContext {
+	base := newBaseResponseContext(displayModel, responseTokens, finishReason, usageData, sendUsageData,
+		logprobs, c.GetRequestID(), c.IsDoRemotePrefill(), c.IsDoRemoteDecode(), c.GetNumberOfCachedPromptTokens())
 	return &chatCompletionResponseCtx{
-		baseResponseContext: baseResponseContext{
-			respTokens:          responseTokens,
-			displayModelName:    displayModel,
-			finishReasonPtr:     finishReason,
-			usage:               usageData,
-			sendUsage:           sendUsageData,
-			logprobs:            logprobs,
-			id:                  c.GetRequestID(),
-			remotePrefill:       c.IsDoRemotePrefill(),
-			remoteDecode:        c.IsDoRemoteDecode(),
-			nCachedPromptTokens: c.GetNumberOfCachedPromptTokens(),
-		},
-		toolsCalls: toolCalls,
+		baseResponseContext: base,
+		toolsCalls:          toolCalls,
 	}
 }
 

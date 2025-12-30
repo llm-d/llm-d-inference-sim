@@ -26,21 +26,17 @@ import (
 	"github.com/valyala/fasthttp"
 )
 
-type textCompletionRequest struct {
-	openaiserverapi.TextCompletionRequest
-}
-
 type textCompletionReqCtx struct {
 	baseRequestContext
-	req          *textCompletionRequest
-	reqProcessor *textRequestProcessor
+	req *textCompletionRequest
 }
 
 func (t *textCompletionReqCtx) request() request {
 	return t.req
 }
-func (t *textCompletionReqCtx) processor() requestProcessor {
-	return t.reqProcessor
+
+type textCompletionRequest struct {
+	openaiserverapi.TextCompletionRequest
 }
 
 // reads and parses data from the body of the given request
@@ -55,15 +51,15 @@ func (t *textCompletionRequest) validate(config *common.Configuration, toolsVali
 func (t *textCompletionRequest) buildRequestContext(simCtx *simContext, ctx *fasthttp.RequestCtx, wg *sync.WaitGroup) requestContext {
 	reqCtx := &textCompletionReqCtx{
 		baseRequestContext: baseRequestContext{
+			sim:             simCtx,
 			startProcessing: time.Now(),
 			wg:              wg,
 			httpReqCtx:      ctx,
 		},
 		req: t,
-		reqProcessor: &textRequestProcessor{
-			baseRequestProcessor{simCtx},
-		},
 	}
+	// wire textCompletionReqCtx into embedded requestContext interface
+	reqCtx.baseRequestContext.requestContext = reqCtx
 	return reqCtx
 }
 
@@ -77,19 +73,10 @@ func (t *textCompletionRequest) asString() string {
 
 func (t *textCompletionRequest) createResponseContext(displayModel string, responseTokens []string, finishReason *string,
 	usageData *openaiserverapi.Usage, sendUsageData bool, logprobs *int, toolCalls []openaiserverapi.ToolCall) responseContext {
+	base := newBaseResponseContext(displayModel, responseTokens, finishReason, usageData, sendUsageData,
+		logprobs, t.GetRequestID(), t.IsDoRemotePrefill(), t.IsDoRemoteDecode(), t.GetNumberOfCachedPromptTokens())
 	return &textCompletionResponseCtx{
-		baseResponseContext: baseResponseContext{
-			respTokens:          responseTokens,
-			displayModelName:    displayModel,
-			finishReasonPtr:     finishReason,
-			usage:               usageData,
-			sendUsage:           sendUsageData,
-			logprobs:            logprobs,
-			id:                  t.GetRequestID(),
-			remotePrefill:       t.IsDoRemotePrefill(),
-			remoteDecode:        t.IsDoRemoteDecode(),
-			nCachedPromptTokens: t.GetNumberOfCachedPromptTokens(),
-		},
+		baseResponseContext: base,
 	}
 }
 

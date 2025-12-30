@@ -69,6 +69,23 @@ type baseResponseContext struct {
 	logprobs *int
 }
 
+func newBaseResponseContext(displayModel string, responseTokens []string, finishReason *string,
+	usageData *openaiserverapi.Usage, sendUsageData bool, logprobs *int, id string, doRemotePrefill bool,
+	doRemoteDecode bool, nCachedPromptTokens int) baseResponseContext {
+	return baseResponseContext{
+		respTokens:          responseTokens,
+		displayModelName:    displayModel,
+		finishReasonPtr:     finishReason,
+		usage:               usageData,
+		sendUsage:           sendUsageData,
+		logprobs:            logprobs,
+		id:                  id,
+		remotePrefill:       doRemotePrefill,
+		remoteDecode:        doRemoteDecode,
+		nCachedPromptTokens: nCachedPromptTokens,
+	}
+}
+
 type chatCompletionResponseCtx struct {
 	baseResponseContext
 	// tool calls to be sent in the response

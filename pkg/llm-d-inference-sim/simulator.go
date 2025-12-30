@@ -470,7 +470,7 @@ func (s *VllmSimulator) responseSentCallback(reqCtx requestContext, model string
 			s.context.logger, "metrics.lorasChan")
 	}
 
-	reqCtx.processor().kvCacheOnRequestEnd(reqCtx)
+	reqCtx.kvCacheOnRequestEnd()
 }
 
 // sendResponse sends response for completion API, supports both completions (text and chat)
