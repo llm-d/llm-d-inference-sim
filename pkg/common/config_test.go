@@ -227,10 +227,11 @@ var _ = Describe("Simulator configuration", func() {
 		RequestParamsMaxTokens:     []int{128, 256, 512},
 		RequestMaxGenerationTokens: []int{0, 0, 10, 20},
 		RequestSuccessTotal: map[string]int64{
-			StopFinishReason:         20,
-			LengthFinishReason:       0,
-			ToolsFinishReason:        0,
-			RemoteDecodeFinishReason: 0,
+			StopFinishReason:           20,
+			LengthFinishReason:         0,
+			ToolsFinishReason:          0,
+			RemoteDecodeFinishReason:   0,
+			CacheThresholdFinishReason: 0,
 		},
 	}
 	test = testCase{

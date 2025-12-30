@@ -44,10 +44,11 @@ const (
 	FailureTypeInvalidRequest = "invalid_request"
 	FailureTypeModelNotFound  = "model_not_found"
 
-	StopFinishReason         = "stop"
-	LengthFinishReason       = "length"
-	ToolsFinishReason        = "tool_calls"
-	RemoteDecodeFinishReason = "remote_decode"
+	StopFinishReason           = "stop"
+	LengthFinishReason         = "length"
+	ToolsFinishReason          = "tool_calls"
+	RemoteDecodeFinishReason   = "remote_decode"
+	CacheThresholdFinishReason = "cache_threshold"
 
 	podIPEnv = "POD_IP"
 
@@ -62,13 +63,15 @@ var (
 		LengthFinishReason,
 		ToolsFinishReason,
 		RemoteDecodeFinishReason,
+		CacheThresholdFinishReason,
 	}
 
 	validFinishReasons = map[string]struct{}{
-		StopFinishReason:         {},
-		LengthFinishReason:       {},
-		ToolsFinishReason:        {},
-		RemoteDecodeFinishReason: {},
+		StopFinishReason:           {},
+		LengthFinishReason:         {},
+		ToolsFinishReason:          {},
+		RemoteDecodeFinishReason:   {},
+		CacheThresholdFinishReason: {},
 	}
 )
 

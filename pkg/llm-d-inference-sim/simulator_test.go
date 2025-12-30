@@ -18,6 +18,7 @@ package llmdinferencesim
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -687,6 +688,90 @@ var _ = Describe("Simulator", func() {
 			Expect(resp.StatusCode).To(Equal(400))
 			Expect(string(body)).To(ContainSubstring("This model's maximum context length is 10 tokens"))
 			Expect(string(body)).To(ContainSubstring("BadRequestError"))
+		})
+	})
+
+	// Add in simulator_test.go, alongside other Context blocks
+
+	Context("cache threshold header", func() {
+		It("Should return cache_threshold finish reason when header is set", func() {
+			ctx := context.TODO()
+			client, err := startServer(ctx, common.ModeRandom)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Create request with cache threshold header
+			reqBody := `{
+            "messages": [{"role": "user", "content": "Hello"}],
+            "model": "` + testModel + `",
+            "max_tokens": 5
+        }`
+
+			req, err := http.NewRequest("POST", "http://localhost/v1/chat/completions", strings.NewReader(reqBody))
+			Expect(err).NotTo(HaveOccurred())
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set("X-Cache-Threshold", "true") // Your new header
+
+			resp, err := client.Do(req)
+			Expect(err).NotTo(HaveOccurred())
+			defer func() {
+				err := resp.Body.Close()
+				Expect(err).NotTo(HaveOccurred())
+			}()
+
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+			body, err := io.ReadAll(resp.Body)
+			Expect(err).NotTo(HaveOccurred())
+
+			var chatResp map[string]interface{}
+			err = json.Unmarshal(body, &chatResp)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Verify finish_reason is "cache_threshold"
+			choices := chatResp["choices"].([]interface{})
+			Expect(choices).To(HaveLen(1))
+			firstChoice := choices[0].(map[string]interface{})
+			Expect(firstChoice["finish_reason"]).To(Equal("cache_threshold"))
+		})
+
+		It("Should return normal finish reason when header is not set", func() {
+			ctx := context.TODO()
+			client, err := startServer(ctx, common.ModeRandom)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Create request WITHOUT cache threshold header
+			reqBody := `{
+            "messages": [{"role": "user", "content": "Hello"}],
+            "model": "` + testModel + `",
+            "max_tokens": 5
+        }`
+
+			req, err := http.NewRequest("POST", "http://localhost/v1/chat/completions", strings.NewReader(reqBody))
+			Expect(err).NotTo(HaveOccurred())
+			req.Header.Set("Content-Type", "application/json")
+			// No X-Cache-Threshold header
+
+			resp, err := client.Do(req)
+			Expect(err).NotTo(HaveOccurred())
+			defer func() {
+				err := resp.Body.Close()
+				Expect(err).NotTo(HaveOccurred())
+			}()
+
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+			body, err := io.ReadAll(resp.Body)
+			Expect(err).NotTo(HaveOccurred())
+
+			var chatResp map[string]interface{}
+			err = json.Unmarshal(body, &chatResp)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Verify finish_reason is NOT "cache_threshold"
+			choices := chatResp["choices"].([]interface{})
+			Expect(choices).To(HaveLen(1))
+			firstChoice := choices[0].(map[string]interface{})
+			Expect(firstChoice["finish_reason"]).To(Or(Equal("stop"), Equal("length")))
 		})
 	})
 })
