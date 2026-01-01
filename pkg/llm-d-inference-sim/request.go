@@ -29,7 +29,6 @@ type requestBuilder interface {
 	unmarshal(data []byte) error
 	validate(config *common.Configuration, toolsValidator *common.ToolsValidator) (string, int)
 	buildRequestContext(simCtx *simContext, ctx *fasthttp.RequestCtx, wg *sync.WaitGroup) requestContext
-	setID(string)
 	asString() string
 	createResponseContext(displayModel string, responseTokens []string, finishReason *string,
 		usageData *openaiserverapi.Usage, sendUsageData bool, logprobs *int, toolCalls []openaiserverapi.ToolCall) responseContext
