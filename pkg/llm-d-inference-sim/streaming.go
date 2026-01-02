@@ -138,7 +138,8 @@ func (s *VllmSimulator) sendTokenChunks(respCtx responseContext, ctx *fasthttp.R
 		var chunk openaiserverapi.CompletionRespChunk
 		var finishReasonToSend *string
 		if i == len(genTokens)-1 && (*respCtx.finishReason() == common.LengthFinishReason ||
-			*respCtx.finishReason() == common.ToolsFinishReason) {
+			*respCtx.finishReason() == common.ToolsFinishReason ||
+			*respCtx.finishReason() == common.CacheThresholdFinishReason) {
 			finishReasonToSend = respCtx.finishReason()
 		}
 		chunk = respCtx.createCompletionChunk(token, toolChunkInsert, "", finishReasonToSend)
