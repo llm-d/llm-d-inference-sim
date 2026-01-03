@@ -47,9 +47,9 @@ func createDefaultConfig(model string) *Configuration {
 	c.MaxNumSeqs = 5
 	c.MaxLoras = 2
 	c.MaxCPULoras = 5
-	c.TimeToFirstToken = Duration(2000 * time.Millisecond)
-	c.InterTokenLatency = Duration(1000 * time.Millisecond)
-	c.KVCacheTransferLatency = Duration(100 * time.Millisecond)
+	c.TimeToFirstToken = 2000 * time.Millisecond
+	c.InterTokenLatency = 1000 * time.Millisecond
+	c.KVCacheTransferLatency = 100 * time.Millisecond
 	c.Seed = 100100100
 	c.LoraModules = []LoraModule{}
 	return c
@@ -177,31 +177,16 @@ var _ = Describe("Simulator configuration", func() {
 	}
 	tests = append(tests, test)
 
-	// Config from config_with_duration_latency.yaml file plus command line args with empty parameter for loras
-	c = createDefaultConfig(qwenModelName)
-	c.Port = 8001
-	c.ServedModelNames = []string{"model1", "model2"}
-	c.LoraModulesString = []string{}
-	c.TimeToFirstToken = Duration(4 * time.Second)
-	c.InterTokenLatency = Duration(2 * time.Second)
-	c.KVCacheTransferLatency = Duration(time.Second)
-	test = testCase{
-		name:           "config file with command line args with empty parameter for loras",
-		args:           []string{"cmd", "--config", "../../manifests/config_with_duration_latency.yaml", "--lora-modules"},
-		expectedConfig: c,
-	}
-	tests = append(tests, test)
-
 	// Config from basic-config.yaml file plus command line args with time to copy cache
 	c = createDefaultConfig(qwenModelName)
 	c.Port = 8001
 	// basic config file does not contain properties related to lora
 	c.MaxLoras = 1
 	c.MaxCPULoras = 1
-	c.KVCacheTransferLatency = Duration(50 * time.Millisecond)
+	c.KVCacheTransferLatency = 50 * time.Millisecond
 	test = testCase{
 		name:           "basic config file with command line args with time to transfer kv-cache",
-		args:           []string{"cmd", "--config", "../../manifests/basic-config.yaml", "--kv-cache-transfer-latency", "50"},
+		args:           []string{"cmd", "--config", "../../manifests/basic-config.yaml", "--kv-cache-transfer-latency", "50ms"},
 		expectedConfig: c,
 	}
 	tests = append(tests, test)
@@ -368,37 +353,37 @@ var _ = Describe("Simulator configuration", func() {
 		},
 		{
 			name: "invalid time-to-first-token-std-dev",
-			args: []string{"cmd", "--time-to-first-token-std-dev", "3000",
+			args: []string{"cmd", "--time-to-first-token-std-dev", "3000ms",
 				"--config", "../../manifests/config.yaml"},
 			expectedError: "time to first token standard deviation cannot be more than 30%",
 		},
 		{
 			name: "invalid (negative) time-to-first-token-std-dev",
-			args: []string{"cmd", "--time-to-first-token-std-dev", "10", "--time-to-first-token-std-dev", "-1",
+			args: []string{"cmd", "--time-to-first-token-std-dev", "10ms", "--time-to-first-token-std-dev", "-1ms",
 				"--config", "../../manifests/config.yaml"},
 			expectedError: "time to first token standard deviation cannot be negative",
 		},
 		{
 			name: "invalid inter-token-latency-std-dev",
-			args: []string{"cmd", "--inter-token-latency", "1000", "--inter-token-latency-std-dev", "301",
+			args: []string{"cmd", "--inter-token-latency", "1000ms", "--inter-token-latency-std-dev", "301ms",
 				"--config", "../../manifests/config.yaml"},
 			expectedError: "inter token latency standard deviation cannot be more than 30%",
 		},
 		{
 			name: "invalid (negative) inter-token-latency-std-dev",
-			args: []string{"cmd", "--inter-token-latency", "1000", "--inter-token-latency-std-dev", "-1",
+			args: []string{"cmd", "--inter-token-latency", "1000ms", "--inter-token-latency-std-dev", "-1ms",
 				"--config", "../../manifests/config.yaml"},
 			expectedError: "inter token latency standard deviation cannot be negative",
 		},
 		{
 			name: "invalid kv-cache-transfer-latency-std-dev",
-			args: []string{"cmd", "--kv-cache-transfer-latency", "70", "--kv-cache-transfer-latency-std-dev", "35",
+			args: []string{"cmd", "--kv-cache-transfer-latency", "70ms", "--kv-cache-transfer-latency-std-dev", "35ms",
 				"--config", "../../manifests/config.yaml"},
 			expectedError: "kv-cache tranfer standard deviation cannot be more than 30% of kv-cache tranfer",
 		},
 		{
 			name: "invalid (negative) kv-cache-transfer-latency-std-dev",
-			args: []string{"cmd", "--kv-cache-transfer-latency-std-dev", "-35",
+			args: []string{"cmd", "--kv-cache-transfer-latency-std-dev", "-35ms",
 				"--config", "../../manifests/config.yaml"},
 			expectedError: "kv-cache tranfer time standard deviation cannot be negative",
 		},
@@ -459,32 +444,98 @@ var _ = Describe("Simulator configuration", func() {
 			expectedError: "zmq retries times cannot be negative",
 		},
 		{
+			name: "invalid (integer) time-to-first-token",
+			args: []string{"cmd", "--time-to-first-token", "3000",
+				"--config", "../../manifests/config.yaml"},
+			expectedError: `invalid argument "3000" for "--time-to-first-token" flag: time: missing unit in duration "3000"`,
+		},
+		{
+			name: "invalid (integer) time-to-first-token-std-dev",
+			args: []string{"cmd", "--time-to-first-token-std-dev", "3000",
+				"--config", "../../manifests/config.yaml"},
+			expectedError: `invalid argument "3000" for "--time-to-first-token-std-dev" flag: time: missing unit in duration "3000"`,
+		},
+		{
+			name: "invalid (integer) inter-token-latency",
+			args: []string{"cmd", "--inter-token-latency", "3000",
+				"--config", "../../manifests/config.yaml"},
+			expectedError: `invalid argument "3000" for "--inter-token-latency" flag: time: missing unit in duration "3000"`,
+		},
+		{
+			name: "invalid (integer) inter-token-latency-std-dev",
+			args: []string{"cmd", "--inter-token-latency-std-dev", "3000",
+				"--config", "../../manifests/config.yaml"},
+			expectedError: `invalid argument "3000" for "--inter-token-latency-std-dev" flag: time: missing unit in duration "3000"`,
+		},
+		{
+			name: "invalid (integer) kv-cache-transfer-latency",
+			args: []string{"cmd", "--kv-cache-transfer-latency", "3000",
+				"--config", "../../manifests/config.yaml"},
+			expectedError: `invalid argument "3000" for "--kv-cache-transfer-latency" flag: time: missing unit in duration "3000"`,
+		},
+		{
+			name: "invalid (integer) kv-cache-transfer-latency-std-dev",
+			args: []string{"cmd", "--kv-cache-transfer-latency-std-dev", "3000",
+				"--config", "../../manifests/config.yaml"},
+			expectedError: `invalid argument "3000" for "--kv-cache-transfer-latency-std-dev" flag: time: missing unit in duration "3000"`,
+		},
+		{
+			name: "invalid (integer) prefill-overhead",
+			args: []string{"cmd", "--prefill-overhead", "3000",
+				"--config", "../../manifests/config.yaml"},
+			expectedError: `invalid argument "3000" for "--prefill-overhead" flag: time: missing unit in duration "3000"`,
+		},
+		{
+			name: "invalid (integer) prefill-time-per-token",
+			args: []string{"cmd", "--prefill-time-per-token", "3000",
+				"--config", "../../manifests/config.yaml"},
+			expectedError: `invalid argument "3000" for "--prefill-time-per-token" flag: time: missing unit in duration "3000"`,
+		},
+		{
+			name: "invalid (integer) prefill-time-std-dev",
+			args: []string{"cmd", "--prefill-time-std-dev", "3000",
+				"--config", "../../manifests/config.yaml"},
+			expectedError: `invalid argument "3000" for "--prefill-time-std-dev" flag: time: missing unit in duration "3000"`,
+		},
+		{
+			name: "invalid (integer) kv-cache-transfer-time-per-token",
+			args: []string{"cmd", "--kv-cache-transfer-time-per-token", "3000",
+				"--config", "../../manifests/config.yaml"},
+			expectedError: `invalid argument "3000" for "--kv-cache-transfer-time-per-token" flag: time: missing unit in duration "3000"`,
+		},
+		{
+			name: "invalid (integer) kv-cache-transfer-time-std-dev",
+			args: []string{"cmd", "--kv-cache-transfer-time-std-dev", "3000",
+				"--config", "../../manifests/config.yaml"},
+			expectedError: `invalid argument "3000" for "--kv-cache-transfer-time-std-dev" flag: time: missing unit in duration "3000"`,
+		},
+		{
 			name: "invalid (negative) prefill-overhead",
-			args: []string{"cmd", "--prefill-overhead", "-1",
+			args: []string{"cmd", "--prefill-overhead", "-1ms",
 				"--config", "../../manifests/config.yaml"},
 			expectedError: "prefill overhead cannot be negative",
 		},
 		{
 			name: "invalid (negative) prefill-time-per-token",
-			args: []string{"cmd", "--prefill-time-per-token", "-1",
+			args: []string{"cmd", "--prefill-time-per-token", "-1ms",
 				"--config", "../../manifests/config.yaml"},
 			expectedError: "prefill time per token cannot be negative",
 		},
 		{
 			name: "invalid (negative) prefill-time-std-dev",
-			args: []string{"cmd", "--prefill-time-std-dev", "-1",
+			args: []string{"cmd", "--prefill-time-std-dev", "-1ms",
 				"--config", "../../manifests/config.yaml"},
 			expectedError: "prefill time standard deviation cannot be negative",
 		},
 		{
 			name: "invalid (negative) kv-cache-transfer-time-per-token",
-			args: []string{"cmd", "--kv-cache-transfer-time-per-token", "-1",
+			args: []string{"cmd", "--kv-cache-transfer-time-per-token", "-1ms",
 				"--config", "../../manifests/config.yaml"},
 			expectedError: "kv-cache tranfer time per token cannot be negative",
 		},
 		{
 			name: "invalid (negative) kv-cache-transfer-time-std-dev",
-			args: []string{"cmd", "--kv-cache-transfer-time-std-dev", "-1",
+			args: []string{"cmd", "--kv-cache-transfer-time-std-dev", "-1ms",
 				"--config", "../../manifests/config.yaml"},
 			expectedError: "kv-cache tranfer time standard deviation cannot be negative",
 		},

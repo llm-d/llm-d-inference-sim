@@ -3,9 +3,9 @@ max-loras: 2
 max-cpu-loras: 5
 max-num-seqs: 5
 mode: "random"
-time-to-first-token: 2000
-inter-token-latency: 1000
-kv-cache-transfer-latency: 100
+time-to-first-token: "2s"
+inter-token-latency: "1s"
+kv-cache-transfer-latency: "100ms"
 seed: 100100100
 fake-metrics:
   running-requests: 16

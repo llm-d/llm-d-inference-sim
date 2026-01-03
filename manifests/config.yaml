@@ -10,7 +10,7 @@ lora-modules:
 - '{"name":"lora1","path":"/path/to/lora1"}'
 - '{"name":"lora2","path":"/path/to/lora2"}'
 mode: "random"
-time-to-first-token: 2000
-inter-token-latency: 1000
-kv-cache-transfer-latency: 100
+time-to-first-token: "2s"
+inter-token-latency: "1s"
+kv-cache-transfer-latency: "100ms"
 seed: 100100100
