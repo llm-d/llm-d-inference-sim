@@ -694,9 +694,7 @@ var _ = Describe("Simulator", func() {
 	Context("cache threshold finish reason header", func() {
 		It("Should return cache_threshold finish reason when header is set", func() {
 			ctx := context.TODO()
-			args := []string{"cmd", "--model", testModel, "--mode", common.ModeRandom,
-				"--enable-kvcache", "true"}
-			client, err := startServerWithArgsAndEnv(ctx, "", args, map[string]string{"POD_IP": "localhost"})
+			client, err := startServer(ctx, common.ModeRandom)
 			Expect(err).NotTo(HaveOccurred())
 
 			reqBody := `{
