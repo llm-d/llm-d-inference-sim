@@ -17,6 +17,7 @@ limitations under the License.
 package llmdinferencesim
 
 import (
+	"strconv"
 	"sync"
 	"time"
 
@@ -132,8 +133,9 @@ func (reqCtx *baseRequestContext) handleRequest() (responseContext, string, *ope
 		finishReason = common.RemoteDecodeFinishReason
 	}
 
-	// Check for cache threshold header
-	if string(reqCtx.httpRequestCtx().Request.Header.Peek(cacheThresholdFinishReasonHeader)) != "" {
+	// Check for cache threshold finish reason header
+	headerValue := string(reqCtx.httpRequestCtx().Request.Header.Peek(cacheThresholdFinishReasonHeader))
+	if parsedValue, err := strconv.ParseBool(headerValue); err == nil && parsedValue {
 		finishReason = common.CacheThresholdFinishReason
 	}
 
