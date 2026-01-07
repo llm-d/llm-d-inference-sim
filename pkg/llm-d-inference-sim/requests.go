@@ -134,7 +134,7 @@ func (reqCtx *baseRequestContext) handleRequest() (responseContext, string, *ope
 	}
 
 	// Check for cache threshold header
-	if string(reqCtx.httpRequestCtx().Request.Header.Peek(cacheThresholdHeader)) != "" {
+	if string(reqCtx.httpRequestCtx().Request.Header.Peek(cacheThresholdFinishReasonHeader)) != "" {
 		finishReason = common.CacheThresholdFinishReason
 	}
 
