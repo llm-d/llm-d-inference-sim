@@ -17,14 +17,24 @@ limitations under the License.
 package llmdinferencesim
 
 import (
+	"context"
+	"fmt"
 	"sync"
 
 	"github.com/go-logr/logr"
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
+	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 	"github.com/llm-d/llm-d-inference-sim/pkg/dataset"
 	kvcache "github.com/llm-d/llm-d-inference-sim/pkg/kv-cache"
+	"github.com/llm-d/llm-d-kv-cache-manager/pkg/tokenization"
+)
+
+const (
+	waitingUsageState loraUsageState = iota
+	runningUsageState
+	doneUsageState
 )
 
 type loraUsageState int
@@ -138,12 +148,99 @@ type simContext struct {
 	loras *lorasUsageInfo
 	// rand with a configurable seed to generate reproducible random responses
 	random *common.Random
+	// tokenizer is currently used in kv-cache and in /tokenize
+	tokenizer tokenization.Tokenizer
 	// kv cache functionality
 	kvcacheHelper *kvcache.KVCacheHelper
 	// dataset is used for token generation in responses
 	dataset dataset.Dataset
 	// latencyCalculator calculates the delays in simulator's responses
 	latencyCalculator LatencyCalculator
+}
+
+func (s *simContext) initialize(ctx context.Context) error {
+	s.random = common.NewRandom(s.config.Seed, s.config.Port)
+
+	switch s.config.LatencyCalculator {
+	case common.DefaultLatencyCalculator:
+		s.latencyCalculator = newDefaultCalculator(s.config, s.random)
+	case common.ConstantLatencyCalculator:
+		s.latencyCalculator = newConstantCalculator(s.config, s.random)
+	case common.PerPromptTokenLatencyCalculator:
+		s.latencyCalculator = newPerTokenCalculator(s.config, s.random)
+	}
+
+	for _, lora := range s.config.LoraModules {
+		s.loraAdaptors.Store(lora.Name, "")
+	}
+	s.loras.maxLoras = s.config.MaxLoras
+	s.loras.loraRemovable = make(chan int, s.config.MaxNumSeqs)
+
+	// initialize prometheus metrics
+	err := s.createAndRegisterPrometheus(ctx)
+	if err != nil {
+		return err
+	}
+
+	tokenizationConfig, err := tokenization.DefaultConfig()
+	if err != nil {
+		return fmt.Errorf("failed to create default tokenization configuration: %w", err)
+	}
+
+	if s.config.TokenizersCacheDir != "" {
+		if tokenizationConfig.HFTokenizerConfig == nil {
+			tokenizationConfig.HFTokenizerConfig = &tokenization.HFTokenizerConfig{}
+		}
+		tokenizationConfig.HFTokenizerConfig.TokenizersCacheDir = s.config.TokenizersCacheDir
+	}
+
+	s.tokenizer, err = tokenization.NewCachedHFTokenizer(tokenizationConfig.HFTokenizerConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create hf tokenizer: %w", err)
+	}
+
+	if s.config.EnableKVCache {
+		s.kvcacheHelper, err = kvcache.NewKVCacheHelper(s.config, s.logger,
+			s.metrics.kvCacheUsageChan, s.tokenizer)
+		if err != nil {
+			return err
+		}
+
+		go s.kvcacheHelper.Run(ctx)
+	}
+
+	err = s.initDataset(ctx)
+	if err != nil {
+		return fmt.Errorf("dataset initialization error: %w", err)
+	}
+
+	return nil
+}
+
+func (s *simContext) initDataset(ctx context.Context) error {
+	if s.config.DatasetPath == "" && s.config.DatasetURL == "" {
+		// use predefined sentences as responses
+		randDataset := &dataset.DefaultDataset{}
+		err := randDataset.Init(ctx, s.logger, s.random, s.config.MaxModelLen)
+		if err != nil {
+			return fmt.Errorf("failed to initialize random dataset: %w", err)
+		}
+		s.logger.V(logging.INFO).Info("No dataset path or URL provided, using random text for responses")
+		s.dataset = randDataset
+		return nil
+	}
+
+	// use dataset containing responses
+	custDataset := &dataset.CustomDataset{}
+	err := custDataset.Init(ctx, s.logger, s.random, s.config.DatasetPath,
+		s.config.DatasetInMemory, s.config.MaxModelLen)
+
+	if err == nil {
+		s.dataset = custDataset
+		return nil
+	}
+
+	return err
 }
 
 // isLora returns true if the given model name is one of loaded LoRAs

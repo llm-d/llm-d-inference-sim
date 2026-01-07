@@ -34,10 +34,8 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 	"github.com/llm-d/llm-d-inference-sim/pkg/dataset"
-	kvcache "github.com/llm-d/llm-d-inference-sim/pkg/kv-cache"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	vllmapi "github.com/llm-d/llm-d-inference-sim/pkg/vllm-api"
-	"github.com/llm-d/llm-d-kv-cache-manager/pkg/tokenization"
 )
 
 const (
@@ -52,12 +50,6 @@ const (
 	cacheThresholdHeader = "X-Cache-Threshold"
 	podNameEnv           = "POD_NAME"
 	podNsEnv             = "POD_NAMESPACE"
-)
-
-const (
-	waitingUsageState loraUsageState = iota
-	runningUsageState
-	doneUsageState
 )
 
 type requestCompleted struct {
@@ -79,8 +71,6 @@ type VllmSimulator struct {
 	namespace string
 	// pod name of simulator
 	pod string
-	// tokenizer is currently used in kv-cache and in /tokenize
-	tokenizer tokenization.Tokenizer
 
 	// indication whether the simulator is sleeping
 	isSleeping bool
@@ -197,78 +187,14 @@ func (s *VllmSimulator) startSim(ctx context.Context) error {
 }
 
 func (s *VllmSimulator) initializeSim(ctx context.Context) error {
-	s.context.random = common.NewRandom(s.context.config.Seed, s.context.config.Port)
-
-	switch s.context.config.LatencyCalculator {
-	case common.DefaultLatencyCalculator:
-		s.context.latencyCalculator = newDefaultCalculator(s.context.config, s.context.random)
-	case common.ConstantLatencyCalculator:
-		s.context.latencyCalculator = newConstantCalculator(s.context.config, s.context.random)
-	case common.PerPromptTokenLatencyCalculator:
-		s.context.latencyCalculator = newPerTokenCalculator(s.context.config, s.context.random)
+	if err := s.context.initialize(ctx); err != nil {
+		return err
 	}
-
-	for _, lora := range s.context.config.LoraModules {
-		s.context.loraAdaptors.Store(lora.Name, "")
-	}
-	s.context.loras.maxLoras = s.context.config.MaxLoras
-	s.context.loras.loraRemovable = make(chan int, s.context.config.MaxNumSeqs)
 
 	s.queueCapacity = s.context.config.MaxWaitingQueueLength
 
 	maxNumberOfRequests := s.context.config.MaxNumSeqs + s.context.config.MaxWaitingQueueLength
-	s.context.metrics.runReqChan = make(chan int64, maxNumberOfRequests)
-	s.context.metrics.waitingReqChan = make(chan int64, maxNumberOfRequests)
-	s.context.metrics.lorasChan = make(chan loraUsage, maxNumberOfRequests)
-	s.context.metrics.kvCacheUsageChan = make(chan float64, maxNumberOfRequests)
-	s.context.metrics.ttftChan = make(chan float64, maxNumberOfRequests)
-	s.context.metrics.tpotChan = make(chan float64, maxNumberOfRequests)
-	s.context.metrics.e2eReqLatencyChan = make(chan float64, maxNumberOfRequests)
-	s.context.metrics.reqQueueTimeChan = make(chan float64, maxNumberOfRequests)
-	s.context.metrics.reqInferenceTimeChan = make(chan float64, maxNumberOfRequests)
-	s.context.metrics.reqPrefillTimeChan = make(chan float64, maxNumberOfRequests)
-	s.context.metrics.reqDecodeTimeChan = make(chan float64, maxNumberOfRequests)
-	s.context.metrics.requestSuccessChan = make(chan requestSuccessEvent, maxNumberOfRequests)
-
 	s.newRequests = make(chan requestContext, maxNumberOfRequests)
-
-	// initialize prometheus metrics
-	err := s.context.createAndRegisterPrometheus()
-	if err != nil {
-		return err
-	}
-
-	tokenizationConfig, err := tokenization.DefaultConfig()
-	if err != nil {
-		return fmt.Errorf("failed to create default tokenization configuration: %w", err)
-	}
-
-	if s.context.config.TokenizersCacheDir != "" {
-		if tokenizationConfig.HFTokenizerConfig == nil {
-			tokenizationConfig.HFTokenizerConfig = &tokenization.HFTokenizerConfig{}
-		}
-		tokenizationConfig.HFTokenizerConfig.TokenizersCacheDir = s.context.config.TokenizersCacheDir
-	}
-
-	s.tokenizer, err = tokenization.NewCachedHFTokenizer(tokenizationConfig.HFTokenizerConfig)
-	if err != nil {
-		return fmt.Errorf("failed to create hf tokenizer: %w", err)
-	}
-
-	if s.context.config.EnableKVCache {
-		s.context.kvcacheHelper, err = kvcache.NewKVCacheHelper(s.context.config, s.context.logger,
-			s.context.metrics.kvCacheUsageChan, s.tokenizer)
-		if err != nil {
-			return err
-		}
-
-		go s.context.kvcacheHelper.Run(ctx)
-	}
-
-	err = s.initDataset(ctx)
-	if err != nil {
-		return fmt.Errorf("dataset initialization error: %w", err)
-	}
 
 	// run request processing workers
 	s.freeWorkers = make(chan *worker, s.context.config.MaxNumSeqs)
@@ -286,36 +212,8 @@ func (s *VllmSimulator) initializeSim(ctx context.Context) error {
 		s.freeWorkers <- worker
 	}
 
-	s.context.startMetricsUpdaters(ctx)
-
 	go s.processing(ctx)
 	return nil
-}
-
-func (s *VllmSimulator) initDataset(ctx context.Context) error {
-	if s.context.config.DatasetPath == "" && s.context.config.DatasetURL == "" {
-		// use predefined sentences as responses
-		randDataset := &dataset.DefaultDataset{}
-		err := randDataset.Init(ctx, s.context.logger, s.context.random, s.context.config.MaxModelLen)
-		if err != nil {
-			return fmt.Errorf("failed to initialize random dataset: %w", err)
-		}
-		s.context.logger.V(logging.INFO).Info("No dataset path or URL provided, using random text for responses")
-		s.context.dataset = randDataset
-		return nil
-	}
-
-	// use dataset containing responses
-	custDataset := &dataset.CustomDataset{}
-	err := custDataset.Init(ctx, s.context.logger, s.context.random, s.context.config.DatasetPath,
-		s.context.config.DatasetInMemory, s.context.config.MaxModelLen)
-
-	if err == nil {
-		s.context.dataset = custDataset
-		return nil
-	}
-
-	return err
 }
 
 // Print prints to a log, implementation of fasthttp.Logger
@@ -449,7 +347,7 @@ func (s *VllmSimulator) handleRequest(req request, ctx *fasthttp.RequestCtx) {
 	}
 
 	requestID := s.getRequestID(ctx)
-	req.setID(requestID)
+	req.SetRequestID(requestID)
 
 	s.context.logger.V(logging.DEBUG).Info("Received", "new", req.asString())
 

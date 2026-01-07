@@ -63,10 +63,6 @@ func (c *chatCompletionRequest) buildRequestContext(simCtx *simContext, ctx *fas
 	return reqCtx
 }
 
-func (c *chatCompletionRequest) setID(id string) {
-	c.RequestID = id
-}
-
 func (c *chatCompletionRequest) asString() string {
 	return "chat completion request (req id " + c.RequestID + ")"
 }
