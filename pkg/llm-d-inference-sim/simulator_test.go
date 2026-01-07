@@ -691,15 +691,12 @@ var _ = Describe("Simulator", func() {
 		})
 	})
 
-	// Add in simulator_test.go, alongside other Context blocks
-
-	Context("cache threshold header", func() {
+	Context("cache threshold finish reason header", func() {
 		It("Should return cache_threshold finish reason when header is set", func() {
 			ctx := context.TODO()
 			client, err := startServer(ctx, common.ModeRandom)
 			Expect(err).NotTo(HaveOccurred())
 
-			// Create request with cache threshold header
 			reqBody := `{
             "messages": [{"role": "user", "content": "Hello"}],
             "model": "` + testModel + `",
@@ -709,7 +706,7 @@ var _ = Describe("Simulator", func() {
 			req, err := http.NewRequest("POST", "http://localhost/v1/chat/completions", strings.NewReader(reqBody))
 			Expect(err).NotTo(HaveOccurred())
 			req.Header.Set("Content-Type", "application/json")
-			req.Header.Set("X-Cache-Threshold", "true") // Your new header
+			req.Header.Set("X-Cache-Threshold-Finish-Reason", "true")
 
 			resp, err := client.Do(req)
 			Expect(err).NotTo(HaveOccurred())
@@ -727,7 +724,6 @@ var _ = Describe("Simulator", func() {
 			err = json.Unmarshal(body, &chatResp)
 			Expect(err).NotTo(HaveOccurred())
 
-			// Verify finish_reason is "cache_threshold"
 			choices := chatResp["choices"].([]interface{})
 			Expect(choices).To(HaveLen(1))
 			firstChoice := choices[0].(map[string]interface{})
@@ -739,7 +735,6 @@ var _ = Describe("Simulator", func() {
 			client, err := startServer(ctx, common.ModeRandom)
 			Expect(err).NotTo(HaveOccurred())
 
-			// Create request WITHOUT cache threshold header
 			reqBody := `{
             "messages": [{"role": "user", "content": "Hello"}],
             "model": "` + testModel + `",
@@ -749,7 +744,6 @@ var _ = Describe("Simulator", func() {
 			req, err := http.NewRequest("POST", "http://localhost/v1/chat/completions", strings.NewReader(reqBody))
 			Expect(err).NotTo(HaveOccurred())
 			req.Header.Set("Content-Type", "application/json")
-			// No X-Cache-Threshold header
 
 			resp, err := client.Do(req)
 			Expect(err).NotTo(HaveOccurred())
@@ -767,7 +761,6 @@ var _ = Describe("Simulator", func() {
 			err = json.Unmarshal(body, &chatResp)
 			Expect(err).NotTo(HaveOccurred())
 
-			// Verify finish_reason is NOT "cache_threshold"
 			choices := chatResp["choices"].([]interface{})
 			Expect(choices).To(HaveLen(1))
 			firstChoice := choices[0].(map[string]interface{})
