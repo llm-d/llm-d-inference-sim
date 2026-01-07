@@ -376,32 +376,37 @@ func (s *VllmSimulator) responseSentCallback(reqCtx requestContext, model string
 func (s *VllmSimulator) sendResponse(reqCtx requestContext, respCtx responseContext) {
 	resp := respCtx.createResponse()
 
-	// calculate how long to wait before returning the response, time is based on number of tokens
-	nCachedPromptTokens := reqCtx.request().GetNumberOfCachedPromptTokens()
-	startPrefill := time.Now()
-	params := TTFTParams{
-		PromptTokens:       respCtx.usageData().PromptTokens,
-		CachedPromptTokens: nCachedPromptTokens,
-		DoRemotePrefill:    reqCtx.request().IsDoRemotePrefill(),
-		RunningReqs:        s.context.metrics.nRunningReqs,
+	// Skip delays if finish reason is cache_threshold (immediate return)
+	isCacheThresholdFinishReason := respCtx.finishReason() != nil && *respCtx.finishReason() == common.CacheThresholdFinishReason
+
+	if !isCacheThresholdFinishReason {
+		// calculate how long to wait before returning the response, time is based on number of tokens
+		nCachedPromptTokens := reqCtx.request().GetNumberOfCachedPromptTokens()
+		startPrefill := time.Now()
+		params := TTFTParams{
+			PromptTokens:       respCtx.usageData().PromptTokens,
+			CachedPromptTokens: nCachedPromptTokens,
+			DoRemotePrefill:    reqCtx.request().IsDoRemotePrefill(),
+			RunningReqs:        s.context.metrics.nRunningReqs,
+		}
+		ttft := s.context.latencyCalculator.GetTimeToFirstToken(&params)
+		time.Sleep(ttft)
+
+		// report ttft in seconds
+		common.WriteToChannel(s.context.metrics.ttftChan, ttft.Seconds(), s.context.logger, "metrics.ttftChan")
+		common.WriteToChannel(s.context.metrics.reqPrefillTimeChan, time.Since(startPrefill).Seconds(), s.context.logger, "metrics.reqPrefillTimeChan")
+
+		startDecode := time.Now()
+		for range respCtx.usageData().CompletionTokens - 1 {
+			perTokenLatency := s.context.latencyCalculator.GetInterTokenLatency(&InterTokenParams{
+				RunningReqs: s.context.metrics.nRunningReqs})
+			time.Sleep(perTokenLatency)
+
+			// report tpot in seconds
+			common.WriteToChannel(s.context.metrics.tpotChan, perTokenLatency.Seconds(), s.context.logger, "metrics.tpotChan")
+		}
+		common.WriteToChannel(s.context.metrics.reqDecodeTimeChan, time.Since(startDecode).Seconds(), s.context.logger, "metrics.reqDecodeTimeChan")
 	}
-	ttft := s.context.latencyCalculator.GetTimeToFirstToken(&params)
-	time.Sleep(ttft)
-
-	// report ttft in seconds
-	common.WriteToChannel(s.context.metrics.ttftChan, ttft.Seconds(), s.context.logger, "metrics.ttftChan")
-	common.WriteToChannel(s.context.metrics.reqPrefillTimeChan, time.Since(startPrefill).Seconds(), s.context.logger, "metrics.reqPrefillTimeChan")
-
-	startDecode := time.Now()
-	for range respCtx.usageData().CompletionTokens - 1 {
-		perTokenLatency := s.context.latencyCalculator.GetInterTokenLatency(&InterTokenParams{
-			RunningReqs: s.context.metrics.nRunningReqs})
-		time.Sleep(perTokenLatency)
-
-		// report tpot in seconds
-		common.WriteToChannel(s.context.metrics.tpotChan, perTokenLatency.Seconds(), s.context.logger, "metrics.tpotChan")
-	}
-	common.WriteToChannel(s.context.metrics.reqDecodeTimeChan, time.Since(startDecode).Seconds(), s.context.logger, "metrics.reqDecodeTimeChan")
 
 	s.sendCompletionResponse(reqCtx.httpRequestCtx(), resp)
 	s.responseSentCallback(reqCtx, respCtx.displayModel())
