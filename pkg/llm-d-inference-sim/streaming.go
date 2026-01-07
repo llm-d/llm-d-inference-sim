@@ -97,22 +97,28 @@ func (s *VllmSimulator) sendStreamingResponse(reqCtx requestContext, respCtx res
 func (s *VllmSimulator) sendTokenChunks(respCtx responseContext, ctx *fasthttp.RequestCtx, w *bufio.Writer, genTokens []string,
 	tc *openaiserverapi.ToolCall) {
 	startPrefill := time.Now()
-	// time to first token delay
-	params := TTFTParams{
-		PromptTokens:       respCtx.usageData().PromptTokens,
-		CachedPromptTokens: respCtx.numberCachedPromptTokens(),
-		DoRemotePrefill:    respCtx.doRemotePrefill(),
-		RunningReqs:        s.context.metrics.nRunningReqs,
+
+	// Skip delays if finish reason is cache_threshold (immediate return)
+	isCacheThresholdFinishReason := respCtx.finishReason() != nil && *respCtx.finishReason() == common.CacheThresholdFinishReason
+
+	if !isCacheThresholdFinishReason {
+		// time to first token delay
+		params := TTFTParams{
+			PromptTokens:       respCtx.usageData().PromptTokens,
+			CachedPromptTokens: respCtx.numberCachedPromptTokens(),
+			DoRemotePrefill:    respCtx.doRemotePrefill(),
+			RunningReqs:        s.context.metrics.nRunningReqs,
+		}
+		ttft := s.context.latencyCalculator.GetTimeToFirstToken(&params)
+		time.Sleep(ttft)
+		// report ttft in seconds
+		common.WriteToChannel(s.context.metrics.ttftChan, ttft.Seconds(), s.context.logger, "metrics.ttftChan")
+		common.WriteToChannel(s.context.metrics.reqPrefillTimeChan, time.Since(startPrefill).Seconds(), s.context.logger, "metrics.reqPrefillTimeChan")
 	}
-	ttft := s.context.latencyCalculator.GetTimeToFirstToken(&params)
-	time.Sleep(ttft)
-	// report ttft in seconds
-	common.WriteToChannel(s.context.metrics.ttftChan, ttft.Seconds(), s.context.logger, "metrics.ttftChan")
-	common.WriteToChannel(s.context.metrics.reqPrefillTimeChan, time.Since(startPrefill).Seconds(), s.context.logger, "metrics.reqPrefillTimeChan")
 
 	startDecode := time.Now()
 	for i, token := range genTokens {
-		if i != 0 {
+		if i != 0 && !isCacheThresholdFinishReason {
 			interTokenLat := s.context.latencyCalculator.GetInterTokenLatency(&InterTokenParams{
 				RunningReqs: s.context.metrics.nRunningReqs})
 			time.Sleep(interTokenLat)
