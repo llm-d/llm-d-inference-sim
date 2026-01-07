@@ -32,6 +32,8 @@ const (
 type Request interface {
 	// GetRequestID returns the unique request id
 	GetRequestID() string
+	// SetRequestID sets the request id
+	SetRequestID(id string)
 	// IsStream returns boolean that defines is response should be streamed
 	IsStream() bool
 	// GetModel returns model name as defined in the request
@@ -120,6 +122,10 @@ type StreamOptions struct {
 
 func (b *baseCompletionRequest) GetRequestID() string {
 	return b.RequestID
+}
+
+func (b *baseCompletionRequest) SetRequestID(id string) {
+	b.RequestID = id
 }
 
 func (b *baseCompletionRequest) IsStream() bool {

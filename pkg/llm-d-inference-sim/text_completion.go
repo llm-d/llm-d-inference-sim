@@ -51,10 +51,6 @@ func (t *textCompletionRequest) buildRequestContext(simCtx *simContext, ctx *fas
 	return reqCtx
 }
 
-func (t *textCompletionRequest) setID(id string) {
-	t.RequestID = id
-}
-
 func (t *textCompletionRequest) asString() string {
 	return "text completion request (req id " + t.RequestID + ")"
 }

@@ -56,9 +56,9 @@ const (
 )
 
 // createAndRegisterPrometheus creates and registers prometheus metrics used by vLLM simulator
-// Metrics reported:
-// - lora_requests_info
-func (s *simContext) createAndRegisterPrometheus() error {
+func (s *simContext) createAndRegisterPrometheus(ctx context.Context) error {
+	maxNumberOfRequests := s.config.MaxNumSeqs + s.config.MaxWaitingQueueLength
+
 	s.metrics.registry = prometheus.NewRegistry()
 
 	s.metrics.loraInfo = prometheus.NewGaugeVec(
@@ -75,6 +75,9 @@ func (s *simContext) createAndRegisterPrometheus() error {
 		return err
 	}
 
+	s.metrics.lorasChan = make(chan loraUsage, maxNumberOfRequests)
+	go s.lorasUpdater(ctx)
+
 	s.metrics.runningRequests = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: "",
@@ -89,6 +92,9 @@ func (s *simContext) createAndRegisterPrometheus() error {
 		return err
 	}
 
+	s.metrics.runReqChan = make(chan int64, maxNumberOfRequests)
+	go s.runningRequestsUpdater(ctx)
+
 	s.metrics.waitingRequests = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: "",
@@ -102,6 +108,9 @@ func (s *simContext) createAndRegisterPrometheus() error {
 		s.logger.Error(err, "prometheus number of requests in queue gauge register failed")
 		return err
 	}
+
+	s.metrics.waitingReqChan = make(chan int64, maxNumberOfRequests)
+	go s.waitingRequestsUpdater(ctx)
 
 	s.metrics.ttft = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
@@ -118,6 +127,9 @@ func (s *simContext) createAndRegisterPrometheus() error {
 		return err
 	}
 
+	s.metrics.ttftChan = make(chan float64, maxNumberOfRequests)
+	go s.ttftUpdater(ctx)
+
 	s.metrics.tpot = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Subsystem: "",
@@ -132,6 +144,9 @@ func (s *simContext) createAndRegisterPrometheus() error {
 		s.logger.Error(err, "prometheus time per output token histogram register failed")
 		return err
 	}
+
+	s.metrics.tpotChan = make(chan float64, maxNumberOfRequests)
+	go s.tpotUpdater(ctx)
 
 	// Register inter_token_latency_seconds (new standard since vLLM 0.11)
 	s.metrics.interTokenLatency = prometheus.NewHistogramVec(
@@ -164,6 +179,9 @@ func (s *simContext) createAndRegisterPrometheus() error {
 		return err
 	}
 
+	s.metrics.e2eReqLatencyChan = make(chan float64, maxNumberOfRequests)
+	go s.e2eReqLatencyUpdater(ctx)
+
 	s.metrics.reqQueueTime = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Subsystem: "",
@@ -178,6 +196,9 @@ func (s *simContext) createAndRegisterPrometheus() error {
 		s.logger.Error(err, "Prometheus request queue time histogram register failed")
 		return err
 	}
+
+	s.metrics.reqQueueTimeChan = make(chan float64, maxNumberOfRequests)
+	go s.reqQueueTimeUpdater(ctx)
 
 	s.metrics.reqInferenceTime = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
@@ -194,6 +215,9 @@ func (s *simContext) createAndRegisterPrometheus() error {
 		return err
 	}
 
+	s.metrics.reqInferenceTimeChan = make(chan float64, maxNumberOfRequests)
+	go s.reqInferenceTimeUpdater(ctx)
+
 	s.metrics.reqPrefillTime = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
 			Subsystem: "",
@@ -208,6 +232,9 @@ func (s *simContext) createAndRegisterPrometheus() error {
 		s.logger.Error(err, "Prometheus request prefill time histogram register failed")
 		return err
 	}
+
+	s.metrics.reqPrefillTimeChan = make(chan float64, maxNumberOfRequests)
+	go s.reqPrefillTimeUpdater(ctx)
 
 	s.metrics.reqDecodeTime = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
@@ -224,6 +251,9 @@ func (s *simContext) createAndRegisterPrometheus() error {
 		return err
 	}
 
+	s.metrics.reqDecodeTimeChan = make(chan float64, maxNumberOfRequests)
+	go s.reqDecodeTimeUpdater(ctx)
+
 	s.metrics.kvCacheUsagePercentage = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: "",
@@ -237,6 +267,9 @@ func (s *simContext) createAndRegisterPrometheus() error {
 		s.logger.Error(err, "prometheus kv cache usage percentage gauge register failed")
 		return err
 	}
+
+	s.metrics.kvCacheUsageChan = make(chan float64, maxNumberOfRequests)
+	go s.kvCacheUsageUpdater(ctx)
 
 	s.metrics.requestPromptTokens = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
@@ -334,6 +367,9 @@ func (s *simContext) createAndRegisterPrometheus() error {
 		s.logger.Error(err, "prometheus request_success_total counter register failed")
 		return err
 	}
+
+	s.metrics.requestSuccessChan = make(chan requestSuccessEvent, maxNumberOfRequests)
+	go s.recordRequestUpdater(ctx)
 
 	cacheConfig := prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
@@ -545,22 +581,6 @@ func (s *simContext) reportKVCacheUsage(value float64) {
 		s.metrics.kvCacheUsagePercentage.WithLabelValues(
 			s.getDisplayedModelName(s.config.Model)).Set(value)
 	}
-}
-
-// startMetricsUpdaters starts the various metrics updaters
-func (s *simContext) startMetricsUpdaters(ctx context.Context) {
-	go s.waitingRequestsUpdater(ctx)
-	go s.runningRequestsUpdater(ctx)
-	go s.lorasUpdater(ctx)
-	go s.kvCacheUsageUpdater(ctx)
-	go s.ttftUpdater(ctx)
-	go s.tpotUpdater(ctx)
-	go s.recordRequestUpdater(ctx)
-	go s.e2eReqLatencyUpdater(ctx)
-	go s.reqQueueTimeUpdater(ctx)
-	go s.reqInferenceTimeUpdater(ctx)
-	go s.reqPrefillTimeUpdater(ctx)
-	go s.reqDecodeTimeUpdater(ctx)
 }
 
 // waitingRequestsUpdater updates the waiting requests metric by listening on the relevant channel
