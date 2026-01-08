@@ -77,16 +77,16 @@ func (t *textCompletionReqCtx) request() request {
 	return t.req
 }
 
-func (t *textCompletionReqCtx) kvCacheGetCacheHitInfo() (*kvcache.CacheHitInfo, *openaiserverapi.Error) {
+func (t *textCompletionReqCtx) kvCacheGetCacheHitInfo() (kvcache.CacheHitInfo, *openaiserverapi.Error) {
 	if t.sim.config.EnableKVCache {
 		cacheHitInfo, err := t.sim.kvcacheHelper.GetCacheHitInfo(t.request())
 		if err != nil {
 			serverError := openaiserverapi.NewError(err.Error(), fasthttp.StatusInternalServerError, nil)
-			return nil, &serverError
+			return kvcache.CacheHitInfo{}, &serverError
 		}
-		return &cacheHitInfo, nil
+		return cacheHitInfo, nil
 	}
-	return nil, nil
+	return kvcache.CacheHitInfo{}, nil
 }
 
 func (t *textCompletionReqCtx) kvCacheOnRequestStart() *openaiserverapi.Error {
