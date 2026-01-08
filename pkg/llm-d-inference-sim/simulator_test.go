@@ -17,13 +17,16 @@ limitations under the License.
 package llmdinferencesim
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
+	"time"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/dataset"
@@ -35,6 +38,9 @@ import (
 )
 
 const invalidMaxTokensErrMsg = "Max completion tokens and max tokens should be positive"
+
+const prompt1 = "What is the weather like in New York today?"
+const prompt2 = "I hear it's very cold."
 
 var _ = Describe("Simulator", func() {
 
@@ -765,6 +771,298 @@ var _ = Describe("Simulator", func() {
 			Expect(choices).To(HaveLen(1))
 			firstChoice := choices[0].(map[string]interface{})
 			Expect(firstChoice["finish_reason"]).To(Or(Equal("stop"), Equal("length")))
+		})
+	})
+
+	Context("cache hit threshold", func() {
+		It("Should return cache_threshold finish reason when hit rate is below threshold", func() {
+			ctx := context.TODO()
+			tmpDir := "./tests-tmp-cache-threshold/"
+			defer func() {
+				err := os.RemoveAll(tmpDir)
+				Expect(err).NotTo(HaveOccurred())
+			}()
+
+			args := []string{"cmd", "--model", qwenModelName, "--mode", common.ModeEcho,
+				"--enable-kvcache", "true", "--kv-cache-size", "16", "--block-size", "8",
+				"--tokenizers-cache-dir", tmpDir}
+			client, err := startServerWithArgsAndEnv(ctx, common.ModeEcho, args, map[string]string{"POD_IP": "localhost"})
+			Expect(err).NotTo(HaveOccurred())
+
+			// First request: populate cache with a prompt
+			reqBody1 := `{
+				"prompt": "` + prompt1 + `",
+				"model": "` + qwenModelName + `",
+				"max_tokens": 5
+			}`
+			req1, err := http.NewRequest("POST", "http://localhost/v1/completions", strings.NewReader(reqBody1))
+			Expect(err).NotTo(HaveOccurred())
+			req1.Header.Set("Content-Type", "application/json")
+
+			resp1, err := client.Do(req1)
+			Expect(err).NotTo(HaveOccurred())
+			resp1.Body.Close()
+
+			// Second request: same prompt prefix (should have some cached blocks)
+			reqBody2 := `{
+				"prompt": "` + prompt2 + `",
+				"model": "` + qwenModelName + `",
+				"max_tokens": 5,
+				"cache_hit_threshold": 0.9
+			}`
+			req2, err := http.NewRequest("POST", "http://localhost/v1/completions", strings.NewReader(reqBody2))
+			Expect(err).NotTo(HaveOccurred())
+			req2.Header.Set("Content-Type", "application/json")
+
+			startTime := time.Now()
+			resp2, err := client.Do(req2)
+			Expect(err).NotTo(HaveOccurred())
+			defer func() {
+				err := resp2.Body.Close()
+				Expect(err).NotTo(HaveOccurred())
+			}()
+
+			// Response should be immediate (no TTFT/ITL delays)
+			elapsed := time.Since(startTime)
+			Expect(elapsed).To(BeNumerically("<", 100*time.Millisecond), "Response should be immediate")
+
+			Expect(resp2.StatusCode).To(Equal(http.StatusOK))
+
+			body, err := io.ReadAll(resp2.Body)
+			Expect(err).NotTo(HaveOccurred())
+
+			var completionResp map[string]interface{}
+			err = json.Unmarshal(body, &completionResp)
+			Expect(err).NotTo(HaveOccurred())
+
+			choices := completionResp["choices"].([]interface{})
+			Expect(choices).To(HaveLen(1), "Should return exactly one choice")
+			firstChoice := choices[0].(map[string]interface{})
+			Expect(firstChoice["finish_reason"]).To(Equal("cache_threshold"))
+
+			// Verify response is empty (no tokens generated)
+			text, ok := firstChoice["text"].(string)
+			if ok {
+				Expect(text).To(BeEmpty(), "Response should be empty when cache threshold not met")
+			}
+
+			// Verify usage data
+			usage, ok := completionResp["usage"].(map[string]interface{})
+			Expect(ok).To(BeTrue())
+			Expect(usage["completion_tokens"]).To(Equal(float64(0)))
+			Expect(usage["prompt_tokens"]).To(BeNumerically(">", 0))
+		})
+
+		It("Should proceed with normal processing when hit rate is at or above threshold", func() {
+			ctx := context.TODO()
+			tmpDir := "./tests-tmp-cache-threshold-2/"
+			defer func() {
+				err := os.RemoveAll(tmpDir)
+				Expect(err).NotTo(HaveOccurred())
+			}()
+
+			args := []string{"cmd", "--model", qwenModelName, "--mode", common.ModeEcho,
+				"--enable-kvcache", "true", "--kv-cache-size", "16", "--block-size", "8",
+				"--tokenizers-cache-dir", tmpDir}
+			client, err := startServerWithArgsAndEnv(ctx, common.ModeEcho, args, map[string]string{"POD_IP": "localhost"})
+			Expect(err).NotTo(HaveOccurred())
+
+			// First request: populate cache
+			reqBody1 := `{
+				"prompt": "` + prompt1 + `",
+				"model": "` + qwenModelName + `",
+				"max_tokens": 5
+			}`
+			req1, err := http.NewRequest("POST", "http://localhost/v1/completions", strings.NewReader(reqBody1))
+			Expect(err).NotTo(HaveOccurred())
+			req1.Header.Set("Content-Type", "application/json")
+
+			resp1, err := client.Do(req1)
+			Expect(err).NotTo(HaveOccurred())
+			resp1.Body.Close()
+
+			// Second request: same prompt with threshold 0.0 (should always proceed)
+			reqBody2 := `{
+				"prompt": "` + prompt1 + prompt2 + `",
+				"model": "` + qwenModelName + `",
+				"max_tokens": 5,
+				"cache_hit_threshold": 0.3
+			}`
+			req2, err := http.NewRequest("POST", "http://localhost/v1/completions", strings.NewReader(reqBody2))
+			Expect(err).NotTo(HaveOccurred())
+			req2.Header.Set("Content-Type", "application/json")
+
+			resp2, err := client.Do(req2)
+			Expect(err).NotTo(HaveOccurred())
+			defer func() {
+				err := resp2.Body.Close()
+				Expect(err).NotTo(HaveOccurred())
+			}()
+
+			Expect(resp2.StatusCode).To(Equal(http.StatusOK))
+
+			body, err := io.ReadAll(resp2.Body)
+			Expect(err).NotTo(HaveOccurred())
+
+			var completionResp map[string]interface{}
+			err = json.Unmarshal(body, &completionResp)
+			Expect(err).NotTo(HaveOccurred())
+
+			choices := completionResp["choices"].([]interface{})
+			Expect(choices).To(HaveLen(1))
+			firstChoice := choices[0].(map[string]interface{})
+			// Should have normal finish reason, not cache_threshold
+			finishReason, ok := firstChoice["finish_reason"].(string)
+			Expect(ok).To(BeTrue())
+			Expect(finishReason).To(Or(Equal("stop"), Equal("length")))
+			Expect(finishReason).NotTo(Equal("cache_threshold"))
+
+			// Should have generated tokens
+			text, ok := firstChoice["text"].(string)
+			Expect(ok).To(BeTrue())
+			Expect(text).NotTo(BeEmpty())
+		})
+
+		It("Should ignore cache_hit_threshold when KV cache is disabled", func() {
+			ctx := context.TODO()
+			client, err := startServer(ctx, common.ModeEcho)
+			Expect(err).NotTo(HaveOccurred())
+
+			reqBody := `{
+				"prompt": "Hello world",
+				"model": "` + testModel + `",
+				"max_tokens": 5,
+				"cache_hit_threshold": 1.0
+			}`
+			req, err := http.NewRequest("POST", "http://localhost/v1/completions", strings.NewReader(reqBody))
+			Expect(err).NotTo(HaveOccurred())
+			req.Header.Set("Content-Type", "application/json")
+
+			resp, err := client.Do(req)
+			Expect(err).NotTo(HaveOccurred())
+			defer func() {
+				err := resp.Body.Close()
+				Expect(err).NotTo(HaveOccurred())
+			}()
+
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+			body, err := io.ReadAll(resp.Body)
+			Expect(err).NotTo(HaveOccurred())
+
+			var completionResp map[string]interface{}
+			err = json.Unmarshal(body, &completionResp)
+			Expect(err).NotTo(HaveOccurred())
+
+			choices := completionResp["choices"].([]interface{})
+			Expect(choices).To(HaveLen(1))
+			firstChoice := choices[0].(map[string]interface{})
+			// Should proceed normally, not return cache_threshold
+			finishReason, ok := firstChoice["finish_reason"].(string)
+			Expect(ok).To(BeTrue())
+			Expect(finishReason).To(Or(Equal("stop"), Equal("length")))
+			Expect(finishReason).NotTo(Equal("cache_threshold"))
+		})
+
+		It("Should return cache_threshold finish reason in streaming response when threshold not met", func() {
+			ctx := context.TODO()
+			tmpDir := "./tests-tmp-cache-threshold-streaming/"
+			defer func() {
+				err := os.RemoveAll(tmpDir)
+				Expect(err).NotTo(HaveOccurred())
+			}()
+
+			args := []string{"cmd", "--model", qwenModelName, "--mode", common.ModeEcho,
+				"--enable-kvcache", "true", "--kv-cache-size", "16", "--block-size", "8",
+				"--tokenizers-cache-dir", tmpDir}
+			client, err := startServerWithArgsAndEnv(ctx, common.ModeEcho, args, map[string]string{"POD_IP": "localhost"})
+			Expect(err).NotTo(HaveOccurred())
+
+			// First request: populate cache
+			reqBody1 := `{
+				"prompt": "` + prompt1 + `",
+				"model": "` + qwenModelName + `",
+				"max_tokens": 5
+			}`
+			req1, err := http.NewRequest("POST", "http://localhost/v1/completions", strings.NewReader(reqBody1))
+			Expect(err).NotTo(HaveOccurred())
+			req1.Header.Set("Content-Type", "application/json")
+
+			resp1, err := client.Do(req1)
+			Expect(err).NotTo(HaveOccurred())
+			resp1.Body.Close()
+
+			reqBody2 := `{
+				"prompt": "` + prompt2 + `",
+				"model": "` + qwenModelName + `",
+				"max_tokens": 5,
+				"stream": true,
+				"cache_hit_threshold": 0.9
+			}`
+			req2, err := http.NewRequest("POST", "http://localhost/v1/completions", strings.NewReader(reqBody2))
+			Expect(err).NotTo(HaveOccurred())
+			req2.Header.Set("Content-Type", "application/json")
+
+			startTime := time.Now()
+			resp2, err := client.Do(req2)
+			Expect(err).NotTo(HaveOccurred())
+			defer func() {
+				err := resp2.Body.Close()
+				Expect(err).NotTo(HaveOccurred())
+			}()
+
+			// Response should be immediate
+			elapsed := time.Since(startTime)
+			Expect(elapsed).To(BeNumerically("<", 100*time.Millisecond))
+
+			Expect(resp2.StatusCode).To(Equal(http.StatusOK))
+
+			// Read streaming response
+			reader := bufio.NewReader(resp2.Body)
+			chunksWithFinishReason := 0
+			hasCacheThreshold := false
+
+			for {
+				line, err := reader.ReadString('\n')
+				if err == io.EOF {
+					break
+				}
+				Expect(err).NotTo(HaveOccurred())
+
+				if strings.HasPrefix(line, "data: ") {
+					data := strings.TrimPrefix(line, "data: ")
+					if strings.TrimSpace(data) == "[DONE]" {
+						break
+					}
+
+					var chunk map[string]interface{}
+					err = json.Unmarshal([]byte(data), &chunk)
+					if err != nil {
+						continue
+					}
+
+					choices, ok := chunk["choices"].([]interface{})
+					if !ok || len(choices) == 0 {
+						continue
+					}
+
+					firstChoice, ok := choices[0].(map[string]interface{})
+					if !ok {
+						continue
+					}
+
+					finishReason, ok := firstChoice["finish_reason"].(string)
+					if ok && finishReason != "" {
+						chunksWithFinishReason++
+						if finishReason == "cache_threshold" {
+							hasCacheThreshold = true
+						}
+					}
+				}
+			}
+
+			Expect(hasCacheThreshold).To(BeTrue(), "Should have cache_threshold finish reason in streaming response")
+			Expect(chunksWithFinishReason).To(BeNumerically(">", 0), "Should have at least one chunk with finish reason")
 		})
 	})
 })

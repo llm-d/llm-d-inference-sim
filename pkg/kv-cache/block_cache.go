@@ -287,6 +287,29 @@ func (bc *blockCache) getBlockInfo(blockHash uint64) (int, bool) {
 	return 0, false
 }
 
+// countCachedBlocks returns the number of blocks from the given list that are already in the cache
+// This is a read-only operation that does not modify cache state
+func (bc *blockCache) countCachedBlocks(blocks []uint64) int {
+	bc.mu.RLock()
+	defer bc.mu.RUnlock()
+
+	if bc.disabled {
+		return 0
+	}
+
+	count := 0
+	for _, blockHash := range blocks {
+		// Check if block is in used blocks (currently in use by running requests)
+		if _, exists := bc.usedBlocks[blockHash]; exists {
+			count++
+		} else if _, exists := bc.unusedBlocks[blockHash]; exists {
+			// Check if block is in unused blocks (was used in past)
+			count++
+		}
+	}
+	return count
+}
+
 // ZQM topic format is: kv@<pod-ip>@<model-name>
 func CreateKVEventsTopic(ip string, model string) string {
 	return topicNamePrefix + topicNameSeparator + ip + topicNameSeparator + model

@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
+	kvcache "github.com/llm-d/llm-d-inference-sim/pkg/kv-cache"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	"github.com/valyala/fasthttp"
 )
@@ -74,6 +75,18 @@ type textCompletionReqCtx struct {
 
 func (t *textCompletionReqCtx) request() request {
 	return t.req
+}
+
+func (t *textCompletionReqCtx) kvCacheGetCacheHitInfo() (*kvcache.CacheHitInfo, *openaiserverapi.Error) {
+	if t.sim.config.EnableKVCache {
+		cacheHitInfo, err := t.sim.kvcacheHelper.GetCacheHitInfo(t.request())
+		if err != nil {
+			serverError := openaiserverapi.NewError(err.Error(), fasthttp.StatusInternalServerError, nil)
+			return nil, &serverError
+		}
+		return &cacheHitInfo, nil
+	}
+	return nil, nil
 }
 
 func (t *textCompletionReqCtx) kvCacheOnRequestStart() *openaiserverapi.Error {
