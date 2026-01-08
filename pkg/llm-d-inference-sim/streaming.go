@@ -72,6 +72,13 @@ func (s *VllmSimulator) sendStreamingResponse(reqCtx requestContext, respCtx res
 				s.sendTokenChunks(respCtx, ctx, w, respCtx.responseTokens(), nil)
 				s.context.logger.V(4).Info("Finished sending text", "number of tokens", len(respCtx.responseTokens()))
 			}
+		} else if respCtx.finishReason() != nil && *respCtx.finishReason() == common.CacheThresholdFinishReason {
+			// No tokens to stream but we still need to emit a finish chunk for cache_threshold
+			chunk := respCtx.createCompletionChunk("", nil, "", respCtx.finishReason())
+			if err := s.sendChunk(w, chunk, ""); err != nil {
+				ctx.Error("Sending finish chunk failed, "+err.Error(), fasthttp.StatusInternalServerError)
+				return
+			}
 		}
 
 		// send usage

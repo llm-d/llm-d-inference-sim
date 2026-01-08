@@ -71,18 +71,31 @@ func (h *KVCacheHelper) Activate() {
 	h.blockCache.activate()
 }
 
-func (h *KVCacheHelper) OnRequestStart(vllmReq openaiserverapi.Request) error {
-	h.logger.V(logging.TRACE).Info("KV cache - process request")
+// CacheHitInfo contains information about cache hits for a request
+type CacheHitInfo struct {
+	CachedBlocks int
+	TotalBlocks  int
+}
 
+// HitRate calculates the hit rate for the CacheHitInfo
+func (c *CacheHitInfo) HitRate() float64 {
+	if c.TotalBlocks > 0 {
+		return float64(c.CachedBlocks) / float64(c.TotalBlocks)
+	}
+	return 0
+}
+
+// getBlockHashesFromRequest tokenizes the prompt and converts it to block hashes.
+// This is a common operation used by both GetCacheHitInfo and OnRequestStart.
+func (h *KVCacheHelper) getBlockHashesFromRequest(vllmReq openaiserverapi.Request) ([]uint64, error) {
 	prompt := vllmReq.GetPrompt()
 	modelName := vllmReq.GetModel()
-	requestID := vllmReq.GetRequestID()
 
 	// tokenize the input
 	tokens, _, err := h.tokenizer.Encode(prompt, modelName)
 	if err != nil {
 		h.logger.Error(err, "prompt tokenization failed")
-		return err
+		return nil, err
 	}
 
 	// get block keys
@@ -94,9 +107,40 @@ func (h *KVCacheHelper) OnRequestStart(vllmReq openaiserverapi.Request) error {
 		blockHashes[i] = key.ChunkHash
 	}
 
+	return blockHashes, nil
+}
+
+// GetCacheHitInfo returns cache hit information for a request
+func (h *KVCacheHelper) GetCacheHitInfo(vllmReq openaiserverapi.Request) (CacheHitInfo, error) {
+	blockHashes, err := h.getBlockHashesFromRequest(vllmReq)
+	if err != nil {
+		return CacheHitInfo{}, err
+	}
+
+	totalBlocks := len(blockHashes)
+	cachedBlocks := h.blockCache.countCachedBlocks(blockHashes)
+	return CacheHitInfo{
+		CachedBlocks: cachedBlocks,
+		TotalBlocks:  totalBlocks,
+	}, nil
+}
+
+func (h *KVCacheHelper) OnRequestStart(vllmReq openaiserverapi.Request) error {
+	h.logger.V(logging.TRACE).Info("KV cache - process request")
+
+	blockHashes, err := h.getBlockHashesFromRequest(vllmReq)
+	if err != nil {
+		return err
+	}
+
+	requestID := vllmReq.GetRequestID()
 	nBlocksAlreadyInCache, err := h.blockCache.startRequest(requestID, blockHashes)
+	if err != nil {
+		return err
+	}
+
 	vllmReq.SetNumberOfCachedPromptTokens(nBlocksAlreadyInCache * h.blockSize)
-	return err
+	return nil
 }
 
 func (h *KVCacheHelper) OnRequestEnd(requestID string) error {
