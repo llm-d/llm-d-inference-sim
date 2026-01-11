@@ -698,7 +698,7 @@ var _ = Describe("Simulator", func() {
 	})
 
 	Context("cache threshold finish reason header", func() {
-		It("Should return cache_threshold finish reason when header is set", func() {
+		testCacheThresholdFinishReasonHeader := func(setHeader bool, expectedFinishReason string) {
 			ctx := context.TODO()
 			client, err := startServer(ctx, common.ModeRandom)
 			Expect(err).NotTo(HaveOccurred())
@@ -712,7 +712,9 @@ var _ = Describe("Simulator", func() {
 			req, err := http.NewRequest("POST", "http://localhost/v1/chat/completions", strings.NewReader(reqBody))
 			Expect(err).NotTo(HaveOccurred())
 			req.Header.Set("Content-Type", "application/json")
-			req.Header.Set(cacheThresholdFinishReasonHeader, "true")
+			if setHeader {
+				req.Header.Set(cacheThresholdFinishReasonHeader, "true")
+			}
 
 			resp, err := client.Do(req)
 			Expect(err).NotTo(HaveOccurred())
@@ -733,44 +735,16 @@ var _ = Describe("Simulator", func() {
 			choices := chatResp["choices"].([]interface{})
 			Expect(choices).To(HaveLen(1))
 			firstChoice := choices[0].(map[string]interface{})
-			Expect(firstChoice["finish_reason"]).To(Equal(common.CacheThresholdFinishReason))
+			Expect(firstChoice["finish_reason"]).To(Equal(expectedFinishReason))
+
+		}
+
+		It("Should return cache_threshold finish reason when header is set", func() {
+			testCacheThresholdFinishReasonHeader(true, common.CacheThresholdFinishReason)
 		})
 
 		It("Should return normal finish reason when header is not set", func() {
-			ctx := context.TODO()
-			client, err := startServer(ctx, common.ModeRandom)
-			Expect(err).NotTo(HaveOccurred())
-
-			reqBody := `{
-            "messages": [{"role": "user", "content": "Hello"}],
-            "model": "` + testModel + `",
-            "max_tokens": 5
-        }`
-
-			req, err := http.NewRequest("POST", "http://localhost/v1/chat/completions", strings.NewReader(reqBody))
-			Expect(err).NotTo(HaveOccurred())
-			req.Header.Set("Content-Type", "application/json")
-
-			resp, err := client.Do(req)
-			Expect(err).NotTo(HaveOccurred())
-			defer func() {
-				err := resp.Body.Close()
-				Expect(err).NotTo(HaveOccurred())
-			}()
-
-			Expect(resp.StatusCode).To(Equal(http.StatusOK))
-
-			body, err := io.ReadAll(resp.Body)
-			Expect(err).NotTo(HaveOccurred())
-
-			var chatResp map[string]interface{}
-			err = json.Unmarshal(body, &chatResp)
-			Expect(err).NotTo(HaveOccurred())
-
-			choices := chatResp["choices"].([]interface{})
-			Expect(choices).To(HaveLen(1))
-			firstChoice := choices[0].(map[string]interface{})
-			Expect(firstChoice["finish_reason"]).To(Or(Equal(common.StopFinishReason), Equal(common.LengthFinishReason)))
+			testCacheThresholdFinishReasonHeader(false, common.StopFinishReason)
 		})
 	})
 
