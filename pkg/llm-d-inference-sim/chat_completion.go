@@ -25,7 +25,6 @@ import (
 	"github.com/valyala/fasthttp"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
-	kvcache "github.com/llm-d/llm-d-inference-sim/pkg/kv-cache"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 )
 
@@ -90,14 +89,9 @@ func (c *chatCompletionReqCtx) request() request {
 	return c.req
 }
 
-func (c *chatCompletionReqCtx) kvCacheGetCacheHitInfo() (kvcache.CacheHitInfo, *openaiserverapi.Error) {
+func (c *chatCompletionReqCtx) kvCacheOnRequestStart() (float64, *openaiserverapi.Error) {
 	// kv cache is currently supported for /completion API only
-	return kvcache.CacheHitInfo{}, nil
-}
-
-func (c *chatCompletionReqCtx) kvCacheOnRequestStart() *openaiserverapi.Error {
-	// kv cache is currently supported for /completion API only
-	return nil
+	return 0, nil
 }
 
 func (c *chatCompletionReqCtx) kvCacheOnRequestEnd() {

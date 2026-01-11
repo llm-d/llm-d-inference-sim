@@ -22,7 +22,6 @@ import (
 	"time"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
-	kvcache "github.com/llm-d/llm-d-inference-sim/pkg/kv-cache"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	"github.com/valyala/fasthttp"
 )
@@ -46,8 +45,7 @@ type requestContext interface {
 	httpRequestCtx() *fasthttp.RequestCtx
 	done()
 	startProcessingTime() time.Time
-	kvCacheGetCacheHitInfo() (kvcache.CacheHitInfo, *openaiserverapi.Error)
-	kvCacheOnRequestStart() *openaiserverapi.Error
+	kvCacheOnRequestStart() (float64, *openaiserverapi.Error)
 	kvCacheOnRequestEnd()
 	createToolCalls() ([]openaiserverapi.ToolCall, int, string, error)
 	handleRequest() (responseContext, string, *openaiserverapi.Error)
@@ -96,7 +94,12 @@ func (reqCtx *baseRequestContext) handleRequest() (responseContext, string, *ope
 			"metrics.lorasChan")
 	}
 
-	shouldReturnCacheThresholdFinishReason, oaiServerError := reqCtx.returnCacheThresholdFinishReason(req)
+	hitRate, oaiServerError := reqCtx.kvCacheOnRequestStart()
+	if oaiServerError != nil {
+		return nil, "", oaiServerError
+	}
+
+	shouldReturnCacheThresholdFinishReason, oaiServerError := reqCtx.returnCacheThresholdFinishReason(req, hitRate)
 	if oaiServerError != nil {
 		return nil, "", oaiServerError
 	}
@@ -119,11 +122,6 @@ func (reqCtx *baseRequestContext) handleRequest() (responseContext, string, *ope
 		respCtx := req.createResponseContext(reqCtx.sim.getDisplayedModelName(model), []string{}, &finishReason,
 			&usageData, sendUsageData, logprobs, nil)
 		return respCtx, "", nil
-	}
-
-	// Start the request in KV cache (only if threshold is met or not specified)
-	if err := reqCtx.kvCacheOnRequestStart(); err != nil {
-		return nil, "", err
 	}
 
 	var responseTokens []string
@@ -168,7 +166,7 @@ func (reqCtx *baseRequestContext) handleRequest() (responseContext, string, *ope
 	return respCtx, "", nil
 }
 
-func (reqCtx *baseRequestContext) returnCacheThresholdFinishReason(req openaiserverapi.Request) (bool, *openaiserverapi.Error) {
+func (reqCtx *baseRequestContext) returnCacheThresholdFinishReason(req openaiserverapi.Request, hitRate float64) (bool, *openaiserverapi.Error) {
 	// Check for cache threshold finish reason header - this forces a cache_threshold finish reason
 	headerValue := string(reqCtx.httpRequestCtx().Request.Header.Peek(cacheThresholdFinishReasonHeader))
 	if parsedValue, err := strconv.ParseBool(headerValue); err == nil && parsedValue {
@@ -186,12 +184,6 @@ func (reqCtx *baseRequestContext) returnCacheThresholdFinishReason(req openaiser
 		}
 
 		if cacheHitThreshold != nil {
-			cacheHitInfo, err := reqCtx.kvCacheGetCacheHitInfo()
-			if err != nil {
-				return false, err
-			}
-
-			hitRate := cacheHitInfo.HitRate()
 			// If hit rate is below threshold, return cache_threshold finish reason
 			if hitRate < *cacheHitThreshold {
 				return true, nil
