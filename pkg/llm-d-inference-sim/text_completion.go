@@ -23,7 +23,6 @@ import (
 	"time"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
-	kvcache "github.com/llm-d/llm-d-inference-sim/pkg/kv-cache"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	"github.com/valyala/fasthttp"
 )
@@ -77,26 +76,16 @@ func (t *textCompletionReqCtx) request() request {
 	return t.req
 }
 
-func (t *textCompletionReqCtx) kvCacheGetCacheHitInfo() (kvcache.CacheHitInfo, *openaiserverapi.Error) {
+func (t *textCompletionReqCtx) kvCacheOnRequestStart() (float64, *openaiserverapi.Error) {
 	if t.sim.config.EnableKVCache {
-		cacheHitInfo, err := t.sim.kvcacheHelper.GetCacheHitInfo(t.request())
+		hitRate, err := t.sim.kvcacheHelper.OnRequestStart(t.request())
 		if err != nil {
 			serverError := openaiserverapi.NewError(err.Error(), fasthttp.StatusInternalServerError, nil)
-			return kvcache.CacheHitInfo{}, &serverError
+			return 0, &serverError
 		}
-		return cacheHitInfo, nil
+		return hitRate, nil
 	}
-	return kvcache.CacheHitInfo{}, nil
-}
-
-func (t *textCompletionReqCtx) kvCacheOnRequestStart() *openaiserverapi.Error {
-	if t.sim.config.EnableKVCache {
-		if err := t.sim.kvcacheHelper.OnRequestStart(t.request()); err != nil {
-			serverError := openaiserverapi.NewError(err.Error(), fasthttp.StatusInternalServerError, nil)
-			return &serverError
-		}
-	}
-	return nil
+	return 0, nil
 }
 
 func (t *textCompletionReqCtx) kvCacheOnRequestEnd() {
