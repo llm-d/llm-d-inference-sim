@@ -77,6 +77,8 @@ type Request interface {
 	ExtractMaxTokens() *int64
 	// GetLogprobs returns nil if no logprobs needed, or pointer to number of logprob options to include
 	GetLogprobs() *int
+	// GetCacheHitThreshold returns the cache hit threshold (0-1) or nil if not set
+	GetCacheHitThreshold() *float64
 }
 
 // baseCompletionRequest contains base completion request related information
@@ -95,6 +97,10 @@ type baseCompletionRequest struct {
 	cachedPromptTokens int
 	// IgnoreEOS is a boolean value, true when the model should ignore end-of-sequence tokens
 	IgnoreEOS bool `json:"ignore_eos"`
+	// CacheHitThreshold is a value between 0 and 1 that specifies the minimum cache hit rate required
+	// to proceed with request processing. If the actual cache hit rate is below this threshold,
+	// the request will return with cache_threshold finish reason.
+	CacheHitThreshold *float64 `json:"cache_hit_threshold,omitempty"`
 }
 
 type KVTransferParams struct {
@@ -168,6 +174,11 @@ func (b *baseCompletionRequest) SetIgnoreEOS(ignorEOS bool) {
 // in the local KV Cache
 func (b *baseCompletionRequest) SetNumberOfCachedPromptTokens(cachedPromptTokens int) {
 	b.cachedPromptTokens = cachedPromptTokens
+}
+
+// GetCacheHitThreshold returns the cache hit threshold value
+func (b *baseCompletionRequest) GetCacheHitThreshold() *float64 {
+	return b.CacheHitThreshold
 }
 
 func (b *baseCompletionRequest) addRoleToMessage(role, msg string) string {

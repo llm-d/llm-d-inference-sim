@@ -17,6 +17,7 @@ limitations under the License.
 package llmdinferencesim
 
 import (
+	"strconv"
 	"sync"
 	"time"
 
@@ -44,7 +45,7 @@ type requestContext interface {
 	httpRequestCtx() *fasthttp.RequestCtx
 	done()
 	startProcessingTime() time.Time
-	kvCacheOnRequestStart() *openaiserverapi.Error
+	kvCacheOnRequestStart() (float64, *openaiserverapi.Error)
 	kvCacheOnRequestEnd()
 	createToolCalls() ([]openaiserverapi.ToolCall, int, string, error)
 	handleRequest() (responseContext, string, *openaiserverapi.Error)
@@ -93,8 +94,34 @@ func (reqCtx *baseRequestContext) handleRequest() (responseContext, string, *ope
 			"metrics.lorasChan")
 	}
 
-	if err := reqCtx.kvCacheOnRequestStart(); err != nil {
-		return nil, "", err
+	hitRate, oaiServerError := reqCtx.kvCacheOnRequestStart()
+	if oaiServerError != nil {
+		return nil, "", oaiServerError
+	}
+
+	shouldReturnCacheThresholdFinishReason, oaiServerError := reqCtx.returnCacheThresholdFinishReason(req, hitRate)
+	if oaiServerError != nil {
+		return nil, "", oaiServerError
+	}
+
+	var finishReason string
+	if shouldReturnCacheThresholdFinishReason {
+		finishReason = common.CacheThresholdFinishReason
+
+		numOfInputTokens := getNumberOfPromptTokens(req)
+		usageData := openaiserverapi.Usage{
+			PromptTokens:     numOfInputTokens,
+			CompletionTokens: 0,
+			TotalTokens:      numOfInputTokens,
+		}
+		var logprobs *int
+		if !req.IsStream() {
+			logprobs = req.GetLogprobs()
+		}
+		sendUsageData := !req.IsStream() || req.IncludeUsage()
+		respCtx := req.createResponseContext(reqCtx.sim.getDisplayedModelName(model), []string{}, &finishReason,
+			&usageData, sendUsageData, logprobs, nil)
+		return respCtx, "", nil
 	}
 
 	var responseTokens []string
@@ -108,7 +135,8 @@ func (reqCtx *baseRequestContext) handleRequest() (responseContext, string, *ope
 	if err != nil {
 		prefix := "failed to create response for " + req.asString()
 		reqCtx.sim.logger.Error(err, prefix)
-		return nil, prefix + err.Error(), nil
+		serverError := openaiserverapi.NewError(prefix+err.Error(), fasthttp.StatusInternalServerError, nil)
+		return nil, "", &serverError
 	}
 
 	numOfInputTokens := getNumberOfPromptTokens(req)
@@ -131,8 +159,37 @@ func (reqCtx *baseRequestContext) handleRequest() (responseContext, string, *ope
 		// in case this is prefill pod processing, return special finish reason
 		finishReason = common.RemoteDecodeFinishReason
 	}
+
 	respCtx := req.createResponseContext(reqCtx.sim.getDisplayedModelName(model), responseTokens, &finishReason,
 		&usageData, sendUsageData, logprobs, toolCalls)
 
 	return respCtx, "", nil
+}
+
+func (reqCtx *baseRequestContext) returnCacheThresholdFinishReason(req openaiserverapi.Request, hitRate float64) (bool, *openaiserverapi.Error) {
+	// Check for cache threshold finish reason header - this forces a cache_threshold finish reason
+	headerValue := string(reqCtx.httpRequestCtx().Request.Header.Peek(cacheThresholdFinishReasonHeader))
+	if parsedValue, err := strconv.ParseBool(headerValue); err == nil && parsedValue {
+		return true, nil
+	}
+	// Check cache hit threshold if specified and KV cache is enabled
+	// First, get cache hit info without modifying cache state
+	if reqCtx.sim.config.EnableKVCache {
+		// Get cacheHitThreshold from request first, fall back to global cacheHitThreshold if not set
+		var cacheHitThreshold *float64
+		if reqThreshold := req.GetCacheHitThreshold(); reqThreshold != nil && *reqThreshold >= 0 && *reqThreshold <= 1 {
+			cacheHitThreshold = reqThreshold
+		} else if reqCtx.sim.config.GlobalCacheHitThreshold > 0 {
+			cacheHitThreshold = &reqCtx.sim.config.GlobalCacheHitThreshold
+		}
+
+		if cacheHitThreshold != nil {
+			// If hit rate is below threshold, return cache_threshold finish reason
+			if hitRate < *cacheHitThreshold {
+				return true, nil
+			}
+		}
+	}
+
+	return false, nil
 }
