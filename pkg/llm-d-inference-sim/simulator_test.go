@@ -706,7 +706,7 @@ var _ = Describe("Simulator", func() {
 			req, err := http.NewRequest("POST", "http://localhost/v1/chat/completions", strings.NewReader(reqBody))
 			Expect(err).NotTo(HaveOccurred())
 			req.Header.Set("Content-Type", "application/json")
-			req.Header.Set("X-Cache-Threshold-Finish-Reason", "true")
+			req.Header.Set(cacheThresholdFinishReasonHeader, "true")
 
 			resp, err := client.Do(req)
 			Expect(err).NotTo(HaveOccurred())
@@ -727,7 +727,7 @@ var _ = Describe("Simulator", func() {
 			choices := chatResp["choices"].([]interface{})
 			Expect(choices).To(HaveLen(1))
 			firstChoice := choices[0].(map[string]interface{})
-			Expect(firstChoice["finish_reason"]).To(Equal("cache_threshold"))
+			Expect(firstChoice["finish_reason"]).To(Equal(common.CacheThresholdFinishReason))
 		})
 
 		It("Should return normal finish reason when header is not set", func() {
@@ -764,7 +764,7 @@ var _ = Describe("Simulator", func() {
 			choices := chatResp["choices"].([]interface{})
 			Expect(choices).To(HaveLen(1))
 			firstChoice := choices[0].(map[string]interface{})
-			Expect(firstChoice["finish_reason"]).To(Or(Equal("stop"), Equal("length")))
+			Expect(firstChoice["finish_reason"]).To(Or(Equal(common.StopFinishReason), Equal(common.LengthFinishReason)))
 		})
 	})
 })
