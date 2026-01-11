@@ -17,6 +17,7 @@ limitations under the License.
 package llmdinferencesim
 
 import (
+	"strconv"
 	"sync"
 	"time"
 
@@ -131,6 +132,13 @@ func (reqCtx *baseRequestContext) handleRequest() (responseContext, string, *ope
 		// in case this is prefill pod processing, return special finish reason
 		finishReason = common.RemoteDecodeFinishReason
 	}
+
+	// Check for cache threshold finish reason header
+	headerValue := string(reqCtx.httpRequestCtx().Request.Header.Peek(cacheThresholdFinishReasonHeader))
+	if parsedValue, err := strconv.ParseBool(headerValue); err == nil && parsedValue {
+		finishReason = common.CacheThresholdFinishReason
+	}
+
 	respCtx := req.createResponseContext(reqCtx.sim.getDisplayedModelName(model), responseTokens, &finishReason,
 		&usageData, sendUsageData, logprobs, toolCalls)
 
