@@ -712,7 +712,7 @@ var _ = Describe("Simulator", func() {
 			req, err := http.NewRequest("POST", "http://localhost/v1/chat/completions", strings.NewReader(reqBody))
 			Expect(err).NotTo(HaveOccurred())
 			req.Header.Set("Content-Type", "application/json")
-			req.Header.Set("X-Cache-Threshold-Finish-Reason", "true")
+			req.Header.Set(cacheThresholdFinishReasonHeader, "true")
 
 			resp, err := client.Do(req)
 			Expect(err).NotTo(HaveOccurred())
@@ -733,7 +733,7 @@ var _ = Describe("Simulator", func() {
 			choices := chatResp["choices"].([]interface{})
 			Expect(choices).To(HaveLen(1))
 			firstChoice := choices[0].(map[string]interface{})
-			Expect(firstChoice["finish_reason"]).To(Equal("cache_threshold"))
+			Expect(firstChoice["finish_reason"]).To(Equal(common.CacheThresholdFinishReason))
 		})
 
 		It("Should return normal finish reason when header is not set", func() {
@@ -770,7 +770,7 @@ var _ = Describe("Simulator", func() {
 			choices := chatResp["choices"].([]interface{})
 			Expect(choices).To(HaveLen(1))
 			firstChoice := choices[0].(map[string]interface{})
-			Expect(firstChoice["finish_reason"]).To(Or(Equal("stop"), Equal("length")))
+			Expect(firstChoice["finish_reason"]).To(Or(Equal(common.StopFinishReason), Equal(common.LengthFinishReason)))
 		})
 	})
 
@@ -838,7 +838,7 @@ var _ = Describe("Simulator", func() {
 			choices := completionResp["choices"].([]interface{})
 			Expect(choices).To(HaveLen(1), "Should return exactly one choice")
 			firstChoice := choices[0].(map[string]interface{})
-			Expect(firstChoice["finish_reason"]).To(Equal("cache_threshold"))
+			Expect(firstChoice["finish_reason"]).To(Equal(common.CacheThresholdFinishReason))
 
 			// Verify response is empty (no tokens generated)
 			text, ok := firstChoice["text"].(string)
@@ -1128,7 +1128,7 @@ var _ = Describe("Simulator", func() {
 			choices := completionResp["choices"].([]interface{})
 			Expect(choices).To(HaveLen(1))
 			firstChoice := choices[0].(map[string]interface{})
-			Expect(firstChoice["finish_reason"]).To(Equal("cache_threshold"))
+			Expect(firstChoice["finish_reason"]).To(Equal(common.CacheThresholdFinishReason))
 		})
 
 		It("Should use request cache_hit_threshold over global threshold when both are set", func() {
@@ -1184,8 +1184,8 @@ var _ = Describe("Simulator", func() {
 			// - Global threshold 1.0 would fail (0% < 1.0) → cache_threshold
 			// - Request threshold 0.0 passes (0% >= 0.0) → normal finish reason
 			// This proves request threshold takes precedence over global threshold
-			Expect(finishReason).To(Or(Equal("stop"), Equal("length")))
-			Expect(finishReason).NotTo(Equal("cache_threshold"))
+			Expect(finishReason).To(Or(Equal(common.StopFinishReason), Equal(common.LengthFinishReason)))
+			Expect(finishReason).NotTo(Equal(common.CacheThresholdFinishReason))
 		})
 
 		It("Should not apply global cache hit threshold when KV cache is disabled", func() {
@@ -1226,8 +1226,8 @@ var _ = Describe("Simulator", func() {
 			// Should proceed normally, not return cache_threshold (KV cache disabled)
 			finishReason, ok := firstChoice["finish_reason"].(string)
 			Expect(ok).To(BeTrue())
-			Expect(finishReason).To(Or(Equal("stop"), Equal("length")))
-			Expect(finishReason).NotTo(Equal("cache_threshold"))
+			Expect(finishReason).To(Or(Equal(common.StopFinishReason), Equal(common.LengthFinishReason)))
+			Expect(finishReason).NotTo(Equal(common.CacheThresholdFinishReason))
 		})
 	})
 })
