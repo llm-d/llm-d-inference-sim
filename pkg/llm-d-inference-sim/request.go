@@ -181,8 +181,8 @@ func (reqCtx *baseRequestContext) returnCacheThresholdFinishReason(req openaiser
 		var cacheHitThreshold *float64
 		if reqThreshold := req.GetCacheHitThreshold(); reqThreshold != nil && *reqThreshold >= 0 && *reqThreshold <= 1 {
 			cacheHitThreshold = reqThreshold
-		} else if reqCtx.sim.config.GlobalCacheHitThreshold != nil {
-			cacheHitThreshold = reqCtx.sim.config.GlobalCacheHitThreshold
+		} else if reqCtx.sim.config.GlobalCacheHitThreshold > 0 {
+			cacheHitThreshold = &reqCtx.sim.config.GlobalCacheHitThreshold
 		}
 
 		if cacheHitThreshold != nil {
