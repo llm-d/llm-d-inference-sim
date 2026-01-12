@@ -141,7 +141,7 @@ func (h *KVCacheHelper) OnRequestStart(vllmReq openaiserverapi.Request) (float64
 	vllmReq.SetNumberOfCachedPromptTokens(nBlocksAlreadyInCache * h.blockSize)
 
 	totalBlocks := len(blockHashes)
-	cachedBlocks := h.blockCache.countCachedBlocks(blockHashes)
+	cachedBlocks := h.blockCache.countCachedBlockPrefix(blockHashes)
 
 	var hitRate float64
 	if totalBlocks > 0 {

@@ -287,9 +287,8 @@ func (bc *blockCache) getBlockInfo(blockHash uint64) (int, bool) {
 	return 0, false
 }
 
-// countCachedBlocks returns the number of blocks from the given list that are already in the cache
-// This is a read-only operation that does not modify cache state
-func (bc *blockCache) countCachedBlocks(blocks []uint64) int {
+// countCachedBlockPrefix returns the number of continuous blocks from the given list that are already in the cache
+func (bc *blockCache) countCachedBlockPrefix(blocks []uint64) int {
 	bc.mu.RLock()
 	defer bc.mu.RUnlock()
 
@@ -297,7 +296,7 @@ func (bc *blockCache) countCachedBlocks(blocks []uint64) int {
 		return 0
 	}
 
-	count := 0
+	var count int
 	for _, blockHash := range blocks {
 		// Check if block is in used blocks (currently in use by running requests)
 		if _, exists := bc.usedBlocks[blockHash]; exists {
@@ -305,6 +304,9 @@ func (bc *blockCache) countCachedBlocks(blocks []uint64) int {
 		} else if _, exists := bc.unusedBlocks[blockHash]; exists {
 			// Check if block is in unused blocks (was used in past)
 			count++
+		} else {
+			// return count once a block is not found in the cache
+			return count
 		}
 	}
 	return count
