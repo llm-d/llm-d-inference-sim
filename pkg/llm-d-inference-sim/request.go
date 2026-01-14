@@ -135,8 +135,7 @@ func (reqCtx *baseRequestContext) handleRequest() (responseContext, string, *ope
 	if err != nil {
 		prefix := "failed to create response for " + req.asString()
 		reqCtx.sim.logger.Error(err, prefix)
-		serverError := openaiserverapi.NewError(prefix+err.Error(), fasthttp.StatusInternalServerError, nil)
-		return nil, "", &serverError
+		return nil, prefix + err.Error(), nil
 	}
 
 	numOfInputTokens := getNumberOfPromptTokens(req)
