@@ -71,45 +71,6 @@ func (h *KVCacheHelper) Activate() {
 	h.blockCache.activate()
 }
 
-// CacheHitInfo contains information about cache hits for a request
-type CacheHitInfo struct {
-	CachedBlocks int
-	TotalBlocks  int
-}
-
-// HitRate calculates the hit rate for the CacheHitInfo
-func (c *CacheHitInfo) HitRate() float64 {
-	if c.TotalBlocks > 0 {
-		return float64(c.CachedBlocks) / float64(c.TotalBlocks)
-	}
-	return 0
-}
-
-// getBlockHashesFromRequest tokenizes the prompt and converts it to block hashes.
-// This is a common operation used by both GetCacheHitInfo and OnRequestStart.
-func (h *KVCacheHelper) getBlockHashesFromRequest(vllmReq openaiserverapi.Request) ([]uint64, error) {
-	prompt := vllmReq.GetPrompt()
-	modelName := vllmReq.GetModel()
-
-	// tokenize the input
-	tokens, _, err := h.tokenizer.Encode(prompt, modelName)
-	if err != nil {
-		h.logger.Error(err, "prompt tokenization failed")
-		return nil, err
-	}
-
-	// get block keys
-	blockKeys := h.tokensProcessor.TokensToKVBlockKeys(tokens, modelName)
-	h.logger.V(logging.TRACE).Info("Found tokens", "tokens", tokens, "block-keys", blockKeys)
-
-	blockHashes := make([]uint64, len(blockKeys))
-	for i, key := range blockKeys {
-		blockHashes[i] = key.ChunkHash
-	}
-
-	return blockHashes, nil
-}
-
 func (h *KVCacheHelper) OnRequestStart(vllmReq openaiserverapi.Request) (float64, error) {
 	h.logger.V(logging.TRACE).Info("KV cache - process request")
 

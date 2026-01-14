@@ -794,7 +794,8 @@ var _ = Describe("Simulator", func() {
 			})
 			resp1, err := client.Do(req1)
 			Expect(err).NotTo(HaveOccurred())
-			resp1.Body.Close()
+			err = resp1.Body.Close()
+			Expect(err).NotTo(HaveOccurred())
 		}
 
 		testCacheHitThreshold := func(secondPrompt string, cacheHitThreshold float64, expectCacheThresholdFinishReason bool, checkImmediateResponse bool) {
@@ -1024,41 +1025,41 @@ var _ = Describe("Simulator", func() {
 			Expect(finishReason).NotTo(Equal(common.CacheThresholdFinishReason))
 		})
 
+		testSimpleRequestWithKVCacheDisabled := func(cacheHitThreshold *float64, globalThreshold *float64) {
+			client := setupKVCacheServer(false, globalThreshold, testModel)
+
+			req := createCompletionRequest(completionRequestParams{
+				Prompt:            "Hello world",
+				Model:             testModel,
+				MaxTokens:         5,
+				CacheHitThreshold: cacheHitThreshold,
+			})
+			resp, err := client.Do(req)
+			Expect(err).NotTo(HaveOccurred())
+			defer func() {
+				err := resp.Body.Close()
+				Expect(err).NotTo(HaveOccurred())
+			}()
+
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+			body, err := io.ReadAll(resp.Body)
+			Expect(err).NotTo(HaveOccurred())
+
+			var completionResp map[string]interface{}
+			err = json.Unmarshal(body, &completionResp)
+			Expect(err).NotTo(HaveOccurred())
+
+			choices := completionResp["choices"].([]interface{})
+			Expect(choices).To(HaveLen(1))
+			firstChoice := choices[0].(map[string]interface{})
+
+			finishReason, ok := firstChoice["finish_reason"].(string)
+			Expect(ok).To(BeTrue())
+			Expect(finishReason).To(Or(Equal(common.StopFinishReason), Equal(common.LengthFinishReason)))
+		}
+
 		Context("When KV cache is disabled", func() {
-			testSimpleRequestWithKVCacheDisabled := func(cacheHitThreshold *float64, globalThreshold *float64) {
-				client := setupKVCacheServer(false, globalThreshold, testModel)
-
-				req := createCompletionRequest(completionRequestParams{
-					Prompt:            "Hello world",
-					Model:             testModel,
-					MaxTokens:         5,
-					CacheHitThreshold: cacheHitThreshold,
-				})
-				resp, err := client.Do(req)
-				Expect(err).NotTo(HaveOccurred())
-				defer func() {
-					err := resp.Body.Close()
-					Expect(err).NotTo(HaveOccurred())
-				}()
-
-				Expect(resp.StatusCode).To(Equal(http.StatusOK))
-
-				body, err := io.ReadAll(resp.Body)
-				Expect(err).NotTo(HaveOccurred())
-
-				var completionResp map[string]interface{}
-				err = json.Unmarshal(body, &completionResp)
-				Expect(err).NotTo(HaveOccurred())
-
-				choices := completionResp["choices"].([]interface{})
-				Expect(choices).To(HaveLen(1))
-				firstChoice := choices[0].(map[string]interface{})
-
-				finishReason, ok := firstChoice["finish_reason"].(string)
-				Expect(ok).To(BeTrue())
-				Expect(finishReason).To(Or(Equal(common.StopFinishReason), Equal(common.LengthFinishReason)))
-			}
-
 			It("Should ignore cache_hit_threshold defined in the request", func() {
 				threshold := 1.0
 				testSimpleRequestWithKVCacheDisabled(&threshold, nil)

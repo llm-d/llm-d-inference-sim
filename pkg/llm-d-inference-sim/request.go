@@ -99,13 +99,8 @@ func (reqCtx *baseRequestContext) handleRequest() (responseContext, string, *ope
 		return nil, "", oaiServerError
 	}
 
-	shouldReturnCacheThresholdFinishReason, oaiServerError := reqCtx.returnCacheThresholdFinishReason(req, hitRate)
-	if oaiServerError != nil {
-		return nil, "", oaiServerError
-	}
-
 	var finishReason string
-	if shouldReturnCacheThresholdFinishReason {
+	if reqCtx.shouldReturnCacheThresholdFinishReason(req, hitRate) {
 		finishReason = common.CacheThresholdFinishReason
 
 		numOfInputTokens := getNumberOfPromptTokens(req)
@@ -171,11 +166,11 @@ func (reqCtx *baseRequestContext) handleRequest() (responseContext, string, *ope
 	return respCtx, "", nil
 }
 
-func (reqCtx *baseRequestContext) returnCacheThresholdFinishReason(req openaiserverapi.Request, hitRate float64) (bool, *openaiserverapi.Error) {
+func (reqCtx *baseRequestContext) shouldReturnCacheThresholdFinishReason(req openaiserverapi.Request, hitRate float64) bool {
 	// Check for cache threshold finish reason header - this forces a cache_threshold finish reason
 	headerValue := string(reqCtx.httpRequestCtx().Request.Header.Peek(cacheThresholdFinishReasonHeader))
 	if parsedValue, err := strconv.ParseBool(headerValue); err == nil && parsedValue {
-		return true, nil
+		return true
 	}
 	// Check cache hit threshold if specified and KV cache is enabled
 	// First, get cache hit info without modifying cache state
@@ -191,10 +186,10 @@ func (reqCtx *baseRequestContext) returnCacheThresholdFinishReason(req openaiser
 		if cacheHitThreshold != nil {
 			// If hit rate is below threshold, return cache_threshold finish reason
 			if hitRate < *cacheHitThreshold {
-				return true, nil
+				return true
 			}
 		}
 	}
 
-	return false, nil
+	return false
 }
