@@ -1,0 +1,18 @@
+  FROM python:3.10-slim
+
+WORKDIR /workspace
+
+# Install dependencies
+RUN pip install --no-cache-dir pyzmq msgpack
+
+# Copy the listener script
+COPY listener.py /workspace/listener.py
+
+# Set environment variable for port (can be overridden)
+ENV LISTENER_PORT=5557
+
+# Make the script executable
+RUN chmod +x /workspace/listener.py
+
+# Run the listener
+CMD ["python", "-u", "/workspace/listener.py"]
