@@ -333,13 +333,7 @@ make build
 ```
 
 ### Running
-To run the vLLM simulator in a standalone test environment:
-
-1. Set the PYTHONPATH environment variable (needed for the tokenization code) by running:
-```bash
-. env-setup.sh
-```
-2. Start the simulator:
+To run the vLLM simulator in a standalone test environment, run:
 ```bash
 ./bin/llm-d-inference-sim --model my_model --port 8000
 ```
