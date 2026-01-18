@@ -31,6 +31,11 @@ IMAGE_REGISTRY ?= ghcr.io/llm-d
 IMAGE_TAG_BASE ?= $(IMAGE_REGISTRY)/$(PROJECT_NAME)
 SIM_TAG ?= dev
 IMG = $(IMAGE_TAG_BASE):$(SIM_TAG)
+# zmq defaults
+ZMQ_IMAGE_NAME ?= zmq-listener
+ZMQ_IMAGE_TAG ?= latest
+NAMESPACE ?= default
+ZMQ_IMG ?= $(IMAGE_REGISTRY)/$(ZMQ_IMAGE_NAME):$(ZMQ_IMAGE_TAG)
 
 ifeq ($(TARGETOS),darwin)
 ifeq ($(TARGETARCH),amd64)
@@ -274,3 +279,54 @@ install-dependencies: download-tokenizer ## Install development dependencies bas
 	  echo "Unsupported OS: $(TARGETOS). Install development dependencies manually."; \
 	  exit 1; \
 	fi
+
+# ZMQ listener
+
+# Docker targets
+.PHONY: zmq-image-build
+zmq-image-build:
+	$(CONTAINER_TOOL) build \
+	--platform linux/amd64,linux/arm64 \
+	--build-arg TARGETOS=linux \
+	--build-arg TARGETARCH=$(TARGETARCH) \
+	-t $(ZMQ_IMG) -f Dockerfile.zmq .
+
+.PHONY: zmq-image-push
+zmq-image-push: zmq-image-build
+	docker push $(ZMQ_IMG)
+
+# Kubernetes targets
+.PHONY: deploy-zmq-listener
+deploy-zmq-listener:
+	kubectl apply -f ./manifests/zmq-listener/deploy_listener.yaml -n $(NAMESPACE)
+
+.PHONY: deploy-sim
+deploy-sim:
+	kubectl apply -f ./manifests/zmq-listener/deploy_simulator.yaml -n $(NAMESPACE)
+
+.PHONY: deploy-vllm
+deploy-vllm:
+	kubectl apply -f ./manifests/zmq-listener/deploy_vllm.yaml -n $(NAMESPACE)
+
+.PHONY: deploy-zmq-all
+deploy-all: deploy-zmq-listener deploy-sim deploy-vllm
+
+.PHONY: delete-zmq-listener
+delete-zmq-listener:
+	kubectl delete -f ./manifests/zmq-listener/deploy_listener.yaml -n $(NAMESPACE) || true
+
+.PHONY: delete-sim
+delete-sim:
+	kubectl delete -f ./manifests/zmq-listener/deploy_simulator.yaml -n $(NAMESPACE) || true
+
+.PHONY: delete-vllm
+delete-vllm:
+	kubectl delete -f ./manifests/zmq-listener/deploy_vllm.yaml -n $(NAMESPACE) || true
+
+.PHONY: delete-zmq-all
+delete-all: delete-zmq-listener delete-sim delete-vllm
+
+.PHONY: clean-zmq
+clean-zmq: delete-zmq-all
+	docker rmi $(ZMQ_IMG) || true
+

@@ -19,6 +19,7 @@ jobs:
         run: |
           repo="${GITHUB_REPOSITORY##*/}"
           echo "project_name=$repo" >> "$GITHUB_OUTPUT"
+          echo "zmq_project_name=zmq-listener" >> "$GITHUB_OUTPUT"
 
       - name: Print project name
         run: echo "Project is ${{ steps.version.outputs.project_name }}"
@@ -42,6 +43,15 @@ jobs:
         with:
           tag: ${{ steps.tag.outputs.tag }}
           image-name: ${{ steps.version.outputs.project_name }}
+          registry: ghcr.io/llm-d
+          github-token: ${{ secrets.GHCR_TOKEN }}
+          prerelease: ${{ steps.tag.outputs.prerelease }}
+
+      - name: Build and push zmq listener image
+        uses: ./.github/actions/docker-build-and-push
+        with:
+          tag: ${{ steps.tag.outputs.tag }}
+          image-name: ${{ steps.version.outputs.zmq_project_name }}
           registry: ghcr.io/llm-d
           github-token: ${{ secrets.GHCR_TOKEN }}
           prerelease: ${{ steps.tag.outputs.prerelease }}

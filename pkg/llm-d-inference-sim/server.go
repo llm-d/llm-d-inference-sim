@@ -301,9 +301,8 @@ func (s *VllmSimulator) HandleIsSleeping(ctx *fasthttp.RequestCtx) {
 
 // HandleSleep http handler for /sleep
 func (s *VllmSimulator) HandleSleep(ctx *fasthttp.RequestCtx) {
-	s.context.logger.V(logging.INFO).Info("Sleep request received")
-
 	if s.context.config.EnableSleepMode && s.isInDevMode {
+		s.context.logger.V(logging.INFO).Info("Sleep request received")
 		s.sleepMutex.Lock()
 		defer s.sleepMutex.Unlock()
 
@@ -311,6 +310,8 @@ func (s *VllmSimulator) HandleSleep(ctx *fasthttp.RequestCtx) {
 		if s.context.config.EnableKVCache {
 			s.context.kvcacheHelper.Discard()
 		}
+	} else {
+		s.context.logger.V(logging.INFO).Info("Sleep request received, skipped since simulator not in dev mode or sleep support is not enabled")
 	}
 
 	ctx.Response.Header.SetStatusCode(fasthttp.StatusOK)
