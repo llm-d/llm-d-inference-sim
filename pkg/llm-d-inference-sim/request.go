@@ -45,7 +45,7 @@ type requestContext interface {
 	httpRequestCtx() *fasthttp.RequestCtx
 	done()
 	startProcessingTime() time.Time
-	kvCacheOnRequestStart() (float64, *openaiserverapi.Error)
+	kvCacheOnRequestStart() (hitRate float64, serverError *openaiserverapi.Error)
 	kvCacheOnRequestEnd()
 	createToolCalls() ([]openaiserverapi.ToolCall, int, string, error)
 	handleRequest() (responseContext, string, *openaiserverapi.Error)
