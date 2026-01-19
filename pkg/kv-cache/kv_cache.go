@@ -71,18 +71,17 @@ func (h *KVCacheHelper) Activate() {
 	h.blockCache.activate()
 }
 
-func (h *KVCacheHelper) OnRequestStart(vllmReq openaiserverapi.Request) error {
+func (h *KVCacheHelper) OnRequestStart(vllmReq openaiserverapi.Request) (float64, error) {
 	h.logger.V(logging.TRACE).Info("KV cache - process request")
 
 	prompt := vllmReq.GetPrompt()
 	modelName := vllmReq.GetModel()
-	requestID := vllmReq.GetRequestID()
 
 	// tokenize the input
 	tokens, _, err := h.tokenizer.Encode(prompt, modelName)
 	if err != nil {
 		h.logger.Error(err, "prompt tokenization failed")
-		return err
+		return 0, err
 	}
 
 	// get block keys
@@ -94,9 +93,23 @@ func (h *KVCacheHelper) OnRequestStart(vllmReq openaiserverapi.Request) error {
 		blockHashes[i] = key.ChunkHash
 	}
 
+	requestID := vllmReq.GetRequestID()
 	nBlocksAlreadyInCache, err := h.blockCache.startRequest(requestID, blockHashes)
+	if err != nil {
+		return 0, err
+	}
+
 	vllmReq.SetNumberOfCachedPromptTokens(nBlocksAlreadyInCache * h.blockSize)
-	return err
+
+	totalBlocks := len(blockHashes)
+	cachedBlocks := h.blockCache.countCachedBlockPrefix(blockHashes)
+
+	var hitRate float64
+	if totalBlocks > 0 {
+		hitRate = float64(cachedBlocks) / float64(totalBlocks)
+	}
+
+	return hitRate, nil
 }
 
 func (h *KVCacheHelper) OnRequestEnd(requestID string) error {

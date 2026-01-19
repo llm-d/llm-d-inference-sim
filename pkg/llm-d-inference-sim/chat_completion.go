@@ -89,9 +89,9 @@ func (c *chatCompletionReqCtx) request() request {
 	return c.req
 }
 
-func (c *chatCompletionReqCtx) kvCacheOnRequestStart() *openaiserverapi.Error {
+func (c *chatCompletionReqCtx) kvCacheOnRequestStart() (hitRate float64, oaiServerError *openaiserverapi.Error) {
 	// kv cache is currently supported for /completion API only
-	return nil
+	return 0, nil
 }
 
 func (c *chatCompletionReqCtx) kvCacheOnRequestEnd() {

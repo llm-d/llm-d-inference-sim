@@ -17,6 +17,7 @@ limitations under the License.
 package llmdinferencesim
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -24,6 +25,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/dataset"
@@ -35,6 +37,9 @@ import (
 )
 
 const invalidMaxTokensErrMsg = "Max completion tokens and max tokens should be positive"
+
+const prompt1 = "What is the weather like in New York today?"
+const prompt2 = "I hear it's very cold."
 
 var _ = Describe("Simulator", func() {
 
@@ -739,6 +744,331 @@ var _ = Describe("Simulator", func() {
 
 		It("Should return normal finish reason when header is not set", func() {
 			testCacheThresholdFinishReasonHeader(false, common.StopFinishReason)
+		})
+	})
+
+	Context("cache hit threshold", func() {
+		type completionRequestParams struct {
+			Prompt            string   `json:"prompt"`
+			Model             string   `json:"model"`
+			MaxTokens         int      `json:"max_tokens"`
+			CacheHitThreshold *float64 `json:"cache_hit_threshold,omitempty"`
+			Stream            bool     `json:"stream,omitempty"`
+		}
+
+		createCompletionRequest := func(params completionRequestParams) *http.Request {
+			reqBodyBytes, err := json.Marshal(params)
+			Expect(err).NotTo(HaveOccurred())
+
+			req, err := http.NewRequest("POST", "http://localhost/v1/completions", strings.NewReader(string(reqBodyBytes)))
+			Expect(err).NotTo(HaveOccurred())
+			req.Header.Set("Content-Type", "application/json")
+
+			return req
+		}
+
+		setupKVCacheServer := func(enableKVCache bool, globalThreshold *float64, model string) *http.Client {
+			ctx := context.TODO()
+			tmpDir := GinkgoT().TempDir()
+
+			args := []string{"cmd", "--model", model, "--mode", common.ModeEcho}
+
+			if enableKVCache {
+				args = append(args, "--enable-kvcache", "true", "--kv-cache-size", "16", "--block-size", "8",
+					"--tokenizers-cache-dir", tmpDir)
+			}
+			if globalThreshold != nil {
+				args = append(args, "--global-cache-hit-threshold", fmt.Sprintf("%f", *globalThreshold))
+			}
+			client, err := startServerWithArgsAndEnv(ctx, common.ModeEcho, args, map[string]string{"POD_IP": "localhost"})
+			Expect(err).NotTo(HaveOccurred())
+
+			return client
+		}
+
+		populateCache := func(client *http.Client) {
+			req1 := createCompletionRequest(completionRequestParams{
+				Prompt:    prompt1,
+				Model:     qwenModelName,
+				MaxTokens: 5,
+			})
+			resp1, err := client.Do(req1)
+			Expect(err).NotTo(HaveOccurred())
+			err = resp1.Body.Close()
+			Expect(err).NotTo(HaveOccurred())
+		}
+
+		testCacheHitThreshold := func(secondPrompt string, cacheHitThreshold float64, expectCacheThresholdFinishReason bool, checkImmediateResponse bool) {
+			client := setupKVCacheServer(true, nil, qwenModelName)
+
+			populateCache(client)
+
+			// Second request: test cache hit threshold
+			req2 := createCompletionRequest(completionRequestParams{
+				Prompt:            secondPrompt,
+				Model:             qwenModelName,
+				MaxTokens:         5,
+				CacheHitThreshold: &cacheHitThreshold,
+			})
+			var startTime time.Time
+			if checkImmediateResponse {
+				startTime = time.Now()
+			}
+			resp2, err := client.Do(req2)
+			Expect(err).NotTo(HaveOccurred())
+			defer func() {
+				err := resp2.Body.Close()
+				Expect(err).NotTo(HaveOccurred())
+			}()
+
+			if checkImmediateResponse {
+				elapsed := time.Since(startTime)
+				Expect(elapsed).To(BeNumerically("<", 100*time.Millisecond), "Response should be immediate")
+			}
+
+			Expect(resp2.StatusCode).To(Equal(http.StatusOK))
+
+			body, err := io.ReadAll(resp2.Body)
+			Expect(err).NotTo(HaveOccurred())
+
+			var completionResp map[string]interface{}
+			err = json.Unmarshal(body, &completionResp)
+			Expect(err).NotTo(HaveOccurred())
+
+			choices := completionResp["choices"].([]interface{})
+			Expect(choices).To(HaveLen(1))
+			firstChoice := choices[0].(map[string]interface{})
+
+			if expectCacheThresholdFinishReason {
+				Expect(firstChoice["finish_reason"]).To(Equal(common.CacheThresholdFinishReason))
+
+				// Verify response is empty (no tokens generated)
+				text := firstChoice["text"].(string)
+				Expect(text).To(BeEmpty())
+
+				// Verify usage data
+				usage := completionResp["usage"].(map[string]interface{})
+				Expect(usage["completion_tokens"]).To(Equal(float64(0)))
+				Expect(usage["prompt_tokens"]).To(BeNumerically(">", 0))
+			} else {
+				// Should have normal finish reason, not cache_threshold
+				finishReason := firstChoice["finish_reason"].(string)
+				Expect(finishReason).To(Equal(common.LengthFinishReason))
+
+				// Should have generated tokens
+				text := firstChoice["text"].(string)
+				Expect(text).NotTo(BeEmpty())
+			}
+		}
+
+		It("Should return cache_threshold finish reason when hit rate is below threshold", func() {
+			testCacheHitThreshold(prompt2, 0.9, true, true)
+		})
+
+		It("Should proceed with normal processing when hit rate is at or above threshold", func() {
+			testCacheHitThreshold(prompt1+prompt2, 0.3, false, false)
+		})
+
+		It("Should return cache_threshold finish reason in streaming response when threshold not met", func() {
+			globalCacheHitThreshold := 0.9
+			client := setupKVCacheServer(true, &globalCacheHitThreshold, qwenModelName)
+
+			populateCache(client)
+
+			req2 := createCompletionRequest(completionRequestParams{
+				Prompt:    prompt2,
+				Model:     qwenModelName,
+				MaxTokens: 5,
+				Stream:    true,
+			})
+			startTime := time.Now()
+			resp2, err := client.Do(req2)
+			Expect(err).NotTo(HaveOccurred())
+			defer func() {
+				err := resp2.Body.Close()
+				Expect(err).NotTo(HaveOccurred())
+			}()
+
+			elapsed := time.Since(startTime)
+			Expect(elapsed).To(BeNumerically("<", 100*time.Millisecond))
+
+			Expect(resp2.StatusCode).To(Equal(http.StatusOK))
+
+			// Read streaming response
+			reader := bufio.NewReader(resp2.Body)
+			chunksWithFinishReason := 0
+			hasCacheThreshold := false
+
+			for {
+				line, err := reader.ReadString('\n')
+				if err == io.EOF {
+					break
+				}
+				Expect(err).NotTo(HaveOccurred())
+
+				if strings.HasPrefix(line, "data: ") {
+					data := strings.TrimPrefix(line, "data: ")
+					if strings.TrimSpace(data) == "[DONE]" {
+						break
+					}
+
+					var chunk map[string]interface{}
+					err = json.Unmarshal([]byte(data), &chunk)
+					if err != nil {
+						continue
+					}
+
+					choices, ok := chunk["choices"].([]interface{})
+					if !ok || len(choices) == 0 {
+						continue
+					}
+
+					firstChoice, ok := choices[0].(map[string]interface{})
+					if !ok {
+						continue
+					}
+
+					finishReason, ok := firstChoice["finish_reason"].(string)
+					if ok && finishReason != "" {
+						chunksWithFinishReason++
+						if finishReason == common.CacheThresholdFinishReason {
+							hasCacheThreshold = true
+						}
+					}
+				}
+			}
+
+			Expect(hasCacheThreshold).To(BeTrue(), "Should have cache_threshold finish reason in streaming response")
+			Expect(chunksWithFinishReason).To(BeNumerically(">", 0), "Should have at least one chunk with finish reason")
+		})
+
+		It("Should use global cache hit threshold when request doesn't specify cache_hit_threshold", func() {
+			globalThreshold := 0.9
+			client := setupKVCacheServer(true, &globalThreshold, qwenModelName)
+
+			populateCache(client)
+
+			// Second request: test global cache hit threshold
+			req2 := createCompletionRequest(completionRequestParams{
+				Prompt:    prompt2,
+				Model:     qwenModelName,
+				MaxTokens: 5,
+			})
+			startTime := time.Now()
+			resp2, err := client.Do(req2)
+			Expect(err).NotTo(HaveOccurred())
+			defer func() {
+				err := resp2.Body.Close()
+				Expect(err).NotTo(HaveOccurred())
+			}()
+
+			elapsed := time.Since(startTime)
+			Expect(elapsed).To(BeNumerically("<", 100*time.Millisecond), "Response should be immediate")
+
+			Expect(resp2.StatusCode).To(Equal(http.StatusOK))
+
+			body, err := io.ReadAll(resp2.Body)
+			Expect(err).NotTo(HaveOccurred())
+
+			var completionResp map[string]interface{}
+			err = json.Unmarshal(body, &completionResp)
+			Expect(err).NotTo(HaveOccurred())
+
+			choices := completionResp["choices"].([]interface{})
+			Expect(choices).To(HaveLen(1))
+			firstChoice := choices[0].(map[string]interface{})
+
+			Expect(firstChoice["finish_reason"]).To(Equal(common.CacheThresholdFinishReason))
+		})
+
+		It("Should use request cache_hit_threshold over global threshold when both are set", func() {
+			// Set global threshold to 1.0 (very high, would fail for any request with < 100% cache hit)
+			globalThreshold := 1.0
+			client := setupKVCacheServer(true, &globalThreshold, qwenModelName)
+
+			// Request with global threshold 1.0 (would fail with 0% cache hit) but request threshold 0.0
+			// This demonstrates that request threshold takes precedence over global threshold
+			threshold := 0.0
+			req := createCompletionRequest(completionRequestParams{
+				Prompt:            prompt1,
+				Model:             qwenModelName,
+				MaxTokens:         5,
+				CacheHitThreshold: &threshold,
+			})
+			resp, err := client.Do(req)
+			Expect(err).NotTo(HaveOccurred())
+			defer func() {
+				err := resp.Body.Close()
+				Expect(err).NotTo(HaveOccurred())
+			}()
+
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+			body, err := io.ReadAll(resp.Body)
+			Expect(err).NotTo(HaveOccurred())
+
+			var completionResp map[string]interface{}
+			err = json.Unmarshal(body, &completionResp)
+			Expect(err).NotTo(HaveOccurred())
+
+			choices := completionResp["choices"].([]interface{})
+			Expect(choices).To(HaveLen(1))
+			firstChoice := choices[0].(map[string]interface{})
+			finishReason, ok := firstChoice["finish_reason"].(string)
+			Expect(ok).To(BeTrue())
+			// Should proceed normally because request threshold (0.0) is used, not global (1.0)
+			// With 0% cache hit rate initially:
+			// - Global threshold 1.0 would fail (0% < 1.0) → cache_threshold
+			// - Request threshold 0.0 passes (0% >= 0.0) → normal finish reason
+			// This proves request threshold takes precedence over global threshold
+			Expect(finishReason).To(Or(Equal(common.StopFinishReason), Equal(common.LengthFinishReason)))
+			Expect(finishReason).NotTo(Equal(common.CacheThresholdFinishReason))
+		})
+
+		testSimpleRequestWithKVCacheDisabled := func(cacheHitThreshold *float64, globalThreshold *float64) {
+			client := setupKVCacheServer(false, globalThreshold, testModel)
+
+			req := createCompletionRequest(completionRequestParams{
+				Prompt:            "Hello world",
+				Model:             testModel,
+				MaxTokens:         5,
+				CacheHitThreshold: cacheHitThreshold,
+			})
+			resp, err := client.Do(req)
+			Expect(err).NotTo(HaveOccurred())
+			defer func() {
+				err := resp.Body.Close()
+				Expect(err).NotTo(HaveOccurred())
+			}()
+
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+			body, err := io.ReadAll(resp.Body)
+			Expect(err).NotTo(HaveOccurred())
+
+			var completionResp map[string]interface{}
+			err = json.Unmarshal(body, &completionResp)
+			Expect(err).NotTo(HaveOccurred())
+
+			choices := completionResp["choices"].([]interface{})
+			Expect(choices).To(HaveLen(1))
+			firstChoice := choices[0].(map[string]interface{})
+
+			finishReason, ok := firstChoice["finish_reason"].(string)
+			Expect(ok).To(BeTrue())
+			Expect(finishReason).To(Or(Equal(common.StopFinishReason), Equal(common.LengthFinishReason)))
+		}
+
+		Context("When KV cache is disabled", func() {
+			It("Should ignore cache_hit_threshold defined in the request", func() {
+				threshold := 1.0
+				testSimpleRequestWithKVCacheDisabled(&threshold, nil)
+			})
+
+			It("Should ignore global_cache_hit_threshold command line argument", func() {
+				globalThreshold := 0.9
+				testSimpleRequestWithKVCacheDisabled(nil, &globalThreshold)
+			})
 		})
 	})
 })

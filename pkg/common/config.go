@@ -184,6 +184,9 @@ type Configuration struct {
 	EnableKVCache bool `yaml:"enable-kvcache" json:"enable-kvcache"`
 	//  KVCacheSize is the maximum number of token blocks in kv cache, the default value is 1024
 	KVCacheSize int `yaml:"kv-cache-size" json:"kv-cache-size"`
+	// GlobalCacheHitThreshold is the default cache hit threshold (0-1] for all requests.
+	// If a request specifies cache_hit_threshold, it takes precedence over this global value.
+	GlobalCacheHitThreshold float64 `yaml:"global-cache-hit-threshold" json:"global-cache-hit-threshold"`
 
 	// TokenizersCacheDir is the directory for caching tokenizers
 	TokenizersCacheDir string `yaml:"tokenizers-cache-dir" json:"tokenizers-cache-dir"`
@@ -712,6 +715,10 @@ func (c *Configuration) validate() error {
 			c.LatencyCalculator, ConstantLatencyCalculator, PerPromptTokenLatencyCalculator)
 	}
 
+	if c.GlobalCacheHitThreshold < 0 || c.GlobalCacheHitThreshold > 1 {
+		return errors.New("global cache hit threshold must be between in range [0, 1]")
+	}
+
 	return nil
 }
 
@@ -784,6 +791,7 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 
 	f.BoolVar(&config.EnableKVCache, "enable-kvcache", config.EnableKVCache, "Defines if KV cache feature is enabled")
 	f.IntVar(&config.KVCacheSize, "kv-cache-size", config.KVCacheSize, "Maximum number of token blocks in kv cache")
+	f.Float64Var(&config.GlobalCacheHitThreshold, "global-cache-hit-threshold", 0, "Default cache hit threshold [0, 1] for all requests. If a request specifies cache_hit_threshold, it takes precedence")
 	f.IntVar(&config.TokenBlockSize, "block-size", config.TokenBlockSize, "Token block size for contiguous chunks of tokens, possible values: 8,16,32,64,128")
 	f.StringVar(&config.TokenizersCacheDir, "tokenizers-cache-dir", config.TokenizersCacheDir, "Directory for caching tokenizers")
 	f.StringVar(&config.HashSeed, "hash-seed", config.HashSeed, "Seed for hash generation (if not set, is read from PYTHONHASHSEED environment variable)")
