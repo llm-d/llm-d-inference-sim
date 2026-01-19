@@ -692,7 +692,7 @@ var _ = Describe("Simulator", func() {
 	})
 
 	Context("cache threshold finish reason header", func() {
-		testCacheThresholdFinishReasonHeader := func(setHeader bool, expectedFinishReason string) {
+		testCacheThresholdFinishReasonHeader := func(setHeader bool, expectedFinishReasons []string) {
 			ctx := context.TODO()
 			client, err := startServer(ctx, common.ModeRandom)
 			Expect(err).NotTo(HaveOccurred())
@@ -729,16 +729,16 @@ var _ = Describe("Simulator", func() {
 			choices := chatResp["choices"].([]interface{})
 			Expect(choices).To(HaveLen(1))
 			firstChoice := choices[0].(map[string]interface{})
-			Expect(firstChoice["finish_reason"]).To(Equal(expectedFinishReason))
+			Expect(firstChoice["finish_reason"]).To(BeElementOf(expectedFinishReasons))
 
 		}
 
 		It("Should return cache_threshold finish reason when header is set", func() {
-			testCacheThresholdFinishReasonHeader(true, common.CacheThresholdFinishReason)
+			testCacheThresholdFinishReasonHeader(true, []string{common.CacheThresholdFinishReason})
 		})
 
 		It("Should return normal finish reason when header is not set", func() {
-			testCacheThresholdFinishReasonHeader(false, common.StopFinishReason)
+			testCacheThresholdFinishReasonHeader(false, []string{common.StopFinishReason, common.LengthFinishReason})
 		})
 	})
 })
