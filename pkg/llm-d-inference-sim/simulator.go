@@ -198,10 +198,32 @@ func (s *VllmSimulator) startSim(ctx context.Context) error {
 
 	// start the gRPC server
 	if s.context.config.Mode == common.ModeEcho {
-		go s.startGRPC(ctx, grpcL)
+		errCh := make(chan error, 1)
+		go func() {
+			errCh <- s.startGRPC(ctx, grpcL)
+		}()
+
+		select {
+		case err := <-errCh:
+			if err != nil {
+				return err
+			}
+		default:
+		}
 	}
 	// start the http server with context support
-	go s.startServer(ctx, httpL)
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- s.startServer(ctx, httpL)
+	}()
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			return err
+		}
+	default:
+	}
 
 	err = m.Serve()
 	if !errors.Is(err, net.ErrClosed) {
