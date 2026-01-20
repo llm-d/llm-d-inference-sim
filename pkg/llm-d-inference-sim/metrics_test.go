@@ -521,7 +521,7 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 				// Expect three running requests and two blocks in the kv cache - usage 2/16=0.125
 				Expect(metrics).To(ContainSubstring(getCountMetricLine(qwenModelName, reqRunningMetricName, 3)))
 				Expect(metrics).To(ContainSubstring(getCountMetricLine(qwenModelName, reqWaitingMetricName, 0)))
-				Expect(metrics).To(ContainSubstring(getCountMetricLine(qwenModelName, gpuCacheUsageMetricName, 0.125)))
+				Expect(metrics).To(ContainSubstring(getCountMetricLine(qwenModelName, kvCacheUsageMetricName, 0.125)))
 
 				time.Sleep(4 * time.Second)
 				metricsResp, err = client.Get(metricsUrl)
@@ -534,7 +534,7 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 				// The requests finished running, expect 0 usage
 				Expect(metrics).To(ContainSubstring(getCountMetricLine(qwenModelName, reqRunningMetricName, 0)))
 				Expect(metrics).To(ContainSubstring(getCountMetricLine(qwenModelName, reqWaitingMetricName, 0)))
-				Expect(metrics).To(ContainSubstring(getCountMetricLine(qwenModelName, gpuCacheUsageMetricName, 0)))
+				Expect(metrics).To(ContainSubstring(getCountMetricLine(qwenModelName, kvCacheUsageMetricName, 0)))
 			}()
 			wg.Wait()
 		})
@@ -601,7 +601,7 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 				// We expect one block in the kv-cache, usage 1/16=0.0625.
 				Expect(metrics).To(ContainSubstring(getCountMetricLine(qwenModelName, reqRunningMetricName, 2)))
 				Expect(metrics).To(ContainSubstring(getCountMetricLine(qwenModelName, reqWaitingMetricName, 1)))
-				Expect(metrics).To(ContainSubstring(getCountMetricLine(qwenModelName, gpuCacheUsageMetricName, 0.0625)))
+				Expect(metrics).To(ContainSubstring(getCountMetricLine(qwenModelName, kvCacheUsageMetricName, 0.0625)))
 			}()
 			wg.Wait()
 		})
@@ -673,7 +673,7 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 			metrics := string(data)
 			Expect(metrics).To(ContainSubstring(getCountMetricLine(testModel, reqRunningMetricName, 10)))
 			Expect(metrics).To(ContainSubstring(getCountMetricLine(testModel, reqWaitingMetricName, 30)))
-			Expect(metrics).To(ContainSubstring(getCountMetricLine(testModel, gpuCacheUsageMetricName, 0.4)))
+			Expect(metrics).To(ContainSubstring(getCountMetricLine(testModel, kvCacheUsageMetricName, 0.4)))
 			Expect(metrics).To(ContainSubstring("vllm:lora_requests_info{max_lora=\"1\",running_lora_adapters=\"lora4,lora2\",waiting_lora_adapters=\"lora3\"} 1.257894567e+09"))
 			Expect(metrics).To(ContainSubstring("vllm:lora_requests_info{max_lora=\"1\",running_lora_adapters=\"lora4,lora3\",waiting_lora_adapters=\"\"} 1.257894569e+09"))
 

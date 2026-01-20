@@ -22,7 +22,7 @@ In addition, a set of the vLLM HTTP endpoints are suppored as well. These includ
 In addition, it supports a subset of vLLM's Prometheus metrics. These metrics are exposed via the /metrics HTTP REST endpoint. Currently supported are the following metrics:
 | Metric | Description |
 |---|---|
-| vllm:gpu_cache_usage_perc | The fraction of KV-cache blocks currently in use (from 0 to 1). Currently this value will always be zero. |
+| vllm:kv_cache_usage_perc | The fraction of KV-cache blocks currently in use (from 0 to 1) |
 | vllm:lora_requests_info | Running stats on LoRA requests |
 | vllm:num_requests_running | Number of requests currently running on GPU |
 | vllm:num_requests_waiting | Prometheus metric for the number of queued requests |

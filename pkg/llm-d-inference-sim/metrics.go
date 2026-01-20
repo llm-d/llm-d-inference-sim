@@ -51,7 +51,7 @@ const (
 	loraRequestsMetricName           = "vllm:lora_requests_info"
 	reqRunningMetricName             = "vllm:num_requests_running"
 	reqWaitingMetricName             = "vllm:num_requests_waiting"
-	gpuCacheUsageMetricName          = "vllm:gpu_cache_usage_perc"
+	kvCacheUsageMetricName           = "vllm:kv_cache_usage_perc"
 	cacheConfigName                  = "vllm:cache_config_info"
 )
 
@@ -257,7 +257,7 @@ func (s *simContext) createAndRegisterPrometheus(ctx context.Context) error {
 	s.metrics.kvCacheUsagePercentage = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: "",
-			Name:      gpuCacheUsageMetricName,
+			Name:      kvCacheUsageMetricName,
 			Help:      "Prometheus metric for the fraction of KV-cache blocks currently in use (from 0 to 1).",
 		},
 		[]string{vllmapi.PromLabelModelName},
