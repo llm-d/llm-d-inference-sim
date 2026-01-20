@@ -253,3 +253,14 @@ func (d *Duration) String() string {
 func (d *Duration) ToDuration() time.Duration {
 	return time.Duration(*d)
 }
+
+// FinishReason returns finish reason based on request's max tokens parameter
+// and the length of the generated response
+func FinishReason(maxTokens *int64, respLen int) string {
+	finishReason := StopFinishReason
+
+	if maxTokens != nil && respLen >= int(*maxTokens) {
+		finishReason = LengthFinishReason
+	}
+	return finishReason
+}

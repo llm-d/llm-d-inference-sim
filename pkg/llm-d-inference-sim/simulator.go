@@ -22,11 +22,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"sync"
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/soheilhy/cmux"
 	"github.com/valyala/fasthttp"
 	"golang.org/x/sync/errgroup"
 	"k8s.io/klog/v2"
@@ -34,6 +36,7 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 	"github.com/llm-d/llm-d-inference-sim/pkg/dataset"
+	"github.com/llm-d/llm-d-inference-sim/pkg/grpc/pb"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	vllmapi "github.com/llm-d/llm-d-inference-sim/pkg/vllm-api"
 )
@@ -64,6 +67,8 @@ type waitingQueueItem struct {
 
 // VllmSimulator simulates vLLM server supporting OpenAI API
 type VllmSimulator struct {
+	pb.UnimplementedVllmEngineServer
+
 	context simContext
 	// schema validator for tools parameters
 	toolsValidator *common.ToolsValidator
@@ -182,8 +187,27 @@ func (s *VllmSimulator) startSim(ctx context.Context) error {
 		return fmt.Errorf("listener creation error: %w", err)
 	}
 
+	m := cmux.New(listener)
+
+	var grpcL net.Listener
+	if s.context.config.Mode == common.ModeEcho {
+		// gRPC uses HTTP/2
+		grpcL = m.Match(cmux.HTTP2())
+	}
+	httpL := m.Match(cmux.Any())
+
+	// start the gRPC server
+	if s.context.config.Mode == common.ModeEcho {
+		go s.startGRPC(ctx, grpcL)
+	}
 	// start the http server with context support
-	return s.startServer(ctx, listener)
+	go s.startServer(ctx, httpL)
+
+	err = m.Serve()
+	if !errors.Is(err, net.ErrClosed) {
+		return fmt.Errorf("cmux failed: %w", err)
+	}
+	return nil
 }
 
 func (s *VllmSimulator) initializeSim(ctx context.Context) error {

@@ -107,13 +107,7 @@ func (d *DefaultDataset) GetTokens(req openaiserverapi.Request, mode string) ([]
 func (d *DefaultDataset) getTokensInEchoMode(req openaiserverapi.Request) ([]string, string, error) {
 	tokens := common.Tokenize(req.GetPromptForEcho())
 	maxTokens := req.GetMaxCompletionTokens()
-	finishReason := common.StopFinishReason
-
-	if maxTokens != nil && len(tokens) >= int(*maxTokens) {
-		finishReason = common.LengthFinishReason
-	}
-
-	return tokens, finishReason, nil
+	return tokens, common.FinishReason(maxTokens, len(tokens)), nil
 }
 
 // calculateResponseMaxLen - calculates maximum length of a response to be randomly chosen from the dataset

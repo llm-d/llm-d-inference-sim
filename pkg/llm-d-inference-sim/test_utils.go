@@ -74,6 +74,16 @@ func startServerWithArgs(ctx context.Context, args []string) (*http.Client, erro
 // Starts server according the given parmaters: mode, arguments and environment
 // if args are defined - the mode parameter is discarded, value from args is used
 func startServerWithArgsAndEnv(ctx context.Context, mode string, args []string, envs map[string]string) (*http.Client, error) {
+	_, c, err := startServerHelper(ctx, mode, args, envs)
+	return c, err
+}
+
+func startServerWithMode(ctx context.Context, mode string) (*VllmSimulator, error) {
+	s, _, err := startServerHelper(ctx, mode, nil, nil)
+	return s, err
+}
+
+func startServerHelper(ctx context.Context, mode string, args []string, envs map[string]string) (*VllmSimulator, *http.Client, error) {
 	oldArgs := os.Args
 	defer func() {
 		os.Args = oldArgs
@@ -103,11 +113,11 @@ func startServerWithArgsAndEnv(ctx context.Context, mode string, args []string, 
 
 	s, err := New(logger)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	config, err := common.ParseCommandParamsAndLoadConfig()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	s.context.config = config
 
@@ -116,7 +126,7 @@ func startServerWithArgsAndEnv(ctx context.Context, mode string, args []string, 
 	userMsgTokens = int64(len(common.Tokenize(testUserMessage)))
 
 	if err := s.initializeSim(ctx); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	listener := fasthttputil.NewInmemoryListener()
@@ -128,7 +138,7 @@ func startServerWithArgsAndEnv(ctx context.Context, mode string, args []string, 
 		}
 	}()
 
-	return &http.Client{
+	return s, &http.Client{
 		Transport: &http.Transport{
 			DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
 				return listener.Dial()
