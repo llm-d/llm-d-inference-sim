@@ -219,7 +219,7 @@ func (s *simContext) initTokenizer() error {
 	// is a test model or real model from HF
 	_, err = hfTokenizer.Encode("test", s.config.Model)
 	if err != nil {
-		if strings.Contains(err.Error(), "status code 404") {
+		if strings.Contains(err.Error(), "status code 404") || strings.Contains(err.Error(), "status code 429") {
 			// cannot download tokenizer.json, probably model name is not real
 			s.logger.Info("Model name is not real, use simple tokenizer")
 			simpleTokenizer := tokenizer.CreateSimpleTokenizer()
