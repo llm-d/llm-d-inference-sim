@@ -24,12 +24,12 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
+	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 	"github.com/llm-d/llm-d-kv-cache-manager/pkg/kvcache/kvblock"
-	"github.com/llm-d/llm-d-kv-cache-manager/pkg/tokenization"
 )
 
 type KVCacheHelper struct {
-	tokenizer       tokenization.Tokenizer
+	tokenizer       tokenizer.Tokenizer
 	tokensProcessor kvblock.TokenProcessor // turns tokens to kv block keys
 	logger          logr.Logger
 	blockCache      *blockCache
@@ -37,7 +37,7 @@ type KVCacheHelper struct {
 }
 
 func NewKVCacheHelper(config *common.Configuration, logger logr.Logger, usageChan chan float64,
-	tokenizer tokenization.Tokenizer) (*KVCacheHelper, error) {
+	tokenizer tokenizer.Tokenizer) (*KVCacheHelper, error) {
 	tokenProcConfig := kvblock.DefaultTokenProcessorConfig()
 	tokenProcConfig.BlockSize = config.TokenBlockSize
 	if config.HashSeed != "" {
@@ -78,7 +78,7 @@ func (h *KVCacheHelper) OnRequestStart(vllmReq openaiserverapi.Request) (float64
 	modelName := vllmReq.GetModel()
 
 	// tokenize the input
-	tokens, _, err := h.tokenizer.Encode(prompt, modelName)
+	tokens, err := h.tokenizer.Encode(prompt, modelName)
 	if err != nil {
 		h.logger.Error(err, "prompt tokenization failed")
 		return 0, err

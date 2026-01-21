@@ -18,7 +18,9 @@ package llmdinferencesim
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/go-logr/logr"
@@ -28,7 +30,7 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 	"github.com/llm-d/llm-d-inference-sim/pkg/dataset"
 	kvcache "github.com/llm-d/llm-d-inference-sim/pkg/kv-cache"
-	"github.com/llm-d/llm-d-kv-cache-manager/pkg/tokenization"
+	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 )
 
 const (
@@ -148,8 +150,8 @@ type simContext struct {
 	loras *lorasUsageInfo
 	// rand with a configurable seed to generate reproducible random responses
 	random *common.Random
-	// tokenizer is currently used in kv-cache and in /tokenize
-	tokenizer tokenization.Tokenizer
+	// tokenizer used for request tokenization and in /tokenize
+	tokenizer tokenizer.Tokenizer
 	// kv cache functionality
 	kvcacheHelper *kvcache.KVCacheHelper
 	// dataset is used for token generation in responses
@@ -182,21 +184,9 @@ func (s *simContext) initialize(ctx context.Context) error {
 		return err
 	}
 
-	tokenizationConfig, err := tokenization.DefaultConfig()
-	if err != nil {
-		return fmt.Errorf("failed to create default tokenization configuration: %w", err)
-	}
-
-	if s.config.TokenizersCacheDir != "" {
-		if tokenizationConfig.HFTokenizerConfig == nil {
-			tokenizationConfig.HFTokenizerConfig = &tokenization.HFTokenizerConfig{}
-		}
-		tokenizationConfig.HFTokenizerConfig.TokenizersCacheDir = s.config.TokenizersCacheDir
-	}
-
-	s.tokenizer, err = tokenization.NewCachedHFTokenizer(tokenizationConfig.HFTokenizerConfig)
-	if err != nil {
-		return fmt.Errorf("failed to create hf tokenizer: %w", err)
+	// create and initialize tokenizer
+	if err = s.initTokenizer(); err != nil {
+		return err
 	}
 
 	if s.config.EnableKVCache {
@@ -215,6 +205,36 @@ func (s *simContext) initialize(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (s *simContext) initTokenizer() error {
+	// always generate huggingface tokenizer to check if model is test model
+	hfTokenizer := tokenizer.CreateHFTokenizer()
+	err := hfTokenizer.Init(*s.config)
+	if err != nil {
+		return errors.Join(err, errors.New("failed to create default tokenization configuration"))
+	}
+
+	// try to tokenize a short string to check if the model, defined in the configuration
+	// is a test model or real model from HF
+	_, err = hfTokenizer.Encode("test", s.config.Model)
+	if err != nil {
+		if strings.Contains(err.Error(), "status code 404") {
+			// cannot download tokenizer.json, probably model name is not real
+			s.logger.Info("Model name is not real, use simple tokenizer")
+			simpleTokenizer := tokenizer.CreateSimpleTokenizer()
+			if initErr := simpleTokenizer.Init(*s.config); initErr != nil {
+				return errors.Join(initErr, errors.New("failed to initialize simple tokenizer"))
+			}
+			s.tokenizer = simpleTokenizer
+		} else {
+			return errors.Join(err, fmt.Errorf("failed to download tokenizer for model %s", s.config.Model))
+		}
+	} else {
+		s.tokenizer = hfTokenizer
+	}
+
+	return s.tokenizer.Init(*s.config)
 }
 
 func (s *simContext) initDataset(ctx context.Context) error {
