@@ -34,8 +34,6 @@ import (
 	vllmapi "github.com/llm-d/llm-d-inference-sim/pkg/vllm-api"
 )
 
-const tmpDir = "./tests-tmp/"
-
 var _ = Describe("Server", func() {
 
 	It("Should respond to /health", func() {
@@ -59,15 +57,10 @@ var _ = Describe("Server", func() {
 	})
 
 	Context("tokenize", Ordered, func() {
-		AfterAll(func() {
-			err := os.RemoveAll(tmpDir)
-			Expect(err).NotTo(HaveOccurred())
-		})
-
 		It("Should return correct response to /tokenize chat", func() {
 			ctx := context.TODO()
 			args := []string{"cmd", "--model", qwenModelName, "--mode", common.ModeRandom,
-				"--tokenizers-cache-dir", tmpDir, "--max-model-len", "2048"}
+				"--max-model-len", "2048"}
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -96,7 +89,7 @@ var _ = Describe("Server", func() {
 		It("Should return correct response to /tokenize text", func() {
 			ctx := context.TODO()
 			args := []string{"cmd", "--model", qwenModelName, "--mode", common.ModeRandom,
-				"--tokenizers-cache-dir", tmpDir, "--max-model-len", "2048"}
+				"--max-model-len", "2048"}
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -320,11 +313,6 @@ var _ = Describe("Server", func() {
 	})
 
 	Context("sleep mode", Ordered, func() {
-		AfterAll(func() {
-			err := os.RemoveAll(tmpDir)
-			Expect(err).NotTo(HaveOccurred())
-		})
-
 		It("Should respond to /is_sleeping", func() {
 			ctx := context.TODO()
 			client, err := startServer(ctx, common.ModeRandom)
@@ -365,8 +353,7 @@ var _ = Describe("Server", func() {
 			ctx := context.TODO()
 			client, err := startServerWithArgsAndEnv(ctx, common.ModeRandom,
 				[]string{"cmd", "--model", qwenModelName, "--mode", common.ModeRandom, "--enable-sleep-mode",
-					"--enable-kvcache", "--v", "5", "--port", "8000", "--zmq-endpoint", endpoint,
-					"--tokenizers-cache-dir", tmpDir},
+					"--enable-kvcache", "--v", "5", "--port", "8000", "--zmq-endpoint", endpoint},
 				map[string]string{"VLLM_SERVER_DEV_MODE": "1", "POD_IP": "localhost"})
 			Expect(err).NotTo(HaveOccurred())
 

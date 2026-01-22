@@ -17,6 +17,7 @@ limitations under the License.
 package llmdinferencesim
 
 import (
+	"os"
 	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -27,3 +28,8 @@ func TestVllmSim(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "VllmSim Suite")
 }
+
+var _ = AfterSuite(func() {
+	err := os.RemoveAll(tokenizerTmpDir)
+	Expect(err).NotTo(HaveOccurred())
+})

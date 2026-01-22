@@ -50,6 +50,7 @@ const (
 	testModel       = "testmodel"
 	testUserMessage = "This is a test."
 	metricsUrl      = "http://localhost/metrics"
+	tokenizerTmpDir = "./test_tokenizers"
 )
 
 var userMsgTokens int64
@@ -94,6 +95,7 @@ func startServerHelper(ctx context.Context, mode string, args []string, envs map
 	} else {
 		os.Args = []string{"cmd", "--model", testModel, "--mode", mode}
 	}
+	os.Args = append(os.Args, "--tokenizers-cache-dir", tokenizerTmpDir)
 
 	if envs != nil {
 		for k, v := range envs {

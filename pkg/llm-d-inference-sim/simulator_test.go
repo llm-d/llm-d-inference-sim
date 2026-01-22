@@ -769,13 +769,11 @@ var _ = Describe("Simulator", func() {
 
 		setupKVCacheServer := func(enableKVCache bool, globalThreshold *float64, model string) *http.Client {
 			ctx := context.TODO()
-			tmpDir := GinkgoT().TempDir()
 
 			args := []string{"cmd", "--model", model, "--mode", common.ModeEcho}
 
 			if enableKVCache {
-				args = append(args, "--enable-kvcache", "true", "--kv-cache-size", "16", "--block-size", "8",
-					"--tokenizers-cache-dir", tmpDir)
+				args = append(args, "--enable-kvcache", "true", "--kv-cache-size", "16", "--block-size", "8")
 			}
 			if globalThreshold != nil {
 				args = append(args, "--global-cache-hit-threshold", fmt.Sprintf("%f", *globalThreshold))

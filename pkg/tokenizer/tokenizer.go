@@ -78,10 +78,11 @@ func (st *HFTokenizer) Init(config common.Configuration) error {
 		return errors.Join(err, errors.New("failed to create default tokenization configuration"))
 	}
 
+	if tokenizationConfig.HFTokenizerConfig == nil {
+		tokenizationConfig.HFTokenizerConfig = &tokenization.HFTokenizerConfig{}
+	}
+
 	if config.TokenizersCacheDir != "" {
-		if tokenizationConfig.HFTokenizerConfig == nil {
-			tokenizationConfig.HFTokenizerConfig = &tokenization.HFTokenizerConfig{}
-		}
 		tokenizationConfig.HFTokenizerConfig.TokenizersCacheDir = config.TokenizersCacheDir
 	}
 

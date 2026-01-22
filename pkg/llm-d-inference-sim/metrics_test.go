@@ -22,7 +22,6 @@ import (
 	"io"
 	"math"
 	"net/http"
-	"os"
 	"strings"
 	"sync"
 	"time"
@@ -455,18 +454,13 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 	})
 
 	Context("kv cache metrics", func() {
-		tmpDir := "./tests-tmp/"
-		AfterAll(func() {
-			err := os.RemoveAll(tmpDir)
-			Expect(err).NotTo(HaveOccurred())
-		})
 		It("Should send correct kv cache usage metrics", func() {
 			// Three requests, there are should be two blocks in the kv cache, because
 			// the first and the second prompt share a block.
 			ctx := context.TODO()
 			args := []string{"cmd", "--model", qwenModelName, "--mode", common.ModeRandom,
 				"--enable-kvcache", "true", "--kv-cache-size", "16", "--block-size", "8",
-				"--time-to-first-token", "5000", "--tokenizers-cache-dir", tmpDir}
+				"--time-to-first-token", "5000"}
 
 			client, err := startServerWithArgsAndEnv(ctx, common.ModeRandom, args, map[string]string{"POD_IP": "localhost"})
 			Expect(err).NotTo(HaveOccurred())
@@ -543,7 +537,7 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 			ctx := context.TODO()
 			args := []string{"cmd", "--model", qwenModelName, "--mode", common.ModeRandom,
 				"--enable-kvcache", "true", "--kv-cache-size", "16", "--block-size", "8",
-				"--time-to-first-token", "5000", "--tokenizers-cache-dir", tmpDir, "--max-num-seqs", "2"}
+				"--time-to-first-token", "5000", "--max-num-seqs", "2"}
 
 			client, err := startServerWithArgsAndEnv(ctx, common.ModeRandom, args, map[string]string{"POD_IP": "localhost"})
 			Expect(err).NotTo(HaveOccurred())
