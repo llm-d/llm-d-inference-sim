@@ -207,7 +207,7 @@ func (s *simContext) initialize(ctx context.Context) error {
 }
 
 func (s *simContext) modelExists() bool {
-	url := fmt.Sprintf("https://huggingface.co/api/models/%s", s.config.Model)
+	url := "https://huggingface.co/api/models/%s" + s.config.Model
 
 	statusCode, _, err := fasthttp.Get(nil, url)
 	if err != nil {
