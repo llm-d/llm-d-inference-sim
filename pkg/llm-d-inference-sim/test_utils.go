@@ -65,21 +65,20 @@ func startServerWithEnv(ctx context.Context, mode string, envs map[string]string
 	return startServerWithArgsAndEnv(ctx, mode, nil, envs)
 }
 
-// Starts server according the given arguments
-// if args are defined - mode defined in args will override the mode defined by the mode parameter
+// Starts server according to the given arguments
 func startServerWithArgs(ctx context.Context, args []string) (*http.Client, error) {
 	return startServerWithArgsAndEnv(ctx, "", args, nil)
 }
 
-// Starts server according the given parmaters: mode, arguments and environment
+// Starts server according the given parameters: mode, arguments and environment
 // if args are defined - the mode parameter is discarded, value from args is used
 func startServerWithArgsAndEnv(ctx context.Context, mode string, args []string, envs map[string]string) (*http.Client, error) {
 	_, c, err := startServerHelper(ctx, mode, args, envs)
 	return c, err
 }
 
-func startServerWithMode(ctx context.Context, mode string) (*VllmSimulator, error) {
-	s, _, err := startServerHelper(ctx, mode, nil, nil)
+func startServerHandle(ctx context.Context, mode string, args []string, envs map[string]string) (*VllmSimulator, error) {
+	s, _, err := startServerHelper(ctx, mode, args, envs)
 	return s, err
 }
 

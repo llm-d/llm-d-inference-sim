@@ -19,6 +19,7 @@ package llmdinferencesim
 import (
 	"context"
 	"net"
+	"time"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
@@ -29,7 +30,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// Submit a generation request (TODO: support streaming)
+// Submit a generation request (supports streaming)
 func (s *VllmSimulator) Generate(in *pb.GenerateRequest, out grpc.ServerStreamingServer[pb.GenerateResponse]) error {
 	var promptTokens []uint32
 	if in.GetTokenized() != nil {
@@ -42,20 +43,79 @@ func (s *VllmSimulator) Generate(in *pb.GenerateRequest, out grpc.ServerStreamin
 		maxTokensValue := int64(*in.GetSamplingParams().MaxTokens)
 		maxTokens = &maxTokensValue
 	}
+	finishReason := common.FinishReason(maxTokens, length)
 
-	resp := &pb.GenerateResponse{
-		Response: &pb.GenerateResponse_Complete{
-			Complete: &pb.GenerateComplete{
-				OutputIds:        promptTokens,
-				PromptTokens:     uint32(length),
-				CompletionTokens: uint32(length),
-				FinishReason:     common.FinishReason(maxTokens, length),
-			},
-		},
+	startPrefill := time.Now()
+	// time to first token delay
+	params := TTFTParams{
+		PromptTokens:       length,
+		CachedPromptTokens: 0,
+		DoRemotePrefill:    false,
+		RunningReqs:        s.context.metrics.nRunningReqs,
 	}
+	ttft := s.context.latencyCalculator.GetTimeToFirstToken(&params)
+	time.Sleep(ttft)
+	// report ttft in seconds
+	common.WriteToChannel(s.context.metrics.ttftChan, ttft.Seconds(), s.context.logger, "metrics.ttftChan")
+	common.WriteToChannel(s.context.metrics.reqPrefillTimeChan, time.Since(startPrefill).Seconds(), s.context.logger, "metrics.reqPrefillTimeChan")
 
-	if err := out.Send(resp); err != nil {
-		return status.Errorf(codes.Internal, "send failed: %v", err)
+	startDecode := time.Now()
+	for i, token := range promptTokens {
+		if i != 0 {
+			interTokenLat := s.context.latencyCalculator.GetInterTokenLatency(
+				&InterTokenParams{RunningReqs: s.context.metrics.nRunningReqs})
+			time.Sleep(interTokenLat)
+			// report tpot in seconds
+			common.WriteToChannel(s.context.metrics.tpotChan, interTokenLat.Seconds(), s.context.logger, "metrics.tpotChan")
+		}
+		if in.Stream {
+			resp := &pb.GenerateResponse{
+				Response: &pb.GenerateResponse_Chunk{
+					Chunk: &pb.GenerateStreamChunk{
+						TokenIds:         []uint32{token},
+						PromptTokens:     uint32(length),
+						CompletionTokens: uint32(1),
+					},
+				},
+			}
+
+			if err := out.Send(resp); err != nil {
+				return status.Errorf(codes.Internal, "send failed: %v", err)
+			}
+		}
+	}
+	common.WriteToChannel(s.context.metrics.reqDecodeTimeChan, time.Since(startDecode).Seconds(), s.context.logger, "metrics.reqDecodeTimeChan")
+
+	if in.Stream {
+		resp := &pb.GenerateResponse{
+			Response: &pb.GenerateResponse_Complete{
+				Complete: &pb.GenerateComplete{
+					OutputIds:        []uint32{},
+					PromptTokens:     uint32(length),
+					CompletionTokens: uint32(0),
+					FinishReason:     finishReason,
+				},
+			},
+		}
+
+		if err := out.Send(resp); err != nil {
+			return status.Errorf(codes.Internal, "send failed: %v", err)
+		}
+	} else {
+		resp := &pb.GenerateResponse{
+			Response: &pb.GenerateResponse_Complete{
+				Complete: &pb.GenerateComplete{
+					OutputIds:        promptTokens,
+					PromptTokens:     uint32(length),
+					CompletionTokens: uint32(length),
+					FinishReason:     finishReason,
+				},
+			},
+		}
+
+		if err := out.Send(resp); err != nil {
+			return status.Errorf(codes.Internal, "send failed: %v", err)
+		}
 	}
 
 	return nil
