@@ -18,13 +18,12 @@ package llmdinferencesim
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"strings"
 	"sync"
 
 	"github.com/go-logr/logr"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/valyala/fasthttp"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
@@ -207,31 +206,23 @@ func (s *simContext) initialize(ctx context.Context) error {
 	return nil
 }
 
-func (s *simContext) initTokenizer() error {
-	// always generate huggingface tokenizer to check if model is test model
-	hfTokenizer := tokenizer.CreateHFTokenizer()
-	err := hfTokenizer.Init(*s.config)
+func (s *simContext) modelExists() bool {
+	url := fmt.Sprintf("https://huggingface.co/api/models/%s", s.config.Model)
+
+	statusCode, _, err := fasthttp.Get(nil, url)
 	if err != nil {
-		return errors.Join(err, errors.New("failed to create default tokenization configuration"))
+		return false
 	}
 
-	// try to tokenize a short string to check if the model, defined in the configuration
-	// is a test model or real model from HF
-	_, err = hfTokenizer.Encode("test", s.config.Model)
-	if err != nil {
-		if strings.Contains(err.Error(), "status code 404") || strings.Contains(err.Error(), "status code 429") {
-			// cannot download tokenizer.json, probably model name is not real
-			s.logger.Info("Model name is not real, use simple tokenizer")
-			simpleTokenizer := tokenizer.CreateSimpleTokenizer()
-			if initErr := simpleTokenizer.Init(*s.config); initErr != nil {
-				return errors.Join(initErr, errors.New("failed to initialize simple tokenizer"))
-			}
-			s.tokenizer = simpleTokenizer
-		} else {
-			return errors.Join(err, fmt.Errorf("failed to download tokenizer for model %s", s.config.Model))
-		}
+	return statusCode == fasthttp.StatusOK
+}
+
+func (s *simContext) initTokenizer() error {
+	if s.modelExists() {
+		s.tokenizer = tokenizer.CreateHFTokenizer()
 	} else {
-		s.tokenizer = hfTokenizer
+		s.logger.Info("Model is not a real HF model, using simulated tokenizer", "model", s.config.Model)
+		s.tokenizer = tokenizer.CreateSimpleTokenizer()
 	}
 
 	return s.tokenizer.Init(*s.config)
