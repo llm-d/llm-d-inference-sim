@@ -32,7 +32,7 @@ import (
 
 var _ = Describe("gRPC", func() {
 
-	XIt("get model info", func() {
+	It("get model info", func() {
 		ctx := context.TODO()
 		s, err := startServerHandle(ctx, common.ModeEcho, nil, nil)
 		Expect(err).NotTo(HaveOccurred())
@@ -42,7 +42,7 @@ var _ = Describe("gRPC", func() {
 		Expect(r.ModelPath).To(Equal(testModel))
 	})
 
-	XDescribeTable("generate, no streaming",
+	DescribeTable("generate, no streaming",
 		func(maxTokens uint32, finishReason string, ttft string, itl string, expectedTime time.Duration) {
 			ctx := context.TODO()
 			args := []string{"cmd", "--model", testModel, "--mode", common.ModeEcho,
