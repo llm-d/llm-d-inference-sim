@@ -31,7 +31,8 @@ const hfTokenEnvVar = "HF_TOKEN"
 type Tokenizer interface {
 	Init(config common.Configuration) error
 	// Tokenize(text string) []uint64
-	Encode(input string) ([]uint32, error)
+	// Encode tokenizes the input, modelName is optional, if not set, the model from the configuration will be used
+	Encode(input, modelName string) ([]uint32, error)
 }
 
 type HFTokenizer struct {
@@ -63,7 +64,7 @@ func stringsToUint32sHash(strings []string) []uint32 {
 	return hashes
 }
 
-func (st *SimpleTokenizer) Encode(input string) ([]uint32, error) {
+func (st *SimpleTokenizer) Encode(input, modelName string) ([]uint32, error) {
 	strTokens := st.re.FindAllString(input, -1)
 	return stringsToUint32sHash(strTokens), nil
 }
@@ -101,7 +102,11 @@ func (hft *HFTokenizer) Init(config common.Configuration) error {
 	return nil
 }
 
-func (hft *HFTokenizer) Encode(input string) ([]uint32, error) {
-	tokens, _, err := hft.tokenizer.Encode(input, hft.model)
+func (hft *HFTokenizer) Encode(input, modelName string) ([]uint32, error) {
+	model := modelName
+	if model == "" {
+		model = hft.model
+	}
+	tokens, _, err := hft.tokenizer.Encode(input, model)
 	return tokens, err
 }
