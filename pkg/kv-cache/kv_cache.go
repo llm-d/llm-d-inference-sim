@@ -74,15 +74,8 @@ func (h *KVCacheHelper) Activate() {
 func (h *KVCacheHelper) OnRequestStart(vllmReq openaiserverapi.Request) (float64, error) {
 	h.logger.V(logging.TRACE).Info("KV cache - process request")
 
-	prompt := vllmReq.GetPrompt()
+	tokens := vllmReq.TokenizedPrompt()
 	modelName := vllmReq.GetModel()
-
-	// tokenize the input
-	tokens, err := h.tokenizer.Encode(prompt, modelName)
-	if err != nil {
-		h.logger.Error(err, "prompt tokenization failed")
-		return 0, err
-	}
 
 	// get block keys
 	blockKeys := h.tokensProcessor.TokensToKVBlockKeys(tokens, modelName)

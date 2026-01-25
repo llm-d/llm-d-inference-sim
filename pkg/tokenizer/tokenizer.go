@@ -31,11 +31,12 @@ const hfTokenEnvVar = "HF_TOKEN"
 type Tokenizer interface {
 	Init(config common.Configuration) error
 	// Tokenize(text string) []uint64
-	Encode(input, modelName string) ([]uint32, error)
+	Encode(input string) ([]uint32, error)
 }
 
 type HFTokenizer struct {
 	tokenizer tokenization.Tokenizer
+	model     string
 }
 
 type SimpleTokenizer struct {
@@ -62,7 +63,7 @@ func stringsToUint32sHash(strings []string) []uint32 {
 	return hashes
 }
 
-func (st *SimpleTokenizer) Encode(input, modelName string) ([]uint32, error) {
+func (st *SimpleTokenizer) Encode(input string) ([]uint32, error) {
 	strTokens := st.re.FindAllString(input, -1)
 	return stringsToUint32sHash(strTokens), nil
 }
@@ -72,7 +73,7 @@ func CreateHFTokenizer() *HFTokenizer {
 	return &HFTokenizer{}
 }
 
-func (st *HFTokenizer) Init(config common.Configuration) error {
+func (hft *HFTokenizer) Init(config common.Configuration) error {
 	tokenizationConfig, err := tokenization.DefaultConfig()
 	if err != nil {
 		return errors.Join(err, errors.New("failed to create default tokenization configuration"))
@@ -91,15 +92,16 @@ func (st *HFTokenizer) Init(config common.Configuration) error {
 		tokenizationConfig.HFTokenizerConfig.HuggingFaceToken = hfToken
 	}
 
-	st.tokenizer, err = tokenization.NewCachedHFTokenizer(tokenizationConfig.HFTokenizerConfig)
+	hft.tokenizer, err = tokenization.NewCachedHFTokenizer(tokenizationConfig.HFTokenizerConfig)
 	if err != nil {
 		return errors.Join(err, errors.New("failed to create hf tokenizer"))
 	}
+	hft.model = config.Model
 
 	return nil
 }
 
-func (st *HFTokenizer) Encode(input, modelName string) ([]uint32, error) {
-	tokens, _, err := st.tokenizer.Encode(input, modelName)
+func (hft *HFTokenizer) Encode(input string) ([]uint32, error) {
+	tokens, _, err := hft.tokenizer.Encode(input, hft.model)
 	return tokens, err
 }

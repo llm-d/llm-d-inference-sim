@@ -79,6 +79,10 @@ type Request interface {
 	GetLogprobs() *int
 	// GetCacheHitThreshold returns the cache hit threshold (0-1) or nil if not set
 	GetCacheHitThreshold() *float64
+	// TokenizedPrompt returns the prompt tokens
+	TokenizedPrompt() []uint32
+	// SetTokenizedPrompt sets the prompt tokens
+	SetTokenizedPrompt(tokens []uint32)
 }
 
 // baseCompletionRequest contains base completion request related information
@@ -101,6 +105,8 @@ type baseCompletionRequest struct {
 	// to proceed with request processing. If the actual cache hit rate is below this threshold,
 	// the request will return with cache_threshold finish reason.
 	CacheHitThreshold *float64 `json:"cache_hit_threshold,omitempty"`
+	// promptTokens is the tokenized prompt
+	promptTokens []uint32
 }
 
 type KVTransferParams struct {
@@ -183,6 +189,16 @@ func (b *baseCompletionRequest) GetCacheHitThreshold() *float64 {
 
 func (b *baseCompletionRequest) addRoleToMessage(role, msg string) string {
 	return fmt.Sprintf(rolePrefixTemplate, role, msg)
+}
+
+// TokenizedPrompt returns the prompt tokens
+func (b *baseCompletionRequest) TokenizedPrompt() []uint32 {
+	return b.promptTokens
+}
+
+// SetTokenizedPrompt sets the prompt tokens
+func (b *baseCompletionRequest) SetTokenizedPrompt(tokens []uint32) {
+	b.promptTokens = tokens
 }
 
 // ChatCompletionRequest defines structure of /chat/completion request

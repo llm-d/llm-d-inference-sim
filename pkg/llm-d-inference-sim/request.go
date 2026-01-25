@@ -45,6 +45,7 @@ type requestContext interface {
 	httpRequestCtx() *fasthttp.RequestCtx
 	done()
 	startProcessingTime() time.Time
+	tokenize() *openaiserverapi.Error
 	kvCacheOnRequestStart() (hitRate float64, serverError *openaiserverapi.Error)
 	kvCacheOnRequestEnd()
 	createToolCalls() ([]openaiserverapi.ToolCall, int, string, error)
@@ -80,6 +81,24 @@ func (b *baseRequestContext) done() {
 	b.wg.Done()
 }
 
+func (b *baseRequestContext) tokenize() *openaiserverapi.Error {
+	req := b.request()
+
+	if tokens := req.TokenizedPrompt(); tokens != nil {
+		return nil
+	}
+
+	tokens, err := b.sim.tokenizer.Encode(req.GetPrompt())
+	if err != nil {
+		b.sim.logger.Error(err, "failed to tokenize")
+		serverErr := openaiserverapi.NewError("Failed to tokenize, "+err.Error(), fasthttp.StatusInternalServerError, nil)
+		return &serverErr
+	}
+
+	req.SetTokenizedPrompt(tokens)
+	return nil
+}
+
 func (reqCtx *baseRequestContext) handleRequest() (responseContext, string, *openaiserverapi.Error) {
 	req := reqCtx.request()
 	model := req.GetModel()
@@ -92,6 +111,10 @@ func (reqCtx *baseRequestContext) handleRequest() (responseContext, string, *ope
 		// the request has changed its status from waiting to running
 		common.WriteToChannel(reqCtx.sim.metrics.lorasChan, loraUsage{model, runningUsageState}, reqCtx.sim.logger,
 			"metrics.lorasChan")
+	}
+
+	if err := reqCtx.tokenize(); err != nil {
+		return nil, "", err
 	}
 
 	hitRate, oaiServerError := reqCtx.kvCacheOnRequestStart()
