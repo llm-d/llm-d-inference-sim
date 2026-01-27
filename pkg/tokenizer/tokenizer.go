@@ -18,7 +18,6 @@ package tokenizer
 
 import (
 	"errors"
-	"fmt"
 	"hash/fnv"
 	"os"
 	"regexp"
@@ -62,7 +61,6 @@ func stringsToUint32sHash(strings []string) []uint32 {
 
 func (st *SimpleTokenizer) Encode(input, modelName string) ([]uint32, []tokenizers.Offset, []string, error) {
 	strTokens := st.re.FindAllString(input, -1)
-	fmt.Println("in tokenizer ", strTokens)
 
 	return stringsToUint32sHash(strTokens), nil, strTokens, nil
 }
