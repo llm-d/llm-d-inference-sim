@@ -131,6 +131,7 @@ var _ = Describe("Dataset", Ordered, func() {
 			req := &openaiserverapi.TextCompletionRequest{
 				Prompt: theText,
 			}
+			req.SetTokenizedPrompt(&openaiserverapi.Tokenized{Strings: theTokens})
 			tokens, finishReason, err := dataset.getTokensInEchoMode(req)
 			Expect(err).ShouldNot(HaveOccurred())
 			Expect(tokens).Should(Equal(theTokens))
@@ -142,6 +143,8 @@ var _ = Describe("Dataset", Ordered, func() {
 				Prompt:    theText,
 				MaxTokens: &maxTokens,
 			}
+			req.SetTokenizedPrompt(&openaiserverapi.Tokenized{Strings: theTokens})
+
 			tokens, finishReason, err := dataset.getTokensInEchoMode(req)
 			Expect(err).ShouldNot(HaveOccurred())
 			Expect(tokens).Should(Equal(theTokens))
@@ -153,6 +156,8 @@ var _ = Describe("Dataset", Ordered, func() {
 				Prompt:    theText,
 				MaxTokens: &maxTokens,
 			}
+			req.SetTokenizedPrompt(&openaiserverapi.Tokenized{Strings: theTokens})
+
 			tokens, finishReason, err := dataset.getTokensInEchoMode(req)
 			Expect(err).ShouldNot(HaveOccurred())
 			Expect(tokens).Should(Equal(theTokens))

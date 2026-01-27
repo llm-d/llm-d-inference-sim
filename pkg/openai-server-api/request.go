@@ -19,6 +19,7 @@ package openaiserverapi
 
 import (
 	"fmt"
+	"strings"
 )
 
 const (
@@ -67,11 +68,11 @@ type Request interface {
 	// GetFullPrompt returns the full prompt including system and user prompts
 	// in format compatible to responses custom dataset
 	GetFullPrompt() string
-	// GetPromptForEcho extracts the prompt from the request to be used for response in echo mode
+	// GetPromptForEcho extracts the prompt from the request to be used for response in echo mode:
 	// for chat completion - the last user message is returned
 	// for text completion - the prompt field is retured
 	GetPromptForEcho() string
-	// ExtractMaxTokens extracts the max tokens from the request
+	// ExtractMaxTokens extracts the max tokens from the request:
 	// for chat completion - max_completion_tokens field is used
 	// for text completion - max_tokens field is used
 	ExtractMaxTokens() *int64
@@ -79,10 +80,10 @@ type Request interface {
 	GetLogprobs() *int
 	// GetCacheHitThreshold returns the cache hit threshold (0-1) or nil if not set
 	GetCacheHitThreshold() *float64
-	// TokenizedPrompt returns the prompt tokens
-	TokenizedPrompt() []uint32
-	// SetTokenizedPrompt sets the prompt tokens
-	SetTokenizedPrompt(tokens []uint32)
+	// TokenizedPrompt returns the tokenized prompt
+	TokenizedPrompt() *Tokenized
+	// SetTokenizedPrompt sets the tokenized prompt
+	SetTokenizedPrompt(tokenized *Tokenized)
 }
 
 // baseCompletionRequest contains base completion request related information
@@ -105,8 +106,8 @@ type baseCompletionRequest struct {
 	// to proceed with request processing. If the actual cache hit rate is below this threshold,
 	// the request will return with cache_threshold finish reason.
 	CacheHitThreshold *float64 `json:"cache_hit_threshold,omitempty"`
-	// promptTokens is the tokenized prompt
-	promptTokens []uint32
+	// tokenizedPrompt is the tokenized prompt
+	tokenizedPrompt *Tokenized
 }
 
 type KVTransferParams struct {
@@ -130,6 +131,12 @@ type KVTransferParams struct {
 type StreamOptions struct {
 	// IncludeUsage is a boolean value, defines whether response contain usage statistics
 	IncludeUsage bool `json:"include_usage"`
+}
+
+// Tokenized is the tokenized representaion with numerical and string tokens
+type Tokenized struct {
+	Tokens  []uint32
+	Strings []string
 }
 
 func (b *baseCompletionRequest) GetRequestID() string {
@@ -191,14 +198,14 @@ func (b *baseCompletionRequest) addRoleToMessage(role, msg string) string {
 	return fmt.Sprintf(rolePrefixTemplate, role, msg)
 }
 
-// TokenizedPrompt returns the prompt tokens
-func (b *baseCompletionRequest) TokenizedPrompt() []uint32 {
-	return b.promptTokens
+// TokenizedPrompt returns the tokenized prompt
+func (b *baseCompletionRequest) TokenizedPrompt() *Tokenized {
+	return b.tokenizedPrompt
 }
 
-// SetTokenizedPrompt sets the prompt tokens
-func (b *baseCompletionRequest) SetTokenizedPrompt(tokens []uint32) {
-	b.promptTokens = tokens
+// SetTokenizedPrompt sets the tokenized prompt
+func (b *baseCompletionRequest) SetTokenizedPrompt(tokenized *Tokenized) {
+	b.tokenizedPrompt = tokenized
 }
 
 // ChatCompletionRequest defines structure of /chat/completion request
@@ -259,7 +266,8 @@ func (c *ChatCompletionRequest) GetPrompt() string {
 	for _, message := range c.Messages {
 		messages += message.Content.PlainText() + " "
 	}
-	return messages
+
+	return strings.TrimSpace(messages)
 }
 
 func (c *ChatCompletionRequest) GetTools() []Tool {

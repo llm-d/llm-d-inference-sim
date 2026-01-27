@@ -18,10 +18,12 @@ package tokenizer
 
 import (
 	"errors"
+	"fmt"
 	"hash/fnv"
 	"os"
 	"regexp"
 
+	"github.com/daulet/tokenizers"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-kv-cache-manager/pkg/tokenization"
 )
@@ -29,10 +31,8 @@ import (
 const hfTokenEnvVar = "HF_TOKEN"
 
 type Tokenizer interface {
-	Init(config common.Configuration) error
-	// Tokenize(text string) []uint64
-	// Encode tokenizes the input, modelName is optional, if not set, the model from the configuration will be used
-	Encode(input, modelName string) ([]uint32, error)
+	// Encode tokenizes the input, modelName is optional, if not provided, the model from the configuration will be used
+	Encode(input, modelName string) ([]uint32, []tokenizers.Offset, []string, error)
 }
 
 type HFTokenizer struct {
@@ -45,13 +45,9 @@ type SimpleTokenizer struct {
 }
 
 // Simple Tokenizer
-func CreateSimpleTokenizer() *SimpleTokenizer {
-	return &SimpleTokenizer{}
-}
-
-func (st *SimpleTokenizer) Init(_ common.Configuration) error {
-	st.re = regexp.MustCompile(`(\{|\}|:|,|-|\.|\?|\!|;|@|#|\$|%|\^|&|\*|\(|\)|\+|\-|_|~|/|\\|>|<|\[|\]|=|"|\w+)(\s*)`)
-	return nil
+func NewSimpleTokenizer() *SimpleTokenizer {
+	re := regexp.MustCompile(`(\{|\}|:|,|-|\.|\?|\!|;|@|#|\$|%|\^|&|\*|\(|\)|\+|\-|_|~|/|\\|>|<|\[|\]|=|"|\w+)(\s*)`)
+	return &SimpleTokenizer{re: re}
 }
 
 func stringsToUint32sHash(strings []string) []uint32 {
@@ -64,49 +60,38 @@ func stringsToUint32sHash(strings []string) []uint32 {
 	return hashes
 }
 
-func (st *SimpleTokenizer) Encode(input, modelName string) ([]uint32, error) {
+func (st *SimpleTokenizer) Encode(input, modelName string) ([]uint32, []tokenizers.Offset, []string, error) {
 	strTokens := st.re.FindAllString(input, -1)
-	return stringsToUint32sHash(strTokens), nil
+	fmt.Println("in tokenizer ", strTokens)
+
+	return stringsToUint32sHash(strTokens), nil, strTokens, nil
 }
 
 // HF Tokenizer
-func CreateHFTokenizer() *HFTokenizer {
-	return &HFTokenizer{}
-}
-
-func (hft *HFTokenizer) Init(config common.Configuration) error {
-	tokenizationConfig, err := tokenization.DefaultConfig()
-	if err != nil {
-		return errors.Join(err, errors.New("failed to create default tokenization configuration"))
-	}
-
-	if tokenizationConfig.HFTokenizerConfig == nil {
-		tokenizationConfig.HFTokenizerConfig = &tokenization.HFTokenizerConfig{}
-	}
-
+func NewHFTokenizer(config common.Configuration) (*HFTokenizer, error) {
+	hfConfig := tokenization.DefaultHFTokenizerConfig()
 	if config.TokenizersCacheDir != "" {
-		tokenizationConfig.HFTokenizerConfig.TokenizersCacheDir = config.TokenizersCacheDir
+		hfConfig.TokenizersCacheDir = config.TokenizersCacheDir
 	}
 
 	hfToken := os.Getenv(hfTokenEnvVar)
 	if hfToken != "" {
-		tokenizationConfig.HFTokenizerConfig.HuggingFaceToken = hfToken
+		hfConfig.HuggingFaceToken = hfToken
 	}
 
-	hft.tokenizer, err = tokenization.NewCachedHFTokenizer(tokenizationConfig.HFTokenizerConfig)
+	hftTokenizer, err := tokenization.NewCachedHFTokenizer(hfConfig)
 	if err != nil {
-		return errors.Join(err, errors.New("failed to create hf tokenizer"))
+		return nil, errors.Join(err, errors.New("failed to create hf tokenizer"))
 	}
-	hft.model = config.Model
 
-	return nil
+	return &HFTokenizer{tokenizer: hftTokenizer, model: config.Model}, nil
 }
 
-func (hft *HFTokenizer) Encode(input, modelName string) ([]uint32, error) {
+func (hft *HFTokenizer) Encode(input, modelName string) ([]uint32, []tokenizers.Offset, []string, error) {
 	model := modelName
 	if model == "" {
 		model = hft.model
 	}
-	tokens, _, err := hft.tokenizer.Encode(input, model)
-	return tokens, err
+	tokens, offsets, err := hft.tokenizer.Encode(input, model)
+	return tokens, offsets, nil, err
 }

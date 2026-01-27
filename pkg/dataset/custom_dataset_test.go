@@ -218,6 +218,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 					textReq.IgnoreEOS = ignoreEos
 					req = &textReq
 				}
+				req.SetTokenizedPrompt(&openaiserverapi.Tokenized{Strings: promptTokens})
 
 				tokens, finishReason, err := dataset.GetTokens(req, common.ModeEcho)
 				Expect(err).NotTo(HaveOccurred())
@@ -310,6 +311,8 @@ var _ = Describe("CustomDataset", Ordered, func() {
 				{Role: openaiserverapi.RoleAssistant, Content: openaiserverapi.Content{Raw: "this is assistant response"}},
 				{Role: openaiserverapi.RoleUser, Content: openaiserverapi.Content{Raw: testPrompt}},
 			}
+
+			req.SetTokenizedPrompt(&openaiserverapi.Tokenized{Strings: promptTokens})
 
 			tokens, finishReason, err := dataset.GetTokens(&req, common.ModeEcho)
 			Expect(err).NotTo(HaveOccurred())

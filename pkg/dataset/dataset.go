@@ -105,7 +105,7 @@ func (d *DefaultDataset) GetTokens(req openaiserverapi.Request, mode string) ([]
 // if max-tokens is defined in the request and response's length is >= it value, finish reason is set to LENGTH,
 // otherwise finish reason is STOP
 func (d *DefaultDataset) getTokensInEchoMode(req openaiserverapi.Request) ([]string, string, error) {
-	tokens := common.Tokenize(req.GetPromptForEcho())
+	tokens := req.TokenizedPrompt().Strings
 	maxTokens := req.GetMaxCompletionTokens()
 	return tokens, common.FinishReason(maxTokens, len(tokens)), nil
 }

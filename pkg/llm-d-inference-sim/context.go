@@ -218,14 +218,15 @@ func (s *simContext) modelExists() bool {
 }
 
 func (s *simContext) initTokenizer() error {
+	var err error
 	if s.modelExists() {
-		s.tokenizer = tokenizer.CreateHFTokenizer()
+		s.tokenizer, err = tokenizer.NewHFTokenizer(*s.config)
 	} else {
 		s.logger.Info("Model is not a real HF model, using simulated tokenizer", "model", s.config.Model)
-		s.tokenizer = tokenizer.CreateSimpleTokenizer()
+		s.tokenizer = tokenizer.NewSimpleTokenizer()
 	}
 
-	return s.tokenizer.Init(*s.config)
+	return err
 }
 
 func (s *simContext) initDataset(ctx context.Context) error {
