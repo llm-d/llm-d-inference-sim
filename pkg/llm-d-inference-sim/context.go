@@ -148,8 +148,6 @@ type simContext struct {
 	loras *lorasUsageInfo
 	// rand with a configurable seed to generate reproducible random responses
 	random *common.Random
-	// tokenizer is currently used in kv-cache and in /tokenize
-	tokenizer tokenization.Tokenizer
 	// kv cache functionality
 	kvcacheHelper *kvcache.KVCacheHelper
 	// dataset is used for token generation in responses
@@ -157,6 +155,13 @@ type simContext struct {
 	// latencyCalculator calculates the delays in simulator's responses
 	latencyCalculator LatencyCalculator
 }
+
+var (
+	// tokenizer is currently used in kv-cache and in /tokenize
+	tokenizer tokenization.Tokenizer
+
+	tokenizerMutex = sync.Mutex{}
+)
 
 func (s *simContext) initialize(ctx context.Context) error {
 	s.random = common.NewRandom(s.config.Seed, s.config.Port)
@@ -194,14 +199,18 @@ func (s *simContext) initialize(ctx context.Context) error {
 		tokenizationConfig.HFTokenizerConfig.TokenizersCacheDir = s.config.TokenizersCacheDir
 	}
 
-	s.tokenizer, err = tokenization.NewCachedHFTokenizer(tokenizationConfig.HFTokenizerConfig)
-	if err != nil {
-		return fmt.Errorf("failed to create hf tokenizer: %w", err)
+	tokenizerMutex.Lock()
+	if tokenizer == nil {
+		tokenizer, err = tokenization.NewCachedHFTokenizer(tokenizationConfig.HFTokenizerConfig)
+		if err != nil {
+			return fmt.Errorf("failed to create hf tokenizer: %w", err)
+		}
 	}
+	tokenizerMutex.Unlock()
 
 	if s.config.EnableKVCache {
 		s.kvcacheHelper, err = kvcache.NewKVCacheHelper(s.config, s.logger,
-			s.metrics.kvCacheUsageChan, s.tokenizer)
+			s.metrics.kvCacheUsageChan, tokenizer)
 		if err != nil {
 			return err
 		}
