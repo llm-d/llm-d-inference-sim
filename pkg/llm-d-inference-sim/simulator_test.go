@@ -44,12 +44,13 @@ const prompt2 = "I hear it's very cold."
 var _ = Describe("Simulator", func() {
 
 	DescribeTable("chat completions streaming",
-		func(mode string) {
+		func(model string, mode string) {
 			ctx := context.TODO()
-			client, err := startServer(ctx, mode)
+			args := []string{"cmd", "--model", model, "--mode", mode}
+			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
-			openaiclient, params := getOpenAIClientAndChatParams(client, testModel, testUserMessage, true)
+			openaiclient, params := getOpenAIClientAndChatParams(client, model, testUserMessage, true)
 			stream := openaiclient.Chat.Completions.NewStreaming(ctx, params)
 			defer func() {
 				err := stream.Close()
@@ -89,20 +90,22 @@ var _ = Describe("Simulator", func() {
 			}
 			Expect(role).Should(Equal("assistant"))
 		},
-		func(mode string) string {
-			return "mode: " + mode
+		func(model string, mode string) string {
+			return "model: " + model + " mode: " + mode
 		},
-		Entry(nil, common.ModeRandom),
-		Entry(nil, common.ModeEcho),
+		Entry(nil, testModel, common.ModeRandom),
+		Entry(nil, testModel, common.ModeEcho),
+		Entry(nil, qwenModelName, common.ModeEcho),
 	)
 
 	DescribeTable("text completions streaming",
-		func(mode string) {
+		func(model string, mode string) {
 			ctx := context.TODO()
-			client, err := startServer(ctx, mode)
+			args := []string{"cmd", "--model", model, "--mode", mode}
+			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
-			openaiclient, params := getOpenAIClentAndCompletionParams(client, testModel, testUserMessage, true)
+			openaiclient, params := getOpenAIClentAndCompletionParams(client, model, testUserMessage, true)
 			stream := openaiclient.Completions.NewStreaming(ctx, params)
 			defer func() {
 				err := stream.Close()
@@ -137,20 +140,22 @@ var _ = Describe("Simulator", func() {
 				Expect(text).Should(Equal(testUserMessage))
 			}
 		},
-		func(mode string) string {
-			return "mode: " + mode
+		func(model string, mode string) string {
+			return "model: " + model + " mode: " + mode
 		},
-		Entry(nil, common.ModeRandom),
-		Entry(nil, common.ModeEcho),
+		Entry(nil, testModel, common.ModeRandom),
+		Entry(nil, testModel, common.ModeEcho),
+		Entry(nil, qwenModelName, common.ModeEcho),
 	)
 
 	DescribeTable("chat completions",
-		func(mode string, maxTokens int, maxCompletionTokens int) {
+		func(model string, mode string, maxTokens int, maxCompletionTokens int) {
 			ctx := context.TODO()
-			client, err := startServer(ctx, mode)
+			args := []string{"cmd", "--model", model, "--mode", mode}
+			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
-			openaiclient, params := getOpenAIClientAndChatParams(client, testModel, testUserMessage, false)
+			openaiclient, params := getOpenAIClientAndChatParams(client, model, testUserMessage, false)
 			numTokens := 0
 			// if maxTokens and maxCompletionTokens are passsed
 			// maxCompletionTokens is used
@@ -199,35 +204,37 @@ var _ = Describe("Simulator", func() {
 				}
 			}
 		},
-		func(mode string, maxTokens int, maxCompletionTokens int) string {
-			return fmt.Sprintf("mode: %s max_tokens: %d max_completion_tokens: %d", mode, maxTokens, maxCompletionTokens)
+		func(model string, mode string, maxTokens int, maxCompletionTokens int) string {
+			return fmt.Sprintf("model: %s mode: %s max_tokens: %d max_completion_tokens: %d",
+				model, mode, maxTokens, maxCompletionTokens)
 		},
-		Entry(nil, common.ModeRandom, 2, 0),
-		Entry(nil, common.ModeEcho, 2, 0),
-		Entry(nil, common.ModeRandom, 1000, 0),
-		Entry(nil, common.ModeEcho, 1000, 0),
-		Entry(nil, common.ModeRandom, 1000, 2),
-		Entry(nil, common.ModeEcho, 1000, 2),
-		Entry(nil, common.ModeRandom, 0, 2),
-		Entry(nil, common.ModeEcho, 0, 2),
-		Entry(nil, common.ModeRandom, 0, 1000),
-		Entry(nil, common.ModeEcho, 0, 1000),
-		Entry(nil, common.ModeRandom, 0, 0),
-		Entry(nil, common.ModeEcho, 0, 0),
-		Entry(nil, common.ModeRandom, -1, 0),
-		Entry(nil, common.ModeEcho, -1, 0),
-		Entry(nil, common.ModeRandom, 0, -1),
-		Entry(nil, common.ModeEcho, 0, -1),
+		Entry(nil, testModel, common.ModeRandom, 2, 0),
+		Entry(nil, testModel, common.ModeEcho, 2, 0),
+		Entry(nil, testModel, common.ModeRandom, 1000, 0),
+		Entry(nil, testModel, common.ModeEcho, 1000, 0),
+		Entry(nil, testModel, common.ModeRandom, 1000, 2),
+		Entry(nil, testModel, common.ModeEcho, 1000, 2),
+		Entry(nil, testModel, common.ModeRandom, 0, 2),
+		Entry(nil, testModel, common.ModeEcho, 0, 2),
+		Entry(nil, testModel, common.ModeRandom, 0, 1000),
+		Entry(nil, testModel, common.ModeEcho, 0, 1000),
+		Entry(nil, testModel, common.ModeRandom, 0, 0),
+		Entry(nil, testModel, common.ModeEcho, 0, 0),
+		Entry(nil, testModel, common.ModeRandom, -1, 0),
+		Entry(nil, testModel, common.ModeEcho, -1, 0),
+		Entry(nil, testModel, common.ModeRandom, 0, -1),
+		Entry(nil, qwenModelName, common.ModeEcho, 1000, 0),
 	)
 
 	DescribeTable("text completions",
 		// use a function so that httpClient is captured when running
-		func(mode string, maxTokens int) {
+		func(model string, mode string, maxTokens int) {
 			ctx := context.TODO()
-			client, err := startServer(ctx, mode)
+			args := []string{"cmd", "--model", model, "--mode", mode}
+			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
-			openaiclient, params := getOpenAIClentAndCompletionParams(client, testModel, testUserMessage, false)
+			openaiclient, params := getOpenAIClentAndCompletionParams(client, model, testUserMessage, false)
 			numTokens := 0
 			if maxTokens != 0 {
 				params.MaxTokens = param.NewOpt(int64(maxTokens))
@@ -270,17 +277,18 @@ var _ = Describe("Simulator", func() {
 				}
 			}
 		},
-		func(mode string, maxTokens int) string {
-			return fmt.Sprintf("mode: %s max_tokens: %d", mode, maxTokens)
+		func(model string, mode string, maxTokens int) string {
+			return fmt.Sprintf("model: %s mode: %s max_tokens: %d", model, mode, maxTokens)
 		},
-		Entry(nil, common.ModeRandom, 2),
-		Entry(nil, common.ModeEcho, 2),
-		Entry(nil, common.ModeRandom, 1000),
-		Entry(nil, common.ModeEcho, 1000),
-		Entry(nil, common.ModeRandom, 0),
-		Entry(nil, common.ModeEcho, 0),
-		Entry(nil, common.ModeRandom, -1),
-		Entry(nil, common.ModeEcho, -1),
+		Entry(nil, testModel, common.ModeRandom, 2),
+		Entry(nil, testModel, common.ModeEcho, 2),
+		Entry(nil, testModel, common.ModeRandom, 1000),
+		Entry(nil, testModel, common.ModeEcho, 1000),
+		Entry(nil, testModel, common.ModeRandom, 0),
+		Entry(nil, testModel, common.ModeEcho, 0),
+		Entry(nil, testModel, common.ModeRandom, -1),
+		Entry(nil, testModel, common.ModeEcho, -1),
+		Entry(nil, qwenModelName, common.ModeEcho, 1000),
 	)
 
 	Context("namespace and pod headers", func() {
