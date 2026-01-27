@@ -133,7 +133,7 @@ type StreamOptions struct {
 	IncludeUsage bool `json:"include_usage"`
 }
 
-// Tokenized is the tokenized representaion with numerical and string tokens
+// Tokenized is the tokenized representation with numerical and string tokens
 type Tokenized struct {
 	Tokens  []uint32
 	Strings []string
