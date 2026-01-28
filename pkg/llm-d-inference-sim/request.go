@@ -89,7 +89,7 @@ func (b *baseRequestContext) tokenize() *openaiserverapi.Error {
 	}
 
 	prompt := req.GetPrompt()
-	tokens, offsets, textTokens, err := simTokenizer.Encode(prompt, "")
+	tokens, offsets, textTokens, err := b.sim.tokenizer.Encode(prompt, "")
 	if err != nil {
 		b.sim.logger.Error(err, "failed to tokenize")
 		serverErr := openaiserverapi.NewError("Failed to tokenize, "+err.Error(), fasthttp.StatusInternalServerError, nil)

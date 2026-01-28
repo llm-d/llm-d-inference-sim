@@ -38,13 +38,6 @@ const (
 	doneUsageState
 )
 
-var (
-	// tokenizer is currently used in kv-cache and in /tokenize
-	simTokenizer tokenizer.Tokenizer
-
-	simTokenizerMutex = sync.Mutex{}
-)
-
 type loraUsageState int
 
 type loraUsage struct {
@@ -162,6 +155,8 @@ type simContext struct {
 	dataset dataset.Dataset
 	// latencyCalculator calculates the delays in simulator's responses
 	latencyCalculator LatencyCalculator
+	// tokenizer used for request tokenization and in /tokenize
+	tokenizer tokenizer.Tokenizer
 }
 
 func (s *simContext) initialize(ctx context.Context) error {
@@ -188,14 +183,9 @@ func (s *simContext) initialize(ctx context.Context) error {
 		return err
 	}
 
-	// create and initialize tokenizer
-	if err = s.initTokenizer(); err != nil {
-		return err
-	}
-
 	if s.config.EnableKVCache {
 		s.kvcacheHelper, err = kvcache.NewKVCacheHelper(s.config, s.logger,
-			s.metrics.kvCacheUsageChan, simTokenizer)
+			s.metrics.kvCacheUsageChan, s.tokenizer)
 		if err != nil {
 			return err
 		}
@@ -225,17 +215,14 @@ func (s *simContext) modelExists() bool {
 func (s *simContext) initTokenizer() error {
 	var err error
 
-	simTokenizerMutex.Lock()
-
-	if simTokenizer == nil {
+	if s.tokenizer == nil {
 		if s.modelExists() {
-			simTokenizer, err = tokenizer.NewHFTokenizer(*s.config)
+			s.tokenizer, err = tokenizer.NewHFTokenizer(*s.config)
 		} else {
 			s.logger.Info("Model is not a real HF model, using simulated tokenizer", "model", s.config.Model)
-			simTokenizer = tokenizer.NewSimpleTokenizer()
+			s.tokenizer = tokenizer.NewSimpleTokenizer()
 		}
 	}
-	simTokenizerMutex.Unlock()
 
 	return err
 }

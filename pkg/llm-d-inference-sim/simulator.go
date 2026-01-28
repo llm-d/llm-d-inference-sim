@@ -144,6 +144,11 @@ func (s *VllmSimulator) Start(ctx context.Context) error {
 		}
 	}
 
+	// create tokenizer in advance and use it in all ranks (because of python initialization problem)
+	if err := s.context.initTokenizer(); err != nil {
+		return err
+	}
+
 	// For Data Parallel, start data-parallel-size - 1 additional simulators
 	g, ctx := errgroup.WithContext(ctx)
 	if s.context.config.DPSize > 1 {
@@ -159,6 +164,8 @@ func (s *VllmSimulator) Start(ctx context.Context) error {
 				return err
 			}
 			newSim.context.config = newConfig
+			// use the same tokenizer in all ranks
+			newSim.context.tokenizer = s.context.tokenizer
 			g.Go(func() error {
 				return newSim.startSim(ctx)
 			})

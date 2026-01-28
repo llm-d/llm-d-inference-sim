@@ -126,6 +126,10 @@ func startServerHelper(ctx context.Context, mode string, args []string, envs map
 	// must be activated after parseCommandParamsAndLoadConfig since it initializes the random engine
 	userMsgTokens = int64(len(common.Tokenize(testUserMessage)))
 
+	if err := s.context.initTokenizer(); err != nil {
+		return nil, nil, err
+	}
+
 	if err := s.initializeSim(ctx); err != nil {
 		return nil, nil, err
 	}
