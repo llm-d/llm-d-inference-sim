@@ -136,7 +136,7 @@ func (s *VllmSimulator) Start(ctx context.Context) error {
 		return err
 	}
 
-	if s.context.config.DatasetURL != "" {
+	if s.context.config.DatasetURL != "" && s.context.config.Model != common.ModeEcho {
 		// if should use remote responses dataset, download it first (it can take time)
 		downloader := dataset.NewDsDownloader(s.context.logger)
 		if err := downloader.DownloadDataset(ctx, s.context.config.DatasetURL, s.context.config.DatasetPath); err != nil {
