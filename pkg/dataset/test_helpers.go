@@ -16,7 +16,10 @@ limitations under the License.
 
 package dataset
 
-import "strings"
+import (
+	"strconv"
+	"strings"
+)
 
 // IsValidText validates that the given text could be generated from the predefined list of sentences
 // used in tests
@@ -54,4 +57,11 @@ func IsValidText(text string) bool {
 	}
 
 	return true
+}
+
+func maxTokensToStr(maxTokens *int64) string {
+	if maxTokens != nil {
+		return strconv.Itoa(int(*maxTokens))
+	}
+	return "nil"
 }

@@ -230,6 +230,11 @@ func (s *simContext) initTokenizer() error {
 }
 
 func (s *simContext) initDataset(ctx context.Context) error {
+	if s.config.Mode == common.ModeEcho {
+		s.dataset = &dataset.EchoDataset{}
+		return nil
+	}
+
 	if s.config.DatasetPath == "" && s.config.DatasetURL == "" {
 		// use predefined sentences as responses
 		randDataset := &dataset.DefaultDataset{}

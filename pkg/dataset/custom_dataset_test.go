@@ -21,7 +21,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"strconv"
 	"time"
 
 	"k8s.io/klog/v2"
@@ -186,13 +185,6 @@ var _ = Describe("CustomDataset", Ordered, func() {
 
 		promptTokens := common.Tokenize(testPrompt)
 
-		maxTokensToStr := func(maxTokens *int64) string {
-			if maxTokens != nil {
-				return strconv.Itoa(int(*maxTokens))
-			}
-			return "nil"
-		}
-
 		BeforeAll(func() {
 			err := dataset.Init(context.Background(), klog.Background(), random, validDBPath, false, 1024)
 			Expect(err).NotTo(HaveOccurred())
@@ -203,39 +195,6 @@ var _ = Describe("CustomDataset", Ordered, func() {
 			err := dataset.sqliteHelper.db.Close()
 			Expect(err).NotTo(HaveOccurred())
 		})
-
-		DescribeTable("should work correctly in echo mode",
-			func(maxTokens *int64, ignoreEos bool, isChat bool, expectedFinishReason string) {
-				// tests that in echo mode the right response is returned
-				var req openaiserverapi.Request
-				if isChat {
-					chatReq := openaiserverapi.ChatCompletionRequest{MaxTokens: maxTokens}
-					chatReq.Messages = []openaiserverapi.Message{{Role: openaiserverapi.RoleUser, Content: openaiserverapi.Content{Raw: testPrompt}}}
-					chatReq.IgnoreEOS = ignoreEos
-					req = &chatReq
-				} else {
-					textReq := openaiserverapi.TextCompletionRequest{Prompt: testPrompt, MaxTokens: maxTokens}
-					textReq.IgnoreEOS = ignoreEos
-					req = &textReq
-				}
-				req.SetTokenizedPrompt(&openaiserverapi.Tokenized{Strings: promptTokens})
-
-				tokens, finishReason, err := dataset.GetTokens(req, common.ModeEcho)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(finishReason).To(Equal(expectedFinishReason))
-				Expect(tokens).To(Equal(promptTokens))
-			},
-			func(maxTokens *int64, ignoreEos bool, isChat bool, expectedFinishReason string) string {
-				return fmt.Sprintf("maxTokens: %s, ignoreEos: %t, isChat: %t, expectedFinishReason: %s", maxTokensToStr(maxTokens), ignoreEos, isChat, expectedFinishReason)
-			},
-			Entry(nil, nil, false, false, common.StopFinishReason),
-			Entry(nil, &maxTokens, false, false, common.StopFinishReason),
-			Entry(nil, &maxTokens, true, false, common.StopFinishReason),
-			Entry(nil, nil, false, true, common.StopFinishReason),
-			Entry(nil, &maxTokens, false, true, common.StopFinishReason),
-			Entry(nil, &maxTokens, true, true, common.StopFinishReason),
-			Entry(nil, &smallMaxTokens, false, false, common.LengthFinishReason),
-		)
 
 		DescribeTable("should work correctly in random mode with ignore eos",
 			func(prompt string, maxTokens *int64, isChat bool, expectedFinishReason string) {
@@ -251,7 +210,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 					req = &textReq
 				}
 
-				tokens, finishReason, err := dataset.GetTokens(req, common.ModeRandom)
+				tokens, finishReason, err := dataset.GetTokens(req)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(finishReason).To(Equal(expectedFinishReason))
 				if maxTokens != nil {
@@ -278,7 +237,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 			req := &openaiserverapi.TextCompletionRequest{
 				Prompt: testPrompt,
 			}
-			tokens, finishReason, err := dataset.GetTokens(req, common.ModeRandom)
+			tokens, finishReason, err := dataset.GetTokens(req)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(finishReason).To(Equal(common.StopFinishReason))
 			Expect(tokens).To(Equal([]string{"Hello", " llm-d ", "world", "!"}))
@@ -289,7 +248,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 				Prompt:    testPrompt,
 				MaxTokens: &smallMaxTokens,
 			}
-			tokens, _, err := dataset.GetTokens(req, common.ModeRandom)
+			tokens, _, err := dataset.GetTokens(req)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(len(tokens)).To(BeNumerically("<=", smallMaxTokens))
 		})
@@ -298,7 +257,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 			req := &openaiserverapi.TextCompletionRequest{
 				Prompt: testPrompt,
 			}
-			tokens, finishReason, err := dataset.GetTokens(req, common.ModeRandom)
+			tokens, finishReason, err := dataset.GetTokens(req)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(finishReason).To(Equal(common.StopFinishReason))
 			Expect(tokens).To(Equal([]string{"Hello", " llm-d ", "world", "!"}))
@@ -314,12 +273,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 
 			req.SetTokenizedPrompt(&openaiserverapi.Tokenized{Strings: promptTokens})
 
-			tokens, finishReason, err := dataset.GetTokens(&req, common.ModeEcho)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(finishReason).To(Equal(common.StopFinishReason))
-			Expect(tokens).To(Equal(promptTokens))
-
-			tokens, finishReason, err = dataset.GetTokens(&req, common.ModeRandom)
+			tokens, finishReason, err := dataset.GetTokens(&req)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(len(tokens)).To(BeNumerically("<=", maxTokens))
 			Expect((len(tokens) == int(maxTokens) && finishReason == common.LengthFinishReason) ||

@@ -81,9 +81,7 @@ func (d *CustomDataset) getRandomResponse(responses [][]string) []string {
 	return responses[d.random.RandomInt(0, len(responses)-1)]
 }
 
-// GetTokens returns tokens and finishReason for the given request and mode (echo or random)
-// In echo mode the prompt is returned.
-// In random mode follow this steps:
+// GetTokens returns tokens and finishReason for the given request:
 // Calculate maximum length of response (basedon max-tokens or max-completions-tokens or model-len)
 // If dataset contains responses for the given prompt, and there are responses with length <=
 // max response length - use random one from the list,
@@ -94,11 +92,7 @@ func (d *CustomDataset) getRandomResponse(responses [][]string) []string {
 // and trim it to the required length
 // if ignore_eos=true the response always will have the max response len tokens, missing tokens
 // are randomly selected from the hard-coded collection
-func (d *CustomDataset) GetTokens(req openaiserverapi.Request, mode string) ([]string, string, error) {
-	if mode == common.ModeEcho {
-		return d.getTokensInEchoMode(req)
-	}
-
+func (d *CustomDataset) GetTokens(req openaiserverapi.Request) ([]string, string, error) {
 	maxResponseLen, _ := d.calculateResponseMaxLen(req)
 	responseTokens := []string{}
 
