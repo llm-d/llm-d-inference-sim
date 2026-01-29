@@ -77,7 +77,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 	})
 
 	It("should return error for invalid DB path", func() {
-		err := sqliteHelper.connectToDB("/invalid/path/to/db.sqlite", false)
+		err := sqliteHelper.connectToDB("/invalid/path/to/db.sqlite", false, true)
 		Expect(err).To(HaveOccurred())
 	})
 
@@ -128,30 +128,30 @@ var _ = Describe("CustomDataset", Ordered, func() {
 	})
 
 	It("should return error for non-existing DB path", func() {
-		err := sqliteHelper.connectToDB(pathNotExist, false)
+		err := sqliteHelper.connectToDB(pathNotExist, false, true)
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("database file does not exist"))
 	})
 
 	It("should return error for invalid DB file", func() {
-		err := sqliteHelper.connectToDB(pathToInvalidDB, false)
+		err := sqliteHelper.connectToDB(pathToInvalidDB, false, true)
 		Expect(err).To(HaveOccurred())
 	})
 
 	It("should return error for DB with invalid table", func() {
-		err := sqliteHelper.connectToDB(pathToInvalidTableDB, false)
+		err := sqliteHelper.connectToDB(pathToInvalidTableDB, false, true)
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("failed to verify database"))
 	})
 
 	It("should return error for DB with invalid column", func() {
-		err := sqliteHelper.connectToDB(pathToInvalidColumnDB, false)
+		err := sqliteHelper.connectToDB(pathToInvalidColumnDB, false, true)
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("missing expected column"))
 	})
 
 	It("should return error for DB with invalid column type", func() {
-		err := sqliteHelper.connectToDB(pathToInvalidTypeDB, false)
+		err := sqliteHelper.connectToDB(pathToInvalidTypeDB, false, true)
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("incorrect type"))
 	})

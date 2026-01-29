@@ -330,3 +330,8 @@ delete-all: delete-zmq-listener delete-sim delete-vllm
 clean-zmq: delete-zmq-all
 	docker rmi $(ZMQ_IMG) || true
 
+## Dataset tool
+.PHONY: ds-tool-build
+ds-tool-build: check-go install-dependencies
+	@printf "\033[33;1m==== Building ====\033[0m\n"
+	CGO_CFLAGS="$(CGO_CFLAGS)" go build -ldflags="$(GO_LDFLAGS)" -o $(LOCALBIN)/ds_tool cmd/dataset-tool/main.go

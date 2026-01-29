@@ -51,7 +51,7 @@ func newSqliteHelper(logger logr.Logger) *sqliteHelper {
 	return &sqliteHelper{logger: logger}
 }
 
-func (s *sqliteHelper) connectToDB(path string, useInMemory bool) error {
+func (s *sqliteHelper) connectToDB(path string, useInMemory bool, needVerification bool) error {
 	if s.db != nil {
 		err := s.db.Close()
 		if err != nil {
@@ -88,15 +88,18 @@ func (s *sqliteHelper) connectToDB(path string, useInMemory bool) error {
 		}
 	}
 
-	err = s.verifyDB()
-	if err != nil {
-		return fmt.Errorf("failed to verify database: %w", err)
-	}
+	count := 0
+	if needVerification {
+		err = s.verifyDB()
+		if err != nil {
+			return fmt.Errorf("failed to verify database: %w", err)
+		}
 
-	count, err := s.getRecordsCount()
-	if err != nil {
-		s.logger.Error(err, "failed to get records count")
-		return fmt.Errorf("failed to query database: %w", err)
+		count, err = s.getRecordsCount()
+		if err != nil {
+			s.logger.Error(err, "failed to get records count")
+			return fmt.Errorf("failed to query database: %w", err)
+		}
 	}
 
 	if useInMemory {
@@ -130,13 +133,7 @@ func (s *sqliteHelper) loadDatabaseInMemory(path string) error {
 	}
 
 	// Copy the table structure first
-	createTableStmt := fmt.Sprintf(`CREATE TABLE %s (
-		id INTEGER PRIMARY KEY,
-		prompt_hash BLOB,
-		gen_tokens JSON,
-		n_gen_tokens INTEGER
-	)`, tableName)
-	_, err = s.db.Exec(createTableStmt)
+	_, err = s.db.Exec(s.getCreateTableQuery())
 	if err != nil {
 		if closeErr := s.db.Close(); closeErr != nil {
 			s.logger.Error(closeErr, "failed to close in-memory database after create table failure")
@@ -301,4 +298,18 @@ func (s *sqliteHelper) getResponsesForLen(maxLen int, isExact bool) ([][]string,
 func (s *sqliteHelper) getRandomResponse() ([][]string, error) {
 	query := s.buildQuery("", true, true)
 	return s.query(query)
+}
+
+func (s *sqliteHelper) getCreateTableQuery() string {
+	return fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
+		id INTEGER PRIMARY KEY AUTOINCREMENT,
+		prompt_hash BLOB NOT NULL,
+		gen_tokens JSON NOT NULL,
+		n_gen_tokens INTEGER NOT NULL
+	)`, tableName)
+}
+
+func (s *sqliteHelper) getInsertQuery() string {
+	return fmt.Sprintf(`INSERT INTO  %s (prompt_hash, gen_tokens, n_gen_tokens) 
+        VALUES (?, ?, ?)`, tableName)
 }

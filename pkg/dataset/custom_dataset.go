@@ -45,7 +45,7 @@ func (d *CustomDataset) Init(ctx context.Context, logger logr.Logger, random *co
 
 	d.sqliteHelper = newSqliteHelper(logger)
 	d.logger.V(logging.INFO).Info("Using dataset from", "path", path)
-	return d.sqliteHelper.connectToDB(path, useInMemory)
+	return d.sqliteHelper.connectToDB(path, useInMemory, true)
 }
 
 func (d *CustomDataset) getPromptHash(req openaiserverapi.Request) []byte {

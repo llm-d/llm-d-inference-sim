@@ -217,7 +217,7 @@ func (s *simContext) initTokenizer() error {
 
 	if s.tokenizer == nil {
 		if s.modelExists() {
-			s.tokenizer, err = tokenizer.NewHFTokenizer(*s.config)
+			s.tokenizer, err = tokenizer.NewHFTokenizer(s.config.Model, s.config.TokenizersCacheDir)
 		} else {
 			s.logger.Info("Model is not a real HF model, using simulated tokenizer", "model", s.config.Model)
 			s.tokenizer = tokenizer.NewSimpleTokenizer()
