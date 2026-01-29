@@ -24,7 +24,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/go-logr/logr"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
@@ -156,7 +155,8 @@ func (dt *DatasetTool) convertToOutputRecords(dsRecords []datasetRecord) ([]outp
 				break
 			}
 
-			records := dt.conversationToRecords(dsRecord.Conversations[conversationIndex], dsRecord.Conversations[conversationIndex+1],
+			records := dt.conversationToRecords(dsRecord.Conversations[conversationIndex].Value,
+				dsRecord.Conversations[conversationIndex+1].Value,
 				prevOutput, &chatRequest)
 			resultRecs = append(resultRecs, records...)
 			// save the output for the next iteration
@@ -168,13 +168,12 @@ func (dt *DatasetTool) convertToOutputRecords(dsRecords []datasetRecord) ([]outp
 	return resultRecs, nil
 }
 
-func (dt *DatasetTool) conversationToRecords(conversation1, conversation2 conversation,
+func (dt *DatasetTool) conversationToRecords(userTxt, assistantTxt string,
 	prevOutput string, chatRequest *openaiserverapi.ChatCompletionRequest) []outputRecord {
 	result := []outputRecord{}
-	input := conversation1.Value
 
 	textRequest := openaiserverapi.TextCompletionRequest{
-		Prompt: input,
+		Prompt: userTxt,
 	}
 
 	// add previous assistant message
@@ -186,20 +185,21 @@ func (dt *DatasetTool) conversationToRecords(conversation1, conversation2 conver
 	// add current user message
 	chatRequest.Messages = append(chatRequest.Messages, openaiserverapi.Message{
 		Role:    openaiserverapi.RoleUser,
-		Content: openaiserverapi.Content{Raw: input},
+		Content: openaiserverapi.Content{Raw: userTxt},
 	})
 
 	// create db record for /completions (without the messages concatunation)
 	inputText := textRequest.GetPrompt()
-	if rec, err := dt.createJsonRecord(inputText); err != nil {
+	if rec, err := dt.createJsonRecord(inputText, assistantTxt); err != nil {
 		return []outputRecord{}
 	} else {
 		result = append(result, *rec)
 	}
 
 	// create db record for /chat/completions with all messages till now
-	inputText = chatRequest.GetPrompt()
-	if rec, err := dt.createJsonRecord(inputText); err != nil {
+	// TODO - tempalatize!
+	inputText = chatRequest.GetFullPrompt()
+	if rec, err := dt.createJsonRecord(inputText, assistantTxt); err != nil {
 		return []outputRecord{}
 	} else {
 		result = append(result, *rec)
@@ -208,19 +208,20 @@ func (dt *DatasetTool) conversationToRecords(conversation1, conversation2 conver
 	return result
 }
 
-func (dt *DatasetTool) createJsonRecord(inputText string) (*outputRecord, error) {
-	tokens, textTokens, err := dt.tokenizer.Encode(inputText, dt.config.model)
+func (dt *DatasetTool) createJsonRecord(inputText, generatedTxt string) (*outputRecord, error) {
+	generatedTokens, genTextTokens, err := dt.tokenizer.Encode(generatedTxt, dt.config.model)
 	if err != nil {
-		dt.logger.Error(err, "failed to encode conversation, skip it")
+		dt.logger.Error(err, "failed to encode conversation output, skip it")
 		return nil, err
 	}
+
 	rec := outputRecord{
 		// TODO hash the input
-		PromptHash:   []byte{}, //hash(dsRecord.Conversations[conversationIndex].),
-		NumGenTokens: len(tokens),
-		GenTokens:    genTokens{TokenStrings: textTokens, TokenNumbers: tokens},
+		PromptHash:   []byte{}, //hash(inputText),
+		NumGenTokens: len(generatedTokens),
+		GenTokens:    genTokens{TokenStrings: genTextTokens, TokenNumbers: generatedTokens},
 		InputText:    inputText,
-		Generated:    strings.Join(textTokens, ""),
+		Generated:    generatedTxt,
 	}
 
 	return &rec, nil
