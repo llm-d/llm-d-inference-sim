@@ -37,8 +37,8 @@ func (t *textCompletionRequest) unmarshal(data []byte) error {
 	return json.Unmarshal(data, t)
 }
 
-func (t *textCompletionRequest) validate(config *common.Configuration, toolsValidator *common.ToolsValidator) (string, int) {
-	return validateRequest(t, config)
+func (t *textCompletionRequest) validate(toolsValidator *common.ToolsValidator) (string, int) {
+	return validateRequest(t)
 }
 
 func (t *textCompletionRequest) buildRequestContext(simCtx *simContext, ctx *fasthttp.RequestCtx, wg *sync.WaitGroup) requestContext {

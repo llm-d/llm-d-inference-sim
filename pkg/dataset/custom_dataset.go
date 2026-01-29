@@ -26,6 +26,7 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
+	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 )
 
 type CustomDataset struct {
@@ -34,8 +35,8 @@ type CustomDataset struct {
 }
 
 func (d *CustomDataset) Init(ctx context.Context, logger logr.Logger, random *common.Random,
-	path string, useInMemory bool, maxModelLen int) error {
-	if err := d.DefaultDataset.Init(ctx, logger, random, maxModelLen); err != nil {
+	path string, useInMemory bool, maxModelLen int, tokenizer tokenizer.Tokenizer) error {
+	if err := d.DefaultDataset.Init(ctx, logger, random, maxModelLen, tokenizer); err != nil {
 		return err
 	}
 	if path == "" {
@@ -92,7 +93,7 @@ func (d *CustomDataset) getRandomResponse(responses [][]string) []string {
 // and trim it to the required length
 // if ignore_eos=true the response always will have the max response len tokens, missing tokens
 // are randomly selected from the hard-coded collection
-func (d *CustomDataset) GetTokens(req openaiserverapi.Request) ([]string, string, error) {
+func (d *CustomDataset) GetTokens(req openaiserverapi.Request) (*openaiserverapi.Tokenized, string, error) {
 	maxResponseLen, _ := d.calculateResponseMaxLen(req)
 	responseTokens := []string{}
 
@@ -101,7 +102,7 @@ func (d *CustomDataset) GetTokens(req openaiserverapi.Request) ([]string, string
 	promptHashHex := d.getPromptHashHex(promptHash)
 	responses, err := d.sqliteHelper.getResponsesForPrompt(promptHashHex)
 	if err != nil {
-		return responseTokens, "", err
+		return nil, "", err
 	}
 
 	if len(responses) > 0 {
@@ -121,7 +122,7 @@ func (d *CustomDataset) GetTokens(req openaiserverapi.Request) ([]string, string
 			default:
 				// all responses are shorter than required, select randomly and pad with random tokens
 				responseTokens = d.getRandomResponse(shorterOrEqLenResponses)
-				responseTokens = append(responseTokens, d.generatePresetRandomTokens(maxResponseLen-len(responseTokens))...)
+				responseTokens = append(responseTokens, d.generatePresetRandomTokens(maxResponseLen-len(responseTokens)).Strings...)
 			}
 		} else {
 			// has responses for the request, return response shorter or equal to the maxReponsesLen
@@ -140,17 +141,17 @@ func (d *CustomDataset) GetTokens(req openaiserverapi.Request) ([]string, string
 		// try to find a random response with number of tokens <= tokens limit
 		randomResponses, err := d.sqliteHelper.getResponsesForLen(maxResponseLen, req.GetIgnoreEOS())
 		if err != nil {
-			return responseTokens, "", err
+			return nil, "", err
 		}
 		if len(randomResponses) == 0 {
 			// failed to get response with number of tokens <= tokensLimit, get response with any number of tokens
 			randomResponses, err = d.sqliteHelper.getRandomResponse()
 			if err != nil {
-				return responseTokens, "", err
+				return nil, "", err
 			}
 			if len(randomResponses) == 0 {
 				// shouldn't happen
-				return responseTokens, "", errors.New("Dataset is empty")
+				return nil, "", errors.New("Dataset is empty")
 			}
 		}
 		// if response has too much tokens, trim it
@@ -159,7 +160,7 @@ func (d *CustomDataset) GetTokens(req openaiserverapi.Request) ([]string, string
 		} else {
 			responseTokens = randomResponses[0]
 			if req.GetIgnoreEOS() {
-				responseTokens = append(responseTokens, d.generatePresetRandomTokens(maxResponseLen-len(responseTokens))...)
+				responseTokens = append(responseTokens, d.generatePresetRandomTokens(maxResponseLen-len(responseTokens)).Strings...)
 			}
 		}
 	}
@@ -169,5 +170,5 @@ func (d *CustomDataset) GetTokens(req openaiserverapi.Request) ([]string, string
 		finishReason = common.LengthFinishReason
 	}
 
-	return responseTokens, finishReason, nil
+	return &openaiserverapi.Tokenized{Strings: responseTokens}, finishReason, nil
 }

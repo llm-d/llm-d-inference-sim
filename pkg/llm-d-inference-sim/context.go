@@ -236,7 +236,7 @@ func (s *simContext) initDataset(ctx context.Context) error {
 	if s.config.DatasetPath == "" && s.config.DatasetURL == "" {
 		// use predefined sentences as responses
 		randDataset := &dataset.DefaultDataset{}
-		err := randDataset.Init(ctx, s.logger, s.random, s.config.MaxModelLen)
+		err := randDataset.Init(ctx, s.logger, s.random, s.config.MaxModelLen, s.tokenizer)
 		if err != nil {
 			return fmt.Errorf("failed to initialize random dataset: %w", err)
 		}
@@ -248,7 +248,7 @@ func (s *simContext) initDataset(ctx context.Context) error {
 	// use dataset containing responses
 	custDataset := &dataset.CustomDataset{}
 	err := custDataset.Init(ctx, s.logger, s.random, s.config.DatasetPath,
-		s.config.DatasetInMemory, s.config.MaxModelLen)
+		s.config.DatasetInMemory, s.config.MaxModelLen, s.tokenizer)
 
 	if err == nil {
 		s.dataset = custDataset

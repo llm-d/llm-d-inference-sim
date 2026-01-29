@@ -23,29 +23,30 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
+	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 	_ "github.com/mattn/go-sqlite3"
 )
 
 // list of responses to use in random mode for completion requests
 var completionFakeResponses = []string{
-	`Testing@, #testing 1$ ,2%,3^, [4&*5], 6~, 7-_ + (8 : 9) / \ < > .`,
-	`Testing, testing 1,2,3.`,
-	`I am fine, how are you today?`,
-	`I am your AI assistant, how can I help you today?`,
-	`Today is a nice sunny day.`,
-	`The temperature here is twenty-five degrees centigrade.`,
-	`Today it is partially cloudy and raining.`,
-	`To be or not to be that is the question.`,
-	`Alas, poor Yorick! I knew him, Horatio: A fellow of infinite jest`,
+	`Testing@, #testing 1$ ,2%,3^, [4&*5], 6~, 7-_ + (8 : 9) / \ < > . `,
+	`Testing, testing 1,2,3. `,
+	`I am fine, how are you today? `,
+	`I am your AI assistant, how can I help you today? `,
+	`Today is a nice sunny day. `,
+	`The temperature here is twenty-five degrees centigrade. `,
+	`Today it is partially cloudy and raining. `,
+	`To be or not to be that is the question. `,
+	`Alas, poor Yorick! I knew him, Horatio: A fellow of infinite jest `,
 	`The rest is silence. `,
-	`Give a man a fish and you feed him for a day; teach a man to fish and you feed him for a lifetime`,
+	`Give a man a fish and you feed him for a day; teach a man to fish and you feed him for a lifetime `,
 }
 
 type Dataset interface {
 	// Close closes the dataset
 	Close() error
 	// GetTokens returns tokens for the given request
-	GetTokens(req openaiserverapi.Request) ([]string, string, error)
+	GetTokens(req openaiserverapi.Request) (*openaiserverapi.Tokenized, string, error)
 }
 
 type EchoDataset struct{}
@@ -55,10 +56,10 @@ type EchoDataset struct{}
 // for /chat/completion request the last user message is returned (if there is no user messages, last message is used)
 // if max-tokens is defined in the request and response's length is >= it value, finish reason is set to LENGTH,
 // otherwise finish reason is STOP
-func (ed *EchoDataset) GetTokens(req openaiserverapi.Request) ([]string, string, error) {
-	tokens := req.TokenizedPrompt().Strings
+func (ed *EchoDataset) GetTokens(req openaiserverapi.Request) (*openaiserverapi.Tokenized, string, error) {
+	tokens := req.TokenizedPrompt()
 	maxTokens := req.GetMaxCompletionTokens()
-	return tokens, common.FinishReason(maxTokens, len(tokens)), nil
+	return tokens, common.FinishReason(maxTokens, len(tokens.Strings)), nil // TODO: Change to Tokens
 }
 
 func (ed *EchoDataset) Close() error {
@@ -66,17 +67,32 @@ func (ed *EchoDataset) Close() error {
 }
 
 type DefaultDataset struct {
-	logger          logr.Logger
-	maxModelLen     int
-	random          *common.Random
-	histogramHelper *histogramHelper
+	logger             logr.Logger
+	maxModelLen        int
+	random             *common.Random
+	histogramHelper    *histogramHelper
+	tokenizedResponses []openaiserverapi.Tokenized
 }
 
-func (d *DefaultDataset) Init(ctx context.Context, logger logr.Logger, random *common.Random, maxModelLen int) error {
+func (d *DefaultDataset) Init(ctx context.Context, logger logr.Logger, random *common.Random, maxModelLen int,
+	tokenizer tokenizer.Tokenizer) error {
 	d.logger = logger
 	d.maxModelLen = maxModelLen
 	d.random = random
 	d.histogramHelper = newHistogramHelper(d.random)
+
+	d.tokenizedResponses = make([]openaiserverapi.Tokenized, len(completionFakeResponses))
+	for i, text := range completionFakeResponses {
+		tokens, textTokens, err := tokenizer.Encode(text, "")
+		if err != nil {
+			logger.Error(err, "failed to tokenize")
+			return err
+		}
+		d.tokenizedResponses[i] = openaiserverapi.Tokenized{
+			Tokens:  tokens,
+			Strings: textTokens,
+		}
+	}
 
 	return nil
 }
@@ -86,7 +102,7 @@ func (d *DefaultDataset) Close() error {
 }
 
 // GetTokens returns tokens and finishReason for the given request
-func (d *DefaultDataset) GetTokens(req openaiserverapi.Request) ([]string, string, error) {
+func (d *DefaultDataset) GetTokens(req openaiserverapi.Request) (*openaiserverapi.Tokenized, string, error) {
 	maxRespTokens, isMaxTokensInReq := d.calculateResponseMaxLen(req)
 
 	numOfRespTokens := 0
@@ -124,7 +140,7 @@ func (d *DefaultDataset) calculateResponseMaxLen(req openaiserverapi.Request) (i
 		return int(*maxTokens), true
 	}
 
-	return d.maxModelLen - len(common.Tokenize(req.GetPrompt())), false
+	return d.maxModelLen - len(req.TokenizedPrompt().Strings), false // TODO Change to tokens
 }
 
 // getRandomResponseLenByDistribution returns int in range [1, responseLenMax]
@@ -140,30 +156,31 @@ func (d *DefaultDataset) getRandomResponseLenByGaussian(maxLen int) int {
 }
 
 // generatePresetRandomTokens generates random tokens for the required number of tokens,
-// select randomly a sentence from chatCompletionFakeResponses,
+// select randomly a sentence from completionFakeResponses,
 // if number of tokens is lower than required - select another sentence,
 // continue until the required number of tokens is achieved,
 // returned exactly <numOfTokens> tokens
-func (d DefaultDataset) generatePresetRandomTokens(numOfTokens int) []string {
-	allTokens := make([]string, 0)
+func (d DefaultDataset) generatePresetRandomTokens(numOfTokens int) *openaiserverapi.Tokenized {
+	result := openaiserverapi.Tokenized{
+		Tokens:  make([]uint32, 0),
+		Strings: make([]string, 0),
+	}
 
-	for len(allTokens) < numOfTokens {
+	for len(result.Tokens) < numOfTokens {
 		index := d.random.RandomInt(0, len(completionFakeResponses)-1)
-		tokens := common.Tokenize(completionFakeResponses[index])
-		remaining := numOfTokens - len(allTokens)
+		tokens := d.tokenizedResponses[index].Tokens
+		strTokens := d.tokenizedResponses[index].Strings
+		remaining := numOfTokens - len(result.Tokens)
 
 		if len(tokens) > remaining {
 			// there is too many tokens, append only the relevant part
 			tokens = tokens[:remaining]
+			strTokens = strTokens[:remaining]
 		}
 
-		if len(allTokens) > 0 {
-			// for not first sentences add space to the first token to separate between sentences without adding an additional token
-			tokens[0] = " " + tokens[0]
-		}
-
-		allTokens = append(allTokens, tokens...)
+		result.Tokens = append(result.Tokens, tokens...)
+		result.Strings = append(result.Strings, strTokens...)
 	}
 
-	return allTokens
+	return &result
 }

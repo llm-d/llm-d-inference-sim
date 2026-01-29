@@ -17,6 +17,7 @@ limitations under the License.
 package llmdinferencesim
 
 import (
+	"fmt"
 	"strconv"
 	"sync"
 	"time"
@@ -28,7 +29,7 @@ import (
 
 type requestBuilder interface {
 	unmarshal(data []byte) error
-	validate(config *common.Configuration, toolsValidator *common.ToolsValidator) (string, int)
+	validate(toolsValidator *common.ToolsValidator) (string, int)
 	buildRequestContext(simCtx *simContext, ctx *fasthttp.RequestCtx, wg *sync.WaitGroup) requestContext
 	asString() string
 	createResponseContext(displayModel string, responseTokens []string, finishReason *string,
@@ -89,18 +90,11 @@ func (b *baseRequestContext) tokenize() *openaiserverapi.Error {
 	}
 
 	prompt := req.GetPrompt()
-	tokens, offsets, textTokens, err := b.sim.tokenizer.Encode(prompt, "")
+	tokens, textTokens, err := b.sim.tokenizer.Encode(prompt, "")
 	if err != nil {
 		b.sim.logger.Error(err, "failed to tokenize")
 		serverErr := openaiserverapi.NewError("Failed to tokenize, "+err.Error(), fasthttp.StatusInternalServerError, nil)
 		return &serverErr
-	}
-
-	if textTokens == nil {
-		textTokens = make([]string, len(tokens))
-		for i, offset := range offsets {
-			textTokens[i] = prompt[offset[0]:offset[1]]
-		}
 	}
 
 	req.SetTokenizedPrompt(&openaiserverapi.Tokenized{
@@ -108,6 +102,20 @@ func (b *baseRequestContext) tokenize() *openaiserverapi.Error {
 		Strings: textTokens,
 	})
 	return nil
+}
+
+// validate context window constraints
+func (b *baseRequestContext) validateContextWindow() (string, int) {
+	promptTokens := getNumberOfPromptTokens(b.request())
+	completionTokens := b.request().GetMaxCompletionTokens()
+	isValid, actualCompletionTokens, totalTokens := common.ValidateContextWindow(promptTokens, completionTokens,
+		b.sim.config.MaxModelLen)
+	if !isValid {
+		message := fmt.Sprintf("This model's maximum context length is %d tokens. However, you requested %d tokens (%d in the messages, %d in the completion). Please reduce the length of the messages or completion",
+			b.sim.config.MaxModelLen, totalTokens, promptTokens, actualCompletionTokens)
+		return message, fasthttp.StatusBadRequest
+	}
+	return "", fasthttp.StatusOK
 }
 
 func (reqCtx *baseRequestContext) handleRequest() (responseContext, string, *openaiserverapi.Error) {
@@ -126,6 +134,11 @@ func (reqCtx *baseRequestContext) handleRequest() (responseContext, string, *ope
 
 	if err := reqCtx.tokenize(); err != nil {
 		return nil, "", err
+	}
+
+	if errMsg, errCode := reqCtx.validateContextWindow(); errMsg != "" {
+		oaiServerError := openaiserverapi.NewError(errMsg, errCode, nil)
+		return nil, "", &oaiServerError
 	}
 
 	hitRate, oaiServerError := reqCtx.kvCacheOnRequestStart()
@@ -158,8 +171,10 @@ func (reqCtx *baseRequestContext) handleRequest() (responseContext, string, *ope
 	if toolCalls == nil && err == nil {
 		// Either no tool calls were defined, or we randomly chose not to create tool calls,
 		// so we generate a response text.
-		responseTokens, finishReason, err = reqCtx.sim.dataset.GetTokens(req)
-		completionTokens += len(responseTokens)
+		var tokens *openaiserverapi.Tokenized
+		tokens, finishReason, err = reqCtx.sim.dataset.GetTokens(req)
+		completionTokens += len(tokens.Strings) // TODO Change to Tokens
+		responseTokens = tokens.Strings
 	}
 	if err != nil {
 		prefix := "failed to create response for " + req.asString()

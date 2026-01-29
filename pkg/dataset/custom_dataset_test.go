@@ -27,6 +27,7 @@ import (
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
+	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 	. "github.com/onsi/ginkgo/v2"
 
 	. "github.com/onsi/gomega"
@@ -51,6 +52,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 		pathToInvalidColumnDB string
 		pathToInvalidTypeDB   string
 		random                *common.Random
+		tokenizer             tokenizer.Tokenizer
 	)
 
 	BeforeAll(func() {
@@ -65,6 +67,8 @@ var _ = Describe("CustomDataset", Ordered, func() {
 		pathToInvalidTableDB = file_folder + "/test.invalid.table.sqlite3"
 		pathToInvalidColumnDB = file_folder + "/test.invalid.column.sqlite3"
 		pathToInvalidTypeDB = file_folder + "/test.invalid.type.sqlite3"
+		tokenizer, err = initTokenizer("", false, "")
+		Expect(err).ShouldNot(HaveOccurred())
 	})
 
 	BeforeEach(func() {
@@ -101,7 +105,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 
 	It("should successfully init dataset", func() {
 		dataset := &CustomDataset{}
-		err := dataset.Init(context.Background(), klog.Background(), random, validDBPath, false, 1024)
+		err := dataset.Init(context.Background(), klog.Background(), random, validDBPath, false, 1024, tokenizer)
 		Expect(err).NotTo(HaveOccurred())
 
 		row := dataset.sqliteHelper.db.QueryRow("SELECT n_gen_tokens FROM llmd WHERE prompt_hash=X'74bf14c09c038321cba39717dae1dc732823ae4abd8e155959367629a3c109a8';")
@@ -182,11 +186,15 @@ var _ = Describe("CustomDataset", Ordered, func() {
 		maxTokens := int64(20)
 		smallMaxTokens := int64(2)
 		exactMaxToken := int64(4)
+		var promptTokens []string
 
-		promptTokens := common.Tokenize(testPrompt)
+		tokenizer, err := initTokenizer("", false, "")
+		Expect(err).NotTo(HaveOccurred())
+		_, promptTokens, err = tokenizer.Encode(testPrompt, "")
+		Expect(err).NotTo(HaveOccurred())
 
 		BeforeAll(func() {
-			err := dataset.Init(context.Background(), klog.Background(), random, validDBPath, false, 1024)
+			err := dataset.Init(context.Background(), klog.Background(), random, validDBPath, false, 1024, tokenizer)
 			Expect(err).NotTo(HaveOccurred())
 
 		})
@@ -214,7 +222,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 				Expect(err).NotTo(HaveOccurred())
 				Expect(finishReason).To(Equal(expectedFinishReason))
 				if maxTokens != nil {
-					Expect(tokens).To(HaveLen(int(*maxTokens)))
+					Expect(tokens.Strings).To(HaveLen(int(*maxTokens)))
 				}
 			},
 			func(prompt string, maxTokens *int64, isChat bool, expectedFinishReason string) string {
@@ -237,10 +245,12 @@ var _ = Describe("CustomDataset", Ordered, func() {
 			req := &openaiserverapi.TextCompletionRequest{
 				Prompt: testPrompt,
 			}
+			req.SetTokenizedPrompt(&openaiserverapi.Tokenized{Strings: promptTokens})
+
 			tokens, finishReason, err := dataset.GetTokens(req)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(finishReason).To(Equal(common.StopFinishReason))
-			Expect(tokens).To(Equal([]string{"Hello", " llm-d ", "world", "!"}))
+			Expect(tokens.Strings).To(Equal([]string{"Hello", " llm-d ", "world", "!"}))
 		})
 
 		It("should return at most 2 tokens for existing prompt", func() {
@@ -250,17 +260,19 @@ var _ = Describe("CustomDataset", Ordered, func() {
 			}
 			tokens, _, err := dataset.GetTokens(req)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(len(tokens)).To(BeNumerically("<=", smallMaxTokens))
+			Expect(len(tokens.Strings)).To(BeNumerically("<=", smallMaxTokens))
 		})
 
 		It("should successfully init dataset with in-memory option", func() {
 			req := &openaiserverapi.TextCompletionRequest{
 				Prompt: testPrompt,
 			}
+			req.SetTokenizedPrompt(&openaiserverapi.Tokenized{Strings: promptTokens})
+
 			tokens, finishReason, err := dataset.GetTokens(req)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(finishReason).To(Equal(common.StopFinishReason))
-			Expect(tokens).To(Equal([]string{"Hello", " llm-d ", "world", "!"}))
+			Expect(tokens.Strings).To(Equal([]string{"Hello", " llm-d ", "world", "!"}))
 		})
 
 		It("should work correctly for chat request with multiple messages", func() {
@@ -275,9 +287,9 @@ var _ = Describe("CustomDataset", Ordered, func() {
 
 			tokens, finishReason, err := dataset.GetTokens(&req)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(len(tokens)).To(BeNumerically("<=", maxTokens))
-			Expect((len(tokens) == int(maxTokens) && finishReason == common.LengthFinishReason) ||
-				(len(tokens) < int(maxTokens) && finishReason == common.StopFinishReason)).To(BeTrue())
+			Expect(len(tokens.Strings)).To(BeNumerically("<=", maxTokens))
+			Expect((len(tokens.Strings) == int(maxTokens) && finishReason == common.LengthFinishReason) ||
+				(len(tokens.Strings) < int(maxTokens) && finishReason == common.StopFinishReason)).To(BeTrue())
 		})
 	})
 })
@@ -287,14 +299,17 @@ var _ = Describe("custom dataset for multiple simulators", Ordered, func() {
 		file_folder := ".llm-d"
 		validDBPath := file_folder + "/test.valid.sqlite3"
 
+		tokenizer, err := initTokenizer("", false, "")
+		Expect(err).ShouldNot(HaveOccurred())
+
 		random1 := common.NewRandom(time.Now().UnixNano(), 8081)
 		dataset1 := &CustomDataset{}
-		err := dataset1.Init(context.Background(), klog.Background(), random1, validDBPath, false, 1024)
+		err = dataset1.Init(context.Background(), klog.Background(), random1, validDBPath, false, 1024, tokenizer)
 		Expect(err).NotTo(HaveOccurred())
 
 		random2 := common.NewRandom(time.Now().UnixNano(), 8082)
 		dataset2 := &CustomDataset{}
-		err = dataset2.Init(context.Background(), klog.Background(), random2, validDBPath, false, 1024)
+		err = dataset2.Init(context.Background(), klog.Background(), random2, validDBPath, false, 1024, tokenizer)
 		Expect(err).NotTo(HaveOccurred())
 	})
 })

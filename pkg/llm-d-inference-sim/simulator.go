@@ -393,7 +393,7 @@ func (s *VllmSimulator) handleRequest(req request, ctx *fasthttp.RequestCtx) {
 		return
 	}
 
-	errMsg, errCode := req.validate(s.context.config, s.toolsValidator)
+	errMsg, errCode := req.validate(s.toolsValidator)
 	if errMsg != "" {
 		s.sendError(ctx, openaiserverapi.NewError(errMsg, errCode, nil), false)
 		return

@@ -38,7 +38,7 @@ func (c *chatCompletionRequest) unmarshal(data []byte) error {
 	return json.Unmarshal(data, c)
 }
 
-func (c *chatCompletionRequest) validate(config *common.Configuration, toolsValidator *common.ToolsValidator) (string, int) {
+func (c *chatCompletionRequest) validate(toolsValidator *common.ToolsValidator) (string, int) {
 	for _, tool := range c.Tools {
 		toolJson, err := json.Marshal(tool.Function)
 		if err != nil {
@@ -50,7 +50,7 @@ func (c *chatCompletionRequest) validate(config *common.Configuration, toolsVali
 		}
 	}
 
-	return validateRequest(c, config)
+	return validateRequest(c)
 }
 
 func (c *chatCompletionRequest) buildRequestContext(simCtx *simContext, ctx *fasthttp.RequestCtx, wg *sync.WaitGroup) requestContext {

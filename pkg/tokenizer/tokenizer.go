@@ -22,7 +22,6 @@ import (
 	"os"
 	"regexp"
 
-	"github.com/daulet/tokenizers"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-kv-cache-manager/pkg/tokenization"
 )
@@ -31,7 +30,7 @@ const hfTokenEnvVar = "HF_TOKEN"
 
 type Tokenizer interface {
 	// Encode tokenizes the input, modelName is optional, if not provided, the model from the configuration will be used
-	Encode(input, modelName string) ([]uint32, []tokenizers.Offset, []string, error)
+	Encode(input, modelName string) ([]uint32, []string, error)
 }
 
 type HFTokenizer struct {
@@ -59,10 +58,10 @@ func stringsToUint32sHash(strings []string) []uint32 {
 	return hashes
 }
 
-func (st *SimpleTokenizer) Encode(input, modelName string) ([]uint32, []tokenizers.Offset, []string, error) {
+func (st *SimpleTokenizer) Encode(input, modelName string) ([]uint32, []string, error) {
 	strTokens := st.re.FindAllString(input, -1)
 
-	return stringsToUint32sHash(strTokens), nil, strTokens, nil
+	return stringsToUint32sHash(strTokens), strTokens, nil
 }
 
 // HF Tokenizer
@@ -85,11 +84,16 @@ func NewHFTokenizer(config common.Configuration) (*HFTokenizer, error) {
 	return &HFTokenizer{tokenizer: hftTokenizer, model: config.Model}, nil
 }
 
-func (hft *HFTokenizer) Encode(input, modelName string) ([]uint32, []tokenizers.Offset, []string, error) {
+func (hft *HFTokenizer) Encode(input, modelName string) ([]uint32, []string, error) {
 	model := modelName
 	if model == "" {
 		model = hft.model
 	}
 	tokens, offsets, err := hft.tokenizer.Encode(input, model)
-	return tokens, offsets, nil, err
+	textTokens := make([]string, len(tokens))
+	for i, offset := range offsets {
+		textTokens[i] = input[offset[0]:offset[1]]
+	}
+
+	return tokens, textTokens, err
 }
