@@ -18,6 +18,7 @@ package tokenizer
 
 import (
 	"os"
+	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -39,16 +40,22 @@ var _ = Describe("tokenizer", func() {
 		Expect(tokens).NotTo(BeEmpty())
 		Expect(strTokens).NotTo(BeEmpty())
 		Expect(tokens).To(HaveLen(len(strTokens)))
+
+		output := strings.Join(strTokens, "")
+		Expect(output).To(Equal(input))
 	})
 
 	It("should tokenize with real tokenizer", func() {
 		tokenizer, err := New(qwenModelName, true, tokenizerTmpDir)
 		Expect(err).NotTo(HaveOccurred())
-		tokens, strTokens, err := tokenizer.Encode(input, "")
+		tokens, strTokens, err := tokenizer.Encode(input, qwenModelName)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(tokens).NotTo(BeEmpty())
 		Expect(strTokens).NotTo(BeEmpty())
 		Expect(tokens).To(HaveLen(len(strTokens)))
+
+		output := strings.Join(strTokens, "")
+		Expect(output).To(Equal(input))
 
 		err = os.RemoveAll(tokenizerTmpDir)
 		Expect(err).NotTo(HaveOccurred())
