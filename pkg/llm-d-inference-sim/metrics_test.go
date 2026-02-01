@@ -830,8 +830,8 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 		tokenizer, err := tokenizer.New("", false, "")
 		Expect(err).ShouldNot(HaveOccurred())
 		_, tokens, err := tokenizer.Encode(testUserMessage, "")
-		numOfTokens := len(tokens)
 		Expect(err).ShouldNot(HaveOccurred())
+		numOfTokens := len(tokens)
 
 		DescribeTable("should calculate all latency related metrics correctly for a single request",
 			func(testNamePrefix string, ttft int, prefillTimePerToken int, interTokenLatency int,
