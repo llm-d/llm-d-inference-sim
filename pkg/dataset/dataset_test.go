@@ -173,22 +173,22 @@ var _ = Describe("Echo Dataset", Ordered, func() {
 	smallMaxTokens := int64(2)
 	tokenizer, err := tokenizer.New("", false, "")
 	Expect(err).NotTo(HaveOccurred())
-	_, promptTokens, err := tokenizer.Encode(testPrompt, "")
+	promptTokens, promptStrTokens, err := tokenizer.Encode(testPrompt, "")
 	Expect(err).NotTo(HaveOccurred())
 
 	Context("getTokensInEchoMode", func() {
 		theText := "Give a man a fish and you feed him for a day; teach a man to fish and you feed him for a lifetime"
-		_, theTokens, err := tokenizer.Encode(theText, "")
+		tokens, strTokens, err := tokenizer.Encode(theText, "")
 		Expect(err).NotTo(HaveOccurred())
 
 		It("should return the same text, max tokens is not defined", func() {
 			req := &openaiserverapi.TextCompletionRequest{
 				Prompt: theText,
 			}
-			req.SetTokenizedPrompt(&openaiserverapi.Tokenized{Strings: theTokens})
+			req.SetTokenizedPrompt(&openaiserverapi.Tokenized{Tokens: tokens, Strings: strTokens})
 			tokens, finishReason, err := dataset.GetTokens(req)
 			Expect(err).ShouldNot(HaveOccurred())
-			Expect(tokens.Strings).Should(Equal(theTokens))
+			Expect(tokens.Strings).Should(Equal(strTokens))
 			Expect(finishReason).Should(Equal(common.StopFinishReason))
 		})
 		It("should return the same text, max tokens is higher than the text length", func() {
@@ -197,11 +197,11 @@ var _ = Describe("Echo Dataset", Ordered, func() {
 				Prompt:    theText,
 				MaxTokens: &maxTokens,
 			}
-			req.SetTokenizedPrompt(&openaiserverapi.Tokenized{Strings: theTokens})
+			req.SetTokenizedPrompt(&openaiserverapi.Tokenized{Tokens: tokens, Strings: strTokens})
 
 			tokens, finishReason, err := dataset.GetTokens(req)
 			Expect(err).ShouldNot(HaveOccurred())
-			Expect(tokens.Strings).Should(Equal(theTokens))
+			Expect(tokens.Strings).Should(Equal(strTokens))
 			Expect(finishReason).Should(Equal(common.StopFinishReason))
 		})
 		It("should return the same text, finish reason is length", func() {
@@ -210,11 +210,11 @@ var _ = Describe("Echo Dataset", Ordered, func() {
 				Prompt:    theText,
 				MaxTokens: &maxTokens,
 			}
-			req.SetTokenizedPrompt(&openaiserverapi.Tokenized{Strings: theTokens})
+			req.SetTokenizedPrompt(&openaiserverapi.Tokenized{Tokens: tokens, Strings: strTokens})
 
 			tokens, finishReason, err := dataset.GetTokens(req)
 			Expect(err).ShouldNot(HaveOccurred())
-			Expect(tokens.Strings).Should(Equal(theTokens))
+			Expect(tokens.Strings).Should(Equal(strTokens))
 			Expect(finishReason).Should(Equal(common.LengthFinishReason))
 		})
 	})
@@ -233,12 +233,12 @@ var _ = Describe("Echo Dataset", Ordered, func() {
 				textReq.IgnoreEOS = ignoreEos
 				req = &textReq
 			}
-			req.SetTokenizedPrompt(&openaiserverapi.Tokenized{Strings: promptTokens})
+			req.SetTokenizedPrompt(&openaiserverapi.Tokenized{Tokens: promptTokens, Strings: promptStrTokens})
 
 			tokens, finishReason, err := dataset.GetTokens(req)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(finishReason).To(Equal(expectedFinishReason))
-			Expect(tokens.Strings).To(Equal(promptTokens))
+			Expect(tokens.Strings).To(Equal(promptStrTokens))
 		},
 		func(maxTokens *int64, ignoreEos bool, isChat bool, expectedFinishReason string) string {
 			return fmt.Sprintf("maxTokens: %s, ignoreEos: %t, isChat: %t, expectedFinishReason: %s", maxTokensToStr(maxTokens), ignoreEos, isChat, expectedFinishReason)

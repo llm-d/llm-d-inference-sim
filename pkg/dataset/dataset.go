@@ -59,7 +59,7 @@ type EchoDataset struct{}
 func (ed *EchoDataset) GetTokens(req openaiserverapi.Request) (*openaiserverapi.Tokenized, string, error) {
 	tokens := req.TokenizedPrompt()
 	maxTokens := req.GetMaxCompletionTokens()
-	return tokens, common.FinishReason(maxTokens, len(tokens.Strings)), nil // TODO: Change to Tokens
+	return tokens, common.FinishReason(maxTokens, len(tokens.Tokens)), nil
 }
 
 func (ed *EchoDataset) Close() error {
