@@ -52,7 +52,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 		pathToInvalidColumnDB string
 		pathToInvalidTypeDB   string
 		random                *common.Random
-		tokenizer             tokenizer.Tokenizer
+		tknzr                 tokenizer.Tokenizer
 	)
 
 	BeforeAll(func() {
@@ -67,7 +67,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 		pathToInvalidTableDB = file_folder + "/test.invalid.table.sqlite3"
 		pathToInvalidColumnDB = file_folder + "/test.invalid.column.sqlite3"
 		pathToInvalidTypeDB = file_folder + "/test.invalid.type.sqlite3"
-		tokenizer, err = initTokenizer("", false, "")
+		tknzr, err = tokenizer.New("", false, "")
 		Expect(err).ShouldNot(HaveOccurred())
 	})
 
@@ -105,7 +105,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 
 	It("should successfully init dataset", func() {
 		dataset := &CustomDataset{}
-		err := dataset.Init(context.Background(), klog.Background(), random, validDBPath, false, 1024, tokenizer)
+		err := dataset.Init(context.Background(), klog.Background(), random, validDBPath, false, 1024, tknzr)
 		Expect(err).NotTo(HaveOccurred())
 
 		row := dataset.sqliteHelper.db.QueryRow("SELECT n_gen_tokens FROM llmd WHERE prompt_hash=X'74bf14c09c038321cba39717dae1dc732823ae4abd8e155959367629a3c109a8';")
@@ -188,13 +188,11 @@ var _ = Describe("CustomDataset", Ordered, func() {
 		exactMaxToken := int64(4)
 		var promptTokens []string
 
-		tokenizer, err := initTokenizer("", false, "")
-		Expect(err).NotTo(HaveOccurred())
-		_, promptTokens, err = tokenizer.Encode(testPrompt, "")
-		Expect(err).NotTo(HaveOccurred())
-
 		BeforeAll(func() {
-			err := dataset.Init(context.Background(), klog.Background(), random, validDBPath, false, 1024, tokenizer)
+			var err error
+			_, promptTokens, err = tknzr.Encode(testPrompt, "")
+			Expect(err).NotTo(HaveOccurred())
+			err = dataset.Init(context.Background(), klog.Background(), random, validDBPath, false, 1024, tknzr)
 			Expect(err).NotTo(HaveOccurred())
 
 		})
@@ -299,7 +297,7 @@ var _ = Describe("custom dataset for multiple simulators", Ordered, func() {
 		file_folder := ".llm-d"
 		validDBPath := file_folder + "/test.valid.sqlite3"
 
-		tokenizer, err := initTokenizer("", false, "")
+		tokenizer, err := tokenizer.New("", false, "")
 		Expect(err).ShouldNot(HaveOccurred())
 
 		random1 := common.NewRandom(time.Now().UnixNano(), 8081)

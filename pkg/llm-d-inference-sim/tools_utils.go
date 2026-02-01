@@ -14,32 +14,25 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package common
+package llmdinferencesim
 
 import (
 	"encoding/json"
 	"errors"
 	"fmt"
 
+	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
+	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 	"github.com/openai/openai-go/v3/packages/param"
 	"github.com/santhosh-tekuri/jsonschema/v5"
 )
 
 const (
-	ToolChoiceNone     = "none"
-	ToolChoiceAuto     = "auto"
-	ToolChoiceRequired = "required"
+	toolChoiceNone     = "none"
+	toolChoiceAuto     = "auto"
+	toolChoiceRequired = "required"
 )
-
-func CountTokensForToolCalls(toolCalls []openaiserverapi.ToolCall) int {
-	numberOfTokens := 0
-	for _, tc := range toolCalls {
-		// 3 - name, id, and type
-		numberOfTokens += 3 + len(tc.Function.TokenizedArguments)
-	}
-	return numberOfTokens
-}
 
 var fakeStringArguments = []string{
 	`testing`,
@@ -54,16 +47,46 @@ var fakeStringArguments = []string{
 	`lifetime`,
 }
 
-// IsToolChoiceNone checks if the tool_choice is set to "none".
-func IsToolChoiceNone(toolChoice openaiserverapi.ToolChoice) bool {
+func countTokensForToolCalls(toolCalls []openaiserverapi.ToolCall) int {
+	numberOfTokens := 0
+	for _, tc := range toolCalls {
+		// 3 - name, id, and type
+		numberOfTokens += 3 + len(tc.Function.TokenizedArguments)
+	}
+	return numberOfTokens
+}
+
+// isToolChoiceNone checks if the tool_choice is set to "none".
+func isToolChoiceNone(toolChoice openaiserverapi.ToolChoice) bool {
 	if !param.IsOmitted(toolChoice.OfAuto) {
 		val := toolChoice.OfAuto.Or("")
-		return val == ToolChoiceNone
+		return val == toolChoiceNone
 	}
 	return false
 }
 
-// CreateToolCalls creates and returns tool calls based on the request's tool
+type toolsValidator struct {
+	schema *jsonschema.Schema
+}
+
+func createToolsValidator() (*toolsValidator, error) {
+	sch, err := jsonschema.CompileString("schema.json", schema)
+	if err != nil {
+		return nil, err
+	}
+	return &toolsValidator{schema: sch}, nil
+}
+
+func (v *toolsValidator) validateTool(tool []byte) error {
+	var value interface{}
+	if err := json.Unmarshal(tool, &value); err != nil {
+		return err
+	}
+
+	return v.schema.Validate(value)
+}
+
+// createToolCalls creates and returns tool calls based on the request's tool
 // definitions and the tool_choice parameter.
 //
 // The [tool_choice](https://platform.openai.com/docs/guides/function-calling#tool-choice)
@@ -88,11 +111,12 @@ func IsToolChoiceNone(toolChoice openaiserverapi.ToolChoice) bool {
 //
 // This function returns the generated tool calls, the number of completion
 // tokens used, and an error if one occurs (e.g., if a specified tool is not found).
-func CreateToolCalls(
+func createToolCalls(
 	tools []openaiserverapi.Tool,
 	toolChoice openaiserverapi.ToolChoice,
-	config *Configuration,
-	random *Random,
+	config *common.Configuration,
+	random *common.Random,
+	tokenizer tokenizer.Tokenizer,
 ) ([]openaiserverapi.ToolCall, int, error) {
 	generateCalls := func(availableTools []openaiserverapi.Tool, minCalls int) ([]openaiserverapi.ToolCall, int, error) {
 		if len(availableTools) == 0 {
@@ -128,10 +152,15 @@ func CreateToolCalls(
 				return nil, 0, err
 			}
 
+			_, tokenizedArgs, err := tokenizer.Encode(string(argsJson), "")
+			if err != nil {
+				return nil, 0, err
+			}
+
 			call := openaiserverapi.ToolCall{
 				Function: openaiserverapi.FunctionCall{
 					Arguments:          string(argsJson),
-					TokenizedArguments: Tokenize(string(argsJson)),
+					TokenizedArguments: tokenizedArgs,
 					Name:               &chosenTool.Function.Name,
 				},
 				ID:    "chatcmpl-tool-" + random.RandomNumericString(10),
@@ -140,7 +169,7 @@ func CreateToolCalls(
 			}
 			calls = append(calls, call)
 		}
-		return calls, CountTokensForToolCalls(calls), nil
+		return calls, countTokensForToolCalls(calls), nil
 	}
 
 	// A specific function is forced.
@@ -169,27 +198,14 @@ func CreateToolCalls(
 	// Default behavior for "auto" or "required".
 	// The model can choose from any of the provided tools.
 	min := 0
-	if !param.IsOmitted(toolChoice.OfAuto) && toolChoice.OfAuto.Or("") == ToolChoiceRequired {
+	if !param.IsOmitted(toolChoice.OfAuto) && toolChoice.OfAuto.Or("") == toolChoiceRequired {
 		min = 1
 	}
 
 	return generateCalls(tools, min)
 }
 
-func getRequiredAsMap(property map[string]any) map[string]struct{} {
-	required := make(map[string]struct{})
-	requiredParams, ok := property["required"]
-	if ok {
-		requiredArray, _ := requiredParams.([]any)
-		for _, requiredParam := range requiredArray {
-			param, _ := requiredParam.(string)
-			required[param] = struct{}{}
-		}
-	}
-	return required
-}
-
-func generateToolArguments(tool openaiserverapi.Tool, config *Configuration, random *Random) (map[string]any, error) {
+func generateToolArguments(tool openaiserverapi.Tool, config *common.Configuration, random *common.Random) (map[string]any, error) {
 	arguments := make(map[string]any)
 	properties, _ := tool.Function.Parameters["properties"].(map[string]any)
 
@@ -210,7 +226,20 @@ func generateToolArguments(tool openaiserverapi.Tool, config *Configuration, ran
 	return arguments, nil
 }
 
-func createArgument(property any, config *Configuration, random *Random) (any, error) {
+func getRequiredAsMap(property map[string]any) map[string]struct{} {
+	required := make(map[string]struct{})
+	requiredParams, ok := property["required"]
+	if ok {
+		requiredArray, _ := requiredParams.([]any)
+		for _, requiredParam := range requiredArray {
+			param, _ := requiredParam.(string)
+			required[param] = struct{}{}
+		}
+	}
+	return required
+}
+
+func createArgument(property any, config *common.Configuration, random *common.Random) (any, error) {
 	propertyMap, _ := property.(map[string]any)
 	paramType := propertyMap["type"]
 
@@ -278,30 +307,9 @@ func createArgument(property any, config *Configuration, random *Random) (any, e
 	}
 }
 
-func getStringArgument(random *Random) string {
+func getStringArgument(random *common.Random) string {
 	index := random.RandomInt(0, len(fakeStringArguments)-1)
 	return fakeStringArguments[index]
-}
-
-type ToolsValidator struct {
-	schema *jsonschema.Schema
-}
-
-func CreateToolsValidator() (*ToolsValidator, error) {
-	sch, err := jsonschema.CompileString("schema.json", schema)
-	if err != nil {
-		return nil, err
-	}
-	return &ToolsValidator{schema: sch}, nil
-}
-
-func (v *ToolsValidator) ValidateTool(tool []byte) error {
-	var value interface{}
-	if err := json.Unmarshal(tool, &value); err != nil {
-		return err
-	}
-
-	return v.schema.Validate(value)
 }
 
 const schema = `{

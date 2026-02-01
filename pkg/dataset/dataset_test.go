@@ -25,6 +25,7 @@ import (
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
+	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -34,7 +35,7 @@ func createDataset() *DefaultDataset {
 	ds := DefaultDataset{}
 	ctx := context.Background()
 	logger := log.FromContext(ctx)
-	tokenizer, err := initTokenizer("", false, "")
+	tokenizer, err := tokenizer.New("", false, "")
 	Expect(err).ShouldNot(HaveOccurred())
 	err = ds.Init(context.Background(), logger, common.NewRandom(time.Now().UnixNano(), 8080), 1024, tokenizer)
 	Expect(err).ShouldNot(HaveOccurred())
@@ -170,14 +171,14 @@ var _ = Describe("Echo Dataset", Ordered, func() {
 	dataset := EchoDataset{}
 	maxTokens := int64(20)
 	smallMaxTokens := int64(2)
-	promptTokens := common.Tokenize(testPrompt)
+	tokenizer, err := tokenizer.New("", false, "")
+	Expect(err).NotTo(HaveOccurred())
+	_, promptTokens, err := tokenizer.Encode(testPrompt, "")
+	Expect(err).NotTo(HaveOccurred())
 
 	Context("getTokensInEchoMode", func() {
 		theText := "Give a man a fish and you feed him for a day; teach a man to fish and you feed him for a lifetime"
-		theTokens := common.Tokenize(theText)
-		tokenizer, err := initTokenizer("", false, "")
-		Expect(err).NotTo(HaveOccurred())
-		_, theTokens, err = tokenizer.Encode(testPrompt, "")
+		_, theTokens, err := tokenizer.Encode(theText, "")
 		Expect(err).NotTo(HaveOccurred())
 
 		It("should return the same text, max tokens is not defined", func() {

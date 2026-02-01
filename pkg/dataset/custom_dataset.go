@@ -95,7 +95,7 @@ func (d *CustomDataset) getRandomResponse(responses [][]string) []string {
 // are randomly selected from the hard-coded collection
 func (d *CustomDataset) GetTokens(req openaiserverapi.Request) (*openaiserverapi.Tokenized, string, error) {
 	maxResponseLen, _ := d.calculateResponseMaxLen(req)
-	responseTokens := []string{}
+	var responseTokens []string
 
 	// get all records for the hashes prompt
 	promptHash := d.getPromptHash(req)

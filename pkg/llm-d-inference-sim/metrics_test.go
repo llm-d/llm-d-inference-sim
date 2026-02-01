@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
+	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/openai/openai-go/v3"
@@ -826,7 +827,11 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 	})
 
 	Context("single request latency metrics", func() {
-		numOfTokens := len(common.Tokenize(testUserMessage))
+		tokenizer, err := tokenizer.New("", false, "")
+		Expect(err).ShouldNot(HaveOccurred())
+		_, tokens, err := tokenizer.Encode(testUserMessage, "")
+		numOfTokens := len(tokens)
+		Expect(err).ShouldNot(HaveOccurred())
 
 		DescribeTable("should calculate all latency related metrics correctly for a single request",
 			func(testNamePrefix string, ttft int, prefillTimePerToken int, interTokenLatency int,

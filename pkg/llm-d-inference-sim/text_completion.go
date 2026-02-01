@@ -37,7 +37,7 @@ func (t *textCompletionRequest) unmarshal(data []byte) error {
 	return json.Unmarshal(data, t)
 }
 
-func (t *textCompletionRequest) validate(toolsValidator *common.ToolsValidator) (string, int) {
+func (t *textCompletionRequest) validate(toolsValidator *toolsValidator) (string, int) {
 	return validateRequest(t)
 }
 

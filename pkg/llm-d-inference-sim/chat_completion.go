@@ -38,13 +38,13 @@ func (c *chatCompletionRequest) unmarshal(data []byte) error {
 	return json.Unmarshal(data, c)
 }
 
-func (c *chatCompletionRequest) validate(toolsValidator *common.ToolsValidator) (string, int) {
+func (c *chatCompletionRequest) validate(toolsValidator *toolsValidator) (string, int) {
 	for _, tool := range c.Tools {
 		toolJson, err := json.Marshal(tool.Function)
 		if err != nil {
 			return "Failed to marshal request tools: " + err.Error(), fasthttp.StatusBadRequest
 		}
-		err = toolsValidator.ValidateTool(toolJson)
+		err = toolsValidator.validateTool(toolJson)
 		if err != nil {
 			return "Tool validation failed: " + err.Error(), fasthttp.StatusBadRequest
 		}
@@ -99,10 +99,10 @@ func (c *chatCompletionReqCtx) kvCacheOnRequestEnd() {
 
 func (c *chatCompletionReqCtx) createToolCalls() ([]openaiserverapi.ToolCall, int, string, error) {
 	req := c.request()
-	if !common.IsToolChoiceNone(req.GetToolChoice()) &&
+	if !isToolChoiceNone(req.GetToolChoice()) &&
 		req.GetTools() != nil {
 		toolCalls, completionTokens, err :=
-			common.CreateToolCalls(req.GetTools(), req.GetToolChoice(), c.sim.config, c.sim.random)
+			createToolCalls(req.GetTools(), req.GetToolChoice(), c.sim.config, c.sim.random, c.sim.tokenizer)
 		finishReason := common.ToolsFinishReason
 		return toolCalls, completionTokens, finishReason, err
 	}

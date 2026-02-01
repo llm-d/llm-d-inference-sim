@@ -19,7 +19,6 @@ package common
 import (
 	"fmt"
 	"math/rand"
-	"regexp"
 	"strconv"
 	"sync"
 	"time"
@@ -159,17 +158,6 @@ func (r *Random) RandomNumericString(length int) string {
 		result[i] = digits[num]
 	}
 	return string(result)
-}
-
-// Regular expression for the response tokenization
-var re *regexp.Regexp
-
-func init() {
-	re = regexp.MustCompile(`(\{|\}|:|,|-|\.|\?|\!|;|@|#|\$|%|\^|&|\*|\(|\)|\+|\-|_|~|/|\\|>|<|\[|\]|=|"|\w+)(\s*)`)
-}
-
-func Tokenize(text string) []string {
-	return re.FindAllString(text, -1)
 }
 
 func WriteToChannel[T any](channel chan T, object T, logger logr.Logger, channelName string) {

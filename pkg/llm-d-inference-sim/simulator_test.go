@@ -146,13 +146,14 @@ var _ = Describe("Simulator", func() {
 		Entry(nil, testModel, common.ModeRandom),
 		Entry(nil, testModel, common.ModeEcho),
 		Entry(nil, qwenModelName, common.ModeEcho),
+		Entry(nil, qwenModelName, common.ModeRandom),
 	)
 
 	DescribeTable("chat completions",
 		func(model string, mode string, maxTokens int, maxCompletionTokens int) {
 			ctx := context.TODO()
 			args := []string{"cmd", "--model", model, "--mode", mode}
-			client, err := startServerWithArgs(ctx, args)
+			server, client, err := startServerHandle(ctx, mode, args, nil)
 			Expect(err).NotTo(HaveOccurred())
 
 			openaiclient, params := getOpenAIClientAndChatParams(client, model, testUserMessage, false)
@@ -196,7 +197,8 @@ var _ = Describe("Simulator", func() {
 				Expect(msg).Should(Equal(testUserMessage))
 			} else {
 				if numTokens > 0 {
-					tokens := common.Tokenize(msg)
+					_, tokens, err := server.context.tokenizer.Encode(msg, model)
+					Expect(err).NotTo(HaveOccurred())
 					Expect(int64(len(tokens))).Should(BeNumerically("<=", numTokens))
 				} else {
 					// in case of random mode ensure that the returned message could be output of the random text generator
@@ -224,6 +226,7 @@ var _ = Describe("Simulator", func() {
 		Entry(nil, testModel, common.ModeEcho, -1, 0),
 		Entry(nil, testModel, common.ModeRandom, 0, -1),
 		Entry(nil, qwenModelName, common.ModeEcho, 1000, 0),
+		Entry(nil, qwenModelName, common.ModeRandom, 1000, 0),
 	)
 
 	DescribeTable("text completions",
@@ -231,7 +234,7 @@ var _ = Describe("Simulator", func() {
 		func(model string, mode string, maxTokens int) {
 			ctx := context.TODO()
 			args := []string{"cmd", "--model", model, "--mode", mode}
-			client, err := startServerWithArgs(ctx, args)
+			server, client, err := startServerHandle(ctx, mode, args, nil)
 			Expect(err).NotTo(HaveOccurred())
 
 			openaiclient, params := getOpenAIClentAndCompletionParams(client, model, testUserMessage, false)
@@ -269,7 +272,8 @@ var _ = Describe("Simulator", func() {
 				Expect(text).Should(Equal(testUserMessage))
 			} else {
 				if numTokens != 0 {
-					tokens := common.Tokenize(text)
+					_, tokens, err := server.context.tokenizer.Encode(text, model)
+					Expect(err).NotTo(HaveOccurred())
 					Expect(int64(len(tokens))).Should(BeNumerically("<=", numTokens))
 				} else {
 					// in case of random mode ensure that the returned message could be output of the random text generator
@@ -289,6 +293,7 @@ var _ = Describe("Simulator", func() {
 		Entry(nil, testModel, common.ModeRandom, -1),
 		Entry(nil, testModel, common.ModeEcho, -1),
 		Entry(nil, qwenModelName, common.ModeEcho, 1000),
+		Entry(nil, qwenModelName, common.ModeRandom, 1000),
 	)
 
 	Context("namespace and pod headers", func() {
@@ -541,7 +546,7 @@ var _ = Describe("Simulator", func() {
 		DescribeTable("non-streaming completions with logprobs",
 			func(isChat bool, mode string, logprobsParam interface{}) {
 				ctx := context.TODO()
-				client, err := startServer(ctx, mode)
+				server, client, err := startServerHandle(ctx, mode, nil, nil)
 				Expect(err).NotTo(HaveOccurred())
 
 				var resp interface{}
@@ -576,7 +581,8 @@ var _ = Describe("Simulator", func() {
 						// When logprobs requested, Content should be populated
 						Expect(chatResp.Choices[0].Logprobs.Content).NotTo(BeEmpty())
 
-						tokens := common.Tokenize(chatResp.Choices[0].Message.Content)
+						_, tokens, err := server.context.tokenizer.Encode(chatResp.Choices[0].Message.Content, testModel)
+						Expect(err).NotTo(HaveOccurred())
 						Expect(chatResp.Choices[0].Logprobs.Content).To(HaveLen(len(tokens)))
 					} else {
 						// When logprobs not requested, Content should be empty/nil
@@ -591,7 +597,8 @@ var _ = Describe("Simulator", func() {
 						// When logprobs requested, fields should be populated
 						Expect(textResp.Choices[0].Logprobs.Tokens).NotTo(BeNil())
 
-						tokens := common.Tokenize(textResp.Choices[0].Text)
+						_, tokens, err := server.context.tokenizer.Encode(textResp.Choices[0].Text, testModel)
+						Expect(err).NotTo(HaveOccurred())
 						Expect(textResp.Choices[0].Logprobs.Tokens).To(HaveLen(len(tokens)))
 					} else {
 						// When logprobs not requested, all fields should be empty/nil

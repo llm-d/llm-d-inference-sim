@@ -19,9 +19,6 @@ package dataset
 import (
 	"strconv"
 	"strings"
-
-	"github.com/llm-d/llm-d-inference-sim/pkg/common"
-	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 )
 
 // IsValidText validates that the given text could be generated from the predefined list of sentences
@@ -62,15 +59,4 @@ func maxTokensToStr(maxTokens *int64) string {
 		return strconv.Itoa(int(*maxTokens))
 	}
 	return "nil"
-}
-
-func initTokenizer(model string, modelExists bool, cacheDir string) (tokenizer.Tokenizer, error) {
-	var err error
-	var tknzer tokenizer.Tokenizer
-	if modelExists {
-		tknzer, err = tokenizer.NewHFTokenizer(common.Configuration{Model: model, TokenizersCacheDir: cacheDir})
-	} else {
-		tknzer = tokenizer.NewSimpleTokenizer()
-	}
-	return tknzer, err
 }

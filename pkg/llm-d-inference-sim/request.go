@@ -29,7 +29,7 @@ import (
 
 type requestBuilder interface {
 	unmarshal(data []byte) error
-	validate(toolsValidator *common.ToolsValidator) (string, int)
+	validate(toolsValidator *toolsValidator) (string, int)
 	buildRequestContext(simCtx *simContext, ctx *fasthttp.RequestCtx, wg *sync.WaitGroup) requestContext
 	asString() string
 	createResponseContext(displayModel string, responseTokens []string, finishReason *string,

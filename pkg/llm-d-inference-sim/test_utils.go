@@ -78,9 +78,9 @@ func startServerWithArgsAndEnv(ctx context.Context, mode string, args []string, 
 	return c, err
 }
 
-func startServerHandle(ctx context.Context, mode string, args []string, envs map[string]string) (*VllmSimulator, error) {
-	s, _, err := startServerHelper(ctx, mode, args, envs)
-	return s, err
+// nolint
+func startServerHandle(ctx context.Context, mode string, args []string, envs map[string]string) (*VllmSimulator, *http.Client, error) {
+	return startServerHelper(ctx, mode, args, envs)
 }
 
 func startServerHelper(ctx context.Context, mode string, args []string, envs map[string]string) (*VllmSimulator, *http.Client, error) {
@@ -122,13 +122,16 @@ func startServerHelper(ctx context.Context, mode string, args []string, envs map
 	}
 	s.context.config = config
 
-	// calculate number of tokens for user message,
-	// must be activated after parseCommandParamsAndLoadConfig since it initializes the random engine
-	userMsgTokens = int64(len(common.Tokenize(testUserMessage)))
-
 	if err := s.context.initTokenizer(); err != nil {
 		return nil, nil, err
 	}
+
+	// calculate number of tokens for user message,
+	_, tokens, err := s.context.tokenizer.Encode(testUserMessage, "")
+	if err != nil {
+		return nil, nil, err
+	}
+	userMsgTokens = int64(len(tokens))
 
 	if err := s.initializeSim(ctx); err != nil {
 		return nil, nil, err

@@ -34,7 +34,7 @@ var _ = Describe("gRPC", func() {
 
 	It("get model info", func() {
 		ctx := context.TODO()
-		s, err := startServerHandle(ctx, common.ModeEcho, nil, nil)
+		s, _, err := startServerHandle(ctx, common.ModeEcho, nil, nil)
 		Expect(err).NotTo(HaveOccurred())
 
 		r, err := s.GetModelInfo(ctx, &pb.GetModelInfoRequest{})
@@ -47,7 +47,7 @@ var _ = Describe("gRPC", func() {
 			ctx := context.TODO()
 			args := []string{"cmd", "--model", testModel, "--mode", common.ModeEcho,
 				"--time-to-first-token", ttft, "--inter-token-latency", itl}
-			s, err := startServerHandle(ctx, common.ModeEcho, args, nil)
+			s, _, err := startServerHandle(ctx, common.ModeEcho, args, nil)
 			Expect(err).NotTo(HaveOccurred())
 
 			req := pb.GenerateRequest{
@@ -91,7 +91,7 @@ var _ = Describe("gRPC", func() {
 			ctx := context.TODO()
 			args := []string{"cmd", "--model", testModel, "--mode", common.ModeEcho,
 				"--time-to-first-token", ttft, "--inter-token-latency", itl}
-			s, err := startServerHandle(ctx, common.ModeEcho, args, nil)
+			s, _, err := startServerHandle(ctx, common.ModeEcho, args, nil)
 			Expect(err).NotTo(HaveOccurred())
 
 			req := pb.GenerateRequest{

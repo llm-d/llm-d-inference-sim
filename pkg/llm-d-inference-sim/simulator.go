@@ -71,7 +71,7 @@ type VllmSimulator struct {
 
 	context simContext
 	// schema validator for tools parameters
-	toolsValidator *common.ToolsValidator
+	toolsValidator *toolsValidator
 	// namespace where simulator is running
 	namespace string
 	// pod name of simulator
@@ -101,7 +101,7 @@ type VllmSimulator struct {
 
 // New creates a new VllmSimulator instance with the given logger
 func New(logger logr.Logger) (*VllmSimulator, error) {
-	toolsValidator, err := common.CreateToolsValidator()
+	toolsValidator, err := createToolsValidator()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create tools validator: %s", err)
 	}
