@@ -258,7 +258,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 			}
 			tokens, _, err := dataset.GetTokens(req)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(len(tokens.Strings)).To(BeNumerically("<=", smallMaxTokens))
+			Expect(tokens.Length()).To(BeNumerically("<=", smallMaxTokens))
 		})
 
 		It("should successfully init dataset with in-memory option", func() {
@@ -285,9 +285,9 @@ var _ = Describe("CustomDataset", Ordered, func() {
 
 			tokens, finishReason, err := dataset.GetTokens(&req)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(len(tokens.Strings)).To(BeNumerically("<=", maxTokens))
-			Expect((len(tokens.Strings) == int(maxTokens) && finishReason == common.LengthFinishReason) ||
-				(len(tokens.Strings) < int(maxTokens) && finishReason == common.StopFinishReason)).To(BeTrue())
+			Expect(tokens.Length()).To(BeNumerically("<=", maxTokens))
+			Expect((tokens.Length() == int(maxTokens) && finishReason == common.LengthFinishReason) ||
+				(tokens.Length() < int(maxTokens) && finishReason == common.StopFinishReason)).To(BeTrue())
 		})
 	})
 })

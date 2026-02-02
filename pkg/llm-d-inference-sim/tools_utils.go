@@ -51,7 +51,7 @@ func countTokensForToolCalls(toolCalls []openaiserverapi.ToolCall) int {
 	numberOfTokens := 0
 	for _, tc := range toolCalls {
 		// 3 - name, id, and type
-		numberOfTokens += 3 + len(tc.Function.TokenizedArguments)
+		numberOfTokens += 3 + tc.Function.TokenizedArguments.Length()
 	}
 	return numberOfTokens
 }
@@ -152,10 +152,11 @@ func createToolCalls(
 				return nil, 0, err
 			}
 
-			_, tokenizedArgs, err := tokenizer.Encode(string(argsJson), "")
+			tokens, strs, err := tokenizer.Encode(string(argsJson), "")
 			if err != nil {
 				return nil, 0, err
 			}
+			tokenizedArgs := &openaiserverapi.Tokenized{Tokens: tokens, Strings: strs}
 
 			call := openaiserverapi.ToolCall{
 				Function: openaiserverapi.FunctionCall{

@@ -32,7 +32,7 @@ type responseContext interface {
 	doRemotePrefill() bool
 	doRemoteDecode() bool
 	numberCachedPromptTokens() int
-	responseTokens() []string
+	responseTokens() *openaiserverapi.Tokenized
 	finishReason() *string
 	sendUsageData() bool
 	toolCalls() []openaiserverapi.ToolCall
@@ -51,7 +51,7 @@ type baseResponseContext struct {
 	// the number of prompt tokens that are in the local KV Cache
 	nCachedPromptTokens int
 	// tokenized content to be sent in the response
-	respTokens []string
+	respTokens *openaiserverapi.Tokenized
 	// display model name returned to the client and used in metrics. It is either the first alias
 	// from --served-model-name (for a base-model request) or the LoRA adapter name (for a LoRA request)
 	displayModelName string
@@ -65,7 +65,7 @@ type baseResponseContext struct {
 	logprobs *int
 }
 
-func newBaseResponseContext(displayModel string, responseTokens []string, finishReason *string,
+func newBaseResponseContext(displayModel string, responseTokens *openaiserverapi.Tokenized, finishReason *string,
 	usageData *openaiserverapi.Usage, sendUsageData bool, logprobs *int, id string, doRemotePrefill bool,
 	doRemoteDecode bool, nCachedPromptTokens int) baseResponseContext {
 	return baseResponseContext{
@@ -100,7 +100,7 @@ func (respCtx *baseResponseContext) doRemoteDecode() bool {
 func (respCtx *baseResponseContext) numberCachedPromptTokens() int {
 	return respCtx.nCachedPromptTokens
 }
-func (respCtx *baseResponseContext) responseTokens() []string {
+func (respCtx *baseResponseContext) responseTokens() *openaiserverapi.Tokenized {
 	return respCtx.respTokens
 }
 func (respCtx *baseResponseContext) finishReason() *string {

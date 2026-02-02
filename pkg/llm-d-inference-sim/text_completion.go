@@ -55,8 +55,9 @@ func (t *textCompletionRequest) asString() string {
 	return "text completion request (req id " + t.RequestID + ")"
 }
 
-func (t *textCompletionRequest) createResponseContext(displayModel string, responseTokens []string, finishReason *string,
-	usageData *openaiserverapi.Usage, sendUsageData bool, logprobs *int, toolCalls []openaiserverapi.ToolCall) responseContext {
+func (t *textCompletionRequest) createResponseContext(displayModel string, responseTokens *openaiserverapi.Tokenized,
+	finishReason *string, usageData *openaiserverapi.Usage, sendUsageData bool, logprobs *int,
+	toolCalls []openaiserverapi.ToolCall) responseContext {
 	base := newBaseResponseContext(displayModel, responseTokens, finishReason, usageData, sendUsageData,
 		logprobs, t.GetRequestID(), t.IsDoRemotePrefill(), t.IsDoRemoteDecode(), t.GetNumberOfCachedPromptTokens())
 	return &textCompletionResponseCtx{
@@ -113,13 +114,13 @@ func (respCtx *textCompletionResponseCtx) createResponse() openaiserverapi.Compl
 	baseResp := openaiserverapi.CreateBaseCompletionResponse(
 		time.Now().Unix(), respCtx.displayModelName, respCtx.usage, respCtx.id, respCtx.remoteDecode)
 	baseChoice := openaiserverapi.CreateBaseResponseChoice(0, respCtx.finishReasonPtr)
-	respText := strings.Join(respCtx.respTokens, "")
+	respText := strings.Join(respCtx.respTokens.Strings, "")
 
 	choice := openaiserverapi.CreateTextRespChoice(baseChoice, respText)
 
 	// Generate logprobs if requested for text completion
 	if respCtx.logprobs != nil && *respCtx.logprobs > 0 {
-		if logprobsData := common.GenerateTextLogprobs(respCtx.respTokens, *respCtx.logprobs); logprobsData != nil &&
+		if logprobsData := common.GenerateTextLogprobs(respCtx.respTokens.Strings, *respCtx.logprobs); logprobsData != nil &&
 			len(logprobsData.Tokens) > 0 {
 			choice.Logprobs = logprobsData
 		} else {

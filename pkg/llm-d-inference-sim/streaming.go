@@ -53,7 +53,7 @@ func (s *VllmSimulator) sendStreamingResponse(reqCtx requestContext, respCtx res
 	ctx.SetBodyStreamWriter(func(w *bufio.Writer) {
 		respCtx.setCreationTime(time.Now().Unix())
 
-		if len(respCtx.responseTokens()) > 0 || len(respCtx.toolCalls()) > 0 {
+		if (respCtx.responseTokens() != nil && respCtx.responseTokens().Length() > 0) || len(respCtx.toolCalls()) > 0 {
 			// in chat completion first chunk contains the role
 			chunk := respCtx.createFirstCompletionChunk()
 			if chunk != nil {
@@ -65,12 +65,13 @@ func (s *VllmSimulator) sendStreamingResponse(reqCtx requestContext, respCtx res
 			if len(respCtx.toolCalls()) > 0 {
 				s.context.logger.V(logging.TRACE).Info("Going to send tools calls")
 				for _, tc := range respCtx.toolCalls() {
-					s.sendTokenChunks(respCtx, ctx, w, tc.Function.TokenizedArguments, &tc)
+					s.sendTokenChunks(respCtx, ctx, w, tc.Function.TokenizedArguments.Strings, &tc)
 				}
 			} else {
-				s.context.logger.V(logging.TRACE).Info("Going to send text", "number of tokens", len(respCtx.responseTokens()))
-				s.sendTokenChunks(respCtx, ctx, w, respCtx.responseTokens(), nil)
-				s.context.logger.V(4).Info("Finished sending text", "number of tokens", len(respCtx.responseTokens()))
+				respTokens := respCtx.responseTokens()
+				s.context.logger.V(logging.TRACE).Info("Going to send text", "number of tokens", respTokens.Length())
+				s.sendTokenChunks(respCtx, ctx, w, respTokens.Strings, nil)
+				s.context.logger.V(4).Info("Finished sending text", "number of tokens", respTokens.Length())
 			}
 		} else if respCtx.finishReason() != nil && *respCtx.finishReason() == common.CacheThresholdFinishReason {
 			// No tokens to stream but we still need to emit a finish chunk for cache_threshold

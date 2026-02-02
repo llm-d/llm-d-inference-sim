@@ -67,8 +67,9 @@ func (c *chatCompletionRequest) asString() string {
 	return "chat completion request (req id " + c.RequestID + ")"
 }
 
-func (c *chatCompletionRequest) createResponseContext(displayModel string, responseTokens []string, finishReason *string,
-	usageData *openaiserverapi.Usage, sendUsageData bool, logprobs *int, toolCalls []openaiserverapi.ToolCall) responseContext {
+func (c *chatCompletionRequest) createResponseContext(displayModel string, responseTokens *openaiserverapi.Tokenized,
+	finishReason *string, usageData *openaiserverapi.Usage, sendUsageData bool, logprobs *int,
+	toolCalls []openaiserverapi.ToolCall) responseContext {
 	base := newBaseResponseContext(displayModel, responseTokens, finishReason, usageData, sendUsageData,
 		logprobs, c.GetRequestID(), c.IsDoRemotePrefill(), c.IsDoRemoteDecode(), c.GetNumberOfCachedPromptTokens())
 	return &chatCompletionResponseCtx{
@@ -123,13 +124,13 @@ func (respCtx *chatCompletionResponseCtx) createResponse() openaiserverapi.Compl
 	baseResp := openaiserverapi.CreateBaseCompletionResponse(
 		time.Now().Unix(), respCtx.displayModelName, respCtx.usage, respCtx.id, respCtx.remoteDecode)
 	baseChoice := openaiserverapi.CreateBaseResponseChoice(0, respCtx.finishReasonPtr)
-	respText := strings.Join(respCtx.respTokens, "")
 	baseResp.Object = chatCompletionObject
 
 	message := openaiserverapi.Message{Role: openaiserverapi.RoleAssistant}
 	if respCtx.toolsCalls != nil {
 		message.ToolCalls = respCtx.toolsCalls
 	} else {
+		respText := strings.Join(respCtx.respTokens.Strings, "")
 		message.Content = openaiserverapi.Content{Raw: respText}
 	}
 
@@ -137,7 +138,7 @@ func (respCtx *chatCompletionResponseCtx) createResponse() openaiserverapi.Compl
 
 	// Generate logprobs if requested
 	if respCtx.logprobs != nil && respCtx.toolsCalls == nil {
-		if logprobsData := common.GenerateChatLogprobs(respCtx.respTokens, *respCtx.logprobs); logprobsData != nil &&
+		if logprobsData := common.GenerateChatLogprobs(respCtx.respTokens.Strings, *respCtx.logprobs); logprobsData != nil &&
 			len(logprobsData.Content) > 0 {
 			choice.Logprobs = logprobsData
 		} else {

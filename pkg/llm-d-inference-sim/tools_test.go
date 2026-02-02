@@ -814,7 +814,7 @@ var _ = Describe("Simulator for request with tools", func() {
 		Entry(nil, common.ModeRandom),
 	)
 
-	DescribeTable("tool with not required params",
+	DescribeTable("tool without required params",
 		func(probability int, numberOfParams int) {
 			ctx := context.TODO()
 			serverArgs := []string{"cmd", "--model", testModel, "--mode", common.ModeRandom,

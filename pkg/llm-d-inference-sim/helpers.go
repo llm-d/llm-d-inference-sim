@@ -77,7 +77,7 @@ func (s *VllmSimulator) showConfig(dp bool) error {
 }
 
 func getNumberOfPromptTokens(req openaiserverapi.Request) int {
-	return len(req.TokenizedPrompt().Strings) // TODO: Change to Tokens
+	return req.TokenizedPrompt().Length()
 }
 
 func validateRequest(req openaiserverapi.Request) (string, int) {

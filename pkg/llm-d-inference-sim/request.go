@@ -32,7 +32,7 @@ type requestBuilder interface {
 	validate(toolsValidator *toolsValidator) (string, int)
 	buildRequestContext(simCtx *simContext, ctx *fasthttp.RequestCtx, wg *sync.WaitGroup) requestContext
 	asString() string
-	createResponseContext(displayModel string, responseTokens []string, finishReason *string,
+	createResponseContext(displayModel string, responseTokens *openaiserverapi.Tokenized, finishReason *string,
 		usageData *openaiserverapi.Usage, sendUsageData bool, logprobs *int, toolCalls []openaiserverapi.ToolCall) responseContext
 }
 
@@ -161,20 +161,18 @@ func (reqCtx *baseRequestContext) handleRequest() (responseContext, string, *ope
 			logprobs = req.GetLogprobs()
 		}
 		sendUsageData := !req.IsStream() || req.IncludeUsage()
-		respCtx := req.createResponseContext(reqCtx.sim.getDisplayedModelName(model), []string{}, &finishReason,
+		respCtx := req.createResponseContext(reqCtx.sim.getDisplayedModelName(model), &openaiserverapi.Tokenized{}, &finishReason,
 			&usageData, sendUsageData, logprobs, nil)
 		return respCtx, "", nil
 	}
 
-	var responseTokens []string
+	var responseTokens *openaiserverapi.Tokenized
 	toolCalls, completionTokens, finishReason, err := reqCtx.createToolCalls()
 	if toolCalls == nil && err == nil {
 		// Either no tool calls were defined, or we randomly chose not to create tool calls,
 		// so we generate a response text.
-		var tokens *openaiserverapi.Tokenized
-		tokens, finishReason, err = reqCtx.sim.dataset.GetTokens(req)
-		completionTokens += len(tokens.Strings) // TODO Change to Tokens
-		responseTokens = tokens.Strings
+		responseTokens, finishReason, err = reqCtx.sim.dataset.GetTokens(req)
+		completionTokens += responseTokens.Length()
 	}
 	if err != nil {
 		prefix := "failed to create response for " + req.asString()

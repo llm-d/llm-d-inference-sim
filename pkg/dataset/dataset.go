@@ -140,7 +140,7 @@ func (d *DefaultDataset) calculateResponseMaxLen(req openaiserverapi.Request) (i
 		return int(*maxTokens), true
 	}
 
-	return d.maxModelLen - len(req.TokenizedPrompt().Strings), false // TODO Change to tokens
+	return d.maxModelLen - req.TokenizedPrompt().Length(), false
 }
 
 // getRandomResponseLenByDistribution returns int in range [1, responseLenMax]

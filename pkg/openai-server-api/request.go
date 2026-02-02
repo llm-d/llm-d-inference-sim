@@ -139,6 +139,11 @@ type Tokenized struct {
 	Strings []string
 }
 
+// Length returns the number of tokens of the Tokenized
+func (t *Tokenized) Length() int {
+	return len(t.Strings)
+}
+
 func (b *baseCompletionRequest) GetRequestID() string {
 	return b.RequestID
 }

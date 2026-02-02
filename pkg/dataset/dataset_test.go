@@ -75,7 +75,7 @@ var _ = Describe("Default Dataset", Ordered, func() {
 			}
 			tokens, finishReason, err := dataset.GetTokens(req)
 			Expect(err).ShouldNot(HaveOccurred())
-			tokensCnt := int64(len(tokens.Strings))
+			tokensCnt := int64(tokens.Length())
 			Expect(tokensCnt).Should(BeNumerically("<=", maxCompletionTokens))
 			if tokensCnt == maxCompletionTokens {
 				Expect(finishReason).To(Equal(common.LengthFinishReason))
@@ -92,7 +92,7 @@ var _ = Describe("Default Dataset", Ordered, func() {
 			}
 			tokens, finishReason, err := dataset.GetTokens(req)
 			Expect(err).ShouldNot(HaveOccurred())
-			tokensCnt := int64(len(tokens.Strings))
+			tokensCnt := int64(tokens.Length())
 			Expect(tokensCnt).Should(BeNumerically("<=", maxCompletionTokens))
 			text := strings.Join(tokens.Strings, "")
 			Expect(IsValidText(text)).To(BeTrue())
@@ -113,7 +113,7 @@ var _ = Describe("Default Dataset", Ordered, func() {
 				req.SetIgnoreEOS(true)
 				tokens, finishReason, err := dataset.GetTokens(req)
 				Expect(err).ShouldNot(HaveOccurred())
-				nGenTokens := int64(len(tokens.Strings))
+				nGenTokens := int64(tokens.Length())
 				Expect(nGenTokens).Should(Equal(n))
 				Expect(finishReason).To(Equal(common.LengthFinishReason))
 			},
