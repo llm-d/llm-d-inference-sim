@@ -22,7 +22,6 @@ import (
 	"os"
 	"regexp"
 
-	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-kv-cache-manager/pkg/tokenization"
 )
 
@@ -65,10 +64,10 @@ func (st *SimpleTokenizer) Encode(input, modelName string) ([]uint32, []string, 
 }
 
 // HF Tokenizer
-func NewHFTokenizer(config common.Configuration) (*HFTokenizer, error) {
+func NewHFTokenizer(model, tokenizersCacheDir string) (*HFTokenizer, error) {
 	hfConfig := tokenization.DefaultHFTokenizerConfig()
-	if config.TokenizersCacheDir != "" {
-		hfConfig.TokenizersCacheDir = config.TokenizersCacheDir
+	if tokenizersCacheDir != "" {
+		hfConfig.TokenizersCacheDir = tokenizersCacheDir
 	}
 
 	hfToken := os.Getenv(hfTokenEnvVar)
@@ -81,7 +80,7 @@ func NewHFTokenizer(config common.Configuration) (*HFTokenizer, error) {
 		return nil, errors.Join(err, errors.New("failed to create hf tokenizer"))
 	}
 
-	return &HFTokenizer{tokenizer: hftTokenizer, model: config.Model}, nil
+	return &HFTokenizer{tokenizer: hftTokenizer, model: model}, nil
 }
 
 func (hft *HFTokenizer) Encode(input, modelName string) ([]uint32, []string, error) {

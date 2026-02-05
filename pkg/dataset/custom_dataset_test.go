@@ -46,6 +46,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 		file_folder           string
 		path                  string
 		validDBPath           string
+		tableName             string
 		pathToInvalidDB       string
 		pathNotExist          string
 		pathToInvalidTableDB  string
@@ -62,6 +63,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 		err := os.MkdirAll(file_folder, os.ModePerm)
 		Expect(err).NotTo(HaveOccurred())
 		validDBPath = file_folder + "/test.valid.sqlite3"
+		tableName = "llmd"
 		pathNotExist = file_folder + "/test.notexist.sqlite3"
 		pathToInvalidDB = file_folder + "/test.invalid.sqlite3"
 		pathToInvalidTableDB = file_folder + "/test.invalid.table.sqlite3"
@@ -72,7 +74,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 	})
 
 	BeforeEach(func() {
-		sqliteHelper = newSqliteHelper(klog.Background())
+		sqliteHelper = newSqliteHelper("test", klog.Background())
 		dsDownloader = NewDsDownloader(klog.Background())
 	})
 
@@ -105,7 +107,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 
 	It("should successfully init dataset", func() {
 		dataset := &CustomDataset{}
-		err := dataset.Init(context.Background(), klog.Background(), random, validDBPath, false, 1024, tknzr)
+		err := dataset.Init(context.Background(), klog.Background(), random, validDBPath, tableName, false, 1024, tknzr)
 		Expect(err).NotTo(HaveOccurred())
 
 		row := dataset.sqliteHelper.db.QueryRow("SELECT n_gen_tokens FROM llmd WHERE prompt_hash=X'74bf14c09c038321cba39717dae1dc732823ae4abd8e155959367629a3c109a8';")
@@ -192,7 +194,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 			var err error
 			_, promptTokens, err = tknzr.Encode(testPrompt, "")
 			Expect(err).NotTo(HaveOccurred())
-			err = dataset.Init(context.Background(), klog.Background(), random, validDBPath, false, 1024, tknzr)
+			err = dataset.Init(context.Background(), klog.Background(), random, validDBPath, tableName, false, 1024, tknzr)
 			Expect(err).NotTo(HaveOccurred())
 
 		})
@@ -296,18 +298,19 @@ var _ = Describe("custom dataset for multiple simulators", Ordered, func() {
 	It("should not fail on custom datasets initialization", func() {
 		file_folder := ".llm-d"
 		validDBPath := file_folder + "/test.valid.sqlite3"
+		tableName := "llmd"
 
 		tokenizer, err := tokenizer.New("", false, "")
 		Expect(err).ShouldNot(HaveOccurred())
 
 		random1 := common.NewRandom(time.Now().UnixNano(), 8081)
 		dataset1 := &CustomDataset{}
-		err = dataset1.Init(context.Background(), klog.Background(), random1, validDBPath, false, 1024, tokenizer)
+		err = dataset1.Init(context.Background(), klog.Background(), random1, validDBPath, tableName, false, 1024, tokenizer)
 		Expect(err).NotTo(HaveOccurred())
 
 		random2 := common.NewRandom(time.Now().UnixNano(), 8082)
 		dataset2 := &CustomDataset{}
-		err = dataset2.Init(context.Background(), klog.Background(), random2, validDBPath, false, 1024, tokenizer)
+		err = dataset2.Init(context.Background(), klog.Background(), random2, validDBPath, tableName, false, 1024, tokenizer)
 		Expect(err).NotTo(HaveOccurred())
 	})
 })

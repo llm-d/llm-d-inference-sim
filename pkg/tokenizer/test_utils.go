@@ -16,15 +16,11 @@ limitations under the License.
 
 package tokenizer
 
-import (
-	"github.com/llm-d/llm-d-inference-sim/pkg/common"
-)
-
 func New(model string, modelExists bool, cacheDir string) (Tokenizer, error) {
 	var err error
 	var tknzer Tokenizer
 	if modelExists {
-		tknzer, err = NewHFTokenizer(common.Configuration{Model: model, TokenizersCacheDir: cacheDir})
+		tknzer, err = NewHFTokenizer(model, cacheDir)
 	} else {
 		tknzer = NewSimpleTokenizer()
 	}

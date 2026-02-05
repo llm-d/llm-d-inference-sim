@@ -217,7 +217,7 @@ func (s *simContext) initTokenizer() error {
 
 	if s.tokenizer == nil {
 		if s.modelExists() {
-			s.tokenizer, err = tokenizer.NewHFTokenizer(*s.config)
+			s.tokenizer, err = tokenizer.NewHFTokenizer(s.config.Model, s.config.TokenizersCacheDir)
 		} else {
 			s.logger.Info("Model is not a real HF model, using simulated tokenizer", "model", s.config.Model)
 			s.tokenizer = tokenizer.NewSimpleTokenizer()
@@ -247,7 +247,7 @@ func (s *simContext) initDataset(ctx context.Context) error {
 
 	// use dataset containing responses
 	custDataset := &dataset.CustomDataset{}
-	err := custDataset.Init(ctx, s.logger, s.random, s.config.DatasetPath,
+	err := custDataset.Init(ctx, s.logger, s.random, s.config.DatasetPath, s.config.DatasetTableName,
 		s.config.DatasetInMemory, s.config.MaxModelLen, s.tokenizer)
 
 	if err == nil {
