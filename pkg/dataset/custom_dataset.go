@@ -18,7 +18,6 @@ package dataset
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 
@@ -35,7 +34,7 @@ type CustomDataset struct {
 }
 
 func (d *CustomDataset) Init(ctx context.Context, logger logr.Logger, random *common.Random,
-	path string, useInMemory bool, maxModelLen int, tokenizer tokenizer.Tokenizer) error {
+	path string, tableName string, useInMemory bool, maxModelLen int, tokenizer tokenizer.Tokenizer) error {
 	if err := d.DefaultDataset.Init(ctx, logger, random, maxModelLen, tokenizer); err != nil {
 		return err
 	}
@@ -43,14 +42,13 @@ func (d *CustomDataset) Init(ctx context.Context, logger logr.Logger, random *co
 		return errors.New("no dataset path provided")
 	}
 
-	d.sqliteHelper = newSqliteHelper(logger)
+	d.sqliteHelper = newSqliteHelper(tableName, logger)
 	d.logger.V(logging.INFO).Info("Using dataset from", "path", path)
-	return d.sqliteHelper.connectToDB(path, useInMemory, true)
+	return d.sqliteHelper.connectToDB(path, useInMemory)
 }
 
 func (d *CustomDataset) getPromptHash(req openaiserverapi.Request) []byte {
-	hashArray := sha256.Sum256([]byte(req.GetFullPrompt()))
-	return hashArray[:]
+	return getTextHash(req.GetFullPrompt())
 }
 
 func (d *CustomDataset) getPromptHashHex(hashBytes []byte) string {

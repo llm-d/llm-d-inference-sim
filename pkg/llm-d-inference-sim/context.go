@@ -247,7 +247,7 @@ func (s *simContext) initDataset(ctx context.Context) error {
 
 	// use dataset containing responses
 	custDataset := &dataset.CustomDataset{}
-	err := custDataset.Init(ctx, s.logger, s.random, s.config.DatasetPath,
+	err := custDataset.Init(ctx, s.logger, s.random, s.config.DatasetPath, s.config.DatasetTableName,
 		s.config.DatasetInMemory, s.config.MaxModelLen, s.tokenizer)
 
 	if err == nil {

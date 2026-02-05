@@ -18,10 +18,10 @@ package dataset
 
 import (
 	"errors"
-	"fmt"
 	"os"
 	"path"
 
+	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/spf13/pflag"
 )
 
@@ -35,6 +35,7 @@ type DSToolConfiguration struct {
 	model              string
 	outputPath         string
 	outputFile         string
+	tableName          string
 }
 
 func NewDefaultDSToolConfiguration() *DSToolConfiguration {
@@ -48,6 +49,7 @@ func NewDefaultDSToolConfiguration() *DSToolConfiguration {
 		maxRecords:         10000,
 		tokenizersCacheDir: "hf_token",
 		model:              "",
+		tableName:          "llmd",
 	}
 }
 
@@ -60,6 +62,7 @@ func (c *DSToolConfiguration) LoadConfig() error {
 	f.StringVar(&c.outputFile, "output-file", "inference-sim-dataset",
 		"Output file name without extension, two files will be created: <output-file>.json and <output-file>.csv")
 	f.StringVar(&c.outputPath, "output-path", "", "Output path")
+	f.StringVar(&c.outputPath, "table-name", common.DefaultDSTableName, "Table name, default is 'llmd'")
 	f.IntVar(&c.maxRecords, "max-records", 10000, "Max records to process")
 
 	f.StringVar(&c.model, "model", "", "Model name")
@@ -98,32 +101,31 @@ func (c *DSToolConfiguration) validate() error {
 		return errors.New("--local-path defined but --file is empty")
 	}
 
-	if err := c.validateFileNotExists(c.getOutputDBFullFileName()); err != nil {
+	if err := validateFileNotExists(c.getOutputDBFullFileName()); err != nil {
 		return err
 	}
-	if err := c.validateFileNotExists(c.getOutputJsonFullFileName()); err != nil {
+	if err := validateFileNotExists(c.getOutputJsonFullFileName()); err != nil {
+		return err
+	}
+	if err := validateFileNotExists(c.getOutputCardFullFileName()); err != nil {
 		return err
 	}
 
-	return nil
-}
-
-// validateDbNotExists checks if an output database file already exists at the given path
-// Returns an error if the file exists or if there's an issue checking the file
-func (c *DSToolConfiguration) validateFileNotExists(path string) error {
-	if _, err := os.Stat(path); err == nil {
-		return fmt.Errorf("output file already exists: %s", path)
-	} else if !os.IsNotExist(err) {
-		// Some other error occurred (permissions, etc.)
-		return fmt.Errorf("error checking output file: %w", err)
-	}
 	return nil
 }
 
 func (c *DSToolConfiguration) getOutputDBFullFileName() string {
-	return path.Join(c.outputPath, c.outputFile+".sqlite3")
+	return c.getOutputFileName(".sqlite3")
 }
 
 func (c *DSToolConfiguration) getOutputJsonFullFileName() string {
-	return path.Join(c.outputPath, c.outputFile+".json")
+	return c.getOutputFileName(".json")
+}
+
+func (c *DSToolConfiguration) getOutputCardFullFileName() string {
+	return c.getOutputFileName(".md")
+}
+
+func (c *DSToolConfiguration) getOutputFileName(extension string) string {
+	return path.Join(c.outputPath, c.outputFile+extension)
 }

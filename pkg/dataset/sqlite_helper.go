@@ -31,7 +31,7 @@ import (
 
 // use constants for expected column names and types
 const (
-	tableName         = "llmd"
+	// defaultTableName  = "llmd"
 	idCol             = "id"
 	promptHashCol     = "prompt_hash"
 	genTokensCol      = "gen_tokens"
@@ -43,15 +43,19 @@ const (
 )
 
 type sqliteHelper struct {
-	logger logr.Logger
-	db     *sql.DB
+	logger    logr.Logger
+	db        *sql.DB
+	tableName string
 }
 
-func newSqliteHelper(logger logr.Logger) *sqliteHelper {
-	return &sqliteHelper{logger: logger}
+func newSqliteHelper(tableName string, logger logr.Logger) *sqliteHelper {
+	return &sqliteHelper{
+		tableName: tableName,
+		logger:    logger,
+	}
 }
 
-func (s *sqliteHelper) connectToDB(path string, useInMemory bool, needVerification bool) error {
+func (s *sqliteHelper) connectToDB(path string, useInMemory bool) error {
 	if s.db != nil {
 		err := s.db.Close()
 		if err != nil {
@@ -89,17 +93,15 @@ func (s *sqliteHelper) connectToDB(path string, useInMemory bool, needVerificati
 	}
 
 	count := 0
-	if needVerification {
-		err = s.verifyDB()
-		if err != nil {
-			return fmt.Errorf("failed to verify database: %w", err)
-		}
+	err = s.verifyDB()
+	if err != nil {
+		return fmt.Errorf("failed to verify database: %w", err)
+	}
 
-		count, err = s.getRecordsCount()
-		if err != nil {
-			s.logger.Error(err, "failed to get records count")
-			return fmt.Errorf("failed to query database: %w", err)
-		}
+	count, err = s.getRecordsCount()
+	if err != nil {
+		s.logger.Error(err, "failed to get records count")
+		return fmt.Errorf("failed to query database: %w", err)
 	}
 
 	if useInMemory {
@@ -143,7 +145,7 @@ func (s *sqliteHelper) loadDatabaseInMemory(path string) error {
 	}
 
 	// Copy the data
-	_, err = s.db.Exec("INSERT INTO " + tableName + " SELECT * FROM source." + tableName)
+	_, err = s.db.Exec("INSERT INTO " + s.tableName + " SELECT * FROM source." + s.tableName)
 	if err != nil {
 		if closeErr := s.db.Close(); closeErr != nil {
 			s.logger.Error(closeErr, "failed to close in-memory database after copy failure")
@@ -164,9 +166,9 @@ func (s *sqliteHelper) loadDatabaseInMemory(path string) error {
 }
 
 func (s *sqliteHelper) verifyDB() error {
-	rows, err := s.db.Query("PRAGMA table_info(" + tableName + ");")
+	rows, err := s.db.Query("PRAGMA table_info(" + s.tableName + ");")
 	if err != nil {
-		return fmt.Errorf("failed to query table info for `%s`: %w", tableName, err)
+		return fmt.Errorf("failed to query table info for `%s`: %w", s.tableName, err)
 	}
 	defer func() {
 		if cerr := rows.Close(); cerr != nil {
@@ -207,7 +209,7 @@ func (s *sqliteHelper) verifyDB() error {
 
 	for col := range expectedColumns {
 		if !columnsFound[col] {
-			return fmt.Errorf("missing expected column in %s table: %s", tableName, col)
+			return fmt.Errorf("missing expected column in %s table: %s", s.tableName, col)
 		}
 	}
 
@@ -216,7 +218,7 @@ func (s *sqliteHelper) verifyDB() error {
 
 func (s *sqliteHelper) getRecordsCount() (int, error) {
 	var count int
-	err := s.db.QueryRow("SELECT COUNT(" + promptHashCol + ") FROM " + tableName + ";").Scan(&count)
+	err := s.db.QueryRow("SELECT COUNT(" + promptHashCol + ") FROM " + s.tableName + ";").Scan(&count)
 	if err != nil {
 		return 0, fmt.Errorf("failed to query database: %w", err)
 	}
@@ -263,7 +265,7 @@ func unmarshalAllRecords(rows *sql.Rows) ([][]string, error) {
 }
 
 func (s *sqliteHelper) buildQuery(where string, isRand bool, isLimitOne bool) string {
-	query := "SELECT " + genTokensCol + " FROM " + tableName
+	query := "SELECT " + genTokensCol + " FROM " + s.tableName
 
 	if where != "" {
 		query += " WHERE " + where
@@ -306,10 +308,10 @@ func (s *sqliteHelper) getCreateTableQuery() string {
 		prompt_hash BLOB NOT NULL,
 		gen_tokens JSON NOT NULL,
 		n_gen_tokens INTEGER NOT NULL
-	)`, tableName)
+	)`, s.tableName)
 }
 
 func (s *sqliteHelper) getInsertQuery() string {
 	return fmt.Sprintf(`INSERT INTO  %s (prompt_hash, gen_tokens, n_gen_tokens) 
-        VALUES (?, ?, ?)`, tableName)
+        VALUES (?, ?, ?)`, s.tableName)
 }

@@ -55,6 +55,8 @@ const (
 	DefaultLatencyCalculator        = ""
 	ConstantLatencyCalculator       = "constant"
 	PerPromptTokenLatencyCalculator = "per-token"
+
+	DefaultDSTableName = "llmd"
 )
 
 var (
@@ -240,6 +242,8 @@ type Configuration struct {
 	DatasetURL string `yaml:"dataset-url" json:"dataset-url"`
 	// DatasetInMemory defines whether to load the entire dataset into memory for faster access.
 	DatasetInMemory bool `yaml:"dataset-in-memory" json:"dataset-in-memory"`
+	// DatasetTableName defines custom SQLite dataset table name
+	DatasetTableName string `yaml:"dataset-table-name" json:"dataset-table-name"`
 
 	// EnableSleepMode enables sleep mode
 	EnableSleepMode bool `yaml:"enable-sleep-mode" json:"enable-sleep-mode"`
@@ -409,6 +413,7 @@ func newConfig() *Configuration {
 		DPSize:             1,
 		Rank:               -1,
 		TokenizersCacheDir: "hf_cache",
+		DatasetTableName:   DefaultDSTableName,
 	}
 }
 
@@ -805,6 +810,7 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 	f.StringVar(&config.DatasetPath, "dataset-path", config.DatasetPath, "Local path to the sqlite db file for response generation from a dataset")
 	f.StringVar(&config.DatasetURL, "dataset-url", config.DatasetURL, "URL to download the sqlite db file for response generation from a dataset")
 	f.BoolVar(&config.DatasetInMemory, "dataset-in-memory", config.DatasetInMemory, "Load the entire dataset into memory for faster access")
+	f.StringVar(&config.DatasetTableName, "dataset-table-name", config.DatasetTableName, "Table name for custom dataset, default is 'llmd'")
 
 	f.BoolVar(&config.EnableSleepMode, "enable-sleep-mode", config.EnableSleepMode, "Enable sleep mode")
 	f.BoolVar(&config.EnableRequestIDHeaders, "enable-request-id-headers", config.EnableRequestIDHeaders, "Enable including X-Request-Id header in responses")

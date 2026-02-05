@@ -1,0 +1,46 @@
+package dataset
+
+import (
+	"crypto/sha256"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+)
+
+func getTextHash(text string) []byte {
+	hashArray := sha256.Sum256([]byte(text))
+	return hashArray[:]
+}
+
+// validateDbNotExists checks if an output database file already exists at the given path
+// Returns an error if the file exists or if there's an issue checking the file
+func validateFileNotExists(path string) error {
+	if _, err := os.Stat(path); err == nil {
+		return fmt.Errorf("output file already exists: %s", path)
+	} else if !os.IsNotExist(err) {
+		// Some other error occurred (permissions, etc.)
+		return fmt.Errorf("error checking output file: %w", err)
+	}
+	return nil
+}
+
+// parseSourceJson parses the given json to array of datasetRecord
+func parseSourceJson(data []byte) ([]datasetRecord, error) {
+	var records []datasetRecord
+
+	if err := json.Unmarshal(data, &records); err != nil {
+		return nil, fmt.Errorf("unmarshal: %v", err)
+	}
+
+	return records, nil
+}
+
+// loadLocalFile loads file
+func loadLocalFile(fullPath string) ([]byte, error) {
+	data, err := os.ReadFile(fullPath)
+	if err != nil {
+		return nil, errors.Join(err, fmt.Errorf("cannot read file %s", fullPath))
+	}
+	return data, nil
+}

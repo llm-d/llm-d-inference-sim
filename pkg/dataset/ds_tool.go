@@ -30,29 +30,28 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 )
 
+// conversation in the source dataset record
 type conversation struct {
 	Role  string `json:"from"`
 	Value string `json:"value"`
 }
 
+// the source dataset record
 type datasetRecord struct {
 	ID            string         `json:"id"`
 	Conversations []conversation `json:"conversations"`
 }
 
-type genTokens struct {
-	TokenStrings []string `json:"strings"`
-	TokenNumbers []uint32 `json:"numbers"`
-}
-
+// record of the output dataset
 type outputRecord struct {
-	PromptHash   []byte    `json:"prompt_hash"`
-	NumGenTokens int       `json:"n_gen_tokens"`
-	GenTokens    genTokens `json:"gen_tokens"`
-	InputText    string    `json:"input_text"` // input text for reference and debugging
-	Generated    string    `json:"generated"`  // generated text for reference and debugging
+	PromptHash   []byte                    `json:"prompt_hash"`
+	NumGenTokens int                       `json:"n_gen_tokens"`
+	GenTokens    openaiserverapi.Tokenized `json:"gen_tokens"`
+	InputText    string                    `json:"input_text"` // input text for reference and debugging
+	Generated    string                    `json:"generated"`  // generated text for reference and debugging
 }
 
+// DatasetTool the dataset tool
 type DatasetTool struct {
 	config    *DSToolConfiguration
 	tokenizer tokenizer.Tokenizer
@@ -60,6 +59,7 @@ type DatasetTool struct {
 	logger    logr.Logger
 }
 
+// NewDatasetTool creates DatasetTool instance based on the given parameters
 func NewDatasetTool(config *DSToolConfiguration, logger logr.Logger) (*DatasetTool, error) {
 	t, err := tokenizer.NewHFTokenizer(config.model, config.tokenizersCacheDir)
 	if err != nil {
@@ -68,71 +68,110 @@ func NewDatasetTool(config *DSToolConfiguration, logger logr.Logger) (*DatasetTo
 	return &DatasetTool{
 		config:    config,
 		tokenizer: t,
-		sqlHelper: newSqliteHelper(logger),
+		sqlHelper: newSqliteHelper(config.tableName, logger),
 		logger:    logger,
 	}, nil
 }
 
+// Run runs the dataset creation tool
+// In reads the input huggingface dataset, which could be downloaded from the HF site
+// or stored locally. This kind dataset contains conversations between human and gpt.
+// Output dataset contains generated responses for propmts in the source dataset.
+// Responses are created for both formats: completions and chat completions.
+// Example:
+// Source records:
+// [{"id": "test", "conversations": [
+//
+//	{"from": "human", "value": "human q1"},
+//	{"from": "gpt", "value": "gpt a1"},
+//	{"from": "human", "value": "human q2"},
+//	{"from": "gpt", "value": "gpt a2" }]}]
+//
+// Output records:
+// [{"prompt_hash": "OZ5Edy+9rw0CsSMabW2TwSxR78jJGYRVRWtz8SXRm6U=",
+//
+//	 "n_gen_tokens": 4,
+//	 "gen_tokens": {"strings": ["g","pt"," a","1"], "numbers": [...]},
+//	 "input_text": "human q1",
+//	 "generated": "gpt a1"},
+//	{"prompt_hash": "8eh+o90xEiD3eJ7fYJxpr3i1J6H8qx1GYnKpen8Jktg=",
+//	 "n_gen_tokens": 4,
+//	 "gen_tokens": {"strings": ["g","pt"," a","1"], "numbers": [...]},
+//	 "input_text": "### user:\nhuman q1\n",
+//	 "generated": "gpt a1"},
+//	{"prompt_hash": "IA09arbBXHzUc87MBMHVHyrOL7tOHaAjQurbzggNJoY=",
+//	 "n_gen_tokens": 4,
+//	 "gen_tokens": {"strings": ["pg","t"," a","2"], "numbers": [...]},
+//	 "input_text": "human q2",
+//	 "generated": "pgt a2"},
+//	{"prompt_hash": "J+hRSEBht2WjJ2/4Mq+HfNCWf2VvxHaP11LnwJ7yHWE=",
+//	 "n_gen_tokens": 4,
+//	 "gen_tokens": {"strings": ["pg","t"," a","2"], "numbers": [...]},
+//	 "input_text": "### user:\nhuman q1\n### assistant:\ngpt a1\n### user:\nhuman q2\n",
+//	 "generated": "pgt a2"}]
 func (dt *DatasetTool) Run(ctx context.Context) error {
-	records, err := dt.loadData(ctx)
+	sourceRecs, err := dt.loadData(ctx)
 	if err != nil {
-		dt.logger.Error(err, "failed to load data")
+		dt.logger.Error(err, "failed to load the source dataset")
 		return err
 	}
-	dt.logger.Info("Loaded records", "count", len(records))
+	dt.logger.Info("Loaded source dataset records", "count", len(sourceRecs))
 
-	// convert loaded original dataset records to db records
-	outputRecs, err := dt.convertToOutputRecords(records)
-	if err != nil {
-		dt.logger.Error(err, "failed to convert dataset records to database records")
-		return err
-	}
-	dt.logger.Info("Loaded db records", "count", len(outputRecs))
+	// convert loaded original dataset records to output records
+	outputRecs := dt.toOutputRecords(sourceRecs)
+	dt.logger.Info("Created output records", "count", len(outputRecs))
 
-	err = dt.storeRecordsToSQLite(ctx, outputRecs)
+	err = dt.storeToSQLite(ctx, outputRecs)
 	if err != nil {
 		dt.logger.Error(err, "failed to store dataset to sqlite db")
 		return err
 	}
-	err = dt.storeRecordsToJson(outputRecs)
+	err = dt.storeToJson(outputRecs)
 	if err != nil {
 		dt.logger.Error(err, "failed to store dataset to json debug file")
+		return err
+	}
+
+	err = generateCardFile(dt.config.model, dt.config.hfRepo, dt.config.file, dt.config.getOutputCardFullFileName(), len(sourceRecs), len(outputRecs))
+	if err != nil {
+		dt.logger.Error(err, "failed to store dataset card file")
 		return err
 	}
 
 	return nil
 }
 
+// loads source dataset data, both local or from HF
 func (dt *DatasetTool) loadData(ctx context.Context) ([]datasetRecord, error) {
-	var data []byte
+	var sourceData []byte
 	var err error
 	fullPath := ""
 
 	if dt.config.hfRepo != "" {
-		fullPath = dt.config.hfRepo + "/" + dt.config.file
 		// HuggingFace mode
-		dt.logger.Info("Loading HF dataset", "hf file", fullPath)
+		fullPath = dt.config.hfRepo + "/" + dt.config.file
+		dt.logger.Info("Loading HF dataset", "path", fullPath)
 		client := newHFClient(dt.config.token)
-		data, err = client.downloadFile(ctx, dt.config.hfRepo, dt.config.file)
+		sourceData, err = client.downloadFile(ctx, dt.config.hfRepo, dt.config.file)
 	} else {
-		fullPath = filepath.Join(dt.config.localPath, dt.config.file)
 		// Local file mode
+		fullPath = filepath.Join(dt.config.localPath, dt.config.file)
 		dt.logger.Info("Loading local files from a folder", "local file", fullPath)
-		data, err = loadLocalFile(fullPath)
+		sourceData, err = loadLocalFile(fullPath)
 	}
 
 	if err != nil {
-		dt.logger.Error(err, "failed to load", "file", fullPath)
+		dt.logger.Error(err, "failed to load source dataset", "path", fullPath)
 		return nil, err
 	}
 
-	records, err := parseJson(data)
+	records, err := parseSourceJson(sourceData)
 	if err != nil {
 		dt.logger.Error(err, "failed to parse", "file", fullPath)
 		return nil, err
 	}
 
-	dt.logger.Info("Loaded records", "count", len(records), "file", fullPath)
+	dt.logger.Info("Loaded source records", "count", len(records), "path", fullPath)
 	if len(records) >= dt.config.maxRecords {
 		records = records[:dt.config.maxRecords]
 	}
@@ -140,10 +179,11 @@ func (dt *DatasetTool) loadData(ctx context.Context) ([]datasetRecord, error) {
 	return records, nil
 }
 
-func (dt *DatasetTool) convertToOutputRecords(dsRecords []datasetRecord) ([]outputRecord, error) {
+// toOutputRecords converts source dataset records to output records
+func (dt *DatasetTool) toOutputRecords(dsRecords []datasetRecord) []outputRecord {
 	resultRecs := []outputRecord{}
 
-	for _, dsRecord := range dsRecords {
+	for index, dsRecord := range dsRecords {
 		conversationIndex := 0
 		chatRequest := openaiserverapi.ChatCompletionRequest{}
 		chatRequest.Messages = []openaiserverapi.Message{}
@@ -151,31 +191,40 @@ func (dt *DatasetTool) convertToOutputRecords(dsRecords []datasetRecord) ([]outp
 
 		// read conversations in pairs
 		for conversationIndex < len(dsRecord.Conversations)-1 {
-			if !dt.validateConversationRole(dsRecord, conversationIndex) {
+			if !dt.validConversationRole(dsRecord, conversationIndex) {
 				break
 			}
 
-			records := dt.conversationToRecords(dsRecord.Conversations[conversationIndex].Value,
+			records, err := dt.conversationToOutputRecords(dsRecord.Conversations[conversationIndex].Value,
 				dsRecord.Conversations[conversationIndex+1].Value,
 				prevOutput, &chatRequest)
 			resultRecs = append(resultRecs, records...)
+
+			if err != nil {
+				dt.logger.Error(err, "failed to encode conversation output, skip it", "index", index)
+				continue
+			}
 			// save the output for the next iteration
 			prevOutput = dsRecord.Conversations[conversationIndex+1].Value
 			conversationIndex += 2
 		}
 	}
 
-	return resultRecs, nil
+	return resultRecs
 }
 
-func (dt *DatasetTool) conversationToRecords(userTxt, assistantTxt string,
-	prevOutput string, chatRequest *openaiserverapi.ChatCompletionRequest) []outputRecord {
+// conversationToOutputRecords creates output records from the given parameters
+// updates the given chatRequest with a new step in the conversation
+func (dt *DatasetTool) conversationToOutputRecords(userTxt, assistantTxt string,
+	prevOutput string, chatRequest *openaiserverapi.ChatCompletionRequest) ([]outputRecord, error) {
 	result := []outputRecord{}
 
+	// create completions request
 	textRequest := openaiserverapi.TextCompletionRequest{
 		Prompt: userTxt,
 	}
 
+	// update the given chat completions request
 	// add previous assistant message
 	if len(prevOutput) > 0 {
 		chatRequest.Messages = append(chatRequest.Messages,
@@ -190,8 +239,8 @@ func (dt *DatasetTool) conversationToRecords(userTxt, assistantTxt string,
 
 	// create db record for /completions (without the messages concatunation)
 	inputText := textRequest.GetPrompt()
-	if rec, err := dt.createJsonRecord(inputText, assistantTxt); err != nil {
-		return []outputRecord{}
+	if rec, err := dt.createOutputRecord(inputText, assistantTxt); err != nil {
+		return nil, err
 	} else {
 		result = append(result, *rec)
 	}
@@ -199,35 +248,36 @@ func (dt *DatasetTool) conversationToRecords(userTxt, assistantTxt string,
 	// create db record for /chat/completions with all messages till now
 	// TODO - tempalatize!
 	inputText = chatRequest.GetFullPrompt()
-	if rec, err := dt.createJsonRecord(inputText, assistantTxt); err != nil {
-		return []outputRecord{}
+	if rec, err := dt.createOutputRecord(inputText, assistantTxt); err != nil {
+		return nil, err
 	} else {
 		result = append(result, *rec)
 	}
 
-	return result
+	return result, nil
 }
 
-func (dt *DatasetTool) createJsonRecord(inputText, generatedTxt string) (*outputRecord, error) {
-	generatedTokens, genTextTokens, err := dt.tokenizer.Encode(generatedTxt, dt.config.model)
+// createOutputRecord creates an output record based on the given parameters
+func (dt *DatasetTool) createOutputRecord(inputText, generatedText string) (*outputRecord, error) {
+	generatedTokens, genTextTokens, err := dt.tokenizer.Encode(generatedText, dt.config.model)
 	if err != nil {
-		dt.logger.Error(err, "failed to encode conversation output, skip it")
 		return nil, err
 	}
 
 	rec := outputRecord{
-		// TODO hash the input
-		PromptHash:   []byte{}, //hash(inputText),
+		PromptHash:   getTextHash(inputText),
 		NumGenTokens: len(generatedTokens),
-		GenTokens:    genTokens{TokenStrings: genTextTokens, TokenNumbers: generatedTokens},
+		GenTokens:    openaiserverapi.Tokenized{Strings: genTextTokens, Tokens: generatedTokens},
 		InputText:    inputText,
-		Generated:    generatedTxt,
+		Generated:    generatedText,
 	}
 
 	return &rec, nil
 }
 
-func (dt *DatasetTool) validateConversationRole(dsRecord datasetRecord, conversationIndex int) bool {
+// checks validity of the role of the pair of records defined by conversationIndex
+// first record should be human and the second is gpt
+func (dt *DatasetTool) validConversationRole(dsRecord datasetRecord, conversationIndex int) bool {
 	if dsRecord.Conversations[conversationIndex].Role != "human" {
 		dt.logger.Error(nil, "Invalid role in ds record", "index", conversationIndex,
 			"expected role", "human",
@@ -243,33 +293,17 @@ func (dt *DatasetTool) validateConversationRole(dsRecord datasetRecord, conversa
 	return true
 }
 
-func parseJson(data []byte) ([]datasetRecord, error) {
-	var records []datasetRecord
-
-	if err := json.Unmarshal([]byte(data), &records); err != nil {
-		return nil, fmt.Errorf("unmarshal: %v", err)
-	}
-
-	return records, nil
-}
-
-// loadLocalFile loads file
-func loadLocalFile(fullPath string) ([]byte, error) {
-	data, err := os.ReadFile(fullPath)
-	if err != nil {
-		return nil, errors.Join(err, fmt.Errorf("cannot read file %s", fullPath))
-	}
-	return data, nil
-}
-
-// creates the database table and stores the records
-func (dt *DatasetTool) storeRecordsToSQLite(ctx context.Context, records []outputRecord) error {
+// creates the database table and stores the given records
+func (dt *DatasetTool) storeToSQLite(ctx context.Context, records []outputRecord) error {
 	dbPath := dt.config.getOutputDBFullFileName()
+	dt.logger.Info("Going to store records to DB", "path", dbPath)
 	db, err := sql.Open("sqlite3", "file:"+dbPath)
 	if err != nil {
 		return errors.Join(err, fmt.Errorf("cannot open database %s", dbPath))
 	}
-	defer db.Close()
+	defer func() {
+		_ = db.Close()
+	}()
 
 	// Verify connection with context
 	if err := db.PingContext(ctx); err != nil {
@@ -280,20 +314,24 @@ func (dt *DatasetTool) storeRecordsToSQLite(ctx context.Context, records []outpu
 	if _, err := db.ExecContext(ctx, dt.sqlHelper.getCreateTableQuery()); err != nil {
 		return fmt.Errorf("failed to create table: %w", err)
 	}
-	dt.logger.Info("Table created successfully", "table", tableName)
+	dt.logger.Info("Table created successfully", "table", dt.config.tableName)
 
 	// Insert records
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("failed to begin transaction: %w", err)
 	}
-	defer tx.Rollback()
+	defer func() {
+		_ = tx.Rollback()
+	}()
 
 	stmt, err := tx.PrepareContext(ctx, dt.sqlHelper.getInsertQuery())
 	if err != nil {
 		return fmt.Errorf("failed to prepare statement: %w", err)
 	}
-	defer stmt.Close()
+	defer func() {
+		_ = stmt.Close()
+	}()
 
 	for _, record := range records {
 		// Check for cancellation
@@ -313,7 +351,7 @@ func (dt *DatasetTool) storeRecordsToSQLite(ctx context.Context, records []outpu
 			return fmt.Errorf("failed to insert record: %w", err)
 		}
 	}
-	dt.logger.Info("Records stored sucessfully", "count", len(records))
+	dt.logger.Info("Records stored successfully", "count", len(records))
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
@@ -321,13 +359,15 @@ func (dt *DatasetTool) storeRecordsToSQLite(ctx context.Context, records []outpu
 	return nil
 }
 
-func (dt *DatasetTool) storeRecordsToJson(records []outputRecord) error {
+func (dt *DatasetTool) storeToJson(records []outputRecord) error {
 	filePath := dt.config.getOutputJsonFullFileName()
 	file, err := os.Create(filePath)
 	if err != nil {
 		return fmt.Errorf("failed to create file: %w", err)
 	}
-	defer file.Close()
+	defer func() {
+		_ = file.Close()
+	}()
 
 	dt.logger.Info("Storing records to JSON", "file", filePath)
 	encoder := json.NewEncoder(file)

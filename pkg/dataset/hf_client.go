@@ -18,6 +18,7 @@ package dataset
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 
@@ -78,7 +79,7 @@ func (c *hfClient) downloadFile(ctx context.Context, repo, filePath string) ([]b
 			// follow the redirect Location header
 			location := string(resp.Header.Peek("Location"))
 			if location == "" {
-				return nil, fmt.Errorf("redirect without Location header")
+				return nil, errors.New("redirect without Location header")
 			}
 			redirectUrl, err := origUrl.Parse(location)
 			if err != nil {
