@@ -74,9 +74,9 @@ func NewDatasetTool(config *DSToolConfiguration, logger logr.Logger) (*DatasetTo
 }
 
 // Run runs the dataset creation tool
-// In reads the input huggingface dataset, which could be downloaded from the HF site
-// or stored locally. This kind dataset contains conversations between human and gpt.
-// Output dataset contains generated responses for propmts in the source dataset.
+// It reads the input huggingface dataset, which could be downloaded from the HF site
+// or stored locally. This kind of dataset contains conversations between human and gpt.
+// Output dataset contains generated responses for prompts in the source dataset.
 // Responses are created for both formats: completions and chat completions.
 // Example:
 // Source records:
@@ -101,14 +101,14 @@ func NewDatasetTool(config *DSToolConfiguration, logger logr.Logger) (*DatasetTo
 //	 "generated": "gpt a1"},
 //	{"prompt_hash": "IA09arbBXHzUc87MBMHVHyrOL7tOHaAjQurbzggNJoY=",
 //	 "n_gen_tokens": 4,
-//	 "gen_tokens": {"strings": ["pg","t"," a","2"], "numbers": [...]},
+//	 "gen_tokens": {"strings": ["gp","t"," a","2"], "numbers": [...]},
 //	 "input_text": "human q2",
-//	 "generated": "pgt a2"},
+//	 "generated": "gpt a2"},
 //	{"prompt_hash": "J+hRSEBht2WjJ2/4Mq+HfNCWf2VvxHaP11LnwJ7yHWE=",
 //	 "n_gen_tokens": 4,
-//	 "gen_tokens": {"strings": ["pg","t"," a","2"], "numbers": [...]},
+//	 "gen_tokens": {"strings": ["gp","t"," a","2"], "numbers": [...]},
 //	 "input_text": "### user:\nhuman q1\n### assistant:\ngpt a1\n### user:\nhuman q2\n",
-//	 "generated": "pgt a2"}]
+//	 "generated": "gpt a2"}]
 func (dt *DatasetTool) Run(ctx context.Context) error {
 	sourceRecs, err := dt.loadData(ctx)
 	if err != nil {
@@ -184,29 +184,23 @@ func (dt *DatasetTool) toOutputRecords(dsRecords []datasetRecord) []outputRecord
 	resultRecs := []outputRecord{}
 
 	for index, dsRecord := range dsRecords {
-		conversationIndex := 0
 		chatRequest := openaiserverapi.ChatCompletionRequest{}
 		chatRequest.Messages = []openaiserverapi.Message{}
-		prevOutput := ""
 
 		// read conversations in pairs
-		for conversationIndex < len(dsRecord.Conversations)-1 {
+		for conversationIndex := 0; conversationIndex < len(dsRecord.Conversations)-1; conversationIndex += 2 {
 			if !dt.validConversationRole(dsRecord, conversationIndex) {
 				break
 			}
 
 			records, err := dt.conversationToOutputRecords(dsRecord.Conversations[conversationIndex].Value,
-				dsRecord.Conversations[conversationIndex+1].Value,
-				prevOutput, &chatRequest)
+				dsRecord.Conversations[conversationIndex+1].Value, &chatRequest)
 			resultRecs = append(resultRecs, records...)
 
 			if err != nil {
 				dt.logger.Error(err, "failed to encode conversation output, skip it", "index", index)
 				continue
 			}
-			// save the output for the next iteration
-			prevOutput = dsRecord.Conversations[conversationIndex+1].Value
-			conversationIndex += 2
 		}
 	}
 
@@ -216,7 +210,7 @@ func (dt *DatasetTool) toOutputRecords(dsRecords []datasetRecord) []outputRecord
 // conversationToOutputRecords creates output records from the given parameters
 // updates the given chatRequest with a new step in the conversation
 func (dt *DatasetTool) conversationToOutputRecords(userTxt, assistantTxt string,
-	prevOutput string, chatRequest *openaiserverapi.ChatCompletionRequest) ([]outputRecord, error) {
+	chatRequest *openaiserverapi.ChatCompletionRequest) ([]outputRecord, error) {
 	result := []outputRecord{}
 
 	// create completions request
@@ -224,13 +218,6 @@ func (dt *DatasetTool) conversationToOutputRecords(userTxt, assistantTxt string,
 		Prompt: userTxt,
 	}
 
-	// update the given chat completions request
-	// add previous assistant message
-	if len(prevOutput) > 0 {
-		chatRequest.Messages = append(chatRequest.Messages,
-			openaiserverapi.Message{Role: openaiserverapi.RoleAssistant,
-				Content: openaiserverapi.Content{Raw: prevOutput}})
-	}
 	// add current user message
 	chatRequest.Messages = append(chatRequest.Messages, openaiserverapi.Message{
 		Role:    openaiserverapi.RoleUser,
@@ -253,6 +240,11 @@ func (dt *DatasetTool) conversationToOutputRecords(userTxt, assistantTxt string,
 	} else {
 		result = append(result, *rec)
 	}
+
+	// add answer for this turn to be ready for the next question
+	chatRequest.Messages = append(chatRequest.Messages,
+		openaiserverapi.Message{Role: openaiserverapi.RoleAssistant,
+			Content: openaiserverapi.Content{Raw: assistantTxt}})
 
 	return result, nil
 }
