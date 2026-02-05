@@ -13,6 +13,7 @@ const (
 	hfFileNamePlaceholder         = "<HF_FILE_NAME>"
 	sourceRecordsCountPlaceholder = "<SOURCE_RECORDS_COUNT>"
 	genRecordsCountPlaceholder    = "<GEN_RECORDS_COUNT>"
+	tableNamePlaceholder          = "<TABLE_NAME>"
 )
 
 const cardTemplate = `
@@ -20,7 +21,8 @@ const cardTemplate = `
 
 ## Overview
 
-This dataset is derived from conversational data and has been processed into a tokenized format suitable for LLM inference simulation. The dataset contains pre-tokenized prompts and responses, enabling efficient testing of inference systems without requiring live model execution.
+This dataset is derived from conversational data and has been processed into a tokenized format suitable for LLM inference simulation. 
+The dataset contains pre-tokenized prompts and responses, enabling efficient testing of inference systems without requiring live model execution.
 
 ## Tokenization Model
 ` + modelNamePlaceholder + `
@@ -49,7 +51,7 @@ This dataset is available in two formats:
 
 ### Data Example
 
-` + "`'''" + `json
+` + "```" + `json
 {
   "prompt_hash": "OZ5Edy+9rw0CsSMabW2TwSxR78jJGYRVRWtz8SXRm6U=",
   "n_gen_tokens": 4,
@@ -64,7 +66,9 @@ This dataset is available in two formats:
 
 ## SQLite Database Schema
 
-The SQLite version provides efficient querying capabilities and used by the simulator, it has the following schema:
+The SQLite version provides efficient querying capabilities and used by the simulator. <br>
+The data is stored in table called ` + "`" + tableNamePlaceholder + "`" + `.<br>
+The table has the following schema:
 
 | Column | Data Type | Description |
 | :--- | :--- | :--- |
@@ -92,10 +96,10 @@ SELECT AVG(n_gen_tokens) FROM llmd;
 ## Dataset Statistics
 
 - **Source Dataset Record Count**: ` + sourceRecordsCountPlaceholder + `
-- **Dataset Record Count**: ` + genRecordsCountPlaceholder + `
+- **Generated Dataset Record Count**: ` + genRecordsCountPlaceholder + `
 `
 
-func generateCardFile(modelName, hfDSRepo, hfFileName, cardFilePath string, sourceDSRecsCount, genRecordsCount int) error {
+func generateCardFile(modelName, tableName, hfDSRepo, hfFileName, cardFilePath string, sourceDSRecsCount, genRecordsCount int) error {
 	hfDSUrl := "https://huggingface.co/datasets/" + hfDSRepo
 
 	replacer := strings.NewReplacer(
@@ -105,6 +109,7 @@ func generateCardFile(modelName, hfDSRepo, hfFileName, cardFilePath string, sour
 		hfFileNamePlaceholder, hfFileName,
 		sourceRecordsCountPlaceholder, strconv.Itoa(sourceDSRecsCount),
 		genRecordsCountPlaceholder, strconv.Itoa(genRecordsCount),
+		tableNamePlaceholder, tableName,
 	)
 
 	result := replacer.Replace(cardTemplate)

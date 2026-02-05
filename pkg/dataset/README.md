@@ -1,13 +1,13 @@
 # Dataset Convertion Tool
 
-The `ds-tool` is used to convert conversation datasets into the format required by llm-d-inference-sim. It processes source datasets (from HuggingFace or local files) and generates both JSON and SQLite outputs with tokenized data. In addition, a dataset card is generated too
+The `ds-tool` is used to convert conversation datasets into the format required by llm-d-inference-sim. It processes source datasets (from HuggingFace or local files) and generates both JSON and SQLite outputs with tokenized data. In addition, a dataset card is generated too.
 
 
 ## Prerequisites
 
 1. **HuggingFace Token (Optional):** If downloading from HuggingFace, set the `HF_TOKEN` environment variable:
    ```bash
-   export HF_TOKEN=your_huggingface_token
+   export HF_TOKEN=<your_huggingface_token>
    ```
 
 2. **Model and Tokenizer:** Ensure you have access to the model you want to use for tokenization.
@@ -19,11 +19,11 @@ The `ds-tool` is used to convert conversation datasets into the format required 
 | `--model` | string | Yes | - | Model name for tokenization |
 | `--hf-repo` | string | No* | - | HuggingFace dataset repository (e.g., `anon8231489123/ShareGPT_Vicuna_unfiltered`) |
 | `--local-path` | string | No* | - | Local directory containing the dataset file |
-| `--file` | string | Yes | - | File name (relevant for both HF and local modes) |
+| `--input-file` | string | Yes | - | The input file name including extension (relevant for both HF and local modes) |
 | `--output-path` | string | No | - | Output directory path, by default current folder |
 | `--output-file` | string | No | `inference-sim-dataset` | Output file name without extension (creates `.json`, `.sqlite3` and `.md` files) |
 | `--table-name` | string | No | `llmd` | Name of the table created in the SQLite DB |
-| `--max-records` | int | No | `10000` | Maximum number of records to read |
+| `--max-records` | int | No | `10000` | Maximum number of source dataset records to process; if the dataset contains more, the rest are discarded. |
 | `--tokenizers-cache-dir` | string | No | `hf_cache` | Directory for caching tokenizers |
 
 **Note:** Either `--hf-repo` or `--local-path` must be specified, but not both.
@@ -63,7 +63,9 @@ export HF_TOKEN=your_token_here
 
 ## Input Dataset Structure
 
-The dataset tool expects input files in a specific JSON format containing conversation records. Each record represents a multi-turn conversation between a human and an assistant (GPT).
+The dataset tool expects input files in a specific JSON format containing conversation records. 
+Each record represents a multi-turn conversation between a human and an assistant (GPT).
+Currently only one input dataset format is supported.
 
 ### Required Fields
 
@@ -149,7 +151,7 @@ The SQLite version of this dataset is used by the simulator for efficient queryi
 | Column | Data Type | Description |
 | :--- | :--- | :--- |
 | `id` | `INTEGER PRIMARY KEY AUTOINCREMENT` | Primary Key. |
-| `prompt_hash` | `BLOB NOT NULL` | Hash identifier for the input. |
+| `prompt_hash` | `BLOB NOT NULL` | Hash identifier for the tokenized input. Input is tokenized and hashed.|
 | `gen_tokens` | `JSON NOT NULL` | JSON containing `strings` and `numbers` arrays. |
 | `n_gen_tokens`| `INTEGER NOT NULL` | The count of generated tokens. |
 

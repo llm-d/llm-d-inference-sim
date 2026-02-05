@@ -132,8 +132,8 @@ func (dt *DatasetTool) Run(ctx context.Context) error {
 		return err
 	}
 
-	err = generateCardFile(dt.config.model, dt.config.hfRepo, dt.config.file, dt.config.getOutputCardFullFileName(), len(sourceRecs), len(outputRecs))
-	if err != nil {
+	if err = generateCardFile(dt.config.model, dt.config.tableName, dt.config.hfRepo, dt.config.inputFile,
+		dt.config.getOutputCardFullFileName(), len(sourceRecs), len(outputRecs)); err != nil {
 		dt.logger.Error(err, "failed to store dataset card file")
 		return err
 	}
@@ -149,13 +149,13 @@ func (dt *DatasetTool) loadData(ctx context.Context) ([]datasetRecord, error) {
 
 	if dt.config.hfRepo != "" {
 		// HuggingFace mode
-		fullPath = dt.config.hfRepo + "/" + dt.config.file
+		fullPath = dt.config.hfRepo + "/" + dt.config.inputFile
 		dt.logger.Info("Loading HF dataset", "path", fullPath)
 		client := newHFClient(dt.config.token)
-		sourceData, err = client.downloadFile(ctx, dt.config.hfRepo, dt.config.file)
+		sourceData, err = client.downloadFile(ctx, dt.config.hfRepo, dt.config.inputFile)
 	} else {
 		// Local file mode
-		fullPath = filepath.Join(dt.config.localPath, dt.config.file)
+		fullPath = filepath.Join(dt.config.localPath, dt.config.inputFile)
 		dt.logger.Info("Loading local files from a folder", "local file", fullPath)
 		sourceData, err = loadLocalFile(fullPath)
 	}
@@ -224,7 +224,7 @@ func (dt *DatasetTool) conversationToOutputRecords(userTxt, assistantTxt string,
 		Content: openaiserverapi.Content{Raw: userTxt},
 	})
 
-	// create db record for /completions (without the messages concatunation)
+	// create db record for /completions (without the messages concatenation)
 	inputText := textRequest.GetPrompt()
 	if rec, err := dt.createOutputRecord(inputText, assistantTxt); err != nil {
 		return nil, err
@@ -233,7 +233,7 @@ func (dt *DatasetTool) conversationToOutputRecords(userTxt, assistantTxt string,
 	}
 
 	// create db record for /chat/completions with all messages till now
-	// TODO - tempalatize!
+	// TODO - templatize!
 	inputText = chatRequest.GetFullPrompt()
 	if rec, err := dt.createOutputRecord(inputText, assistantTxt); err != nil {
 		return nil, err
@@ -251,13 +251,17 @@ func (dt *DatasetTool) conversationToOutputRecords(userTxt, assistantTxt string,
 
 // createOutputRecord creates an output record based on the given parameters
 func (dt *DatasetTool) createOutputRecord(inputText, generatedText string) (*outputRecord, error) {
+	inputTokens, _, err := dt.tokenizer.Encode(inputText, dt.config.model)
+	if err != nil {
+		return nil, errors.Join(err, fmt.Errorf("input tokenization failed (%s)", inputText))
+	}
 	generatedTokens, genTextTokens, err := dt.tokenizer.Encode(generatedText, dt.config.model)
 	if err != nil {
-		return nil, err
+		return nil, errors.Join(err, fmt.Errorf("output tokenization failed (%s)", generatedText))
 	}
 
 	rec := outputRecord{
-		PromptHash:   getTextHash(inputText),
+		PromptHash:   getInputHash(inputTokens),
 		NumGenTokens: len(generatedTokens),
 		GenTokens:    openaiserverapi.Tokenized{Strings: genTextTokens, Tokens: generatedTokens},
 		InputText:    inputText,
@@ -371,5 +375,3 @@ func (dt *DatasetTool) storeToJson(records []outputRecord) error {
 
 	return nil
 }
-
-// TODO - read table name fro configuration

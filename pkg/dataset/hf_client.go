@@ -33,7 +33,6 @@ func newHFClient(token string) *hfClient {
 	return &hfClient{token: token}
 }
 
-// TODO change to support of a one file only!
 func (c *hfClient) downloadFile(ctx context.Context, repo, filePath string) ([]byte, error) {
 	urlTxt := fmt.Sprintf("https://huggingface.co/datasets/%s/resolve/main/%s", repo, filePath)
 	maxRedirects := 5

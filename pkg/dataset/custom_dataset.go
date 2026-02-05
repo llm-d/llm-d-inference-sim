@@ -48,7 +48,7 @@ func (d *CustomDataset) Init(ctx context.Context, logger logr.Logger, random *co
 }
 
 func (d *CustomDataset) getPromptHash(req openaiserverapi.Request) []byte {
-	return getTextHash(req.GetFullPrompt())
+	return getInputHash(req.TokenizedPrompt().Tokens)
 }
 
 func (d *CustomDataset) getPromptHashHex(hashBytes []byte) string {

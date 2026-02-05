@@ -28,7 +28,7 @@ import (
 type DSToolConfiguration struct {
 	hfRepo             string
 	localPath          string
-	file               string
+	inputFile          string
 	token              string
 	maxRecords         int
 	tokenizersCacheDir string
@@ -42,12 +42,12 @@ func NewDefaultDSToolConfiguration() *DSToolConfiguration {
 	return &DSToolConfiguration{
 		hfRepo:             "",
 		localPath:          "",
-		file:               "",
+		inputFile:          "",
 		outputFile:         "inference-sim-dataset",
 		outputPath:         "",
 		token:              "",
 		maxRecords:         10000,
-		tokenizersCacheDir: "hf_token",
+		tokenizersCacheDir: "hf_cache",
 		model:              "",
 		tableName:          "llmd",
 	}
@@ -58,12 +58,12 @@ func (c *DSToolConfiguration) LoadConfig() error {
 
 	f.StringVar(&c.hfRepo, "hf-repo", "", "HuggingFace dataset (e.g. 'anon8231489123/ShareGPT_Vicuna_unfiltered')")
 	f.StringVar(&c.localPath, "local-path", "", "Local directory")
-	f.StringVar(&c.file, "file", "", "File name, relevant both for HF and local")
+	f.StringVar(&c.inputFile, "input-file", "", "File name, relevant both for HF and local")
 	f.StringVar(&c.outputFile, "output-file", "inference-sim-dataset",
 		"Output file name without extension, two files will be created: <output-file>.json and <output-file>.csv")
 	f.StringVar(&c.outputPath, "output-path", "", "Output path")
 	f.StringVar(&c.outputPath, "table-name", common.DefaultDSTableName, "Table name, default is 'llmd'")
-	f.IntVar(&c.maxRecords, "max-records", 10000, "Max records to process")
+	f.IntVar(&c.maxRecords, "max-records", 10000, "Maximum number of source dataset records to process; if the dataset contains more, the rest are discarded")
 
 	f.StringVar(&c.model, "model", "", "Model name")
 	f.StringVar(&c.tokenizersCacheDir, "tokenizers-cache-dir", "hf_cache", "Directory for caching tokenizers, default is hf_cache")
@@ -94,10 +94,10 @@ func (c *DSToolConfiguration) validate() error {
 	if c.hfRepo != "" && c.localPath != "" {
 		return errors.New("specify only one of --hf-repo or --local-path")
 	}
-	if c.hfRepo != "" && c.file == "" {
+	if c.hfRepo != "" && c.inputFile == "" {
 		return errors.New("--hf-repo defined but --file is empty")
 	}
-	if c.localPath != "" && c.file == "" {
+	if c.localPath != "" && c.inputFile == "" {
 		return errors.New("--local-path defined but --file is empty")
 	}
 

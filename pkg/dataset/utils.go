@@ -2,18 +2,28 @@ package dataset
 
 import (
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash"
 	"os"
 )
 
-func getTextHash(text string) []byte {
-	hashArray := sha256.Sum256([]byte(text))
-	return hashArray[:]
+var hasher hash.Hash = sha256.New()
+
+func getInputHash(tokens []uint32) []byte {
+	buf := make([]byte, 4)
+	for _, tokenID := range tokens {
+		binary.LittleEndian.PutUint32(buf, tokenID)
+		hasher.Write(buf)
+	}
+
+	// Get the hash sum as a byte slice
+	return hasher.Sum(nil)
 }
 
-// validateDbNotExists checks if an output database file already exists at the given path
+// validateFileNotExists checks if an output database file already exists at the given path
 // Returns an error if the file exists or if there's an issue checking the file
 func validateFileNotExists(path string) error {
 	if _, err := os.Stat(path); err == nil {
@@ -40,7 +50,7 @@ func parseSourceJson(data []byte) ([]datasetRecord, error) {
 func loadLocalFile(fullPath string) ([]byte, error) {
 	data, err := os.ReadFile(fullPath)
 	if err != nil {
-		return nil, errors.Join(err, fmt.Errorf("cannot read file %s", fullPath))
+		return nil, errors.Join(err, fmt.Errorf("failed to read file %s", fullPath))
 	}
 	return data, nil
 }

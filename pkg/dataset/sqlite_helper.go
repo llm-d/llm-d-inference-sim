@@ -31,7 +31,6 @@ import (
 
 // use constants for expected column names and types
 const (
-	// defaultTableName  = "llmd"
 	idCol             = "id"
 	promptHashCol     = "prompt_hash"
 	genTokensCol      = "gen_tokens"
@@ -92,13 +91,12 @@ func (s *sqliteHelper) connectToDB(path string, useInMemory bool) error {
 		}
 	}
 
-	count := 0
 	err = s.verifyDB()
 	if err != nil {
 		return fmt.Errorf("failed to verify database: %w", err)
 	}
 
-	count, err = s.getRecordsCount()
+	count, err := s.getRecordsCount()
 	if err != nil {
 		s.logger.Error(err, "failed to get records count")
 		return fmt.Errorf("failed to query database: %w", err)
