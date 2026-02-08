@@ -73,18 +73,15 @@ func (s *VllmSimulator) processRequest(reqCtx requestContext, _ *sync.WaitGroup)
 
 func (s *VllmSimulator) processRequestAsync(reqCtx requestContext, wg *sync.WaitGroup) {
 	req := reqCtx.request()
-	respCtx, badRequestErr, serverErr := reqCtx.handleRequest()
-	switch {
-	case badRequestErr != "":
-		s.setBadRequestError(reqCtx.httpRequestCtx(), badRequestErr)
-	case serverErr != nil:
-		s.sendError(reqCtx.httpRequestCtx(), *serverErr, false)
-	default:
+	respCtx, err := reqCtx.handleRequest()
+	if err != nil {
+		reqCtx.responseSender().sendError(*err, false)
+	} else {
+		respCtx.setWG(wg)
 		if req.IsStream() {
-			s.sendStreamingResponse(reqCtx, respCtx, wg)
+			reqCtx.responseSender().sendStreamingResponse(reqCtx, respCtx)
 		} else {
 			s.sendResponse(reqCtx, respCtx)
-			wg.Done()
 		}
 
 		common.WriteToChannel(s.context.metrics.requestSuccessChan,

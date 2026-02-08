@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"strconv"
 	"sync"
 	"time"
 
@@ -72,10 +73,6 @@ type VllmSimulator struct {
 	context simContext
 	// schema validator for tools parameters
 	toolsValidator *toolsValidator
-	// namespace where simulator is running
-	namespace string
-	// pod name of simulator
-	pod string
 
 	// indication whether the simulator is sleeping
 	isSleeping bool
@@ -108,8 +105,6 @@ func New(logger logr.Logger) (*VllmSimulator, error) {
 
 	return &VllmSimulator{
 		toolsValidator: toolsValidator,
-		namespace:      os.Getenv(podNsEnv),
-		pod:            os.Getenv(podNameEnv),
 		isInDevMode:    os.Getenv("VLLM_SERVER_DEV_MODE") == "1",
 		context: simContext{
 			logger: logger,
@@ -117,6 +112,8 @@ func New(logger logr.Logger) (*VllmSimulator, error) {
 				loadedLoras: make(map[string]int),
 			},
 			kvcacheHelper: nil, // kvcache helper will be created only if required after reading configuration
+			namespace:     os.Getenv(podNsEnv),
+			pod:           os.Getenv(podNameEnv),
 		},
 		waitingQueue: list.New(),
 	}, nil
@@ -196,30 +193,26 @@ func (s *VllmSimulator) startSim(ctx context.Context) error {
 
 	m := cmux.New(listener)
 
-	var grpcL net.Listener
-	if s.context.config.Mode == common.ModeEcho {
-		// gRPC uses HTTP/2
-		grpcL = m.Match(cmux.HTTP2())
-	}
+	// gRPC uses HTTP/2
+	grpcL := m.Match(cmux.HTTP2())
 	httpL := m.Match(cmux.Any())
 
 	// start the gRPC server
-	if s.context.config.Mode == common.ModeEcho {
-		errCh := make(chan error, 1)
-		go func() {
-			errCh <- s.startGRPC(ctx, grpcL)
-		}()
-
-		select {
-		case err := <-errCh:
-			if err != nil {
-				return err
-			}
-		default:
-		}
-	}
-	// start the http server with context support
 	errCh := make(chan error, 1)
+	go func() {
+		errCh <- s.startGRPC(ctx, grpcL)
+	}()
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			return err
+		}
+	default:
+	}
+
+	// start the http server with context support
+	errCh = make(chan error, 1)
 	go func() {
 		errCh <- s.startServer(ctx, httpL)
 	}()
@@ -359,7 +352,8 @@ func (s *VllmSimulator) findRequestAndSendToProcess(worker *worker) bool {
 func (s *VllmSimulator) addRequestToQueue(reqCtx requestContext) {
 	if err := s.enqueue(reqCtx); err != nil {
 		s.context.logger.Error(err, "failed to enqueue request")
-		reqCtx.httpRequestCtx().Error("Failed to enqueue request, "+err.Error(), fasthttp.StatusTooManyRequests)
+		reqCtx.responseSender().sendError(openaiserverapi.NewError("Failed to enqueue request, "+err.Error(),
+			fasthttp.StatusTooManyRequests, nil), false)
 		reqCtx.done()
 		return
 	}
@@ -371,14 +365,12 @@ func (s *VllmSimulator) addRequestToQueue(reqCtx requestContext) {
 
 }
 
-// handleRequest is a general requests handler
-// Important note: for requests in streaming mode, this function exits before all chunks are sent to the client
-func (s *VllmSimulator) handleRequest(req request, ctx *fasthttp.RequestCtx) {
-	// Check if we should inject a failure
-	if shouldInjectFailure(s.context.config, s.context.random) {
-		failure := getRandomFailure(s.context.config, s.context.random)
-		s.sendError(ctx, failure, true)
-		return
+func (s *VllmSimulator) handleHTTPRequest(req request, ctx *fasthttp.RequestCtx) {
+	respSender := &httpResponseSender{
+		baseResponseSender: baseResponseSender{
+			sim: &s.context,
+		},
+		ctx: ctx,
 	}
 
 	if err := req.unmarshal(ctx.Request.Body()); err != nil {
@@ -387,42 +379,47 @@ func (s *VllmSimulator) handleRequest(req request, ctx *fasthttp.RequestCtx) {
 		return
 	}
 
+	requestID := s.getRequestID(ctx)
+	req.SetRequestID(requestID)
+
+	// Check for cache threshold finish reason header - this forces a cache_threshold finish reason
+	headerValue := string(ctx.Request.Header.Peek(cacheThresholdFinishReasonHeader))
+	if parsedValue, err := strconv.ParseBool(headerValue); err == nil {
+		req.SetCacheThresholdFinishReason(parsedValue)
+	}
+
+	s.handleRequest(req, respSender)
+}
+
+// handleRequest is a general requests handler
+// Important note: for requests in streaming mode, this function exits before all chunks are sent to the client
+func (s *VllmSimulator) handleRequest(req request, respSender responseSender) {
+	// Check if we should inject a failure
+	if shouldInjectFailure(s.context.config, s.context.random) {
+		failure := getRandomFailure(s.context.config, s.context.random)
+		respSender.sendError(failure, true)
+		return
+	}
+
 	if !s.isValidModel(req.GetModel()) {
-		s.sendError(ctx, openaiserverapi.NewError(fmt.Sprintf("The model `%s` does not exist.",
+		respSender.sendError(openaiserverapi.NewError(fmt.Sprintf("The model `%s` does not exist.",
 			req.GetModel()), fasthttp.StatusNotFound, nil), false)
 		return
 	}
 
 	errMsg, errCode := req.validate(s.toolsValidator)
 	if errMsg != "" {
-		s.sendError(ctx, openaiserverapi.NewError(errMsg, errCode, nil), false)
+		respSender.sendError(openaiserverapi.NewError(errMsg, errCode, nil), false)
 		return
 	}
 
-	requestID := s.getRequestID(ctx)
-	req.SetRequestID(requestID)
-
-	s.context.logger.V(logging.DEBUG).Info("Received", "new", req.asString())
+	s.context.logger.V(logging.DEBUG).Info("Received", "new", respSender.stringForRequest(req))
 
 	var wg sync.WaitGroup
 	wg.Add(1)
-	reqCtx := req.buildRequestContext(&s.context, ctx, &wg)
+	reqCtx := req.buildRequestContext(&s.context, respSender, &wg)
 	common.WriteToChannel(s.newRequests, reqCtx, s.context.logger, "newRequests")
 	wg.Wait()
-}
-
-// request processing finished
-func (s *VllmSimulator) responseSentCallback(reqCtx requestContext, model string) {
-	// decrement running requests count
-	common.WriteToChannel(s.context.metrics.runReqChan, -1, s.context.logger, "metrics.runReqChan")
-
-	if s.context.isLora(model) {
-		// update loraInfo metrics to reflect that the request processing has been finished
-		common.WriteToChannel(s.context.metrics.lorasChan, loraUsage{model, doneUsageState},
-			s.context.logger, "metrics.lorasChan")
-	}
-
-	reqCtx.kvCacheOnRequestEnd()
 }
 
 // sendResponse sends response for completion API, supports both completions (text and chat)
@@ -431,38 +428,18 @@ func (s *VllmSimulator) sendResponse(reqCtx requestContext, respCtx responseCont
 
 	// Skip delays if finish reason is cache_threshold (immediate return)
 	isCacheThresholdFinishReason := respCtx.finishReason() != nil && *respCtx.finishReason() == common.CacheThresholdFinishReason
-
 	if !isCacheThresholdFinishReason {
-		// calculate how long to wait before returning the response, time is based on number of tokens
-		nCachedPromptTokens := reqCtx.request().GetNumberOfCachedPromptTokens()
-		startPrefill := time.Now()
-		params := TTFTParams{
-			PromptTokens:       respCtx.usageData().PromptTokens,
-			CachedPromptTokens: nCachedPromptTokens,
-			DoRemotePrefill:    reqCtx.request().IsDoRemotePrefill(),
-			RunningReqs:        s.context.metrics.nRunningReqs,
-		}
-		ttft := s.context.latencyCalculator.GetTimeToFirstToken(&params)
-		time.Sleep(ttft)
-
-		// report ttft in seconds
-		common.WriteToChannel(s.context.metrics.ttftChan, ttft.Seconds(), s.context.logger, "metrics.ttftChan")
-		common.WriteToChannel(s.context.metrics.reqPrefillTimeChan, time.Since(startPrefill).Seconds(), s.context.logger, "metrics.reqPrefillTimeChan")
+		s.context.simulateTTFT(respCtx)
 
 		startDecode := time.Now()
 		for range respCtx.usageData().CompletionTokens - 1 {
-			perTokenLatency := s.context.latencyCalculator.GetInterTokenLatency(&InterTokenParams{
-				RunningReqs: s.context.metrics.nRunningReqs})
-			time.Sleep(perTokenLatency)
-
-			// report tpot in seconds
-			common.WriteToChannel(s.context.metrics.tpotChan, perTokenLatency.Seconds(), s.context.logger, "metrics.tpotChan")
+			s.context.simulateInterTokenLatency()
 		}
 		common.WriteToChannel(s.context.metrics.reqDecodeTimeChan, time.Since(startDecode).Seconds(), s.context.logger, "metrics.reqDecodeTimeChan")
 	}
 
-	s.sendCompletionResponse(reqCtx.httpRequestCtx(), resp)
-	s.responseSentCallback(reqCtx, respCtx.displayModel())
+	reqCtx.responseSender().sendResponse(resp, respCtx, reqCtx)
+	reqCtx.responseSender().responseSentCallback(reqCtx, respCtx.displayModel())
 }
 
 // createModelsResponse creates and returns ModelResponse for the current state, returned array of models contains the base model + LoRA adapters if exist

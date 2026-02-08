@@ -53,9 +53,10 @@ func (c *chatCompletionRequest) validate(toolsValidator *toolsValidator) (string
 	return validateRequest(c)
 }
 
-func (c *chatCompletionRequest) buildRequestContext(simCtx *simContext, ctx *fasthttp.RequestCtx, wg *sync.WaitGroup) requestContext {
+func (c *chatCompletionRequest) buildRequestContext(simCtx *simContext, respSender responseSender,
+	wg *sync.WaitGroup) requestContext {
 	reqCtx := &chatCompletionReqCtx{
-		baseRequestContext: newBaseRequestContext(simCtx, ctx, wg),
+		baseRequestContext: newBaseRequestContext(simCtx, respSender, wg),
 		req:                c,
 	}
 	// wire chatCompletionReqCtx into embedded requestContext interface

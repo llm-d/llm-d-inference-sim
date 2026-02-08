@@ -21,7 +21,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
@@ -33,20 +32,20 @@ import (
 // sendStreamingResponse creates and sends a streaming response for completion requests of both types (text and chat)
 // response content is wrapped according SSE format
 // First token is send after timeToFirstToken milliseconds, every other token is sent after interTokenLatency milliseconds
-func (s *VllmSimulator) sendStreamingResponse(reqCtx requestContext, respCtx responseContext, wg *sync.WaitGroup) {
-	ctx := reqCtx.httpRequestCtx()
+func (h *httpResponseSender) sendStreamingResponse(reqCtx requestContext, respCtx responseContext) {
+	ctx := h.ctx
 	ctx.SetContentType("text/event-stream")
 	ctx.SetStatusCode(fasthttp.StatusOK)
 
 	// Add pod and namespace information to response headers for testing/debugging
-	if s.pod != "" {
-		ctx.Response.Header.Add(podHeader, s.pod)
-		ctx.Response.Header.Add(portHeader, strconv.Itoa(s.context.config.Port))
+	if h.sim.pod != "" {
+		ctx.Response.Header.Add(podHeader, h.sim.pod)
+		ctx.Response.Header.Add(portHeader, strconv.Itoa(h.sim.config.Port))
 	}
-	if s.namespace != "" {
-		ctx.Response.Header.Add(namespaceHeader, s.namespace)
+	if h.sim.namespace != "" {
+		ctx.Response.Header.Add(namespaceHeader, h.sim.namespace)
 	}
-	if s.context.config.EnableRequestIDHeaders {
+	if h.sim.config.EnableRequestIDHeaders {
 		ctx.Response.Header.Add(requestIDHeader, respCtx.requestID())
 	}
 
@@ -57,26 +56,26 @@ func (s *VllmSimulator) sendStreamingResponse(reqCtx requestContext, respCtx res
 			// in chat completion first chunk contains the role
 			chunk := respCtx.createFirstCompletionChunk()
 			if chunk != nil {
-				if err := s.sendChunk(w, chunk, ""); err != nil {
+				if err := h.sendChunk(w, chunk, ""); err != nil {
 					ctx.Error("Sending stream first chunk failed, "+err.Error(), fasthttp.StatusInternalServerError)
 					return
 				}
 			}
 			if len(respCtx.toolCalls()) > 0 {
-				s.context.logger.V(logging.TRACE).Info("Going to send tools calls")
+				h.sim.logger.V(logging.TRACE).Info("Going to send tools calls")
 				for _, tc := range respCtx.toolCalls() {
-					s.sendTokenChunks(respCtx, ctx, w, tc.Function.TokenizedArguments.Strings, &tc)
+					h.sendTokenChunks(respCtx, ctx, w, tc.Function.TokenizedArguments.Strings, &tc)
 				}
 			} else {
 				respTokens := respCtx.responseTokens()
-				s.context.logger.V(logging.TRACE).Info("Going to send text", "number of tokens", respTokens.Length())
-				s.sendTokenChunks(respCtx, ctx, w, respTokens.Strings, nil)
-				s.context.logger.V(4).Info("Finished sending text", "number of tokens", respTokens.Length())
+				h.sim.logger.V(logging.TRACE).Info("Going to send text", "number of tokens", respTokens.Length())
+				h.sendTokenChunks(respCtx, ctx, w, respTokens.Strings, nil)
+				h.sim.logger.V(4).Info("Finished sending text", "number of tokens", respTokens.Length())
 			}
 		} else if respCtx.finishReason() != nil && *respCtx.finishReason() == common.CacheThresholdFinishReason {
 			// No tokens to stream but we still need to emit a finish chunk for cache_threshold
 			chunk := respCtx.createCompletionChunk("", nil, "", respCtx.finishReason())
-			if err := s.sendChunk(w, chunk, ""); err != nil {
+			if err := h.sendChunk(w, chunk, ""); err != nil {
 				ctx.Error("Sending finish chunk failed, "+err.Error(), fasthttp.StatusInternalServerError)
 				return
 			}
@@ -85,53 +84,34 @@ func (s *VllmSimulator) sendStreamingResponse(reqCtx requestContext, respCtx res
 		// send usage
 		if respCtx.sendUsageData() {
 			chunk := respCtx.createUsageChunk()
-			if err := s.sendChunk(w, chunk, ""); err != nil {
+			if err := h.sendChunk(w, chunk, ""); err != nil {
 				ctx.Error("Sending usage chunk failed, "+err.Error(), fasthttp.StatusInternalServerError)
 				return
 			}
 		}
 
 		// finish sse events stream
-		if err := s.sendChunk(w, nil, "[DONE]"); err != nil {
+		if err := h.sendChunk(w, nil, "[DONE]"); err != nil {
 			ctx.Error("Sending last stream chunk failed, "+err.Error(), fasthttp.StatusInternalServerError)
 			return
 		}
-		s.responseSentCallback(reqCtx, respCtx.displayModel())
-		wg.Done()
+		h.responseSentCallback(reqCtx, respCtx.displayModel())
+		respCtx.done()
 	})
 }
 
 // sendTokenChunks creates and sends response chunks
-func (s *VllmSimulator) sendTokenChunks(respCtx responseContext, ctx *fasthttp.RequestCtx, w *bufio.Writer, genTokens []string,
+func (h *httpResponseSender) sendTokenChunks(respCtx responseContext, ctx *fasthttp.RequestCtx, w *bufio.Writer, genTokens []string,
 	tc *openaiserverapi.ToolCall) {
-	startPrefill := time.Now()
-
 	// Skip delays if finish reason is cache_threshold (immediate return)
 	isCacheThresholdFinishReason := respCtx.finishReason() != nil && *respCtx.finishReason() == common.CacheThresholdFinishReason
-
 	if !isCacheThresholdFinishReason {
-		// time to first token delay
-		params := TTFTParams{
-			PromptTokens:       respCtx.usageData().PromptTokens,
-			CachedPromptTokens: respCtx.numberCachedPromptTokens(),
-			DoRemotePrefill:    respCtx.doRemotePrefill(),
-			RunningReqs:        s.context.metrics.nRunningReqs,
-		}
-		ttft := s.context.latencyCalculator.GetTimeToFirstToken(&params)
-		time.Sleep(ttft)
-		// report ttft in seconds
-		common.WriteToChannel(s.context.metrics.ttftChan, ttft.Seconds(), s.context.logger, "metrics.ttftChan")
-		common.WriteToChannel(s.context.metrics.reqPrefillTimeChan, time.Since(startPrefill).Seconds(), s.context.logger, "metrics.reqPrefillTimeChan")
+		h.sim.simulateTTFT(respCtx)
 	}
-
 	startDecode := time.Now()
 	for i, token := range genTokens {
 		if i != 0 && !isCacheThresholdFinishReason {
-			interTokenLat := s.context.latencyCalculator.GetInterTokenLatency(&InterTokenParams{
-				RunningReqs: s.context.metrics.nRunningReqs})
-			time.Sleep(interTokenLat)
-			// report tpot in seconds
-			common.WriteToChannel(s.context.metrics.tpotChan, interTokenLat.Seconds(), s.context.logger, "metrics.tpotChan")
+			h.sim.simulateInterTokenLatency()
 		}
 
 		var toolChunkInsert *openaiserverapi.ToolCall
@@ -157,19 +137,19 @@ func (s *VllmSimulator) sendTokenChunks(respCtx responseContext, ctx *fasthttp.R
 			finishReasonToSend = respCtx.finishReason()
 		}
 		chunk = respCtx.createCompletionChunk(token, toolChunkInsert, "", finishReasonToSend)
-		if err := s.sendChunk(w, chunk, ""); err != nil {
+		if err := h.sendChunk(w, chunk, ""); err != nil {
 			ctx.Error("Sending stream chunk failed, "+err.Error(), fasthttp.StatusInternalServerError)
 			return
 		}
 	}
 
-	common.WriteToChannel(s.context.metrics.reqDecodeTimeChan, time.Since(startDecode).Seconds(), s.context.logger, "metrics.reqDecodeTimeChan")
+	common.WriteToChannel(h.sim.metrics.reqDecodeTimeChan, time.Since(startDecode).Seconds(), h.sim.logger, "metrics.reqDecodeTimeChan")
 
 	// send the last chunk if finish reason is stop
 	var chunk openaiserverapi.CompletionRespChunk
 	if *respCtx.finishReason() == common.StopFinishReason {
 		chunk = respCtx.createCompletionChunk("", nil, "", respCtx.finishReason())
-		if err := s.sendChunk(w, chunk, ""); err != nil {
+		if err := h.sendChunk(w, chunk, ""); err != nil {
 			ctx.Error("Sending last stream chunk failed, "+err.Error(), fasthttp.StatusInternalServerError)
 			return
 		}
@@ -178,7 +158,7 @@ func (s *VllmSimulator) sendTokenChunks(respCtx responseContext, ctx *fasthttp.R
 
 // sendChunk send a single token chunk in a streamed completion API response,
 // receives either a completionRespChunk or a string with the data to send.
-func (s *VllmSimulator) sendChunk(w *bufio.Writer, chunk openaiserverapi.CompletionRespChunk, dataString string) error {
+func (h *httpResponseSender) sendChunk(w *bufio.Writer, chunk openaiserverapi.CompletionRespChunk, dataString string) error {
 	if dataString == "" {
 		data, err := json.Marshal(chunk)
 		if err != nil {

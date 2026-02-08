@@ -41,9 +41,10 @@ func (t *textCompletionRequest) validate(toolsValidator *toolsValidator) (string
 	return validateRequest(t)
 }
 
-func (t *textCompletionRequest) buildRequestContext(simCtx *simContext, ctx *fasthttp.RequestCtx, wg *sync.WaitGroup) requestContext {
+func (t *textCompletionRequest) buildRequestContext(simCtx *simContext, respSender responseSender,
+	wg *sync.WaitGroup) requestContext {
 	reqCtx := &textCompletionReqCtx{
-		baseRequestContext: newBaseRequestContext(simCtx, ctx, wg),
+		baseRequestContext: newBaseRequestContext(simCtx, respSender, wg),
 		req:                t,
 	}
 	// wire textCompletionReqCtx into embedded requestContext interface

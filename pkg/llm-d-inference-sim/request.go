@@ -18,7 +18,6 @@ package llmdinferencesim
 
 import (
 	"fmt"
-	"strconv"
 	"sync"
 	"time"
 
@@ -30,7 +29,7 @@ import (
 type requestBuilder interface {
 	unmarshal(data []byte) error
 	validate(toolsValidator *toolsValidator) (string, int)
-	buildRequestContext(simCtx *simContext, ctx *fasthttp.RequestCtx, wg *sync.WaitGroup) requestContext
+	buildRequestContext(simCtx *simContext, respSender responseSender, wg *sync.WaitGroup) requestContext
 	asString() string
 	createResponseContext(displayModel string, responseTokens *openaiserverapi.Tokenized, finishReason *string,
 		usageData *openaiserverapi.Usage, sendUsageData bool, logprobs *int, toolCalls []openaiserverapi.ToolCall) responseContext
@@ -43,35 +42,35 @@ type request interface {
 
 type requestContext interface {
 	request() request
-	httpRequestCtx() *fasthttp.RequestCtx
+	responseSender() responseSender
 	done()
 	startProcessingTime() time.Time
 	tokenize() *openaiserverapi.Error
 	kvCacheOnRequestStart() (hitRate float64, serverError *openaiserverapi.Error)
 	kvCacheOnRequestEnd()
 	createToolCalls() ([]openaiserverapi.ToolCall, int, string, error)
-	handleRequest() (responseContext, string, *openaiserverapi.Error)
+	handleRequest() (responseContext, *openaiserverapi.Error)
 }
 
 type baseRequestContext struct {
 	requestContext
 	sim             *simContext
-	httpReqCtx      *fasthttp.RequestCtx
 	wg              *sync.WaitGroup
 	startProcessing time.Time
+	respSender      responseSender
 }
 
-func newBaseRequestContext(simCtx *simContext, ctx *fasthttp.RequestCtx, wg *sync.WaitGroup) baseRequestContext {
+func newBaseRequestContext(simCtx *simContext, respSender responseSender, wg *sync.WaitGroup) baseRequestContext {
 	return baseRequestContext{
 		sim:             simCtx,
 		startProcessing: time.Now(),
 		wg:              wg,
-		httpReqCtx:      ctx,
+		respSender:      respSender,
 	}
 }
 
-func (b *baseRequestContext) httpRequestCtx() *fasthttp.RequestCtx {
-	return b.httpReqCtx
+func (b *baseRequestContext) responseSender() responseSender {
+	return b.respSender
 }
 
 func (b *baseRequestContext) startProcessingTime() time.Time {
@@ -118,7 +117,7 @@ func (b *baseRequestContext) validateContextWindow() (string, int) {
 	return "", fasthttp.StatusOK
 }
 
-func (reqCtx *baseRequestContext) handleRequest() (responseContext, string, *openaiserverapi.Error) {
+func (reqCtx *baseRequestContext) handleRequest() (responseContext, *openaiserverapi.Error) {
 	req := reqCtx.request()
 	model := req.GetModel()
 
@@ -133,17 +132,17 @@ func (reqCtx *baseRequestContext) handleRequest() (responseContext, string, *ope
 	}
 
 	if err := reqCtx.tokenize(); err != nil {
-		return nil, "", err
+		return nil, err
 	}
 
 	if errMsg, errCode := reqCtx.validateContextWindow(); errMsg != "" {
 		oaiServerError := openaiserverapi.NewError(errMsg, errCode, nil)
-		return nil, "", &oaiServerError
+		return nil, &oaiServerError
 	}
 
 	hitRate, oaiServerError := reqCtx.kvCacheOnRequestStart()
 	if oaiServerError != nil {
-		return nil, "", oaiServerError
+		return nil, oaiServerError
 	}
 
 	var finishReason string
@@ -163,7 +162,7 @@ func (reqCtx *baseRequestContext) handleRequest() (responseContext, string, *ope
 		sendUsageData := !req.IsStream() || req.IncludeUsage()
 		respCtx := req.createResponseContext(reqCtx.sim.getDisplayedModelName(model), &openaiserverapi.Tokenized{}, &finishReason,
 			&usageData, sendUsageData, logprobs, nil)
-		return respCtx, "", nil
+		return respCtx, nil
 	}
 
 	var responseTokens *openaiserverapi.Tokenized
@@ -175,9 +174,10 @@ func (reqCtx *baseRequestContext) handleRequest() (responseContext, string, *ope
 		completionTokens += responseTokens.Length()
 	}
 	if err != nil {
-		prefix := "failed to create response for " + req.asString()
+		prefix := "failed to create response for " + req.asString() + " "
 		reqCtx.sim.logger.Error(err, prefix)
-		return nil, prefix + err.Error(), nil
+		oaiServerError := openaiserverapi.NewError(prefix+err.Error(), fasthttp.StatusInternalServerError, nil)
+		return nil, &oaiServerError
 	}
 
 	numOfInputTokens := getNumberOfPromptTokens(req)
@@ -204,13 +204,12 @@ func (reqCtx *baseRequestContext) handleRequest() (responseContext, string, *ope
 	respCtx := req.createResponseContext(reqCtx.sim.getDisplayedModelName(model), responseTokens, &finishReason,
 		&usageData, sendUsageData, logprobs, toolCalls)
 
-	return respCtx, "", nil
+	return respCtx, nil
 }
 
 func (reqCtx *baseRequestContext) shouldReturnCacheThresholdFinishReason(req openaiserverapi.Request, hitRate float64) bool {
 	// Check for cache threshold finish reason header - this forces a cache_threshold finish reason
-	headerValue := string(reqCtx.httpRequestCtx().Request.Header.Peek(cacheThresholdFinishReasonHeader))
-	if parsedValue, err := strconv.ParseBool(headerValue); err == nil && parsedValue {
+	if req.CacheThresholdFinishReason() {
 		return true
 	}
 	// Check cache hit threshold if specified and KV cache is enabled
