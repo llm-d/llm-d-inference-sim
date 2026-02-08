@@ -41,9 +41,10 @@ func (t *textCompletionRequest) validate(toolsValidator *toolsValidator) (string
 	return validateRequest(t)
 }
 
-func (t *textCompletionRequest) buildRequestContext(simCtx *simContext, ctx *fasthttp.RequestCtx, wg *sync.WaitGroup) requestContext {
+func (t *textCompletionRequest) buildRequestContext(simCtx *simContext, respSender responseSender,
+	wg *sync.WaitGroup) requestContext {
 	reqCtx := &textCompletionReqCtx{
-		baseRequestContext: newBaseRequestContext(simCtx, ctx, wg),
+		baseRequestContext: newBaseRequestContext(simCtx, respSender, wg),
 		req:                t,
 	}
 	// wire textCompletionReqCtx into embedded requestContext interface
@@ -55,10 +56,10 @@ func (t *textCompletionRequest) asString() string {
 	return "text completion request (req id " + t.RequestID + ")"
 }
 
-func (t *textCompletionRequest) createResponseContext(displayModel string, responseTokens *openaiserverapi.Tokenized,
-	finishReason *string, usageData *openaiserverapi.Usage, sendUsageData bool, logprobs *int,
-	toolCalls []openaiserverapi.ToolCall) responseContext {
-	base := newBaseResponseContext(displayModel, responseTokens, finishReason, usageData, sendUsageData,
+func (t *textCompletionRequest) createResponseContext(reqCtx requestContext, displayModel string,
+	responseTokens *openaiserverapi.Tokenized, finishReason *string, usageData *openaiserverapi.Usage, sendUsageData bool,
+	logprobs *int, toolCalls []openaiserverapi.ToolCall) responseContext {
+	base := newBaseResponseContext(reqCtx, displayModel, responseTokens, finishReason, usageData, sendUsageData,
 		logprobs, t.GetRequestID(), t.IsDoRemotePrefill(), t.IsDoRemoteDecode(), t.GetNumberOfCachedPromptTokens())
 	return &textCompletionResponseCtx{
 		baseResponseContext: base,

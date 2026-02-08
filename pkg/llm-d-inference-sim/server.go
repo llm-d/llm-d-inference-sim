@@ -22,7 +22,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
-	"strconv"
 
 	"github.com/buaazp/fasthttprouter"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -121,12 +120,12 @@ func (s *VllmSimulator) getRequestID(ctx *fasthttp.RequestCtx) string {
 
 // HandleChatCompletions http handler for /v1/chat/completions
 func (s *VllmSimulator) HandleChatCompletions(ctx *fasthttp.RequestCtx) {
-	s.handleRequest(&chatCompletionRequest{}, ctx)
+	s.handleHTTPRequest(&chatCompletionRequest{}, ctx)
 }
 
 // HandleTextCompletions http handler for /v1/completions
 func (s *VllmSimulator) HandleTextCompletions(ctx *fasthttp.RequestCtx) {
-	s.handleRequest(&textCompletionRequest{}, ctx)
+	s.handleHTTPRequest(&textCompletionRequest{}, ctx)
 }
 
 // readTokenizeRequest reads and parses data from the body of the given request
@@ -151,7 +150,13 @@ func (s *VllmSimulator) HandleTokenize(ctx *fasthttp.RequestCtx) {
 
 	// Check that the request has only one input to tokenize
 	if req.Prompt != "" && req.Messages != nil {
-		s.sendError(ctx, openaiserverapi.NewError("both prompt and messages fields in tokenize request",
+		httpResponseSender := httpResponseSender{
+			baseResponseSender: baseResponseSender{
+				sim: &s.context,
+			},
+			ctx: ctx,
+		}
+		httpResponseSender.sendError(openaiserverapi.NewError("both prompt and messages fields in tokenize request",
 			fasthttp.StatusBadRequest, nil), false)
 		return
 	}
@@ -185,58 +190,6 @@ func (s *VllmSimulator) HandleLoadLora(ctx *fasthttp.RequestCtx) {
 func (s *VllmSimulator) HandleUnloadLora(ctx *fasthttp.RequestCtx) {
 	s.context.logger.V(logging.DEBUG).Info("Unload lora request received")
 	s.context.unloadLoraAdaptor(ctx)
-}
-
-// sendCompletionResponse sends a completion response
-func (s *VllmSimulator) sendCompletionResponse(ctx *fasthttp.RequestCtx, resp openaiserverapi.CompletionResponse) {
-	data, err := json.Marshal(resp)
-	if err != nil {
-		ctx.Error("Response body creation failed, "+err.Error(), fasthttp.StatusInternalServerError)
-		return
-	}
-	ctx.Response.Header.SetContentType("application/json")
-	ctx.Response.Header.SetStatusCode(fasthttp.StatusOK)
-	// Add pod and namespace information to response headers for testing/debugging
-	if s.pod != "" {
-		ctx.Response.Header.Add(podHeader, s.pod)
-		ctx.Response.Header.Add(portHeader, strconv.Itoa(s.context.config.Port))
-	}
-	if s.namespace != "" {
-		ctx.Response.Header.Add(namespaceHeader, s.namespace)
-	}
-	if s.context.config.EnableRequestIDHeaders {
-		if requestID := resp.GetRequestID(); requestID != "" {
-			ctx.Response.Header.Add(requestIDHeader, requestID)
-		}
-	}
-	ctx.Response.SetBody(data)
-}
-
-// sendError sends an error response for the current request
-// isInjected indicates if this is an injected failure for logging purposes
-func (s *VllmSimulator) sendError(ctx *fasthttp.RequestCtx, compErr openaiserverapi.Error, isInjected bool) {
-	if isInjected {
-		s.context.logger.V(logging.TRACE).Info("Injecting failure", "type", compErr.Type, "message", compErr.Message)
-	} else {
-		s.context.logger.Error(nil, compErr.Message)
-	}
-
-	errorResp := openaiserverapi.ErrorResponse{
-		Error: compErr,
-	}
-
-	data, err := json.Marshal(errorResp)
-	if err != nil {
-		ctx.Error(err.Error(), fasthttp.StatusInternalServerError)
-	} else {
-		ctx.SetContentType("application/json")
-		ctx.SetStatusCode(compErr.Code)
-		ctx.SetBody(data)
-	}
-}
-
-func (s *VllmSimulator) setBadRequestError(ctx *fasthttp.RequestCtx, message string) {
-	ctx.Error(message, fasthttp.StatusBadRequest)
 }
 
 // HandleModels handles /v1/models request according the data stored in the simulator

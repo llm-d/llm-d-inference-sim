@@ -68,10 +68,6 @@ type Request interface {
 	// GetFullPrompt returns the full prompt including system and user prompts
 	// in format compatible to responses custom dataset
 	GetFullPrompt() string
-	// GetPromptForEcho extracts the prompt from the request to be used for response in echo mode:
-	// for chat completion - the last user message is returned
-	// for text completion - the prompt field is retured
-	GetPromptForEcho() string
 	// ExtractMaxTokens extracts the max tokens from the request:
 	// for chat completion - max_completion_tokens field is used
 	// for text completion - max_tokens field is used
@@ -84,6 +80,11 @@ type Request interface {
 	TokenizedPrompt() *Tokenized
 	// SetTokenizedPrompt sets the tokenized prompt
 	SetTokenizedPrompt(tokenized *Tokenized)
+	// CacheThresholdFinishReason returns cacheThresholdFinishReason,  when true,
+	// forces a cache_threshold finish reason
+	CacheThresholdFinishReason() bool
+	// SetCacheThresholdFinishReason sets cacheThresholdFinishReason
+	SetCacheThresholdFinishReason(bool)
 }
 
 // baseCompletionRequest contains base completion request related information
@@ -106,6 +107,9 @@ type baseCompletionRequest struct {
 	// to proceed with request processing. If the actual cache hit rate is below this threshold,
 	// the request will return with cache_threshold finish reason.
 	CacheHitThreshold *float64 `json:"cache_hit_threshold,omitempty"`
+	// cacheThresholdFinishReason is a boolean value extracted from the request's HTTP header,
+	//  when true, forces a cache_threshold finish reason
+	cacheThresholdFinishReason bool
 	// tokenizedPrompt is the tokenized prompt
 	tokenizedPrompt *Tokenized
 }
@@ -141,6 +145,9 @@ type Tokenized struct {
 
 // Length returns the number of tokens of the Tokenized
 func (t *Tokenized) Length() int {
+	if len(t.Tokens) != 0 {
+		return len(t.Tokens)
+	}
 	return len(t.Strings)
 }
 
@@ -197,6 +204,17 @@ func (b *baseCompletionRequest) SetNumberOfCachedPromptTokens(cachedPromptTokens
 // GetCacheHitThreshold returns the cache hit threshold value
 func (b *baseCompletionRequest) GetCacheHitThreshold() *float64 {
 	return b.CacheHitThreshold
+}
+
+// CacheThresholdFinishReason returns cacheThresholdFinishReason,  when true,
+// forces a cache_threshold finish reason
+func (b *baseCompletionRequest) CacheThresholdFinishReason() bool {
+	return b.cacheThresholdFinishReason
+}
+
+// SetCacheThresholdFinishReason sets cacheThresholdFinishReason
+func (b *baseCompletionRequest) SetCacheThresholdFinishReason(value bool) {
+	b.cacheThresholdFinishReason = value
 }
 
 func (b *baseCompletionRequest) addRoleToMessage(role, msg string) string {
@@ -316,12 +334,6 @@ func (req *ChatCompletionRequest) GetFullPrompt() string {
 	return prompt
 }
 
-// GetPromptForEcho extracts the prompt from the request
-// for chat completion - the last user message is used as the prompt
-func (req *ChatCompletionRequest) GetPromptForEcho() string {
-	return req.GetLastUserMsg()
-}
-
 // ExtractMaxTokens extracts the max tokens from the request
 // for chat completion - max_completion_tokens field is used
 func (req *ChatCompletionRequest) ExtractMaxTokens() *int64 {
@@ -383,12 +395,6 @@ func (t *TextCompletionRequest) GetFullPrompt() string {
 	return t.addRoleToMessage(RoleUser, t.Prompt)
 }
 
-// GetPromptForEcho extracts the prompt from the request
-// for text completion - the prompt field is used
-func (req *TextCompletionRequest) GetPromptForEcho() string {
-	return req.GetPrompt()
-}
-
 // ExtractMaxTokens extracts the max tokens from the request
 // for text completion - max_tokens field is used
 func (req *TextCompletionRequest) ExtractMaxTokens() *int64 {
@@ -397,4 +403,15 @@ func (req *TextCompletionRequest) ExtractMaxTokens() *int64 {
 
 func (t *TextCompletionRequest) GetLogprobs() *int {
 	return t.Logprobs
+}
+
+func NewTextCompletionRequest(requestID string, stream bool, model string, maxTokens *int64) *TextCompletionRequest {
+	return &TextCompletionRequest{
+		baseCompletionRequest: baseCompletionRequest{
+			RequestID: requestID,
+			Stream:    stream,
+			Model:     model,
+		},
+		MaxTokens: maxTokens,
+	}
 }

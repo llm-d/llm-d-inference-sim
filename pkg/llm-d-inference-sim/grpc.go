@@ -24,6 +24,9 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 	"github.com/llm-d/llm-d-inference-sim/pkg/grpc/pb"
+	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
+	"github.com/valyala/fasthttp"
+
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/reflection"
@@ -32,92 +35,55 @@ import (
 
 // Submit a generation request (supports streaming)
 func (s *VllmSimulator) Generate(in *pb.GenerateRequest, out grpc.ServerStreamingServer[pb.GenerateResponse]) error {
-	var promptTokens []uint32
-	if in.GetTokenized() != nil {
-		promptTokens = in.GetTokenized().InputIds
+	req := s.pbRequestToRequest(in)
+	sender := &grpcResponseSender{
+		baseResponseSender: baseResponseSender{
+			sim: &s.context,
+		},
+		response: make(chan *grpcResponse, 1),
 	}
-	length := len(promptTokens)
 
-	var maxTokens *int64
-	if in.GetSamplingParams().MaxTokens != nil {
-		maxTokensValue := int64(*in.GetSamplingParams().MaxTokens)
-		maxTokens = &maxTokensValue
-	}
-	finishReason := common.FinishReason(maxTokens, length)
+	s.handleRequest(req, sender)
 
-	startPrefill := time.Now()
-	// time to first token delay
-	params := TTFTParams{
-		PromptTokens:       length,
-		CachedPromptTokens: 0,
-		DoRemotePrefill:    false,
-		RunningReqs:        s.context.metrics.nRunningReqs,
-	}
-	ttft := s.context.latencyCalculator.GetTimeToFirstToken(&params)
-	time.Sleep(ttft)
-	// report ttft in seconds
-	common.WriteToChannel(s.context.metrics.ttftChan, ttft.Seconds(), s.context.logger, "metrics.ttftChan")
-	common.WriteToChannel(s.context.metrics.reqPrefillTimeChan, time.Since(startPrefill).Seconds(), s.context.logger, "metrics.reqPrefillTimeChan")
-
-	startDecode := time.Now()
-	for i, token := range promptTokens {
-		if i != 0 {
-			interTokenLat := s.context.latencyCalculator.GetInterTokenLatency(
-				&InterTokenParams{RunningReqs: s.context.metrics.nRunningReqs})
-			time.Sleep(interTokenLat)
-			// report tpot in seconds
-			common.WriteToChannel(s.context.metrics.tpotChan, interTokenLat.Seconds(), s.context.logger, "metrics.tpotChan")
-		}
-		if in.Stream {
-			resp := &pb.GenerateResponse{
-				Response: &pb.GenerateResponse_Chunk{
-					Chunk: &pb.GenerateStreamChunk{
-						TokenIds:         []uint32{token},
-						PromptTokens:     uint32(length),
-						CompletionTokens: uint32(1),
-					},
-				},
+	for response := range sender.response {
+		select {
+		case <-out.Context().Done():
+			return out.Context().Err()
+		default:
+			// Send error
+			if response.err != nil {
+				return status.Errorf(extractGRPCCode(response.err), response.err.Message, response.err)
 			}
+			// Send response
+			var resp *pb.GenerateResponse
+			if in.Stream {
+				s.context.simulateTTFT(response.respCtx)
 
+				startDecode := time.Now()
+				for i, token := range response.respCtx.responseTokens().Tokens {
+					if i != 0 {
+						s.context.simulateInterTokenLatency()
+					}
+					resp := buildPBResponseChunk([]uint32{token}, response.respCtx)
+					if err := out.Send(resp); err != nil {
+						return status.Errorf(codes.Internal, "send failed: %v", err)
+					}
+				}
+				common.WriteToChannel(s.context.metrics.reqDecodeTimeChan, time.Since(startDecode).Seconds(), s.context.logger,
+					"metrics.reqDecodeTimeChan")
+
+				resp = buildPBResponseComplete(response.respCtx, true)
+				sender.responseSentCallback(response.respCtx.requestContext(), response.respCtx.displayModel())
+			} else {
+				resp = buildPBResponseComplete(response.respCtx, false)
+			}
 			if err := out.Send(resp); err != nil {
 				return status.Errorf(codes.Internal, "send failed: %v", err)
 			}
+			response.respCtx.done()
+			return nil
 		}
 	}
-	common.WriteToChannel(s.context.metrics.reqDecodeTimeChan, time.Since(startDecode).Seconds(), s.context.logger, "metrics.reqDecodeTimeChan")
-
-	if in.Stream {
-		resp := &pb.GenerateResponse{
-			Response: &pb.GenerateResponse_Complete{
-				Complete: &pb.GenerateComplete{
-					OutputIds:        []uint32{},
-					PromptTokens:     uint32(length),
-					CompletionTokens: uint32(0),
-					FinishReason:     finishReason,
-				},
-			},
-		}
-
-		if err := out.Send(resp); err != nil {
-			return status.Errorf(codes.Internal, "send failed: %v", err)
-		}
-	} else {
-		resp := &pb.GenerateResponse{
-			Response: &pb.GenerateResponse_Complete{
-				Complete: &pb.GenerateComplete{
-					OutputIds:        promptTokens,
-					PromptTokens:     uint32(length),
-					CompletionTokens: uint32(length),
-					FinishReason:     finishReason,
-				},
-			},
-		}
-
-		if err := out.Send(resp); err != nil {
-			return status.Errorf(codes.Internal, "send failed: %v", err)
-		}
-	}
-
 	return nil
 }
 
@@ -170,5 +136,87 @@ func (s *VllmSimulator) startGRPC(ctx context.Context, listener net.Listener) er
 			s.context.logger.Error(err, "gRPC server failed")
 		}
 		return err
+	}
+}
+
+func (s *VllmSimulator) pbRequestToRequest(in *pb.GenerateRequest) *textCompletionRequest {
+	var maxTokens *int64
+	if in.GetSamplingParams() != nil && in.GetSamplingParams().MaxTokens != nil {
+		maxTokensValue := int64(*in.GetSamplingParams().MaxTokens)
+		maxTokens = &maxTokensValue
+	}
+	req := openaiserverapi.NewTextCompletionRequest(in.GetRequestId(), in.GetStream(),
+		s.context.config.Model, maxTokens)
+
+	if in.GetTokenized() != nil {
+		prompt := &openaiserverapi.Tokenized{}
+		prompt.Tokens = in.GetTokenized().InputIds
+		req.SetTokenizedPrompt(prompt)
+	} else {
+		req.Prompt = in.GetText()
+	}
+
+	return &textCompletionRequest{TextCompletionRequest: *req}
+}
+
+func buildPBResponseChunk(tokens []uint32, respCtx responseContext) *pb.GenerateResponse {
+	return &pb.GenerateResponse{
+		Response: &pb.GenerateResponse_Chunk{
+			Chunk: &pb.GenerateStreamChunk{
+				TokenIds:         tokens,
+				PromptTokens:     uint32(respCtx.usageData().PromptTokens),
+				CachedTokens:     uint32(respCtx.numberCachedPromptTokens()),
+				CompletionTokens: uint32(len(tokens)),
+			},
+		},
+	}
+}
+
+func buildPBResponseComplete(respCtx responseContext, lastChunkInStream bool) *pb.GenerateResponse {
+	var outputIds []uint32
+	if !lastChunkInStream {
+		outputIds = respCtx.responseTokens().Tokens
+	}
+	var completionTokens uint32
+	if !lastChunkInStream {
+		completionTokens = uint32(respCtx.usageData().CompletionTokens)
+	}
+	return &pb.GenerateResponse{
+		Response: &pb.GenerateResponse_Complete{
+			Complete: &pb.GenerateComplete{
+				OutputIds:        outputIds,
+				PromptTokens:     uint32(respCtx.usageData().PromptTokens),
+				CompletionTokens: completionTokens,
+				CachedTokens:     uint32(respCtx.numberCachedPromptTokens()),
+				FinishReason:     *respCtx.finishReason(),
+			},
+		},
+	}
+}
+
+func extractGRPCCode(err *openaiserverapi.Error) codes.Code {
+	switch err.Code {
+	case fasthttp.StatusBadRequest:
+		return codes.InvalidArgument
+	case fasthttp.StatusUnauthorized:
+		return codes.Unauthenticated
+	case fasthttp.StatusForbidden:
+		return codes.PermissionDenied
+	case fasthttp.StatusNotFound:
+		return codes.NotFound
+	case fasthttp.StatusConflict:
+		return codes.Aborted
+	case fasthttp.StatusTooManyRequests:
+		return codes.ResourceExhausted
+	case fasthttp.StatusNotImplemented:
+		return codes.Unimplemented
+	case fasthttp.StatusServiceUnavailable:
+		return codes.Unavailable
+	case fasthttp.StatusGatewayTimeout:
+		return codes.DeadlineExceeded
+	case fasthttp.StatusInternalServerError:
+		return codes.Internal
+	default:
+		return codes.Unknown
 	}
 }
