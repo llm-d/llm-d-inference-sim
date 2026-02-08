@@ -56,10 +56,10 @@ func (t *textCompletionRequest) asString() string {
 	return "text completion request (req id " + t.RequestID + ")"
 }
 
-func (t *textCompletionRequest) createResponseContext(displayModel string, responseTokens *openaiserverapi.Tokenized,
-	finishReason *string, usageData *openaiserverapi.Usage, sendUsageData bool, logprobs *int,
-	toolCalls []openaiserverapi.ToolCall) responseContext {
-	base := newBaseResponseContext(displayModel, responseTokens, finishReason, usageData, sendUsageData,
+func (t *textCompletionRequest) createResponseContext(reqCtx requestContext, displayModel string,
+	responseTokens *openaiserverapi.Tokenized, finishReason *string, usageData *openaiserverapi.Usage, sendUsageData bool,
+	logprobs *int, toolCalls []openaiserverapi.ToolCall) responseContext {
+	base := newBaseResponseContext(reqCtx, displayModel, responseTokens, finishReason, usageData, sendUsageData,
 		logprobs, t.GetRequestID(), t.IsDoRemotePrefill(), t.IsDoRemoteDecode(), t.GetNumberOfCachedPromptTokens())
 	return &textCompletionResponseCtx{
 		baseResponseContext: base,

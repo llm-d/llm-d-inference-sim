@@ -79,7 +79,7 @@ func (s *VllmSimulator) processRequestAsync(reqCtx requestContext, wg *sync.Wait
 	} else {
 		respCtx.setWG(wg)
 		if req.IsStream() {
-			reqCtx.responseSender().sendStreamingResponse(reqCtx, respCtx)
+			reqCtx.responseSender().sendStreamingResponse(respCtx)
 		} else {
 			s.sendResponse(reqCtx, respCtx)
 		}

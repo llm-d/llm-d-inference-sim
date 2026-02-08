@@ -31,7 +31,7 @@ type requestBuilder interface {
 	validate(toolsValidator *toolsValidator) (string, int)
 	buildRequestContext(simCtx *simContext, respSender responseSender, wg *sync.WaitGroup) requestContext
 	asString() string
-	createResponseContext(displayModel string, responseTokens *openaiserverapi.Tokenized, finishReason *string,
+	createResponseContext(reqCtx requestContext, displayModel string, responseTokens *openaiserverapi.Tokenized, finishReason *string,
 		usageData *openaiserverapi.Usage, sendUsageData bool, logprobs *int, toolCalls []openaiserverapi.ToolCall) responseContext
 }
 
@@ -160,8 +160,8 @@ func (reqCtx *baseRequestContext) handleRequest() (responseContext, *openaiserve
 			logprobs = req.GetLogprobs()
 		}
 		sendUsageData := !req.IsStream() || req.IncludeUsage()
-		respCtx := req.createResponseContext(reqCtx.sim.getDisplayedModelName(model), &openaiserverapi.Tokenized{}, &finishReason,
-			&usageData, sendUsageData, logprobs, nil)
+		respCtx := req.createResponseContext(reqCtx, reqCtx.sim.getDisplayedModelName(model), &openaiserverapi.Tokenized{},
+			&finishReason, &usageData, sendUsageData, logprobs, nil)
 		return respCtx, nil
 	}
 
@@ -201,7 +201,7 @@ func (reqCtx *baseRequestContext) handleRequest() (responseContext, *openaiserve
 		finishReason = common.RemoteDecodeFinishReason
 	}
 
-	respCtx := req.createResponseContext(reqCtx.sim.getDisplayedModelName(model), responseTokens, &finishReason,
+	respCtx := req.createResponseContext(reqCtx, reqCtx.sim.getDisplayedModelName(model), responseTokens, &finishReason,
 		&usageData, sendUsageData, logprobs, toolCalls)
 
 	return respCtx, nil

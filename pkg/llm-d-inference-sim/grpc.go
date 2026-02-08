@@ -40,79 +40,47 @@ func (s *VllmSimulator) Generate(in *pb.GenerateRequest, out grpc.ServerStreamin
 		baseResponseSender: baseResponseSender{
 			sim: &s.context,
 		},
-		info: make(chan *grpcInfo, 1),
+		response: make(chan *grpcResponse, 1),
 	}
 
 	s.handleRequest(req, sender)
 
-	for info := range sender.info {
+	for response := range sender.response {
 		select {
 		case <-out.Context().Done():
 			return out.Context().Err()
 		default:
 			// Send error
-			if info.err != nil {
-				return status.Errorf(extractGRPCCode(info.err), info.err.Message, info.err)
+			if response.err != nil {
+				return status.Errorf(extractGRPCCode(response.err), response.err.Message, response.err)
 			}
 			// Send response
 			var resp *pb.GenerateResponse
 			if in.Stream {
-				s.context.simulateTTFT(info.respCtx)
+				s.context.simulateTTFT(response.respCtx)
 
 				startDecode := time.Now()
-				for i, token := range info.respCtx.responseTokens().Tokens {
+				for i, token := range response.respCtx.responseTokens().Tokens {
 					if i != 0 {
 						s.context.simulateInterTokenLatency()
 					}
-					if in.Stream {
-						resp := &pb.GenerateResponse{
-							Response: &pb.GenerateResponse_Chunk{
-								Chunk: &pb.GenerateStreamChunk{
-									TokenIds:         []uint32{token},
-									PromptTokens:     uint32(info.respCtx.usageData().PromptTokens),
-									CachedTokens:     uint32(info.respCtx.numberCachedPromptTokens()),
-									CompletionTokens: uint32(1),
-								},
-							},
-						}
-
-						if err := out.Send(resp); err != nil {
-							return status.Errorf(codes.Internal, "send failed: %v", err)
-						}
+					resp := buildPBResponseChunk([]uint32{token}, response.respCtx)
+					if err := out.Send(resp); err != nil {
+						return status.Errorf(codes.Internal, "send failed: %v", err)
 					}
 				}
 				common.WriteToChannel(s.context.metrics.reqDecodeTimeChan, time.Since(startDecode).Seconds(), s.context.logger,
 					"metrics.reqDecodeTimeChan")
 
-				resp = &pb.GenerateResponse{
-					Response: &pb.GenerateResponse_Complete{
-						Complete: &pb.GenerateComplete{
-							OutputIds:        []uint32{},
-							PromptTokens:     uint32(info.respCtx.usageData().PromptTokens),
-							CachedTokens:     uint32(info.respCtx.numberCachedPromptTokens()),
-							CompletionTokens: uint32(0),
-							FinishReason:     *info.respCtx.finishReason(),
-						},
-					},
-				}
-				sender.responseSentCallback(info.reqCtx, info.respCtx.displayModel())
+				resp = buildPBResponseComplete(response.respCtx, true)
+				sender.responseSentCallback(response.respCtx.requestContext(), response.respCtx.displayModel())
 			} else {
-				resp = &pb.GenerateResponse{
-					Response: &pb.GenerateResponse_Complete{
-						Complete: &pb.GenerateComplete{
-							OutputIds:        info.respCtx.responseTokens().Tokens,
-							PromptTokens:     uint32(info.respCtx.usageData().PromptTokens),
-							CompletionTokens: uint32(info.respCtx.usageData().CompletionTokens),
-							CachedTokens:     uint32(info.respCtx.numberCachedPromptTokens()),
-							FinishReason:     *info.respCtx.finishReason(),
-						},
-					},
-				}
+				resp = buildPBResponseComplete(response.respCtx, false)
 			}
 			if err := out.Send(resp); err != nil {
 				return status.Errorf(codes.Internal, "send failed: %v", err)
 			}
-			info.respCtx.done()
+			response.respCtx.done()
 			return nil
 		}
 	}
@@ -189,6 +157,41 @@ func (s *VllmSimulator) pbRequestToRequest(in *pb.GenerateRequest) *textCompleti
 	}
 
 	return &textCompletionRequest{TextCompletionRequest: *req}
+}
+
+func buildPBResponseChunk(tokens []uint32, respCtx responseContext) *pb.GenerateResponse {
+	return &pb.GenerateResponse{
+		Response: &pb.GenerateResponse_Chunk{
+			Chunk: &pb.GenerateStreamChunk{
+				TokenIds:         tokens,
+				PromptTokens:     uint32(respCtx.usageData().PromptTokens),
+				CachedTokens:     uint32(respCtx.numberCachedPromptTokens()),
+				CompletionTokens: uint32(len(tokens)),
+			},
+		},
+	}
+}
+
+func buildPBResponseComplete(respCtx responseContext, lastChunkInStream bool) *pb.GenerateResponse {
+	var outputIds []uint32
+	if !lastChunkInStream {
+		outputIds = respCtx.responseTokens().Tokens
+	}
+	var completionTokens uint32
+	if !lastChunkInStream {
+		completionTokens = uint32(respCtx.usageData().CompletionTokens)
+	}
+	return &pb.GenerateResponse{
+		Response: &pb.GenerateResponse_Complete{
+			Complete: &pb.GenerateComplete{
+				OutputIds:        outputIds,
+				PromptTokens:     uint32(respCtx.usageData().PromptTokens),
+				CompletionTokens: completionTokens,
+				CachedTokens:     uint32(respCtx.numberCachedPromptTokens()),
+				FinishReason:     *respCtx.finishReason(),
+			},
+		},
+	}
 }
 
 func extractGRPCCode(err *openaiserverapi.Error) codes.Code {

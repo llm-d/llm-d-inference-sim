@@ -68,10 +68,10 @@ func (c *chatCompletionRequest) asString() string {
 	return "chat completion request (req id " + c.RequestID + ")"
 }
 
-func (c *chatCompletionRequest) createResponseContext(displayModel string, responseTokens *openaiserverapi.Tokenized,
-	finishReason *string, usageData *openaiserverapi.Usage, sendUsageData bool, logprobs *int,
-	toolCalls []openaiserverapi.ToolCall) responseContext {
-	base := newBaseResponseContext(displayModel, responseTokens, finishReason, usageData, sendUsageData,
+func (c *chatCompletionRequest) createResponseContext(reqCtx requestContext, displayModel string,
+	responseTokens *openaiserverapi.Tokenized, finishReason *string, usageData *openaiserverapi.Usage,
+	sendUsageData bool, logprobs *int, toolCalls []openaiserverapi.ToolCall) responseContext {
+	base := newBaseResponseContext(reqCtx, displayModel, responseTokens, finishReason, usageData, sendUsageData,
 		logprobs, c.GetRequestID(), c.IsDoRemotePrefill(), c.IsDoRemoteDecode(), c.GetNumberOfCachedPromptTokens())
 	return &chatCompletionResponseCtx{
 		baseResponseContext: base,

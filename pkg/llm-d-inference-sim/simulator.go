@@ -438,7 +438,7 @@ func (s *VllmSimulator) sendResponse(reqCtx requestContext, respCtx responseCont
 		common.WriteToChannel(s.context.metrics.reqDecodeTimeChan, time.Since(startDecode).Seconds(), s.context.logger, "metrics.reqDecodeTimeChan")
 	}
 
-	reqCtx.responseSender().sendResponse(resp, respCtx, reqCtx)
+	reqCtx.responseSender().sendResponse(resp, respCtx)
 	reqCtx.responseSender().responseSentCallback(reqCtx, respCtx.displayModel())
 }
 

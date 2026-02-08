@@ -32,7 +32,7 @@ import (
 // sendStreamingResponse creates and sends a streaming response for completion requests of both types (text and chat)
 // response content is wrapped according SSE format
 // First token is send after timeToFirstToken milliseconds, every other token is sent after interTokenLatency milliseconds
-func (h *httpResponseSender) sendStreamingResponse(reqCtx requestContext, respCtx responseContext) {
+func (h *httpResponseSender) sendStreamingResponse(respCtx responseContext) {
 	ctx := h.ctx
 	ctx.SetContentType("text/event-stream")
 	ctx.SetStatusCode(fasthttp.StatusOK)
@@ -95,7 +95,7 @@ func (h *httpResponseSender) sendStreamingResponse(reqCtx requestContext, respCt
 			ctx.Error("Sending last stream chunk failed, "+err.Error(), fasthttp.StatusInternalServerError)
 			return
 		}
-		h.responseSentCallback(reqCtx, respCtx.displayModel())
+		h.responseSentCallback(respCtx.requestContext(), respCtx.displayModel())
 		respCtx.done()
 	})
 }
