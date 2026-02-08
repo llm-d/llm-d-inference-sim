@@ -172,7 +172,7 @@ var _ = Describe("gRPC", func() {
 					Expect(resp).NotTo(BeNil())
 					Expect(resp.OutputIds).To(HaveLen(5))
 				} else {
-					Expect(len(out.responses)).To(BeNumerically(">=", 1))
+					Expect(out.responses).ToNot(BeEmpty())
 				}
 			}
 		},
@@ -191,6 +191,7 @@ var _ = Describe("gRPC", func() {
 			"cmd", "--model", testModel,
 			"--failure-injection-rate", "100",
 		}, nil)
+		Expect(err).NotTo(HaveOccurred())
 		req := pb.GenerateRequest{
 			RequestId: "123",
 			Input: &pb.GenerateRequest_Tokenized{

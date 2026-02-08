@@ -218,7 +218,6 @@ type grpcInfo struct {
 	injected bool
 	respCtx  responseContext
 	reqCtx   requestContext
-	wg       *sync.WaitGroup
 }
 
 type grpcResponseSender struct {
