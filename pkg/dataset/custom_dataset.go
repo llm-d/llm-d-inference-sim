@@ -60,13 +60,14 @@ func (d *CustomDataset) getPromptHashHex(hashBytes []byte) string {
 // - shorter or equal length to maxLen
 // - exact maxLen length
 // - longer than maxLen
-func (d *CustomDataset) categorizeResponses(responses [][]string, maxLen int) (shorterOrEqLen [][]string, equalLen [][]string, longerLen [][]string) {
+func (d *CustomDataset) categorizeResponses(responses []openaiserverapi.Tokenized, maxLen int) (shorterOrEqLen []openaiserverapi.Tokenized,
+	equalLen []openaiserverapi.Tokenized, longerLen []openaiserverapi.Tokenized) {
 	for _, respTokens := range responses {
 		switch {
-		case len(respTokens) == maxLen:
+		case respTokens.Length() == maxLen:
 			shorterOrEqLen = append(shorterOrEqLen, respTokens)
 			equalLen = append(equalLen, respTokens)
-		case len(respTokens) < maxLen:
+		case respTokens.Length() < maxLen:
 			shorterOrEqLen = append(shorterOrEqLen, respTokens)
 		default:
 			longerLen = append(longerLen, respTokens)
@@ -76,11 +77,11 @@ func (d *CustomDataset) categorizeResponses(responses [][]string, maxLen int) (s
 }
 
 // getRandomResponse returns a randomly selected element from the given array, array is not empty
-func (d *CustomDataset) getRandomResponse(responses [][]string) []string {
+func (d *CustomDataset) getRandomResponse(responses []openaiserverapi.Tokenized) openaiserverapi.Tokenized {
 	return responses[d.random.RandomInt(0, len(responses)-1)]
 }
 
-// GetTokens returns tokens and finishReason for the given request:
+// GetResponseTokens returns tokens and finishReason for the given request:
 // Calculate maximum length of response (basedon max-tokens or max-completions-tokens or model-len)
 // If dataset contains responses for the given prompt, and there are responses with length <=
 // max response length - use random one from the list,
@@ -91,9 +92,9 @@ func (d *CustomDataset) getRandomResponse(responses [][]string) []string {
 // and trim it to the required length
 // if ignore_eos=true the response always will have the max response len tokens, missing tokens
 // are randomly selected from the hard-coded collection
-func (d *CustomDataset) GetTokens(req openaiserverapi.Request) (*openaiserverapi.Tokenized, string, error) {
+func (d *CustomDataset) GetResponseTokens(req openaiserverapi.Request) (*openaiserverapi.Tokenized, string, error) {
 	maxResponseLen, _ := d.calculateResponseMaxLen(req)
-	var responseTokens []string
+	var responseTokens openaiserverapi.Tokenized
 
 	// get all records for the hashes prompt
 	promptHash := d.getPromptHash(req)
@@ -116,11 +117,12 @@ func (d *CustomDataset) GetTokens(req openaiserverapi.Request) (*openaiserverapi
 				responseTokens = d.getRandomResponse(equalLenResponses)
 			case len(longerLenResponses) > 0:
 				// has responses longer than required - return randomly selected trimmed response
-				responseTokens = d.getRandomResponse(longerLenResponses)[:maxResponseLen]
+				responseTokens = d.getRandomResponse(longerLenResponses)
+				responseTokens.Trim(maxResponseLen)
 			default:
 				// all responses are shorter than required, select randomly and pad with random tokens
 				responseTokens = d.getRandomResponse(shorterOrEqLenResponses)
-				responseTokens = append(responseTokens, d.generatePresetRandomTokens(maxResponseLen-len(responseTokens)).Strings...)
+				responseTokens.Append(d.generatePresetRandomTokens(maxResponseLen - responseTokens.Length()))
 			}
 		} else {
 			// has responses for the request, return response shorter or equal to the maxReponsesLen
@@ -130,7 +132,8 @@ func (d *CustomDataset) GetTokens(req openaiserverapi.Request) (*openaiserverapi
 				responseTokens = d.getRandomResponse(shorterOrEqLenResponses)
 			} else {
 				// all responses are longer than required, use randomly selected trimmed response
-				responseTokens = d.getRandomResponse(longerLenResponses)[:maxResponseLen]
+				responseTokens = d.getRandomResponse(longerLenResponses)
+				responseTokens.Trim(maxResponseLen)
 			}
 		}
 	} else {
@@ -153,20 +156,21 @@ func (d *CustomDataset) GetTokens(req openaiserverapi.Request) (*openaiserverapi
 			}
 		}
 		// if response has too much tokens, trim it
-		if len(randomResponses[0]) > maxResponseLen {
-			responseTokens = randomResponses[0][:maxResponseLen]
+		if randomResponses[0].Length() > maxResponseLen {
+			responseTokens = randomResponses[0]
+			responseTokens.Trim(maxResponseLen)
 		} else {
 			responseTokens = randomResponses[0]
 			if req.GetIgnoreEOS() {
-				responseTokens = append(responseTokens, d.generatePresetRandomTokens(maxResponseLen-len(responseTokens)).Strings...)
+				responseTokens.Append(d.generatePresetRandomTokens(maxResponseLen - responseTokens.Length()))
 			}
 		}
 	}
 
 	finishReason := common.StopFinishReason
-	if len(responseTokens) == maxResponseLen {
+	if responseTokens.Length() == maxResponseLen {
 		finishReason = common.LengthFinishReason
 	}
 
-	return &openaiserverapi.Tokenized{Strings: responseTokens}, finishReason, nil
+	return &responseTokens, finishReason, nil
 }

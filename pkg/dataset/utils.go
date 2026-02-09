@@ -6,13 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"hash"
 	"os"
 )
 
-var hasher hash.Hash = sha256.New()
-
 func getInputHash(tokens []uint32) []byte {
+	hasher := sha256.New()
+
 	buf := make([]byte, 4)
 	for _, tokenID := range tokens {
 		binary.LittleEndian.PutUint32(buf, tokenID)

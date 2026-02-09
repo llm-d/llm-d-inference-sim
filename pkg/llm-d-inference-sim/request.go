@@ -171,7 +171,7 @@ func (reqCtx *baseRequestContext) handleRequest() (responseContext, string, *ope
 	if toolCalls == nil && err == nil {
 		// Either no tool calls were defined, or we randomly chose not to create tool calls,
 		// so we generate a response text.
-		responseTokens, finishReason, err = reqCtx.sim.dataset.GetTokens(req)
+		responseTokens, finishReason, err = reqCtx.sim.dataset.GetResponseTokens(req)
 		completionTokens += responseTokens.Length()
 	}
 	if err != nil {

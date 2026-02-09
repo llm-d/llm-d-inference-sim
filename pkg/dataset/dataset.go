@@ -45,18 +45,18 @@ var completionFakeResponses = []string{
 type Dataset interface {
 	// Close closes the dataset
 	Close() error
-	// GetTokens returns tokens for the given request
-	GetTokens(req openaiserverapi.Request) (*openaiserverapi.Tokenized, string, error)
+	// GetResponseTokens returns ressponse tokens for the given request
+	GetResponseTokens(req openaiserverapi.Request) (*openaiserverapi.Tokenized, string, error)
 }
 
 type EchoDataset struct{}
 
-// GetTokens returns response tokens when simulator is in echo mode
+// GetResponseTokens returns response tokens when simulator is in echo mode
 // for /completion request the prompt is returned
 // for /chat/completion request the last user message is returned (if there is no user messages, last message is used)
 // if max-tokens is defined in the request and response's length is >= it value, finish reason is set to LENGTH,
 // otherwise finish reason is STOP
-func (ed *EchoDataset) GetTokens(req openaiserverapi.Request) (*openaiserverapi.Tokenized, string, error) {
+func (ed *EchoDataset) GetResponseTokens(req openaiserverapi.Request) (*openaiserverapi.Tokenized, string, error) {
 	tokens := req.TokenizedPrompt()
 	maxTokens := req.GetMaxCompletionTokens()
 	return tokens, common.FinishReason(maxTokens, len(tokens.Tokens)), nil
@@ -101,8 +101,8 @@ func (d *DefaultDataset) Close() error {
 	return nil
 }
 
-// GetTokens returns tokens and finishReason for the given request
-func (d *DefaultDataset) GetTokens(req openaiserverapi.Request) (*openaiserverapi.Tokenized, string, error) {
+// GetResponseTokens returns response tokens and finishReason for the given request
+func (d *DefaultDataset) GetResponseTokens(req openaiserverapi.Request) (*openaiserverapi.Tokenized, string, error) {
 	maxRespTokens, isMaxTokensInReq := d.calculateResponseMaxLen(req)
 
 	numOfRespTokens := 0
@@ -125,7 +125,8 @@ func (d *DefaultDataset) GetTokens(req openaiserverapi.Request) (*openaiserverap
 		finishReason = common.LengthFinishReason
 	}
 
-	return d.generatePresetRandomTokens(numOfRespTokens), finishReason, nil
+	respTokens := d.generatePresetRandomTokens(numOfRespTokens)
+	return &respTokens, finishReason, nil
 }
 
 // calculateResponseMaxLen - calculates maximum length of a response to be randomly chosen from the dataset
@@ -160,7 +161,7 @@ func (d *DefaultDataset) getRandomResponseLenByGaussian(maxLen int) int {
 // if number of tokens is lower than required - select another sentence,
 // continue until the required number of tokens is achieved,
 // returned exactly <numOfTokens> tokens
-func (d DefaultDataset) generatePresetRandomTokens(numOfTokens int) *openaiserverapi.Tokenized {
+func (d DefaultDataset) generatePresetRandomTokens(numOfTokens int) openaiserverapi.Tokenized {
 	result := openaiserverapi.Tokenized{
 		Tokens:  make([]uint32, 0),
 		Strings: make([]string, 0),
@@ -182,5 +183,5 @@ func (d DefaultDataset) generatePresetRandomTokens(numOfTokens int) *openaiserve
 		result.Strings = append(result.Strings, strTokens...)
 	}
 
-	return &result
+	return result
 }
