@@ -8,7 +8,4 @@ vendor
 .DS_Store
 *.test
 manifests/dev-config.yaml
-pkg/dataset/.llm-d
 pkg/llm-d-inference-sim/tests-tmp/
-pkg/llm-d-inference-sim/.llm-d/
-

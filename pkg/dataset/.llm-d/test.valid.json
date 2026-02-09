@@ -1,0 +1,154 @@
+[
+  {
+    "prompt_hash": "cyBdLkMuaxF+C3XN3erAGe6GP0tST3W/V8FcWkekReQ=",
+    "n_gen_tokens": 3,
+    "gen_tokens": {
+      "Tokens": [
+        9707,
+        3738,
+        0
+      ],
+      "Strings": [
+        "Hello",
+        " human",
+        "!"
+      ]
+    },
+    "input_text": "1, 2, 3, 4, 5, 6, 7, 8, 9, 10",
+    "generated": "Hello human!"
+  },
+  {
+    "prompt_hash": "4dvS3R0hDo03xwfjGJz8Er1Ndy1O4utIpceEkkIWoCw=",
+    "n_gen_tokens": 3,
+    "gen_tokens": {
+      "Tokens": [
+        9707,
+        3738,
+        0
+      ],
+      "Strings": [
+        "Hello",
+        " human",
+        "!"
+      ]
+    },
+    "input_text": "### user:\n1, 2, 3, 4, 5, 6, 7, 8, 9, 10\n",
+    "generated": "Hello human!"
+  },
+  {
+    "prompt_hash": "kNs1tIvxaPIPo2U3hh4dZPrGrzciZ67J0QQ3o/g/i+w=",
+    "n_gen_tokens": 15,
+    "gen_tokens": {
+      "Tokens": [
+        574,
+        374,
+        17847,
+        1293,
+        2033,
+        11,
+        432,
+        1265,
+        6644,
+        518,
+        3245,
+        220,
+        16,
+        15,
+        11211
+      ],
+      "Strings": [
+        "this",
+        " is",
+        " assistant",
+        " long",
+        " response",
+        ",",
+        " it",
+        " should",
+        " contain",
+        " at",
+        " least",
+        " ",
+        "1",
+        "0",
+        " tokens"
+      ]
+    },
+    "input_text": "Hello world!",
+    "generated": "this is assistant long response, it should contain at least 10 tokens"
+  },
+  {
+    "prompt_hash": "diTAUqVRYnYROhk06XBP8hd22qEGr5TbUDY09BGO6Go=",
+    "n_gen_tokens": 15,
+    "gen_tokens": {
+      "Tokens": [
+        574,
+        374,
+        17847,
+        1293,
+        2033,
+        11,
+        432,
+        1265,
+        6644,
+        518,
+        3245,
+        220,
+        16,
+        15,
+        11211
+      ],
+      "Strings": [
+        "this",
+        " is",
+        " assistant",
+        " long",
+        " response",
+        ",",
+        " it",
+        " should",
+        " contain",
+        " at",
+        " least",
+        " ",
+        "1",
+        "0",
+        " tokens"
+      ]
+    },
+    "input_text": "### user:\nHello world!\n",
+    "generated": "this is assistant long response, it should contain at least 10 tokens"
+  },
+  {
+    "prompt_hash": "c3Z4wSYAHxrs/f74yEA8I1xfF8eIUa9Gell/BX/BTfw=",
+    "n_gen_tokens": 2,
+    "gen_tokens": {
+      "Tokens": [
+        8676,
+        2033
+      ],
+      "Strings": [
+        "short",
+        " response"
+      ]
+    },
+    "input_text": "Hello world again",
+    "generated": "short response"
+  },
+  {
+    "prompt_hash": "BnuJFS3uBHxm5Tkm9H1lNmUJcprSxajh0eLbsF8uq0E=",
+    "n_gen_tokens": 2,
+    "gen_tokens": {
+      "Tokens": [
+        8676,
+        2033
+      ],
+      "Strings": [
+        "short",
+        " response"
+      ]
+    },
+    "input_text": "### user:\nHello world!\n### assistant:\nthis is assistant long response, it should contain at least 10 tokens\n### user:\nHello world again\n",
+    "generated": "short response"
+  }
+]

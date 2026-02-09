@@ -1,0 +1,36 @@
+[
+  {
+    "id": "001",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "1, 2, 3, 4, 5, 6, 7, 8, 9, 10"
+      },
+      {
+        "from": "gpt",
+        "value": "Hello human!"
+      }
+    ]
+  },
+  {
+    "id": "002",
+    "conversations": [
+      {
+        "from": "human",
+        "value": "Hello world!"
+      },
+      {
+        "from": "gpt",
+        "value": "this is assistant long response, it should contain at least 10 tokens"
+      },
+      {
+        "from": "human",
+        "value": "Hello world again"
+      },
+      {
+        "from": "gpt",
+        "value": "short response"
+      }
+    ]
+  }
+]
