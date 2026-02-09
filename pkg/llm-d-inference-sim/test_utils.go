@@ -253,7 +253,8 @@ func getOpenAIClientAndChatParams(client option.HTTPClient, model string, messag
 	streaming bool) (openai.Client, openai.ChatCompletionNewParams) {
 	openaiclient := openai.NewClient(
 		option.WithBaseURL(baseURL),
-		option.WithHTTPClient(client))
+		option.WithHTTPClient(client),
+		option.WithMaxRetries(0))
 
 	params := openai.ChatCompletionNewParams{
 		Messages: []openai.ChatCompletionMessageParamUnion{
@@ -272,7 +273,8 @@ func getOpenAIClientAndChatParams(client option.HTTPClient, model string, messag
 func getOpenAIClientAndTextParams(client option.HTTPClient, model string, message string, streaming bool) (openai.Client, openai.CompletionNewParams) {
 	openaiclient := openai.NewClient(
 		option.WithBaseURL(baseURL),
-		option.WithHTTPClient(client))
+		option.WithHTTPClient(client),
+		option.WithMaxRetries(0))
 
 	params := openai.CompletionNewParams{
 		Prompt: openai.CompletionNewParamsPromptUnion{OfString: param.Opt[string]{Value: message}},

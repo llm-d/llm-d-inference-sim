@@ -145,7 +145,7 @@ func (s *simContext) createAndRegisterPrometheus(ctx context.Context) error {
 		return err
 	}
 
-	s.metrics.tpotChan = make(chan float64, maxNumberOfRequests)
+	s.metrics.tpotChan = make(chan float64, maxNumberOfRequests*s.config.MaxModelLen)
 	go s.tpotUpdater(ctx)
 
 	// Register inter_token_latency_seconds (new standard since vLLM 0.11)

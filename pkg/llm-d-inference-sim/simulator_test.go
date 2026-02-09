@@ -34,6 +34,7 @@ import (
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
 	"github.com/openai/openai-go/v3/packages/param"
+	"github.com/valyala/fasthttp"
 )
 
 const invalidMaxTokensErrMsg = "Max completion tokens and max tokens should be positive"
@@ -1082,6 +1083,61 @@ var _ = Describe("Simulator", func() {
 				globalThreshold := 0.9
 				testSimpleRequestWithKVCacheDisabled(nil, &globalThreshold)
 			})
+		})
+	})
+
+	Context("errors", func() {
+		It("Should return error for invalid model", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", testModel, "--mode", common.ModeRandom}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			openaiClient := openai.NewClient(option.WithBaseURL(baseURL), option.WithHTTPClient(client),
+				option.WithMaxRetries(0))
+
+			params := openai.ChatCompletionNewParams{
+				Messages: []openai.ChatCompletionMessageParamUnion{
+					openai.UserMessage(testUserMessage),
+				},
+				Model: "some-other-model",
+			}
+
+			_, err = openaiClient.Chat.Completions.New(ctx, params)
+			Expect(err).To(HaveOccurred())
+			var openaiError *openai.Error
+			ok := errors.As(err, &openaiError)
+			Expect(ok).To(BeTrue())
+			Expect(openaiError.StatusCode).To(BeNumerically("==", fasthttp.StatusNotFound))
+			Expect(openaiError.Type).ToNot(BeEmpty())
+			Expect(openaiError.Message).To(ContainSubstring("The model `some-other-model` does not exist"))
+		})
+
+		It("Should return error for negative MaxCompletionTokens", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", testModel, "--mode", common.ModeRandom}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			openaiClient := openai.NewClient(option.WithBaseURL(baseURL), option.WithHTTPClient(client),
+				option.WithMaxRetries(0))
+
+			params := openai.ChatCompletionNewParams{
+				Messages: []openai.ChatCompletionMessageParamUnion{
+					openai.UserMessage(testUserMessage),
+				},
+				Model:               testModel,
+				MaxCompletionTokens: openai.Int(-5),
+			}
+
+			_, err = openaiClient.Chat.Completions.New(ctx, params)
+			Expect(err).To(HaveOccurred())
+			var openaiError *openai.Error
+			ok := errors.As(err, &openaiError)
+			Expect(ok).To(BeTrue())
+			Expect(openaiError.StatusCode).To(BeNumerically("==", fasthttp.StatusBadRequest))
+			Expect(openaiError.Type).ToNot(BeEmpty())
+			Expect(openaiError.Message).To(ContainSubstring("Max completion tokens and max tokens should be positive"))
 		})
 	})
 })
