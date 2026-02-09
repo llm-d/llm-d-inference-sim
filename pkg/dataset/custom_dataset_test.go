@@ -74,7 +74,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 		pathToInvalidTableDB = file_folder + "/test.invalid.table.sqlite3"
 		pathToInvalidColumnDB = file_folder + "/test.invalid.column.sqlite3"
 		pathToInvalidTypeDB = file_folder + "/test.invalid.type.sqlite3"
-		tknzr, err = tokenizer.New("Qwen/Qwen3-0.6B", true, "")
+		tknzr, err = tokenizer.New("Qwen/Qwen3-0.6B", true, "/tmp")
 		Expect(err).ShouldNot(HaveOccurred())
 
 		validDB = make([]validDBElement, 3)
@@ -116,6 +116,12 @@ var _ = Describe("CustomDataset", Ordered, func() {
 	BeforeEach(func() {
 		sqliteHelper = newSqliteHelper("llmd", klog.Background())
 		dsDownloader = NewDsDownloader(klog.Background())
+	})
+
+	AfterAll(func() {
+		// remove temp test db
+		err := os.Remove(path)
+		Expect(err).NotTo(HaveOccurred())
 	})
 
 	It("should return error for invalid DB path", func() {
