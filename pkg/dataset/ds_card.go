@@ -14,7 +14,11 @@ const (
 	sourceRecordsCountPlaceholder = "<SOURCE_RECORDS_COUNT>"
 	genRecordsCountPlaceholder    = "<GEN_RECORDS_COUNT>"
 	tableNamePlaceholder          = "<TABLE_NAME>"
+	dsSectionPlaceholder          = "<DS_SECTION>"
 )
+
+const hfDatasetTemplate = "[" + hfDSRepoPlaceholder + "](" + hfDSUrlPlaceholder + "), file " + hfFileNamePlaceholder + "\n"
+const localDatasetTemplate = "local file " + hfFileNamePlaceholder + "\n"
 
 const cardTemplate = `
 # Dataset Card
@@ -30,7 +34,7 @@ The dataset contains pre-tokenized prompts and responses, enabling efficient tes
 ## Source Dataset
 
 The original dataset consists of multi-turn conversations between humans and AI assistants. <br>
-Dataset: [` + hfDSRepoPlaceholder + `](` + hfDSUrlPlaceholder + `), file ` + hfFileNamePlaceholder + `
+Dataset: ` + dsSectionPlaceholder + `
 
 ### Dataset Formats
 
@@ -99,17 +103,31 @@ SELECT AVG(n_gen_tokens) FROM llmd;
 - **Generated Dataset Record Count**: ` + genRecordsCountPlaceholder + `
 `
 
-func generateCardFile(modelName, tableName, hfDSRepo, hfFileName, cardFilePath string, sourceDSRecsCount, genRecordsCount int) error {
+func generateCardFile(modelName, tableName, hfDSRepo, fileName, cardFilePath string, sourceDSRecsCount, genRecordsCount int) error {
 	hfDSUrl := "https://huggingface.co/datasets/" + hfDSRepo
+	inputDs := ""
+	// create input dataset section text
+	if hfDSRepo == "" {
+		// local file
+		inputDs = strings.ReplaceAll(localDatasetTemplate, hfFileNamePlaceholder, fileName)
+	} else {
+		// hugging face file
+		dsReplacer := strings.NewReplacer(
+			hfDSRepoPlaceholder, hfDSRepo,
+			hfDSUrlPlaceholder, hfDSUrl,
+			hfFileNamePlaceholder, fileName,
+		)
+		inputDs = dsReplacer.Replace(hfDatasetTemplate)
+	}
 
 	replacer := strings.NewReplacer(
 		modelNamePlaceholder, modelName,
 		hfDSRepoPlaceholder, hfDSRepo,
 		hfDSUrlPlaceholder, hfDSUrl,
-		hfFileNamePlaceholder, hfFileName,
 		sourceRecordsCountPlaceholder, strconv.Itoa(sourceDSRecsCount),
 		genRecordsCountPlaceholder, strconv.Itoa(genRecordsCount),
 		tableNamePlaceholder, tableName,
+		dsSectionPlaceholder, inputDs,
 	)
 
 	result := replacer.Replace(cardTemplate)

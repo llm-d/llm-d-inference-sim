@@ -22,9 +22,9 @@ func getInputHash(tokens []uint32) []byte {
 	return hasher.Sum(nil)
 }
 
-// validateFileNotExists checks if an output database file already exists at the given path
+// validateFileNotExist checks if an output database file already exists at the given path
 // Returns an error if the file exists or if there's an issue checking the file
-func validateFileNotExists(path string) error {
+func validateFileNotExist(path string) error {
 	if _, err := os.Stat(path); err == nil {
 		return fmt.Errorf("output file already exists: %s", path)
 	} else if !os.IsNotExist(err) {

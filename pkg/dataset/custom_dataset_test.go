@@ -43,8 +43,7 @@ type validDBElement struct {
 	tokenizedInput openaiserverapi.Tokenized
 	chatMessages   []string
 	hexa           string
-	strRespTokens  []string
-	intRespTokens  []uint32
+	respTokens     openaiserverapi.Tokenized
 }
 
 var _ = Describe("CustomDataset", Ordered, func() {
@@ -86,21 +85,27 @@ var _ = Describe("CustomDataset", Ordered, func() {
 		// #1 in db: intput1, completions, short response
 		validDB[0].input = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10"
 		validDB[0].hexa = "73205d2e432e6b117e0b75cdddeac019ee863f4b524f75bf57c15c5a47a445e4"
-		validDB[0].strRespTokens = []string{"Hello", " human", "!"}
-		validDB[0].intRespTokens = []uint32{9707, 3738, 0}
+		validDB[0].respTokens = openaiserverapi.Tokenized{
+			Strings: []string{"Hello", " human", "!"},
+			Tokens:  []uint32{9707, 3738, 0},
+		}
 
 		// #3 in db: intput2, message1, completions, long response
 		validDB[1].input = "Hello world!"
 		validDB[1].hexa = "90db35b48bf168f20fa36537861e1d64fac6af372267aec9d10437a3f83f8bec"
-		validDB[1].strRespTokens = []string{"this", " is", " assistant", " long", " response", ",", " it", " should", " contain", " at",
-			" least", " ", "1", "0", " tokens"}
-		validDB[1].intRespTokens = []uint32{574, 374, 17847, 1293, 2033, 11, 432, 1265, 6644, 518, 3245, 220, 16, 15, 11211}
+		validDB[1].respTokens = openaiserverapi.Tokenized{
+			Strings: []string{"this", " is", " assistant", " long", " response", ",", " it", " should", " contain", " at",
+				" least", " ", "1", "0", " tokens"},
+			Tokens: []uint32{574, 374, 17847, 1293, 2033, 11, 432, 1265, 6644, 518, 3245, 220, 16, 15, 11211},
+		}
 
 		// #6 in db: intput2, message2, chat completions, short response
 		validDB[2].input = "### user:\nHello world!\n### assistant:\nthis is assistant long response, it should contain at least 10 tokens\n### user:\nHello world again\n"
 		validDB[2].hexa = "067b89152dee047c66e53926f47d65366509729ad2c5a8e1d1e2dbb05f2eab41"
-		validDB[2].strRespTokens = []string{"short", " response"}
-		validDB[2].intRespTokens = []uint32{8676, 2033}
+		validDB[2].respTokens = openaiserverapi.Tokenized{
+			Strings: []string{"short", " response"},
+			Tokens:  []uint32{8676, 2033},
+		}
 		validDB[2].chatMessages = []string{"Hello world!",
 			"this is assistant long response, it should contain at least 10 tokens",
 			"Hello world again"}
@@ -114,7 +119,6 @@ var _ = Describe("CustomDataset", Ordered, func() {
 			Expect(strTokens).ToNot(BeNil())
 			validDB[i].tokenizedInput = openaiserverapi.Tokenized{Tokens: tokens, Strings: strTokens}
 		}
-
 	})
 
 	BeforeEach(func() {
@@ -126,10 +130,9 @@ var _ = Describe("CustomDataset", Ordered, func() {
 		// remove temp test db
 		err := os.Remove(path)
 		Expect(err).NotTo(HaveOccurred())
-		// remova test tokenizer directory
+		// remove test tokenizer directory
 		err = os.RemoveAll(tokenizerTmpDir)
 		Expect(err).NotTo(HaveOccurred())
-
 	})
 
 	It("should return error for invalid DB path", func() {
@@ -168,7 +171,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 		var n_gen_tokens int
 		err = row.Scan(&n_gen_tokens)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(n_gen_tokens).To(Equal(len(validDB[0].intRespTokens)))
+		Expect(n_gen_tokens).To(Equal(validDB[0].respTokens.Length()))
 
 		var jsonStr string
 		row = dataset.sqliteHelper.db.QueryRow(fmt.Sprintf("SELECT gen_tokens FROM llmd WHERE prompt_hash=X'%s';", validDB[0].hexa))
@@ -177,7 +180,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 		var tokenized openaiserverapi.Tokenized
 		err = json.Unmarshal([]byte(jsonStr), &tokenized)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(tokenized.Strings).To(Equal(validDB[0].strRespTokens))
+		Expect(tokenized).To(Equal(validDB[0].respTokens))
 
 		err = dataset.sqliteHelper.db.Close()
 		Expect(err).NotTo(HaveOccurred())
@@ -206,10 +209,9 @@ var _ = Describe("CustomDataset", Ordered, func() {
 		Expect(err.Error()).To(ContainSubstring("missing expected column"))
 	})
 
-	It("should return error for DB with missing column", func() {
+	It("should return error for DB with invalid column type", func() {
 		err := sqliteHelper.connectToDB(pathToInvalidTypeDB, false)
 		Expect(err).To(HaveOccurred())
-		fmt.Printf("<><> %#v\n", err)
 		Expect(err.Error()).To(ContainSubstring("has incorrect type"))
 	})
 
@@ -292,15 +294,13 @@ var _ = Describe("CustomDataset", Ordered, func() {
 		)
 
 		It("should return tokens for existing prompt", func() {
-			req := &openaiserverapi.TextCompletionRequest{
-				Prompt: validDB[1].input,
-			}
+			req := &openaiserverapi.TextCompletionRequest{}
 			req.SetTokenizedPrompt(&validDB[1].tokenizedInput)
 
 			tokens, finishReason, err := dataset.GetResponseTokens(req)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(finishReason).To(Equal(common.StopFinishReason))
-			Expect(tokens.Strings).To(Equal(validDB[1].strRespTokens))
+			Expect(*tokens).To(Equal(validDB[1].respTokens))
 		})
 
 		It("should return at most 2 tokens for existing prompt", func() {
@@ -322,7 +322,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 			tokens, finishReason, err := dataset.GetResponseTokens(req)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(finishReason).To(Equal(common.StopFinishReason))
-			Expect(tokens.Strings).To(Equal(validDB[1].strRespTokens))
+			Expect(*tokens).To(Equal(validDB[1].respTokens))
 		})
 
 		It("should work correctly for chat request with multiple messages", func() {

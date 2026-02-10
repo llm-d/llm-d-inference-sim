@@ -101,13 +101,13 @@ func (c *DSToolConfiguration) validate() error {
 		return errors.New("--local-path defined but --file is empty")
 	}
 
-	if err := validateFileNotExists(c.getOutputDBFullFileName()); err != nil {
+	if err := validateFileNotExist(c.getOutputDBFullFileName()); err != nil {
 		return err
 	}
-	if err := validateFileNotExists(c.getOutputJsonFullFileName()); err != nil {
+	if err := validateFileNotExist(c.getOutputJsonFullFileName()); err != nil {
 		return err
 	}
-	if err := validateFileNotExists(c.getOutputCardFullFileName()); err != nil {
+	if err := validateFileNotExist(c.getOutputCardFullFileName()); err != nil {
 		return err
 	}
 

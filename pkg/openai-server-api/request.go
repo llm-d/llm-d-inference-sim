@@ -145,8 +145,10 @@ func (t *Tokenized) Length() int {
 }
 
 func (t *Tokenized) Trim(maxLen int) {
-	if t.Length() > maxLen {
+	if len(t.Tokens) > maxLen {
 		t.Tokens = t.Tokens[:maxLen]
+	}
+	if len(t.Strings) > maxLen {
 		t.Strings = t.Strings[:maxLen]
 	}
 }
