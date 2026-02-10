@@ -34,6 +34,10 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 )
 
+const (
+	tokenizerTmpDir = "./test_tokenizers"
+)
+
 type validDBElement struct {
 	input          string
 	tokenizedInput openaiserverapi.Tokenized
@@ -74,7 +78,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 		pathToInvalidTableDB = file_folder + "/test.invalid.table.sqlite3"
 		pathToInvalidColumnDB = file_folder + "/test.invalid.column.sqlite3"
 		pathToInvalidTypeDB = file_folder + "/test.invalid.type.sqlite3"
-		tknzr, err = tokenizer.New("Qwen/Qwen3-0.6B", true, "/tmp")
+		tknzr, err = tokenizer.New("Qwen/Qwen3-0.6B", true, tokenizerTmpDir)
 		Expect(err).ShouldNot(HaveOccurred())
 
 		validDB = make([]validDBElement, 3)
@@ -122,6 +126,10 @@ var _ = Describe("CustomDataset", Ordered, func() {
 		// remove temp test db
 		err := os.Remove(path)
 		Expect(err).NotTo(HaveOccurred())
+		// remova test tokenizer directory
+		err = os.RemoveAll(tokenizerTmpDir)
+		Expect(err).NotTo(HaveOccurred())
+
 	})
 
 	It("should return error for invalid DB path", func() {
