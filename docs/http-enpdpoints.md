@@ -1,0 +1,112 @@
+# Overview 
+The simulator implements a subset of the standard OpenAI API fields. Any fields not listed below may be ignored or not fully supported.
+
+## Request & Response Structure
+The following outline details the specific fields accepted in requests and returned in responses:
+
+Structure of requests/responses
+
+- `/v1/chat/completions`
+    - **request**
+        - stream
+        - model
+        - messages
+            - role
+            - content
+            - tool_calls
+              - function
+                - name
+                - arguments
+	            - id
+              - type
+              - index
+        - max_tokens
+        - max_completion_tokens
+        - tools 
+          - type
+          - function
+            - name
+            - arguments
+        - tool_choice
+        - logprobs
+        - top_logprobs
+        - stream_options
+          - include_usage
+        - do_remote_decode
+        - do_remote_prefill
+        - remote_block_ids
+        - remote_engine_id
+        - remote_host
+        - remote_port
+        - ignore_eos
+    - **response**
+        - id
+        - created
+        - model
+        - choices
+          - index
+          - finish_reason
+          - message
+          - logprobs
+            - content
+              - token
+              - logprob
+              - bytes
+              - top_logprobs
+        - usage
+        - object
+        - do_remote_decode
+        - do_remote_prefill
+        - remote_block_ids
+        - remote_engine_id
+        - remote_host
+        - remote_port
+- `/v1/completions`
+    - **request**
+        - stream
+        - model
+        - prompt
+        - max_tokens
+        - stream_options
+          - include_usage
+        - do_remote_decode
+        - do_remote_prefill
+        - remote_block_ids
+        - remote_engine_id
+        - remote_host
+        - remote_port
+        - ignore_eos
+        - logprobs
+    - **response**
+        - id
+        - created
+        - model
+        - choices
+          - index
+          - finish_reason
+          - text
+          - logprobs
+            - tokens
+            - token_logprobs
+            - top_logprobs
+            - text_offset
+        - usage
+        - object
+        - do_remote_decode
+        - do_remote_prefill
+        - remote_block_ids
+        - remote_engine_id
+        - remote_host
+        - remote_port
+- `/v1/models`
+    - **response**
+        - object
+        - data
+            - id
+            - object
+            - created
+            - owned_by
+            - root
+            - parent
+
+For full details on the expected API behavior and specification, please refer to the [vLLM OpenAI Compatibility Documentation](https://docs.vllm.ai/en/stable/getting_started/quickstart.html#openai-completions-api-with-vllm).
