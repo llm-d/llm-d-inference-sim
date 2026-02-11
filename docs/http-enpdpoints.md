@@ -26,27 +26,40 @@ Structure of requests/responses
           - type
           - function
             - name
-            - arguments
+            - parameters
+            - description
         - tool_choice
         - logprobs
         - top_logprobs
         - stream_options
           - include_usage
-        - do_remote_decode
-        - do_remote_prefill
-        - remote_block_ids
-        - remote_engine_id
-        - remote_host
-        - remote_port
         - ignore_eos
+        - cache_hit_threshold
+        - kv_transfer_params
+          - do_remote_decode
+          - do_remote_prefill
+          - remote_engine_id
+          - remote_block_ids
+          - remote_host
+          - remote_port
+          - tp_size
     - **response**
         - id
         - created
-        - model
+        - model        
         - choices
           - index
           - finish_reason
           - message
+            - role
+            - content
+            - tool_calls
+              - function
+                - name
+                - arguments
+	            - id
+              - type
+              - index
           - logprobs
             - content
               - token
@@ -55,12 +68,14 @@ Structure of requests/responses
               - top_logprobs
         - usage
         - object
-        - do_remote_decode
-        - do_remote_prefill
-        - remote_block_ids
-        - remote_engine_id
-        - remote_host
-        - remote_port
+        - kv_transfer_params
+          - do_remote_decode
+          - do_remote_prefill
+          - remote_engine_id
+          - remote_block_ids
+          - remote_host
+          - remote_port
+          - tp_size
 - `/v1/completions`
     - **request**
         - stream
@@ -69,14 +84,17 @@ Structure of requests/responses
         - max_tokens
         - stream_options
           - include_usage
-        - do_remote_decode
-        - do_remote_prefill
-        - remote_block_ids
-        - remote_engine_id
-        - remote_host
-        - remote_port
         - ignore_eos
         - logprobs
+        - cache_hit_threshold
+        - kv_transfer_params
+          - do_remote_decode
+          - do_remote_prefill
+          - remote_engine_id
+          - remote_block_ids
+          - remote_host
+          - remote_port
+          - tp_size
     - **response**
         - id
         - created
@@ -92,12 +110,14 @@ Structure of requests/responses
             - text_offset
         - usage
         - object
-        - do_remote_decode
-        - do_remote_prefill
-        - remote_block_ids
-        - remote_engine_id
-        - remote_host
-        - remote_port
+        - kv_transfer_params
+          - do_remote_decode
+          - do_remote_prefill
+          - remote_engine_id
+          - remote_block_ids
+          - remote_host
+          - remote_port
+          - tp_size
 - `/v1/models`
     - **response**
         - object
