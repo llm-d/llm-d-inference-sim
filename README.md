@@ -19,6 +19,8 @@ Running full LLM inference requires significant GPU resources and introduces non
 
 The simulator is designed to act as a drop-in replacement for vLLM, sitting between your client/infrastructure and the void where the GPU usually resides. It processes requests through a configurable simulation engine that governs what is returned and when it is returned.
 
+For detailed configuraiton definitions see the [Configuration Guide](docs/configuration.md)
+
 ### Modes of Operation
 The simulator decides the content of the response based on two primary modes:
 
@@ -31,7 +33,9 @@ Utilizes probabilistic histograms to determine response length.
 Content is sourced from either a set of pre-defined sentences or a custom dataset (see below).
 
 ### Dual Protocol Support
-Natively supports both HTTP (OpenAI-compatible) and gRPC (vLLM-compatible) interfaces on the same port, allowing for versatile integration testing across different client architectures. Detailed API definitions for both protocols are provided in the sections below.
+Natively supports both HTTP (OpenAI-compatible) and gRPC (vLLM-compatible) interfaces on the same port, allowing for versatile integration testing across different client architectures. 
+
+For detailed API definitions see the [APIs Guide](docs/api.md).
 
 ### Response Generation & Datasets
 In Random Mode, the simulator can generate content in two ways:
@@ -40,9 +44,10 @@ In Random Mode, the simulator can generate content in two ways:
 
 - **Real Datasets**: If a dataset is provided (via --dataset-path or --dataset-url), the simulator attempts to match the hash of the incoming prompt to a conversation history in the database.
 If a match is found, it returns the stored response.
-If no match is found, it falls back to a random response from the dataset or predefined text.
-
+If no match is found, it falls back to a random response from the dataset or predefined text.<br>
 Supports downloading SQLite datasets directly from HuggingFace.
+
+For response generation algorithms details see [Response Generation Guide](docs/response_generation.md).
 
 ### Latency Simulation
 Unlike simple mock servers that just "sleep" for a fixed time, this simulator models the physics of LLM inference:
@@ -51,9 +56,9 @@ Unlike simple mock servers that just "sleep" for a fixed time, this simulator mo
 
 - **Inter-token latency (TPOT)**: Simulates the decode phase, adding delays between every subsequent token generation.
 
-- **Load Simulation**: The simulator automatically increasing latency as the number of concurrent requests becomes higher.
+- **Load Simulation**: The simulator automatically increases latency as the number of concurrent requests becomes higher.
 
-- **Disaggregated Prefill (PD)**: Can simulate KV-cache transfer latency instead of standard TTFT when mimicking Prefill/Decode separation architectures.
+- **Disaggregated Prefill (PD)**: Can simulate KV-cache transfer latency instead of standard TTFT when mimicking Prefill/Decode disaggregation architectures.
 
 ### Tokenization
 The simulator offers flexible tokenization to balance accuracy vs. performance. The simulator automatically selects between two tokenization modes based on the provided `--model` name:
@@ -63,16 +68,21 @@ The simulator offers flexible tokenization to balance accuracy vs. performance. 
 For details on caching, environment variables (`HF_TOKEN`), and performance tuning, see the [Tokenization Guide](docs/tokenization.md).
 
 ### LoRA Management
-Simulates the lifecycle (loading/unloading) of LoRA adapters without occupying actual memory. Reports LoRA releted Prometheus metrics.
+Simulates the lifecycle (loading/unloading) of LoRA adapters without occupying actual memory. Reports LoRA related Prometheus metrics.
 
 ### KV Cache Simulation
-Tracks simulated memory usage and publishes ZQM events for cache block allocation and eviction.
+Tracks simulated memory usage and publishes ZMQ events for cache block allocation and eviction.
 
 ### Failure Injection
 Can randomly inject specific errors (e.g., rate_limit, model_not_found) to test client resilience.
 
 ### Deployment Options
 The simulator is designed to run either as a standalone binary or within a Kubernetes Pod (e.g., for testing with Kind).
+
+### Observability
+The simulator supports a subset of standard vLLM Prometheus metrics.<br>
+
+For detailes see the [Metrics Guide](docs/metrics.md)
 
 ## Working with docker image
 
@@ -162,5 +172,3 @@ curl -X POST http://localhost:8000/v1/chat/completions \
 ## Prefill/Decode (P/D) Separation Example
 An example configuration for P/D (Prefill/Decode) disaggregation deployment can be found in [manifests/disaggregation](manifests/disaggregation).
 
-## Limitations
-API responses contains a subset of the fields provided by the OpenAI API.

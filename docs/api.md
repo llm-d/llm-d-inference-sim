@@ -1,11 +1,14 @@
 # API Endpoints
-The simulator supports both HTTP (OpenAI-compatible) and gRPC (vLLM-compatible) interfaces on the same port.
+The simulator supports both HTTP (OpenAI-compatible) and gRPC (vLLM-compatible) interfaces on the same port.<br>
+HTTP requests are routed to the HTTP server, and HTTP2 requests are routed to the gRPC server. 
 
 ## HTTP Endpoints
 Currently, it supports a partial OpenAI-compatible API:
 - `/v1/chat/completions` 
 - `/v1/completions` 
 - `/v1/models`
+
+For details see the [HTTP Endpoints Guide](http-enpdpoints.md)
 
 In addition, a set of the vLLM HTTP endpoints are suppored:
 
