@@ -30,6 +30,6 @@ The simulator implements the `vllm.grpc.engine.VllmEngine` service definition.
 It is available on the same port as the HTTP server.
 Only `Generate` and `GetModelInfo` methods are currenlty implemented. <br>
 The `Generate` submits a generation request. Supports streaming responses and standard sampling parameters.<br>
-The `GetModelInfo` retrieves metadata about the currently loaded model, including LoRA adapters.
+The `GetModelInfo` retrieves metadata about the currently loaded model.
 
 
