@@ -2,7 +2,7 @@
 The simulator can be configured using either command-line arguments or a YAML file. Parameter names are consistent across both methods.
 
 ## General
-- `config`: the path to a yaml configuration file that can contain the simulator's command line parameters. If a parameter is defined in both the config file and the command line, the command line value overwrites the configuration file value. An example configuration file can be found at `manifests/config.yaml`
+- `config`: the path to a yaml configuration file that can contain the simulator's command line parameters. If a parameter is defined in both the config file and the command line, the command line value overwrites the configuration file value. An example configuration file can be found at [manifests/config.yaml](../manifests/config.yaml)
 - `port`: the port the simulator listents on, default is 8000
 - `model`: the currently 'loaded' model, mandatory
 - `served-model-name`: model names exposed by the API (a list of space-separated strings)
@@ -14,26 +14,28 @@ The simulator can be configured using either command-line arguments or a YAML fi
 - `max-waiting-queue-length`: maximum length of inference requests waiting queue, default is 1000
 - `mode`: the simulator mode, optional, by default `random`
     - `echo`: returns the same text that was sent in the request
-    - `random`: returns a sentence chosen at random from a set of pre-defined sentences
+    - `random`: returns a sentence chosen at random from a set of pre-defined sentences or a given dataset
 - `enable-sleep-mode`: Enable sleep mode feature. When enabled, the simulator can be put to sleep via the `/sleep` endpoint and woken up via the `/wake_up` endpoint
 - `enable-request-id-headers`: Enable including X-Request-Id header in responses. When enabled, the simulator will include the request ID in response headers
 
 ## Latency 
+All latency-related parameters are defined in duration format, e.g., 100ms. Integer format is deprecated.
+
 - `latency-calculator`: specifies the latency calculator to be used to simulate response times. By default, the latency is computed based on the simulator’s current load and the configured latency parameters, such as `time-to-first-token` and `prefill-time-per-token`. Supported values are `per-token` and `constant`, indicating whether or not the calculation accounts for the prompt size.
-- `time-to-first-token`: the time to the first token (e.g. 100ms. Integer format is deprecated), optional, by default zero
-- `time-to-first-token-std-dev`: standard deviation for time before the first token will be returned, e.g., 100ms. in milliseconds if unit is missing, optional, default is 0, can't be more than 30% of `time-to-first-token`, will not cause the actual time to first token to differ by more than 70% from `time-to-first-token`
-- `inter-token-latency`: the time to 'generate' each additional token (e.g. 100ms. Integer format is deprecated), optional, by default zero
-- `inter-token-latency-std-dev`: standard deviation for time between generated tokens, e.g., 100ms. in milliseconds if unit is missing, optional, default is 0, can't be more than 30% of `inter-token-latency`, will not cause the actual inter token latency to differ by more than 70% from `inter-token-latency`
-- `kv-cache-transfer-latency`: time for KV-cache transfer from a remote vLLM (e.g. 100ms. Integer format is deprecated), by default zero. Usually much shorter than `time-to-first-token`
-- `kv-cache-transfer-latency-std-dev`: standard deviation for time to "transfer" kv-cache from another vLLM instance in case P/D is activated, e.g., 100ms. in milliseconds if unit is missing, optional, default is 0, can't be more than 30% of `kv-cache-transfer-latency`, will not cause the actual latency to differ by more than 70% from `kv-cache-transfer-latency`
+- `time-to-first-token`: the time to the first token, optional, by default zero
+- `time-to-first-token-std-dev`: standard deviation for time before the first token will be returned, optional, default is zero. Can't be more than 30% of `time-to-first-token`, will not cause the actual time to first token to differ by more than 70% from `time-to-first-token`
+- `inter-token-latency`: the time to 'generate' each additional token, optional, by default zero
+- `inter-token-latency-std-dev`: standard deviation for time between generated tokens, optional, default is zero. Can't be more than 30% of `inter-token-latency`, will not cause the actual inter token latency to differ by more than 70% from `inter-token-latency`
+- `kv-cache-transfer-latency`: time for KV-cache "transfer" from a remote vLLM, optional, by default zero. Usually much shorter than `time-to-first-token`
+- `kv-cache-transfer-latency-std-dev`: standard deviation for time to "transfer" kv-cache from another vLLM instance in case P/D is activated, optional, default is zero. Can't be more than 30% of `kv-cache-transfer-latency`, will not cause the actual latency to differ by more than 70% from `kv-cache-transfer-latency`
 ---
-- `prefill-overhead`: constant overhead time for prefill (e.g. 100ms. Integer format is deprecated), optional, by default zero, used in calculating time to first token, this will be ignored if `time-to-first-token` is not `0`
-- `prefill-time-per-token`: time taken to generate each token during prefill (e.g. 100ms. Integer format is deprecated), optional, by default zero, this will be ignored if `time-to-first-token` is not `0`
-- `prefill-time-std-dev`: similar to `time-to-first-token-std-dev`, but is applied on the final prefill time, which is calculated by `prefill-overhead`, `prefill-time-per-token`, and number of prompt tokens, this will be ignored if `time-to-first-token` is not `0`
-- `kv-cache-transfer-time-per-token`: time taken to transfer cache for each token in case P/D is enabled (e.g. 100ms. Integer format is deprecated), optional, by default zero, this will be ignored if `kv-cache-transfer-latency` is not `0`
-- `kv-cache-transfer-time-std-dev`: similar to `time-to-first-token-std-dev`, but is applied on the final kv cache transfer time in case P/D is enabled (e.g. 100ms. Integer format is deprecated), which is calculated by `kv-cache-transfer-time-per-token` and number of prompt tokens, this will be ignored if `kv-cache-transfer-latency` is not `0`
+- `prefill-overhead`: constant overhead time for prefill, optional, by default zero. Used in calculating time to first token, this will be ignored if `time-to-first-token` is not zero
+- `prefill-time-per-token`: time taken to generate each token during prefill, optional, by default zero, this will be ignored if `time-to-first-token` is not zero
+- `prefill-time-std-dev`: similar to `time-to-first-token-std-dev`, but is applied on the final prefill time, which is calculated by `prefill-overhead`, `prefill-time-per-token`, and number of prompt tokens, this will be ignored if `time-to-first-token` is not zero
+- `kv-cache-transfer-time-per-token`: time taken to transfer cache for each token in case disaggregated P/D is enabled, optional, by default zero. This will be ignored if `kv-cache-transfer-latency` is not zero
+- `kv-cache-transfer-time-std-dev`: similar to `time-to-first-token-std-dev`, but is applied on the final kv cache transfer time in case disaggregated P/D is enabled, which is calculated by `kv-cache-transfer-time-per-token` and number of prompt tokens, this will be ignored if `kv-cache-transfer-latency` is not zero
 ---
-- `time-factor-under-load`: a multiplicative factor that affects the overall time taken for requests when parallel requests are being processed. The value of this factor must be >= 1.0, with a default of 1.0. If this factor is 1.0, no extra time is added.  When the factor is x (where x > 1.0) and there are `max-num-seqs` requests, the total time will be multiplied by x. The extra time then decreases multiplicatively to 1.0 when the number of requests is less than MaxNumSeqs.
+- `time-factor-under-load`: a multiplicative factor that affects the overall time taken for requests when parallel requests are being processed. The value of this factor must be >= 1.0, with a default of 1.0. If this factor is 1.0, no extra time is added.  When the factor is x (where x > 1.0) and there are `max-num-seqs` requests, the total time will be multiplied by x. The extra time then decreases multiplicatively to 1.0 when the number of requests is less than `max-num-seqs`.
 - `seed`: random seed for operations (if not set, current Unix time in nanoseconds is used)
 
 ## Tools 
@@ -48,7 +50,7 @@ The simulator can be configured using either command-line arguments or a YAML fi
 
 
 ## KV cache
-- `enable-kvcache`: if true, the KV cache support will be enabled in the simulator. In this case, the KV cache will be simulated, and ZQM events will be published when a KV cache block is added or evicted.
+- `enable-kvcache`: if true, the KV cache support will be enabled in the simulator. In this case, the KV cache will be simulated, and ZMQ events will be published when a KV cache block is added or evicted.
 - `kv-cache-size`: the maximum number of token blocks in kv cache
 - `global-cache-hit-threshold`: default cache hit threshold [0, 1] for all requests. If a request specifies cache_hit_threshold, it takes precedence over this global value
 - `block-size`: token block size for contiguous chunks of tokens, possible values: 8,16,32,64,128
@@ -70,7 +72,6 @@ The simulator can be configured using either command-line arguments or a YAML fi
 - `dataset-path`: Optional local file path to the SQLite database file used for generating responses from a dataset.
   - If not set, hardcoded preset responses will be used.
   - If set but the file does not exist the `dataset-url` will be used to download the database to the path specified by `dataset-path`.
-  - If the file exists but is currently occupied by another process, responses will be randomly generated from preset text (the same behavior as if the path were not set).
   - Responses are retrieved from the dataset by the hash of the conversation history, with a fallback to a random dataset response, constrained by the maximum output tokens and EoS token handling, if no matching history is found.
   - Refer to [llm-d converted ShareGPT](https://huggingface.co/datasets/hf07397/inference-sim-datasets/blob/0b60737c2dd2c570f486cef2efa7971b02e3efde/README.md) for detailed information on the expected format of the SQLite database file.
 - `dataset-url`: Optional URL for downloading the SQLite database file used for response generation.
@@ -79,7 +80,7 @@ The simulator can be configured using either command-line arguments or a YAML fi
   - If the file already exists at the `dataset-path`, it will not be downloaded again
   - Example URL `https://huggingface.co/datasets/hf07397/inference-sim-datasets/resolve/91ffa7aafdfd6b3b1af228a517edc1e8f22cd274/huggingface/ShareGPT_Vicuna_unfiltered/conversations.sqlite3`
 - `dataset-in-memory`: If true, the entire dataset will be loaded into memory for faster access. This may require significant memory depending on the size of the dataset. Default is false.
-- `dataset-table-name`: Table name for custom dataset, default is 'llmd'
+- `dataset-table-name`: Table name for custom dataset, optional, default is 'llmd'
 
 ## SSL
 - `ssl-certfile`: Path to SSL certificate file for HTTPS (optional)

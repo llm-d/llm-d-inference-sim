@@ -54,7 +54,7 @@ Unlike simple mock servers that just "sleep" for a fixed time, this simulator mo
 
 - **Time to first token (TTFT)**: Simulates the prefill phase latency, including configurable standard deviation (jitter) for realism.
 
-- **Inter-token latency (TPOT)**: Simulates the decode phase, adding delays between every subsequent token generation.
+- **Inter-token latency**: Simulates the decode phase, adding delays between every subsequent token generation.
 
 - **Load Simulation**: The simulator automatically increases latency as the number of concurrent requests becomes higher.
 

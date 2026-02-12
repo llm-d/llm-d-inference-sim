@@ -1,5 +1,6 @@
 # Overview 
-The simulator implements a subset of the standard OpenAI API fields. Any fields not listed below may be ignored or not fully supported.
+The simulator supports a subset of fields from the standard OpenAI API in both requests and responses. Any fields not listed below may be ignored or not fully supported.
+
 
 ## Request & Response Structure
 The following outline details the specific fields accepted in requests and returned in responses:

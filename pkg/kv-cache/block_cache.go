@@ -312,7 +312,7 @@ func (bc *blockCache) countCachedBlockPrefix(blocks []uint64) int {
 	return count
 }
 
-// ZQM topic format is: kv@<pod-ip>@<model-name>
+// ZMQ topic format is: kv@<pod-ip>@<model-name>
 func CreateKVEventsTopic(ip string, model string) string {
 	return topicNamePrefix + topicNameSeparator + ip + topicNameSeparator + model
 }
