@@ -419,8 +419,54 @@ func (t *TextCompletionRequest) GetLogprobs() *int {
 	return t.Logprobs
 }
 
-func NewTextCompletionRequest(requestID string, stream bool, model string, maxTokens *int64) *TextCompletionRequest {
-	return &TextCompletionRequest{
+// GenerationRequest defines structure of /completion request
+type GenerationRequest struct {
+	baseCompletionRequest
+	// Prompt defines request's content
+	Prompt string
+
+	// The maximum number of [tokens](/tokenizer) that can be generated in the
+	// completion.
+	//
+	// The token count of your prompt plus `max_tokens` cannot exceed the model's
+	// context length.
+	MaxTokens *int64
+}
+
+var _ Request = (*GenerationRequest)(nil)
+
+func (t *GenerationRequest) GetPrompt() string {
+	return t.Prompt
+}
+
+func (c *GenerationRequest) GetTools() []Tool {
+	return nil
+}
+
+func (c *GenerationRequest) GetToolChoice() ToolChoice {
+	return ToolChoice{}
+}
+
+func (c *GenerationRequest) GetMaxCompletionTokens() *int64 {
+	return c.MaxTokens
+}
+
+func (t *GenerationRequest) GetFullPrompt() string {
+	return t.Prompt
+}
+
+// ExtractMaxTokens extracts the max tokens from the request
+// for text completion - max_tokens field is used
+func (req *GenerationRequest) ExtractMaxTokens() *int64 {
+	return req.MaxTokens
+}
+
+func (t *GenerationRequest) GetLogprobs() *int {
+	return nil
+}
+
+func NewGenerationRequest(requestID string, stream bool, model string, maxTokens *int64) *GenerationRequest {
+	return &GenerationRequest{
 		baseCompletionRequest: baseCompletionRequest{
 			RequestID: requestID,
 			Stream:    stream,

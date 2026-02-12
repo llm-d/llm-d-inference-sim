@@ -139,13 +139,13 @@ func (s *VllmSimulator) startGRPC(ctx context.Context, listener net.Listener) er
 	}
 }
 
-func (s *VllmSimulator) pbRequestToRequest(in *pb.GenerateRequest) *textCompletionRequest {
+func (s *VllmSimulator) pbRequestToRequest(in *pb.GenerateRequest) *generationRequest {
 	var maxTokens *int64
 	if in.GetSamplingParams() != nil && in.GetSamplingParams().MaxTokens != nil {
 		maxTokensValue := int64(*in.GetSamplingParams().MaxTokens)
 		maxTokens = &maxTokensValue
 	}
-	req := openaiserverapi.NewTextCompletionRequest(in.GetRequestId(), in.GetStream(),
+	req := openaiserverapi.NewGenerationRequest(in.GetRequestId(), in.GetStream(),
 		s.context.config.Model, maxTokens)
 
 	if in.GetTokenized() != nil {
@@ -156,7 +156,7 @@ func (s *VllmSimulator) pbRequestToRequest(in *pb.GenerateRequest) *textCompleti
 		req.Prompt = in.GetText()
 	}
 
-	return &textCompletionRequest{TextCompletionRequest: *req}
+	return &generationRequest{GenerationRequest: *req}
 }
 
 func buildPBResponseChunk(tokens []uint32, respCtx responseContext) *pb.GenerateResponse {

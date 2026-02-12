@@ -138,7 +138,6 @@ func (respCtx *textCompletionResponseCtx) createResponse() openaiserverapi.Compl
 }
 
 // createUsageChunk creates and returns a CompletionRespChunk with usage data, a single chunk of streamed completion API response,
-// supports both modes
 func (respCtx *textCompletionResponseCtx) createUsageChunk() openaiserverapi.CompletionRespChunk {
 	baseChunk := openaiserverapi.CreateBaseCompletionResponse(
 		respCtx.creationTime, respCtx.displayModelName, respCtx.usageData(), respCtx.id, false)

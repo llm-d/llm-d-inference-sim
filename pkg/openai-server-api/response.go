@@ -243,6 +243,12 @@ type ChatRespChunkChoice struct {
 	Logprobs *ChatLogprobs `json:"logprobs,omitempty"`
 }
 
+// GenerationResponse defines structure of generation response
+type GenerationResponse struct {
+	baseCompletionResponse
+	Tokenized *Tokenized
+}
+
 // Error defines the simulator's response in case of an error
 type Error struct {
 	// Message is an error Message
@@ -347,4 +353,8 @@ func CreateTextCompletionResponse(base baseCompletionResponse, choices []TextRes
 func CreateChatCompletionRespChunk(base baseCompletionResponse, choices []ChatRespChunkChoice) *ChatCompletionRespChunk {
 	base.ID = chatComplIDPrefix + base.RequestID
 	return &ChatCompletionRespChunk{baseCompletionResponse: base, Choices: choices}
+}
+
+func CreateGenerationResponse(base baseCompletionResponse, tokens *Tokenized) *GenerationResponse {
+	return &GenerationResponse{baseCompletionResponse: base, Tokenized: tokens}
 }
