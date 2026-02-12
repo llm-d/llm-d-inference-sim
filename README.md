@@ -52,7 +52,7 @@ For response generation algorithms details see [Response Generation Guide](docs/
 ### Latency Simulation
 Unlike simple mock servers that just "sleep" for a fixed time, this simulator models the physics of LLM inference:
 
-- **Time to first token (TTFT)**: Simulates the prefill phase latency, including configurable standard deviation (jitter) for realism.
+- **Time to first token**: Simulates the prefill phase latency, including configurable standard deviation (jitter) for realism.
 
 - **Inter-token latency**: Simulates the decode phase, adding delays between every subsequent token generation.
 
