@@ -1,0 +1,33 @@
+# Typos configuration for llm-d-inference-sim
+# https://github.com/crate-ci/typos
+
+[default.extend-words]
+# Pre-existing typos in codebase (to be fixed separately)
+tranfer = "tranfer"
+dfined = "dfined"
+emmits = "emmits"
+weghts = "weghts"
+multuple = "multuple"
+allways = "allways"
+Aready = "Aready"
+availbale = "availbale"
+boudaries = "boudaries"
+boudary = "boudary"
+Boudary = "Boudary"
+bounary = "bounary"
+bucker = "bucker"
+choise = "choise"
+Clent = "Clent"
+configuraiton = "configuraiton"
+Convertion = "Convertion"
+currenlty = "currenlty"
+defin = "defin"
+detailes = "detailes"
+ignor = "ignor"
+intput = "intput"
+listents = "listents"
+passsed = "passsed"
+referense = "referense"
+Reponses = "Reponses"
+suppored = "suppored"
+Wating = "Wating"
