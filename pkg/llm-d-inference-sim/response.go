@@ -245,7 +245,7 @@ func (g *grpcResponseSender) sendError(err openaiserverapi.Error, isInjected boo
 }
 
 func (g *grpcResponseSender) stringForRequest(req request) string {
-	return "gRPC request (req id " + req.GetRequestID() + ")"
+	return "gRPC " + req.asString()
 }
 
 var _ responseSender = (*grpcResponseSender)(nil)

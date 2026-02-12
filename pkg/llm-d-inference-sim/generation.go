@@ -1,5 +1,5 @@
 /*
-Copyright 2025 The llm-d-inference-sim Authors.
+Copyright 2026 The llm-d-inference-sim Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -49,7 +49,7 @@ func (g *generationRequest) buildRequestContext(simCtx *simContext, respSender r
 }
 
 func (g *generationRequest) asString() string {
-	return "chat completion request (req id " + g.RequestID + ")"
+	return "generation request (req id " + g.RequestID + ")"
 }
 
 func (g *generationRequest) createResponseContext(reqCtx requestContext, displayModel string,
