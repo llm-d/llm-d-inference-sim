@@ -15,10 +15,8 @@ permissions: read-all
 network:
   allowed:
     - defaults
-    - "api.github.com"
-    - "github.com"
-    - "*.githubusercontent.com"
-    - "pypi.org"
+    - github
+    - python
 
 safe-outputs:
   create-issue:
