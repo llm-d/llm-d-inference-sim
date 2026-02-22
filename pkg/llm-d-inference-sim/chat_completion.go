@@ -19,7 +19,6 @@ package llmdinferencesim
 import (
 	"encoding/json"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/valyala/fasthttp"
@@ -53,10 +52,9 @@ func (c *chatCompletionRequest) validate(toolsValidator *toolsValidator) (string
 	return validateRequest(c)
 }
 
-func (c *chatCompletionRequest) buildRequestContext(simCtx *simContext, respSender responseSender,
-	wg *sync.WaitGroup) requestContext {
+func (c *chatCompletionRequest) buildRequestContext(simCtx *simContext, channel chan *responseInfo) requestContext {
 	reqCtx := &chatCompletionReqCtx{
-		baseRequestContext: newBaseRequestContext(simCtx, respSender, wg),
+		baseRequestContext: newBaseRequestContext(simCtx, channel),
 		req:                c,
 	}
 	// wire chatCompletionReqCtx into embedded requestContext interface
@@ -121,7 +119,7 @@ type chatCompletionResponseCtx struct {
 }
 
 // createResponse creates the response for chat completion requests
-func (respCtx *chatCompletionResponseCtx) createResponse() openaiserverapi.CompletionResponse {
+func (respCtx *chatCompletionResponseCtx) createResponse(tokens *openaiserverapi.Tokenized) openaiserverapi.CompletionResponse {
 	baseResp := openaiserverapi.CreateBaseCompletionResponse(
 		time.Now().Unix(), respCtx.displayModelName, respCtx.usage, respCtx.id, respCtx.remoteDecode)
 	baseChoice := openaiserverapi.CreateBaseResponseChoice(0, respCtx.finishReasonPtr)
@@ -131,7 +129,7 @@ func (respCtx *chatCompletionResponseCtx) createResponse() openaiserverapi.Compl
 	if respCtx.toolsCalls != nil {
 		message.ToolCalls = respCtx.toolsCalls
 	} else {
-		respText := strings.Join(respCtx.respTokens.Strings, "")
+		respText := strings.Join(tokens.Strings, "")
 		message.Content = openaiserverapi.Content{Raw: respText}
 	}
 
@@ -139,7 +137,7 @@ func (respCtx *chatCompletionResponseCtx) createResponse() openaiserverapi.Compl
 
 	// Generate logprobs if requested
 	if respCtx.logprobs != nil && respCtx.toolsCalls == nil {
-		if logprobsData := common.GenerateChatLogprobs(respCtx.respTokens.Strings, *respCtx.logprobs); logprobsData != nil &&
+		if logprobsData := common.GenerateChatLogprobs(tokens.Strings, *respCtx.logprobs); logprobsData != nil &&
 			len(logprobsData.Content) > 0 {
 			choice.Logprobs = logprobsData
 		} else {

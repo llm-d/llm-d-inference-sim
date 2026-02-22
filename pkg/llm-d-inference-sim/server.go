@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"strconv"
 
 	"github.com/buaazp/fasthttprouter"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -120,12 +121,99 @@ func (s *VllmSimulator) getRequestID(ctx *fasthttp.RequestCtx) string {
 
 // HandleChatCompletions http handler for /v1/chat/completions
 func (s *VllmSimulator) HandleChatCompletions(ctx *fasthttp.RequestCtx) {
-	s.handleHTTPRequest(&chatCompletionRequest{}, ctx)
+	s.handleHTTP(&chatCompletionRequest{}, ctx)
 }
 
 // HandleTextCompletions http handler for /v1/completions
 func (s *VllmSimulator) HandleTextCompletions(ctx *fasthttp.RequestCtx) {
-	s.handleHTTPRequest(&textCompletionRequest{}, ctx)
+	s.handleHTTP(&textCompletionRequest{}, ctx)
+}
+
+func (s *VllmSimulator) handleHTTP(req request, ctx *fasthttp.RequestCtx) {
+	isStream, reqCtx, channel, err, isInjected := s.handleHTTPRequest(req, ctx)
+	if err != nil {
+		s.sendError(ctx, err, isInjected)
+		return
+	}
+
+	s.context.logger.V(logging.DEBUG).Info("Received", "new HTTP", req.asString())
+
+	ctx.SetStatusCode(fasthttp.StatusOK)
+
+	// Add pod and namespace information to response headers for testing/debugging
+	if s.context.pod != "" {
+		ctx.Response.Header.Add(podHeader, s.context.pod)
+		ctx.Response.Header.Add(portHeader, strconv.Itoa(s.context.config.Port))
+	}
+	if s.context.namespace != "" {
+		ctx.Response.Header.Add(namespaceHeader, s.context.namespace)
+	}
+	if s.context.config.EnableRequestIDHeaders {
+		ctx.Response.Header.Add(requestIDHeader, reqCtx.request().GetRequestID())
+	}
+
+	if isStream {
+		ctx.SetContentType("text/event-stream")
+		s.sendStream(ctx, reqCtx, channel)
+	} else {
+		ctx.Response.Header.SetContentType("application/json")
+		s.sendNonStream(ctx, reqCtx, channel)
+	}
+}
+
+func (s *VllmSimulator) sendNonStream(ctx *fasthttp.RequestCtx, reqCtx requestContext, channel chan *responseInfo) {
+	tokens := openaiserverapi.Tokenized{
+		Tokens:  make([]uint32, 0),
+		Strings: make([]string, 0),
+	}
+
+	var respCtx responseContext
+	for response := range channel {
+		select {
+		default:
+			if response.err != nil {
+				s.sendError(ctx, response.err, response.injected)
+				return
+			}
+
+			tokens.Tokens = append(tokens.Tokens, response.tokenIDs...)
+			tokens.Strings = append(tokens.Strings, response.tokenStrs...)
+			respCtx = response.respCtx
+		}
+	}
+
+	resp := respCtx.createResponse(&tokens)
+	data, err := json.Marshal(resp)
+	if err != nil {
+		err := openaiserverapi.NewError("Response body creation failed, "+err.Error(), fasthttp.StatusInternalServerError, nil)
+		s.sendError(ctx, &err, false)
+		respCtx.done()
+		return
+	}
+	ctx.Response.SetBody(data)
+	s.responseSentCallback(respCtx.requestContext(), respCtx.displayModel())
+	respCtx.done()
+}
+
+func (s *VllmSimulator) sendError(ctx *fasthttp.RequestCtx, err *openaiserverapi.Error, isInjected bool) {
+	if isInjected {
+		s.context.logger.V(logging.TRACE).Info("Injecting failure", "type", err.Type, "message", err.Message)
+	} else {
+		s.context.logger.Error(nil, err.Message)
+	}
+
+	errorResp := openaiserverapi.ErrorResponse{
+		Error: *err,
+	}
+
+	data, jsonErr := json.Marshal(errorResp)
+	if jsonErr != nil {
+		ctx.Error(jsonErr.Error(), fasthttp.StatusInternalServerError)
+	} else {
+		ctx.SetContentType("application/json")
+		ctx.SetStatusCode(err.Code)
+		ctx.SetBody(data)
+	}
 }
 
 // readTokenizeRequest reads and parses data from the body of the given request
@@ -150,14 +238,9 @@ func (s *VllmSimulator) HandleTokenize(ctx *fasthttp.RequestCtx) {
 
 	// Check that the request has only one input to tokenize
 	if req.Prompt != "" && req.Messages != nil {
-		httpResponseSender := httpResponseSender{
-			baseResponseSender: baseResponseSender{
-				sim: &s.context,
-			},
-			ctx: ctx,
-		}
-		httpResponseSender.sendError(openaiserverapi.NewError("both prompt and messages fields in tokenize request",
-			fasthttp.StatusBadRequest, nil), false)
+		err := openaiserverapi.NewError("both prompt and messages fields in tokenize request",
+			fasthttp.StatusBadRequest, nil)
+		s.sendError(ctx, &err, false)
 		return
 	}
 	// Model is optional, if not set, the model from the configuration will be used

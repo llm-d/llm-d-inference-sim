@@ -51,7 +51,8 @@ func countTokensForToolCalls(toolCalls []openaiserverapi.ToolCall) int {
 	numberOfTokens := 0
 	for _, tc := range toolCalls {
 		// 3 - name, id, and type
-		numberOfTokens += 3 + tc.Function.TokenizedArguments.Length()
+		tokenizedArgs := tc.Function.TokenizedArguments()
+		numberOfTokens += 3 + tokenizedArgs.Length()
 	}
 	return numberOfTokens
 }
@@ -160,14 +161,14 @@ func createToolCalls(
 
 			call := openaiserverapi.ToolCall{
 				Function: openaiserverapi.FunctionCall{
-					Arguments:          string(argsJson),
-					TokenizedArguments: tokenizedArgs,
-					Name:               &chosenTool.Function.Name,
+					Arguments: string(argsJson),
+					Name:      &chosenTool.Function.Name,
 				},
 				ID:    "chatcmpl-tool-" + random.RandomNumericString(10),
 				Type:  "function",
 				Index: i,
 			}
+			call.Function.SetTokenizedArguments(tokenizedArgs)
 			calls = append(calls, call)
 		}
 		return calls, countTokensForToolCalls(calls), nil

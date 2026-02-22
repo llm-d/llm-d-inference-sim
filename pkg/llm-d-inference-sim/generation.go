@@ -17,7 +17,6 @@ limitations under the License.
 package llmdinferencesim
 
 import (
-	"sync"
 	"time"
 
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
@@ -37,10 +36,9 @@ func (g *generationRequest) validate(toolsValidator *toolsValidator) (string, in
 	return validateRequest(g)
 }
 
-func (g *generationRequest) buildRequestContext(simCtx *simContext, respSender responseSender,
-	wg *sync.WaitGroup) requestContext {
+func (g *generationRequest) buildRequestContext(simCtx *simContext, channel chan *responseInfo) requestContext {
 	reqCtx := &generationReqCtx{
-		baseRequestContext: newBaseRequestContext(simCtx, respSender, wg),
+		baseRequestContext: newBaseRequestContext(simCtx, channel),
 		req:                g,
 	}
 	// wire generationReqCtx into embedded requestContext interface
@@ -107,10 +105,10 @@ type generationResponseCtx struct {
 }
 
 // createResponse creates the response for chat completion requests
-func (respCtx *generationResponseCtx) createResponse() openaiserverapi.CompletionResponse {
+func (respCtx *generationResponseCtx) createResponse(tokens *openaiserverapi.Tokenized) openaiserverapi.CompletionResponse {
 	baseResp := openaiserverapi.CreateBaseCompletionResponse(
 		time.Now().Unix(), respCtx.displayModelName, respCtx.usage, respCtx.id, respCtx.remoteDecode)
-	return openaiserverapi.CreateGenerationResponse(baseResp, respCtx.responseTokens())
+	return openaiserverapi.CreateGenerationResponse(baseResp, tokens)
 }
 
 func (respCtx *generationResponseCtx) createUsageChunk() openaiserverapi.CompletionRespChunk {

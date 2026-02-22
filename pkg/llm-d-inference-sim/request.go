@@ -18,7 +18,6 @@ package llmdinferencesim
 
 import (
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
@@ -29,7 +28,7 @@ import (
 type requestBuilder interface {
 	unmarshal(data []byte) error
 	validate(toolsValidator *toolsValidator) (string, int)
-	buildRequestContext(simCtx *simContext, respSender responseSender, wg *sync.WaitGroup) requestContext
+	buildRequestContext(simCtx *simContext, channel chan *responseInfo) requestContext
 	asString() string
 	createResponseContext(reqCtx requestContext, displayModel string, responseTokens *openaiserverapi.Tokenized, finishReason *string,
 		usageData *openaiserverapi.Usage, sendUsageData bool, logprobs *int, toolCalls []openaiserverapi.ToolCall) responseContext
@@ -42,43 +41,36 @@ type request interface {
 
 type requestContext interface {
 	request() request
-	responseSender() responseSender
-	done()
 	startProcessingTime() time.Time
 	tokenize() *openaiserverapi.Error
 	kvCacheOnRequestStart() (hitRate float64, serverError *openaiserverapi.Error)
 	kvCacheOnRequestEnd()
 	createToolCalls() ([]openaiserverapi.ToolCall, int, string, error)
 	handleRequest() (responseContext, *openaiserverapi.Error)
+	responseChannel() chan *responseInfo
 }
 
 type baseRequestContext struct {
 	requestContext
 	sim             *simContext
-	wg              *sync.WaitGroup
 	startProcessing time.Time
-	respSender      responseSender
+	respChannel     chan *responseInfo
 }
 
-func newBaseRequestContext(simCtx *simContext, respSender responseSender, wg *sync.WaitGroup) baseRequestContext {
+func newBaseRequestContext(simCtx *simContext, channel chan *responseInfo) baseRequestContext {
 	return baseRequestContext{
 		sim:             simCtx,
 		startProcessing: time.Now(),
-		wg:              wg,
-		respSender:      respSender,
+		respChannel:     channel,
 	}
 }
 
-func (b *baseRequestContext) responseSender() responseSender {
-	return b.respSender
+func (b *baseRequestContext) responseChannel() chan *responseInfo {
+	return b.respChannel
 }
 
 func (b *baseRequestContext) startProcessingTime() time.Time {
 	return b.startProcessing
-}
-
-func (b *baseRequestContext) done() {
-	b.wg.Done()
 }
 
 func (b *baseRequestContext) tokenize() *openaiserverapi.Error {

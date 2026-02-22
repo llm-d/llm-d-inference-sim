@@ -17,18 +17,22 @@ limitations under the License.
 package llmdinferencesim
 
 import (
-	"encoding/json"
-	"strconv"
 	"sync"
 
-	"github.com/llm-d/llm-d-inference-sim/pkg/common"
-	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
-	"github.com/valyala/fasthttp"
 )
 
+type responseInfo struct {
+	tokenIDs  []uint32
+	tokenStrs []string
+	respCtx   responseContext
+	err       *openaiserverapi.Error
+	injected  bool
+	toolCall  *openaiserverapi.ToolCall
+}
+
 type responseContext interface {
-	createResponse() openaiserverapi.CompletionResponse
+	createResponse(*openaiserverapi.Tokenized) openaiserverapi.CompletionResponse
 	createUsageChunk() openaiserverapi.CompletionRespChunk
 	createCompletionChunk(token string, tool *openaiserverapi.ToolCall,
 		role string, finishReason *string) openaiserverapi.CompletionRespChunk
@@ -137,115 +141,3 @@ func (b *baseResponseContext) done() {
 func (b *baseResponseContext) setWG(wg *sync.WaitGroup) {
 	b.wg = wg
 }
-
-type responseSender interface {
-	sendError(err openaiserverapi.Error, isInjected bool)
-	sendResponse(resp openaiserverapi.CompletionResponse, respCtx responseContext)
-	sendStreamingResponse(respCtx responseContext)
-	responseSentCallback(reqCtx requestContext, model string)
-	stringForRequest(req request) string
-}
-
-type baseResponseSender struct {
-	sim *simContext
-}
-
-// request processing finished
-func (b *baseResponseSender) responseSentCallback(reqCtx requestContext, model string) {
-	// decrement running requests count
-	common.WriteToChannel(b.sim.metrics.runReqChan, -1, b.sim.logger, "metrics.runReqChan")
-
-	if b.sim.isLora(model) {
-		// update loraInfo metrics to reflect that the request processing has been finished
-		common.WriteToChannel(b.sim.metrics.lorasChan, loraUsage{model, doneUsageState},
-			b.sim.logger, "metrics.lorasChan")
-	}
-
-	reqCtx.kvCacheOnRequestEnd()
-}
-
-type httpResponseSender struct {
-	baseResponseSender
-	ctx *fasthttp.RequestCtx
-}
-
-func (h *httpResponseSender) sendResponse(resp openaiserverapi.CompletionResponse, respCtx responseContext) {
-	data, err := json.Marshal(resp)
-	if err != nil {
-		h.ctx.Error("Response body creation failed, "+err.Error(), fasthttp.StatusInternalServerError)
-		return
-	}
-	h.ctx.Response.Header.SetContentType("application/json")
-	h.ctx.Response.Header.SetStatusCode(fasthttp.StatusOK)
-	// Add pod and namespace information to response headers for testing/debugging
-	if h.sim.pod != "" {
-		h.ctx.Response.Header.Add(podHeader, h.sim.pod)
-		h.ctx.Response.Header.Add(portHeader, strconv.Itoa(h.sim.config.Port))
-	}
-	if h.sim.namespace != "" {
-		h.ctx.Response.Header.Add(namespaceHeader, h.sim.namespace)
-	}
-	if h.sim.config.EnableRequestIDHeaders {
-		if requestID := resp.GetRequestID(); requestID != "" {
-			h.ctx.Response.Header.Add(requestIDHeader, requestID)
-		}
-	}
-	h.ctx.Response.SetBody(data)
-	respCtx.done()
-}
-
-func (h *httpResponseSender) sendError(err openaiserverapi.Error, isInjected bool) {
-	if isInjected {
-		h.sim.logger.V(logging.TRACE).Info("Injecting failure", "type", err.Type, "message", err.Message)
-	} else {
-		h.sim.logger.Error(nil, err.Message)
-	}
-
-	errorResp := openaiserverapi.ErrorResponse{
-		Error: err,
-	}
-
-	data, jsonErr := json.Marshal(errorResp)
-	if jsonErr != nil {
-		h.ctx.Error(jsonErr.Error(), fasthttp.StatusInternalServerError)
-	} else {
-		h.ctx.SetContentType("application/json")
-		h.ctx.SetStatusCode(err.Code)
-		h.ctx.SetBody(data)
-	}
-}
-
-func (h *httpResponseSender) stringForRequest(req request) string {
-	return "HTTP " + req.asString()
-}
-
-var _ responseSender = (*httpResponseSender)(nil)
-
-type grpcResponse struct {
-	err         *openaiserverapi.Error
-	errInjected bool
-	respCtx     responseContext
-}
-
-type grpcResponseSender struct {
-	baseResponseSender
-	response chan *grpcResponse
-}
-
-func (g *grpcResponseSender) sendResponse(resp openaiserverapi.CompletionResponse, respCtx responseContext) {
-	common.WriteToChannel(g.response, &grpcResponse{respCtx: respCtx}, g.sim.logger, "grpc")
-}
-
-func (g *grpcResponseSender) sendStreamingResponse(respCtx responseContext) {
-	common.WriteToChannel(g.response, &grpcResponse{respCtx: respCtx}, g.sim.logger, "grpc")
-}
-
-func (g *grpcResponseSender) sendError(err openaiserverapi.Error, isInjected bool) {
-	common.WriteToChannel(g.response, &grpcResponse{err: &err, errInjected: isInjected}, g.sim.logger, "grpc")
-}
-
-func (g *grpcResponseSender) stringForRequest(req request) string {
-	return "gRPC " + req.asString()
-}
-
-var _ responseSender = (*grpcResponseSender)(nil)

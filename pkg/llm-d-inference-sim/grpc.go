@@ -19,9 +19,7 @@ package llmdinferencesim
 import (
 	"context"
 	"net"
-	"time"
 
-	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 	"github.com/llm-d/llm-d-inference-sim/pkg/grpc/pb"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
@@ -36,16 +34,17 @@ import (
 // Submit a generation request (supports streaming)
 func (s *VllmSimulator) Generate(in *pb.GenerateRequest, out grpc.ServerStreamingServer[pb.GenerateResponse]) error {
 	req := s.pbRequestToRequest(in)
-	sender := &grpcResponseSender{
-		baseResponseSender: baseResponseSender{
-			sim: &s.context,
-		},
-		response: make(chan *grpcResponse, 1),
+	_, _, channel, err, _ := s.handleRequest(req)
+	if err != nil {
+		return status.Errorf(extractGRPCCode(err), err.Message, err)
 	}
 
-	s.handleRequest(req, sender)
+	s.context.logger.V(logging.DEBUG).Info("Received", "new gRPC", req.asString())
 
-	for response := range sender.response {
+	var respCtx responseContext
+	tokens := make([]uint32, 0)
+
+	for response := range channel {
 		select {
 		case <-out.Context().Done():
 			return out.Context().Err()
@@ -54,36 +53,29 @@ func (s *VllmSimulator) Generate(in *pb.GenerateRequest, out grpc.ServerStreamin
 			if response.err != nil {
 				return status.Errorf(extractGRPCCode(response.err), response.err.Message, response.err)
 			}
-			// Send response
-			var resp *pb.GenerateResponse
-			if in.Stream {
-				s.context.simulateTTFT(response.respCtx)
+			respCtx = response.respCtx
 
-				startDecode := time.Now()
-				for i, token := range response.respCtx.responseTokens().Tokens {
-					if i != 0 {
-						s.context.simulateInterTokenLatency()
-					}
-					resp := buildPBResponseChunk([]uint32{token}, response.respCtx)
+			if in.Stream {
+				// Send response chunk
+				if response.tokenIDs != nil {
+					resp := buildPBResponseChunk(response.tokenIDs, response.respCtx)
 					if err := out.Send(resp); err != nil {
+						respCtx.done()
 						return status.Errorf(codes.Internal, "send failed: %v", err)
 					}
 				}
-				common.WriteToChannel(s.context.metrics.reqDecodeTimeChan, time.Since(startDecode).Seconds(), s.context.logger,
-					"metrics.reqDecodeTimeChan")
-
-				resp = buildPBResponseComplete(response.respCtx, true)
-				sender.responseSentCallback(response.respCtx.requestContext(), response.respCtx.displayModel())
 			} else {
-				resp = buildPBResponseComplete(response.respCtx, false)
+				tokens = append(tokens, response.tokenIDs...)
 			}
-			if err := out.Send(resp); err != nil {
-				return status.Errorf(codes.Internal, "send failed: %v", err)
-			}
-			response.respCtx.done()
-			return nil
 		}
 	}
+	resp := buildPBResponseComplete(tokens, respCtx, in.Stream)
+	if err := out.Send(resp); err != nil {
+		respCtx.done()
+		return status.Errorf(codes.Internal, "send failed: %v", err)
+	}
+	s.responseSentCallback(respCtx.requestContext(), respCtx.displayModel())
+	respCtx.done()
 	return nil
 }
 
@@ -172,11 +164,7 @@ func buildPBResponseChunk(tokens []uint32, respCtx responseContext) *pb.Generate
 	}
 }
 
-func buildPBResponseComplete(respCtx responseContext, lastChunkInStream bool) *pb.GenerateResponse {
-	var outputIds []uint32
-	if !lastChunkInStream {
-		outputIds = respCtx.responseTokens().Tokens
-	}
+func buildPBResponseComplete(outputIds []uint32, respCtx responseContext, lastChunkInStream bool) *pb.GenerateResponse {
 	var completionTokens uint32
 	if !lastChunkInStream {
 		completionTokens = uint32(respCtx.usageData().CompletionTokens)

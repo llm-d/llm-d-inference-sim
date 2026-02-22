@@ -73,9 +73,9 @@ var _ = Describe("gRPC", func() {
 			Expect(resp.PromptTokens).To(Equal(uint32(4)))
 			Expect(resp.FinishReason).To(Equal(finishReason))
 
-			Expect(out.ttft).To(BeNumerically(">", expectedTime))
+			Expect(out.firstResponseTime).To(BeNumerically(">", expectedTime))
 			if expectedTime == 0 {
-				Expect(out.ttft).To(BeNumerically("<", 5*time.Millisecond))
+				Expect(out.firstResponseTime).To(BeNumerically("<", 5*time.Millisecond))
 			}
 		},
 		func(maxTokens uint32, finishReason string, ttft string, itl string, expectedTime time.Duration) string {
@@ -87,7 +87,7 @@ var _ = Describe("gRPC", func() {
 	)
 
 	DescribeTable("generate, echo, streaming",
-		func(maxTokens uint32, finishReason string, ttft string, itl string, expectedTTFT time.Duration, expectedITL time.Duration) {
+		func(maxTokens uint32, finishReason string, ttft string, itl string, expectedTTFT time.Duration, expectedTotal time.Duration) {
 			ctx := context.TODO()
 			args := []string{"cmd", "--model", testModel, "--mode", common.ModeEcho,
 				"--time-to-first-token", ttft, "--inter-token-latency", itl}
@@ -124,21 +124,21 @@ var _ = Describe("gRPC", func() {
 				}
 			}
 
-			Expect(out.ttft).To(BeNumerically(">", expectedTTFT))
+			Expect(out.firstResponseTime).To(BeNumerically(">", expectedTTFT))
 			if expectedTTFT == 0 {
-				Expect(out.ttft).To(BeNumerically("<", 5*time.Millisecond))
+				Expect(out.firstResponseTime).To(BeNumerically("<", 5*time.Millisecond))
 			}
-			Expect(out.itl).To(BeNumerically(">", expectedITL))
-			if expectedITL == 0 {
-				Expect(out.ttft).To(BeNumerically("<", 5*time.Millisecond))
+			Expect(out.totalResponseTime).To(BeNumerically(">", expectedTotal))
+			if expectedTotal == 0 {
+				Expect(out.firstResponseTime).To(BeNumerically("<", 5*time.Millisecond))
 			}
 		},
-		func(maxTokens uint32, finishReason string, ttft string, itl string, expectedTTFT time.Duration, expectedITL time.Duration) string {
+		func(maxTokens uint32, finishReason string, ttft string, itl string, expectedTTFT time.Duration, expectedTotal time.Duration) string {
 			return fmt.Sprintf("max tokens: %d, ttft: %s, intertoken latency: %s", maxTokens, ttft, itl)
 		},
 		Entry(nil, uint32(128), common.StopFinishReason, "0", "0", time.Duration(0), time.Duration(0)),
 		Entry(nil, uint32(3), common.LengthFinishReason, "0", "0", time.Duration(0), time.Duration(0)),
-		Entry(nil, uint32(128), common.StopFinishReason, "500", "300", 500*time.Millisecond, 900*time.Millisecond),
+		Entry(nil, uint32(128), common.StopFinishReason, "500", "300", 500*time.Millisecond, 1400*time.Millisecond),
 	)
 
 	DescribeTable("generate, text input",
@@ -210,26 +210,22 @@ var _ = Describe("gRPC", func() {
 
 type mockGenerateServer struct {
 	grpc.ServerStream
-	ctx       context.Context
-	responses []*pb.GenerateResponse
-	start     time.Time
-	latest    time.Time
-	ttft      time.Duration
-	itl       time.Duration
-	err       error
+	ctx               context.Context
+	responses         []*pb.GenerateResponse
+	start             time.Time
+	firstResponseTime time.Duration
+	totalResponseTime time.Duration
+	err               error
 }
 
 func (m *mockGenerateServer) Context() context.Context {
 	return m.ctx
 }
 func (m *mockGenerateServer) Send(resp *pb.GenerateResponse) error {
-	if m.ttft == 0 {
-		m.ttft = time.Since(m.start)
-	} else {
-		m.itl += time.Since(m.latest)
+	if m.firstResponseTime == 0 {
+		m.firstResponseTime = time.Since(m.start)
 	}
-	m.latest = time.Now()
-
+	m.totalResponseTime = time.Since(m.start)
 	m.responses = append(m.responses, resp)
 	return m.err
 }

@@ -62,40 +62,35 @@ func (s *VllmSimulator) processRequest(reqCtx requestContext, _ *sync.WaitGroup)
 	startTime := time.Now()
 	wg := sync.WaitGroup{}
 	wg.Add(1)
-
-	go s.processRequestAsync(reqCtx, &wg)
-
-	wg.Wait()
-	// calculate inference time and finish e2e latency calculation only when sure that request processing was finished for streaming requests too
-	common.WriteToChannel(s.context.metrics.e2eReqLatencyChan, time.Since(reqCtx.startProcessingTime()).Seconds(), s.context.logger, "metrics.e2eReqLatencyChan")
-	common.WriteToChannel(s.context.metrics.reqInferenceTimeChan, time.Since(startTime).Seconds(), s.context.logger, "metrics.reqInferenceTimeChan")
-}
-
-func (s *VllmSimulator) processRequestAsync(reqCtx requestContext, wg *sync.WaitGroup) {
 	req := reqCtx.request()
 	respCtx, err := reqCtx.handleRequest()
 	if err != nil {
-		reqCtx.responseSender().sendError(*err, false)
-	} else {
-		respCtx.setWG(wg)
-		if req.IsStream() {
-			reqCtx.responseSender().sendStreamingResponse(respCtx)
-		} else {
-			s.sendResponse(reqCtx, respCtx)
-		}
-
-		common.WriteToChannel(s.context.metrics.requestSuccessChan,
-			requestSuccessEvent{
-				promptTokens:     respCtx.usageData().PromptTokens,
-				generationTokens: respCtx.usageData().CompletionTokens,
-				// currently only responses with a single choice are supported
-				genTokensPerChoice: []int{respCtx.usageData().CompletionTokens},
-				maxTokens:          req.GetMaxCompletionTokens(),
-				finishReason:       *respCtx.finishReason()},
-			s.context.logger, "metrics.requestSuccessChan")
+		common.WriteToChannel(reqCtx.responseChannel(), &responseInfo{respCtx: respCtx, err: err, injected: false},
+			s.context.logger, "responseChannel")
+		return
 	}
+
+	respCtx.setWG(&wg)
+
+	s.sendResponse(reqCtx, respCtx)
+
+	wg.Wait()
+
+	common.WriteToChannel(s.context.metrics.requestSuccessChan,
+		requestSuccessEvent{
+			promptTokens:     respCtx.usageData().PromptTokens,
+			generationTokens: respCtx.usageData().CompletionTokens,
+			// currently only responses with a single choice are supported
+			genTokensPerChoice: []int{respCtx.usageData().CompletionTokens},
+			maxTokens:          req.GetMaxCompletionTokens(),
+			finishReason:       *respCtx.finishReason()},
+		s.context.logger, "metrics.requestSuccessChan")
+
 	s.context.logger.V(logging.DEBUG).Info("Finished processing request", "id", req.GetRequestID())
-	reqCtx.done()
+
+	// calculate inference time and finish e2e latency calculation only when sure that request processing was finished for streaming requests too
+	common.WriteToChannel(s.context.metrics.e2eReqLatencyChan, time.Since(reqCtx.startProcessingTime()).Seconds(), s.context.logger, "metrics.e2eReqLatencyChan")
+	common.WriteToChannel(s.context.metrics.reqInferenceTimeChan, time.Since(startTime).Seconds(), s.context.logger, "metrics.reqInferenceTimeChan")
 }
 
 // getFreeWorker returns a free worker or nil if none are available (non-blocking)

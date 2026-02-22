@@ -352,9 +352,10 @@ func (s *VllmSimulator) findRequestAndSendToProcess(worker *worker) bool {
 func (s *VllmSimulator) addRequestToQueue(reqCtx requestContext) {
 	if err := s.enqueue(reqCtx); err != nil {
 		s.context.logger.Error(err, "failed to enqueue request")
-		reqCtx.responseSender().sendError(openaiserverapi.NewError("Failed to enqueue request, "+err.Error(),
-			fasthttp.StatusTooManyRequests, nil), false)
-		reqCtx.done()
+		err := openaiserverapi.NewError("Failed to enqueue request, "+err.Error(),
+			fasthttp.StatusTooManyRequests, nil)
+		common.WriteToChannel(reqCtx.responseChannel(), &responseInfo{err: &err, injected: false},
+			s.context.logger, "responseChannel")
 		return
 	}
 	// increment the waiting requests metric
@@ -365,18 +366,11 @@ func (s *VllmSimulator) addRequestToQueue(reqCtx requestContext) {
 
 }
 
-func (s *VllmSimulator) handleHTTPRequest(req request, ctx *fasthttp.RequestCtx) {
-	respSender := &httpResponseSender{
-		baseResponseSender: baseResponseSender{
-			sim: &s.context,
-		},
-		ctx: ctx,
-	}
-
+func (s *VllmSimulator) handleHTTPRequest(req request, ctx *fasthttp.RequestCtx) (bool, requestContext, chan *responseInfo, *openaiserverapi.Error, bool) {
 	if err := req.unmarshal(ctx.Request.Body()); err != nil {
 		s.context.logger.Error(err, "failed to read and parse request body")
-		ctx.Error("Failed to read and parse request body, "+err.Error(), fasthttp.StatusBadRequest)
-		return
+		errToSend := openaiserverapi.NewError("Failed to read and parse request body, "+err.Error(), fasthttp.StatusBadRequest, nil)
+		return false, nil, nil, &errToSend, false
 	}
 
 	requestID := s.getRequestID(ctx)
@@ -388,58 +382,32 @@ func (s *VllmSimulator) handleHTTPRequest(req request, ctx *fasthttp.RequestCtx)
 		req.SetCacheThresholdFinishReason(parsedValue)
 	}
 
-	s.handleRequest(req, respSender)
+	return s.handleRequest(req)
 }
 
-// handleRequest is a general requests handler
-// Important note: for requests in streaming mode, this function exits before all chunks are sent to the client
-func (s *VllmSimulator) handleRequest(req request, respSender responseSender) {
+func (s *VllmSimulator) handleRequest(req request) (bool, requestContext, chan *responseInfo, *openaiserverapi.Error, bool) {
 	// Check if we should inject a failure
 	if shouldInjectFailure(s.context.config, s.context.random) {
 		failure := getRandomFailure(s.context.config, s.context.random)
-		respSender.sendError(failure, true)
-		return
+		return false, nil, nil, &failure, true
 	}
 
 	if !s.isValidModel(req.GetModel()) {
-		respSender.sendError(openaiserverapi.NewError(fmt.Sprintf("The model `%s` does not exist.",
-			req.GetModel()), fasthttp.StatusNotFound, nil), false)
-		return
+		err := openaiserverapi.NewError(fmt.Sprintf("The model `%s` does not exist.",
+			req.GetModel()), fasthttp.StatusNotFound, nil)
+		return false, nil, nil, &err, false
 	}
 
 	errMsg, errCode := req.validate(s.toolsValidator)
 	if errMsg != "" {
-		respSender.sendError(openaiserverapi.NewError(errMsg, errCode, nil), false)
-		return
+		err := openaiserverapi.NewError(errMsg, errCode, nil)
+		return false, nil, nil, &err, false
 	}
 
-	s.context.logger.V(logging.DEBUG).Info("Received", "new", respSender.stringForRequest(req))
-
-	var wg sync.WaitGroup
-	wg.Add(1)
-	reqCtx := req.buildRequestContext(&s.context, respSender, &wg)
+	channel := make(chan *responseInfo, s.context.config.MaxModelLen)
+	reqCtx := req.buildRequestContext(&s.context, channel)
 	common.WriteToChannel(s.newRequests, reqCtx, s.context.logger, "newRequests")
-	wg.Wait()
-}
-
-// sendResponse sends response for completion API, supports both completions (text and chat)
-func (s *VllmSimulator) sendResponse(reqCtx requestContext, respCtx responseContext) {
-	resp := respCtx.createResponse()
-
-	// Skip delays if finish reason is cache_threshold (immediate return)
-	isCacheThresholdFinishReason := respCtx.finishReason() != nil && *respCtx.finishReason() == common.CacheThresholdFinishReason
-	if !isCacheThresholdFinishReason {
-		s.context.simulateTTFT(respCtx)
-
-		startDecode := time.Now()
-		for range respCtx.usageData().CompletionTokens - 1 {
-			s.context.simulateInterTokenLatency()
-		}
-		common.WriteToChannel(s.context.metrics.reqDecodeTimeChan, time.Since(startDecode).Seconds(), s.context.logger, "metrics.reqDecodeTimeChan")
-	}
-
-	reqCtx.responseSender().sendResponse(resp, respCtx)
-	reqCtx.responseSender().responseSentCallback(reqCtx, respCtx.displayModel())
+	return req.IsStream(), reqCtx, channel, nil, false
 }
 
 // createModelsResponse creates and returns ModelResponse for the current state, returned array of models contains the base model + LoRA adapters if exist
@@ -514,4 +482,59 @@ func (s *VllmSimulator) dequeue() requestContext {
 	}
 
 	return nil
+}
+
+func (s *VllmSimulator) sendResponse(reqCtx requestContext, respCtx responseContext) {
+	// Skip delays if finish reason is cache_threshold (immediate return)
+	if respCtx.finishReason() != nil && *respCtx.finishReason() == common.CacheThresholdFinishReason {
+		common.WriteToChannel(reqCtx.responseChannel(), &responseInfo{respCtx: respCtx},
+			s.context.logger, "responseChannel")
+	} else {
+		s.context.simulateTTFT(respCtx)
+
+		startDecode := time.Now()
+		if respCtx.responseTokens() != nil {
+			for i, token := range respCtx.responseTokens().Tokens {
+				if i != 0 {
+					s.context.simulateInterTokenLatency()
+				}
+
+				tokenStrs := make([]string, 0)
+				if respCtx.responseTokens().Strings != nil {
+					tokenStrs = append(tokenStrs, respCtx.responseTokens().Strings[i])
+				}
+				common.WriteToChannel(reqCtx.responseChannel(),
+					&responseInfo{tokenIDs: []uint32{token}, tokenStrs: tokenStrs, respCtx: respCtx},
+					s.context.logger, "responseChannel")
+			}
+		} else {
+			for _, tc := range respCtx.toolCalls() {
+				for i, token := range tc.Function.TokenizedArguments().Strings {
+					if i != 0 {
+						s.context.simulateInterTokenLatency()
+					}
+					common.WriteToChannel(reqCtx.responseChannel(),
+						&responseInfo{tokenIDs: []uint32{}, tokenStrs: []string{token}, respCtx: respCtx, toolCall: &tc},
+						s.context.logger, "responseChannel")
+				}
+			}
+		}
+		common.WriteToChannel(s.context.metrics.reqDecodeTimeChan, time.Since(startDecode).Seconds(), s.context.logger,
+			"metrics.reqDecodeTimeChan")
+	}
+	close(reqCtx.responseChannel())
+}
+
+// request processing finished
+func (s *VllmSimulator) responseSentCallback(reqCtx requestContext, model string) {
+	// decrement running requests count
+	common.WriteToChannel(s.context.metrics.runReqChan, -1, s.context.logger, "metrics.runReqChan")
+
+	if s.context.isLora(model) {
+		// update loraInfo metrics to reflect that the request processing has been finished
+		common.WriteToChannel(s.context.metrics.lorasChan, loraUsage{model, doneUsageState},
+			s.context.logger, "metrics.lorasChan")
+	}
+
+	reqCtx.kvCacheOnRequestEnd()
 }
