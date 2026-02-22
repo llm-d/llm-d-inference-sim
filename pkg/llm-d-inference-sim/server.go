@@ -157,11 +157,11 @@ func (s *VllmSimulator) handleHTTP(req request, ctx *fasthttp.RequestCtx) {
 		s.sendStream(ctx, reqCtx, channel)
 	} else {
 		ctx.Response.Header.SetContentType("application/json")
-		s.sendNonStream(ctx, reqCtx, channel)
+		s.sendNonStream(ctx, channel)
 	}
 }
 
-func (s *VllmSimulator) sendNonStream(ctx *fasthttp.RequestCtx, reqCtx requestContext, channel chan *responseInfo) {
+func (s *VllmSimulator) sendNonStream(ctx *fasthttp.RequestCtx, channel chan *responseInfo) {
 	tokens := openaiserverapi.Tokenized{
 		Tokens:  make([]uint32, 0),
 		Strings: make([]string, 0),
@@ -169,17 +169,14 @@ func (s *VllmSimulator) sendNonStream(ctx *fasthttp.RequestCtx, reqCtx requestCo
 
 	var respCtx responseContext
 	for response := range channel {
-		select {
-		default:
-			if response.err != nil {
-				s.sendError(ctx, response.err, response.injected)
-				return
-			}
-
-			tokens.Tokens = append(tokens.Tokens, response.tokenIDs...)
-			tokens.Strings = append(tokens.Strings, response.tokenStrs...)
-			respCtx = response.respCtx
+		if response.err != nil {
+			s.sendError(ctx, response.err, response.injected)
+			return
 		}
+
+		tokens.Tokens = append(tokens.Tokens, response.tokenIDs...)
+		tokens.Strings = append(tokens.Strings, response.tokenStrs...)
+		respCtx = response.respCtx
 	}
 
 	resp := respCtx.createResponse(&tokens)
