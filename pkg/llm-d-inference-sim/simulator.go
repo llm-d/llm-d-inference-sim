@@ -354,7 +354,7 @@ func (s *VllmSimulator) addRequestToQueue(reqCtx requestContext) {
 		s.context.logger.Error(err, "failed to enqueue request")
 		err := openaiserverapi.NewError("Failed to enqueue request, "+err.Error(),
 			fasthttp.StatusTooManyRequests, nil)
-		common.WriteToChannel(reqCtx.responseChannel(), &responseInfo{err: &err, injected: false},
+		common.WriteToChannel(reqCtx.responseChannel(), &responseInfo{err: &err},
 			s.context.logger, "responseChannel")
 		return
 	}
@@ -499,23 +499,30 @@ func (s *VllmSimulator) sendResponse(reqCtx requestContext, respCtx responseCont
 					s.context.simulateInterTokenLatency()
 				}
 
-				tokenStrs := make([]string, 0)
+				tokens := &openaiserverapi.Tokenized{
+					Tokens:  []uint32{token},
+					Strings: []string{},
+				}
 				if respCtx.responseTokens().Strings != nil {
-					tokenStrs = append(tokenStrs, respCtx.responseTokens().Strings[i])
+					tokens.Strings = append(tokens.Strings, respCtx.responseTokens().Strings[i])
 				}
 				common.WriteToChannel(reqCtx.responseChannel(),
-					&responseInfo{tokenIDs: []uint32{token}, tokenStrs: tokenStrs, respCtx: respCtx},
+					&responseInfo{tokens: tokens, respCtx: respCtx},
 					s.context.logger, "responseChannel")
 			}
 		} else {
 			for _, tc := range respCtx.toolCalls() {
-				for i, token := range tc.Function.TokenizedArguments().Strings {
+				// Tool calls are only supported in HTTP at the moment, so we assume that we always
+				// have string tokenized arguments
+				for i, token := range tc.Function.TokenizedArguments().Tokens {
 					if i != 0 {
 						s.context.simulateInterTokenLatency()
 					}
 					common.WriteToChannel(reqCtx.responseChannel(),
-						&responseInfo{tokenIDs: []uint32{}, tokenStrs: []string{token}, respCtx: respCtx, toolCall: &tc},
-						s.context.logger, "responseChannel")
+						&responseInfo{tokens: &openaiserverapi.Tokenized{
+							Tokens:  []uint32{token},
+							Strings: []string{tc.Function.TokenizedArguments().Strings[i]}},
+							respCtx: respCtx, toolCall: &tc}, s.context.logger, "responseChannel")
 				}
 			}
 		}

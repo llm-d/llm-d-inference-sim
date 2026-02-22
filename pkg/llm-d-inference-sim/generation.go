@@ -117,7 +117,7 @@ func (respCtx *generationResponseCtx) createUsageChunk() openaiserverapi.Complet
 
 // createChatCompletionChunk creates and returns a CompletionRespChunk, a single chunk of streamed completion
 // API response, for chat completion. It sets either role, or token, or tool call info in the message.
-func (respCtx *generationResponseCtx) createCompletionChunk(token string, tool *openaiserverapi.ToolCall,
+func (respCtx *generationResponseCtx) createCompletionChunk(tokens []string, tool *openaiserverapi.ToolCall,
 	role string, finishReason *string) openaiserverapi.CompletionRespChunk {
 	return nil
 }

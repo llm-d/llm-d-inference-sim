@@ -65,7 +65,7 @@ func (s *VllmSimulator) processRequest(reqCtx requestContext, _ *sync.WaitGroup)
 	req := reqCtx.request()
 	respCtx, err := reqCtx.handleRequest()
 	if err != nil {
-		common.WriteToChannel(reqCtx.responseChannel(), &responseInfo{respCtx: respCtx, err: err, injected: false},
+		common.WriteToChannel(reqCtx.responseChannel(), &responseInfo{respCtx: respCtx, err: err},
 			s.context.logger, "responseChannel")
 		return
 	}

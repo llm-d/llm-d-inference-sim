@@ -23,18 +23,16 @@ import (
 )
 
 type responseInfo struct {
-	tokenIDs  []uint32
-	tokenStrs []string
-	respCtx   responseContext
-	err       *openaiserverapi.Error
-	injected  bool
-	toolCall  *openaiserverapi.ToolCall
+	tokens   *openaiserverapi.Tokenized
+	respCtx  responseContext
+	err      *openaiserverapi.Error
+	toolCall *openaiserverapi.ToolCall
 }
 
 type responseContext interface {
 	createResponse(*openaiserverapi.Tokenized) openaiserverapi.CompletionResponse
 	createUsageChunk() openaiserverapi.CompletionRespChunk
-	createCompletionChunk(token string, tool *openaiserverapi.ToolCall,
+	createCompletionChunk(tokens []string, tool *openaiserverapi.ToolCall,
 		role string, finishReason *string) openaiserverapi.CompletionRespChunk
 	createFirstCompletionChunk() openaiserverapi.CompletionRespChunk
 	requestContext() requestContext

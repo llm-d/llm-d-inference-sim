@@ -57,15 +57,15 @@ func (s *VllmSimulator) Generate(in *pb.GenerateRequest, out grpc.ServerStreamin
 
 			if in.Stream {
 				// Send response chunk
-				if response.tokenIDs != nil {
-					resp := buildPBResponseChunk(response.tokenIDs, response.respCtx)
+				if response.tokens != nil {
+					resp := buildPBResponseChunk(response.tokens.Tokens, response.respCtx)
 					if err := out.Send(resp); err != nil {
 						respCtx.done()
 						return status.Errorf(codes.Internal, "send failed: %v", err)
 					}
 				}
-			} else {
-				tokens = append(tokens, response.tokenIDs...)
+			} else if response.tokens != nil {
+				tokens = append(tokens, response.tokens.Tokens...)
 			}
 		}
 	}

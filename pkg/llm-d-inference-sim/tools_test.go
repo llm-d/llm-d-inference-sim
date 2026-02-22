@@ -815,7 +815,7 @@ var _ = Describe("Simulator for request with tools", func() {
 	)
 
 	DescribeTable("tool without required params",
-		func(probability int, numberOfParams int) {
+		func(probability int, numberOfParams int, stream bool) {
 			ctx := context.TODO()
 			serverArgs := []string{"cmd", "--model", testModel, "--mode", common.ModeRandom,
 				"--tool-call-not-required-param-probability", strconv.Itoa(probability),
@@ -823,7 +823,7 @@ var _ = Describe("Simulator for request with tools", func() {
 			client, err := startServerWithArgs(ctx, serverArgs)
 			Expect(err).NotTo(HaveOccurred())
 
-			openaiclient, params := getOpenAIClientAndChatParams(client, testModel, testUserMessage, false)
+			openaiclient, params := getOpenAIClientAndChatParams(client, testModel, testUserMessage, stream)
 			params.ToolChoice = openai.ChatCompletionToolChoiceOptionUnionParam{OfAuto: param.NewOpt("required")}
 			params.Tools = toolWithoutRequiredParams
 
@@ -843,11 +843,13 @@ var _ = Describe("Simulator for request with tools", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(args).To(HaveLen(numberOfParams))
 		},
-		func(probability int, numberOfParams int) string {
-			return fmt.Sprintf("probability: %d", probability)
+		func(probability int, numberOfParams int, stream bool) string {
+			return fmt.Sprintf("probability: %d, stream: %t", probability, stream)
 		},
-		Entry(nil, 0, 0),
-		Entry(nil, 100, 3),
+		Entry(nil, 0, 0, false),
+		Entry(nil, 0, 0, true),
+		Entry(nil, 100, 3, false),
+		Entry(nil, 100, 3, true),
 	)
 
 	DescribeTable("tool with object with not required params",

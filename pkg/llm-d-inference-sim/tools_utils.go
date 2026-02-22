@@ -51,8 +51,7 @@ func countTokensForToolCalls(toolCalls []openaiserverapi.ToolCall) int {
 	numberOfTokens := 0
 	for _, tc := range toolCalls {
 		// 3 - name, id, and type
-		tokenizedArgs := tc.Function.TokenizedArguments()
-		numberOfTokens += 3 + tokenizedArgs.Length()
+		numberOfTokens += 3 + tc.Function.TokenizedArguments().Length()
 	}
 	return numberOfTokens
 }
