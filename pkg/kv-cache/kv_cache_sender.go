@@ -36,8 +36,9 @@ const (
 )
 
 type EventData struct {
-	action     EventAction
-	hashValues []any
+	action EventAction
+	tokens []uint32
+	hashes []any
 }
 
 type KVEventSender struct {
@@ -95,9 +96,9 @@ func (s *KVEventSender) Run(ctx context.Context) error {
 
 			switch eventData.action {
 			case eventActionStore:
-				payload, err = msgpack.Marshal(kvevents.BlockStored{BlockHashes: eventData.hashValues}.ToTaggedUnion())
+				payload, err = msgpack.Marshal(kvevents.BlockStored{BlockHashes: eventData.hashes, TokenIds: eventData.tokens}.ToTaggedUnion())
 			case eventActionRemove:
-				payload, err = msgpack.Marshal(kvevents.BlockRemoved{BlockHashes: eventData.hashValues}.ToTaggedUnion())
+				payload, err = msgpack.Marshal(kvevents.BlockRemoved{BlockHashes: eventData.hashes}.ToTaggedUnion())
 			case eventActionAllBlocksCleared:
 				payload, err = msgpack.Marshal(kvevents.AllBlocksCleared{}.ToTaggedUnion())
 			default:

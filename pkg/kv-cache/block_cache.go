@@ -40,6 +40,7 @@ type blockCache struct {
 	requestToBlocks map[string][]uint64  // request id -> array of it blocks (block hashes)
 	usedBlocks      map[uint64]int       // block hash -> reference count
 	unusedBlocks    map[uint64]time.Time // block hash -> last usage timestamp
+	blockToTokens    map[uint64][]uint32  // block hash -> block tokens
 	maxBlocks       int                  // maximum number of blocks in the cache
 	eventSender     *KVEventSender       // emmits kv events
 	eventChan       chan EventData       // channel for asynchronous event processing
@@ -73,6 +74,7 @@ func newBlockCache(config *common.Configuration, logger logr.Logger, usageChan c
 		requestToBlocks: make(map[string][]uint64),
 		usedBlocks:      make(map[uint64]int),
 		unusedBlocks:    make(map[uint64]time.Time),
+		blockToTokens:    make(map[uint64][]uint32),
 		maxBlocks:       config.KVCacheSize,
 		eventChan:       eChan,
 		usageChan:       usageChan,
@@ -117,7 +119,7 @@ func (bc *blockCache) activate() {
 
 // startRequest adds a request with its associated block hashes to the cache
 // and returns the number of blocks that were already in the cache
-func (bc *blockCache) startRequest(requestID string, blocks []uint64) (int, error) {
+func (bc *blockCache) startRequest(requestID string, blockHashes []uint64, blockTokens [][]uint32) (int, error) {
 	bc.mu.Lock()
 	defer bc.mu.Unlock()
 
@@ -131,6 +133,10 @@ func (bc *blockCache) startRequest(requestID string, blocks []uint64) (int, erro
 		return 0, fmt.Errorf("request already exists for id %s", requestID)
 	}
 
+	if len(blockHashes) != len(blockTokens) {
+		return 0, fmt.Errorf("invlaid input parameters, %d block hashes, %d block tokens", len(blockHashes), len(blockTokens))
+	}
+
 	// divide list of blocks to three lists:
 	// blockAreadyInUse - blocks, which are already used by currently running request
 	// blockToMoveToUsed - blocks, which were used in past
@@ -142,13 +148,18 @@ func (bc *blockCache) startRequest(requestID string, blocks []uint64) (int, erro
 	// first step - ensure that there is enough space for all blocks
 	// count number of new blocks + number of blocks that are in the unused blocks
 	// don't update the data until we are sure that it's ok
-	for _, blockHash := range blocks {
+	for i, blockHash := range blockHashes {
 		if _, exists := bc.unusedBlocks[blockHash]; exists {
 			blockToMoveToUsed = append(blockToMoveToUsed, blockHash)
 		} else if _, exists := bc.usedBlocks[blockHash]; !exists {
 			blocksToAdd = append(blocksToAdd, blockHash)
 		} else {
 			blockAreadyInUse = append(blockAreadyInUse, blockHash)
+		}
+
+		// store block tokens if doesnot in the cache
+		if _, exists := bc.blockToTokens[blockHash]; !exists {
+			bc.blockToTokens[blockHash] = blockTokens[i]
 		}
 	}
 
@@ -168,6 +179,10 @@ func (bc *blockCache) startRequest(requestID string, blocks []uint64) (int, erro
 	}
 
 	// for new block - add them, if there is no empty slots - evict the oldest block
+	// send all blocks as a single batch
+	hashes := []any{}
+	tokens := []uint32{}
+
 	for _, block := range blocksToAdd {
 		if len(bc.usedBlocks)+len(bc.unusedBlocks) == bc.maxBlocks {
 			// cache is full but contains unused blocks - evict the oldest
@@ -183,20 +198,24 @@ func (bc *blockCache) startRequest(requestID string, blocks []uint64) (int, erro
 
 			delete(bc.unusedBlocks, oldestUnusedHash)
 			common.WriteToChannel(bc.eventChan,
-				EventData{action: eventActionRemove, hashValues: []any{oldestUnusedHash}},
+				EventData{action: eventActionRemove, hashes: []any{oldestUnusedHash}, tokens: bc.blockToTokens[oldestUnusedHash]},
 				bc.logger, "block cache eventChan")
+			// remove this block hash from the cache of block tokens
+			delete(bc.blockToTokens oldestUnusedHash)
 		}
 
 		// Add the new block
 		bc.usedBlocks[block] = 1
-		common.WriteToChannel(bc.eventChan,
-			EventData{action: eventActionStore, hashValues: []any{block}},
-			bc.logger, "block cache eventChan")
+
+		hashes = append(hashes, block)
+		tokens = append(tokens, bc.blockToTokens[block]...)
 	}
 
+	common.WriteToChannel(bc.eventChan, EventData{action: eventActionStore, hashes: hashes, tokens: tokens}, bc.logger, "block cache eventChan")
+
 	// store the request mapping
-	bc.requestToBlocks[requestID] = make([]uint64, len(blocks))
-	copy(bc.requestToBlocks[requestID], blocks)
+	bc.requestToBlocks[requestID] = make([]uint64, len(blockHashes))
+	copy(bc.requestToBlocks[requestID], blockHashes)
 
 	if bc.usageChan != nil {
 		common.WriteToChannel(bc.usageChan, float64(len(bc.usedBlocks))/float64(bc.maxBlocks),
@@ -288,7 +307,7 @@ func (bc *blockCache) getBlockInfo(blockHash uint64) (int, bool) {
 }
 
 // countCachedBlockPrefix returns the number of continuous blocks from the given list that are already in the cache
-func (bc *blockCache) countCachedBlockPrefix(blocks []uint64) int {
+func (bc *blockCache) countCachedBlockPrefix(blockHashes []uint64) int {
 	bc.mu.RLock()
 	defer bc.mu.RUnlock()
 
@@ -297,7 +316,7 @@ func (bc *blockCache) countCachedBlockPrefix(blocks []uint64) int {
 	}
 
 	var count int
-	for _, blockHash := range blocks {
+	for _, blockHash := range blockHashes {
 		// Check if block is in used blocks (currently in use by running requests)
 		if _, exists := bc.usedBlocks[blockHash]; exists {
 			count++

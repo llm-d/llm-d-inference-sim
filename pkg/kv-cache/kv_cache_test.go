@@ -43,8 +43,9 @@ const (
 )
 
 type testRequest struct {
-	id     string
-	blocks []uint64
+	id          string
+	blockHashes []uint64
+	tokens      [][]uint32
 }
 
 type expectedBlockInfo struct {
@@ -122,10 +123,10 @@ var _ = Describe("KV cache", Ordered, func() {
 	Context("general tests", func() {
 		// check single request processing, ensure cache is valid after request processing started
 		// and after the processing was finished
-		req1 := testRequest{req1ID, []uint64{1, 2}}
-		req2 := testRequest{req2ID, []uint64{3, 4}}
-		req2_1 := testRequest{req2ID, []uint64{1, 3}}
-		req3 := testRequest{req3ID, []uint64{5, 6}}
+		req1 := testRequest{req1ID, []uint64{1, 2}, [][]uint32{{1}, {2}}}
+		req2 := testRequest{req2ID, []uint64{3, 4}, [][]uint32{{3}, {4}}}
+		req2_1 := testRequest{req2ID, []uint64{1, 3}, [][]uint32{{1}, {3}}}
+		req3 := testRequest{req3ID, []uint64{5, 6}, [][]uint32{{5}, {6}}}
 
 		testCases := []testCase{
 			{
@@ -236,7 +237,7 @@ var _ = Describe("KV cache", Ordered, func() {
 						var err error
 						switch action.action {
 						case actionStartRequest:
-							_, err = blockCache.startRequest(action.request.id, action.request.blocks)
+							_, err = blockCache.startRequest(action.request.id, action.request.blockHashes, action.request.tokens)
 						case actionFinishRequest:
 							err = blockCache.finishRequest(action.request.id)
 						}
@@ -285,10 +286,12 @@ var _ = Describe("KV cache", Ordered, func() {
 
 				storedCount := 0
 				removedCount := 0
-				for i := range test.expectedRemovedBlocks + test.expectedStoredBlocks {
+				expectedTotal := test.expectedRemovedBlocks + test.expectedStoredBlocks
+
+				for i, seq := 0, uint64(1); i < expectedTotal; i, seq = storedCount+removedCount, seq+1 {
 					parts, err := sub.RecvMessageBytes(0)
 					Expect(err).NotTo(HaveOccurred())
-					stored, removed, _ := ParseKVEvent(parts, topic, uint64(i+1))
+					stored, removed, _ := ParseKVEvent(parts, topic, seq)
 					storedCount += len(stored)
 					removedCount += len(removed)
 				}
@@ -340,25 +343,25 @@ var _ = Describe("KV cache", Ordered, func() {
 				// Make sure that the subscriber listens before the events are published
 				time.Sleep(time.Second)
 
-				req1 := testRequest{"req1", []uint64{1, 2}}
-				req2 := testRequest{"req2", []uint64{3, 4}}
-				req3 := testRequest{"req3", []uint64{1, 3}}
-				req4 := testRequest{"req4", []uint64{5, 6}}
+				req1 := testRequest{"req1", []uint64{1, 2}, [][]uint32{{1}, {2}}}
+				req2 := testRequest{"req2", []uint64{3, 4}, [][]uint32{{1}, {2}}}
+				req3 := testRequest{"req3", []uint64{1, 3}, [][]uint32{{1}, {2}}}
+				req4 := testRequest{"req4", []uint64{5, 6}, [][]uint32{{1}, {2}}}
 
 				// blocks 1 and 2 stored
-				alreadyInCache, err := blockCache.startRequest(req1.id, req1.blocks)
+				alreadyInCache, err := blockCache.startRequest(req1.id, req1.blockHashes, req1.tokens)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(alreadyInCache).To(Equal(0))
 				// blocks 3 and 4 stored
-				alreadyInCache, err = blockCache.startRequest(req2.id, req2.blocks)
+				alreadyInCache, err = blockCache.startRequest(req2.id, req2.blockHashes, req2.tokens)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(alreadyInCache).To(Equal(0))
 				// no new blocks stored, reuse of 1 and 3
-				alreadyInCache, err = blockCache.startRequest(req3.id, req3.blocks)
+				alreadyInCache, err = blockCache.startRequest(req3.id, req3.blockHashes, req3.tokens)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(alreadyInCache).To(Equal(2))
 				// no space left - should fail
-				alreadyInCache, err = blockCache.startRequest(req4.id, req4.blocks)
+				alreadyInCache, err = blockCache.startRequest(req4.id, req4.blockHashes, req4.tokens)
 				Expect(err).To(HaveOccurred())
 				Expect(alreadyInCache).To(Equal(0))
 
@@ -369,7 +372,7 @@ var _ = Describe("KV cache", Ordered, func() {
 				// now 2 and 4 are not in use
 
 				// blocks 2 and 4 should be removed, and 5 and 6 stored
-				alreadyInCache, err = blockCache.startRequest(req4.id, req4.blocks)
+				alreadyInCache, err = blockCache.startRequest(req4.id, req4.blockHashes, req4.tokens)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(alreadyInCache).To(Equal(0))
 			}()
@@ -437,10 +440,10 @@ var _ = Describe("KV cache", Ordered, func() {
 
 						for j := range testCase.numOperations {
 							reqID := fmt.Sprintf("req_%d_%d", id, j)
-							blocks := createRandomArray(testCase.minBlockLen, testCase.maxBlockLen,
+							hashes, tokens := createRandomArray(testCase.minBlockLen, testCase.maxBlockLen,
 								testCase.maxHashValue, random)
 
-							_, err := blockCache.startRequest(reqID, blocks)
+							_, err := blockCache.startRequest(reqID, hashes, tokens)
 							if err != nil {
 								// some operations may fail due to cache being full, which is expected
 								Expect(err.Error()).To(Equal(capacityError))
@@ -469,21 +472,25 @@ var _ = Describe("KV cache", Ordered, func() {
 	})
 })
 
-func createRandomArray(minArrLen, maxArrLen int, maxValue uint64, random *common.Random) []uint64 {
+// returns kv event content - array of blocks hash values and array of tokens for each block
+// both arrays are of the same length, tokens array is the same for all blocks
+func createRandomArray(minArrLen, maxArrLen int, maxValue uint64, random *common.Random) ([]uint64, [][]uint32) {
 	// Random length between a and b (inclusive)
 	length := random.RandomInt(minArrLen, maxArrLen)
 
 	// Create array with random values
-	arr := make([]uint64, 0)
+	hashes := make([]uint64, 0)
+	tokens := make([][]uint32, 0)
 	seen := make(map[uint64]struct{})
 
-	for len(arr) < length {
+	for len(hashes) < length {
 		val := uint64(random.RandomInt(0, int(maxValue)))
 		if _, exists := seen[val]; !exists {
 			seen[val] = struct{}{}
-			arr = append(arr, val)
+			hashes = append(hashes, val)
+			tokens = append(tokens, []uint32{1, 2})
 		}
 	}
 
-	return arr
+	return hashes, tokens
 }

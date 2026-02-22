@@ -82,12 +82,14 @@ func (h *KVCacheHelper) OnRequestStart(vllmReq openaiserverapi.Request) (float64
 	h.logger.V(logging.TRACE).Info("Found tokens", "tokens", tokens, "block-keys", blockKeys)
 
 	blockHashes := make([]uint64, len(blockKeys))
+	blockTokens := make([][]uint32, len(blockKeys))
 	for i, key := range blockKeys {
 		blockHashes[i] = key.ChunkHash
+		blockTokens[i] = tokens[i*h.blockSize : i*h.blockSize+h.blockSize]
 	}
 
 	requestID := vllmReq.GetRequestID()
-	nBlocksAlreadyInCache, err := h.blockCache.startRequest(requestID, blockHashes)
+	nBlocksAlreadyInCache, err := h.blockCache.startRequest(requestID, blockHashes, blockTokens)
 	if err != nil {
 		return 0, err
 	}
