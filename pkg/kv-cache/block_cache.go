@@ -158,7 +158,7 @@ func (bc *blockCache) startRequest(requestID string, blockHashes []uint64, block
 		}
 
 		// store block tokens if doesnot in the cache
-		if _, exists := bc.blockToToken[blockHash]; !exists {
+		if _, exists := bc.blockToTokens[blockHash]; !exists {
 			bc.blockToTokens[blockHash] = blockTokens[i]
 		}
 	}
