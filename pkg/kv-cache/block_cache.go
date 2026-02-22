@@ -201,7 +201,7 @@ func (bc *blockCache) startRequest(requestID string, blockHashes []uint64, block
 				EventData{action: eventActionRemove, hashes: []any{oldestUnusedHash}, tokens: bc.blockToTokens[oldestUnusedHash]},
 				bc.logger, "block cache eventChan")
 			// remove this block hash from the cache of block tokens
-			delete(bc.blockToToken, oldestUnusedHash)
+			delete(bc.blockToTokens oldestUnusedHash)
 		}
 
 		// Add the new block
