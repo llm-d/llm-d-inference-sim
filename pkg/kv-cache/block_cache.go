@@ -208,7 +208,7 @@ func (bc *blockCache) startRequest(requestID string, blockHashes []uint64, block
 		bc.usedBlocks[block] = 1
 
 		hashes = append(hashes, block)
-		tokens = append(tokens, bc.blockToToken[block]...)
+		tokens = append(tokens, bc.blockToTokens[block]...)
 	}
 
 	common.WriteToChannel(bc.eventChan, EventData{action: eventActionStore, hashes: hashes, tokens: tokens}, bc.logger, "block cache eventChan")
