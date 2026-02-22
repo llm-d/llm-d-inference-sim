@@ -198,7 +198,7 @@ func (bc *blockCache) startRequest(requestID string, blockHashes []uint64, block
 
 			delete(bc.unusedBlocks, oldestUnusedHash)
 			common.WriteToChannel(bc.eventChan,
-				EventData{action: eventActionRemove, hashes: []any{oldestUnusedHash}, tokens: bc.blockToToken[oldestUnusedHash]},
+				EventData{action: eventActionRemove, hashes: []any{oldestUnusedHash}, tokens: bc.blockToTokens[oldestUnusedHash]},
 				bc.logger, "block cache eventChan")
 			// remove this block hash from the cache of block tokens
 			delete(bc.blockToToken, oldestUnusedHash)
