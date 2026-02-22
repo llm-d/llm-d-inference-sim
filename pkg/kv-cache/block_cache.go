@@ -74,7 +74,7 @@ func newBlockCache(config *common.Configuration, logger logr.Logger, usageChan c
 		requestToBlocks: make(map[string][]uint64),
 		usedBlocks:      make(map[uint64]int),
 		unusedBlocks:    make(map[uint64]time.Time),
-		blockToToken:    make(map[uint64][]uint32),
+		blockToTokens:    make(map[uint64][]uint32),
 		maxBlocks:       config.KVCacheSize,
 		eventChan:       eChan,
 		usageChan:       usageChan,
