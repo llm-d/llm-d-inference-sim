@@ -40,7 +40,7 @@ type blockCache struct {
 	requestToBlocks map[string][]uint64  // request id -> array of it blocks (block hashes)
 	usedBlocks      map[uint64]int       // block hash -> reference count
 	unusedBlocks    map[uint64]time.Time // block hash -> last usage timestamp
-	blockToToken    map[uint64][]uint32  // block hash -> block tokens
+	blockToTokens    map[uint64][]uint32  // block hash -> block tokens
 	maxBlocks       int                  // maximum number of blocks in the cache
 	eventSender     *KVEventSender       // emmits kv events
 	eventChan       chan EventData       // channel for asynchronous event processing
