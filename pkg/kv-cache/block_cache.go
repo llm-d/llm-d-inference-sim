@@ -211,7 +211,9 @@ func (bc *blockCache) startRequest(requestID string, blockHashes []uint64, block
 		tokens = append(tokens, bc.blockToTokens[block]...)
 	}
 
-	common.WriteToChannel(bc.eventChan, EventData{action: eventActionStore, hashes: hashes, tokens: tokens}, bc.logger, "block cache eventChan")
+	if len(hashes) > 0 {
+		common.WriteToChannel(bc.eventChan, EventData{action: eventActionStore, hashes: hashes, tokens: tokens}, bc.logger, "block cache eventChan")
+	}
 
 	// store the request mapping
 	bc.requestToBlocks[requestID] = make([]uint64, len(blockHashes))
