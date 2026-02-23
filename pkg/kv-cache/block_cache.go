@@ -40,7 +40,7 @@ type blockCache struct {
 	requestToBlocks map[string][]uint64  // request id -> array of it blocks (block hashes)
 	usedBlocks      map[uint64]int       // block hash -> reference count
 	unusedBlocks    map[uint64]time.Time // block hash -> last usage timestamp
-	blockToTokens    map[uint64][]uint32  // block hash -> block tokens
+	blockToTokens   map[uint64][]uint32  // block hash -> block tokens
 	maxBlocks       int                  // maximum number of blocks in the cache
 	eventSender     *KVEventSender       // emmits kv events
 	eventChan       chan EventData       // channel for asynchronous event processing
@@ -74,7 +74,7 @@ func newBlockCache(config *common.Configuration, logger logr.Logger, usageChan c
 		requestToBlocks: make(map[string][]uint64),
 		usedBlocks:      make(map[uint64]int),
 		unusedBlocks:    make(map[uint64]time.Time),
-		blockToTokens:    make(map[uint64][]uint32),
+		blockToTokens:   make(map[uint64][]uint32),
 		maxBlocks:       config.KVCacheSize,
 		eventChan:       eChan,
 		usageChan:       usageChan,
@@ -201,7 +201,7 @@ func (bc *blockCache) startRequest(requestID string, blockHashes []uint64, block
 				EventData{action: eventActionRemove, hashes: []any{oldestUnusedHash}, tokens: bc.blockToTokens[oldestUnusedHash]},
 				bc.logger, "block cache eventChan")
 			// remove this block hash from the cache of block tokens
-			delete(bc.blockToTokens oldestUnusedHash)
+			delete(bc.blockToTokens, oldestUnusedHash)
 		}
 
 		// Add the new block
