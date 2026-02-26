@@ -101,6 +101,10 @@ func (t *textCompletionReqCtx) createToolCalls() ([]openaiserverapi.ToolCall, in
 	return nil, 0, "", nil
 }
 
+func (t *textCompletionReqCtx) getEchoTokens() ([]uint32, []string, error) {
+	return t.sim.tokenizer.Encode(t.req.Prompt, "")
+}
+
 var _ requestContext = (*textCompletionReqCtx)(nil)
 
 // Implementation of responseContext for /completions requests

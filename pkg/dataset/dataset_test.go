@@ -187,6 +187,7 @@ var _ = Describe("Echo Dataset", Ordered, func() {
 				Prompt: theText,
 			}
 			req.SetTokenizedPrompt(&openaiserverapi.Tokenized{Tokens: tokens, Strings: strTokens})
+			req.SetTokenizedEchoResponse(&openaiserverapi.Tokenized{Tokens: tokens, Strings: strTokens})
 			tokens, finishReason, err := dataset.GetResponseTokens(req)
 			Expect(err).ShouldNot(HaveOccurred())
 			Expect(tokens.Strings).Should(Equal(strTokens))
@@ -199,6 +200,7 @@ var _ = Describe("Echo Dataset", Ordered, func() {
 				MaxTokens: &maxTokens,
 			}
 			req.SetTokenizedPrompt(&openaiserverapi.Tokenized{Tokens: tokens, Strings: strTokens})
+			req.SetTokenizedEchoResponse(&openaiserverapi.Tokenized{Tokens: tokens, Strings: strTokens})
 
 			tokens, finishReason, err := dataset.GetResponseTokens(req)
 			Expect(err).ShouldNot(HaveOccurred())
@@ -212,11 +214,33 @@ var _ = Describe("Echo Dataset", Ordered, func() {
 				MaxTokens: &maxTokens,
 			}
 			req.SetTokenizedPrompt(&openaiserverapi.Tokenized{Tokens: tokens, Strings: strTokens})
+			req.SetTokenizedEchoResponse(&openaiserverapi.Tokenized{Tokens: tokens, Strings: strTokens})
 
 			tokens, finishReason, err := dataset.GetResponseTokens(req)
 			Expect(err).ShouldNot(HaveOccurred())
 			Expect(tokens.Strings).Should(Equal(strTokens))
 			Expect(finishReason).Should(Equal(common.LengthFinishReason))
+		})
+		It("should return the last message in chat completion", func() {
+			req := &openaiserverapi.ChatCompletionRequest{
+				Messages: []openaiserverapi.Message{
+					{Role: openaiserverapi.RoleUser, Content: openaiserverapi.Content{Raw: "user message1"}},
+					{Role: openaiserverapi.RoleAssistant, Content: openaiserverapi.Content{Raw: "assistant message1"}},
+					{Role: openaiserverapi.RoleUser, Content: openaiserverapi.Content{Raw: testPrompt}},
+				},
+			}
+			promptTokens, promptStrTokens, err := tokenizer.Encode(req.GetFullPrompt(), "")
+			Expect(err).ShouldNot(HaveOccurred())
+			respTokens, resptStrTokens, err := tokenizer.Encode(testPrompt, "")
+			Expect(err).ShouldNot(HaveOccurred())
+
+			req.SetTokenizedPrompt(&openaiserverapi.Tokenized{Tokens: promptTokens, Strings: promptStrTokens})
+			req.SetTokenizedEchoResponse(&openaiserverapi.Tokenized{Tokens: respTokens, Strings: resptStrTokens})
+
+			tokens, _, err := dataset.GetResponseTokens(req)
+			Expect(err).ShouldNot(HaveOccurred())
+
+			Expect(tokens.Strings).Should(Equal(resptStrTokens))
 		})
 	})
 
@@ -235,6 +259,7 @@ var _ = Describe("Echo Dataset", Ordered, func() {
 				req = &textReq
 			}
 			req.SetTokenizedPrompt(&openaiserverapi.Tokenized{Tokens: promptTokens, Strings: promptStrTokens})
+			req.SetTokenizedEchoResponse(&openaiserverapi.Tokenized{Tokens: promptTokens, Strings: promptStrTokens})
 
 			tokens, finishReason, err := dataset.GetResponseTokens(req)
 			Expect(err).NotTo(HaveOccurred())

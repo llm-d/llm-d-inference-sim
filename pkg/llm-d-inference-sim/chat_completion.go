@@ -77,6 +77,14 @@ func (c *chatCompletionRequest) createResponseContext(reqCtx requestContext, dis
 	}
 }
 
+func (c *chatCompletionReqCtx) getEchoTokens() ([]uint32, []string, error) {
+	lastMsg := ""
+	if len(c.req.Messages) > 0 {
+		lastMsg = c.req.Messages[len(c.req.Messages)-1].Content.Raw
+	}
+	return c.sim.tokenizer.Encode(lastMsg, "")
+}
+
 var _ request = (*chatCompletionRequest)(nil)
 
 // Implementation of requestContext for /chat/completions requests

@@ -80,6 +80,10 @@ type Request interface {
 	TokenizedPrompt() *Tokenized
 	// SetTokenizedPrompt sets the tokenized prompt
 	SetTokenizedPrompt(tokenized *Tokenized)
+	// TokenizedEchoResponse returns the tokenized reponse in echo mode
+	TokenizedEchoResponse() *Tokenized
+	// SetTokenizedEchoResponse sets the tokenized reponse in echo mode
+	SetTokenizedEchoResponse(tokenized *Tokenized)
 	// CacheThresholdFinishReason returns cacheThresholdFinishReason,  when true,
 	// forces a cache_threshold finish reason
 	CacheThresholdFinishReason() bool
@@ -112,6 +116,8 @@ type baseCompletionRequest struct {
 	cacheThresholdFinishReason bool
 	// tokenizedPrompt is the tokenized prompt
 	tokenizedPrompt *Tokenized
+	// tokenizedEchoResponse is the tokenized response in echo mode, exists only in echo mode
+	tokenizedEchoResponse *Tokenized
 }
 
 type KVTransferParams struct {
@@ -243,6 +249,16 @@ func (b *baseCompletionRequest) TokenizedPrompt() *Tokenized {
 // SetTokenizedPrompt sets the tokenized prompt
 func (b *baseCompletionRequest) SetTokenizedPrompt(tokenized *Tokenized) {
 	b.tokenizedPrompt = tokenized
+}
+
+// TokenizedEchoResponse returns the tokenized reponse in echo mode
+func (b *baseCompletionRequest) TokenizedEchoResponse() *Tokenized {
+	return b.tokenizedEchoResponse
+}
+
+// SetTokenizedEchoResponse sets the tokenized reponse in echo mode
+func (b *baseCompletionRequest) SetTokenizedEchoResponse(tokenized *Tokenized) {
+	b.tokenizedEchoResponse = tokenized
 }
 
 // ChatCompletionRequest defines structure of /chat/completion request

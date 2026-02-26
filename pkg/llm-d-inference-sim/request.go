@@ -48,6 +48,7 @@ type requestContext interface {
 	createToolCalls() ([]openaiserverapi.ToolCall, int, string, error)
 	handleRequest() (responseContext, *openaiserverapi.Error)
 	responseChannel() chan *responseInfo
+	getEchoTokens() ([]uint32, []string, error)
 }
 
 type baseRequestContext struct {
@@ -92,6 +93,21 @@ func (b *baseRequestContext) tokenize() *openaiserverapi.Error {
 		Tokens:  tokens,
 		Strings: textTokens,
 	})
+
+	if b.sim.config.Mode == common.ModeEcho {
+		tokens, textTokens, err = b.getEchoTokens()
+		if err != nil {
+			b.sim.logger.Error(err, "failed to tokenize echo mode response")
+			serverErr := openaiserverapi.NewError("Failed to tokenize  echo mode response, "+err.Error(), fasthttp.StatusInternalServerError, nil)
+			return &serverErr
+		}
+
+		req.SetTokenizedEchoResponse(&openaiserverapi.Tokenized{
+			Tokens:  tokens,
+			Strings: textTokens,
+		})
+	}
+
 	return nil
 }
 

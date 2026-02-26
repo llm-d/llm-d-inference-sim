@@ -57,9 +57,9 @@ type EchoDataset struct{}
 // if max-tokens is defined in the request and response's length is >= it value, finish reason is set to LENGTH,
 // otherwise finish reason is STOP
 func (ed *EchoDataset) GetResponseTokens(req openaiserverapi.Request) (*openaiserverapi.Tokenized, string, error) {
-	tokens := req.TokenizedPrompt()
+	tokens := req.TokenizedEchoResponse()
 	maxTokens := req.GetMaxCompletionTokens()
-	return tokens, common.FinishReason(maxTokens, len(tokens.Tokens)), nil
+	return tokens, common.FinishReason(maxTokens, tokens.Length()), nil
 }
 
 func (ed *EchoDataset) Close() error {
