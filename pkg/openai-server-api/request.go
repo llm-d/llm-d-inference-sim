@@ -80,9 +80,9 @@ type Request interface {
 	TokenizedPrompt() *Tokenized
 	// SetTokenizedPrompt sets the tokenized prompt
 	SetTokenizedPrompt(tokenized *Tokenized)
-	// TokenizedEchoResponse returns the tokenized reponse in echo mode
+	// TokenizedEchoResponse returns the tokenized response in echo mode
 	TokenizedEchoResponse() *Tokenized
-	// SetTokenizedEchoResponse sets the tokenized reponse in echo mode
+	// SetTokenizedEchoResponse sets the tokenized response in echo mode
 	SetTokenizedEchoResponse(tokenized *Tokenized)
 	// CacheThresholdFinishReason returns cacheThresholdFinishReason,  when true,
 	// forces a cache_threshold finish reason
@@ -251,12 +251,12 @@ func (b *baseCompletionRequest) SetTokenizedPrompt(tokenized *Tokenized) {
 	b.tokenizedPrompt = tokenized
 }
 
-// TokenizedEchoResponse returns the tokenized reponse in echo mode
+// TokenizedEchoResponse returns the tokenized response in echo mode
 func (b *baseCompletionRequest) TokenizedEchoResponse() *Tokenized {
 	return b.tokenizedEchoResponse
 }
 
-// SetTokenizedEchoResponse sets the tokenized reponse in echo mode
+// SetTokenizedEchoResponse sets the tokenized response in echo mode
 func (b *baseCompletionRequest) SetTokenizedEchoResponse(tokenized *Tokenized) {
 	b.tokenizedEchoResponse = tokenized
 }
