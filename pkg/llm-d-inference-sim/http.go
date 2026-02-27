@@ -53,6 +53,7 @@ func (s *VllmSimulator) startServer(ctx context.Context, listener net.Listener) 
 	// support completion APIs
 	r.POST("/v1/chat/completions", s.HandleChatCompletions)
 	r.POST("/v1/completions", s.HandleTextCompletions)
+	r.POST("/v1/embeddings", s.HandleEmbeddings)
 	// supports /models API
 	r.GET("/v1/models", s.HandleModels)
 	// support load/unload of lora adapter
@@ -131,6 +132,81 @@ func (s *VllmSimulator) HandleChatCompletions(ctx *fasthttp.RequestCtx) {
 // HandleTextCompletions http handler for /v1/completions
 func (s *VllmSimulator) HandleTextCompletions(ctx *fasthttp.RequestCtx) {
 	s.handleHTTP(&textCompletionRequest{}, ctx)
+}
+
+// HandleEmbeddings http handler for /v1/embeddings
+func (s *VllmSimulator) HandleEmbeddings(ctx *fasthttp.RequestCtx) {
+	s.context.logger.V(logging.TRACE).Info("Embeddings request received")
+	var req vllmapi.EmbeddingRequest
+	if err := json.Unmarshal(ctx.Request.Body(), &req); err != nil {
+		s.context.logger.Error(err, "failed to unmarshal embeddings request body")
+		errToSend := openaiserverapi.NewError("Failed to read and parse request body, "+err.Error(), fasthttp.StatusBadRequest, nil)
+		s.sendError(ctx, &errToSend, false)
+		return
+	}
+	if len(req.Input) == 0 {
+		errToSend := openaiserverapi.NewError("input is required and must be a non-empty string or array", fasthttp.StatusBadRequest, nil)
+		s.sendError(ctx, &errToSend, false)
+		return
+	}
+	model := req.Model
+	if model == "" {
+		model = s.context.config.Model
+	}
+	dim := 384
+	if req.Dimensions != nil && *req.Dimensions > 0 {
+		dim = *req.Dimensions
+	}
+	var data []vllmapi.EmbeddingDataItem
+	var totalTokens int
+	for i, text := range req.Input {
+		tokens, _, err := s.context.tokenizer.Encode(text, model)
+		if err != nil {
+			s.context.logger.Error(err, "failed to tokenize embedding input")
+			ctx.Error("Failed to tokenize input, "+err.Error(), fasthttp.StatusInternalServerError)
+			return
+		}
+		totalTokens += len(tokens)
+		embedding := s.buildStubEmbedding(tokens, dim)
+		data = append(data, vllmapi.EmbeddingDataItem{
+			Object:    "embedding",
+			Index:     i,
+			Embedding: embedding,
+		})
+	}
+	resp := vllmapi.EmbeddingResponse{
+		Object: "list",
+		Data:   data,
+		Model:  model,
+		Usage: vllmapi.EmbeddingResponseUsage{
+			PromptTokens: totalTokens,
+			TotalTokens:  totalTokens,
+		},
+	}
+	out, err := json.Marshal(resp)
+	if err != nil {
+		s.context.logger.Error(err, "failed to marshal embeddings response")
+		ctx.Error("Response body creation failed, "+err.Error(), fasthttp.StatusInternalServerError)
+		return
+	}
+	ctx.Response.Header.SetContentType("application/json")
+	ctx.Response.Header.SetStatusCode(fasthttp.StatusOK)
+	ctx.Response.SetBody(out)
+}
+
+// buildStubEmbedding returns a deterministic embedding of length dim from token ids (simulator stub).
+func (s *VllmSimulator) buildStubEmbedding(tokens []uint32, dim int) []float32 {
+	emb := make([]float32, dim)
+	for i := 0; i < dim; i++ {
+		var v float32
+		if i < len(tokens) {
+			v = float32(tokens[i]%1024) / 1024
+		} else if len(tokens) > 0 {
+			v = float32(tokens[i%len(tokens)]%256) / 256
+		}
+		emb[i] = v
+	}
+	return emb
 }
 
 func (s *VllmSimulator) handleHTTP(req request, ctx *fasthttp.RequestCtx) {
