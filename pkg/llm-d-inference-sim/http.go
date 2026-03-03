@@ -137,7 +137,7 @@ func (s *VllmSimulator) HandleTextCompletions(ctx *fasthttp.RequestCtx) {
 // HandleEmbeddings http handler for /v1/embeddings
 func (s *VllmSimulator) HandleEmbeddings(ctx *fasthttp.RequestCtx) {
 	s.context.logger.V(logging.TRACE).Info("Embeddings request received")
-	var req vllmapi.EmbeddingRequest
+	var req openaiserverapi.EmbeddingRequest
 	if err := json.Unmarshal(ctx.Request.Body(), &req); err != nil {
 		s.context.logger.Error(err, "failed to unmarshal embeddings request body")
 		errToSend := openaiserverapi.NewError("Failed to read and parse request body, "+err.Error(), fasthttp.StatusBadRequest, nil)
@@ -157,7 +157,7 @@ func (s *VllmSimulator) HandleEmbeddings(ctx *fasthttp.RequestCtx) {
 	if req.Dimensions != nil && *req.Dimensions > 0 {
 		dim = *req.Dimensions
 	}
-	var data []vllmapi.EmbeddingDataItem
+	var data []openaiserverapi.EmbeddingDataItem
 	var totalTokens int
 	for i, text := range req.Input {
 		tokens, _, err := s.context.tokenizer.Encode(text, model)
@@ -168,17 +168,17 @@ func (s *VllmSimulator) HandleEmbeddings(ctx *fasthttp.RequestCtx) {
 		}
 		totalTokens += len(tokens)
 		embedding := s.buildStubEmbedding(tokens, dim)
-		data = append(data, vllmapi.EmbeddingDataItem{
+		data = append(data, openaiserverapi.EmbeddingDataItem{
 			Object:    "embedding",
 			Index:     i,
 			Embedding: embedding,
 		})
 	}
-	resp := vllmapi.EmbeddingResponse{
+	resp := openaiserverapi.EmbeddingResponse{
 		Object: "list",
 		Data:   data,
 		Model:  model,
-		Usage: vllmapi.EmbeddingResponseUsage{
+		Usage: openaiserverapi.EmbeddingResponseUsage{
 			PromptTokens: totalTokens,
 			TotalTokens:  totalTokens,
 		},

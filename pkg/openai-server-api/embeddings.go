@@ -1,5 +1,5 @@
 /*
-Copyright 2025 The llm-d-inference-sim Authors.
+Copyright 2026 The llm-d-inference-sim Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package vllmapi
+package openaiserverapi
 
 import "encoding/json"
 
@@ -73,10 +73,10 @@ func (e EmbeddingInput) MarshalJSON() ([]byte, error) {
 
 // EmbeddingResponse is the response for POST /v1/embeddings (OpenAI-compatible).
 type EmbeddingResponse struct {
-	Object string              `json:"object"`
-	Data   []EmbeddingDataItem `json:"data"`
-	Model  string              `json:"model"`
-	Usage  EmbeddingResponseUsage `json:"usage"`
+	Object string                  `json:"object"`
+	Data   []EmbeddingDataItem     `json:"data"`
+	Model  string                  `json:"model"`
+	Usage  EmbeddingResponseUsage  `json:"usage"`
 }
 
 // EmbeddingDataItem is a single embedding in the response.
