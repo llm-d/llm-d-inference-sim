@@ -153,7 +153,7 @@ func (s *VllmSimulator) HandleEmbeddings(ctx *fasthttp.RequestCtx) {
 	if model == "" {
 		model = s.context.config.Model
 	}
-	dim := 384
+	dim := s.context.config.DefaultEmbeddingDimensions
 	if req.Dimensions != nil && *req.Dimensions > 0 {
 		dim = *req.Dimensions
 	}

@@ -255,6 +255,10 @@ type Configuration struct {
 	// The default calculation is based on the current load of the simulator and on the configured latency
 	// parameters, e.g., time-to-first-token and prefill-time-per-token.
 	LatencyCalculator string `yaml:"latency-calculator" json:"latency-calculator"`
+
+	// DefaultEmbeddingDimensions is the default size of embedding vectors when the request does not specify dimensions.
+	// Used by the /v1/embeddings endpoint. Default is 384.
+	DefaultEmbeddingDimensions int `yaml:"default-embedding-dimensions" json:"default-embedding-dimensions"`
 }
 
 type Metrics struct {
@@ -417,8 +421,9 @@ func newConfig() *Configuration {
 		EventBatchSize:     16,
 		DPSize:             1,
 		Rank:               -1,
-		TokenizersCacheDir: "hf_cache",
-		DatasetTableName:   DefaultDSTableName,
+		TokenizersCacheDir:         "hf_cache",
+		DatasetTableName:           DefaultDSTableName,
+		DefaultEmbeddingDimensions: 384,
 	}
 }
 
@@ -743,6 +748,10 @@ func (c *Configuration) validate() error {
 		return errors.New("global cache hit threshold must be between in range [0, 1]")
 	}
 
+	if c.DefaultEmbeddingDimensions < 1 {
+		return errors.New("default embedding dimensions must be at least 1")
+	}
+
 	return nil
 }
 
@@ -849,6 +858,9 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 	f.StringVar(&config.LatencyCalculator, "latency-calculator", config.LatencyCalculator,
 		`Name of the latency calculator to be used in the response generation (optional). The default calculation is based on the current load of the simulator and on 
 		the configured latency parameters, e.g., time-to-first-token and prefill-time-per-token`)
+
+	f.IntVar(&config.DefaultEmbeddingDimensions, "default-embedding-dimensions", config.DefaultEmbeddingDimensions,
+		"Default size of embedding vectors when the request does not specify dimensions (used by /v1/embeddings)")
 
 	// These values were manually parsed above in getParamValueFromArgs, we leave this in order to get these flags in --help
 	var dummyString string
