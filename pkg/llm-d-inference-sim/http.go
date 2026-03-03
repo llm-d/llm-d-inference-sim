@@ -178,7 +178,7 @@ func (s *VllmSimulator) HandleEmbeddings(ctx *fasthttp.RequestCtx) {
 				tokens[j] = uint32(id)
 			}
 			totalTokens += len(tokens)
-			embedding := s.buildStubEmbedding(tokens, dim)
+			embedding := buildStubEmbedding(tokens, dim)
 			item := openaiserverapi.EmbeddingDataItem{Object: "embedding", Index: i}
 			if useBase64 {
 				item.Embedding = openaiserverapi.EncodeEmbeddingBase64(embedding)
@@ -201,7 +201,7 @@ func (s *VllmSimulator) HandleEmbeddings(ctx *fasthttp.RequestCtx) {
 				return
 			}
 			totalTokens += len(tokens)
-			embedding := s.buildStubEmbedding(tokens, dim)
+			embedding := buildStubEmbedding(tokens, dim)
 			item := openaiserverapi.EmbeddingDataItem{Object: "embedding", Index: i}
 			if useBase64 {
 				item.Embedding = openaiserverapi.EncodeEmbeddingBase64(embedding)
@@ -230,21 +230,6 @@ func (s *VllmSimulator) HandleEmbeddings(ctx *fasthttp.RequestCtx) {
 	ctx.Response.Header.SetContentType("application/json")
 	ctx.Response.Header.SetStatusCode(fasthttp.StatusOK)
 	ctx.Response.SetBody(out)
-}
-
-// buildStubEmbedding returns a deterministic embedding of length dim from token ids (simulator stub).
-func (s *VllmSimulator) buildStubEmbedding(tokens []uint32, dim int) []float32 {
-	emb := make([]float32, dim)
-	for i := 0; i < dim; i++ {
-		var v float32
-		if i < len(tokens) {
-			v = float32(tokens[i]%1024) / 1024
-		} else if len(tokens) > 0 {
-			v = float32(tokens[i%len(tokens)]%256) / 256
-		}
-		emb[i] = v
-	}
-	return emb
 }
 
 func (s *VllmSimulator) handleHTTP(req request, ctx *fasthttp.RequestCtx) {
