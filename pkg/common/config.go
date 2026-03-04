@@ -25,6 +25,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/go-logr/logr"
+	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 	"github.com/spf13/pflag"
 	"gopkg.in/yaml.v3"
 	"k8s.io/klog/v2"
@@ -947,4 +949,38 @@ func getParamValueFromArgs(param string) []string {
 		}
 	}
 	return values
+}
+
+func (c *Configuration) Show(logger logr.Logger) error {
+	cfgJSON, err := json.Marshal(c)
+	if err != nil {
+		return fmt.Errorf("failed to marshal configuration to JSON: %w", err)
+	}
+
+	var m map[string]interface{}
+	err = json.Unmarshal(cfgJSON, &m)
+	if err != nil {
+		return fmt.Errorf("failed to unmarshal JSON to map: %w", err)
+	}
+	if c.DPSize > 1 {
+		// remove the port
+		delete(m, "port")
+	}
+	// clean LoraModulesString field
+	m["lora-modules"] = m["LoraModules"]
+	delete(m, "LoraModules")
+	delete(m, "LoraModulesString")
+
+	// clean fake-metrics field
+	if field, ok := m["fake-metrics"].(map[string]interface{}); ok {
+		delete(field, "LorasString")
+	}
+
+	// show in JSON
+	cfgJSON, err = json.MarshalIndent(m, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal configuration to JSON: %w", err)
+	}
+	logger.V(logging.INFO).Info("Configuration:", "", string(cfgJSON))
+	return nil
 }

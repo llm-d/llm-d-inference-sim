@@ -15,7 +15,6 @@ limitations under the License.
 */
 
 // VLLM server simulator
-// supports /v1/chat/completions, /v1/completions, /models, and /metrics (TODO - add it)
 package main
 
 import (
@@ -24,6 +23,7 @@ import (
 	"k8s.io/klog/v2"
 
 	"github.com/llm-d/llm-d-inference-sim/cmd/signals"
+	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 	vllmsim "github.com/llm-d/llm-d-inference-sim/pkg/llm-d-inference-sim"
 )
@@ -36,12 +36,23 @@ func main() {
 
 	logger.V(logging.INFO).Info("Starting vLLM simulator")
 
+	// parse command line parameters
+	config, err := common.ParseCommandParamsAndLoadConfig()
+	if err != nil {
+		logger.Error(err, "failed to read configuration")
+		return
+	}
+	if err := config.Show(logger); err != nil {
+		logger.Error(err, "failed to show configuration")
+		return
+	}
+
 	vllmSim, err := vllmsim.New(logger)
 	if err != nil {
 		logger.Error(err, "failed to create vLLM simulator")
 		return
 	}
-	if err := vllmSim.Start(ctx); err != nil {
+	if err := vllmSim.Start(ctx, config); err != nil {
 		logger.Error(err, "vLLM simulator failed")
 	}
 }

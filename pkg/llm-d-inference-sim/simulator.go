@@ -120,18 +120,8 @@ func New(logger logr.Logger) (*VllmSimulator, error) {
 }
 
 // Start starts the simulator
-func (s *VllmSimulator) Start(ctx context.Context) error {
-	var err error
-	// parse command line parameters
-	s.context.config, err = common.ParseCommandParamsAndLoadConfig()
-	if err != nil {
-		return err
-	}
-
-	err = s.showConfig(s.context.config.DPSize > 1)
-	if err != nil {
-		return err
-	}
+func (s *VllmSimulator) Start(ctx context.Context, config *common.Configuration) error {
+	s.context.config = config
 
 	if s.context.config.DatasetURL != "" && s.context.config.Model != common.ModeEcho {
 		// if should use remote responses dataset, download it first (it can take time)

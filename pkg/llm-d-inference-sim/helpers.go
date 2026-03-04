@@ -18,10 +18,6 @@ limitations under the License.
 package llmdinferencesim
 
 import (
-	"encoding/json"
-	"fmt"
-
-	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	"github.com/valyala/fasthttp"
 )
@@ -40,40 +36,6 @@ func (s *VllmSimulator) isValidModel(model string) bool {
 	}
 
 	return false
-}
-
-func (s *VllmSimulator) showConfig(dp bool) error {
-	cfgJSON, err := json.Marshal(s.context.config)
-	if err != nil {
-		return fmt.Errorf("failed to marshal configuration to JSON: %w", err)
-	}
-
-	var m map[string]interface{}
-	err = json.Unmarshal(cfgJSON, &m)
-	if err != nil {
-		return fmt.Errorf("failed to unmarshal JSON to map: %w", err)
-	}
-	if dp {
-		// remove the port
-		delete(m, "port")
-	}
-	// clean LoraModulesString field
-	m["lora-modules"] = m["LoraModules"]
-	delete(m, "LoraModules")
-	delete(m, "LoraModulesString")
-
-	// clean fake-metrics field
-	if field, ok := m["fake-metrics"].(map[string]interface{}); ok {
-		delete(field, "LorasString")
-	}
-
-	// show in JSON
-	cfgJSON, err = json.MarshalIndent(m, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to marshal configuration to JSON: %w", err)
-	}
-	s.context.logger.V(logging.INFO).Info("Configuration:", "", string(cfgJSON))
-	return nil
 }
 
 func getNumberOfPromptTokens(req openaiserverapi.Request) int {
