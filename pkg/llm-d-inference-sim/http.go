@@ -126,12 +126,12 @@ func (s *VllmSimulator) getRequestID(ctx *fasthttp.RequestCtx) string {
 
 // HandleChatCompletions http handler for /v1/chat/completions
 func (s *VllmSimulator) HandleChatCompletions(ctx *fasthttp.RequestCtx) {
-	s.handleHTTP(&chatCompletionRequest{}, ctx)
+	s.handleHTTP(&chatCompletionRequest{}, &chatComplHTTPRespBuilder{}, ctx)
 }
 
 // HandleTextCompletions http handler for /v1/completions
 func (s *VllmSimulator) HandleTextCompletions(ctx *fasthttp.RequestCtx) {
-	s.handleHTTP(&textCompletionRequest{}, ctx)
+	s.handleHTTP(&textCompletionRequest{}, &textComplHTTPRespBuilder{}, ctx)
 }
 
 // HandleEmbeddings http handler for /v1/embeddings (OpenAI-compatible).
@@ -232,8 +232,8 @@ func (s *VllmSimulator) HandleEmbeddings(ctx *fasthttp.RequestCtx) {
 	ctx.Response.SetBody(out)
 }
 
-func (s *VllmSimulator) handleHTTP(req request, ctx *fasthttp.RequestCtx) {
-	isStream, reqCtx, channel, err, errInjected := s.handleHTTPRequest(req, ctx)
+func (s *VllmSimulator) handleHTTP(req request, respBuilder responseBuilder, ctx *fasthttp.RequestCtx) {
+	isStream, reqCtx, channel, err, errInjected := s.handleHTTPRequest(req, respBuilder, ctx)
 	if err != nil {
 		s.sendError(ctx, err, errInjected)
 		return
@@ -257,14 +257,14 @@ func (s *VllmSimulator) handleHTTP(req request, ctx *fasthttp.RequestCtx) {
 
 	if isStream {
 		ctx.SetContentType("text/event-stream")
-		s.sendStream(ctx, channel)
+		s.sendStream(ctx, channel, reqCtx.responseBuilder())
 	} else {
 		ctx.SetContentType("application/json")
-		s.sendNonStream(ctx, channel)
+		s.sendNonStream(ctx, channel, reqCtx.responseBuilder())
 	}
 }
 
-func (s *VllmSimulator) sendNonStream(ctx *fasthttp.RequestCtx, channel chan *responseInfo) {
+func (s *VllmSimulator) sendNonStream(ctx *fasthttp.RequestCtx, channel chan *responseInfo, respBuilder responseBuilder) {
 	tokens := openaiserverapi.Tokenized{
 		Tokens:  make([]uint32, 0),
 		Strings: make([]string, 0),
@@ -284,7 +284,7 @@ func (s *VllmSimulator) sendNonStream(ctx *fasthttp.RequestCtx, channel chan *re
 	}
 
 	defer respCtx.done()
-	resp := respCtx.createResponse(&tokens)
+	resp := respBuilder.createResponse(respCtx, &tokens)
 	data, err := json.Marshal(resp)
 	if err != nil {
 		err := openaiserverapi.NewError("Response body creation failed, "+err.Error(), fasthttp.StatusInternalServerError, nil)
@@ -295,7 +295,7 @@ func (s *VllmSimulator) sendNonStream(ctx *fasthttp.RequestCtx, channel chan *re
 	s.responseSentCallback(respCtx.requestContext(), respCtx.displayModel())
 }
 
-func (s *VllmSimulator) sendStream(ctx *fasthttp.RequestCtx, channel chan *responseInfo) {
+func (s *VllmSimulator) sendStream(ctx *fasthttp.RequestCtx, channel chan *responseInfo, respBuilder responseBuilder) {
 	ctx.SetBodyStreamWriter(func(w *bufio.Writer) {
 		first := true
 		var respCtx responseContext
@@ -315,7 +315,7 @@ func (s *VllmSimulator) sendStream(ctx *fasthttp.RequestCtx, channel chan *respo
 			if response.tokens != nil {
 				// in chat completion first chunk contains the role
 				if first {
-					chunk := respCtx.createFirstCompletionChunk()
+					chunk := respBuilder.createFirstChunk(respCtx)
 					if chunk != nil {
 						if err := s.sendChunk(w, chunk, ""); err != nil {
 							s.chunkSendFailed(ctx, respCtx, "Sending first stream chunk failed, ", err)
@@ -330,12 +330,13 @@ func (s *VllmSimulator) sendStream(ctx *fasthttp.RequestCtx, channel chan *respo
 					} else {
 						toolCallIndex++
 					}
-					if ok := s.sendStreamedTools(respCtx, ctx, w, response.tokens.Strings, response.toolCall, toolCallIndex); !ok {
+					if ok := s.sendStreamedTools(respCtx, respBuilder, ctx, w, response.tokens.Strings, response.toolCall,
+						toolCallIndex); !ok {
 						return
 					}
 					lastToolCall = response.toolCall
 				} else {
-					chunk := respCtx.createCompletionChunk(response.tokens.Strings, nil, "", nil)
+					chunk := respBuilder.createChunk(respCtx, response.tokens, nil, "", nil)
 					if err := s.sendChunk(w, chunk, ""); err != nil {
 						s.chunkSendFailed(ctx, respCtx, "Sending stream chunk failed, ", err)
 						return
@@ -343,7 +344,7 @@ func (s *VllmSimulator) sendStream(ctx *fasthttp.RequestCtx, channel chan *respo
 				}
 			} else if respCtx.finishReason() != nil && *respCtx.finishReason() == common.CacheThresholdFinishReason {
 				// No tokens to stream but we still need to emit a finish chunk for cache_threshold
-				chunk := respCtx.createCompletionChunk(nil, nil, "", respCtx.finishReason())
+				chunk := respBuilder.createChunk(respCtx, nil, nil, "", respCtx.finishReason())
 				if err := s.sendChunk(w, chunk, ""); err != nil {
 					s.chunkSendFailed(ctx, respCtx, "Sending finish chunk failed, ", err)
 					return
@@ -357,7 +358,7 @@ func (s *VllmSimulator) sendStream(ctx *fasthttp.RequestCtx, channel chan *respo
 
 		// send the last chunk if finish reason is stop
 		if *respCtx.finishReason() == common.StopFinishReason {
-			chunk := respCtx.createCompletionChunk(nil, nil, "", respCtx.finishReason())
+			chunk := respBuilder.createLastChunk(respCtx)
 			if err := s.sendChunk(w, chunk, ""); err != nil {
 				s.chunkSendFailed(ctx, respCtx, "Sending last stream chunk failed, ", err)
 				return
@@ -366,7 +367,7 @@ func (s *VllmSimulator) sendStream(ctx *fasthttp.RequestCtx, channel chan *respo
 
 		// send usage
 		if respCtx.sendUsageData() {
-			chunk := respCtx.createUsageChunk()
+			chunk := respBuilder.createUsageChunk(respCtx)
 			if err := s.sendChunk(w, chunk, ""); err != nil {
 				s.chunkSendFailed(ctx, respCtx, "Sending usage chunk failed, ", err)
 				return
@@ -384,12 +385,16 @@ func (s *VllmSimulator) sendStream(ctx *fasthttp.RequestCtx, channel chan *respo
 }
 
 func (s *VllmSimulator) chunkSendFailed(ctx *fasthttp.RequestCtx, respCtx responseContext, msg string, err error) {
-	ctx.Error(msg+err.Error(), fasthttp.StatusInternalServerError)
+	message := msg
+	if err != nil {
+		message += err.Error()
+	}
+	ctx.Error(message, fasthttp.StatusInternalServerError)
 	respCtx.done()
 }
 
-func (s *VllmSimulator) sendStreamedTools(respCtx responseContext, ctx *fasthttp.RequestCtx, w *bufio.Writer, tokens []string,
-	tc *openaiserverapi.ToolCall, index int) bool {
+func (s *VllmSimulator) sendStreamedTools(respCtx responseContext, respBuilder responseBuilder, ctx *fasthttp.RequestCtx,
+	w *bufio.Writer, tokens []string, tc *openaiserverapi.ToolCall, index int) bool {
 	tokensStr := strings.Join(tokens, "")
 
 	toolChunkInsert := &openaiserverapi.ToolCall{
@@ -411,7 +416,7 @@ func (s *VllmSimulator) sendStreamedTools(respCtx responseContext, ctx *fasthttp
 		*respCtx.finishReason() == common.CacheThresholdFinishReason) {
 		finishReasonToSend = respCtx.finishReason()
 	}
-	chunk = respCtx.createCompletionChunk(nil, toolChunkInsert, "", finishReasonToSend)
+	chunk = respBuilder.createChunk(respCtx, nil, toolChunkInsert, "", finishReasonToSend)
 	if err := s.sendChunk(w, chunk, ""); err != nil {
 		ctx.Error("Sending stream chunk failed, "+err.Error(), fasthttp.StatusInternalServerError)
 		return false
@@ -421,7 +426,7 @@ func (s *VllmSimulator) sendStreamedTools(respCtx responseContext, ctx *fasthttp
 
 // sendChunk send a single token chunk in a streamed completion API response,
 // receives either a completionRespChunk or a string with the data to send.
-func (s *VllmSimulator) sendChunk(w *bufio.Writer, chunk openaiserverapi.CompletionRespChunk, dataString string) error {
+func (s *VllmSimulator) sendChunk(w *bufio.Writer, chunk response, dataString string) error {
 	if dataString == "" {
 		data, err := json.Marshal(chunk)
 		if err != nil {

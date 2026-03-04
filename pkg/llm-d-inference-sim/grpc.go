@@ -34,7 +34,7 @@ import (
 // Submit a generation request (supports streaming)
 func (s *VllmSimulator) Generate(in *pb.GenerateRequest, out grpc.ServerStreamingServer[pb.GenerateResponse]) error {
 	req := s.pbRequestToRequest(in)
-	_, _, channel, err, _ := s.handleRequest(req)
+	_, reqCtx, channel, err, _ := s.handleRequest(req, &generationGRPCRespBuilder{})
 	if err != nil {
 		return status.Errorf(extractGRPCCode(err), err.Message, err)
 	}
@@ -42,7 +42,10 @@ func (s *VllmSimulator) Generate(in *pb.GenerateRequest, out grpc.ServerStreamin
 	s.context.logger.V(logging.DEBUG).Info("Received", "new gRPC", req.asString())
 
 	var respCtx responseContext
-	tokens := make([]uint32, 0)
+	tokens := openaiserverapi.Tokenized{
+		Tokens:  make([]uint32, 0),
+		Strings: make([]string, 0),
+	}
 
 	for response := range channel {
 		select {
@@ -58,24 +61,30 @@ func (s *VllmSimulator) Generate(in *pb.GenerateRequest, out grpc.ServerStreamin
 			if in.Stream {
 				// Send response chunk
 				if response.tokens != nil {
-					resp := buildPBResponseChunk(response.tokens.Tokens, response.respCtx)
-					if err := out.Send(resp); err != nil {
+					response := reqCtx.responseBuilder().createChunk(respCtx, response.tokens, nil, "", nil)
+					if err := sendResponse(response, out); err != nil {
 						respCtx.done()
-						return status.Errorf(codes.Internal, "send failed: %v", err)
+						return err
 					}
 				}
 			} else if response.tokens != nil {
-				tokens = append(tokens, response.tokens.Tokens...)
+				tokens.Append(*response.tokens)
 			}
 		}
 	}
-	resp := buildPBResponseComplete(tokens, respCtx, in.Stream)
-	if err := out.Send(resp); err != nil {
-		respCtx.done()
-		return status.Errorf(codes.Internal, "send failed: %v", err)
+
+	var response response
+	if in.Stream {
+		response = reqCtx.responseBuilder().createLastChunk(respCtx)
+	} else {
+		response = reqCtx.responseBuilder().createResponse(respCtx, &tokens)
 	}
+	defer respCtx.done()
+	if err := sendResponse(response, out); err != nil {
+		return err
+	}
+
 	s.responseSentCallback(respCtx.requestContext(), respCtx.displayModel())
-	respCtx.done()
 	return nil
 }
 
@@ -151,35 +160,17 @@ func (s *VllmSimulator) pbRequestToRequest(in *pb.GenerateRequest) *generationRe
 	return &generationRequest{GenerationRequest: *req}
 }
 
-func buildPBResponseChunk(tokens []uint32, respCtx responseContext) *pb.GenerateResponse {
-	return &pb.GenerateResponse{
-		Response: &pb.GenerateResponse_Chunk{
-			Chunk: &pb.GenerateStreamChunk{
-				TokenIds:         tokens,
-				PromptTokens:     uint32(respCtx.usageData().PromptTokens),
-				CachedTokens:     uint32(respCtx.numberCachedPromptTokens()),
-				CompletionTokens: uint32(len(tokens)),
-			},
-		},
+func sendResponse(response response, out grpc.ServerStreamingServer[pb.GenerateResponse]) error {
+	resp, ok := response.(*pb.GenerateResponse)
+	if !ok {
+		return status.Error(codes.Internal, "response of invalid type")
 	}
-}
 
-func buildPBResponseComplete(outputIds []uint32, respCtx responseContext, lastChunkInStream bool) *pb.GenerateResponse {
-	var completionTokens uint32
-	if !lastChunkInStream {
-		completionTokens = uint32(respCtx.usageData().CompletionTokens)
+	if err := out.Send(resp); err != nil {
+		return status.Errorf(codes.Internal, "send failed: %v", err)
 	}
-	return &pb.GenerateResponse{
-		Response: &pb.GenerateResponse_Complete{
-			Complete: &pb.GenerateComplete{
-				OutputIds:        outputIds,
-				PromptTokens:     uint32(respCtx.usageData().PromptTokens),
-				CompletionTokens: completionTokens,
-				CachedTokens:     uint32(respCtx.numberCachedPromptTokens()),
-				FinishReason:     *respCtx.finishReason(),
-			},
-		},
-	}
+
+	return nil
 }
 
 func extractGRPCCode(err *openaiserverapi.Error) codes.Code {

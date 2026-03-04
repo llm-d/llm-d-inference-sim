@@ -366,7 +366,7 @@ func (s *VllmSimulator) addRequestToQueue(reqCtx requestContext) {
 
 }
 
-func (s *VllmSimulator) handleHTTPRequest(req request, ctx *fasthttp.RequestCtx) (bool, requestContext, chan *responseInfo, *openaiserverapi.Error, bool) {
+func (s *VllmSimulator) handleHTTPRequest(req request, respBuilder responseBuilder, ctx *fasthttp.RequestCtx) (bool, requestContext, chan *responseInfo, *openaiserverapi.Error, bool) {
 	if err := req.unmarshal(ctx.Request.Body()); err != nil {
 		s.context.logger.Error(err, "failed to read and parse request body")
 		errToSend := openaiserverapi.NewError("Failed to read and parse request body, "+err.Error(), fasthttp.StatusBadRequest, nil)
@@ -382,10 +382,11 @@ func (s *VllmSimulator) handleHTTPRequest(req request, ctx *fasthttp.RequestCtx)
 		req.SetCacheThresholdFinishReason(parsedValue)
 	}
 
-	return s.handleRequest(req)
+	return s.handleRequest(req, respBuilder)
 }
 
-func (s *VllmSimulator) handleRequest(req request) (bool, requestContext, chan *responseInfo, *openaiserverapi.Error, bool) {
+func (s *VllmSimulator) handleRequest(req request, respBuilder responseBuilder) (bool, requestContext, chan *responseInfo,
+	*openaiserverapi.Error, bool) {
 	// Check if we should inject a failure
 	if shouldInjectFailure(s.context.config, s.context.random) {
 		failure := getRandomFailure(s.context.config, s.context.random)
@@ -405,7 +406,7 @@ func (s *VllmSimulator) handleRequest(req request) (bool, requestContext, chan *
 	}
 
 	channel := make(chan *responseInfo, s.context.config.MaxModelLen)
-	reqCtx := req.buildRequestContext(&s.context, channel)
+	reqCtx := req.buildRequestContext(&s.context, channel, respBuilder)
 	common.WriteToChannel(s.newRequests, reqCtx, s.context.logger, "newRequests")
 	return req.IsStream(), reqCtx, channel, nil, false
 }

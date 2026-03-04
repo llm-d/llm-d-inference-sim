@@ -17,8 +17,6 @@ limitations under the License.
 package llmdinferencesim
 
 import (
-	"time"
-
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	"github.com/valyala/fasthttp"
 )
@@ -36,9 +34,9 @@ func (g *generationRequest) validate(toolsValidator *toolsValidator) (string, in
 	return validateRequest(g)
 }
 
-func (g *generationRequest) buildRequestContext(simCtx *simContext, channel chan *responseInfo) requestContext {
+func (g *generationRequest) buildRequestContext(simCtx *simContext, channel chan *responseInfo, respBuilder responseBuilder) requestContext {
 	reqCtx := &generationReqCtx{
-		baseRequestContext: newBaseRequestContext(simCtx, channel),
+		baseRequestContext: newBaseRequestContext(simCtx, channel, respBuilder),
 		req:                g,
 	}
 	// wire generationReqCtx into embedded requestContext interface
@@ -106,29 +104,6 @@ var _ requestContext = (*generationReqCtx)(nil)
 // Implementation of responseContext for generation requests
 type generationResponseCtx struct {
 	baseResponseContext
-}
-
-// createResponse creates the response for chat completion requests
-func (respCtx *generationResponseCtx) createResponse(tokens *openaiserverapi.Tokenized) openaiserverapi.CompletionResponse {
-	baseResp := openaiserverapi.CreateBaseCompletionResponse(
-		time.Now().Unix(), respCtx.displayModelName, respCtx.usage, respCtx.id, respCtx.remoteDecode)
-	return openaiserverapi.CreateGenerationResponse(baseResp, tokens)
-}
-
-func (respCtx *generationResponseCtx) createUsageChunk() openaiserverapi.CompletionRespChunk {
-	return nil
-}
-
-// createChatCompletionChunk creates and returns a CompletionRespChunk, a single chunk of streamed completion
-// API response, for chat completion. It sets either role, or token, or tool call info in the message.
-func (respCtx *generationResponseCtx) createCompletionChunk(tokens []string, tool *openaiserverapi.ToolCall,
-	role string, finishReason *string) openaiserverapi.CompletionRespChunk {
-	return nil
-}
-
-// in chat completion first chunk contains the role
-func (respCtx *generationResponseCtx) createFirstCompletionChunk() openaiserverapi.CompletionRespChunk {
-	return nil
 }
 
 func (respCtx *generationResponseCtx) toolCalls() []openaiserverapi.ToolCall {

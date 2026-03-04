@@ -30,11 +30,6 @@ type responseInfo struct {
 }
 
 type responseContext interface {
-	createResponse(*openaiserverapi.Tokenized) openaiserverapi.CompletionResponse
-	createUsageChunk() openaiserverapi.CompletionRespChunk
-	createCompletionChunk(tokens []string, tool *openaiserverapi.ToolCall,
-		role string, finishReason *string) openaiserverapi.CompletionRespChunk
-	createFirstCompletionChunk() openaiserverapi.CompletionRespChunk
 	requestContext() requestContext
 	requestID() string
 	usageData() *openaiserverapi.Usage
@@ -46,7 +41,9 @@ type responseContext interface {
 	finishReason() *string
 	sendUsageData() bool
 	toolCalls() []openaiserverapi.ToolCall
+	creationTime() int64
 	setCreationTime(int64)
+	logprobs() *int
 	setWG(*sync.WaitGroup)
 	done()
 }
@@ -57,7 +54,7 @@ type baseResponseContext struct {
 	// the ID of the request
 	id string
 	// creation time of the response
-	creationTime int64
+	created int64
 	// indicates whether do_remote_prefill field is true in the request
 	remotePrefill bool
 	// indicates whether do_remote_decode field is true in the request
@@ -76,7 +73,7 @@ type baseResponseContext struct {
 	// indicates whether to send usage data in this response
 	sendUsage bool
 	// number of logprob options to include or nil if no logprobs needed
-	logprobs *int
+	nLogprobs *int
 	// wait group of this response
 	wg *sync.WaitGroup
 }
@@ -91,7 +88,7 @@ func newBaseResponseContext(reqCtx requestContext, displayModel string, response
 		finishReasonPtr:     finishReason,
 		usage:               usageData,
 		sendUsage:           sendUsageData,
-		logprobs:            logprobs,
+		nLogprobs:           logprobs,
 		id:                  id,
 		remotePrefill:       doRemotePrefill,
 		remoteDecode:        doRemoteDecode,
@@ -130,7 +127,13 @@ func (respCtx *baseResponseContext) sendUsageData() bool {
 	return respCtx.sendUsage
 }
 func (respCtx *baseResponseContext) setCreationTime(creationTime int64) {
-	respCtx.creationTime = creationTime
+	respCtx.created = creationTime
+}
+func (respCtx *baseResponseContext) creationTime() int64 {
+	return respCtx.created
+}
+func (respCtx *baseResponseContext) logprobs() *int {
+	return respCtx.nLogprobs
 }
 
 func (b *baseResponseContext) done() {

@@ -18,10 +18,7 @@ package llmdinferencesim
 
 import (
 	"encoding/json"
-	"strings"
-	"time"
 
-	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	"github.com/valyala/fasthttp"
 )
@@ -40,9 +37,9 @@ func (t *textCompletionRequest) validate(toolsValidator *toolsValidator) (string
 	return validateRequest(t)
 }
 
-func (t *textCompletionRequest) buildRequestContext(simCtx *simContext, channel chan *responseInfo) requestContext {
+func (t *textCompletionRequest) buildRequestContext(simCtx *simContext, channel chan *responseInfo, respBuilder responseBuilder) requestContext {
 	reqCtx := &textCompletionReqCtx{
-		baseRequestContext: newBaseRequestContext(simCtx, channel),
+		baseRequestContext: newBaseRequestContext(simCtx, channel, respBuilder),
 		req:                t,
 	}
 	// wire textCompletionReqCtx into embedded requestContext interface
@@ -110,69 +107,6 @@ var _ requestContext = (*textCompletionReqCtx)(nil)
 // Implementation of responseContext for /completions requests
 type textCompletionResponseCtx struct {
 	baseResponseContext
-}
-
-func (respCtx *textCompletionResponseCtx) createResponse(tokens *openaiserverapi.Tokenized) openaiserverapi.CompletionResponse {
-	baseResp := openaiserverapi.CreateBaseCompletionResponse(
-		time.Now().Unix(), respCtx.displayModelName, respCtx.usage, respCtx.id, respCtx.remoteDecode)
-	baseChoice := openaiserverapi.CreateBaseResponseChoice(0, respCtx.finishReasonPtr)
-	respText := strings.Join(tokens.Strings, "")
-
-	choice := openaiserverapi.CreateTextRespChoice(baseChoice, respText)
-
-	// Generate logprobs if requested for text completion
-	if respCtx.logprobs != nil && *respCtx.logprobs > 0 {
-		if logprobsData := common.GenerateTextLogprobs(tokens.Strings, *respCtx.logprobs); logprobsData != nil &&
-			len(logprobsData.Tokens) > 0 {
-			choice.Logprobs = logprobsData
-		} else {
-			// Set to nil if generation failed or tokens is empty
-			choice.Logprobs = nil
-		}
-	} else {
-		// Explicitly ensure logprobs is nil when not requested
-		choice.Logprobs = nil
-	}
-
-	baseResp.Object = textCompletionObject
-	return openaiserverapi.CreateTextCompletionResponse(baseResp, []openaiserverapi.TextRespChoice{choice})
-}
-
-// createUsageChunk creates and returns a CompletionRespChunk with usage data, a single chunk of streamed completion API response,
-func (respCtx *textCompletionResponseCtx) createUsageChunk() openaiserverapi.CompletionRespChunk {
-	baseChunk := openaiserverapi.CreateBaseCompletionResponse(
-		respCtx.creationTime, respCtx.displayModelName, respCtx.usageData(), respCtx.id, false)
-	baseChunk.Object = textCompletionObject
-	return openaiserverapi.CreateTextCompletionResponse(baseChunk, []openaiserverapi.TextRespChoice{})
-}
-
-// createTextCompletionChunk creates and returns a CompletionRespChunk, a single chunk of streamed completion API response,
-// for text completion.
-func (respCtx *textCompletionResponseCtx) createCompletionChunk(tokens []string, tool *openaiserverapi.ToolCall,
-	role string, finishReason *string) openaiserverapi.CompletionRespChunk {
-	baseChunk := openaiserverapi.CreateBaseCompletionResponse(
-		respCtx.creationTime, respCtx.displayModelName, nil, respCtx.id, false)
-	baseChunk.Object = textCompletionObject
-
-	tokensStr := strings.Join(tokens, "")
-	choice := openaiserverapi.CreateTextRespChoice(openaiserverapi.CreateBaseResponseChoice(0, finishReason), tokensStr)
-
-	// Generate logprobs if requested and tokens is not empty
-	if respCtx.logprobs != nil && len(tokens) > 0 && *respCtx.logprobs > 0 {
-		// Use token position based on current time
-		tokenPosition := int(respCtx.creationTime) % 1000 // Simple position simulation
-		logprobs := common.GenerateSingleTokenTextLogprobs(tokensStr, tokenPosition, *respCtx.logprobs)
-		if logprobs != nil {
-			choice.Logprobs = logprobs
-		}
-	}
-
-	return openaiserverapi.CreateTextCompletionResponse(baseChunk, []openaiserverapi.TextRespChoice{choice})
-}
-
-// in text completion there is no special first chunk
-func (respCtx *textCompletionResponseCtx) createFirstCompletionChunk() openaiserverapi.CompletionRespChunk {
-	return nil
 }
 
 func (respCtx *textCompletionResponseCtx) toolCalls() []openaiserverapi.ToolCall {

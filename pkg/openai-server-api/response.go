@@ -102,9 +102,9 @@ type ChatCompletionResponse struct {
 
 // baseResponseChoice contains base completion response's choice related information
 type baseResponseChoice struct {
-	// Index defines completion response choise Index
+	// Index defines completion response choice Index
 	Index int `json:"index"`
-	// FinishReason defines finish reason for response or for chunks, for not last chinks is defined as null
+	// FinishReason defines finish reason for response or for chunks, for not last chunks is defined as null
 	FinishReason *string `json:"finish_reason"`
 }
 

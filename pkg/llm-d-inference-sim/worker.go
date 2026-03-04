@@ -47,7 +47,7 @@ func (w *worker) waitForRequests() {
 			w.logger.V(logging.TRACE).Info("worker done", "id", w.id)
 			return
 		case reqCtx := <-w.reqChan:
-			w.processor.processRequest(reqCtx, nil)
+			w.processor.processRequest(reqCtx)
 			w.finishedChan <- &requestCompleted{worker: w, model: reqCtx.request().GetModel()}
 		}
 
@@ -55,10 +55,10 @@ func (w *worker) waitForRequests() {
 }
 
 type requestProcessor interface {
-	processRequest(reqCtx requestContext, wg *sync.WaitGroup)
+	processRequest(reqCtx requestContext)
 }
 
-func (s *VllmSimulator) processRequest(reqCtx requestContext, _ *sync.WaitGroup) {
+func (s *VllmSimulator) processRequest(reqCtx requestContext) {
 	startTime := time.Now()
 	wg := sync.WaitGroup{}
 	wg.Add(1)

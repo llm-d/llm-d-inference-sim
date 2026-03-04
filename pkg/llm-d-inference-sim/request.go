@@ -28,7 +28,7 @@ import (
 type requestBuilder interface {
 	unmarshal(data []byte) error
 	validate(toolsValidator *toolsValidator) (string, int)
-	buildRequestContext(simCtx *simContext, channel chan *responseInfo) requestContext
+	buildRequestContext(simCtx *simContext, channel chan *responseInfo, respBuilder responseBuilder) requestContext
 	asString() string
 	createResponseContext(reqCtx requestContext, displayModel string, responseTokens *openaiserverapi.Tokenized, finishReason *string,
 		usageData *openaiserverapi.Usage, sendUsageData bool, logprobs *int, toolCalls []openaiserverapi.ToolCall) responseContext
@@ -49,6 +49,7 @@ type requestContext interface {
 	handleRequest() (responseContext, *openaiserverapi.Error)
 	responseChannel() chan *responseInfo
 	tokenizedPromptForEcho() (*openaiserverapi.Tokenized, error)
+	responseBuilder() responseBuilder
 }
 
 type baseRequestContext struct {
@@ -56,18 +57,24 @@ type baseRequestContext struct {
 	sim             *simContext
 	startProcessing time.Time
 	respChannel     chan *responseInfo
+	respBuilder     responseBuilder
 }
 
-func newBaseRequestContext(simCtx *simContext, channel chan *responseInfo) baseRequestContext {
+func newBaseRequestContext(simCtx *simContext, channel chan *responseInfo, respBuilder responseBuilder) baseRequestContext {
 	return baseRequestContext{
 		sim:             simCtx,
 		startProcessing: time.Now(),
 		respChannel:     channel,
+		respBuilder:     respBuilder,
 	}
 }
 
 func (b *baseRequestContext) responseChannel() chan *responseInfo {
 	return b.respChannel
+}
+
+func (b *baseRequestContext) responseBuilder() responseBuilder {
+	return b.respBuilder
 }
 
 func (b *baseRequestContext) startProcessingTime() time.Time {
