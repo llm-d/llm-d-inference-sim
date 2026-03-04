@@ -124,6 +124,20 @@ func (s *VllmSimulator) getRequestID(ctx *fasthttp.RequestCtx) string {
 	return s.context.random.GenerateUUIDString()
 }
 
+// addResponseHeaders adds optional pod/port/namespace/request-id headers to the response for testing/debugging.
+func (s *VllmSimulator) addResponseHeaders(ctx *fasthttp.RequestCtx, requestID string) {
+	if s.context.pod != "" {
+		ctx.Response.Header.Add(podHeader, s.context.pod)
+		ctx.Response.Header.Add(portHeader, strconv.Itoa(s.context.config.Port))
+	}
+	if s.context.namespace != "" {
+		ctx.Response.Header.Add(namespaceHeader, s.context.namespace)
+	}
+	if s.context.config.EnableRequestIDHeaders && requestID != "" {
+		ctx.Response.Header.Add(requestIDHeader, requestID)
+	}
+}
+
 // HandleChatCompletions http handler for /v1/chat/completions
 func (s *VllmSimulator) HandleChatCompletions(ctx *fasthttp.RequestCtx) {
 	s.handleHTTP(&chatCompletionRequest{}, &chatComplHTTPRespBuilder{}, ctx)
@@ -227,6 +241,7 @@ func (s *VllmSimulator) HandleEmbeddings(ctx *fasthttp.RequestCtx) {
 		ctx.Error("Response body creation failed, "+err.Error(), fasthttp.StatusInternalServerError)
 		return
 	}
+	s.addResponseHeaders(ctx, s.getRequestID(ctx))
 	ctx.Response.Header.SetContentType("application/json")
 	ctx.Response.Header.SetStatusCode(fasthttp.StatusOK)
 	ctx.Response.SetBody(out)
@@ -242,18 +257,7 @@ func (s *VllmSimulator) handleHTTP(req request, respBuilder responseBuilder, ctx
 	s.context.logger.V(logging.DEBUG).Info("Received", "new HTTP", req.asString())
 
 	ctx.SetStatusCode(fasthttp.StatusOK)
-
-	// Add pod and namespace information to response headers for testing/debugging
-	if s.context.pod != "" {
-		ctx.Response.Header.Add(podHeader, s.context.pod)
-		ctx.Response.Header.Add(portHeader, strconv.Itoa(s.context.config.Port))
-	}
-	if s.context.namespace != "" {
-		ctx.Response.Header.Add(namespaceHeader, s.context.namespace)
-	}
-	if s.context.config.EnableRequestIDHeaders {
-		ctx.Response.Header.Add(requestIDHeader, reqCtx.request().GetRequestID())
-	}
+	s.addResponseHeaders(ctx, reqCtx.request().GetRequestID())
 
 	if isStream {
 		ctx.SetContentType("text/event-stream")
