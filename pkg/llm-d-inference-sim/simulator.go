@@ -132,13 +132,13 @@ func Create(ctx context.Context, config *common.Configuration, logger logr.Logge
 	}
 
 	// Create data-parallel-size simulators
-	sims := make([]*VllmSimulator, config.DPSize)
-
 	dpSize := config.DPSize
 	// If the rank was set, we ignore the data parallel size
 	if config.Rank >= 0 {
 		dpSize = 1
 	}
+
+	sims := make([]*VllmSimulator, dpSize)
 
 	for dpRank := 0; dpRank < dpSize; dpRank++ {
 		rankConfig := config
