@@ -50,7 +50,7 @@ Get the list of changed markdown files in this PR:
 gh pr diff ${{ github.event.pull_request.number }} --name-only | grep '\.md$'
 ```
 
-If no markdown files changed, exit cleanly with a message: "No markdown files changed in this PR."
+If no markdown files changed, exit immediately — do not post any comment.
 
 #### Step 2: Extract and Check Links
 
@@ -105,7 +105,7 @@ If ALL broken links are external and returned 5xx or timeout (i.e., all "possibl
 
 If there are definitely broken links (404, internal file missing), add the `broken-links` label.
 
-If all links are OK, do not post a comment.
+If all links are OK, exit immediately — do not post any comment. The CI status communicates success.
 
 ### Domain-Specific Knowledge
 

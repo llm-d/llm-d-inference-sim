@@ -1,9 +1,9 @@
 ---
 description: |
   Monitors upstream dependencies for new releases and breaking changes.
-  Runs daily to check tracked upstream projects. Creates GitHub issues
-  when breaking changes are detected that affect this repository's code,
-  configuration, or CI pipelines.
+  Runs daily to check tracked upstream projects. A shell pre-check script
+  detects version changes deterministically; the agent only runs when
+  changes are found, dramatically reducing token consumption on quiet days.
 
 on:
   schedule:
@@ -30,7 +30,7 @@ tools:
   web-fetch:
   bash: [ ":*" ]
 
-timeout-minutes: 30
+timeout-minutes: 20
 ---
 
 # Upstream Dependency Monitor
@@ -43,94 +43,100 @@ Your name is ${{ github.workflow }}. You are an **Upstream Dependency Monitor** 
 
 Detect upstream dependency releases that may break builds, deployments, or CI pipelines in this repository — before contributors hit the wall.
 
-### Tracked Dependencies
+### Efficiency Rules (READ FIRST)
 
-Read the file `docs/upstream-versions.md` to get the current version pins and file locations. That file is the **single source of truth** for what we track.
+You MUST follow these rules to minimize token usage:
 
-If `docs/upstream-versions.md` does not exist or is empty, exit cleanly — there are no tracked dependencies yet.
+1. **Run the pre-check script as your very first action** — it handles all version checking deterministically
+2. **If no changes detected, stop immediately** — do not explore further
+3. **Never manually check dependency versions** — the script already did this
+4. **Batch all grep operations** into single commands using `\|` alternation
+5. **Limit all command output** with `| head -20` to avoid flooding context
+6. **Keep issue bodies concise** — bullet points, not paragraphs
 
-### Your Workflow
+### Step 1: Run Pre-Check Script (MANDATORY FIRST STEP)
 
-#### Step 1: Load Current Pins
+Download and run the deterministic pre-check script that checks all tracked dependencies for new releases.
 
-Read `docs/upstream-versions.md` to understand:
-- Which version/SHA is currently pinned for each dependency
-- Which files contain those pins (Dockerfile, go.mod, helmfile, workflow YAML, etc.)
-- The upstream repository for each dependency
+> **Note**: The script is sourced from the org-owned `llm-d/llm-d-infra` repo's `main` branch.
+> Branch protection and required reviews guard against unauthorized changes.
+> Pinning to a commit SHA is impractical here because the script is updated in the same repo
+> and would require coordinated SHA updates across all consuming repos on every change.
 
-#### Step 2: Check for New Releases
+```bash
+curl -sfL https://raw.githubusercontent.com/llm-d/llm-d-infra/main/scripts/check-upstream-releases.sh | bash || true
+```
 
-For each tracked dependency:
+Then read the results:
 
-1. Use the GitHub API via bash to check for new releases:
+```bash
+cat /tmp/upstream-check-results.json
+```
+
+**Decision point based on the JSON output:**
+
+- If `"changed_count": 0` → Stop immediately. All dependencies are up to date. No further action needed.
+- If `"error"` is present at the top level → Stop and report the error. The script could not run properly.
+- If `"changed_count"` > 0 → Continue to Step 2 with **only** the dependencies listed in `"changes"`.
+
+### Step 2: Check for Duplicate Issues
+
+Before creating any issues, check if they already exist for the changed dependencies:
+
+```bash
+gh issue list --state open --search 'label:"upstream-breaking-change" OR label:"upstream-update"' --json title,number --jq '.[].title'
+```
+
+If an open issue already covers a dependency's version bump (same dependency name and target version in the title), skip that dependency entirely.
+
+### Step 3: Analyze Breaking Changes (Changed Dependencies Only)
+
+For each changed dependency from the JSON that does not already have an open issue:
+
+1. **Fetch the release notes** using web-fetch on the `release_url` from the JSON output
+2. **Scan for breaking changes** — look for keywords: "BREAKING", "removed", "renamed", "deprecated", major version bumps
+3. **If potentially breaking, check impact on this repo:**
    ```bash
-   gh api repos/{owner}/{repo}/releases/latest --jq '.tag_name'
+   grep -rn "PATTERN1\|PATTERN2\|PATTERN3" . --include="*.go" --include="*.py" --include="*.yaml" --include="*.yml" --include="*.sh" --include="Dockerfile*" --include="*.toml" | head -20
    ```
-
-2. For commit-SHA-pinned deps, check if the pinned commit is behind the latest tag:
-   ```bash
-   gh api repos/{owner}/{repo}/compare/{pinned_sha}...HEAD --jq '.ahead_by'
-   ```
-
-3. For PyPI packages, check the latest version:
-   ```bash
-   curl -s https://pypi.org/pypi/{package}/json | jq -r '.info.version'
-   ```
-
-4. Compare with the version in `docs/upstream-versions.md`
-
-#### Step 3: Analyze Breaking Changes
-
-When a new release is detected, analyze it for breaking changes:
-
-1. **Fetch the changelog/release notes** using web-fetch on the release page
-2. **Check the diff between pinned version and latest** for:
-   - Renamed CLI arguments, flags, or environment variables
-   - Changed API signatures, function names, or class names
-   - Modified configuration parameter names or formats
-   - Helm chart `values.yaml` schema changes
-   - Removed or renamed exported symbols
-   - Protocol or wire format changes
-   - Minimum version requirement bumps (Go, Python, Node, etc.)
-
-3. **Cross-reference against this repository's usage** by grepping:
-   ```bash
-   grep -r "old_name_or_flag" . --include="*.go" --include="*.py" --include="*.yaml" --include="*.yml" --include="*.md" --include="Dockerfile*" --include="*.toml"
-   ```
-
-4. **Classify the impact**:
+4. **Classify the impact:**
    - **CRITICAL**: Breaks builds or deployments immediately
    - **HIGH**: Breaks specific configurations or workflows
    - **MEDIUM**: May affect optional features or future upgrades
    - **LOW**: Informational — new version available, no breaking changes detected
 
-#### Step 4: Report Findings
+### Step 4: Create Issues
+
+Create GitHub issues for changed dependencies using the `create_issue` safe output.
 
 **For breaking changes (CRITICAL/HIGH):**
-Create a GitHub issue with:
 - Title: `[Upstream Breaking Change] {project} {old_version} → {new_version}`
-- Body: what changed, which files are affected (with paths and line numbers), suggested fixes, links to upstream release notes
 - Labels: `upstream-breaking-change`, `critical` or `high`
 
-**For non-breaking new releases (MEDIUM/LOW):**
-Create a GitHub issue with:
+**For non-breaking updates (MEDIUM/LOW):**
 - Title: `[Upstream Update] {project} {old_version} → {new_version}`
 - Labels: `upstream-update`, `medium` or `low`
 
-**If no new releases detected:** Exit cleanly, no issues created.
+**Issue body should include (keep concise):**
+- Current pin vs new version
+- File locations that need updating (from the pre-check JSON)
+- Breaking changes summary (2-3 bullet points max)
+- Link to upstream release notes
+- Suggested action
+
+If multiple dependencies changed, combine them into a single issue titled:
+`[Upstream Updates] {count} dependencies have new releases`
 
 ### Important Rules
 
-1. **Never create duplicate issues.** Search existing open issues first:
-   ```bash
-   gh issue list --label upstream-breaking-change --state open --search "{project}"
-   gh issue list --label upstream-update --state open --search "{project}"
-   ```
-2. **Be specific about what breaks.** Map changes to specific files in the repo.
+1. **Never create duplicate issues.** Always check existing open issues first.
+2. **Be specific about what breaks.** Include file paths and line numbers.
 3. **Always include the upstream release URL** in the issue body.
-4. **Watch for transitive breaks** — e.g., a Go dependency bump that requires a newer Go version.
+4. **Watch for transitive breaks** — e.g., a dependency bump that requires a newer Go or Python version.
 
 ### Exit Conditions
-- Exit if `docs/upstream-versions.md` does not exist or is empty
-- Exit if no upstream projects have new releases since last check
-- Exit if GitHub API rate limits are exceeded (log a warning)
+
+- Exit immediately if the pre-check script reports 0 changes
+- Exit if `docs/upstream-versions.md` does not exist (script will report this as an error)
+- Exit if the pre-check script encounters a rate limit error
+- Exit if all changed dependencies already have open issues
