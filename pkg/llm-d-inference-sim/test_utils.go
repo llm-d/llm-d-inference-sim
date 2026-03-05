@@ -243,6 +243,33 @@ func sendSimpleChatRequest(envs map[string]string, streaming bool) *http.Respons
 	return httpResp
 }
 
+// sendSimpleEmbeddingsRequest starts server using the given environment variables and sends one embeddings request to /v1/embeddings
+func sendSimpleEmbeddingsRequest(envs map[string]string) *http.Response {
+	ctx := context.TODO()
+
+	client, err := startServerWithEnv(ctx, common.ModeRandom, envs)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	openaiclient := openai.NewClient(
+		option.WithBaseURL(baseURL),
+		option.WithHTTPClient(client),
+		option.WithMaxRetries(0))
+
+	params := openai.EmbeddingNewParams{
+		Input: openai.EmbeddingNewParamsInputUnion{
+			OfString: param.NewOpt(testUserMessage),
+		},
+		Model: openai.EmbeddingModelTextEmbedding3Small,
+	}
+	var httpResp *http.Response
+	resp, err := openaiclient.Embeddings.New(ctx, params, option.WithResponseInto(&httpResp))
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(resp).NotTo(gomega.BeNil())
+	gomega.Expect(resp.Data).NotTo(gomega.BeEmpty())
+
+	return httpResp
+}
+
 // sendTextCompletionRequest sends one text completions request
 func sendTextCompletionRequest(ctx context.Context, client *http.Client) {
 	message := "aa bb cc dd ee ff gg hh ii jj aa bb cc dd ee ff gg hh ii jj"

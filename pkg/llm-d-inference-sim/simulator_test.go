@@ -417,6 +417,36 @@ var _ = Describe("Simulator", func() {
 			Expect(podHeader).To(Equal(testPod), "Expected pod header to be present")
 			Expect(portHeader).To(Equal("8000"), "Expected port header to be present")
 		})
+
+		It("Should not include namespace, pod and port headers in embeddings response when env is not set", func() {
+			httpResp := sendSimpleEmbeddingsRequest(nil)
+
+			namespaceHeader := httpResp.Header.Get(namespaceHeader)
+			podHeader := httpResp.Header.Get(podHeader)
+			portHeader := httpResp.Header.Get(portHeader)
+
+			Expect(namespaceHeader).To(BeEmpty(), "Expected namespace header not to be present")
+			Expect(podHeader).To(BeEmpty(), "Expected pod header not to be present")
+			Expect(portHeader).To(BeEmpty(), "Expected port header not to be present")
+		})
+
+		It("Should include namespace, pod and port headers in embeddings response", func() {
+			testNamespace := "emb-test-namespace"
+			testPod := "emb-test-pod"
+			envs := map[string]string{
+				podNameEnv: testPod,
+				podNsEnv:   testNamespace,
+			}
+			httpResp := sendSimpleEmbeddingsRequest(envs)
+
+			namespaceHeader := httpResp.Header.Get(namespaceHeader)
+			podHeader := httpResp.Header.Get(podHeader)
+			portHeader := httpResp.Header.Get(portHeader)
+
+			Expect(namespaceHeader).To(Equal(testNamespace), "Expected namespace header to be present")
+			Expect(podHeader).To(Equal(testPod), "Expected pod header to be present")
+			Expect(portHeader).To(Equal("8000"), "Expected port header to be present")
+		})
 	})
 
 	Context("logprobs functionality", func() {
