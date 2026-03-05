@@ -2,6 +2,9 @@
 
 The `ds-tool` is used to convert conversation datasets into the format required by llm-d-inference-sim. It processes source datasets (from HuggingFace or local files) and generates both JSON and SQLite outputs with tokenized data. In addition, a dataset card is generated too.
 
+This tool requires the **UDS tokenizer**, which should run as a sidecar service. You can find more information about the UDS tokenizer [here](https://github.com/llm-d/llm-d-kv-cache/tree/main/services/uds_tokenizer). 
+There are two deployment options: run both locally on your computer or deploy both to a cluster (e.g. Kubernetes or kind).
+
 
 ## Prerequisites
 
@@ -11,6 +14,8 @@ The `ds-tool` is used to convert conversation datasets into the format required 
    ```
 
 2. **Model and Tokenizer:** Ensure you have access to the model you want to use for tokenization.
+
+3. **UDS Tokenizer:** Ensure the UDS tokenizer is running.
 
 ## Command Line Options
 
@@ -24,9 +29,10 @@ The `ds-tool` is used to convert conversation datasets into the format required 
 | `--output-file` | string | No | `inference-sim-dataset` | Output file name without extension (creates `.json`, `.sqlite3` and `.md` files) |
 | `--table-name` | string | No | `llmd` | Name of the table created in the SQLite DB |
 | `--max-records` | int | No | `10000` | Maximum number of source dataset records to process; if the dataset contains more, the rest are discarded. |
-| `--tokenizers-cache-dir` | string | No | `hf_cache` | Directory for caching tokenizers |
+| `--uds-socket-path` | string | No | `/tmp/tokenizer/tokenizer-uds.socket` | UDS socket path for communication with the tokenizer |
 
 **Note:** Either `--hf-repo` or `--local-path` must be specified, but not both.
+
 **Note:** `--max-records` defines number of records to read, since original dataset contains conversations, number of records in the output file/db will be larger.
 
 ### Usage Examples
@@ -49,8 +55,7 @@ export HF_TOKEN=your_token_here
   --local-path ./data \
   --file conversations.json \
   --model meta-llama/Llama-3-8B \
-  --output-file local-dataset \
-  --tokenizers-cache-dir ./tokenizer_cache
+  --output-file local-dataset 
 ```
 
 #### Example 3: Minimal Configuration
@@ -194,3 +199,6 @@ For each conversation pair (human question + GPT response), the tool generates *
 2. **Chat Completions Format:** Uses the full conversation history with chat templates (e.g., `### user:\n...\n### assistant:\n...`)
 
 This dual-format approach ensures compatibility with both `/completions` and `/chat/completions` API endpoints in the inference simulator.
+
+## Run both data tool and tokenizer within a container
+TODO !!!

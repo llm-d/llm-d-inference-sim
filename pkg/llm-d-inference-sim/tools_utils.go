@@ -152,7 +152,7 @@ func createToolCalls(
 				return nil, 0, err
 			}
 
-			tokens, strs, err := tokenizer.Encode(string(argsJson), "")
+			tokens, strs, err := tokenizer.RenderText(string(argsJson))
 			if err != nil {
 				return nil, 0, err
 			}

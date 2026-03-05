@@ -75,6 +75,22 @@ func (g *generationReqCtx) tokenizedPromptForEcho() (*openaiserverapi.Tokenized,
 	return g.req.TokenizedPrompt(), nil
 }
 
+func (g *generationReqCtx) encode() ([]uint32, []string, error) {
+	tokenisedPrompt := g.req.TokenizedPrompt()
+	if tokenisedPrompt != nil {
+		return tokenisedPrompt.Tokens, tokenisedPrompt.Strings, nil
+	}
+	return g.sim.tokenizer.RenderText(g.req.Prompt)
+}
+
+func (g *generationReqCtx) getEchoTokens() ([]uint32, []string, error) {
+	tokenisedResponse := g.req.TokenizedPromptForEcho()
+	if tokenisedResponse != nil {
+		return tokenisedResponse.Tokens, tokenisedResponse.Strings, nil
+	}
+	return g.sim.tokenizer.RenderText(g.req.Prompt)
+}
+
 func (g *generationReqCtx) kvCacheOnRequestStart() (hitRate float64, oaiServerError *openaiserverapi.Error) {
 	if g.sim.Config.EnableKVCache {
 		var err error

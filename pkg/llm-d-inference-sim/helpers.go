@@ -22,6 +22,8 @@ import (
 	"github.com/valyala/fasthttp"
 )
 
+const invalidMaxTokensErrMsg = "Max completion tokens and max tokens should be positive"
+
 // isValidModel checks if the given model is the base model or one of "loaded" LoRAs
 func (s *VllmSimulator) isValidModel(model string) bool {
 	for _, name := range s.Context.Config.ServedModelNames {
@@ -44,7 +46,7 @@ func getNumberOfPromptTokens(req openaiserverapi.Request) int {
 
 func validateRequest(req openaiserverapi.Request) (string, int) {
 	if req.GetMaxCompletionTokens() != nil && *req.GetMaxCompletionTokens() <= 0 {
-		return "Max completion tokens and max tokens should be positive", fasthttp.StatusBadRequest
+		return invalidMaxTokensErrMsg, fasthttp.StatusBadRequest
 	}
 
 	if req.IsDoRemoteDecode() && req.IsStream() {

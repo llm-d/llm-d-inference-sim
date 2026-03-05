@@ -146,14 +146,14 @@ Update the `deployment.yaml` file to use the dev tag.
 
 To verify the deployment is available, run:
 ```bash
-kubectl get deployment vllm-llama3-8b-instruct
-kubectl get service vllm-llama3-8b-instruct-svc
+kubectl get deployment vllm-sim-demo
+kubectl get service vllm-sim-demo-svc
 ```
 
 Use `kubectl port-forward` to expose the service on your local machine:
 
 ```bash
-kubectl port-forward svc/vllm-llama3-8b-instruct-svc 8000:8000
+kubectl port-forward svc/vllm-sim-demo-svc 8000:8000
 ```
 
 Test the API with curl

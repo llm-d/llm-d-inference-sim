@@ -40,8 +40,6 @@ import (
 	"github.com/valyala/fasthttp"
 )
 
-const invalidMaxTokensErrMsg = "Max completion tokens and max tokens should be positive"
-
 const prompt1 = "What is the weather like in New York today?"
 const prompt2 = "I hear it's very cold."
 
@@ -80,7 +78,9 @@ var _ = Describe("Simulator", func() {
 			}
 
 			Expect(numberOfChunksWithUsage).To(Equal(1))
-			Expect(chunk.Usage.PromptTokens).To(Equal(userMsgTokens))
+			Expect(err).NotTo(HaveOccurred())
+			userMsgTokens = int64(len(tokens))
+			Expect(chunk.Usage.PromptTokens).To(Equal(userMsgChatTokens))
 			Expect(chunk.Usage.CompletionTokens).To(BeNumerically(">", 0))
 			Expect(chunk.Usage.TotalTokens).To(Equal(chunk.Usage.PromptTokens + chunk.Usage.CompletionTokens))
 
@@ -189,7 +189,7 @@ var _ = Describe("Simulator", func() {
 			Expect(resp.Choices).ShouldNot(BeEmpty())
 			Expect(string(resp.Object)).To(Equal(openaiserverapi.ChatCompletionObject))
 
-			Expect(resp.Usage.PromptTokens).To(Equal(userMsgTokens))
+			Expect(resp.Usage.PromptTokens).To(Equal(userMsgChatTokens))
 			Expect(resp.Usage.CompletionTokens).To(BeNumerically(">", 0))
 			Expect(resp.Usage.TotalTokens).To(Equal(resp.Usage.PromptTokens + resp.Usage.CompletionTokens))
 
@@ -201,7 +201,7 @@ var _ = Describe("Simulator", func() {
 				Expect(msg).Should(Equal(testUserMessage))
 			} else {
 				if numTokens > 0 {
-					_, tokens, err := server.Context.Tokenizer.Encode(msg, model)
+					_, tokens, err := server.Context.Tokenizer.RenderText(msg)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(int64(len(tokens))).Should(BeNumerically("<=", numTokens))
 				} else {
@@ -276,7 +276,7 @@ var _ = Describe("Simulator", func() {
 				Expect(text).Should(Equal(testUserMessage))
 			} else {
 				if numTokens != 0 {
-					_, tokens, err := server.Context.Tokenizer.Encode(text, model)
+					_, tokens, err := server.Context.Tokenizer.RenderText(text)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(int64(len(tokens))).Should(BeNumerically("<=", numTokens))
 				} else {
@@ -615,7 +615,7 @@ var _ = Describe("Simulator", func() {
 						// When logprobs requested, Content should be populated
 						Expect(chatResp.Choices[0].Logprobs.Content).NotTo(BeEmpty())
 
-						_, tokens, err := server.Context.Tokenizer.Encode(chatResp.Choices[0].Message.Content, testModel)
+						_, tokens, err := server.Context.Tokenizer.RenderText(chatResp.Choices[0].Message.Content)
 						Expect(err).NotTo(HaveOccurred())
 						Expect(chatResp.Choices[0].Logprobs.Content).To(HaveLen(len(tokens)))
 					} else {
@@ -631,7 +631,7 @@ var _ = Describe("Simulator", func() {
 						// When logprobs requested, fields should be populated
 						Expect(textResp.Choices[0].Logprobs.Tokens).NotTo(BeNil())
 
-						_, tokens, err := server.Context.Tokenizer.Encode(textResp.Choices[0].Text, testModel)
+						_, tokens, err := server.Context.Tokenizer.RenderText(textResp.Choices[0].Text)
 						Expect(err).NotTo(HaveOccurred())
 						Expect(textResp.Choices[0].Logprobs.Tokens).To(HaveLen(len(tokens)))
 					} else {
@@ -663,12 +663,16 @@ var _ = Describe("Simulator", func() {
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
+			maxTokens := 8
+			prompt := "This is a test message"
+			promptChatTokens := getChatPromptTokensCount(ctx, testModel, prompt)
+
 			// Test with raw HTTP to verify the error response format
-			reqBody := `{
-				"messages": [{"role": "user", "content": "This is a test message"}],
-				"model": "testmodel",
-				"max_tokens": 8
-			}`
+			reqBody := fmt.Sprintf(`{
+				"messages": [{"role": "user", "content": "%s"}],
+				"model": "%s",
+				"max_tokens": %d
+			}`, prompt, testModel, maxTokens)
 
 			resp, err := client.Post("http://localhost/v1/chat/completions", "application/json", strings.NewReader(reqBody))
 			Expect(err).NotTo(HaveOccurred())
@@ -682,12 +686,12 @@ var _ = Describe("Simulator", func() {
 
 			Expect(resp.StatusCode).To(Equal(400))
 			Expect(string(body)).To(ContainSubstring("This model's maximum context length is 10 tokens"))
-			Expect(string(body)).To(ContainSubstring("However, you requested 13 tokens"))
-			Expect(string(body)).To(ContainSubstring("5 in the messages, 8 in the completion"))
+			Expect(string(body)).To(ContainSubstring(fmt.Sprintf("However, you requested %d tokens", promptChatTokens+int64(maxTokens))))
+			Expect(string(body)).To(ContainSubstring(fmt.Sprintf("%d in the messages, %d in the completion", promptChatTokens, maxTokens)))
 			Expect(string(body)).To(ContainSubstring("BadRequestError"))
 
 			// Also test with OpenAI client to ensure it gets an error
-			openaiclient, params := getOpenAIClientAndChatParams(client, testModel, "This is a test message", false)
+			openaiclient, params := getOpenAIClientAndChatParams(client, testModel, prompt, false)
 			params.MaxTokens = openai.Int(8)
 
 			_, err = openaiclient.Chat.Completions.New(ctx, params)

@@ -99,6 +99,10 @@ func (c *chatCompletionReqCtx) request() Request {
 	return c.req
 }
 
+func (c *chatCompletionReqCtx) encode() ([]uint32, []string, error) {
+	return c.sim.tokenizer.RenderChatCompletion(c.req.Messages)
+}
+
 func (c *chatCompletionReqCtx) kvCacheOnRequestStart() (hitRate float64, oaiServerError *openaiserverapi.Error) {
 	// kv cache is currently supported for /completion API only
 	return 0, nil
@@ -117,6 +121,14 @@ func (c *chatCompletionReqCtx) createToolCalls() ([]openaiserverapi.ToolCall, in
 		return toolCalls, completionTokens, finishReason, err
 	}
 	return nil, 0, "", nil
+}
+
+func (c *chatCompletionReqCtx) getEchoTokens() ([]uint32, []string, error) {
+	lastMsg := ""
+	if len(c.req.Messages) > 0 {
+		lastMsg = c.req.Messages[len(c.req.Messages)-1].Content.Raw
+	}
+	return c.sim.tokenizer.RenderText(lastMsg)
 }
 
 var _ requestContext = (*chatCompletionReqCtx)(nil)

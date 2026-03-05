@@ -19,7 +19,7 @@ package kvcache
 import (
 	"encoding/binary"
 
-	"github.com/llm-d/llm-d-kv-cache-manager/pkg/kvcache/kvevents"
+	"github.com/llm-d/llm-d-kv-cache/pkg/kvevents"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"github.com/vmihailenco/msgpack/v5"

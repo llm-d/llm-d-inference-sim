@@ -40,7 +40,7 @@ func main() {
 		return
 	}
 
-	tool, err := dataset.NewDatasetTool(config, logger)
+	tool, err := dataset.NewDatasetTool(ctx, config, logger)
 	if err != nil {
 		logger.Error(err, "failed to create dataset creation tool")
 		return

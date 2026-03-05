@@ -17,27 +17,23 @@ limitations under the License.
 package tokenizer
 
 import (
-	"errors"
+	"context"
+	"fmt"
 	"hash/fnv"
-	"os"
 	"regexp"
+	"strings"
 
 	"github.com/go-logr/logr"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
-	"github.com/llm-d/llm-d-kv-cache-manager/pkg/tokenization"
+	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	"github.com/valyala/fasthttp"
 )
 
-const hfTokenEnvVar = "HF_TOKEN"
-
 type Tokenizer interface {
-	// Encode tokenizes the input, modelName is optional, if not provided, the model from the configuration will be used
-	Encode(input, modelName string) ([]uint32, []string, error)
-}
-
-type HFTokenizer struct {
-	tokenizer tokenization.Tokenizer
-	model     string
+	// Converts input text to tokens
+	RenderText(input string) ([]uint32, []string, error)
+	// Converts input to tokens in two steps: templatization and tokenization
+	RenderChatCompletion(messages []openaiserverapi.Message) ([]uint32, []string, error)
 }
 
 type SimpleTokenizer struct {
@@ -60,44 +56,31 @@ func stringsToUint32sHash(strings []string) []uint32 {
 	return hashes
 }
 
-func (st *SimpleTokenizer) Encode(input, modelName string) ([]uint32, []string, error) {
+// Converts input to tokens
+func (st *SimpleTokenizer) RenderText(input string) ([]uint32, []string, error) {
+	tokens, textTokens, err := st.tokenize(input)
+	return tokens, textTokens, err
+}
+
+// Converts input to tokens in two steps: templatization and tokenization
+func (st *SimpleTokenizer) RenderChatCompletion(messages []openaiserverapi.Message) ([]uint32, []string, error) {
+	input := FlattenChatRequest(messages)
+	return st.tokenize(input)
+}
+
+func (st *SimpleTokenizer) tokenize(input string) ([]uint32, []string, error) {
 	strTokens := st.re.FindAllString(input, -1)
 
 	return stringsToUint32sHash(strTokens), strTokens, nil
 }
 
-// HF Tokenizer
-func NewHFTokenizer(model, tokenizersCacheDir string) (*HFTokenizer, error) {
-	hfConfig := tokenization.DefaultHFTokenizerConfig()
-	if tokenizersCacheDir != "" {
-		hfConfig.TokenizersCacheDir = tokenizersCacheDir
+// Creates a string representing the given chat comepltions request
+func FlattenChatRequest(messages []openaiserverapi.Message) string {
+	var builder strings.Builder
+	for _, msg := range messages {
+		builder.WriteString(fmt.Sprintf("### %s:\n%s\n", msg.Role, msg.Content.Raw))
 	}
-
-	hfToken := os.Getenv(hfTokenEnvVar)
-	if hfToken != "" {
-		hfConfig.HuggingFaceToken = hfToken
-	}
-
-	hftTokenizer, err := tokenization.NewCachedHFTokenizer(hfConfig)
-	if err != nil {
-		return nil, errors.Join(err, errors.New("failed to create hf tokenizer"))
-	}
-
-	return &HFTokenizer{tokenizer: hftTokenizer, model: model}, nil
-}
-
-func (hft *HFTokenizer) Encode(input, modelName string) ([]uint32, []string, error) {
-	model := modelName
-	if model == "" {
-		model = hft.model
-	}
-	tokens, offsets, err := hft.tokenizer.Encode(input, model)
-	textTokens := make([]string, len(tokens))
-	for i, offset := range offsets {
-		textTokens[i] = input[offset[0]:offset[1]]
-	}
-
-	return tokens, textTokens, err
+	return builder.String()
 }
 
 func modelExists(model string) bool {
@@ -111,12 +94,12 @@ func modelExists(model string) bool {
 	return statusCode == fasthttp.StatusOK
 }
 
-func New(config *common.Configuration, logger logr.Logger) (Tokenizer, error) {
+func New(ctx context.Context, config *common.Configuration, logger logr.Logger) (Tokenizer, error) {
 	var err error
 	var tokenizer Tokenizer
 
 	if modelExists(config.Model) {
-		tokenizer, err = NewHFTokenizer(config.Model, config.TokenizersCacheDir)
+		tokenizer, err = NewHFTokenizer(ctx, config.UDSSocketPath, config.Model)
 	} else {
 		logger.Info("Model is not a real HF model, using simulated tokenizer", "model", config.Model)
 		tokenizer = NewSimpleTokenizer()

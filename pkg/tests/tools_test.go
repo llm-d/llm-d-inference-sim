@@ -369,11 +369,19 @@ var toolWithObjectWithoutRequiredParams = []openai.ChatCompletionToolUnionParam{
 	},
 }
 
-var _ = Describe("Simulator for request with tools", func() {
+var _ = Describe("Simulator for request with tools", Ordered, func() {
+	var (
+		userMsgTokens int64
+		ctx           context.Context
+	)
+
+	BeforeAll(func() {
+		ctx = context.TODO()
+		userMsgTokens = getChatPromptTokensCount(ctx, testModel, testUserMessage)
+	})
 
 	DescribeTable("streaming",
 		func(mode string) {
-			ctx := context.TODO()
 			client, err := startServer(ctx, mode)
 			Expect(err).NotTo(HaveOccurred())
 

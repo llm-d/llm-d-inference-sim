@@ -57,6 +57,7 @@ const (
 )
 
 var userMsgTokens int64
+var userMsgChatTokens int64
 
 // Starts server in the given mode, no additional arguments or environment variables
 func startServer(ctx context.Context, mode string) (*http.Client, error) {
@@ -99,7 +100,6 @@ func startServerHelper(ctx context.Context, mode string, args []string, envs map
 	} else {
 		os.Args = []string{"cmd", "--model", testModel, "--mode", mode}
 	}
-	os.Args = append(os.Args, "--tokenizers-cache-dir", tokenizerTmpDir)
 
 	if envs != nil {
 		for k, v := range envs {
@@ -127,7 +127,7 @@ func startServerHelper(ctx context.Context, mode string, args []string, envs map
 	}
 	s.Context.Config = config
 
-	tokenizer, err := tokenizer.New(config, logger)
+	tokenizer, err := tokenizer.New(ctx, config, logger)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -135,11 +135,17 @@ func startServerHelper(ctx context.Context, mode string, args []string, envs map
 	s.Context.Tokenizer = tokenizer
 
 	// calculate number of tokens for user message,
-	_, tokens, err := s.Context.Tokenizer.Encode(testUserMessage, "")
+	tokens, _, err := s.Context.Tokenizer.RenderText(testUserMessage)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 	userMsgTokens = int64(len(tokens))
+	// calculate number of tokens for user message as chat/completions
+	tokens, _, err = s.Context.Tokenizer.RenderChatCompletion([]openaiserverapi.Message{{Role: openaiserverapi.RoleUser, Content: openaiserverapi.Content{Raw: testUserMessage}}})
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	userMsgChatTokens = int64(len(tokens))
 
 	if err := s.InitializeSim(ctx); err != nil {
 		return nil, nil, nil, err
@@ -618,4 +624,17 @@ func getOpenAIClientAndTextParams(client option.HTTPClient, model string, messag
 		params.StreamOptions = openai.ChatCompletionStreamOptionsParam{IncludeUsage: param.NewOpt(true)}
 	}
 	return openaiclient, params
+}
+
+func getChatPromptTokensCount(ctx context.Context, model, message string) int64 {
+	var tknzr tokenizer.Tokenizer
+	var err error
+
+	tknzr, err = tokenizer.New(ctx, &common.Configuration{Model: model}, klog.Background())
+	gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
+
+	tokens, _, err := tknzr.RenderChatCompletion([]openaiserverapi.Message{{Role: openaiserverapi.RoleUser, Content: openaiserverapi.Content{Raw: message}}})
+	gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
+
+	return int64(len(tokens))
 }

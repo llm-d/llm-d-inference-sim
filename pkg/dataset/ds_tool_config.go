@@ -26,30 +26,30 @@ import (
 )
 
 type DSToolConfiguration struct {
-	hfRepo             string
-	localPath          string
-	inputFile          string
-	token              string
-	maxRecords         int
-	tokenizersCacheDir string
-	model              string
-	outputPath         string
-	outputFile         string
-	tableName          string
+	hfRepo        string
+	localPath     string
+	inputFile     string
+	token         string
+	maxRecords    int
+	udsSocketPath string
+	model         string
+	outputPath    string
+	outputFile    string
+	tableName     string
 }
 
 func NewDefaultDSToolConfiguration() *DSToolConfiguration {
 	return &DSToolConfiguration{
-		hfRepo:             "",
-		localPath:          "",
-		inputFile:          "",
-		outputFile:         "inference-sim-dataset",
-		outputPath:         "",
-		token:              "",
-		maxRecords:         10000,
-		tokenizersCacheDir: "hf_cache",
-		model:              "",
-		tableName:          "llmd",
+		hfRepo:        "",
+		localPath:     "",
+		inputFile:     "",
+		outputFile:    "inference-sim-dataset",
+		outputPath:    "",
+		token:         "",
+		maxRecords:    10000,
+		udsSocketPath: "/tmp/tokenizer/tokenizer-uds.socket",
+		model:         "",
+		tableName:     "llmd",
 	}
 }
 
@@ -64,9 +64,9 @@ func (c *DSToolConfiguration) LoadConfig() error {
 	f.StringVar(&c.outputPath, "output-path", "", "Output path")
 	f.StringVar(&c.outputPath, "table-name", common.DefaultDSTableName, "Table name, default is 'llmd'")
 	f.IntVar(&c.maxRecords, "max-records", 10000, "Maximum number of source dataset records to process; if the dataset contains more, the rest are discarded")
+	f.StringVar(&c.udsSocketPath, "uds-socket-path", c.udsSocketPath, "UDS socket path for communication with HF tokenizer, default is '/tmp/tokenizer/tokenizer-uds.socket'")
 
 	f.StringVar(&c.model, "model", "", "Model name")
-	f.StringVar(&c.tokenizersCacheDir, "tokenizers-cache-dir", "hf_cache", "Directory for caching tokenizers, default is hf_cache")
 
 	if err := f.Parse(os.Args[1:]); err != nil {
 		if err == pflag.ErrHelp {
@@ -84,9 +84,6 @@ func (c *DSToolConfiguration) LoadConfig() error {
 func (c *DSToolConfiguration) validate() error {
 	if c.model == "" {
 		return errors.New("--model is not defined")
-	}
-	if c.tokenizersCacheDir == "" {
-		return errors.New("--tokenizers-cache-dir cannot be empty")
 	}
 	if c.hfRepo == "" && c.localPath == "" {
 		return errors.New("either --hf-repo or --local-path must be specified")

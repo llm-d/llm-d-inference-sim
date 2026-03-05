@@ -19,6 +19,7 @@ package tests
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -64,10 +65,10 @@ var _ = Describe("Server", func() {
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
-			reqBody := `{
-				"messages": [{"role": "user", "content": "This is a test"}],
-				"model": "Qwen/Qwen2-0.5B"
-			}`
+			reqBody := fmt.Sprintf(`{
+    			"messages": [{"role": "user", "content": "This is a test"}],
+    			"model": "%s"
+			}`, qwenModelName)
 			resp, err := client.Post("http://localhost/tokenize", "application/json", strings.NewReader(reqBody))
 			Expect(err).NotTo(HaveOccurred())
 			defer func() {
@@ -81,8 +82,8 @@ var _ = Describe("Server", func() {
 			var tokenizeResp vllmapi.TokenizeResponse
 			err = json.Unmarshal(body, &tokenizeResp)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(tokenizeResp.Count).To(Equal(4))
-			Expect(tokenizeResp.Tokens).To(HaveLen(4))
+			Expect(tokenizeResp.Count).To(Equal(22))
+			Expect(tokenizeResp.Tokens).To(HaveLen(22))
 			Expect(tokenizeResp.MaxModelLen).To(Equal(2048))
 		})
 
@@ -93,10 +94,10 @@ var _ = Describe("Server", func() {
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
-			reqBody := `{
+			reqBody := fmt.Sprintf(`{
 				"prompt": "This is a test",
-				"model": "Qwen/Qwen2-0.5B"
-			}`
+				"model": "%s"
+			}`, qwenModelName)
 			resp, err := client.Post("http://localhost/tokenize", "application/json", strings.NewReader(reqBody))
 			Expect(err).NotTo(HaveOccurred())
 			defer func() {

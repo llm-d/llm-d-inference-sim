@@ -25,6 +25,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
+	"github.com/llm-d/llm-d-kv-cache/pkg/kvcache/kvblock"
 )
 
 const (
@@ -37,10 +38,10 @@ const (
 // blockCache represents a thread-safe cache for blocks with eviction policy
 type blockCache struct {
 	mu              sync.RWMutex
-	requestToBlocks map[string][]uint64                // request id -> array of it blocks (block hashes)
-	usedBlocks      map[uint64]int                     // block hash -> reference count
-	unusedBlocks    map[uint64]time.Time               // block hash -> last usage timestamp
-	blockToTokens   map[uint64][]uint32                // block hash -> block tokens
+	requestToBlocks map[string][]kvblock.BlockHash     // request id -> array of it blocks (block hashes)
+	usedBlocks      map[kvblock.BlockHash]int          // block hash -> reference count
+	unusedBlocks    map[kvblock.BlockHash]time.Time    // block hash -> last usage timestamp
+	blockToTokens   map[kvblock.BlockHash][]uint32     // block hash -> block tokens
 	maxBlocks       int                                // maximum number of blocks in the cache
 	eventSender     *KVEventSender                     // emmits kv events
 	eventChan       common.Channel[EventData]          // channel for asynchronous event processing
@@ -75,10 +76,10 @@ func newBlockCache(config *common.Configuration, logger logr.Logger,
 		eChan, config.EventBatchSize, delay, logger)
 
 	return &blockCache{
-		requestToBlocks: make(map[string][]uint64),
-		usedBlocks:      make(map[uint64]int),
-		unusedBlocks:    make(map[uint64]time.Time),
-		blockToTokens:   make(map[uint64][]uint32),
+		requestToBlocks: make(map[string][]kvblock.BlockHash),
+		usedBlocks:      make(map[kvblock.BlockHash]int),
+		unusedBlocks:    make(map[kvblock.BlockHash]time.Time),
+		blockToTokens:   make(map[kvblock.BlockHash][]uint32),
 		maxBlocks:       config.KVCacheSize,
 		eventChan:       eChan,
 		usageChan:       usageChan,
@@ -103,9 +104,9 @@ func (bc *blockCache) discard() {
 
 	bc.disabled = true
 
-	bc.requestToBlocks = make(map[string][]uint64)
-	bc.usedBlocks = make(map[uint64]int)
-	bc.unusedBlocks = make(map[uint64]time.Time)
+	bc.requestToBlocks = make(map[string][]kvblock.BlockHash)
+	bc.usedBlocks = make(map[kvblock.BlockHash]int)
+	bc.unusedBlocks = make(map[kvblock.BlockHash]time.Time)
 
 	common.WriteToChannel(bc.eventChan,
 		EventData{action: eventActionAllBlocksCleared},
@@ -123,7 +124,7 @@ func (bc *blockCache) activate() {
 
 // startRequest adds a request with its associated block hashes to the cache
 // and returns the number of blocks that were already in the cache
-func (bc *blockCache) startRequest(requestID string, blockHashes []uint64, blockTokens [][]uint32) (int, error) {
+func (bc *blockCache) startRequest(requestID string, blockHashes []kvblock.BlockHash, blockTokens [][]uint32) (int, error) {
 	bc.mu.Lock()
 	defer bc.mu.Unlock()
 
@@ -145,9 +146,9 @@ func (bc *blockCache) startRequest(requestID string, blockHashes []uint64, block
 	// blockAreadyInUse - blocks, which are already used by currently running request
 	// blockToMoveToUsed - blocks, which were used in past
 	// blocksToAdd - new blocks
-	blocksToAdd := make([]uint64, 0)
-	blockToMoveToUsed := make([]uint64, 0)
-	blockAreadyInUse := make([]uint64, 0)
+	blocksToAdd := make([]kvblock.BlockHash, 0)
+	blockToMoveToUsed := make([]kvblock.BlockHash, 0)
+	blockAreadyInUse := make([]kvblock.BlockHash, 0)
 
 	// first step - ensure that there is enough space for all blocks
 	// count number of new blocks + number of blocks that are in the unused blocks
@@ -190,7 +191,7 @@ func (bc *blockCache) startRequest(requestID string, blockHashes []uint64, block
 	for _, block := range blocksToAdd {
 		if len(bc.usedBlocks)+len(bc.unusedBlocks) == bc.maxBlocks {
 			// cache is full but contains unused blocks - evict the oldest
-			var oldestUnusedHash uint64
+			var oldestUnusedHash kvblock.BlockHash
 			oldestUnusedTime := time.Now()
 
 			for hash, t := range bc.unusedBlocks {
@@ -220,7 +221,7 @@ func (bc *blockCache) startRequest(requestID string, blockHashes []uint64, block
 	}
 
 	// store the request mapping
-	bc.requestToBlocks[requestID] = make([]uint64, len(blockHashes))
+	bc.requestToBlocks[requestID] = make([]kvblock.BlockHash, len(blockHashes))
 	copy(bc.requestToBlocks[requestID], blockHashes)
 
 	if bc.usageChan != nil {
@@ -251,7 +252,7 @@ func (bc *blockCache) finishRequest(requestID string) error {
 	now := time.Now()
 
 	// Decrease reference count for each block
-	errBlocks := make([]uint64, 0)
+	errBlocks := make([]kvblock.BlockHash, 0)
 	for _, blockHash := range blockHashes {
 		if refCount, exists := bc.usedBlocks[blockHash]; exists {
 			if refCount > 1 {
@@ -300,7 +301,7 @@ func (bc *blockCache) getStats() (int, int, int) {
 // if block is in use by currently running requests the count will be positive, boolean is true
 // if block is in the unused list - count is 0, boolean is true
 // if block is not in both collections - count is 0, boolean is false
-func (bc *blockCache) getBlockInfo(blockHash uint64) (int, bool) {
+func (bc *blockCache) getBlockInfo(blockHash kvblock.BlockHash) (int, bool) {
 	bc.mu.RLock()
 	defer bc.mu.RUnlock()
 
@@ -317,7 +318,7 @@ func (bc *blockCache) getBlockInfo(blockHash uint64) (int, bool) {
 }
 
 // countCachedBlockPrefix returns the number of continuous blocks from the given list that are already in the cache
-func (bc *blockCache) countCachedBlockPrefix(blockHashes []uint64) int {
+func (bc *blockCache) countCachedBlockPrefix(blockHashes []kvblock.BlockHash) int {
 	bc.mu.RLock()
 	defer bc.mu.RUnlock()
 

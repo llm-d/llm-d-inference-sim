@@ -23,7 +23,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
-	"github.com/llm-d/llm-d-kv-cache-manager/pkg/kvcache/kvevents"
+	"github.com/llm-d/llm-d-kv-cache/pkg/kvevents"
 	"github.com/vmihailenco/msgpack/v5"
 )
 

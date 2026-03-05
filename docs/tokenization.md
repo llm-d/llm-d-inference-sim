@@ -10,7 +10,6 @@ This mode is activated when the `--model` parameter specifies a valid HuggingFac
 * **Requirements:**
     * **Network Access:** Required on the first run to download the tokenizer.
     * **Authentication:** Requires the `HF_TOKEN` environment variable if the model is gated or private.
-* **Storage:** Tokenizers are stored in the directory specified by `--tokenizers-cache-dir` (default: `hf_cache`).
 * **Performance:** Adds startup overhead (downloading/loading) and runtime overhead (tokenization logic).
 
 ## Simulated Mode (Dummy Models)
@@ -33,14 +32,12 @@ This mode is activated when the `--model` parameter specifies a name that does n
 | Parameter | Description | Default |
 |---|---|---|
 | --model | The model name. Determines the tokenization mode.(Mandatory)| |
-| --tokenizers-cache-dir | Directory for caching HuggingFace tokenizers | hf_cache |
-| HF_TOKEN | Environment variable for authenticating with HuggingFace | |
 
 
 ## Examples
 Running with HuggingFace Tokenization:
 ```bash
-export HF_TOKEN=hf_... ./bin/llm-d-inference-sim --model meta-llama/Llama-3.1-8B-Instruct --tokenizers-cache-dir /tmp/hf_cache
+export HF_TOKEN=hf_... ./bin/llm-d-inference-sim --model meta-llama/Llama-3.1-8B-Instruct 
 ```
 
 Running with Simulated Tokenization:

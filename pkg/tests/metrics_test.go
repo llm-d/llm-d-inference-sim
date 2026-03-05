@@ -114,12 +114,13 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 	})
 
 	It("Should record correct prompt and generation token counts", func() {
-		modelName := "testmodel"
+		ctx := context.TODO()
+
 		prompt := strings.Repeat("hello ", 25)
 		maxTokens := 25
+		expectedPromptTokensCnt := getChatPromptTokensCount(ctx, testModel, prompt)
 
-		ctx := context.TODO()
-		args := []string{"cmd", "--model", modelName, "--mode", common.ModeRandom,
+		args := []string{"cmd", "--model", testModel, "--mode", common.ModeRandom,
 			"--time-to-first-token", "100", "--max-num-seqs", "4"}
 
 		client, err := startServerWithArgs(ctx, args)
@@ -133,7 +134,7 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 			Messages: []openai.ChatCompletionMessageParamUnion{
 				openai.UserMessage(prompt),
 			},
-			Model:       modelName,
+			Model:       testModel,
 			MaxTokens:   openai.Int(int64(maxTokens)),
 			Temperature: openai.Float(0.0),
 		}
@@ -164,7 +165,8 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 		}
 		Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(testModel, vllmsim.PromptTokensMetricName, math.Inf(1), 1)))
 		Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(testModel, vllmsim.ParamMaxTokensMetricName, math.Inf(1), 1)))
-		Expect(metrics).To(MatchRegexp(`vllm:prompt_tokens_total{model_name="testmodel"} 25`))
+
+		Expect(metrics).To(MatchRegexp(fmt.Sprintf(`vllm:prompt_tokens_total{model_name="%s"} %d`, testModel, expectedPromptTokensCnt)))
 
 		// request_generation_tokens
 		// We do not verify the distribution of the number of tokens generated per request,
@@ -1036,9 +1038,9 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 	})
 
 	Context("single request latency metrics", func() {
-		tokenizer, err := tokenizer.New(&common.Configuration{Model: "test"}, klog.Background())
+		tokenizer, err := tokenizer.New(&common.Configuration{Model: testModel}, klog.Background())
 		Expect(err).ShouldNot(HaveOccurred())
-		_, tokens, err := tokenizer.Encode(testUserMessage, "")
+		_, tokens, err := tokenizer.RenderText(testUserMessage)
 		Expect(err).ShouldNot(HaveOccurred())
 		numOfTokens := len(tokens)
 
