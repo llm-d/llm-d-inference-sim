@@ -35,7 +35,7 @@ func createDataset() *DefaultDataset {
 	ds := DefaultDataset{}
 	ctx := context.Background()
 	logger := log.FromContext(ctx)
-	tokenizer, err := tokenizer.New("", false, "")
+	tokenizer, err := tokenizer.NewTestTokenizer("", false, "")
 	Expect(err).ShouldNot(HaveOccurred())
 	err = ds.Init(context.Background(), logger, common.NewRandom(time.Now().UnixNano(), 8080), 1024, tokenizer)
 	Expect(err).ShouldNot(HaveOccurred())
@@ -172,7 +172,7 @@ var _ = Describe("Echo Dataset", Ordered, func() {
 	dataset := EchoDataset{}
 	maxTokens := int64(20)
 	smallMaxTokens := int64(2)
-	tokenizer, err := tokenizer.New("", false, "")
+	tokenizer, err := tokenizer.NewTestTokenizer("", false, "")
 	Expect(err).NotTo(HaveOccurred())
 	promptTokens, promptStrTokens, err := tokenizer.Encode(testPrompt, "")
 	Expect(err).NotTo(HaveOccurred())

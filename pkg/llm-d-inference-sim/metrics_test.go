@@ -944,7 +944,7 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 	})
 
 	Context("single request latency metrics", func() {
-		tokenizer, err := tokenizer.New("", false, "")
+		tokenizer, err := tokenizer.NewTestTokenizer("", false, "")
 		Expect(err).ShouldNot(HaveOccurred())
 		_, tokens, err := tokenizer.Encode(testUserMessage, "")
 		Expect(err).ShouldNot(HaveOccurred())

@@ -35,6 +35,7 @@ import (
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
+	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
 	"github.com/openai/openai-go/v3/packages/param"
@@ -122,9 +123,12 @@ func startServerHelper(ctx context.Context, mode string, args []string, envs map
 	}
 	s.context.config = config
 
-	if err := s.context.initTokenizer(); err != nil {
+	tokenizer, err := tokenizer.New(config, logger)
+	if err != nil {
 		return nil, nil, err
 	}
+
+	s.context.tokenizer = tokenizer
 
 	// calculate number of tokens for user message,
 	_, tokens, err := s.context.tokenizer.Encode(testUserMessage, "")

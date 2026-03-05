@@ -22,7 +22,10 @@ import (
 	"os"
 	"regexp"
 
+	"github.com/go-logr/logr"
+	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-kv-cache-manager/pkg/tokenization"
+	"github.com/valyala/fasthttp"
 )
 
 const hfTokenEnvVar = "HF_TOKEN"
@@ -95,4 +98,29 @@ func (hft *HFTokenizer) Encode(input, modelName string) ([]uint32, []string, err
 	}
 
 	return tokens, textTokens, err
+}
+
+func modelExists(model string) bool {
+	url := "https://huggingface.co/api/models/" + model
+
+	statusCode, _, err := fasthttp.Get(nil, url)
+	if err != nil {
+		return false
+	}
+
+	return statusCode == fasthttp.StatusOK
+}
+
+func New(config *common.Configuration, logger logr.Logger) (Tokenizer, error) {
+	var err error
+	var tokenizer Tokenizer
+
+	if modelExists(config.Model) {
+		tokenizer, err = NewHFTokenizer(config.Model, config.TokenizersCacheDir)
+	} else {
+		logger.Info("Model is not a real HF model, using simulated tokenizer", "model", config.Model)
+		tokenizer = NewSimpleTokenizer()
+	}
+
+	return tokenizer, err
 }

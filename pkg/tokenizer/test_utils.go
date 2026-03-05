@@ -16,7 +16,7 @@ limitations under the License.
 
 package tokenizer
 
-func New(model string, modelExists bool, cacheDir string) (Tokenizer, error) {
+func NewTestTokenizer(model string, modelExists bool, cacheDir string) (Tokenizer, error) {
 	var err error
 	var tknzer Tokenizer
 	if modelExists {

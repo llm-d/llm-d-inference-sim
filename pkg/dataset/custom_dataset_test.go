@@ -49,7 +49,7 @@ type validDBElement struct {
 var _ = Describe("CustomDataset", Ordered, func() {
 	var (
 		sqliteHelper          *sqliteHelper
-		dsDownloader          *CustomDatasetDownloader
+		dsDownloader          *customDatasetDownloader
 		file_folder           string
 		path                  string
 		validDBPath           string
@@ -77,7 +77,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 		pathToInvalidTableDB = file_folder + "/test.invalid.table.sqlite3"
 		pathToInvalidColumnDB = file_folder + "/test.invalid.column.sqlite3"
 		pathToInvalidTypeDB = file_folder + "/test.invalid.type.sqlite3"
-		tknzr, err = tokenizer.New("Qwen/Qwen3-0.6B", true, tokenizerTmpDir)
+		tknzr, err = tokenizer.NewTestTokenizer("Qwen/Qwen3-0.6B", true, tokenizerTmpDir)
 		Expect(err).ShouldNot(HaveOccurred())
 
 		validDB = make([]validDBElement, 3)
@@ -123,7 +123,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 
 	BeforeEach(func() {
 		sqliteHelper = newSqliteHelper("llmd", klog.Background())
-		dsDownloader = NewDsDownloader(klog.Background())
+		dsDownloader = newDsDownloader(klog.Background())
 	})
 
 	AfterAll(func() {
@@ -148,7 +148,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 			Expect(err).NotTo(HaveOccurred())
 		}
 		url := "https://llm-d.ai"
-		err = dsDownloader.DownloadDataset(context.Background(), url, path)
+		err = dsDownloader.downloadDataset(context.Background(), url, path)
 		Expect(err).NotTo(HaveOccurred())
 		_, err = os.Stat(path)
 		Expect(err).NotTo(HaveOccurred())
@@ -158,7 +158,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 
 	It("should not download file from url", func() {
 		url := "https://256.256.256.256" // invalid url
-		err := dsDownloader.DownloadDataset(context.Background(), url, path)
+		err := dsDownloader.downloadDataset(context.Background(), url, path)
 		Expect(err).To(HaveOccurred())
 	})
 
@@ -350,7 +350,7 @@ var _ = Describe("custom dataset for multiple simulators", Ordered, func() {
 		validDBPath := file_folder + "/test.valid.sqlite3"
 		tableName := "llmd"
 
-		tokenizer, err := tokenizer.New("", false, "")
+		tokenizer, err := tokenizer.NewTestTokenizer("", false, "")
 		Expect(err).ShouldNot(HaveOccurred())
 
 		random1 := common.NewRandom(time.Now().UnixNano(), 8081)
@@ -370,14 +370,14 @@ var _ = Describe("download custom dataset from HF", Ordered, func() {
 	// once we will create a small sample dataset - restore this test
 	XIt("should download and save ds", func() {
 		url := "https://huggingface.co/datasets/hf07397/inference-sim-datasets/resolve/91ffa7aafdfd6b3b1af228a517edc1e8f22cd274/huggingface/ShareGPT_Vicuna_unfiltered/conversations.sqlite3"
-		downloader := NewDsDownloader(klog.Background())
+		downloader := newDsDownloader(klog.Background())
 		tempFile := "./ds1.sqlite3"
 
 		if _, err := os.Stat(tempFile); err == nil {
 			err := os.Remove(tempFile)
 			Expect(err).NotTo(HaveOccurred())
 		}
-		err := downloader.DownloadDataset(context.Background(), url, tempFile)
+		err := downloader.downloadDataset(context.Background(), url, tempFile)
 		Expect(err).NotTo(HaveOccurred())
 
 		err = os.Remove(tempFile)

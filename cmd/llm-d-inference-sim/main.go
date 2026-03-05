@@ -25,6 +25,7 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/cmd/signals"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
+	"github.com/llm-d/llm-d-inference-sim/pkg/communication"
 	vllmsim "github.com/llm-d/llm-d-inference-sim/pkg/llm-d-inference-sim"
 )
 
@@ -47,12 +48,18 @@ func main() {
 		return
 	}
 
-	vllmSim, err := vllmsim.New(logger)
+	simulators, err := vllmsim.Create(ctx, config, logger)
 	if err != nil {
-		logger.Error(err, "failed to create vLLM simulator")
-		return
-	}
-	if err := vllmSim.Start(ctx, config); err != nil {
 		logger.Error(err, "vLLM simulator failed")
 	}
+
+	for _, sim := range simulators {
+		comm := communication.New(logger, sim)
+		comm.Start()
+	}
+
+	if err := vllmsim.Start(ctx, simulators); err != nil {
+		logger.Error(err, "vLLM simulator failed")
+	}
+
 }

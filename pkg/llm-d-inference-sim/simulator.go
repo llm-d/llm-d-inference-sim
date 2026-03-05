@@ -39,6 +39,7 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/dataset"
 	"github.com/llm-d/llm-d-inference-sim/pkg/grpc/pb"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
+	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 	vllmapi "github.com/llm-d/llm-d-inference-sim/pkg/vllm-api"
 )
 
@@ -119,51 +120,55 @@ func New(logger logr.Logger) (*VllmSimulator, error) {
 	}, nil
 }
 
-// Start starts the simulator
-func (s *VllmSimulator) Start(ctx context.Context, config *common.Configuration) error {
-	s.context.config = config
+func Create(ctx context.Context, config *common.Configuration, logger logr.Logger) ([]*VllmSimulator, error) {
+	if err := dataset.Init(ctx, config, logger); err != nil {
+		logger.Error(err, "failed to initialize dataset")
+		return nil, err
+	}
+	tokenizer, err := tokenizer.New(config, logger)
+	if err != nil {
+		logger.Error(err, "failed to initialize tokenizer")
+		return nil, err
+	}
 
-	if s.context.config.DatasetURL != "" && s.context.config.Model != common.ModeEcho {
-		// if should use remote responses dataset, download it first (it can take time)
-		downloader := dataset.NewDsDownloader(s.context.logger)
-		if err := downloader.DownloadDataset(ctx, s.context.config.DatasetURL, s.context.config.DatasetPath); err != nil {
-			return err
+	// Create data-parallel-size simulators
+	sims := make([]*VllmSimulator, config.DPSize)
+
+	for dpRank := 0; dpRank < config.DPSize; dpRank++ {
+		rankConfig := config
+		if dpRank > 0 {
+			rankConfig, err = config.Copy()
+			if err != nil {
+				return nil, err
+			}
+			rankConfig.Port = config.Port + dpRank
 		}
+
+		if dpRank == 0 && config.DPSize == 1 && config.Rank >= 0 {
+			dpRank = config.Rank
+		}
+		loggr := klog.LoggerWithValues(logger, "rank", dpRank)
+
+		sim, err := New(loggr)
+		if err != nil {
+			return nil, err
+		}
+		sim.context.config = rankConfig
+		// use the same tokenizer in all ranks
+		sim.context.tokenizer = tokenizer
+		sims[dpRank] = sim
 	}
 
-	// create tokenizer in advance and use it in all ranks (because of python initialization problem)
-	if err := s.context.initTokenizer(); err != nil {
-		return err
-	}
+	return sims, nil
+}
 
-	// For Data Parallel, start data-parallel-size - 1 additional simulators
+func Start(ctx context.Context, sims []*VllmSimulator) error {
 	g, ctx := errgroup.WithContext(ctx)
-	if s.context.config.DPSize > 1 {
-		for i := 2; i <= s.context.config.DPSize; i++ {
-			newConfig, err := s.context.config.Copy()
-			if err != nil {
-				return err
-			}
-			dpRank := i - 1
-			newConfig.Port = s.context.config.Port + dpRank
-			newSim, err := New(klog.LoggerWithValues(s.context.logger, "rank", dpRank))
-			if err != nil {
-				return err
-			}
-			newSim.context.config = newConfig
-			// use the same tokenizer in all ranks
-			newSim.context.tokenizer = s.context.tokenizer
-			g.Go(func() error {
-				return newSim.startSim(ctx)
-			})
-		}
-		s.context.logger = klog.LoggerWithValues(s.context.logger, "rank", 0)
-	} else if s.context.config.Rank >= 0 {
-		s.context.logger = klog.LoggerWithValues(s.context.logger, "rank", s.context.config.Rank)
+	for _, sim := range sims {
+		g.Go(func() error {
+			return sim.startSim(ctx)
+		})
 	}
-	g.Go(func() error {
-		return s.startSim(ctx)
-	})
 	if err := g.Wait(); err != nil {
 		return err
 	}

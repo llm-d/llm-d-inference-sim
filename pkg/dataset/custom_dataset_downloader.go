@@ -27,10 +27,11 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 )
 
-type CustomDatasetDownloader struct {
+type customDatasetDownloader struct {
 	logger logr.Logger
 }
 
@@ -51,12 +52,23 @@ type progressReader struct {
 	ctx         context.Context
 }
 
-func NewDsDownloader(logger logr.Logger) *CustomDatasetDownloader {
-	return &CustomDatasetDownloader{logger: logger}
+func newDsDownloader(logger logr.Logger) *customDatasetDownloader {
+	return &customDatasetDownloader{logger: logger}
 }
 
-// DownloadDataset downloads dataset from the given url and stores it to the given path
-func (d *CustomDatasetDownloader) DownloadDataset(ctx context.Context, url string, path string) error {
+func Init(ctx context.Context, config *common.Configuration, logger logr.Logger) error {
+	if config.DatasetURL != "" && config.Model != common.ModeEcho {
+		// if should use remote responses dataset, download it first (it can take time)
+		downloader := newDsDownloader(logger)
+		if err := downloader.downloadDataset(ctx, config.DatasetURL, config.DatasetPath); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// downloadDataset downloads dataset from the given url and stores it to the given path
+func (d *customDatasetDownloader) downloadDataset(ctx context.Context, url string, path string) error {
 	folder := filepath.Dir(path)
 	err := os.MkdirAll(folder, 0755)
 	if err != nil {

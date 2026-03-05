@@ -33,7 +33,7 @@ const (
 var _ = Describe("tokenizer", func() {
 
 	It("should tokenize with simple tokenizer", func() {
-		tokenizer, err := New("", false, "")
+		tokenizer, err := NewTestTokenizer("", false, "")
 		Expect(err).NotTo(HaveOccurred())
 		tokens, strTokens, err := tokenizer.Encode(input, "")
 		Expect(err).NotTo(HaveOccurred())
@@ -46,7 +46,7 @@ var _ = Describe("tokenizer", func() {
 	})
 
 	It("should tokenize with real tokenizer", func() {
-		tokenizer, err := New(qwenModelName, true, tokenizerTmpDir)
+		tokenizer, err := NewTestTokenizer(qwenModelName, true, tokenizerTmpDir)
 		Expect(err).NotTo(HaveOccurred())
 		tokens, strTokens, err := tokenizer.Encode(input, qwenModelName)
 		Expect(err).NotTo(HaveOccurred())

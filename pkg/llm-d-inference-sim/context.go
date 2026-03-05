@@ -24,7 +24,6 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/valyala/fasthttp"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
@@ -210,32 +209,6 @@ func (s *simContext) initialize(ctx context.Context) error {
 	}
 
 	return nil
-}
-
-func (s *simContext) modelExists() bool {
-	url := "https://huggingface.co/api/models/" + s.config.Model
-
-	statusCode, _, err := fasthttp.Get(nil, url)
-	if err != nil {
-		return false
-	}
-
-	return statusCode == fasthttp.StatusOK
-}
-
-func (s *simContext) initTokenizer() error {
-	var err error
-
-	if s.tokenizer == nil {
-		if s.modelExists() {
-			s.tokenizer, err = tokenizer.NewHFTokenizer(s.config.Model, s.config.TokenizersCacheDir)
-		} else {
-			s.logger.Info("Model is not a real HF model, using simulated tokenizer", "model", s.config.Model)
-			s.tokenizer = tokenizer.NewSimpleTokenizer()
-		}
-	}
-
-	return err
 }
 
 func (s *simContext) initDataset(ctx context.Context) error {
