@@ -144,10 +144,11 @@ func Create(ctx context.Context, config *common.Configuration, logger logr.Logge
 			rankConfig.Port = config.Port + dpRank
 		}
 
+		rankForLog := dpRank
 		if dpRank == 0 && config.DPSize == 1 && config.Rank >= 0 {
-			dpRank = config.Rank
+			rankForLog = config.Rank
 		}
-		loggr := klog.LoggerWithValues(logger, "rank", dpRank)
+		loggr := klog.LoggerWithValues(logger, "rank", rankForLog)
 
 		sim, err := New(loggr)
 		if err != nil {

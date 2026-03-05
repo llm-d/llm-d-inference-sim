@@ -77,7 +77,8 @@ var _ = Describe("CustomDataset", Ordered, func() {
 		pathToInvalidTableDB = file_folder + "/test.invalid.table.sqlite3"
 		pathToInvalidColumnDB = file_folder + "/test.invalid.column.sqlite3"
 		pathToInvalidTypeDB = file_folder + "/test.invalid.type.sqlite3"
-		tknzr, err = tokenizer.NewTestTokenizer("Qwen/Qwen3-0.6B", true, tokenizerTmpDir)
+		config := &common.Configuration{Model: "Qwen/Qwen3-0.6B", TokenizersCacheDir: tokenizerTmpDir}
+		tknzr, err = tokenizer.New(config, klog.Background())
 		Expect(err).ShouldNot(HaveOccurred())
 
 		validDB = make([]validDBElement, 3)
@@ -350,7 +351,7 @@ var _ = Describe("custom dataset for multiple simulators", Ordered, func() {
 		validDBPath := file_folder + "/test.valid.sqlite3"
 		tableName := "llmd"
 
-		tokenizer, err := tokenizer.NewTestTokenizer("", false, "")
+		tokenizer, err := tokenizer.New(&common.Configuration{Model: "test"}, klog.Background())
 		Expect(err).ShouldNot(HaveOccurred())
 
 		random1 := common.NewRandom(time.Now().UnixNano(), 8081)

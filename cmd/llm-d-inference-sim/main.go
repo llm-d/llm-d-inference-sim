@@ -50,7 +50,7 @@ func main() {
 
 	simulators, err := vllmsim.Create(ctx, config, logger)
 	if err != nil {
-		logger.Error(err, "vLLM simulator failed")
+		logger.Error(err, "failed to create vLLM simulator")
 	}
 
 	for _, sim := range simulators {

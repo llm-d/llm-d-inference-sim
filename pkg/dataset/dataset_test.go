@@ -28,6 +28,7 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -35,7 +36,8 @@ func createDataset() *DefaultDataset {
 	ds := DefaultDataset{}
 	ctx := context.Background()
 	logger := log.FromContext(ctx)
-	tokenizer, err := tokenizer.NewTestTokenizer("", false, "")
+	config := common.Configuration{Model: "test"}
+	tokenizer, err := tokenizer.New(&config, logger)
 	Expect(err).ShouldNot(HaveOccurred())
 	err = ds.Init(context.Background(), logger, common.NewRandom(time.Now().UnixNano(), 8080), 1024, tokenizer)
 	Expect(err).ShouldNot(HaveOccurred())
@@ -172,7 +174,7 @@ var _ = Describe("Echo Dataset", Ordered, func() {
 	dataset := EchoDataset{}
 	maxTokens := int64(20)
 	smallMaxTokens := int64(2)
-	tokenizer, err := tokenizer.NewTestTokenizer("", false, "")
+	tokenizer, err := tokenizer.New(&common.Configuration{Model: "test"}, klog.Background())
 	Expect(err).NotTo(HaveOccurred())
 	promptTokens, promptStrTokens, err := tokenizer.Encode(testPrompt, "")
 	Expect(err).NotTo(HaveOccurred())

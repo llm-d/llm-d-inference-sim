@@ -32,6 +32,7 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
+	"k8s.io/klog/v2"
 )
 
 const (
@@ -944,7 +945,7 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 	})
 
 	Context("single request latency metrics", func() {
-		tokenizer, err := tokenizer.NewTestTokenizer("", false, "")
+		tokenizer, err := tokenizer.New(&common.Configuration{Model: "test"}, klog.Background())
 		Expect(err).ShouldNot(HaveOccurred())
 		_, tokens, err := tokenizer.Encode(testUserMessage, "")
 		Expect(err).ShouldNot(HaveOccurred())

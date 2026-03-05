@@ -20,8 +20,10 @@ import (
 	"os"
 	"strings"
 
+	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"k8s.io/klog/v2"
 )
 
 const (
@@ -33,7 +35,7 @@ const (
 var _ = Describe("tokenizer", func() {
 
 	It("should tokenize with simple tokenizer", func() {
-		tokenizer, err := NewTestTokenizer("", false, "")
+		tokenizer, err := New(&common.Configuration{Model: "test"}, klog.Background())
 		Expect(err).NotTo(HaveOccurred())
 		tokens, strTokens, err := tokenizer.Encode(input, "")
 		Expect(err).NotTo(HaveOccurred())
@@ -46,7 +48,8 @@ var _ = Describe("tokenizer", func() {
 	})
 
 	It("should tokenize with real tokenizer", func() {
-		tokenizer, err := NewTestTokenizer(qwenModelName, true, tokenizerTmpDir)
+		config := &common.Configuration{Model: qwenModelName, TokenizersCacheDir: tokenizerTmpDir}
+		tokenizer, err := New(config, klog.Background())
 		Expect(err).NotTo(HaveOccurred())
 		tokens, strTokens, err := tokenizer.Encode(input, qwenModelName)
 		Expect(err).NotTo(HaveOccurred())
