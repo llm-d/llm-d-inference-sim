@@ -219,7 +219,7 @@ type Configuration struct {
 	DPSize int `yaml:"data-parallel-size" json:"data-parallel-size"`
 
 	// Rank is the vLLM parameter used to specify the rank of this instance. Here only
-	// used when running Data Parallel ranks as separate processes
+	// used when running Data Parallel ranks as separate processes. If set, data-parallel-size is ignored
 	Rank int `yaml:"data-parallel-rank" json:"data-parallel-rank"`
 
 	// SSLCertFile is the path to the SSL certificate file for HTTPS
@@ -834,7 +834,7 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 	f.IntVar(&config.ZMQMaxConnectAttempts, "zmq-max-connect-attempts", config.ZMQMaxConnectAttempts, "Maximum number of times to try ZMQ connect")
 	f.IntVar(&config.EventBatchSize, "event-batch-size", config.EventBatchSize, "Maximum number of kv-cache events to be sent together")
 	f.IntVar(&config.DPSize, "data-parallel-size", config.DPSize, "Number of ranks to run")
-	f.IntVar(&config.Rank, "data-parallel-rank", config.Rank, "The rank when running each rank in a process")
+	f.IntVar(&config.Rank, "data-parallel-rank", config.Rank, "The rank when running each rank in a process. If set, data-parallel-size is ignored")
 
 	f.StringVar(&config.DatasetPath, "dataset-path", config.DatasetPath, "Local path to the sqlite db file for response generation from a dataset")
 	f.StringVar(&config.DatasetURL, "dataset-url", config.DatasetURL, "URL to download the sqlite db file for response generation from a dataset")

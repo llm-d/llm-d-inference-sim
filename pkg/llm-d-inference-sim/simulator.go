@@ -134,7 +134,13 @@ func Create(ctx context.Context, config *common.Configuration, logger logr.Logge
 	// Create data-parallel-size simulators
 	sims := make([]*VllmSimulator, config.DPSize)
 
-	for dpRank := 0; dpRank < config.DPSize; dpRank++ {
+	dpSize := config.DPSize
+	// If the rank was set, we ignore the data parallel size
+	if config.Rank >= 0 {
+		dpSize = 1
+	}
+
+	for dpRank := 0; dpRank < dpSize; dpRank++ {
 		rankConfig := config
 		if dpRank > 0 {
 			rankConfig, err = config.Copy()
@@ -144,11 +150,14 @@ func Create(ctx context.Context, config *common.Configuration, logger logr.Logge
 			rankConfig.Port = config.Port + dpRank
 		}
 
-		rankForLog := dpRank
-		if dpRank == 0 && config.DPSize == 1 && config.Rank >= 0 {
-			rankForLog = config.Rank
+		// Add the rank to the logger if dpSize > 1 or the rank was set,
+		// i.e., don't add the rank if there is no data parallel
+		loggr := logger
+		if config.Rank >= 0 {
+			loggr = klog.LoggerWithValues(logger, "rank", config.Rank)
+		} else if dpSize != 1 {
+			loggr = klog.LoggerWithValues(logger, "rank", dpRank)
 		}
-		loggr := klog.LoggerWithValues(logger, "rank", rankForLog)
 
 		sim, err := New(loggr)
 		if err != nil {

@@ -66,7 +66,7 @@ All latency-related parameters are defined in duration format, e.g., 100ms. Inte
 
 ## Data parallel
 - `data-parallel-size`: number of ranks to run in Data Parallel deployment, from 1 to 8, default is 1. The ports will be assigned as follows: rank 0 will run on the configured `port`, rank 1 on `port`+1, etc.  
-- `data-parallel-rank`: the rank of this instance, used only when running Data Parallel ranks as separate processes
+- `data-parallel-rank`: the rank of this instance, used only when running Data Parallel ranks as separate processes. If set, data-parallel-size is ignored.
 
 ## Datasets
 - `dataset-path`: Optional local file path to the SQLite database file used for generating responses from a dataset.
