@@ -26,16 +26,16 @@ import (
 )
 
 // Implementation of request for /chat/completions requests
-type chatCompletionRequest struct {
+type ChatCompletionRequest struct {
 	openaiserverapi.ChatCompletionRequest
 }
 
 // reads and parses data from the body of the given request
-func (c *chatCompletionRequest) unmarshal(data []byte) error {
+func (c *ChatCompletionRequest) Unmarshal(data []byte) error {
 	return json.Unmarshal(data, c)
 }
 
-func (c *chatCompletionRequest) validate(toolsValidator *toolsValidator) (string, int) {
+func (c *ChatCompletionRequest) validate(toolsValidator *toolsValidator) (string, int) {
 	for _, tool := range c.Tools {
 		toolJson, err := json.Marshal(tool.Function)
 		if err != nil {
@@ -50,9 +50,9 @@ func (c *chatCompletionRequest) validate(toolsValidator *toolsValidator) (string
 	return validateRequest(c)
 }
 
-func (c *chatCompletionRequest) buildRequestContext(simCtx *simContext, channel chan *responseInfo, respBuilder responseBuilder) requestContext {
+func (c *ChatCompletionRequest) buildRequestContext(simCtx *SimContext, channel chan *ResponseInfo) requestContext {
 	reqCtx := &chatCompletionReqCtx{
-		baseRequestContext: newBaseRequestContext(simCtx, channel, respBuilder),
+		baseRequestContext: newBaseRequestContext(simCtx, channel),
 		req:                c,
 	}
 	// wire chatCompletionReqCtx into embedded requestContext interface
@@ -60,13 +60,13 @@ func (c *chatCompletionRequest) buildRequestContext(simCtx *simContext, channel 
 	return reqCtx
 }
 
-func (c *chatCompletionRequest) asString() string {
+func (c *ChatCompletionRequest) AsString() string {
 	return "chat completion request (req id " + c.RequestID + ")"
 }
 
-func (c *chatCompletionRequest) createResponseContext(reqCtx requestContext, displayModel string,
+func (c *ChatCompletionRequest) createResponseContext(reqCtx requestContext, displayModel string,
 	responseTokens *openaiserverapi.Tokenized, finishReason *string, usageData *openaiserverapi.Usage,
-	sendUsageData bool, logprobs *int, toolCalls []openaiserverapi.ToolCall) responseContext {
+	sendUsageData bool, logprobs *int, toolCalls []openaiserverapi.ToolCall) ResponseContext {
 	base := newBaseResponseContext(reqCtx, displayModel, responseTokens, finishReason, usageData, sendUsageData,
 		logprobs, c.GetRequestID(), c.IsDoRemotePrefill(), c.IsDoRemoteDecode(), c.GetNumberOfCachedPromptTokens())
 	return &chatCompletionResponseCtx{
@@ -80,22 +80,22 @@ func (c *chatCompletionReqCtx) tokenizedPromptForEcho() (*openaiserverapi.Tokeni
 	if len(c.req.Messages) > 0 {
 		lastMsg = c.req.Messages[len(c.req.Messages)-1].Content.Raw
 	}
-	tokens, strTokens, err := c.sim.tokenizer.Encode(lastMsg, "")
+	tokens, strTokens, err := c.sim.Tokenizer.Encode(lastMsg, "")
 	if err != nil {
 		return nil, err
 	}
 	return &openaiserverapi.Tokenized{Tokens: tokens, Strings: strTokens}, nil
 }
 
-var _ request = (*chatCompletionRequest)(nil)
+var _ Request = (*ChatCompletionRequest)(nil)
 
 // Implementation of requestContext for /chat/completions requests
 type chatCompletionReqCtx struct {
 	baseRequestContext
-	req *chatCompletionRequest
+	req *ChatCompletionRequest
 }
 
-func (c *chatCompletionReqCtx) request() request {
+func (c *chatCompletionReqCtx) request() Request {
 	return c.req
 }
 
@@ -112,7 +112,7 @@ func (c *chatCompletionReqCtx) createToolCalls() ([]openaiserverapi.ToolCall, in
 	if !isToolChoiceNone(req.GetToolChoice()) &&
 		req.GetTools() != nil {
 		toolCalls, completionTokens, err :=
-			createToolCalls(req.GetTools(), req.GetToolChoice(), c.sim.config, c.sim.random, c.sim.tokenizer)
+			createToolCalls(req.GetTools(), req.GetToolChoice(), c.sim.Config, c.sim.Random, c.sim.Tokenizer)
 		finishReason := common.ToolsFinishReason
 		return toolCalls, completionTokens, finishReason, err
 	}
@@ -128,8 +128,8 @@ type chatCompletionResponseCtx struct {
 	toolsCalls []openaiserverapi.ToolCall
 }
 
-func (respCtx *chatCompletionResponseCtx) toolCalls() []openaiserverapi.ToolCall {
+func (respCtx *chatCompletionResponseCtx) ToolCalls() []openaiserverapi.ToolCall {
 	return respCtx.toolsCalls
 }
 
-var _ responseContext = (*chatCompletionResponseCtx)(nil)
+var _ ResponseContext = (*chatCompletionResponseCtx)(nil)

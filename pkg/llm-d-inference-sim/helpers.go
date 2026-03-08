@@ -24,12 +24,12 @@ import (
 
 // isValidModel checks if the given model is the base model or one of "loaded" LoRAs
 func (s *VllmSimulator) isValidModel(model string) bool {
-	for _, name := range s.context.config.ServedModelNames {
+	for _, name := range s.Context.Config.ServedModelNames {
 		if model == name {
 			return true
 		}
 	}
-	for _, lora := range s.context.getLoras() {
+	for _, lora := range s.Context.getLoras() {
 		if model == lora {
 			return true
 		}
@@ -56,19 +56,4 @@ func validateRequest(req openaiserverapi.Request) (string, int) {
 	}
 
 	return "", fasthttp.StatusOK
-}
-
-// buildStubEmbedding returns a deterministic embedding of length dim from token ids (simulator stub).
-func buildStubEmbedding(tokens []uint32, dim int) []float32 {
-	emb := make([]float32, dim)
-	for i := 0; i < dim; i++ {
-		var v float32
-		if i < len(tokens) {
-			v = 2*float32(tokens[i]%1024)/1024 - 1
-		} else if len(tokens) > 0 {
-			v = 2*float32(tokens[i%len(tokens)]%256)/256 - 1
-		}
-		emb[i] = v
-	}
-	return emb
 }

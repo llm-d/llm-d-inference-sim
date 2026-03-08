@@ -14,12 +14,13 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package llmdinferencesim
+package tests
 
 import (
 	"context"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
+	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/openai/openai-go/v3"
@@ -39,7 +40,7 @@ var _ = Describe("Simulator with seed", func() {
 			resp, err := openaiclient.Completions.New(ctx, params)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resp.Choices).ShouldNot(BeEmpty())
-			Expect(string(resp.Object)).To(Equal(textCompletionObject))
+			Expect(string(resp.Object)).To(Equal(openaiserverapi.TextCompletionObject))
 
 			text := resp.Choices[0].Text
 			Expect(text).ShouldNot(BeEmpty())
@@ -70,7 +71,7 @@ var _ = Describe("Simulator with seed", func() {
 			resp, err := openaiclient.Completions.New(ctx, params)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resp.Choices).ShouldNot(BeEmpty())
-			Expect(string(resp.Object)).To(Equal(textCompletionObject))
+			Expect(string(resp.Object)).To(Equal(openaiserverapi.TextCompletionObject))
 
 			text := resp.Choices[0].Text
 			Expect(text).ShouldNot(BeEmpty())

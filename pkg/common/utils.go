@@ -252,3 +252,18 @@ func FinishReason(maxTokens *int64, respLen int) string {
 	}
 	return finishReason
 }
+
+// BuildStubEmbedding returns a deterministic embedding of length dim from token ids (simulator stub).
+func BuildStubEmbedding(tokens []uint32, dim int) []float32 {
+	emb := make([]float32, dim)
+	for i := 0; i < dim; i++ {
+		var v float32
+		if i < len(tokens) {
+			v = 2*float32(tokens[i]%1024)/1024 - 1
+		} else if len(tokens) > 0 {
+			v = 2*float32(tokens[i%len(tokens)]%256)/256 - 1
+		}
+		emb[i] = v
+	}
+	return emb
+}

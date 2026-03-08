@@ -13,7 +13,7 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
-package llmdinferencesim
+package tests
 
 import (
 	"bufio"
@@ -34,6 +34,8 @@ import (
 	"time"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
+	"github.com/llm-d/llm-d-inference-sim/pkg/communication"
+	vllmsim "github.com/llm-d/llm-d-inference-sim/pkg/llm-d-inference-sim"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 	"github.com/openai/openai-go/v3"
@@ -75,16 +77,18 @@ func startServerWithArgs(ctx context.Context, args []string) (*http.Client, erro
 // Starts server according the given parameters: mode, arguments and environment
 // if args are defined - the mode parameter is discarded, value from args is used
 func startServerWithArgsAndEnv(ctx context.Context, mode string, args []string, envs map[string]string) (*http.Client, error) {
-	_, c, err := startServerHelper(ctx, mode, args, envs)
+	_, _, c, err := startServerHelper(ctx, mode, args, envs)
 	return c, err
 }
 
 // nolint
-func startServerHandle(ctx context.Context, mode string, args []string, envs map[string]string) (*VllmSimulator, *http.Client, error) {
+func startServerHandle(ctx context.Context, mode string, args []string, envs map[string]string) (*vllmsim.VllmSimulator,
+	*communication.Communication, *http.Client, error) {
 	return startServerHelper(ctx, mode, args, envs)
 }
 
-func startServerHelper(ctx context.Context, mode string, args []string, envs map[string]string) (*VllmSimulator, *http.Client, error) {
+func startServerHelper(ctx context.Context, mode string, args []string, envs map[string]string) (*vllmsim.VllmSimulator,
+	*communication.Communication, *http.Client, error) {
 	oldArgs := os.Args
 	defer func() {
 		os.Args = oldArgs
@@ -113,44 +117,45 @@ func startServerHelper(ctx context.Context, mode string, args []string, envs map
 
 	logger := klog.Background()
 
-	s, err := New(logger)
+	s, err := vllmsim.New(logger)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	config, err := common.ParseCommandParamsAndLoadConfig()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-	s.context.config = config
+	s.Context.Config = config
 
 	tokenizer, err := tokenizer.New(config, logger)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 
-	s.context.tokenizer = tokenizer
+	s.Context.Tokenizer = tokenizer
 
 	// calculate number of tokens for user message,
-	_, tokens, err := s.context.tokenizer.Encode(testUserMessage, "")
+	_, tokens, err := s.Context.Tokenizer.Encode(testUserMessage, "")
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	userMsgTokens = int64(len(tokens))
 
-	if err := s.initializeSim(ctx); err != nil {
-		return nil, nil, err
+	if err := s.InitializeSim(ctx); err != nil {
+		return nil, nil, nil, err
 	}
 
 	listener := fasthttputil.NewInmemoryListener()
+	comm := communication.New(logger, s)
 
 	// start the http server
 	go func() {
-		if err := s.startServer(ctx, listener); err != nil {
+		if err := comm.StartHTTPServer(ctx, listener); err != nil {
 			logger.Error(err, "error starting server")
 		}
 	}()
 
-	return s, &http.Client{
+	return s, comm, &http.Client{
 		Transport: &http.Transport{
 			DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
 				return listener.Dial()
@@ -238,7 +243,7 @@ func sendSimpleChatRequest(envs map[string]string, streaming bool) *http.Respons
 	gomega.Expect(resp).NotTo(gomega.BeNil())
 
 	gomega.Expect(resp.Choices).ShouldNot(gomega.BeEmpty())
-	gomega.Expect(string(resp.Object)).To(gomega.Equal(chatCompletionObject))
+	gomega.Expect(string(resp.Object)).To(gomega.Equal(openaiserverapi.ChatCompletionObject))
 
 	return httpResp
 }
@@ -270,15 +275,6 @@ func sendSimpleEmbeddingsRequest(envs map[string]string) *http.Response {
 	return httpResp
 }
 
-// sendTextCompletionRequest sends one text completions request
-func sendTextCompletionRequest(ctx context.Context, client *http.Client) {
-	message := "aa bb cc dd ee ff gg hh ii jj aa bb cc dd ee ff gg hh ii jj"
-	openaiclient, params := getOpenAIClientAndTextParams(client, qwenModelName, message, false)
-	resp, err := openaiclient.Completions.New(ctx, params)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	gomega.Expect(resp).NotTo(gomega.BeNil())
-}
-
 // getOpenAIClientAndChatParams - creates an openai client and params for /chat/completions call based on the given parameters
 func getOpenAIClientAndChatParams(client option.HTTPClient, model string, message string,
 	streaming bool) (openai.Client, openai.ChatCompletionNewParams) {
@@ -292,24 +288,6 @@ func getOpenAIClientAndChatParams(client option.HTTPClient, model string, messag
 			openai.UserMessage(message),
 		},
 		Model: model,
-	}
-	if streaming {
-		params.StreamOptions = openai.ChatCompletionStreamOptionsParam{IncludeUsage: param.NewOpt(true)}
-	}
-	return openaiclient, params
-}
-
-// nolint
-// getOpenAIClientAndTextParams - creates an openai client and params for /completions call based on the given parameters
-func getOpenAIClientAndTextParams(client option.HTTPClient, model string, message string, streaming bool) (openai.Client, openai.CompletionNewParams) {
-	openaiclient := openai.NewClient(
-		option.WithBaseURL(baseURL),
-		option.WithHTTPClient(client),
-		option.WithMaxRetries(0))
-
-	params := openai.CompletionNewParams{
-		Prompt: openai.CompletionNewParamsPromptUnion{OfString: param.Opt[string]{Value: message}},
-		Model:  openai.CompletionNewParamsModel(model),
 	}
 	if streaming {
 		params.StreamOptions = openai.ChatCompletionStreamOptionsParam{IncludeUsage: param.NewOpt(true)}
@@ -379,7 +357,7 @@ func getLastLoraMetrics(metrics []string) ([]string, error) {
 	lastTimestamp := float64(0)
 	var lastMetrics []string
 	for _, metric := range metrics {
-		if strings.HasPrefix(metric, loraRequestsMetricName) {
+		if strings.HasPrefix(metric, vllmsim.LoRARequestsMetricName) {
 			timestamp, err := extractTimestamp(metric)
 			if err != nil {
 				return nil, err
@@ -569,17 +547,21 @@ func checkLatencyMetrics(client *http.Client, modelName string, numOfInputTokens
 	prevBoundary := math.Inf(-1)
 
 	for _, bucketBoudary := range common.RequestLatencyBucketsBoundaries {
-		checkBucketBoundary(metrics, modelName, prefillTimeMetricName, bucketBoudary, prevBoundary, expectedPrefillTimeInSecs)
-		checkBucketBoundary(metrics, modelName, decodeTimeMetricName, bucketBoudary, prevBoundary, expectedDecodeTimeInSecs)
-		checkBucketBoundary(metrics, modelName, e2eReqLatencyMetricName, bucketBoudary, prevBoundary, expectedE2ELatency)
+		checkBucketBoundary(metrics, modelName, vllmsim.PrefillTimeMetricName, bucketBoudary, prevBoundary, expectedPrefillTimeInSecs)
+		checkBucketBoundary(metrics, modelName, vllmsim.DecodeTimeMetricName, bucketBoudary, prevBoundary, expectedDecodeTimeInSecs)
+		checkBucketBoundary(metrics, modelName, vllmsim.E2EReqLatencyMetricName, bucketBoudary, prevBoundary, expectedE2ELatency)
 
 		prevBoundary = bucketBoudary
 	}
 	// check the last bucket
 	lastBoundary := common.RequestLatencyBucketsBoundaries[len(common.RequestLatencyBucketsBoundaries)-1]
-	checkBucketBoundary(metrics, modelName, prefillTimeMetricName, math.Inf(1), lastBoundary, expectedPrefillTimeInSecs)
-	checkBucketBoundary(metrics, modelName, decodeTimeMetricName, math.Inf(1), lastBoundary, expectedDecodeTimeInSecs)
-	checkBucketBoundary(metrics, modelName, e2eReqLatencyMetricName, math.Inf(1), lastBoundary, expectedE2ELatency)
+	checkBucketBoundary(metrics, modelName, vllmsim.PrefillTimeMetricName, math.Inf(1), lastBoundary, expectedPrefillTimeInSecs)
+	checkBucketBoundary(metrics, modelName, vllmsim.DecodeTimeMetricName, math.Inf(1), lastBoundary, expectedDecodeTimeInSecs)
+	checkBucketBoundary(metrics, modelName, vllmsim.E2EReqLatencyMetricName, math.Inf(1), lastBoundary, expectedE2ELatency)
+}
+
+func ptr[T any](v T) *T {
+	return &v
 }
 
 func checkSimSleeping(client *http.Client, expectedToSleep bool) {
@@ -597,6 +579,29 @@ func checkSimSleeping(client *http.Client, expectedToSleep bool) {
 	gomega.Expect(string(body)).To(gomega.Equal(expect))
 }
 
-func ptr[T any](v T) *T {
-	return &v
+// sendTextCompletionRequest sends one text completions request
+func sendTextCompletionRequest(ctx context.Context, client *http.Client) {
+	message := "aa bb cc dd ee ff gg hh ii jj aa bb cc dd ee ff gg hh ii jj"
+	openaiclient, params := getOpenAIClientAndTextParams(client, qwenModelName, message, false)
+	resp, err := openaiclient.Completions.New(ctx, params)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	gomega.Expect(resp).NotTo(gomega.BeNil())
+}
+
+// nolint
+// getOpenAIClientAndTextParams - creates an openai client and params for /completions call based on the given parameters
+func getOpenAIClientAndTextParams(client option.HTTPClient, model string, message string, streaming bool) (openai.Client, openai.CompletionNewParams) {
+	openaiclient := openai.NewClient(
+		option.WithBaseURL(baseURL),
+		option.WithHTTPClient(client),
+		option.WithMaxRetries(0))
+
+	params := openai.CompletionNewParams{
+		Prompt: openai.CompletionNewParamsPromptUnion{OfString: param.Opt[string]{Value: message}},
+		Model:  openai.CompletionNewParamsModel(model),
+	}
+	if streaming {
+		params.StreamOptions = openai.ChatCompletionStreamOptionsParam{IncludeUsage: param.NewOpt(true)}
+	}
+	return openaiclient, params
 }

@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package llmdinferencesim
+package tests
 
 import (
 	"context"
@@ -33,6 +33,8 @@ import (
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
 	"github.com/valyala/fasthttp"
+
+	vllmsim "github.com/llm-d/llm-d-inference-sim/pkg/llm-d-inference-sim"
 )
 
 var _ = Describe("Simulator requests scheduling", Ordered, func() {
@@ -302,8 +304,8 @@ var _ = Describe("Simulator requests scheduling", Ordered, func() {
 
 			// max-num-seqs is 12, so number of running requests should be 12
 			// and the number of waiting requests 1000-12=988
-			Expect(metrics).To(ContainSubstring(getCountMetricLine(testModel, reqRunningMetricName, 12)))
-			Expect(metrics).To(ContainSubstring(getCountMetricLine(testModel, reqWaitingMetricName, 988)))
+			Expect(metrics).To(ContainSubstring(getCountMetricLine(testModel, vllmsim.ReqRunningMetricName, 12)))
+			Expect(metrics).To(ContainSubstring(getCountMetricLine(testModel, vllmsim.ReqWaitingMetricName, 988)))
 
 			// max-loras is 2, so the last lora metric should be:
 			// running: two loras (doesn't matter which two)
@@ -328,8 +330,8 @@ var _ = Describe("Simulator requests scheduling", Ordered, func() {
 		})
 
 		It("Should work correctly with many simultaneous requests with many workers", func() {
-			runningMetric := getCountMetricPrefix(testModel, reqRunningMetricName)
-			waitingMetric := getCountMetricPrefix(testModel, reqWaitingMetricName)
+			runningMetric := getCountMetricPrefix(testModel, vllmsim.ReqRunningMetricName)
+			waitingMetric := getCountMetricPrefix(testModel, vllmsim.ReqWaitingMetricName)
 			ctx := context.TODO()
 			args := []string{"cmd", "--model", testModel, "--mode", common.ModeRandom,
 				"--time-to-first-token", "2000", "--time-to-first-token-std-dev", "600",

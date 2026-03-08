@@ -14,14 +14,15 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package llmdinferencesim
+package communication
 
 import (
 	"context"
 	"net"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
-	"github.com/llm-d/llm-d-inference-sim/pkg/grpc/pb"
+	"github.com/llm-d/llm-d-inference-sim/pkg/communication/grpc/pb"
+	vllmsim "github.com/llm-d/llm-d-inference-sim/pkg/llm-d-inference-sim"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	"github.com/valyala/fasthttp"
 
@@ -32,16 +33,17 @@ import (
 )
 
 // Submit a generation request (supports streaming)
-func (s *VllmSimulator) Generate(in *pb.GenerateRequest, out grpc.ServerStreamingServer[pb.GenerateResponse]) error {
-	req := s.pbRequestToRequest(in)
-	_, reqCtx, channel, err, _ := s.handleRequest(req, &generationGRPCRespBuilder{})
+func (c *Communication) Generate(in *pb.GenerateRequest, out grpc.ServerStreamingServer[pb.GenerateResponse]) error {
+	req := c.pbRequestToRequest(in)
+	respBuilder := &generationGRPCRespBuilder{}
+	_, channel, err, _ := c.simulator.HandleRequest(req)
 	if err != nil {
 		return status.Errorf(extractGRPCCode(err), err.Message, err)
 	}
 
-	s.context.logger.V(logging.DEBUG).Info("Received", "new gRPC", req.asString())
+	c.logger.V(logging.DEBUG).Info("Received", "new gRPC", req.AsString())
 
-	var respCtx responseContext
+	var respCtx vllmsim.ResponseContext
 	tokens := openaiserverapi.Tokenized{
 		Tokens:  make([]uint32, 0),
 		Strings: make([]string, 0),
@@ -53,101 +55,101 @@ func (s *VllmSimulator) Generate(in *pb.GenerateRequest, out grpc.ServerStreamin
 			return out.Context().Err()
 		default:
 			// Send error
-			if response.err != nil {
-				return status.Errorf(extractGRPCCode(response.err), response.err.Message, response.err)
+			if response.Err != nil {
+				return status.Errorf(extractGRPCCode(response.Err), response.Err.Message, response.Err)
 			}
-			respCtx = response.respCtx
+			respCtx = response.RespCtx
 
 			if in.Stream {
 				// Send response chunk
-				if response.tokens != nil {
-					response := reqCtx.responseBuilder().createChunk(respCtx, response.tokens, nil, "", nil)
+				if response.Tokens != nil {
+					response := respBuilder.createChunk(respCtx, response.Tokens, nil, "", nil)
 					if err := sendResponse(response, out); err != nil {
-						respCtx.done()
+						respCtx.Done()
 						return err
 					}
 				}
-			} else if response.tokens != nil {
-				tokens.Append(*response.tokens)
+			} else if response.Tokens != nil {
+				tokens.Append(*response.Tokens)
 			}
 		}
 	}
 
 	var response response
 	if in.Stream {
-		response = reqCtx.responseBuilder().createLastChunk(respCtx)
+		response = respBuilder.createLastChunk(respCtx)
 	} else {
-		response = reqCtx.responseBuilder().createResponse(respCtx, &tokens)
+		response = respBuilder.createResponse(respCtx, &tokens)
 	}
-	defer respCtx.done()
+	defer respCtx.Done()
 	if err := sendResponse(response, out); err != nil {
 		return err
 	}
 
-	s.responseSentCallback(respCtx.requestContext(), respCtx.displayModel())
+	c.simulator.ResponseSentCallback(respCtx.RequestContext(), respCtx.DisplayModel())
 	return nil
 }
 
 // Submit an embedding request
-func (s *VllmSimulator) Embed(ctx context.Context, in *pb.EmbedRequest) (*pb.EmbedResponse, error) {
+func (c *Communication) Embed(ctx context.Context, in *pb.EmbedRequest) (*pb.EmbedResponse, error) {
 	return nil, nil
 }
 
 // Health check
-func (s *VllmSimulator) HealthCheck(ctx context.Context, in *pb.HealthCheckRequest) (*pb.HealthCheckResponse, error) {
+func (c *Communication) HealthCheck(ctx context.Context, in *pb.HealthCheckRequest) (*pb.HealthCheckResponse, error) {
 	return nil, nil
 }
 
 // Abort a running request
-func (s *VllmSimulator) Abort(ctx context.Context, in *pb.AbortRequest) (*pb.AbortResponse, error) {
+func (c *Communication) Abort(ctx context.Context, in *pb.AbortRequest) (*pb.AbortResponse, error) {
 	return nil, nil
 }
 
 // Get model information
-func (s *VllmSimulator) GetModelInfo(ctx context.Context, in *pb.GetModelInfoRequest) (*pb.GetModelInfoResponse, error) {
+func (c *Communication) GetModelInfo(ctx context.Context, in *pb.GetModelInfoRequest) (*pb.GetModelInfoResponse, error) {
 	return &pb.GetModelInfoResponse{
-		ModelPath: s.context.config.Model,
+		ModelPath: c.simulator.Context.Config.Model,
 	}, nil
 }
 
 // Get server information
-func (s *VllmSimulator) GetServerInfo(ctx context.Context, in *pb.GetServerInfoRequest) (*pb.GetServerInfoResponse, error) {
+func (c *Communication) GetServerInfo(ctx context.Context, in *pb.GetServerInfoRequest) (*pb.GetServerInfoResponse, error) {
 	return nil, nil
 }
 
-func (s *VllmSimulator) startGRPC(ctx context.Context, listener net.Listener) error {
+func (c *Communication) startGRPC(ctx context.Context, listener net.Listener) error {
 	server := grpc.NewServer()
-	pb.RegisterVllmEngineServer(server, s)
+	pb.RegisterVllmEngineServer(server, c)
 	reflection.Register(server)
 	serverErr := make(chan error, 1)
 	go func() {
-		s.context.logger.V(logging.INFO).Info("Server starting", "protocol", "gRPC", "port", s.context.config.Port)
+		c.logger.V(logging.INFO).Info("Server starting", "protocol", "gRPC", "port", c.simulator.Context.Config.Port)
 		serverErr <- server.Serve(listener)
 	}()
 
 	select {
 	case <-ctx.Done():
-		s.context.logger.V(logging.INFO).Info("Shutdown signal received, shutting down gRPC server")
+		c.logger.V(logging.INFO).Info("Shutdown signal received, shutting down gRPC server")
 		server.Stop()
-		s.context.logger.V(logging.INFO).Info("gRPC server stopped")
+		c.logger.V(logging.INFO).Info("gRPC server stopped")
 		return nil
 
 	case err := <-serverErr:
 		if err != nil {
-			s.context.logger.Error(err, "gRPC server failed")
+			c.logger.Error(err, "gRPC server failed")
 		}
 		return err
 	}
 }
 
-func (s *VllmSimulator) pbRequestToRequest(in *pb.GenerateRequest) *generationRequest {
+func (c *Communication) pbRequestToRequest(in *pb.GenerateRequest) *vllmsim.GenerationRequest {
 	var maxTokens *int64
 	if in.GetSamplingParams() != nil && in.GetSamplingParams().MaxTokens != nil {
 		maxTokensValue := int64(*in.GetSamplingParams().MaxTokens)
 		maxTokens = &maxTokensValue
 	}
 	req := openaiserverapi.NewGenerationRequest(in.GetRequestId(), in.GetStream(),
-		s.context.config.Model, maxTokens)
+		c.simulator.Context.Config.Model, maxTokens)
 
 	if in.GetTokenized() != nil {
 		prompt := &openaiserverapi.Tokenized{}
@@ -157,7 +159,7 @@ func (s *VllmSimulator) pbRequestToRequest(in *pb.GenerateRequest) *generationRe
 		req.Prompt = in.GetText()
 	}
 
-	return &generationRequest{GenerationRequest: *req}
+	return &vllmsim.GenerationRequest{GenerationRequest: *req}
 }
 
 func sendResponse(response response, out grpc.ServerStreamingServer[pb.GenerateResponse]) error {

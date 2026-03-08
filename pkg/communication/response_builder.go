@@ -14,42 +14,43 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package llmdinferencesim
+package communication
 
 import (
 	"strings"
 	"time"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
-	"github.com/llm-d/llm-d-inference-sim/pkg/grpc/pb"
+	"github.com/llm-d/llm-d-inference-sim/pkg/communication/grpc/pb"
+	vllmsim "github.com/llm-d/llm-d-inference-sim/pkg/llm-d-inference-sim"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 )
 
 type response interface{}
 
 type responseBuilder interface {
-	createResponse(respCtx responseContext, tokens *openaiserverapi.Tokenized) response
-	createUsageChunk(respCtx responseContext) response
-	createChunk(respCtx responseContext, tokens *openaiserverapi.Tokenized, tool *openaiserverapi.ToolCall,
+	createResponse(respCtx vllmsim.ResponseContext, tokens *openaiserverapi.Tokenized) response
+	createUsageChunk(respCtx vllmsim.ResponseContext) response
+	createChunk(respCtx vllmsim.ResponseContext, tokens *openaiserverapi.Tokenized, tool *openaiserverapi.ToolCall,
 		role string, finishReason *string) response
-	createFirstChunk(respCtx responseContext) response
-	createLastChunk(respCtx responseContext) response
+	createFirstChunk(respCtx vllmsim.ResponseContext) response
+	createLastChunk(respCtx vllmsim.ResponseContext) response
 }
 
 type textComplHTTPRespBuilder struct{}
 
-func (respBuilder *textComplHTTPRespBuilder) createResponse(respCtx responseContext,
+func (respBuilder *textComplHTTPRespBuilder) createResponse(respCtx vllmsim.ResponseContext,
 	tokens *openaiserverapi.Tokenized) response {
 	baseResp := openaiserverapi.CreateBaseCompletionResponse(
-		time.Now().Unix(), respCtx.displayModel(), respCtx.usageData(), respCtx.requestID(), respCtx.doRemoteDecode())
-	baseChoice := openaiserverapi.CreateBaseResponseChoice(0, respCtx.finishReason())
+		time.Now().Unix(), respCtx.DisplayModel(), respCtx.UsageData(), respCtx.RequestID(), respCtx.DoRemoteDecode())
+	baseChoice := openaiserverapi.CreateBaseResponseChoice(0, respCtx.FinishReason())
 	respText := strings.Join(tokens.Strings, "")
 
 	choice := openaiserverapi.CreateTextRespChoice(baseChoice, respText)
 
 	// Generate logprobs if requested for text completion
-	if respCtx.logprobs() != nil && *respCtx.logprobs() > 0 {
-		if logprobsData := common.GenerateTextLogprobs(tokens.Strings, *respCtx.logprobs()); logprobsData != nil &&
+	if respCtx.Logprobs() != nil && *respCtx.Logprobs() > 0 {
+		if logprobsData := common.GenerateTextLogprobs(tokens.Strings, *respCtx.Logprobs()); logprobsData != nil &&
 			len(logprobsData.Tokens) > 0 {
 			choice.Logprobs = logprobsData
 		} else {
@@ -61,25 +62,25 @@ func (respBuilder *textComplHTTPRespBuilder) createResponse(respCtx responseCont
 		choice.Logprobs = nil
 	}
 
-	baseResp.Object = textCompletionObject
+	baseResp.Object = openaiserverapi.TextCompletionObject
 	return openaiserverapi.CreateTextCompletionResponse(baseResp, []openaiserverapi.TextRespChoice{choice})
 }
 
-func (respBuilder *textComplHTTPRespBuilder) createUsageChunk(respCtx responseContext) response {
+func (respBuilder *textComplHTTPRespBuilder) createUsageChunk(respCtx vllmsim.ResponseContext) response {
 	baseChunk := openaiserverapi.CreateBaseCompletionResponse(
-		respCtx.creationTime(), respCtx.displayModel(), respCtx.usageData(), respCtx.requestID(), false)
-	baseChunk.Object = textCompletionObject
+		respCtx.CreationTime(), respCtx.DisplayModel(), respCtx.UsageData(), respCtx.RequestID(), false)
+	baseChunk.Object = openaiserverapi.TextCompletionObject
 	return openaiserverapi.CreateTextCompletionResponse(baseChunk, []openaiserverapi.TextRespChoice{})
 }
 
 // createChunk creates and returns a CompletionRespChunk, a single chunk of streamed completion API response,
 // for text completion.
-func (respBuilder *textComplHTTPRespBuilder) createChunk(respCtx responseContext, tokens *openaiserverapi.Tokenized,
+func (respBuilder *textComplHTTPRespBuilder) createChunk(respCtx vllmsim.ResponseContext, tokens *openaiserverapi.Tokenized,
 	tool *openaiserverapi.ToolCall, role string, finishReason *string) response {
 
 	baseChunk := openaiserverapi.CreateBaseCompletionResponse(
-		respCtx.creationTime(), respCtx.displayModel(), nil, respCtx.requestID(), false)
-	baseChunk.Object = textCompletionObject
+		respCtx.CreationTime(), respCtx.DisplayModel(), nil, respCtx.RequestID(), false)
+	baseChunk.Object = openaiserverapi.TextCompletionObject
 
 	var tokensStr string
 	if tokens != nil {
@@ -88,10 +89,10 @@ func (respBuilder *textComplHTTPRespBuilder) createChunk(respCtx responseContext
 	choice := openaiserverapi.CreateTextRespChoice(openaiserverapi.CreateBaseResponseChoice(0, finishReason), tokensStr)
 
 	// Generate logprobs if requested and tokens is not empty
-	if respCtx.logprobs() != nil && tokens != nil && len(tokens.Strings) > 0 && *respCtx.logprobs() > 0 {
+	if respCtx.Logprobs() != nil && tokens != nil && len(tokens.Strings) > 0 && *respCtx.Logprobs() > 0 {
 		// Use token position based on current time
-		tokenPosition := int(respCtx.creationTime()) % 1000 // Simple position simulation
-		logprobs := common.GenerateSingleTokenTextLogprobs(tokensStr, tokenPosition, *respCtx.logprobs())
+		tokenPosition := int(respCtx.CreationTime()) % 1000 // Simple position simulation
+		logprobs := common.GenerateSingleTokenTextLogprobs(tokensStr, tokenPosition, *respCtx.Logprobs())
 		if logprobs != nil {
 			choice.Logprobs = logprobs
 		}
@@ -100,28 +101,28 @@ func (respBuilder *textComplHTTPRespBuilder) createChunk(respCtx responseContext
 	return openaiserverapi.CreateTextCompletionResponse(baseChunk, []openaiserverapi.TextRespChoice{choice})
 }
 
-func (respBuilder *textComplHTTPRespBuilder) createFirstChunk(respCtx responseContext) response {
+func (respBuilder *textComplHTTPRespBuilder) createFirstChunk(respCtx vllmsim.ResponseContext) response {
 	return nil
 }
 
-func (respBuilder *textComplHTTPRespBuilder) createLastChunk(respCtx responseContext) response {
-	return respBuilder.createChunk(respCtx, nil, nil, "", respCtx.finishReason())
+func (respBuilder *textComplHTTPRespBuilder) createLastChunk(respCtx vllmsim.ResponseContext) response {
+	return respBuilder.createChunk(respCtx, nil, nil, "", respCtx.FinishReason())
 }
 
 var _ responseBuilder = (*textComplHTTPRespBuilder)(nil)
 
 type chatComplHTTPRespBuilder struct{}
 
-func (respBuilder *chatComplHTTPRespBuilder) createResponse(chatRespCtx responseContext,
+func (respBuilder *chatComplHTTPRespBuilder) createResponse(respCtx vllmsim.ResponseContext,
 	tokens *openaiserverapi.Tokenized) response {
 	baseResp := openaiserverapi.CreateBaseCompletionResponse(
-		time.Now().Unix(), chatRespCtx.displayModel(), chatRespCtx.usageData(), chatRespCtx.requestID(), chatRespCtx.doRemoteDecode())
-	baseChoice := openaiserverapi.CreateBaseResponseChoice(0, chatRespCtx.finishReason())
-	baseResp.Object = chatCompletionObject
+		time.Now().Unix(), respCtx.DisplayModel(), respCtx.UsageData(), respCtx.RequestID(), respCtx.DoRemoteDecode())
+	baseChoice := openaiserverapi.CreateBaseResponseChoice(0, respCtx.FinishReason())
+	baseResp.Object = openaiserverapi.ChatCompletionObject
 
 	message := openaiserverapi.Message{Role: openaiserverapi.RoleAssistant}
-	if chatRespCtx.toolCalls() != nil {
-		message.ToolCalls = chatRespCtx.toolCalls()
+	if respCtx.ToolCalls() != nil {
+		message.ToolCalls = respCtx.ToolCalls()
 	} else {
 		respText := strings.Join(tokens.Strings, "")
 		message.Content = openaiserverapi.Content{Raw: respText}
@@ -130,8 +131,8 @@ func (respBuilder *chatComplHTTPRespBuilder) createResponse(chatRespCtx response
 	choice := openaiserverapi.CreateChatRespChoice(baseChoice, message)
 
 	// Generate logprobs if requested
-	if chatRespCtx.logprobs() != nil && chatRespCtx.toolCalls() == nil {
-		if logprobsData := common.GenerateChatLogprobs(tokens.Strings, *chatRespCtx.logprobs()); logprobsData != nil &&
+	if respCtx.Logprobs() != nil && respCtx.ToolCalls() == nil {
+		if logprobsData := common.GenerateChatLogprobs(tokens.Strings, *respCtx.Logprobs()); logprobsData != nil &&
 			len(logprobsData.Content) > 0 {
 			choice.Logprobs = logprobsData
 		} else {
@@ -146,20 +147,20 @@ func (respBuilder *chatComplHTTPRespBuilder) createResponse(chatRespCtx response
 	return openaiserverapi.CreateChatCompletionResponse(baseResp, []openaiserverapi.ChatRespChoice{choice})
 }
 
-func (respBuilder *chatComplHTTPRespBuilder) createUsageChunk(respCtx responseContext) response {
+func (respBuilder *chatComplHTTPRespBuilder) createUsageChunk(respCtx vllmsim.ResponseContext) response {
 	baseChunk := openaiserverapi.CreateBaseCompletionResponse(
-		respCtx.creationTime(), respCtx.displayModel(), respCtx.usageData(), respCtx.requestID(), false)
-	baseChunk.Object = chatCompletionChunkObject
+		respCtx.CreationTime(), respCtx.DisplayModel(), respCtx.UsageData(), respCtx.RequestID(), false)
+	baseChunk.Object = openaiserverapi.ChatCompletionChunkObject
 	return openaiserverapi.CreateChatCompletionResponse(baseChunk, []openaiserverapi.ChatRespChoice{})
 }
 
 // createChunk creates and returns a CompletionRespChunk, a single chunk of streamed completion
 // API response, for chat completion. It sets either role, or token, or tool call info in the message.
-func (respBuilder *chatComplHTTPRespBuilder) createChunk(respCtx responseContext, tokens *openaiserverapi.Tokenized,
+func (respBuilder *chatComplHTTPRespBuilder) createChunk(respCtx vllmsim.ResponseContext, tokens *openaiserverapi.Tokenized,
 	tool *openaiserverapi.ToolCall, role string, finishReason *string) response {
 	baseChunk := openaiserverapi.CreateBaseCompletionResponse(
-		respCtx.creationTime(), respCtx.displayModel(), nil, respCtx.requestID(), false)
-	baseChunk.Object = chatCompletionChunkObject
+		respCtx.CreationTime(), respCtx.DisplayModel(), nil, respCtx.RequestID(), false)
+	baseChunk.Object = openaiserverapi.ChatCompletionChunkObject
 	chunk := openaiserverapi.CreateChatCompletionRespChunk(baseChunk,
 		[]openaiserverapi.ChatRespChunkChoice{
 			openaiserverapi.CreateChatRespChunkChoice(
@@ -175,10 +176,10 @@ func (respBuilder *chatComplHTTPRespBuilder) createChunk(respCtx responseContext
 		chunk.Choices[0].Delta.Content.Raw = tokensStr
 
 		// Generate logprobs if requested and token is not empty
-		if respCtx.logprobs() != nil {
+		if respCtx.Logprobs() != nil {
 			// Use token position based on current time
-			tokenPosition := int(respCtx.creationTime()) % 1000 // Simple position simulation
-			logprobs := common.GenerateSingleTokenChatLogprobs(tokensStr, tokenPosition, *respCtx.logprobs())
+			tokenPosition := int(respCtx.CreationTime()) % 1000 // Simple position simulation
+			logprobs := common.GenerateSingleTokenChatLogprobs(tokensStr, tokenPosition, *respCtx.Logprobs())
 			if logprobs != nil {
 				chunk.Choices[0].Logprobs = &openaiserverapi.ChatLogprobs{
 					Content: []openaiserverapi.LogprobsContent{*logprobs},
@@ -190,25 +191,25 @@ func (respBuilder *chatComplHTTPRespBuilder) createChunk(respCtx responseContext
 	return &chunk
 }
 
-func (respBuilder *chatComplHTTPRespBuilder) createFirstChunk(respCtx responseContext) response {
+func (respBuilder *chatComplHTTPRespBuilder) createFirstChunk(respCtx vllmsim.ResponseContext) response {
 	return respBuilder.createChunk(respCtx, nil, nil, openaiserverapi.RoleAssistant, nil)
 }
 
-func (respBuilder *chatComplHTTPRespBuilder) createLastChunk(respCtx responseContext) response {
-	return respBuilder.createChunk(respCtx, nil, nil, "", respCtx.finishReason())
+func (respBuilder *chatComplHTTPRespBuilder) createLastChunk(respCtx vllmsim.ResponseContext) response {
+	return respBuilder.createChunk(respCtx, nil, nil, "", respCtx.FinishReason())
 }
 
 var _ responseBuilder = (*chatComplHTTPRespBuilder)(nil)
 
 type generationGRPCRespBuilder struct{}
 
-func (respBuilder *generationGRPCRespBuilder) createResponse(respCtx responseContext,
+func (respBuilder *generationGRPCRespBuilder) createResponse(respCtx vllmsim.ResponseContext,
 	tokens *openaiserverapi.Tokenized) response {
 
 	var completionTokens uint32
 	var outputIds []uint32
 	if tokens != nil {
-		completionTokens = uint32(respCtx.usageData().CompletionTokens)
+		completionTokens = uint32(respCtx.UsageData().CompletionTokens)
 		outputIds = tokens.Tokens
 	}
 
@@ -216,38 +217,38 @@ func (respBuilder *generationGRPCRespBuilder) createResponse(respCtx responseCon
 		Response: &pb.GenerateResponse_Complete{
 			Complete: &pb.GenerateComplete{
 				OutputIds:        outputIds,
-				PromptTokens:     uint32(respCtx.usageData().PromptTokens),
+				PromptTokens:     uint32(respCtx.UsageData().PromptTokens),
 				CompletionTokens: completionTokens,
-				CachedTokens:     uint32(respCtx.numberCachedPromptTokens()),
-				FinishReason:     *respCtx.finishReason(),
+				CachedTokens:     uint32(respCtx.NumberCachedPromptTokens()),
+				FinishReason:     *respCtx.FinishReason(),
 			},
 		},
 	}
 }
 
-func (respBuilder *generationGRPCRespBuilder) createUsageChunk(respCtx responseContext) response {
+func (respBuilder *generationGRPCRespBuilder) createUsageChunk(respCtx vllmsim.ResponseContext) response {
 	return nil
 }
 
-func (respBuilder *generationGRPCRespBuilder) createChunk(respCtx responseContext, tokens *openaiserverapi.Tokenized,
+func (respBuilder *generationGRPCRespBuilder) createChunk(respCtx vllmsim.ResponseContext, tokens *openaiserverapi.Tokenized,
 	tool *openaiserverapi.ToolCall, role string, finishReason *string) response {
 	return &pb.GenerateResponse{
 		Response: &pb.GenerateResponse_Chunk{
 			Chunk: &pb.GenerateStreamChunk{
 				TokenIds:         tokens.Tokens,
-				PromptTokens:     uint32(respCtx.usageData().PromptTokens),
-				CachedTokens:     uint32(respCtx.numberCachedPromptTokens()),
+				PromptTokens:     uint32(respCtx.UsageData().PromptTokens),
+				CachedTokens:     uint32(respCtx.NumberCachedPromptTokens()),
 				CompletionTokens: uint32(len(tokens.Tokens)),
 			},
 		},
 	}
 }
 
-func (respBuilder *generationGRPCRespBuilder) createFirstChunk(respCtx responseContext) response {
+func (respBuilder *generationGRPCRespBuilder) createFirstChunk(respCtx vllmsim.ResponseContext) response {
 	return nil
 }
 
-func (respBuilder *generationGRPCRespBuilder) createLastChunk(respCtx responseContext) response {
+func (respBuilder *generationGRPCRespBuilder) createLastChunk(respCtx vllmsim.ResponseContext) response {
 	return respBuilder.createResponse(respCtx, nil)
 }
 

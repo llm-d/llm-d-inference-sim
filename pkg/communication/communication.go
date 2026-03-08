@@ -17,20 +17,105 @@ limitations under the License.
 package communication
 
 import (
+	"context"
+	"errors"
+	"fmt"
+	"net"
+	"sync"
+
 	"github.com/go-logr/logr"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
+	"github.com/llm-d/llm-d-inference-sim/pkg/communication/grpc/pb"
 	vllmsim "github.com/llm-d/llm-d-inference-sim/pkg/llm-d-inference-sim"
+	"github.com/soheilhy/cmux"
+	"golang.org/x/sync/errgroup"
+)
+
+const (
+	PodHeader                        = "x-inference-pod"
+	PortHeader                       = "x-inference-port"
+	NamespaceHeader                  = "x-inference-namespace"
+	RequestIDHeader                  = "X-Request-Id"
+	CacheThresholdFinishReasonHeader = "X-Cache-Threshold-Finish-Reason"
+	PodNameEnv                       = "POD_NAME"
+	PodNsEnv                         = "POD_NAMESPACE"
 )
 
 type Communication struct {
 	logger    logr.Logger
 	simulator *vllmsim.VllmSimulator
+
+	// a mutex for sleep-wake up
+	sleepMutex sync.RWMutex
+
+	pb.UnimplementedVllmEngineServer
 }
 
 func New(logger logr.Logger, simulator *vllmsim.VllmSimulator) *Communication {
 	return &Communication{logger: logger, simulator: simulator}
 }
 
-func (c *Communication) Start() {
+func (c *Communication) Start(ctx context.Context) error {
 	c.logger.V(logging.INFO).Info("Starting communication layer")
+	g, ctx := errgroup.WithContext(ctx)
+	g.Go(func() error {
+		return c.start(ctx)
+	})
+	if err := g.Wait(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (c *Communication) start(ctx context.Context) error {
+	listener, err := c.newListener()
+	if err != nil {
+		c.logger.Error(err, "failed to create listener")
+		return fmt.Errorf("listener creation error: %w", err)
+	}
+
+	m := cmux.New(listener)
+
+	// gRPC uses HTTP/2
+	grpcL := m.Match(cmux.HTTP2())
+	httpL := m.Match(cmux.Any())
+
+	// start the gRPC server
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- c.startGRPC(ctx, grpcL)
+	}()
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			return err
+		}
+	default:
+	}
+
+	// start the http server with context support
+	errCh = make(chan error, 1)
+	go func() {
+		errCh <- c.StartHTTPServer(ctx, httpL)
+	}()
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			return err
+		}
+	default:
+	}
+
+	err = m.Serve()
+	if !errors.Is(err, net.ErrClosed) {
+		return fmt.Errorf("cmux failed: %w", err)
+	}
+	return nil
+}
+
+// Print prints to a log, implementation of fasthttp.Logger
+func (c *Communication) Printf(format string, args ...interface{}) {
+	c.logger.V(logging.WARN).Info("Server error", "msg", fmt.Sprintf(format, args...))
 }

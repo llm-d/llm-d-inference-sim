@@ -24,22 +24,22 @@ import (
 )
 
 // Implementation of request for /completions requests
-type textCompletionRequest struct {
+type TextCompletionRequest struct {
 	openaiserverapi.TextCompletionRequest
 }
 
 // reads and parses data from the body of the given request
-func (t *textCompletionRequest) unmarshal(data []byte) error {
+func (t *TextCompletionRequest) Unmarshal(data []byte) error {
 	return json.Unmarshal(data, t)
 }
 
-func (t *textCompletionRequest) validate(toolsValidator *toolsValidator) (string, int) {
+func (t *TextCompletionRequest) validate(toolsValidator *toolsValidator) (string, int) {
 	return validateRequest(t)
 }
 
-func (t *textCompletionRequest) buildRequestContext(simCtx *simContext, channel chan *responseInfo, respBuilder responseBuilder) requestContext {
+func (t *TextCompletionRequest) buildRequestContext(simCtx *SimContext, channel chan *ResponseInfo) requestContext {
 	reqCtx := &textCompletionReqCtx{
-		baseRequestContext: newBaseRequestContext(simCtx, channel, respBuilder),
+		baseRequestContext: newBaseRequestContext(simCtx, channel),
 		req:                t,
 	}
 	// wire textCompletionReqCtx into embedded requestContext interface
@@ -47,13 +47,13 @@ func (t *textCompletionRequest) buildRequestContext(simCtx *simContext, channel 
 	return reqCtx
 }
 
-func (t *textCompletionRequest) asString() string {
+func (t *TextCompletionRequest) AsString() string {
 	return "text completion request (req id " + t.RequestID + ")"
 }
 
-func (t *textCompletionRequest) createResponseContext(reqCtx requestContext, displayModel string,
+func (t *TextCompletionRequest) createResponseContext(reqCtx requestContext, displayModel string,
 	responseTokens *openaiserverapi.Tokenized, finishReason *string, usageData *openaiserverapi.Usage, sendUsageData bool,
-	logprobs *int, toolCalls []openaiserverapi.ToolCall) responseContext {
+	logprobs *int, toolCalls []openaiserverapi.ToolCall) ResponseContext {
 	base := newBaseResponseContext(reqCtx, displayModel, responseTokens, finishReason, usageData, sendUsageData,
 		logprobs, t.GetRequestID(), t.IsDoRemotePrefill(), t.IsDoRemoteDecode(), t.GetNumberOfCachedPromptTokens())
 	return &textCompletionResponseCtx{
@@ -61,20 +61,20 @@ func (t *textCompletionRequest) createResponseContext(reqCtx requestContext, dis
 	}
 }
 
-var _ request = (*textCompletionRequest)(nil)
+var _ Request = (*TextCompletionRequest)(nil)
 
 // Implementation of requestContext for /completions requests
 type textCompletionReqCtx struct {
 	baseRequestContext
-	req *textCompletionRequest
+	req *TextCompletionRequest
 }
 
-func (t *textCompletionReqCtx) request() request {
+func (t *textCompletionReqCtx) request() Request {
 	return t.req
 }
 
 func (t *textCompletionReqCtx) kvCacheOnRequestStart() (hitRate float64, oaiServerError *openaiserverapi.Error) {
-	if t.sim.config.EnableKVCache {
+	if t.sim.Config.EnableKVCache {
 		var err error
 		hitRate, err = t.sim.kvcacheHelper.OnRequestStart(t.request())
 		if err != nil {
@@ -87,7 +87,7 @@ func (t *textCompletionReqCtx) kvCacheOnRequestStart() (hitRate float64, oaiServ
 }
 
 func (t *textCompletionReqCtx) kvCacheOnRequestEnd() {
-	if t.sim.config.EnableKVCache {
+	if t.sim.Config.EnableKVCache {
 		if err := t.sim.kvcacheHelper.OnRequestEnd(t.request().GetRequestID()); err != nil {
 			t.sim.logger.Error(err, "kv cache failed to process request end")
 		}
@@ -109,8 +109,8 @@ type textCompletionResponseCtx struct {
 	baseResponseContext
 }
 
-func (respCtx *textCompletionResponseCtx) toolCalls() []openaiserverapi.ToolCall {
+func (respCtx *textCompletionResponseCtx) ToolCalls() []openaiserverapi.ToolCall {
 	return nil
 }
 
-var _ responseContext = (*textCompletionResponseCtx)(nil)
+var _ ResponseContext = (*textCompletionResponseCtx)(nil)

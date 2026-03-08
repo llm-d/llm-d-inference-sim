@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package llmdinferencesim
+package communication
 
 import (
 	"crypto/rand"
@@ -32,24 +32,24 @@ import (
 )
 
 // Based on: https://github.com/kubernetes-sigs/gateway-api-inference-extension/blob/8d01161ec48d6b49cd371f179551b35da46e6fd6/internal/tls/tls.go
-func (s *VllmSimulator) configureSSL(server *fasthttp.Server) error {
-	if !s.context.config.SSLEnabled() {
+func (c *Communication) configureSSL(server *fasthttp.Server) error {
+	if !c.simulator.Context.Config.SSLEnabled() {
 		return nil
 	}
 
 	var cert tls.Certificate
 	var err error
 
-	if s.context.config.SSLCertFile != "" && s.context.config.SSLKeyFile != "" {
-		s.context.logger.V(logging.INFO).Info("HTTPS server starting with certificate files", "cert", s.context.config.SSLCertFile, "key", s.context.config.SSLKeyFile)
-		cert, err = tls.LoadX509KeyPair(s.context.config.SSLCertFile, s.context.config.SSLKeyFile)
-	} else if s.context.config.SelfSignedCerts {
-		s.context.logger.V(logging.INFO).Info("HTTPS server starting with self-signed certificate")
+	if c.simulator.Context.Config.SSLCertFile != "" && c.simulator.Context.Config.SSLKeyFile != "" {
+		c.logger.V(logging.INFO).Info("HTTPS server starting with certificate files", "cert", c.simulator.Context.Config.SSLCertFile, "key", c.simulator.Context.Config.SSLKeyFile)
+		cert, err = tls.LoadX509KeyPair(c.simulator.Context.Config.SSLCertFile, c.simulator.Context.Config.SSLKeyFile)
+	} else if c.simulator.Context.Config.SelfSignedCerts {
+		c.logger.V(logging.INFO).Info("HTTPS server starting with self-signed certificate")
 		cert, err = CreateSelfSignedTLSCertificate()
 	}
 
 	if err != nil {
-		s.context.logger.Error(err, "failed to create TLS certificate")
+		c.logger.Error(err, "failed to create TLS certificate")
 		return err
 	}
 

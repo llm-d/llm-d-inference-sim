@@ -14,16 +14,22 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package llmdinferencesim
+package tests
 
 import (
+	"os"
 	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
 
-func TestVllmSim(t *testing.T) {
+func TestVllmSimulator(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "VllmSim Suite")
+	RunSpecs(t, "Tests Suite")
 }
+
+var _ = AfterSuite(func() {
+	err := os.RemoveAll(tokenizerTmpDir)
+	Expect(err).NotTo(HaveOccurred())
+})
