@@ -18,7 +18,7 @@
     "generated": "Hello human!"
   },
   {
-    "prompt_hash": "4dvS3R0hDo03xwfjGJz8Er1Ndy1O4utIpceEkkIWoCw=",
+    "prompt_hash": "TidpubRVnbMzVF5W4cAdAm3jWVdWqCIHgD+FJIqefUU=",
     "n_gen_tokens": 3,
     "gen_tokens": {
       "Tokens": [
@@ -78,7 +78,7 @@
     "generated": "this is assistant long response, it should contain at least 10 tokens"
   },
   {
-    "prompt_hash": "diTAUqVRYnYROhk06XBP8hd22qEGr5TbUDY09BGO6Go=",
+    "prompt_hash": "g7jTR+ZUp1vDSP24nAEZBKyLrJAYgiwJXXqyIbXJLGo=",
     "n_gen_tokens": 15,
     "gen_tokens": {
       "Tokens": [
@@ -136,7 +136,7 @@
     "generated": "short response"
   },
   {
-    "prompt_hash": "BnuJFS3uBHxm5Tkm9H1lNmUJcprSxajh0eLbsF8uq0E=",
+    "prompt_hash": "pXhjykom83fI5nRxxBirJjFbbWCzI840Z23grKP3zsg=",
     "n_gen_tokens": 2,
     "gen_tokens": {
       "Tokens": [

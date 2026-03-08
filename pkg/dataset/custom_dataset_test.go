@@ -106,7 +106,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 			{Role: openaiserverapi.RoleAssistant, Content: openaiserverapi.Content{Raw: "this is assistant long response, it should contain at least 10 tokens"}},
 			{Role: openaiserverapi.RoleUser, Content: openaiserverapi.Content{Raw: "Hello world again"}},
 		}
-		validDB[2].hexa = "067b89152dee047c66e53926f47d65366509729ad2c5a8e1d1e2dbb05f2eab41"
+		validDB[2].hexa = "a57863ca4a26f377c8e67471c418ab26315b6d60b323ce34676de0aca3f7cec8"
 		validDB[2].respTokens = openaiserverapi.Tokenized{
 			Strings: []string{"short", " response"},
 			Tokens:  []uint32{8676, 2033},
