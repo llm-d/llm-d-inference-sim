@@ -159,7 +159,7 @@ func Create(ctx context.Context, config *common.Configuration, logger logr.Logge
 			loggerToUse = klog.LoggerWithValues(logger, "rank", dpRank)
 		}
 
-		sim, err := New(loggr)
+		sim, err := New(loggerToUse)
 		if err != nil {
 			return nil, err
 		}
