@@ -156,7 +156,7 @@ func Create(ctx context.Context, config *common.Configuration, logger logr.Logge
 		if config.Rank >= 0 {
 			loggerToUse = klog.LoggerWithValues(logger, "rank", config.Rank)
 		} else if dpSize != 1 {
-			loggr = klog.LoggerWithValues(logger, "rank", dpRank)
+			loggerToUse = klog.LoggerWithValues(logger, "rank", dpRank)
 		}
 
 		sim, err := New(loggr)
