@@ -154,7 +154,7 @@ func Create(ctx context.Context, config *common.Configuration, logger logr.Logge
 		// i.e., don't add the rank if there is no data parallel
 		loggerToUse := logger
 		if config.Rank >= 0 {
-			loggr = klog.LoggerWithValues(logger, "rank", config.Rank)
+			loggerToUse = klog.LoggerWithValues(logger, "rank", config.Rank)
 		} else if dpSize != 1 {
 			loggr = klog.LoggerWithValues(logger, "rank", dpRank)
 		}
