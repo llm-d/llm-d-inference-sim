@@ -1038,7 +1038,7 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 	})
 
 	Context("single request latency metrics", func() {
-		tokenizer, err := tokenizer.New(&common.Configuration{Model: testModel}, klog.Background())
+		tokenizer, err := tokenizer.New(context.Background(), &common.Configuration{Model: testModel}, klog.Background())
 		Expect(err).ShouldNot(HaveOccurred())
 		_, tokens, err := tokenizer.RenderText(testUserMessage)
 		Expect(err).ShouldNot(HaveOccurred())

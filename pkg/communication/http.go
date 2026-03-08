@@ -471,7 +471,7 @@ func (c *Communication) HandleEmbeddings(ctx *fasthttp.RequestCtx) {
 				c.sendError(ctx, &errToSend, false)
 				return
 			}
-			tokens, _, err := c.simulator.Context.Tokenizer.Encode(text, model)
+			tokens, _, err := c.simulator.Context.Tokenizer.RenderText(text)
 			if err != nil {
 				c.logger.Error(err, "failed to tokenize embedding input")
 				ctx.Error("Failed to tokenize input, "+err.Error(), fasthttp.StatusInternalServerError)

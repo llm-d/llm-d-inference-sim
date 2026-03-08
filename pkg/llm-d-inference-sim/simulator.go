@@ -106,7 +106,7 @@ func Start(ctx context.Context, config *common.Configuration, logger logr.Logger
 		logger.Error(err, "failed to initialize dataset")
 		return nil, err
 	}
-	tokenizer, err := tokenizer.New(config, logger)
+	tokenizer, err := tokenizer.New(ctx, config, logger)
 	if err != nil {
 		logger.Error(err, "failed to initialize tokenizer")
 		return nil, err
