@@ -55,6 +55,9 @@ func main() {
 
 	for _, sim := range simulators {
 		comm := communication.New(logger, sim)
-		comm.Start(ctx)
+		if err := comm.Start(ctx); err != nil {
+			logger.Error(err, "failed to start communication layer")
+			return
+		}
 	}
 }
