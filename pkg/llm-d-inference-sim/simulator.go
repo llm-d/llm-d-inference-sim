@@ -22,39 +22,24 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net"
 	"os"
-	"strconv"
 	"sync"
 	"time"
 
 	"github.com/go-logr/logr"
-	"github.com/soheilhy/cmux"
 	"github.com/valyala/fasthttp"
-	"golang.org/x/sync/errgroup"
 	"k8s.io/klog/v2"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 	"github.com/llm-d/llm-d-inference-sim/pkg/dataset"
-	"github.com/llm-d/llm-d-inference-sim/pkg/grpc/pb"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
-	vllmapi "github.com/llm-d/llm-d-inference-sim/pkg/vllm-api"
 )
 
 const (
-	textCompletionObject      = "text_completion"
-	chatCompletionObject      = "chat.completion"
-	chatCompletionChunkObject = "chat.completion.chunk"
-
-	podHeader                        = "x-inference-pod"
-	portHeader                       = "x-inference-port"
-	namespaceHeader                  = "x-inference-namespace"
-	requestIDHeader                  = "X-Request-Id"
-	cacheThresholdFinishReasonHeader = "X-Cache-Threshold-Finish-Reason"
-	podNameEnv                       = "POD_NAME"
-	podNsEnv                         = "POD_NAMESPACE"
+	PodNameEnv = "POD_NAME"
+	PodNsEnv   = "POD_NAMESPACE"
 )
 
 type requestCompleted struct {
@@ -69,19 +54,15 @@ type waitingQueueItem struct {
 
 // VllmSimulator simulates vLLM server supporting OpenAI API
 type VllmSimulator struct {
-	pb.UnimplementedVllmEngineServer
-
-	context simContext
+	Context SimContext
 	// schema validator for tools parameters
 	toolsValidator *toolsValidator
 
 	// indication whether the simulator is sleeping
-	isSleeping bool
+	IsSleeping bool
 	// indication whether the simulator is in development mode, set by environment
 	// variable VLLM_SERVER_DEV_MODE
-	isInDevMode bool
-	// a mutex for sleep-wake up
-	sleepMutex sync.RWMutex
+	IsInDevMode bool
 
 	// a channel for free workers
 	freeWorkers chan *worker
@@ -106,15 +87,15 @@ func New(logger logr.Logger) (*VllmSimulator, error) {
 
 	return &VllmSimulator{
 		toolsValidator: toolsValidator,
-		isInDevMode:    os.Getenv("VLLM_SERVER_DEV_MODE") == "1",
-		context: simContext{
+		IsInDevMode:    os.Getenv("VLLM_SERVER_DEV_MODE") == "1",
+		Context: SimContext{
 			logger: logger,
 			loras: &lorasUsageInfo{
 				loadedLoras: make(map[string]int),
 			},
 			kvcacheHelper: nil, // kvcache helper will be created only if required after reading configuration
-			namespace:     os.Getenv(podNsEnv),
-			pod:           os.Getenv(podNameEnv),
+			Namespace:     os.Getenv(PodNsEnv),
+			Pod:           os.Getenv(PodNameEnv),
 		},
 		waitingQueue: list.New(),
 	}, nil
@@ -163,98 +144,38 @@ func Create(ctx context.Context, config *common.Configuration, logger logr.Logge
 		if err != nil {
 			return nil, err
 		}
-		sim.context.config = rankConfig
+		sim.Context.Config = rankConfig
 		// use the same tokenizer in all ranks
-		sim.context.tokenizer = tokenizer
+		sim.Context.Tokenizer = tokenizer
 		sims[dpRank] = sim
 	}
 
+	for _, sim := range sims {
+		if err := sim.InitializeSim(ctx); err != nil {
+			return nil, err
+		}
+	}
 	return sims, nil
 }
 
-func Start(ctx context.Context, sims []*VllmSimulator) error {
-	g, ctx := errgroup.WithContext(ctx)
-	for _, sim := range sims {
-		g.Go(func() error {
-			return sim.startSim(ctx)
-		})
-	}
-	if err := g.Wait(); err != nil {
-		return err
-	}
-	return nil
-}
-
-func (s *VllmSimulator) startSim(ctx context.Context) error {
-	if err := s.initializeSim(ctx); err != nil {
+func (s *VllmSimulator) InitializeSim(ctx context.Context) error {
+	if err := s.Context.initialize(ctx); err != nil {
 		return err
 	}
 
-	listener, err := s.newListener()
-	if err != nil {
-		s.context.logger.Error(err, "failed to create listener")
-		return fmt.Errorf("listener creation error: %w", err)
-	}
+	s.queueCapacity = s.Context.Config.MaxWaitingQueueLength
 
-	m := cmux.New(listener)
-
-	// gRPC uses HTTP/2
-	grpcL := m.Match(cmux.HTTP2())
-	httpL := m.Match(cmux.Any())
-
-	// start the gRPC server
-	errCh := make(chan error, 1)
-	go func() {
-		errCh <- s.startGRPC(ctx, grpcL)
-	}()
-
-	select {
-	case err := <-errCh:
-		if err != nil {
-			return err
-		}
-	default:
-	}
-
-	// start the http server with context support
-	errCh = make(chan error, 1)
-	go func() {
-		errCh <- s.startServer(ctx, httpL)
-	}()
-
-	select {
-	case err := <-errCh:
-		if err != nil {
-			return err
-		}
-	default:
-	}
-
-	err = m.Serve()
-	if !errors.Is(err, net.ErrClosed) {
-		return fmt.Errorf("cmux failed: %w", err)
-	}
-	return nil
-}
-
-func (s *VllmSimulator) initializeSim(ctx context.Context) error {
-	if err := s.context.initialize(ctx); err != nil {
-		return err
-	}
-
-	s.queueCapacity = s.context.config.MaxWaitingQueueLength
-
-	maxNumberOfRequests := s.context.config.MaxNumSeqs + s.context.config.MaxWaitingQueueLength
+	maxNumberOfRequests := s.Context.Config.MaxNumSeqs + s.Context.Config.MaxWaitingQueueLength
 	s.newRequests = make(chan requestContext, maxNumberOfRequests)
 
 	// run request processing workers
-	s.freeWorkers = make(chan *worker, s.context.config.MaxNumSeqs)
-	s.workerFinished = make(chan *requestCompleted, s.context.config.MaxNumSeqs)
-	for i := 1; i <= s.context.config.MaxNumSeqs; i++ {
+	s.freeWorkers = make(chan *worker, s.Context.Config.MaxNumSeqs)
+	s.workerFinished = make(chan *requestCompleted, s.Context.Config.MaxNumSeqs)
+	for i := 1; i <= s.Context.Config.MaxNumSeqs; i++ {
 		worker := &worker{
 			id:           i,
 			ctx:          ctx,
-			logger:       s.context.logger,
+			logger:       s.Context.logger,
 			finishedChan: s.workerFinished,
 			reqChan:      make(chan requestContext, 1),
 			processor:    s,
@@ -267,31 +188,26 @@ func (s *VllmSimulator) initializeSim(ctx context.Context) error {
 	return nil
 }
 
-// Print prints to a log, implementation of fasthttp.Logger
-func (s *VllmSimulator) Printf(format string, args ...interface{}) {
-	s.context.logger.V(logging.WARN).Info("Server error", "msg", fmt.Sprintf(format, args...))
-}
-
 func (s *VllmSimulator) processing(ctx context.Context) {
-	s.context.logger.V(logging.INFO).Info("Start processing routine")
+	s.Context.logger.V(logging.INFO).Info("Start processing routine")
 
 	for {
 		select {
 		case <-ctx.Done():
-			s.context.logger.V(logging.INFO).Info("Request processing done")
+			s.Context.logger.V(logging.INFO).Info("Request processing done")
 			return
 		case completedReq := <-s.workerFinished:
 			worker := completedReq.worker
-			s.context.logger.V(logging.TRACE).Info("Worker finished", "worker", worker.id)
-			s.context.decrementLora(completedReq.model)
+			s.Context.logger.V(logging.TRACE).Info("Worker finished", "worker", worker.id)
+			s.Context.decrementLora(completedReq.model)
 			// there is a free worker - find a request for it and send this request for
 			// processing with this worker
 			s.findRequestAndSendToProcess(worker)
-		case <-s.context.loras.loraRemovable:
+		case <-s.Context.loras.loraRemovable:
 			// there is a LoRA that can be removed, go through availbale workers
 			// and queued requests and find requests that can run now,
 			// stop if there are no free workers, or no requests
-			s.context.logger.V(logging.TRACE).Info("LoRA can be removed")
+			s.Context.logger.V(logging.TRACE).Info("LoRA can be removed")
 			for {
 				// check if there is a free worker
 				worker := s.getFreeWorker()
@@ -312,7 +228,7 @@ func (s *VllmSimulator) processing(ctx context.Context) {
 
 			worker := s.getFreeWorker()
 			if worker == nil {
-				s.context.logger.V(logging.TRACE).Info("No free worker - sending the request to the waiting queue",
+				s.Context.logger.V(logging.TRACE).Info("No free worker - sending the request to the waiting queue",
 					"model", model, "req id", reqCtx.request().GetRequestID())
 				// no free worker, add this request to the waiting queue
 				s.addRequestToQueue(reqCtx)
@@ -320,19 +236,19 @@ func (s *VllmSimulator) processing(ctx context.Context) {
 			}
 
 			// check if lora usage allows the request to run
-			if s.context.isLora(model) && !s.context.loadLora(model) {
+			if s.Context.isLora(model) && !s.Context.loadLora(model) {
 				// free the worker
 				s.freeWorkers <- worker
-				s.context.logger.V(logging.TRACE).Info("LoRA cannot be loaded - sending the request to the waiting queue",
+				s.Context.logger.V(logging.TRACE).Info("LoRA cannot be loaded - sending the request to the waiting queue",
 					"LoRA", model, "req id", reqCtx.request().GetRequestID())
 				// LoRA max reached, try to enqueue
 				s.addRequestToQueue(reqCtx)
 				break
 			}
 
-			s.context.logger.V(logging.TRACE).Info("Sending the request to the processing channel", "model", model,
+			s.Context.logger.V(logging.TRACE).Info("Sending the request to the processing channel", "model", model,
 				"req id", reqCtx.request().GetRequestID(), "worker", worker.id)
-			common.WriteToChannel(worker.reqChan, reqCtx, s.context.logger, "worker's reqChan")
+			common.WriteToChannel(worker.reqChan, reqCtx, s.Context.logger, "worker's reqChan")
 		}
 	}
 }
@@ -341,11 +257,11 @@ func (s *VllmSimulator) findRequestAndSendToProcess(worker *worker) bool {
 	nextReq := s.dequeue()
 	if nextReq != nil {
 		// send this request for processing in this worker
-		s.context.logger.V(logging.TRACE).Info("Sending request to processing", "model", nextReq.request().GetModel(),
+		s.Context.logger.V(logging.TRACE).Info("Sending request to processing", "model", nextReq.request().GetModel(),
 			"req", nextReq.request().GetRequestID(), "worker", worker.id)
-		common.WriteToChannel(worker.reqChan, nextReq, s.context.logger, "worker's reqChan")
+		common.WriteToChannel(worker.reqChan, nextReq, s.Context.logger, "worker's reqChan")
 		// decrement waiting requests metric
-		common.WriteToChannel(s.context.metrics.waitingReqChan, -1, s.context.logger, "metrics.waitingReqChan")
+		common.WriteToChannel(s.Context.metrics.waitingReqChan, -1, s.Context.logger, "metrics.waitingReqChan")
 		return true
 	}
 
@@ -356,96 +272,44 @@ func (s *VllmSimulator) findRequestAndSendToProcess(worker *worker) bool {
 
 func (s *VllmSimulator) addRequestToQueue(reqCtx requestContext) {
 	if err := s.enqueue(reqCtx); err != nil {
-		s.context.logger.Error(err, "failed to enqueue request")
+		s.Context.logger.Error(err, "failed to enqueue request")
 		err := openaiserverapi.NewError("Failed to enqueue request, "+err.Error(),
 			fasthttp.StatusTooManyRequests, nil)
-		common.WriteToChannel(reqCtx.responseChannel(), &responseInfo{err: &err},
-			s.context.logger, "responseChannel")
+		common.WriteToChannel(reqCtx.responseChannel(), &ResponseInfo{Err: &err},
+			s.Context.logger, "responseChannel")
 		return
 	}
 	// increment the waiting requests metric
-	common.WriteToChannel(s.context.metrics.waitingReqChan, 1, s.context.logger, "metrics.waitingReqChan")
+	common.WriteToChannel(s.Context.metrics.waitingReqChan, 1, s.Context.logger, "metrics.waitingReqChan")
 	// update loraInfo metrics with the new waiting request
-	common.WriteToChannel(s.context.metrics.lorasChan, loraUsage{reqCtx.request().GetModel(), waitingUsageState},
-		s.context.logger, "metrics.lorasChan")
+	common.WriteToChannel(s.Context.metrics.lorasChan, loraUsage{reqCtx.request().GetModel(), waitingUsageState},
+		s.Context.logger, "metrics.lorasChan")
 
 }
 
-func (s *VllmSimulator) handleHTTPRequest(req request, respBuilder responseBuilder, ctx *fasthttp.RequestCtx) (bool, requestContext, chan *responseInfo, *openaiserverapi.Error, bool) {
-	if err := req.unmarshal(ctx.Request.Body()); err != nil {
-		s.context.logger.Error(err, "failed to read and parse request body")
-		errToSend := openaiserverapi.NewError("Failed to read and parse request body, "+err.Error(), fasthttp.StatusBadRequest, nil)
-		return false, nil, nil, &errToSend, false
-	}
-
-	requestID := s.getRequestID(ctx)
-	req.SetRequestID(requestID)
-
-	// Check for cache threshold finish reason header - this forces a cache_threshold finish reason
-	headerValue := string(ctx.Request.Header.Peek(cacheThresholdFinishReasonHeader))
-	if parsedValue, err := strconv.ParseBool(headerValue); err == nil {
-		req.SetCacheThresholdFinishReason(parsedValue)
-	}
-
-	return s.handleRequest(req, respBuilder)
-}
-
-func (s *VllmSimulator) handleRequest(req request, respBuilder responseBuilder) (bool, requestContext, chan *responseInfo,
-	*openaiserverapi.Error, bool) {
+func (s *VllmSimulator) HandleRequest(req Request) (bool, chan *ResponseInfo, *openaiserverapi.Error, bool) {
 	// Check if we should inject a failure
-	if shouldInjectFailure(s.context.config, s.context.random) {
-		failure := getRandomFailure(s.context.config, s.context.random)
-		return false, nil, nil, &failure, true
+	if shouldInjectFailure(s.Context.Config, s.Context.Random) {
+		failure := getRandomFailure(s.Context.Config, s.Context.Random)
+		return false, nil, &failure, true
 	}
 
 	if !s.isValidModel(req.GetModel()) {
 		err := openaiserverapi.NewError(fmt.Sprintf("The model `%s` does not exist.",
 			req.GetModel()), fasthttp.StatusNotFound, nil)
-		return false, nil, nil, &err, false
+		return false, nil, &err, false
 	}
 
 	errMsg, errCode := req.validate(s.toolsValidator)
 	if errMsg != "" {
 		err := openaiserverapi.NewError(errMsg, errCode, nil)
-		return false, nil, nil, &err, false
+		return false, nil, &err, false
 	}
 
-	channel := make(chan *responseInfo, s.context.config.MaxModelLen)
-	reqCtx := req.buildRequestContext(&s.context, channel, respBuilder)
-	common.WriteToChannel(s.newRequests, reqCtx, s.context.logger, "newRequests")
-	return req.IsStream(), reqCtx, channel, nil, false
-}
-
-// createModelsResponse creates and returns ModelResponse for the current state, returned array of models contains the base model + LoRA adapters if exist
-func (s *VllmSimulator) createModelsResponse() *vllmapi.ModelsResponse {
-	modelsResp := vllmapi.ModelsResponse{Object: "list", Data: []vllmapi.ModelsResponseModelInfo{}}
-
-	// Advertise every public model alias
-	for _, alias := range s.context.config.ServedModelNames {
-		modelsResp.Data = append(modelsResp.Data, vllmapi.ModelsResponseModelInfo{
-			ID:      alias,
-			Object:  vllmapi.ObjectModel,
-			Created: time.Now().Unix(),
-			OwnedBy: "vllm",
-			Root:    alias,
-			Parent:  nil,
-		})
-	}
-
-	// add LoRA adapter's info
-	parent := s.context.config.ServedModelNames[0]
-	for _, lora := range s.context.getLoras() {
-		modelsResp.Data = append(modelsResp.Data, vllmapi.ModelsResponseModelInfo{
-			ID:      lora,
-			Object:  vllmapi.ObjectModel,
-			Created: time.Now().Unix(),
-			OwnedBy: "vllm",
-			Root:    lora,
-			Parent:  &parent,
-		})
-	}
-
-	return &modelsResp
+	channel := make(chan *ResponseInfo, s.Context.Config.MaxModelLen)
+	reqCtx := req.buildRequestContext(&s.Context, channel)
+	common.WriteToChannel(s.newRequests, reqCtx, s.Context.logger, "newRequests")
+	return req.IsStream(), channel, nil, false
 }
 
 func (s *VllmSimulator) enqueue(req requestContext) error {
@@ -467,11 +331,11 @@ func (s *VllmSimulator) dequeue() requestContext {
 	// Find first request for a loaded LoRA
 	for elem := s.waitingQueue.Front(); elem != nil; elem = elem.Next() {
 		item, ok := elem.Value.(waitingQueueItem)
-		if ok && item.reqCtx != nil && s.context.loraIsLoaded(item.reqCtx.request().GetModel()) {
+		if ok && item.reqCtx != nil && s.Context.loraIsLoaded(item.reqCtx.request().GetModel()) {
 			s.waitingQueue.Remove(elem)
-			s.context.incrementLora(item.reqCtx.request().GetModel())
-			common.WriteToChannel(s.context.metrics.reqQueueTimeChan, time.Since(item.enqueueTime).Seconds(),
-				s.context.logger, "metrics.reqQueueTimeChan")
+			s.Context.incrementLora(item.reqCtx.request().GetModel())
+			common.WriteToChannel(s.Context.metrics.reqQueueTimeChan, time.Since(item.enqueueTime).Seconds(),
+				s.Context.logger, "metrics.reqQueueTimeChan")
 			return item.reqCtx
 		}
 	}
@@ -479,10 +343,10 @@ func (s *VllmSimulator) dequeue() requestContext {
 	// All the requests require a LoRA that is not loaded, check if we can load a LoRA
 	for elem := s.waitingQueue.Front(); elem != nil; elem = elem.Next() {
 		item, ok := elem.Value.(waitingQueueItem)
-		if ok && item.reqCtx != nil && s.context.loadLora(item.reqCtx.request().GetModel()) {
+		if ok && item.reqCtx != nil && s.Context.loadLora(item.reqCtx.request().GetModel()) {
 			s.waitingQueue.Remove(elem)
-			common.WriteToChannel(s.context.metrics.reqQueueTimeChan, time.Since(item.enqueueTime).Seconds(),
-				s.context.logger, "metrics.reqQueueTimeChan")
+			common.WriteToChannel(s.Context.metrics.reqQueueTimeChan, time.Since(item.enqueueTime).Seconds(),
+				s.Context.logger, "metrics.reqQueueTimeChan")
 			return item.reqCtx
 		}
 	}
@@ -490,19 +354,19 @@ func (s *VllmSimulator) dequeue() requestContext {
 	return nil
 }
 
-func (s *VllmSimulator) sendResponse(reqCtx requestContext, respCtx responseContext) {
+func (s *VllmSimulator) sendResponse(reqCtx requestContext, respCtx ResponseContext) {
 	// Skip delays if finish reason is cache_threshold (immediate return)
-	if respCtx.finishReason() != nil && *respCtx.finishReason() == common.CacheThresholdFinishReason {
-		common.WriteToChannel(reqCtx.responseChannel(), &responseInfo{respCtx: respCtx},
-			s.context.logger, "responseChannel")
+	if respCtx.FinishReason() != nil && *respCtx.FinishReason() == common.CacheThresholdFinishReason {
+		common.WriteToChannel(reqCtx.responseChannel(), &ResponseInfo{RespCtx: respCtx},
+			s.Context.logger, "responseChannel")
 	} else {
-		s.context.simulateTTFT(respCtx)
+		s.Context.simulateTTFT(respCtx)
 
 		startDecode := time.Now()
 		if respCtx.responseTokens() != nil {
 			for i, token := range respCtx.responseTokens().Tokens {
 				if i != 0 {
-					s.context.simulateInterTokenLatency()
+					s.Context.simulateInterTokenLatency()
 				}
 
 				tokens := &openaiserverapi.Tokenized{
@@ -513,41 +377,49 @@ func (s *VllmSimulator) sendResponse(reqCtx requestContext, respCtx responseCont
 					tokens.Strings = append(tokens.Strings, respCtx.responseTokens().Strings[i])
 				}
 				common.WriteToChannel(reqCtx.responseChannel(),
-					&responseInfo{tokens: tokens, respCtx: respCtx},
-					s.context.logger, "responseChannel")
+					&ResponseInfo{Tokens: tokens, RespCtx: respCtx},
+					s.Context.logger, "responseChannel")
 			}
 		} else {
-			for _, tc := range respCtx.toolCalls() {
+			for _, tc := range respCtx.ToolCalls() {
 				// Tool calls are only supported in HTTP at the moment, so we assume that we always
 				// have string tokenized arguments
 				for i, token := range tc.Function.TokenizedArguments().Tokens {
 					if i != 0 {
-						s.context.simulateInterTokenLatency()
+						s.Context.simulateInterTokenLatency()
 					}
 					common.WriteToChannel(reqCtx.responseChannel(),
-						&responseInfo{tokens: &openaiserverapi.Tokenized{
+						&ResponseInfo{Tokens: &openaiserverapi.Tokenized{
 							Tokens:  []uint32{token},
 							Strings: []string{tc.Function.TokenizedArguments().Strings[i]}},
-							respCtx: respCtx, toolCall: &tc}, s.context.logger, "responseChannel")
+							RespCtx: respCtx, ToolCall: &tc}, s.Context.logger, "responseChannel")
 				}
 			}
 		}
-		common.WriteToChannel(s.context.metrics.reqDecodeTimeChan, time.Since(startDecode).Seconds(), s.context.logger,
+		common.WriteToChannel(s.Context.metrics.reqDecodeTimeChan, time.Since(startDecode).Seconds(), s.Context.logger,
 			"metrics.reqDecodeTimeChan")
 	}
 	close(reqCtx.responseChannel())
 }
 
 // request processing finished
-func (s *VllmSimulator) responseSentCallback(reqCtx requestContext, model string) {
+func (s *VllmSimulator) ResponseSentCallback(reqCtx requestContext, model string) {
 	// decrement running requests count
-	common.WriteToChannel(s.context.metrics.runReqChan, -1, s.context.logger, "metrics.runReqChan")
+	common.WriteToChannel(s.Context.metrics.runReqChan, -1, s.Context.logger, "metrics.runReqChan")
 
-	if s.context.isLora(model) {
+	if s.Context.isLora(model) {
 		// update loraInfo metrics to reflect that the request processing has been finished
-		common.WriteToChannel(s.context.metrics.lorasChan, loraUsage{model, doneUsageState},
-			s.context.logger, "metrics.lorasChan")
+		common.WriteToChannel(s.Context.metrics.lorasChan, loraUsage{model, doneUsageState},
+			s.Context.logger, "metrics.lorasChan")
 	}
 
 	reqCtx.kvCacheOnRequestEnd()
+}
+
+func (s *VllmSimulator) DiscardKVCache() {
+	s.Context.kvcacheHelper.Discard()
+}
+
+func (s *VllmSimulator) ActivateKVCache() {
+	s.Context.kvcacheHelper.Activate()
 }

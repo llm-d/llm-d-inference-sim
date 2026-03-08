@@ -14,14 +14,13 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package llmdinferencesim
+package tests
 
 import (
 	"context"
 	"encoding/json"
 	"io"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
@@ -30,6 +29,7 @@ import (
 	"github.com/valyala/fasthttp"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
+	"github.com/llm-d/llm-d-inference-sim/pkg/communication"
 	kvcache "github.com/llm-d/llm-d-inference-sim/pkg/kv-cache"
 	vllmapi "github.com/llm-d/llm-d-inference-sim/pkg/vllm-api"
 )
@@ -117,72 +117,9 @@ var _ = Describe("Server", func() {
 	})
 
 	Context("SSL/HTTPS Configuration", func() {
-		It("Should parse SSL certificate configuration correctly", func() {
-			tempDir := GinkgoT().TempDir()
-			certFile, keyFile, err := GenerateTempCerts(tempDir)
-			Expect(err).NotTo(HaveOccurred())
-
-			oldArgs := os.Args
-			defer func() {
-				os.Args = oldArgs
-			}()
-
-			os.Args = []string{"cmd", "--model", testModel, "--ssl-certfile", certFile, "--ssl-keyfile", keyFile}
-			config, err := common.ParseCommandParamsAndLoadConfig()
-			Expect(err).NotTo(HaveOccurred())
-			Expect(config.SSLEnabled()).To(BeTrue())
-			Expect(config.SSLCertFile).To(Equal(certFile))
-			Expect(config.SSLKeyFile).To(Equal(keyFile))
-		})
-
-		It("Should parse self-signed certificate configuration correctly", func() {
-			oldArgs := os.Args
-			defer func() {
-				os.Args = oldArgs
-			}()
-
-			os.Args = []string{"cmd", "--model", testModel, "--self-signed-certs"}
-			config, err := common.ParseCommandParamsAndLoadConfig()
-			Expect(err).NotTo(HaveOccurred())
-			Expect(config.SSLEnabled()).To(BeTrue())
-			Expect(config.SelfSignedCerts).To(BeTrue())
-		})
-
-		It("Should create self-signed TLS certificate successfully", func() {
-			cert, err := CreateSelfSignedTLSCertificate()
-			Expect(err).NotTo(HaveOccurred())
-			Expect(cert.Certificate).To(HaveLen(1))
-			Expect(cert.PrivateKey).NotTo(BeNil())
-		})
-
-		It("Should validate SSL configuration - both cert and key required", func() {
-			tempDir := GinkgoT().TempDir()
-
-			oldArgs := os.Args
-			defer func() {
-				os.Args = oldArgs
-			}()
-
-			certFile, _, err := GenerateTempCerts(tempDir)
-			Expect(err).NotTo(HaveOccurred())
-
-			os.Args = []string{"cmd", "--model", testModel, "--ssl-certfile", certFile}
-			_, err = common.ParseCommandParamsAndLoadConfig()
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("both ssl-certfile and ssl-keyfile must be provided together"))
-
-			_, keyFile, err := GenerateTempCerts(tempDir)
-			Expect(err).NotTo(HaveOccurred())
-
-			os.Args = []string{"cmd", "--model", testModel, "--ssl-keyfile", keyFile}
-			_, err = common.ParseCommandParamsAndLoadConfig()
-			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("both ssl-certfile and ssl-keyfile must be provided together"))
-		})
-
 		It("Should start HTTPS server with provided SSL certificates", func(ctx SpecContext) {
 			tempDir := GinkgoT().TempDir()
-			certFile, keyFile, err := GenerateTempCerts(tempDir)
+			certFile, keyFile, err := communication.GenerateTempCerts(tempDir)
 			Expect(err).NotTo(HaveOccurred())
 
 			args := []string{"cmd", "--model", testModel, "--mode", common.ModeRandom,
@@ -221,7 +158,7 @@ var _ = Describe("Server", func() {
 			Expect(err).NotTo(HaveOccurred())
 			req.Header.Set(fasthttp.HeaderContentType, "application/json")
 			if inputRequestID != "" {
-				req.Header.Set(requestIDHeader, inputRequestID)
+				req.Header.Set(communication.RequestIDHeader, inputRequestID)
 			}
 
 			resp, err := client.Do(req)
@@ -234,7 +171,7 @@ var _ = Describe("Server", func() {
 			Expect(resp.StatusCode).To(Equal(http.StatusOK))
 
 			if expectRequestID != nil {
-				actualRequestID := resp.Header.Get(requestIDHeader)
+				actualRequestID := resp.Header.Get(communication.RequestIDHeader)
 				if *expectRequestID != "" {
 					// When a request ID is provided, it should be echoed back
 					Expect(actualRequestID).To(Equal(*expectRequestID))
@@ -245,7 +182,7 @@ var _ = Describe("Server", func() {
 				}
 			} else {
 				// When request ID headers are disabled, the header should be empty
-				Expect(resp.Header.Get(requestIDHeader)).To(BeEmpty())
+				Expect(resp.Header.Get(communication.RequestIDHeader)).To(BeEmpty())
 			}
 
 			if validateBody != nil {

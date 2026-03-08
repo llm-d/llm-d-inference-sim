@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package llmdinferencesim
+package tests
 
 import (
 	"context"
@@ -28,6 +28,7 @@ import (
 	"github.com/openai/openai-go/v3/option"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
+	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	vllmapi "github.com/llm-d/llm-d-inference-sim/pkg/vllm-api"
 )
 
@@ -47,7 +48,7 @@ var _ = Describe("LoRAs", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			Expect(resp.Choices).ShouldNot(BeEmpty())
-			Expect(string(resp.Object)).To(Equal(chatCompletionObject))
+			Expect(string(resp.Object)).To(Equal(openaiserverapi.ChatCompletionObject))
 
 			msg := resp.Choices[0].Message.Content
 			Expect(msg).Should(Equal(testUserMessage))
@@ -95,7 +96,7 @@ var _ = Describe("LoRAs", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			Expect(resp.Choices).ShouldNot(BeEmpty())
-			Expect(string(resp.Object)).To(Equal(chatCompletionObject))
+			Expect(string(resp.Object)).To(Equal(openaiserverapi.ChatCompletionObject))
 
 			msg = resp.Choices[0].Message.Content
 			Expect(msg).Should(Equal(testUserMessage))

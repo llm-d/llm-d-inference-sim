@@ -26,55 +26,48 @@ import (
 )
 
 type requestBuilder interface {
-	unmarshal(data []byte) error
+	Unmarshal(data []byte) error
 	validate(toolsValidator *toolsValidator) (string, int)
-	buildRequestContext(simCtx *simContext, channel chan *responseInfo, respBuilder responseBuilder) requestContext
-	asString() string
+	buildRequestContext(simCtx *SimContext, channel chan *ResponseInfo) requestContext
+	AsString() string
 	createResponseContext(reqCtx requestContext, displayModel string, responseTokens *openaiserverapi.Tokenized, finishReason *string,
-		usageData *openaiserverapi.Usage, sendUsageData bool, logprobs *int, toolCalls []openaiserverapi.ToolCall) responseContext
+		usageData *openaiserverapi.Usage, sendUsageData bool, logprobs *int, toolCalls []openaiserverapi.ToolCall) ResponseContext
 }
 
-type request interface {
+type Request interface {
 	requestBuilder
 	openaiserverapi.Request
 }
 
 type requestContext interface {
-	request() request
+	request() Request
 	startProcessingTime() time.Time
 	tokenize() *openaiserverapi.Error
 	kvCacheOnRequestStart() (hitRate float64, serverError *openaiserverapi.Error)
 	kvCacheOnRequestEnd()
 	createToolCalls() ([]openaiserverapi.ToolCall, int, string, error)
-	handleRequest() (responseContext, *openaiserverapi.Error)
-	responseChannel() chan *responseInfo
+	handleRequest() (ResponseContext, *openaiserverapi.Error)
+	responseChannel() chan *ResponseInfo
 	tokenizedPromptForEcho() (*openaiserverapi.Tokenized, error)
-	responseBuilder() responseBuilder
 }
 
 type baseRequestContext struct {
 	requestContext
-	sim             *simContext
+	sim             *SimContext
 	startProcessing time.Time
-	respChannel     chan *responseInfo
-	respBuilder     responseBuilder
+	respChannel     chan *ResponseInfo
 }
 
-func newBaseRequestContext(simCtx *simContext, channel chan *responseInfo, respBuilder responseBuilder) baseRequestContext {
+func newBaseRequestContext(simCtx *SimContext, channel chan *ResponseInfo) baseRequestContext {
 	return baseRequestContext{
 		sim:             simCtx,
 		startProcessing: time.Now(),
 		respChannel:     channel,
-		respBuilder:     respBuilder,
 	}
 }
 
-func (b *baseRequestContext) responseChannel() chan *responseInfo {
+func (b *baseRequestContext) responseChannel() chan *ResponseInfo {
 	return b.respChannel
-}
-
-func (b *baseRequestContext) responseBuilder() responseBuilder {
-	return b.respBuilder
 }
 
 func (b *baseRequestContext) startProcessingTime() time.Time {
@@ -86,7 +79,7 @@ func (b *baseRequestContext) tokenize() *openaiserverapi.Error {
 
 	if tokens := req.TokenizedPrompt(); tokens == nil {
 		prompt := req.GetPrompt()
-		tokens, textTokens, err := b.sim.tokenizer.Encode(prompt, "")
+		tokens, textTokens, err := b.sim.Tokenizer.Encode(prompt, "")
 		if err != nil {
 			b.sim.logger.Error(err, "failed to tokenize")
 			serverErr := openaiserverapi.NewError("Failed to tokenize, "+err.Error(), fasthttp.StatusInternalServerError, nil)
@@ -99,7 +92,7 @@ func (b *baseRequestContext) tokenize() *openaiserverapi.Error {
 		})
 	}
 
-	if b.sim.config.Mode == common.ModeEcho {
+	if b.sim.Config.Mode == common.ModeEcho {
 		// in echo mode need to calculate which part of input will be sent back,
 		// e.g. in /chat/completions we send back only the last message content
 		echoTokenized, err := b.tokenizedPromptForEcho()
@@ -120,16 +113,16 @@ func (b *baseRequestContext) validateContextWindow() (string, int) {
 	promptTokens := getNumberOfPromptTokens(b.request())
 	completionTokens := b.request().GetMaxCompletionTokens()
 	isValid, actualCompletionTokens, totalTokens := common.ValidateContextWindow(promptTokens, completionTokens,
-		b.sim.config.MaxModelLen)
+		b.sim.Config.MaxModelLen)
 	if !isValid {
 		message := fmt.Sprintf("This model's maximum context length is %d tokens. However, you requested %d tokens (%d in the messages, %d in the completion). Please reduce the length of the messages or completion",
-			b.sim.config.MaxModelLen, totalTokens, promptTokens, actualCompletionTokens)
+			b.sim.Config.MaxModelLen, totalTokens, promptTokens, actualCompletionTokens)
 		return message, fasthttp.StatusBadRequest
 	}
 	return "", fasthttp.StatusOK
 }
 
-func (reqCtx *baseRequestContext) handleRequest() (responseContext, *openaiserverapi.Error) {
+func (reqCtx *baseRequestContext) handleRequest() (ResponseContext, *openaiserverapi.Error) {
 	req := reqCtx.request()
 	model := req.GetModel()
 
@@ -186,7 +179,7 @@ func (reqCtx *baseRequestContext) handleRequest() (responseContext, *openaiserve
 		completionTokens += responseTokens.Length()
 	}
 	if err != nil {
-		prefix := "failed to create response for " + req.asString() + " "
+		prefix := "failed to create response for " + req.AsString() + " "
 		reqCtx.sim.logger.Error(err, prefix)
 		oaiServerError := openaiserverapi.NewError(prefix+err.Error(), fasthttp.StatusInternalServerError, nil)
 		return nil, &oaiServerError
@@ -226,13 +219,13 @@ func (reqCtx *baseRequestContext) shouldReturnCacheThresholdFinishReason(req ope
 	}
 	// Check cache hit threshold if specified and KV cache is enabled
 	// First, get cache hit info without modifying cache state
-	if reqCtx.sim.config.EnableKVCache {
+	if reqCtx.sim.Config.EnableKVCache {
 		// Get cacheHitThreshold from request first, fall back to global cacheHitThreshold if not set
 		var cacheHitThreshold *float64
 		if reqThreshold := req.GetCacheHitThreshold(); reqThreshold != nil && *reqThreshold >= 0 && *reqThreshold <= 1 {
 			cacheHitThreshold = reqThreshold
-		} else if reqCtx.sim.config.GlobalCacheHitThreshold > 0 {
-			cacheHitThreshold = &reqCtx.sim.config.GlobalCacheHitThreshold
+		} else if reqCtx.sim.Config.GlobalCacheHitThreshold > 0 {
+			cacheHitThreshold = &reqCtx.sim.Config.GlobalCacheHitThreshold
 		}
 
 		if cacheHitThreshold != nil {

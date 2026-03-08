@@ -22,21 +22,21 @@ import (
 )
 
 // Implementation of request for generation requests
-type generationRequest struct {
+type GenerationRequest struct {
 	openaiserverapi.GenerationRequest
 }
 
-func (g *generationRequest) unmarshal(data []byte) error {
+func (g *GenerationRequest) Unmarshal(data []byte) error {
 	return nil
 }
 
-func (g *generationRequest) validate(toolsValidator *toolsValidator) (string, int) {
+func (g *GenerationRequest) validate(toolsValidator *toolsValidator) (string, int) {
 	return validateRequest(g)
 }
 
-func (g *generationRequest) buildRequestContext(simCtx *simContext, channel chan *responseInfo, respBuilder responseBuilder) requestContext {
+func (g *GenerationRequest) buildRequestContext(simCtx *SimContext, channel chan *ResponseInfo) requestContext {
 	reqCtx := &generationReqCtx{
-		baseRequestContext: newBaseRequestContext(simCtx, channel, respBuilder),
+		baseRequestContext: newBaseRequestContext(simCtx, channel),
 		req:                g,
 	}
 	// wire generationReqCtx into embedded requestContext interface
@@ -44,13 +44,13 @@ func (g *generationRequest) buildRequestContext(simCtx *simContext, channel chan
 	return reqCtx
 }
 
-func (g *generationRequest) asString() string {
+func (g *GenerationRequest) AsString() string {
 	return "generation request (req id " + g.RequestID + ")"
 }
 
-func (g *generationRequest) createResponseContext(reqCtx requestContext, displayModel string,
+func (g *GenerationRequest) createResponseContext(reqCtx requestContext, displayModel string,
 	responseTokens *openaiserverapi.Tokenized, finishReason *string, usageData *openaiserverapi.Usage,
-	sendUsageData bool, logprobs *int, toolCalls []openaiserverapi.ToolCall) responseContext {
+	sendUsageData bool, logprobs *int, toolCalls []openaiserverapi.ToolCall) ResponseContext {
 	base := newBaseResponseContext(reqCtx, displayModel, responseTokens, finishReason, usageData, sendUsageData,
 		logprobs, g.GetRequestID(), g.IsDoRemotePrefill(), g.IsDoRemoteDecode(), g.GetNumberOfCachedPromptTokens())
 	return &generationResponseCtx{
@@ -58,15 +58,15 @@ func (g *generationRequest) createResponseContext(reqCtx requestContext, display
 	}
 }
 
-var _ request = (*generationRequest)(nil)
+var _ Request = (*GenerationRequest)(nil)
 
 // Implementation of requestContext for generation requests
 type generationReqCtx struct {
 	baseRequestContext
-	req *generationRequest
+	req *GenerationRequest
 }
 
-func (g *generationReqCtx) request() request {
+func (g *generationReqCtx) request() Request {
 	return g.req
 }
 
@@ -75,7 +75,7 @@ func (g *generationReqCtx) tokenizedPromptForEcho() (*openaiserverapi.Tokenized,
 }
 
 func (g *generationReqCtx) kvCacheOnRequestStart() (hitRate float64, oaiServerError *openaiserverapi.Error) {
-	if g.sim.config.EnableKVCache {
+	if g.sim.Config.EnableKVCache {
 		var err error
 		hitRate, err = g.sim.kvcacheHelper.OnRequestStart(g.request())
 		if err != nil {
@@ -88,7 +88,7 @@ func (g *generationReqCtx) kvCacheOnRequestStart() (hitRate float64, oaiServerEr
 }
 
 func (g *generationReqCtx) kvCacheOnRequestEnd() {
-	if g.sim.config.EnableKVCache {
+	if g.sim.Config.EnableKVCache {
 		if err := g.sim.kvcacheHelper.OnRequestEnd(g.request().GetRequestID()); err != nil {
 			g.sim.logger.Error(err, "kv cache failed to process request end")
 		}
@@ -106,8 +106,8 @@ type generationResponseCtx struct {
 	baseResponseContext
 }
 
-func (respCtx *generationResponseCtx) toolCalls() []openaiserverapi.ToolCall {
+func (respCtx *generationResponseCtx) ToolCalls() []openaiserverapi.ToolCall {
 	return nil
 }
 
-var _ responseContext = (*generationResponseCtx)(nil)
+var _ ResponseContext = (*generationResponseCtx)(nil)

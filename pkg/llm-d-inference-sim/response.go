@@ -22,30 +22,30 @@ import (
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 )
 
-type responseInfo struct {
-	tokens   *openaiserverapi.Tokenized
-	respCtx  responseContext
-	err      *openaiserverapi.Error
-	toolCall *openaiserverapi.ToolCall
+type ResponseInfo struct {
+	Tokens   *openaiserverapi.Tokenized
+	RespCtx  ResponseContext
+	Err      *openaiserverapi.Error
+	ToolCall *openaiserverapi.ToolCall
 }
 
-type responseContext interface {
-	requestContext() requestContext
-	requestID() string
-	usageData() *openaiserverapi.Usage
-	displayModel() string
+type ResponseContext interface {
+	RequestContext() requestContext
+	RequestID() string
+	UsageData() *openaiserverapi.Usage
+	DisplayModel() string
 	doRemotePrefill() bool
-	doRemoteDecode() bool
-	numberCachedPromptTokens() int
+	DoRemoteDecode() bool
+	NumberCachedPromptTokens() int
 	responseTokens() *openaiserverapi.Tokenized
-	finishReason() *string
-	sendUsageData() bool
-	toolCalls() []openaiserverapi.ToolCall
-	creationTime() int64
-	setCreationTime(int64)
-	logprobs() *int
+	FinishReason() *string
+	SendUsageData() bool
+	ToolCalls() []openaiserverapi.ToolCall
+	CreationTime() int64
+	SetCreationTime(int64)
+	Logprobs() *int
 	setWG(*sync.WaitGroup)
-	done()
+	Done()
 }
 
 type baseResponseContext struct {
@@ -96,47 +96,47 @@ func newBaseResponseContext(reqCtx requestContext, displayModel string, response
 	}
 }
 
-func (respCtx *baseResponseContext) requestContext() requestContext {
+func (respCtx *baseResponseContext) RequestContext() requestContext {
 	return respCtx.reqCtx
 }
-func (respCtx *baseResponseContext) usageData() *openaiserverapi.Usage {
+func (respCtx *baseResponseContext) UsageData() *openaiserverapi.Usage {
 	return respCtx.usage
 }
-func (respCtx *baseResponseContext) displayModel() string {
+func (respCtx *baseResponseContext) DisplayModel() string {
 	return respCtx.displayModelName
 }
-func (respCtx *baseResponseContext) requestID() string {
+func (respCtx *baseResponseContext) RequestID() string {
 	return respCtx.id
 }
 func (respCtx *baseResponseContext) doRemotePrefill() bool {
 	return respCtx.remotePrefill
 }
-func (respCtx *baseResponseContext) doRemoteDecode() bool {
+func (respCtx *baseResponseContext) DoRemoteDecode() bool {
 	return respCtx.remoteDecode
 }
-func (respCtx *baseResponseContext) numberCachedPromptTokens() int {
+func (respCtx *baseResponseContext) NumberCachedPromptTokens() int {
 	return respCtx.nCachedPromptTokens
 }
 func (respCtx *baseResponseContext) responseTokens() *openaiserverapi.Tokenized {
 	return respCtx.respTokens
 }
-func (respCtx *baseResponseContext) finishReason() *string {
+func (respCtx *baseResponseContext) FinishReason() *string {
 	return respCtx.finishReasonPtr
 }
-func (respCtx *baseResponseContext) sendUsageData() bool {
+func (respCtx *baseResponseContext) SendUsageData() bool {
 	return respCtx.sendUsage
 }
-func (respCtx *baseResponseContext) setCreationTime(creationTime int64) {
+func (respCtx *baseResponseContext) SetCreationTime(creationTime int64) {
 	respCtx.created = creationTime
 }
-func (respCtx *baseResponseContext) creationTime() int64 {
+func (respCtx *baseResponseContext) CreationTime() int64 {
 	return respCtx.created
 }
-func (respCtx *baseResponseContext) logprobs() *int {
+func (respCtx *baseResponseContext) Logprobs() *int {
 	return respCtx.nLogprobs
 }
 
-func (b *baseResponseContext) done() {
+func (b *baseResponseContext) Done() {
 	b.wg.Done()
 }
 func (b *baseResponseContext) setWG(wg *sync.WaitGroup) {

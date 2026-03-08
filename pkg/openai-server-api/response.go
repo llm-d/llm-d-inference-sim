@@ -26,8 +26,11 @@ import (
 )
 
 const (
-	chatComplIDPrefix = "chatcmpl-"
-	textComplIDPrefix = "cmpl-"
+	chatComplIDPrefix         = "chatcmpl-"
+	textComplIDPrefix         = "cmpl-"
+	TextCompletionObject      = "text_completion"
+	ChatCompletionObject      = "chat.completion"
+	ChatCompletionChunkObject = "chat.completion.chunk"
 )
 
 // CompletionResponse interface representing both completion response types (text and chat)

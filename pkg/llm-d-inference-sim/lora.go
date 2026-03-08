@@ -34,7 +34,7 @@ type unloadLoraRequest struct {
 	LoraName string `json:"lora_name"`
 }
 
-func (s *simContext) getLoras() []string {
+func (s *SimContext) getLoras() []string {
 	loras := make([]string, 0)
 
 	s.loraAdaptors.Range(func(key, _ any) bool {
@@ -49,7 +49,7 @@ func (s *simContext) getLoras() []string {
 	return loras
 }
 
-func (s *simContext) loadLoraAdaptor(ctx *fasthttp.RequestCtx) {
+func (s *SimContext) LoadLoraAdaptor(ctx *fasthttp.RequestCtx) {
 	var req loadLoraRequest
 	err := json.Unmarshal(ctx.Request.Body(), &req)
 	if err != nil {
@@ -61,7 +61,7 @@ func (s *simContext) loadLoraAdaptor(ctx *fasthttp.RequestCtx) {
 	s.loraAdaptors.Store(req.LoraName, "")
 }
 
-func (s *simContext) unloadLoraAdaptor(ctx *fasthttp.RequestCtx) {
+func (s *SimContext) UnloadLoraAdaptor(ctx *fasthttp.RequestCtx) {
 	var req unloadLoraRequest
 	err := json.Unmarshal(ctx.Request.Body(), &req)
 	if err != nil {
@@ -74,7 +74,7 @@ func (s *simContext) unloadLoraAdaptor(ctx *fasthttp.RequestCtx) {
 }
 
 // Checks if the LoRA adaptor is loaded
-func (s *simContext) loraIsLoaded(model string) bool {
+func (s *SimContext) loraIsLoaded(model string) bool {
 	if !s.isLora(model) {
 		return true
 	}
@@ -87,7 +87,7 @@ func (s *simContext) loraIsLoaded(model string) bool {
 }
 
 // Load the LoRA adaptor if possible. Return false if not.
-func (s *simContext) loadLora(model string) bool {
+func (s *SimContext) loadLora(model string) bool {
 	if !s.isLora(model) {
 		return true
 	}
@@ -118,7 +118,7 @@ func (s *simContext) loadLora(model string) bool {
 // incrementLora increments the count of running requests using the model
 // (if the model is a LoRA). Can be called only for loaded LoRAs (that are
 // already in loras.loadedLoras)
-func (s *simContext) incrementLora(model string) {
+func (s *SimContext) incrementLora(model string) {
 	if !s.isLora(model) {
 		return
 	}
@@ -130,7 +130,7 @@ func (s *simContext) incrementLora(model string) {
 
 // decrementLora decrements the count of running requests using the model
 // (if the model is a LoRA)
-func (s *simContext) decrementLora(model string) {
+func (s *SimContext) decrementLora(model string) {
 	if model == "" || !s.isLora(model) {
 		return
 	}

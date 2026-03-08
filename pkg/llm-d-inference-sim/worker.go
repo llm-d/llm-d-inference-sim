@@ -65,8 +65,8 @@ func (s *VllmSimulator) processRequest(reqCtx requestContext) {
 	req := reqCtx.request()
 	respCtx, err := reqCtx.handleRequest()
 	if err != nil {
-		common.WriteToChannel(reqCtx.responseChannel(), &responseInfo{respCtx: respCtx, err: err},
-			s.context.logger, "responseChannel")
+		common.WriteToChannel(reqCtx.responseChannel(), &ResponseInfo{RespCtx: respCtx, Err: err},
+			s.Context.logger, "responseChannel")
 		return
 	}
 
@@ -76,21 +76,21 @@ func (s *VllmSimulator) processRequest(reqCtx requestContext) {
 
 	wg.Wait()
 
-	common.WriteToChannel(s.context.metrics.requestSuccessChan,
+	common.WriteToChannel(s.Context.metrics.requestSuccessChan,
 		requestSuccessEvent{
-			promptTokens:     respCtx.usageData().PromptTokens,
-			generationTokens: respCtx.usageData().CompletionTokens,
+			promptTokens:     respCtx.UsageData().PromptTokens,
+			generationTokens: respCtx.UsageData().CompletionTokens,
 			// currently only responses with a single choice are supported
-			genTokensPerChoice: []int{respCtx.usageData().CompletionTokens},
+			genTokensPerChoice: []int{respCtx.UsageData().CompletionTokens},
 			maxTokens:          req.GetMaxCompletionTokens(),
-			finishReason:       *respCtx.finishReason()},
-		s.context.logger, "metrics.requestSuccessChan")
+			finishReason:       *respCtx.FinishReason()},
+		s.Context.logger, "metrics.requestSuccessChan")
 
-	s.context.logger.V(logging.DEBUG).Info("Finished processing request", "id", req.GetRequestID())
+	s.Context.logger.V(logging.DEBUG).Info("Finished processing request", "id", req.GetRequestID())
 
 	// calculate inference time and finish e2e latency calculation only when sure that request processing was finished for streaming requests too
-	common.WriteToChannel(s.context.metrics.e2eReqLatencyChan, time.Since(reqCtx.startProcessingTime()).Seconds(), s.context.logger, "metrics.e2eReqLatencyChan")
-	common.WriteToChannel(s.context.metrics.reqInferenceTimeChan, time.Since(startTime).Seconds(), s.context.logger, "metrics.reqInferenceTimeChan")
+	common.WriteToChannel(s.Context.metrics.e2eReqLatencyChan, time.Since(reqCtx.startProcessingTime()).Seconds(), s.Context.logger, "metrics.e2eReqLatencyChan")
+	common.WriteToChannel(s.Context.metrics.reqInferenceTimeChan, time.Since(startTime).Seconds(), s.Context.logger, "metrics.reqInferenceTimeChan")
 }
 
 // getFreeWorker returns a free worker or nil if none are available (non-blocking)

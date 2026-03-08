@@ -30,6 +30,7 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/dataset"
 	kvcache "github.com/llm-d/llm-d-inference-sim/pkg/kv-cache"
 	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
+	vllmapi "github.com/llm-d/llm-d-inference-sim/pkg/vllm-api"
 )
 
 const (
@@ -142,50 +143,50 @@ type lorasUsageInfo struct {
 	maxLoras int
 }
 
-type simContext struct {
+type SimContext struct {
 	// logger is used for information and errors logging
 	logger logr.Logger
 	// metrics contains all Prometheus metrics related data
 	metrics metricsData
-	// config is the simulator's configuration
-	config *common.Configuration
+	// Config is the simulator's configuration
+	Config *common.Configuration
 	// loraAdaptors contains list of LoRA available adaptors
 	loraAdaptors sync.Map
 	// loras contains information about which LoRAs are in use
 	loras *lorasUsageInfo
-	// rand with a configurable seed to generate reproducible random responses
-	random *common.Random
+	// rand with a configurable seed to generate reproducible Random responses
+	Random *common.Random
 	// kv cache functionality
 	kvcacheHelper *kvcache.KVCacheHelper
 	// dataset is used for token generation in responses
 	dataset dataset.Dataset
 	// latencyCalculator calculates the delays in simulator's responses
 	latencyCalculator LatencyCalculator
-	// tokenizer used for request tokenization and in /tokenize
-	tokenizer tokenizer.Tokenizer
-	// namespace where simulator is running
-	namespace string
-	// pod name of simulator
-	pod string
+	// Tokenizer used for request tokenization and in /tokenize
+	Tokenizer tokenizer.Tokenizer
+	// Namespace where simulator is running
+	Namespace string
+	// Pod name of simulator
+	Pod string
 }
 
-func (s *simContext) initialize(ctx context.Context) error {
-	s.random = common.NewRandom(s.config.Seed, s.config.Port)
+func (s *SimContext) initialize(ctx context.Context) error {
+	s.Random = common.NewRandom(s.Config.Seed, s.Config.Port)
 
-	switch s.config.LatencyCalculator {
+	switch s.Config.LatencyCalculator {
 	case common.DefaultLatencyCalculator:
-		s.latencyCalculator = newDefaultCalculator(s.config, s.random)
+		s.latencyCalculator = newDefaultCalculator(s.Config, s.Random)
 	case common.ConstantLatencyCalculator:
-		s.latencyCalculator = newConstantCalculator(s.config, s.random)
+		s.latencyCalculator = newConstantCalculator(s.Config, s.Random)
 	case common.PerPromptTokenLatencyCalculator:
-		s.latencyCalculator = newPerTokenCalculator(s.config, s.random)
+		s.latencyCalculator = newPerTokenCalculator(s.Config, s.Random)
 	}
 
-	for _, lora := range s.config.LoraModules {
+	for _, lora := range s.Config.LoraModules {
 		s.loraAdaptors.Store(lora.Name, "")
 	}
-	s.loras.maxLoras = s.config.MaxLoras
-	s.loras.loraRemovable = make(chan int, s.config.MaxNumSeqs)
+	s.loras.maxLoras = s.Config.MaxLoras
+	s.loras.loraRemovable = make(chan int, s.Config.MaxNumSeqs)
 
 	// initialize prometheus metrics
 	err := s.createAndRegisterPrometheus(ctx)
@@ -193,9 +194,9 @@ func (s *simContext) initialize(ctx context.Context) error {
 		return err
 	}
 
-	if s.config.EnableKVCache {
-		s.kvcacheHelper, err = kvcache.NewKVCacheHelper(s.config, s.logger,
-			s.metrics.kvCacheUsageChan, s.metrics.prefixCacheStatsChan, s.tokenizer)
+	if s.Config.EnableKVCache {
+		s.kvcacheHelper, err = kvcache.NewKVCacheHelper(s.Config, s.logger,
+			s.metrics.kvCacheUsageChan, s.metrics.prefixCacheStatsChan, s.Tokenizer)
 		if err != nil {
 			return err
 		}
@@ -211,16 +212,16 @@ func (s *simContext) initialize(ctx context.Context) error {
 	return nil
 }
 
-func (s *simContext) initDataset(ctx context.Context) error {
-	if s.config.Mode == common.ModeEcho {
+func (s *SimContext) initDataset(ctx context.Context) error {
+	if s.Config.Mode == common.ModeEcho {
 		s.dataset = &dataset.EchoDataset{}
 		return nil
 	}
 
-	if s.config.DatasetPath == "" && s.config.DatasetURL == "" {
+	if s.Config.DatasetPath == "" && s.Config.DatasetURL == "" {
 		// use predefined sentences as responses
 		randDataset := &dataset.DefaultDataset{}
-		err := randDataset.Init(ctx, s.logger, s.random, s.config.MaxModelLen, s.tokenizer)
+		err := randDataset.Init(ctx, s.logger, s.Random, s.Config.MaxModelLen, s.Tokenizer)
 		if err != nil {
 			return fmt.Errorf("failed to initialize random dataset: %w", err)
 		}
@@ -231,8 +232,8 @@ func (s *simContext) initDataset(ctx context.Context) error {
 
 	// use dataset containing responses
 	custDataset := &dataset.CustomDataset{}
-	err := custDataset.Init(ctx, s.logger, s.random, s.config.DatasetPath, s.config.DatasetTableName,
-		s.config.DatasetInMemory, s.config.MaxModelLen, s.tokenizer)
+	err := custDataset.Init(ctx, s.logger, s.Random, s.Config.DatasetPath, s.Config.DatasetTableName,
+		s.Config.DatasetInMemory, s.Config.MaxModelLen, s.Tokenizer)
 
 	if err == nil {
 		s.dataset = custDataset
@@ -243,7 +244,7 @@ func (s *simContext) initDataset(ctx context.Context) error {
 }
 
 // isLora returns true if the given model name is one of loaded LoRAs
-func (s *simContext) isLora(model string) bool {
+func (s *SimContext) isLora(model string) bool {
 	for _, lora := range s.getLoras() {
 		if model == lora {
 			return true
@@ -256,19 +257,19 @@ func (s *simContext) isLora(model string) bool {
 // getDisplayedModelName returns the model name that must appear in API
 // responses.  LoRA adapters keep their explicit name, while all base-model
 // requests are surfaced as the first alias from --served-model-name.
-func (s *simContext) getDisplayedModelName(reqModel string) string {
+func (s *SimContext) getDisplayedModelName(reqModel string) string {
 	if s.isLora(reqModel) {
 		return reqModel
 	}
-	return s.config.ServedModelNames[0]
+	return s.Config.ServedModelNames[0]
 }
 
-func (s *simContext) simulateTTFT(respCtx responseContext) {
+func (s *SimContext) simulateTTFT(respCtx ResponseContext) {
 	startPrefill := time.Now()
 	// time to first token delay
 	params := TTFTParams{
-		PromptTokens:       respCtx.usageData().PromptTokens,
-		CachedPromptTokens: respCtx.numberCachedPromptTokens(),
+		PromptTokens:       respCtx.UsageData().PromptTokens,
+		CachedPromptTokens: respCtx.NumberCachedPromptTokens(),
 		DoRemotePrefill:    respCtx.doRemotePrefill(),
 		RunningReqs:        s.metrics.nRunningReqs,
 	}
@@ -279,11 +280,43 @@ func (s *simContext) simulateTTFT(respCtx responseContext) {
 	common.WriteToChannel(s.metrics.reqPrefillTimeChan, time.Since(startPrefill).Seconds(), s.logger, "metrics.reqPrefillTimeChan")
 }
 
-func (s *simContext) simulateInterTokenLatency() {
+func (s *SimContext) simulateInterTokenLatency() {
 	perTokenLatency := s.latencyCalculator.GetInterTokenLatency(&InterTokenParams{
 		RunningReqs: s.metrics.nRunningReqs})
 	time.Sleep(perTokenLatency)
 
 	// report tpot in seconds
 	common.WriteToChannel(s.metrics.tpotChan, perTokenLatency.Seconds(), s.logger, "metrics.tpotChan")
+}
+
+// CreateModelsResponse creates and returns ModelResponse for the current state, returned array of models contains the base model + LoRA adapters if exist
+func (s *SimContext) CreateModelsResponse() *vllmapi.ModelsResponse {
+	modelsResp := vllmapi.ModelsResponse{Object: "list", Data: []vllmapi.ModelsResponseModelInfo{}}
+
+	// Advertise every public model alias
+	for _, alias := range s.Config.ServedModelNames {
+		modelsResp.Data = append(modelsResp.Data, vllmapi.ModelsResponseModelInfo{
+			ID:      alias,
+			Object:  vllmapi.ObjectModel,
+			Created: time.Now().Unix(),
+			OwnedBy: "vllm",
+			Root:    alias,
+			Parent:  nil,
+		})
+	}
+
+	// add LoRA adapter's info
+	parent := s.Config.ServedModelNames[0]
+	for _, lora := range s.getLoras() {
+		modelsResp.Data = append(modelsResp.Data, vllmapi.ModelsResponseModelInfo{
+			ID:      lora,
+			Object:  vllmapi.ObjectModel,
+			Created: time.Now().Unix(),
+			OwnedBy: "vllm",
+			Root:    lora,
+			Parent:  &parent,
+		})
+	}
+
+	return &modelsResp
 }

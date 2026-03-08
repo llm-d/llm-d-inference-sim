@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package llmdinferencesim
+package tests
 
 import (
 	"context"
@@ -23,7 +23,7 @@ import (
 	"time"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
-	"github.com/llm-d/llm-d-inference-sim/pkg/grpc/pb"
+	"github.com/llm-d/llm-d-inference-sim/pkg/communication/grpc/pb"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"google.golang.org/grpc"
@@ -34,10 +34,10 @@ var _ = Describe("gRPC", func() {
 
 	It("get model info", func() {
 		ctx := context.TODO()
-		s, _, err := startServerHandle(ctx, common.ModeEcho, nil, nil)
+		_, comm, _, err := startServerHandle(ctx, common.ModeEcho, nil, nil)
 		Expect(err).NotTo(HaveOccurred())
 
-		r, err := s.GetModelInfo(ctx, &pb.GetModelInfoRequest{})
+		r, err := comm.GetModelInfo(ctx, &pb.GetModelInfoRequest{})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(r.ModelPath).To(Equal(testModel))
 	})
@@ -47,7 +47,7 @@ var _ = Describe("gRPC", func() {
 			ctx := context.TODO()
 			args := []string{"cmd", "--model", testModel, "--mode", common.ModeEcho,
 				"--time-to-first-token", ttft, "--inter-token-latency", itl}
-			s, _, err := startServerHandle(ctx, common.ModeEcho, args, nil)
+			_, comm, _, err := startServerHandle(ctx, common.ModeEcho, args, nil)
 			Expect(err).NotTo(HaveOccurred())
 
 			req := pb.GenerateRequest{
@@ -63,7 +63,7 @@ var _ = Describe("gRPC", func() {
 			}
 
 			out := mockGenerateServer{start: time.Now(), ctx: context.Background()}
-			err = s.Generate(&req, &out)
+			err = comm.Generate(&req, &out)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(out.responses).To(HaveLen(1))
 			resp := out.responses[0].GetComplete()
@@ -91,7 +91,7 @@ var _ = Describe("gRPC", func() {
 			ctx := context.TODO()
 			args := []string{"cmd", "--model", testModel, "--mode", common.ModeEcho,
 				"--time-to-first-token", ttft, "--inter-token-latency", itl}
-			s, _, err := startServerHandle(ctx, common.ModeEcho, args, nil)
+			_, comm, _, err := startServerHandle(ctx, common.ModeEcho, args, nil)
 			Expect(err).NotTo(HaveOccurred())
 
 			req := pb.GenerateRequest{
@@ -108,7 +108,7 @@ var _ = Describe("gRPC", func() {
 			}
 
 			out := mockGenerateServer{start: time.Now(), ctx: context.Background()}
-			err = s.Generate(&req, &out)
+			err = comm.Generate(&req, &out)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(out.responses).To(HaveLen(5))
 			for i, resp := range out.responses {
@@ -145,7 +145,7 @@ var _ = Describe("gRPC", func() {
 		func(mode string, stream bool) {
 			ctx := context.TODO()
 			args := []string{"cmd", "--model", testModel, "--mode", mode}
-			s, _, err := startServerHandle(ctx, mode, args, nil)
+			_, comm, _, err := startServerHandle(ctx, mode, args, nil)
 			Expect(err).NotTo(HaveOccurred())
 
 			req := pb.GenerateRequest{
@@ -157,7 +157,7 @@ var _ = Describe("gRPC", func() {
 			}
 
 			out := mockGenerateServer{start: time.Now(), ctx: context.Background()}
-			err = s.Generate(&req, &out)
+			err = comm.Generate(&req, &out)
 			Expect(err).NotTo(HaveOccurred())
 			if stream {
 				if mode == common.ModeEcho {
@@ -187,7 +187,7 @@ var _ = Describe("gRPC", func() {
 
 	It("failure", func() {
 		ctx := context.TODO()
-		s, _, err := startServerHandle(ctx, common.ModeRandom, []string{
+		_, comm, _, err := startServerHandle(ctx, common.ModeRandom, []string{
 			"cmd", "--model", testModel,
 			"--failure-injection-rate", "100",
 		}, nil)
@@ -202,7 +202,7 @@ var _ = Describe("gRPC", func() {
 		}
 
 		out := mockGenerateServer{start: time.Now(), ctx: context.Background()}
-		err = s.Generate(&req, &out)
+		err = comm.Generate(&req, &out)
 		Expect(err).To(HaveOccurred())
 	})
 

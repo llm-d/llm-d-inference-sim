@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package llmdinferencesim
+package tests
 
 import (
 	"bufio"
@@ -28,7 +28,9 @@ import (
 	"time"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
+	"github.com/llm-d/llm-d-inference-sim/pkg/communication"
 	"github.com/llm-d/llm-d-inference-sim/pkg/dataset"
+	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/openai/openai-go/v3"
@@ -73,7 +75,7 @@ var _ = Describe("Simulator", func() {
 				if chunk.Usage.CompletionTokens != 0 || chunk.Usage.PromptTokens != 0 || chunk.Usage.TotalTokens != 0 {
 					numberOfChunksWithUsage++
 				}
-				Expect(string(chunk.Object)).To(Equal(chatCompletionChunkObject))
+				Expect(string(chunk.Object)).To(Equal(openaiserverapi.ChatCompletionChunkObject))
 			}
 
 			Expect(numberOfChunksWithUsage).To(Equal(1))
@@ -125,7 +127,7 @@ var _ = Describe("Simulator", func() {
 				if chunk.Usage.CompletionTokens != 0 || chunk.Usage.PromptTokens != 0 || chunk.Usage.TotalTokens != 0 {
 					numberOfChunksWithUsage++
 				}
-				Expect(string(chunk.Object)).To(Equal(textCompletionObject))
+				Expect(string(chunk.Object)).To(Equal(openaiserverapi.TextCompletionObject))
 			}
 			Expect(numberOfChunksWithUsage).To(Equal(1))
 			Expect(chunk.Usage.PromptTokens).To(Equal(userMsgTokens))
@@ -154,7 +156,7 @@ var _ = Describe("Simulator", func() {
 		func(model string, mode string, maxTokens int, maxCompletionTokens int) {
 			ctx := context.TODO()
 			args := []string{"cmd", "--model", model, "--mode", mode}
-			server, client, err := startServerHandle(ctx, mode, args, nil)
+			server, _, client, err := startServerHandle(ctx, mode, args, nil)
 			Expect(err).NotTo(HaveOccurred())
 
 			openaiclient, params := getOpenAIClientAndChatParams(client, model, testUserMessage, false)
@@ -184,7 +186,7 @@ var _ = Describe("Simulator", func() {
 			}
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resp.Choices).ShouldNot(BeEmpty())
-			Expect(string(resp.Object)).To(Equal(chatCompletionObject))
+			Expect(string(resp.Object)).To(Equal(openaiserverapi.ChatCompletionObject))
 
 			Expect(resp.Usage.PromptTokens).To(Equal(userMsgTokens))
 			Expect(resp.Usage.CompletionTokens).To(BeNumerically(">", 0))
@@ -198,7 +200,7 @@ var _ = Describe("Simulator", func() {
 				Expect(msg).Should(Equal(testUserMessage))
 			} else {
 				if numTokens > 0 {
-					_, tokens, err := server.context.tokenizer.Encode(msg, model)
+					_, tokens, err := server.Context.Tokenizer.Encode(msg, model)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(int64(len(tokens))).Should(BeNumerically("<=", numTokens))
 				} else {
@@ -235,7 +237,7 @@ var _ = Describe("Simulator", func() {
 		func(model string, mode string, maxTokens int) {
 			ctx := context.TODO()
 			args := []string{"cmd", "--model", model, "--mode", mode}
-			server, client, err := startServerHandle(ctx, mode, args, nil)
+			server, _, client, err := startServerHandle(ctx, mode, args, nil)
 			Expect(err).NotTo(HaveOccurred())
 
 			openaiclient, params := getOpenAIClentAndCompletionParams(client, model, testUserMessage, false)
@@ -259,7 +261,7 @@ var _ = Describe("Simulator", func() {
 			}
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resp.Choices).ShouldNot(BeEmpty())
-			Expect(string(resp.Object)).To(Equal(textCompletionObject))
+			Expect(string(resp.Object)).To(Equal(openaiserverapi.TextCompletionObject))
 
 			Expect(resp.Usage.PromptTokens).To(Equal(userMsgTokens))
 			Expect(resp.Usage.CompletionTokens).To(BeNumerically(">", 0))
@@ -273,7 +275,7 @@ var _ = Describe("Simulator", func() {
 				Expect(text).Should(Equal(testUserMessage))
 			} else {
 				if numTokens != 0 {
-					_, tokens, err := server.context.tokenizer.Encode(text, model)
+					_, tokens, err := server.Context.Tokenizer.Encode(text, model)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(int64(len(tokens))).Should(BeNumerically("<=", numTokens))
 				} else {
@@ -302,9 +304,9 @@ var _ = Describe("Simulator", func() {
 			httpResp := sendSimpleChatRequest(nil, false)
 
 			// Check for namespace, pod and port headers
-			namespaceHeader := httpResp.Header.Get(namespaceHeader)
-			podHeader := httpResp.Header.Get(podHeader)
-			portHeader := httpResp.Header.Get(portHeader)
+			namespaceHeader := httpResp.Header.Get(communication.NamespaceHeader)
+			podHeader := httpResp.Header.Get(communication.PodHeader)
+			portHeader := httpResp.Header.Get(communication.PortHeader)
 
 			Expect(namespaceHeader).To(BeEmpty(), "Expected namespace header not to be present")
 			Expect(podHeader).To(BeEmpty(), "Expected pod header not to be present")
@@ -315,15 +317,15 @@ var _ = Describe("Simulator", func() {
 			testNamespace := "test-namespace"
 			testPod := "test-pod"
 			envs := map[string]string{
-				podNameEnv: testPod,
-				podNsEnv:   testNamespace,
+				communication.PodNameEnv: testPod,
+				communication.PodNsEnv:   testNamespace,
 			}
 			httpResp := sendSimpleChatRequest(envs, false)
 
 			// Check for namespace, pod and port headers
-			namespaceHeader := httpResp.Header.Get(namespaceHeader)
-			podHeader := httpResp.Header.Get(podHeader)
-			portHeader := httpResp.Header.Get(portHeader)
+			namespaceHeader := httpResp.Header.Get(communication.NamespaceHeader)
+			podHeader := httpResp.Header.Get(communication.PodHeader)
+			portHeader := httpResp.Header.Get(communication.PortHeader)
 
 			Expect(namespaceHeader).To(Equal(testNamespace), "Expected namespace header to be present")
 			Expect(podHeader).To(Equal(testPod), "Expected pod header to be present")
@@ -334,15 +336,15 @@ var _ = Describe("Simulator", func() {
 			testNamespace := "stream-test-namespace"
 			testPod := "stream-test-pod"
 			envs := map[string]string{
-				podNameEnv: testPod,
-				podNsEnv:   testNamespace,
+				communication.PodNameEnv: testPod,
+				communication.PodNsEnv:   testNamespace,
 			}
 			httpResp := sendSimpleChatRequest(envs, true)
 
 			// Check for namespace, pod and port headers
-			namespaceHeader := httpResp.Header.Get(namespaceHeader)
-			podHeader := httpResp.Header.Get(podHeader)
-			portHeader := httpResp.Header.Get(portHeader)
+			namespaceHeader := httpResp.Header.Get(communication.NamespaceHeader)
+			podHeader := httpResp.Header.Get(communication.PodHeader)
+			portHeader := httpResp.Header.Get(communication.PortHeader)
 
 			Expect(namespaceHeader).To(Equal(testNamespace), "Expected namespace header to be present")
 			Expect(podHeader).To(Equal(testPod), "Expected pod header to be present")
@@ -353,9 +355,9 @@ var _ = Describe("Simulator", func() {
 			httpResp := sendSimpleChatRequest(nil, true)
 
 			// Check for namespace, pod and port headers
-			namespaceHeader := httpResp.Header.Get(namespaceHeader)
-			podHeader := httpResp.Header.Get(podHeader)
-			portHeader := httpResp.Header.Get(portHeader)
+			namespaceHeader := httpResp.Header.Get(communication.NamespaceHeader)
+			podHeader := httpResp.Header.Get(communication.PodHeader)
+			portHeader := httpResp.Header.Get(communication.PortHeader)
 
 			Expect(namespaceHeader).To(BeEmpty(), "Expected namespace header not to be present")
 			Expect(podHeader).To(BeEmpty(), "Expected pod header not to be present")
@@ -368,8 +370,8 @@ var _ = Describe("Simulator", func() {
 			testNamespace := "test-namespace"
 			testPod := "test-pod"
 			envs := map[string]string{
-				podNameEnv: testPod,
-				podNsEnv:   testNamespace,
+				communication.PodNameEnv: testPod,
+				communication.PodNsEnv:   testNamespace,
 			}
 			client, err := startServerWithEnv(ctx, common.ModeRandom, envs)
 			Expect(err).NotTo(HaveOccurred())
@@ -381,9 +383,9 @@ var _ = Describe("Simulator", func() {
 			Expect(resp).NotTo(BeNil())
 
 			// Check for namespace, pod and port headers
-			namespaceHeader := httpResp.Header.Get(namespaceHeader)
-			podHeader := httpResp.Header.Get(podHeader)
-			portHeader := httpResp.Header.Get(portHeader)
+			namespaceHeader := httpResp.Header.Get(communication.NamespaceHeader)
+			podHeader := httpResp.Header.Get(communication.PodHeader)
+			portHeader := httpResp.Header.Get(communication.PortHeader)
 
 			Expect(namespaceHeader).To(Equal(testNamespace), "Expected namespace header to be present")
 			Expect(podHeader).To(Equal(testPod), "Expected pod header to be present")
@@ -396,8 +398,8 @@ var _ = Describe("Simulator", func() {
 			testNamespace := "stream-test-namespace"
 			testPod := "stream-test-pod"
 			envs := map[string]string{
-				podNameEnv: testPod,
-				podNsEnv:   testNamespace,
+				communication.PodNameEnv: testPod,
+				communication.PodNsEnv:   testNamespace,
 			}
 			client, err := startServerWithEnv(ctx, common.ModeRandom, envs)
 			Expect(err).NotTo(HaveOccurred())
@@ -409,9 +411,9 @@ var _ = Describe("Simulator", func() {
 			Expect(resp).NotTo(BeNil())
 
 			// Check for namespace, pod and port headers
-			namespaceHeader := httpResp.Header.Get(namespaceHeader)
-			podHeader := httpResp.Header.Get(podHeader)
-			portHeader := httpResp.Header.Get(portHeader)
+			namespaceHeader := httpResp.Header.Get(communication.NamespaceHeader)
+			podHeader := httpResp.Header.Get(communication.PodHeader)
+			portHeader := httpResp.Header.Get(communication.PortHeader)
 
 			Expect(namespaceHeader).To(Equal(testNamespace), "Expected namespace header to be present")
 			Expect(podHeader).To(Equal(testPod), "Expected pod header to be present")
@@ -421,9 +423,9 @@ var _ = Describe("Simulator", func() {
 		It("Should not include namespace, pod and port headers in embeddings response when env is not set", func() {
 			httpResp := sendSimpleEmbeddingsRequest(nil)
 
-			namespaceHeader := httpResp.Header.Get(namespaceHeader)
-			podHeader := httpResp.Header.Get(podHeader)
-			portHeader := httpResp.Header.Get(portHeader)
+			namespaceHeader := httpResp.Header.Get(communication.NamespaceHeader)
+			podHeader := httpResp.Header.Get(communication.PodHeader)
+			portHeader := httpResp.Header.Get(communication.PortHeader)
 
 			Expect(namespaceHeader).To(BeEmpty(), "Expected namespace header not to be present")
 			Expect(podHeader).To(BeEmpty(), "Expected pod header not to be present")
@@ -434,14 +436,14 @@ var _ = Describe("Simulator", func() {
 			testNamespace := "emb-test-namespace"
 			testPod := "emb-test-pod"
 			envs := map[string]string{
-				podNameEnv: testPod,
-				podNsEnv:   testNamespace,
+				communication.PodNameEnv: testPod,
+				communication.PodNsEnv:   testNamespace,
 			}
 			httpResp := sendSimpleEmbeddingsRequest(envs)
 
-			namespaceHeader := httpResp.Header.Get(namespaceHeader)
-			podHeader := httpResp.Header.Get(podHeader)
-			portHeader := httpResp.Header.Get(portHeader)
+			namespaceHeader := httpResp.Header.Get(communication.NamespaceHeader)
+			podHeader := httpResp.Header.Get(communication.PodHeader)
+			portHeader := httpResp.Header.Get(communication.PortHeader)
 
 			Expect(namespaceHeader).To(Equal(testNamespace), "Expected namespace header to be present")
 			Expect(podHeader).To(Equal(testPod), "Expected pod header to be present")
@@ -577,7 +579,7 @@ var _ = Describe("Simulator", func() {
 		DescribeTable("non-streaming completions with logprobs",
 			func(isChat bool, mode string, logprobsParam interface{}) {
 				ctx := context.TODO()
-				server, client, err := startServerHandle(ctx, mode, nil, nil)
+				server, _, client, err := startServerHandle(ctx, mode, nil, nil)
 				Expect(err).NotTo(HaveOccurred())
 
 				var resp interface{}
@@ -612,7 +614,7 @@ var _ = Describe("Simulator", func() {
 						// When logprobs requested, Content should be populated
 						Expect(chatResp.Choices[0].Logprobs.Content).NotTo(BeEmpty())
 
-						_, tokens, err := server.context.tokenizer.Encode(chatResp.Choices[0].Message.Content, testModel)
+						_, tokens, err := server.Context.Tokenizer.Encode(chatResp.Choices[0].Message.Content, testModel)
 						Expect(err).NotTo(HaveOccurred())
 						Expect(chatResp.Choices[0].Logprobs.Content).To(HaveLen(len(tokens)))
 					} else {
@@ -628,7 +630,7 @@ var _ = Describe("Simulator", func() {
 						// When logprobs requested, fields should be populated
 						Expect(textResp.Choices[0].Logprobs.Tokens).NotTo(BeNil())
 
-						_, tokens, err := server.context.tokenizer.Encode(textResp.Choices[0].Text, testModel)
+						_, tokens, err := server.Context.Tokenizer.Encode(textResp.Choices[0].Text, testModel)
 						Expect(err).NotTo(HaveOccurred())
 						Expect(textResp.Choices[0].Logprobs.Tokens).To(HaveLen(len(tokens)))
 					} else {
@@ -758,7 +760,7 @@ var _ = Describe("Simulator", func() {
 			Expect(err).NotTo(HaveOccurred())
 			req.Header.Set("Content-Type", "application/json")
 			if setHeader {
-				req.Header.Set(cacheThresholdFinishReasonHeader, "true")
+				req.Header.Set(communication.CacheThresholdFinishReasonHeader, "true")
 			}
 
 			resp, err := client.Do(req)
