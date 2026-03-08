@@ -152,7 +152,7 @@ func Create(ctx context.Context, config *common.Configuration, logger logr.Logge
 
 		// Add the rank to the logger if dpSize > 1 or the rank was set,
 		// i.e., don't add the rank if there is no data parallel
-		loggr := logger
+		loggerToUse := logger
 		if config.Rank >= 0 {
 			loggr = klog.LoggerWithValues(logger, "rank", config.Rank)
 		} else if dpSize != 1 {
