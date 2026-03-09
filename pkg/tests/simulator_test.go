@@ -30,6 +30,7 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/communication"
 	"github.com/llm-d/llm-d-inference-sim/pkg/dataset"
+	vllmsim "github.com/llm-d/llm-d-inference-sim/pkg/llm-d-inference-sim"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -317,8 +318,8 @@ var _ = Describe("Simulator", func() {
 			testNamespace := "test-namespace"
 			testPod := "test-pod"
 			envs := map[string]string{
-				communication.PodNameEnv: testPod,
-				communication.PodNsEnv:   testNamespace,
+				vllmsim.PodNameEnv: testPod,
+				vllmsim.PodNsEnv:   testNamespace,
 			}
 			httpResp := sendSimpleChatRequest(envs, false)
 
@@ -336,8 +337,8 @@ var _ = Describe("Simulator", func() {
 			testNamespace := "stream-test-namespace"
 			testPod := "stream-test-pod"
 			envs := map[string]string{
-				communication.PodNameEnv: testPod,
-				communication.PodNsEnv:   testNamespace,
+				vllmsim.PodNameEnv: testPod,
+				vllmsim.PodNsEnv:   testNamespace,
 			}
 			httpResp := sendSimpleChatRequest(envs, true)
 
@@ -370,8 +371,8 @@ var _ = Describe("Simulator", func() {
 			testNamespace := "test-namespace"
 			testPod := "test-pod"
 			envs := map[string]string{
-				communication.PodNameEnv: testPod,
-				communication.PodNsEnv:   testNamespace,
+				vllmsim.PodNameEnv: testPod,
+				vllmsim.PodNsEnv:   testNamespace,
 			}
 			client, err := startServerWithEnv(ctx, common.ModeRandom, envs)
 			Expect(err).NotTo(HaveOccurred())
@@ -398,8 +399,8 @@ var _ = Describe("Simulator", func() {
 			testNamespace := "stream-test-namespace"
 			testPod := "stream-test-pod"
 			envs := map[string]string{
-				communication.PodNameEnv: testPod,
-				communication.PodNsEnv:   testNamespace,
+				vllmsim.PodNameEnv: testPod,
+				vllmsim.PodNsEnv:   testNamespace,
 			}
 			client, err := startServerWithEnv(ctx, common.ModeRandom, envs)
 			Expect(err).NotTo(HaveOccurred())
@@ -436,8 +437,8 @@ var _ = Describe("Simulator", func() {
 			testNamespace := "emb-test-namespace"
 			testPod := "emb-test-pod"
 			envs := map[string]string{
-				communication.PodNameEnv: testPod,
-				communication.PodNsEnv:   testNamespace,
+				vllmsim.PodNameEnv: testPod,
+				vllmsim.PodNsEnv:   testNamespace,
 			}
 			httpResp := sendSimpleEmbeddingsRequest(envs)
 

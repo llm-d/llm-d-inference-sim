@@ -31,16 +31,6 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-const (
-	PodHeader                        = "x-inference-pod"
-	PortHeader                       = "x-inference-port"
-	NamespaceHeader                  = "x-inference-namespace"
-	RequestIDHeader                  = "X-Request-Id"
-	CacheThresholdFinishReasonHeader = "X-Cache-Threshold-Finish-Reason"
-	PodNameEnv                       = "POD_NAME"
-	PodNsEnv                         = "POD_NAMESPACE"
-)
-
 type Communication struct {
 	logger    logr.Logger
 	simulator *vllmsim.VllmSimulator
@@ -55,7 +45,8 @@ func New(logger logr.Logger, simulator *vllmsim.VllmSimulator) *Communication {
 	return &Communication{logger: logger, simulator: simulator}
 }
 
-func (c *Communication) Start(ctx context.Context) error {
+func Start(ctx context.Context, logger logr.Logger, simulator *vllmsim.VllmSimulator) error {
+	c := Communication{logger: logger, simulator: simulator}
 	c.logger.V(logging.INFO).Info("Starting communication layer")
 	g, ctx := errgroup.WithContext(ctx)
 	g.Go(func() error {

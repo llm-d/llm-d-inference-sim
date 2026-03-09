@@ -101,7 +101,7 @@ func New(logger logr.Logger) (*VllmSimulator, error) {
 	}, nil
 }
 
-func Create(ctx context.Context, config *common.Configuration, logger logr.Logger) ([]*VllmSimulator, error) {
+func Start(ctx context.Context, config *common.Configuration, logger logr.Logger) ([]*VllmSimulator, error) {
 	if err := dataset.Init(ctx, config, logger); err != nil {
 		logger.Error(err, "failed to initialize dataset")
 		return nil, err

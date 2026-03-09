@@ -28,7 +28,7 @@ import (
 )
 
 var _ = Describe("Failures", func() {
-	Describe("GetRandomFailure", Ordered, func() {
+	Describe("getRandomFailure", Ordered, func() {
 		var random *common.Random
 		BeforeAll(func() {
 			random = common.NewRandom(time.Now().UnixNano(), 8080)

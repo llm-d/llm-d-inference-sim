@@ -14,7 +14,6 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package vllmsim implements the vLLM simulator.
 package communication
 
 import (
@@ -37,6 +36,14 @@ import (
 	vllmsim "github.com/llm-d/llm-d-inference-sim/pkg/llm-d-inference-sim"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	vllmapi "github.com/llm-d/llm-d-inference-sim/pkg/vllm-api"
+)
+
+const (
+	PodHeader                        = "x-inference-pod"
+	PortHeader                       = "x-inference-port"
+	NamespaceHeader                  = "x-inference-namespace"
+	RequestIDHeader                  = "X-Request-Id"
+	CacheThresholdFinishReasonHeader = "X-Cache-Threshold-Finish-Reason"
 )
 
 func (c *Communication) newListener() (net.Listener, error) {
