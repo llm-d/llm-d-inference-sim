@@ -80,7 +80,7 @@ func (g *generationReqCtx) encode() ([]uint32, []string, error) {
 	if tokenisedPrompt != nil {
 		return tokenisedPrompt.Tokens, tokenisedPrompt.Strings, nil
 	}
-	return g.sim.tokenizer.RenderText(g.req.Prompt)
+	return g.sim.Tokenizer.RenderText(g.req.Prompt)
 }
 
 func (g *generationReqCtx) getEchoTokens() ([]uint32, []string, error) {
@@ -88,7 +88,7 @@ func (g *generationReqCtx) getEchoTokens() ([]uint32, []string, error) {
 	if tokenisedResponse != nil {
 		return tokenisedResponse.Tokens, tokenisedResponse.Strings, nil
 	}
-	return g.sim.tokenizer.RenderText(g.req.Prompt)
+	return g.sim.Tokenizer.RenderText(g.req.Prompt)
 }
 
 func (g *generationReqCtx) kvCacheOnRequestStart() (hitRate float64, oaiServerError *openaiserverapi.Error) {

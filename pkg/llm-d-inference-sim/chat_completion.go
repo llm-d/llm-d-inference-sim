@@ -100,7 +100,7 @@ func (c *chatCompletionReqCtx) request() Request {
 }
 
 func (c *chatCompletionReqCtx) encode() ([]uint32, []string, error) {
-	return c.sim.tokenizer.RenderChatCompletion(c.req.Messages)
+	return c.sim.Tokenizer.RenderChatCompletion(c.req.Messages)
 }
 
 func (c *chatCompletionReqCtx) kvCacheOnRequestStart() (hitRate float64, oaiServerError *openaiserverapi.Error) {
@@ -128,7 +128,7 @@ func (c *chatCompletionReqCtx) getEchoTokens() ([]uint32, []string, error) {
 	if len(c.req.Messages) > 0 {
 		lastMsg = c.req.Messages[len(c.req.Messages)-1].Content.Raw
 	}
-	return c.sim.tokenizer.RenderText(lastMsg)
+	return c.sim.Tokenizer.RenderText(lastMsg)
 }
 
 var _ requestContext = (*chatCompletionReqCtx)(nil)

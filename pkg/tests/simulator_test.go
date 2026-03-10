@@ -179,7 +179,7 @@ var _ = Describe("Simulator", func() {
 					if openaiError.StatusCode == 400 {
 						errMsg, err := io.ReadAll(openaiError.Response.Body)
 						Expect(err).NotTo(HaveOccurred())
-						if strings.Contains(string(errMsg), invalidMaxTokensErrMsg) {
+						if strings.Contains(string(errMsg), common.InvalidMaxTokensErrMsg) {
 							return
 						}
 					}
@@ -254,7 +254,7 @@ var _ = Describe("Simulator", func() {
 					if openaiError.StatusCode == 400 {
 						errMsg, err := io.ReadAll(openaiError.Response.Body)
 						Expect(err).NotTo(HaveOccurred())
-						if strings.Contains(string(errMsg), invalidMaxTokensErrMsg) {
+						if strings.Contains(string(errMsg), common.InvalidMaxTokensErrMsg) {
 							return
 						}
 					}

@@ -18,11 +18,10 @@ limitations under the License.
 package llmdinferencesim
 
 import (
+	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	"github.com/valyala/fasthttp"
 )
-
-const invalidMaxTokensErrMsg = "Max completion tokens and max tokens should be positive"
 
 // isValidModel checks if the given model is the base model or one of "loaded" LoRAs
 func (s *VllmSimulator) isValidModel(model string) bool {
@@ -46,7 +45,7 @@ func getNumberOfPromptTokens(req openaiserverapi.Request) int {
 
 func validateRequest(req openaiserverapi.Request) (string, int) {
 	if req.GetMaxCompletionTokens() != nil && *req.GetMaxCompletionTokens() <= 0 {
-		return invalidMaxTokensErrMsg, fasthttp.StatusBadRequest
+		return common.InvalidMaxTokensErrMsg, fasthttp.StatusBadRequest
 	}
 
 	if req.IsDoRemoteDecode() && req.IsStream() {
