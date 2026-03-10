@@ -3,7 +3,24 @@
 The `ds-tool` is used to convert conversation datasets into the format required by llm-d-inference-sim. It processes source datasets (from HuggingFace or local files) and generates both JSON and SQLite outputs with tokenized data. In addition, a dataset card is generated too.
 
 This tool requires the **UDS tokenizer**, which should run as a sidecar service. You can find more information about the UDS tokenizer [here](https://github.com/llm-d/llm-d-kv-cache/tree/main/services/uds_tokenizer). 
-There are two deployment options: run both locally on your computer or deploy both to a cluster (e.g. Kubernetes or kind).
+To run the UDS tokenizer, run the following steps:
+1. Clone the kv-cache project
+   ```bash
+   git clone git@github.com:llm-d/llm-d-kv-cache.git
+   ```
+2. Create and activate python virtual environment
+   ```bash
+   python -m venv <virt env folder>
+   source <virt env folder>/bin/activate
+   ```
+3. Navigate to 'llm-d-kv-cache/services/uds_tokenizer' and install requirements
+   ```bash
+   pip install -e .
+   ```
+4. Run the UDS tokenizer
+   ```bash
+   python ./run_grpc_server.py
+   ```
 
 
 ## Prerequisites
