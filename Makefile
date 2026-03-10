@@ -39,7 +39,7 @@ ZMQ_IMG ?= $(IMAGE_REGISTRY)/$(ZMQ_IMAGE_NAME):$(ZMQ_IMAGE_TAG)
 
 CONTAINER_TOOL := $(shell { command -v docker >/dev/null 2>&1 && echo docker; } || { command -v podman >/dev/null 2>&1 && echo podman; } || echo "")
 BUILDER := $(shell command -v buildah >/dev/null 2>&1 && echo buildah || echo $(CONTAINER_TOOL))
-# PLATFORMS ?= linux/amd64 # linux/arm64 # linux/s390x,linux/ppc64le
+PLATFORMS ?= linux/amd64 # linux/arm64 # linux/s390x,linux/ppc64le
 
 # go source files
 SRC = $(shell find . -type f -name '*.go')
@@ -281,3 +281,26 @@ clean-zmq: delete-zmq-all
 ds-tool-build: check-go install-dependencies
 	@printf "\033[33;1m==== Building ====\033[0m\n"
 	go build -o $(LOCALBIN)/ds_tool cmd/dataset-tool/main.go
+
+
+# Deploy the simulator with UDS tokenizer on kind
+KIND_CLUSTER_NAME ?= ${PROJECT_NAME}-dev
+HOST_PORT ?= 30080
+MODEL_NAME ?= TinyLlama/TinyLlama-1.1B-Chat-v1.0
+UDS_TOKENIZER_TAG=v0.6.0
+UDS_TOKENIZER_IMG_NAME ?= $(IMAGE_REGISTRY)/llm-d-uds-tokenizer:${UDS_TOKENIZER_TAG}
+
+.PHONY: dev-env-kind
+dev-env-kind: 
+	CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
+	HOST_PORT=$(HOST_PORT) \
+	MODEL_NAME=${MODEL_NAME} \
+	VLLM_SIMULATOR_IMAGE=${IMG} \
+	UDS_TOKENIZER_IMAGE=${UDS_TOKENIZER_IMG_NAME} \
+	./kind-deploy.sh
+
+.PHONY: clean-dev-env-kind
+clean-dev-env-kind: ## Cleanup kind setup (delete cluster $(KIND_CLUSTER_NAME))
+	@echo "INFO: cleaning up kind cluster $(KIND_CLUSTER_NAME)"
+	kind delete cluster --name $(KIND_CLUSTER_NAME)
+

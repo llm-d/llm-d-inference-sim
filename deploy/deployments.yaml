@@ -1,0 +1,110 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm-sim
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vllm-sim
+  template:
+    metadata:
+      labels:
+        app: vllm-sim
+    spec:
+      containers:
+      # UDS Tokenizer sidecar - handles tokenization via gRPC over Unix Domain Socket
+      - name: uds-tokenizer
+        image: ${UDS_TOKENIZER_IMAGE}
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: LOG_LEVEL
+          value: "DEBUG"
+        - name: PROBE_PORT
+          value: "8082"
+        ports:
+        - name: health
+          containerPort: 8082
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8082
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8082
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        volumeMounts:
+        - name: uds-socket
+          mountPath: /tmp/tokenizer
+      - name: vllm-sim
+        # Change to the next release which will use uds tokenizer
+        image: ${VLLM_SIMULATOR_IMAGE}
+        imagePullPolicy: IfNotPresent
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          echo "Waiting for UDS socket at /tmp/tokenizer/tokenizer-uds.socket..."
+          until [ -S /tmp/tokenizer/tokenizer-uds.socket ]; do
+            sleep 1
+          done
+          echo "Socket found! Starting simulator..."
+          ls -la /tmp/tokenizer
+          /app/llm-d-inference-sim \
+          --model ${MODEL_NAME} \
+          --port 8000 \
+          --v=5
+        env:
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.name
+          - name: POD_NAMESPACE
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.namespace
+          - name: POD_IP
+            valueFrom:
+              fieldRef:
+                fieldPath: status.podIP
+        ports:
+        - containerPort: 8000
+          name: http
+          protocol: TCP
+        volumeMounts:
+        - name: hf-cache # ?????
+          mountPath: /hf_cache
+        - name: uds-socket
+          mountPath: /tmp/tokenizer
+      volumes:
+      # For tokenizers cache
+      - name: hf-cache
+        emptyDir: {}
+      # Shared volume for Unix Domain Socket communication between EPP and UDS tokenizer
+      - name: uds-socket
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    networking.istio.io/service-type: NodePort
+  name: vllm-sim
+spec:
+  type: NodePort
+  selector:
+    app: vllm-sim
+  ports:
+    - appProtocol: http
+      protocol: TCP
+      name: default
+      port: 8000
+      targetPort: 8000
+      nodePort: ${HOST_PORT}
+#      nodePort: ${HOST_PORT}  # Must match extraPortMappings containerPort
+

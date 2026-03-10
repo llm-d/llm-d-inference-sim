@@ -61,7 +61,7 @@ type DatasetTool struct {
 
 // NewDatasetTool creates DatasetTool instance based on the given parameters
 func NewDatasetTool(ctx context.Context, config *DSToolConfiguration, logger logr.Logger) (*DatasetTool, error) {
-	t, err := tokenizer.NewHFTokenizer(ctx, config.udsSocketPath, config.model)
+	t, err := tokenizer.NewHFTokenizer(ctx, logger, config.udsSocketPath, config.model)
 	if err != nil {
 		return nil, err
 	}

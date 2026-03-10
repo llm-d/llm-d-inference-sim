@@ -19,6 +19,8 @@ package tokenizer
 import (
 	"context"
 
+	"github.com/go-logr/logr"
+	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	"github.com/llm-d/llm-d-kv-cache/pkg/tokenization"
 	types "github.com/llm-d/llm-d-kv-cache/pkg/tokenization/types"
@@ -28,18 +30,21 @@ type HFTokenizer struct {
 	udsTokenizer *tokenization.UdsTokenizer
 	model        string
 	ctx          context.Context
+	logger       logr.Logger
 }
 
 // HF Tokenizer
-func NewHFTokenizer(ctx context.Context, udsSocketPath, model string) (*HFTokenizer, error) {
+func NewHFTokenizer(ctx context.Context, logger logr.Logger, udsSocketPath, model string) (*HFTokenizer, error) {
 	udsTokenizer, err := tokenization.NewUdsTokenizer(context.Background(),
 		&tokenization.UdsTokenizerConfig{SocketFile: udsSocketPath}, model)
 
 	if err != nil {
+		logger.Error(err, "failed to connect to UDS tokenizer")
 		return nil, err
 	}
 
-	return &HFTokenizer{ctx: ctx, model: model, udsTokenizer: udsTokenizer}, nil
+	logger.V(logging.DEBUG).Info("Connected to UDS tokenizer", "socket path", udsSocketPath)
+	return &HFTokenizer{ctx: ctx, model: model, udsTokenizer: udsTokenizer, logger: logger}, nil
 }
 
 // Converts input to tokens

@@ -99,7 +99,7 @@ func New(ctx context.Context, config *common.Configuration, logger logr.Logger) 
 	var tokenizer Tokenizer
 
 	if modelExists(config.Model) {
-		tokenizer, err = NewHFTokenizer(ctx, config.UDSSocketPath, config.Model)
+		tokenizer, err = NewHFTokenizer(ctx, logger, config.UDSSocketPath, config.Model)
 	} else {
 		logger.Info("Model is not a real HF model, using simulated tokenizer", "model", config.Model)
 		tokenizer = NewSimpleTokenizer()
