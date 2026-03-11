@@ -21,6 +21,12 @@ import (
 	zmq "github.com/pebbe/zmq4"
 )
 
+// constants
+const (
+	QwenModelName = "Qwen/Qwen2-0.5B"
+	TestModel     = "testmodel"
+)
+
 // CreateSub creates a ZMQ sub, subscribes to the provided topic, and returns the
 // sub and the endpoint to publish events on
 func CreateSub(topic string) (*zmq.Socket, string) {

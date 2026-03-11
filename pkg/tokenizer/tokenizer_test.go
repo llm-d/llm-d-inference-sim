@@ -17,20 +17,15 @@ limitations under the License.
 package tokenizer
 
 import (
-	"context"
 	"strings"
 
-	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"k8s.io/klog/v2"
 )
 
 const (
-	input         = "The purple giraffe sang opera while riding a bicycle through the crowded market."
-	testModel     = "testmodel"
-	qwenModelName = "Qwen/Qwen2-0.5B"
+	input = "The purple giraffe sang opera while riding a bicycle through the crowded market."
 )
 
 var _ = Describe("tokenizer", func() {
@@ -41,9 +36,7 @@ var _ = Describe("tokenizer", func() {
 	}
 
 	It("should tokenize with simple tokenizer", func() {
-		tokenizer, err := New(context.Background(), &common.Configuration{Model: testModel}, klog.Background())
-		Expect(err).NotTo(HaveOccurred())
-		tokens, strTokens, err := tokenizer.RenderText(input)
+		tokens, strTokens, err := tokenizerMngr.TestTokenizer().RenderText(input)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(tokens).NotTo(BeEmpty())
 		Expect(strTokens).NotTo(BeEmpty())
@@ -54,10 +47,7 @@ var _ = Describe("tokenizer", func() {
 	})
 
 	It("should tokenize chat with simple tokenizer", func() {
-		tokenizer, err := New(context.Background(), &common.Configuration{Model: testModel}, klog.Background())
-		Expect(err).NotTo(HaveOccurred())
-
-		tokens, strTokens, err := tokenizer.RenderChatCompletion(messages)
+		tokens, strTokens, err := tokenizerMngr.TestTokenizer().RenderChatCompletion(messages)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(tokens).NotTo(BeEmpty())
 		Expect(strTokens).NotTo(BeEmpty())
@@ -65,9 +55,7 @@ var _ = Describe("tokenizer", func() {
 	})
 
 	It("should tokenize with real tokenizer", func() {
-		tokenizer, err := New(context.Background(), &common.Configuration{Model: qwenModelName}, klog.Background())
-		Expect(err).NotTo(HaveOccurred())
-		tokens, strTokens, err := tokenizer.RenderText(input)
+		tokens, strTokens, err := tokenizerMngr.QwenTokenizer().RenderText(input)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(tokens).NotTo(BeEmpty())
 		Expect(strTokens).NotTo(BeEmpty())
@@ -78,10 +66,8 @@ var _ = Describe("tokenizer", func() {
 	})
 
 	It("should tokenize chat with real tokenizer", func() {
-		tokenizer, err := New(context.Background(), &common.Configuration{Model: qwenModelName}, klog.Background())
-		Expect(err).NotTo(HaveOccurred())
 		// in /chat/completions case the string tokens are not returned
-		tokens, _, err := tokenizer.RenderChatCompletion(messages)
+		tokens, _, err := tokenizerMngr.QwenTokenizer().RenderChatCompletion(messages)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(tokens).NotTo(BeEmpty())
 	})

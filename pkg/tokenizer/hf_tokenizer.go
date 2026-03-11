@@ -35,7 +35,7 @@ type HFTokenizer struct {
 
 // HF Tokenizer
 func NewHFTokenizer(ctx context.Context, logger logr.Logger, udsSocketPath, model string) (*HFTokenizer, error) {
-	udsTokenizer, err := tokenization.NewUdsTokenizer(context.Background(),
+	udsTokenizer, err := tokenization.NewUdsTokenizer(ctx,
 		&tokenization.UdsTokenizerConfig{SocketFile: udsSocketPath}, model)
 
 	if err != nil {

@@ -25,7 +25,6 @@ import (
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
-	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 	. "github.com/onsi/ginkgo/v2"
 	"k8s.io/klog/v2"
 
@@ -60,7 +59,6 @@ var _ = Describe("CustomDataset", Ordered, func() {
 		pathToInvalidColumnDB string
 		pathToInvalidTypeDB   string
 		random                *common.Random
-		tknzr                 tokenizer.Tokenizer
 		validDB               []validDBElement
 	)
 
@@ -77,8 +75,6 @@ var _ = Describe("CustomDataset", Ordered, func() {
 		pathToInvalidTableDB = file_folder + "/test.invalid.table.sqlite3"
 		pathToInvalidColumnDB = file_folder + "/test.invalid.column.sqlite3"
 		pathToInvalidTypeDB = file_folder + "/test.invalid.type.sqlite3"
-		tknzr, err = tokenizer.New(context.Background(), &common.Configuration{Model: qwenModel}, klog.Background())
-		Expect(err).ShouldNot(HaveOccurred())
 
 		validDB = make([]validDBElement, 3)
 
@@ -119,10 +115,10 @@ var _ = Describe("CustomDataset", Ordered, func() {
 
 			if len(validDB[i].input) > 0 {
 				// has prompt
-				tokens, strTokens, err = tknzr.RenderText(validDB[i].input)
+				tokens, strTokens, err = tokenizerMngr.QwenTokenizer().RenderText(validDB[i].input)
 			} else {
 				// has messages
-				tokens, strTokens, err = tknzr.RenderChatCompletion(validDB[i].messages)
+				tokens, strTokens, err = tokenizerMngr.QwenTokenizer().RenderChatCompletion(validDB[i].messages)
 			}
 			Expect(err).ToNot(HaveOccurred())
 			Expect(tokens).ToNot(BeNil())
@@ -179,7 +175,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 
 	It("should successfully init dataset", func() {
 		dataset := &CustomDataset{}
-		err := dataset.Init(context.Background(), klog.Background(), random, validDBPath, tableName, false, 1024, tknzr)
+		err := dataset.Init(context.Background(), klog.Background(), random, validDBPath, tableName, false, 1024, tokenizerMngr.QwenTokenizer())
 		Expect(err).NotTo(HaveOccurred())
 
 		row := dataset.sqliteHelper.db.QueryRow(fmt.Sprintf("SELECT n_gen_tokens FROM llmd WHERE prompt_hash=X'%s';", validDB[0].hexa))
@@ -240,7 +236,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 	})
 
 	It("should return correct prompt hash in hex", func() {
-		tokens, strTokens, err := tknzr.RenderText(validDB[0].input)
+		tokens, strTokens, err := tokenizerMngr.QwenTokenizer().RenderText(validDB[0].input)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(tokens).To(Equal(validDB[0].tokenizedInput.Tokens))
 		Expect(strTokens).To(Equal(validDB[0].tokenizedInput.Strings))
@@ -263,7 +259,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 		exactMaxToken := int64(4)
 
 		BeforeAll(func() {
-			err := dataset.Init(context.Background(), klog.Background(), random, validDBPath, tableName, false, 1024, tknzr)
+			err := dataset.Init(context.Background(), klog.Background(), random, validDBPath, tableName, false, 1024, tokenizerMngr.QwenTokenizer())
 			Expect(err).NotTo(HaveOccurred())
 		})
 
@@ -360,17 +356,14 @@ var _ = Describe("custom dataset for multiple simulators", Ordered, func() {
 		validDBPath := file_folder + "/test.valid.sqlite3"
 		tableName := "llmd"
 
-		tokenizer, err := tokenizer.New(context.Background(), &common.Configuration{Model: testModel}, klog.Background())
-		Expect(err).ShouldNot(HaveOccurred())
-
 		random1 := common.NewRandom(time.Now().UnixNano(), 8081)
 		dataset1 := &CustomDataset{}
-		err = dataset1.Init(context.Background(), klog.Background(), random1, validDBPath, tableName, false, 1024, tokenizer)
+		err := dataset1.Init(context.Background(), klog.Background(), random1, validDBPath, tableName, false, 1024, tokenizerMngr.TestTokenizer())
 		Expect(err).NotTo(HaveOccurred())
 
 		random2 := common.NewRandom(time.Now().UnixNano(), 8082)
 		dataset2 := &CustomDataset{}
-		err = dataset2.Init(context.Background(), klog.Background(), random2, validDBPath, tableName, false, 1024, tokenizer)
+		err = dataset2.Init(context.Background(), klog.Background(), random2, validDBPath, tableName, false, 1024, tokenizerMngr.TestTokenizer())
 		Expect(err).NotTo(HaveOccurred())
 	})
 })

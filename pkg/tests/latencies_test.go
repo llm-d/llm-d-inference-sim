@@ -32,7 +32,7 @@ var _ = Describe("Check latency calculator", Ordered, func() {
 			prefillPerToken string, streaming bool, doRemotePrefill bool, comparator string, expectedTTFT int64,
 			expectedTotal int64) {
 			ctx := context.TODO()
-			args := []string{"cmd", "--model", testModel, "--mode", common.ModeEcho, "--latency-calculator", calculator,
+			args := []string{"cmd", "--model", common.TestModel, "--mode", common.ModeEcho, "--latency-calculator", calculator,
 				"--time-to-first-token", ttft, "--kv-cache-transfer-latency", cacheTransfer,
 				"--prefill-overhead", prefillOverhead, "--prefill-time-per-token", prefillPerToken,
 				"--inter-token-latency", interToken,
@@ -40,7 +40,7 @@ var _ = Describe("Check latency calculator", Ordered, func() {
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
-			ttftRes, totalTime := sendCompletionRequestForLatencyTest(client, testModel, testUserMessage, streaming, doRemotePrefill)
+			ttftRes, totalTime := sendCompletionRequestForLatencyTest(client, common.TestModel, testUserMessage, streaming, doRemotePrefill)
 
 			Expect(ttftRes.Milliseconds()).To(BeNumerically(comparator, expectedTTFT))
 			Expect(totalTime.Milliseconds()).To(BeNumerically(comparator, expectedTotal))

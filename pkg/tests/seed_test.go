@@ -32,10 +32,11 @@ var _ = Describe("Simulator with seed", func() {
 		// use a function so that httpClient is captured when running
 		func() {
 			ctx := context.TODO()
-			client, err := startServerWithArgs(ctx, []string{"cmd", "--model", testModel, "--mode", common.ModeRandom, "--seed", "100"})
+			client, err := startServerWithArgs(ctx,
+				[]string{"cmd", "--model", common.TestModel, "--mode", common.ModeRandom, "--seed", "100"})
 			Expect(err).NotTo(HaveOccurred())
 
-			openaiclient, params := getOpenAIClentAndCompletionParams(client, testModel, testUserMessage, false)
+			openaiclient, params := getOpenAIClentAndCompletionParams(client, common.TestModel, testUserMessage, false)
 			params.MaxTokens = openai.Int(10)
 			resp, err := openaiclient.Completions.New(ctx, params)
 			Expect(err).NotTo(HaveOccurred())
@@ -67,7 +68,7 @@ var _ = Describe("Simulator with seed", func() {
 			client, err := startServer(ctx, common.ModeRandom)
 			Expect(err).NotTo(HaveOccurred())
 
-			openaiclient, params := getOpenAIClentAndCompletionParams(client, testModel, testUserMessage, false)
+			openaiclient, params := getOpenAIClentAndCompletionParams(client, common.TestModel, testUserMessage, false)
 			resp, err := openaiclient.Completions.New(ctx, params)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resp.Choices).ShouldNot(BeEmpty())

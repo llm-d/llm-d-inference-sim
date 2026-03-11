@@ -77,7 +77,7 @@ func getRandomFailure(config *common.Configuration, random *common.Random) opena
 	if randomType == common.FailureTypeRateLimit && config.Model != "" {
 		failure.Message = fmt.Sprintf(rateLimitMessageTemplate, config.Model)
 	} else if randomType == common.FailureTypeModelNotFound && config.Model != "" {
-		failure.Message = fmt.Sprintf(modelNotFoundMessageTemplate, config.Model)
+		failure.Message = getModelNotFoundMessage(config.Model)
 	}
 
 	return failure
@@ -85,4 +85,8 @@ func getRandomFailure(config *common.Configuration, random *common.Random) opena
 
 func stringPtr(s string) *string {
 	return &s
+}
+
+func getModelNotFoundMessage(model string) string {
+	return fmt.Sprintf(modelNotFoundMessageTemplate, model)
 }

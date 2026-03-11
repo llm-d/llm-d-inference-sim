@@ -97,9 +97,9 @@ var _ = Describe("Simulator", func() {
 		func(model string, mode string) string {
 			return "model: " + model + " mode: " + mode
 		},
-		Entry(nil, testModel, common.ModeRandom),
-		Entry(nil, testModel, common.ModeEcho),
-		Entry(nil, qwenModelName, common.ModeEcho),
+		Entry(nil, common.TestModel, common.ModeRandom),
+		Entry(nil, common.TestModel, common.ModeEcho),
+		Entry(nil, common.QwenModelName, common.ModeEcho),
 	)
 
 	DescribeTable("text completions streaming",
@@ -147,10 +147,10 @@ var _ = Describe("Simulator", func() {
 		func(model string, mode string) string {
 			return "model: " + model + " mode: " + mode
 		},
-		Entry(nil, testModel, common.ModeRandom),
-		Entry(nil, testModel, common.ModeEcho),
-		Entry(nil, qwenModelName, common.ModeEcho),
-		Entry(nil, qwenModelName, common.ModeRandom),
+		Entry(nil, common.TestModel, common.ModeRandom),
+		Entry(nil, common.TestModel, common.ModeEcho),
+		Entry(nil, common.QwenModelName, common.ModeEcho),
+		Entry(nil, common.QwenModelName, common.ModeRandom),
 	)
 
 	DescribeTable("chat completions",
@@ -214,23 +214,23 @@ var _ = Describe("Simulator", func() {
 			return fmt.Sprintf("model: %s mode: %s max_tokens: %d max_completion_tokens: %d",
 				model, mode, maxTokens, maxCompletionTokens)
 		},
-		Entry(nil, testModel, common.ModeRandom, 2, 0),
-		Entry(nil, testModel, common.ModeEcho, 2, 0),
-		Entry(nil, testModel, common.ModeRandom, 1000, 0),
-		Entry(nil, testModel, common.ModeEcho, 1000, 0),
-		Entry(nil, testModel, common.ModeRandom, 1000, 2),
-		Entry(nil, testModel, common.ModeEcho, 1000, 2),
-		Entry(nil, testModel, common.ModeRandom, 0, 2),
-		Entry(nil, testModel, common.ModeEcho, 0, 2),
-		Entry(nil, testModel, common.ModeRandom, 0, 1000),
-		Entry(nil, testModel, common.ModeEcho, 0, 1000),
-		Entry(nil, testModel, common.ModeRandom, 0, 0),
-		Entry(nil, testModel, common.ModeEcho, 0, 0),
-		Entry(nil, testModel, common.ModeRandom, -1, 0),
-		Entry(nil, testModel, common.ModeEcho, -1, 0),
-		Entry(nil, testModel, common.ModeRandom, 0, -1),
-		Entry(nil, qwenModelName, common.ModeEcho, 1000, 0),
-		Entry(nil, qwenModelName, common.ModeRandom, 1000, 0),
+		Entry(nil, common.TestModel, common.ModeRandom, 2, 0),
+		Entry(nil, common.TestModel, common.ModeEcho, 2, 0),
+		Entry(nil, common.TestModel, common.ModeRandom, 1000, 0),
+		Entry(nil, common.TestModel, common.ModeEcho, 1000, 0),
+		Entry(nil, common.TestModel, common.ModeRandom, 1000, 2),
+		Entry(nil, common.TestModel, common.ModeEcho, 1000, 2),
+		Entry(nil, common.TestModel, common.ModeRandom, 0, 2),
+		Entry(nil, common.TestModel, common.ModeEcho, 0, 2),
+		Entry(nil, common.TestModel, common.ModeRandom, 0, 1000),
+		Entry(nil, common.TestModel, common.ModeEcho, 0, 1000),
+		Entry(nil, common.TestModel, common.ModeRandom, 0, 0),
+		Entry(nil, common.TestModel, common.ModeEcho, 0, 0),
+		Entry(nil, common.TestModel, common.ModeRandom, -1, 0),
+		Entry(nil, common.TestModel, common.ModeEcho, -1, 0),
+		Entry(nil, common.TestModel, common.ModeRandom, 0, -1),
+		Entry(nil, common.QwenModelName, common.ModeEcho, 1000, 0),
+		Entry(nil, common.QwenModelName, common.ModeRandom, 1000, 0),
 	)
 
 	DescribeTable("text completions",
@@ -288,16 +288,16 @@ var _ = Describe("Simulator", func() {
 		func(model string, mode string, maxTokens int) string {
 			return fmt.Sprintf("model: %s mode: %s max_tokens: %d", model, mode, maxTokens)
 		},
-		Entry(nil, testModel, common.ModeRandom, 2),
-		Entry(nil, testModel, common.ModeEcho, 2),
-		Entry(nil, testModel, common.ModeRandom, 1000),
-		Entry(nil, testModel, common.ModeEcho, 1000),
-		Entry(nil, testModel, common.ModeRandom, 0),
-		Entry(nil, testModel, common.ModeEcho, 0),
-		Entry(nil, testModel, common.ModeRandom, -1),
-		Entry(nil, testModel, common.ModeEcho, -1),
-		Entry(nil, qwenModelName, common.ModeEcho, 1000),
-		Entry(nil, qwenModelName, common.ModeRandom, 1000),
+		Entry(nil, common.TestModel, common.ModeRandom, 2),
+		Entry(nil, common.TestModel, common.ModeEcho, 2),
+		Entry(nil, common.TestModel, common.ModeRandom, 1000),
+		Entry(nil, common.TestModel, common.ModeEcho, 1000),
+		Entry(nil, common.TestModel, common.ModeRandom, 0),
+		Entry(nil, common.TestModel, common.ModeEcho, 0),
+		Entry(nil, common.TestModel, common.ModeRandom, -1),
+		Entry(nil, common.TestModel, common.ModeEcho, -1),
+		Entry(nil, common.QwenModelName, common.ModeEcho, 1000),
+		Entry(nil, common.QwenModelName, common.ModeRandom, 1000),
 	)
 
 	Context("namespace and pod headers", func() {
@@ -377,7 +377,7 @@ var _ = Describe("Simulator", func() {
 			client, err := startServerWithEnv(ctx, common.ModeRandom, envs)
 			Expect(err).NotTo(HaveOccurred())
 
-			openaiclient, params := getOpenAIClentAndCompletionParams(client, testModel, testUserMessage, false)
+			openaiclient, params := getOpenAIClentAndCompletionParams(client, common.TestModel, testUserMessage, false)
 			var httpResp *http.Response
 			resp, err := openaiclient.Completions.New(ctx, params, option.WithResponseInto(&httpResp))
 			Expect(err).NotTo(HaveOccurred())
@@ -405,7 +405,7 @@ var _ = Describe("Simulator", func() {
 			client, err := startServerWithEnv(ctx, common.ModeRandom, envs)
 			Expect(err).NotTo(HaveOccurred())
 
-			openaiclient, params := getOpenAIClentAndCompletionParams(client, testModel, testUserMessage, true)
+			openaiclient, params := getOpenAIClentAndCompletionParams(client, common.TestModel, testUserMessage, true)
 			var httpResp *http.Response
 			resp, err := openaiclient.Completions.New(ctx, params, option.WithResponseInto(&httpResp))
 			Expect(err).NotTo(HaveOccurred())
@@ -459,7 +459,7 @@ var _ = Describe("Simulator", func() {
 				client, err := startServer(ctx, mode)
 				Expect(err).NotTo(HaveOccurred())
 
-				openaiclient, params := getOpenAIClientAndChatParams(client, testModel, testUserMessage, true)
+				openaiclient, params := getOpenAIClientAndChatParams(client, common.TestModel, testUserMessage, true)
 				params.Logprobs = param.NewOpt(logprobs)
 				if logprobs && topLogprobs > 0 {
 					params.TopLogprobs = param.NewOpt(int64(topLogprobs))
@@ -524,7 +524,7 @@ var _ = Describe("Simulator", func() {
 				client, err := startServer(ctx, mode)
 				Expect(err).NotTo(HaveOccurred())
 
-				openaiclient, params := getOpenAIClentAndCompletionParams(client, testModel, testUserMessage, true)
+				openaiclient, params := getOpenAIClentAndCompletionParams(client, common.TestModel, testUserMessage, true)
 				if logprobsCount > 0 {
 					params.Logprobs = param.NewOpt(int64(logprobsCount))
 				}
@@ -586,7 +586,7 @@ var _ = Describe("Simulator", func() {
 				var resp interface{}
 
 				if isChat {
-					openaiclient, params := getOpenAIClientAndChatParams(client, testModel, testUserMessage, false)
+					openaiclient, params := getOpenAIClientAndChatParams(client, common.TestModel, testUserMessage, false)
 					if logprobsParam != nil {
 						if logprobs, ok := logprobsParam.(bool); ok && logprobs {
 							params.Logprobs = param.NewOpt(true)
@@ -595,7 +595,7 @@ var _ = Describe("Simulator", func() {
 					}
 					resp, err = openaiclient.Chat.Completions.New(ctx, params)
 				} else {
-					openaiclient, params := getOpenAIClentAndCompletionParams(client, testModel, testUserMessage, false)
+					openaiclient, params := getOpenAIClentAndCompletionParams(client, common.TestModel, testUserMessage, false)
 					if logprobsParam != nil {
 						if logprobsCount, ok := logprobsParam.(int); ok && logprobsCount > 0 {
 							params.Logprobs = param.NewOpt(int64(logprobsCount))
@@ -659,20 +659,20 @@ var _ = Describe("Simulator", func() {
 		It("Should reject requests exceeding context window", func() {
 			ctx := context.TODO()
 			// Start server with max-model-len=10
-			args := []string{"cmd", "--model", testModel, "--mode", common.ModeRandom, "--max-model-len", "10"}
+			args := []string{"cmd", "--model", common.TestModel, "--mode", common.ModeRandom, "--max-model-len", "10"}
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
 			maxTokens := 8
 			prompt := "This is a test message"
-			promptChatTokens := getChatPromptTokensCount(ctx, testModel, prompt)
+			promptChatTokens := getChatPromptTokensCountForTestModel(prompt)
 
 			// Test with raw HTTP to verify the error response format
 			reqBody := fmt.Sprintf(`{
 				"messages": [{"role": "user", "content": "%s"}],
 				"model": "%s",
 				"max_tokens": %d
-			}`, prompt, testModel, maxTokens)
+			}`, prompt, common.TestModel, maxTokens)
 
 			resp, err := client.Post("http://localhost/v1/chat/completions", "application/json", strings.NewReader(reqBody))
 			Expect(err).NotTo(HaveOccurred())
@@ -691,7 +691,7 @@ var _ = Describe("Simulator", func() {
 			Expect(string(body)).To(ContainSubstring("BadRequestError"))
 
 			// Also test with OpenAI client to ensure it gets an error
-			openaiclient, params := getOpenAIClientAndChatParams(client, testModel, prompt, false)
+			openaiclient, params := getOpenAIClientAndChatParams(client, common.TestModel, prompt, false)
 			params.MaxTokens = openai.Int(8)
 
 			_, err = openaiclient.Chat.Completions.New(ctx, params)
@@ -704,11 +704,11 @@ var _ = Describe("Simulator", func() {
 		It("Should accept requests within context window", func() {
 			ctx := context.TODO()
 			// Start server with max-model-len=50
-			args := []string{"cmd", "--model", testModel, "--mode", common.ModeEcho, "--max-model-len", "50"}
+			args := []string{"cmd", "--model", common.TestModel, "--mode", common.ModeEcho, "--max-model-len", "50"}
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
-			openaiclient, params := getOpenAIClientAndChatParams(client, testModel, "Hello", false)
+			openaiclient, params := getOpenAIClientAndChatParams(client, common.TestModel, "Hello", false)
 			params.MaxTokens = openai.Int(5)
 
 			// Send a request within the context window
@@ -716,13 +716,13 @@ var _ = Describe("Simulator", func() {
 
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resp.Choices).To(HaveLen(1))
-			Expect(resp.Model).To(Equal(testModel))
+			Expect(resp.Model).To(Equal(common.TestModel))
 		})
 
 		It("Should handle text completion requests exceeding context window", func() {
 			ctx := context.TODO()
 			// Start server with max-model-len=10
-			args := []string{"cmd", "--model", testModel, "--mode", common.ModeRandom, "--max-model-len", "10"}
+			args := []string{"cmd", "--model", common.TestModel, "--mode", common.ModeRandom, "--max-model-len", "10"}
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -757,7 +757,7 @@ var _ = Describe("Simulator", func() {
 
 			reqBody := `{
             "messages": [{"role": "user", "content": "Hello"}],
-            "model": "` + testModel + `",
+            "model": "` + common.TestModel + `",
             "max_tokens": 5
         }`
 
@@ -840,7 +840,7 @@ var _ = Describe("Simulator", func() {
 		populateCache := func(client *http.Client) {
 			req1 := createCompletionRequest(completionRequestParams{
 				Prompt:    prompt1,
-				Model:     qwenModelName,
+				Model:     common.QwenModelName,
 				MaxTokens: 5,
 			})
 			resp1, err := client.Do(req1)
@@ -850,14 +850,14 @@ var _ = Describe("Simulator", func() {
 		}
 
 		testCacheHitThreshold := func(secondPrompt string, cacheHitThreshold float64, expectCacheThresholdFinishReason bool, checkImmediateResponse bool) {
-			client := setupKVCacheServer(true, nil, qwenModelName)
+			client := setupKVCacheServer(true, nil, common.QwenModelName)
 
 			populateCache(client)
 
 			// Second request: test cache hit threshold
 			req2 := createCompletionRequest(completionRequestParams{
 				Prompt:            secondPrompt,
-				Model:             qwenModelName,
+				Model:             common.QwenModelName,
 				MaxTokens:         5,
 				CacheHitThreshold: &cacheHitThreshold,
 			})
@@ -922,13 +922,13 @@ var _ = Describe("Simulator", func() {
 
 		It("Should return cache_threshold finish reason in streaming response when threshold not met", func() {
 			globalCacheHitThreshold := 0.9
-			client := setupKVCacheServer(true, &globalCacheHitThreshold, qwenModelName)
+			client := setupKVCacheServer(true, &globalCacheHitThreshold, common.QwenModelName)
 
 			populateCache(client)
 
 			req2 := createCompletionRequest(completionRequestParams{
 				Prompt:    prompt2,
-				Model:     qwenModelName,
+				Model:     common.QwenModelName,
 				MaxTokens: 5,
 				Stream:    true,
 			})
@@ -995,14 +995,14 @@ var _ = Describe("Simulator", func() {
 
 		It("Should use global cache hit threshold when request doesn't specify cache_hit_threshold", func() {
 			globalThreshold := 0.9
-			client := setupKVCacheServer(true, &globalThreshold, qwenModelName)
+			client := setupKVCacheServer(true, &globalThreshold, common.QwenModelName)
 
 			populateCache(client)
 
 			// Second request: test global cache hit threshold
 			req2 := createCompletionRequest(completionRequestParams{
 				Prompt:    prompt2,
-				Model:     qwenModelName,
+				Model:     common.QwenModelName,
 				MaxTokens: 5,
 			})
 			startTime := time.Now()
@@ -1035,14 +1035,14 @@ var _ = Describe("Simulator", func() {
 		It("Should use request cache_hit_threshold over global threshold when both are set", func() {
 			// Set global threshold to 1.0 (very high, would fail for any request with < 100% cache hit)
 			globalThreshold := 1.0
-			client := setupKVCacheServer(true, &globalThreshold, qwenModelName)
+			client := setupKVCacheServer(true, &globalThreshold, common.QwenModelName)
 
 			// Request with global threshold 1.0 (would fail with 0% cache hit) but request threshold 0.0
 			// This demonstrates that request threshold takes precedence over global threshold
 			threshold := 0.0
 			req := createCompletionRequest(completionRequestParams{
 				Prompt:            prompt1,
-				Model:             qwenModelName,
+				Model:             common.QwenModelName,
 				MaxTokens:         5,
 				CacheHitThreshold: &threshold,
 			})
@@ -1077,11 +1077,11 @@ var _ = Describe("Simulator", func() {
 		})
 
 		testSimpleRequestWithKVCacheDisabled := func(cacheHitThreshold *float64, globalThreshold *float64) {
-			client := setupKVCacheServer(false, globalThreshold, testModel)
+			client := setupKVCacheServer(false, globalThreshold, common.TestModel)
 
 			req := createCompletionRequest(completionRequestParams{
 				Prompt:            "Hello world",
-				Model:             testModel,
+				Model:             common.TestModel,
 				MaxTokens:         5,
 				CacheHitThreshold: cacheHitThreshold,
 			})
@@ -1126,7 +1126,7 @@ var _ = Describe("Simulator", func() {
 	Context("errors", func() {
 		It("Should return error for invalid model", func() {
 			ctx := context.TODO()
-			args := []string{"cmd", "--model", testModel, "--mode", common.ModeRandom}
+			args := []string{"cmd", "--model", common.TestModel, "--mode", common.ModeRandom}
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -1152,7 +1152,7 @@ var _ = Describe("Simulator", func() {
 
 		It("Should return error for negative MaxCompletionTokens", func() {
 			ctx := context.TODO()
-			args := []string{"cmd", "--model", testModel, "--mode", common.ModeRandom}
+			args := []string{"cmd", "--model", common.TestModel, "--mode", common.ModeRandom}
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -1163,7 +1163,7 @@ var _ = Describe("Simulator", func() {
 				Messages: []openai.ChatCompletionMessageParamUnion{
 					openai.UserMessage(testUserMessage),
 				},
-				Model:               testModel,
+				Model:               common.TestModel,
 				MaxCompletionTokens: openai.Int(-5),
 			}
 
