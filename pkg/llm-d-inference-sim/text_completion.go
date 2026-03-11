@@ -107,10 +107,6 @@ func (t *textCompletionReqCtx) tokenizedPromptForEcho() (*openaiserverapi.Tokeni
 	return t.req.TokenizedPrompt(), nil
 }
 
-func (t *textCompletionReqCtx) getEchoTokens() ([]uint32, []string, error) {
-	return t.sim.Tokenizer.RenderText(t.req.Prompt)
-}
-
 var _ requestContext = (*textCompletionReqCtx)(nil)
 
 // Implementation of responseContext for /completions requests

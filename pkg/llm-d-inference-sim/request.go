@@ -50,7 +50,6 @@ type requestContext interface {
 	responseChannel() common.Channel[*ResponseInfo]
 	tokenizedPromptForEcho() (*openaiserverapi.Tokenized, error)
 	encode() ([]uint32, []string, error)
-	getEchoTokens() ([]uint32, []string, error)
 }
 
 type baseRequestContext struct {

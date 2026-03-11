@@ -77,14 +77,9 @@ spec:
           name: http
           protocol: TCP
         volumeMounts:
-        - name: hf-cache # ?????
-          mountPath: /hf_cache
         - name: uds-socket
           mountPath: /tmp/tokenizer
       volumes:
-      # For tokenizers cache
-      - name: hf-cache
-        emptyDir: {}
       # Shared volume for Unix Domain Socket communication between EPP and UDS tokenizer
       - name: uds-socket
         emptyDir: {}

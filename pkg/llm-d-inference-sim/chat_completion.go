@@ -123,14 +123,6 @@ func (c *chatCompletionReqCtx) createToolCalls() ([]openaiserverapi.ToolCall, in
 	return nil, 0, "", nil
 }
 
-func (c *chatCompletionReqCtx) getEchoTokens() ([]uint32, []string, error) {
-	lastMsg := ""
-	if len(c.req.Messages) > 0 {
-		lastMsg = c.req.Messages[len(c.req.Messages)-1].Content.Raw
-	}
-	return c.sim.Tokenizer.RenderText(lastMsg)
-}
-
 var _ requestContext = (*chatCompletionReqCtx)(nil)
 
 // Implementation of responseContext for /chat/completions requests
