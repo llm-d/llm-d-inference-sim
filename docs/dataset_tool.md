@@ -59,7 +59,7 @@ To run the UDS tokenizer, run the following steps:
 export HF_TOKEN=your_token_here
 ./ds-tool \
   --hf-repo anon8231489123/ShareGPT_Vicuna_unfiltered \
-  --file ShareGPT_V3_unfiltered_cleaned_split.json \
+  --input-file ShareGPT_V3_unfiltered_cleaned_split.json \
   --model meta-llama/Llama-3-8B \
   --output-path ./output \
   --output-file my-dataset \
@@ -70,7 +70,7 @@ export HF_TOKEN=your_token_here
 ```bash
 ./ds-tool \
   --local-path ./data \
-  --file conversations.json \
+  --input-file conversations.json \
   --model meta-llama/Llama-3-8B \
   --output-file local-dataset 
 ```
@@ -80,7 +80,7 @@ export HF_TOKEN=your_token_here
 ./dataset-tool \
   --model meta-llama/Llama-3-8B
   --local-path ./data \
-  --file dataset.json \
+  --input-file dataset.json \
 ```
 
 ## Input Dataset Structure
