@@ -529,16 +529,16 @@ func (s *SimContext) createAndRegisterPrometheus(ctx context.Context) error {
 // setInitialPrometheusMetrics sends the default values to prometheus or
 // the fake metrics if set
 func (s *SimContext) setInitialPrometheusMetrics(cacheConfig *prometheus.GaugeVec) {
+	cacheConfig.WithLabelValues(strconv.Itoa(s.Config.TokenBlockSize), strconv.Itoa(s.Config.KVCacheSize)).Set(1)
+
 	if s.Config.FakeMetrics != nil {
-		s.setInitialFakeMetrics(cacheConfig)
+		s.setInitialFakeMetrics()
 	} else {
 		modelName := s.getDisplayedModelName(s.Config.Model)
 
 		s.metrics.runningRequests.WithLabelValues(modelName).Set(0)
 		s.metrics.waitingRequests.WithLabelValues(modelName).Set(0)
 		s.metrics.kvCacheUsagePercentage.WithLabelValues(modelName).Set(0)
-
-		cacheConfig.WithLabelValues(strconv.Itoa(s.Config.TokenBlockSize), strconv.Itoa(s.Config.KVCacheSize)).Set(1)
 
 		s.metrics.loraInfo.WithLabelValues(
 			strconv.Itoa(s.Config.MaxLoras),

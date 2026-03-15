@@ -28,49 +28,59 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 )
 
-type generator func(g *generatedFakeMetrics, t time.Duration) float64
+type generator func(params *common.FunctionInfo, t time.Duration) float64
 
 type generatedFakeMetrics struct {
-	updateChan chan *common.MetricInfo
-	genFun     generator
-	params     *common.FunctionInfo
-	roundToInt bool
+	updateChan     chan *common.MetricInfo
+	updateChanName string
+	genFun         generator
+	params         *common.FunctionInfo
+	roundToInt     bool
 }
 
-func (s *SimContext) setInitialFakeMetrics(cacheConfig *prometheus.GaugeVec) {
+func (s *SimContext) setInitialFakeMetrics() {
 	modelName := s.getDisplayedModelName(s.Config.Model)
 
 	var nRunningReqs, nWaitingReqs, kvCacheUsage float64
 	if s.Config.FakeMetrics.RunningRequests.IsFunction {
-		s.metrics.generatedFakeMetrics = append(s.metrics.generatedFakeMetrics, generatedFakeMetrics{
-			updateChan: s.metrics.runReqChan,
-			genFun:     mapFun(s.Config.FakeMetrics.RunningRequests.Function.Name),
-			params:     s.Config.FakeMetrics.RunningRequests.Function,
-			roundToInt: true,
-		})
+		genFakeMetric := generatedFakeMetrics{
+			updateChan:     s.metrics.runReqChan,
+			updateChanName: "metrics.runReqChan",
+			genFun:         mapFun(s.Config.FakeMetrics.RunningRequests.Function.Name),
+			params:         s.Config.FakeMetrics.RunningRequests.Function,
+			roundToInt:     true,
+		}
+		s.metrics.generatedFakeMetrics = append(s.metrics.generatedFakeMetrics, genFakeMetric)
+		nRunningReqs = genFakeMetric.genFun(genFakeMetric.params, 0)
 	} else {
 		nRunningReqs = s.Config.FakeMetrics.RunningRequests.FixedValue
 	}
 	s.metrics.runningRequests.WithLabelValues(modelName).Set(nRunningReqs)
 
 	if s.Config.FakeMetrics.WaitingRequests.IsFunction {
-		s.metrics.generatedFakeMetrics = append(s.metrics.generatedFakeMetrics, generatedFakeMetrics{
-			updateChan: s.metrics.waitingReqChan,
-			genFun:     mapFun(s.Config.FakeMetrics.WaitingRequests.Function.Name),
-			params:     s.Config.FakeMetrics.WaitingRequests.Function,
-			roundToInt: true,
-		})
+		genFakeMetric := generatedFakeMetrics{
+			updateChan:     s.metrics.waitingReqChan,
+			updateChanName: "metrics.waitingReqChan",
+			genFun:         mapFun(s.Config.FakeMetrics.WaitingRequests.Function.Name),
+			params:         s.Config.FakeMetrics.WaitingRequests.Function,
+			roundToInt:     true,
+		}
+		s.metrics.generatedFakeMetrics = append(s.metrics.generatedFakeMetrics, genFakeMetric)
+		nWaitingReqs = genFakeMetric.genFun(genFakeMetric.params, 0)
 	} else {
 		nWaitingReqs = s.Config.FakeMetrics.WaitingRequests.FixedValue
 	}
 	s.metrics.waitingRequests.WithLabelValues(modelName).Set(nWaitingReqs)
 
 	if s.Config.FakeMetrics.KVCacheUsagePercentage.IsFunction {
-		s.metrics.generatedFakeMetrics = append(s.metrics.generatedFakeMetrics, generatedFakeMetrics{
-			updateChan: s.metrics.kvCacheUsageChan,
-			genFun:     mapFun(s.Config.FakeMetrics.KVCacheUsagePercentage.Function.Name),
-			params:     s.Config.FakeMetrics.KVCacheUsagePercentage.Function,
-		})
+		genFakeMetric := generatedFakeMetrics{
+			updateChan:     s.metrics.kvCacheUsageChan,
+			updateChanName: "metrics.kvCacheUsageChan",
+			genFun:         mapFun(s.Config.FakeMetrics.KVCacheUsagePercentage.Function.Name),
+			params:         s.Config.FakeMetrics.KVCacheUsagePercentage.Function,
+		}
+		s.metrics.generatedFakeMetrics = append(s.metrics.generatedFakeMetrics, genFakeMetric)
+		kvCacheUsage = genFakeMetric.genFun(genFakeMetric.params, 0)
 	} else {
 		kvCacheUsage = s.Config.FakeMetrics.KVCacheUsagePercentage.FixedValue
 	}
@@ -142,8 +152,6 @@ func (s *SimContext) setInitialFakeMetrics(cacheConfig *prometheus.GaugeVec) {
 		s.metrics.prefixCacheHits.WithLabelValues(modelName).Add(float64(*s.Config.FakeMetrics.PrefixCacheHits))
 	}
 
-	cacheConfig.WithLabelValues(strconv.Itoa(s.Config.TokenBlockSize), strconv.Itoa(s.Config.KVCacheSize)).Set(1)
-
 	if len(s.Config.FakeMetrics.LoraMetrics) != 0 {
 		for _, metrics := range s.Config.FakeMetrics.LoraMetrics {
 			s.metrics.loraInfo.WithLabelValues(
@@ -163,12 +171,12 @@ func (s *SimContext) setInitialFakeMetrics(cacheConfig *prometheus.GaugeVec) {
 
 func (s *SimContext) updateFakeMetrics() {
 	start := time.Now()
-	ticker := time.NewTicker(100 * time.Millisecond)
+	ticker := time.NewTicker(s.Config.FakeMetricsRefreshInterval)
 	defer ticker.Stop()
 	for range ticker.C {
 		t := time.Since(start)
 		for _, metric := range s.metrics.generatedFakeMetrics {
-			value := metric.genFun(&metric, t)
+			value := metric.genFun(metric.params, t)
 			if metric.roundToInt {
 				rounded := int64(value)
 				value = float64(rounded)
@@ -177,7 +185,7 @@ func (s *SimContext) updateFakeMetrics() {
 				Value:  value,
 				IsFake: true,
 			}
-			common.WriteToChannel(metric.updateChan, &update, s.logger, "fake metric")
+			common.WriteToChannel(metric.updateChan, &update, s.logger, metric.updateChanName)
 		}
 	}
 }
@@ -197,50 +205,43 @@ func mapFun(name string) generator {
 }
 
 // oscillate: generates a smooth sine-wave between min and max over each period
-func oscillate(g *generatedFakeMetrics, t time.Duration) float64 {
-	phase := (2 * math.Pi * t.Seconds()) / g.params.Period.Seconds()
-	amp := (g.params.Max - g.params.Min) / 2
-	mid := (g.params.Min + g.params.Max) / 2
+func oscillate(params *common.FunctionInfo, t time.Duration) float64 {
+	phase := (2 * math.Pi * t.Seconds()) / params.Period.Seconds()
+	amp := (params.End - params.Start) / 2
+	mid := (params.Start + params.End) / 2
 	return mid + amp*math.Sin(phase)
 }
 
 // ramp returns a value that ramps from min to max over period, then stays at max
-func ramp(g *generatedFakeMetrics, t time.Duration) float64 {
-	if g.params.Period <= 0 {
-		return g.params.Min
-	}
-	frac := t.Seconds() / g.params.Period.Seconds() // 0..∞
+func ramp(params *common.FunctionInfo, t time.Duration) float64 {
+	frac := t.Seconds() / params.Period.Seconds() // 0..∞
 	if frac >= 1 {
-		return g.params.Max
+		return params.End
 	}
-	return g.params.Min + frac*(g.params.Max-g.params.Min)
+	return params.Start + frac*(params.End-params.Start)
 }
 
 // rampWithReset returns a value in [min,max] that ramps linearly and resets every period
-func rampWithReset(g *generatedFakeMetrics, t time.Duration) float64 {
-	if g.params.Period <= 0 {
-		return g.params.Min
-	}
-
+func rampWithReset(params *common.FunctionInfo, t time.Duration) float64 {
 	// elapsed within current period in seconds (0..period)
-	elapsedSec := (t % g.params.Period).Seconds()
-	periodSec := g.params.Period.Seconds()
+	elapsedSec := (t % params.Period).Seconds()
+	periodSec := params.Period.Seconds()
 	frac := elapsedSec / periodSec // in [0,1]
 	if frac > 1 {
 		frac = 1
 	}
-	return g.params.Min + frac*(g.params.Max-g.params.Min)
+	return params.Start + frac*(params.End-params.Start)
 }
 
 // squarewave alternates between min and max, staying at each level for half of the period
-func squarewave(g *generatedFakeMetrics, t time.Duration) float64 {
+func squarewave(params *common.FunctionInfo, t time.Duration) float64 {
 	// Time within current period
-	within := t % g.params.Period
-	half := g.params.Period / 2
+	within := t % params.Period
+	half := params.Period / 2
 	if within < half {
-		return g.params.Min
+		return params.Start
 	}
-	return g.params.Max
+	return params.End
 }
 
 // initFakeHistogram initializes the given histogram values based on the input

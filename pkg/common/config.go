@@ -210,6 +210,9 @@ type Configuration struct {
 	// FakeMetrics is a set of metrics to send to Prometheus instead of the real data
 	FakeMetrics *FakeMetrics `yaml:"fake-metrics" json:"fake-metrics"`
 
+	// FakeMetricsRefreshInterval defines how often function-based fake metrics are recalculated, defaults to 100ms
+	FakeMetricsRefreshInterval time.Duration `yaml:"fake-metrics-refresh-interval" json:"fake-metrics-refresh-interval"`
+
 	// FailureInjectionRate is the probability (0-100) of injecting failures
 	FailureInjectionRate int `yaml:"failure-injection-rate" json:"failure-injection-rate"`
 	// FailureTypes is a list of specific failure types to inject (empty means all types)
@@ -328,6 +331,7 @@ func newConfig() *Configuration {
 		TokenizersCacheDir:         "hf_cache",
 		DatasetTableName:           DefaultDSTableName,
 		DefaultEmbeddingDimensions: 384,
+		FakeMetricsRefreshInterval: 100 * time.Millisecond,
 	}
 }
 
@@ -514,8 +518,11 @@ func (c *Configuration) validate() error {
 	}
 
 	if c.FakeMetrics != nil {
-		if err := c.validateFakeMetrics(); err != nil {
+		if err := c.FakeMetrics.validate(); err != nil {
 			return err
+		}
+		if c.FakeMetricsRefreshInterval <= 0 {
+			return errors.New("fake metrics refresh interval must be positive")
 		}
 	}
 
@@ -666,6 +673,9 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 
 	f.IntVar(&config.DefaultEmbeddingDimensions, "default-embedding-dimensions", config.DefaultEmbeddingDimensions,
 		"Default size of embedding vectors when the request does not specify dimensions (used by /v1/embeddings)")
+
+	f.DurationVar(&config.FakeMetricsRefreshInterval, "fake-metrics-refresh-interval", config.FakeMetricsRefreshInterval,
+		"Defines how often function-based fake metrics are recalculated, defaults to 100ms")
 
 	// These values were manually parsed above in getParamValueFromArgs, we leave this in order to get these flags in --help
 	var dummyString string

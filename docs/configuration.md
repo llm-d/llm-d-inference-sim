@@ -89,13 +89,14 @@ All latency-related parameters are defined in duration format, e.g., 100ms. Inte
 
 ## Fake metrics
 - `fake-metrics`: represents a predefined set of metrics to be sent to Prometheus as a substitute for the real metrics. When specified, only these fake metrics will be reported — real metrics and fake metrics will never be reported together. The set may include values for:
-    - `running-requests` - can be either a fixed number or a generator function that produces fake metric values over time, using the parameters min, max, and period. Supported functions are:
-      - oscillate: Generates a smooth sine-wave between min and max over each period.
-      - ramp: Increases linearly from min to max over one period and then stays at max.
-      - rampreset: Increases linearly from min to max over each period, then jumps back to min and repeats.
-      - squarewave: Alternates between min and max, staying at each level for half of the period.
+    - `running-requests` - can be either a fixed number or a generator function that produces fake metric values over time, using the parameters start, end, and period. Supported functions are:
+      - oscillate: Generates a smooth sine-wave between start and end over each period.
+      - ramp: Interpolates linearly from start to end over one period and then stays at end.
+      - rampreset: Interpolates linearly from start to end over each period, then jumps back to start and repeats.
+      - squarewave: Alternates between start and end, staying at each level for half of the period.
 
-      The configuration format is: fun:min:max:period, for example: oscillate:0:10:5s.
+      The configuration format is: fun:start:end:period, for example: ramp:10:0:5s or oscillate:0:10:5s.
+
     - `waiting-requests` - similar to `running-requests`.
     - `kv-cache-usage` - similar to `running-requests`.
     - `loras` - an array containing LoRA information objects, each with the fields: `running` (a comma-separated list of LoRAs in use by running requests), `waiting` (a comma-separated list of LoRAs to be used by waiting requests), and `timestamp` (seconds since Jan 1 1970, the timestamp of this metric). 
@@ -119,6 +120,8 @@ All latency-related parameters are defined in duration format, e.g., 100ms. Inte
     <br>
     **Example:**<br>
       --fake-metrics '{"running-requests":"oscillate:0:10:5s","waiting-requests":30,"kv-cache-usage":0.4,"loras":[{"running":"lora4,lora2","waiting":"lora3","timestamp":1257894567},{"running":"lora4,lora3","waiting":"","timestamp":1257894569}]}'
+- `fake-metrics-refresh-interval`	- defines how often function-based fake metrics are recalculated, the default value is 100ms.
+
 
 ## Klog
 In addition, as we are using klog, the following parameters are available:

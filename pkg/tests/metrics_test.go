@@ -827,14 +827,14 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 			args := []string{"cmd", "--model", testModel, "--mode", common.ModeRandom,
 				"--fake-metrics",
 				`{` +
-					`"kv-cache-usage":"rampreset:0:1:550ms"` +
+					`"kv-cache-usage":"rampreset:1:0:550ms"` +
 					`}`,
 			}
 
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
-			var prevKVCacheUsage float64
+			prevKVCacheUsage := float64(1)
 			for i := 1; i <= 5; i++ {
 				time.Sleep(200 * time.Millisecond)
 				resp, err := client.Get(metricsUrl)
@@ -846,15 +846,17 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 				metrics := string(data)
 				metricsLines := strings.Split(metrics, "\n")
 
-				// KV cache usage: should grow from 0 towards 1, and reset at 550ms (i=3)
+				// KV cache usage: should decrease from 1 towards 0, and reset at 550ms (i=3)
 				kvCacheUsage := findFloatMetric(metricsLines, getCountMetricPrefix(testModel, vllmsim.KVCacheUsageMetricName))
 				Expect(kvCacheUsage).ToNot(BeNil())
 				if i != 3 {
-					Expect(*kvCacheUsage).To(BeNumerically("<", 1))
-					Expect(*kvCacheUsage).To(BeNumerically(">", prevKVCacheUsage))
-				} else {
-					Expect(*kvCacheUsage).To(BeNumerically("<", 1))
+					Expect(*kvCacheUsage).To(BeNumerically("<=", 1))
+					Expect(*kvCacheUsage).To(BeNumerically(">=", 0))
 					Expect(*kvCacheUsage).To(BeNumerically("<", prevKVCacheUsage))
+				} else {
+					Expect(*kvCacheUsage).To(BeNumerically("<=", 1))
+					Expect(*kvCacheUsage).To(BeNumerically(">=", 0))
+					Expect(*kvCacheUsage).To(BeNumerically(">", prevKVCacheUsage))
 				}
 				prevKVCacheUsage = *kvCacheUsage
 			}

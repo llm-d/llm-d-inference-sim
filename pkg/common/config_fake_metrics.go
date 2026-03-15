@@ -40,13 +40,13 @@ type FakeMetrics struct {
 	LorasString []string       `yaml:"loras"`
 
 	// The fake metrics of type FakeMetricWithFunction can be either a fixed number or a generator
-	// function that produces fake metric values over time, using the parameters min, max, and period.
+	// function that produces fake metric values over time, using the parameters start, end, and period.
 	// Supported functions are:
-	//  - oscillate: Generates a smooth sine-wave between min and max over each period.
-	//  - ramp: Increases linearly from min to max over one period and then stays at max.
-	//  - rampreset: Increases linearly from min to max over each period, then jumps back to min and repeats.
-	//  - squarewave: Alternates between min and max, staying at each level for half of the period.
-	// The configuration format is: fun:min:max:period, for example: oscillate:0:10:5s.
+	//  - oscillate: Generates a smooth sine-wave between start and end over each period.
+	//  - ramp: Interpolates linearly from start to end over one period and then stays at end.
+	//  - rampreset: Interpolates linearly from start to end over each period, then jumps back to start and repeats.
+	//  - squarewave: Alternates between start and end, staying at each level for half of the period.
+	// The configuration format is: fun:start:end:period, for example: ramp:10:0:5s or oscillate:0:10:5s.
 
 	// RunningRequests is the number of inference requests that are currently being processed
 	RunningRequests FakeMetricWithFunction `yaml:"running-requests" json:"running-requests"`
@@ -118,20 +118,20 @@ type FakeMetricWithFunction struct {
 
 type FunctionInfo struct {
 	Name   string
-	Min    float64
-	Max    float64
+	Start  float64
+	End    float64
 	Period time.Duration
 }
 
 func parseFunc(parts []string) (*FunctionInfo, error) {
 	if len(parts) != 4 {
-		return nil, errors.New("need func:min:max:period in fake metric generation function")
+		return nil, errors.New("need func:start:end:period in fake metric generation function")
 	}
-	min, err := strconv.ParseFloat(parts[1], 64)
+	start, err := strconv.ParseFloat(parts[1], 64)
 	if err != nil {
 		return nil, err
 	}
-	max, err := strconv.ParseFloat(parts[2], 64)
+	end, err := strconv.ParseFloat(parts[2], 64)
 	if err != nil {
 		return nil, err
 	}
@@ -139,7 +139,7 @@ func parseFunc(parts []string) (*FunctionInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &FunctionInfo{Name: parts[0], Min: min, Max: max, Period: period}, nil
+	return &FunctionInfo{Name: parts[0], Start: start, End: end, Period: period}, nil
 }
 
 func (f *FakeMetricWithFunction) parseFunction(s string) error {
@@ -213,51 +213,51 @@ func (c *Configuration) unmarshalLoraFakeMetrics() error {
 	return nil
 }
 
-func (c *Configuration) validateFakeMetrics() error {
-	if c.FakeMetrics.RunningRequests.FixedValue < 0 || c.FakeMetrics.WaitingRequests.FixedValue < 0 {
+func (f *FakeMetrics) validate() error {
+	if f.RunningRequests.FixedValue < 0 || f.WaitingRequests.FixedValue < 0 {
 		return errors.New("fake metrics request counters cannot be negative")
 	}
-	if c.FakeMetrics.KVCacheUsagePercentage.FixedValue < 0 || c.FakeMetrics.KVCacheUsagePercentage.FixedValue > 1 {
+	if f.KVCacheUsagePercentage.FixedValue < 0 || f.KVCacheUsagePercentage.FixedValue > 1 {
 		return errors.New("fake metrics KV cache usage must be between 0 and 1")
 	}
-	if err := validateFakeMetricFunction(c.FakeMetrics.RunningRequests.Function); err != nil {
+	if err := f.RunningRequests.Function.validate(); err != nil {
 		return err
 	}
-	if err := validateFakeMetricFunction(c.FakeMetrics.WaitingRequests.Function); err != nil {
+	if err := f.WaitingRequests.Function.validate(); err != nil {
 		return err
 	}
-	if err := validateFakeMetricFunction(c.FakeMetrics.KVCacheUsagePercentage.Function); err != nil {
+	if err := f.KVCacheUsagePercentage.Function.validate(); err != nil {
 		return err
 	}
-	if c.FakeMetrics.KVCacheUsagePercentage.IsFunction {
-		if c.FakeMetrics.KVCacheUsagePercentage.Function.Min < 0 || c.FakeMetrics.KVCacheUsagePercentage.Function.Min > 1 ||
-			c.FakeMetrics.KVCacheUsagePercentage.Function.Max < 0 || c.FakeMetrics.KVCacheUsagePercentage.Function.Max > 1 {
-			return errors.New("fake metrics KV cache usage min and max must be between 0 and 1")
+	if f.KVCacheUsagePercentage.IsFunction {
+		if f.KVCacheUsagePercentage.Function.Start < 0 || f.KVCacheUsagePercentage.Function.Start > 1 ||
+			f.KVCacheUsagePercentage.Function.End < 0 || f.KVCacheUsagePercentage.Function.End > 1 {
+			return errors.New("fake metrics KV cache usage start and end must be between 0 and 1")
 		}
 	}
 
-	if c.FakeMetrics.TTFTBucketValues != nil {
-		if len(c.FakeMetrics.TTFTBucketValues) > len(TTFTBucketsBoundaries)+1 {
+	if f.TTFTBucketValues != nil {
+		if len(f.TTFTBucketValues) > len(TTFTBucketsBoundaries)+1 {
 			return errors.New("fake time-to-first-token array is too long")
 		}
-		for _, v := range c.FakeMetrics.TTFTBucketValues {
+		for _, v := range f.TTFTBucketValues {
 			if v < 0 {
 				return errors.New("time-to-first-token fake metrics should contain only non-negative values")
 			}
 		}
 	}
-	if c.FakeMetrics.TPOTBucketValues != nil {
-		if len(c.FakeMetrics.TPOTBucketValues) > len(TPOTBucketsBoundaries)+1 {
+	if f.TPOTBucketValues != nil {
+		if len(f.TPOTBucketValues) > len(TPOTBucketsBoundaries)+1 {
 			return errors.New("fake time-per-output-token array is too long")
 		}
-		for _, v := range c.FakeMetrics.TPOTBucketValues {
+		for _, v := range f.TPOTBucketValues {
 			if v < 0 {
 				return errors.New("time-per-output-token fake metrics should contain only non-negative values")
 			}
 		}
 	}
-	if c.FakeMetrics.RequestSuccessTotal != nil {
-		for reason, count := range c.FakeMetrics.RequestSuccessTotal {
+	if f.RequestSuccessTotal != nil {
+		for reason, count := range f.RequestSuccessTotal {
 			if count < 0 {
 				return fmt.Errorf("fake metrics request-success-total.%s "+
 					"cannot be negative, got %d", reason, count)
@@ -268,75 +268,75 @@ func (c *Configuration) validateFakeMetrics() error {
 			}
 		}
 		for _, reason := range requiredFinishReasons {
-			if _, exists := c.FakeMetrics.RequestSuccessTotal[reason]; !exists {
-				c.FakeMetrics.RequestSuccessTotal[reason] = 0
+			if _, exists := f.RequestSuccessTotal[reason]; !exists {
+				f.RequestSuccessTotal[reason] = 0
 			}
 		}
 	}
-	for _, v := range c.FakeMetrics.RequestPromptTokens {
+	for _, v := range f.RequestPromptTokens {
 		if v < 0 {
 			return errors.New("fake metrics request-prompt-tokens cannot contain negative values")
 		}
 	}
-	for _, v := range c.FakeMetrics.RequestGenerationTokens {
+	for _, v := range f.RequestGenerationTokens {
 		if v < 0 {
 			return errors.New("fake metrics request-generation-tokens cannot contain negative values")
 		}
 	}
-	for _, v := range c.FakeMetrics.RequestParamsMaxTokens {
+	for _, v := range f.RequestParamsMaxTokens {
 		if v < 0 {
 			return errors.New("fake metrics request-params-max-tokens cannot contain negative values")
 		}
 	}
-	for _, v := range c.FakeMetrics.RequestMaxGenerationTokens {
+	for _, v := range f.RequestMaxGenerationTokens {
 		if v < 0 {
 			return errors.New("fake metrics request-max-generation-tokens cannot contain negative values")
 		}
 	}
 
-	for _, v := range c.FakeMetrics.E2ERequestLatencyBucketValues {
+	for _, v := range f.E2ERequestLatencyBucketValues {
 		if v < 0 {
 			return errors.New("fake metrics e2erl-buckets-values cannot contain negative values")
 		}
 	}
-	for _, v := range c.FakeMetrics.ReqQueueTimeBucketValues {
+	for _, v := range f.ReqQueueTimeBucketValues {
 		if v < 0 {
 			return errors.New("fake metrics queue-time-buckets-values cannot contain negative values")
 		}
 	}
-	for _, v := range c.FakeMetrics.ReqInfTimeBucketValues {
+	for _, v := range f.ReqInfTimeBucketValues {
 		if v < 0 {
 			return errors.New("fake metrics inf-time-buckets-values cannot contain negative values")
 		}
 	}
-	for _, v := range c.FakeMetrics.ReqPrefillTimeBucketValues {
+	for _, v := range f.ReqPrefillTimeBucketValues {
 		if v < 0 {
 			return errors.New("fake metrics prefill-time-buckets-values cannot contain negative values")
 		}
 	}
-	for _, v := range c.FakeMetrics.ReqDecodeTimeBucketValues {
+	for _, v := range f.ReqDecodeTimeBucketValues {
 		if v < 0 {
 			return errors.New("fake metrics decode-time-buckets-values cannot contain negative values")
 		}
 	}
-	if c.FakeMetrics.PrefixCacheHits != nil && *c.FakeMetrics.PrefixCacheHits < 0 {
+	if f.PrefixCacheHits != nil && *f.PrefixCacheHits < 0 {
 		return errors.New("fake metrics prefix-cache-hits cannot be negative")
 	}
-	if c.FakeMetrics.PrefixCacheQueries != nil && *c.FakeMetrics.PrefixCacheQueries < 0 {
+	if f.PrefixCacheQueries != nil && *f.PrefixCacheQueries < 0 {
 		return errors.New("fake metrics prefix-cache-queries cannot be negative")
 	}
-	if (c.FakeMetrics.PrefixCacheHits == nil) != (c.FakeMetrics.PrefixCacheQueries == nil) {
+	if (f.PrefixCacheHits == nil) != (f.PrefixCacheQueries == nil) {
 		return errors.New("fake metrics prefix-cache-hits and prefix-cache-queries must be specified together")
 	}
-	if c.FakeMetrics.PrefixCacheHits != nil && c.FakeMetrics.PrefixCacheQueries != nil &&
-		*c.FakeMetrics.PrefixCacheHits > *c.FakeMetrics.PrefixCacheQueries {
+	if f.PrefixCacheHits != nil && f.PrefixCacheQueries != nil &&
+		*f.PrefixCacheHits > *f.PrefixCacheQueries {
 		return errors.New("fake metrics prefix-cache-hits cannot exceed prefix-cache-queries")
 	}
 
 	return nil
 }
 
-func validateFakeMetricFunction(g *FunctionInfo) error {
+func (g *FunctionInfo) validate() error {
 	if g == nil {
 		return nil
 	}
@@ -344,11 +344,11 @@ func validateFakeMetricFunction(g *FunctionInfo) error {
 		return fmt.Errorf("invalid fake metrics generation function %s, must be one of the following: %s, %s, %s, %s",
 			g.Name, OscillateFuncName, RampFuncName, RampWithResetFuncName, SquarewaveFuncName)
 	}
-	if g.Max < 0 || g.Min < 0 || g.Period < 0 {
-		return errors.New("invalid fake metrics generation parameter: max, min and period must be positive")
+	if g.End < 0 || g.Start < 0 || g.Period < 0 {
+		return errors.New("invalid fake metrics generation parameter: start and end must not be negative")
 	}
-	if g.Max < g.Min {
-		return errors.New("invalid fake metrics generation parameter: min is greater than max")
+	if g.Period <= 0 {
+		return errors.New("invalid fake metrics generation parameter: period must be positive")
 	}
 	return nil
 }
