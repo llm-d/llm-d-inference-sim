@@ -24,7 +24,7 @@ import (
 // constants
 const (
 	QwenModelName = "Qwen/Qwen2-0.5B"
-	TestModel     = "testmodel"
+	TestModelName = "testmodel"
 )
 
 // CreateSub creates a ZMQ sub, subscribes to the provided topic, and returns the

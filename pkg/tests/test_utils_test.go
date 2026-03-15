@@ -98,7 +98,7 @@ func startServerHelper(ctx context.Context, mode string, args []string, envs map
 	if args != nil {
 		os.Args = args
 	} else {
-		os.Args = []string{"cmd", "--model", common.TestModel, "--mode", mode}
+		os.Args = []string{"cmd", "--model", common.TestModelName, "--mode", mode}
 	}
 
 	if envs != nil {
@@ -127,11 +127,11 @@ func startServerHelper(ctx context.Context, mode string, args []string, envs map
 	}
 	s.Context.Config = config
 
-	gomega.Expect(config.Model).To(gomega.BeElementOf(common.TestModel, common.QwenModelName))
-	if config.Model == common.TestModel {
+	gomega.Expect(config.Model).To(gomega.BeElementOf(common.TestModelName, common.QwenModelName))
+	if config.Model == common.TestModelName {
 		s.Context.Tokenizer = tokenizerMngr.TestTokenizer()
 	} else {
-		s.Context.Tokenizer = tokenizerMngr.QwenTokenizer()
+		s.Context.Tokenizer = tokenizerMngr.RealTokenizer()
 	}
 
 	// calculate number of tokens for user message,
@@ -193,9 +193,9 @@ func startServerForLatencyTest(modelName string, ttft int, prefillTimePerToken i
 
 func singleRequestLatencyTest(ttft int, prefillTimePerToken int, interTokenLatency int, kvcacheTransferLatency int,
 	kvCacheTransferTimePerToken int, isStreaming bool, numOfTokens int, doRemotePrefill bool) {
-	client := startServerForLatencyTest(common.TestModel, ttft, prefillTimePerToken, interTokenLatency, kvcacheTransferLatency, kvCacheTransferTimePerToken)
-	sendCompletionRequestForLatencyTest(client, common.TestModel, testUserMessage, isStreaming, doRemotePrefill)
-	checkLatencyMetrics(client, common.TestModel, numOfTokens, numOfTokens, ttft, prefillTimePerToken, interTokenLatency, kvcacheTransferLatency,
+	client := startServerForLatencyTest(common.TestModelName, ttft, prefillTimePerToken, interTokenLatency, kvcacheTransferLatency, kvCacheTransferTimePerToken)
+	sendCompletionRequestForLatencyTest(client, common.TestModelName, testUserMessage, isStreaming, doRemotePrefill)
+	checkLatencyMetrics(client, common.TestModelName, numOfTokens, numOfTokens, ttft, prefillTimePerToken, interTokenLatency, kvcacheTransferLatency,
 		kvCacheTransferTimePerToken, doRemotePrefill)
 
 }
@@ -243,7 +243,7 @@ func sendSimpleChatRequest(envs map[string]string, streaming bool) *http.Respons
 	client, err := startServerWithEnv(ctx, common.ModeRandom, envs)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	openaiclient, params := getOpenAIClientAndChatParams(client, common.TestModel, testUserMessage, streaming)
+	openaiclient, params := getOpenAIClientAndChatParams(client, common.TestModelName, testUserMessage, streaming)
 	var httpResp *http.Response
 	resp, err := openaiclient.Chat.Completions.New(ctx, params, option.WithResponseInto(&httpResp))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())

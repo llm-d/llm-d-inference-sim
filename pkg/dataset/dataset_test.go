@@ -25,7 +25,6 @@ import (
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
-	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -35,24 +34,20 @@ func createDataset() *DefaultDataset {
 	ds := DefaultDataset{}
 	ctx := context.Background()
 	logger := log.FromContext(ctx)
-	tokenizer, err := tokenizer.New(ctx, &common.Configuration{Model: common.TestModel}, logger)
-	Expect(err).ShouldNot(HaveOccurred())
-	err = ds.Init(context.Background(), logger, common.NewRandom(time.Now().UnixNano(), 8080), 1024, tokenizer)
+	err := ds.Init(context.Background(), logger, common.NewRandom(time.Now().UnixNano(), 8080), 1024, tokenizerMngr.TestTokenizer())
 	Expect(err).ShouldNot(HaveOccurred())
 
 	return &ds
 }
 
 var _ = Describe("Default Dataset", Ordered, func() {
-	var (
-		dataset *DefaultDataset
-	)
+	var dataset *DefaultDataset
 
-	BeforeEach(func() {
+	BeforeAll(func() {
 		dataset = createDataset()
 	})
 
-	AfterEach(func() {
+	AfterAll(func() {
 		err := dataset.Close()
 		Expect(err).ShouldNot(HaveOccurred())
 	})
@@ -305,7 +300,13 @@ var _ = Describe("cumulativeBucketsProbabilities", Ordered, func() {
 		end   int
 	}
 
-	dataset := createDataset()
+	var (
+		dataset *DefaultDataset
+	)
+
+	BeforeAll(func() {
+		dataset = createDataset()
+	})
 
 	DescribeTable("calcBucketBoundaries",
 		func(maxTokens int, expectedBuckets []bucketBoundaries) {

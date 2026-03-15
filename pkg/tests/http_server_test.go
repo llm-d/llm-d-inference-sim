@@ -123,7 +123,7 @@ var _ = Describe("Server", func() {
 			certFile, keyFile, err := communication.GenerateTempCerts(tempDir)
 			Expect(err).NotTo(HaveOccurred())
 
-			args := []string{"cmd", "--model", common.TestModel, "--mode", common.ModeRandom,
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
 				"--ssl-certfile", certFile, "--ssl-keyfile", keyFile}
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
@@ -134,7 +134,7 @@ var _ = Describe("Server", func() {
 		})
 
 		It("Should start HTTPS server with self-signed certificates", func(ctx SpecContext) {
-			args := []string{"cmd", "--model", common.TestModel, "--mode", common.ModeRandom, "--self-signed-certs"}
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom, "--self-signed-certs"}
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -148,7 +148,7 @@ var _ = Describe("Server", func() {
 	Context("request ID headers", func() {
 		testRequestIDHeader := func(enableRequestID bool, endpoint, reqBody, inputRequestID string, expectRequestID *string, validateBody func([]byte)) {
 			ctx := context.TODO()
-			args := []string{"cmd", "--model", common.TestModel, "--mode", common.ModeEcho}
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho}
 			if enableRequestID {
 				args = append(args, "--enable-request-id-headers")
 			}
@@ -198,7 +198,7 @@ var _ = Describe("Server", func() {
 			Entry("includes X-Request-Id when enabled",
 				true,
 				"/v1/chat/completions",
-				`{"messages": [{"role": "user", "content": "Hello"}], "model": "`+common.TestModel+`", "max_tokens": 5}`,
+				`{"messages": [{"role": "user", "content": "Hello"}], "model": "`+common.TestModelName+`", "max_tokens": 5}`,
 				"test-request-id-123",
 				ptr("test-request-id-123"),
 				nil,
@@ -206,7 +206,7 @@ var _ = Describe("Server", func() {
 			Entry("excludes X-Request-Id when disabled",
 				false,
 				"/v1/chat/completions",
-				`{"messages": [{"role": "user", "content": "Hello"}], "model": "`+common.TestModel+`", "max_tokens": 5}`,
+				`{"messages": [{"role": "user", "content": "Hello"}], "model": "`+common.TestModelName+`", "max_tokens": 5}`,
 				"test-request-id-456",
 				nil,
 				nil,
@@ -214,7 +214,7 @@ var _ = Describe("Server", func() {
 			Entry("includes X-Request-Id in streaming response",
 				true,
 				"/v1/chat/completions",
-				`{"messages": [{"role": "user", "content": "Hello"}], "model": "`+common.TestModel+`", "max_tokens": 5, "stream": true}`,
+				`{"messages": [{"role": "user", "content": "Hello"}], "model": "`+common.TestModelName+`", "max_tokens": 5, "stream": true}`,
 				"test-streaming-789",
 				ptr("test-streaming-789"),
 				nil,
@@ -222,7 +222,7 @@ var _ = Describe("Server", func() {
 			Entry("works with text completions endpoint",
 				true,
 				"/v1/completions",
-				`{"prompt": "Hello world", "model": "`+common.TestModel+`", "max_tokens": 5}`,
+				`{"prompt": "Hello world", "model": "`+common.TestModelName+`", "max_tokens": 5}`,
 				"text-request-111",
 				ptr("text-request-111"),
 				nil,
@@ -230,7 +230,7 @@ var _ = Describe("Server", func() {
 			Entry("generates UUID when no request ID provided",
 				true,
 				"/v1/chat/completions",
-				`{"messages": [{"role": "user", "content": "Hello"}], "model": "`+common.TestModel+`", "max_tokens": 5}`,
+				`{"messages": [{"role": "user", "content": "Hello"}], "model": "`+common.TestModelName+`", "max_tokens": 5}`,
 				"",
 				ptr(""),
 				nil,
@@ -238,7 +238,7 @@ var _ = Describe("Server", func() {
 			Entry("uses request ID in response body ID field",
 				true,
 				"/v1/chat/completions",
-				`{"messages": [{"role": "user", "content": "Hello"}], "model": "`+common.TestModel+`", "max_tokens": 5}`,
+				`{"messages": [{"role": "user", "content": "Hello"}], "model": "`+common.TestModelName+`", "max_tokens": 5}`,
 				"body-test-999",
 				ptr("body-test-999"),
 				func(body []byte) {

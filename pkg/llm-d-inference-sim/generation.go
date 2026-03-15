@@ -76,9 +76,9 @@ func (g *generationReqCtx) tokenizedPromptForEcho() (*openaiserverapi.Tokenized,
 }
 
 func (g *generationReqCtx) encode() ([]uint32, []string, error) {
-	tokenisedPrompt := g.req.TokenizedPrompt()
-	if tokenisedPrompt != nil {
-		return tokenisedPrompt.Tokens, tokenisedPrompt.Strings, nil
+	tokenizedPrompt := g.req.TokenizedPrompt()
+	if tokenizedPrompt != nil {
+		return tokenizedPrompt.Tokens, tokenizedPrompt.Strings, nil
 	}
 	return g.sim.Tokenizer.RenderText(g.req.Prompt)
 }

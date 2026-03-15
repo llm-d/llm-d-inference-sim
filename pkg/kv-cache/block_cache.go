@@ -139,7 +139,7 @@ func (bc *blockCache) startRequest(requestID string, blockHashes []kvblock.Block
 	}
 
 	if len(blockHashes) != len(blockTokens) {
-		return 0, fmt.Errorf("invlaid input parameters, %d block hashes, %d block tokens", len(blockHashes), len(blockTokens))
+		return 0, fmt.Errorf("invalid input parameters, %d block hashes, %d block tokens", len(blockHashes), len(blockTokens))
 	}
 
 	// divide list of blocks to three lists:

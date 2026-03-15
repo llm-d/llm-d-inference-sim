@@ -74,7 +74,7 @@ func (st *SimpleTokenizer) tokenize(input string) ([]uint32, []string, error) {
 	return stringsToUint32sHash(strTokens), strTokens, nil
 }
 
-// Creates a string representing the given chat comepltions request
+// Creates a string representing the given chat completions request
 func FlattenChatRequest(messages []openaiserverapi.Message) string {
 	var builder strings.Builder
 	for _, msg := range messages {

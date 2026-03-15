@@ -65,13 +65,16 @@ The simulator offers flexible tokenization to balance accuracy vs. performance. 
 * **HuggingFace Mode:** Used for real models (e.g., `meta-llama/Llama-3.1-8B-Instruct`). Downloads actual tokenizers for exact accuracy.
 * **Simulated Mode:** Used for dummy/non-existent model names. Uses a fast regex tokenizer for maximum performance with zero startup overhead.
 
-For details on caching, environment variables (`HF_TOKEN`), and performance tuning, see the [Tokenization Guide](docs/tokenization.md).
+For details on caching, and performance tuning, see the [Tokenization Guide](docs/tokenization.md).
 
 ### LoRA Management
 Simulates the lifecycle (loading/unloading) of LoRA adapters without occupying actual memory. Reports LoRA related Prometheus metrics.
 
 ### KV Cache Simulation
 Tracks simulated memory usage and publishes ZMQ events for cache block allocation and eviction.
+
+### Prefill/Decode (P/D)
+The configuration for P/D disaggregation deployment can be found in [manifests/disaggregation](manifests/disaggregation).
 
 ### Failure Injection
 Can randomly inject specific errors (e.g., rate_limit, model_not_found) to test client resilience.
@@ -111,7 +114,7 @@ make build
 
 ### Running
 
-To run the vLLM simulator in a standalone test environment:
+To run the vLLM simulator in a standalone test environment with real model:
 
 1. Run UDS tokenizer, see details [here](https://github.com/llm-d/llm-d-kv-cache/tree/main/services/uds_tokenizer).<br>
    a. Clone the kv-cache project
@@ -178,6 +181,4 @@ make clean-dev-env-kind
 ```
 
 
-## Prefill/Decode (P/D) Separation Example
-An example configuration for P/D (Prefill/Decode) disaggregation deployment can be found in [manifests/disaggregation](manifests/disaggregation).
 

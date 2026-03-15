@@ -257,7 +257,7 @@ func (dt *DatasetTool) conversationToOutputRecords(userTxt, assistantTxt string,
 }
 
 // createOutputRecord creates an output record based on the given parameters
-// rawInput represents the input for reference and debug purpose, it uses "dummy templetization"
+// rawInput represents the input for reference and debug purpose, it uses "dummy templatisation"
 // and not real model's templatization
 func (dt *DatasetTool) createOutputRecord(inputTokens []uint32, generatedText string, rawInput string) (*outputRecord, error) {
 	generatedTokens, genTextTokens, err := dt.tokenizer.RenderText(generatedText)

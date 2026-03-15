@@ -33,10 +33,10 @@ var _ = Describe("Simulator with seed", func() {
 		func() {
 			ctx := context.TODO()
 			client, err := startServerWithArgs(ctx,
-				[]string{"cmd", "--model", common.TestModel, "--mode", common.ModeRandom, "--seed", "100"})
+				[]string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom, "--seed", "100"})
 			Expect(err).NotTo(HaveOccurred())
 
-			openaiclient, params := getOpenAIClentAndCompletionParams(client, common.TestModel, testUserMessage, false)
+			openaiclient, params := getOpenAIClentAndCompletionParams(client, common.TestModelName, testUserMessage, false)
 			params.MaxTokens = openai.Int(10)
 			resp, err := openaiclient.Completions.New(ctx, params)
 			Expect(err).NotTo(HaveOccurred())
@@ -68,7 +68,7 @@ var _ = Describe("Simulator with seed", func() {
 			client, err := startServer(ctx, common.ModeRandom)
 			Expect(err).NotTo(HaveOccurred())
 
-			openaiclient, params := getOpenAIClentAndCompletionParams(client, common.TestModel, testUserMessage, false)
+			openaiclient, params := getOpenAIClentAndCompletionParams(client, common.TestModelName, testUserMessage, false)
 			resp, err := openaiclient.Completions.New(ctx, params)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resp.Choices).ShouldNot(BeEmpty())

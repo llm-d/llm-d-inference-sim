@@ -37,7 +37,7 @@ This mode is activated when the `--model` parameter specifies a name that does n
 ## Examples
 Running with HuggingFace Tokenization:
 ```bash
-export HF_TOKEN=hf_... ./bin/llm-d-inference-sim --model meta-llama/Llama-3.1-8B-Instruct 
+export ./bin/llm-d-inference-sim --model meta-llama/Llama-3.1-8B-Instruct 
 ```
 
 Running with Simulated Tokenization:

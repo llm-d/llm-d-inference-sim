@@ -1,4 +1,4 @@
-# Dataset Convertion Tool
+# Dataset Conversion Tool
 
 The `ds-tool` is used to convert conversation datasets into the format required by llm-d-inference-sim. It processes source datasets (from HuggingFace or local files) and generates both JSON and SQLite outputs with tokenized data. In addition, a dataset card is generated too.
 
@@ -17,7 +17,8 @@ To run the UDS tokenizer, run the following steps:
    ```bash
    pip install -e .
    ```
-4. Run the UDS tokenizer
+4. If the model you want to use requires an HF token, define the `HF_TOKEN` environment variable. For more details, see the tokenizer guide.
+5. Run the UDS tokenizer
    ```bash
    python ./run_grpc_server.py
    ```
@@ -216,6 +217,3 @@ For each conversation pair (human question + GPT response), the tool generates *
 2. **Chat Completions Format:** Uses the full conversation history with chat templates (e.g., `### user:\n...\n### assistant:\n...`)
 
 This dual-format approach ensures compatibility with both `/completions` and `/chat/completions` API endpoints in the inference simulator.
-
-## Run both data tool and tokenizer within a container
-TODO !!!

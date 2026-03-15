@@ -62,13 +62,13 @@ var _ = Describe("Simulator configuration", func() {
 
 	// Simple config with a few parameters
 	c := newConfig()
-	c.Model = TestModel
+	c.Model = TestModelName
 	c.ServedModelNames = []string{c.Model}
 	c.MaxCPULoras = 1
 	c.Seed = 100
 	test := testCase{
 		name:           "simple",
-		args:           []string{"cmd", "--model", TestModel, "--mode", ModeRandom, "--seed", "100"},
+		args:           []string{"cmd", "--model", TestModelName, "--mode", ModeRandom, "--seed", "100"},
 		expectedConfig: c,
 	}
 	tests = append(tests, test)
@@ -90,7 +90,7 @@ var _ = Describe("Simulator configuration", func() {
 	tests = append(tests, test)
 
 	// Config from config.yaml file plus command line args
-	c = createDefaultConfig(TestModel)
+	c = createDefaultConfig(TestModelName)
 	c.Port = 8002
 	c.ServedModelNames = []string{"alias1", "alias2"}
 	c.Seed = 100
@@ -103,7 +103,7 @@ var _ = Describe("Simulator configuration", func() {
 	c.ZMQMaxConnectAttempts = 1
 	test = testCase{
 		name: "config file with command line args",
-		args: []string{"cmd", "--model", TestModel, "--config", "../../manifests/config.yaml", "--port", "8002",
+		args: []string{"cmd", "--model", TestModelName, "--config", "../../manifests/config.yaml", "--port", "8002",
 			"--served-model-name", "alias1", "alias2", "--seed", "100",
 			"--lora-modules", "{\"name\":\"lora3\",\"path\":\"/path/to/lora3\"}", "{\"name\":\"lora4\",\"path\":\"/path/to/lora4\"}",
 			"--event-batch-size", "5",
@@ -114,7 +114,7 @@ var _ = Describe("Simulator configuration", func() {
 	tests = append(tests, test)
 
 	// Config from config.yaml file plus command line args with different format
-	c = createDefaultConfig(TestModel)
+	c = createDefaultConfig(TestModelName)
 	c.Port = 8002
 	c.LoraModules = []LoraModule{{Name: "lora3", Path: "/path/to/lora3"}}
 	c.LoraModulesString = []string{
@@ -123,7 +123,7 @@ var _ = Describe("Simulator configuration", func() {
 	c.ZMQMaxConnectAttempts = 0
 	test = testCase{
 		name: "config file with command line args with different format",
-		args: []string{"cmd", "--model", TestModel, "--config", "../../manifests/config.yaml", "--port", "8002",
+		args: []string{"cmd", "--model", TestModelName, "--config", "../../manifests/config.yaml", "--port", "8002",
 			"--served-model-name",
 			"--lora-modules={\"name\":\"lora3\",\"path\":\"/path/to/lora3\"}",
 		},
@@ -132,7 +132,7 @@ var _ = Describe("Simulator configuration", func() {
 	tests = append(tests, test)
 
 	// Config from config.yaml file plus command line args with empty string
-	c = createDefaultConfig(TestModel)
+	c = createDefaultConfig(TestModelName)
 	c.Port = 8002
 	c.LoraModules = []LoraModule{{Name: "lora3", Path: "/path/to/lora3"}}
 	c.LoraModulesString = []string{
@@ -140,7 +140,7 @@ var _ = Describe("Simulator configuration", func() {
 	}
 	test = testCase{
 		name: "config file with command line args with empty string",
-		args: []string{"cmd", "--model", TestModel, "--config", "../../manifests/config.yaml", "--port", "8002",
+		args: []string{"cmd", "--model", TestModelName, "--config", "../../manifests/config.yaml", "--port", "8002",
 			"--served-model-name", "",
 			"--lora-modules", "{\"name\":\"lora3\",\"path\":\"/path/to/lora3\"}",
 		},
@@ -247,7 +247,7 @@ var _ = Describe("Simulator configuration", func() {
 
 	// Fake metrics from command line
 	c = newConfig()
-	c.Model = TestModel
+	c.Model = TestModelName
 	c.ServedModelNames = []string{c.Model}
 	c.MaxCPULoras = 1
 	c.Seed = 100
@@ -272,7 +272,7 @@ var _ = Describe("Simulator configuration", func() {
 	}
 	test = testCase{
 		name: "metrics from command line",
-		args: []string{"cmd", "--model", TestModel, "--seed", "100",
+		args: []string{"cmd", "--model", TestModelName, "--seed", "100",
 			"--fake-metrics",
 			"{\"running-requests\":\"ramp:10:35:10s\",\"waiting-requests\":30,\"kv-cache-usage\":0.4,\"loras\":[{\"running\":\"lora4,lora2\",\"waiting\":\"lora3\",\"timestamp\":1257894567},{\"running\":\"lora4,lora3\",\"waiting\":\"\",\"timestamp\":1257894569}]}",
 		},
@@ -436,17 +436,17 @@ var _ = Describe("Simulator configuration", func() {
 		},
 		{
 			name:          "invalid failure injection rate > 100",
-			args:          []string{"cmd", "--model", TestModel, "--failure-injection-rate", "150"},
+			args:          []string{"cmd", "--model", TestModelName, "--failure-injection-rate", "150"},
 			expectedError: "failure injection rate should be between 0 and 100",
 		},
 		{
 			name:          "invalid failure injection rate < 0",
-			args:          []string{"cmd", "--model", TestModel, "--failure-injection-rate", "-10"},
+			args:          []string{"cmd", "--model", TestModelName, "--failure-injection-rate", "-10"},
 			expectedError: "failure injection rate should be between 0 and 100",
 		},
 		{
 			name: "invalid failure type",
-			args: []string{"cmd", "--model", TestModel, "--failure-injection-rate", "50",
+			args: []string{"cmd", "--model", TestModelName, "--failure-injection-rate", "50",
 				"--failure-types", "invalid_type"},
 			expectedError: "invalid failure type",
 		},
@@ -643,7 +643,7 @@ var _ = Describe("Simulator configuration", func() {
 		},
 		{
 			name: "invalid echo mode with dataset",
-			args: []string{"cmd", "--model", TestModel, "--dataset-path", "my/path",
+			args: []string{"cmd", "--model", TestModelName, "--dataset-path", "my/path",
 				"--mode", "echo"},
 			expectedError: "dataset cannot be defined in echo mode",
 		},

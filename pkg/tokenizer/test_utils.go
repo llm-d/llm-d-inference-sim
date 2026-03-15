@@ -31,16 +31,15 @@ import (
 
 type TokenizerManager struct {
 	testTokenizer Tokenizer
-	testCleanup   func()
 	qwenTokenizer Tokenizer
 	qwenCleanup   func()
 
 	logger logr.Logger
 }
 
-// creates a new tokenizer manager, each suite creates it own manager
+// creates a new tokenizer manager, each suite creates it's own manager
 // 1 - checks which type of connection should be used: UDS socket or TCP
-// 2 - based on the information above create two tokenizers
+// 2 - based on the information above creates two tokenizers
 func NewTokenizerManager() *TokenizerManager {
 	return &TokenizerManager{}
 }
@@ -49,26 +48,22 @@ func (tm *TokenizerManager) TestTokenizer() Tokenizer {
 	return tm.testTokenizer
 }
 
-func (tm *TokenizerManager) QwenTokenizer() Tokenizer {
+func (tm *TokenizerManager) RealTokenizer() Tokenizer {
 	return tm.qwenTokenizer
 }
 
 func (tm *TokenizerManager) Init(ctx context.Context, logger logr.Logger) error {
 	tm.logger = logger
 
-	// run tokenizer for test model in container
-	address, cleanup, err := tm.startTokenizerContainer(ctx)
+	// no need to start a stand alone tokenizer - it will not be used for the test model
+	tokenizer, err := tm.newTokenizer(ctx, "", common.TestModelName)
 	if err != nil {
 		return err
 	}
-	tm.testCleanup = cleanup
-	tm.testTokenizer, err = tm.newTokenizer(ctx, address, common.TestModel)
-	if err != nil {
-		return err
-	}
+	tm.testTokenizer = tokenizer
 
-	// run tokenizer for test model in container
-	address, cleanup, err = tm.startTokenizerContainer(ctx)
+	// run tokenizer for real model in container
+	address, cleanup, err := tm.startTokenizerContainer(ctx)
 	if err != nil {
 		return err
 	}
@@ -78,7 +73,6 @@ func (tm *TokenizerManager) Init(ctx context.Context, logger logr.Logger) error 
 }
 
 func (tm *TokenizerManager) Clean() {
-	tm.testCleanup()
 	tm.qwenCleanup()
 }
 

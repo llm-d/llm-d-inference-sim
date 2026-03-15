@@ -83,13 +83,13 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 		// Three requests, only two can run in parallel, we expect
 		// two running requests and one waiting request in the metrics
 		ctx := context.TODO()
-		args := []string{"cmd", "--model", common.TestModel, "--mode", common.ModeRandom,
+		args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
 			"--time-to-first-token", "3000", "--max-num-seqs", "2"}
 
 		client, err := startServerWithArgs(ctx, args)
 		Expect(err).NotTo(HaveOccurred())
 
-		openaiclient, params := getOpenAIClientAndChatParams(client, common.TestModel, testUserMessage, false)
+		openaiclient, params := getOpenAIClientAndChatParams(client, common.TestModelName, testUserMessage, false)
 
 		for range 3 {
 			go func() {
@@ -107,8 +107,8 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 		data, err := io.ReadAll(metricsResp.Body)
 		Expect(err).NotTo(HaveOccurred())
 		metrics := string(data)
-		Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModel, vllmsim.ReqRunningMetricName, 2)))
-		Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModel, vllmsim.ReqWaitingMetricName, 1)))
+		Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllmsim.ReqRunningMetricName, 2)))
+		Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllmsim.ReqWaitingMetricName, 1)))
 	})
 
 	It("Should record correct prompt and generation token counts", func() {
@@ -118,7 +118,7 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 		maxTokens := 25
 		expectedPromptTokensCnt := getChatPromptTokensCountForTestModel(prompt)
 
-		args := []string{"cmd", "--model", common.TestModel, "--mode", common.ModeRandom,
+		args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
 			"--time-to-first-token", "100", "--max-num-seqs", "4"}
 
 		client, err := startServerWithArgs(ctx, args)
@@ -132,7 +132,7 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 			Messages: []openai.ChatCompletionMessageParamUnion{
 				openai.UserMessage(prompt),
 			},
-			Model:       common.TestModel,
+			Model:       common.TestModelName,
 			MaxTokens:   openai.Int(int64(maxTokens)),
 			Temperature: openai.Float(0.0),
 		}
@@ -154,31 +154,31 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 
 		for _, boundary := range buckets {
 			if boundary <= 20 {
-				Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModel, vllmsim.PromptTokensMetricName, boundary, 0)))
-				Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModel, vllmsim.ParamMaxTokensMetricName, boundary, 0)))
+				Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllmsim.PromptTokensMetricName, boundary, 0)))
+				Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllmsim.ParamMaxTokensMetricName, boundary, 0)))
 			} else {
-				Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModel, vllmsim.PromptTokensMetricName, boundary, 1)))
-				Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModel, vllmsim.ParamMaxTokensMetricName, boundary, 1)))
+				Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllmsim.PromptTokensMetricName, boundary, 1)))
+				Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllmsim.ParamMaxTokensMetricName, boundary, 1)))
 			}
 		}
-		Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModel, vllmsim.PromptTokensMetricName, math.Inf(1), 1)))
-		Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModel, vllmsim.ParamMaxTokensMetricName, math.Inf(1), 1)))
+		Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllmsim.PromptTokensMetricName, math.Inf(1), 1)))
+		Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllmsim.ParamMaxTokensMetricName, math.Inf(1), 1)))
 
-		Expect(metrics).To(MatchRegexp(fmt.Sprintf(`vllm:prompt_tokens_total{model_name="%s"} %d`, common.TestModel, expectedPromptTokensCnt)))
+		Expect(metrics).To(MatchRegexp(fmt.Sprintf(`vllm:prompt_tokens_total{model_name="%s"} %d`, common.TestModelName, expectedPromptTokensCnt)))
 
 		// request_generation_tokens
 		// We do not verify the distribution of the number of tokens generated per request,
 		// as the number of generated tokens is unpredictable in this test.
 		// Therefore, we only verify the number of requests and the total number of generated tokens,
 		// and skip the bucket distribution.
-		Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModel, vllmsim.GenerationTokensMetricName+"_count", 1)))
+		Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllmsim.GenerationTokensMetricName+"_count", 1)))
 		// request_success_total
-		Expect(metrics).To(MatchRegexp(fmt.Sprintf(`vllm:request_success_total{finish_reason="(stop|length)",model_name="%s"} 1`, common.TestModel)))
+		Expect(metrics).To(MatchRegexp(fmt.Sprintf(`vllm:request_success_total{finish_reason="(stop|length)",model_name="%s"} 1`, common.TestModelName)))
 	})
 
 	It("Should send correct lora metrics", func() {
 		ctx := context.TODO()
-		args := []string{"cmd", "--model", common.TestModel, "--mode", common.ModeRandom,
+		args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
 			"--time-to-first-token", "3000",
 			"--lora-modules", "{\"name\":\"lora1\",\"path\":\"/path/to/lora1\"}",
 			"{\"name\":\"lora2\",\"path\":\"/path/to/lora2\"}"}
@@ -223,7 +223,7 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 
 	It("Should send correct lora metrics for parallel requests with delay", func() {
 		ctx := context.TODO()
-		args := []string{"cmd", "--model", common.TestModel, "--mode", common.ModeRandom,
+		args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
 			"--time-to-first-token", "3000",
 			"--lora-modules", "{\"name\":\"lora1\",\"path\":\"/path/to/lora1\"}",
 			"{\"name\":\"lora2\",\"path\":\"/path/to/lora2\"}"}
@@ -298,7 +298,7 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 
 	It("Should send correct lora metrics for parallel requests without delay", func() {
 		ctx := context.TODO()
-		args := []string{"cmd", "--model", common.TestModel, "--mode", common.ModeRandom,
+		args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
 			"--time-to-first-token", "3000",
 			"--lora-modules", "{\"name\":\"lora1\",\"path\":\"/path/to/lora1\"}",
 			"{\"name\":\"lora2\",\"path\":\"/path/to/lora2\"}"}
@@ -381,13 +381,13 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 		// Send one request, check that ttft, tpot, and inter_token_latency are as defined in the simulator command line params
 		ctx := context.TODO()
 		// use mode echo to be sure that response is more than one token - this makes sure that tpot is reported to prometheus
-		args := []string{"cmd", "--model", common.TestModel, "--mode", common.ModeEcho,
+		args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho,
 			"--time-to-first-token", "200", "--inter-token-latency", "100"}
 
 		client, err := startServerWithArgs(ctx, args)
 		Expect(err).NotTo(HaveOccurred())
 
-		openaiclient, params := getOpenAIClientAndChatParams(client, common.TestModel, testUserMessage, false)
+		openaiclient, params := getOpenAIClientAndChatParams(client, common.TestModelName, testUserMessage, false)
 
 		var reqWg, metricsWg sync.WaitGroup
 		metricsWg.Add(1)
@@ -420,28 +420,28 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 			for _, boundary := range common.TTFTBucketsBoundaries {
 				if boundary <= 0.1 {
 					// buckets up to 0.1 should be empty
-					Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModel, vllmsim.TTFTMetricName, boundary, 0)))
+					Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllmsim.TTFTMetricName, boundary, 0)))
 				} else {
 					// buckets higher than 0.1 should contain a single sample
-					Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModel, vllmsim.TTFTMetricName, boundary, 1)))
+					Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllmsim.TTFTMetricName, boundary, 1)))
 				}
 			}
-			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModel, vllmsim.TTFTMetricName, math.Inf(1), 1)))
+			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllmsim.TTFTMetricName, math.Inf(1), 1)))
 
 			// helper to validate a latency metric (used for both tpot and inter_token_latency)
 			validateLatencyMetric := func(metricName string) {
 				for _, boundary := range common.TPOTBucketsBoundaries {
 					if boundary <= 0.075 {
 						// ensure that values for buckets up to 0.075 have count 0
-						Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModel, metricName, boundary, 0)))
+						Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, metricName, boundary, 0)))
 					} else {
 						// buckets higher than 0.75 should be greater than 0, we don't know the exact value since it depends on the random response length
-						count := findIntMetric(metricsLines, getFloatBucketMetricPrefix(common.TestModel, metricName, boundary))
+						count := findIntMetric(metricsLines, getFloatBucketMetricPrefix(common.TestModelName, metricName, boundary))
 						Expect(count).ToNot(BeNil())
 						Expect(*count).To(BeNumerically(">", 0))
 					}
 				}
-				count := findIntMetric(metricsLines, getFloatBucketMetricPrefix(common.TestModel, metricName, math.Inf(1)))
+				count := findIntMetric(metricsLines, getFloatBucketMetricPrefix(common.TestModelName, metricName, math.Inf(1)))
 				Expect(count).ToNot(BeNil())
 				Expect(*count).To(BeNumerically(">", 0))
 			}
@@ -676,7 +676,7 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 	Context("fake metrics", func() {
 		It("Should respond with fake metrics to /metrics", func() {
 			ctx := context.TODO()
-			args := []string{"cmd", "--model", common.TestModel, "--mode", common.ModeRandom,
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
 				"--fake-metrics",
 				`{` +
 					`"running-requests":10,` +
@@ -721,23 +721,23 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 			data, err := io.ReadAll(resp.Body)
 			Expect(err).NotTo(HaveOccurred())
 			metrics := string(data)
-			Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModel, vllmsim.ReqRunningMetricName, 10)))
-			Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModel, vllmsim.ReqWaitingMetricName, 30)))
-			Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModel, vllmsim.KVCacheUsageMetricName, 0.4)))
+			Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllmsim.ReqRunningMetricName, 10)))
+			Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllmsim.ReqWaitingMetricName, 30)))
+			Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllmsim.KVCacheUsageMetricName, 0.4)))
 			Expect(metrics).To(ContainSubstring("vllm:lora_requests_info{max_lora=\"1\",running_lora_adapters=\"lora4,lora2\",waiting_lora_adapters=\"lora3\"} 1.257894567e+09"))
 			Expect(metrics).To(ContainSubstring("vllm:lora_requests_info{max_lora=\"1\",running_lora_adapters=\"lora4,lora3\",waiting_lora_adapters=\"\"} 1.257894569e+09"))
 
-			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModel, vllmsim.TTFTMetricName, 0.001, 1)))
-			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModel, vllmsim.TTFTMetricName, 0.005, 3)))
-			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModel, vllmsim.TTFTMetricName, 0.01, 6)))
-			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModel, vllmsim.TTFTMetricName, 0.02, 6)))
+			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllmsim.TTFTMetricName, 0.001, 1)))
+			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllmsim.TTFTMetricName, 0.005, 3)))
+			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllmsim.TTFTMetricName, 0.01, 6)))
+			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllmsim.TTFTMetricName, 0.02, 6)))
 
-			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModel, vllmsim.TPOTMetricName, 0.01, 0)))
-			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModel, vllmsim.TPOTMetricName, 0.025, 0)))
-			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModel, vllmsim.TPOTMetricName, 0.05, 1)))
-			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModel, vllmsim.TPOTMetricName, 0.075, 3)))
-			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModel, vllmsim.TPOTMetricName, 0.1, 6)))
-			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModel, vllmsim.TPOTMetricName, 0.15, 6)))
+			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllmsim.TPOTMetricName, 0.01, 0)))
+			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllmsim.TPOTMetricName, 0.025, 0)))
+			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllmsim.TPOTMetricName, 0.05, 1)))
+			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllmsim.TPOTMetricName, 0.075, 3)))
+			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllmsim.TPOTMetricName, 0.1, 6)))
+			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllmsim.TPOTMetricName, 0.15, 6)))
 
 			buckets := vllmsim.Build125Buckets(1024)
 			var expectedCount int
@@ -752,25 +752,25 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 					expectedCount = 60
 				}
 
-				Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModel, vllmsim.GenerationTokensMetricName, boundary, expectedCount)))
-				Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModel, vllmsim.MaxNumGenerationTokensMetricName, boundary, expectedCount)))
-				Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModel, vllmsim.PromptTokensMetricName, boundary, expectedCount)))
-				Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModel, vllmsim.ParamMaxTokensMetricName, boundary, expectedCount)))
+				Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllmsim.GenerationTokensMetricName, boundary, expectedCount)))
+				Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllmsim.MaxNumGenerationTokensMetricName, boundary, expectedCount)))
+				Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllmsim.PromptTokensMetricName, boundary, expectedCount)))
+				Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllmsim.ParamMaxTokensMetricName, boundary, expectedCount)))
 
 			}
-			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModel, vllmsim.GenerationTokensMetricName, math.Inf(1), expectedCount)))
-			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModel, vllmsim.PromptTokensMetricName, math.Inf(1), expectedCount)))
-			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModel, vllmsim.ParamMaxTokensMetricName, math.Inf(1), expectedCount)))
-			Expect(metrics).To(MatchRegexp(fmt.Sprintf(`vllm:generation_tokens_total{model_name="%s"} 140`, common.TestModel)))
-			Expect(metrics).To(MatchRegexp(fmt.Sprintf(`vllm:prompt_tokens_total{model_name="%s"} 140`, common.TestModel)))
+			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllmsim.GenerationTokensMetricName, math.Inf(1), expectedCount)))
+			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllmsim.PromptTokensMetricName, math.Inf(1), expectedCount)))
+			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllmsim.ParamMaxTokensMetricName, math.Inf(1), expectedCount)))
+			Expect(metrics).To(MatchRegexp(fmt.Sprintf(`vllm:generation_tokens_total{model_name="%s"} 140`, common.TestModelName)))
+			Expect(metrics).To(MatchRegexp(fmt.Sprintf(`vllm:prompt_tokens_total{model_name="%s"} 140`, common.TestModelName)))
 
-			Expect(metrics).To(ContainSubstring(fmt.Sprintf(`vllm:request_success_total{finish_reason="length",model_name="%s"} 0`, common.TestModel)))
-			Expect(metrics).To(ContainSubstring(fmt.Sprintf(`vllm:request_success_total{finish_reason="remote_decode",model_name="%s"} 0`, common.TestModel)))
-			Expect(metrics).To(ContainSubstring(fmt.Sprintf(`vllm:request_success_total{finish_reason="stop",model_name="%s"} 20`, common.TestModel)))
-			Expect(metrics).To(ContainSubstring(fmt.Sprintf(`vllm:request_success_total{finish_reason="tool_calls",model_name="%s"} 0`, common.TestModel)))
+			Expect(metrics).To(ContainSubstring(fmt.Sprintf(`vllm:request_success_total{finish_reason="length",model_name="%s"} 0`, common.TestModelName)))
+			Expect(metrics).To(ContainSubstring(fmt.Sprintf(`vllm:request_success_total{finish_reason="remote_decode",model_name="%s"} 0`, common.TestModelName)))
+			Expect(metrics).To(ContainSubstring(fmt.Sprintf(`vllm:request_success_total{finish_reason="stop",model_name="%s"} 20`, common.TestModelName)))
+			Expect(metrics).To(ContainSubstring(fmt.Sprintf(`vllm:request_success_total{finish_reason="tool_calls",model_name="%s"} 0`, common.TestModelName)))
 
-			Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModel, vllmsim.PrefixCacheHitsMetricName, 750)))
-			Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModel, vllmsim.PrefixCacheQueriesMetricName, 2000)))
+			Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllmsim.PrefixCacheHitsMetricName, 750)))
+			Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllmsim.PrefixCacheQueriesMetricName, 2000)))
 		})
 
 		It("Should generate correct fake metrics using functions", func() {
@@ -865,7 +865,7 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 		It("Should use TotalPromptTokens and TotalGenerationTokens if provided", func() {
 			ctx := context.TODO()
 			args := []string{
-				"cmd", "--model", common.TestModel, "--mode", common.ModeRandom,
+				"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
 				"--fake-metrics",
 				`{` +
 					`"running-requests":5,` +
@@ -891,15 +891,15 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 			metrics := string(data)
 
 			// Verify that the explicit totals are used
-			Expect(metrics).To(MatchRegexp(fmt.Sprintf(`vllm:prompt_tokens_total{model_name="%s"} 12345`, common.TestModel)))
-			Expect(metrics).To(MatchRegexp(fmt.Sprintf(`vllm:generation_tokens_total{model_name="%s"} 67890`, common.TestModel)))
+			Expect(metrics).To(MatchRegexp(fmt.Sprintf(`vllm:prompt_tokens_total{model_name="%s"} 12345`, common.TestModelName)))
+			Expect(metrics).To(MatchRegexp(fmt.Sprintf(`vllm:generation_tokens_total{model_name="%s"} 67890`, common.TestModelName)))
 		})
 	})
 
 	Context("fake prefix cache metrics", func() {
 		It("Should respond with fake prefix cache metrics to /metrics", func() {
 			ctx := context.TODO()
-			args := []string{"cmd", "--model", common.TestModel, "--mode", common.ModeRandom,
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
 				"--fake-metrics",
 				`{"prefix-cache-hits":500,"prefix-cache-queries":1000}`,
 			}
@@ -914,8 +914,8 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 			data, err := io.ReadAll(resp.Body)
 			Expect(err).NotTo(HaveOccurred())
 			metrics := string(data)
-			Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModel, vllmsim.PrefixCacheQueriesMetricName, 1000)))
-			Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModel, vllmsim.PrefixCacheHitsMetricName, 500)))
+			Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllmsim.PrefixCacheQueriesMetricName, 1000)))
+			Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllmsim.PrefixCacheHitsMetricName, 500)))
 		})
 
 		It("Should not update prefix cache counters from real requests when fake metrics are set", func() {
@@ -960,7 +960,7 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 	Context("fake ttft metrics", func() {
 		It("Should respond with fake ttft metrics to /metrics", func() {
 			ctx := context.TODO()
-			args := []string{"cmd", "--model", common.TestModel, "--mode", common.ModeRandom,
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
 				"--fake-metrics",
 				"{\"ttft-buckets-values\":[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1]}",
 			}
@@ -977,16 +977,16 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 			metrics := string(data)
 
 			for _, boundary := range common.TTFTBucketsBoundaries {
-				Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModel, vllmsim.TTFTMetricName, boundary, 0)))
+				Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllmsim.TTFTMetricName, boundary, 0)))
 			}
-			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModel, vllmsim.TTFTMetricName, math.Inf(1), 1)))
+			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllmsim.TTFTMetricName, math.Inf(1), 1)))
 		})
 	})
 
 	Context("fake latency metrics", func() {
 		It("should respond with valid fake latency metrics to /metrics", func() {
 			ctx := context.TODO()
-			args := []string{"cmd", "--model", common.TestModel, "--mode", common.ModeEcho,
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho,
 				"--fake-metrics",
 				`{` +
 					`"e2erl-buckets-values":[0, 1, 2],` +
@@ -1021,17 +1021,17 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 					expectedCount = 3
 				}
 
-				Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModel, vllmsim.E2EReqLatencyMetricName, boundary, expectedCount)))
-				Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModel, vllmsim.ReqInferenceTimeMetricName, boundary, expectedCount)))
-				Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModel, vllmsim.ReqQueueTimeMetricName, boundary, expectedCount)))
-				Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModel, vllmsim.PrefillTimeMetricName, boundary, expectedCount)))
-				Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModel, vllmsim.DecodeTimeMetricName, boundary, expectedCount)))
+				Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllmsim.E2EReqLatencyMetricName, boundary, expectedCount)))
+				Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllmsim.ReqInferenceTimeMetricName, boundary, expectedCount)))
+				Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllmsim.ReqQueueTimeMetricName, boundary, expectedCount)))
+				Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllmsim.PrefillTimeMetricName, boundary, expectedCount)))
+				Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllmsim.DecodeTimeMetricName, boundary, expectedCount)))
 			}
-			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModel, vllmsim.E2EReqLatencyMetricName, math.Inf(1), 3)))
-			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModel, vllmsim.ReqInferenceTimeMetricName, math.Inf(1), 3)))
-			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModel, vllmsim.ReqQueueTimeMetricName, math.Inf(1), 3)))
-			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModel, vllmsim.PrefillTimeMetricName, math.Inf(1), 3)))
-			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModel, vllmsim.DecodeTimeMetricName, math.Inf(1), 3)))
+			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllmsim.E2EReqLatencyMetricName, math.Inf(1), 3)))
+			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllmsim.ReqInferenceTimeMetricName, math.Inf(1), 3)))
+			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllmsim.ReqQueueTimeMetricName, math.Inf(1), 3)))
+			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllmsim.PrefillTimeMetricName, math.Inf(1), 3)))
+			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllmsim.DecodeTimeMetricName, math.Inf(1), 3)))
 		})
 	})
 
@@ -1069,14 +1069,14 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 	Context("multiple requests latency metrics", func() {
 		It("should calculate waiting and inference time correctly", func() {
 			ctx := context.TODO()
-			args := []string{"cmd", "--model", common.TestModel, "--mode", common.ModeEcho,
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho,
 				"--time-to-first-token", "1200", "--max-num-seqs", "1",
 			}
 
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
-			openaiclient, params := getOpenAIClientAndChatParams(client, common.TestModel, testUserMessage, false)
+			openaiclient, params := getOpenAIClientAndChatParams(client, common.TestModelName, testUserMessage, false)
 
 			var reqWg sync.WaitGroup
 			reqWg.Add(2)
@@ -1104,15 +1104,15 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 
 			for _, boundary := range common.RequestLatencyBucketsBoundaries {
 				if boundary < 1.5 {
-					Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModel, vllmsim.ReqInferenceTimeMetricName, boundary, 0)))
-					Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModel, vllmsim.ReqQueueTimeMetricName, boundary, 0)))
+					Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllmsim.ReqInferenceTimeMetricName, boundary, 0)))
+					Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllmsim.ReqQueueTimeMetricName, boundary, 0)))
 				} else {
-					Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModel, vllmsim.ReqInferenceTimeMetricName, boundary, 2)))
-					Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModel, vllmsim.ReqQueueTimeMetricName, boundary, 1)))
+					Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllmsim.ReqInferenceTimeMetricName, boundary, 2)))
+					Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllmsim.ReqQueueTimeMetricName, boundary, 1)))
 				}
 			}
-			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModel, vllmsim.ReqInferenceTimeMetricName, math.Inf(1), 2)))
-			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModel, vllmsim.ReqQueueTimeMetricName, math.Inf(1), 1)))
+			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllmsim.ReqInferenceTimeMetricName, math.Inf(1), 2)))
+			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllmsim.ReqQueueTimeMetricName, math.Inf(1), 1)))
 		})
 	})
 })

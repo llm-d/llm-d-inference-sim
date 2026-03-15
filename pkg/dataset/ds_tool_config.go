@@ -98,6 +98,10 @@ func (c *DSToolConfiguration) validate() error {
 		return errors.New("--local-path defined but --file is empty")
 	}
 
+	if c.udsSocketPath == "" {
+		return errors.New("--uds-socket-path is empty")
+	}
+
 	if err := validateFileNotExist(c.getOutputDBFullFileName()); err != nil {
 		return err
 	}

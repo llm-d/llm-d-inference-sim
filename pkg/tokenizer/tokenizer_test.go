@@ -55,7 +55,7 @@ var _ = Describe("tokenizer", func() {
 	})
 
 	It("should tokenize with real tokenizer", func() {
-		tokens, strTokens, err := tokenizerMngr.QwenTokenizer().RenderText(input)
+		tokens, strTokens, err := tokenizerMngr.RealTokenizer().RenderText(input)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(tokens).NotTo(BeEmpty())
 		Expect(strTokens).NotTo(BeEmpty())
@@ -67,7 +67,7 @@ var _ = Describe("tokenizer", func() {
 
 	It("should tokenize chat with real tokenizer", func() {
 		// in /chat/completions case the string tokens are not returned
-		tokens, _, err := tokenizerMngr.QwenTokenizer().RenderChatCompletion(messages)
+		tokens, _, err := tokenizerMngr.RealTokenizer().RenderChatCompletion(messages)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(tokens).NotTo(BeEmpty())
 	})

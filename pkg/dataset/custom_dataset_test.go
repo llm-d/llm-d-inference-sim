@@ -115,10 +115,10 @@ var _ = Describe("CustomDataset", Ordered, func() {
 
 			if len(validDB[i].input) > 0 {
 				// has prompt
-				tokens, strTokens, err = tokenizerMngr.QwenTokenizer().RenderText(validDB[i].input)
+				tokens, strTokens, err = tokenizerMngr.RealTokenizer().RenderText(validDB[i].input)
 			} else {
 				// has messages
-				tokens, strTokens, err = tokenizerMngr.QwenTokenizer().RenderChatCompletion(validDB[i].messages)
+				tokens, strTokens, err = tokenizerMngr.RealTokenizer().RenderChatCompletion(validDB[i].messages)
 			}
 			Expect(err).ToNot(HaveOccurred())
 			Expect(tokens).ToNot(BeNil())
@@ -175,7 +175,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 
 	It("should successfully init dataset", func() {
 		dataset := &CustomDataset{}
-		err := dataset.Init(context.Background(), klog.Background(), random, validDBPath, tableName, false, 1024, tokenizerMngr.QwenTokenizer())
+		err := dataset.Init(context.Background(), klog.Background(), random, validDBPath, tableName, false, 1024, tokenizerMngr.RealTokenizer())
 		Expect(err).NotTo(HaveOccurred())
 
 		row := dataset.sqliteHelper.db.QueryRow(fmt.Sprintf("SELECT n_gen_tokens FROM llmd WHERE prompt_hash=X'%s';", validDB[0].hexa))
@@ -236,7 +236,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 	})
 
 	It("should return correct prompt hash in hex", func() {
-		tokens, strTokens, err := tokenizerMngr.QwenTokenizer().RenderText(validDB[0].input)
+		tokens, strTokens, err := tokenizerMngr.RealTokenizer().RenderText(validDB[0].input)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(tokens).To(Equal(validDB[0].tokenizedInput.Tokens))
 		Expect(strTokens).To(Equal(validDB[0].tokenizedInput.Strings))
@@ -259,7 +259,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 		exactMaxToken := int64(4)
 
 		BeforeAll(func() {
-			err := dataset.Init(context.Background(), klog.Background(), random, validDBPath, tableName, false, 1024, tokenizerMngr.QwenTokenizer())
+			err := dataset.Init(context.Background(), klog.Background(), random, validDBPath, tableName, false, 1024, tokenizerMngr.RealTokenizer())
 			Expect(err).NotTo(HaveOccurred())
 		})
 

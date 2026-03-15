@@ -39,13 +39,13 @@ var _ = Describe("gRPC", func() {
 
 		r, err := comm.GetModelInfo(ctx, &pb.GetModelInfoRequest{})
 		Expect(err).NotTo(HaveOccurred())
-		Expect(r.ModelPath).To(Equal(common.TestModel))
+		Expect(r.ModelPath).To(Equal(common.TestModelName))
 	})
 
 	DescribeTable("generate, echo, no streaming",
 		func(maxTokens uint32, finishReason string, ttft string, itl string, expectedTime time.Duration) {
 			ctx := context.TODO()
-			args := []string{"cmd", "--model", common.TestModel, "--mode", common.ModeEcho,
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho,
 				"--time-to-first-token", ttft, "--inter-token-latency", itl}
 			_, comm, _, err := startServerHandle(ctx, common.ModeEcho, args, nil)
 			Expect(err).NotTo(HaveOccurred())
@@ -89,7 +89,7 @@ var _ = Describe("gRPC", func() {
 	DescribeTable("generate, echo, streaming",
 		func(maxTokens uint32, finishReason string, ttft string, itl string, expectedTTFT time.Duration, expectedTotal time.Duration) {
 			ctx := context.TODO()
-			args := []string{"cmd", "--model", common.TestModel, "--mode", common.ModeEcho,
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho,
 				"--time-to-first-token", ttft, "--inter-token-latency", itl}
 			_, comm, _, err := startServerHandle(ctx, common.ModeEcho, args, nil)
 			Expect(err).NotTo(HaveOccurred())
@@ -144,7 +144,7 @@ var _ = Describe("gRPC", func() {
 	DescribeTable("generate, text input",
 		func(mode string, stream bool) {
 			ctx := context.TODO()
-			args := []string{"cmd", "--model", common.TestModel, "--mode", mode}
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", mode}
 			_, comm, _, err := startServerHandle(ctx, mode, args, nil)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -188,7 +188,7 @@ var _ = Describe("gRPC", func() {
 	It("failure", func() {
 		ctx := context.TODO()
 		_, comm, _, err := startServerHandle(ctx, common.ModeRandom, []string{
-			"cmd", "--model", common.TestModel,
+			"cmd", "--model", common.TestModelName,
 			"--failure-injection-rate", "100",
 		}, nil)
 		Expect(err).NotTo(HaveOccurred())

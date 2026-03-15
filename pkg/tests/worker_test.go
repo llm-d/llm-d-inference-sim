@@ -41,7 +41,7 @@ var _ = Describe("Simulator requests scheduling", Ordered, func() {
 	Context("Requests for already loaded loras should be handled first", func() {
 		DescribeTable("Should process in correct order simultaneous requests to two loras", func(maxNumSeq string) {
 			ctx := context.TODO()
-			args := []string{"cmd", "--model", common.TestModel, "--mode", common.ModeEcho,
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho,
 				"--time-to-first-token", "500", "--max-num-seqs", maxNumSeq,
 				"--lora-modules", "{\"name\":\"lora1\",\"path\":\"/path/to/lora1\"}",
 				"{\"name\":\"lora2\",\"path\":\"/path/to/lora2\"}"}
@@ -88,7 +88,7 @@ var _ = Describe("Simulator requests scheduling", Ordered, func() {
 		DescribeTable("Should process in correct order delayed requests to two loras",
 			func(maxNumSeq string, maxLoras string, checkOrder func([]int)) {
 				ctx := context.TODO()
-				args := []string{"cmd", "--model", common.TestModel, "--mode", common.ModeEcho,
+				args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho,
 					"--time-to-first-token", "1000",
 					"--max-num-seqs", maxNumSeq, "--max-loras", maxLoras,
 					"--lora-modules", "{\"name\":\"lora1\",\"path\":\"/path/to/lora1\"}",
@@ -129,7 +129,7 @@ var _ = Describe("Simulator requests scheduling", Ordered, func() {
 
 		It("Should keep the order of requests with one worker", func() {
 			ctx := context.TODO()
-			args := []string{"cmd", "--model", common.TestModel, "--mode", common.ModeEcho,
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho,
 				"--time-to-first-token", "500",
 				"--max-num-seqs", "1", "--max-loras", "1",
 				"--lora-modules",
@@ -169,7 +169,7 @@ var _ = Describe("Simulator requests scheduling", Ordered, func() {
 
 		It("Should keep the order of requests with two workers", func() {
 			ctx := context.TODO()
-			args := []string{"cmd", "--model", common.TestModel, "--mode", common.ModeEcho,
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho,
 				"--time-to-first-token", "500",
 				"--max-num-seqs", "2", "--max-loras", "1",
 				"--lora-modules",
@@ -209,7 +209,7 @@ var _ = Describe("Simulator requests scheduling", Ordered, func() {
 		DescribeTable("Should keep the order of requests with multiple workers and loras",
 			func(maxNumSeq string, maxLoras string, checkOrder func([]int)) {
 				ctx := context.TODO()
-				args := []string{"cmd", "--model", common.TestModel, "--mode", common.ModeEcho,
+				args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho,
 					"--time-to-first-token", "1000",
 					"--max-num-seqs", maxNumSeq, "--max-loras", maxLoras,
 					"--lora-modules",
@@ -260,7 +260,7 @@ var _ = Describe("Simulator requests scheduling", Ordered, func() {
 	Context("Stress", func() {
 		It("Should work correctly with many simultaneous requests", func() {
 			ctx := context.TODO()
-			args := []string{"cmd", "--model", common.TestModel, "--mode", common.ModeRandom,
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
 				"--time-to-first-token", "3000", "--max-num-seqs", "12", "--max-loras", "2",
 				"--lora-modules",
 				"{\"name\":\"lora0\",\"path\":\"/path/to/lora0\"}",
@@ -304,8 +304,8 @@ var _ = Describe("Simulator requests scheduling", Ordered, func() {
 
 			// max-num-seqs is 12, so number of running requests should be 12
 			// and the number of waiting requests 1000-12=988
-			Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModel, vllmsim.ReqRunningMetricName, 12)))
-			Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModel, vllmsim.ReqWaitingMetricName, 988)))
+			Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllmsim.ReqRunningMetricName, 12)))
+			Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllmsim.ReqWaitingMetricName, 988)))
 
 			// max-loras is 2, so the last lora metric should be:
 			// running: two loras (doesn't matter which two)
@@ -330,10 +330,10 @@ var _ = Describe("Simulator requests scheduling", Ordered, func() {
 		})
 
 		It("Should work correctly with many simultaneous requests with many workers", func() {
-			runningMetric := getCountMetricPrefix(common.TestModel, vllmsim.ReqRunningMetricName)
-			waitingMetric := getCountMetricPrefix(common.TestModel, vllmsim.ReqWaitingMetricName)
+			runningMetric := getCountMetricPrefix(common.TestModelName, vllmsim.ReqRunningMetricName)
+			waitingMetric := getCountMetricPrefix(common.TestModelName, vllmsim.ReqWaitingMetricName)
 			ctx := context.TODO()
-			args := []string{"cmd", "--model", common.TestModel, "--mode", common.ModeRandom,
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
 				"--time-to-first-token", "2000", "--time-to-first-token-std-dev", "600",
 				"--max-num-seqs", "1000", "--max-loras", "2", "--max-waiting-queue-length", "1500",
 				"--lora-modules",
@@ -449,7 +449,7 @@ var _ = Describe("Simulator requests scheduling", Ordered, func() {
 
 		It("Should work correctly with queue capacity reached", func() {
 			ctx := context.TODO()
-			args := []string{"cmd", "--model", common.TestModel, "--mode", common.ModeRandom,
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
 				"--time-to-first-token", "1000",
 				"--max-num-seqs", "1", "--max-waiting-queue-length", "1",
 			}
@@ -469,7 +469,7 @@ var _ = Describe("Simulator requests scheduling", Ordered, func() {
 				Messages: []openai.ChatCompletionMessageParamUnion{
 					openai.UserMessage(testUserMessage),
 				},
-				Model: common.TestModel,
+				Model: common.TestModelName,
 			}
 
 			// One worker, queue capacity = 1

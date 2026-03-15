@@ -25,7 +25,7 @@ import (
 	"k8s.io/klog/v2"
 )
 
-var tokenizerMngr *TokenizerManager = NewTokenizerManager()
+var tokenizerMngr *TokenizerManager
 
 func TestTokenizer(t *testing.T) {
 	RegisterFailHandler(Fail)
@@ -33,6 +33,7 @@ func TestTokenizer(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
+	tokenizerMngr = NewTokenizerManager()
 	err := tokenizerMngr.Init(context.Background(), klog.Background())
 	Expect(err).ShouldNot(HaveOccurred())
 })

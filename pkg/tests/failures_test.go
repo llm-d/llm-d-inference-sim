@@ -48,14 +48,14 @@ var _ = Describe("Failures", func() {
 				ctx = context.Background()
 				var err error
 				client, err = startServerWithArgs(ctx, []string{
-					"cmd", "--model", common.TestModel,
+					"cmd", "--model", common.TestModelName,
 					"--failure-injection-rate", "100",
 				})
 				Expect(err).ToNot(HaveOccurred())
 			})
 
 			It("should always return an error response for chat completions", func() {
-				openaiClient, params := getOpenAIClientAndChatParams(client, common.TestModel, testUserMessage, false)
+				openaiClient, params := getOpenAIClientAndChatParams(client, common.TestModelName, testUserMessage, false)
 				_, err := openaiClient.Chat.Completions.New(ctx, params)
 				Expect(err).To(HaveOccurred())
 
@@ -68,7 +68,7 @@ var _ = Describe("Failures", func() {
 			})
 
 			It("should always return an error response for text completions", func() {
-				openaiClient, params := getOpenAIClientAndChatParams(client, common.TestModel, testUserMessage, false)
+				openaiClient, params := getOpenAIClientAndChatParams(client, common.TestModelName, testUserMessage, false)
 				_, err := openaiClient.Chat.Completions.New(ctx, params)
 				Expect(err).To(HaveOccurred())
 
@@ -86,7 +86,7 @@ var _ = Describe("Failures", func() {
 				ctx = context.Background()
 				var err error
 				client, err = startServerWithArgs(ctx, []string{
-					"cmd", "--model", common.TestModel,
+					"cmd", "--model", common.TestModelName,
 					"--failure-injection-rate", "100",
 					"--failure-types", common.FailureTypeRateLimit,
 				})
@@ -94,7 +94,7 @@ var _ = Describe("Failures", func() {
 			})
 
 			It("should return only rate limit errors", func() {
-				openaiClient, params := getOpenAIClientAndChatParams(client, common.TestModel, testUserMessage, false)
+				openaiClient, params := getOpenAIClientAndChatParams(client, common.TestModelName, testUserMessage, false)
 				_, err := openaiClient.Chat.Completions.New(ctx, params)
 				Expect(err).To(HaveOccurred())
 
@@ -103,7 +103,7 @@ var _ = Describe("Failures", func() {
 				Expect(ok).To(BeTrue())
 				Expect(openaiError.StatusCode).To(Equal(429))
 				Expect(openaiError.Type).To(Equal(openaiserverapi.ErrorCodeToType(429)))
-				Expect(strings.Contains(openaiError.Message, common.TestModel)).To(BeTrue())
+				Expect(strings.Contains(openaiError.Message, common.TestModelName)).To(BeTrue())
 			})
 		})
 
@@ -112,7 +112,7 @@ var _ = Describe("Failures", func() {
 				ctx = context.Background()
 				var err error
 				client, err = startServerWithArgs(ctx, []string{
-					"cmd", "--model", common.TestModel,
+					"cmd", "--model", common.TestModelName,
 					"--failure-injection-rate", "100",
 					"--failure-types", common.FailureTypeInvalidAPIKey, common.FailureTypeServerError,
 				})
@@ -120,7 +120,7 @@ var _ = Describe("Failures", func() {
 			})
 
 			It("should return only specified error types", func() {
-				openaiClient, params := getOpenAIClientAndChatParams(client, common.TestModel, testUserMessage, false)
+				openaiClient, params := getOpenAIClientAndChatParams(client, common.TestModelName, testUserMessage, false)
 
 				// Make multiple requests to verify we get the expected error types
 				for i := 0; i < 10; i++ {
@@ -144,19 +144,19 @@ var _ = Describe("Failures", func() {
 				ctx = context.Background()
 				var err error
 				client, err = startServerWithArgs(ctx, []string{
-					"cmd", "--model", common.TestModel,
+					"cmd", "--model", common.TestModelName,
 					"--failure-injection-rate", "0",
 				})
 				Expect(err).ToNot(HaveOccurred())
 			})
 
 			It("should never return errors and behave like random mode", func() {
-				openaiClient, params := getOpenAIClientAndChatParams(client, common.TestModel, testUserMessage, false)
+				openaiClient, params := getOpenAIClientAndChatParams(client, common.TestModelName, testUserMessage, false)
 				resp, err := openaiClient.Chat.Completions.New(ctx, params)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(resp.Choices).To(HaveLen(1))
 				Expect(resp.Choices[0].Message.Content).ToNot(BeEmpty())
-				Expect(resp.Model).To(Equal(common.TestModel))
+				Expect(resp.Model).To(Equal(common.TestModelName))
 			})
 		})
 
@@ -165,13 +165,13 @@ var _ = Describe("Failures", func() {
 				func(failureType string, expectedStatusCode int, expectedErrorType string) {
 					ctx := context.Background()
 					client, err := startServerWithArgs(ctx, []string{
-						"cmd", "--model", common.TestModel,
+						"cmd", "--model", common.TestModelName,
 						"--failure-injection-rate", "100",
 						"--failure-types", failureType,
 					})
 					Expect(err).ToNot(HaveOccurred())
 
-					openaiClient, params := getOpenAIClientAndChatParams(client, common.TestModel, testUserMessage, false)
+					openaiClient, params := getOpenAIClientAndChatParams(client, common.TestModelName, testUserMessage, false)
 					_, err = openaiClient.Chat.Completions.New(ctx, params)
 					Expect(err).To(HaveOccurred())
 

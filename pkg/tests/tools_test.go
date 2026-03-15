@@ -385,7 +385,7 @@ var _ = Describe("Simulator for request with tools", Ordered, func() {
 			client, err := startServer(ctx, mode)
 			Expect(err).NotTo(HaveOccurred())
 
-			openaiclient, params := getOpenAIClientAndChatParams(client, common.TestModel, testUserMessage, true)
+			openaiclient, params := getOpenAIClientAndChatParams(client, common.TestModelName, testUserMessage, true)
 			params.ToolChoice = openai.ChatCompletionToolChoiceOptionUnionParam{OfAuto: param.NewOpt("required")}
 			params.Tools = tools
 
@@ -467,7 +467,7 @@ var _ = Describe("Simulator for request with tools", Ordered, func() {
 			client, err := startServer(ctx, mode)
 			Expect(err).NotTo(HaveOccurred())
 
-			openaiclient, params := getOpenAIClientAndChatParams(client, common.TestModel, testUserMessage, false)
+			openaiclient, params := getOpenAIClientAndChatParams(client, common.TestModelName, testUserMessage, false)
 			params.ToolChoice = openai.ChatCompletionToolChoiceOptionUnionParam{OfAuto: param.NewOpt("required")}
 			params.Tools = tools
 
@@ -518,7 +518,7 @@ var _ = Describe("Simulator for request with tools", Ordered, func() {
 			client, err := startServer(ctx, mode)
 			Expect(err).NotTo(HaveOccurred())
 
-			openaiclient, params := getOpenAIClientAndChatParams(client, common.TestModel, testUserMessage, false)
+			openaiclient, params := getOpenAIClientAndChatParams(client, common.TestModelName, testUserMessage, false)
 			params.ToolChoice = openai.ToolChoiceOptionFunctionToolChoice(openai.ChatCompletionNamedToolChoiceFunctionParam{
 				Name: specificTool,
 			})
@@ -578,7 +578,7 @@ var _ = Describe("Simulator for request with tools", Ordered, func() {
 			for _, invalidTool := range invalidTools {
 				params := openai.ChatCompletionNewParams{
 					Messages:   []openai.ChatCompletionMessageParamUnion{openai.UserMessage(testUserMessage)},
-					Model:      common.TestModel,
+					Model:      common.TestModelName,
 					ToolChoice: openai.ChatCompletionToolChoiceOptionUnionParam{OfAuto: param.NewOpt("required")},
 					Tools:      invalidTool,
 				}
@@ -596,7 +596,7 @@ var _ = Describe("Simulator for request with tools", Ordered, func() {
 	DescribeTable("array parameter, no streaming",
 		func(mode string, minLength int, maxLength int, min float64, max float64) {
 			ctx := context.TODO()
-			serverArgs := []string{"cmd", "--model", common.TestModel, "--mode", mode,
+			serverArgs := []string{"cmd", "--model", common.TestModelName, "--mode", mode,
 				"--min-tool-call-array-param-length", strconv.Itoa(minLength),
 				"--max-tool-call-array-param-length", strconv.Itoa(maxLength),
 				"--min-tool-call-number-param", fmt.Sprint(min),
@@ -605,7 +605,7 @@ var _ = Describe("Simulator for request with tools", Ordered, func() {
 			client, err := startServerWithArgs(ctx, serverArgs)
 			Expect(err).NotTo(HaveOccurred())
 
-			openaiclient, params := getOpenAIClientAndChatParams(client, common.TestModel, testUserMessage, false)
+			openaiclient, params := getOpenAIClientAndChatParams(client, common.TestModelName, testUserMessage, false)
 			params.ToolChoice = openai.ChatCompletionToolChoiceOptionUnionParam{OfAuto: param.NewOpt("required")}
 			params.Tools = toolWithArray
 
@@ -654,7 +654,7 @@ var _ = Describe("Simulator for request with tools", Ordered, func() {
 			client, err := startServer(ctx, mode)
 			Expect(err).NotTo(HaveOccurred())
 
-			openaiclient, params := getOpenAIClientAndChatParams(client, common.TestModel, testUserMessage, false)
+			openaiclient, params := getOpenAIClientAndChatParams(client, common.TestModelName, testUserMessage, false)
 			params.ToolChoice = openai.ChatCompletionToolChoiceOptionUnionParam{OfAuto: param.NewOpt("required")}
 			params.Tools = toolWith3DArray
 
@@ -707,7 +707,7 @@ var _ = Describe("Simulator for request with tools", Ordered, func() {
 			client, err := startServer(ctx, mode)
 			Expect(err).NotTo(HaveOccurred())
 
-			openaiclient, params := getOpenAIClientAndChatParams(client, common.TestModel, testUserMessage, false)
+			openaiclient, params := getOpenAIClientAndChatParams(client, common.TestModelName, testUserMessage, false)
 			params.ToolChoice = openai.ChatCompletionToolChoiceOptionUnionParam{OfAuto: param.NewOpt("required")}
 			params.Tools = toolWithWrongMinMax
 
@@ -726,7 +726,7 @@ var _ = Describe("Simulator for request with tools", Ordered, func() {
 			client, err := startServer(ctx, mode)
 			Expect(err).NotTo(HaveOccurred())
 
-			openaiclient, params := getOpenAIClientAndChatParams(client, common.TestModel, testUserMessage, false)
+			openaiclient, params := getOpenAIClientAndChatParams(client, common.TestModelName, testUserMessage, false)
 			params.ToolChoice = openai.ChatCompletionToolChoiceOptionUnionParam{OfAuto: param.NewOpt("required")}
 			params.Tools = toolWithObjects
 
@@ -781,7 +781,7 @@ var _ = Describe("Simulator for request with tools", Ordered, func() {
 			client, err := startServer(ctx, mode)
 			Expect(err).NotTo(HaveOccurred())
 
-			openaiclient, params := getOpenAIClientAndChatParams(client, common.TestModel, testUserMessage, false)
+			openaiclient, params := getOpenAIClientAndChatParams(client, common.TestModelName, testUserMessage, false)
 			params.ToolChoice = openai.ChatCompletionToolChoiceOptionUnionParam{OfAuto: param.NewOpt("required")}
 			params.Tools = toolWithObjectAndArray
 
@@ -826,13 +826,13 @@ var _ = Describe("Simulator for request with tools", Ordered, func() {
 	DescribeTable("tool without required params",
 		func(probability int, numberOfParams int, stream bool) {
 			ctx := context.TODO()
-			serverArgs := []string{"cmd", "--model", common.TestModel, "--mode", common.ModeRandom,
+			serverArgs := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
 				"--tool-call-not-required-param-probability", strconv.Itoa(probability),
 			}
 			client, err := startServerWithArgs(ctx, serverArgs)
 			Expect(err).NotTo(HaveOccurred())
 
-			openaiclient, params := getOpenAIClientAndChatParams(client, common.TestModel, testUserMessage, stream)
+			openaiclient, params := getOpenAIClientAndChatParams(client, common.TestModelName, testUserMessage, stream)
 			params.ToolChoice = openai.ChatCompletionToolChoiceOptionUnionParam{OfAuto: param.NewOpt("required")}
 			params.Tools = toolWithoutRequiredParams
 
@@ -864,7 +864,7 @@ var _ = Describe("Simulator for request with tools", Ordered, func() {
 	DescribeTable("tool with object with not required params",
 		func(probability int, numberOfParams int, min int, max int) {
 			ctx := context.TODO()
-			serverArgs := []string{"cmd", "--model", common.TestModel, "--mode", common.ModeRandom,
+			serverArgs := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
 				"--object-tool-call-not-required-field-probability", strconv.Itoa(probability),
 				"--min-tool-call-integer-param", strconv.Itoa(min),
 				"--max-tool-call-integer-param", strconv.Itoa(max),
@@ -872,7 +872,7 @@ var _ = Describe("Simulator for request with tools", Ordered, func() {
 			client, err := startServerWithArgs(ctx, serverArgs)
 			Expect(err).NotTo(HaveOccurred())
 
-			openaiclient, params := getOpenAIClientAndChatParams(client, common.TestModel, testUserMessage, false)
+			openaiclient, params := getOpenAIClientAndChatParams(client, common.TestModelName, testUserMessage, false)
 			params.ToolChoice = openai.ChatCompletionToolChoiceOptionUnionParam{OfAuto: param.NewOpt("required")}
 			params.Tools = toolWithObjectWithoutRequiredParams
 
