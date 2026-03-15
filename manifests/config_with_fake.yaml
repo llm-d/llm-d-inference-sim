@@ -9,7 +9,7 @@ kv-cache-transfer-latency: 100
 seed: 100100100
 fake-metrics:
   running-requests: 16
-  waiting-requests: 3 
+  waiting-requests: oscillate:0:5:1s 
   kv-cache-usage: 0.3
   request-success-total:
     stop: 20

@@ -208,10 +208,19 @@ var _ = Describe("Simulator configuration", func() {
 
 	// Config from config_with_fake.yaml file
 	c = createDefaultConfig(qwenModelName)
-	c.FakeMetrics = &Metrics{
-		RunningRequests:        16,
-		WaitingRequests:        3,
-		KVCacheUsagePercentage: float32(0.3),
+	c.FakeMetrics = &FakeMetrics{
+		RunningRequests: FakeMetricWithFunction{FixedValue: 16},
+		WaitingRequests: FakeMetricWithFunction{
+			FixedValue: 0,
+			IsFunction: true,
+			Function: &FunctionInfo{
+				Name:   OscillateFuncName,
+				Min:    0,
+				Max:    5,
+				Period: time.Second,
+			},
+		},
+		KVCacheUsagePercentage: FakeMetricWithFunction{FixedValue: 0.3},
 		LoraMetrics: []LorasMetrics{
 			{RunningLoras: "lora1,lora2", WaitingLoras: "lora3", Timestamp: 1257894567},
 			{RunningLoras: "lora1,lora3", WaitingLoras: "", Timestamp: 1257894569},
@@ -247,10 +256,19 @@ var _ = Describe("Simulator configuration", func() {
 	c.ServedModelNames = []string{c.Model}
 	c.MaxCPULoras = 1
 	c.Seed = 100
-	c.FakeMetrics = &Metrics{
-		RunningRequests:        10,
-		WaitingRequests:        30,
-		KVCacheUsagePercentage: float32(0.4),
+	c.FakeMetrics = &FakeMetrics{
+		RunningRequests: FakeMetricWithFunction{
+			FixedValue: 0,
+			IsFunction: true,
+			Function: &FunctionInfo{
+				Name:   RampFuncName,
+				Min:    10,
+				Max:    35,
+				Period: 10 * time.Second,
+			},
+		},
+		WaitingRequests:        FakeMetricWithFunction{FixedValue: 30},
+		KVCacheUsagePercentage: FakeMetricWithFunction{FixedValue: 0.4},
 		LoraMetrics: []LorasMetrics{
 			{RunningLoras: "lora4,lora2", WaitingLoras: "lora3", Timestamp: 1257894567},
 			{RunningLoras: "lora4,lora3", WaitingLoras: "", Timestamp: 1257894569},
@@ -261,7 +279,7 @@ var _ = Describe("Simulator configuration", func() {
 		name: "metrics from command line",
 		args: []string{"cmd", "--model", model, "--seed", "100",
 			"--fake-metrics",
-			"{\"running-requests\":10,\"waiting-requests\":30,\"kv-cache-usage\":0.4,\"loras\":[{\"running\":\"lora4,lora2\",\"waiting\":\"lora3\",\"timestamp\":1257894567},{\"running\":\"lora4,lora3\",\"waiting\":\"\",\"timestamp\":1257894569}]}",
+			"{\"running-requests\":\"ramp:10:35:10s\",\"waiting-requests\":30,\"kv-cache-usage\":0.4,\"loras\":[{\"running\":\"lora4,lora2\",\"waiting\":\"lora3\",\"timestamp\":1257894567},{\"running\":\"lora4,lora3\",\"waiting\":\"\",\"timestamp\":1257894569}]}",
 		},
 		expectedConfig: c,
 	}
@@ -269,10 +287,10 @@ var _ = Describe("Simulator configuration", func() {
 
 	// Fake metrics from both the config file and command line
 	c = createDefaultConfig(qwenModelName)
-	c.FakeMetrics = &Metrics{
-		RunningRequests:        10,
-		WaitingRequests:        30,
-		KVCacheUsagePercentage: float32(0.4),
+	c.FakeMetrics = &FakeMetrics{
+		RunningRequests:        FakeMetricWithFunction{FixedValue: 10},
+		WaitingRequests:        FakeMetricWithFunction{FixedValue: 30},
+		KVCacheUsagePercentage: FakeMetricWithFunction{FixedValue: 0.4},
 		LoraMetrics: []LorasMetrics{
 			{RunningLoras: "lora4,lora2", WaitingLoras: "lora3", Timestamp: 1257894567},
 			{RunningLoras: "lora4,lora3", WaitingLoras: "", Timestamp: 1257894569},
@@ -444,10 +462,46 @@ var _ = Describe("Simulator configuration", func() {
 			expectedError: "fake metrics request counters cannot be negative",
 		},
 		{
+			name: "invalid fake metrics: invalid running requests function",
+			args: []string{"cmd", "--fake-metrics", "{\"running-requests\":\"foo:0:8:10s\",\"waiting-requests\":30,\"kv-cache-usage\":0.4}",
+				"--config", "../../manifests/config.yaml"},
+			expectedError: "invalid fake metrics generation function foo",
+		},
+		{
+			name: "invalid fake metrics: invalid waiting requests function parameters",
+			args: []string{"cmd", "--fake-metrics", "{\"running-requests\":19,\"waiting-requests\":\"squarewave:10:8:170ms\",\"kv-cache-usage\":0.4}",
+				"--config", "../../manifests/config.yaml"},
+			expectedError: "invalid fake metrics generation parameter: min is greater than max",
+		},
+		{
+			name: "invalid fake metrics: invalid function parameter period",
+			args: []string{"cmd", "--fake-metrics", "{\"running-requests\":19,\"waiting-requests\":\"squarewave:0:8:170\",\"kv-cache-usage\":0.4}",
+				"--config", "../../manifests/config.yaml"},
+			expectedError: "unknown format in fake metric generation function: time: missing unit in duration",
+		},
+		{
+			name: "invalid fake metrics: incomplete waiting requests function parameters",
+			args: []string{"cmd", "--fake-metrics", "{\"running-requests\":19,\"waiting-requests\":\"rampreset:0:8\",\"kv-cache-usage\":0.4}",
+				"--config", "../../manifests/config.yaml"},
+			expectedError: "need func:min:max:period in fake metric generation function",
+		},
+		{
 			name: "invalid fake metrics: kv cache usage",
 			args: []string{"cmd", "--fake-metrics", "{\"running-requests\":10,\"waiting-requests\":30,\"kv-cache-usage\":40}",
 				"--config", "../../manifests/config.yaml"},
 			expectedError: "fake metrics KV cache usage must be between 0 and 1",
+		},
+		{
+			name: "invalid fake metrics: negative kv cache usage function parameters",
+			args: []string{"cmd", "--fake-metrics", "{\"running-requests\":10,\"waiting-requests\":30,\"kv-cache-usage\":\"ramp:0:-8:10s\"}",
+				"--config", "../../manifests/config.yaml"},
+			expectedError: "invalid fake metrics generation parameter: max, min and period must be positive",
+		},
+		{
+			name: "invalid fake metrics: invalid kv cache usage function parameters",
+			args: []string{"cmd", "--fake-metrics", "{\"running-requests\":10,\"waiting-requests\":30,\"kv-cache-usage\":\"ramp:0:5:10s\"}",
+				"--config", "../../manifests/config.yaml"},
+			expectedError: "fake metrics KV cache usage min and max must be between 0 and 1",
 		},
 		{
 			name:          "invalid (negative) zmq-max-connect-attempts for argument",

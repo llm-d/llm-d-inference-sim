@@ -127,7 +127,7 @@ func (reqCtx *baseRequestContext) handleRequest() (ResponseContext, *openaiserve
 	model := req.GetModel()
 
 	// increment running requests count
-	common.WriteToChannel(reqCtx.sim.metrics.runReqChan, 1, reqCtx.sim.logger, "metrics.runReqChan")
+	common.WriteToChannel(reqCtx.sim.metrics.runReqChan, &common.MetricInfo{Value: 1}, reqCtx.sim.logger, "metrics.runReqChan")
 
 	if reqCtx.sim.isLora(model) {
 		// update loraInfo metric to reflect that

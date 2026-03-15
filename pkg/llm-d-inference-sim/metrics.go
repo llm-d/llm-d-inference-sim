@@ -58,6 +58,107 @@ const (
 	PrefixCacheQueriesMetricName     = "vllm:prefix_cache_queries"
 )
 
+const (
+	waitingUsageState loraUsageState = iota
+	runningUsageState
+	doneUsageState
+)
+
+type loraUsageState int
+
+type loraUsage struct {
+	// the lora adapter name
+	name string
+	// state of the lora usage - waiting/running/done
+	state loraUsageState
+}
+
+// Prometheus metrics
+type metricsData struct {
+	// runningLoras is a collection of running loras,
+	// the key is lora's name, the value is the number of running requests using this lora
+	runningLoras sync.Map
+	// waitingLoras is a collection of waiting loras,
+	// the key is lora's name, the value is the number of waiting requests using this lora
+	waitingLoras sync.Map
+	// lorasChan is a channel to update waitingLoras and runningLoras
+	lorasChan chan loraUsage
+	// nRunningReqs is the number of inference requests that are currently being processed
+	nRunningReqs int64
+	// runReqChan is a channel to update nRunningReqs
+	runReqChan chan *common.MetricInfo
+	// requestSuccessChan is a channel to update requestSuccessReqs
+	requestSuccessChan chan requestSuccessEvent
+	// nWaitingReqs is the number of inference requests that are waiting to be processed
+	nWaitingReqs int64
+	// waitingReqChan is a channel to update nWaitingReqs
+	waitingReqChan chan *common.MetricInfo
+	// ttftChan is a channel to update time to first token
+	ttftChan chan float64
+	// tpotChan is a channel to update time per output token
+	tpotChan chan float64
+	// e2eReqLatencyChan is a channel to update request e2e latency
+	e2eReqLatencyChan chan float64
+	// reqQueueTimeChan is a channel to update request queue time
+	reqQueueTimeChan chan float64
+	// reqInferenceTimeChan is a channel to update request inference time
+	reqInferenceTimeChan chan float64
+	// reqPrefillTimeChan is a channel to update request prefill time
+	reqPrefillTimeChan chan float64
+	// reqDecodeTimeChan is a channel to update request decode time
+	reqDecodeTimeChan chan float64
+	// kvCacheUsageChan is a channel to update kvCacheUsagePercentage
+	kvCacheUsageChan chan *common.MetricInfo
+	// registry is a Prometheus registry
+	registry *prometheus.Registry
+	// loraInfo is prometheus gauge
+	loraInfo *prometheus.GaugeVec
+	// runningRequests is prometheus gauge
+	runningRequests *prometheus.GaugeVec
+	// waitingRequests is prometheus gauge for number of queued requests
+	waitingRequests *prometheus.GaugeVec
+	// ttft is prometheus histogram for time to first token in seconds
+	ttft *prometheus.HistogramVec
+	// tpot is prometheus histogram for time per output token in seconds (deprecated since vLLM 0.11
+	tpot *prometheus.HistogramVec
+	// interTokenLatency is prometheus histogram for inter-token latency in seconds (replaces tpot since vLLM 0.11)
+	interTokenLatency *prometheus.HistogramVec
+	// e2eReqLatency is prometheus histogram of end to end request latency in seconds
+	e2eReqLatency *prometheus.HistogramVec
+	// reqQueueTime is prometheus histogram of request queue time in seconds
+	reqQueueTime *prometheus.HistogramVec
+	// reqInferenceTime is prometheus histogram of request inference time in seconds
+	reqInferenceTime *prometheus.HistogramVec
+	// reqPrefillTime is prometheus histogram of request prefill time in seconds
+	reqPrefillTime *prometheus.HistogramVec
+	// reqDecodeTime is prometheus histogram of request decode time in seconds
+	reqDecodeTime *prometheus.HistogramVec
+	// kvCacheUsagePercentage is prometheus gauge
+	kvCacheUsagePercentage *prometheus.GaugeVec
+	// requestPromptTokens is prometheus histogram for number of input (prompt) tokens in request
+	requestPromptTokens *prometheus.HistogramVec
+	// requestGenerationTokens is prometheus histogram for number of generated tokens in request
+	requestGenerationTokens *prometheus.HistogramVec
+	// promptTokensTotal is prometheus counter for total number of input (prompt) tokens
+	promptTokensTotal *prometheus.CounterVec
+	// generationTokensTotal is prometheus counter for total number of generated tokens
+	generationTokensTotal *prometheus.CounterVec
+	// maxNumGenerationTokens is prometheus histogram for maximum number of generated tokens in request
+	maxNumGenerationTokens *prometheus.HistogramVec
+	// requestParamsMaxTokens is prometheus histogram for 'max_tokens' parameter in request
+	requestParamsMaxTokens *prometheus.HistogramVec
+	// requestSuccessTotal is prometheus counter for total number of successful requests
+	requestSuccessTotal *prometheus.CounterVec
+	// prefixCacheHits is prometheus counter for total cached tokens (prefix cache hits)
+	prefixCacheHits *prometheus.CounterVec
+	// prefixCacheQueries is prometheus counter for total queried tokens (prefix cache queries)
+	prefixCacheQueries *prometheus.CounterVec
+	// prefixCacheStatsChan is a channel to update prefix cache hit/query counters
+	prefixCacheStatsChan chan kvcache.PrefixCacheStats
+
+	generatedFakeMetrics []generatedFakeMetrics
+}
+
 func (s *SimContext) MetricsRegistry() *prometheus.Registry {
 	return s.metrics.registry
 }
@@ -99,7 +200,7 @@ func (s *SimContext) createAndRegisterPrometheus(ctx context.Context) error {
 		return err
 	}
 
-	s.metrics.runReqChan = make(chan int64, maxNumberOfRequests)
+	s.metrics.runReqChan = make(chan *common.MetricInfo, maxNumberOfRequests)
 	go s.runningRequestsUpdater(ctx)
 
 	s.metrics.waitingRequests = prometheus.NewGaugeVec(
@@ -116,7 +217,7 @@ func (s *SimContext) createAndRegisterPrometheus(ctx context.Context) error {
 		return err
 	}
 
-	s.metrics.waitingReqChan = make(chan int64, maxNumberOfRequests)
+	s.metrics.waitingReqChan = make(chan *common.MetricInfo, maxNumberOfRequests)
 	go s.waitingRequestsUpdater(ctx)
 
 	s.metrics.ttft = prometheus.NewHistogramVec(
@@ -275,7 +376,7 @@ func (s *SimContext) createAndRegisterPrometheus(ctx context.Context) error {
 		return err
 	}
 
-	s.metrics.kvCacheUsageChan = make(chan float64, maxNumberOfRequests)
+	s.metrics.kvCacheUsageChan = make(chan *common.MetricInfo, maxNumberOfRequests)
 	go s.kvCacheUsageUpdater(ctx)
 
 	s.metrics.prefixCacheHits = prometheus.NewCounterVec(
@@ -428,125 +529,21 @@ func (s *SimContext) createAndRegisterPrometheus(ctx context.Context) error {
 // setInitialPrometheusMetrics sends the default values to prometheus or
 // the fake metrics if set
 func (s *SimContext) setInitialPrometheusMetrics(cacheConfig *prometheus.GaugeVec) {
-	var nRunningReqs, nWaitingReqs, kvCacheUsage float64
-	modelName := s.getDisplayedModelName(s.Config.Model)
 	if s.Config.FakeMetrics != nil {
-		nRunningReqs = float64(s.Config.FakeMetrics.RunningRequests)
-		nWaitingReqs = float64(s.Config.FakeMetrics.WaitingRequests)
-		kvCacheUsage = float64(s.Config.FakeMetrics.KVCacheUsagePercentage)
-		if s.Config.FakeMetrics.TTFTBucketValues != nil {
-			s.initFakeHistogram(s.metrics.ttft, common.TTFTBucketsBoundaries, s.Config.FakeMetrics.TTFTBucketValues)
-		}
-
-		if s.Config.FakeMetrics.TPOTBucketValues != nil {
-			s.initFakeHistogram(s.metrics.tpot, common.TPOTBucketsBoundaries, s.Config.FakeMetrics.TPOTBucketValues)
-			s.initFakeHistogram(s.metrics.interTokenLatency, common.TPOTBucketsBoundaries, s.Config.FakeMetrics.TPOTBucketValues)
-		}
-		buckets := Build125Buckets(s.Config.MaxModelLen)
-		if s.Config.FakeMetrics.RequestPromptTokens != nil {
-			s.initFakeHistogram(s.metrics.requestPromptTokens, buckets, s.Config.FakeMetrics.RequestPromptTokens)
-			var promptTotal int64
-			if s.Config.FakeMetrics.TotalPromptTokens != nil {
-				promptTotal = *s.Config.FakeMetrics.TotalPromptTokens
-			} else {
-				promptTotal = EstimateTokenTotal(s.Config.FakeMetrics.RequestPromptTokens, buckets)
-			}
-			s.metrics.promptTokensTotal.WithLabelValues(modelName).Add(float64(promptTotal))
-		}
-		if s.Config.FakeMetrics.RequestGenerationTokens != nil {
-			s.initFakeHistogram(s.metrics.requestParamsMaxTokens, buckets, s.Config.FakeMetrics.RequestGenerationTokens)
-			var genTotal int64
-			if s.Config.FakeMetrics.TotalGenerationTokens != nil {
-				genTotal = *s.Config.FakeMetrics.TotalGenerationTokens
-			} else {
-				genTotal = EstimateTokenTotal(s.Config.FakeMetrics.RequestGenerationTokens, buckets)
-			}
-			s.metrics.generationTokensTotal.WithLabelValues(modelName).Add(float64(genTotal))
-		}
-		if s.Config.FakeMetrics.RequestParamsMaxTokens != nil {
-			s.initFakeHistogram(s.metrics.requestGenerationTokens, buckets, s.Config.FakeMetrics.RequestParamsMaxTokens)
-		}
-		if s.Config.FakeMetrics.RequestMaxGenerationTokens != nil {
-			s.initFakeHistogram(s.metrics.maxNumGenerationTokens, buckets, s.Config.FakeMetrics.RequestMaxGenerationTokens)
-		}
-
-		for reason, requestSuccessTotal := range s.Config.FakeMetrics.RequestSuccessTotal {
-			s.metrics.requestSuccessTotal.WithLabelValues(modelName, reason).Add(float64(requestSuccessTotal))
-		}
-
-		if s.Config.FakeMetrics.E2ERequestLatencyBucketValues != nil {
-			s.initFakeHistogram(s.metrics.e2eReqLatency, common.RequestLatencyBucketsBoundaries, s.Config.FakeMetrics.E2ERequestLatencyBucketValues)
-		}
-
-		if s.Config.FakeMetrics.ReqQueueTimeBucketValues != nil {
-			s.initFakeHistogram(s.metrics.reqQueueTime, common.RequestLatencyBucketsBoundaries, s.Config.FakeMetrics.ReqQueueTimeBucketValues)
-		}
-
-		if s.Config.FakeMetrics.ReqInfTimeBucketValues != nil {
-			s.initFakeHistogram(s.metrics.reqInferenceTime, common.RequestLatencyBucketsBoundaries, s.Config.FakeMetrics.ReqInfTimeBucketValues)
-		}
-
-		if s.Config.FakeMetrics.ReqPrefillTimeBucketValues != nil {
-			s.initFakeHistogram(s.metrics.reqPrefillTime, common.RequestLatencyBucketsBoundaries, s.Config.FakeMetrics.ReqPrefillTimeBucketValues)
-		}
-
-		if s.Config.FakeMetrics.ReqDecodeTimeBucketValues != nil {
-			s.initFakeHistogram(s.metrics.reqDecodeTime, common.RequestLatencyBucketsBoundaries, s.Config.FakeMetrics.ReqDecodeTimeBucketValues)
-		}
-		if s.Config.FakeMetrics.PrefixCacheQueries != nil {
-			s.metrics.prefixCacheQueries.WithLabelValues(modelName).Add(float64(*s.Config.FakeMetrics.PrefixCacheQueries))
-		}
-		if s.Config.FakeMetrics.PrefixCacheHits != nil {
-			s.metrics.prefixCacheHits.WithLabelValues(modelName).Add(float64(*s.Config.FakeMetrics.PrefixCacheHits))
-		}
-	}
-
-	s.metrics.runningRequests.WithLabelValues(modelName).Set(nRunningReqs)
-	s.metrics.waitingRequests.WithLabelValues(modelName).Set(nWaitingReqs)
-	s.metrics.kvCacheUsagePercentage.WithLabelValues(modelName).Set(kvCacheUsage)
-
-	cacheConfig.WithLabelValues(strconv.Itoa(s.Config.TokenBlockSize), strconv.Itoa(s.Config.KVCacheSize)).Set(1)
-
-	if s.Config.FakeMetrics != nil && len(s.Config.FakeMetrics.LoraMetrics) != 0 {
-		for _, metrics := range s.Config.FakeMetrics.LoraMetrics {
-			s.metrics.loraInfo.WithLabelValues(
-				strconv.Itoa(s.Config.MaxLoras),
-				metrics.RunningLoras,
-				metrics.WaitingLoras).Set(metrics.Timestamp)
-		}
+		s.setInitialFakeMetrics(cacheConfig)
 	} else {
+		modelName := s.getDisplayedModelName(s.Config.Model)
+
+		s.metrics.runningRequests.WithLabelValues(modelName).Set(0)
+		s.metrics.waitingRequests.WithLabelValues(modelName).Set(0)
+		s.metrics.kvCacheUsagePercentage.WithLabelValues(modelName).Set(0)
+
+		cacheConfig.WithLabelValues(strconv.Itoa(s.Config.TokenBlockSize), strconv.Itoa(s.Config.KVCacheSize)).Set(1)
+
 		s.metrics.loraInfo.WithLabelValues(
 			strconv.Itoa(s.Config.MaxLoras),
 			"",
 			"").Set(float64(time.Now().Unix()))
-	}
-}
-
-// initFakeHistogram initializes the given histogram values based on the input
-// bucketsBoundaries - upper boudaries of all buckets except the last one. Actual number of buckets is len(bucketsBoundaries)+1.
-// This includes the last bucket (last_boundary, +Inf].
-// bucketsSamplesCount - array containing number of samples per bucket, starting from the first bucket.
-// Trailing empty buckets are not included in this array, so its length can be <= len(bucketsBoundaries)+1
-func (s *SimContext) initFakeHistogram(hist *prometheus.HistogramVec, bucketsBoundaries []float64, bucketsSamplesCount []int) {
-	var valueToObserve float64
-	numOfBoundaries := len(bucketsBoundaries)
-	modelName := s.getDisplayedModelName(s.Config.Model)
-
-	for i, bucketSamplesCount := range bucketsSamplesCount {
-		// for each bucket calculate value to use for Observe function
-		// for all buckets except the last one it will be the upper boundary (which is included in the bucket)
-		// for the last bucket it will be top boundary of the previous bucket + 1
-		if i < numOfBoundaries {
-			valueToObserve = bucketsBoundaries[i]
-		} else {
-			// this is last bucket - use number larger than the upper bound of the previous bucket
-			valueToObserve = bucketsBoundaries[numOfBoundaries-1] + 1
-		}
-
-		for range bucketSamplesCount {
-			// create required number of observations for the calculated sample
-			hist.WithLabelValues(modelName).Observe(valueToObserve)
-		}
 	}
 }
 
@@ -583,9 +580,6 @@ func (s *SimContext) reportLoras() {
 
 // reportRunningRequests sets information about running completion requests
 func (s *SimContext) reportRunningRequests() {
-	if s.Config.FakeMetrics != nil {
-		return
-	}
 	if s.metrics.runningRequests != nil {
 		s.metrics.runningRequests.WithLabelValues(
 			s.getDisplayedModelName(s.Config.Model)).Set(float64(s.metrics.nRunningReqs))
@@ -594,9 +588,6 @@ func (s *SimContext) reportRunningRequests() {
 
 // reportWaitingRequests sets information about waiting completion requests
 func (s *SimContext) reportWaitingRequests() {
-	if s.Config.FakeMetrics != nil {
-		return
-	}
 	if s.metrics.waitingRequests != nil {
 		s.metrics.waitingRequests.WithLabelValues(
 			s.getDisplayedModelName(s.Config.Model)).Set(float64(s.metrics.nWaitingReqs))
@@ -616,9 +607,6 @@ func (s *SimContext) reportHistogramValue(hist *prometheus.HistogramVec, val flo
 
 // reportKVCacheUsage sets information about kv cache usage
 func (s *SimContext) reportKVCacheUsage(value float64) {
-	if s.Config.FakeMetrics != nil {
-		return
-	}
 	if s.metrics.kvCacheUsagePercentage != nil {
 		s.metrics.kvCacheUsagePercentage.WithLabelValues(
 			s.getDisplayedModelName(s.Config.Model)).Set(value)
@@ -631,8 +619,18 @@ func (s *SimContext) waitingRequestsUpdater(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case inc := <-s.metrics.waitingReqChan:
-			s.metrics.nWaitingReqs += inc
+		case upd := <-s.metrics.waitingReqChan:
+			// Only proceed if the "fakeness" of the update matches the config
+			if (s.Config.FakeMetrics != nil) != upd.IsFake {
+				continue
+			}
+
+			if upd.IsFake {
+				s.metrics.nWaitingReqs = int64(upd.Value)
+			} else {
+				s.metrics.nWaitingReqs += int64(upd.Value)
+			}
+
 			s.reportWaitingRequests()
 		}
 	}
@@ -644,8 +642,18 @@ func (s *SimContext) runningRequestsUpdater(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case inc := <-s.metrics.runReqChan:
-			s.metrics.nRunningReqs += inc
+		case upd := <-s.metrics.runReqChan:
+			// Only proceed if the "fakeness" of the update matches the config
+			if (s.Config.FakeMetrics != nil) != upd.IsFake {
+				continue
+			}
+
+			if upd.IsFake {
+				s.metrics.nRunningReqs = int64(upd.Value)
+			} else {
+				s.metrics.nRunningReqs += int64(upd.Value)
+			}
+
 			s.reportRunningRequests()
 		}
 	}
@@ -658,7 +666,9 @@ func (s *SimContext) kvCacheUsageUpdater(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case value := <-s.metrics.kvCacheUsageChan:
-			s.reportKVCacheUsage(value)
+			if (s.Config.FakeMetrics != nil) == value.IsFake {
+				s.reportKVCacheUsage(value.Value)
+			}
 		}
 	}
 }

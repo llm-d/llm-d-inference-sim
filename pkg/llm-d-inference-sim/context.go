@@ -23,7 +23,6 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
@@ -32,105 +31,6 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 	vllmapi "github.com/llm-d/llm-d-inference-sim/pkg/vllm-api"
 )
-
-const (
-	waitingUsageState loraUsageState = iota
-	runningUsageState
-	doneUsageState
-)
-
-type loraUsageState int
-
-type loraUsage struct {
-	// the lora adapter name
-	name string
-	// state of the lora usage - waiting/running/done
-	state loraUsageState
-}
-
-// Prometheus metrics
-type metricsData struct {
-	// runningLoras is a collection of running loras,
-	// the key is lora's name, the value is the number of running requests using this lora
-	runningLoras sync.Map
-	// waitingLoras is a collection of waiting loras,
-	// the key is lora's name, the value is the number of waiting requests using this lora
-	waitingLoras sync.Map
-	// lorasChan is a channel to update waitingLoras and runningLoras
-	lorasChan chan loraUsage
-	// nRunningReqs is the number of inference requests that are currently being processed
-	nRunningReqs int64
-	// runReqChan is a channel to update nRunningReqs
-	runReqChan chan int64
-	// requestSuccessChan is a channel to update requestSuccessReqs
-	requestSuccessChan chan requestSuccessEvent
-	// nWaitingReqs is the number of inference requests that are waiting to be processed
-	nWaitingReqs int64
-	// waitingReqChan is a channel to update nWaitingReqs
-	waitingReqChan chan int64
-	// ttftChan is a channel to update time to first token
-	ttftChan chan float64
-	// tpotChan is a channel to update time per output token
-	tpotChan chan float64
-	// e2eReqLatencyChan is a channel to update request e2e latency
-	e2eReqLatencyChan chan float64
-	// reqQueueTimeChan is a channel to update request queue time
-	reqQueueTimeChan chan float64
-	// reqInferenceTimeChan is a channel to update request inference time
-	reqInferenceTimeChan chan float64
-	// reqPrefillTimeChan is a channel to update request prefill time
-	reqPrefillTimeChan chan float64
-	// reqDecodeTimeChan is a channel to update request decode time
-	reqDecodeTimeChan chan float64
-	// kvCacheUsageChan is a channel to update kvCacheUsagePercentage
-	kvCacheUsageChan chan float64
-	// registry is a Prometheus registry
-	registry *prometheus.Registry
-	// loraInfo is prometheus gauge
-	loraInfo *prometheus.GaugeVec
-	// runningRequests is prometheus gauge
-	runningRequests *prometheus.GaugeVec
-	// waitingRequests is prometheus gauge for number of queued requests
-	waitingRequests *prometheus.GaugeVec
-	// ttft is prometheus histogram for time to first token in seconds
-	ttft *prometheus.HistogramVec
-	// tpot is prometheus histogram for time per output token in seconds (deprecated since vLLM 0.11
-	tpot *prometheus.HistogramVec
-	// interTokenLatency is prometheus histogram for inter-token latency in seconds (replaces tpot since vLLM 0.11)
-	interTokenLatency *prometheus.HistogramVec
-	// e2eReqLatency is prometheus histogram of end to end request latency in seconds
-	e2eReqLatency *prometheus.HistogramVec
-	// reqQueueTime is prometheus histogram of request queue time in seconds
-	reqQueueTime *prometheus.HistogramVec
-	// reqInferenceTime is prometheus histogram of request inference time in seconds
-	reqInferenceTime *prometheus.HistogramVec
-	// reqPrefillTime is prometheus histogram of request prefill time in seconds
-	reqPrefillTime *prometheus.HistogramVec
-	// reqDecodeTime is prometheus histogram of request decode time in seconds
-	reqDecodeTime *prometheus.HistogramVec
-	// kvCacheUsagePercentage is prometheus gauge
-	kvCacheUsagePercentage *prometheus.GaugeVec
-	// requestPromptTokens is prometheus histogram for number of input (prompt) tokens in request
-	requestPromptTokens *prometheus.HistogramVec
-	// requestGenerationTokens is prometheus histogram for number of generated tokens in request
-	requestGenerationTokens *prometheus.HistogramVec
-	// promptTokensTotal is prometheus counter for total number of input (prompt) tokens
-	promptTokensTotal *prometheus.CounterVec
-	// generationTokensTotal is prometheus counter for total number of generated tokens
-	generationTokensTotal *prometheus.CounterVec
-	// maxNumGenerationTokens is prometheus histogram for maximum number of generated tokens in request
-	maxNumGenerationTokens *prometheus.HistogramVec
-	// requestParamsMaxTokens is prometheus histogram for 'max_tokens' parameter in request
-	requestParamsMaxTokens *prometheus.HistogramVec
-	// requestSuccessTotal is prometheus counter for total number of successful requests
-	requestSuccessTotal *prometheus.CounterVec
-	// prefixCacheHits is prometheus counter for total cached tokens (prefix cache hits)
-	prefixCacheHits *prometheus.CounterVec
-	// prefixCacheQueries is prometheus counter for total queried tokens (prefix cache queries)
-	prefixCacheQueries *prometheus.CounterVec
-	// prefixCacheStatsChan is a channel to update prefix cache hit/query counters
-	prefixCacheStatsChan chan kvcache.PrefixCacheStats
-}
 
 // LoRAs usage info for requests execution
 type lorasUsageInfo struct {

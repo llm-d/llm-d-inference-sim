@@ -37,20 +37,20 @@ const (
 // blockCache represents a thread-safe cache for blocks with eviction policy
 type blockCache struct {
 	mu              sync.RWMutex
-	requestToBlocks map[string][]uint64  // request id -> array of it blocks (block hashes)
-	usedBlocks      map[uint64]int       // block hash -> reference count
-	unusedBlocks    map[uint64]time.Time // block hash -> last usage timestamp
-	blockToTokens   map[uint64][]uint32  // block hash -> block tokens
-	maxBlocks       int                  // maximum number of blocks in the cache
-	eventSender     *KVEventSender       // emmits kv events
-	eventChan       chan EventData       // channel for asynchronous event processing
-	usageChan       chan float64         // channel for usage reporting
+	requestToBlocks map[string][]uint64     // request id -> array of it blocks (block hashes)
+	usedBlocks      map[uint64]int          // block hash -> reference count
+	unusedBlocks    map[uint64]time.Time    // block hash -> last usage timestamp
+	blockToTokens   map[uint64][]uint32     // block hash -> block tokens
+	maxBlocks       int                     // maximum number of blocks in the cache
+	eventSender     *KVEventSender          // emmits kv events
+	eventChan       chan EventData          // channel for asynchronous event processing
+	usageChan       chan *common.MetricInfo // channel for usage reporting
 	logger          logr.Logger
 	disabled        bool // indicated whether the cache is disabled
 }
 
 // newBlockCache creates a new blockCache with the specified maximum number of blocks
-func newBlockCache(config *common.Configuration, logger logr.Logger, usageChan chan float64) (*blockCache, error) {
+func newBlockCache(config *common.Configuration, logger logr.Logger, usageChan chan *common.MetricInfo) (*blockCache, error) {
 	if config.IP == "" {
 		return nil, errors.New("IP should be defined in the environment (POD_IP)")
 	}
@@ -220,8 +220,10 @@ func (bc *blockCache) startRequest(requestID string, blockHashes []uint64, block
 	copy(bc.requestToBlocks[requestID], blockHashes)
 
 	if bc.usageChan != nil {
-		common.WriteToChannel(bc.usageChan, float64(len(bc.usedBlocks))/float64(bc.maxBlocks),
-			bc.logger, "block cache usageChan")
+		usage := common.MetricInfo{
+			Value: float64(len(bc.usedBlocks)) / float64(bc.maxBlocks),
+		}
+		common.WriteToChannel(bc.usageChan, &usage, bc.logger, "block cache usageChan")
 	}
 	return len(blockAreadyInUse) + len(blockToMoveToUsed), nil
 }
@@ -262,8 +264,10 @@ func (bc *blockCache) finishRequest(requestID string) error {
 	}
 
 	if bc.usageChan != nil {
-		common.WriteToChannel(bc.usageChan, float64(len(bc.usedBlocks))/float64(bc.maxBlocks),
-			bc.logger, "block cache usageChan")
+		usage := common.MetricInfo{
+			Value: float64(len(bc.usedBlocks)) / float64(bc.maxBlocks),
+		}
+		common.WriteToChannel(bc.usageChan, &usage, bc.logger, "block cache usageChan")
 	}
 
 	// Remove the request mapping

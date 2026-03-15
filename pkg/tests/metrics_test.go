@@ -772,6 +772,94 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 			Expect(metrics).To(ContainSubstring(getCountMetricLine(testModel, vllmsim.PrefixCacheHitsMetricName, 750)))
 			Expect(metrics).To(ContainSubstring(getCountMetricLine(testModel, vllmsim.PrefixCacheQueriesMetricName, 2000)))
 		})
+
+		It("Should generate correct fake metrics using functions", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", testModel, "--mode", common.ModeRandom,
+				"--fake-metrics",
+				`{` +
+					`"running-requests":"oscillate:1:5:1s",` +
+					`"waiting-requests":"squarewave:10:15:400ms",` +
+					`"kv-cache-usage":"ramp:0:1:700ms"` +
+					`}`,
+			}
+
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			var prevKVCacheUsage float64
+			for i := 1; i <= 5; i++ {
+				time.Sleep(200 * time.Millisecond)
+				resp, err := client.Get(metricsUrl)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+				data, err := io.ReadAll(resp.Body)
+				Expect(err).NotTo(HaveOccurred())
+				metrics := string(data)
+				metricsLines := strings.Split(metrics, "\n")
+
+				// Running requests: should be various values in [1, 5]
+				count := findIntMetric(metricsLines, getCountMetricPrefix(testModel, vllmsim.ReqRunningMetricName))
+				Expect(count).ToNot(BeNil())
+				Expect(*count).To(BeNumerically(">=", 1))
+				Expect(*count).To(BeNumerically("<=", 5))
+
+				// Waiting requests: should be either 10 or 15
+				Expect(metrics).To(Or(ContainSubstring(getCountMetricLine(testModel, vllmsim.ReqWaitingMetricName, 10)),
+					ContainSubstring(getCountMetricLine(testModel, vllmsim.ReqWaitingMetricName, 15))))
+
+				// KV cache usage: should grow from 0 to 1, and reach 1 after 700ms (i >= 4)
+				kvCacheUsage := findFloatMetric(metricsLines, getCountMetricPrefix(testModel, vllmsim.KVCacheUsageMetricName))
+				Expect(kvCacheUsage).ToNot(BeNil())
+				if i < 4 {
+					Expect(*kvCacheUsage).To(BeNumerically("<", 1))
+					Expect(*kvCacheUsage).To(BeNumerically(">", prevKVCacheUsage))
+				} else {
+					Expect(*kvCacheUsage).To(BeNumerically("==", 1))
+				}
+				prevKVCacheUsage = *kvCacheUsage
+			}
+		})
+
+		It("Should generate correct fake metrics using rampreset function", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", testModel, "--mode", common.ModeRandom,
+				"--fake-metrics",
+				`{` +
+					`"kv-cache-usage":"rampreset:0:1:550ms"` +
+					`}`,
+			}
+
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			var prevKVCacheUsage float64
+			for i := 1; i <= 5; i++ {
+				time.Sleep(200 * time.Millisecond)
+				resp, err := client.Get(metricsUrl)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+				data, err := io.ReadAll(resp.Body)
+				Expect(err).NotTo(HaveOccurred())
+				metrics := string(data)
+				metricsLines := strings.Split(metrics, "\n")
+
+				// KV cache usage: should grow from 0 towards 1, and reset at 550ms (i=3)
+				kvCacheUsage := findFloatMetric(metricsLines, getCountMetricPrefix(testModel, vllmsim.KVCacheUsageMetricName))
+				Expect(kvCacheUsage).ToNot(BeNil())
+				if i != 3 {
+					Expect(*kvCacheUsage).To(BeNumerically("<", 1))
+					Expect(*kvCacheUsage).To(BeNumerically(">", prevKVCacheUsage))
+				} else {
+					Expect(*kvCacheUsage).To(BeNumerically("<", 1))
+					Expect(*kvCacheUsage).To(BeNumerically("<", prevKVCacheUsage))
+				}
+				prevKVCacheUsage = *kvCacheUsage
+			}
+		})
+
 		It("Should use TotalPromptTokens and TotalGenerationTokens if provided", func() {
 			ctx := context.TODO()
 			args := []string{

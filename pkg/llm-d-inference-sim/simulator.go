@@ -261,7 +261,7 @@ func (s *VllmSimulator) findRequestAndSendToProcess(worker *worker) bool {
 			"req", nextReq.request().GetRequestID(), "worker", worker.id)
 		common.WriteToChannel(worker.reqChan, nextReq, s.Context.logger, "worker's reqChan")
 		// decrement waiting requests metric
-		common.WriteToChannel(s.Context.metrics.waitingReqChan, -1, s.Context.logger, "metrics.waitingReqChan")
+		common.WriteToChannel(s.Context.metrics.waitingReqChan, &common.MetricInfo{Value: -1}, s.Context.logger, "metrics.waitingReqChan")
 		return true
 	}
 
@@ -280,7 +280,7 @@ func (s *VllmSimulator) addRequestToQueue(reqCtx requestContext) {
 		return
 	}
 	// increment the waiting requests metric
-	common.WriteToChannel(s.Context.metrics.waitingReqChan, 1, s.Context.logger, "metrics.waitingReqChan")
+	common.WriteToChannel(s.Context.metrics.waitingReqChan, &common.MetricInfo{Value: 1}, s.Context.logger, "metrics.waitingReqChan")
 	// update loraInfo metrics with the new waiting request
 	common.WriteToChannel(s.Context.metrics.lorasChan, loraUsage{reqCtx.request().GetModel(), waitingUsageState},
 		s.Context.logger, "metrics.lorasChan")
@@ -405,7 +405,7 @@ func (s *VllmSimulator) sendResponse(reqCtx requestContext, respCtx ResponseCont
 // request processing finished
 func (s *VllmSimulator) ResponseSentCallback(reqCtx requestContext, model string) {
 	// decrement running requests count
-	common.WriteToChannel(s.Context.metrics.runReqChan, -1, s.Context.logger, "metrics.runReqChan")
+	common.WriteToChannel(s.Context.metrics.runReqChan, &common.MetricInfo{Value: -1}, s.Context.logger, "metrics.runReqChan")
 
 	if s.Context.isLora(model) {
 		// update loraInfo metrics to reflect that the request processing has been finished

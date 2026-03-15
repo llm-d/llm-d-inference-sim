@@ -450,6 +450,20 @@ func findIntMetric(metrics []string, metricPrefix string) *int {
 	return &val
 }
 
+// findFloatMetric returns the value for the first metrics with the given prefix as float or nil if not found
+func findFloatMetric(metrics []string, metricPrefix string) *float64 {
+	valueStr := findMetric(metrics, metricPrefix)
+	if valueStr == "" {
+		return nil
+	}
+
+	val, err := strconv.ParseFloat(valueStr, 64)
+	if err != nil {
+		return nil
+	}
+	return &val
+}
+
 // getFloatBucketMetricLine builds a string which will defin bucket metric line for the given parameters
 // model the model name
 // metrics the metric name

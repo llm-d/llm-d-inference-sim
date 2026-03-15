@@ -46,7 +46,7 @@ type KVCacheHelper struct {
 	prefixCacheStatsChan chan PrefixCacheStats
 }
 
-func NewKVCacheHelper(config *common.Configuration, logger logr.Logger, usageChan chan float64,
+func NewKVCacheHelper(config *common.Configuration, logger logr.Logger, usageChan chan *common.MetricInfo,
 	prefixCacheStatsChan chan PrefixCacheStats, tokenizer tokenizer.Tokenizer) (*KVCacheHelper, error) {
 	tokenProcConfig := kvblock.DefaultTokenProcessorConfig()
 	tokenProcConfig.BlockSize = config.TokenBlockSize
