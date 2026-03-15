@@ -12,11 +12,14 @@ spec:
       labels:
         app: vllm-sim
     spec:
-      containers:
+      initContainers:
       # UDS Tokenizer sidecar - handles tokenization via gRPC over Unix Domain Socket
+      # restartPolicy: Always makes this a native sidecar (K8s 1.29+):
+      # vllm-sim will not start until this container's readinessProbe passes
       - name: uds-tokenizer
         image: ${UDS_TOKENIZER_IMAGE}
         imagePullPolicy: IfNotPresent
+        restartPolicy: Always
         env:
         - name: LOG_LEVEL
           value: "DEBUG"
@@ -40,23 +43,18 @@ spec:
         volumeMounts:
         - name: uds-socket
           mountPath: /tmp/tokenizer
+      containers:
       - name: vllm-sim
         # Change to the next release which will use uds tokenizer
         image: ${VLLM_SIMULATOR_IMAGE}
         imagePullPolicy: IfNotPresent
-        command: ["/bin/sh", "-c"]
+        command: ["/app/llm-d-inference-sim"]
         args:
-        - |
-          echo "Waiting for UDS socket at /tmp/tokenizer/tokenizer-uds.socket..."
-          until [ -S /tmp/tokenizer/tokenizer-uds.socket ]; do
-            sleep 1
-          done
-          echo "Socket found! Starting simulator..."
-          ls -la /tmp/tokenizer
-          /app/llm-d-inference-sim \
-          --model ${MODEL_NAME} \
-          --port 8000 \
-          --v=5
+        - "--model"
+        - "${MODEL_NAME}"
+        - "--port"
+        - "8000"
+        - "--v=5"
         env:
           - name: POD_NAME
             valueFrom:
@@ -101,5 +99,4 @@ spec:
       port: 8000
       targetPort: 8000
       nodePort: ${HOST_PORT}
-#      nodePort: ${HOST_PORT}  # Must match extraPortMappings containerPort
 

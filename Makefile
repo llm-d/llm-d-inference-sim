@@ -292,6 +292,7 @@ UDS_TOKENIZER_IMG_NAME ?= $(IMAGE_REGISTRY)/llm-d-uds-tokenizer:${UDS_TOKENIZER_
 
 .PHONY: dev-env-kind
 dev-env-kind: 
+	@printf "\033[33;1m==== Deploying on kind ====\033[0m\n"
 	CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
 	HOST_PORT=$(HOST_PORT) \
 	MODEL_NAME=${MODEL_NAME} \
