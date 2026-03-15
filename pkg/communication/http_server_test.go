@@ -25,8 +25,6 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 )
 
-const testModel = "test-model"
-
 var _ = Describe("Server", func() {
 
 	Context("SSL/HTTPS Configuration", func() {
@@ -40,7 +38,7 @@ var _ = Describe("Server", func() {
 				os.Args = oldArgs
 			}()
 
-			os.Args = []string{"cmd", "--model", testModel, "--ssl-certfile", certFile, "--ssl-keyfile", keyFile}
+			os.Args = []string{"cmd", "--model", common.TestModelName, "--ssl-certfile", certFile, "--ssl-keyfile", keyFile}
 			config, err := common.ParseCommandParamsAndLoadConfig()
 			Expect(err).NotTo(HaveOccurred())
 			Expect(config.SSLEnabled()).To(BeTrue())
@@ -54,7 +52,7 @@ var _ = Describe("Server", func() {
 				os.Args = oldArgs
 			}()
 
-			os.Args = []string{"cmd", "--model", testModel, "--self-signed-certs"}
+			os.Args = []string{"cmd", "--model", common.TestModelName, "--self-signed-certs"}
 			config, err := common.ParseCommandParamsAndLoadConfig()
 			Expect(err).NotTo(HaveOccurred())
 			Expect(config.SSLEnabled()).To(BeTrue())
@@ -79,7 +77,7 @@ var _ = Describe("Server", func() {
 			certFile, _, err := GenerateTempCerts(tempDir)
 			Expect(err).NotTo(HaveOccurred())
 
-			os.Args = []string{"cmd", "--model", testModel, "--ssl-certfile", certFile}
+			os.Args = []string{"cmd", "--model", common.TestModelName, "--ssl-certfile", certFile}
 			_, err = common.ParseCommandParamsAndLoadConfig()
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("both ssl-certfile and ssl-keyfile must be provided together"))
@@ -87,7 +85,7 @@ var _ = Describe("Server", func() {
 			_, keyFile, err := GenerateTempCerts(tempDir)
 			Expect(err).NotTo(HaveOccurred())
 
-			os.Args = []string{"cmd", "--model", testModel, "--ssl-keyfile", keyFile}
+			os.Args = []string{"cmd", "--model", common.TestModelName, "--ssl-keyfile", keyFile}
 			_, err = common.ParseCommandParamsAndLoadConfig()
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("both ssl-certfile and ssl-keyfile must be provided together"))

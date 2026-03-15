@@ -54,7 +54,6 @@ All latency-related parameters are defined in duration format, e.g., 100ms. Inte
 - `kv-cache-size`: the maximum number of token blocks in kv cache
 - `global-cache-hit-threshold`: default cache hit threshold [0, 1] for all requests. If a request specifies cache_hit_threshold, it takes precedence over this global value
 - `block-size`: token block size for contiguous chunks of tokens, possible values: 8,16,32,64,128
-- `tokenizers-cache-dir`: the directory for caching tokenizers, default is hf_cache
 - `hash-seed`: seed for hash generation (if not set, is read from PYTHONHASHSEED environment variable)
 - `zmq-endpoint`: ZMQ address to publish events
 - `zmq-max-connect-attempts`: the maximum number of ZMQ connection attempts, defaults to 0, maximum: 10
@@ -81,6 +80,9 @@ All latency-related parameters are defined in duration format, e.g., 100ms. Inte
   - Example URL `https://huggingface.co/datasets/hf07397/inference-sim-datasets/resolve/91ffa7aafdfd6b3b1af228a517edc1e8f22cd274/huggingface/ShareGPT_Vicuna_unfiltered/conversations.sqlite3`
 - `dataset-in-memory`: If true, the entire dataset will be loaded into memory for faster access. This may require significant memory depending on the size of the dataset. Default is false.
 - `dataset-table-name`: Table name for custom dataset, optional, default is 'llmd'
+
+## Tokenizer
+- `uds-socket-path`: UDS socket path for communication with HF tokenizer, default is '/tmp/tokenizer/tokenizer-uds.socket'
 
 ## SSL
 - `ssl-certfile`: Path to SSL certificate file for HTTPS (optional)
@@ -135,7 +137,6 @@ In addition, as we are using klog, the following parameters are available:
 - `vmodule`: comma-separated list of pattern=N settings for file-filtered logging
 
 # Environment variables
-- `HF_TOKEN`: HuggingFace access token
 - `POD_NAME`: the simulator pod name. If defined, the response will contain the HTTP header `x-inference-pod` with this value, and the HTTP header `x-inference-port` with the port that the request was received on 
 - `POD_NAMESPACE`: the simulator pod namespace. If defined, the response will contain the HTTP header `x-inference-namespace` with this value
 - `POD_IP`: the simulator pod IP address. Used in kv-events topic name.

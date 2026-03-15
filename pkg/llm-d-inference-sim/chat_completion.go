@@ -80,7 +80,7 @@ func (c *chatCompletionReqCtx) tokenizedPromptForEcho() (*openaiserverapi.Tokeni
 	if len(c.req.Messages) > 0 {
 		lastMsg = c.req.Messages[len(c.req.Messages)-1].Content.Raw
 	}
-	tokens, strTokens, err := c.sim.Tokenizer.Encode(lastMsg, "")
+	tokens, strTokens, err := c.sim.Tokenizer.RenderText(lastMsg)
 	if err != nil {
 		return nil, err
 	}
@@ -97,6 +97,10 @@ type chatCompletionReqCtx struct {
 
 func (c *chatCompletionReqCtx) request() Request {
 	return c.req
+}
+
+func (c *chatCompletionReqCtx) encode() ([]uint32, []string, error) {
+	return c.sim.Tokenizer.RenderChatCompletion(c.req.Messages)
 }
 
 func (c *chatCompletionReqCtx) kvCacheOnRequestStart() (hitRate float64, oaiServerError *openaiserverapi.Error) {

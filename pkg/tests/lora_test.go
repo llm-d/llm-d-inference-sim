@@ -37,7 +37,7 @@ var _ = Describe("LoRAs", func() {
 		It("Should config, load and unload LoRAs correctly", func() {
 			ctx := context.TODO()
 			client, err := startServerWithArgs(ctx,
-				[]string{"cmd", "--model", testModel, "--mode", common.ModeEcho,
+				[]string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho,
 					"--lora-modules", "{\"name\":\"lora3\",\"path\":\"/path/to/lora3\"}",
 					"{\"name\":\"lora4\",\"path\":\"/path/to/lora4\"}"})
 			Expect(err).NotTo(HaveOccurred())
@@ -85,7 +85,7 @@ var _ = Describe("LoRAs", func() {
 			for _, model := range modelsResp.Data {
 				if strings.HasPrefix(model.ID, "lora") {
 					Expect(model.Parent).ToNot(BeNil())
-					Expect(*model.Parent).To(Equal(testModel))
+					Expect(*model.Parent).To(Equal(common.TestModelName))
 				} else {
 					Expect(model.Parent).To(BeNil())
 				}

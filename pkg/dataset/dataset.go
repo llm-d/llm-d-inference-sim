@@ -83,7 +83,7 @@ func (d *DefaultDataset) Init(ctx context.Context, logger logr.Logger, random *c
 
 	d.tokenizedResponses = make([]openaiserverapi.Tokenized, len(completionFakeResponses))
 	for i, text := range completionFakeResponses {
-		tokens, textTokens, err := tokenizer.Encode(text, "")
+		tokens, textTokens, err := tokenizer.RenderText(text)
 		if err != nil {
 			logger.Error(err, "failed to tokenize")
 			return err

@@ -25,7 +25,6 @@ import (
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
-	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 	. "github.com/onsi/ginkgo/v2"
 	"k8s.io/klog/v2"
 
@@ -40,8 +39,8 @@ const (
 
 type validDBElement struct {
 	input          string
+	messages       []openaiserverapi.Message
 	tokenizedInput openaiserverapi.Tokenized
-	chatMessages   []string
 	hexa           string
 	respTokens     openaiserverapi.Tokenized
 }
@@ -60,7 +59,6 @@ var _ = Describe("CustomDataset", Ordered, func() {
 		pathToInvalidColumnDB string
 		pathToInvalidTypeDB   string
 		random                *common.Random
-		tknzr                 tokenizer.Tokenizer
 		validDB               []validDBElement
 	)
 
@@ -77,9 +75,6 @@ var _ = Describe("CustomDataset", Ordered, func() {
 		pathToInvalidTableDB = file_folder + "/test.invalid.table.sqlite3"
 		pathToInvalidColumnDB = file_folder + "/test.invalid.column.sqlite3"
 		pathToInvalidTypeDB = file_folder + "/test.invalid.type.sqlite3"
-		config := &common.Configuration{Model: "Qwen/Qwen3-0.6B", TokenizersCacheDir: tokenizerTmpDir}
-		tknzr, err = tokenizer.New(config, klog.Background())
-		Expect(err).ShouldNot(HaveOccurred())
 
 		validDB = make([]validDBElement, 3)
 
@@ -101,23 +96,38 @@ var _ = Describe("CustomDataset", Ordered, func() {
 		}
 
 		// #6 in db: intput2, message2, chat completions, short response
-		validDB[2].input = "### user:\nHello world!\n### assistant:\nthis is assistant long response, it should contain at least 10 tokens\n### user:\nHello world again\n"
-		validDB[2].hexa = "067b89152dee047c66e53926f47d65366509729ad2c5a8e1d1e2dbb05f2eab41"
+		validDB[2].input = ""
+		validDB[2].messages = []openaiserverapi.Message{
+			{Role: openaiserverapi.RoleUser, Content: openaiserverapi.Content{Raw: "Hello world!"}},
+			{Role: openaiserverapi.RoleAssistant, Content: openaiserverapi.Content{Raw: "this is assistant long response, it should contain at least 10 tokens"}},
+			{Role: openaiserverapi.RoleUser, Content: openaiserverapi.Content{Raw: "Hello world again"}},
+		}
+		validDB[2].hexa = "a57863ca4a26f377c8e67471c418ab26315b6d60b323ce34676de0aca3f7cec8"
 		validDB[2].respTokens = openaiserverapi.Tokenized{
 			Strings: []string{"short", " response"},
 			Tokens:  []uint32{8676, 2033},
 		}
-		validDB[2].chatMessages = []string{"Hello world!",
-			"this is assistant long response, it should contain at least 10 tokens",
-			"Hello world again"}
 
 		for i := range validDB {
-			tokens, strTokens, err := tknzr.Encode(validDB[i].input, "")
+			var tokens []uint32
+			var strTokens []string
+			var err error
+
+			if len(validDB[i].input) > 0 {
+				// has prompt
+				tokens, strTokens, err = tokenizerMngr.RealTokenizer().RenderText(validDB[i].input)
+			} else {
+				// has messages
+				tokens, strTokens, err = tokenizerMngr.RealTokenizer().RenderChatCompletion(validDB[i].messages)
+			}
 			Expect(err).ToNot(HaveOccurred())
-			Expect(tokens).ToNot(BeEmpty())
 			Expect(tokens).ToNot(BeNil())
-			Expect(strTokens).ToNot(BeEmpty())
-			Expect(strTokens).ToNot(BeNil())
+			Expect(tokens).ToNot(BeEmpty())
+			if len(validDB[i].input) > 0 {
+				// for text rendering string tokens returned, for chat string tokens array is empty
+				Expect(strTokens).ToNot(BeNil())
+				Expect(strTokens).ToNot(BeEmpty())
+			}
 			validDB[i].tokenizedInput = openaiserverapi.Tokenized{Tokens: tokens, Strings: strTokens}
 		}
 	})
@@ -165,7 +175,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 
 	It("should successfully init dataset", func() {
 		dataset := &CustomDataset{}
-		err := dataset.Init(context.Background(), klog.Background(), random, validDBPath, tableName, false, 1024, tknzr)
+		err := dataset.Init(context.Background(), klog.Background(), random, validDBPath, tableName, false, 1024, tokenizerMngr.RealTokenizer())
 		Expect(err).NotTo(HaveOccurred())
 
 		row := dataset.sqliteHelper.db.QueryRow(fmt.Sprintf("SELECT n_gen_tokens FROM llmd WHERE prompt_hash=X'%s';", validDB[0].hexa))
@@ -226,7 +236,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 	})
 
 	It("should return correct prompt hash in hex", func() {
-		tokens, strTokens, err := tknzr.Encode(validDB[0].input, "")
+		tokens, strTokens, err := tokenizerMngr.RealTokenizer().RenderText(validDB[0].input)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(tokens).To(Equal(validDB[0].tokenizedInput.Tokens))
 		Expect(strTokens).To(Equal(validDB[0].tokenizedInput.Strings))
@@ -249,7 +259,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 		exactMaxToken := int64(4)
 
 		BeforeAll(func() {
-			err := dataset.Init(context.Background(), klog.Background(), random, validDBPath, tableName, false, 1024, tknzr)
+			err := dataset.Init(context.Background(), klog.Background(), random, validDBPath, tableName, false, 1024, tokenizerMngr.RealTokenizer())
 			Expect(err).NotTo(HaveOccurred())
 		})
 
@@ -328,12 +338,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 
 		It("should work correctly for chat request with multiple messages", func() {
 			req := openaiserverapi.ChatCompletionRequest{MaxTokens: &maxTokens}
-			req.Messages = []openaiserverapi.Message{
-				{Role: openaiserverapi.RoleUser, Content: openaiserverapi.Content{Raw: validDB[2].chatMessages[0]}},
-				{Role: openaiserverapi.RoleAssistant, Content: openaiserverapi.Content{Raw: validDB[2].chatMessages[1]}},
-				{Role: openaiserverapi.RoleUser, Content: openaiserverapi.Content{Raw: validDB[2].chatMessages[2]}},
-			}
-
+			req.Messages = validDB[2].messages
 			req.SetTokenizedPrompt(&validDB[2].tokenizedInput)
 
 			tokens, finishReason, err := dataset.GetResponseTokens(&req)
@@ -351,17 +356,14 @@ var _ = Describe("custom dataset for multiple simulators", Ordered, func() {
 		validDBPath := file_folder + "/test.valid.sqlite3"
 		tableName := "llmd"
 
-		tokenizer, err := tokenizer.New(&common.Configuration{Model: "test"}, klog.Background())
-		Expect(err).ShouldNot(HaveOccurred())
-
 		random1 := common.NewRandom(time.Now().UnixNano(), 8081)
 		dataset1 := &CustomDataset{}
-		err = dataset1.Init(context.Background(), klog.Background(), random1, validDBPath, tableName, false, 1024, tokenizer)
+		err := dataset1.Init(context.Background(), klog.Background(), random1, validDBPath, tableName, false, 1024, tokenizerMngr.TestTokenizer())
 		Expect(err).NotTo(HaveOccurred())
 
 		random2 := common.NewRandom(time.Now().UnixNano(), 8082)
 		dataset2 := &CustomDataset{}
-		err = dataset2.Init(context.Background(), klog.Background(), random2, validDBPath, tableName, false, 1024, tokenizer)
+		err = dataset2.Init(context.Background(), klog.Background(), random2, validDBPath, tableName, false, 1024, tokenizerMngr.TestTokenizer())
 		Expect(err).NotTo(HaveOccurred())
 	})
 })

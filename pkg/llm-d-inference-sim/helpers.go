@@ -18,6 +18,7 @@ limitations under the License.
 package llmdinferencesim
 
 import (
+	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	"github.com/valyala/fasthttp"
 )
@@ -44,7 +45,7 @@ func getNumberOfPromptTokens(req openaiserverapi.Request) int {
 
 func validateRequest(req openaiserverapi.Request) (string, int) {
 	if req.GetMaxCompletionTokens() != nil && *req.GetMaxCompletionTokens() <= 0 {
-		return "Max completion tokens and max tokens should be positive", fasthttp.StatusBadRequest
+		return common.InvalidMaxTokensErrMsg, fasthttp.StatusBadRequest
 	}
 
 	if req.IsDoRemoteDecode() && req.IsStream() {

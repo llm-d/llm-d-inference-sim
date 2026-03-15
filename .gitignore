@@ -9,3 +9,4 @@ vendor
 *.test
 manifests/dev-config.yaml
 pkg/llm-d-inference-sim/tests-tmp/
+zmq-listener/.venv

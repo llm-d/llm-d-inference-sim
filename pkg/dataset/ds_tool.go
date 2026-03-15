@@ -60,8 +60,8 @@ type DatasetTool struct {
 }
 
 // NewDatasetTool creates DatasetTool instance based on the given parameters
-func NewDatasetTool(config *DSToolConfiguration, logger logr.Logger) (*DatasetTool, error) {
-	t, err := tokenizer.NewHFTokenizer(config.model, config.tokenizersCacheDir)
+func NewDatasetTool(ctx context.Context, config *DSToolConfiguration, logger logr.Logger) (*DatasetTool, error) {
+	t, err := tokenizer.NewHFTokenizer(ctx, logger, config.udsSocketPath, config.model)
 	if err != nil {
 		return nil, err
 	}
@@ -225,17 +225,24 @@ func (dt *DatasetTool) conversationToOutputRecords(userTxt, assistantTxt string,
 	})
 
 	// create db record for /completions (without the messages concatenation)
-	inputText := textRequest.GetPrompt()
-	if rec, err := dt.createOutputRecord(inputText, assistantTxt); err != nil {
+	inputTokens, _, err := dt.tokenizer.RenderText(textRequest.Prompt)
+	if err != nil {
+		return nil, errors.Join(err, fmt.Errorf("input tokenization failed (%s)", textRequest.Prompt))
+	}
+
+	if rec, err := dt.createOutputRecord(inputTokens, assistantTxt, textRequest.Prompt); err != nil {
 		return nil, err
 	} else {
 		result = append(result, *rec)
 	}
 
 	// create db record for /chat/completions with all messages till now
-	// TODO - templatize!
-	inputText = chatRequest.GetFullPrompt()
-	if rec, err := dt.createOutputRecord(inputText, assistantTxt); err != nil {
+	inputTokens, _, err = dt.tokenizer.RenderChatCompletion(chatRequest.Messages)
+	rawInput := tokenizer.FlattenChatRequest(chatRequest.Messages)
+	if err != nil {
+		return nil, errors.Join(err, fmt.Errorf("input tokenization failed (%s)", rawInput))
+	}
+	if rec, err := dt.createOutputRecord(inputTokens, assistantTxt, rawInput); err != nil {
 		return nil, err
 	} else {
 		result = append(result, *rec)
@@ -250,12 +257,10 @@ func (dt *DatasetTool) conversationToOutputRecords(userTxt, assistantTxt string,
 }
 
 // createOutputRecord creates an output record based on the given parameters
-func (dt *DatasetTool) createOutputRecord(inputText, generatedText string) (*outputRecord, error) {
-	inputTokens, _, err := dt.tokenizer.Encode(inputText, dt.config.model)
-	if err != nil {
-		return nil, errors.Join(err, fmt.Errorf("input tokenization failed (%s)", inputText))
-	}
-	generatedTokens, genTextTokens, err := dt.tokenizer.Encode(generatedText, dt.config.model)
+// rawInput represents the input for reference and debug purpose, it uses "dummy templatisation"
+// and not real model's templatization
+func (dt *DatasetTool) createOutputRecord(inputTokens []uint32, generatedText string, rawInput string) (*outputRecord, error) {
+	generatedTokens, genTextTokens, err := dt.tokenizer.RenderText(generatedText)
 	if err != nil {
 		return nil, errors.Join(err, fmt.Errorf("output tokenization failed (%s)", generatedText))
 	}
@@ -264,7 +269,7 @@ func (dt *DatasetTool) createOutputRecord(inputText, generatedText string) (*out
 		PromptHash:   getInputHash(inputTokens),
 		NumGenTokens: len(generatedTokens),
 		GenTokens:    openaiserverapi.Tokenized{Strings: genTextTokens, Tokens: generatedTokens},
-		InputText:    inputText,
+		InputText:    rawInput,
 		Generated:    generatedText,
 	}
 

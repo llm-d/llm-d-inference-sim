@@ -12,7 +12,8 @@ Qwen/Qwen3-0.6B
 ## Source Dataset
 
 The original dataset consists of multi-turn conversations between humans and AI assistants. <br>
-Dataset: [](https://huggingface.co/datasets/), file valid_input.json
+Dataset: local file test.valid.input.json
+
 
 ### Dataset Formats
 

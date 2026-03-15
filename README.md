@@ -65,13 +65,16 @@ The simulator offers flexible tokenization to balance accuracy vs. performance. 
 * **HuggingFace Mode:** Used for real models (e.g., `meta-llama/Llama-3.1-8B-Instruct`). Downloads actual tokenizers for exact accuracy.
 * **Simulated Mode:** Used for dummy/non-existent model names. Uses a fast regex tokenizer for maximum performance with zero startup overhead.
 
-For details on caching, environment variables (`HF_TOKEN`), and performance tuning, see the [Tokenization Guide](docs/tokenization.md).
+For details on caching, and performance tuning, see the [Tokenization Guide](docs/tokenization.md).
 
 ### LoRA Management
 Simulates the lifecycle (loading/unloading) of LoRA adapters without occupying actual memory. Reports LoRA related Prometheus metrics.
 
 ### KV Cache Simulation
 Tracks simulated memory usage and publishes ZMQ events for cache block allocation and eviction.
+
+### Prefill/Decode (P/D)
+The configuration for P/D disaggregation deployment can be found in [manifests/disaggregation](manifests/disaggregation).
 
 ### Failure Injection
 Can randomly inject specific errors (e.g., rate_limit, model_not_found) to test client resilience.
@@ -101,15 +104,6 @@ The following environment variables can be used to change the image tag
 | SIM_TAG | Image tag | dev |
 | IMG | The full image specification | \$(IMAGE_TAG_BASE):\$(SIM_TAG) |
 
-### Running
-To run the vLLM Simulator image under Docker, run:
-```bash
-docker run --rm --publish 8000:8000 -v $(pwd)/hf_cache:/hf_cache ghcr.io/llm-d/llm-d-inference-sim:dev  --port 8000 --model "Qwen/Qwen2.5-1.5B-Instruct"  --lora-modules '{"name":"tweet-summary-0"}' '{"name":"tweet-summary-1"}'
-```
-**Note:** To run the vLLM Simulator with the latest release version, in the above docker command replace `dev` with the current release which can be found on [GitHub](https://github.com/llm-d/llm-d-inference-sim/pkgs/container/llm-d-inference-sim).
-
-**Note:** The above command exposes the simulator on port 8000, and serves the Qwen/Qwen2.5-1.5B-Instruct model.
-
 ## Standalone testing
 
 ### Building
@@ -119,47 +113,57 @@ make build
 ```
 
 ### Running
-To run the vLLM simulator in a standalone test environment:
 
-1. Set the PYTHONPATH environment variable (needed for the tokenization code) by running:
-```bash
-. env-setup.sh
-```
+To run the vLLM simulator in a standalone test environment with real model:
+
+1. Run UDS tokenizer, see details [here](https://github.com/llm-d/llm-d-kv-cache/tree/main/services/uds_tokenizer).<br>
+   a. Clone the kv-cache project
+      ```bash
+      git clone git@github.com:llm-d/llm-d-kv-cache.git
+      ```
+   b. Create and activate python virtual environment
+      ```bash
+      python -m venv <virt env folder>
+      source <virt env folder>/bin/activate
+      ```
+   c. Navigate to 'llm-d-kv-cache/services/uds_tokenizer' and install requirements
+      ```bash
+      pip install -e .
+      ```
+   d. Run the UDS tokenizer
+      ```bash
+      python ./run_grpc_server.py
+      ```
 2. Start the simulator:
 ```bash
-./bin/llm-d-inference-sim --model my_model --port 8000
+./bin/llm-d-inference-sim --model Qwen/Qwen2.5-0.5B-Instruct --port 8000
 ```
+**Note:** If the model is not a real model, there is no need to run the UDS tokenizer.
 
-## Kubernetes testing
+## Testing on Kind
 
-To run the vLLM simulator in a Kubernetes cluster, run:
+### Installation
+
+To run the vLLM simulator in a Kind cluster, run:
 ```bash
-kubectl apply -f manifests/deployment.yaml
+make dev-env-kind
 ```
-
-When testing locally with kind, build the docker image with `make build-image` then load into the cluster:
-```shell
-kind load --name kind docker-image ghcr.io/llm-d/llm-d-inference-sim:dev
-```
-
-Update the `deployment.yaml` file to use the dev tag. 
+Check [Makefile](Makefile) for environment variables to tune the process.
+Example:
+```bash
+ KIND_CLUSTER_NAME=mytest UDS_TOKENIZER_TAG=v0.6.0 SIM_TAG=dev make dev-env-kind
+``` 
 
 To verify the deployment is available, run:
 ```bash
-kubectl get deployment vllm-llama3-8b-instruct
-kubectl get service vllm-llama3-8b-instruct-svc
-```
-
-Use `kubectl port-forward` to expose the service on your local machine:
-
-```bash
-kubectl port-forward svc/vllm-llama3-8b-instruct-svc 8000:8000
+kubectl get deployment vllm-sim
+kubectl get service vllm-sim
 ```
 
 Test the API with curl
 
 ```bash
-curl -X POST http://localhost:8000/v1/chat/completions \
+curl -X POST http://localhost:30080/v1/chat/completions \
   -H "Content-Type: application/json" \
   -d '{
     "model": "meta-llama/Llama-3.1-8B-Instruct",
@@ -169,6 +173,12 @@ curl -X POST http://localhost:8000/v1/chat/completions \
   }'
 ```
 
-## Prefill/Decode (P/D) Separation Example
-An example configuration for P/D (Prefill/Decode) disaggregation deployment can be found in [manifests/disaggregation](manifests/disaggregation).
+### Cleanup
+
+To delete the cluster, run:
+```bash
+make clean-dev-env-kind
+```
+
+
 

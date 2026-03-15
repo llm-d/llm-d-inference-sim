@@ -17,13 +17,27 @@ limitations under the License.
 package tokenizer
 
 import (
+	"context"
 	"testing"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"k8s.io/klog/v2"
 )
+
+var tokenizerMngr *TokenizerManager
 
 func TestTokenizer(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "Tokenizer Suite")
 }
+
+var _ = BeforeSuite(func() {
+	tokenizerMngr = NewTokenizerManager()
+	err := tokenizerMngr.Init(context.Background(), klog.Background())
+	Expect(err).ShouldNot(HaveOccurred())
+})
+
+var _ = AfterSuite(func() {
+	tokenizerMngr.Clean()
+})

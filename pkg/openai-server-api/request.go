@@ -17,16 +17,9 @@ limitations under the License.
 // Contains structures and functions related to requests for all supported APIs
 package openaiserverapi
 
-import (
-	"fmt"
-	"strings"
-)
-
 const (
 	RoleAssistant = "assistant"
 	RoleUser      = "user"
-	// template used to convert request content to a plain string for dataset usage
-	rolePrefixTemplate = "### %s:\n%s\n"
 )
 
 // Request defines an interface for request information retrieval
@@ -47,8 +40,6 @@ type Request interface {
 	// SetNumberOfCachedPromptTokens sets the number of tokens in the prompt that are
 	// in the local KV Cache
 	SetNumberOfCachedPromptTokens(cachedPromptTokens int)
-	// GetPrompt returns the prompt
-	GetPrompt() string
 	// GetTools returns tools to use (in chat completion)
 	GetTools() []Tool
 	// GetToolChoice returns tool choice (in chat completion)
@@ -65,9 +56,6 @@ type Request interface {
 	// when the field is true, the prefill phase should be done on remote pod,
 	// whereas decode phase is done on local pod, thus this is a decode request
 	IsDoRemotePrefill() bool
-	// GetFullPrompt returns the full prompt including system and user prompts
-	// in format compatible to responses custom dataset
-	GetFullPrompt() string
 	// ExtractMaxTokens extracts the max tokens from the request:
 	// for chat completion - max_completion_tokens field is used
 	// for text completion - max_tokens field is used
@@ -237,10 +225,6 @@ func (b *baseCompletionRequest) SetCacheThresholdFinishReason(value bool) {
 	b.cacheThresholdFinishReason = value
 }
 
-func (b *baseCompletionRequest) addRoleToMessage(role, msg string) string {
-	return fmt.Sprintf(rolePrefixTemplate, role, msg)
-}
-
 // TokenizedPrompt returns the tokenized prompt
 func (b *baseCompletionRequest) TokenizedPrompt() *Tokenized {
 	return b.tokenizedPrompt
@@ -314,15 +298,6 @@ type Tool struct {
 	Type string `json:"type"`
 }
 
-func (c *ChatCompletionRequest) GetPrompt() string {
-	var messages string
-	for _, message := range c.Messages {
-		messages += message.Content.PlainText() + " "
-	}
-
-	return strings.TrimSpace(messages)
-}
-
 func (c *ChatCompletionRequest) GetTools() []Tool {
 	return c.Tools
 }
@@ -354,14 +329,6 @@ func (req *ChatCompletionRequest) GetLastUserMsg() string {
 
 	// return last message
 	return req.Messages[len(req.Messages)-1].Content.PlainText()
-}
-
-func (req *ChatCompletionRequest) GetFullPrompt() string {
-	prompt := ""
-	for _, msg := range req.Messages {
-		prompt += req.addRoleToMessage(msg.Role, msg.Content.Raw)
-	}
-	return prompt
 }
 
 // ExtractMaxTokens extracts the max tokens from the request
@@ -405,10 +372,6 @@ type TextCompletionRequest struct {
 
 var _ Request = (*TextCompletionRequest)(nil)
 
-func (t *TextCompletionRequest) GetPrompt() string {
-	return t.Prompt
-}
-
 func (c *TextCompletionRequest) GetTools() []Tool {
 	return nil
 }
@@ -419,10 +382,6 @@ func (c *TextCompletionRequest) GetToolChoice() ToolChoice {
 
 func (c *TextCompletionRequest) GetMaxCompletionTokens() *int64 {
 	return c.MaxTokens
-}
-
-func (t *TextCompletionRequest) GetFullPrompt() string {
-	return t.addRoleToMessage(RoleUser, t.Prompt)
 }
 
 // ExtractMaxTokens extracts the max tokens from the request

@@ -192,8 +192,6 @@ type Configuration struct {
 	// If a request specifies cache_hit_threshold, it takes precedence over this global value.
 	GlobalCacheHitThreshold float64 `yaml:"global-cache-hit-threshold" json:"global-cache-hit-threshold"`
 
-	// TokenizersCacheDir is the directory for caching tokenizers
-	TokenizersCacheDir string `yaml:"tokenizers-cache-dir" json:"tokenizers-cache-dir"`
 	// TokenBlockSize is token block size for contiguous chunks of tokens, possible values: 8,16,32,64,128, defaults to 16
 	TokenBlockSize int `yaml:"block-size" json:"block-size"`
 	// HashSeed is the seed for hash generation (if not set, is read from PYTHONHASHSEED environment variable)
@@ -246,6 +244,9 @@ type Configuration struct {
 	DatasetInMemory bool `yaml:"dataset-in-memory" json:"dataset-in-memory"`
 	// DatasetTableName defines custom SQLite dataset table name
 	DatasetTableName string `yaml:"dataset-table-name" json:"dataset-table-name"`
+
+	// Tokenizer UDS socker path
+	UDSSocketPath string `yaml:"uds-socket-path" json:"uds-socket-path"`
 
 	// EnableSleepMode enables sleep mode
 	EnableSleepMode bool `yaml:"enable-sleep-mode" json:"enable-sleep-mode"`
@@ -423,9 +424,9 @@ func newConfig() *Configuration {
 		EventBatchSize:             16,
 		DPSize:                     1,
 		Rank:                       -1,
-		TokenizersCacheDir:         "hf_cache",
 		DatasetTableName:           DefaultDSTableName,
 		DefaultEmbeddingDimensions: 384,
+		UDSSocketPath:              "/tmp/tokenizer/tokenizer-uds.socket",
 	}
 }
 
@@ -828,7 +829,6 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 	f.IntVar(&config.KVCacheSize, "kv-cache-size", config.KVCacheSize, "Maximum number of token blocks in kv cache")
 	f.Float64Var(&config.GlobalCacheHitThreshold, "global-cache-hit-threshold", 0, "Default cache hit threshold [0, 1] for all requests. If a request specifies cache_hit_threshold, it takes precedence")
 	f.IntVar(&config.TokenBlockSize, "block-size", config.TokenBlockSize, "Token block size for contiguous chunks of tokens, possible values: 8,16,32,64,128")
-	f.StringVar(&config.TokenizersCacheDir, "tokenizers-cache-dir", config.TokenizersCacheDir, "Directory for caching tokenizers, default is hf_cache")
 	f.StringVar(&config.HashSeed, "hash-seed", config.HashSeed, "Seed for hash generation (if not set, is read from PYTHONHASHSEED environment variable)")
 	f.StringVar(&config.ZMQEndpoint, "zmq-endpoint", config.ZMQEndpoint, "ZMQ address to publish events")
 	f.IntVar(&config.ZMQMaxConnectAttempts, "zmq-max-connect-attempts", config.ZMQMaxConnectAttempts, "Maximum number of times to try ZMQ connect")
@@ -840,6 +840,8 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 	f.StringVar(&config.DatasetURL, "dataset-url", config.DatasetURL, "URL to download the sqlite db file for response generation from a dataset")
 	f.BoolVar(&config.DatasetInMemory, "dataset-in-memory", config.DatasetInMemory, "Load the entire dataset into memory for faster access")
 	f.StringVar(&config.DatasetTableName, "dataset-table-name", config.DatasetTableName, "Table name for custom dataset, default is 'llmd'")
+
+	f.StringVar(&config.UDSSocketPath, "uds-socket-path", config.UDSSocketPath, "UDS socket path for communication with HF tokenizer, default is '/tmp/tokenizer/tokenizer-uds.socket'")
 
 	f.BoolVar(&config.EnableSleepMode, "enable-sleep-mode", config.EnableSleepMode, "Enable sleep mode")
 	f.BoolVar(&config.EnableRequestIDHeaders, "enable-request-id-headers", config.EnableRequestIDHeaders, "Enable including X-Request-Id header in responses")

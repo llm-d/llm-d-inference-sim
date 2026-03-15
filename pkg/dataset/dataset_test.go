@@ -25,10 +25,8 @@ import (
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
-	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -36,25 +34,20 @@ func createDataset() *DefaultDataset {
 	ds := DefaultDataset{}
 	ctx := context.Background()
 	logger := log.FromContext(ctx)
-	config := common.Configuration{Model: "test"}
-	tokenizer, err := tokenizer.New(&config, logger)
-	Expect(err).ShouldNot(HaveOccurred())
-	err = ds.Init(context.Background(), logger, common.NewRandom(time.Now().UnixNano(), 8080), 1024, tokenizer)
+	err := ds.Init(context.Background(), logger, common.NewRandom(time.Now().UnixNano(), 8080), 1024, tokenizerMngr.TestTokenizer())
 	Expect(err).ShouldNot(HaveOccurred())
 
 	return &ds
 }
 
 var _ = Describe("Default Dataset", Ordered, func() {
-	var (
-		dataset *DefaultDataset
-	)
+	var dataset *DefaultDataset
 
-	BeforeEach(func() {
+	BeforeAll(func() {
 		dataset = createDataset()
 	})
 
-	AfterEach(func() {
+	AfterAll(func() {
 		err := dataset.Close()
 		Expect(err).ShouldNot(HaveOccurred())
 	})
@@ -63,6 +56,7 @@ var _ = Describe("Default Dataset", Ordered, func() {
 		It("should return complete text", func() {
 			req := &openaiserverapi.ChatCompletionRequest{}
 			req.SetTokenizedPrompt(&openaiserverapi.Tokenized{})
+			req.SetTokenizedPromptForEcho(&openaiserverapi.Tokenized{})
 			tokens, finishReason, err := dataset.GetResponseTokens(req)
 			Expect(err).ShouldNot(HaveOccurred())
 			text := strings.Join(tokens.Strings, "")
@@ -170,29 +164,45 @@ var _ = Describe("Default Dataset", Ordered, func() {
 })
 
 var _ = Describe("Echo Dataset", Ordered, func() {
-	testPrompt := "Hello world!"
-	dataset := EchoDataset{}
-	maxTokens := int64(20)
-	smallMaxTokens := int64(2)
-	tokenizer, err := tokenizer.New(&common.Configuration{Model: "test"}, klog.Background())
-	Expect(err).NotTo(HaveOccurred())
-	promptTokens, promptStrTokens, err := tokenizer.Encode(testPrompt, "")
-	Expect(err).NotTo(HaveOccurred())
+	var (
+		testPrompt      string
+		dataset         EchoDataset
+		maxTokens       int64
+		smallMaxTokens  int64
+		promptTokens    []uint32
+		promptStrTokens []string
 
-	Context("getTokensInEchoMode", func() {
-		theText := "Give a man a fish and you feed him for a day; teach a man to fish and you feed him for a lifetime"
-		tokens, strTokens, err := tokenizer.Encode(theText, "")
+		theText          string
+		theTextTokens    []uint32
+		theTextStrTokens []string
+	)
+	BeforeAll(func() {
+		testPrompt = "Hello world!"
+		dataset = EchoDataset{}
+		maxTokens = int64(20)
+		smallMaxTokens = int64(2)
+
+		var err error
+		promptTokens, promptStrTokens, err = tokenizerMngr.TestTokenizer().RenderText(testPrompt)
 		Expect(err).NotTo(HaveOccurred())
 
+		theText = "Give a man a fish and you feed him for a day; teach a man to fish and you feed him for a lifetime"
+		theTextTokens, theTextStrTokens, err = tokenizerMngr.TestTokenizer().RenderText(theText)
+		Expect(err).NotTo(HaveOccurred())
+	})
+
+	Context("getTokensInEchoMode", func() {
 		It("should return the same text, max tokens is not defined", func() {
 			req := &openaiserverapi.TextCompletionRequest{
 				Prompt: theText,
 			}
-			req.SetTokenizedPrompt(&openaiserverapi.Tokenized{Tokens: tokens, Strings: strTokens})
-			req.SetTokenizedPromptForEcho(&openaiserverapi.Tokenized{Tokens: tokens, Strings: strTokens})
+
+			promptTokenized := openaiserverapi.Tokenized{Tokens: theTextTokens, Strings: theTextStrTokens}
+			req.SetTokenizedPrompt(&promptTokenized)
+			req.SetTokenizedPromptForEcho(&promptTokenized)
 			tokens, finishReason, err := dataset.GetResponseTokens(req)
 			Expect(err).ShouldNot(HaveOccurred())
-			Expect(tokens.Strings).Should(Equal(strTokens))
+			Expect(tokens.Strings).Should(Equal(theTextStrTokens))
 			Expect(finishReason).Should(Equal(common.StopFinishReason))
 		})
 		It("should return the same text, max tokens is higher than the text length", func() {
@@ -201,12 +211,13 @@ var _ = Describe("Echo Dataset", Ordered, func() {
 				Prompt:    theText,
 				MaxTokens: &maxTokens,
 			}
-			req.SetTokenizedPrompt(&openaiserverapi.Tokenized{Tokens: tokens, Strings: strTokens})
-			req.SetTokenizedPromptForEcho(&openaiserverapi.Tokenized{Tokens: tokens, Strings: strTokens})
+			promptTokenized := openaiserverapi.Tokenized{Tokens: theTextTokens, Strings: theTextStrTokens}
+			req.SetTokenizedPrompt(&promptTokenized)
+			req.SetTokenizedPromptForEcho(&promptTokenized)
 
 			tokens, finishReason, err := dataset.GetResponseTokens(req)
 			Expect(err).ShouldNot(HaveOccurred())
-			Expect(tokens.Strings).Should(Equal(strTokens))
+			Expect(tokens.Strings).Should(Equal(theTextStrTokens))
 			Expect(finishReason).Should(Equal(common.StopFinishReason))
 		})
 		It("should return the same text, finish reason is length", func() {
@@ -215,12 +226,13 @@ var _ = Describe("Echo Dataset", Ordered, func() {
 				Prompt:    theText,
 				MaxTokens: &maxTokens,
 			}
-			req.SetTokenizedPrompt(&openaiserverapi.Tokenized{Tokens: tokens, Strings: strTokens})
-			req.SetTokenizedPromptForEcho(&openaiserverapi.Tokenized{Tokens: tokens, Strings: strTokens})
+			promptTokenized := openaiserverapi.Tokenized{Tokens: theTextTokens, Strings: theTextStrTokens}
+			req.SetTokenizedPrompt(&promptTokenized)
+			req.SetTokenizedPromptForEcho(&promptTokenized)
 
 			tokens, finishReason, err := dataset.GetResponseTokens(req)
 			Expect(err).ShouldNot(HaveOccurred())
-			Expect(tokens.Strings).Should(Equal(strTokens))
+			Expect(tokens.Strings).Should(Equal(theTextStrTokens))
 			Expect(finishReason).Should(Equal(common.LengthFinishReason))
 		})
 		It("should return the last message in chat completion", func() {
@@ -231,9 +243,9 @@ var _ = Describe("Echo Dataset", Ordered, func() {
 					{Role: openaiserverapi.RoleUser, Content: openaiserverapi.Content{Raw: testPrompt}},
 				},
 			}
-			promptTokens, promptStrTokens, err := tokenizer.Encode(req.GetFullPrompt(), "")
+			promptTokens, promptStrTokens, err := tokenizerMngr.TestTokenizer().RenderChatCompletion(req.Messages)
 			Expect(err).ShouldNot(HaveOccurred())
-			respTokens, resptStrTokens, err := tokenizer.Encode(testPrompt, "")
+			respTokens, resptStrTokens, err := tokenizerMngr.TestTokenizer().RenderText(testPrompt)
 			Expect(err).ShouldNot(HaveOccurred())
 
 			req.SetTokenizedPrompt(&openaiserverapi.Tokenized{Tokens: promptTokens, Strings: promptStrTokens})
@@ -288,7 +300,13 @@ var _ = Describe("cumulativeBucketsProbabilities", Ordered, func() {
 		end   int
 	}
 
-	dataset := createDataset()
+	var (
+		dataset *DefaultDataset
+	)
+
+	BeforeAll(func() {
+		dataset = createDataset()
+	})
 
 	DescribeTable("calcBucketBoundaries",
 		func(maxTokens int, expectedBuckets []bucketBoundaries) {

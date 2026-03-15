@@ -36,7 +36,7 @@ var _ = Describe("Failures", func() {
 
 		It("should return a failure from all types when none specified", func() {
 			config := &common.Configuration{
-				Model:        "test-model",
+				Model:        common.TestModelName,
 				FailureTypes: []string{},
 			}
 			failure := getRandomFailure(config, random)
@@ -47,13 +47,13 @@ var _ = Describe("Failures", func() {
 
 		It("should return rate limit failure when specified", func() {
 			config := &common.Configuration{
-				Model:        "test-model",
+				Model:        common.TestModelName,
 				FailureTypes: []string{common.FailureTypeRateLimit},
 			}
 			failure := getRandomFailure(config, random)
 			Expect(failure.Code).To(Equal(429))
 			Expect(failure.Type).To(Equal(openaiserverapi.ErrorCodeToType(429)))
-			Expect(strings.Contains(failure.Message, "test-model")).To(BeTrue())
+			Expect(strings.Contains(failure.Message, common.TestModelName)).To(BeTrue())
 		})
 
 		It("should return invalid API key failure when specified", func() {
@@ -88,13 +88,13 @@ var _ = Describe("Failures", func() {
 
 		It("should return model not found failure when specified", func() {
 			config := &common.Configuration{
-				Model:        "test-model",
+				Model:        common.TestModelName,
 				FailureTypes: []string{common.FailureTypeModelNotFound},
 			}
 			failure := getRandomFailure(config, random)
 			Expect(failure.Code).To(Equal(404))
 			Expect(failure.Type).To(Equal(openaiserverapi.ErrorCodeToType(404)))
-			Expect(strings.Contains(failure.Message, "test-model-nonexistent")).To(BeTrue())
+			Expect(strings.Contains(failure.Message, getModelNotFoundMessage(common.TestModelName))).To(BeTrue())
 		})
 
 		It("should return server error as fallback for empty types", func() {

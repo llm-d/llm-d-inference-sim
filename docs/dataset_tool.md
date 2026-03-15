@@ -1,6 +1,27 @@
-# Dataset Convertion Tool
+# Dataset Conversion Tool
 
 The `ds-tool` is used to convert conversation datasets into the format required by llm-d-inference-sim. It processes source datasets (from HuggingFace or local files) and generates both JSON and SQLite outputs with tokenized data. In addition, a dataset card is generated too.
+
+This tool requires the **UDS tokenizer**, which should run as a sidecar service. You can find more information about the UDS tokenizer [here](https://github.com/llm-d/llm-d-kv-cache/tree/main/services/uds_tokenizer). 
+To run the UDS tokenizer, run the following steps:
+1. Clone the kv-cache project
+   ```bash
+   git clone git@github.com:llm-d/llm-d-kv-cache.git
+   ```
+2. Create and activate python virtual environment
+   ```bash
+   python -m venv <virt env folder>
+   source <virt env folder>/bin/activate
+   ```
+3. Navigate to 'llm-d-kv-cache/services/uds_tokenizer' and install requirements
+   ```bash
+   pip install -e .
+   ```
+4. If the model you want to use requires an HF token, define the `HF_TOKEN` environment variable. For more details, see the tokenizer guide.
+5. Run the UDS tokenizer
+   ```bash
+   python ./run_grpc_server.py
+   ```
 
 
 ## Prerequisites
@@ -11,6 +32,8 @@ The `ds-tool` is used to convert conversation datasets into the format required 
    ```
 
 2. **Model and Tokenizer:** Ensure you have access to the model you want to use for tokenization.
+
+3. **UDS Tokenizer:** Ensure the UDS tokenizer is running.
 
 ## Command Line Options
 
@@ -24,9 +47,10 @@ The `ds-tool` is used to convert conversation datasets into the format required 
 | `--output-file` | string | No | `inference-sim-dataset` | Output file name without extension (creates `.json`, `.sqlite3` and `.md` files) |
 | `--table-name` | string | No | `llmd` | Name of the table created in the SQLite DB |
 | `--max-records` | int | No | `10000` | Maximum number of source dataset records to process; if the dataset contains more, the rest are discarded. |
-| `--tokenizers-cache-dir` | string | No | `hf_cache` | Directory for caching tokenizers |
+| `--uds-socket-path` | string | No | `/tmp/tokenizer/tokenizer-uds.socket` | UDS socket path for communication with the tokenizer |
 
 **Note:** Either `--hf-repo` or `--local-path` must be specified, but not both.
+
 **Note:** `--max-records` defines number of records to read, since original dataset contains conversations, number of records in the output file/db will be larger.
 
 ### Usage Examples
@@ -36,7 +60,7 @@ The `ds-tool` is used to convert conversation datasets into the format required 
 export HF_TOKEN=your_token_here
 ./ds-tool \
   --hf-repo anon8231489123/ShareGPT_Vicuna_unfiltered \
-  --file ShareGPT_V3_unfiltered_cleaned_split.json \
+  --input-file ShareGPT_V3_unfiltered_cleaned_split.json \
   --model meta-llama/Llama-3-8B \
   --output-path ./output \
   --output-file my-dataset \
@@ -47,10 +71,9 @@ export HF_TOKEN=your_token_here
 ```bash
 ./ds-tool \
   --local-path ./data \
-  --file conversations.json \
+  --input-file conversations.json \
   --model meta-llama/Llama-3-8B \
-  --output-file local-dataset \
-  --tokenizers-cache-dir ./tokenizer_cache
+  --output-file local-dataset 
 ```
 
 #### Example 3: Minimal Configuration
@@ -58,7 +81,7 @@ export HF_TOKEN=your_token_here
 ./dataset-tool \
   --model meta-llama/Llama-3-8B
   --local-path ./data \
-  --file dataset.json \
+  --input-file dataset.json \
 ```
 
 ## Input Dataset Structure

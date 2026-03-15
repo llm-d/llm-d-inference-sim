@@ -13,6 +13,10 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 */
+
+// Contains helper functions for various tests in this package
+// The name ends with "_test" to be able to use the suite's tokenizerManager
+
 package tests
 
 import (
@@ -37,7 +41,6 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/communication"
 	vllmsim "github.com/llm-d/llm-d-inference-sim/pkg/llm-d-inference-sim"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
-	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
 	"github.com/openai/openai-go/v3/packages/param"
@@ -48,15 +51,13 @@ import (
 )
 
 const (
-	qwenModelName   = "Qwen/Qwen2-0.5B"
 	baseURL         = "http://localhost/v1"
-	testModel       = "testmodel"
 	testUserMessage = "This is a test."
 	metricsUrl      = "http://localhost/metrics"
-	tokenizerTmpDir = "./test_tokenizers"
 )
 
 var userMsgTokens int64
+var userMsgChatTokens int64
 
 // Starts server in the given mode, no additional arguments or environment variables
 func startServer(ctx context.Context, mode string) (*http.Client, error) {
@@ -97,9 +98,8 @@ func startServerHelper(ctx context.Context, mode string, args []string, envs map
 	if args != nil {
 		os.Args = args
 	} else {
-		os.Args = []string{"cmd", "--model", testModel, "--mode", mode}
+		os.Args = []string{"cmd", "--model", common.TestModelName, "--mode", mode}
 	}
-	os.Args = append(os.Args, "--tokenizers-cache-dir", tokenizerTmpDir)
 
 	if envs != nil {
 		for k, v := range envs {
@@ -127,19 +127,25 @@ func startServerHelper(ctx context.Context, mode string, args []string, envs map
 	}
 	s.Context.Config = config
 
-	tokenizer, err := tokenizer.New(config, logger)
-	if err != nil {
-		return nil, nil, nil, err
+	gomega.Expect(config.Model).To(gomega.BeElementOf(common.TestModelName, common.QwenModelName))
+	if config.Model == common.TestModelName {
+		s.Context.Tokenizer = tokenizerMngr.TestTokenizer()
+	} else {
+		s.Context.Tokenizer = tokenizerMngr.RealTokenizer()
 	}
 
-	s.Context.Tokenizer = tokenizer
-
 	// calculate number of tokens for user message,
-	_, tokens, err := s.Context.Tokenizer.Encode(testUserMessage, "")
+	tokens, _, err := s.Context.Tokenizer.RenderText(testUserMessage)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 	userMsgTokens = int64(len(tokens))
+	// calculate number of tokens for user message as chat/completions
+	tokens, _, err = s.Context.Tokenizer.RenderChatCompletion([]openaiserverapi.Message{{Role: openaiserverapi.RoleUser, Content: openaiserverapi.Content{Raw: testUserMessage}}})
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	userMsgChatTokens = int64(len(tokens))
 
 	if err := s.InitializeSim(ctx); err != nil {
 		return nil, nil, nil, err
@@ -170,6 +176,7 @@ func startServerHelper(ctx context.Context, mode string, args []string, envs map
 // startServerForLatencyTest - starts server configured according the given latency parameters in echo modes
 func startServerForLatencyTest(modelName string, ttft int, prefillTimePerToken int, interTokenLatency int, kvcacheTransferLatency int, kvCacheTransferTimePerToken int) *http.Client {
 	ctx := context.TODO()
+
 	args := []string{"cmd", "--model", modelName, "--mode", common.ModeEcho,
 		"--kv-cache-transfer-latency", strconv.Itoa(kvcacheTransferLatency),
 		"--kv-cache-transfer-time-per-token", strconv.Itoa(kvCacheTransferTimePerToken),
@@ -186,9 +193,9 @@ func startServerForLatencyTest(modelName string, ttft int, prefillTimePerToken i
 
 func singleRequestLatencyTest(ttft int, prefillTimePerToken int, interTokenLatency int, kvcacheTransferLatency int,
 	kvCacheTransferTimePerToken int, isStreaming bool, numOfTokens int, doRemotePrefill bool) {
-	client := startServerForLatencyTest(testModel, ttft, prefillTimePerToken, interTokenLatency, kvcacheTransferLatency, kvCacheTransferTimePerToken)
-	sendCompletionRequestForLatencyTest(client, testModel, testUserMessage, isStreaming, doRemotePrefill)
-	checkLatencyMetrics(client, testModel, numOfTokens, numOfTokens, ttft, prefillTimePerToken, interTokenLatency, kvcacheTransferLatency,
+	client := startServerForLatencyTest(common.TestModelName, ttft, prefillTimePerToken, interTokenLatency, kvcacheTransferLatency, kvCacheTransferTimePerToken)
+	sendCompletionRequestForLatencyTest(client, common.TestModelName, testUserMessage, isStreaming, doRemotePrefill)
+	checkLatencyMetrics(client, common.TestModelName, numOfTokens, numOfTokens, ttft, prefillTimePerToken, interTokenLatency, kvcacheTransferLatency,
 		kvCacheTransferTimePerToken, doRemotePrefill)
 
 }
@@ -236,7 +243,7 @@ func sendSimpleChatRequest(envs map[string]string, streaming bool) *http.Respons
 	client, err := startServerWithEnv(ctx, common.ModeRandom, envs)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-	openaiclient, params := getOpenAIClientAndChatParams(client, testModel, testUserMessage, streaming)
+	openaiclient, params := getOpenAIClientAndChatParams(client, common.TestModelName, testUserMessage, streaming)
 	var httpResp *http.Response
 	resp, err := openaiclient.Chat.Completions.New(ctx, params, option.WithResponseInto(&httpResp))
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
@@ -582,7 +589,7 @@ func checkSimSleeping(client *http.Client, expectedToSleep bool) {
 // sendTextCompletionRequest sends one text completions request
 func sendTextCompletionRequest(ctx context.Context, client *http.Client) {
 	message := "aa bb cc dd ee ff gg hh ii jj aa bb cc dd ee ff gg hh ii jj"
-	openaiclient, params := getOpenAIClientAndTextParams(client, qwenModelName, message, false)
+	openaiclient, params := getOpenAIClientAndTextParams(client, common.QwenModelName, message, false)
 	resp, err := openaiclient.Completions.New(ctx, params)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	gomega.Expect(resp).NotTo(gomega.BeNil())
@@ -604,4 +611,12 @@ func getOpenAIClientAndTextParams(client option.HTTPClient, model string, messag
 		params.StreamOptions = openai.ChatCompletionStreamOptionsParam{IncludeUsage: param.NewOpt(true)}
 	}
 	return openaiclient, params
+}
+
+// renders the given messages using the test model
+func getChatPromptTokensCountForTestModel(message string) int64 {
+	tokens, _, err := tokenizerMngr.TestTokenizer().RenderChatCompletion([]openaiserverapi.Message{{Role: openaiserverapi.RoleUser, Content: openaiserverapi.Content{Raw: message}}})
+	gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
+
+	return int64(len(tokens))
 }

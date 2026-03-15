@@ -25,7 +25,7 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
-	"github.com/llm-d/llm-d-kv-cache-manager/pkg/kvcache/kvblock"
+	"github.com/llm-d/llm-d-kv-cache/pkg/kvcache/kvblock"
 )
 
 // PrefixCacheStats holds token-level prefix cache statistics for a single request,
@@ -89,13 +89,13 @@ func (h *KVCacheHelper) OnRequestStart(vllmReq openaiserverapi.Request) (float64
 	modelName := vllmReq.GetModel()
 
 	// get block keys
-	blockKeys := h.tokensProcessor.TokensToKVBlockKeys(tokens, modelName)
+	blockKeys := h.tokensProcessor.TokensToKVBlockKeys(kvblock.EmptyBlockHash, tokens, modelName)
 	h.logger.V(logging.TRACE).Info("Found tokens", "tokens", tokens, "block-keys", blockKeys)
 
-	blockHashes := make([]uint64, len(blockKeys))
+	blockHashes := make([]kvblock.BlockHash, len(blockKeys))
 	blockTokens := make([][]uint32, len(blockKeys))
 	for i, key := range blockKeys {
-		blockHashes[i] = key.ChunkHash
+		blockHashes[i] = key
 		blockTokens[i] = tokens[i*h.blockSize : i*h.blockSize+h.blockSize]
 	}
 

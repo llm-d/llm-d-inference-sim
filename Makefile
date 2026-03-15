@@ -37,16 +37,6 @@ ZMQ_IMAGE_TAG ?= latest
 NAMESPACE ?= default
 ZMQ_IMG ?= $(IMAGE_REGISTRY)/$(ZMQ_IMAGE_NAME):$(ZMQ_IMAGE_TAG)
 
-ifeq ($(TARGETOS),darwin)
-ifeq ($(TARGETARCH),amd64)
-TOKENIZER_ARCH = x86_64
-else
-TOKENIZER_ARCH = $(TARGETARCH)
-endif
-else
-TOKENIZER_ARCH = $(TARGETARCH)
-endif
-
 CONTAINER_TOOL := $(shell { command -v docker >/dev/null 2>&1 && echo docker; } || { command -v podman >/dev/null 2>&1 && echo podman; } || echo "")
 BUILDER := $(shell command -v buildah >/dev/null 2>&1 && echo buildah || echo $(CONTAINER_TOOL))
 PLATFORMS ?= linux/amd64 # linux/arm64 # linux/s390x,linux/ppc64le
@@ -58,46 +48,11 @@ SRC = $(shell find . -type f -name '*.go')
 help: ## Print help
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_0-9-]+:.*?##/ { printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
 
-export PKG_CONFIG_PATH=/usr/lib/pkgconfig
-
-##@ Python Configuration
-
-PYTHON_VERSION := 3.12
-
-# Unified Python configuration detection. This block runs once.
-PYTHON_CONFIG ?= $(shell command -v python$(PYTHON_VERSION)-config || command -v python3-config)
-
-CGO_CFLAGS     := $(shell $(PYTHON_CONFIG) --cflags --embed)
-CGO_LDFLAGS    := $(shell $(PYTHON_CONFIG) --ldflags --embed)
-
-GOMODCACHE := $(shell go env GOMODCACHE)
-KV_CACHE_MGR_VERSION := $(shell go list -m -f '{{.Version}}' github.com/llm-d/llm-d-kv-cache-manager)
-KV_CACHE_MGR_PATH := $(GOMODCACHE)/github.com/llm-d/llm-d-kv-cache-manager@$(KV_CACHE_MGR_VERSION)/pkg/preprocessing/chat_completions
-export PYTHONPATH := $(KV_CACHE_MGR_PATH):$(PYTHONPATH)
-
-CPATH := $(PYTHON_INCLUDE):$(CPATH)
-
-GO_LDFLAGS := -extldflags '-L$(shell pwd)/lib $(LDFLAGS) $(CGO_LDFLAGS)'
-CGO_ENABLED=1
-TOKENIZER_LIB = lib/libtokenizers.a
-# Extract TOKENIZER_VERSION from Dockerfile
-TOKENIZER_VERSION := $(shell grep '^ARG TOKENIZER_VERSION=' Dockerfile | cut -d'=' -f2)
-
-.PHONY: download-tokenizer
-download-tokenizer: $(TOKENIZER_LIB)
-$(TOKENIZER_LIB):
-	## Download the HuggingFace tokenizer bindings.
-	@echo "Downloading HuggingFace tokenizer bindings for version $(TOKENIZER_VERSION)..."
-	mkdir -p lib
-	curl -L https://github.com/daulet/tokenizers/releases/download/$(TOKENIZER_VERSION)/libtokenizers.$(TARGETOS)-$(TOKENIZER_ARCH).tar.gz | tar -xz -C lib
-	ranlib lib/*.a
-
 ##@ Development
 
 .PHONY: clean
 clean:
 	go clean -testcache -cache
-	rm -f $(TOKENIZER_LIB)
 	rmdir lib
 
 .PHONY: format
@@ -109,9 +64,9 @@ format: ## Format Go source files
 test: $(GINKGO) install-dependencies ## Run tests
 	@printf "\033[33;1m==== Running tests ====\033[0m\n"
 ifdef GINKGO_FOCUS
-	CGO_ENABLED=1 CGO_CFLAGS="$(CGO_CFLAGS)" $(GINKGO) -ldflags="$(GO_LDFLAGS)" -v -r -- -ginkgo.v -ginkgo.focus="$(GINKGO_FOCUS)"
+	CGO_ENABLED=1 $(GINKGO) -v -r -- -ginkgo.v -ginkgo.focus="$(GINKGO_FOCUS)"
 else
-	CGO_ENABLED=1 CGO_CFLAGS="$(CGO_CFLAGS)" $(GINKGO) -ldflags="$(GO_LDFLAGS)" -v -r $(TEST_PKG)
+	CGO_ENABLED=1 $(GINKGO) -v -r $(TEST_PKG)
 endif
 
 .PHONY: post-deploy-test
@@ -122,14 +77,14 @@ post-deploy-test: ## Run post deployment tests
 .PHONY: lint
 lint: $(GOLANGCI_LINT) ## Run lint
 	@printf "\033[33;1m==== Running linting ====\033[0m\n"
-	CGO_CFLAGS="$(CGO_CFLAGS)" $(GOLANGCI_LINT) run
+	$(GOLANGCI_LINT) run
 
 ##@ Build
 
 .PHONY: build
 build: check-go install-dependencies
 	@printf "\033[33;1m==== Building ====\033[0m\n"
-	CGO_CFLAGS="$(CGO_CFLAGS)" go build -ldflags="$(GO_LDFLAGS)" -o $(LOCALBIN)/$(PROJECT_NAME) cmd/$(PROJECT_NAME)/main.go
+	go build -o $(LOCALBIN)/$(PROJECT_NAME) cmd/$(PROJECT_NAME)/main.go
 
 ##@ Container Build/Push
 
@@ -149,15 +104,6 @@ image-push: check-container-tool ## Push Docker image $(IMG) to registry
 
 .PHONY: image-build-and-push
 image-build-and-push: image-build image-push ## Build and push Docker image $(IMG) to registry
-
-##@ Install/Uninstall Targets
-
-# Default install/uninstall (Docker)
-install: install-docker ## Default install using Docker
-	@echo "Default Docker install complete."
-
-uninstall: uninstall-docker ## Default uninstall using Docker
-	@echo "Default Docker uninstall complete."
 
 ### Docker Targets
 
@@ -242,7 +188,7 @@ install-hooks: ## Install git hooks
 ##@ ZMQ Setup
 
 .PHONY: install-dependencies
-install-dependencies: download-tokenizer ## Install development dependencies based on OS/ARCH
+install-dependencies: ## Install development dependencies based on OS/ARCH
 	@echo "Checking and installing development dependencies..."
 	@if [ "$(TARGETOS)" = "linux" ]; then \
 	  if [ -x "$$(command -v apt)" ]; then \
@@ -334,4 +280,27 @@ clean-zmq: delete-zmq-all
 .PHONY: ds-tool-build
 ds-tool-build: check-go install-dependencies
 	@printf "\033[33;1m==== Building ====\033[0m\n"
-	CGO_CFLAGS="$(CGO_CFLAGS)" go build -ldflags="$(GO_LDFLAGS)" -o $(LOCALBIN)/ds_tool cmd/dataset-tool/main.go
+	go build -o $(LOCALBIN)/ds_tool cmd/dataset-tool/main.go
+
+
+# Deploy the simulator with UDS tokenizer on kind
+KIND_CLUSTER_NAME ?= ${PROJECT_NAME}-dev
+HOST_PORT ?= 30080
+MODEL_NAME ?= TinyLlama/TinyLlama-1.1B-Chat-v1.0
+UDS_TOKENIZER_TAG=v0.6.0
+UDS_TOKENIZER_IMG_NAME ?= $(IMAGE_REGISTRY)/llm-d-uds-tokenizer:${UDS_TOKENIZER_TAG}
+
+.PHONY: dev-env-kind
+dev-env-kind: 
+	CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
+	HOST_PORT=$(HOST_PORT) \
+	MODEL_NAME=${MODEL_NAME} \
+	VLLM_SIMULATOR_IMAGE=${IMG} \
+	UDS_TOKENIZER_IMAGE=${UDS_TOKENIZER_IMG_NAME} \
+	./kind-deploy.sh
+
+.PHONY: clean-dev-env-kind
+clean-dev-env-kind: ## Cleanup kind setup (delete cluster $(KIND_CLUSTER_NAME))
+	@echo "INFO: cleaning up kind cluster $(KIND_CLUSTER_NAME)"
+	kind delete cluster --name $(KIND_CLUSTER_NAME)
+
