@@ -293,15 +293,15 @@ UDS_TOKENIZER_IMG_NAME ?= $(IMAGE_REGISTRY)/llm-d-uds-tokenizer:${UDS_TOKENIZER_
 .PHONY: dev-env-kind
 dev-env-kind: 
 	@printf "\033[33;1m==== Deploying on kind ====\033[0m\n"
-	CLUSTER_NAME=$(KIND_CLUSTER_NAME) \
-	HOST_PORT=$(HOST_PORT) \
+	CLUSTER_NAME=${KIND_CLUSTER_NAME} \
+	HOST_PORT=${HOST_PORT} \
 	MODEL_NAME=${MODEL_NAME} \
 	VLLM_SIMULATOR_IMAGE=${IMG} \
 	UDS_TOKENIZER_IMAGE=${UDS_TOKENIZER_IMG_NAME} \
 	./kind-deploy.sh
 
 .PHONY: clean-dev-env-kind
-clean-dev-env-kind: ## Cleanup kind setup (delete cluster $(KIND_CLUSTER_NAME))
-	@echo "INFO: cleaning up kind cluster $(KIND_CLUSTER_NAME)"
-	kind delete cluster --name $(KIND_CLUSTER_NAME)
+clean-dev-env-kind: ## Cleanup kind setup (delete cluster ${KIND_CLUSTER_NAME})
+	@echo "INFO: cleaning up kind cluster ${KIND_CLUSTER_NAME}"
+	kind delete cluster --name ${KIND_CLUSTER_NAME}
 
