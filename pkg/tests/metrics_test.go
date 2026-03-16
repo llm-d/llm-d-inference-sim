@@ -775,7 +775,7 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 
 		It("Should generate correct fake metrics using functions", func() {
 			ctx := context.TODO()
-			args := []string{"cmd", "--model", testModel, "--mode", common.ModeRandom,
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
 				"--fake-metrics",
 				`{` +
 					`"running-requests":"oscillate:1:5:1s",` +
@@ -800,17 +800,17 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 				metricsLines := strings.Split(metrics, "\n")
 
 				// Running requests: should be various values in [1, 5]
-				count := findIntMetric(metricsLines, getCountMetricPrefix(testModel, vllmsim.ReqRunningMetricName))
+				count := findIntMetric(metricsLines, getCountMetricPrefix(common.TestModelName, vllmsim.ReqRunningMetricName))
 				Expect(count).ToNot(BeNil())
 				Expect(*count).To(BeNumerically(">=", 1))
 				Expect(*count).To(BeNumerically("<=", 5))
 
 				// Waiting requests: should be either 10 or 15
-				Expect(metrics).To(Or(ContainSubstring(getCountMetricLine(testModel, vllmsim.ReqWaitingMetricName, 10)),
-					ContainSubstring(getCountMetricLine(testModel, vllmsim.ReqWaitingMetricName, 15))))
+				Expect(metrics).To(Or(ContainSubstring(getCountMetricLine(common.TestModelName, vllmsim.ReqWaitingMetricName, 10)),
+					ContainSubstring(getCountMetricLine(common.TestModelName, vllmsim.ReqWaitingMetricName, 15))))
 
 				// KV cache usage: should grow from 0 to 1, and reach 1 after 700ms (i >= 4)
-				kvCacheUsage := findFloatMetric(metricsLines, getCountMetricPrefix(testModel, vllmsim.KVCacheUsageMetricName))
+				kvCacheUsage := findFloatMetric(metricsLines, getCountMetricPrefix(common.TestModelName, vllmsim.KVCacheUsageMetricName))
 				Expect(kvCacheUsage).ToNot(BeNil())
 				if i < 4 {
 					Expect(*kvCacheUsage).To(BeNumerically("<", 1))
@@ -824,7 +824,7 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 
 		It("Should generate correct fake metrics using rampreset function", func() {
 			ctx := context.TODO()
-			args := []string{"cmd", "--model", testModel, "--mode", common.ModeRandom,
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
 				"--fake-metrics",
 				`{` +
 					`"kv-cache-usage":"rampreset:1:0:550ms"` +
@@ -847,7 +847,7 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 				metricsLines := strings.Split(metrics, "\n")
 
 				// KV cache usage: should decrease from 1 towards 0, and reset at 550ms (i=3)
-				kvCacheUsage := findFloatMetric(metricsLines, getCountMetricPrefix(testModel, vllmsim.KVCacheUsageMetricName))
+				kvCacheUsage := findFloatMetric(metricsLines, getCountMetricPrefix(common.TestModelName, vllmsim.KVCacheUsageMetricName))
 				Expect(kvCacheUsage).ToNot(BeNil())
 				if i != 3 {
 					Expect(*kvCacheUsage).To(BeNumerically("<=", 1))
