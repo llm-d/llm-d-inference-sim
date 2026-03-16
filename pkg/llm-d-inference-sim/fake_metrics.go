@@ -106,7 +106,7 @@ func (s *SimContext) setInitialFakeMetrics() {
 		s.metrics.promptTokensTotal.WithLabelValues(modelName).Add(float64(promptTotal))
 	}
 	if s.Config.FakeMetrics.RequestGenerationTokens != nil {
-		s.initFakeHistogram(s.metrics.requestParamsMaxTokens, buckets, s.Config.FakeMetrics.RequestGenerationTokens)
+		s.initFakeHistogram(s.metrics.requestGenerationTokens, buckets, s.Config.FakeMetrics.RequestGenerationTokens)
 		var genTotal int64
 		if s.Config.FakeMetrics.TotalGenerationTokens != nil {
 			genTotal = *s.Config.FakeMetrics.TotalGenerationTokens
@@ -116,7 +116,7 @@ func (s *SimContext) setInitialFakeMetrics() {
 		s.metrics.generationTokensTotal.WithLabelValues(modelName).Add(float64(genTotal))
 	}
 	if s.Config.FakeMetrics.RequestParamsMaxTokens != nil {
-		s.initFakeHistogram(s.metrics.requestGenerationTokens, buckets, s.Config.FakeMetrics.RequestParamsMaxTokens)
+		s.initFakeHistogram(s.metrics.requestParamsMaxTokens, buckets, s.Config.FakeMetrics.RequestParamsMaxTokens)
 	}
 	if s.Config.FakeMetrics.RequestMaxGenerationTokens != nil {
 		s.initFakeHistogram(s.metrics.maxNumGenerationTokens, buckets, s.Config.FakeMetrics.RequestMaxGenerationTokens)
