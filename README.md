@@ -121,7 +121,7 @@ To run the vLLM simulator in a standalone test environment with real model:
       ```bash
       git clone git@github.com:llm-d/llm-d-kv-cache.git
       ```
-   b. Create and activate python virtual environment
+   b. Create and activate a python virtual environment
       ```bash
       python -m venv <virt env folder>
       source <virt env folder>/bin/activate
