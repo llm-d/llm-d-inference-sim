@@ -17,7 +17,7 @@ To run the UDS tokenizer, perform the following steps:
    ```bash
    pip install -e .
    ```
-4. If the model you want to use requires an HF token, define the `HF_TOKEN` environment variable. For more details, see the tokenizer guide.
+4. If the model you want to use requires an HuggingFace token, define the `HF_TOKEN` environment variable. For more details, see the tokenizer guide.
 5. Run the UDS tokenizer
    ```bash
    python ./run_grpc_server.py
