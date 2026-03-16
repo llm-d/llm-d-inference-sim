@@ -149,7 +149,7 @@ To run the vLLM simulator in a Kind cluster, run:
 make dev-env-kind
 ```
 Check [Makefile](Makefile) for environment variables to tune the process.
-Example:
+For example:
 ```bash
  KIND_CLUSTER_NAME=mytest UDS_TOKENIZER_TAG=v0.6.0 SIM_TAG=dev make dev-env-kind
 ``` 
