@@ -54,6 +54,8 @@ spec:
         - "--port"
         - "8000"
         env:
+          - name: HF_TOKEN
+            value: "${HF_TOKEN}"
           - name: POD_NAME
             valueFrom:
               fieldRef:

@@ -46,20 +46,14 @@ spec:
         # Change to the next release which will use uds tokenizer
         image: ghcr.io/llm-d/llm-d-inference-sim:dev
         imagePullPolicy: IfNotPresent
-        command: ["/bin/sh", "-c"]
         args:
-        - |
-          echo "Waiting for UDS socket at /tmp/tokenizer/tokenizer-uds.socket..."
-          until [ -S /tmp/tokenizer/tokenizer-uds.socket ]; do
-            sleep 1
-          done
-          echo "Socket found! Starting simulator..."
-          ls -la /tmp/tokenizer
-          /app/llm-d-inference-sim \
-          --model Qwen/Qwen3.5-397B-A17B \
-          --port 8000 \
-          --v=5
+        - "--model"
+        - "Qwen/Qwen3.5-397B-A17B"
+        - "--port"
+        - "8000"
         env:
+          - name: HF_TOKEN
+            value: "<your HuggingFace token, if this is for a real model>"
           - name: POD_NAME
             valueFrom:
               fieldRef:

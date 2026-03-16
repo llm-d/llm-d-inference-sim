@@ -281,6 +281,7 @@ HOST_PORT ?= 30080
 MODEL_NAME ?= TinyLlama/TinyLlama-1.1B-Chat-v1.0
 UDS_TOKENIZER_TAG ?= v0.6.0
 UDS_TOKENIZER_IMG_NAME ?= $(IMAGE_REGISTRY)/llm-d-uds-tokenizer:${UDS_TOKENIZER_TAG}
+HF_TOKEN ?= ""
 
 .PHONY: dev-env-kind
 dev-env-kind: 

@@ -25,6 +25,7 @@ export HOST_PORT
 export MODEL_NAME
 export VLLM_SIMULATOR_IMAGE
 export UDS_TOKENIZER_IMAGE
+export HF_TOKEN
 
 # ------------------------------------------------------------------------------
 # Setup & Requirement Checks
@@ -120,7 +121,7 @@ fi
 # ------------------------------------------------------------------------------
 
 kubectl kustomize deploy \
-	| envsubst '${MODEL_NAME} ${VLLM_SIMULATOR_IMAGE} ${UDS_TOKENIZER_IMAGE} ${HOST_PORT}' \
+	| envsubst '${MODEL_NAME} ${VLLM_SIMULATOR_IMAGE} ${UDS_TOKENIZER_IMAGE} ${HOST_PORT} ${HF_TOKEN}' \
   | kubectl --context ${KUBE_CONTEXT} apply -f -
 
 # ------------------------------------------------------------------------------
