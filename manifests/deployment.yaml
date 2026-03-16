@@ -17,6 +17,7 @@ spec:
       - name: uds-tokenizer
         image: ghcr.io/llm-d/llm-d-uds-tokenizer:v0.6.0
         imagePullPolicy: IfNotPresent
+        restartPolicy: Always
         env:
         - name: LOG_LEVEL
           value: "DEBUG"
