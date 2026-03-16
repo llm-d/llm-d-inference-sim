@@ -126,7 +126,7 @@ To run the vLLM simulator in a standalone test environment with real model:
       python -m venv <virt env folder>
       source <virt env folder>/bin/activate
       ```
-   c. Navigate to 'llm-d-kv-cache/services/uds_tokenizer' and install requirements
+   c. Navigate to 'llm-d-kv-cache/services/uds_tokenizer' and install the requirements
       ```bash
       pip install -e .
       ```
