@@ -33,7 +33,7 @@ type worker struct {
 	// worker's id
 	id int
 	// a channel for requests
-	reqChan chan requestContext
+	reqChan common.Channel[requestContext]
 	// a channel to indicate that the worker finished processing a request
 	finishedChan chan *requestCompleted
 	// the request processor
@@ -46,7 +46,7 @@ func (w *worker) waitForRequests() {
 		case <-w.ctx.Done():
 			w.logger.V(logging.TRACE).Info("worker done", "id", w.id)
 			return
-		case reqCtx := <-w.reqChan:
+		case reqCtx := <-w.reqChan.Channel:
 			w.processor.processRequest(reqCtx)
 			w.finishedChan <- &requestCompleted{worker: w, model: reqCtx.request().GetModel()}
 		}
@@ -66,7 +66,7 @@ func (s *VllmSimulator) processRequest(reqCtx requestContext) {
 	respCtx, err := reqCtx.handleRequest()
 	if err != nil {
 		common.WriteToChannel(reqCtx.responseChannel(), &ResponseInfo{RespCtx: respCtx, Err: err},
-			s.Context.logger, "responseChannel")
+			s.Context.logger)
 		return
 	}
 
@@ -84,13 +84,13 @@ func (s *VllmSimulator) processRequest(reqCtx requestContext) {
 			genTokensPerChoice: []int{respCtx.UsageData().CompletionTokens},
 			maxTokens:          req.GetMaxCompletionTokens(),
 			finishReason:       *respCtx.FinishReason()},
-		s.Context.logger, "metrics.requestSuccessChan")
+		s.Context.logger)
 
 	s.Context.logger.V(logging.DEBUG).Info("Finished processing request", "id", req.GetRequestID())
 
 	// calculate inference time and finish e2e latency calculation only when sure that request processing was finished for streaming requests too
-	common.WriteToChannel(s.Context.metrics.e2eReqLatencyChan, time.Since(reqCtx.startProcessingTime()).Seconds(), s.Context.logger, "metrics.e2eReqLatencyChan")
-	common.WriteToChannel(s.Context.metrics.reqInferenceTimeChan, time.Since(startTime).Seconds(), s.Context.logger, "metrics.reqInferenceTimeChan")
+	common.WriteToChannel(s.Context.metrics.e2eReqLatencyChan, time.Since(reqCtx.startProcessingTime()).Seconds(), s.Context.logger)
+	common.WriteToChannel(s.Context.metrics.reqInferenceTimeChan, time.Since(startTime).Seconds(), s.Context.logger)
 }
 
 // getFreeWorker returns a free worker or nil if none are available (non-blocking)

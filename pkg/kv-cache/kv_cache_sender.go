@@ -44,14 +44,14 @@ type EventData struct {
 type KVEventSender struct {
 	publisher    *common.Publisher
 	topic        string
-	eventChan    chan EventData
+	eventChan    common.Channel[EventData]
 	maxBatchSize int
 	delay        time.Duration
 	batch        []msgpack.RawMessage
 	logger       logr.Logger
 }
 
-func NewKVEventSender(publisher *common.Publisher, topic string, ch chan EventData, maxBatchSize int,
+func NewKVEventSender(publisher *common.Publisher, topic string, ch common.Channel[EventData], maxBatchSize int,
 	delay time.Duration, logger logr.Logger) *KVEventSender {
 	return &KVEventSender{
 		publisher:    publisher,
@@ -77,7 +77,7 @@ func (s *KVEventSender) Run(ctx context.Context) error {
 			}
 			return ctx.Err()
 
-		case eventData, ok := <-s.eventChan:
+		case eventData, ok := <-s.eventChan.Channel:
 			if !ok {
 				// Channel closed, discard remaining events and exit
 				if len(s.batch) > 0 {

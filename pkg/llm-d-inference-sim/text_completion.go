@@ -19,6 +19,7 @@ package llmdinferencesim
 import (
 	"encoding/json"
 
+	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	"github.com/valyala/fasthttp"
 )
@@ -37,7 +38,7 @@ func (t *TextCompletionRequest) validate(toolsValidator *toolsValidator) (string
 	return validateRequest(t)
 }
 
-func (t *TextCompletionRequest) buildRequestContext(simCtx *SimContext, channel chan *ResponseInfo) requestContext {
+func (t *TextCompletionRequest) buildRequestContext(simCtx *SimContext, channel common.Channel[*ResponseInfo]) requestContext {
 	reqCtx := &textCompletionReqCtx{
 		baseRequestContext: newBaseRequestContext(simCtx, channel),
 		req:                t,

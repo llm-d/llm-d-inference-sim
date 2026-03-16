@@ -75,7 +75,7 @@ type VllmSimulator struct {
 	// the max capacity of the waiting requests queue
 	queueCapacity int
 	// a channel for incoming requests
-	newRequests chan requestContext
+	newRequests common.Channel[requestContext]
 }
 
 // New creates a new VllmSimulator instance with the given logger
@@ -166,7 +166,10 @@ func (s *VllmSimulator) InitializeSim(ctx context.Context) error {
 	s.queueCapacity = s.Context.Config.MaxWaitingQueueLength
 
 	maxNumberOfRequests := s.Context.Config.MaxNumSeqs + s.Context.Config.MaxWaitingQueueLength
-	s.newRequests = make(chan requestContext, maxNumberOfRequests)
+	s.newRequests = common.Channel[requestContext]{
+		Channel: make(chan requestContext, maxNumberOfRequests),
+		Name:    "newRequests",
+	}
 
 	// run request processing workers
 	s.freeWorkers = make(chan *worker, s.Context.Config.MaxNumSeqs)
@@ -177,8 +180,11 @@ func (s *VllmSimulator) InitializeSim(ctx context.Context) error {
 			ctx:          ctx,
 			logger:       s.Context.logger,
 			finishedChan: s.workerFinished,
-			reqChan:      make(chan requestContext, 1),
-			processor:    s,
+			reqChan: common.Channel[requestContext]{
+				Channel: make(chan requestContext, 1),
+				Name:    "worker's reqChan",
+			},
+			processor: s,
 		}
 		go worker.waitForRequests()
 		s.freeWorkers <- worker
@@ -203,7 +209,7 @@ func (s *VllmSimulator) processing(ctx context.Context) {
 			// there is a free worker - find a request for it and send this request for
 			// processing with this worker
 			s.findRequestAndSendToProcess(worker)
-		case <-s.Context.loras.loraRemovable:
+		case <-s.Context.loras.loraRemovable.Channel:
 			// there is a LoRA that can be removed, go through availbale workers
 			// and queued requests and find requests that can run now,
 			// stop if there are no free workers, or no requests
@@ -222,7 +228,7 @@ func (s *VllmSimulator) processing(ctx context.Context) {
 					break
 				}
 			}
-		case reqCtx := <-s.newRequests:
+		case reqCtx := <-s.newRequests.Channel:
 			// A new request was received. Find a free worker, and check that the request can run LoRA wise.
 			model := reqCtx.request().GetModel()
 
@@ -248,7 +254,7 @@ func (s *VllmSimulator) processing(ctx context.Context) {
 
 			s.Context.logger.V(logging.TRACE).Info("Sending the request to the processing channel", "model", model,
 				"req id", reqCtx.request().GetRequestID(), "worker", worker.id)
-			common.WriteToChannel(worker.reqChan, reqCtx, s.Context.logger, "worker's reqChan")
+			common.WriteToChannel(worker.reqChan, reqCtx, s.Context.logger)
 		}
 	}
 }
@@ -259,9 +265,9 @@ func (s *VllmSimulator) findRequestAndSendToProcess(worker *worker) bool {
 		// send this request for processing in this worker
 		s.Context.logger.V(logging.TRACE).Info("Sending request to processing", "model", nextReq.request().GetModel(),
 			"req", nextReq.request().GetRequestID(), "worker", worker.id)
-		common.WriteToChannel(worker.reqChan, nextReq, s.Context.logger, "worker's reqChan")
+		common.WriteToChannel(worker.reqChan, nextReq, s.Context.logger)
 		// decrement waiting requests metric
-		common.WriteToChannel(s.Context.metrics.waitingReqChan, &common.MetricInfo{Value: -1}, s.Context.logger, "metrics.waitingReqChan")
+		common.WriteToChannel(s.Context.metrics.waitingReqChan, common.MetricInfo{Value: -1}, s.Context.logger)
 		return true
 	}
 
@@ -276,18 +282,18 @@ func (s *VllmSimulator) addRequestToQueue(reqCtx requestContext) {
 		err := openaiserverapi.NewError("Failed to enqueue request, "+err.Error(),
 			fasthttp.StatusTooManyRequests, nil)
 		common.WriteToChannel(reqCtx.responseChannel(), &ResponseInfo{Err: &err},
-			s.Context.logger, "responseChannel")
+			s.Context.logger)
 		return
 	}
 	// increment the waiting requests metric
-	common.WriteToChannel(s.Context.metrics.waitingReqChan, &common.MetricInfo{Value: 1}, s.Context.logger, "metrics.waitingReqChan")
+	common.WriteToChannel(s.Context.metrics.waitingReqChan, common.MetricInfo{Value: 1}, s.Context.logger)
 	// update loraInfo metrics with the new waiting request
 	common.WriteToChannel(s.Context.metrics.lorasChan, loraUsage{reqCtx.request().GetModel(), waitingUsageState},
-		s.Context.logger, "metrics.lorasChan")
+		s.Context.logger)
 
 }
 
-func (s *VllmSimulator) HandleRequest(req Request) (bool, chan *ResponseInfo, *openaiserverapi.Error, bool) {
+func (s *VllmSimulator) HandleRequest(req Request) (bool, *common.Channel[*ResponseInfo], *openaiserverapi.Error, bool) {
 	// Check if we should inject a failure
 	if shouldInjectFailure(s.Context.Config, s.Context.Random) {
 		failure := getRandomFailure(s.Context.Config, s.Context.Random)
@@ -306,10 +312,13 @@ func (s *VllmSimulator) HandleRequest(req Request) (bool, chan *ResponseInfo, *o
 		return false, nil, &err, false
 	}
 
-	channel := make(chan *ResponseInfo, s.Context.Config.MaxModelLen)
+	channel := common.Channel[*ResponseInfo]{
+		Channel: make(chan *ResponseInfo, s.Context.Config.MaxModelLen),
+		Name:    "responseInfo",
+	}
 	reqCtx := req.buildRequestContext(&s.Context, channel)
-	common.WriteToChannel(s.newRequests, reqCtx, s.Context.logger, "newRequests")
-	return req.IsStream(), channel, nil, false
+	common.WriteToChannel(s.newRequests, reqCtx, s.Context.logger)
+	return req.IsStream(), &channel, nil, false
 }
 
 func (s *VllmSimulator) enqueue(req requestContext) error {
@@ -335,7 +344,7 @@ func (s *VllmSimulator) dequeue() requestContext {
 			s.waitingQueue.Remove(elem)
 			s.Context.incrementLora(item.reqCtx.request().GetModel())
 			common.WriteToChannel(s.Context.metrics.reqQueueTimeChan, time.Since(item.enqueueTime).Seconds(),
-				s.Context.logger, "metrics.reqQueueTimeChan")
+				s.Context.logger)
 			return item.reqCtx
 		}
 	}
@@ -346,7 +355,7 @@ func (s *VllmSimulator) dequeue() requestContext {
 		if ok && item.reqCtx != nil && s.Context.loadLora(item.reqCtx.request().GetModel()) {
 			s.waitingQueue.Remove(elem)
 			common.WriteToChannel(s.Context.metrics.reqQueueTimeChan, time.Since(item.enqueueTime).Seconds(),
-				s.Context.logger, "metrics.reqQueueTimeChan")
+				s.Context.logger)
 			return item.reqCtx
 		}
 	}
@@ -358,7 +367,7 @@ func (s *VllmSimulator) sendResponse(reqCtx requestContext, respCtx ResponseCont
 	// Skip delays if finish reason is cache_threshold (immediate return)
 	if respCtx.FinishReason() != nil && *respCtx.FinishReason() == common.CacheThresholdFinishReason {
 		common.WriteToChannel(reqCtx.responseChannel(), &ResponseInfo{RespCtx: respCtx},
-			s.Context.logger, "responseChannel")
+			s.Context.logger)
 	} else {
 		s.Context.simulateTTFT(respCtx)
 
@@ -378,7 +387,7 @@ func (s *VllmSimulator) sendResponse(reqCtx requestContext, respCtx ResponseCont
 				}
 				common.WriteToChannel(reqCtx.responseChannel(),
 					&ResponseInfo{Tokens: tokens, RespCtx: respCtx},
-					s.Context.logger, "responseChannel")
+					s.Context.logger)
 			}
 		} else {
 			for _, tc := range respCtx.ToolCalls() {
@@ -392,25 +401,24 @@ func (s *VllmSimulator) sendResponse(reqCtx requestContext, respCtx ResponseCont
 						&ResponseInfo{Tokens: &openaiserverapi.Tokenized{
 							Tokens:  []uint32{token},
 							Strings: []string{tc.Function.TokenizedArguments().Strings[i]}},
-							RespCtx: respCtx, ToolCall: &tc}, s.Context.logger, "responseChannel")
+							RespCtx: respCtx, ToolCall: &tc}, s.Context.logger)
 				}
 			}
 		}
-		common.WriteToChannel(s.Context.metrics.reqDecodeTimeChan, time.Since(startDecode).Seconds(), s.Context.logger,
-			"metrics.reqDecodeTimeChan")
+		common.WriteToChannel(s.Context.metrics.reqDecodeTimeChan, time.Since(startDecode).Seconds(), s.Context.logger)
 	}
-	close(reqCtx.responseChannel())
+	close(reqCtx.responseChannel().Channel)
 }
 
 // request processing finished
 func (s *VllmSimulator) ResponseSentCallback(reqCtx requestContext, model string) {
 	// decrement running requests count
-	common.WriteToChannel(s.Context.metrics.runReqChan, &common.MetricInfo{Value: -1}, s.Context.logger, "metrics.runReqChan")
+	common.WriteToChannel(s.Context.metrics.runReqChan, common.MetricInfo{Value: -1}, s.Context.logger)
 
 	if s.Context.isLora(model) {
 		// update loraInfo metrics to reflect that the request processing has been finished
 		common.WriteToChannel(s.Context.metrics.lorasChan, loraUsage{model, doneUsageState},
-			s.Context.logger, "metrics.lorasChan")
+			s.Context.logger)
 	}
 
 	reqCtx.kvCacheOnRequestEnd()

@@ -187,21 +187,22 @@ func (c *Communication) handleHTTP(req vllmsim.Request, respBuilder responseBuil
 
 	if isStream {
 		ctx.SetContentType("text/event-stream")
-		c.sendStream(ctx, channel, respBuilder)
+		c.sendStream(ctx, *channel, respBuilder)
 	} else {
 		ctx.SetContentType("application/json")
-		c.sendNonStream(ctx, channel, respBuilder)
+		c.sendNonStream(ctx, *channel, respBuilder)
 	}
 }
 
-func (c *Communication) sendNonStream(ctx *fasthttp.RequestCtx, channel chan *vllmsim.ResponseInfo, respBuilder responseBuilder) {
+func (c *Communication) sendNonStream(ctx *fasthttp.RequestCtx, channel common.Channel[*vllmsim.ResponseInfo],
+	respBuilder responseBuilder) {
 	tokens := openaiserverapi.Tokenized{
 		Tokens:  make([]uint32, 0),
 		Strings: make([]string, 0),
 	}
 
 	var respCtx vllmsim.ResponseContext
-	for response := range channel {
+	for response := range channel.Channel {
 		if response.Err != nil {
 			c.sendError(ctx, response.Err, false)
 			return
@@ -225,13 +226,14 @@ func (c *Communication) sendNonStream(ctx *fasthttp.RequestCtx, channel chan *vl
 	c.simulator.ResponseSentCallback(respCtx.RequestContext(), respCtx.DisplayModel())
 }
 
-func (c *Communication) sendStream(ctx *fasthttp.RequestCtx, channel chan *vllmsim.ResponseInfo, respBuilder responseBuilder) {
+func (c *Communication) sendStream(ctx *fasthttp.RequestCtx, channel common.Channel[*vllmsim.ResponseInfo],
+	respBuilder responseBuilder) {
 	ctx.SetBodyStreamWriter(func(w *bufio.Writer) {
 		first := true
 		var respCtx vllmsim.ResponseContext
 		var lastToolCall *openaiserverapi.ToolCall
 		var toolCallIndex int
-		for response := range channel {
+		for response := range channel.Channel {
 			if response.Err != nil {
 				ctx.Error(response.Err.Message, response.Err.Code)
 				return

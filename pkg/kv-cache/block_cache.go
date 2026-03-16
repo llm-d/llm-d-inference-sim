@@ -37,26 +37,30 @@ const (
 // blockCache represents a thread-safe cache for blocks with eviction policy
 type blockCache struct {
 	mu              sync.RWMutex
-	requestToBlocks map[string][]uint64     // request id -> array of it blocks (block hashes)
-	usedBlocks      map[uint64]int          // block hash -> reference count
-	unusedBlocks    map[uint64]time.Time    // block hash -> last usage timestamp
-	blockToTokens   map[uint64][]uint32     // block hash -> block tokens
-	maxBlocks       int                     // maximum number of blocks in the cache
-	eventSender     *KVEventSender          // emmits kv events
-	eventChan       chan EventData          // channel for asynchronous event processing
-	usageChan       chan *common.MetricInfo // channel for usage reporting
+	requestToBlocks map[string][]uint64                // request id -> array of it blocks (block hashes)
+	usedBlocks      map[uint64]int                     // block hash -> reference count
+	unusedBlocks    map[uint64]time.Time               // block hash -> last usage timestamp
+	blockToTokens   map[uint64][]uint32                // block hash -> block tokens
+	maxBlocks       int                                // maximum number of blocks in the cache
+	eventSender     *KVEventSender                     // emmits kv events
+	eventChan       common.Channel[EventData]          // channel for asynchronous event processing
+	usageChan       *common.Channel[common.MetricInfo] // channel for usage reporting
 	logger          logr.Logger
 	disabled        bool // indicated whether the cache is disabled
 }
 
 // newBlockCache creates a new blockCache with the specified maximum number of blocks
-func newBlockCache(config *common.Configuration, logger logr.Logger, usageChan chan *common.MetricInfo) (*blockCache, error) {
+func newBlockCache(config *common.Configuration, logger logr.Logger,
+	usageChan *common.Channel[common.MetricInfo]) (*blockCache, error) {
 	if config.IP == "" {
 		return nil, errors.New("IP should be defined in the environment (POD_IP)")
 	}
 
 	// TODO read size of channel from config
-	eChan := make(chan EventData, 10000)
+	eChan := common.Channel[EventData]{
+		Channel: make(chan EventData, 10000),
+		Name:    "block cache eventChan",
+	}
 
 	var publisher *common.Publisher
 	var err error
@@ -105,7 +109,7 @@ func (bc *blockCache) discard() {
 
 	common.WriteToChannel(bc.eventChan,
 		EventData{action: eventActionAllBlocksCleared},
-		bc.logger, "block cache eventChan")
+		bc.logger)
 }
 
 func (bc *blockCache) activate() {
@@ -199,7 +203,7 @@ func (bc *blockCache) startRequest(requestID string, blockHashes []uint64, block
 			delete(bc.unusedBlocks, oldestUnusedHash)
 			common.WriteToChannel(bc.eventChan,
 				EventData{action: eventActionRemove, hashes: []any{oldestUnusedHash}, tokens: bc.blockToTokens[oldestUnusedHash]},
-				bc.logger, "block cache eventChan")
+				bc.logger)
 			// remove this block hash from the cache of block tokens
 			delete(bc.blockToTokens, oldestUnusedHash)
 		}
@@ -212,7 +216,7 @@ func (bc *blockCache) startRequest(requestID string, blockHashes []uint64, block
 	}
 
 	if len(hashes) > 0 {
-		common.WriteToChannel(bc.eventChan, EventData{action: eventActionStore, hashes: hashes, tokens: tokens}, bc.logger, "block cache eventChan")
+		common.WriteToChannel(bc.eventChan, EventData{action: eventActionStore, hashes: hashes, tokens: tokens}, bc.logger)
 	}
 
 	// store the request mapping
@@ -223,7 +227,7 @@ func (bc *blockCache) startRequest(requestID string, blockHashes []uint64, block
 		usage := common.MetricInfo{
 			Value: float64(len(bc.usedBlocks)) / float64(bc.maxBlocks),
 		}
-		common.WriteToChannel(bc.usageChan, &usage, bc.logger, "block cache usageChan")
+		common.WriteToChannel(*bc.usageChan, usage, bc.logger)
 	}
 	return len(blockAreadyInUse) + len(blockToMoveToUsed), nil
 }
@@ -267,7 +271,7 @@ func (bc *blockCache) finishRequest(requestID string) error {
 		usage := common.MetricInfo{
 			Value: float64(len(bc.usedBlocks)) / float64(bc.maxBlocks),
 		}
-		common.WriteToChannel(bc.usageChan, &usage, bc.logger, "block cache usageChan")
+		common.WriteToChannel(*bc.usageChan, usage, bc.logger)
 	}
 
 	// Remove the request mapping

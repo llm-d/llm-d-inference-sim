@@ -168,11 +168,16 @@ func (r *Random) RandomNumericString(length int) string {
 	return string(result)
 }
 
-func WriteToChannel[T any](channel chan T, object T, logger logr.Logger, channelName string) {
+type Channel[T any] struct {
+	Channel chan T
+	Name    string
+}
+
+func WriteToChannel[T any](channel Channel[T], object T, logger logr.Logger) {
 	select {
-	case channel <- object:
+	case channel.Channel <- object:
 	default:
-		logger.V(logging.WARN).Info("failed to write to", "channel", channelName)
+		logger.V(logging.WARN).Info("failed to write to", "channel", channel.Name)
 	}
 }
 

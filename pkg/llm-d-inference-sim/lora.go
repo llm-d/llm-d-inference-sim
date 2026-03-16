@@ -141,6 +141,6 @@ func (s *SimContext) decrementLora(model string) {
 	s.loras.loadedLoras[model]--
 	if s.loras.loadedLoras[model] <= 0 {
 		// last usage of this LoRA
-		common.WriteToChannel(s.loras.loraRemovable, 1, s.logger, "loraRemovable")
+		common.WriteToChannel(s.loras.loraRemovable, 1, s.logger)
 	}
 }

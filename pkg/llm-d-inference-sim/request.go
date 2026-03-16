@@ -28,7 +28,7 @@ import (
 type requestBuilder interface {
 	Unmarshal(data []byte) error
 	validate(toolsValidator *toolsValidator) (string, int)
-	buildRequestContext(simCtx *SimContext, channel chan *ResponseInfo) requestContext
+	buildRequestContext(simCtx *SimContext, channel common.Channel[*ResponseInfo]) requestContext
 	AsString() string
 	createResponseContext(reqCtx requestContext, displayModel string, responseTokens *openaiserverapi.Tokenized, finishReason *string,
 		usageData *openaiserverapi.Usage, sendUsageData bool, logprobs *int, toolCalls []openaiserverapi.ToolCall) ResponseContext
@@ -47,7 +47,7 @@ type requestContext interface {
 	kvCacheOnRequestEnd()
 	createToolCalls() ([]openaiserverapi.ToolCall, int, string, error)
 	handleRequest() (ResponseContext, *openaiserverapi.Error)
-	responseChannel() chan *ResponseInfo
+	responseChannel() common.Channel[*ResponseInfo]
 	tokenizedPromptForEcho() (*openaiserverapi.Tokenized, error)
 }
 
@@ -55,10 +55,10 @@ type baseRequestContext struct {
 	requestContext
 	sim             *SimContext
 	startProcessing time.Time
-	respChannel     chan *ResponseInfo
+	respChannel     common.Channel[*ResponseInfo]
 }
 
-func newBaseRequestContext(simCtx *SimContext, channel chan *ResponseInfo) baseRequestContext {
+func newBaseRequestContext(simCtx *SimContext, channel common.Channel[*ResponseInfo]) baseRequestContext {
 	return baseRequestContext{
 		sim:             simCtx,
 		startProcessing: time.Now(),
@@ -66,7 +66,7 @@ func newBaseRequestContext(simCtx *SimContext, channel chan *ResponseInfo) baseR
 	}
 }
 
-func (b *baseRequestContext) responseChannel() chan *ResponseInfo {
+func (b *baseRequestContext) responseChannel() common.Channel[*ResponseInfo] {
 	return b.respChannel
 }
 
@@ -127,13 +127,12 @@ func (reqCtx *baseRequestContext) handleRequest() (ResponseContext, *openaiserve
 	model := req.GetModel()
 
 	// increment running requests count
-	common.WriteToChannel(reqCtx.sim.metrics.runReqChan, &common.MetricInfo{Value: 1}, reqCtx.sim.logger, "metrics.runReqChan")
+	common.WriteToChannel(reqCtx.sim.metrics.runReqChan, common.MetricInfo{Value: 1}, reqCtx.sim.logger)
 
 	if reqCtx.sim.isLora(model) {
 		// update loraInfo metric to reflect that
 		// the request has changed its status from waiting to running
-		common.WriteToChannel(reqCtx.sim.metrics.lorasChan, loraUsage{model, runningUsageState}, reqCtx.sim.logger,
-			"metrics.lorasChan")
+		common.WriteToChannel(reqCtx.sim.metrics.lorasChan, loraUsage{model, runningUsageState}, reqCtx.sim.logger)
 	}
 
 	if err := reqCtx.tokenize(); err != nil {

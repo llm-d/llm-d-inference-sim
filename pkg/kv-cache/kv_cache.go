@@ -43,11 +43,11 @@ type KVCacheHelper struct {
 	logger               logr.Logger
 	blockCache           *blockCache
 	blockSize            int
-	prefixCacheStatsChan chan PrefixCacheStats
+	prefixCacheStatsChan common.Channel[PrefixCacheStats]
 }
 
-func NewKVCacheHelper(config *common.Configuration, logger logr.Logger, usageChan chan *common.MetricInfo,
-	prefixCacheStatsChan chan PrefixCacheStats, tokenizer tokenizer.Tokenizer) (*KVCacheHelper, error) {
+func NewKVCacheHelper(config *common.Configuration, logger logr.Logger, usageChan common.Channel[common.MetricInfo],
+	prefixCacheStatsChan common.Channel[PrefixCacheStats], tokenizer tokenizer.Tokenizer) (*KVCacheHelper, error) {
 	tokenProcConfig := kvblock.DefaultTokenProcessorConfig()
 	tokenProcConfig.BlockSize = config.TokenBlockSize
 	if config.HashSeed != "" {
@@ -55,7 +55,7 @@ func NewKVCacheHelper(config *common.Configuration, logger logr.Logger, usageCha
 	}
 	tokensProcessor := kvblock.NewChunkedTokenDatabase(tokenProcConfig)
 
-	blockCache, err := newBlockCache(config, logger, usageChan)
+	blockCache, err := newBlockCache(config, logger, &usageChan)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create block cache: %w", err)
 	}
@@ -116,12 +116,10 @@ func (h *KVCacheHelper) OnRequestStart(vllmReq openaiserverapi.Request) (float64
 		hitRate = float64(cachedBlocks) / float64(totalBlocks)
 	}
 
-	if h.prefixCacheStatsChan != nil {
-		common.WriteToChannel(h.prefixCacheStatsChan, PrefixCacheStats{
-			QueriedTokens: len(tokens),
-			CachedTokens:  cachedTokens,
-		}, h.logger, "prefixCacheStatsChan")
-	}
+	common.WriteToChannel(h.prefixCacheStatsChan, PrefixCacheStats{
+		QueriedTokens: len(tokens),
+		CachedTokens:  cachedTokens,
+	}, h.logger)
 
 	return hitRate, nil
 }

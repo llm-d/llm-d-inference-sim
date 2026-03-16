@@ -82,33 +82,33 @@ type metricsData struct {
 	// the key is lora's name, the value is the number of waiting requests using this lora
 	waitingLoras sync.Map
 	// lorasChan is a channel to update waitingLoras and runningLoras
-	lorasChan chan loraUsage
+	lorasChan common.Channel[loraUsage]
 	// nRunningReqs is the number of inference requests that are currently being processed
 	nRunningReqs int64
 	// runReqChan is a channel to update nRunningReqs
-	runReqChan chan *common.MetricInfo
+	runReqChan common.Channel[common.MetricInfo]
 	// requestSuccessChan is a channel to update requestSuccessReqs
-	requestSuccessChan chan requestSuccessEvent
+	requestSuccessChan common.Channel[requestSuccessEvent]
 	// nWaitingReqs is the number of inference requests that are waiting to be processed
 	nWaitingReqs int64
 	// waitingReqChan is a channel to update nWaitingReqs
-	waitingReqChan chan *common.MetricInfo
+	waitingReqChan common.Channel[common.MetricInfo]
 	// ttftChan is a channel to update time to first token
-	ttftChan chan float64
+	ttftChan common.Channel[float64]
 	// tpotChan is a channel to update time per output token
-	tpotChan chan float64
+	tpotChan common.Channel[float64]
 	// e2eReqLatencyChan is a channel to update request e2e latency
-	e2eReqLatencyChan chan float64
+	e2eReqLatencyChan common.Channel[float64]
 	// reqQueueTimeChan is a channel to update request queue time
-	reqQueueTimeChan chan float64
+	reqQueueTimeChan common.Channel[float64]
 	// reqInferenceTimeChan is a channel to update request inference time
-	reqInferenceTimeChan chan float64
+	reqInferenceTimeChan common.Channel[float64]
 	// reqPrefillTimeChan is a channel to update request prefill time
-	reqPrefillTimeChan chan float64
+	reqPrefillTimeChan common.Channel[float64]
 	// reqDecodeTimeChan is a channel to update request decode time
-	reqDecodeTimeChan chan float64
+	reqDecodeTimeChan common.Channel[float64]
 	// kvCacheUsageChan is a channel to update kvCacheUsagePercentage
-	kvCacheUsageChan chan *common.MetricInfo
+	kvCacheUsageChan common.Channel[common.MetricInfo]
 	// registry is a Prometheus registry
 	registry *prometheus.Registry
 	// loraInfo is prometheus gauge
@@ -154,7 +154,7 @@ type metricsData struct {
 	// prefixCacheQueries is prometheus counter for total queried tokens (prefix cache queries)
 	prefixCacheQueries *prometheus.CounterVec
 	// prefixCacheStatsChan is a channel to update prefix cache hit/query counters
-	prefixCacheStatsChan chan kvcache.PrefixCacheStats
+	prefixCacheStatsChan common.Channel[kvcache.PrefixCacheStats]
 
 	generatedFakeMetrics []generatedFakeMetrics
 }
@@ -183,7 +183,10 @@ func (s *SimContext) createAndRegisterPrometheus(ctx context.Context) error {
 		return err
 	}
 
-	s.metrics.lorasChan = make(chan loraUsage, maxNumberOfRequests)
+	s.metrics.lorasChan = common.Channel[loraUsage]{
+		Channel: make(chan loraUsage, maxNumberOfRequests),
+		Name:    "metrics.lorasChan",
+	}
 	go s.lorasUpdater(ctx)
 
 	s.metrics.runningRequests = prometheus.NewGaugeVec(
@@ -200,7 +203,10 @@ func (s *SimContext) createAndRegisterPrometheus(ctx context.Context) error {
 		return err
 	}
 
-	s.metrics.runReqChan = make(chan *common.MetricInfo, maxNumberOfRequests)
+	s.metrics.runReqChan = common.Channel[common.MetricInfo]{
+		Channel: make(chan common.MetricInfo, maxNumberOfRequests),
+		Name:    "metrics.runReqChan",
+	}
 	go s.runningRequestsUpdater(ctx)
 
 	s.metrics.waitingRequests = prometheus.NewGaugeVec(
@@ -217,7 +223,10 @@ func (s *SimContext) createAndRegisterPrometheus(ctx context.Context) error {
 		return err
 	}
 
-	s.metrics.waitingReqChan = make(chan *common.MetricInfo, maxNumberOfRequests)
+	s.metrics.waitingReqChan = common.Channel[common.MetricInfo]{
+		Channel: make(chan common.MetricInfo, maxNumberOfRequests),
+		Name:    "metrics.waitingReqChan",
+	}
 	go s.waitingRequestsUpdater(ctx)
 
 	s.metrics.ttft = prometheus.NewHistogramVec(
@@ -235,7 +244,10 @@ func (s *SimContext) createAndRegisterPrometheus(ctx context.Context) error {
 		return err
 	}
 
-	s.metrics.ttftChan = make(chan float64, maxNumberOfRequests)
+	s.metrics.ttftChan = common.Channel[float64]{
+		Channel: make(chan float64, maxNumberOfRequests),
+		Name:    "metrics.ttftChan",
+	}
 	go s.ttftUpdater(ctx)
 
 	s.metrics.tpot = prometheus.NewHistogramVec(
@@ -253,7 +265,10 @@ func (s *SimContext) createAndRegisterPrometheus(ctx context.Context) error {
 		return err
 	}
 
-	s.metrics.tpotChan = make(chan float64, maxNumberOfRequests*s.Config.MaxModelLen)
+	s.metrics.tpotChan = common.Channel[float64]{
+		Channel: make(chan float64, maxNumberOfRequests*s.Config.MaxModelLen),
+		Name:    "metrics.tpotChan",
+	}
 	go s.tpotUpdater(ctx)
 
 	// Register inter_token_latency_seconds (new standard since vLLM 0.11)
@@ -287,7 +302,10 @@ func (s *SimContext) createAndRegisterPrometheus(ctx context.Context) error {
 		return err
 	}
 
-	s.metrics.e2eReqLatencyChan = make(chan float64, maxNumberOfRequests)
+	s.metrics.e2eReqLatencyChan = common.Channel[float64]{
+		Channel: make(chan float64, maxNumberOfRequests),
+		Name:    "metrics.e2eReqLatencyChan",
+	}
 	go s.e2eReqLatencyUpdater(ctx)
 
 	s.metrics.reqQueueTime = prometheus.NewHistogramVec(
@@ -305,7 +323,10 @@ func (s *SimContext) createAndRegisterPrometheus(ctx context.Context) error {
 		return err
 	}
 
-	s.metrics.reqQueueTimeChan = make(chan float64, maxNumberOfRequests)
+	s.metrics.reqQueueTimeChan = common.Channel[float64]{
+		Channel: make(chan float64, maxNumberOfRequests),
+		Name:    "metrics.reqQueueTimeChan",
+	}
 	go s.reqQueueTimeUpdater(ctx)
 
 	s.metrics.reqInferenceTime = prometheus.NewHistogramVec(
@@ -323,7 +344,10 @@ func (s *SimContext) createAndRegisterPrometheus(ctx context.Context) error {
 		return err
 	}
 
-	s.metrics.reqInferenceTimeChan = make(chan float64, maxNumberOfRequests)
+	s.metrics.reqInferenceTimeChan = common.Channel[float64]{
+		Channel: make(chan float64, maxNumberOfRequests),
+		Name:    "metrics.reqInferenceTimeChan",
+	}
 	go s.reqInferenceTimeUpdater(ctx)
 
 	s.metrics.reqPrefillTime = prometheus.NewHistogramVec(
@@ -341,7 +365,10 @@ func (s *SimContext) createAndRegisterPrometheus(ctx context.Context) error {
 		return err
 	}
 
-	s.metrics.reqPrefillTimeChan = make(chan float64, maxNumberOfRequests)
+	s.metrics.reqPrefillTimeChan = common.Channel[float64]{
+		Channel: make(chan float64, maxNumberOfRequests),
+		Name:    "metrics.reqPrefillTimeChan",
+	}
 	go s.reqPrefillTimeUpdater(ctx)
 
 	s.metrics.reqDecodeTime = prometheus.NewHistogramVec(
@@ -359,7 +386,10 @@ func (s *SimContext) createAndRegisterPrometheus(ctx context.Context) error {
 		return err
 	}
 
-	s.metrics.reqDecodeTimeChan = make(chan float64, maxNumberOfRequests)
+	s.metrics.reqDecodeTimeChan = common.Channel[float64]{
+		Channel: make(chan float64, maxNumberOfRequests),
+		Name:    "metrics.reqDecodeTimeChan",
+	}
 	go s.reqDecodeTimeUpdater(ctx)
 
 	s.metrics.kvCacheUsagePercentage = prometheus.NewGaugeVec(
@@ -376,7 +406,10 @@ func (s *SimContext) createAndRegisterPrometheus(ctx context.Context) error {
 		return err
 	}
 
-	s.metrics.kvCacheUsageChan = make(chan *common.MetricInfo, maxNumberOfRequests)
+	s.metrics.kvCacheUsageChan = common.Channel[common.MetricInfo]{
+		Channel: make(chan common.MetricInfo, maxNumberOfRequests),
+		Name:    "metrics.kvCacheUsageChan",
+	}
 	go s.kvCacheUsageUpdater(ctx)
 
 	s.metrics.prefixCacheHits = prometheus.NewCounterVec(
@@ -405,7 +438,10 @@ func (s *SimContext) createAndRegisterPrometheus(ctx context.Context) error {
 		return err
 	}
 
-	s.metrics.prefixCacheStatsChan = make(chan kvcache.PrefixCacheStats, maxNumberOfRequests)
+	s.metrics.prefixCacheStatsChan = common.Channel[kvcache.PrefixCacheStats]{
+		Channel: make(chan kvcache.PrefixCacheStats, maxNumberOfRequests),
+		Name:    "metrics.prefixCacheStatsChan",
+	}
 	go s.prefixCacheStatsUpdater(ctx)
 
 	s.metrics.requestPromptTokens = prometheus.NewHistogramVec(
@@ -505,7 +541,10 @@ func (s *SimContext) createAndRegisterPrometheus(ctx context.Context) error {
 		return err
 	}
 
-	s.metrics.requestSuccessChan = make(chan requestSuccessEvent, maxNumberOfRequests)
+	s.metrics.requestSuccessChan = common.Channel[requestSuccessEvent]{
+		Channel: make(chan requestSuccessEvent, maxNumberOfRequests),
+		Name:    "metrics.requestSuccessChan",
+	}
 	go s.recordRequestUpdater(ctx)
 
 	cacheConfig := prometheus.NewGaugeVec(
@@ -619,7 +658,7 @@ func (s *SimContext) waitingRequestsUpdater(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case upd := <-s.metrics.waitingReqChan:
+		case upd := <-s.metrics.waitingReqChan.Channel:
 			// Only proceed if the "fakeness" of the update matches the config
 			if (s.Config.FakeMetrics != nil) != upd.IsFake {
 				continue
@@ -642,7 +681,7 @@ func (s *SimContext) runningRequestsUpdater(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case upd := <-s.metrics.runReqChan:
+		case upd := <-s.metrics.runReqChan.Channel:
 			// Only proceed if the "fakeness" of the update matches the config
 			if (s.Config.FakeMetrics != nil) != upd.IsFake {
 				continue
@@ -665,7 +704,7 @@ func (s *SimContext) kvCacheUsageUpdater(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case value := <-s.metrics.kvCacheUsageChan:
+		case value := <-s.metrics.kvCacheUsageChan.Channel:
 			if (s.Config.FakeMetrics != nil) == value.IsFake {
 				s.reportKVCacheUsage(value.Value)
 			}
@@ -679,7 +718,7 @@ func (s *SimContext) prefixCacheStatsUpdater(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case stats := <-s.metrics.prefixCacheStatsChan:
+		case stats := <-s.metrics.prefixCacheStatsChan.Channel:
 			s.reportPrefixCacheStats(stats)
 		}
 	}
@@ -705,7 +744,7 @@ func (s *SimContext) ttftUpdater(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case value := <-s.metrics.ttftChan:
+		case value := <-s.metrics.ttftChan.Channel:
 			s.reportHistogramValue(s.metrics.ttft, value)
 		}
 	}
@@ -717,7 +756,7 @@ func (s *SimContext) tpotUpdater(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case value := <-s.metrics.tpotChan:
+		case value := <-s.metrics.tpotChan.Channel:
 			s.reportHistogramValue(s.metrics.tpot, value)
 			s.reportHistogramValue(s.metrics.interTokenLatency, value)
 		}
@@ -730,7 +769,7 @@ func (s *SimContext) e2eReqLatencyUpdater(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case value := <-s.metrics.e2eReqLatencyChan:
+		case value := <-s.metrics.e2eReqLatencyChan.Channel:
 			s.reportHistogramValue(s.metrics.e2eReqLatency, value)
 		}
 	}
@@ -742,7 +781,7 @@ func (s *SimContext) reqQueueTimeUpdater(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case value := <-s.metrics.reqQueueTimeChan:
+		case value := <-s.metrics.reqQueueTimeChan.Channel:
 			s.reportHistogramValue(s.metrics.reqQueueTime, value)
 		}
 	}
@@ -754,7 +793,7 @@ func (s *SimContext) reqInferenceTimeUpdater(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case value := <-s.metrics.reqInferenceTimeChan:
+		case value := <-s.metrics.reqInferenceTimeChan.Channel:
 			s.reportHistogramValue(s.metrics.reqInferenceTime, value)
 		}
 	}
@@ -766,7 +805,7 @@ func (s *SimContext) reqPrefillTimeUpdater(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case value := <-s.metrics.reqPrefillTimeChan:
+		case value := <-s.metrics.reqPrefillTimeChan.Channel:
 			s.reportHistogramValue(s.metrics.reqPrefillTime, value)
 		}
 	}
@@ -778,7 +817,7 @@ func (s *SimContext) reqDecodeTimeUpdater(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case value := <-s.metrics.reqDecodeTimeChan:
+		case value := <-s.metrics.reqDecodeTimeChan.Channel:
 			s.reportHistogramValue(s.metrics.reqDecodeTime, value)
 		}
 	}
@@ -791,7 +830,7 @@ func (s *SimContext) lorasUpdater(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case loraUpdate := <-s.metrics.lorasChan:
+		case loraUpdate := <-s.metrics.lorasChan.Channel:
 			switch loraUpdate.state {
 			case waitingUsageState:
 				s.incrementLoraRefCount(loraUpdate.name, &s.metrics.waitingLoras)
@@ -834,7 +873,7 @@ func (s *SimContext) recordRequestUpdater(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case event := <-s.metrics.requestSuccessChan:
+		case event := <-s.metrics.requestSuccessChan.Channel:
 			s.recordRequestMetricsOnSuccess(
 				event.promptTokens,
 				event.generationTokens,

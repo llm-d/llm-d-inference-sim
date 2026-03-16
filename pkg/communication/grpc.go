@@ -49,7 +49,7 @@ func (c *Communication) Generate(in *pb.GenerateRequest, out grpc.ServerStreamin
 		Strings: make([]string, 0),
 	}
 
-	for response := range channel {
+	for response := range channel.Channel {
 		select {
 		case <-out.Context().Done():
 			return out.Context().Err()

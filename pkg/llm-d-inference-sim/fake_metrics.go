@@ -31,11 +31,10 @@ import (
 type generator func(params *common.FunctionInfo, t time.Duration) float64
 
 type generatedFakeMetrics struct {
-	updateChan     chan *common.MetricInfo
-	updateChanName string
-	genFun         generator
-	params         *common.FunctionInfo
-	roundToInt     bool
+	updateChan common.Channel[common.MetricInfo]
+	genFun     generator
+	params     *common.FunctionInfo
+	roundToInt bool
 }
 
 func (s *SimContext) setInitialFakeMetrics() {
@@ -44,11 +43,10 @@ func (s *SimContext) setInitialFakeMetrics() {
 	var nRunningReqs, nWaitingReqs, kvCacheUsage float64
 	if s.Config.FakeMetrics.RunningRequests.IsFunction {
 		genFakeMetric := generatedFakeMetrics{
-			updateChan:     s.metrics.runReqChan,
-			updateChanName: "metrics.runReqChan",
-			genFun:         mapFun(s.Config.FakeMetrics.RunningRequests.Function.Name),
-			params:         s.Config.FakeMetrics.RunningRequests.Function,
-			roundToInt:     true,
+			updateChan: s.metrics.runReqChan,
+			genFun:     mapFun(s.Config.FakeMetrics.RunningRequests.Function.Name),
+			params:     s.Config.FakeMetrics.RunningRequests.Function,
+			roundToInt: true,
 		}
 		s.metrics.generatedFakeMetrics = append(s.metrics.generatedFakeMetrics, genFakeMetric)
 		nRunningReqs = genFakeMetric.genFun(genFakeMetric.params, 0)
@@ -59,11 +57,10 @@ func (s *SimContext) setInitialFakeMetrics() {
 
 	if s.Config.FakeMetrics.WaitingRequests.IsFunction {
 		genFakeMetric := generatedFakeMetrics{
-			updateChan:     s.metrics.waitingReqChan,
-			updateChanName: "metrics.waitingReqChan",
-			genFun:         mapFun(s.Config.FakeMetrics.WaitingRequests.Function.Name),
-			params:         s.Config.FakeMetrics.WaitingRequests.Function,
-			roundToInt:     true,
+			updateChan: s.metrics.waitingReqChan,
+			genFun:     mapFun(s.Config.FakeMetrics.WaitingRequests.Function.Name),
+			params:     s.Config.FakeMetrics.WaitingRequests.Function,
+			roundToInt: true,
 		}
 		s.metrics.generatedFakeMetrics = append(s.metrics.generatedFakeMetrics, genFakeMetric)
 		nWaitingReqs = genFakeMetric.genFun(genFakeMetric.params, 0)
@@ -74,10 +71,9 @@ func (s *SimContext) setInitialFakeMetrics() {
 
 	if s.Config.FakeMetrics.KVCacheUsagePercentage.IsFunction {
 		genFakeMetric := generatedFakeMetrics{
-			updateChan:     s.metrics.kvCacheUsageChan,
-			updateChanName: "metrics.kvCacheUsageChan",
-			genFun:         mapFun(s.Config.FakeMetrics.KVCacheUsagePercentage.Function.Name),
-			params:         s.Config.FakeMetrics.KVCacheUsagePercentage.Function,
+			updateChan: s.metrics.kvCacheUsageChan,
+			genFun:     mapFun(s.Config.FakeMetrics.KVCacheUsagePercentage.Function.Name),
+			params:     s.Config.FakeMetrics.KVCacheUsagePercentage.Function,
 		}
 		s.metrics.generatedFakeMetrics = append(s.metrics.generatedFakeMetrics, genFakeMetric)
 		kvCacheUsage = genFakeMetric.genFun(genFakeMetric.params, 0)
@@ -185,7 +181,7 @@ func (s *SimContext) updateFakeMetrics() {
 				Value:  value,
 				IsFake: true,
 			}
-			common.WriteToChannel(metric.updateChan, &update, s.logger, metric.updateChanName)
+			common.WriteToChannel(metric.updateChan, update, s.logger)
 		}
 	}
 }

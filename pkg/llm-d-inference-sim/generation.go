@@ -17,6 +17,7 @@ limitations under the License.
 package llmdinferencesim
 
 import (
+	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	"github.com/valyala/fasthttp"
 )
@@ -34,7 +35,7 @@ func (g *GenerationRequest) validate(toolsValidator *toolsValidator) (string, in
 	return validateRequest(g)
 }
 
-func (g *GenerationRequest) buildRequestContext(simCtx *SimContext, channel chan *ResponseInfo) requestContext {
+func (g *GenerationRequest) buildRequestContext(simCtx *SimContext, channel common.Channel[*ResponseInfo]) requestContext {
 	reqCtx := &generationReqCtx{
 		baseRequestContext: newBaseRequestContext(simCtx, channel),
 		req:                g,

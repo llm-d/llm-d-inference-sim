@@ -38,7 +38,7 @@ type lorasUsageInfo struct {
 	// lora adapter name -> reference count (number of currently running requests)
 	loadedLoras map[string]int
 	// channel for "there is a LoRA that can be removed" event
-	loraRemovable chan int
+	loraRemovable common.Channel[int]
 	// maximum number of LoRAs that can be used simultaneously
 	maxLoras int
 }
@@ -86,7 +86,10 @@ func (s *SimContext) initialize(ctx context.Context) error {
 		s.loraAdaptors.Store(lora.Name, "")
 	}
 	s.loras.maxLoras = s.Config.MaxLoras
-	s.loras.loraRemovable = make(chan int, s.Config.MaxNumSeqs)
+	s.loras.loraRemovable = common.Channel[int]{
+		Channel: make(chan int, s.Config.MaxNumSeqs),
+		Name:    "loraRemovable",
+	}
 
 	// initialize prometheus metrics
 	err := s.createAndRegisterPrometheus(ctx)
@@ -176,8 +179,8 @@ func (s *SimContext) simulateTTFT(respCtx ResponseContext) {
 	ttft := s.latencyCalculator.GetTimeToFirstToken(&params)
 	time.Sleep(ttft)
 	// report ttft in seconds
-	common.WriteToChannel(s.metrics.ttftChan, ttft.Seconds(), s.logger, "metrics.ttftChan")
-	common.WriteToChannel(s.metrics.reqPrefillTimeChan, time.Since(startPrefill).Seconds(), s.logger, "metrics.reqPrefillTimeChan")
+	common.WriteToChannel(s.metrics.ttftChan, ttft.Seconds(), s.logger)
+	common.WriteToChannel(s.metrics.reqPrefillTimeChan, time.Since(startPrefill).Seconds(), s.logger)
 }
 
 func (s *SimContext) simulateInterTokenLatency() {
@@ -186,7 +189,7 @@ func (s *SimContext) simulateInterTokenLatency() {
 	time.Sleep(perTokenLatency)
 
 	// report tpot in seconds
-	common.WriteToChannel(s.metrics.tpotChan, perTokenLatency.Seconds(), s.logger, "metrics.tpotChan")
+	common.WriteToChannel(s.metrics.tpotChan, perTokenLatency.Seconds(), s.logger)
 }
 
 // CreateModelsResponse creates and returns ModelResponse for the current state, returned array of models contains the base model + LoRA adapters if exist
