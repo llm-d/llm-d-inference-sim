@@ -48,13 +48,11 @@ spec:
         # Change to the next release which will use uds tokenizer
         image: ${VLLM_SIMULATOR_IMAGE}
         imagePullPolicy: IfNotPresent
-        command: ["/app/llm-d-inference-sim"]
         args:
         - "--model"
         - "${MODEL_NAME}"
         - "--port"
         - "8000"
-        - "--v=5"
         env:
           - name: POD_NAME
             valueFrom:
@@ -78,7 +76,7 @@ spec:
         - name: uds-socket
           mountPath: /tmp/tokenizer
       volumes:
-      # Shared volume for Unix Domain Socket communication between EPP and UDS tokenizer
+      # Shared volume for Unix Domain Socket communication between the simulator and UDS tokenizer
       - name: uds-socket
         emptyDir: {}
 ---

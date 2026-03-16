@@ -39,10 +39,6 @@ ZMQ_IMG ?= $(IMAGE_REGISTRY)/$(ZMQ_IMAGE_NAME):$(ZMQ_IMAGE_TAG)
 
 CONTAINER_TOOL := $(shell { command -v docker >/dev/null 2>&1 && echo docker; } || { command -v podman >/dev/null 2>&1 && echo podman; } || echo "")
 BUILDER := $(shell command -v buildah >/dev/null 2>&1 && echo buildah || echo $(CONTAINER_TOOL))
-PLATFORMS ?= linux/amd64 # linux/arm64 # linux/s390x,linux/ppc64le
-
-# go source files
-SRC = $(shell find . -type f -name '*.go')
 
 .PHONY: help
 help: ## Print help
@@ -53,12 +49,6 @@ help: ## Print help
 .PHONY: clean
 clean:
 	go clean -testcache -cache
-	rmdir lib
-
-.PHONY: format
-format: ## Format Go source files
-	@printf "\033[33;1m==== Running gofmt ====\033[0m\n"
-	@gofmt -l -w $(SRC)
 
 .PHONY: test
 test: $(GINKGO) install-dependencies ## Run tests
@@ -71,7 +61,6 @@ endif
 
 .PHONY: post-deploy-test
 post-deploy-test: ## Run post deployment tests
-	echo Success!
 	@echo "Post-deployment tests passed."
 	
 .PHONY: lint
@@ -92,9 +81,9 @@ build: check-go install-dependencies
 image-build: check-container-tool ## Build Docker image ## Build Docker image using $(CONTAINER_TOOL)
 	@printf "\033[33;1m==== Building Docker image $(IMG) ====\033[0m\n"
 	$(CONTAINER_TOOL) build \
-		--platform linux/$(TARGETARCH) \
- 		--build-arg TARGETOS=linux \
-		--build-arg TARGETARCH=$(TARGETARCH)\
+		--platform $(TARGETOS)/$(TARGETARCH) \
+		--build-arg TARGETOS=$(TARGETOS) \
+		--build-arg TARGETARCH=$(TARGETARCH) \
 		-t $(IMG) .
 
 .PHONY: image-push
@@ -104,41 +93,6 @@ image-push: check-container-tool ## Push Docker image $(IMG) to registry
 
 .PHONY: image-build-and-push
 image-build-and-push: image-build image-push ## Build and push Docker image $(IMG) to registry
-
-### Docker Targets
-
-.PHONY: install-docker
-install-docker: check-container-tool ## Install app using $(CONTAINER_TOOL)
-	@echo "Starting container with $(CONTAINER_TOOL)..."
-	$(CONTAINER_TOOL) run -d --name $(PROJECT_NAME)-container $(IMG)
-	@echo "$(CONTAINER_TOOL) installation complete."
-	@echo "To use $(PROJECT_NAME), run:"
-	@echo "alias $(PROJECT_NAME)='$(CONTAINER_TOOL) exec -it $(PROJECT_NAME)-container /app/$(PROJECT_NAME)'"
-
-.PHONY: uninstall-docker
-uninstall-docker: check-container-tool ## Uninstall app from $(CONTAINER_TOOL)
-	@echo "Stopping and removing container in $(CONTAINER_TOOL)..."
-	-$(CONTAINER_TOOL) stop $(PROJECT_NAME)-container && $(CONTAINER_TOOL) rm $(PROJECT_NAME)-container
-	@echo "$(CONTAINER_TOOL) uninstallation complete. Remove alias if set: unalias $(PROJECT_NAME)"
-
-### Helm Targets
-.PHONY: install-helm
-install-helm: check-helm ## Install app using Helm
-	@echo "Installing chart with Helm..."
-	helm upgrade --install $(PROJECT_NAME) helm/$(PROJECT_NAME) --namespace default
-	@echo "Helm installation complete."
-
-.PHONY: uninstall-helm
-uninstall-helm: check-helm ## Uninstall app using Helm
-	@echo "Uninstalling chart with Helm..."
-	helm uninstall $(PROJECT_NAME) --namespace default
-	@echo "Helm uninstallation complete."
-
-.PHONY: env
-env: ## Print environment variables
-	@echo "IMAGE_TAG_BASE=$(IMAGE_TAG_BASE)"
-	@echo "IMG=$(IMG)"
-	@echo "CONTAINER_TOOL=$(CONTAINER_TOOL)"
 
 ##@ Tools
 .PHONY: check-go
@@ -239,7 +193,7 @@ zmq-image-build:
 
 .PHONY: zmq-image-push
 zmq-image-push: zmq-image-build
-	docker push $(ZMQ_IMG)
+	$(CONTAINER_TOOL) push $(ZMQ_IMG)
 
 # Kubernetes targets
 .PHONY: deploy-zmq-listener
@@ -255,7 +209,7 @@ deploy-vllm:
 	kubectl apply -f ./manifests/zmq-listener/deploy_vllm.yaml -n $(NAMESPACE)
 
 .PHONY: deploy-zmq-all
-deploy-all: deploy-zmq-listener deploy-sim deploy-vllm
+deploy-zmq-all: deploy-zmq-listener deploy-sim deploy-vllm
 
 .PHONY: delete-zmq-listener
 delete-zmq-listener:
@@ -270,11 +224,49 @@ delete-vllm:
 	kubectl delete -f ./manifests/zmq-listener/deploy_vllm.yaml -n $(NAMESPACE) || true
 
 .PHONY: delete-zmq-all
-delete-all: delete-zmq-listener delete-sim delete-vllm
+delete-zmq-all: delete-zmq-listener delete-sim delete-vllm
 
 .PHONY: clean-zmq
 clean-zmq: delete-zmq-all
-	docker rmi $(ZMQ_IMG) || true
+	$(CONTAINER_TOOL) rmi $(ZMQ_IMG) || true
+
+##@ Helm
+
+HELM_RELEASE_NAME ?= $(PROJECT_NAME)
+HELM_CHART_DIR ?= helm/$(PROJECT_NAME)
+
+.PHONY: helm-lint
+helm-lint: check-helm ## Lint the Helm chart
+	@printf "\033[33;1m==== Linting Helm chart ====\033[0m\n"
+	helm lint $(HELM_CHART_DIR)
+
+.PHONY: helm-template
+helm-template: check-helm ## Render Helm chart templates to stdout
+	@printf "\033[33;1m==== Rendering Helm templates ====\033[0m\n"
+	helm template $(HELM_RELEASE_NAME) $(HELM_CHART_DIR) --namespace $(NAMESPACE)
+
+.PHONY: helm-install
+helm-install: check-helm ## Install the Helm chart (release: $(HELM_RELEASE_NAME), namespace: $(NAMESPACE))
+	@printf "\033[33;1m==== Installing Helm chart $(HELM_RELEASE_NAME) ====\033[0m\n"
+	helm install $(HELM_RELEASE_NAME) $(HELM_CHART_DIR) \
+		--namespace $(NAMESPACE) \
+		--create-namespace \
+		--set image.repository=$(IMAGE_TAG_BASE) \
+		--set image.tag=$(SIM_TAG)
+
+.PHONY: helm-upgrade
+helm-upgrade: check-helm ## Upgrade (or install) the Helm chart release
+	@printf "\033[33;1m==== Upgrading Helm chart $(HELM_RELEASE_NAME) ====\033[0m\n"
+	helm upgrade --install $(HELM_RELEASE_NAME) $(HELM_CHART_DIR) \
+		--namespace $(NAMESPACE) \
+		--create-namespace \
+		--set image.repository=$(IMAGE_TAG_BASE) \
+		--set image.tag=$(SIM_TAG)
+
+.PHONY: helm-uninstall
+helm-uninstall: check-helm ## Uninstall the Helm chart release
+	@printf "\033[33;1m==== Uninstalling Helm chart $(HELM_RELEASE_NAME) ====\033[0m\n"
+	helm uninstall $(HELM_RELEASE_NAME) --namespace $(NAMESPACE) || true
 
 ## Dataset tool
 .PHONY: ds-tool-build
@@ -287,7 +279,7 @@ ds-tool-build: check-go install-dependencies
 KIND_CLUSTER_NAME ?= ${PROJECT_NAME}-dev
 HOST_PORT ?= 30080
 MODEL_NAME ?= TinyLlama/TinyLlama-1.1B-Chat-v1.0
-UDS_TOKENIZER_TAG=v0.6.0
+UDS_TOKENIZER_TAG ?= v0.6.0
 UDS_TOKENIZER_IMG_NAME ?= $(IMAGE_REGISTRY)/llm-d-uds-tokenizer:${UDS_TOKENIZER_TAG}
 
 .PHONY: dev-env-kind

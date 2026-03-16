@@ -8,7 +8,6 @@ set -eo pipefail
 # ------------------------------------------------------------------------------
 require_non_empty() {
   local name=$1
-  # ${!name-} safely expands even under `set -u`.[web:5][web:6]
   if [ -z "${!name-}" ]; then
     echo "Error: $name must not be empty" >&2
     exit 1
@@ -99,24 +98,20 @@ kubectl --context ${KUBE_CONTEXT} -n local-path-storage wait --for=condition=Rea
 # Load the vllm simulator and uds tokenizer images into the cluster (only if it's a locally built image)
 
 if [ -n "$(${CONTAINER_RUNTIME} images -q "${VLLM_SIMULATOR_IMAGE}")" ]; then
+    echo "INFO: Loading vllm-sim image into KIND cluster..."
     if [ "${CONTAINER_RUNTIME}" == "podman" ]; then
         podman save ${VLLM_SIMULATOR_IMAGE} -o /dev/stdout | kind --name ${CLUSTER_NAME} load image-archive /dev/stdin
     else
-        if docker image inspect "${VLLM_SIMULATOR_IMAGE}" > /dev/null 2>&1; then
-            echo "INFO: Loading vllm-sim image into KIND cluster..."
-            kind --name ${CLUSTER_NAME} load docker-image ${VLLM_SIMULATOR_IMAGE}
-        fi
+        kind --name ${CLUSTER_NAME} load docker-image ${VLLM_SIMULATOR_IMAGE}
     fi
 fi
 
 if [ -n "$(${CONTAINER_RUNTIME} images -q "${UDS_TOKENIZER_IMAGE}")" ]; then
+  echo "INFO: Loading uds-tokenizer image into KIND cluster..."
   if [ "${CONTAINER_RUNTIME}" == "podman" ]; then
     podman save ${UDS_TOKENIZER_IMAGE} -o /dev/stdout | kind --name ${CLUSTER_NAME} load image-archive /dev/stdin
   else
-    if docker image inspect "${UDS_TOKENIZER_IMAGE}" > /dev/null 2>&1; then
-      echo "INFO: Loading uds-tokenizer image into KIND cluster..."
-      kind --name ${CLUSTER_NAME} load docker-image ${UDS_TOKENIZER_IMAGE}
-    fi
+    kind --name ${CLUSTER_NAME} load docker-image ${UDS_TOKENIZER_IMAGE}
   fi
 fi
 
@@ -124,7 +119,7 @@ fi
 # Development Environment
 # ------------------------------------------------------------------------------
 
-kubectl kustomize --enable-helm  deploy \
+kubectl kustomize deploy \
 	| envsubst '${MODEL_NAME} ${VLLM_SIMULATOR_IMAGE} ${UDS_TOKENIZER_IMAGE} ${HOST_PORT}' \
   | kubectl --context ${KUBE_CONTEXT} apply -f -
 

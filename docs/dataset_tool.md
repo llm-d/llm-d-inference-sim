@@ -81,7 +81,7 @@ export HF_TOKEN=your_token_here
 ./dataset-tool \
   --model meta-llama/Llama-3-8B
   --local-path ./data \
-  --input-file dataset.json \
+  --input-file dataset.json
 ```
 
 ## Input Dataset Structure

@@ -1,6 +1,6 @@
 ## Prefill/Decode Disaggregation Deployment Guide
 
-This guide demonstrates how to deploy the LLM Disaggregation Simulator (llm-d-sim) in a Kubernetes cluster using a separated Prefill and Decode (P/D) architecture. 
+This guide demonstrates how to deploy the Simulator in a Kubernetes cluster using a separated Prefill and Decode (P/D) architecture. 
 
 The [`routing-sidecar`](https://github.com/llm-d/llm-d-routing-sidecar) runs alongside the Decode service and acts as a reverse proxy: it receives client requests, forwards the prefill phase to a dedicated Prefill service (based on the x-prefiller-host-port header), and then handles the decode phase locally.
 
@@ -29,8 +29,8 @@ Expected output:
 
 ```bash
 NAME                          READY   STATUS    RESTARTS   AGE
-vllm-sim-d-685b57d694-d6qxg   2/2     Running   0          12m
-vllm-sim-p-7b768565d9-79j97   1/1     Running   0          12m
+vllm-sim-d-685b57d694-d6qxg   3/3     Running   0          12m
+vllm-sim-p-7b768565d9-79j97   2/2     Running   0          12m
 ```
 
 ### Send a Disaggregated Request Using kubectl port-forward

@@ -25,8 +25,6 @@ COPY . .
 # The default kv-cache build uses UDS tokenizer (//go:build !embedded_tokenizers)
 RUN CGO_ENABLED=1 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o bin/llm-d-inference-sim cmd/cmd.go
 
-# Build simulator with CGO for ZMQ only (no Python, no embedded tokenizer)
-# The default kv-cache build uses UDS tokenizer (//go:build !embedded_tokenizers)
 FROM registry.access.redhat.com/ubi9/ubi-minimal:9.7
 
 WORKDIR /

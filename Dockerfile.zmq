@@ -1,19 +1,19 @@
 
-FROM python:3.10-slim
+FROM python:3.12-slim
 
 WORKDIR /workspace
 
 # Install dependencies
-RUN pip install --no-cache-dir pyzmq msgpack
+RUN pip install --no-cache-dir pyzmq==27.1.0 msgpack==1.1.2
 
 # Copy the listener script
 COPY zmq-listener/listener.py /workspace/listener.py
 
 # Set environment variable for port (can be overridden)
 ENV LISTENER_PORT=5557
+EXPOSE 5557
 
-# Make the script executable
-RUN chmod +x /workspace/listener.py
+USER 65532:65532
 
 # Run the listener
 CMD ["python", "-u", "/workspace/listener.py"]
