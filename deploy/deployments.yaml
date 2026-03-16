@@ -25,6 +25,8 @@ spec:
           value: "DEBUG"
         - name: PROBE_PORT
           value: "8082"
+        - name: HF_TOKEN
+          value: "${HF_TOKEN}"
         ports:
         - name: health
           containerPort: 8082
@@ -54,8 +56,6 @@ spec:
         - "--port"
         - "8000"
         env:
-          - name: HF_TOKEN
-            value: "${HF_TOKEN}"
           - name: POD_NAME
             valueFrom:
               fieldRef:

@@ -23,6 +23,8 @@ spec:
           value: "DEBUG"
         - name: PROBE_PORT
           value: "8082"
+        - name: HF_TOKEN
+          value: "<your HuggingFace token, if this is for a real model>"
         ports:
         - name: health
           containerPort: 8082
@@ -52,8 +54,6 @@ spec:
         - "--port"
         - "8000"
         env:
-          - name: HF_TOKEN
-            value: "<your HuggingFace token, if this is for a real model>"
           - name: POD_NAME
             valueFrom:
               fieldRef:
