@@ -13,7 +13,7 @@ To run the UDS tokenizer, perform the following steps:
    python -m venv <virt env folder>
    source <virt env folder>/bin/activate
    ```
-3. Navigate to 'llm-d-kv-cache/services/uds_tokenizer' and install requirements
+3. Navigate to 'llm-d-kv-cache/services/uds_tokenizer' and install the requirements
    ```bash
    pip install -e .
    ```
