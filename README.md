@@ -116,7 +116,7 @@ make build
 
 To run the vLLM simulator in a standalone test environment with real model:
 
-1. Run UDS tokenizer, see details [here](https://github.com/llm-d/llm-d-kv-cache/tree/main/services/uds_tokenizer).<br>
+1. Run the UDS tokenizer, see details [here](https://github.com/llm-d/llm-d-kv-cache/tree/main/services/uds_tokenizer).<br>
    a. Clone the kv-cache project
       ```bash
       git clone git@github.com:llm-d/llm-d-kv-cache.git
