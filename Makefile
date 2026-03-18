@@ -59,10 +59,7 @@ else
 	CGO_ENABLED=1 $(GINKGO) -v -r $(TEST_PKG)
 endif
 
-.PHONY: post-deploy-test
-post-deploy-test: ## Run post deployment tests
-	@echo "Post-deployment tests passed."
-	
+
 .PHONY: lint
 lint: $(GOLANGCI_LINT) ## Run lint
 	@printf "\033[33;1m==== Running linting ====\033[0m\n"
@@ -71,9 +68,14 @@ lint: $(GOLANGCI_LINT) ## Run lint
 ##@ Build
 
 .PHONY: build
-build: check-go install-dependencies
+build: check-go install-dependencies ## Build the simulator binary
 	@printf "\033[33;1m==== Building ====\033[0m\n"
 	go build -o $(LOCALBIN)/$(PROJECT_NAME) cmd/$(PROJECT_NAME)/main.go
+
+.PHONY: ds-tool-build
+ds-tool-build: check-go install-dependencies ## Build the dataset tool binary
+	@printf "\033[33;1m==== Building ====\033[0m\n"
+	go build -o $(LOCALBIN)/ds_tool cmd/dataset-tool/main.go
 
 ##@ Container Build/Push
 
@@ -267,13 +269,6 @@ helm-upgrade: check-helm ## Upgrade (or install) the Helm chart release
 helm-uninstall: check-helm ## Uninstall the Helm chart release
 	@printf "\033[33;1m==== Uninstalling Helm chart $(HELM_RELEASE_NAME) ====\033[0m\n"
 	helm uninstall $(HELM_RELEASE_NAME) --namespace $(NAMESPACE) || true
-
-## Dataset tool
-.PHONY: ds-tool-build
-ds-tool-build: check-go install-dependencies
-	@printf "\033[33;1m==== Building ====\033[0m\n"
-	go build -o $(LOCALBIN)/ds_tool cmd/dataset-tool/main.go
-
 
 # Deploy the simulator with UDS tokenizer on kind
 KIND_CLUSTER_NAME ?= ${PROJECT_NAME}-dev
