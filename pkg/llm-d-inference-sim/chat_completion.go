@@ -104,7 +104,15 @@ func (c *chatCompletionReqCtx) encode() ([]uint32, []string, error) {
 }
 
 func (c *chatCompletionReqCtx) kvCacheOnRequestStart() (hitRate float64, oaiServerError *openaiserverapi.Error) {
-	// kv cache is currently supported for /completion API only
+	if c.sim.Config.EnableKVCache {
+		var err error
+		hitRate, err = c.sim.kvcacheHelper.OnRequestStart(c.request())
+		if err != nil {
+			serverError := openaiserverapi.NewError(err.Error(), fasthttp.StatusInternalServerError, nil)
+			return 0, &serverError
+		}
+		return hitRate, nil
+	}
 	return 0, nil
 }
 
