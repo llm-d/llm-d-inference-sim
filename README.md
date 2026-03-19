@@ -126,11 +126,15 @@ To run the vLLM simulator in a standalone test environment with real model:
       python -m venv <virt env folder>
       source <virt env folder>/bin/activate
       ```
-   c. Navigate to 'llm-d-kv-cache/services/uds_tokenizer' and install the requirements
+   c. Navigate to 'llm-d-kv-cache/services/uds_tokenizer'
+      ```bash
+      cd llm-d-kv-cache/services/uds_tokenizer
+      ```
+   d. Install the requirements
       ```bash
       pip install -e .
       ```
-   d. Run the UDS tokenizer
+   e. Run the UDS tokenizer
       ```bash
       python ./run_grpc_server.py
       ```
@@ -139,6 +143,36 @@ To run the vLLM simulator in a standalone test environment with real model:
 ./bin/llm-d-inference-sim --model Qwen/Qwen2.5-0.5B-Instruct --port 8000
 ```
 **Note:** If the model is not a real model, there is no need to run the UDS tokenizer.
+
+## Testing locally
+### Prerequisites
+
+Set these environment variables before running tests:
+
+```bash
+export TESTCONTAINERS_RYUK_DISABLED=true
+export DOCKER_HOST="unix://${HOME}/.colima/default/docker.sock"
+```
+Note:
+
+- `TESTCONTAINERS_RYUK_DISABLED=true` disables Testcontainers' resource cleanup daemon (recommended for local testing).
+
+- `DOCKER_HOST` should point to your Docker socket:
+
+| Provider                           | Docker Host Path |
+|------------------------------------|------------------|
+| **Colima** (macOS)                 | `unix://${HOME}/.colima/default/docker.sock` |
+| **Docker Desktop** (macOS/Windows) | `unix:///var/run/docker.sock` |
+| **Linux**                          | `unix:///var/run/docker.sock` (default, may omit `DOCKER_HOST`) |
+
+
+Verify socket accessibility with docker info. Adjust DOCKER_HOST based on your Docker provider.
+
+### Running Tests
+```bash
+make test
+```
+
 
 ## Testing on Kind
 
