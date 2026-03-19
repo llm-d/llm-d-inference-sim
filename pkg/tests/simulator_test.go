@@ -1206,7 +1206,6 @@ var _ = Describe("Simulator", func() {
 				resp, err := openaiclient.Chat.Completions.New(ctx, params)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(resp.Choices).ShouldNot(BeEmpty())
-
 			}()
 
 			// read one event
@@ -1214,7 +1213,7 @@ var _ = Describe("Simulator", func() {
 			Expect(err).NotTo(HaveOccurred())
 			stored, removed, _ := kvcache.ParseKVEvent(parts, topic, 1)
 			Expect(stored).To(HaveLen(5))
-			Expect(removed).To(HaveLen(0))
+			Expect(removed).To(BeEmpty())
 		})
 
 		It("completions", func() {
@@ -1239,7 +1238,6 @@ var _ = Describe("Simulator", func() {
 				resp, err := openaiclient.Completions.New(ctx, params)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(resp.Choices).ShouldNot(BeEmpty())
-
 			}()
 
 			// read one event
@@ -1247,7 +1245,7 @@ var _ = Describe("Simulator", func() {
 			Expect(err).NotTo(HaveOccurred())
 			stored, removed, _ := kvcache.ParseKVEvent(parts, topic, 1)
 			Expect(stored).To(HaveLen(2))
-			Expect(removed).To(HaveLen(0))
+			Expect(removed).To(BeEmpty())
 		})
 	})
 })
