@@ -97,7 +97,9 @@ func (s *SimContext) initialize(ctx context.Context) error {
 		return err
 	}
 
-	if s.Config.EnableKVCache {
+	// KVCache doesn't support images at the moment, so in mm-encoder only mode
+	// we don't start it.
+	if s.Config.EnableKVCache && !s.Config.MMEncoderOnly {
 		s.kvcacheHelper, err = kvcache.NewKVCacheHelper(s.Config, s.logger,
 			s.metrics.kvCacheUsageChan, s.metrics.prefixCacheStatsChan, s.Tokenizer)
 		if err != nil {
@@ -116,15 +118,15 @@ func (s *SimContext) initialize(ctx context.Context) error {
 }
 
 func (s *SimContext) initDataset(ctx context.Context) error {
-	if s.Config.Mode == common.ModeEcho {
+	if s.Config.Mode == common.ModeEcho && !s.Config.MMEncoderOnly {
 		s.dataset = &dataset.EchoDataset{}
 		return nil
 	}
 
-	if s.Config.DatasetPath == "" && s.Config.DatasetURL == "" {
+	if (s.Config.DatasetPath == "" && s.Config.DatasetURL == "") || s.Config.MMEncoderOnly {
 		// use predefined sentences as responses
 		randDataset := &dataset.DefaultDataset{}
-		err := randDataset.Init(ctx, s.logger, s.Random, s.Config.MaxModelLen, s.Tokenizer)
+		err := randDataset.Init(ctx, s.logger, s.Random, s.Config.MaxModelLen, s.Tokenizer, s.Config.MMEncoderOnly)
 		if err != nil {
 			return fmt.Errorf("failed to initialize random dataset: %w", err)
 		}

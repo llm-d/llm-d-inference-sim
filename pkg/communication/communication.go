@@ -67,26 +67,28 @@ func (c *Communication) start(ctx context.Context) error {
 
 	m := cmux.New(listener)
 
-	// gRPC uses HTTP/2
-	grpcL := m.Match(cmux.HTTP2())
+	if !c.simulator.Context.Config.MMEncoderOnly {
+		// gRPC uses HTTP/2
+		grpcL := m.Match(cmux.HTTP2())
+
+		// start the gRPC server
+		errCh := make(chan error, 1)
+		go func() {
+			errCh <- c.startGRPC(ctx, grpcL)
+		}()
+
+		select {
+		case err := <-errCh:
+			if err != nil {
+				return err
+			}
+		default:
+		}
+	}
 	httpL := m.Match(cmux.Any())
 
-	// start the gRPC server
-	errCh := make(chan error, 1)
-	go func() {
-		errCh <- c.startGRPC(ctx, grpcL)
-	}()
-
-	select {
-	case err := <-errCh:
-		if err != nil {
-			return err
-		}
-	default:
-	}
-
 	// start the http server with context support
-	errCh = make(chan error, 1)
+	errCh := make(chan error, 1)
 	go func() {
 		errCh <- c.StartHTTPServer(ctx, httpL)
 	}()

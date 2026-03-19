@@ -61,7 +61,9 @@ func (c *Communication) StartHTTPServer(ctx context.Context, listener net.Listen
 	// support completion APIs
 	r.POST("/v1/chat/completions", c.HandleChatCompletions)
 	r.POST("/v1/completions", c.HandleTextCompletions)
-	r.POST("/v1/embeddings", c.HandleEmbeddings)
+	if !c.simulator.Context.Config.MMEncoderOnly {
+		r.POST("/v1/embeddings", c.HandleEmbeddings)
+	}
 	// supports /models API
 	r.GET("/v1/models", c.HandleModels)
 	// support load/unload of lora adapter

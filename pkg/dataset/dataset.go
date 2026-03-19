@@ -72,10 +72,12 @@ type DefaultDataset struct {
 	random             *common.Random
 	histogramHelper    *histogramHelper
 	tokenizedResponses []openaiserverapi.Tokenized
+	mmEncoderResponse  openaiserverapi.Tokenized
+	mmEncoderOnly      bool
 }
 
 func (d *DefaultDataset) Init(ctx context.Context, logger logr.Logger, random *common.Random, maxModelLen int,
-	tokenizer tokenizer.Tokenizer) error {
+	tokenizer tokenizer.Tokenizer, mmEncoderOnly bool) error {
 	d.logger = logger
 	d.maxModelLen = maxModelLen
 	d.random = random
@@ -93,6 +95,19 @@ func (d *DefaultDataset) Init(ctx context.Context, logger logr.Logger, random *c
 			Strings: textTokens,
 		}
 	}
+
+	if mmEncoderOnly {
+		tokens, textTokens, err := tokenizer.RenderText("!")
+		if err != nil {
+			logger.Error(err, "failed to tokenize")
+			return err
+		}
+		d.mmEncoderResponse = openaiserverapi.Tokenized{
+			Tokens:  tokens,
+			Strings: textTokens,
+		}
+	}
+	d.mmEncoderOnly = mmEncoderOnly
 
 	return nil
 }
@@ -125,7 +140,12 @@ func (d *DefaultDataset) GetResponseTokens(req openaiserverapi.Request) (*openai
 		finishReason = common.LengthFinishReason
 	}
 
-	respTokens := d.generatePresetRandomTokens(numOfRespTokens)
+	var respTokens openaiserverapi.Tokenized
+	if d.mmEncoderOnly {
+		respTokens = d.generateMMEncoderResponse(numOfRespTokens)
+	} else {
+		respTokens = d.generatePresetRandomTokens(numOfRespTokens)
+	}
 	return &respTokens, finishReason, nil
 }
 
@@ -174,13 +194,30 @@ func (d DefaultDataset) generatePresetRandomTokens(numOfTokens int) openaiserver
 		remaining := numOfTokens - len(result.Tokens)
 
 		if len(tokens) > remaining {
-			// there is too many tokens, append only the relevant part
+			// there are too many tokens, append only the relevant part
 			tokens = tokens[:remaining]
 			strTokens = strTokens[:remaining]
 		}
 
 		result.Tokens = append(result.Tokens, tokens...)
 		result.Strings = append(result.Strings, strTokens...)
+	}
+
+	return result
+}
+
+func (d DefaultDataset) generateMMEncoderResponse(numOfTokens int) openaiserverapi.Tokenized {
+	token := d.mmEncoderResponse.Tokens[0]
+	str := d.mmEncoderResponse.Strings[0]
+
+	result := openaiserverapi.Tokenized{
+		Tokens:  make([]uint32, numOfTokens),
+		Strings: make([]string, numOfTokens),
+	}
+
+	for i := range numOfTokens {
+		result.Tokens[i] = token
+		result.Strings[i] = str
 	}
 
 	return result

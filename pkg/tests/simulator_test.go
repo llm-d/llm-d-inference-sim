@@ -299,6 +299,64 @@ var _ = Describe("Simulator", func() {
 		Entry(nil, common.QwenModelName, common.ModeRandom, 1000),
 	)
 
+	DescribeTable("mm encoder only",
+		func(model string, mode string, maxTokens int) {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", model, "--mm-encoder-only", "--mm-processor-kwargs", "args",
+				"--ec-transfer-config", "cfg", "--enforce-eager", "--no-enable-prefix-caching"}
+			server, _, client, err := startServerHandle(ctx, mode, args, nil)
+			Expect(err).NotTo(HaveOccurred())
+
+			openaiclient := openai.NewClient(
+				option.WithBaseURL(baseURL),
+				option.WithHTTPClient(client),
+				option.WithMaxRetries(0))
+
+			params := openai.ChatCompletionNewParams{
+				Messages: []openai.ChatCompletionMessageParamUnion{
+					openai.UserMessage(
+						[]openai.ChatCompletionContentPartUnionParam{
+							{
+								OfImageURL: &openai.ChatCompletionContentPartImageParam{
+									ImageURL: openai.ChatCompletionContentPartImageImageURLParam{
+										URL: "https://example.com/image.png",
+									},
+								},
+							},
+						},
+					),
+				},
+				Model:     model,
+				MaxTokens: param.NewOpt(int64(maxTokens)),
+			}
+
+			resp, err := openaiclient.Chat.Completions.New(ctx, params)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.Choices).ShouldNot(BeEmpty())
+			Expect(string(resp.Object)).To(Equal(openaiserverapi.ChatCompletionObject))
+
+			Expect(resp.Usage.CompletionTokens).To(BeNumerically("<=", maxTokens))
+			Expect(resp.Usage.TotalTokens).To(Equal(resp.Usage.PromptTokens + resp.Usage.CompletionTokens))
+
+			msg := resp.Choices[0].Message.Content
+			Expect(msg).ShouldNot(BeEmpty())
+			for _, t := range msg {
+				Expect(t).To(Equal('!'))
+			}
+			_, tokens, err := server.Context.Tokenizer.RenderText(msg)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(int64(len(tokens))).Should(BeNumerically("<=", maxTokens))
+		},
+		func(model string, mode string, maxTokens int) string {
+			return fmt.Sprintf("model: %s max_tokens: %d",
+				model, maxTokens)
+		},
+		Entry(nil, common.TestModelName, common.ModeEcho, 1),
+		Entry(nil, common.QwenModelName, common.ModeRandom, 1),
+		Entry(nil, common.TestModelName, common.ModeEcho, 10),
+		Entry(nil, common.QwenModelName, common.ModeRandom, 10),
+	)
+
 	Context("namespace and pod headers", func() {
 		It("Should not include namespace, pod and port headers in chat completion response when env is not set", func() {
 			httpResp := sendSimpleChatRequest(nil, false)

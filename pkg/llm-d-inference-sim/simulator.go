@@ -102,6 +102,10 @@ func New(logger logr.Logger) (*VllmSimulator, error) {
 }
 
 func Start(ctx context.Context, config *common.Configuration, logger logr.Logger) ([]*VllmSimulator, error) {
+	if config.MMEncoderOnly && config.Mode == common.ModeEcho {
+		logger.V(logging.WARN).Info("MM encoder-only mode: ignoring echo mode")
+	}
+
 	if err := dataset.Init(ctx, config, logger); err != nil {
 		logger.Error(err, "failed to initialize dataset")
 		return nil, err

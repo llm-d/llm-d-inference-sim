@@ -16,7 +16,7 @@ require (
 	github.com/prometheus/client_golang v1.22.0
 	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1
 	github.com/soheilhy/cmux v0.1.5
-	github.com/spf13/pflag v1.0.6
+	github.com/spf13/pflag v1.0.10
 	github.com/testcontainers/testcontainers-go v0.40.0
 	github.com/valyala/fasthttp v1.59.0
 	github.com/vmihailenco/msgpack/v5 v5.4.1

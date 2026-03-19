@@ -34,7 +34,7 @@ func createDataset() *DefaultDataset {
 	ds := DefaultDataset{}
 	ctx := context.Background()
 	logger := log.FromContext(ctx)
-	err := ds.Init(context.Background(), logger, common.NewRandom(time.Now().UnixNano(), 8080), 1024, tokenizerMngr.TestTokenizer())
+	err := ds.Init(context.Background(), logger, common.NewRandom(time.Now().UnixNano(), 8080), 1024, tokenizerMngr.TestTokenizer(), false)
 	Expect(err).ShouldNot(HaveOccurred())
 
 	return &ds
