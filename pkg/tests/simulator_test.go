@@ -30,6 +30,7 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/communication"
 	"github.com/llm-d/llm-d-inference-sim/pkg/dataset"
+	kvcache "github.com/llm-d/llm-d-inference-sim/pkg/kv-cache"
 	vllmsim "github.com/llm-d/llm-d-inference-sim/pkg/llm-d-inference-sim"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	. "github.com/onsi/ginkgo/v2"
@@ -1174,6 +1175,77 @@ var _ = Describe("Simulator", func() {
 			Expect(openaiError.StatusCode).To(BeNumerically("==", fasthttp.StatusBadRequest))
 			Expect(openaiError.Type).ToNot(BeEmpty())
 			Expect(openaiError.Message).To(ContainSubstring("Max completion tokens and max tokens should be positive"))
+		})
+	})
+
+	Context("kv-events for requests", func() {
+		ctx := context.TODO()
+		model := common.QwenModelName
+		mode := common.ModeRandom
+		longPrompt := "This is a test message for kv cache events, has to be long enough to be tokenized into multiple blocks."
+
+		It("chat completions", func() {
+			// create kv events listener
+			topic := kvcache.CreateKVEventsTopic("localhost", model)
+			sub, zmqEndpoint := common.CreateSub(topic)
+			//nolint
+			defer sub.Close()
+
+			// start the server
+			args := []string{"cmd", "--model", model, "--mode", mode,
+				"--enable-kvcache", "true", "--kv-cache-size", "16", "--block-size", "8",
+				"--zmq-max-connect-attempts", "3", "--event-batch-size", "1",
+				"--zmq-endpoint", zmqEndpoint}
+			client, err := startServerWithArgsAndEnv(ctx, mode, args, map[string]string{"POD_IP": "localhost"})
+			Expect(err).NotTo(HaveOccurred())
+
+			go func() {
+				//wait for server and listener to start and send request that will trigger kv events
+				openaiclient, params := getOpenAIClientAndChatParams(client, model, longPrompt, false)
+				resp, err := openaiclient.Chat.Completions.New(ctx, params)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(resp.Choices).ShouldNot(BeEmpty())
+
+			}()
+
+			// read one event
+			parts, err := sub.RecvMessageBytes(0)
+			Expect(err).NotTo(HaveOccurred())
+			stored, removed, _ := kvcache.ParseKVEvent(parts, topic, 1)
+			Expect(stored).To(HaveLen(5))
+			Expect(removed).To(HaveLen(0))
+		})
+
+		It("completions", func() {
+			// create kv events listener
+			topic := kvcache.CreateKVEventsTopic("localhost", model)
+			sub, zmqEndpoint := common.CreateSub(topic)
+			//nolint
+			defer sub.Close()
+
+			// start the server
+			args := []string{"cmd", "--model", model, "--mode", mode,
+				"--enable-kvcache", "true", "--kv-cache-size", "16", "--block-size", "8",
+				"--zmq-max-connect-attempts", "3", "--event-batch-size", "1",
+				"--zmq-endpoint", zmqEndpoint}
+			client, err := startServerWithArgsAndEnv(ctx, mode, args, map[string]string{"POD_IP": "localhost"})
+			Expect(err).NotTo(HaveOccurred())
+
+			go func() {
+				//wait for server and listener to start and send request that will trigger kv events
+				openaiclient, params := getOpenAIClentAndCompletionParams(client, model, longPrompt, false)
+				resp, err := openaiclient.Completions.New(ctx, params)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(resp.Choices).ShouldNot(BeEmpty())
+
+			}()
+
+			// read one event
+			parts, err := sub.RecvMessageBytes(0)
+			Expect(err).NotTo(HaveOccurred())
+			stored, removed, _ := kvcache.ParseKVEvent(parts, topic, 1)
+			Expect(stored).To(HaveLen(2))
+			Expect(removed).To(HaveLen(0))
 		})
 	})
 })
