@@ -35,7 +35,7 @@ type CustomDataset struct {
 
 func (d *CustomDataset) Init(ctx context.Context, logger logr.Logger, random *common.Random,
 	path string, tableName string, useInMemory bool, maxModelLen int, tokenizer tokenizer.Tokenizer) error {
-	if err := d.DefaultDataset.Init(ctx, logger, random, maxModelLen, tokenizer, false); err != nil {
+	if err := d.DefaultDataset.Init(ctx, logger, random, maxModelLen, tokenizer); err != nil {
 		return err
 	}
 	if path == "" {

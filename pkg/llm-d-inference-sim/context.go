@@ -118,15 +118,24 @@ func (s *SimContext) initialize(ctx context.Context) error {
 }
 
 func (s *SimContext) initDataset(ctx context.Context) error {
-	if s.Config.Mode == common.ModeEcho && !s.Config.MMEncoderOnly {
+	if s.Config.MMEncoderOnly {
+		var err error
+		s.dataset, err = dataset.NewMMEncoderOnlyDataset(s.logger, s.Tokenizer)
+		if err != nil {
+			return fmt.Errorf("failed to initialize dataset for mm-encoder-only mode: %w", err)
+		}
+		return nil
+	}
+
+	if s.Config.Mode == common.ModeEcho {
 		s.dataset = &dataset.EchoDataset{}
 		return nil
 	}
 
-	if (s.Config.DatasetPath == "" && s.Config.DatasetURL == "") || s.Config.MMEncoderOnly {
+	if s.Config.DatasetPath == "" && s.Config.DatasetURL == "" {
 		// use predefined sentences as responses
 		randDataset := &dataset.DefaultDataset{}
-		err := randDataset.Init(ctx, s.logger, s.Random, s.Config.MaxModelLen, s.Tokenizer, s.Config.MMEncoderOnly)
+		err := randDataset.Init(ctx, s.logger, s.Random, s.Config.MaxModelLen, s.Tokenizer)
 		if err != nil {
 			return fmt.Errorf("failed to initialize random dataset: %w", err)
 		}

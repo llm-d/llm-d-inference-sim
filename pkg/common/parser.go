@@ -73,13 +73,14 @@ func (t toggle) Type() string       { return "bool" }
 func (t toggle) String() string     { return "" }
 
 // addToggle registers two distinct flags pointing to one variable
-func addToggle(f *pflag.FlagSet, ptr *bool, name, nameUsage, noName, noNameUsage string) {
+func addToggle(f *pflag.FlagSet, ptr *bool, name, nameUsage, noNameUsage string) {
 	// Register Positive Flag
 	f.Var(toggle{ptr, true}, name, nameUsage)
 	f.Lookup(name).NoOptDefVal = "true"
 	f.Lookup(name).DefValue = "" // Hides the [=t] in help
 
 	// Register Negative Flag
+	noName := "no-" + name
 	f.Var(toggle{ptr, false}, noName, noNameUsage)
 	f.Lookup(noName).NoOptDefVal = "true"
 	f.Lookup(noName).DefValue = "" // Hides the [=t] in help
@@ -188,9 +189,7 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 	f.BoolVar(&config.EnforceEager, "enforce-eager", config.EnforceEager, "Always use eager-mode PyTorch, ignored")
 
 	addToggle(f, &config.EnablePrefixCaching,
-		"enable-prefix-caching", "Enable prefix caching, ignored",
-		"no-enable-prefix-caching", "Disable prefix caching, ignored",
-	)
+		"enable-prefix-caching", "Enable prefix caching, ignored", "Disable prefix caching, ignored")
 
 	// These values were manually parsed above in getParamValueFromArgs, we leave this in order to get these flags in --help
 	var dummyString string
