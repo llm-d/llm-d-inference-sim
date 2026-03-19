@@ -1200,7 +1200,8 @@ var _ = Describe("Simulator", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			go func() {
-				//wait for server and listener to start and send request that will trigger kv events
+				time.Sleep(200 * time.Millisecond)
+
 				openaiclient, params := getOpenAIClientAndChatParams(client, model, longPrompt, false)
 				resp, err := openaiclient.Chat.Completions.New(ctx, params)
 				Expect(err).NotTo(HaveOccurred())
@@ -1232,7 +1233,8 @@ var _ = Describe("Simulator", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			go func() {
-				//wait for server and listener to start and send request that will trigger kv events
+				time.Sleep(200 * time.Millisecond)
+
 				openaiclient, params := getOpenAIClentAndCompletionParams(client, model, longPrompt, false)
 				resp, err := openaiclient.Completions.New(ctx, params)
 				Expect(err).NotTo(HaveOccurred())
