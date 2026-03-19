@@ -19,7 +19,6 @@ package llmdinferencesim
 import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
-	"github.com/valyala/fasthttp"
 )
 
 // Implementation of request for generation requests
@@ -81,27 +80,6 @@ func (g *generationReqCtx) encode() ([]uint32, []string, error) {
 		return tokenizedPrompt.Tokens, tokenizedPrompt.Strings, nil
 	}
 	return g.sim.Tokenizer.RenderText(g.req.Prompt)
-}
-
-func (g *generationReqCtx) kvCacheOnRequestStart() (hitRate float64, oaiServerError *openaiserverapi.Error) {
-	if g.sim.Config.EnableKVCache {
-		var err error
-		hitRate, err = g.sim.kvcacheHelper.OnRequestStart(g.request())
-		if err != nil {
-			serverError := openaiserverapi.NewError(err.Error(), fasthttp.StatusInternalServerError, nil)
-			return 0, &serverError
-		}
-		return hitRate, nil
-	}
-	return 0, nil
-}
-
-func (g *generationReqCtx) kvCacheOnRequestEnd() {
-	if g.sim.Config.EnableKVCache {
-		if err := g.sim.kvcacheHelper.OnRequestEnd(g.request().GetRequestID()); err != nil {
-			g.sim.logger.Error(err, "kv cache failed to process request end")
-		}
-	}
 }
 
 func (g *generationReqCtx) createToolCalls() ([]openaiserverapi.ToolCall, int, string, error) {

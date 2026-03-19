@@ -238,3 +238,24 @@ func (reqCtx *baseRequestContext) shouldReturnCacheThresholdFinishReason(req ope
 
 	return false
 }
+
+func (reqCtx *baseRequestContext) kvCacheOnRequestStart() (hitRate float64, oaiServerError *openaiserverapi.Error) {
+	if reqCtx.sim.Config.EnableKVCache {
+		var err error
+		hitRate, err = reqCtx.sim.kvcacheHelper.OnRequestStart(reqCtx.request())
+		if err != nil {
+			serverError := openaiserverapi.NewError(err.Error(), fasthttp.StatusInternalServerError, nil)
+			return 0, &serverError
+		}
+		return hitRate, nil
+	}
+	return 0, nil
+}
+
+func (reqCtx *baseRequestContext) kvCacheOnRequestEnd() {
+	if reqCtx.sim.Config.EnableKVCache {
+		if err := reqCtx.sim.kvcacheHelper.OnRequestEnd(reqCtx.request().GetRequestID()); err != nil {
+			reqCtx.sim.logger.Error(err, "kv cache failed to process request end")
+		}
+	}
+}

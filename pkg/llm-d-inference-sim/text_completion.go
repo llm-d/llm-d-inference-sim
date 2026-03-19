@@ -21,7 +21,6 @@ import (
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
-	"github.com/valyala/fasthttp"
 )
 
 // Implementation of request for /completions requests
@@ -76,27 +75,6 @@ func (t *textCompletionReqCtx) request() Request {
 
 func (t *textCompletionReqCtx) encode() ([]uint32, []string, error) {
 	return t.sim.Tokenizer.RenderText(t.req.Prompt)
-}
-
-func (t *textCompletionReqCtx) kvCacheOnRequestStart() (hitRate float64, oaiServerError *openaiserverapi.Error) {
-	if t.sim.Config.EnableKVCache {
-		var err error
-		hitRate, err = t.sim.kvcacheHelper.OnRequestStart(t.request())
-		if err != nil {
-			serverError := openaiserverapi.NewError(err.Error(), fasthttp.StatusInternalServerError, nil)
-			return 0, &serverError
-		}
-		return hitRate, nil
-	}
-	return 0, nil
-}
-
-func (t *textCompletionReqCtx) kvCacheOnRequestEnd() {
-	if t.sim.Config.EnableKVCache {
-		if err := t.sim.kvcacheHelper.OnRequestEnd(t.request().GetRequestID()); err != nil {
-			t.sim.logger.Error(err, "kv cache failed to process request end")
-		}
-	}
 }
 
 func (t *textCompletionReqCtx) createToolCalls() ([]openaiserverapi.ToolCall, int, string, error) {
