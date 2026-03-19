@@ -156,7 +156,7 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 
 	f.StringVar(&config.UDSSocketPath, "uds-socket-path", config.UDSSocketPath, "UDS socket path for communication with HF tokenizer, default is '/tmp/tokenizer/tokenizer-uds.socket'")
 
-	f.BoolVar(&config.EnableSleepMode, "enable-sleep-mode", config.EnableSleepMode, "Enable sleep mode")
+	addToggle(f, &config.EnableSleepMode, "enable-sleep-mode", "Enable sleep mode", "Disable sleep mode")
 	f.BoolVar(&config.EnableRequestIDHeaders, "enable-request-id-headers", config.EnableRequestIDHeaders, "Enable including X-Request-Id header in responses")
 
 	f.IntVar(&config.FailureInjectionRate, "failure-injection-rate", config.FailureInjectionRate, "Probability (0-100) of injecting failures")
@@ -183,11 +183,12 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 	f.DurationVar(&config.FakeMetricsRefreshInterval, "fake-metrics-refresh-interval", config.FakeMetricsRefreshInterval,
 		"Defines how often function-based fake metrics are recalculated, defaults to 100ms")
 
-	f.BoolVar(&config.MMEncoderOnly, "mm-encoder-only", config.MMEncoderOnly, "Skips the language component of the model")
+	addToggle(f, &config.MMEncoderOnly,
+		"mm-encoder-only", "Skip the language component of the model", "Don't skip the language component of the model")
 	f.StringVar(&config.MMProcessorKWArgs, "mm-processor-kwargs", config.MMProcessorKWArgs, "Arguments to be forwarded to the model's processor for multi-modal data, ignored")
 	f.StringVar(&config.ECTransferConfig, "ec-transfer-config", config.ECTransferConfig, "Configuration for distributed EC cache transfer, ignored")
-	f.BoolVar(&config.EnforceEager, "enforce-eager", config.EnforceEager, "Always use eager-mode PyTorch, ignored")
-
+	addToggle(f, &config.EnforceEager,
+		"enforce-eager", "Always use eager-mode PyTorch, ignored", "Don't always use eager-mode PyTorch, ignored")
 	addToggle(f, &config.EnablePrefixCaching,
 		"enable-prefix-caching", "Enable prefix caching, ignored", "Disable prefix caching, ignored")
 

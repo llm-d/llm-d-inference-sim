@@ -15,9 +15,9 @@ The simulator can be configured using either command-line arguments or a YAML fi
 - `mode`: the simulator mode, optional, by default `random`
     - `echo`: returns the same text that was sent in the request
     - `random`: returns a sentence chosen at random from a set of pre-defined sentences or a given dataset
-- `enable-sleep-mode`: Enable sleep mode feature. When enabled, the simulator can be put to sleep via the `/sleep` endpoint and woken up via the `/wake_up` endpoint
+- `enable-sleep-mode`, `no-enable-sleep-mode`: Enable or disable sleep mode feature. When enabled, the simulator can be put to sleep via the `/sleep` endpoint and woken up via the `/wake_up` endpoint
 - `enable-request-id-headers`: Enable including X-Request-Id header in responses. When enabled, the simulator will include the request ID in response headers
-- `mm-encoder-only`: Skip the language component of the model.
+- `mm-encoder-only`, `no-mm-encoder-only`: Skip  (or don't skip) the language component of the model.
 
 ## Latency 
 All latency-related parameters are defined in duration format, e.g., 100ms. Integer format is deprecated.
@@ -129,7 +129,7 @@ All latency-related parameters are defined in duration format, e.g., 100ms. Inte
 The following command line parameters are ignored by the simulator:
 - `mm-processor-kwargs` - arguments to be forwarded to the model's processor for multi-modal data, ignored
 - `ec-transfer-config` - configuration for distributed EC cache transfer, ignored
-- `enforce-eager` - always use eager-mode PyTorch, ignored
+- `enforce-eager`, `no-enforce-eager` - controls whether PyTorch eager mode is always enforced, ignored
 - `enable-prefix-caching`, `no-enable-prefix-caching` - enable or disable prefix caching, ignored
 
 ## Klog
