@@ -64,10 +64,6 @@ type SimContext struct {
 	latencyCalculator LatencyCalculator
 	// Tokenizer used for request tokenization and in /tokenize
 	Tokenizer tokenizer.Tokenizer
-	// Namespace where simulator is running
-	Namespace string
-	// Pod name of simulator
-	Pod string
 }
 
 func (s *SimContext) initialize(ctx context.Context) error {

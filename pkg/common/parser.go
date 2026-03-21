@@ -28,7 +28,10 @@ import (
 )
 
 const (
-	dummy = " "
+	dummy                = " "
+	vllmServerDevModeEnv = "VLLM_SERVER_DEV_MODE"
+	PodNameEnv           = "POD_NAME"
+	PodNsEnv             = "POD_NAMESPACE"
 )
 
 // Needed to parse values that contain multiple strings
@@ -223,6 +226,11 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 		}
 		return nil, err
 	}
+
+	// Set the values for Pod Name, Pod Namespace and the VLLM Dev mode
+	config.PodName = os.Getenv(PodNameEnv)
+	config.PodNameSpace = os.Getenv(PodNsEnv)
+	config.VllmDevMode = os.Getenv(vllmServerDevModeEnv) == "1"
 
 	// Need to read in a variable to avoid merging the values with the config file ones
 	if loraModuleNames != nil {

@@ -146,12 +146,12 @@ func (c *Communication) HandleTextCompletions(ctx *fasthttp.RequestCtx) {
 
 // addResponseHeaders adds optional pod/port/namespace/request-id headers to the response for testing/debugging.
 func (c *Communication) addResponseHeaders(ctx *fasthttp.RequestCtx, requestID string) {
-	if c.simulator.Context.Pod != "" {
-		ctx.Response.Header.Add(PodHeader, c.simulator.Context.Pod)
+	if c.simulator.Context.Config.PodName != "" {
+		ctx.Response.Header.Add(PodHeader, c.simulator.Context.Config.PodName)
 		ctx.Response.Header.Add(PortHeader, strconv.Itoa(c.simulator.Context.Config.Port))
 	}
-	if c.simulator.Context.Namespace != "" {
-		ctx.Response.Header.Add(NamespaceHeader, c.simulator.Context.Namespace)
+	if c.simulator.Context.Config.PodNameSpace != "" {
+		ctx.Response.Header.Add(NamespaceHeader, c.simulator.Context.Config.PodNameSpace)
 	}
 	if c.simulator.Context.Config.EnableRequestIDHeaders {
 		ctx.Response.Header.Add(RequestIDHeader, requestID)
@@ -626,7 +626,7 @@ func (c *Communication) HandleIsSleeping(ctx *fasthttp.RequestCtx) {
 
 // HandleSleep http handler for /sleep
 func (c *Communication) HandleSleep(ctx *fasthttp.RequestCtx) {
-	if c.simulator.Context.Config.EnableSleepMode && c.simulator.IsInDevMode {
+	if c.simulator.Context.Config.EnableSleepMode && c.simulator.Context.Config.VllmDevMode {
 		c.logger.V(logging.INFO).Info("Sleep request received")
 		c.sleepMutex.Lock()
 		defer c.sleepMutex.Unlock()
