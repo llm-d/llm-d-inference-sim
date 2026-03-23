@@ -44,7 +44,7 @@ var _ = Describe("Publisher", func() {
 		// nolint
 		defer sub.Close()
 
-		time.Sleep(1000 * time.Millisecond)
+		time.Sleep(100 * time.Millisecond)
 
 		pub, err := NewPublisher(ctx, endpoint)
 		Expect(err).NotTo(HaveOccurred())
@@ -98,9 +98,9 @@ var _ = Describe("Publisher", func() {
 
 		receivedEvents := 0
 
-		// start listener after delay of 5 seconds
+		// start listener after delay of 3 seconds
 		go func() {
-			time.Sleep(5 * time.Second)
+			time.Sleep(3 * time.Second)
 
 			StartSub(sub, endpoint, "")
 
@@ -120,7 +120,7 @@ var _ = Describe("Publisher", func() {
 
 		// send events
 		var index uint64 = 0
-		for ; index < 10; index++ {
+		for ; index < 6; index++ {
 			time.Sleep(time.Second)
 
 			// Create message payload
@@ -143,8 +143,8 @@ var _ = Describe("Publisher", func() {
 
 		time.Sleep(time.Second)
 
-		// first 5 events were sent while listener was not started, so they should not be received. The rest 5 events should be received.
-		Expect(receivedEvents).To(Equal(5))
+		// first 3 events were sent while listener was not started, so they should not be received. The rest 3 events should be received.
+		Expect(receivedEvents).To(Equal(3))
 
 	})
 })

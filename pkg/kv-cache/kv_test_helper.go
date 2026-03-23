@@ -20,12 +20,14 @@ import (
 	"encoding/binary"
 
 	"github.com/llm-d/llm-d-kv-cache/pkg/kvevents"
+	"github.com/llm-d/llm-d-kv-cache/pkg/kvevents/engineadapter"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
-	"github.com/vmihailenco/msgpack/v5"
 )
 
-func ParseKVEvent(parts [][]byte, expectedTopic string, expectedSeq uint64) ([]any, []any, bool) {
+var vllmAdapter *engineadapter.VLLMAdapter = engineadapter.NewVLLMAdapter()
+
+func ParseKVEvent(parts [][]byte, expectedTopic string, expectedSeq uint64) ([]uint64, []uint64, bool) {
 	// The message should be [topic, seq, payload]
 	gomega.Expect(parts).To(gomega.HaveLen(3))
 
@@ -34,45 +36,42 @@ func ParseKVEvent(parts [][]byte, expectedTopic string, expectedSeq uint64) ([]a
 	seq := binary.BigEndian.Uint64(parts[1])
 	gomega.Expect(seq).To(gomega.Equal(expectedSeq))
 
-	removed := make([]any, 0)
-	stored := make([]any, 0)
+	// vllmAdapter := engineadapter.NewVLLMAdapter()
+	rawMsg := kvevents.RawMessage{
+		Topic:    string(parts[0]),
+		Sequence: seq,
+		Payload:  parts[2],
+	}
+
+	// use vllm adapter from kv-cache to parse the message into a batch of generic events
+	_, _, batch, err := vllmAdapter.ParseMessage(&rawMsg)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+	removed := make([]uint64, 0)
+	stored := make([]uint64, 0)
 	allCleared := false
 
-	var eventBatch kvevents.EventBatch
-	err := msgpack.Unmarshal(parts[2], &eventBatch)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	for _, rawEvent := range eventBatch.Events {
-		var taggedUnion []msgpack.RawMessage
-		err := msgpack.Unmarshal(rawEvent, &taggedUnion)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-		gomega.Expect(taggedUnion).ToNot(gomega.BeEmpty())
-
-		payloadBytes, err := msgpack.Marshal(taggedUnion[1:])
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		var tag string
-		err = msgpack.Unmarshal(taggedUnion[0], &tag)
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
-		switch tag {
-		case kvevents.BlockStoredEventTag:
-			var bs kvevents.BlockStored
-			err = msgpack.Unmarshal(payloadBytes, &bs)
-			stored = append(stored, bs.BlockHashes...)
-		case kvevents.BlockRemovedEventTag:
-			var br kvevents.BlockRemoved
-			err = msgpack.Unmarshal(payloadBytes, &br)
-			removed = append(removed, br.BlockHashes...)
-		case kvevents.AllBlocksClearedEventTag:
-			var ac kvevents.AllBlocksCleared
-			err = msgpack.Unmarshal(payloadBytes, &ac)
+	for _, genEvent := range batch.Events {
+		switch genEvent.Type() {
+		case kvevents.EventTypeBlockStored:
+			var storeEvent *kvevents.BlockStoredEvent
+			storeEvent, ok := genEvent.(*kvevents.BlockStoredEvent)
+			gomega.Expect(ok).To(gomega.BeTrue())
+			stored = append(stored, storeEvent.BlockHashes...)
+		case kvevents.EventTypeBlockRemoved:
+			var removeEvent *kvevents.BlockRemovedEvent
+			removeEvent, ok := genEvent.(*kvevents.BlockRemovedEvent)
+			gomega.Expect(ok).To(gomega.BeTrue())
+			removed = append(removed, removeEvent.BlockHashes...)
+		case kvevents.EventTypeAllBlocksCleared:
+			_, ok := genEvent.(*kvevents.AllBlocksClearedEvent)
+			gomega.Expect(ok).To(gomega.BeTrue())
 			allCleared = true
-
 		default:
-			ginkgo.Fail("unexpected tag " + tag)
+			ginkgo.Fail("unexpected tag " + string(genEvent.Type()))
 			continue
 		}
-		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}
+
 	return stored, removed, allCleared
 }

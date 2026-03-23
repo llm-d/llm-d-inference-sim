@@ -17,7 +17,6 @@ limitations under the License.
 package common
 
 import (
-	"bytes"
 	"context"
 	"encoding/binary"
 	"fmt"
@@ -72,11 +71,7 @@ func NewPublisher(ctx context.Context, endpoint string) (*Publisher, error) {
 func (p *Publisher) PublishEvent(ctx context.Context, topic string, batch interface{}) error {
 	logger := klog.FromContext(ctx).V(0)
 
-	// Use an encoder configured for struct as array
-	var payload bytes.Buffer
-	enc := msgpack.NewEncoder(&payload)
-	enc.UseArrayEncodedStructs(true)
-	err := enc.Encode(batch)
+	payload, err := msgpack.Marshal(batch)
 	if err != nil {
 		return fmt.Errorf("failed to marshal event batch: %w", err)
 	}
@@ -87,7 +82,7 @@ func (p *Publisher) PublishEvent(ctx context.Context, topic string, batch interf
 	binary.BigEndian.PutUint64(seqBytes, seq)
 
 	// send topic, sequence, payload
-	msg := zmq4.NewMsgFrom([]byte(topic), seqBytes, payload.Bytes())
+	msg := zmq4.NewMsgFrom([]byte(topic), seqBytes, payload)
 
 	if err = p.socket.Send(msg); err != nil {
 		return fmt.Errorf("failed to send message to topic %s: %w", topic, err)

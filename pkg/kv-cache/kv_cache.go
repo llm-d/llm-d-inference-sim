@@ -53,7 +53,10 @@ func NewKVCacheHelper(ctx context.Context, config *common.Configuration, logger 
 	if config.HashSeed != "" {
 		tokenProcConfig.HashSeed = config.HashSeed
 	}
-	tokensProcessor := kvblock.NewChunkedTokenDatabase(tokenProcConfig)
+	tokensProcessor, err := kvblock.NewChunkedTokenDatabase(tokenProcConfig)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create tokens processor: %w", err)
+	}
 
 	blockCache, err := newBlockCache(ctx, config, logger, &usageChan)
 	if err != nil {
@@ -92,10 +95,10 @@ func (h *KVCacheHelper) OnRequestStart(vllmReq openaiserverapi.Request) (float64
 	blockKeys := h.tokensProcessor.TokensToKVBlockKeys(kvblock.EmptyBlockHash, tokens, modelName)
 	h.logger.V(logging.TRACE).Info("Found tokens", "tokens", tokens, "block-keys", blockKeys)
 
-	blockHashes := make([]kvblock.BlockHash, len(blockKeys))
+	blockHashes := make([]uint64, len(blockKeys))
 	blockTokens := make([][]uint32, len(blockKeys))
 	for i, key := range blockKeys {
-		blockHashes[i] = key
+		blockHashes[i] = uint64(key)
 		blockTokens[i] = tokens[i*h.blockSize : i*h.blockSize+h.blockSize]
 	}
 

@@ -35,10 +35,48 @@ const (
 	eventActionAllBlocksCleared
 )
 
+var GPU string = "GPU"
+
+type msgpackEventBatch struct {
+	//nolint:unused
+	_msgpack         struct{} `msgpack:",as_array"`
+	TS               float64
+	Events           []msgpack.RawMessage
+	DataParallelRank *int `msgpack:",omitempty"`
+}
+
+type msgpackBlockStoredEvent struct {
+	//nolint:unused
+	_msgpack        struct{} `msgpack:",as_array"`
+	Tag             string
+	BlockHashes     []any
+	ParentBlockHash any
+	TokenIds        []uint32
+	BlockSize       int
+	LoraID          *int    `msgpack:",omitempty"`
+	Medium          *string `msgpack:",omitempty"`
+	LoraName        *string `msgpack:",omitempty"`
+	ExtraKeys       []any   `msgpack:",omitempty"`
+}
+
+type msgpackBlockRemovedEvent struct {
+	//nolint:unused
+	_msgpack    struct{} `msgpack:",as_array"`
+	Tag         string
+	BlockHashes []any
+	Medium      *string `msgpack:",omitempty"`
+}
+
+type msgpackAllBlocksClearedEvent struct {
+	//nolint:unused
+	_msgpack struct{} `msgpack:",as_array"`
+	Tag      string
+}
+
 type EventData struct {
 	action EventAction
 	tokens []uint32
-	hashes []any
+	hashes []uint64
 }
 
 type KVEventSender struct {
@@ -47,7 +85,7 @@ type KVEventSender struct {
 	eventChan    common.Channel[EventData]
 	maxBatchSize int
 	delay        time.Duration
-	batch        []msgpack.RawMessage
+	batch        []kvevents.GenericEvent
 	logger       logr.Logger
 }
 
@@ -59,7 +97,7 @@ func NewKVEventSender(publisher *common.Publisher, topic string, ch common.Chann
 		eventChan:    ch,
 		maxBatchSize: maxBatchSize,
 		delay:        delay,
-		batch:        make([]msgpack.RawMessage, 0, maxBatchSize),
+		batch:        make([]kvevents.GenericEvent, 0, maxBatchSize),
 		logger:       logger,
 	}
 }
@@ -91,16 +129,16 @@ func (s *KVEventSender) Run(ctx context.Context) error {
 			}
 
 			// Encode eventData's hash value to msgpack.RawMessage
-			var payload []byte
 			var err error
+			var event kvevents.GenericEvent
 
 			switch eventData.action {
 			case eventActionStore:
-				payload, err = msgpack.Marshal(kvevents.BlockStored{BlockHashes: eventData.hashes, TokenIds: eventData.tokens}.ToTaggedUnion())
+				event = &kvevents.BlockStoredEvent{BlockHashes: eventData.hashes, Tokens: eventData.tokens, DeviceTier: GPU}
 			case eventActionRemove:
-				payload, err = msgpack.Marshal(kvevents.BlockRemoved{BlockHashes: eventData.hashes}.ToTaggedUnion())
+				event = &kvevents.BlockRemovedEvent{BlockHashes: eventData.hashes, DeviceTier: GPU}
 			case eventActionAllBlocksCleared:
-				payload, err = msgpack.Marshal(kvevents.AllBlocksCleared{}.ToTaggedUnion())
+				event = &kvevents.AllBlocksClearedEvent{DeviceTier: GPU}
 			default:
 				return fmt.Errorf("invalid event action %d", eventData.action)
 			}
@@ -108,7 +146,7 @@ func (s *KVEventSender) Run(ctx context.Context) error {
 				return fmt.Errorf("failed to marshal value: %w", err)
 			}
 
-			s.batch = append(s.batch, payload)
+			s.batch = append(s.batch, event)
 
 			// check if batch is big enough to be sent
 			if len(s.batch) >= s.maxBatchSize {
@@ -141,17 +179,60 @@ func (s *KVEventSender) publishHelper(ctx context.Context) error {
 		return nil
 	}
 
+	events := []msgpack.RawMessage{}
+
+	for _, event := range s.batch {
+		var raw interface{}
+
+		switch e := event.(type) {
+		case *kvevents.BlockStoredEvent:
+			raw = &msgpackBlockStoredEvent{
+				Tag:         string(kvevents.EventTypeBlockStored),
+				BlockHashes: convertUint64ToAnySlice(e.BlockHashes),
+				TokenIds:    e.Tokens,
+				Medium:      &GPU,
+			}
+		case *kvevents.BlockRemovedEvent:
+			raw = &msgpackBlockRemovedEvent{
+				Tag:         string(kvevents.EventTypeBlockRemoved),
+				BlockHashes: convertUint64ToAnySlice(e.BlockHashes),
+				Medium:      &GPU,
+			}
+		case *kvevents.AllBlocksClearedEvent:
+			raw = &msgpackAllBlocksClearedEvent{
+				Tag: string(kvevents.EventTypeAllBlocksCleared),
+			}
+		default:
+			return fmt.Errorf("unknown generic event type: %T", event)
+		}
+
+		eventBytes, err := msgpack.Marshal(raw)
+		if err != nil {
+			return fmt.Errorf("failed to marshal event: %w", err)
+		}
+		events = append(events, msgpack.RawMessage(eventBytes))
+	}
+
 	dpRank := 0
-	eventBatch := kvevents.EventBatch{
+
+	batch := msgpackEventBatch{
 		TS:               float64(time.Now().UnixNano()) / 1e9,
-		Events:           s.batch,
+		Events:           events,
 		DataParallelRank: &dpRank,
 	}
 
-	err := s.publisher.PublishEvent(ctx, s.topic, eventBatch)
+	err := s.publisher.PublishEvent(ctx, s.topic, batch)
 
 	// reset batch
-	s.batch = make([]msgpack.RawMessage, 0, s.maxBatchSize)
+	s.batch = make([]kvevents.GenericEvent, 0, s.maxBatchSize)
 
 	return err
+}
+
+func convertUint64ToAnySlice(input []uint64) []any {
+	result := make([]any, len(input))
+	for i, v := range input {
+		result[i] = v
+	}
+	return result
 }
