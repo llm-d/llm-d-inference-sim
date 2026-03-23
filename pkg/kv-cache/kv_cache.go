@@ -46,7 +46,7 @@ type KVCacheHelper struct {
 	prefixCacheStatsChan common.Channel[PrefixCacheStats]
 }
 
-func NewKVCacheHelper(config *common.Configuration, logger logr.Logger, usageChan common.Channel[common.MetricInfo],
+func NewKVCacheHelper(ctx context.Context, config *common.Configuration, logger logr.Logger, usageChan common.Channel[common.MetricInfo],
 	prefixCacheStatsChan common.Channel[PrefixCacheStats], tokenizer tokenizer.Tokenizer) (*KVCacheHelper, error) {
 	tokenProcConfig := kvblock.DefaultTokenProcessorConfig()
 	tokenProcConfig.BlockSize = config.TokenBlockSize
@@ -55,7 +55,7 @@ func NewKVCacheHelper(config *common.Configuration, logger logr.Logger, usageCha
 	}
 	tokensProcessor := kvblock.NewChunkedTokenDatabase(tokenProcConfig)
 
-	blockCache, err := newBlockCache(config, logger, &usageChan)
+	blockCache, err := newBlockCache(ctx, config, logger, &usageChan)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create block cache: %w", err)
 	}

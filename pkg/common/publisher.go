@@ -20,20 +20,20 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"sync/atomic"
 	"time"
 
+	zmq4 "github.com/go-zeromq/zmq4"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
-	zmq "github.com/pebbe/zmq4"
 	"github.com/vmihailenco/msgpack/v5"
 	"k8s.io/klog/v2"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 // Publisher sends events to a ZMQ endpoint.
 type Publisher struct {
-	socket   *zmq.Socket
+	socket   zmq4.Socket
 	endpoint string
 	seqNum   uint64
 }
@@ -41,33 +41,30 @@ type Publisher struct {
 // NewPublisher creates a new ZMQ publisher.
 // endpoint is the ZMQ address to bind to (e.g., "tcp://*:5557").
 // retries is the maximum number of connection attempts.
-func NewPublisher(endpoint string, retries uint) (*Publisher, error) {
-	socket, err := zmq.NewSocket(zmq.PUB)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create ZMQ PUB socket: %w", err)
-	}
-
-	// Retry connection with specified retry times and intervals
-	for i := uint(0); i <= retries; i++ {
-		err = socket.Connect(endpoint)
-		if err == nil {
-			return &Publisher{
-				socket:   socket,
-				endpoint: endpoint,
-			}, nil
-		}
-
-		// If not the last attempt, wait before retrying
-		if i < retries {
-			time.Sleep(1 * time.Second)
-		}
-	}
-
-	errClose := socket.Close()
-	return nil, errors.Join(
-		fmt.Errorf("failed to connect to %s after %d retries: %w", endpoint, retries+1, err),
-		errClose,
+func NewPublisher(ctx context.Context, endpoint string) (*Publisher, error) {
+	socket := zmq4.NewPub(ctx,
+		// -1 means try forever
+		zmq4.WithDialerMaxRetries(-1),
+		// reconnect if server restarts
+		zmq4.WithAutomaticReconnect(true),
+		// wait 1s between attempts
+		zmq4.WithDialerRetry(time.Second),
 	)
+
+	// 2. Push Dial into a background goroutine
+	go func() {
+		// wait until the listener is ready
+		err := socket.Dial(endpoint)
+		if err != nil {
+			// This only triggers if the address format is invalid or ctx is canceled
+			log.FromContext(ctx).Error(err, "Simulator ZMQ dialer exited", "endpoint", endpoint)
+		}
+	}()
+
+	return &Publisher{
+		socket:   socket,
+		endpoint: endpoint,
+	}, nil
 }
 
 // PublishEvent publishes a KV cache event batch to the ZMQ topic.
@@ -90,7 +87,9 @@ func (p *Publisher) PublishEvent(ctx context.Context, topic string, batch interf
 	binary.BigEndian.PutUint64(seqBytes, seq)
 
 	// send topic, sequence, payload
-	if _, err := p.socket.SendMessage(topic, seqBytes, payload.Bytes()); err != nil {
+	msg := zmq4.NewMsgFrom([]byte(topic), seqBytes, payload.Bytes())
+
+	if err = p.socket.Send(msg); err != nil {
 		return fmt.Errorf("failed to send message to topic %s: %w", topic, err)
 	}
 

@@ -285,10 +285,11 @@ var _ = Describe("Server", func() {
 		})
 
 		It("Should enter sleep mode and wake up", func() {
-			topic := kvcache.CreateKVEventsTopic("localhost", common.QwenModelName)
-			sub, endpoint := common.CreateSub(topic)
-
 			ctx := context.TODO()
+
+			topic := kvcache.CreateKVEventsTopic("localhost", common.QwenModelName)
+			sub, endpoint := common.CreateSub(ctx, topic)
+
 			client, err := startServerWithArgsAndEnv(ctx, common.ModeRandom,
 				[]string{"cmd", "--model", common.QwenModelName, "--mode", common.ModeRandom, "--enable-sleep-mode",
 					"--enable-kvcache", "--v", "5", "--port", "8000", "--zmq-endpoint", endpoint},
@@ -303,9 +304,9 @@ var _ = Describe("Server", func() {
 				time.Sleep(200 * time.Millisecond)
 				sendTextCompletionRequest(ctx, client)
 			}()
-			parts, err := sub.RecvMessageBytes(0)
+			msg, err := sub.Recv()
 			Expect(err).NotTo(HaveOccurred())
-			stored, _, _ := kvcache.ParseKVEvent(parts, topic, uint64(1))
+			stored, _, _ := kvcache.ParseKVEvent(msg.Frames, topic, uint64(1))
 			Expect(stored).To(HaveLen(1))
 
 			// Sleep and check that AllBlocksCleared event was sent
@@ -315,9 +316,9 @@ var _ = Describe("Server", func() {
 				Expect(err).NotTo(HaveOccurred())
 				Expect(resp.StatusCode).To(Equal(http.StatusOK))
 			}()
-			parts, err = sub.RecvMessageBytes(0)
+			msg, err = sub.Recv()
 			Expect(err).NotTo(HaveOccurred())
-			_, _, allCleared := kvcache.ParseKVEvent(parts, topic, uint64(2))
+			_, _, allCleared := kvcache.ParseKVEvent(msg.Frames, topic, uint64(2))
 			Expect(allCleared).To(BeTrue())
 
 			checkSimSleeping(client, true)
@@ -338,9 +339,9 @@ var _ = Describe("Server", func() {
 				time.Sleep(200 * time.Millisecond)
 				sendTextCompletionRequest(ctx, client)
 			}()
-			parts, err = sub.RecvMessageBytes(0)
+			msg, err = sub.Recv()
 			Expect(err).NotTo(HaveOccurred())
-			stored, _, _ = kvcache.ParseKVEvent(parts, topic, uint64(3))
+			stored, _, _ = kvcache.ParseKVEvent(msg.Frames, topic, uint64(3))
 			Expect(stored).To(HaveLen(1))
 
 			// Sleep again and wait for AllBlocksCleared
@@ -351,9 +352,9 @@ var _ = Describe("Server", func() {
 				Expect(resp.StatusCode).To(Equal(http.StatusOK))
 			}()
 
-			parts, err = sub.RecvMessageBytes(0)
+			msg, err = sub.Recv()
 			Expect(err).NotTo(HaveOccurred())
-			_, _, allCleared = kvcache.ParseKVEvent(parts, topic, uint64(4))
+			_, _, allCleared = kvcache.ParseKVEvent(msg.Frames, topic, uint64(4))
 			Expect(allCleared).To(BeTrue())
 
 			checkSimSleeping(client, true)
@@ -382,9 +383,9 @@ var _ = Describe("Server", func() {
 				time.Sleep(200 * time.Millisecond)
 				sendTextCompletionRequest(ctx, client)
 			}()
-			parts, err = sub.RecvMessageBytes(0)
+			msg, err = sub.Recv()
 			Expect(err).NotTo(HaveOccurred())
-			stored, _, _ = kvcache.ParseKVEvent(parts, topic, uint64(5))
+			stored, _, _ = kvcache.ParseKVEvent(msg.Frames, topic, uint64(5))
 			Expect(stored).To(HaveLen(1))
 		})
 	})

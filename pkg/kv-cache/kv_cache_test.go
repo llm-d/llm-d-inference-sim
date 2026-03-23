@@ -29,11 +29,10 @@ import (
 )
 
 const (
-	req1ID           = "req1"
-	req2ID           = "req2"
-	req3ID           = "req3"
-	wildcardEndpoint = "tcp://*:*"
-	localhost        = "localhost"
+	req1ID    = "req1"
+	req2ID    = "req2"
+	req3ID    = "req3"
+	localhost = "localhost"
 )
 
 type ActionType int
@@ -197,27 +196,26 @@ var _ = Describe("KV cache", Ordered, func() {
 			It(test.name, func() {
 				time.Sleep(300 * time.Millisecond)
 
+				ctx, cancel := context.WithCancel(context.Background())
+
 				config := &common.Configuration{
-					IP:                    localhost,
-					Port:                  1234,
-					Model:                 "model",
-					KVCacheSize:           test.cacheSize,
-					ZMQMaxConnectAttempts: 3,
-					EventBatchSize:        1,
+					IP:             localhost,
+					Port:           1234,
+					Model:          "model",
+					KVCacheSize:    test.cacheSize,
+					EventBatchSize: 1,
 				}
 
 				topic := CreateKVEventsTopic(localhost, config.Model)
-				sub, endpoint := common.CreateSub(topic)
+				sub, endpoint := common.CreateSub(ctx, topic)
 				config.ZMQEndpoint = endpoint
 				//nolint
 				defer sub.Close()
 
-				ctx, cancel := context.WithCancel(context.Background())
-
 				wg := sync.WaitGroup{}
 				wg.Add(1)
 
-				blockCache, err := newBlockCache(config, GinkgoLogr, nil)
+				blockCache, err := newBlockCache(ctx, config, GinkgoLogr, nil)
 				Expect(err).NotTo(HaveOccurred())
 
 				go func() {
@@ -290,9 +288,9 @@ var _ = Describe("KV cache", Ordered, func() {
 				expectedTotal := test.expectedRemovedBlocks + test.expectedStoredBlocks
 
 				for i, seq := 0, uint64(1); i < expectedTotal; i, seq = storedCount+removedCount, seq+1 {
-					parts, err := sub.RecvMessageBytes(0)
+					msg, err := sub.Recv()
 					Expect(err).NotTo(HaveOccurred())
-					stored, removed, _ := ParseKVEvent(parts, topic, seq)
+					stored, removed, _ := ParseKVEvent(msg.Frames, topic, seq)
 					storedCount += len(stored)
 					removedCount += len(removed)
 				}
@@ -305,26 +303,25 @@ var _ = Describe("KV cache", Ordered, func() {
 	Context("events", func() {
 
 		It("should send events correctly", func() {
+			ctx, cancel := context.WithCancel(context.Background())
+
 			config := &common.Configuration{
-				IP:                    localhost,
-				Port:                  1234,
-				Model:                 "model",
-				KVCacheSize:           4,
-				ZMQMaxConnectAttempts: 3,
+				IP:          localhost,
+				Port:        1234,
+				Model:       "model",
+				KVCacheSize: 4,
 			}
 
 			topic := CreateKVEventsTopic(localhost, config.Model)
-			sub, endpoint := common.CreateSub(topic)
+			sub, endpoint := common.CreateSub(ctx, topic)
 			config.ZMQEndpoint = endpoint
 			//nolint
 			defer sub.Close()
 
-			ctx, cancel := context.WithCancel(context.Background())
-
 			wg := sync.WaitGroup{}
 			wg.Add(1)
 
-			blockCache, err := newBlockCache(config, GinkgoLogr, nil)
+			blockCache, err := newBlockCache(ctx, config, GinkgoLogr, nil)
 			Expect(err).NotTo(HaveOccurred())
 
 			go func() {
@@ -382,9 +379,9 @@ var _ = Describe("KV cache", Ordered, func() {
 			storedBlocks := make([]any, 0)
 			count := uint64(1)
 			for {
-				parts, err := sub.RecvMessageBytes(0)
+				msg, err := sub.Recv()
 				Expect(err).NotTo(HaveOccurred())
-				stored, removed, _ := ParseKVEvent(parts, topic, count)
+				stored, removed, _ := ParseKVEvent(msg.Frames, topic, count)
 				storedBlocks = append(storedBlocks, stored...)
 				removedBlocks = append(removedBlocks, removed...)
 				count++
@@ -422,14 +419,16 @@ var _ = Describe("KV cache", Ordered, func() {
 
 		for _, testCase := range testCases {
 			It(testCase.name, func() {
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+
 				config := common.Configuration{
-					IP:                    localhost,
-					Port:                  1234,
-					Model:                 "model",
-					KVCacheSize:           testCase.cacheSize,
-					ZMQMaxConnectAttempts: 3,
+					IP:          localhost,
+					Port:        1234,
+					Model:       "model",
+					KVCacheSize: testCase.cacheSize,
 				}
-				blockCache, err := newBlockCache(&config, GinkgoLogr, nil)
+				blockCache, err := newBlockCache(ctx, &config, GinkgoLogr, nil)
 				Expect(err).NotTo(HaveOccurred())
 				var wg sync.WaitGroup
 

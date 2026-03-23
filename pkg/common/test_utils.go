@@ -17,30 +17,44 @@ limitations under the License.
 package common
 
 import (
+	"context"
+
+	zmq4 "github.com/go-zeromq/zmq4"
 	"github.com/onsi/gomega"
-	zmq "github.com/pebbe/zmq4"
 )
 
 // constants
 const (
-	QwenModelName = "Qwen/Qwen2-0.5B"
-	TestModelName = "testmodel"
+	QwenModelName    = "Qwen/Qwen2-0.5B"
+	TestModelName    = "testmodel"
+	wildcardEndpoint = "tcp://*:*"
 )
 
 // CreateSub creates a ZMQ sub, subscribes to the provided topic, and returns the
 // sub and the endpoint to publish events on
-func CreateSub(topic string) (*zmq.Socket, string) {
-	wildcardEndpoint := "tcp://*:*"
-	zctx, err := zmq.NewContext()
+func CreateSub(ctx context.Context, topic string) (zmq4.Socket, string) {
+	sub := NewSub(ctx)
+
+	return sub, StartSub(sub, wildcardEndpoint, topic)
+}
+
+func NewSub(ctx context.Context) zmq4.Socket {
+	return zmq4.NewSub(ctx)
+}
+
+// starts the given sub on a random port and subscribes to the given topic. Returns the sub and the real endpoint to publish events on.
+func StartSub(sub zmq4.Socket, endpoint string, topic string) string {
+	err := sub.Listen(endpoint)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	sub, err := zctx.NewSocket(zmq.SUB)
+	if topic != "" {
+		err = sub.SetOption(zmq4.OptionSubscribe, topic)
+	} else {
+		err = sub.SetOption(zmq4.OptionSubscribe, "")
+	}
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	err = sub.Bind(wildcardEndpoint)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	// get the actual port
-	endpoint, err := sub.GetLastEndpoint()
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	err = sub.SetSubscribe(topic)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	return sub, endpoint
+
+	realEndpoint := sub.Addr()
+	gomega.Expect(realEndpoint).NotTo(gomega.BeNil())
+
+	return "tcp://" + realEndpoint.String()
 }

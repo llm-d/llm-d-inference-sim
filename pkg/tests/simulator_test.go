@@ -1245,15 +1245,14 @@ var _ = Describe("Simulator", func() {
 		It("chat completions", func() {
 			// create kv events listener
 			topic := kvcache.CreateKVEventsTopic("localhost", model)
-			sub, zmqEndpoint := common.CreateSub(topic)
+			sub, zmqEndpoint := common.CreateSub(ctx, topic)
 			//nolint
 			defer sub.Close()
 
 			// start the server
 			args := []string{"cmd", "--model", model, "--mode", mode,
 				"--enable-kvcache", "true", "--kv-cache-size", "16", "--block-size", "8",
-				"--zmq-max-connect-attempts", "3", "--event-batch-size", "1",
-				"--zmq-endpoint", zmqEndpoint}
+				"--event-batch-size", "1", "--zmq-endpoint", zmqEndpoint}
 			client, err := startServerWithArgsAndEnv(ctx, mode, args, map[string]string{"POD_IP": "localhost"})
 			Expect(err).NotTo(HaveOccurred())
 
@@ -1267,9 +1266,9 @@ var _ = Describe("Simulator", func() {
 			}()
 
 			// read one event
-			parts, err := sub.RecvMessageBytes(0)
+			msg, err := sub.Recv()
 			Expect(err).NotTo(HaveOccurred())
-			stored, removed, _ := kvcache.ParseKVEvent(parts, topic, 1)
+			stored, removed, _ := kvcache.ParseKVEvent(msg.Frames, topic, 1)
 			Expect(stored).To(HaveLen(5))
 			Expect(removed).To(BeEmpty())
 		})
@@ -1277,15 +1276,14 @@ var _ = Describe("Simulator", func() {
 		It("completions", func() {
 			// create kv events listener
 			topic := kvcache.CreateKVEventsTopic("localhost", model)
-			sub, zmqEndpoint := common.CreateSub(topic)
+			sub, zmqEndpoint := common.CreateSub(ctx, topic)
 			//nolint
 			defer sub.Close()
 
 			// start the server
 			args := []string{"cmd", "--model", model, "--mode", mode,
 				"--enable-kvcache", "true", "--kv-cache-size", "16", "--block-size", "8",
-				"--zmq-max-connect-attempts", "3", "--event-batch-size", "1",
-				"--zmq-endpoint", zmqEndpoint}
+				"--event-batch-size", "1", "--zmq-endpoint", zmqEndpoint}
 			client, err := startServerWithArgsAndEnv(ctx, mode, args, map[string]string{"POD_IP": "localhost"})
 			Expect(err).NotTo(HaveOccurred())
 
@@ -1299,9 +1297,9 @@ var _ = Describe("Simulator", func() {
 			}()
 
 			// read one event
-			parts, err := sub.RecvMessageBytes(0)
+			msg, err := sub.Recv()
 			Expect(err).NotTo(HaveOccurred())
-			stored, removed, _ := kvcache.ParseKVEvent(parts, topic, 1)
+			stored, removed, _ := kvcache.ParseKVEvent(msg.Frames, topic, 1)
 			Expect(stored).To(HaveLen(2))
 			Expect(removed).To(BeEmpty())
 		})

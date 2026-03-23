@@ -57,7 +57,6 @@ All latency-related parameters are defined in duration format, e.g., 100ms. Inte
 - `block-size`: token block size for contiguous chunks of tokens, possible values: 8,16,32,64,128
 - `hash-seed`: seed for hash generation (if not set, is read from PYTHONHASHSEED environment variable)
 - `zmq-endpoint`: ZMQ address to publish events
-- `zmq-max-connect-attempts`: the maximum number of ZMQ connection attempts, defaults to 0, maximum: 10
 - `event-batch-size`: the maximum number of kv-cache events to be sent together, defaults to 16
 
 ## Failure injection

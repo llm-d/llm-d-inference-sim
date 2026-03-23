@@ -100,7 +100,7 @@ func (s *SimContext) initialize(ctx context.Context) error {
 	// KVCache doesn't support images at the moment, so in mm-encoder only mode
 	// we don't start it.
 	if s.Config.EnableKVCache && !s.Config.MMEncoderOnly {
-		s.kvcacheHelper, err = kvcache.NewKVCacheHelper(s.Config, s.logger,
+		s.kvcacheHelper, err = kvcache.NewKVCacheHelper(ctx, s.Config, s.logger,
 			s.metrics.kvCacheUsageChan, s.metrics.prefixCacheStatsChan, s.Tokenizer)
 		if err != nil {
 			return err

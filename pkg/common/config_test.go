@@ -100,14 +100,12 @@ var _ = Describe("Simulator configuration", func() {
 		"{\"name\":\"lora4\",\"path\":\"/path/to/lora4\"}",
 	}
 	c.EventBatchSize = 5
-	c.ZMQMaxConnectAttempts = 1
 	test = testCase{
 		name: "config file with command line args",
 		args: []string{"cmd", "--model", TestModelName, "--config", "../../manifests/config.yaml", "--port", "8002",
 			"--served-model-name", "alias1", "alias2", "--seed", "100",
 			"--lora-modules", "{\"name\":\"lora3\",\"path\":\"/path/to/lora3\"}", "{\"name\":\"lora4\",\"path\":\"/path/to/lora4\"}",
 			"--event-batch-size", "5",
-			"--zmq-max-connect-attempts", "1",
 		},
 		expectedConfig: c,
 	}
@@ -120,7 +118,6 @@ var _ = Describe("Simulator configuration", func() {
 	c.LoraModulesString = []string{
 		"{\"name\":\"lora3\",\"path\":\"/path/to/lora3\"}",
 	}
-	c.ZMQMaxConnectAttempts = 0
 	test = testCase{
 		name: "config file with command line args with different format",
 		args: []string{"cmd", "--model", TestModelName, "--config", "../../manifests/config.yaml", "--port", "8002",
@@ -504,16 +501,6 @@ var _ = Describe("Simulator configuration", func() {
 				"--fake-metrics-refresh-interval", "-20s",
 				"--config", "../../manifests/config.yaml"},
 			expectedError: "fake metrics refresh interval must be positive",
-		},
-		{
-			name:          "invalid (negative) zmq-max-connect-attempts for argument",
-			args:          []string{"cmd", "--zmq-max-connect-attempts", "-1", "--config", "../../manifests/config.yaml"},
-			expectedError: "zmq retries times cannot be negative",
-		},
-		{
-			name:          "invalid (negative) zmq-max-connect-attempts for config file",
-			args:          []string{"cmd", "--config", "../../manifests/invalid-config.yaml"},
-			expectedError: "zmq retries times cannot be negative",
 		},
 		{
 			name: "invalid (negative) prefill-overhead",

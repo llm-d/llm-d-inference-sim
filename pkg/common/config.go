@@ -194,8 +194,6 @@ type Configuration struct {
 
 	// ZMQEndpoint is the ZMQ address to publish events, the default value is tcp://localhost:5557
 	ZMQEndpoint string `yaml:"zmq-endpoint" json:"zmq-endpoint"`
-	// ZMQMaxConnectAttempts defines the maximum number (10) of retries when ZMQ connection fails
-	ZMQMaxConnectAttempts int `yaml:"zmq-max-connect-attempts" json:"zmq-max-connect-attempts"`
 
 	// EventBatchSize is the maximum number of kv-cache events to be sent together, defaults to 16
 	EventBatchSize int `yaml:"event-batch-size" json:"event-batch-size"`
@@ -307,7 +305,7 @@ func newConfig() *Configuration {
 		ObjectToolCallNotRequiredParamProbability: 50,
 		KVCacheSize:                1024,
 		TokenBlockSize:             16,
-		ZMQEndpoint:                "tcp://localhost:5557",
+		ZMQEndpoint:                "tcp://127.0.0.1:5557",
 		EventBatchSize:             16,
 		DPSize:                     1,
 		Rank:                       -1,
@@ -491,13 +489,6 @@ func (c *Configuration) validate() error {
 				FailureTypeRateLimit, FailureTypeInvalidAPIKey, FailureTypeContextLength,
 				FailureTypeServerError, FailureTypeInvalidRequest, FailureTypeModelNotFound)
 		}
-	}
-
-	if c.ZMQMaxConnectAttempts > 10 {
-		return errors.New("zmq retries times cannot be more than 10")
-	}
-	if c.ZMQMaxConnectAttempts < 0 {
-		return errors.New("zmq retries times cannot be negative")
 	}
 
 	if c.FakeMetrics != nil {

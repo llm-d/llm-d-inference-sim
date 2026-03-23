@@ -51,7 +51,7 @@ type blockCache struct {
 }
 
 // newBlockCache creates a new blockCache with the specified maximum number of blocks
-func newBlockCache(config *common.Configuration, logger logr.Logger,
+func newBlockCache(ctx context.Context, config *common.Configuration, logger logr.Logger,
 	usageChan *common.Channel[common.MetricInfo]) (*blockCache, error) {
 	if config.IP == "" {
 		return nil, errors.New("IP should be defined in the environment (POD_IP)")
@@ -66,7 +66,7 @@ func newBlockCache(config *common.Configuration, logger logr.Logger,
 	var publisher *common.Publisher
 	var err error
 	if config.ZMQEndpoint != "" {
-		publisher, err = common.NewPublisher(config.ZMQEndpoint, uint(config.ZMQMaxConnectAttempts))
+		publisher, err = common.NewPublisher(ctx, config.ZMQEndpoint)
 		if err != nil {
 			return nil, err
 		}

@@ -40,6 +40,8 @@ ZMQ_IMG ?= $(IMAGE_REGISTRY)/$(ZMQ_IMAGE_NAME):$(ZMQ_IMAGE_TAG)
 CONTAINER_TOOL := $(shell { command -v docker >/dev/null 2>&1 && echo docker; } || { command -v podman >/dev/null 2>&1 && echo podman; } || echo "")
 BUILDER := $(shell command -v buildah >/dev/null 2>&1 && echo buildah || echo $(CONTAINER_TOOL))
 
+CGO_ENABLED=0
+
 .PHONY: help
 help: ## Print help
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_0-9-]+:.*?##/ { printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
@@ -51,12 +53,12 @@ clean:
 	go clean -testcache -cache
 
 .PHONY: test
-test: $(GINKGO) install-dependencies ## Run tests
+test: $(GINKGO) ## Run tests
 	@printf "\033[33;1m==== Running tests ====\033[0m\n"
 ifdef GINKGO_FOCUS
-	CGO_ENABLED=1 $(GINKGO) -v -r -- -ginkgo.v -ginkgo.focus="$(GINKGO_FOCUS)"
+	$(GINKGO) -v -r -- -ginkgo.v -ginkgo.focus="$(GINKGO_FOCUS)"
 else
-	CGO_ENABLED=1 $(GINKGO) -v -r $(TEST_PKG)
+	$(GINKGO) -v -r $(TEST_PKG)
 endif
 
 
@@ -68,12 +70,12 @@ lint: $(GOLANGCI_LINT) ## Run lint
 ##@ Build
 
 .PHONY: build
-build: check-go install-dependencies ## Build the simulator binary
+build: check-go ## Build the simulator binary
 	@printf "\033[33;1m==== Building ====\033[0m\n"
 	go build -o $(LOCALBIN)/$(PROJECT_NAME) cmd/$(PROJECT_NAME)/main.go
 
 .PHONY: ds-tool-build
-ds-tool-build: check-go install-dependencies ## Build the dataset tool binary
+ds-tool-build: check-go ## Build the dataset tool binary
 	@printf "\033[33;1m==== Building ====\033[0m\n"
 	go build -o $(LOCALBIN)/ds_tool cmd/dataset-tool/main.go
 
@@ -140,49 +142,6 @@ print-project-name: ## Print the current project name
 .PHONY: install-hooks
 install-hooks: ## Install git hooks
 	git config core.hooksPath hooks
-
-##@ ZMQ Setup
-
-.PHONY: install-dependencies
-install-dependencies: ## Install development dependencies based on OS/ARCH
-	@echo "Checking and installing development dependencies..."
-	@if [ "$(TARGETOS)" = "linux" ]; then \
-	  if [ -x "$$(command -v apt)" ]; then \
-	    if ! dpkg -s libzmq3-dev >/dev/null 2>&1 || ! dpkg -s g++ >/dev/null 2>&1; then \
-	      echo "Installing dependencies with apt..."; \
-	      sudo apt-get update && sudo apt-get install -y libzmq3-dev g++; \
-	    else \
-	      echo "✅ ZMQ and g++ are already installed."; \
-	    fi; \
-	  elif [ -x "$$(command -v dnf)" ]; then \
-	    if ! dnf -q list installed zeromq-devel >/dev/null 2>&1 || ! dnf -q list installed gcc-c++ >/dev/null 2>&1; then \
-	      echo "Installing dependencies with dnf..."; \
-	      sudo dnf install -y zeromq-devel gcc-c++; \
-	    else \
-	      echo "✅ ZMQ and gcc-c++ are already installed."; \
-	    fi; \
-	  else \
-	    echo "Unsupported Linux package manager. Install libzmq and g++/gcc-c++ manually."; \
-	    exit 1; \
-	  fi; \
-	elif [ "$(TARGETOS)" = "darwin" ]; then \
-	  if [ -x "$$(command -v brew)" ]; then \
-	    if ! brew list zeromq pkg-config >/dev/null 2>&1; then \
-	      echo "Installing dependencies with brew..."; \
-	      brew install zeromq pkg-config; \
-	    else \
-	      echo "✅ ZeroMQ and pkgconf are already installed."; \
-	    fi; \
-	  else \
-	    echo "Homebrew is not installed and is required to install zeromq. Install it from https://brew.sh/"; \
-	    exit 1; \
-	  fi; \
-	else \
-	  echo "Unsupported OS: $(TARGETOS). Install development dependencies manually."; \
-	  exit 1; \
-	fi
-
-# ZMQ listener
 
 # Docker targets
 .PHONY: zmq-image-build
