@@ -40,8 +40,6 @@ ZMQ_IMG ?= $(IMAGE_REGISTRY)/$(ZMQ_IMAGE_NAME):$(ZMQ_IMAGE_TAG)
 CONTAINER_TOOL := $(shell { command -v docker >/dev/null 2>&1 && echo docker; } || { command -v podman >/dev/null 2>&1 && echo podman; } || echo "")
 BUILDER := $(shell command -v buildah >/dev/null 2>&1 && echo buildah || echo $(CONTAINER_TOOL))
 
-CGO_ENABLED=0
-
 .PHONY: help
 help: ## Print help
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_0-9-]+:.*?##/ { printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
@@ -56,9 +54,9 @@ clean:
 test: $(GINKGO) ## Run tests
 	@printf "\033[33;1m==== Running tests ====\033[0m\n"
 ifdef GINKGO_FOCUS
-	$(GINKGO) -v -r -- -ginkgo.v -ginkgo.focus="$(GINKGO_FOCUS)"
+	CGO_ENABLED=0 $(GINKGO) -v -r -- -ginkgo.v -ginkgo.focus="$(GINKGO_FOCUS)"
 else
-	$(GINKGO) -v -r $(TEST_PKG)
+	CGO_ENABLED=0 $(GINKGO) -v -r $(TEST_PKG)
 endif
 
 
@@ -72,12 +70,12 @@ lint: $(GOLANGCI_LINT) ## Run lint
 .PHONY: build
 build: check-go ## Build the simulator binary
 	@printf "\033[33;1m==== Building ====\033[0m\n"
-	go build -o $(LOCALBIN)/$(PROJECT_NAME) cmd/$(PROJECT_NAME)/main.go
+	CGO_ENABLED=0 go build -o $(LOCALBIN)/$(PROJECT_NAME) cmd/$(PROJECT_NAME)/main.go
 
 .PHONY: ds-tool-build
 ds-tool-build: check-go ## Build the dataset tool binary
 	@printf "\033[33;1m==== Building ====\033[0m\n"
-	go build -o $(LOCALBIN)/ds_tool cmd/dataset-tool/main.go
+	CGO_ENABLED=0 go build -o $(LOCALBIN)/ds_tool cmd/dataset-tool/main.go
 
 ##@ Container Build/Push
 

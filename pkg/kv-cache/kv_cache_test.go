@@ -31,7 +31,7 @@ const (
 	req1ID    = "req1"
 	req2ID    = "req2"
 	req3ID    = "req3"
-	localhost = "localhost"
+	localhost = "127.0.0.1"
 )
 
 type ActionType int

@@ -30,7 +30,4 @@ COPY --from=builder /workspace/bin/llm-d-inference-sim /app/llm-d-inference-sim
 
 USER 65532:65532
 
-# expose port for KV-Events ZMQ SUB socket
-EXPOSE 5557
-
 ENTRYPOINT ["/app/llm-d-inference-sim"]
