@@ -19,6 +19,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -278,11 +279,15 @@ func (bc *blockCache) finishRequest(requestID string) error {
 	delete(bc.requestToBlocks, requestID)
 
 	if len(errBlocks) > 0 {
-		errMsg := "Not existing blocks "
-		for _, b := range errBlocks {
-			errMsg += fmt.Sprintf("%d, ", b)
+		var builder strings.Builder
+
+		for i, b := range errBlocks {
+			if i > 0 {
+				builder.WriteString(", ")
+			}
+			fmt.Fprintf(&builder, "%d", b)
 		}
-		return fmt.Errorf("%s for request %s", errMsg[:len(errMsg)-2], requestID)
+		return fmt.Errorf("Not existing blocks %s for request %s", builder.String(), requestID)
 	}
 
 	return nil

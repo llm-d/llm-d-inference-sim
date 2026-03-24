@@ -136,18 +136,18 @@ var _ = Describe("Default Dataset", Ordered, func() {
 	})
 
 	Context("IsValidText", func() {
-		validTxts := make([]string, 0)
-		invalidTxts := make([]string, 0)
+		validTxts := make([]string, 3)
+		invalidTxts := make([]string, 5)
 
-		validTxts = append(validTxts, completionFakeResponses[0][:4])
-		validTxts = append(validTxts, completionFakeResponses[1])
-		validTxts = append(validTxts, completionFakeResponses[1]+completionFakeResponses[2])
+		validTxts[0] = completionFakeResponses[0][:4]
+		validTxts[1] = completionFakeResponses[1]
+		validTxts[2] = completionFakeResponses[1] + completionFakeResponses[2]
 
-		invalidTxts = append(invalidTxts, (completionFakeResponses[1] + " " + completionFakeResponses[2])[3:4])
-		invalidTxts = append(invalidTxts, completionFakeResponses[0][4:])
-		invalidTxts = append(invalidTxts, completionFakeResponses[1]+"-"+completionFakeResponses[2])
-		invalidTxts = append(invalidTxts, completionFakeResponses[1]+" ")
-		invalidTxts = append(invalidTxts, completionFakeResponses[1]+"   "+completionFakeResponses[2])
+		invalidTxts[0] = (completionFakeResponses[1] + " " + completionFakeResponses[2])[3:4]
+		invalidTxts[1] = completionFakeResponses[0][4:]
+		invalidTxts[2] = completionFakeResponses[1] + "-" + completionFakeResponses[2]
+		invalidTxts[3] = completionFakeResponses[1] + " "
+		invalidTxts[4] = completionFakeResponses[1] + "   " + completionFakeResponses[2]
 
 		for _, txt := range validTxts {
 			It("text should be valid", func() {
@@ -320,11 +320,12 @@ var _ = Describe("cumulativeBucketsProbabilities", Ordered, func() {
 
 		},
 		func(maxTokens int, expectedBuckets []bucketBoundaries) string {
-			bucketsStr := ""
+			var builder strings.Builder
+
 			for _, b := range expectedBuckets {
-				bucketsStr += fmt.Sprintf("<%d, %d>, ", b.start, b.end)
+				fmt.Fprintf(&builder, "<%d, %d>, ", b.start, b.end)
 			}
-			return fmt.Sprintf("maxTokens: %d,expectedBuckets: %s", maxTokens, bucketsStr)
+			return fmt.Sprintf("maxTokens: %d,expectedBuckets: %s", maxTokens, builder.String())
 		},
 		Entry(nil, 500, []bucketBoundaries{{1, 20}, {21, 40}, {41, 60}, {61, 480}, {481, 499}}),
 		Entry(nil, 47, []bucketBoundaries{{1, 9}, {10, 18}, {19, 27}, {28, 36}, {37, 46}}),
