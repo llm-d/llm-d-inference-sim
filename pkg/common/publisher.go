@@ -56,7 +56,9 @@ func NewPublisher(ctx context.Context, endpoint string) (*Publisher, error) {
 		err := socket.Dial(endpoint)
 		if err != nil {
 			// This only triggers if the address format is invalid or ctx is canceled
-			log.FromContext(ctx).Error(err, "Simulator ZMQ dialer exited", "endpoint", endpoint)
+			log.FromContext(ctx).Error(err, "ZMQ dialer exited", "endpoint", endpoint)
+		} else {
+			log.FromContext(ctx).Info("ZMQ dialer connected", "endpoint", endpoint)
 		}
 	}()
 
