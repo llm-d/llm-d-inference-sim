@@ -58,6 +58,7 @@ type testCase struct {
 }
 
 var _ = Describe("Simulator configuration", func() {
+	//nolint:prealloc
 	tests := make([]testCase, 0)
 
 	// Simple config with a few parameters

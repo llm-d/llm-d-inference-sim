@@ -30,7 +30,7 @@ ln -sf $$(realpath $(1)-$(3)) $(1)
 endef
 
 GOLANGCI_LINT = $(LOCALBIN)/golangci-lint
-GOLANGCI_LINT_VERSION = v2.4.0
+GOLANGCI_LINT_VERSION = v2.8.0
 GINKGO = $(LOCALBIN)/ginkgo
 GINKGO_VERSION = v2.25.3
 

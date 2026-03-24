@@ -287,7 +287,7 @@ func (bc *blockCache) finishRequest(requestID string) error {
 			}
 			fmt.Fprintf(&builder, "%d", b)
 		}
-		return fmt.Errorf("Not existing blocks %s for request %s", builder.String(), requestID)
+		return fmt.Errorf("not existing blocks %s for request %s", builder.String(), requestID)
 	}
 
 	return nil
