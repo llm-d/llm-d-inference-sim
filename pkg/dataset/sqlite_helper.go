@@ -76,7 +76,7 @@ func (s *sqliteHelper) connectToDB(path string, useInMemory bool) error {
 		}
 	} else {
 		// Use file-based database (original behavior)
-		s.db, err = sql.Open("sqlite3", "file:"+path+"?mode=ro")
+		s.db, err = sql.Open("sqlite", "file:"+path+"?mode=ro")
 		if err != nil {
 			return fmt.Errorf("failed to open database: %w", err)
 		}
@@ -117,7 +117,7 @@ func (s *sqliteHelper) loadDatabaseInMemory(path string) error {
 
 	// Create in-memory database
 	var err error
-	s.db, err = sql.Open("sqlite3", ":memory:")
+	s.db, err = sql.Open("sqlite", ":memory:")
 	if err != nil {
 		return fmt.Errorf("failed to create in-memory database: %w", err)
 	}

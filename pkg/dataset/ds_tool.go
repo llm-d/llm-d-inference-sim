@@ -298,7 +298,7 @@ func (dt *DatasetTool) validConversationRole(dsRecord datasetRecord, conversatio
 func (dt *DatasetTool) storeToSQLite(ctx context.Context, records []outputRecord) error {
 	dbPath := dt.config.getOutputDBFullFileName()
 	dt.logger.Info("Going to store records to DB", "path", dbPath)
-	db, err := sql.Open("sqlite3", "file:"+dbPath)
+	db, err := sql.Open("sqlite", "file:"+dbPath)
 	if err != nil {
 		return errors.Join(err, fmt.Errorf("cannot open database %s", dbPath))
 	}
