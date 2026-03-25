@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -211,6 +212,71 @@ func (c *Configuration) unmarshalLoraFakeMetrics() error {
 		}
 	}
 	return nil
+}
+
+type fakeMetricsAlias FakeMetrics
+
+// UnmarshalUpdateJSON applies a partial JSON update to the receiver.
+// Unlike standard json.Unmarshal, it only overwrites fields whose JSON keys
+// are explicitly present in data — unmentioned fields are left unchanged.
+// This allows callers to PATCH individual metrics without resetting the rest.
+//
+// It uses a type alias (fakeMetricsAlias) to decode data without triggering
+// custom UnmarshalJSON methods, then copies only the present fields into f
+// via reflection.
+//
+// Returns:
+//   - before: a snapshot of f's state before any mutation, used by the caller
+//     to detect what changed (e.g. whether to unregister old Prometheus metrics).
+//   - updatedKeys: the raw JSON key map (from json.Unmarshal into map[string]any),
+//     so the caller knows exactly which keys were supplied. Keys with explicit
+//     null values ARE included — this lets callers distinguish "field set to null"
+//     (clear the metric) from "field absent" (leave it alone).
+//   - err: any JSON decoding error.
+func (f *FakeMetrics) UnmarshalUpdateJSON(data []byte) (before *FakeMetrics, updatedKeys map[string]any, err error) {
+	// First decode into a raw map to see which keys are present.
+	var raw map[string]any
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, nil, err
+	}
+
+	// Decode into an alias so zero values are set, then selectively copy.
+	var aux fakeMetricsAlias
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return nil, nil, err
+	}
+
+	// Snapshot the current state before mutation.
+	old := *f
+	before = &old
+
+	// Use reflection to copy only present fields from aux into f.
+	v := reflect.ValueOf(f).Elem()
+	t := v.Type()
+
+	for i := 0; i < t.NumField(); i++ {
+		field := t.Field(i)
+		if !field.IsExported() {
+			continue
+		}
+
+		jsonTag := field.Tag.Get("json")
+		// remove ,omitempty
+		parts := strings.SplitN(jsonTag, ",", 2)
+		jsonTag = strings.TrimSpace(parts[0])
+
+		if _, ok := raw[jsonTag]; ok {
+			auxVal := reflect.ValueOf(&aux).Elem().Field(i)
+			dest := v.Field(i)
+
+			// Direct copy: auxVal already has correct type/value for JSON fields
+			if auxVal.Type() == dest.Type() && auxVal.CanInterface() {
+				dest.Set(auxVal)
+			}
+		}
+	}
+
+	return before, raw, nil
 }
 
 func (f *FakeMetrics) validate() error {

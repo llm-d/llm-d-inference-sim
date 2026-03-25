@@ -71,6 +71,7 @@ func (c *Communication) StartHTTPServer(ctx context.Context, listener net.Listen
 	r.POST("/v1/unload_lora_adapter", c.HandleUnloadLora)
 	// supports /metrics prometheus API
 	r.GET("/metrics", fasthttpadaptor.NewFastHTTPHandler(promhttp.HandlerFor(c.simulator.Context.MetricsRegistry(), promhttp.HandlerOpts{})))
+	r.POST("/fake_metrics", c.HandleFakeMetrics)
 	// supports standard Kubernetes health and readiness checks
 	r.GET("/health", c.HandleHealth)
 	r.GET("/ready", c.HandleReady)
@@ -667,4 +668,30 @@ func (c *Communication) HandleWakeUp(ctx *fasthttp.RequestCtx) {
 	c.simulator.IsSleeping = false
 
 	ctx.Response.Header.SetStatusCode(fasthttp.StatusOK)
+}
+
+// HandleFakeMetrics HTTP handler for /fake_metrics
+func (c *Communication) HandleFakeMetrics(ctx *fasthttp.RequestCtx) {
+	c.logger.V(logging.INFO).Info("Fake metrics update received")
+
+	if c.simulator.Context.Config.FakeMetrics == nil {
+		ctx.SetStatusCode(fasthttp.StatusBadRequest)
+		ctx.SetBodyString("The simulator is reporting real metrics; fake metrics cannot be updated.")
+		return
+	}
+
+	oldFakeMetrics, fmMap, err := c.simulator.Context.Config.FakeMetrics.UnmarshalUpdateJSON(ctx.Request.Body())
+	if err != nil {
+		ctx.SetStatusCode(fasthttp.StatusBadRequest)
+		ctx.SetBodyString("Failed to unmarshal the payload: " + err.Error())
+		return
+	}
+
+	if err := c.simulator.Context.UpdateFakeMetrics(fmMap, oldFakeMetrics); err != nil {
+		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
+		ctx.SetBodyString("Failed to update fake metrics: " + err.Error())
+		return
+	}
+
+	ctx.Response.Header.SetStatusCode(fasthttp.StatusNoContent)
 }

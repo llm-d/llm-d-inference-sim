@@ -51,9 +51,10 @@ import (
 )
 
 const (
-	baseURL         = "http://localhost/v1"
-	testUserMessage = "This is a test."
-	metricsUrl      = "http://localhost/metrics"
+	baseURL              = "http://localhost/v1"
+	testUserMessage      = "This is a test."
+	metricsUrl           = "http://localhost/metrics"
+	updateFakeMetricsUrl = "http://localhost/fake_metrics"
 )
 
 var userMsgTokens int64
