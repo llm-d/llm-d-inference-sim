@@ -89,6 +89,21 @@ For detailes see the [Metrics Guide](docs/metrics.md)
 
 ## Working with docker image
 
+### Use an existing image
+If you do not wish to build the simulator from source, you can use the pre-built container images hosted on the GitHub Container Registry.
+
+Image Repository: [ghcr.io/llm-d/llm-d-inference-sim](ghcr.io/llm-d/llm-d-inference-sim)
+
+1. Pull the Image
+You can pull the latest version of the simulator directly via Docker:
+
+```Bash
+docker pull ghcr.io/llm-d/llm-d-inference-sim:v0.8.0
+```
+
+2. Deployment via Kubernetes<br>
+To deploy the simulator in a cluster, update your deployment manifest to point to the official image. An example configuration can be found in [manifests/deployment.yaml](manifests/deployment.yaml).
+
 ### Building
 To build a Docker image of the vLLM Simulator, run:
 ```bash
