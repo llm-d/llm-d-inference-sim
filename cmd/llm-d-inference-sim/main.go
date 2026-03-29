@@ -20,6 +20,7 @@ package main
 import (
 	"context"
 
+	"golang.org/x/sync/errgroup"
 	"k8s.io/klog/v2"
 
 	"github.com/llm-d/llm-d-inference-sim/cmd/signals"
@@ -53,10 +54,15 @@ func main() {
 		logger.Error(err, "failed to create vLLM simulator")
 	}
 
+	g := new(errgroup.Group)
 	for _, sim := range simulators {
-		if err := communication.Start(ctx, logger, sim); err != nil {
-			logger.Error(err, "failed to start communication layer")
-			return
-		}
+		g.Go(func() error {
+			return communication.Start(ctx, logger, sim)
+		})
 	}
+	if err := g.Wait(); err != nil {
+		logger.Error(err, "failed to start communication layer")
+		return
+	}
+
 }
