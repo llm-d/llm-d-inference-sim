@@ -44,6 +44,7 @@ const (
 	NamespaceHeader                  = "x-inference-namespace"
 	RequestIDHeader                  = "X-Request-Id"
 	CacheThresholdFinishReasonHeader = "X-Cache-Threshold-Finish-Reason"
+	XReturnErrorHeader               = "X-Return-Error"
 )
 
 func (c *Communication) newListener() (net.Listener, error) {
@@ -166,6 +167,23 @@ func (c *Communication) handleHTTP(req vllmsim.Request, respBuilder responseBuil
 		c.logger.Error(err, "failed to read and parse request body")
 		errToSend := openaiserverapi.NewError("Failed to read and parse request body, "+err.Error(), fasthttp.StatusBadRequest, nil)
 		c.sendError(ctx, &errToSend, false)
+		return
+	}
+
+	// Check for X-Return-Error header - deterministic error trigger
+	if errCodeStr := string(ctx.Request.Header.Peek(XReturnErrorHeader)); errCodeStr != "" {
+		code, err := strconv.Atoi(errCodeStr)
+		if err != nil {
+			errToSend := openaiserverapi.NewError(
+				fmt.Sprintf("Invalid X-Return-Error header value %q: must be an integer", errCodeStr),
+				fasthttp.StatusBadRequest, nil)
+			c.sendError(ctx, &errToSend, false)
+			return
+		}
+		errToSend := openaiserverapi.NewError(
+			fmt.Sprintf("Simulated error triggered by X-Return-Error header (code %d)", code),
+			code, nil)
+		c.sendError(ctx, &errToSend, true)
 		return
 	}
 

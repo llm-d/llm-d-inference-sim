@@ -857,6 +857,79 @@ var _ = Describe("Simulator", func() {
 		})
 	})
 
+	Context("X-Return-Error header", func() {
+		It("Should return the specified HTTP error code", func() {
+			ctx := context.TODO()
+			client, err := startServer(ctx, common.ModeRandom)
+			Expect(err).NotTo(HaveOccurred())
+
+			reqBody := `{
+				"messages": [{"role": "user", "content": "Hello"}],
+				"model": "` + common.TestModelName + `",
+				"max_tokens": 5
+			}`
+
+			req, err := http.NewRequest("POST", "http://localhost/v1/chat/completions", strings.NewReader(reqBody))
+			Expect(err).NotTo(HaveOccurred())
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set(communication.XReturnErrorHeader, "422")
+
+			resp, err := client.Do(req)
+			Expect(err).NotTo(HaveOccurred())
+			defer func() {
+				err := resp.Body.Close()
+				Expect(err).NotTo(HaveOccurred())
+			}()
+
+			Expect(resp.StatusCode).To(Equal(422))
+
+			body, err := io.ReadAll(resp.Body)
+			Expect(err).NotTo(HaveOccurred())
+
+			var errResp openaiserverapi.ErrorResponse
+			err = json.Unmarshal(body, &errResp)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(errResp.Error.Code).To(Equal(422))
+			Expect(errResp.Error.Message).To(ContainSubstring("X-Return-Error"))
+		})
+
+		It("Should return 400 when header value is not a valid integer", func() {
+			ctx := context.TODO()
+			client, err := startServer(ctx, common.ModeRandom)
+			Expect(err).NotTo(HaveOccurred())
+
+			reqBody := `{
+				"messages": [{"role": "user", "content": "Hello"}],
+				"model": "` + common.TestModelName + `",
+				"max_tokens": 5
+			}`
+
+			req, err := http.NewRequest("POST", "http://localhost/v1/chat/completions", strings.NewReader(reqBody))
+			Expect(err).NotTo(HaveOccurred())
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set(communication.XReturnErrorHeader, "abc")
+
+			resp, err := client.Do(req)
+			Expect(err).NotTo(HaveOccurred())
+			defer func() {
+				err := resp.Body.Close()
+				Expect(err).NotTo(HaveOccurred())
+			}()
+
+			Expect(resp.StatusCode).To(Equal(400))
+
+			body, err := io.ReadAll(resp.Body)
+			Expect(err).NotTo(HaveOccurred())
+
+			var errResp openaiserverapi.ErrorResponse
+			err = json.Unmarshal(body, &errResp)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(errResp.Error.Code).To(Equal(400))
+			Expect(errResp.Error.Message).To(ContainSubstring("Invalid X-Return-Error"))
+		})
+
+	})
+
 	Context("cache hit threshold", func() {
 		type completionRequestParams struct {
 			Prompt            string   `json:"prompt"`
