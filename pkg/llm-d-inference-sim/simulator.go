@@ -379,6 +379,11 @@ func (s *VllmSimulator) sendResponse(reqCtx requestContext, respCtx ResponseCont
 					&ResponseInfo{Tokens: tokens, RespCtx: respCtx},
 					s.Context.logger)
 			}
+			// Send response context if there are no tokens
+			if len(respCtx.responseTokens().Tokens) == 0 {
+				common.WriteToChannel(reqCtx.responseChannel(),
+					&ResponseInfo{RespCtx: respCtx}, s.Context.logger)
+			}
 		} else {
 			for _, tc := range respCtx.ToolCalls() {
 				// Tool calls are only supported in HTTP at the moment, so we assume that we always
@@ -393,6 +398,11 @@ func (s *VllmSimulator) sendResponse(reqCtx requestContext, respCtx ResponseCont
 							Strings: []string{tc.Function.TokenizedArguments().Strings[i]}},
 							RespCtx: respCtx, ToolCall: &tc}, s.Context.logger)
 				}
+			}
+			// Send response context if there are no tools
+			if respCtx.ToolCalls() == nil {
+				common.WriteToChannel(reqCtx.responseChannel(),
+					&ResponseInfo{RespCtx: respCtx}, s.Context.logger)
 			}
 		}
 		common.WriteToChannel(s.Context.metrics.reqDecodeTimeChan, time.Since(startDecode).Seconds(), s.Context.logger)
