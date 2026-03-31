@@ -362,47 +362,42 @@ func (s *VllmSimulator) sendResponse(reqCtx requestContext, respCtx ResponseCont
 		s.Context.simulateTTFT(respCtx)
 
 		startDecode := time.Now()
-		if respCtx.responseTokens() != nil {
-			for i, token := range respCtx.responseTokens().Tokens {
-				if i != 0 {
-					s.Context.simulateInterTokenLatency()
-				}
-
-				tokens := &openaiserverapi.Tokenized{
-					Tokens:  []uint32{token},
-					Strings: []string{},
-				}
-				if respCtx.responseTokens().Strings != nil {
-					tokens.Strings = append(tokens.Strings, respCtx.responseTokens().Strings[i])
-				}
-				common.WriteToChannel(reqCtx.responseChannel(),
-					&ResponseInfo{Tokens: tokens, RespCtx: respCtx},
-					s.Context.logger)
-			}
-			// Send response context if there are no tokens
-			if len(respCtx.responseTokens().Tokens) == 0 {
-				common.WriteToChannel(reqCtx.responseChannel(),
-					&ResponseInfo{RespCtx: respCtx}, s.Context.logger)
-			}
+		if respIsEmpty(respCtx) {
+			common.WriteToChannel(reqCtx.responseChannel(),
+				&ResponseInfo{RespCtx: respCtx}, s.Context.logger)
 		} else {
-			for _, tc := range respCtx.ToolCalls() {
-				// Tool calls are only supported in HTTP at the moment, so we assume that we always
-				// have string tokenized arguments
-				for i, token := range tc.Function.TokenizedArguments().Tokens {
+			if respCtx.responseTokens() != nil {
+				for i, token := range respCtx.responseTokens().Tokens {
 					if i != 0 {
 						s.Context.simulateInterTokenLatency()
 					}
+
+					tokens := &openaiserverapi.Tokenized{
+						Tokens:  []uint32{token},
+						Strings: []string{},
+					}
+					if respCtx.responseTokens().Strings != nil {
+						tokens.Strings = append(tokens.Strings, respCtx.responseTokens().Strings[i])
+					}
 					common.WriteToChannel(reqCtx.responseChannel(),
-						&ResponseInfo{Tokens: &openaiserverapi.Tokenized{
-							Tokens:  []uint32{token},
-							Strings: []string{tc.Function.TokenizedArguments().Strings[i]}},
-							RespCtx: respCtx, ToolCall: &tc}, s.Context.logger)
+						&ResponseInfo{Tokens: tokens, RespCtx: respCtx},
+						s.Context.logger)
 				}
-			}
-			// Send response context if there are no tools
-			if respCtx.ToolCalls() == nil {
-				common.WriteToChannel(reqCtx.responseChannel(),
-					&ResponseInfo{RespCtx: respCtx}, s.Context.logger)
+			} else {
+				for _, tc := range respCtx.ToolCalls() {
+					// Tool calls are only supported in HTTP at the moment, so we assume that we always
+					// have string tokenized arguments
+					for i, token := range tc.Function.TokenizedArguments().Tokens {
+						if i != 0 {
+							s.Context.simulateInterTokenLatency()
+						}
+						common.WriteToChannel(reqCtx.responseChannel(),
+							&ResponseInfo{Tokens: &openaiserverapi.Tokenized{
+								Tokens:  []uint32{token},
+								Strings: []string{tc.Function.TokenizedArguments().Strings[i]}},
+								RespCtx: respCtx, ToolCall: &tc}, s.Context.logger)
+					}
+				}
 			}
 		}
 		common.WriteToChannel(s.Context.metrics.reqDecodeTimeChan, time.Since(startDecode).Seconds(), s.Context.logger)

@@ -142,3 +142,11 @@ func (b *baseResponseContext) Done() {
 func (b *baseResponseContext) setWG(wg *sync.WaitGroup) {
 	b.wg = wg
 }
+
+func respIsEmpty(respCtx ResponseContext) bool {
+	tokens := respCtx.responseTokens()
+	if tokens == nil {
+		return respCtx.ToolCalls() == nil
+	}
+	return len(tokens.Tokens) == 0
+}
