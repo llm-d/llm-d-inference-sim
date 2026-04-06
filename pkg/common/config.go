@@ -100,6 +100,19 @@ type Configuration struct {
 	// LoraModules is a list of LoRA adapters
 	LoraModules []LoraModule
 
+	// PodNameSpace specifies the Kubernetes namespace in which the simulator pod is running.
+	// Useful for multi-namespace deployments and resource scoping.
+	// Set by env variable POD_NAMESPACE
+	PodNameSpace string
+	// PodName specifies the name of the pod running the simulator instance.
+	// Used for identification in Kubernetes environments.
+	// Set by env variable POD_NAME
+	PodName string
+	// VllmDevMode enables development mode for the vLLM simulator
+	// Allowing for additional debugging features during local development and testing.
+	// Set by env variable VLLM_SERVER_DEV_MODE
+	VllmDevMode bool
+
 	// --- Duration Configuration ---
 	// NOTE: For all duration fields listed below, providing a raw integer (milliseconds) is DEPRECATED
 	// and support will be removed in the next version.

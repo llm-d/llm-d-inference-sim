@@ -44,6 +44,7 @@ const (
 	NamespaceHeader                  = "x-inference-namespace"
 	RequestIDHeader                  = "X-Request-Id"
 	CacheThresholdFinishReasonHeader = "X-Cache-Threshold-Finish-Reason"
+	XReturnErrorHeader               = "X-Return-Error"
 )
 
 func (c *Communication) newListener() (net.Listener, error) {
@@ -147,12 +148,12 @@ func (c *Communication) HandleTextCompletions(ctx *fasthttp.RequestCtx) {
 
 // addResponseHeaders adds optional pod/port/namespace/request-id headers to the response for testing/debugging.
 func (c *Communication) addResponseHeaders(ctx *fasthttp.RequestCtx, requestID string) {
-	if c.simulator.Context.Pod != "" {
-		ctx.Response.Header.Add(PodHeader, c.simulator.Context.Pod)
+	if c.simulator.Context.Config.PodName != "" {
+		ctx.Response.Header.Add(PodHeader, c.simulator.Context.Config.PodName)
 		ctx.Response.Header.Add(PortHeader, strconv.Itoa(c.simulator.Context.Config.Port))
 	}
-	if c.simulator.Context.Namespace != "" {
-		ctx.Response.Header.Add(NamespaceHeader, c.simulator.Context.Namespace)
+	if c.simulator.Context.Config.PodNameSpace != "" {
+		ctx.Response.Header.Add(NamespaceHeader, c.simulator.Context.Config.PodNameSpace)
 	}
 	if c.simulator.Context.Config.EnableRequestIDHeaders {
 		ctx.Response.Header.Add(RequestIDHeader, requestID)
@@ -167,6 +168,23 @@ func (c *Communication) handleHTTP(req vllmsim.Request, respBuilder responseBuil
 		c.logger.Error(err, "failed to read and parse request body")
 		errToSend := openaiserverapi.NewError("Failed to read and parse request body, "+err.Error(), fasthttp.StatusBadRequest, nil)
 		c.sendError(ctx, &errToSend, false)
+		return
+	}
+
+	// Check for X-Return-Error header - deterministic error trigger
+	if errCodeStr := string(ctx.Request.Header.Peek(XReturnErrorHeader)); errCodeStr != "" {
+		code, err := strconv.Atoi(errCodeStr)
+		if err != nil {
+			errToSend := openaiserverapi.NewError(
+				fmt.Sprintf("Invalid X-Return-Error header value %q: must be an integer", errCodeStr),
+				fasthttp.StatusBadRequest, nil)
+			c.sendError(ctx, &errToSend, false)
+			return
+		}
+		errToSend := openaiserverapi.NewError(
+			fmt.Sprintf("Simulated error triggered by X-Return-Error header (code %d)", code),
+			code, nil)
+		c.sendError(ctx, &errToSend, true)
 		return
 	}
 
@@ -627,7 +645,7 @@ func (c *Communication) HandleIsSleeping(ctx *fasthttp.RequestCtx) {
 
 // HandleSleep http handler for /sleep
 func (c *Communication) HandleSleep(ctx *fasthttp.RequestCtx) {
-	if c.simulator.Context.Config.EnableSleepMode && c.simulator.IsInDevMode {
+	if c.simulator.Context.Config.EnableSleepMode && c.simulator.Context.Config.VllmDevMode {
 		c.logger.V(logging.INFO).Info("Sleep request received")
 		c.sleepMutex.Lock()
 		defer c.sleepMutex.Unlock()

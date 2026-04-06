@@ -22,7 +22,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"sync"
 	"time"
 
@@ -35,11 +34,6 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/dataset"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
-)
-
-const (
-	PodNameEnv = "POD_NAME"
-	PodNsEnv   = "POD_NAMESPACE"
 )
 
 type requestCompleted struct {
@@ -57,13 +51,8 @@ type VllmSimulator struct {
 	Context SimContext
 	// schema validator for tools parameters
 	toolsValidator *toolsValidator
-
 	// indication whether the simulator is sleeping
 	IsSleeping bool
-	// indication whether the simulator is in development mode, set by environment
-	// variable VLLM_SERVER_DEV_MODE
-	IsInDevMode bool
-
 	// a channel for free workers
 	freeWorkers chan *worker
 	// a channel to indicate that a worker finished working on a request
@@ -87,15 +76,12 @@ func New(logger logr.Logger) (*VllmSimulator, error) {
 
 	return &VllmSimulator{
 		toolsValidator: toolsValidator,
-		IsInDevMode:    os.Getenv("VLLM_SERVER_DEV_MODE") == "1",
 		Context: SimContext{
 			logger: logger,
 			loras: &lorasUsageInfo{
 				loadedLoras: make(map[string]int),
 			},
 			kvcacheHelper: nil, // kvcache helper will be created only if required after reading configuration
-			Namespace:     os.Getenv(PodNsEnv),
-			Pod:           os.Getenv(PodNameEnv),
 		},
 		waitingQueue: list.New(),
 	}, nil
@@ -376,36 +362,41 @@ func (s *VllmSimulator) sendResponse(reqCtx requestContext, respCtx ResponseCont
 		s.Context.simulateTTFT(respCtx)
 
 		startDecode := time.Now()
-		if respCtx.responseTokens() != nil {
-			for i, token := range respCtx.responseTokens().Tokens {
-				if i != 0 {
-					s.Context.simulateInterTokenLatency()
-				}
-
-				tokens := &openaiserverapi.Tokenized{
-					Tokens:  []uint32{token},
-					Strings: []string{},
-				}
-				if respCtx.responseTokens().Strings != nil {
-					tokens.Strings = append(tokens.Strings, respCtx.responseTokens().Strings[i])
-				}
-				common.WriteToChannel(reqCtx.responseChannel(),
-					&ResponseInfo{Tokens: tokens, RespCtx: respCtx},
-					s.Context.logger)
-			}
+		if respIsEmpty(respCtx) {
+			common.WriteToChannel(reqCtx.responseChannel(),
+				&ResponseInfo{RespCtx: respCtx}, s.Context.logger)
 		} else {
-			for _, tc := range respCtx.ToolCalls() {
-				// Tool calls are only supported in HTTP at the moment, so we assume that we always
-				// have string tokenized arguments
-				for i, token := range tc.Function.TokenizedArguments().Tokens {
+			if respCtx.responseTokens() != nil {
+				for i, token := range respCtx.responseTokens().Tokens {
 					if i != 0 {
 						s.Context.simulateInterTokenLatency()
 					}
+
+					tokens := &openaiserverapi.Tokenized{
+						Tokens:  []uint32{token},
+						Strings: []string{},
+					}
+					if respCtx.responseTokens().Strings != nil {
+						tokens.Strings = append(tokens.Strings, respCtx.responseTokens().Strings[i])
+					}
 					common.WriteToChannel(reqCtx.responseChannel(),
-						&ResponseInfo{Tokens: &openaiserverapi.Tokenized{
-							Tokens:  []uint32{token},
-							Strings: []string{tc.Function.TokenizedArguments().Strings[i]}},
-							RespCtx: respCtx, ToolCall: &tc}, s.Context.logger)
+						&ResponseInfo{Tokens: tokens, RespCtx: respCtx},
+						s.Context.logger)
+				}
+			} else {
+				for _, tc := range respCtx.ToolCalls() {
+					// Tool calls are only supported in HTTP at the moment, so we assume that we always
+					// have string tokenized arguments
+					for i, token := range tc.Function.TokenizedArguments().Tokens {
+						if i != 0 {
+							s.Context.simulateInterTokenLatency()
+						}
+						common.WriteToChannel(reqCtx.responseChannel(),
+							&ResponseInfo{Tokens: &openaiserverapi.Tokenized{
+								Tokens:  []uint32{token},
+								Strings: []string{tc.Function.TokenizedArguments().Strings[i]}},
+								RespCtx: respCtx, ToolCall: &tc}, s.Context.logger)
+					}
 				}
 			}
 		}

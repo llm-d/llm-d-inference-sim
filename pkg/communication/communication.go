@@ -28,7 +28,6 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/communication/grpc/pb"
 	vllmsim "github.com/llm-d/llm-d-inference-sim/pkg/llm-d-inference-sim"
 	"github.com/soheilhy/cmux"
-	"golang.org/x/sync/errgroup"
 )
 
 type Communication struct {
@@ -48,14 +47,7 @@ func New(logger logr.Logger, simulator *vllmsim.VllmSimulator) *Communication {
 func Start(ctx context.Context, logger logr.Logger, simulator *vllmsim.VllmSimulator) error {
 	c := Communication{logger: logger, simulator: simulator}
 	c.logger.V(logging.INFO).Info("Starting communication layer")
-	g, ctx := errgroup.WithContext(ctx)
-	g.Go(func() error {
-		return c.start(ctx)
-	})
-	if err := g.Wait(); err != nil {
-		return err
-	}
-	return nil
+	return c.start(ctx)
 }
 
 func (c *Communication) start(ctx context.Context) error {

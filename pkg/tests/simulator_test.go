@@ -31,7 +31,6 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/communication"
 	"github.com/llm-d/llm-d-inference-sim/pkg/dataset"
 	kvcache "github.com/llm-d/llm-d-inference-sim/pkg/kv-cache"
-	vllmsim "github.com/llm-d/llm-d-inference-sim/pkg/llm-d-inference-sim"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -376,8 +375,8 @@ var _ = Describe("Simulator", func() {
 			testNamespace := "test-namespace"
 			testPod := "test-pod"
 			envs := map[string]string{
-				vllmsim.PodNameEnv: testPod,
-				vllmsim.PodNsEnv:   testNamespace,
+				common.PodNameEnv: testPod,
+				common.PodNsEnv:   testNamespace,
 			}
 			httpResp := sendSimpleChatRequest(envs, false)
 
@@ -395,8 +394,8 @@ var _ = Describe("Simulator", func() {
 			testNamespace := "stream-test-namespace"
 			testPod := "stream-test-pod"
 			envs := map[string]string{
-				vllmsim.PodNameEnv: testPod,
-				vllmsim.PodNsEnv:   testNamespace,
+				common.PodNameEnv: testPod,
+				common.PodNsEnv:   testNamespace,
 			}
 			httpResp := sendSimpleChatRequest(envs, true)
 
@@ -429,8 +428,8 @@ var _ = Describe("Simulator", func() {
 			testNamespace := "test-namespace"
 			testPod := "test-pod"
 			envs := map[string]string{
-				vllmsim.PodNameEnv: testPod,
-				vllmsim.PodNsEnv:   testNamespace,
+				common.PodNameEnv: testPod,
+				common.PodNsEnv:   testNamespace,
 			}
 			client, err := startServerWithEnv(ctx, common.ModeRandom, envs)
 			Expect(err).NotTo(HaveOccurred())
@@ -457,8 +456,8 @@ var _ = Describe("Simulator", func() {
 			testNamespace := "stream-test-namespace"
 			testPod := "stream-test-pod"
 			envs := map[string]string{
-				vllmsim.PodNameEnv: testPod,
-				vllmsim.PodNsEnv:   testNamespace,
+				common.PodNameEnv: testPod,
+				common.PodNsEnv:   testNamespace,
 			}
 			client, err := startServerWithEnv(ctx, common.ModeRandom, envs)
 			Expect(err).NotTo(HaveOccurred())
@@ -495,8 +494,8 @@ var _ = Describe("Simulator", func() {
 			testNamespace := "emb-test-namespace"
 			testPod := "emb-test-pod"
 			envs := map[string]string{
-				vllmsim.PodNameEnv: testPod,
-				vllmsim.PodNsEnv:   testNamespace,
+				common.PodNameEnv: testPod,
+				common.PodNsEnv:   testNamespace,
 			}
 			httpResp := sendSimpleEmbeddingsRequest(envs)
 
@@ -856,6 +855,79 @@ var _ = Describe("Simulator", func() {
 		It("Should return normal finish reason when header is not set", func() {
 			testCacheThresholdFinishReasonHeader(false, []string{common.StopFinishReason, common.LengthFinishReason})
 		})
+	})
+
+	Context("X-Return-Error header", func() {
+		It("Should return the specified HTTP error code", func() {
+			ctx := context.TODO()
+			client, err := startServer(ctx, common.ModeRandom)
+			Expect(err).NotTo(HaveOccurred())
+
+			reqBody := `{
+				"messages": [{"role": "user", "content": "Hello"}],
+				"model": "` + common.TestModelName + `",
+				"max_tokens": 5
+			}`
+
+			req, err := http.NewRequest("POST", "http://localhost/v1/chat/completions", strings.NewReader(reqBody))
+			Expect(err).NotTo(HaveOccurred())
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set(communication.XReturnErrorHeader, "422")
+
+			resp, err := client.Do(req)
+			Expect(err).NotTo(HaveOccurred())
+			defer func() {
+				err := resp.Body.Close()
+				Expect(err).NotTo(HaveOccurred())
+			}()
+
+			Expect(resp.StatusCode).To(Equal(422))
+
+			body, err := io.ReadAll(resp.Body)
+			Expect(err).NotTo(HaveOccurred())
+
+			var errResp openaiserverapi.ErrorResponse
+			err = json.Unmarshal(body, &errResp)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(errResp.Error.Code).To(Equal(422))
+			Expect(errResp.Error.Message).To(ContainSubstring("X-Return-Error"))
+		})
+
+		It("Should return 400 when header value is not a valid integer", func() {
+			ctx := context.TODO()
+			client, err := startServer(ctx, common.ModeRandom)
+			Expect(err).NotTo(HaveOccurred())
+
+			reqBody := `{
+				"messages": [{"role": "user", "content": "Hello"}],
+				"model": "` + common.TestModelName + `",
+				"max_tokens": 5
+			}`
+
+			req, err := http.NewRequest("POST", "http://localhost/v1/chat/completions", strings.NewReader(reqBody))
+			Expect(err).NotTo(HaveOccurred())
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set(communication.XReturnErrorHeader, "abc")
+
+			resp, err := client.Do(req)
+			Expect(err).NotTo(HaveOccurred())
+			defer func() {
+				err := resp.Body.Close()
+				Expect(err).NotTo(HaveOccurred())
+			}()
+
+			Expect(resp.StatusCode).To(Equal(400))
+
+			body, err := io.ReadAll(resp.Body)
+			Expect(err).NotTo(HaveOccurred())
+
+			var errResp openaiserverapi.ErrorResponse
+			err = json.Unmarshal(body, &errResp)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(errResp.Error.Code).To(Equal(400))
+			Expect(errResp.Error.Message).To(ContainSubstring("Invalid X-Return-Error"))
+		})
+
 	})
 
 	Context("cache hit threshold", func() {
