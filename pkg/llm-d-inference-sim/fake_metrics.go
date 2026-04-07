@@ -67,12 +67,7 @@ func (s *SimContext) setInitialFakeMetrics() error {
 	allKeys["loras"] = true
 
 	// No previous values on initial setup.
-	if err := s.UpdateFakeMetrics(allKeys, &common.FakeMetrics{}); err != nil {
-		return err
-	}
-
-	go s.updateFakeMetrics()
-	return nil
+	return s.UpdateFakeMetrics(allKeys, &common.FakeMetrics{})
 }
 
 func (s *SimContext) updateFakeMetrics() {
@@ -155,10 +150,15 @@ func squarewave(params *common.FunctionInfo, t time.Duration) float64 {
 // This includes the last bucket (last_boundary, +Inf].
 // bucketsSamplesCount - array containing number of samples per bucket, starting from the first bucket.
 // Trailing empty buckets are not included in this array, so its length can be <= len(bucketsBoundaries)+1
-func (s *SimContext) initFakeHistogram(hist *prometheus.HistogramVec, bucketsBoundaries []float64, bucketsSamplesCount []int) float64 {
-	var valueToObserve, total float64
+func (s *SimContext) initFakeHistogram(hist *prometheus.HistogramVec, bucketsBoundaries []float64, bucketsSamplesCount []int) *int64 {
+	var valueToObserve float64
+	var total int64
 	numOfBoundaries := len(bucketsBoundaries)
 	modelName := s.getDisplayedModelName(s.Config.Model)
+
+	if len(bucketsSamplesCount) == 0 || len(bucketsBoundaries) == 0 {
+		return nil
+	}
 
 	for i, bucketSamplesCount := range bucketsSamplesCount {
 		// for each bucket calculate value to use for Observe function
@@ -176,10 +176,10 @@ func (s *SimContext) initFakeHistogram(hist *prometheus.HistogramVec, bucketsBou
 			hist.WithLabelValues(modelName).Observe(valueToObserve)
 		}
 
-		total += float64(bucketSamplesCount) * valueToObserve
+		total += int64(bucketSamplesCount) * int64(valueToObserve)
 	}
 
-	return total
+	return &total
 }
 
 // UpdateFakeMetrics applies a partial update to the simulator's Prometheus metrics
@@ -197,6 +197,11 @@ func (s *SimContext) initFakeHistogram(hist *prometheus.HistogramVec, bucketsBou
 // /fake_metrics HTTP endpoint (with only the keys the caller supplied).
 func (s *SimContext) UpdateFakeMetrics(fakeMetricsMap map[string]any, oldFakeMetrics *common.FakeMetrics) error {
 	modelName := s.getDisplayedModelName(s.Config.Model)
+
+	var generatedFakeMetricsWasEmpty bool
+	if len(s.metrics.generatedFakeMetrics) == 0 {
+		generatedFakeMetricsWasEmpty = true
+	}
 	if _, ok := fakeMetricsMap["running-requests"]; ok {
 		s.setFakeMetricWithFunction(modelName, &s.Config.FakeMetrics.RunningRequests, s.metrics.runningRequests,
 			s.metrics.runReqChan, true)
@@ -384,6 +389,10 @@ func (s *SimContext) UpdateFakeMetrics(fakeMetricsMap map[string]any, oldFakeMet
 		}
 	}
 
+	if generatedFakeMetricsWasEmpty && len(s.metrics.generatedFakeMetrics) > 0 {
+		go s.updateFakeMetrics()
+	}
+
 	return nil
 }
 
@@ -406,60 +415,50 @@ func (s *SimContext) updateTokenMetrics(
 	recreateCounter func() error,
 	clearExplicit func(),
 ) error {
-	var total float64
-	if _, ok := fakeMetricsMap[histKey]; ok {
+	_, newHasHist := fakeMetricsMap[histKey]
+	_, newHasExplicit := fakeMetricsMap[totalKey]
+
+	// Update histogram if new values are provided.
+	var histTotal *int64
+	if newHasHist {
 		if oldHistValues != nil {
 			s.metrics.registry.Unregister(*hist)
 			if err := recreateHist(); err != nil {
 				return err
 			}
 		}
-		total = s.initFakeHistogram(*hist, buckets, newHistValues)
+		histTotal = s.initFakeHistogram(*hist, buckets, newHistValues)
 	}
 
-	// Determine whether the total counter needs updating or resetting.
 	// The counter can be set from two sources: an explicit total value,
 	// or derived from the request histogram.
-	_, newHasHist := fakeMetricsMap[histKey]
-	oldHadHist := oldHistValues != nil
-	oldHadExplicit := oldExplicitTotal != nil
+	needsUpdate := (newHasExplicit && newExplicitTotal != nil) || newHasHist
+	if !needsUpdate {
+		return nil
+	}
 
-	_, newHasExplicit := fakeMetricsMap[totalKey]
-	// The counter had a value before (from either source)
-	wasSetBefore := oldHadExplicit || oldHadHist
-	// Update if a new explicit value is provided, or a new histogram is introduced
-	// while at least one old source was missing.
-	// This also covers the case where a new histogram replaces a previously
-	// explicit-only value (no old histogram), so the counter reflects the new source.
-	needsUpdate := newHasExplicit || (newHasHist && (!oldHadExplicit || !oldHadHist))
-	// Reset (unregister + re-register) only if updating and the counter already had a value
-	needsReset := needsUpdate && wasSetBefore
-
-	// Clear the explicit total value when a new histogram is introduced
-	// without an accompanying explicit total — the counter will now be derived from
-	// the histogram, so the stale explicit value must be removed.
-	removeExplicit := !newHasExplicit && newHasHist && !oldHadHist
-
-	if needsUpdate {
-		// Use the explicit total if provided, otherwise use the total derived from the histogram
-		var tokenTotal float64
-		if newHasExplicit && newExplicitTotal != nil {
-			tokenTotal = float64(*newExplicitTotal)
-		} else {
-			tokenTotal = total
+	// Reset (unregister + re-register) if the counter already had a value.
+	if oldExplicitTotal != nil || oldHistValues != nil {
+		s.metrics.registry.Unregister(*counter)
+		if err := recreateCounter(); err != nil {
+			return err
 		}
+	}
 
-		if needsReset {
-			s.metrics.registry.Unregister(*counter)
-			if err := recreateCounter(); err != nil {
-				return err
-			}
-		}
-		(*counter).WithLabelValues(modelName).Add(tokenTotal)
+	// Use the explicit total if provided, otherwise use the total derived from the histogram.
+	tokenTotal := histTotal
+	if newHasExplicit && newExplicitTotal != nil {
+		tokenTotal = newExplicitTotal
+	}
+	if tokenTotal != nil {
+		(*counter).WithLabelValues(modelName).Add(float64(*tokenTotal))
+	}
 
-		if removeExplicit {
-			clearExplicit()
-		}
+	// Clear the stale explicit total when a histogram is newly introduced
+	// without an accompanying explicit total — the counter will now be
+	// derived from the histogram.
+	if !newHasExplicit && newHasHist && oldHistValues == nil {
+		clearExplicit()
 	}
 
 	return nil

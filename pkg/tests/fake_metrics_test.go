@@ -633,8 +633,6 @@ var _ = Describe("Fake metrics", Ordered, func() {
 			// After update: latency buckets [1, 0, 0, 1] → counts: 1, 1, 1, 2, 2, ...
 			for i, boundary := range common.RequestLatencyBucketsBoundaries {
 				switch {
-				case i < 1:
-					expectedCount = 1
 				case i < 3:
 					expectedCount = 1
 				default:
@@ -782,6 +780,32 @@ var _ = Describe("Fake metrics", Ordered, func() {
 			Expect(metrics).NotTo(ContainSubstring("lora2"))
 			Expect(metrics).NotTo(ContainSubstring("lora3"))
 			Expect(metrics).To(ContainSubstring(`vllm:lora_requests_info{max_lora="1",running_lora_adapters="lora4",waiting_lora_adapters="lora5,lora6"} 2.000000001e+09`))
+
+			// Update lora metrics with an empty array
+			reqBody = `{
+				"loras":[]
+			}`
+
+			req, err = http.NewRequest("POST", updateFakeMetricsUrl, strings.NewReader(reqBody))
+			Expect(err).NotTo(HaveOccurred())
+			req.Header.Set("Content-Type", "application/json")
+			resp, err = client.Do(req)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.StatusCode).To(Equal(http.StatusNoContent))
+
+			resp, err = client.Get(metricsUrl)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+			data, err = io.ReadAll(resp.Body)
+			Expect(err).NotTo(HaveOccurred())
+			metrics = string(data)
+
+			// Old lora entries should be gone, only a new empty one present
+			Expect(metrics).NotTo(ContainSubstring("lora4"))
+			Expect(metrics).NotTo(ContainSubstring("lora5"))
+			Expect(metrics).NotTo(ContainSubstring("lora6"))
+			Expect(metrics).To(ContainSubstring(`vllm:lora_requests_info{max_lora="1",running_lora_adapters="",waiting_lora_adapters=""}`))
 		})
 
 		// This table tests the update logic for both prompt and generation token metrics.
@@ -861,26 +885,17 @@ var _ = Describe("Fake metrics", Ordered, func() {
 				verifyTokenMetrics(metrics, vllmsim.GenerationTokensMetricName, vllmsim.GenerationTokensTotalMetricName, secondGen)
 			},
 			// Prompt tokens: hist+total → update hist → update total
-			// Generated tokens: only total → add hist → update hist
+			// Generated tokens: only total → add hist → update total
 			Entry("#1 Prompt tokens: hist+total, Generated tokens: only total; then update hists, then update totals",
 				`{"request-prompt-tokens":[1,2,3], "total-prompt-tokens":12345, "total-generation-tokens":54321}`,
 				tokenTestPhase{checkBuckets123, intPtr(12345)}, tokenTestPhase{nil, intPtr(54321)},
 				`{"request-prompt-tokens":[10, 20], "request-generation-tokens":[10, 20]}`,
-				tokenTestPhase{checkBuckets10_20, intPtr(12345)}, tokenTestPhase{checkBuckets10_20, intPtr(50)},
+				tokenTestPhase{checkBuckets10_20, intPtr(50)}, tokenTestPhase{checkBuckets10_20, intPtr(50)},
 				`{"total-prompt-tokens":58, "total-generation-tokens":99}`,
 				tokenTestPhase{checkBuckets10_20, intPtr(58)}, tokenTestPhase{checkBuckets10_20, intPtr(99)}),
-			// Prompt tokens: only total → add hist → update hist
-			// Generated tokens:    hist+total → update hist → update total
-			Entry("#2 Prompt tokens: only total, Generated tokens: hist+total; then add hists, then update",
-				`{"total-prompt-tokens":12345, "request-generation-tokens":[1,2,3], "total-generation-tokens":54321}`,
-				tokenTestPhase{nil, intPtr(12345)}, tokenTestPhase{checkBuckets123, intPtr(54321)},
-				`{"request-prompt-tokens":[10, 20], "request-generation-tokens":[10, 20]}`,
-				tokenTestPhase{checkBuckets10_20, intPtr(50)}, tokenTestPhase{checkBuckets10_20, intPtr(54321)},
-				`{"request-prompt-tokens":[1,2,3], "total-generation-tokens":99}`,
-				tokenTestPhase{checkBuckets123, intPtr(20)}, tokenTestPhase{checkBuckets10_20, intPtr(99)}),
 			// Prompt tokens: only hist → update hist → update total
 			// Generated tokens:    only hist → update hist → update total
-			Entry("#3 Both: only hist; then update hists, then set totals",
+			Entry("#2 Both: only hist; then update hists, then set totals",
 				`{"request-prompt-tokens":[1,2,3], "request-generation-tokens":[10, 20]}`,
 				tokenTestPhase{checkBuckets123, intPtr(20)}, tokenTestPhase{checkBuckets10_20, intPtr(50)},
 				`{"request-prompt-tokens":[10, 20], "request-generation-tokens":[1,2,3]}`,
@@ -889,7 +904,7 @@ var _ = Describe("Fake metrics", Ordered, func() {
 				tokenTestPhase{checkBuckets10_20, intPtr(58)}, tokenTestPhase{checkBuckets123, intPtr(99)}),
 			// Prompt tokens: empty → set total → add hist
 			// Generated tokens: empty → set total → add hist
-			Entry("#4 Both: empty; then set totals, then add hists",
+			Entry("#3 Both: empty; then set totals, then add hists",
 				`{}`,
 				tokenTestPhase{nil, nil}, tokenTestPhase{nil, nil},
 				`{"total-prompt-tokens":58, "total-generation-tokens":77}`,
@@ -898,24 +913,41 @@ var _ = Describe("Fake metrics", Ordered, func() {
 				tokenTestPhase{checkBuckets10_20, intPtr(50)}, tokenTestPhase{checkBuckets123, intPtr(20)}),
 			// Prompt tokens: hist+total → empty (no change) → null hist (remove)
 			// Generated tokens: hist+total → empty (no change) → null hist (remove)
-			Entry("#5 Both: hist+total; then empty, then null hists",
+			Entry("#4 Both: hist+total; then empty, then null hists",
 				`{"request-prompt-tokens":[1,2,3], "total-prompt-tokens":12345, "request-generation-tokens":[10,20], "total-generation-tokens":54321}`,
 				tokenTestPhase{checkBuckets123, intPtr(12345)}, tokenTestPhase{checkBuckets10_20, intPtr(54321)},
 				`{}`,
 				tokenTestPhase{checkBuckets123, intPtr(12345)}, tokenTestPhase{checkBuckets10_20, intPtr(54321)},
 				`{"request-prompt-tokens":null, "request-generation-tokens":null}`,
-				tokenTestPhase{nil, intPtr(12345)}, tokenTestPhase{nil, intPtr(54321)}),
+				tokenTestPhase{nil, nil}, tokenTestPhase{nil, nil}),
 			// Prompt tokens: only hist → empty hist → update hist
-			// Generated tokens: only hist → empty hist → update hist
-			Entry("#6 Both: only hist; then empty hists, then re-add hists",
+			// Generated tokens: only hist → null total (no-op) → update hist
+			Entry("#5 Both: only hist; then empty/null clears, then re-add hists",
 				`{"request-prompt-tokens":[1,2,3], "request-generation-tokens":[10,20]}`,
 				tokenTestPhase{checkBuckets123, intPtr(20)}, tokenTestPhase{checkBuckets10_20, intPtr(50)},
-				`{"request-prompt-tokens":[], "request-generation-tokens":[]}`,
-				tokenTestPhase{nil, intPtr(0)}, tokenTestPhase{nil, intPtr(0)},
+				`{"request-prompt-tokens":[], "total-generation-tokens":null}`,
+				tokenTestPhase{nil, nil}, tokenTestPhase{checkBuckets10_20, intPtr(50)},
 				`{"request-prompt-tokens":[10, 20], "request-generation-tokens":[1,2,3]}`,
 				tokenTestPhase{checkBuckets10_20, intPtr(50)}, tokenTestPhase{checkBuckets123, intPtr(20)}),
+			// Prompt tokens: empty → add hist only → update with hist+total simultaneously
+			// Generated tokens: empty → add hist only → update with hist+total simultaneously
+			Entry("#6 Both: empty; then add hists, then update with hist+total simultaneously",
+				`{}`,
+				tokenTestPhase{nil, nil}, tokenTestPhase{nil, nil},
+				`{"request-prompt-tokens":[1,2,3], "request-generation-tokens":[10, 20]}`,
+				tokenTestPhase{checkBuckets123, intPtr(20)}, tokenTestPhase{checkBuckets10_20, intPtr(50)},
+				`{"request-prompt-tokens":[10,20], "total-prompt-tokens":999, "request-generation-tokens":[1,2,3], "total-generation-tokens":888}`,
+				tokenTestPhase{checkBuckets10_20, intPtr(999)}, tokenTestPhase{checkBuckets123, intPtr(888)}),
+			// Prompt tokens: only total → update total → add hist+total simultaneously
+			// Generated tokens: only total → update total → add hist+total simultaneously
+			Entry("#7 Both: only total; then update totals, then add hist+total simultaneously",
+				`{"total-prompt-tokens":100, "total-generation-tokens":200}`,
+				tokenTestPhase{nil, intPtr(100)}, tokenTestPhase{nil, intPtr(200)},
+				`{"total-prompt-tokens":300, "total-generation-tokens":400}`,
+				tokenTestPhase{nil, intPtr(300)}, tokenTestPhase{nil, intPtr(400)},
+				`{"request-prompt-tokens":[10,20], "total-prompt-tokens":999, "request-generation-tokens":[1,2,3], "total-generation-tokens":888}`,
+				tokenTestPhase{checkBuckets10_20, intPtr(999)}, tokenTestPhase{checkBuckets123, intPtr(888)}),
 		)
-
 	})
 })
 
