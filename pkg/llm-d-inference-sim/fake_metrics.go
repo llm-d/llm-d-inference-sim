@@ -70,23 +70,28 @@ func (s *SimContext) setInitialFakeMetrics() error {
 	return s.UpdateFakeMetrics(allKeys, &common.FakeMetrics{})
 }
 
-func (s *SimContext) updateFakeMetrics() {
+func (s *SimContext) updateGeneratedFakeMetrics() {
 	start := time.Now()
 	ticker := time.NewTicker(s.Config.FakeMetricsRefreshInterval)
 	defer ticker.Stop()
-	for range ticker.C {
-		t := time.Since(start)
-		for _, metric := range s.metrics.generatedFakeMetrics {
-			value := metric.genFun(metric.params, t)
-			if metric.roundToInt {
-				rounded := int64(value)
-				value = float64(rounded)
+	for {
+		select {
+		case <-s.metrics.stopFakeMetricsTicker:
+			return
+		case <-ticker.C:
+			t := time.Since(start)
+			for _, metric := range s.metrics.generatedFakeMetrics {
+				value := metric.genFun(metric.params, t)
+				if metric.roundToInt {
+					rounded := int64(value)
+					value = float64(rounded)
+				}
+				update := common.MetricInfo{
+					Value:  value,
+					IsFake: true,
+				}
+				common.WriteToChannel(metric.updateChan, update, s.logger)
 			}
-			update := common.MetricInfo{
-				Value:  value,
-				IsFake: true,
-			}
-			common.WriteToChannel(metric.updateChan, update, s.logger)
 		}
 	}
 }
@@ -390,7 +395,10 @@ func (s *SimContext) UpdateFakeMetrics(fakeMetricsMap map[string]any, oldFakeMet
 	}
 
 	if generatedFakeMetricsWasEmpty && len(s.metrics.generatedFakeMetrics) > 0 {
-		go s.updateFakeMetrics()
+		s.metrics.stopFakeMetricsTicker = make(chan struct{})
+		go s.updateGeneratedFakeMetrics()
+	} else if !generatedFakeMetricsWasEmpty && len(s.metrics.generatedFakeMetrics) == 0 {
+		close(s.metrics.stopFakeMetricsTicker)
 	}
 
 	return nil

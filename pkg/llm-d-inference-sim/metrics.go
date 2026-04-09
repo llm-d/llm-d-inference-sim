@@ -156,7 +156,8 @@ type metricsData struct {
 	// prefixCacheStatsChan is a channel to update prefix cache hit/query counters
 	prefixCacheStatsChan common.Channel[kvcache.PrefixCacheStats]
 
-	generatedFakeMetrics map[string]generatedFakeMetrics
+	generatedFakeMetrics    map[string]generatedFakeMetrics
+	stopFakeMetricsTicker   chan struct{}
 }
 
 func (s *SimContext) MetricsRegistry() *prometheus.Registry {

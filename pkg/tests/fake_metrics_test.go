@@ -441,12 +441,40 @@ var _ = Describe("Fake metrics", Ordered, func() {
 
 			// Update
 			reqBody := `{
+            "running-requests":15,
+            "waiting-requests":0,
+            "kv-cache-usage":0.9
+        }`
+
+			req, err := http.NewRequest("POST", updateFakeMetricsUrl, strings.NewReader(reqBody))
+			Expect(err).NotTo(HaveOccurred())
+			req.Header.Set("Content-Type", "application/json")
+			resp, err = client.Do(req)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.StatusCode).To(Equal(http.StatusNoContent))
+
+			time.Sleep(200 * time.Millisecond)
+
+			resp, err = client.Get(metricsUrl)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+			data, err = io.ReadAll(resp.Body)
+			Expect(err).NotTo(HaveOccurred())
+			metrics = string(data)
+
+			Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllmsim.ReqRunningMetricName, 15)))
+			Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllmsim.ReqWaitingMetricName, 0)))
+			Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllmsim.KVCacheUsageMetricName, 0.9)))
+
+			// Update
+			reqBody = `{
             "running-requests":"oscillate:10:50:1s",
             "waiting-requests":30,
             "kv-cache-usage":"ramp:0:1:150ms"
         }`
 
-			req, err := http.NewRequest("POST", updateFakeMetricsUrl, strings.NewReader(reqBody))
+			req, err = http.NewRequest("POST", updateFakeMetricsUrl, strings.NewReader(reqBody))
 			Expect(err).NotTo(HaveOccurred())
 			req.Header.Set("Content-Type", "application/json")
 			resp, err = client.Do(req)
