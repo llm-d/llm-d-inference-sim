@@ -555,7 +555,7 @@ func (c *Communication) HandleTokenize(ctx *fasthttp.RequestCtx) {
 		tokens, _, err = c.simulator.Context.Tokenizer.RenderText(req.Prompt)
 	} else {
 		// has messages
-		tokens, _, err = c.simulator.Context.Tokenizer.RenderChatCompletion(req.Messages)
+		tokens, _, _, err = c.simulator.Context.Tokenizer.RenderChatCompletion(req.Messages)
 	}
 	if err != nil {
 		c.logger.Error(err, "failed to tokenize")

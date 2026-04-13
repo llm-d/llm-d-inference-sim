@@ -32,7 +32,8 @@ import (
 type TokenizerManager struct {
 	testTokenizer Tokenizer
 	qwenTokenizer Tokenizer
-	qwenCleanup   func()
+	mmTokenizer   Tokenizer
+	cleanupFunc   func()
 
 	logger logr.Logger
 }
@@ -52,6 +53,10 @@ func (tm *TokenizerManager) RealTokenizer() Tokenizer {
 	return tm.qwenTokenizer
 }
 
+func (tm *TokenizerManager) MMTokenizer() Tokenizer {
+	return tm.mmTokenizer
+}
+
 func (tm *TokenizerManager) Init(ctx context.Context, logger logr.Logger) error {
 	tm.logger = logger
 
@@ -62,25 +67,40 @@ func (tm *TokenizerManager) Init(ctx context.Context, logger logr.Logger) error 
 	}
 	tm.testTokenizer = tokenizer
 
-	// run tokenizer for real model in container
+	// run one container for all real model tokenizers
 	address, cleanup, err := tm.startTokenizerContainer(ctx)
 	if err != nil {
 		return err
 	}
-	tm.qwenCleanup = cleanup
+	tm.cleanupFunc = cleanup
+	// create tokenizer for Qwen model
 	tm.qwenTokenizer, err = tm.newTokenizer(ctx, address, common.QwenModelName)
-	return err
+	if err != nil {
+		cleanup()
+		return err
+	}
+
+	// create tokenizer for multimodal model
+	tm.mmTokenizer, err = tm.newTokenizer(ctx, address, common.MMModelName)
+	if err != nil {
+		cleanup()
+		return err
+	}
+
+	return nil
 }
 
 func (tm *TokenizerManager) Clean() {
-	tm.qwenCleanup()
+	if tm.cleanupFunc != nil {
+		tm.cleanupFunc()
+	}
 }
 
 // starts a tokenizer in a docker container
 // returns docker address, cleanup function and error
 func (tm *TokenizerManager) startTokenizerContainer(ctx context.Context) (string, func(), error) {
 	container, err := testcontainers.Run(ctx,
-		"ghcr.io/llm-d/llm-d-uds-tokenizer:v0.6.0",
+		"ghcr.io/llm-d/llm-d-uds-tokenizer:v0.7.1",
 		testcontainers.WithExposedPorts("50051/tcp"),
 		testcontainers.WithEnv(map[string]string{
 			"GRPC_PORT": "50051",

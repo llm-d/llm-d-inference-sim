@@ -237,7 +237,7 @@ func (dt *DatasetTool) conversationToOutputRecords(userTxt, assistantTxt string,
 	}
 
 	// create db record for /chat/completions with all messages till now
-	inputTokens, _, err = dt.tokenizer.RenderChatCompletion(chatRequest.Messages)
+	inputTokens, _, _, err = dt.tokenizer.RenderChatCompletion(chatRequest.Messages)
 	rawInput := tokenizer.FlattenChatRequest(chatRequest.Messages)
 	if err != nil {
 		return nil, errors.Join(err, fmt.Errorf("input tokenization failed (%s)", rawInput))

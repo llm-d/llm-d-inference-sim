@@ -243,7 +243,7 @@ var _ = Describe("Echo Dataset", Ordered, func() {
 					{Role: openaiserverapi.RoleUser, Content: openaiserverapi.Content{Raw: testPrompt}},
 				},
 			}
-			promptTokens, promptStrTokens, err := tokenizerMngr.TestTokenizer().RenderChatCompletion(req.Messages)
+			promptTokens, promptStrTokens, _, err := tokenizerMngr.TestTokenizer().RenderChatCompletion(req.Messages)
 			Expect(err).ShouldNot(HaveOccurred())
 			respTokens, resptStrTokens, err := tokenizerMngr.TestTokenizer().RenderText(testPrompt)
 			Expect(err).ShouldNot(HaveOccurred())

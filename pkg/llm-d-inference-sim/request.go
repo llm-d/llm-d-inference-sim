@@ -22,6 +22,7 @@ import (
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
+	"github.com/llm-d/llm-d-kv-cache/pkg/tokenization"
 	"github.com/valyala/fasthttp"
 )
 
@@ -49,7 +50,7 @@ type requestContext interface {
 	handleRequest() (ResponseContext, *openaiserverapi.Error)
 	responseChannel() common.Channel[*ResponseInfo]
 	tokenizedPromptForEcho() (*openaiserverapi.Tokenized, error)
-	encode() ([]uint32, []string, error)
+	encode() ([]uint32, []string, *tokenization.MultiModalFeatures, error)
 }
 
 type baseRequestContext struct {
@@ -80,7 +81,7 @@ func (b *baseRequestContext) tokenize() *openaiserverapi.Error {
 
 	if tokens := req.TokenizedPrompt(); tokens == nil {
 		// the prompt is still not tokenized - tokenize now
-		tokens, textTokens, err := b.encode()
+		tokens, textTokens, mmFeatures, err := b.encode()
 		if err != nil {
 			b.sim.logger.Error(err, "failed to tokenize")
 			serverErr := openaiserverapi.NewError("Failed to tokenize, "+err.Error(), fasthttp.StatusInternalServerError, nil)
@@ -91,6 +92,8 @@ func (b *baseRequestContext) tokenize() *openaiserverapi.Error {
 			Tokens:  tokens,
 			Strings: textTokens,
 		})
+
+		req.SetMMFeatures(mmFeatures)
 	}
 
 	if b.sim.Config.Mode == common.ModeEcho {

@@ -56,21 +56,41 @@ func (hft *HFTokenizer) RenderText(input string) ([]uint32, []string, error) {
 	}
 
 	textTokens := make([]string, len(tokens))
-	for i, offset := range offsets {
-		textTokens[i] = input[offset[0]:offset[1]]
+
+	if len(offsets) > 0 {
+		for i, offset := range offsets {
+			textTokens[i] = input[offset[0]:offset[1]]
+		}
+	} else {
+		// only one token returned, use the whole input as the text token
+		textTokens[0] = input
 	}
 
 	return tokens, textTokens, err
 }
 
 // Converts input to tokens in two steps: templatization and tokenization
-func (hft *HFTokenizer) RenderChatCompletion(messages []openaiserverapi.Message) ([]uint32, []string, error) {
+func (hft *HFTokenizer) RenderChatCompletion(messages []openaiserverapi.Message) ([]uint32, []string, *tokenization.MultiModalFeatures, error) {
 	// Convert messages to conversation format
 	conversations := make([]types.Conversation, len(messages))
 	for i, msg := range messages {
-		conversations[i] = types.Conversation{
-			Role:    msg.Role,
-			Content: msg.Content.Raw,
+		conversations[i].Role = msg.Role
+
+		if msg.Content.Structured != nil {
+			conversations[i].Content.Structured = make([]types.ContentBlock, len(msg.Content.Structured))
+
+			// copy structured content
+			for j, block := range msg.Content.Structured {
+				conversations[i].Content.Structured[j] = types.ContentBlock{
+					Type: block.Type,
+					Text: block.Text,
+					ImageURL: types.ImageBlock{
+						URL: block.ImageURL.Url,
+					},
+				}
+			}
+		} else {
+			conversations[i].Content.Raw = msg.Content.Raw
 		}
 	}
 
@@ -80,7 +100,7 @@ func (hft *HFTokenizer) RenderChatCompletion(messages []openaiserverapi.Message)
 		Documents:    make([]any, 0),
 	}
 
-	tokens, _, err := hft.udsTokenizer.RenderChat(&renderReq)
+	tokens, mmFeatures, err := hft.udsTokenizer.RenderChat(&renderReq)
 
-	return tokens, []string{}, err
+	return tokens, []string{}, mmFeatures, err
 }

@@ -91,8 +91,21 @@ func (h *KVCacheHelper) OnRequestStart(vllmReq openaiserverapi.Request) (float64
 	tokens := vllmReq.TokenizedPrompt().Tokens
 	modelName := vllmReq.GetModel()
 
+	// compute per-block extra features from multimodal metadata (if present).
+	var extraFeatures []*kvblock.BlockExtraFeatures
+	mmFeatres := vllmReq.MMFeatures()
+
+	if mmFeatres != nil {
+		extraFeatures = kvblock.ComputeBlockExtraFeatures(
+			mmFeatres.MMHashes, mmFeatres.MMPlaceholders,
+			h.blockSize, len(tokens))
+	}
+
 	// get block keys
-	blockKeys := h.tokensProcessor.TokensToKVBlockKeys(kvblock.EmptyBlockHash, tokens, modelName)
+	blockKeys, err := h.tokensProcessor.TokensToKVBlockKeys(kvblock.EmptyBlockHash, tokens, modelName, extraFeatures)
+	if err != nil {
+		return 0, fmt.Errorf("failed to convert tokens to block keys: %w", err)
+	}
 	h.logger.V(logging.TRACE).Info("Found tokens", "tokens", tokens, "block-keys", blockKeys)
 
 	blockHashes := make([]uint64, len(blockKeys))

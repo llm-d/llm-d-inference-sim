@@ -19,7 +19,7 @@ spec:
       # restartPolicy: Always makes this a native sidecar (K8s 1.29+):
       # vllm-prefill will not start until this container's readinessProbe passes
       - name: uds-tokenizer
-        image: ghcr.io/llm-d/llm-d-uds-tokenizer:v0.6.0
+        image: ghcr.io/llm-d/llm-d-uds-tokenizer:v0.7.1
         imagePullPolicy: IfNotPresent
         restartPolicy: Always
         env:
@@ -83,7 +83,7 @@ spec:
       # restartPolicy: Always makes this a native sidecar (K8s 1.29+):
       # vllm-prefill will not start until this container's readinessProbe passes
       - name: uds-tokenizer
-        image: ghcr.io/llm-d/llm-d-uds-tokenizer:v0.6.0
+        image: ghcr.io/llm-d/llm-d-uds-tokenizer:v0.7.1
         imagePullPolicy: IfNotPresent
         restartPolicy: Always
         env:

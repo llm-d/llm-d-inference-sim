@@ -26,6 +26,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
+	"github.com/llm-d/llm-d-kv-cache/pkg/tokenization"
 	"github.com/valyala/fasthttp"
 )
 
@@ -33,7 +34,7 @@ type Tokenizer interface {
 	// Converts input text to tokens
 	RenderText(input string) ([]uint32, []string, error)
 	// Converts input to tokens in two steps: templatization and tokenization
-	RenderChatCompletion(messages []openaiserverapi.Message) ([]uint32, []string, error)
+	RenderChatCompletion(messages []openaiserverapi.Message) ([]uint32, []string, *tokenization.MultiModalFeatures, error)
 }
 
 type SimpleTokenizer struct {
@@ -58,20 +59,21 @@ func stringsToUint32sHash(strings []string) []uint32 {
 
 // Converts input to tokens
 func (st *SimpleTokenizer) RenderText(input string) ([]uint32, []string, error) {
-	tokens, textTokens, err := st.tokenize(input)
-	return tokens, textTokens, err
+	tokens, textTokens := st.tokenize(input)
+	return tokens, textTokens, nil
 }
 
 // Converts input to tokens in two steps: templatization and tokenization
-func (st *SimpleTokenizer) RenderChatCompletion(messages []openaiserverapi.Message) ([]uint32, []string, error) {
+func (st *SimpleTokenizer) RenderChatCompletion(messages []openaiserverapi.Message) ([]uint32, []string, *tokenization.MultiModalFeatures, error) {
 	input := FlattenChatRequest(messages)
-	return st.tokenize(input)
+	tokens, textTokens := st.tokenize(input)
+	return tokens, textTokens, nil, nil
 }
 
-func (st *SimpleTokenizer) tokenize(input string) ([]uint32, []string, error) {
+func (st *SimpleTokenizer) tokenize(input string) ([]uint32, []string) {
 	strTokens := st.re.FindAllString(input, -1)
 
-	return stringsToUint32sHash(strTokens), strTokens, nil
+	return stringsToUint32sHash(strTokens), strTokens
 }
 
 // Creates a string representing the given chat completions request
