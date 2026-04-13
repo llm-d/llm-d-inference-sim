@@ -481,7 +481,7 @@ var _ = Describe("Fake metrics", Ordered, func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resp.StatusCode).To(Equal(http.StatusNoContent))
 
-			time.Sleep(200 * time.Millisecond)
+			time.Sleep(400 * time.Millisecond)
 
 			resp, err = client.Get(metricsUrl)
 			Expect(err).NotTo(HaveOccurred())
