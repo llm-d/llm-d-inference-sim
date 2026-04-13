@@ -35,6 +35,8 @@ type PrefixCacheStats struct {
 	QueriedTokens int
 	// CachedTokens is the number of prompt tokens that were already cached
 	CachedTokens int
+	// HitRate is the proportion of prompt tokens that were already cached
+	HitRate float64
 }
 
 type KVCacheHelper struct {
@@ -85,7 +87,7 @@ func (h *KVCacheHelper) Activate() {
 	h.blockCache.activate()
 }
 
-func (h *KVCacheHelper) OnRequestStart(vllmReq openaiserverapi.Request) (float64, error) {
+func (h *KVCacheHelper) OnRequestStart(vllmReq openaiserverapi.Request) (PrefixCacheStats, error) {
 	h.logger.V(logging.TRACE).Info("KV cache - process request")
 
 	tokens := vllmReq.TokenizedPrompt().Tokens
@@ -118,7 +120,7 @@ func (h *KVCacheHelper) OnRequestStart(vllmReq openaiserverapi.Request) (float64
 	requestID := vllmReq.GetRequestID()
 	nBlocksAlreadyInCache, err := h.blockCache.startRequest(requestID, blockHashes, blockTokens)
 	if err != nil {
-		return 0, err
+		return PrefixCacheStats{}, err
 	}
 
 	cachedTokens := nBlocksAlreadyInCache * h.blockSize
@@ -132,12 +134,14 @@ func (h *KVCacheHelper) OnRequestStart(vllmReq openaiserverapi.Request) (float64
 		hitRate = float64(cachedBlocks) / float64(totalBlocks)
 	}
 
-	common.WriteToChannel(h.prefixCacheStatsChan, PrefixCacheStats{
+	stats := PrefixCacheStats{
 		QueriedTokens: len(tokens),
 		CachedTokens:  cachedTokens,
-	}, h.logger)
+		HitRate:       hitRate,
+	}
+	common.WriteToChannel(h.prefixCacheStatsChan, stats, h.logger)
 
-	return hitRate, nil
+	return stats, nil
 }
 
 func (h *KVCacheHelper) OnRequestEnd(requestID string) error {

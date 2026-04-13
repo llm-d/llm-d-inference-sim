@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
+	kvcache "github.com/llm-d/llm-d-inference-sim/pkg/kv-cache"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	"github.com/llm-d/llm-d-kv-cache/pkg/tokenization"
 	"github.com/valyala/fasthttp"
@@ -44,7 +45,7 @@ type requestContext interface {
 	request() Request
 	startProcessingTime() time.Time
 	tokenize() *openaiserverapi.Error
-	kvCacheOnRequestStart() (hitRate float64, serverError *openaiserverapi.Error)
+	kvCacheOnRequestStart() (stats kvcache.PrefixCacheStats, serverError *openaiserverapi.Error)
 	kvCacheOnRequestEnd()
 	createToolCalls() ([]openaiserverapi.ToolCall, int, string, error)
 	handleRequest() (ResponseContext, *openaiserverapi.Error)
@@ -148,10 +149,11 @@ func (reqCtx *baseRequestContext) handleRequest() (ResponseContext, *openaiserve
 		return nil, &oaiServerError
 	}
 
-	hitRate, oaiServerError := reqCtx.kvCacheOnRequestStart()
+	prefixCacheStats, oaiServerError := reqCtx.kvCacheOnRequestStart()
 	if oaiServerError != nil {
 		return nil, oaiServerError
 	}
+	hitRate := prefixCacheStats.HitRate
 
 	var finishReason string
 	if reqCtx.shouldReturnCacheThresholdFinishReason(req, hitRate) {
@@ -193,6 +195,9 @@ func (reqCtx *baseRequestContext) handleRequest() (ResponseContext, *openaiserve
 		PromptTokens:     numOfInputTokens,
 		CompletionTokens: completionTokens,
 		TotalTokens:      numOfInputTokens + completionTokens,
+		PromptTokensDetail: &openaiserverapi.PromptTokensDetail{
+			CachedTokens: prefixCacheStats.CachedTokens,
+		},
 	}
 
 	// Extract logprob data from request (unified approach)
@@ -242,17 +247,17 @@ func (reqCtx *baseRequestContext) shouldReturnCacheThresholdFinishReason(req ope
 	return false
 }
 
-func (reqCtx *baseRequestContext) kvCacheOnRequestStart() (hitRate float64, oaiServerError *openaiserverapi.Error) {
+func (reqCtx *baseRequestContext) kvCacheOnRequestStart() (stat kvcache.PrefixCacheStats, oaiServerError *openaiserverapi.Error) {
 	if reqCtx.sim.Config.EnableKVCache {
 		var err error
-		hitRate, err = reqCtx.sim.kvcacheHelper.OnRequestStart(reqCtx.request())
+		stat, err = reqCtx.sim.kvcacheHelper.OnRequestStart(reqCtx.request())
 		if err != nil {
 			serverError := openaiserverapi.NewError(err.Error(), fasthttp.StatusInternalServerError, nil)
-			return 0, &serverError
+			return kvcache.PrefixCacheStats{}, &serverError
 		}
-		return hitRate, nil
+		return stat, nil
 	}
-	return 0, nil
+	return kvcache.PrefixCacheStats{}, nil
 }
 
 func (reqCtx *baseRequestContext) kvCacheOnRequestEnd() {
