@@ -95,9 +95,10 @@ func (hft *HFTokenizer) RenderChatCompletion(messages []openaiserverapi.Message)
 	}
 
 	renderReq := types.RenderChatRequest{
-		Conversation: conversations,
-		Tools:        make([]any, 0),
-		Documents:    make([]any, 0),
+		Conversation:        conversations,
+		Tools:               make([]any, 0),
+		Documents:           make([]any, 0),
+		AddGenerationPrompt: false,
 	}
 
 	tokens, mmFeatures, err := hft.udsTokenizer.RenderChat(&renderReq)
