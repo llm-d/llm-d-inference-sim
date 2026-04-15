@@ -239,12 +239,12 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 				stream1 := openaiclient.Chat.Completions.NewStreaming(ctx, paramsLora1)
 				for stream1.Next() {
 				}
-				stream1.Close()
+				stream1.Close() //nolint:errcheck
 
 				stream2 := openaiclient.Chat.Completions.NewStreaming(ctx, paramsLora2)
 				for stream2.Next() {
 				}
-				stream2.Close()
+				stream2.Close() //nolint:errcheck
 			} else {
 				_, err = openaiclient.Chat.Completions.New(ctx, paramsLora1)
 				Expect(err).NotTo(HaveOccurred())

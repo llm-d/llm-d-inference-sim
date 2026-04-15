@@ -257,8 +257,8 @@ func (c *Communication) sendStream(ctx *fasthttp.RequestCtx, channel common.Chan
 		var respCtx vllmsim.ResponseContext
 
 		defer func() {
-			w.Flush() //nolint:errcheck
-			pw.Close()
+			w.Flush()  //nolint:errcheck
+			pw.Close() //nolint:errcheck
 			c.onResponseSendFinished(respCtx)
 		}()
 
