@@ -153,7 +153,10 @@ func (reqCtx *baseRequestContext) handleRequest() (ResponseContext, *openaiserve
 	if oaiServerError != nil {
 		return nil, oaiServerError
 	}
-	hitRate := prefixCacheStats.HitRate
+	hitRate := float64(0)
+	if prefixCacheStats.QueriedTokens > 0 {
+		hitRate = float64(prefixCacheStats.CachedTokens) / float64(prefixCacheStats.QueriedTokens)
+	}
 
 	var finishReason string
 	if reqCtx.shouldReturnCacheThresholdFinishReason(req, hitRate) {

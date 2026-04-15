@@ -35,8 +35,6 @@ type PrefixCacheStats struct {
 	QueriedTokens int
 	// CachedTokens is the number of prompt tokens that were already cached
 	CachedTokens int
-	// HitRate is the proportion of prompt tokens that were already cached
-	HitRate float64
 }
 
 type KVCacheHelper struct {
@@ -126,18 +124,9 @@ func (h *KVCacheHelper) OnRequestStart(vllmReq openaiserverapi.Request) (PrefixC
 	cachedTokens := nBlocksAlreadyInCache * h.blockSize
 	vllmReq.SetNumberOfCachedPromptTokens(cachedTokens)
 
-	totalBlocks := len(blockHashes)
-	cachedBlocks := h.blockCache.countCachedBlockPrefix(blockHashes)
-
-	var hitRate float64
-	if totalBlocks > 0 {
-		hitRate = float64(cachedBlocks) / float64(totalBlocks)
-	}
-
 	stats := PrefixCacheStats{
 		QueriedTokens: len(tokens),
 		CachedTokens:  cachedTokens,
-		HitRate:       hitRate,
 	}
 	common.WriteToChannel(h.prefixCacheStatsChan, stats, h.logger)
 
