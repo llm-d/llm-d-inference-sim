@@ -40,7 +40,7 @@ func (t *TextCompletionRequest) validate(toolsValidator *toolsValidator) (string
 
 func (t *TextCompletionRequest) buildRequestContext(simCtx *SimContext, channel common.Channel[*ResponseInfo]) requestContext {
 	reqCtx := &textCompletionReqCtx{
-		baseRequestContext: newBaseRequestContext(simCtx, channel),
+		baseRequestContext: newBaseRequestContext(simCtx, channel, t.GetModel()),
 		req:                t,
 	}
 	// wire textCompletionReqCtx into embedded requestContext interface

@@ -60,21 +60,39 @@ type requestProcessor interface {
 
 func (s *VllmSimulator) processRequest(reqCtx requestContext) {
 	startTime := time.Now()
-	wg := sync.WaitGroup{}
-	wg.Add(1)
 	req := reqCtx.request()
 	respCtx, err := reqCtx.handleRequest()
 	if err != nil {
 		common.WriteToChannel(reqCtx.responseChannel(), &ResponseInfo{RespCtx: respCtx, Err: err},
 			s.Context.logger)
+		s.ResponseSentCallback(reqCtx)
 		return
 	}
 
+	wg := sync.WaitGroup{}
+	wg.Add(1)
 	respCtx.setWG(&wg)
 
 	s.sendResponse(reqCtx, respCtx)
 
-	wg.Wait()
+	// Wait for the response to be fully sent, with a timeout to prevent
+	// the worker from hanging indefinitely when the client doesn't consume the stream.
+	doneCh := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(doneCh)
+	}()
+
+	const sendTimeout = 60 * time.Second
+	select {
+	case <-doneCh:
+		// Response sent successfully
+	case <-time.After(sendTimeout):
+		s.Context.logger.Error(nil, "Timeout waiting for response to be sent, releasing worker",
+			"id", req.GetRequestID(), "timeout", sendTimeout)
+		s.ResponseSentCallback(reqCtx)
+		return
+	}
 
 	common.WriteToChannel(s.Context.metrics.requestSuccessChan,
 		requestSuccessEvent{

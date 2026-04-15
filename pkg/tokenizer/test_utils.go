@@ -24,6 +24,7 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 	"github.com/llm-d/llm-d-kv-cache/pkg/tokenization"
+	crlog "sigs.k8s.io/controller-runtime/pkg/log"
 
 	testcontainers "github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -59,6 +60,7 @@ func (tm *TokenizerManager) MMTokenizer() Tokenizer {
 
 func (tm *TokenizerManager) Init(ctx context.Context, logger logr.Logger) error {
 	tm.logger = logger
+	crlog.SetLogger(logger)
 
 	// no need to start a stand alone tokenizer - it will not be used for the test model
 	tokenizer, err := tm.newTokenizer(ctx, "", common.TestModelName)

@@ -65,7 +65,7 @@ func (c *Communication) Generate(in *pb.GenerateRequest, out grpc.ServerStreamin
 				if response.Tokens != nil {
 					response := respBuilder.createChunk(respCtx, response.Tokens, nil, "", nil)
 					if err := sendResponse(response, out); err != nil {
-						respCtx.Done()
+						c.onResponseSendFinished(respCtx)
 						return err
 					}
 				}
@@ -81,12 +81,11 @@ func (c *Communication) Generate(in *pb.GenerateRequest, out grpc.ServerStreamin
 	} else {
 		response = respBuilder.createResponse(respCtx, &tokens)
 	}
-	defer respCtx.Done()
+	defer c.onResponseSendFinished(respCtx)
 	if err := sendResponse(response, out); err != nil {
 		return err
 	}
 
-	c.simulator.ResponseSentCallback(respCtx.RequestContext(), respCtx.DisplayModel())
 	return nil
 }
 

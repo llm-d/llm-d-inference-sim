@@ -278,9 +278,10 @@ func (s *VllmSimulator) addRequestToQueue(reqCtx requestContext) {
 	// increment the waiting requests metric
 	common.WriteToChannel(s.Context.metrics.waitingReqChan, common.MetricInfo{Value: 1}, s.Context.logger)
 	// update loraInfo metrics with the new waiting request
-	common.WriteToChannel(s.Context.metrics.lorasChan, loraUsage{reqCtx.request().GetModel(), waitingUsageState},
-		s.Context.logger)
-
+	if s.Context.isLora(reqCtx.request().GetModel()) {
+		common.WriteToChannel(s.Context.metrics.lorasChan, loraUsage{reqCtx.request().GetModel(), waitingUsageState},
+			s.Context.logger)
+	}
 }
 
 func (s *VllmSimulator) HandleRequest(req Request) (bool, *common.Channel[*ResponseInfo], *openaiserverapi.Error, bool) {
@@ -406,10 +407,11 @@ func (s *VllmSimulator) sendResponse(reqCtx requestContext, respCtx ResponseCont
 }
 
 // request processing finished
-func (s *VllmSimulator) ResponseSentCallback(reqCtx requestContext, model string) {
+func (s *VllmSimulator) ResponseSentCallback(reqCtx requestContext) {
 	// decrement running requests count
 	common.WriteToChannel(s.Context.metrics.runReqChan, common.MetricInfo{Value: -1}, s.Context.logger)
 
+	model := reqCtx.displayModelName()
 	if s.Context.isLora(model) {
 		// update loraInfo metrics to reflect that the request processing has been finished
 		common.WriteToChannel(s.Context.metrics.lorasChan, loraUsage{model, doneUsageState},

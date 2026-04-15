@@ -111,6 +111,50 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 		Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllmsim.ReqWaitingMetricName, 1)))
 	})
 
+	DescribeTable("should send correct running and waiting requests metrics with failures",
+		func(stream bool) {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
+				"--max-model-len", "2",
+				"--lora-modules", "{\"name\":\"lora1\",\"path\":\"/path/to/lora1\"}"}
+
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			openaiclient, params := getOpenAIClientAndChatParams(client, "lora1", testUserMessage, stream)
+
+			_, err = openaiclient.Chat.Completions.New(ctx, params)
+			Expect(err).To(HaveOccurred())
+
+			time.Sleep(300 * time.Millisecond)
+			metricsResp, err := client.Get(metricsUrl)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
+
+			data, err := io.ReadAll(metricsResp.Body)
+			Expect(err).NotTo(HaveOccurred())
+			metrics := string(data)
+
+			// There should be no running or waiting requests
+			Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllmsim.ReqRunningMetricName, 0)))
+			Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllmsim.ReqWaitingMetricName, 0)))
+
+			// We sent one request (that failed), we expect to see (in this order)
+			// 1. running: lora1, waiting: empty
+			// 2. running: empty, waiting: empty
+			metricsLines := strings.Split(metrics, "\n")
+			Expect(isLoraMetricPresent(metricsLines, lora1Arr, emptyArray)).To(BeTrue())
+			Expect(isLoraMetricPresent(metricsLines, emptyArray, emptyArray)).To(BeTrue())
+
+			// Check the order
+			timestamp1 := getLoraValidTimestamp(metricsLines, lora1Arr, emptyArray)
+			timestamp2 := getLoraValidTimestamp(metricsLines, emptyArray, emptyArray)
+			Expect(timestamp1 <= timestamp2).To(BeTrue())
+		},
+		Entry("no streaming", false),
+		Entry("streaming", true),
+	)
+
 	It("Should record correct prompt and generation token counts", func() {
 		ctx := context.TODO()
 
@@ -176,50 +220,66 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 		Expect(metrics).To(MatchRegexp(fmt.Sprintf(`vllm:request_success_total{finish_reason="(stop|length)",model_name="%s"} 1`, common.TestModelName)))
 	})
 
-	It("Should send correct lora metrics", func() {
-		ctx := context.TODO()
-		args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
-			"--time-to-first-token", "3000",
-			"--lora-modules", "{\"name\":\"lora1\",\"path\":\"/path/to/lora1\"}",
-			"{\"name\":\"lora2\",\"path\":\"/path/to/lora2\"}"}
+	DescribeTable("should send correct lora metrics",
+		func(stream bool) {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
+				"--time-to-first-token", "3000", "-v", "5",
+				"--lora-modules", "{\"name\":\"lora1\",\"path\":\"/path/to/lora1\"}",
+				"{\"name\":\"lora2\",\"path\":\"/path/to/lora2\"}"}
 
-		client, err := startServerWithArgs(ctx, args)
-		Expect(err).NotTo(HaveOccurred())
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
 
-		openaiclient := openai.NewClient(
-			option.WithBaseURL(baseURL),
-			option.WithHTTPClient(client))
+			openaiclient := openai.NewClient(
+				option.WithBaseURL(baseURL),
+				option.WithHTTPClient(client))
 
-		_, err = openaiclient.Chat.Completions.New(ctx, paramsLora1)
-		Expect(err).NotTo(HaveOccurred())
+			if stream {
+				stream1 := openaiclient.Chat.Completions.NewStreaming(ctx, paramsLora1)
+				for stream1.Next() {
+				}
+				stream1.Close()
 
-		_, err = openaiclient.Chat.Completions.New(ctx, paramsLora2)
-		Expect(err).NotTo(HaveOccurred())
+				stream2 := openaiclient.Chat.Completions.NewStreaming(ctx, paramsLora2)
+				for stream2.Next() {
+				}
+				stream2.Close()
+			} else {
+				_, err = openaiclient.Chat.Completions.New(ctx, paramsLora1)
+				Expect(err).NotTo(HaveOccurred())
 
-		metricsResp, err := client.Get(metricsUrl)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
+				_, err = openaiclient.Chat.Completions.New(ctx, paramsLora2)
+				Expect(err).NotTo(HaveOccurred())
+			}
 
-		data, err := io.ReadAll(metricsResp.Body)
-		Expect(err).NotTo(HaveOccurred())
-		metrics := strings.Split(string(data), "\n")
+			metricsResp, err := client.Get(metricsUrl)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
 
-		// We sent two sequentual requests to two different LoRAs, we expect to see (in this order)
-		// 1. running: lora1, waiting: empty
-		// 2. running: lora2, waiting: empty
-		// 3. running: empty, waiting: empty
-		Expect(isLoraMetricPresent(metrics, lora1Arr, emptyArray)).To(BeTrue())
-		Expect(isLoraMetricPresent(metrics, lora2Arr, emptyArray)).To(BeTrue())
-		Expect(isLoraMetricPresent(metrics, emptyArray, emptyArray)).To(BeTrue())
+			data, err := io.ReadAll(metricsResp.Body)
+			Expect(err).NotTo(HaveOccurred())
+			metrics := strings.Split(string(data), "\n")
 
-		// Check the order
-		timestamp1 := getLoraValidTimestamp(metrics, lora1Arr, emptyArray)
-		timestamp2 := getLoraValidTimestamp(metrics, lora2Arr, emptyArray)
-		timestamp3 := getLoraValidTimestamp(metrics, emptyArray, emptyArray)
+			// We sent two sequentual requests to two different LoRAs, we expect to see (in this order)
+			// 1. running: lora1, waiting: empty
+			// 2. running: lora2, waiting: empty
+			// 3. running: empty, waiting: empty
+			Expect(isLoraMetricPresent(metrics, lora1Arr, emptyArray)).To(BeTrue())
+			Expect(isLoraMetricPresent(metrics, lora2Arr, emptyArray)).To(BeTrue())
+			Expect(isLoraMetricPresent(metrics, emptyArray, emptyArray)).To(BeTrue())
 
-		Expect(timestamp1 <= timestamp2).To(BeTrue())
-		Expect(timestamp2 <= timestamp3).To(BeTrue())
-	})
+			// Check the order
+			timestamp1 := getLoraValidTimestamp(metrics, lora1Arr, emptyArray)
+			timestamp2 := getLoraValidTimestamp(metrics, lora2Arr, emptyArray)
+			timestamp3 := getLoraValidTimestamp(metrics, emptyArray, emptyArray)
+
+			Expect(timestamp1 <= timestamp2).To(BeTrue())
+			Expect(timestamp2 <= timestamp3).To(BeTrue())
+		},
+		Entry("no streaming", false),
+		Entry("streaming", true),
+	)
 
 	It("Should send correct lora metrics for parallel requests with delay", func() {
 		ctx := context.TODO()

@@ -24,6 +24,7 @@ import (
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	"github.com/llm-d/llm-d-kv-cache/pkg/tokenization"
 	types "github.com/llm-d/llm-d-kv-cache/pkg/tokenization/types"
+	crlog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 type HFTokenizer struct {
@@ -35,6 +36,7 @@ type HFTokenizer struct {
 
 // HF Tokenizer
 func NewHFTokenizer(ctx context.Context, logger logr.Logger, udsSocketPath, model string) (*HFTokenizer, error) {
+	crlog.SetLogger(logger)
 	udsTokenizer, err := tokenization.NewUdsTokenizer(ctx,
 		&tokenization.UdsTokenizerConfig{SocketFile: udsSocketPath}, model)
 
