@@ -34,6 +34,10 @@ type Request interface {
 	IsStream() bool
 	// GetModel returns model name as defined in the request
 	GetModel() string
+	// GetLoraName returns the LoRA name as defined in the request, if request's model is the base mode - returns nil
+	GetLoraName() *string
+	// SetModelLora defines that the model name is a LoRA adapter
+	SetModelLora()
 	// IncludeUsage returns true if usage statistics should be include in the response
 	IncludeUsage() bool
 	// GetNumberOfCachedPromptTokens returns the number of tokens in the prompt that are
@@ -96,6 +100,8 @@ type baseCompletionRequest struct {
 	StreamOptions StreamOptions `json:"stream_options"`
 	// Model defines Model name to use for "inference", could be base Model name or one of available LoRA adapters
 	Model string `json:"model"`
+	// isModelLora defines whether the model is a LoRA adapter
+	isModelLora bool
 	// KVParams kv transfer related fields
 	KVParams *KVTransferParams `json:"kv_transfer_params"`
 	// The number of tokens in the prompt that are in the local KV Cache
@@ -182,6 +188,17 @@ func (b *baseCompletionRequest) IsStream() bool {
 
 func (b *baseCompletionRequest) GetModel() string {
 	return b.Model
+}
+
+func (b *baseCompletionRequest) GetLoraName() *string {
+	if b.isModelLora {
+		return &b.Model
+	}
+	return nil
+}
+
+func (b *baseCompletionRequest) SetModelLora() {
+	b.isModelLora = true
 }
 
 func (b *baseCompletionRequest) IncludeUsage() bool {

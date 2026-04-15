@@ -89,7 +89,7 @@ func (s *SimContext) UnloadLoraAdaptor(ctx *fasthttp.RequestCtx) {
 
 // Checks if the LoRA adaptor is loaded
 func (s *SimContext) loraIsLoaded(model string) bool {
-	if !s.isLora(model) {
+	if !s.IsLora(model) {
 		return true
 	}
 
@@ -102,7 +102,7 @@ func (s *SimContext) loraIsLoaded(model string) bool {
 
 // Load the LoRA adaptor if possible. Return false if not.
 func (s *SimContext) loadLora(model string) bool {
-	if !s.isLora(model) {
+	if !s.IsLora(model) {
 		return true
 	}
 
@@ -133,7 +133,7 @@ func (s *SimContext) loadLora(model string) bool {
 // (if the model is a LoRA). Can be called only for loaded LoRAs (that are
 // already in loras.loadedLoras)
 func (s *SimContext) incrementLora(model string) {
-	if !s.isLora(model) {
+	if !s.IsLora(model) {
 		return
 	}
 
@@ -145,7 +145,7 @@ func (s *SimContext) incrementLora(model string) {
 // decrementLora decrements the count of running requests using the model
 // (if the model is a LoRA)
 func (s *SimContext) decrementLora(model string) {
-	if model == "" || !s.isLora(model) {
+	if model == "" || !s.IsLora(model) {
 		return
 	}
 

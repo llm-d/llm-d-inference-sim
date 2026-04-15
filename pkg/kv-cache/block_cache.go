@@ -124,7 +124,7 @@ func (bc *blockCache) activate() {
 
 // startRequest adds a request with its associated block hashes to the cache
 // and returns the number of blocks that were already in the cache
-func (bc *blockCache) startRequest(requestID string, blockHashes []uint64, blockTokens [][]uint32) (int, error) {
+func (bc *blockCache) startRequest(requestID string, loraName *string, blockHashes []uint64, blockTokens [][]uint32) (int, error) {
 	bc.mu.Lock()
 	defer bc.mu.Unlock()
 
@@ -217,7 +217,13 @@ func (bc *blockCache) startRequest(requestID string, blockHashes []uint64, block
 	}
 
 	if len(hashes) > 0 {
-		common.WriteToChannel(bc.eventChan, EventData{action: eventActionStore, hashes: hashes, tokens: tokens}, bc.logger)
+		common.WriteToChannel(bc.eventChan,
+			EventData{
+				action:   eventActionStore,
+				hashes:   hashes,
+				tokens:   tokens,
+				loraName: loraName,
+			}, bc.logger)
 	}
 
 	// store the request mapping

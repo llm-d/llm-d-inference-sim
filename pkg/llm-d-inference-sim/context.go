@@ -154,7 +154,7 @@ func (s *SimContext) initDataset(ctx context.Context) error {
 }
 
 // isLora returns true if the given model name is one of loaded LoRAs
-func (s *SimContext) isLora(model string) bool {
+func (s *SimContext) IsLora(model string) bool {
 	for _, lora := range s.getLoras() {
 		if model == lora {
 			return true
@@ -168,7 +168,7 @@ func (s *SimContext) isLora(model string) bool {
 // responses.  LoRA adapters keep their explicit name, while all base-model
 // requests are surfaced as the first alias from --served-model-name.
 func (s *SimContext) getDisplayedModelName(reqModel string) string {
-	if s.isLora(reqModel) {
+	if s.IsLora(reqModel) {
 		return reqModel
 	}
 	return s.Config.ServedModelNames[0]

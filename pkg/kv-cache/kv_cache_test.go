@@ -235,7 +235,7 @@ var _ = Describe("KV cache", Ordered, func() {
 						var err error
 						switch action.action {
 						case actionStartRequest:
-							_, err = blockCache.startRequest(action.request.id, action.request.blockHashes, action.request.tokens)
+							_, err = blockCache.startRequest(action.request.id, nil, action.request.blockHashes, action.request.tokens)
 						case actionFinishRequest:
 							err = blockCache.finishRequest(action.request.id)
 						}
@@ -346,19 +346,19 @@ var _ = Describe("KV cache", Ordered, func() {
 				req4 := testRequest{"req4", []uint64{5, 6}, [][]uint32{{1}, {2}}}
 
 				// blocks 1 and 2 stored
-				alreadyInCache, err := blockCache.startRequest(req1.id, req1.blockHashes, req1.tokens)
+				alreadyInCache, err := blockCache.startRequest(req1.id, nil, req1.blockHashes, req1.tokens)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(alreadyInCache).To(Equal(0))
 				// blocks 3 and 4 stored
-				alreadyInCache, err = blockCache.startRequest(req2.id, req2.blockHashes, req2.tokens)
+				alreadyInCache, err = blockCache.startRequest(req2.id, nil, req2.blockHashes, req2.tokens)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(alreadyInCache).To(Equal(0))
 				// no new blocks stored, reuse of 1 and 3
-				alreadyInCache, err = blockCache.startRequest(req3.id, req3.blockHashes, req3.tokens)
+				alreadyInCache, err = blockCache.startRequest(req3.id, nil, req3.blockHashes, req3.tokens)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(alreadyInCache).To(Equal(2))
 				// no space left - should fail
-				alreadyInCache, err = blockCache.startRequest(req4.id, req4.blockHashes, req4.tokens)
+				alreadyInCache, err = blockCache.startRequest(req4.id, nil, req4.blockHashes, req4.tokens)
 				Expect(err).To(HaveOccurred())
 				Expect(alreadyInCache).To(Equal(0))
 
@@ -369,7 +369,7 @@ var _ = Describe("KV cache", Ordered, func() {
 				// now 2 and 4 are not in use
 
 				// blocks 2 and 4 should be removed, and 5 and 6 stored
-				alreadyInCache, err = blockCache.startRequest(req4.id, req4.blockHashes, req4.tokens)
+				alreadyInCache, err = blockCache.startRequest(req4.id, nil, req4.blockHashes, req4.tokens)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(alreadyInCache).To(Equal(0))
 			}()
@@ -442,7 +442,7 @@ var _ = Describe("KV cache", Ordered, func() {
 							hashes, tokens := createRandomArray(testCase.minBlockLen, testCase.maxBlockLen,
 								testCase.maxHashValue, random)
 
-							_, err := blockCache.startRequest(reqID, hashes, tokens)
+							_, err := blockCache.startRequest(reqID, nil, hashes, tokens)
 							if err != nil {
 								// some operations may fail due to cache being full, which is expected
 								Expect(err.Error()).To(Equal(capacityError))

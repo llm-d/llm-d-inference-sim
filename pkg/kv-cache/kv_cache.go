@@ -116,7 +116,7 @@ func (h *KVCacheHelper) OnRequestStart(vllmReq openaiserverapi.Request) (PrefixC
 	}
 
 	requestID := vllmReq.GetRequestID()
-	nBlocksAlreadyInCache, err := h.blockCache.startRequest(requestID, blockHashes, blockTokens)
+	nBlocksAlreadyInCache, err := h.blockCache.startRequest(requestID, vllmReq.GetLoraName(), blockHashes, blockTokens)
 	if err != nil {
 		return PrefixCacheStats{}, err
 	}

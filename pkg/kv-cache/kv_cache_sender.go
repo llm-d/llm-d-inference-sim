@@ -23,6 +23,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
+	"github.com/llm-d/llm-d-kv-cache/pkg/kvcache/kvblock"
 	"github.com/llm-d/llm-d-kv-cache/pkg/kvevents"
 	"github.com/vmihailenco/msgpack/v5"
 )
@@ -74,9 +75,10 @@ type msgpackAllBlocksClearedEvent struct {
 }
 
 type EventData struct {
-	action EventAction
-	tokens []uint32
-	hashes []uint64
+	action   EventAction
+	tokens   []uint32
+	hashes   []uint64
+	loraName *string
 }
 
 type KVEventSender struct {
@@ -134,7 +136,13 @@ func (s *KVEventSender) Run(ctx context.Context) error {
 
 			switch eventData.action {
 			case eventActionStore:
-				event = &kvevents.BlockStoredEvent{BlockHashes: eventData.hashes, Tokens: eventData.tokens, DeviceTier: GPU}
+				event = &kvevents.BlockStoredEvent{
+					BlockHashes: eventData.hashes,
+					Tokens:      eventData.tokens,
+					DeviceTier:  GPU,
+					ParentHash:  uint64(kvblock.EmptyBlockHash),
+					LoraName:    eventData.loraName,
+				}
 			case eventActionRemove:
 				event = &kvevents.BlockRemovedEvent{BlockHashes: eventData.hashes, DeviceTier: GPU}
 			case eventActionAllBlocksCleared:

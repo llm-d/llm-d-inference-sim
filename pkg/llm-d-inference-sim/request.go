@@ -134,7 +134,7 @@ func (reqCtx *baseRequestContext) handleRequest() (ResponseContext, *openaiserve
 	// increment running requests count
 	common.WriteToChannel(reqCtx.sim.metrics.runReqChan, common.MetricInfo{Value: 1}, reqCtx.sim.logger)
 
-	if reqCtx.sim.isLora(model) {
+	if reqCtx.sim.IsLora(model) {
 		// update loraInfo metric to reflect that
 		// the request has changed its status from waiting to running
 		common.WriteToChannel(reqCtx.sim.metrics.lorasChan, loraUsage{model, runningUsageState}, reqCtx.sim.logger)
