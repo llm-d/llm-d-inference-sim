@@ -411,7 +411,7 @@ func (s *VllmSimulator) ResponseSentCallback(reqCtx requestContext) {
 	// decrement running requests count
 	common.WriteToChannel(s.Context.metrics.runReqChan, common.MetricInfo{Value: -1}, s.Context.logger)
 
-	model := reqCtx.displayModelName()
+	model := reqCtx.request().GetModel()
 	if s.Context.isLora(model) {
 		// update loraInfo metrics to reflect that the request processing has been finished
 		common.WriteToChannel(s.Context.metrics.lorasChan, loraUsage{model, doneUsageState},

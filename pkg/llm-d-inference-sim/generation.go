@@ -37,7 +37,7 @@ func (g *GenerationRequest) validate(toolsValidator *toolsValidator) (string, in
 
 func (g *GenerationRequest) buildRequestContext(simCtx *SimContext, channel common.Channel[*ResponseInfo]) requestContext {
 	reqCtx := &generationReqCtx{
-		baseRequestContext: newBaseRequestContext(simCtx, channel, g.GetModel()),
+		baseRequestContext: newBaseRequestContext(simCtx, channel),
 		req:                g,
 	}
 	// wire generationReqCtx into embedded requestContext interface

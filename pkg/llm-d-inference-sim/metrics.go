@@ -383,11 +383,9 @@ func (s *SimContext) setInitialPrometheusMetrics(cacheConfig *prometheus.GaugeVe
 		return s.setInitialFakeMetrics()
 	}
 
-	modelName := s.getDisplayedModelName(s.Config.Model)
-
-	s.metrics.runningRequests.WithLabelValues(modelName).Set(0)
-	s.metrics.waitingRequests.WithLabelValues(modelName).Set(0)
-	s.metrics.kvCacheUsagePercentage.WithLabelValues(modelName).Set(0)
+	s.metrics.runningRequests.WithLabelValues(s.Config.DisplayModelName).Set(0)
+	s.metrics.waitingRequests.WithLabelValues(s.Config.DisplayModelName).Set(0)
+	s.metrics.kvCacheUsagePercentage.WithLabelValues(s.Config.DisplayModelName).Set(0)
 
 	s.metrics.loraInfo.WithLabelValues(
 		strconv.Itoa(s.Config.MaxLoras),
@@ -432,7 +430,7 @@ func (s *SimContext) reportLoras() {
 func (s *SimContext) reportRunningRequests() {
 	if s.metrics.runningRequests != nil {
 		s.metrics.runningRequests.WithLabelValues(
-			s.getDisplayedModelName(s.Config.Model)).Set(float64(s.metrics.nRunningReqs))
+			s.Config.DisplayModelName).Set(float64(s.metrics.nRunningReqs))
 	}
 }
 
@@ -440,7 +438,7 @@ func (s *SimContext) reportRunningRequests() {
 func (s *SimContext) reportWaitingRequests() {
 	if s.metrics.waitingRequests != nil {
 		s.metrics.waitingRequests.WithLabelValues(
-			s.getDisplayedModelName(s.Config.Model)).Set(float64(s.metrics.nWaitingReqs))
+			s.Config.DisplayModelName).Set(float64(s.metrics.nWaitingReqs))
 	}
 }
 
@@ -450,16 +448,14 @@ func (s *SimContext) reportHistogramValue(hist *prometheus.HistogramVec, val flo
 		return
 	}
 	if hist != nil {
-		hist.WithLabelValues(
-			s.getDisplayedModelName(s.Config.Model)).Observe(val)
+		hist.WithLabelValues(s.Config.DisplayModelName).Observe(val)
 	}
 }
 
 // reportKVCacheUsage sets information about kv cache usage
 func (s *SimContext) reportKVCacheUsage(value float64) {
 	if s.metrics.kvCacheUsagePercentage != nil {
-		s.metrics.kvCacheUsagePercentage.WithLabelValues(
-			s.getDisplayedModelName(s.Config.Model)).Set(value)
+		s.metrics.kvCacheUsagePercentage.WithLabelValues(s.Config.DisplayModelName).Set(value)
 	}
 }
 
@@ -540,12 +536,12 @@ func (s *SimContext) reportPrefixCacheStats(stats kvcache.PrefixCacheStats) {
 	if s.Config.FakeMetrics != nil {
 		return
 	}
-	modelName := s.getDisplayedModelName(s.Config.Model)
+
 	if s.metrics.prefixCacheQueries != nil {
-		s.metrics.prefixCacheQueries.WithLabelValues(modelName).Add(float64(stats.QueriedTokens))
+		s.metrics.prefixCacheQueries.WithLabelValues(s.Config.DisplayModelName).Add(float64(stats.QueriedTokens))
 	}
 	if s.metrics.prefixCacheHits != nil {
-		s.metrics.prefixCacheHits.WithLabelValues(modelName).Add(float64(stats.CachedTokens))
+		s.metrics.prefixCacheHits.WithLabelValues(s.Config.DisplayModelName).Add(float64(stats.CachedTokens))
 	}
 }
 
@@ -716,17 +712,17 @@ type requestSuccessEvent struct {
 // recordRequestMetricsOnSuccess records metrics for a successfully completed request
 func (s *SimContext) recordRequestMetricsOnSuccess(promptTokens,
 	generationTokens int, genTokensPerChoice []int, maxTokens *int64, finishReason string) {
-	modelName := s.getDisplayedModelName(s.Config.Model)
-	s.metrics.requestPromptTokens.WithLabelValues(modelName).Observe(float64(promptTokens))
-	s.metrics.requestGenerationTokens.WithLabelValues(modelName).Observe(float64(generationTokens))
-	s.metrics.promptTokensTotal.WithLabelValues(modelName).Add(float64(promptTokens))
-	s.metrics.generationTokensTotal.WithLabelValues(modelName).Add(float64(generationTokens))
+
+	s.metrics.requestPromptTokens.WithLabelValues(s.Config.DisplayModelName).Observe(float64(promptTokens))
+	s.metrics.requestGenerationTokens.WithLabelValues(s.Config.DisplayModelName).Observe(float64(generationTokens))
+	s.metrics.promptTokensTotal.WithLabelValues(s.Config.DisplayModelName).Add(float64(promptTokens))
+	s.metrics.generationTokensTotal.WithLabelValues(s.Config.DisplayModelName).Add(float64(generationTokens))
 	if maxTokens != nil {
-		s.metrics.requestParamsMaxTokens.WithLabelValues(modelName).Observe(float64(*maxTokens))
+		s.metrics.requestParamsMaxTokens.WithLabelValues(s.Config.DisplayModelName).Observe(float64(*maxTokens))
 	}
-	s.metrics.requestSuccessTotal.WithLabelValues(modelName, finishReason).Inc()
+	s.metrics.requestSuccessTotal.WithLabelValues(s.Config.DisplayModelName, finishReason).Inc()
 	if maxGenTokens, err := common.MaxIntSlice(genTokensPerChoice); err == nil {
-		s.metrics.maxNumGenerationTokens.WithLabelValues(modelName).Observe(float64(maxGenTokens))
+		s.metrics.maxNumGenerationTokens.WithLabelValues(s.Config.DisplayModelName).Observe(float64(maxGenTokens))
 	}
 }
 

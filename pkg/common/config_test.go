@@ -34,11 +34,24 @@ func createSimConfig(args []string) (*Configuration, error) {
 	return ParseCommandParamsAndLoadConfig()
 }
 
-func createDefaultConfig(model string) *Configuration {
+func createConfigWithModel(model string, servedModelNames []string) *Configuration {
 	c := newConfig()
 
 	c.Model = model
-	c.ServedModelNames = []string{c.Model}
+	if len(servedModelNames) > 0 {
+		c.ServedModelNames = servedModelNames
+	} else {
+		c.ServedModelNames = []string{c.Model}
+	}
+
+	c.DisplayModelName = c.ServedModelNames[0]
+
+	return c
+}
+
+func createDefaultConfig(model string, servedModelNames []string) *Configuration {
+	c := createConfigWithModel(model, servedModelNames)
+
 	c.MaxNumSeqs = 5
 	c.MaxLoras = 2
 	c.MaxCPULoras = 5
@@ -62,9 +75,7 @@ var _ = Describe("Simulator configuration", func() {
 	tests := make([]testCase, 0)
 
 	// Simple config with a few parameters
-	c := newConfig()
-	c.Model = TestModelName
-	c.ServedModelNames = []string{c.Model}
+	c := createConfigWithModel(TestModelName, nil)
 	c.MaxCPULoras = 1
 	c.Seed = 100
 	test := testCase{
@@ -75,9 +86,8 @@ var _ = Describe("Simulator configuration", func() {
 	tests = append(tests, test)
 
 	// Config from config.yaml file
-	c = createDefaultConfig(QwenModelName)
+	c = createDefaultConfig(QwenModelName, []string{"model1", "model2"})
 	c.Port = 8001
-	c.ServedModelNames = []string{"model1", "model2"}
 	c.LoraModules = []LoraModule{{Name: "lora1", Path: "/path/to/lora1"}, {Name: "lora2", Path: "/path/to/lora2"}}
 	test = testCase{
 		name:           "config file",
@@ -91,9 +101,8 @@ var _ = Describe("Simulator configuration", func() {
 	tests = append(tests, test)
 
 	// Config from config.yaml file plus command line args
-	c = createDefaultConfig(TestModelName)
+	c = createDefaultConfig(TestModelName, []string{"alias1", "alias2"})
 	c.Port = 8002
-	c.ServedModelNames = []string{"alias1", "alias2"}
 	c.Seed = 100
 	c.LoraModules = []LoraModule{{Name: "lora3", Path: "/path/to/lora3"}, {Name: "lora4", Path: "/path/to/lora4"}}
 	c.LoraModulesString = []string{
@@ -113,7 +122,7 @@ var _ = Describe("Simulator configuration", func() {
 	tests = append(tests, test)
 
 	// Config from config.yaml file plus command line args with different format
-	c = createDefaultConfig(TestModelName)
+	c = createDefaultConfig(TestModelName, nil)
 	c.Port = 8002
 	c.LoraModules = []LoraModule{{Name: "lora3", Path: "/path/to/lora3"}}
 	c.LoraModulesString = []string{
@@ -130,7 +139,7 @@ var _ = Describe("Simulator configuration", func() {
 	tests = append(tests, test)
 
 	// Config from config.yaml file plus command line args with empty string
-	c = createDefaultConfig(TestModelName)
+	c = createDefaultConfig(TestModelName, nil)
 	c.Port = 8002
 	c.LoraModules = []LoraModule{{Name: "lora3", Path: "/path/to/lora3"}}
 	c.LoraModulesString = []string{
@@ -147,9 +156,8 @@ var _ = Describe("Simulator configuration", func() {
 	tests = append(tests, test)
 
 	// Config from config.yaml file plus command line args with empty string for loras
-	c = createDefaultConfig(QwenModelName)
+	c = createDefaultConfig(QwenModelName, []string{"model1", "model2"})
 	c.Port = 8001
-	c.ServedModelNames = []string{"model1", "model2"}
 	c.LoraModulesString = []string{}
 	test = testCase{
 		name:           "config file with command line args with empty string for loras",
@@ -159,9 +167,8 @@ var _ = Describe("Simulator configuration", func() {
 	tests = append(tests, test)
 
 	// Config from config.yaml file plus command line args with empty parameter for loras
-	c = createDefaultConfig(QwenModelName)
+	c = createDefaultConfig(QwenModelName, []string{"model1", "model2"})
 	c.Port = 8001
-	c.ServedModelNames = []string{"model1", "model2"}
 	c.LoraModulesString = []string{}
 	test = testCase{
 		name:           "config file with command line args with empty parameter for loras",
@@ -171,9 +178,8 @@ var _ = Describe("Simulator configuration", func() {
 	tests = append(tests, test)
 
 	// Config from config_with_duration_latency.yaml file plus command line args with empty parameter for loras
-	c = createDefaultConfig(QwenModelName)
+	c = createDefaultConfig(QwenModelName, []string{"model1", "model2"})
 	c.Port = 8001
-	c.ServedModelNames = []string{"model1", "model2"}
 	c.LoraModulesString = []string{}
 	c.TimeToFirstToken = Duration(4 * time.Second)
 	c.InterTokenLatency = Duration(2 * time.Second)
@@ -186,7 +192,7 @@ var _ = Describe("Simulator configuration", func() {
 	tests = append(tests, test)
 
 	// Config from basic-config.yaml file plus command line args with time to copy cache
-	c = createDefaultConfig(QwenModelName)
+	c = createDefaultConfig(QwenModelName, nil)
 	c.Port = 8001
 	// basic config file does not contain properties related to lora
 	c.MaxLoras = 1
@@ -200,7 +206,7 @@ var _ = Describe("Simulator configuration", func() {
 	tests = append(tests, test)
 
 	// Config from config_with_fake.yaml file
-	c = createDefaultConfig(QwenModelName)
+	c = createDefaultConfig(QwenModelName, nil)
 	c.FakeMetrics = &FakeMetrics{
 		RunningRequests: FakeMetricWithFunction{FixedValue: 16},
 		WaitingRequests: FakeMetricWithFunction{
@@ -244,9 +250,7 @@ var _ = Describe("Simulator configuration", func() {
 	tests = append(tests, test)
 
 	// Fake metrics from command line
-	c = newConfig()
-	c.Model = TestModelName
-	c.ServedModelNames = []string{c.Model}
+	c = createConfigWithModel(TestModelName, nil)
 	c.MaxCPULoras = 1
 	c.Seed = 100
 	c.FakeMetrics = &FakeMetrics{
@@ -279,7 +283,7 @@ var _ = Describe("Simulator configuration", func() {
 	tests = append(tests, test)
 
 	// Fake metrics from both the config file and command line
-	c = createDefaultConfig(QwenModelName)
+	c = createDefaultConfig(QwenModelName, nil)
 	c.FakeMetrics = &FakeMetrics{
 		RunningRequests:        FakeMetricWithFunction{FixedValue: 10},
 		WaitingRequests:        FakeMetricWithFunction{FixedValue: 30},

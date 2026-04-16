@@ -159,7 +159,6 @@ func (s *SimContext) initFakeHistogram(hist *prometheus.HistogramVec, bucketsBou
 	var valueToObserve float64
 	var total int64
 	numOfBoundaries := len(bucketsBoundaries)
-	modelName := s.getDisplayedModelName(s.Config.Model)
 
 	if len(bucketsSamplesCount) == 0 || len(bucketsBoundaries) == 0 {
 		return nil
@@ -178,7 +177,7 @@ func (s *SimContext) initFakeHistogram(hist *prometheus.HistogramVec, bucketsBou
 
 		for range bucketSamplesCount {
 			// create required number of observations for the calculated sample
-			hist.WithLabelValues(modelName).Observe(valueToObserve)
+			hist.WithLabelValues(s.Config.DisplayModelName).Observe(valueToObserve)
 		}
 
 		total += int64(bucketSamplesCount) * int64(valueToObserve)
@@ -201,22 +200,20 @@ func (s *SimContext) initFakeHistogram(hist *prometheus.HistogramVec, bucketsBou
 // all configured keys and an empty oldFakeMetrics) and at runtime via the POST
 // /fake_metrics HTTP endpoint (with only the keys the caller supplied).
 func (s *SimContext) UpdateFakeMetrics(fakeMetricsMap map[string]any, oldFakeMetrics *common.FakeMetrics) error {
-	modelName := s.getDisplayedModelName(s.Config.Model)
-
 	var generatedFakeMetricsWasEmpty bool
 	if len(s.metrics.generatedFakeMetrics) == 0 {
 		generatedFakeMetricsWasEmpty = true
 	}
 	if _, ok := fakeMetricsMap["running-requests"]; ok {
-		s.setFakeMetricWithFunction(modelName, &s.Config.FakeMetrics.RunningRequests, s.metrics.runningRequests,
+		s.setFakeMetricWithFunction(s.Config.DisplayModelName, &s.Config.FakeMetrics.RunningRequests, s.metrics.runningRequests,
 			s.metrics.runReqChan, true)
 	}
 	if _, ok := fakeMetricsMap["waiting-requests"]; ok {
-		s.setFakeMetricWithFunction(modelName, &s.Config.FakeMetrics.WaitingRequests, s.metrics.waitingRequests,
+		s.setFakeMetricWithFunction(s.Config.DisplayModelName, &s.Config.FakeMetrics.WaitingRequests, s.metrics.waitingRequests,
 			s.metrics.waitingReqChan, true)
 	}
 	if _, ok := fakeMetricsMap["kv-cache-usage"]; ok {
-		s.setFakeMetricWithFunction(modelName, &s.Config.FakeMetrics.KVCacheUsagePercentage, s.metrics.kvCacheUsagePercentage,
+		s.setFakeMetricWithFunction(s.Config.DisplayModelName, &s.Config.FakeMetrics.KVCacheUsagePercentage, s.metrics.kvCacheUsagePercentage,
 			s.metrics.kvCacheUsageChan, false)
 	}
 
@@ -315,7 +312,7 @@ func (s *SimContext) UpdateFakeMetrics(fakeMetricsMap map[string]any, oldFakeMet
 	}
 
 	if err := s.updateTokenMetrics(
-		modelName, buckets, fakeMetricsMap,
+		s.Config.DisplayModelName, buckets, fakeMetricsMap,
 		"request-prompt-tokens", "total-prompt-tokens",
 		s.Config.FakeMetrics.RequestPromptTokens, oldFakeMetrics.RequestPromptTokens,
 		s.Config.FakeMetrics.TotalPromptTokens, oldFakeMetrics.TotalPromptTokens,
@@ -327,7 +324,7 @@ func (s *SimContext) UpdateFakeMetrics(fakeMetricsMap map[string]any, oldFakeMet
 	}
 
 	if err := s.updateTokenMetrics(
-		modelName, buckets, fakeMetricsMap,
+		s.Config.DisplayModelName, buckets, fakeMetricsMap,
 		"request-generation-tokens", "total-generation-tokens",
 		s.Config.FakeMetrics.RequestGenerationTokens, oldFakeMetrics.RequestGenerationTokens,
 		s.Config.FakeMetrics.TotalGenerationTokens, oldFakeMetrics.TotalGenerationTokens,
@@ -346,7 +343,7 @@ func (s *SimContext) UpdateFakeMetrics(fakeMetricsMap map[string]any, oldFakeMet
 			}
 		}
 		if s.Config.FakeMetrics.PrefixCacheQueries != nil {
-			s.metrics.prefixCacheQueries.WithLabelValues(modelName).Add(float64(*s.Config.FakeMetrics.PrefixCacheQueries))
+			s.metrics.prefixCacheQueries.WithLabelValues(s.Config.DisplayModelName).Add(float64(*s.Config.FakeMetrics.PrefixCacheQueries))
 		}
 	}
 
@@ -358,7 +355,7 @@ func (s *SimContext) UpdateFakeMetrics(fakeMetricsMap map[string]any, oldFakeMet
 			}
 		}
 		if s.Config.FakeMetrics.PrefixCacheHits != nil {
-			s.metrics.prefixCacheHits.WithLabelValues(modelName).Add(float64(*s.Config.FakeMetrics.PrefixCacheHits))
+			s.metrics.prefixCacheHits.WithLabelValues(s.Config.DisplayModelName).Add(float64(*s.Config.FakeMetrics.PrefixCacheHits))
 		}
 	}
 
@@ -370,7 +367,7 @@ func (s *SimContext) UpdateFakeMetrics(fakeMetricsMap map[string]any, oldFakeMet
 			}
 		}
 		for reason, requestSuccessTotal := range s.Config.FakeMetrics.RequestSuccessTotal {
-			s.metrics.requestSuccessTotal.WithLabelValues(modelName, reason).Add(float64(requestSuccessTotal))
+			s.metrics.requestSuccessTotal.WithLabelValues(s.Config.DisplayModelName, reason).Add(float64(requestSuccessTotal))
 		}
 	}
 

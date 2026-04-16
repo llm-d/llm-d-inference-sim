@@ -53,7 +53,7 @@ func (c *ChatCompletionRequest) validate(toolsValidator *toolsValidator) (string
 
 func (c *ChatCompletionRequest) buildRequestContext(simCtx *SimContext, channel common.Channel[*ResponseInfo]) requestContext {
 	reqCtx := &chatCompletionReqCtx{
-		baseRequestContext: newBaseRequestContext(simCtx, channel, c.GetModel()),
+		baseRequestContext: newBaseRequestContext(simCtx, channel),
 		req:                c,
 	}
 	// wire chatCompletionReqCtx into embedded requestContext interface

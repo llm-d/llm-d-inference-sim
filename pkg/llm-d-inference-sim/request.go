@@ -51,7 +51,6 @@ type requestContext interface {
 	responseChannel() common.Channel[*ResponseInfo]
 	tokenizedPromptForEcho() (*openaiserverapi.Tokenized, error)
 	encode() ([]uint32, []string, *tokenization.MultiModalFeatures, error)
-	displayModelName() string
 }
 
 type baseRequestContext struct {
@@ -59,20 +58,14 @@ type baseRequestContext struct {
 	sim             *SimContext
 	startProcessing time.Time
 	respChannel     common.Channel[*ResponseInfo]
-	displayModel    string
 }
 
-func newBaseRequestContext(simCtx *SimContext, channel common.Channel[*ResponseInfo], model string) baseRequestContext {
+func newBaseRequestContext(simCtx *SimContext, channel common.Channel[*ResponseInfo]) baseRequestContext {
 	return baseRequestContext{
 		sim:             simCtx,
 		startProcessing: time.Now(),
 		respChannel:     channel,
-		displayModel:    simCtx.getDisplayedModelName(model),
 	}
-}
-
-func (b *baseRequestContext) displayModelName() string {
-	return b.displayModel
 }
 
 func (b *baseRequestContext) responseChannel() common.Channel[*ResponseInfo] {
@@ -135,7 +128,7 @@ func (b *baseRequestContext) validateContextWindow() (string, int) {
 
 func (reqCtx *baseRequestContext) handleRequest() (ResponseContext, *openaiserverapi.Error) {
 	req := reqCtx.request()
-	model := req.GetModel()
+	model := reqCtx.sim.getDisplayedModelName(req.GetModel())
 
 	// increment running requests count
 	common.WriteToChannel(reqCtx.sim.metrics.runReqChan, common.MetricInfo{Value: 1}, reqCtx.sim.logger)
@@ -175,7 +168,7 @@ func (reqCtx *baseRequestContext) handleRequest() (ResponseContext, *openaiserve
 			logprobs = req.GetLogprobs()
 		}
 		sendUsageData := !req.IsStream() || req.IncludeUsage()
-		respCtx := req.createResponseContext(reqCtx, reqCtx.displayModelName(), &openaiserverapi.Tokenized{},
+		respCtx := req.createResponseContext(reqCtx, model, &openaiserverapi.Tokenized{},
 			&finishReason, &usageData, sendUsageData, logprobs, nil)
 		return respCtx, nil
 	}
@@ -216,7 +209,7 @@ func (reqCtx *baseRequestContext) handleRequest() (ResponseContext, *openaiserve
 		finishReason = common.RemoteDecodeFinishReason
 	}
 
-	respCtx := req.createResponseContext(reqCtx, reqCtx.sim.getDisplayedModelName(model), responseTokens, &finishReason,
+	respCtx := req.createResponseContext(reqCtx, model, responseTokens, &finishReason,
 		&usageData, sendUsageData, logprobs, toolCalls)
 
 	return respCtx, nil
