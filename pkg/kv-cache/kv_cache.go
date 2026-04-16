@@ -104,7 +104,7 @@ func (h *KVCacheHelper) OnRequestStart(vllmReq openaiserverapi.Request) (PrefixC
 	// get block keys
 	blockKeys, err := h.tokensProcessor.TokensToKVBlockKeys(kvblock.EmptyBlockHash, tokens, modelName, extraFeatures)
 	if err != nil {
-		return 0, fmt.Errorf("failed to convert tokens to block keys: %w", err)
+		return PrefixCacheStats{}, fmt.Errorf("failed to convert tokens to block keys: %w", err)
 	}
 	h.logger.V(logging.TRACE).Info("Found tokens", "tokens", tokens, "block-keys", blockKeys)
 
