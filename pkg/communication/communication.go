@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
@@ -58,6 +59,14 @@ func (c *Communication) start(ctx context.Context) error {
 	}
 
 	m := cmux.New(listener)
+
+	// Timeout idle connections during protocol matching to avoid blocking shutdown.
+	m.SetReadTimeout(5 * time.Second)
+
+	go func() {
+		<-ctx.Done()
+		listener.Close() //nolint:errcheck
+	}()
 
 	if !c.simulator.Context.Config.MMEncoderOnly {
 		// gRPC uses HTTP/2

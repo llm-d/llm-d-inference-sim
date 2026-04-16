@@ -20,6 +20,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -109,13 +110,24 @@ func (c *Communication) StartHTTPServer(ctx context.Context, listener net.Listen
 	case <-ctx.Done():
 		c.logger.V(logging.INFO).Info("Shutdown signal received, shutting down HTTP server gracefully")
 
-		// Gracefully shutdown the server
-		if err := server.Shutdown(); err != nil {
-			c.logger.Error(err, "error during server shutdown")
-			return err
+		const shutdownTimeout = 5 * time.Second
+		done := make(chan error, 1)
+		go func() {
+			done <- server.Shutdown()
+		}()
+
+		select {
+		case err := <-done:
+			// Ignore closed-listener errors from cmux shutting down first.
+			if err != nil && !errors.Is(err, net.ErrClosed) {
+				c.logger.Error(err, "error during server shutdown")
+				return err
+			}
+		case <-time.After(shutdownTimeout):
+			c.logger.V(logging.INFO).Info("Shutdown timed out, forcing close")
 		}
 
-		c.logger.V(logging.INFO).Info("Server stopped")
+		c.logger.V(logging.INFO).Info("HTTP server stopped")
 		return nil
 
 	case err := <-serverErr:
