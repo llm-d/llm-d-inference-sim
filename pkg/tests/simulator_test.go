@@ -25,6 +25,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
@@ -1305,6 +1306,43 @@ var _ = Describe("Simulator", func() {
 			Expect(openaiError.StatusCode).To(BeNumerically("==", fasthttp.StatusBadRequest))
 			Expect(openaiError.Type).ToNot(BeEmpty())
 			Expect(openaiError.Message).To(ContainSubstring("Max completion tokens and max tokens should be positive"))
+		})
+	})
+
+	Context("OpenRequests counter", func() {
+		It("Should reflect in-flight requests and return to zero after completion", func() {
+			ctx := context.TODO()
+			// 1 worker, queue capacity 2, 500ms TTFT so requests stay in-flight long enough to inspect
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho,
+				"--time-to-first-token", "500", "--max-num-seqs", "1", "--max-waiting-queue-length", "2"}
+			server, _, client, err := startServerHandle(ctx, common.ModeEcho, args, nil)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Before any request the counter must be zero
+			Expect(server.OpenRequests()).To(Equal(int64(0)))
+
+			var wg sync.WaitGroup
+			wg.Add(2)
+
+			// Send two requests concurrently: one will be processed by the single
+			// worker, the other will sit in the waiting queue.
+			for range 2 {
+				go func() {
+					defer GinkgoRecover()
+					defer wg.Done()
+					openaiclient, params := getOpenAIClientAndChatParams(client, common.TestModelName, testUserMessage, false)
+					_, err := openaiclient.Chat.Completions.New(ctx, params)
+					Expect(err).NotTo(HaveOccurred())
+				}()
+			}
+
+			// Give the goroutines time to reach the server and enter the worker / queue
+			time.Sleep(200 * time.Millisecond)
+			Expect(server.OpenRequests()).To(Equal(int64(2)))
+
+			// Wait for both requests to finish — counter must return to zero
+			wg.Wait()
+			Expect(server.OpenRequests()).To(Equal(int64(0)))
 		})
 	})
 

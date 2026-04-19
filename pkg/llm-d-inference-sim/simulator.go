@@ -23,7 +23,6 @@ import (
 	"errors"
 	"fmt"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -66,9 +65,6 @@ type VllmSimulator struct {
 	queueCapacity int
 	// a channel for incoming requests
 	newRequests common.Channel[requestContext]
-	// openRequests is the count of requests currently in the system
-	// (queued + being processed); incremented on accept, decremented on completion
-	openRequests atomic.Int64
 	// drainCancel cancels the internal drain context once all open requests finish,
 	// allowing internal goroutines (workers, metrics, kvcache) to stop cleanly
 	drainCancel context.CancelFunc
@@ -293,7 +289,6 @@ func (s *VllmSimulator) findRequestAndSendToProcess(worker *worker) bool {
 func (s *VllmSimulator) addRequestToQueue(reqCtx requestContext) {
 	if err := s.enqueue(reqCtx); err != nil {
 		s.Context.logger.Error(err, "failed to enqueue request")
-		s.openRequests.Add(-1)
 		err := openaiserverapi.NewError("Failed to enqueue request, "+err.Error(),
 			fasthttp.StatusTooManyRequests, nil)
 		common.WriteToChannel(reqCtx.responseChannel(), &ResponseInfo{Err: &err},
@@ -333,7 +328,6 @@ func (s *VllmSimulator) HandleRequest(req Request) (bool, *common.Channel[*Respo
 		Name:    "responseInfo",
 	}
 	reqCtx := req.buildRequestContext(&s.Context, channel)
-	s.openRequests.Add(1)
 	common.WriteToChannel(s.newRequests, reqCtx, s.Context.logger)
 	return req.IsStream(), &channel, nil, false
 }
@@ -434,7 +428,6 @@ func (s *VllmSimulator) sendResponse(reqCtx requestContext, respCtx ResponseCont
 
 // request processing finished
 func (s *VllmSimulator) ResponseSentCallback(reqCtx requestContext) {
-	s.openRequests.Add(-1)
 	// decrement running requests count
 	common.WriteToChannel(s.Context.metrics.runReqChan, common.MetricInfo{Value: -1}, s.Context.logger)
 
@@ -451,7 +444,11 @@ func (s *VllmSimulator) ResponseSentCallback(reqCtx requestContext) {
 // OpenRequests returns the number of requests currently in the system
 // (waiting in queue + being processed by workers).
 func (s *VllmSimulator) OpenRequests() int64 {
-	return s.openRequests.Load()
+	s.queueLock.Lock()
+	waiting := s.waitingQueue.Len()
+	s.queueLock.Unlock()
+	running := cap(s.freeWorkers) - len(s.freeWorkers)
+	return int64(waiting + running)
 }
 
 func (s *VllmSimulator) DiscardKVCache() {

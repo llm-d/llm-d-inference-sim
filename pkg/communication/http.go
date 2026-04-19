@@ -106,16 +106,6 @@ func (c *Communication) startHTTPServer(listener net.Listener) (*fasthttp.Server
 	return server, errCh, nil
 }
 
-// StartHTTPServer starts the HTTP server on the given listener and blocks until it exits.
-// Intended for use in tests with a custom listener. Shutdown is driven by closing the listener.
-func (c *Communication) StartHTTPServer(listener net.Listener) error {
-	_, errCh, err := c.startHTTPServer(listener)
-	if err != nil {
-		return err
-	}
-	return <-errCh
-}
-
 // getRequestID retrieves the request ID from the X-Request-Id header or generates a new one if not present
 func (c *Communication) getRequestID(ctx *fasthttp.RequestCtx) string {
 	if c.simulator.Context.Config.EnableRequestIDHeaders {
