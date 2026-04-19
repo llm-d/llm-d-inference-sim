@@ -18,9 +18,7 @@ package communication
 
 import (
 	"bufio"
-	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -57,8 +55,9 @@ func (c *Communication) newListener() (net.Listener, error) {
 	return listener, nil
 }
 
-// startServer starts http/https server on port defined in command line
-func (c *Communication) StartHTTPServer(ctx context.Context, listener net.Listener) error {
+// startHTTPServer builds and starts the HTTP server, returning the server instance and an error channel.
+// It does not handle shutdown — callers are responsible for calling server.Shutdown().
+func (c *Communication) startHTTPServer(listener net.Listener) (*fasthttp.Server, <-chan error, error) {
 	r := fasthttprouter.New()
 
 	// support completion APIs
@@ -90,52 +89,31 @@ func (c *Communication) StartHTTPServer(ctx context.Context, listener net.Listen
 	}
 
 	if err := c.configureSSL(server); err != nil {
-		return err
+		return nil, nil, err
 	}
 
-	// Start server in a goroutine
-	serverErr := make(chan error, 1)
+	errCh := make(chan error, 1)
 	go func() {
 		if c.simulator.Context.Config.SSLEnabled() {
 			c.logger.V(logging.INFO).Info("Server starting", "protocol", "HTTPS", "port", c.simulator.Context.Config.Port)
-			serverErr <- server.ServeTLS(listener, "", "")
+			errCh <- server.ServeTLS(listener, "", "")
 		} else {
 			c.logger.V(logging.INFO).Info("Server starting", "protocol", "HTTP", "port", c.simulator.Context.Config.Port)
-			serverErr <- server.Serve(listener)
+			errCh <- server.Serve(listener)
 		}
 	}()
 
-	// Wait for either context cancellation or server error
-	select {
-	case <-ctx.Done():
-		c.logger.V(logging.INFO).Info("Shutdown signal received, shutting down HTTP server gracefully")
+	return server, errCh, nil
+}
 
-		const shutdownTimeout = 5 * time.Second
-		done := make(chan error, 1)
-		go func() {
-			done <- server.Shutdown()
-		}()
-
-		select {
-		case err := <-done:
-			// Ignore closed-listener errors from cmux shutting down first.
-			if err != nil && !errors.Is(err, net.ErrClosed) {
-				c.logger.Error(err, "error during server shutdown")
-				return err
-			}
-		case <-time.After(shutdownTimeout):
-			c.logger.V(logging.INFO).Info("Shutdown timed out, forcing close")
-		}
-
-		c.logger.V(logging.INFO).Info("HTTP server stopped")
-		return nil
-
-	case err := <-serverErr:
-		if err != nil {
-			c.logger.Error(err, "server failed")
-		}
+// StartHTTPServer starts the HTTP server on the given listener and blocks until it exits.
+// Intended for use in tests with a custom listener. Shutdown is driven by closing the listener.
+func (c *Communication) StartHTTPServer(listener net.Listener) error {
+	_, errCh, err := c.startHTTPServer(listener)
+	if err != nil {
 		return err
 	}
+	return <-errCh
 }
 
 // getRequestID retrieves the request ID from the X-Request-Id header or generates a new one if not present
@@ -174,6 +152,11 @@ func (c *Communication) addResponseHeaders(ctx *fasthttp.RequestCtx, requestID s
 }
 
 func (c *Communication) handleHTTP(req vllmsim.Request, respBuilder responseBuilder, ctx *fasthttp.RequestCtx) {
+	if c.stopping.Load() {
+		ctx.SetStatusCode(fasthttp.StatusServiceUnavailable)
+		return
+	}
+
 	requestID := c.getRequestID(ctx)
 	req.SetRequestID(requestID)
 

@@ -160,7 +160,7 @@ func startServerHelper(ctx context.Context, mode string, args []string, envs map
 
 	// start the http server
 	go func() {
-		if err := comm.StartHTTPServer(ctx, listener); err != nil {
+		if err := comm.StartHTTPServer(listener); err != nil {
 			logger.Error(err, "error starting server")
 		}
 	}()
