@@ -768,3 +768,59 @@ var _ = Describe("PYTHONHASHSEED environment variable", func() {
 		Expect(config.HashSeed).To(Equal("env-seed"))
 	})
 })
+
+// Configuration.Copy uses a json.Marshal+Unmarshal round-trip to deep-copy the
+// configuration. FakeMetricWithFunction defines a custom UnmarshalJSON that
+// only accepts a JSON number or string, so MarshalJSON must produce the same
+// shape — otherwise the round-trip cannot reproduce its own output, which
+// breaks Copy for any non-nil FakeMetrics (the data-parallel path in
+// simulator.New calls Copy once per rank > 0).
+var _ = Describe("Configuration.Copy", func() {
+	It("should round-trip a non-nil FakeMetrics with a fixed-value metric", func() {
+		c := &Configuration{
+			FakeMetrics: &FakeMetrics{
+				RunningRequests: FakeMetricWithFunction{FixedValue: 5},
+			},
+		}
+
+		got, err := c.Copy()
+		Expect(err).NotTo(HaveOccurred())
+		Expect(got.FakeMetrics).NotTo(BeNil())
+		Expect(got.FakeMetrics.RunningRequests.IsFunction).To(BeFalse())
+		Expect(got.FakeMetrics.RunningRequests.FixedValue).To(Equal(5.0))
+	})
+
+	It("should round-trip a non-nil FakeMetrics with a function-valued metric", func() {
+		c := &Configuration{
+			FakeMetrics: &FakeMetrics{
+				WaitingRequests: FakeMetricWithFunction{
+					IsFunction: true,
+					Function: &FunctionInfo{
+						Name:   OscillateFuncName,
+						Start:  0,
+						End:    10,
+						Period: 5 * time.Second,
+					},
+				},
+			},
+		}
+
+		got, err := c.Copy()
+		Expect(err).NotTo(HaveOccurred())
+		Expect(got.FakeMetrics).NotTo(BeNil())
+		Expect(got.FakeMetrics.WaitingRequests.IsFunction).To(BeTrue())
+		Expect(got.FakeMetrics.WaitingRequests.Function).NotTo(BeNil())
+		Expect(got.FakeMetrics.WaitingRequests.Function.Name).To(Equal(OscillateFuncName))
+		Expect(got.FakeMetrics.WaitingRequests.Function.Start).To(Equal(0.0))
+		Expect(got.FakeMetrics.WaitingRequests.Function.End).To(Equal(10.0))
+		Expect(got.FakeMetrics.WaitingRequests.Function.Period).To(Equal(5 * time.Second))
+	})
+
+	It("should round-trip an empty (zero-value) FakeMetrics", func() {
+		c := &Configuration{FakeMetrics: &FakeMetrics{}}
+
+		got, err := c.Copy()
+		Expect(err).NotTo(HaveOccurred())
+		Expect(got.FakeMetrics).NotTo(BeNil())
+	})
+})

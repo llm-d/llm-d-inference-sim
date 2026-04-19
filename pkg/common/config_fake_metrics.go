@@ -182,6 +182,26 @@ func (f *FakeMetricWithFunction) UnmarshalJSON(data []byte) error {
 	return f.parseFunction(s)
 }
 
+// MarshalJSON mirrors UnmarshalJSON so that round-tripping (used by
+// Configuration.Copy) produces an output the unmarshaller can read back.
+// Without this, the default marshaller serializes the struct as a JSON object
+// (FixedValue/Function/IsFunction) which UnmarshalJSON rejects.
+func (f FakeMetricWithFunction) MarshalJSON() ([]byte, error) {
+	if !f.IsFunction {
+		return json.Marshal(f.FixedValue)
+	}
+	if f.Function == nil {
+		return nil, errors.New("FakeMetricWithFunction marked as function but Function is nil")
+	}
+	encoded := fmt.Sprintf("%s:%s:%s:%s",
+		f.Function.Name,
+		strconv.FormatFloat(f.Function.Start, 'g', -1, 64),
+		strconv.FormatFloat(f.Function.End, 'g', -1, 64),
+		f.Function.Period,
+	)
+	return json.Marshal(encoded)
+}
+
 type LorasMetrics struct {
 	// RunningLoras is a comma separated list of running LoRAs
 	RunningLoras string `json:"running"`
