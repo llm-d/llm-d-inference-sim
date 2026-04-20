@@ -17,7 +17,9 @@ limitations under the License.
 // Contains structures and functions related to requests for all supported APIs
 package openaiserverapi
 
-import "github.com/llm-d/llm-d-kv-cache/pkg/tokenization"
+import (
+	"github.com/llm-d/llm-d-kv-cache/pkg/tokenization"
+)
 
 const (
 	RoleAssistant = "assistant"
@@ -34,10 +36,11 @@ type Request interface {
 	IsStream() bool
 	// GetModel returns model name as defined in the request
 	GetModel() string
-	// GetLoraName returns the LoRA name as defined in the request, if request's model is the base mode - returns nil
+	// GetLoraName returns the LoRA name or nil if model is the base model
 	GetLoraName() *string
-	// SetModelLora defines that the model name is a LoRA adapter
-	SetModelLora()
+	GetLoraID() *int
+	// SetModelLoraID sets the LoRA ID for the request, ID == 0 means the base model
+	SetModelLoraID(id int)
 	// IncludeUsage returns true if usage statistics should be include in the response
 	IncludeUsage() bool
 	// GetNumberOfCachedPromptTokens returns the number of tokens in the prompt that are
@@ -100,8 +103,8 @@ type baseCompletionRequest struct {
 	StreamOptions StreamOptions `json:"stream_options"`
 	// Model defines Model name to use for "inference", could be base Model name or one of available LoRA adapters
 	Model string `json:"model"`
-	// isModelLora defines whether the model is a LoRA adapter
-	isModelLora bool
+	// ID of the LoRA adapter if the model is a LoRA, 0 if the model is the base model
+	loraID int
 	// KVParams kv transfer related fields
 	KVParams *KVTransferParams `json:"kv_transfer_params"`
 	// The number of tokens in the prompt that are in the local KV Cache
@@ -191,14 +194,23 @@ func (b *baseCompletionRequest) GetModel() string {
 }
 
 func (b *baseCompletionRequest) GetLoraName() *string {
-	if b.isModelLora {
-		return &b.Model
+	if b.loraID > 0 {
+		name := b.Model
+		return &name
 	}
 	return nil
 }
 
-func (b *baseCompletionRequest) SetModelLora() {
-	b.isModelLora = true
+func (b *baseCompletionRequest) GetLoraID() *int {
+	if b.loraID > 0 {
+		id := b.loraID
+		return &id
+	}
+	return nil
+}
+
+func (b *baseCompletionRequest) SetModelLoraID(id int) {
+	b.loraID = id
 }
 
 func (b *baseCompletionRequest) IncludeUsage() bool {
@@ -347,24 +359,6 @@ func (c *ChatCompletionRequest) GetMaxCompletionTokens() *int64 {
 		return c.MaxCompletionTokens
 	}
 	return c.MaxTokens
-}
-
-// getLastUserMsg returns last message from this request's messages with user role,
-// if does not exist - returns an empty string
-func (req *ChatCompletionRequest) GetLastUserMsg() string {
-	if len(req.Messages) == 0 {
-		return ""
-	}
-
-	for i := len(req.Messages) - 1; i >= 0; i-- {
-		if req.Messages[i].Role == RoleUser {
-			// return last user message
-			return req.Messages[i].Content.PlainText()
-		}
-	}
-
-	// return last message
-	return req.Messages[len(req.Messages)-1].Content.PlainText()
 }
 
 // ExtractMaxTokens extracts the max tokens from the request

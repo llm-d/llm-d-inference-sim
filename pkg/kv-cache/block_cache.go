@@ -35,13 +35,28 @@ const (
 	topicNameSeparator = "@"
 )
 
+// define the interface for requests that can be stored in the block cache
+// contains sub-set of openai server api request fields that are relevant for the block cache
+type Request interface {
+	GetRequestID() string
+	GetModel() string
+	GetLoraName() *string
+	GetLoraID() *int
+}
+
+type blockKey struct {
+	hash      uint64
+	modelName string
+}
+
 // blockCache represents a thread-safe cache for blocks with eviction policy
 type blockCache struct {
 	mu              sync.RWMutex
-	requestToBlocks map[string][]uint64                // request id -> array of it blocks (block hashes)
-	usedBlocks      map[uint64]int                     // block hash -> reference count
-	unusedBlocks    map[uint64]time.Time               // block hash -> last usage timestamp
-	blockToTokens   map[uint64][]uint32                // block hash -> block tokens
+	requestToBlocks map[string][]blockKey              // request id -> array of it blocks (block hashes)
+	usedBlocks      map[blockKey]int                   // block hash -> reference count
+	unusedBlocks    map[blockKey]time.Time             // block hash -> last usage timestamp
+	blockToTokens   map[blockKey][]uint32              // block hash -> block tokens
+	loadedModels    map[string]bool                    // models currently loaded (base model + loaded loras)
 	maxBlocks       int                                // maximum number of blocks in the cache
 	eventSender     *KVEventSender                     // emmits kv events
 	eventChan       common.Channel[EventData]          // channel for asynchronous event processing
@@ -57,9 +72,8 @@ func newBlockCache(ctx context.Context, config *common.Configuration, logger log
 		return nil, errors.New("IP should be defined in the environment (POD_IP)")
 	}
 
-	// TODO read size of channel from config
 	eChan := common.Channel[EventData]{
-		Channel: make(chan EventData, 10000),
+		Channel: make(chan EventData, config.KVCacheSize),
 		Name:    "block cache eventChan",
 	}
 
@@ -76,10 +90,11 @@ func newBlockCache(ctx context.Context, config *common.Configuration, logger log
 		eChan, config.EventBatchSize, delay, logger)
 
 	return &blockCache{
-		requestToBlocks: make(map[string][]uint64),
-		usedBlocks:      make(map[uint64]int),
-		unusedBlocks:    make(map[uint64]time.Time),
-		blockToTokens:   make(map[uint64][]uint32),
+		requestToBlocks: make(map[string][]blockKey),
+		usedBlocks:      make(map[blockKey]int),
+		unusedBlocks:    make(map[blockKey]time.Time),
+		blockToTokens:   make(map[blockKey][]uint32),
+		loadedModels:    make(map[string]bool),
 		maxBlocks:       config.KVCacheSize,
 		eventChan:       eChan,
 		usageChan:       usageChan,
@@ -104,9 +119,10 @@ func (bc *blockCache) discard() {
 
 	bc.disabled = true
 
-	bc.requestToBlocks = make(map[string][]uint64)
-	bc.usedBlocks = make(map[uint64]int)
-	bc.unusedBlocks = make(map[uint64]time.Time)
+	bc.requestToBlocks = make(map[string][]blockKey)
+	bc.usedBlocks = make(map[blockKey]int)
+	bc.unusedBlocks = make(map[blockKey]time.Time)
+	bc.blockToTokens = make(map[blockKey][]uint32)
 
 	common.WriteToChannel(bc.eventChan,
 		EventData{action: eventActionAllBlocksCleared},
@@ -124,7 +140,8 @@ func (bc *blockCache) activate() {
 
 // startRequest adds a request with its associated block hashes to the cache
 // and returns the number of blocks that were already in the cache
-func (bc *blockCache) startRequest(requestID string, loraName *string, blockHashes []uint64, blockTokens [][]uint32) (int, error) {
+// model name is the name of the model for the current request, used for eviction policy
+func (bc *blockCache) startRequest(vllmReq Request, blockHashes []uint64, blockTokens [][]uint32) (int, error) {
 	bc.mu.Lock()
 	defer bc.mu.Unlock()
 
@@ -133,9 +150,9 @@ func (bc *blockCache) startRequest(requestID string, loraName *string, blockHash
 		return 0, nil
 	}
 
-	if _, exists := bc.requestToBlocks[requestID]; exists {
+	if _, exists := bc.requestToBlocks[vllmReq.GetRequestID()]; exists {
 		// request with the same id already exists
-		return 0, fmt.Errorf("request already exists for id %s", requestID)
+		return 0, fmt.Errorf("request already exists for id %s", vllmReq.GetRequestID())
 	}
 
 	if len(blockHashes) != len(blockTokens) {
@@ -146,25 +163,26 @@ func (bc *blockCache) startRequest(requestID string, loraName *string, blockHash
 	// blockAreadyInUse - blocks, which are already used by currently running request
 	// blockToMoveToUsed - blocks, which were used in past
 	// blocksToAdd - new blocks
-	blocksToAdd := make([]uint64, 0)
-	blockToMoveToUsed := make([]uint64, 0)
-	blockAreadyInUse := make([]uint64, 0)
+	blocksToAdd := make([]blockKey, 0)
+	blockToMoveToUsed := make([]blockKey, 0)
+	blockAreadyInUse := make([]blockKey, 0)
 
 	// first step - ensure that there is enough space for all blocks
 	// count number of new blocks + number of blocks that are in the unused blocks
 	// don't update the data until we are sure that it's ok
 	for i, blockHash := range blockHashes {
-		if _, exists := bc.unusedBlocks[blockHash]; exists {
-			blockToMoveToUsed = append(blockToMoveToUsed, blockHash)
-		} else if _, exists := bc.usedBlocks[blockHash]; !exists {
-			blocksToAdd = append(blocksToAdd, blockHash)
+		bKey := blockKey{hash: blockHash, modelName: vllmReq.GetModel()}
+		if _, exists := bc.unusedBlocks[bKey]; exists {
+			blockToMoveToUsed = append(blockToMoveToUsed, bKey)
+		} else if _, exists := bc.usedBlocks[bKey]; !exists {
+			blocksToAdd = append(blocksToAdd, bKey)
 		} else {
-			blockAreadyInUse = append(blockAreadyInUse, blockHash)
+			blockAreadyInUse = append(blockAreadyInUse, bKey)
 		}
 
 		// store block tokens if doesnot in the cache
-		if _, exists := bc.blockToTokens[blockHash]; !exists {
-			bc.blockToTokens[blockHash] = blockTokens[i]
+		if _, exists := bc.blockToTokens[bKey]; !exists {
+			bc.blockToTokens[bKey] = blockTokens[i]
 		}
 	}
 
@@ -183,36 +201,28 @@ func (bc *blockCache) startRequest(requestID string, loraName *string, blockHash
 		delete(bc.unusedBlocks, block)
 	}
 
-	// for new block - add them, if there is no empty slots - evict the oldest block
-	// send all blocks as a single batch
+	// for new block - add them, if there is no empty slots - evict a block using priority:
+	// 1. oldest unused block of an unloaded model
+	// 2. oldest unused block of any model
 	hashes := []uint64{}
 	tokens := []uint32{}
 
 	for _, block := range blocksToAdd {
 		if len(bc.usedBlocks)+len(bc.unusedBlocks) == bc.maxBlocks {
-			// cache is full but contains unused blocks - evict the oldest
-			var oldestUnusedHash uint64
-			oldestUnusedTime := time.Now()
-
-			for hash, t := range bc.unusedBlocks {
-				if t.Before(oldestUnusedTime) {
-					oldestUnusedHash = hash
-					oldestUnusedTime = t
-				}
-			}
-
-			delete(bc.unusedBlocks, oldestUnusedHash)
+			// cache is full but contains unused blocks - evict one block
+			evictHash := bc.pickBlockToEvict()
+			delete(bc.unusedBlocks, evictHash)
 			common.WriteToChannel(bc.eventChan,
-				EventData{action: eventActionRemove, hashes: []uint64{oldestUnusedHash}, tokens: bc.blockToTokens[oldestUnusedHash]},
+				EventData{action: eventActionRemove, hashes: []uint64{evictHash.hash},
+					tokens: bc.blockToTokens[evictHash]},
 				bc.logger)
-			// remove this block hash from the cache of block tokens
-			delete(bc.blockToTokens, oldestUnusedHash)
+			delete(bc.blockToTokens, evictHash)
 		}
 
 		// Add the new block
 		bc.usedBlocks[block] = 1
 
-		hashes = append(hashes, block)
+		hashes = append(hashes, block.hash)
 		tokens = append(tokens, bc.blockToTokens[block]...)
 	}
 
@@ -222,13 +232,20 @@ func (bc *blockCache) startRequest(requestID string, loraName *string, blockHash
 				action:   eventActionStore,
 				hashes:   hashes,
 				tokens:   tokens,
-				loraName: loraName,
+				loraName: vllmReq.GetLoraName(),
+				loraID:   vllmReq.GetLoraID(),
 			}, bc.logger)
 	}
 
 	// store the request mapping
-	bc.requestToBlocks[requestID] = make([]uint64, len(blockHashes))
-	copy(bc.requestToBlocks[requestID], blockHashes)
+	// store blockKeys and not only plain uint64
+	bKeys := make([]blockKey, len(blockHashes))
+	for i, blockHash := range blockHashes {
+		bKey := blockKey{hash: blockHash, modelName: vllmReq.GetModel()}
+		bKeys[i] = bKey
+	}
+	bc.requestToBlocks[vllmReq.GetRequestID()] = make([]blockKey, len(blockHashes))
+	copy(bc.requestToBlocks[vllmReq.GetRequestID()], bKeys)
 
 	if bc.usageChan != nil {
 		usage := common.MetricInfo{
@@ -258,7 +275,7 @@ func (bc *blockCache) finishRequest(requestID string) error {
 	now := time.Now()
 
 	// Decrease reference count for each block
-	errBlocks := make([]uint64, 0)
+	errBlocks := make([]blockKey, 0)
 	for _, blockHash := range blockHashes {
 		if refCount, exists := bc.usedBlocks[blockHash]; exists {
 			if refCount > 1 {
@@ -291,7 +308,7 @@ func (bc *blockCache) finishRequest(requestID string) error {
 			if i > 0 {
 				builder.WriteString(", ")
 			}
-			fmt.Fprintf(&builder, "%d", b)
+			fmt.Fprintf(&builder, "%d(%s)", b.hash, b.modelName)
 		}
 		return fmt.Errorf("not existing blocks %s for request %s", builder.String(), requestID)
 	}
@@ -311,7 +328,7 @@ func (bc *blockCache) getStats() (int, int, int) {
 // if block is in use by currently running requests the count will be positive, boolean is true
 // if block is in the unused list - count is 0, boolean is true
 // if block is not in both collections - count is 0, boolean is false
-func (bc *blockCache) getBlockInfo(blockHash uint64) (int, bool) {
+func (bc *blockCache) getBlockInfo(blockHash blockKey) (int, bool) {
 	bc.mu.RLock()
 	defer bc.mu.RUnlock()
 
@@ -325,6 +342,79 @@ func (bc *blockCache) getBlockInfo(blockHash uint64) (int, bool) {
 	}
 
 	return 0, false
+}
+
+// countCachedBlockPrefix returns the number of continuous blocks from the given list that are already in the cache
+func (bc *blockCache) countCachedBlockPrefix(blockHashes []uint64, modelName string) int {
+	bc.mu.RLock()
+	defer bc.mu.RUnlock()
+
+	if bc.disabled {
+		return 0
+	}
+
+	var count int
+	for _, blockHash := range blockHashes {
+		bKey := blockKey{hash: blockHash, modelName: modelName}
+		// Check if block is in used blocks (currently in use by running requests)
+		if _, exists := bc.usedBlocks[bKey]; exists {
+			count++
+		} else if _, exists := bc.unusedBlocks[bKey]; exists {
+			// Check if block is in unused blocks (was used in past)
+			count++
+		} else {
+			// return count once a block is not found in the cache
+			return count
+		}
+	}
+	return count
+}
+
+// pickBlockToEvict selects the best unused block to evict using priority:
+// 1. oldest unused block of an unloaded model
+// 2. oldest unused block of any model
+// Must be called with bc.mu held.
+func (bc *blockCache) pickBlockToEvict() blockKey {
+	var bestLoadedHash blockKey
+	bestLoadedTime := time.Now()
+	var bestUnloadedHash blockKey
+	bestUnloadedTime := time.Now()
+	hasUnloadedCandidate := false
+
+	for blockKey, t := range bc.unusedBlocks {
+		if bc.loadedModels[blockKey.modelName] {
+			// this is a block with loaded model,
+			// check if it's the best candidate among loaded models
+			if t.Before(bestLoadedTime) {
+				bestLoadedHash = blockKey
+				bestLoadedTime = t
+			}
+		} else {
+			// this is a block with unloaded model,
+			// check if it's the best candidate among unloaded models
+			if !hasUnloadedCandidate || t.Before(bestUnloadedTime) {
+				bestUnloadedHash = blockKey
+				bestUnloadedTime = t
+				hasUnloadedCandidate = true
+			}
+		}
+	}
+	if hasUnloadedCandidate {
+		return bestUnloadedHash
+	}
+	return bestLoadedHash
+}
+
+func (bc *blockCache) setModelLoaded(model string) {
+	bc.mu.Lock()
+	defer bc.mu.Unlock()
+	bc.loadedModels[model] = true
+}
+
+func (bc *blockCache) setModelUnloaded(model string) {
+	bc.mu.Lock()
+	defer bc.mu.Unlock()
+	delete(bc.loadedModels, model)
 }
 
 // ZMQ topic format is: kv@<pod-ip>@<model-name>

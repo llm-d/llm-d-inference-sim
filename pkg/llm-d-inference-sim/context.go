@@ -37,6 +37,8 @@ type lorasUsageInfo struct {
 	mux sync.RWMutex
 	// lora adapter name -> reference count (number of currently running requests)
 	loadedLoras map[string]int
+	// loraIDs indices of loaded loras, element i holds the name of the lora at index i+1, empty means a free slot
+	loraIDs []string
 	// channel for "there is a LoRA that can be removed" event
 	loraRemovable common.Channel[int]
 	// maximum number of LoRAs that can be used simultaneously
@@ -82,6 +84,7 @@ func (s *SimContext) initialize(ctx context.Context) error {
 		s.loraAdaptors.Store(lora.Name, lora.Path)
 	}
 	s.loras.maxLoras = s.Config.MaxLoras
+	s.loras.loraIDs = make([]string, s.Config.MaxLoras)
 	s.loras.loraRemovable = common.Channel[int]{
 		Channel: make(chan int, s.Config.MaxNumSeqs),
 		Name:    "loraRemovable",
@@ -154,7 +157,7 @@ func (s *SimContext) initDataset(ctx context.Context) error {
 }
 
 // isLora returns true if the given model name is one of loaded LoRAs
-func (s *SimContext) IsLora(model string) bool {
+func (s *SimContext) isLora(model string) bool {
 	for _, lora := range s.getLoras() {
 		if model == lora {
 			return true
@@ -168,7 +171,7 @@ func (s *SimContext) IsLora(model string) bool {
 // responses.  LoRA adapters keep their explicit name, while all base-model
 // requests are surfaced as the first alias from --served-model-name.
 func (s *SimContext) getDisplayedModelName(reqModel string) string {
-	if s.IsLora(reqModel) {
+	if s.isLora(reqModel) {
 		return reqModel
 	}
 	return s.Config.ServedModelNames[0]

@@ -37,6 +37,7 @@ type HFTokenizer struct {
 // HF Tokenizer
 func NewHFTokenizer(ctx context.Context, logger logr.Logger, udsSocketPath, model string) (*HFTokenizer, error) {
 	crlog.SetLogger(logger)
+	logger.V(logging.INFO).Info("Connecting to UDS tokenizer", "socket path", udsSocketPath)
 	udsTokenizer, err := tokenization.NewUdsTokenizer(ctx,
 		&tokenization.UdsTokenizerConfig{SocketFile: udsSocketPath}, model)
 
@@ -45,7 +46,7 @@ func NewHFTokenizer(ctx context.Context, logger logr.Logger, udsSocketPath, mode
 		return nil, err
 	}
 
-	logger.V(logging.DEBUG).Info("Connected to UDS tokenizer", "socket path", udsSocketPath)
+	logger.V(logging.INFO).Info("Connected to UDS tokenizer")
 	return &HFTokenizer{ctx: ctx, model: model, udsTokenizer: udsTokenizer, logger: logger}, nil
 }
 

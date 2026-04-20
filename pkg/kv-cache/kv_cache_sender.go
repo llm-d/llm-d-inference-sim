@@ -79,6 +79,7 @@ type EventData struct {
 	tokens   []uint32
 	hashes   []uint64
 	loraName *string
+	loraID   *int
 }
 
 type KVEventSender struct {
@@ -141,6 +142,7 @@ func (s *KVEventSender) Run(ctx context.Context) error {
 					Tokens:      eventData.tokens,
 					DeviceTier:  GPU,
 					ParentHash:  uint64(kvblock.EmptyBlockHash),
+					LoraID:      eventData.loraID,
 					LoraName:    eventData.loraName,
 				}
 			case eventActionRemove:
@@ -199,6 +201,8 @@ func (s *KVEventSender) publishHelper(ctx context.Context) error {
 				BlockHashes: convertUint64ToAnySlice(e.BlockHashes),
 				TokenIds:    e.Tokens,
 				Medium:      &GPU,
+				LoraID:      e.LoraID,
+				LoraName:    e.LoraName,
 			}
 		case *kvevents.BlockRemovedEvent:
 			raw = &msgpackBlockRemovedEvent{

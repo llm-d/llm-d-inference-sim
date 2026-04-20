@@ -19,6 +19,7 @@ package llmdinferencesim
 
 import (
 	"encoding/json"
+	"fmt"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
@@ -89,7 +90,7 @@ func (s *SimContext) UnloadLoraAdaptor(ctx *fasthttp.RequestCtx) {
 
 // Checks if the LoRA adaptor is loaded
 func (s *SimContext) loraIsLoaded(model string) bool {
-	if !s.IsLora(model) {
+	if !s.isLora(model) {
 		return true
 	}
 
@@ -102,7 +103,7 @@ func (s *SimContext) loraIsLoaded(model string) bool {
 
 // Load the LoRA adaptor if possible. Return false if not.
 func (s *SimContext) loadLora(model string) bool {
-	if !s.IsLora(model) {
+	if !s.isLora(model) {
 		return true
 	}
 
@@ -117,6 +118,10 @@ func (s *SimContext) loadLora(model string) bool {
 		// maxLoras, try to find a LoRA that is not in use, and unload it
 		for lora, count := range s.loras.loadedLoras {
 			if count == 0 {
+				s.freeLoraID(lora)
+				if s.kvcacheHelper != nil {
+					s.kvcacheHelper.SetModelUnloaded(lora)
+				}
 				delete(s.loras.loadedLoras, lora)
 				ok = true
 				break
@@ -125,6 +130,10 @@ func (s *SimContext) loadLora(model string) bool {
 	}
 	if ok {
 		s.loras.loadedLoras[model]++
+		s.assignLoraID(model)
+		if s.kvcacheHelper != nil {
+			s.kvcacheHelper.SetModelLoaded(model)
+		}
 	}
 	return ok
 }
@@ -133,7 +142,7 @@ func (s *SimContext) loadLora(model string) bool {
 // (if the model is a LoRA). Can be called only for loaded LoRAs (that are
 // already in loras.loadedLoras)
 func (s *SimContext) incrementLora(model string) {
-	if !s.IsLora(model) {
+	if !s.isLora(model) {
 		return
 	}
 
@@ -145,7 +154,7 @@ func (s *SimContext) incrementLora(model string) {
 // decrementLora decrements the count of running requests using the model
 // (if the model is a LoRA)
 func (s *SimContext) decrementLora(model string) {
-	if model == "" || !s.IsLora(model) {
+	if model == "" || !s.isLora(model) {
 		return
 	}
 
@@ -157,4 +166,49 @@ func (s *SimContext) decrementLora(model string) {
 		// last usage of this LoRA
 		common.WriteToChannel(s.loras.loraRemovable, 1, s.logger)
 	}
+}
+
+// assignLoraID assigns the next free index to a lora if it doesn't already have one.
+// Caller must hold s.loras.mux (called from loadLora which holds the write lock).
+func (s *SimContext) assignLoraID(lora string) {
+	firstFreeIndex := -1
+
+	for i, name := range s.loras.loraIDs {
+		if firstFreeIndex == -1 && name == "" {
+			firstFreeIndex = i
+		}
+		if name == lora {
+			return
+		}
+	}
+	// if we are here, this means the lora doesn't have an index yet, assign it the first free index
+	if firstFreeIndex != -1 {
+		s.loras.loraIDs[firstFreeIndex] = lora
+	} else {
+		s.logger.Error(fmt.Errorf("no free index for LoRA %s", lora), "failed to assign index to LoRA")
+	}
+}
+
+// freeLoraID releases the index held by the given lora.
+// Caller must hold s.loras.mux (called from loadLora which holds the write lock).
+func (s *SimContext) freeLoraID(lora string) {
+	for i, name := range s.loras.loraIDs {
+		if name == lora {
+			s.loras.loraIDs[i] = ""
+			return
+		}
+	}
+}
+
+// GetLoraID returns the 1-based index for a loaded lora, or 0 if not loaded.
+func (s *SimContext) GetLoraID(lora string) int {
+	s.loras.mux.RLock()
+	defer s.loras.mux.RUnlock()
+
+	for i, name := range s.loras.loraIDs {
+		if name == lora {
+			return i + 1
+		}
+	}
+	return 0
 }

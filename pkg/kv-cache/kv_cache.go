@@ -18,6 +18,7 @@ package kvcache
 // contains all logic relevant to KV-cache support
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/go-logr/logr"
@@ -48,6 +49,10 @@ type KVCacheHelper struct {
 
 func NewKVCacheHelper(ctx context.Context, config *common.Configuration, logger logr.Logger, usageChan common.Channel[common.MetricInfo],
 	prefixCacheStatsChan common.Channel[PrefixCacheStats], tokenizer tokenizer.Tokenizer) (*KVCacheHelper, error) {
+	if config.IP == "" {
+		return nil, errors.New("IP should be defined in the environment (POD_IP)")
+	}
+
 	tokenProcConfig := kvblock.DefaultTokenProcessorConfig()
 	tokenProcConfig.BlockSize = config.TokenBlockSize
 	if config.HashSeed != "" {
@@ -62,6 +67,7 @@ func NewKVCacheHelper(ctx context.Context, config *common.Configuration, logger 
 	if err != nil {
 		return nil, fmt.Errorf("failed to create block cache: %w", err)
 	}
+
 	return &KVCacheHelper{
 		tokenizer:            tokenizer,
 		tokensProcessor:      tokensProcessor,
@@ -115,8 +121,7 @@ func (h *KVCacheHelper) OnRequestStart(vllmReq openaiserverapi.Request) (PrefixC
 		blockTokens[i] = tokens[i*h.blockSize : i*h.blockSize+h.blockSize]
 	}
 
-	requestID := vllmReq.GetRequestID()
-	nBlocksAlreadyInCache, err := h.blockCache.startRequest(requestID, vllmReq.GetLoraName(), blockHashes, blockTokens)
+	nBlocksAlreadyInCache, err := h.blockCache.startRequest(vllmReq, blockHashes, blockTokens)
 	if err != nil {
 		return PrefixCacheStats{}, err
 	}
@@ -135,4 +140,14 @@ func (h *KVCacheHelper) OnRequestStart(vllmReq openaiserverapi.Request) (PrefixC
 
 func (h *KVCacheHelper) OnRequestEnd(requestID string) error {
 	return h.blockCache.finishRequest(requestID)
+}
+
+// SetModelLoaded marks a model as loaded, affecting block eviction priority
+func (h *KVCacheHelper) SetModelLoaded(model string) {
+	h.blockCache.setModelLoaded(model)
+}
+
+// SetModelUnloaded marks a model as unloaded, its blocks become low-priority eviction candidates
+func (h *KVCacheHelper) SetModelUnloaded(model string) {
+	h.blockCache.setModelUnloaded(model)
 }

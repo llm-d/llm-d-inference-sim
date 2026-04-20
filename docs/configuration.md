@@ -129,7 +129,7 @@ The following command line parameters are ignored by the simulator:
 - `mm-processor-kwargs` - arguments to be forwarded to the model's processor for multi-modal data, ignored
 - `ec-transfer-config` - configuration for distributed EC cache transfer, ignored
 - `enforce-eager`, `no-enforce-eager` - controls whether PyTorch eager mode is always enforced, ignored
-- `enable-prefix-caching`, `no-enable-prefix-caching` - enable or disable prefix caching, ignored
+- `enable-prefix-caching`, `no-enable-prefix-caching` - enable or disable prefix caching, ignored, behaves as enable-prefix-caching=true
 
 ## Klog
 In addition, as we are using klog, the following parameters are available:

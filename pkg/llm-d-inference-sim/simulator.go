@@ -252,7 +252,7 @@ func (s *VllmSimulator) processing(ctx context.Context) {
 			}
 
 			// check if lora usage allows the request to run
-			if s.Context.IsLora(model) && !s.Context.loadLora(model) {
+			if s.Context.isLora(model) && !s.Context.loadLora(model) {
 				// free the worker
 				s.freeWorkers <- worker
 				s.Context.logger.V(logging.TRACE).Info("LoRA cannot be loaded - sending the request to the waiting queue",
@@ -321,11 +321,6 @@ func (s *VllmSimulator) HandleRequest(req Request) (bool, *common.Channel[*Respo
 	if errMsg != "" {
 		err := openaiserverapi.NewError(errMsg, errCode, nil)
 		return false, nil, &err, false
-	}
-
-	// update whether the model is a LoRA adapter based on the request
-	if s.Context.IsLora(req.GetModel()) {
-		req.SetModelLora()
 	}
 
 	channel := common.Channel[*ResponseInfo]{
@@ -437,7 +432,7 @@ func (s *VllmSimulator) ResponseSentCallback(reqCtx requestContext) {
 	common.WriteToChannel(s.Context.metrics.runReqChan, common.MetricInfo{Value: -1}, s.Context.logger)
 
 	model := reqCtx.request().GetModel()
-	if s.Context.IsLora(model) {
+	if s.Context.isLora(model) {
 		// update loraInfo metrics to reflect that the request processing has been finished
 		common.WriteToChannel(s.Context.metrics.lorasChan, loraUsage{model, doneUsageState},
 			s.Context.logger)
