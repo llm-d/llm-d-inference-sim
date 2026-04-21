@@ -17,6 +17,7 @@ The simulator can be configured using either command-line arguments or a YAML fi
     - `random`: returns a sentence chosen at random from a set of pre-defined sentences or a given dataset
 - `enable-sleep-mode`, `no-enable-sleep-mode`: Enable or disable sleep mode feature. When enabled, the simulator can be put to sleep via the `/sleep` endpoint and woken up via the `/wake_up` endpoint
 - `enable-request-id-headers`: Enable including X-Request-Id header in responses. When enabled, the simulator will include the request ID in response headers
+- `log-http`: When true, logs each HTTP request and response at INFO (method, URI, remote address, headers, and body when buffered). Streamed response bodies (for example SSE) are not logged. Use only in trusted environments; may include secrets such as `Authorization` headers.
 - `mm-encoder-only`, `no-mm-encoder-only`: Skip  (or don't skip) the language component of the model.
 
 ## Latency 
