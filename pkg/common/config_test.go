@@ -654,3 +654,32 @@ var _ = Describe("Simulator configuration", func() {
 		})
 	}
 })
+
+var _ = Describe("Model environment variable", func() {
+	BeforeEach(func() {
+		os.Unsetenv(ModelEnv)
+	})
+	AfterEach(func() {
+		os.Unsetenv(ModelEnv)
+	})
+
+	It("overrides --model when set", func() {
+		Expect(os.Setenv(ModelEnv, "from-env")).To(Succeed())
+		config, err := createSimConfig([]string{"cmd", "--model", TestModelName, "--mode", ModeRandom, "--seed", "100"})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(config.Model).To(Equal("from-env"))
+	})
+
+	It("overrides model from config file when set", func() {
+		Expect(os.Setenv(ModelEnv, "env-override-model")).To(Succeed())
+		config, err := createSimConfig([]string{"cmd", "--config", "../../manifests/config.yaml"})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(config.Model).To(Equal("env-override-model"))
+	})
+
+	It("does not change model when unset", func() {
+		config, err := createSimConfig([]string{"cmd", "--model", TestModelName, "--mode", ModeRandom, "--seed", "100"})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(config.Model).To(Equal(TestModelName))
+	})
+})
