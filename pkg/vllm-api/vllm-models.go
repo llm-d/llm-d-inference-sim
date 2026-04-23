@@ -44,6 +44,8 @@ type ModelsResponseModelInfo struct {
 	Root string `json:"root"`
 	// Parent is name of base model when the model is LoRA adapter, if the model is not a LoRA - null
 	Parent *string `json:"parent"`
+	// MaxModelLen is the model's context window
+	MaxModelLen int `json:"max_model_len"`
 }
 
 // modelsResponse is the response of /models API

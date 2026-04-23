@@ -206,12 +206,13 @@ func (s *SimContext) CreateModelsResponse() *vllmapi.ModelsResponse {
 	// Advertise every public model alias
 	for _, alias := range s.Config.ServedModelNames {
 		modelsResp.Data = append(modelsResp.Data, vllmapi.ModelsResponseModelInfo{
-			ID:      alias,
-			Object:  vllmapi.ObjectModel,
-			Created: time.Now().Unix(),
-			OwnedBy: "vllm",
-			Root:    alias,
-			Parent:  nil,
+			ID:          alias,
+			Object:      vllmapi.ObjectModel,
+			Created:     time.Now().Unix(),
+			OwnedBy:     "vllm",
+			Root:        s.Config.Model,
+			Parent:      nil,
+			MaxModelLen: s.Config.MaxModelLen,
 		})
 	}
 
@@ -219,12 +220,13 @@ func (s *SimContext) CreateModelsResponse() *vllmapi.ModelsResponse {
 	parent := s.Config.ServedModelNames[0]
 	for _, lora := range s.getLoras() {
 		modelsResp.Data = append(modelsResp.Data, vllmapi.ModelsResponseModelInfo{
-			ID:      lora,
-			Object:  vllmapi.ObjectModel,
-			Created: time.Now().Unix(),
-			OwnedBy: "vllm",
-			Root:    lora,
-			Parent:  &parent,
+			ID:          lora,
+			Object:      vllmapi.ObjectModel,
+			Created:     time.Now().Unix(),
+			OwnedBy:     "vllm",
+			Root:        lora,
+			Parent:      &parent,
+			MaxModelLen: s.Config.MaxModelLen,
 		})
 	}
 
