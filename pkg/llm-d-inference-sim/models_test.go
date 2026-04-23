@@ -21,7 +21,17 @@ import (
 	. "github.com/onsi/gomega"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
+	vllmapi "github.com/llm-d/llm-d-inference-sim/pkg/vllm-api"
 )
+
+func findByID(models []vllmapi.ModelsResponseModelInfo, id string) *vllmapi.ModelsResponseModelInfo {
+	for i := range models {
+		if models[i].ID == id {
+			return &models[i]
+		}
+	}
+	return nil
+}
 
 var _ = Describe("CreateModelsResponse", func() {
 	It("should set root to actual model path, not alias", func() {
@@ -88,5 +98,28 @@ var _ = Describe("CreateModelsResponse", func() {
 		Expect(resp.Data[0].ID).To(Equal("meta-llama/Llama-3-8B"))
 		Expect(resp.Data[0].Root).To(Equal("meta-llama/Llama-3-8B"))
 		Expect(resp.Data[0].MaxModelLen).To(Equal(1024))
+	})
+
+	It("should set LoRA root to the adapter path when one is recorded", func() {
+		s := &SimContext{
+			Config: &common.Configuration{
+				Model:            "Qwen/Qwen3-0.6B-Base",
+				ServedModelNames: []string{"base-model"},
+				MaxModelLen:      4096,
+			},
+		}
+		s.loraAdaptors.Store("lora-with-path", "/lora/path/adapter1")
+		s.loraAdaptors.Store("lora-without-path", "")
+
+		resp := s.CreateModelsResponse()
+		Expect(resp.Data).To(HaveLen(3))
+
+		withPath := findByID(resp.Data, "lora-with-path")
+		Expect(withPath).ToNot(BeNil())
+		Expect(withPath.Root).To(Equal("/lora/path/adapter1"))
+
+		withoutPath := findByID(resp.Data, "lora-without-path")
+		Expect(withoutPath).ToNot(BeNil())
+		Expect(withoutPath.Root).To(Equal("lora-without-path"))
 	})
 })

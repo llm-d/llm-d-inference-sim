@@ -79,7 +79,7 @@ func (s *SimContext) initialize(ctx context.Context) error {
 	}
 
 	for _, lora := range s.Config.LoraModules {
-		s.loraAdaptors.Store(lora.Name, "")
+		s.loraAdaptors.Store(lora.Name, lora.Path)
 	}
 	s.loras.maxLoras = s.Config.MaxLoras
 	s.loras.loraRemovable = common.Channel[int]{
@@ -224,7 +224,7 @@ func (s *SimContext) CreateModelsResponse() *vllmapi.ModelsResponse {
 			Object:      vllmapi.ObjectModel,
 			Created:     time.Now().Unix(),
 			OwnedBy:     "vllm",
-			Root:        lora,
+			Root:        s.getLoraPath(lora),
 			Parent:      &parent,
 			MaxModelLen: s.Config.MaxModelLen,
 		})

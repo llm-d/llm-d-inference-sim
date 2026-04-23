@@ -49,6 +49,20 @@ func (s *SimContext) getLoras() []string {
 	return loras
 }
 
+// getLoraPath returns the filesystem path recorded for the given LoRA name.
+// Falls back to the name when no path was supplied (dynamic load without
+// lora_path, or the non-string sentinel values stored by some tests).
+func (s *SimContext) getLoraPath(name string) string {
+	raw, ok := s.loraAdaptors.Load(name)
+	if !ok {
+		return name
+	}
+	if path, ok := raw.(string); ok && path != "" {
+		return path
+	}
+	return name
+}
+
 func (s *SimContext) LoadLoraAdaptor(ctx *fasthttp.RequestCtx) {
 	var req loadLoraRequest
 	err := json.Unmarshal(ctx.Request.Body(), &req)
@@ -58,7 +72,7 @@ func (s *SimContext) LoadLoraAdaptor(ctx *fasthttp.RequestCtx) {
 		return
 	}
 
-	s.loraAdaptors.Store(req.LoraName, "")
+	s.loraAdaptors.Store(req.LoraName, req.LoraPath)
 }
 
 func (s *SimContext) UnloadLoraAdaptor(ctx *fasthttp.RequestCtx) {
