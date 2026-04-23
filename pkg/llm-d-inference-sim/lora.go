@@ -171,22 +171,19 @@ func (s *SimContext) decrementLora(model string) {
 // assignLoraID assigns the next free index to a lora if it doesn't already have one.
 // Caller must hold s.loras.mux (called from loadLora which holds the write lock).
 func (s *SimContext) assignLoraID(lora string) {
-	firstFreeIndex := -1
-
 	for i, name := range s.loras.loraIDs {
-		if firstFreeIndex == -1 && name == "" {
-			firstFreeIndex = i
-		}
 		if name == lora {
+			// the LoRA already has an assigned ID, no need to assign again
+			return
+		}
+		if name == "" {
+			// assign this free slot to the LoRA
+			s.loras.loraIDs[i] = lora
 			return
 		}
 	}
-	// if we are here, this means the lora doesn't have an index yet, assign it the first free index
-	if firstFreeIndex != -1 {
-		s.loras.loraIDs[firstFreeIndex] = lora
-	} else {
-		s.logger.Error(fmt.Errorf("no free index for LoRA %s", lora), "failed to assign index to LoRA")
-	}
+	// should't happen since loadLora checks maxLoras, but log just in case
+	s.logger.Error(fmt.Errorf("no free index for LoRA %s", lora), "failed to assign index to LoRA")
 }
 
 // freeLoraID releases the index held by the given lora.

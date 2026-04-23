@@ -87,18 +87,20 @@ type KVEventSender struct {
 	topic        string
 	eventChan    common.Channel[EventData]
 	maxBatchSize int
+	blockSize    int
 	delay        time.Duration
 	batch        []kvevents.GenericEvent
 	logger       logr.Logger
 }
 
 func NewKVEventSender(publisher *common.Publisher, topic string, ch common.Channel[EventData], maxBatchSize int,
-	delay time.Duration, logger logr.Logger) *KVEventSender {
+	blockSize int, delay time.Duration, logger logr.Logger) *KVEventSender {
 	return &KVEventSender{
 		publisher:    publisher,
 		topic:        topic,
 		eventChan:    ch,
 		maxBatchSize: maxBatchSize,
+		blockSize:    blockSize,
 		delay:        delay,
 		batch:        make([]kvevents.GenericEvent, 0, maxBatchSize),
 		logger:       logger,
@@ -132,7 +134,6 @@ func (s *KVEventSender) Run(ctx context.Context) error {
 			}
 
 			// Encode eventData's hash value to msgpack.RawMessage
-			var err error
 			var event kvevents.GenericEvent
 
 			switch eventData.action {
@@ -151,9 +152,6 @@ func (s *KVEventSender) Run(ctx context.Context) error {
 				event = &kvevents.AllBlocksClearedEvent{DeviceTier: GPU}
 			default:
 				return fmt.Errorf("invalid event action %d", eventData.action)
-			}
-			if err != nil {
-				return fmt.Errorf("failed to marshal value: %w", err)
 			}
 
 			s.batch = append(s.batch, event)
@@ -197,12 +195,14 @@ func (s *KVEventSender) publishHelper(ctx context.Context) error {
 		switch e := event.(type) {
 		case *kvevents.BlockStoredEvent:
 			raw = &msgpackBlockStoredEvent{
-				Tag:         string(kvevents.EventTypeBlockStored),
-				BlockHashes: convertUint64ToAnySlice(e.BlockHashes),
-				TokenIds:    e.Tokens,
-				Medium:      &GPU,
-				LoraID:      e.LoraID,
-				LoraName:    e.LoraName,
+				Tag:             string(kvevents.EventTypeBlockStored),
+				BlockHashes:     convertUint64ToAnySlice(e.BlockHashes),
+				TokenIds:        e.Tokens,
+				Medium:          &e.DeviceTier,
+				LoraID:          e.LoraID,
+				LoraName:        e.LoraName,
+				ParentBlockHash: e.ParentHash,
+				BlockSize:       s.blockSize,
 			}
 		case *kvevents.BlockRemovedEvent:
 			raw = &msgpackBlockRemovedEvent{

@@ -35,7 +35,7 @@ const (
 	topicNameSeparator = "@"
 )
 
-// define the interface for requests that can be stored in the block cache
+// Request defines the interface for requests that can be stored in the block cache
 // contains sub-set of openai server api request fields that are relevant for the block cache
 type Request interface {
 	GetRequestID() string
@@ -56,7 +56,7 @@ type blockCache struct {
 	usedBlocks      map[blockKey]int                   // block hash -> reference count
 	unusedBlocks    map[blockKey]time.Time             // block hash -> last usage timestamp
 	blockToTokens   map[blockKey][]uint32              // block hash -> block tokens
-	loadedModels    map[string]bool                    // models currently loaded (base model + loaded loras)
+	loadedModels    map[string]struct{}                // models currently loaded (base model + loaded loras)
 	maxBlocks       int                                // maximum number of blocks in the cache
 	eventSender     *KVEventSender                     // emmits kv events
 	eventChan       common.Channel[EventData]          // channel for asynchronous event processing
@@ -73,7 +73,7 @@ func newBlockCache(ctx context.Context, config *common.Configuration, logger log
 	}
 
 	eChan := common.Channel[EventData]{
-		Channel: make(chan EventData, config.KVCacheSize),
+		Channel: make(chan EventData, 10*config.KVCacheSize),
 		Name:    "block cache eventChan",
 	}
 
@@ -87,20 +87,29 @@ func newBlockCache(ctx context.Context, config *common.Configuration, logger log
 	}
 
 	eventSender := NewKVEventSender(publisher, CreateKVEventsTopic(config.IP, config.Model),
-		eChan, config.EventBatchSize, delay, logger)
+		eChan, config.EventBatchSize, config.TokenBlockSize, delay, logger)
 
-	return &blockCache{
+	bCache := blockCache{
 		requestToBlocks: make(map[string][]blockKey),
 		usedBlocks:      make(map[blockKey]int),
 		unusedBlocks:    make(map[blockKey]time.Time),
 		blockToTokens:   make(map[blockKey][]uint32),
-		loadedModels:    make(map[string]bool),
+		loadedModels:    make(map[string]struct{}),
 		maxBlocks:       config.KVCacheSize,
 		eventChan:       eChan,
 		usageChan:       usageChan,
 		eventSender:     eventSender,
 		logger:          logger,
-	}, nil
+	}
+
+	// mark the base model and all it aliases as always loaded,
+	// so its blocks will be evicted with lower priority than blocks of unloaded loras
+	bCache.setModelLoaded(config.Model)
+	for _, modelName := range config.ServedModelNames {
+		bCache.setModelLoaded(modelName)
+	}
+
+	return &bCache, nil
 }
 
 func (bc *blockCache) start(ctx context.Context) {
@@ -141,7 +150,7 @@ func (bc *blockCache) activate() {
 // startRequest adds a request with its associated block hashes to the cache
 // and returns the number of blocks that were already in the cache
 // model name is the name of the model for the current request, used for eviction policy
-func (bc *blockCache) startRequest(vllmReq Request, blockHashes []uint64, blockTokens [][]uint32) (int, error) {
+func (bc *blockCache) startRequest(req Request, blockHashes []uint64, blockTokens [][]uint32) (int, error) {
 	bc.mu.Lock()
 	defer bc.mu.Unlock()
 
@@ -150,9 +159,9 @@ func (bc *blockCache) startRequest(vllmReq Request, blockHashes []uint64, blockT
 		return 0, nil
 	}
 
-	if _, exists := bc.requestToBlocks[vllmReq.GetRequestID()]; exists {
+	if _, exists := bc.requestToBlocks[req.GetRequestID()]; exists {
 		// request with the same id already exists
-		return 0, fmt.Errorf("request already exists for id %s", vllmReq.GetRequestID())
+		return 0, fmt.Errorf("request already exists for id %s", req.GetRequestID())
 	}
 
 	if len(blockHashes) != len(blockTokens) {
@@ -171,7 +180,7 @@ func (bc *blockCache) startRequest(vllmReq Request, blockHashes []uint64, blockT
 	// count number of new blocks + number of blocks that are in the unused blocks
 	// don't update the data until we are sure that it's ok
 	for i, blockHash := range blockHashes {
-		bKey := blockKey{hash: blockHash, modelName: vllmReq.GetModel()}
+		bKey := blockKey{hash: blockHash, modelName: req.GetModel()}
 		if _, exists := bc.unusedBlocks[bKey]; exists {
 			blockToMoveToUsed = append(blockToMoveToUsed, bKey)
 		} else if _, exists := bc.usedBlocks[bKey]; !exists {
@@ -232,20 +241,18 @@ func (bc *blockCache) startRequest(vllmReq Request, blockHashes []uint64, blockT
 				action:   eventActionStore,
 				hashes:   hashes,
 				tokens:   tokens,
-				loraName: vllmReq.GetLoraName(),
-				loraID:   vllmReq.GetLoraID(),
+				loraName: req.GetLoraName(),
+				loraID:   req.GetLoraID(),
 			}, bc.logger)
 	}
 
 	// store the request mapping
 	// store blockKeys and not only plain uint64
-	bKeys := make([]blockKey, len(blockHashes))
+	bc.requestToBlocks[req.GetRequestID()] = make([]blockKey, len(blockHashes))
 	for i, blockHash := range blockHashes {
-		bKey := blockKey{hash: blockHash, modelName: vllmReq.GetModel()}
-		bKeys[i] = bKey
+		bKey := blockKey{hash: blockHash, modelName: req.GetModel()}
+		bc.requestToBlocks[req.GetRequestID()][i] = bKey
 	}
-	bc.requestToBlocks[vllmReq.GetRequestID()] = make([]blockKey, len(blockHashes))
-	copy(bc.requestToBlocks[vllmReq.GetRequestID()], bKeys)
 
 	if bc.usageChan != nil {
 		usage := common.MetricInfo{
@@ -378,11 +385,11 @@ func (bc *blockCache) pickBlockToEvict() blockKey {
 	var bestLoadedHash blockKey
 	bestLoadedTime := time.Now()
 	var bestUnloadedHash blockKey
-	bestUnloadedTime := time.Now()
+	bestUnloadedTime := bestLoadedTime
 	hasUnloadedCandidate := false
 
 	for blockKey, t := range bc.unusedBlocks {
-		if bc.loadedModels[blockKey.modelName] {
+		if _, exists := bc.loadedModels[blockKey.modelName]; exists {
 			// this is a block with loaded model,
 			// check if it's the best candidate among loaded models
 			if t.Before(bestLoadedTime) {
@@ -392,7 +399,7 @@ func (bc *blockCache) pickBlockToEvict() blockKey {
 		} else {
 			// this is a block with unloaded model,
 			// check if it's the best candidate among unloaded models
-			if !hasUnloadedCandidate || t.Before(bestUnloadedTime) {
+			if t.Before(bestUnloadedTime) {
 				bestUnloadedHash = blockKey
 				bestUnloadedTime = t
 				hasUnloadedCandidate = true
@@ -408,7 +415,7 @@ func (bc *blockCache) pickBlockToEvict() blockKey {
 func (bc *blockCache) setModelLoaded(model string) {
 	bc.mu.Lock()
 	defer bc.mu.Unlock()
-	bc.loadedModels[model] = true
+	bc.loadedModels[model] = struct{}{}
 }
 
 func (bc *blockCache) setModelUnloaded(model string) {

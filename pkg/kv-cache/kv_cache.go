@@ -50,7 +50,7 @@ type KVCacheHelper struct {
 func NewKVCacheHelper(ctx context.Context, config *common.Configuration, logger logr.Logger, usageChan common.Channel[common.MetricInfo],
 	prefixCacheStatsChan common.Channel[PrefixCacheStats], tokenizer tokenizer.Tokenizer) (*KVCacheHelper, error) {
 	if config.IP == "" {
-		return nil, errors.New("IP should be defined in the environment (POD_IP)")
+		return nil, errors.New("IP should be defined in the environment (POD_IP) for KV cache to work")
 	}
 
 	tokenProcConfig := kvblock.DefaultTokenProcessorConfig()
@@ -91,15 +91,14 @@ func (h *KVCacheHelper) Activate() {
 	h.blockCache.activate()
 }
 
-func (h *KVCacheHelper) OnRequestStart(vllmReq openaiserverapi.Request) (PrefixCacheStats, error) {
+func (h *KVCacheHelper) OnRequestStart(req openaiserverapi.Request) (PrefixCacheStats, error) {
 	h.logger.V(logging.TRACE).Info("KV cache - process request")
 
-	tokens := vllmReq.TokenizedPrompt().Tokens
-	modelName := vllmReq.GetModel()
+	tokens := req.TokenizedPrompt().Tokens
 
 	// compute per-block extra features from multimodal metadata (if present).
 	var extraFeatures []*kvblock.BlockExtraFeatures
-	mmFeatres := vllmReq.MMFeatures()
+	mmFeatres := req.MMFeatures()
 
 	if mmFeatres != nil {
 		extraFeatures = kvblock.ComputeBlockExtraFeatures(
@@ -108,7 +107,7 @@ func (h *KVCacheHelper) OnRequestStart(vllmReq openaiserverapi.Request) (PrefixC
 	}
 
 	// get block keys
-	blockKeys, err := h.tokensProcessor.TokensToKVBlockKeys(kvblock.EmptyBlockHash, tokens, modelName, extraFeatures)
+	blockKeys, err := h.tokensProcessor.TokensToKVBlockKeys(kvblock.EmptyBlockHash, tokens, req.GetModel(), extraFeatures)
 	if err != nil {
 		return PrefixCacheStats{}, fmt.Errorf("failed to convert tokens to block keys: %w", err)
 	}
@@ -121,13 +120,13 @@ func (h *KVCacheHelper) OnRequestStart(vllmReq openaiserverapi.Request) (PrefixC
 		blockTokens[i] = tokens[i*h.blockSize : i*h.blockSize+h.blockSize]
 	}
 
-	nBlocksAlreadyInCache, err := h.blockCache.startRequest(vllmReq, blockHashes, blockTokens)
+	nBlocksAlreadyInCache, err := h.blockCache.startRequest(req, blockHashes, blockTokens)
 	if err != nil {
 		return PrefixCacheStats{}, err
 	}
 
 	cachedTokens := nBlocksAlreadyInCache * h.blockSize
-	vllmReq.SetNumberOfCachedPromptTokens(cachedTokens)
+	req.SetNumberOfCachedPromptTokens(cachedTokens)
 
 	stats := PrefixCacheStats{
 		QueriedTokens: len(tokens),
