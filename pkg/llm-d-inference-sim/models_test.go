@@ -89,4 +89,31 @@ var _ = Describe("CreateModelsResponse", func() {
 		Expect(resp.Data[0].Root).To(Equal("meta-llama/Llama-3-8B"))
 		Expect(resp.Data[0].MaxModelLen).To(Equal(1024))
 	})
+
+	It("should set root to LoRA path when the adaptor was loaded with one (#443)", func() {
+		s := &SimContext{
+			Config: &common.Configuration{
+				Model:            "Qwen/Qwen3-0.6B-Base",
+				ServedModelNames: []string{"base-model"},
+				MaxModelLen:      32768,
+			},
+		}
+		// Simulate a LoRA loaded with a path (either via Configuration
+		// LoraModules or the load-adapter HTTP endpoint).
+		s.loraAdaptors.Store("lora1", "path/to/lora1")
+		// A second adapter registered without a path (e.g. legacy
+		// call site that stored an empty string) must still fall back
+		// to the LoRA name for Root.
+		s.loraAdaptors.Store("lora2", "")
+
+		resp := s.CreateModelsResponse()
+		Expect(resp.Data).To(HaveLen(3))
+
+		loraEntries := make(map[string]string)
+		for _, model := range resp.Data[1:] {
+			loraEntries[model.ID] = model.Root
+		}
+		Expect(loraEntries).To(HaveKeyWithValue("lora1", "path/to/lora1"))
+		Expect(loraEntries).To(HaveKeyWithValue("lora2", "lora2"))
+	})
 })

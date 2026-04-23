@@ -79,7 +79,10 @@ func (s *SimContext) initialize(ctx context.Context) error {
 	}
 
 	for _, lora := range s.Config.LoraModules {
-		s.loraAdaptors.Store(lora.Name, "")
+		// Store the LoRA path alongside the name so /v1/models can surface
+		// it in `root` for each adapter (vLLM behavior). Previously this
+		// was an unused empty string.
+		s.loraAdaptors.Store(lora.Name, lora.Path)
 	}
 	s.loras.maxLoras = s.Config.MaxLoras
 	s.loras.loraRemovable = common.Channel[int]{
@@ -219,12 +222,22 @@ func (s *SimContext) CreateModelsResponse() *vllmapi.ModelsResponse {
 	// add LoRA adapter's info
 	parent := s.Config.ServedModelNames[0]
 	for _, lora := range s.getLoras() {
+		// Prefer the configured / loaded LoRA path for `root` (matches real
+		// vLLM behavior -- #443). Fall back to the LoRA name when no path
+		// was recorded, which preserves the prior shape for adapters that
+		// arrived without a path (older Store(name, "") call sites).
+		loraRoot := lora
+		if path, ok := s.loraAdaptors.Load(lora); ok {
+			if pathStr, isStr := path.(string); isStr && pathStr != "" {
+				loraRoot = pathStr
+			}
+		}
 		modelsResp.Data = append(modelsResp.Data, vllmapi.ModelsResponseModelInfo{
 			ID:          lora,
 			Object:      vllmapi.ObjectModel,
 			Created:     time.Now().Unix(),
 			OwnedBy:     "vllm",
-			Root:        lora,
+			Root:        loraRoot,
 			Parent:      &parent,
 			MaxModelLen: s.Config.MaxModelLen,
 		})

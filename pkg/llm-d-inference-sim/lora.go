@@ -58,7 +58,8 @@ func (s *SimContext) LoadLoraAdaptor(ctx *fasthttp.RequestCtx) {
 		return
 	}
 
-	s.loraAdaptors.Store(req.LoraName, "")
+	// Record the path so /v1/models can surface it in `root` (#443).
+	s.loraAdaptors.Store(req.LoraName, req.LoraPath)
 }
 
 func (s *SimContext) UnloadLoraAdaptor(ctx *fasthttp.RequestCtx) {
