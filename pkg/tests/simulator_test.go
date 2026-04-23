@@ -358,6 +358,86 @@ var _ = Describe("Simulator", func() {
 		Entry(nil, common.MMModelName, common.ModeEcho, 10),
 	)
 
+	It("echo mode with structured content blocks", func() {
+		ctx := context.TODO()
+		args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho}
+		client, err := startServerWithArgs(ctx, args)
+		Expect(err).NotTo(HaveOccurred())
+
+		openaiclient := openai.NewClient(
+			option.WithBaseURL(baseURL),
+			option.WithHTTPClient(client),
+			option.WithMaxRetries(0))
+
+		params := openai.ChatCompletionNewParams{
+			Messages: []openai.ChatCompletionMessageParamUnion{
+				openai.UserMessage(
+					[]openai.ChatCompletionContentPartUnionParam{
+						openai.TextContentPart("Describe this"),
+						openai.ImageContentPart(openai.ChatCompletionContentPartImageImageURLParam{
+							URL: "https://example.com/img.png",
+						}),
+					},
+				),
+			},
+			Model: common.TestModelName,
+		}
+
+		resp, err := openaiclient.Chat.Completions.New(ctx, params)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.Choices).ShouldNot(BeEmpty())
+
+		msg := resp.Choices[0].Message.Content
+		Expect(msg).To(Equal("Describe this\nimage: https://example.com/img.png"))
+	})
+
+	It("echo mode with structured content blocks streaming", func() {
+		ctx := context.TODO()
+		args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho}
+		client, err := startServerWithArgs(ctx, args)
+		Expect(err).NotTo(HaveOccurred())
+
+		openaiclient := openai.NewClient(
+			option.WithBaseURL(baseURL),
+			option.WithHTTPClient(client),
+			option.WithMaxRetries(0))
+
+		params := openai.ChatCompletionNewParams{
+			Messages: []openai.ChatCompletionMessageParamUnion{
+				openai.UserMessage(
+					[]openai.ChatCompletionContentPartUnionParam{
+						openai.TextContentPart("Describe this"),
+						openai.ImageContentPart(openai.ChatCompletionContentPartImageImageURLParam{
+							URL: "https://example.com/img.png",
+						}),
+					},
+				),
+			},
+			Model:         common.TestModelName,
+			StreamOptions: openai.ChatCompletionStreamOptionsParam{IncludeUsage: param.NewOpt(true)},
+		}
+
+		stream := openaiclient.Chat.Completions.NewStreaming(ctx, params)
+		defer func() {
+			err := stream.Close()
+			Expect(err).NotTo(HaveOccurred())
+		}()
+
+		var tokens []string
+		for stream.Next() {
+			chunk := stream.Current()
+			for _, choice := range chunk.Choices {
+				if choice.Delta.Content != "" {
+					tokens = append(tokens, choice.Delta.Content)
+				}
+			}
+		}
+		Expect(stream.Err()).NotTo(HaveOccurred())
+
+		msg := strings.Join(tokens, "")
+		Expect(msg).To(Equal("Describe this\nimage: https://example.com/img.png"))
+	})
+
 	Context("namespace and pod headers", func() {
 		It("Should not include namespace, pod and port headers in chat completion response when env is not set", func() {
 			httpResp := sendSimpleChatRequest(nil, false)

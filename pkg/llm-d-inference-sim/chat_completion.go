@@ -79,7 +79,7 @@ func (c *ChatCompletionRequest) createResponseContext(reqCtx requestContext, dis
 func (c *chatCompletionReqCtx) tokenizedPromptForEcho() (*openaiserverapi.Tokenized, error) {
 	lastMsg := ""
 	if len(c.req.Messages) > 0 {
-		lastMsg = c.req.Messages[len(c.req.Messages)-1].Content.Raw
+		lastMsg = c.req.Messages[len(c.req.Messages)-1].Content.ReadableText()
 	}
 	tokens, strTokens, err := c.sim.Tokenizer.RenderText(lastMsg)
 	if err != nil {

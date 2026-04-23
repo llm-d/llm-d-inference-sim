@@ -174,6 +174,22 @@ func (mc Content) MarshalJSON() ([]byte, error) {
 	return json.Marshal("")
 }
 
+func (mc Content) ReadableText() string {
+	if mc.Raw != "" {
+		return mc.Raw
+	}
+	var parts []string
+	for _, block := range mc.Structured {
+		switch block.Type {
+		case "text":
+			parts = append(parts, block.Text)
+		case "image_url":
+			parts = append(parts, "image: "+block.ImageURL.Url)
+		}
+	}
+	return strings.Join(parts, "\n")
+}
+
 func (mc Content) PlainText() string {
 	if mc.Raw != "" {
 		return mc.Raw
