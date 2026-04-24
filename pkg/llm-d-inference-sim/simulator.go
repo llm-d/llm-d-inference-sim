@@ -65,6 +65,9 @@ type VllmSimulator struct {
 	queueCapacity int
 	// a channel for incoming requests
 	newRequests common.Channel[requestContext]
+	// drainCancel cancels the internal drain context once all open requests finish,
+	// allowing internal goroutines (workers, metrics, kvcache) to stop cleanly
+	drainCancel context.CancelFunc
 }
 
 // New creates a new VllmSimulator instance with the given logger
@@ -96,7 +99,11 @@ func Start(ctx context.Context, config *common.Configuration, logger logr.Logger
 		logger.Error(err, "failed to initialize dataset")
 		return nil, err
 	}
-	tokenizer, err := tokenizer.New(ctx, config, logger)
+	// Use context.Background() so the tokenizer's gRPC connection to the UDS
+	// sidecar is not tied to the parent context. Workers run on drainCtx (cancelled
+	// only after all requests drain) and must be able to call the tokenizer until
+	// the very end, after the parent context has already been cancelled.
+	tokenizer, err := tokenizer.New(context.Background(), config, logger)
 	if err != nil {
 		logger.Error(err, "failed to initialize tokenizer")
 		return nil, err
@@ -149,7 +156,13 @@ func Start(ctx context.Context, config *common.Configuration, logger logr.Logger
 }
 
 func (s *VllmSimulator) InitializeSim(ctx context.Context) error {
-	if err := s.Context.initialize(ctx); err != nil {
+	// drainCtx lives until all open requests finish after ctx is cancelled.
+	// It is passed to all internal goroutines so they keep running through drain.
+	drainCtx, drainCancel := context.WithCancel(context.Background())
+	s.drainCancel = drainCancel
+
+	if err := s.Context.initialize(drainCtx); err != nil {
+		drainCancel()
 		return err
 	}
 
@@ -167,7 +180,7 @@ func (s *VllmSimulator) InitializeSim(ctx context.Context) error {
 	for i := 1; i <= s.Context.Config.MaxNumSeqs; i++ {
 		worker := &worker{
 			id:           i,
-			ctx:          ctx,
+			ctx:          drainCtx,
 			logger:       s.Context.logger,
 			finishedChan: s.workerFinished,
 			reqChan: common.Channel[requestContext]{
@@ -180,8 +193,15 @@ func (s *VllmSimulator) InitializeSim(ctx context.Context) error {
 		s.freeWorkers <- worker
 	}
 
-	go s.processing(ctx)
+	go s.processing(drainCtx)
 	return nil
+}
+
+// Stop cancels the internal drain context, causing all internal goroutines
+// (workers, metrics, kvcache) to stop cleanly. It must be called by the
+// communication layer after all open requests have been drained.
+func (s *VllmSimulator) Stop() {
+	s.drainCancel()
 }
 
 func (s *VllmSimulator) processing(ctx context.Context) {
@@ -278,9 +298,10 @@ func (s *VllmSimulator) addRequestToQueue(reqCtx requestContext) {
 	// increment the waiting requests metric
 	common.WriteToChannel(s.Context.metrics.waitingReqChan, common.MetricInfo{Value: 1}, s.Context.logger)
 	// update loraInfo metrics with the new waiting request
-	common.WriteToChannel(s.Context.metrics.lorasChan, loraUsage{reqCtx.request().GetModel(), waitingUsageState},
-		s.Context.logger)
-
+	if s.Context.isLora(reqCtx.request().GetModel()) {
+		common.WriteToChannel(s.Context.metrics.lorasChan, loraUsage{reqCtx.request().GetModel(), waitingUsageState},
+			s.Context.logger)
+	}
 }
 
 func (s *VllmSimulator) HandleRequest(req Request) (bool, *common.Channel[*ResponseInfo], *openaiserverapi.Error, bool) {
@@ -406,10 +427,11 @@ func (s *VllmSimulator) sendResponse(reqCtx requestContext, respCtx ResponseCont
 }
 
 // request processing finished
-func (s *VllmSimulator) ResponseSentCallback(reqCtx requestContext, model string) {
+func (s *VllmSimulator) ResponseSentCallback(reqCtx requestContext) {
 	// decrement running requests count
 	common.WriteToChannel(s.Context.metrics.runReqChan, common.MetricInfo{Value: -1}, s.Context.logger)
 
+	model := reqCtx.request().GetModel()
 	if s.Context.isLora(model) {
 		// update loraInfo metrics to reflect that the request processing has been finished
 		common.WriteToChannel(s.Context.metrics.lorasChan, loraUsage{model, doneUsageState},
@@ -417,6 +439,16 @@ func (s *VllmSimulator) ResponseSentCallback(reqCtx requestContext, model string
 	}
 
 	reqCtx.kvCacheOnRequestEnd()
+}
+
+// OpenRequests returns the number of requests currently in the system
+// (waiting in queue + being processed by workers).
+func (s *VllmSimulator) OpenRequests() int64 {
+	s.queueLock.Lock()
+	waiting := s.waitingQueue.Len()
+	s.queueLock.Unlock()
+	running := cap(s.freeWorkers) - len(s.freeWorkers)
+	return int64(waiting + running)
 }
 
 func (s *VllmSimulator) DiscardKVCache() {

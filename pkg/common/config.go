@@ -81,6 +81,9 @@ type Configuration struct {
 	Port int `yaml:"port" json:"port"`
 	// Model defines the current base model name
 	Model string `yaml:"model" json:"model"`
+	// DisplayModelName defines the model name that will be shown in API responses
+	// If ServedModelNames are not set, it defaults to the value of Model
+	DisplayModelName string
 	// ServedModelNames is one or many model names exposed by the API
 	ServedModelNames []string `yaml:"served-model-name" json:"served-model-name"`
 	// MaxLoras defines maximum number of loaded LoRAs
@@ -362,6 +365,9 @@ func (c *Configuration) validate() error {
 	if len(c.ServedModelNames) == 0 {
 		c.ServedModelNames = []string{c.Model}
 	}
+
+	// set display model name
+	c.DisplayModelName = c.ServedModelNames[0]
 
 	if c.Mode != ModeEcho && c.Mode != ModeRandom {
 		return fmt.Errorf("invalid mode '%s', valid values are 'random' and 'echo'", c.Mode)

@@ -85,14 +85,27 @@ func (h *KVCacheHelper) Activate() {
 	h.blockCache.activate()
 }
 
-func (h *KVCacheHelper) OnRequestStart(vllmReq openaiserverapi.Request) (float64, error) {
+func (h *KVCacheHelper) OnRequestStart(vllmReq openaiserverapi.Request) (PrefixCacheStats, error) {
 	h.logger.V(logging.TRACE).Info("KV cache - process request")
 
 	tokens := vllmReq.TokenizedPrompt().Tokens
 	modelName := vllmReq.GetModel()
 
+	// compute per-block extra features from multimodal metadata (if present).
+	var extraFeatures []*kvblock.BlockExtraFeatures
+	mmFeatres := vllmReq.MMFeatures()
+
+	if mmFeatres != nil {
+		extraFeatures = kvblock.ComputeBlockExtraFeatures(
+			mmFeatres.MMHashes, mmFeatres.MMPlaceholders,
+			h.blockSize, len(tokens))
+	}
+
 	// get block keys
-	blockKeys := h.tokensProcessor.TokensToKVBlockKeys(kvblock.EmptyBlockHash, tokens, modelName)
+	blockKeys, err := h.tokensProcessor.TokensToKVBlockKeys(kvblock.EmptyBlockHash, tokens, modelName, extraFeatures)
+	if err != nil {
+		return PrefixCacheStats{}, fmt.Errorf("failed to convert tokens to block keys: %w", err)
+	}
 	h.logger.V(logging.TRACE).Info("Found tokens", "tokens", tokens, "block-keys", blockKeys)
 
 	blockHashes := make([]uint64, len(blockKeys))
@@ -105,26 +118,19 @@ func (h *KVCacheHelper) OnRequestStart(vllmReq openaiserverapi.Request) (float64
 	requestID := vllmReq.GetRequestID()
 	nBlocksAlreadyInCache, err := h.blockCache.startRequest(requestID, blockHashes, blockTokens)
 	if err != nil {
-		return 0, err
+		return PrefixCacheStats{}, err
 	}
 
 	cachedTokens := nBlocksAlreadyInCache * h.blockSize
 	vllmReq.SetNumberOfCachedPromptTokens(cachedTokens)
 
-	totalBlocks := len(blockHashes)
-	cachedBlocks := h.blockCache.countCachedBlockPrefix(blockHashes)
-
-	var hitRate float64
-	if totalBlocks > 0 {
-		hitRate = float64(cachedBlocks) / float64(totalBlocks)
-	}
-
-	common.WriteToChannel(h.prefixCacheStatsChan, PrefixCacheStats{
+	stats := PrefixCacheStats{
 		QueriedTokens: len(tokens),
 		CachedTokens:  cachedTokens,
-	}, h.logger)
+	}
+	common.WriteToChannel(h.prefixCacheStatsChan, stats, h.logger)
 
-	return hitRate, nil
+	return stats, nil
 }
 
 func (h *KVCacheHelper) OnRequestEnd(requestID string) error {

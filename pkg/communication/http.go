@@ -18,9 +18,9 @@ package communication
 
 import (
 	"bufio"
-	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"strconv"
 	"strings"
@@ -57,8 +57,9 @@ func (c *Communication) newListener() (net.Listener, error) {
 	return listener, nil
 }
 
-// startServer starts http/https server on port defined in command line
-func (c *Communication) StartHTTPServer(ctx context.Context, listener net.Listener) error {
+// startHTTPServer builds and starts the HTTP server, returning the server instance and an error channel.
+// It does not handle shutdown — callers are responsible for calling server.Shutdown().
+func (c *Communication) startHTTPServer(listener net.Listener) (*fasthttp.Server, <-chan error, error) {
 	r := fasthttprouter.New()
 
 	// support completion APIs
@@ -74,6 +75,7 @@ func (c *Communication) StartHTTPServer(ctx context.Context, listener net.Listen
 	r.POST("/v1/unload_lora_adapter", c.HandleUnloadLora)
 	// supports /metrics prometheus API
 	r.GET("/metrics", fasthttpadaptor.NewFastHTTPHandler(promhttp.HandlerFor(c.simulator.Context.MetricsRegistry(), promhttp.HandlerOpts{})))
+	r.POST("/fake_metrics", c.HandleFakeMetrics)
 	// supports standard Kubernetes health and readiness checks
 	r.GET("/health", c.HandleHealth)
 	r.GET("/ready", c.HandleReady)
@@ -94,41 +96,21 @@ func (c *Communication) StartHTTPServer(ctx context.Context, listener net.Listen
 	}
 
 	if err := c.configureSSL(server); err != nil {
-		return err
+		return nil, nil, err
 	}
 
-	// Start server in a goroutine
-	serverErr := make(chan error, 1)
+	errCh := make(chan error, 1)
 	go func() {
 		if c.simulator.Context.Config.SSLEnabled() {
 			c.logger.V(logging.INFO).Info("Server starting", "protocol", "HTTPS", "port", c.simulator.Context.Config.Port)
-			serverErr <- server.ServeTLS(listener, "", "")
+			errCh <- server.ServeTLS(listener, "", "")
 		} else {
 			c.logger.V(logging.INFO).Info("Server starting", "protocol", "HTTP", "port", c.simulator.Context.Config.Port)
-			serverErr <- server.Serve(listener)
+			errCh <- server.Serve(listener)
 		}
 	}()
 
-	// Wait for either context cancellation or server error
-	select {
-	case <-ctx.Done():
-		c.logger.V(logging.INFO).Info("Shutdown signal received, shutting down HTTP server gracefully")
-
-		// Gracefully shutdown the server
-		if err := server.Shutdown(); err != nil {
-			c.logger.Error(err, "error during server shutdown")
-			return err
-		}
-
-		c.logger.V(logging.INFO).Info("Server stopped")
-		return nil
-
-	case err := <-serverErr:
-		if err != nil {
-			c.logger.Error(err, "server failed")
-		}
-		return err
-	}
+	return server, errCh, nil
 }
 
 // getRequestID retrieves the request ID from the X-Request-Id header or generates a new one if not present
@@ -167,6 +149,11 @@ func (c *Communication) addResponseHeaders(ctx *fasthttp.RequestCtx, requestID s
 }
 
 func (c *Communication) handleHTTP(req vllmsim.Request, respBuilder responseBuilder, ctx *fasthttp.RequestCtx) {
+	if c.stopping.Load() {
+		ctx.SetStatusCode(fasthttp.StatusServiceUnavailable)
+		return
+	}
+
 	requestID := c.getRequestID(ctx)
 	req.SetRequestID(requestID)
 
@@ -241,7 +228,7 @@ func (c *Communication) sendNonStream(ctx *fasthttp.RequestCtx, channel common.C
 		respCtx = response.RespCtx
 	}
 
-	defer respCtx.Done()
+	defer c.onResponseSendFinished(respCtx)
 	resp := respBuilder.createResponse(respCtx, &tokens)
 	data, err := json.Marshal(resp)
 	if err != nil {
@@ -250,14 +237,23 @@ func (c *Communication) sendNonStream(ctx *fasthttp.RequestCtx, channel common.C
 		return
 	}
 	ctx.Response.SetBody(data)
-	c.simulator.ResponseSentCallback(respCtx.RequestContext(), respCtx.DisplayModel())
 }
 
 func (c *Communication) sendStream(ctx *fasthttp.RequestCtx, channel common.Channel[*vllmsim.ResponseInfo],
 	respBuilder responseBuilder) {
-	ctx.SetBodyStreamWriter(func(w *bufio.Writer) {
+	pr, pw := io.Pipe()
+
+	go func() {
+		w := bufio.NewWriter(pw)
 		first := true
 		var respCtx vllmsim.ResponseContext
+
+		defer func() {
+			w.Flush()  //nolint:errcheck
+			pw.Close() //nolint:errcheck
+			c.onResponseSendFinished(respCtx)
+		}()
+
 		var lastToolCall *openaiserverapi.ToolCall
 		var toolCallIndex int
 		for response := range channel.Channel {
@@ -277,7 +273,7 @@ func (c *Communication) sendStream(ctx *fasthttp.RequestCtx, channel common.Chan
 					chunk := respBuilder.createFirstChunk(respCtx)
 					if chunk != nil {
 						if err := c.sendChunk(w, chunk, ""); err != nil {
-							c.chunkSendFailed(ctx, respCtx, "Sending first stream chunk failed, ", err)
+							c.chunkSendFailed(ctx, "Sending first stream chunk failed, ", err)
 							return
 						}
 					}
@@ -289,15 +285,16 @@ func (c *Communication) sendStream(ctx *fasthttp.RequestCtx, channel common.Chan
 					} else {
 						toolCallIndex++
 					}
-					if ok := c.sendStreamedTools(respCtx, respBuilder, ctx, w, response.Tokens.Strings, response.ToolCall,
-						toolCallIndex); !ok {
+					if err := c.sendStreamedTools(respCtx, respBuilder, w, response.Tokens.Strings, response.ToolCall,
+						toolCallIndex); err != nil {
+						c.chunkSendFailed(ctx, "Sending tools chunk failed, ", err)
 						return
 					}
 					lastToolCall = response.ToolCall
 				} else {
 					chunk := respBuilder.createChunk(respCtx, response.Tokens, nil, "", nil)
 					if err := c.sendChunk(w, chunk, ""); err != nil {
-						c.chunkSendFailed(ctx, respCtx, "Sending stream chunk failed, ", err)
+						c.chunkSendFailed(ctx, "Sending stream chunk failed, ", err)
 						return
 					}
 				}
@@ -305,12 +302,12 @@ func (c *Communication) sendStream(ctx *fasthttp.RequestCtx, channel common.Chan
 				// No tokens to stream but we still need to emit a finish chunk for cache_threshold
 				chunk := respBuilder.createChunk(respCtx, nil, nil, "", respCtx.FinishReason())
 				if err := c.sendChunk(w, chunk, ""); err != nil {
-					c.chunkSendFailed(ctx, respCtx, "Sending finish chunk failed, ", err)
+					c.chunkSendFailed(ctx, "Sending finish chunk failed, ", err)
 					return
 				}
+				break
 			} else {
 				ctx.Error("unexpected response part in streaming", fasthttp.StatusInternalServerError)
-				respCtx.Done()
 				return
 			}
 		}
@@ -319,7 +316,7 @@ func (c *Communication) sendStream(ctx *fasthttp.RequestCtx, channel common.Chan
 		if *respCtx.FinishReason() == common.StopFinishReason {
 			chunk := respBuilder.createLastChunk(respCtx)
 			if err := c.sendChunk(w, chunk, ""); err != nil {
-				c.chunkSendFailed(ctx, respCtx, "Sending last stream chunk failed, ", err)
+				c.chunkSendFailed(ctx, "Sending last stream chunk failed, ", err)
 				return
 			}
 		}
@@ -328,32 +325,31 @@ func (c *Communication) sendStream(ctx *fasthttp.RequestCtx, channel common.Chan
 		if respCtx.SendUsageData() {
 			chunk := respBuilder.createUsageChunk(respCtx)
 			if err := c.sendChunk(w, chunk, ""); err != nil {
-				c.chunkSendFailed(ctx, respCtx, "Sending usage chunk failed, ", err)
+				c.chunkSendFailed(ctx, "Sending usage chunk failed, ", err)
 				return
 			}
 		}
 
 		// finish sse events stream
 		if err := c.sendChunk(w, nil, "[DONE]"); err != nil {
-			c.chunkSendFailed(ctx, respCtx, "Sending last stream chunk failed, ", err)
+			c.chunkSendFailed(ctx, "Sending [DONE] chunk failed, ", err)
 			return
 		}
-		c.simulator.ResponseSentCallback(respCtx.RequestContext(), respCtx.DisplayModel())
-		respCtx.Done()
-	})
+	}()
+
+	ctx.Response.SetBodyStream(pr, -1)
 }
 
-func (c *Communication) chunkSendFailed(ctx *fasthttp.RequestCtx, respCtx vllmsim.ResponseContext, msg string, err error) {
+func (c *Communication) chunkSendFailed(ctx *fasthttp.RequestCtx, msg string, err error) {
 	message := msg
 	if err != nil {
 		message += err.Error()
 	}
 	ctx.Error(message, fasthttp.StatusInternalServerError)
-	respCtx.Done()
 }
 
-func (c *Communication) sendStreamedTools(respCtx vllmsim.ResponseContext, respBuilder responseBuilder, ctx *fasthttp.RequestCtx,
-	w *bufio.Writer, tokens []string, tc *openaiserverapi.ToolCall, index int) bool {
+func (c *Communication) sendStreamedTools(respCtx vllmsim.ResponseContext, respBuilder responseBuilder,
+	w *bufio.Writer, tokens []string, tc *openaiserverapi.ToolCall, index int) error {
 	tokensStr := strings.Join(tokens, "")
 
 	toolChunkInsert := &openaiserverapi.ToolCall{
@@ -376,11 +372,7 @@ func (c *Communication) sendStreamedTools(respCtx vllmsim.ResponseContext, respB
 		finishReasonToSend = respCtx.FinishReason()
 	}
 	chunk = respBuilder.createChunk(respCtx, nil, toolChunkInsert, "", finishReasonToSend)
-	if err := c.sendChunk(w, chunk, ""); err != nil {
-		ctx.Error("Sending stream chunk failed, "+err.Error(), fasthttp.StatusInternalServerError)
-		return false
-	}
-	return true
+	return c.sendChunk(w, chunk, "")
 }
 
 // sendChunk send a single token chunk in a streamed completion API response,
@@ -561,7 +553,7 @@ func (c *Communication) HandleTokenize(ctx *fasthttp.RequestCtx) {
 		tokens, _, err = c.simulator.Context.Tokenizer.RenderText(req.Prompt)
 	} else {
 		// has messages
-		tokens, _, err = c.simulator.Context.Tokenizer.RenderChatCompletion(req.Messages)
+		tokens, _, _, err = c.simulator.Context.Tokenizer.RenderChatCompletion(req.Messages)
 	}
 	if err != nil {
 		c.logger.Error(err, "failed to tokenize")
@@ -759,4 +751,30 @@ func (c *Communication) logHTTPResponse(ctx *fasthttp.RequestCtx) {
 		"headers", formatResponseHeaders(&resp.Header),
 		"body", truncateBodyForLog(resp.Body()),
 	)
+}
+
+// HandleFakeMetrics HTTP handler for /fake_metrics
+func (c *Communication) HandleFakeMetrics(ctx *fasthttp.RequestCtx) {
+	c.logger.V(logging.INFO).Info("Fake metrics update received")
+
+	if c.simulator.Context.Config.FakeMetrics == nil {
+		ctx.SetStatusCode(fasthttp.StatusBadRequest)
+		ctx.SetBodyString("The simulator is reporting real metrics; fake metrics cannot be updated.")
+		return
+	}
+
+	oldFakeMetrics, fmMap, err := c.simulator.Context.Config.FakeMetrics.UnmarshalUpdateJSON(ctx.Request.Body())
+	if err != nil {
+		ctx.SetStatusCode(fasthttp.StatusBadRequest)
+		ctx.SetBodyString("Failed to unmarshal the payload: " + err.Error())
+		return
+	}
+
+	if err := c.simulator.Context.UpdateFakeMetrics(fmMap, oldFakeMetrics); err != nil {
+		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
+		ctx.SetBodyString("Failed to update fake metrics: " + err.Error())
+		return
+	}
+
+	ctx.Response.Header.SetStatusCode(fasthttp.StatusNoContent)
 }

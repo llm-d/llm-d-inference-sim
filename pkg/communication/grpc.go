@@ -34,6 +34,10 @@ import (
 
 // Submit a generation request (supports streaming)
 func (c *Communication) Generate(in *pb.GenerateRequest, out grpc.ServerStreamingServer[pb.GenerateResponse]) error {
+	if c.stopping.Load() {
+		return status.Error(codes.Unavailable, "server is shutting down")
+	}
+
 	req := c.pbRequestToRequest(in)
 	respBuilder := &generationGRPCRespBuilder{}
 	_, channel, err, _ := c.simulator.HandleRequest(req)
@@ -65,7 +69,7 @@ func (c *Communication) Generate(in *pb.GenerateRequest, out grpc.ServerStreamin
 				if response.Tokens != nil {
 					response := respBuilder.createChunk(respCtx, response.Tokens, nil, "", nil)
 					if err := sendResponse(response, out); err != nil {
-						respCtx.Done()
+						c.onResponseSendFinished(respCtx)
 						return err
 					}
 				}
@@ -81,12 +85,11 @@ func (c *Communication) Generate(in *pb.GenerateRequest, out grpc.ServerStreamin
 	} else {
 		response = respBuilder.createResponse(respCtx, &tokens)
 	}
-	defer respCtx.Done()
+	defer c.onResponseSendFinished(respCtx)
 	if err := sendResponse(response, out); err != nil {
 		return err
 	}
 
-	c.simulator.ResponseSentCallback(respCtx.RequestContext(), respCtx.DisplayModel())
 	return nil
 }
 
@@ -117,29 +120,18 @@ func (c *Communication) GetServerInfo(ctx context.Context, in *pb.GetServerInfoR
 	return nil, nil
 }
 
-func (c *Communication) startGRPC(ctx context.Context, listener net.Listener) error {
+// startGRPC starts the gRPC server and returns the server instance and an error channel.
+// It does not handle shutdown — callers are responsible for calling server.Stop().
+func (c *Communication) startGRPC(listener net.Listener) (*grpc.Server, <-chan error) {
 	server := grpc.NewServer()
 	pb.RegisterVllmEngineServer(server, c)
 	reflection.Register(server)
-	serverErr := make(chan error, 1)
+	errCh := make(chan error, 1)
 	go func() {
 		c.logger.V(logging.INFO).Info("Server starting", "protocol", "gRPC", "port", c.simulator.Context.Config.Port)
-		serverErr <- server.Serve(listener)
+		errCh <- server.Serve(listener)
 	}()
-
-	select {
-	case <-ctx.Done():
-		c.logger.V(logging.INFO).Info("Shutdown signal received, shutting down gRPC server")
-		server.Stop()
-		c.logger.V(logging.INFO).Info("gRPC server stopped")
-		return nil
-
-	case err := <-serverErr:
-		if err != nil {
-			c.logger.Error(err, "gRPC server failed")
-		}
-		return err
-	}
+	return server, errCh
 }
 
 func (c *Communication) pbRequestToRequest(in *pb.GenerateRequest) *vllmsim.GenerationRequest {

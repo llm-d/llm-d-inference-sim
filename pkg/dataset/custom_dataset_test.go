@@ -118,7 +118,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 				tokens, strTokens, err = tokenizerMngr.RealTokenizer().RenderText(validDB[i].input)
 			} else {
 				// has messages
-				tokens, strTokens, err = tokenizerMngr.RealTokenizer().RenderChatCompletion(validDB[i].messages)
+				tokens, strTokens, _, err = tokenizerMngr.RealTokenizer().RenderChatCompletion(validDB[i].messages)
 			}
 			Expect(err).ToNot(HaveOccurred())
 			Expect(tokens).ToNot(BeNil())

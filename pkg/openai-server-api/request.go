@@ -17,6 +17,8 @@ limitations under the License.
 // Contains structures and functions related to requests for all supported APIs
 package openaiserverapi
 
+import "github.com/llm-d/llm-d-kv-cache/pkg/tokenization"
+
 const (
 	RoleAssistant = "assistant"
 	RoleUser      = "user"
@@ -72,6 +74,11 @@ type Request interface {
 	TokenizedPromptForEcho() *Tokenized
 	// SetTokenizedPromptForEcho sets the tokenized response in echo mode
 	SetTokenizedPromptForEcho(tokenized *Tokenized)
+	// MMFeatures returns the multimodal features
+	MMFeatures() *tokenization.MultiModalFeatures
+	// SetMMFeatures sets the multimodal features
+	SetMMFeatures(mmFeatures *tokenization.MultiModalFeatures)
+
 	// CacheThresholdFinishReason returns cacheThresholdFinishReason,  when true,
 	// forces a cache_threshold finish reason
 	CacheThresholdFinishReason() bool
@@ -106,6 +113,8 @@ type baseCompletionRequest struct {
 	tokenizedPrompt *Tokenized
 	// tokenizedPromptForEcho is the tokenized part of the prompt to be used in echo mode, exists only in echo mode
 	tokenizedPromptForEcho *Tokenized
+	// mmFeatures holds multimodal metadata produced by the tokenizer, exists only for multimodal requests
+	mmFeatures *tokenization.MultiModalFeatures
 }
 
 type KVTransferParams struct {
@@ -243,6 +252,16 @@ func (b *baseCompletionRequest) TokenizedPromptForEcho() *Tokenized {
 // SetTokenizedPromptForEcho sets the tokenized response in echo mode
 func (b *baseCompletionRequest) SetTokenizedPromptForEcho(tokenized *Tokenized) {
 	b.tokenizedPromptForEcho = tokenized
+}
+
+// TokenizedPrompt returns the tokenized prompt
+func (b *baseCompletionRequest) MMFeatures() *tokenization.MultiModalFeatures {
+	return b.mmFeatures
+}
+
+// SetMMFeatures sets the multimodal features
+func (b *baseCompletionRequest) SetMMFeatures(mmFeatures *tokenization.MultiModalFeatures) {
+	b.mmFeatures = mmFeatures
 }
 
 // ChatCompletionRequest defines structure of /chat/completion request

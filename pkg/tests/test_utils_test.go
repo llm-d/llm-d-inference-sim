@@ -51,9 +51,10 @@ import (
 )
 
 const (
-	baseURL         = "http://localhost/v1"
-	testUserMessage = "This is a test."
-	metricsUrl      = "http://localhost/metrics"
+	baseURL              = "http://localhost/v1"
+	testUserMessage      = "This is a test."
+	metricsUrl           = "http://localhost/metrics"
+	updateFakeMetricsUrl = "http://localhost/fake_metrics"
 )
 
 var userMsgTokens int64
@@ -127,11 +128,14 @@ func startServerHelper(ctx context.Context, mode string, args []string, envs map
 	}
 	s.Context.Config = config
 
-	gomega.Expect(config.Model).To(gomega.BeElementOf(common.TestModelName, common.QwenModelName))
-	if config.Model == common.TestModelName {
+	gomega.Expect(config.Model).To(gomega.BeElementOf(common.TestModelName, common.QwenModelName, common.MMModelName))
+	switch config.Model {
+	case common.TestModelName:
 		s.Context.Tokenizer = tokenizerMngr.TestTokenizer()
-	} else {
+	case common.QwenModelName:
 		s.Context.Tokenizer = tokenizerMngr.RealTokenizer()
+	case common.MMModelName:
+		s.Context.Tokenizer = tokenizerMngr.MMTokenizer()
 	}
 
 	// calculate number of tokens for user message,
@@ -141,7 +145,7 @@ func startServerHelper(ctx context.Context, mode string, args []string, envs map
 	}
 	userMsgTokens = int64(len(tokens))
 	// calculate number of tokens for user message as chat/completions
-	tokens, _, err = s.Context.Tokenizer.RenderChatCompletion([]openaiserverapi.Message{{Role: openaiserverapi.RoleUser, Content: openaiserverapi.Content{Raw: testUserMessage}}})
+	tokens, _, _, err = s.Context.Tokenizer.RenderChatCompletion([]openaiserverapi.Message{{Role: openaiserverapi.RoleUser, Content: openaiserverapi.Content{Raw: testUserMessage}}})
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -156,7 +160,7 @@ func startServerHelper(ctx context.Context, mode string, args []string, envs map
 
 	// start the http server
 	go func() {
-		if err := comm.StartHTTPServer(ctx, listener); err != nil {
+		if err := comm.StartHTTPServer(listener); err != nil {
 			logger.Error(err, "error starting server")
 		}
 	}()
@@ -629,7 +633,7 @@ func getOpenAIClientAndTextParams(client option.HTTPClient, model string, messag
 
 // renders the given messages using the test model
 func getChatPromptTokensCountForTestModel(message string) int64 {
-	tokens, _, err := tokenizerMngr.TestTokenizer().RenderChatCompletion([]openaiserverapi.Message{{Role: openaiserverapi.RoleUser, Content: openaiserverapi.Content{Raw: message}}})
+	tokens, _, _, err := tokenizerMngr.TestTokenizer().RenderChatCompletion([]openaiserverapi.Message{{Role: openaiserverapi.RoleUser, Content: openaiserverapi.Content{Raw: message}}})
 	gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
 
 	return int64(len(tokens))

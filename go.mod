@@ -7,7 +7,7 @@ require (
 	github.com/go-logr/logr v1.4.3
 	github.com/go-zeromq/zmq4 v0.17.0
 	github.com/google/uuid v1.6.0
-	github.com/llm-d/llm-d-kv-cache v0.6.1-0.20260317211430-786d9c8cd8f6
+	github.com/llm-d/llm-d-kv-cache v0.7.1
 	github.com/onsi/ginkgo/v2 v2.28.1
 	github.com/onsi/gomega v1.39.1
 	github.com/openai/openai-go/v3 v3.30.0

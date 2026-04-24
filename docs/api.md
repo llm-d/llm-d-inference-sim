@@ -24,6 +24,7 @@ In addition, a set of the vLLM HTTP endpoints are suppored:
 | /health                 | Standard health check endpoint |
 | /ready                  | Standard readiness endpoint |
 
+The simulator also provides a `POST /fake_metrics` endpoint that supports partial updates to [fake metric](configuration.md#fake-metrics) values at runtime. This endpoint is specific to the simulator and is available only when a `--fake-metrics` configuration is provided at startup. The request body must be a JSON object containing the metrics to update; any metrics not specified are left unchanged.
 
 ## gRPC Endpoints
 The simulator implements the `vllm.grpc.engine.VllmEngine` service definition. 

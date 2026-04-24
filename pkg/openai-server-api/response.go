@@ -64,6 +64,14 @@ type Usage struct {
 	CompletionTokens int `json:"completion_tokens"`
 	// TotalTokens is the total number of tokens processed for the request (the sum of the two values above)
 	TotalTokens int `json:"total_tokens"`
+	// PromptTokensDetail contains detailed token usage statistics for the prompt
+	PromptTokensDetail *PromptTokensDetail `json:"prompt_tokens_detail"`
+}
+
+// PromptTokensDetail contains detailed token usage statistics for the prompt
+type PromptTokensDetail struct {
+	// CacheTokens is the number of tokens in the prompt that are in the local KV Cache
+	CachedTokens int `json:"cached_tokens"`
 }
 
 // LogprobsContent represents logprobs for a single token in chat completions
