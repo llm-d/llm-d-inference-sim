@@ -4,7 +4,7 @@ The simulator can be configured using either command-line arguments or a YAML fi
 ## General
 - `config`: the path to a yaml configuration file that can contain the simulator's command line parameters. If a parameter is defined in both the config file and the command line, the command line value overwrites the configuration file value. An example configuration file can be found at [manifests/config.yaml](../manifests/config.yaml)
 - `port`: the port the simulator listents on, default is 8000
-- `model`: the currently 'loaded' model, mandatory
+- `model`: the currently 'loaded' model, mandatory. The `SIM_MODEL` environment variable, when non-empty, overrides this value after the config file and command-line are applied (see [Environment variables](#environment-variables)).
 - `served-model-name`: model names exposed by the API (a list of space-separated strings)
 - `lora-modules`: a list of LoRA adapters (a list of space-separated JSON strings): '{"name": "name", "path": "lora_path", "base_model_name": "id"}', optional, empty by default
 - `max-loras`: maximum number of LoRAs in a single batch, optional, default is one
@@ -153,6 +153,7 @@ In addition, as we are using klog, the following parameters are available:
 - `vmodule`: comma-separated list of pattern=N settings for file-filtered logging
 
 # Environment variables
+- `SIM_MODEL`: if set to a non-empty string, overrides the `model` setting after the YAML config file and command-line flags are loaded. The `--model` value and any `model` in the config file are ignored when this variable is set. This is useful in Kubernetes and similar environments where the same manifest or image command can be reused and the model name is supplied by the pod environment (for example, from a `ConfigMap` or `DownwardAPI`) without editing arguments.
 - `POD_NAME`: the simulator pod name. If defined, the response will contain the HTTP header `x-inference-pod` with this value, and the HTTP header `x-inference-port` with the port that the request was received on 
 - `POD_NAMESPACE`: the simulator pod namespace. If defined, the response will contain the HTTP header `x-inference-namespace` with this value
 - `POD_IP`: the simulator pod IP address. Used in kv-events topic name.
