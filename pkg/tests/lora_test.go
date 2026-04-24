@@ -82,10 +82,18 @@ var _ = Describe("LoRAs", func() {
 			Expect(modelsResp).NotTo(BeNil())
 			Expect(modelsResp.Data).To(HaveLen(4))
 
+			// Root must reflect the LoRA's filesystem path, not its name.
+			// lora3/lora4 come from --lora-modules; lora1 from /load_lora_adapter.
+			expectedRoots := map[string]string{
+				"lora1": "/path/to/lora1",
+				"lora3": "/path/to/lora3",
+				"lora4": "/path/to/lora4",
+			}
 			for _, model := range modelsResp.Data {
 				if strings.HasPrefix(model.ID, "lora") {
 					Expect(model.Parent).ToNot(BeNil())
 					Expect(*model.Parent).To(Equal(common.TestModelName))
+					Expect(model.Root).To(Equal(expectedRoots[model.ID]))
 				} else {
 					Expect(model.Parent).To(BeNil())
 				}
