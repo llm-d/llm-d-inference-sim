@@ -55,6 +55,7 @@ jobs:
           registry: ghcr.io/llm-d
           github-token: ${{ secrets.GHCR_TOKEN }}
           prerelease: ${{ steps.tag.outputs.prerelease }}
+          dockerfile: Dockerfile.zmq
 
       - name: Run Trivy scan
         uses: ./.github/actions/trivy-scan

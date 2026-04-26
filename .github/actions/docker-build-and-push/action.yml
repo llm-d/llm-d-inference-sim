@@ -16,6 +16,10 @@ inputs:
   prerelease:
     required: true
     description: indicates whether or not this is a pre-release (not a release) build
+  dockerfile:
+    required: false
+    description: Path to the Dockerfile to use for the build
+    default: Dockerfile
 
 runs:
   using: "composite"
@@ -43,6 +47,7 @@ runs:
         fi
         docker buildx build \
           --platform linux/amd64,linux/arm64 \
+          -f ${{ inputs.dockerfile }} \
           -t ${{ inputs.registry }}/${{ inputs.image-name }}:${{ inputs.tag }} \
           ${LATEST_TAG} --push .
       shell: bash
