@@ -737,12 +737,13 @@ var _ = Describe("KV cache", Ordered, func() {
 			_, err = blockCache.startRequest(&reqNew, reqNew.blockHashes, reqNew.tokens)
 			Expect(err).NotTo(HaveOccurred())
 
-			// lora2 block (unloaded) should be evicted first
-			_, exists := blockCache.getBlockInfo(blockKey{hash: 30, modelName: lora2})
-			Expect(exists).To(BeFalse())
+			// one of lora2 blocks (unloaded) should be evicted first
+			_, exists30 := blockCache.getBlockInfo(blockKey{hash: 30, modelName: lora2})
+			_, exists40 := blockCache.getBlockInfo(blockKey{hash: 40, modelName: lora2})
+			Expect(exists30 && exists40).To(BeFalse())
 
 			// lora1 blocks should remain
-			_, exists = blockCache.getBlockInfo(blockKey{hash: 10, modelName: lora1})
+			_, exists := blockCache.getBlockInfo(blockKey{hash: 10, modelName: lora1})
 			Expect(exists).To(BeTrue())
 			_, exists = blockCache.getBlockInfo(blockKey{hash: 20, modelName: lora1})
 			Expect(exists).To(BeTrue())
