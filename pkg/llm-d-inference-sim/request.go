@@ -129,17 +129,17 @@ func (b *baseRequestContext) validateContextWindow() (string, int) {
 
 func (reqCtx *baseRequestContext) handleRequest() (ResponseContext, *openaiserverapi.Error) {
 	req := reqCtx.request()
-	model := reqCtx.sim.getDisplayedModelName(req.GetModel())
+	dispModel := req.GetDisplayedModel()
 
 	// increment running requests count
 	common.WriteToChannel(reqCtx.sim.metrics.runReqChan, common.MetricInfo{Value: 1}, reqCtx.sim.logger)
 
-	if reqCtx.sim.isLora(model) {
+	if reqCtx.sim.isLora(dispModel) {
 		// set the lora index now that the lora is confirmed loaded
-		req.SetModelLoraID(reqCtx.sim.GetLoraID(model))
+		req.SetModelLoraID(reqCtx.sim.GetLoraID(dispModel))
 		// update loraInfo metric to reflect that
 		// the request has changed its status from waiting to running
-		common.WriteToChannel(reqCtx.sim.metrics.lorasChan, loraUsage{model, runningUsageState}, reqCtx.sim.logger)
+		common.WriteToChannel(reqCtx.sim.metrics.lorasChan, loraUsage{dispModel, runningUsageState}, reqCtx.sim.logger)
 	}
 
 	if err := reqCtx.tokenize(); err != nil {
@@ -175,7 +175,7 @@ func (reqCtx *baseRequestContext) handleRequest() (ResponseContext, *openaiserve
 			logprobs = req.GetLogprobs()
 		}
 		sendUsageData := !req.IsStream() || req.IncludeUsage()
-		respCtx := req.createResponseContext(reqCtx, model, &openaiserverapi.Tokenized{},
+		respCtx := req.createResponseContext(reqCtx, dispModel, &openaiserverapi.Tokenized{},
 			&finishReason, &usageData, sendUsageData, logprobs, nil)
 		return respCtx, nil
 	}
@@ -219,7 +219,7 @@ func (reqCtx *baseRequestContext) handleRequest() (ResponseContext, *openaiserve
 		finishReason = common.RemoteDecodeFinishReason
 	}
 
-	respCtx := req.createResponseContext(reqCtx, model, responseTokens, &finishReason,
+	respCtx := req.createResponseContext(reqCtx, dispModel, responseTokens, &finishReason,
 		&usageData, sendUsageData, logprobs, toolCalls)
 
 	return respCtx, nil

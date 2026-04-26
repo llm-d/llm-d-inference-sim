@@ -57,7 +57,7 @@ func (t *testRequest) GetRequestID() string {
 	return t.id
 }
 
-func (t *testRequest) GetModel() string {
+func (t *testRequest) GetDisplayedModel() string {
 	if t.model != "" {
 		return t.model
 	}
@@ -293,7 +293,7 @@ var _ = Describe("KV cache", Ordered, func() {
 						// check specific blocks info if required
 						if len(action.expectedBlocksInfo) > 0 {
 							for block, expectedInfo := range action.expectedBlocksInfo {
-								refCount, exists := blockCache.getBlockInfo(blockKey{hash: block, modelName: action.request.GetModel()})
+								refCount, exists := blockCache.getBlockInfo(blockKey{hash: block, modelName: action.request.GetDisplayedModel()})
 								if expectedInfo.exists {
 									Expect(exists).To(BeTrue())
 								} else {
@@ -314,9 +314,9 @@ var _ = Describe("KV cache", Ordered, func() {
 				for i, seq := 0, uint64(1); i < expectedTotal; i, seq = storedCount+removedCount, seq+1 {
 					msg, err := sub.Recv()
 					Expect(err).NotTo(HaveOccurred())
-					stored, removed, _ := ParseKVEvent(msg.Frames, topic, seq)
-					storedCount += len(stored)
-					removedCount += len(removed)
+					stored, removed, _ := CountKVEventBlocks(msg.Frames, topic, seq)
+					storedCount += stored
+					removedCount += removed
 				}
 				Expect(removedCount).To(Equal(test.expectedRemovedBlocks))
 				Expect(storedCount).To(Equal(test.expectedStoredBlocks))
@@ -405,8 +405,10 @@ var _ = Describe("KV cache", Ordered, func() {
 			for {
 				msg, err := sub.Recv()
 				Expect(err).NotTo(HaveOccurred())
-				stored, removed, _ := ParseKVEvent(msg.Frames, topic, count)
-				storedBlocks = append(storedBlocks, stored...)
+				storedEvents, removed, _ := ParseKVEvent(msg.Frames, topic, count)
+				for _, e := range storedEvents {
+					storedBlocks = append(storedBlocks, e.BlockHashes...)
+				}
 				removedBlocks = append(removedBlocks, removed...)
 				count++
 
@@ -498,6 +500,432 @@ var _ = Describe("KV cache", Ordered, func() {
 				Expect(totalBlocks).To(Equal(unusedBlocks))
 			})
 		}
+	})
+
+	Context("model-aware blocks", func() {
+		const loraModel = "loraX"
+
+		It("same hash different model should be stored as separate blocks", func() {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			config := &common.Configuration{
+				IP:          localhost,
+				Port:        1234,
+				Model:       common.TestModelName,
+				KVCacheSize: 10,
+			}
+
+			blockCache, err := newBlockCache(ctx, config, GinkgoLogr, nil)
+			Expect(err).NotTo(HaveOccurred())
+
+			reqA := testRequest{id: "reqA", model: common.TestModelName, blockHashes: []uint64{1, 2}, tokens: [][]uint32{{1}, {2}}}
+			reqB := testRequest{id: "reqB", model: loraModel, blockHashes: []uint64{1, 2}, tokens: [][]uint32{{1}, {2}}}
+
+			_, err = blockCache.startRequest(&reqA, reqA.blockHashes, reqA.tokens)
+			Expect(err).NotTo(HaveOccurred())
+			_, err = blockCache.startRequest(&reqB, reqB.blockHashes, reqB.tokens)
+			Expect(err).NotTo(HaveOccurred())
+
+			// 4 distinct blocks (2 per model), 2 active requests
+			activeReqs, totalBlocks, unusedBlocks := blockCache.getStats()
+			Expect(activeReqs).To(Equal(2))
+			Expect(totalBlocks).To(Equal(4))
+			Expect(unusedBlocks).To(Equal(0))
+
+			// blocks are independent per model
+			refCount, exists := blockCache.getBlockInfo(blockKey{hash: 1, modelName: common.TestModelName})
+			Expect(exists).To(BeTrue())
+			Expect(refCount).To(Equal(1))
+
+			refCount, exists = blockCache.getBlockInfo(blockKey{hash: 1, modelName: loraModel})
+			Expect(exists).To(BeTrue())
+			Expect(refCount).To(Equal(1))
+
+			// finishing reqA only affects base model blocks
+			err = blockCache.finishRequest(reqA.id)
+			Expect(err).NotTo(HaveOccurred())
+
+			refCount, exists = blockCache.getBlockInfo(blockKey{hash: 1, modelName: common.TestModelName})
+			Expect(exists).To(BeTrue())
+			Expect(refCount).To(Equal(0)) // unused
+
+			refCount, exists = blockCache.getBlockInfo(blockKey{hash: 1, modelName: loraModel})
+			Expect(exists).To(BeTrue())
+			Expect(refCount).To(Equal(1)) // still in use
+		})
+
+		It("should not reuse blocks across models", func() {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			config := &common.Configuration{
+				IP:          localhost,
+				Port:        1234,
+				Model:       common.TestModelName,
+				KVCacheSize: 10,
+			}
+
+			blockCache, err := newBlockCache(ctx, config, GinkgoLogr, nil)
+			Expect(err).NotTo(HaveOccurred())
+
+			reqA := testRequest{id: "reqA", model: common.TestModelName, blockHashes: []uint64{1, 2}, tokens: [][]uint32{{1}, {2}}}
+			_, err = blockCache.startRequest(&reqA, reqA.blockHashes, reqA.tokens)
+			Expect(err).NotTo(HaveOccurred())
+			err = blockCache.finishRequest(reqA.id)
+			Expect(err).NotTo(HaveOccurred())
+
+			// same hashes but different model - should NOT find them in cache
+			reqB := testRequest{id: "reqB", model: loraModel, blockHashes: []uint64{1, 2}, tokens: [][]uint32{{1}, {2}}}
+			alreadyInCache, err := blockCache.startRequest(&reqB, reqB.blockHashes, reqB.tokens)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(alreadyInCache).To(Equal(0))
+
+			_, totalBlocks, _ := blockCache.getStats()
+			Expect(totalBlocks).To(Equal(4))
+		})
+
+		It("countCachedBlockPrefix should be model-scoped", func() {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			config := &common.Configuration{
+				IP:          localhost,
+				Port:        1234,
+				Model:       common.TestModelName,
+				KVCacheSize: 10,
+			}
+
+			blockCache, err := newBlockCache(ctx, config, GinkgoLogr, nil)
+			Expect(err).NotTo(HaveOccurred())
+
+			req := testRequest{id: "req1", model: common.TestModelName, blockHashes: []uint64{1, 2, 3}, tokens: [][]uint32{{1}, {2}, {3}}}
+			_, err = blockCache.startRequest(&req, req.blockHashes, req.tokens)
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(blockCache.countCachedBlockPrefix([]uint64{1, 2, 3}, common.TestModelName)).To(Equal(3))
+			Expect(blockCache.countCachedBlockPrefix([]uint64{1, 2, 3}, loraModel)).To(Equal(0))
+		})
+	})
+
+	Context("model-aware eviction", func() {
+		const lora1 = "lora1"
+		const lora2 = "lora2"
+
+		It("should evict unloaded lora blocks before loaded lora blocks", func() {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			config := &common.Configuration{
+				IP:          localhost,
+				Port:        1234,
+				Model:       common.TestModelName,
+				KVCacheSize: 4,
+			}
+
+			blockCache, err := newBlockCache(ctx, config, GinkgoLogr, nil)
+			Expect(err).NotTo(HaveOccurred())
+
+			// lora1 is loaded, lora2 is not
+			blockCache.setModelLoaded(lora1)
+
+			reqL1 := testRequest{id: "reqL1", model: lora1, blockHashes: []uint64{10, 20}, tokens: [][]uint32{{10}, {20}}}
+			reqL2 := testRequest{id: "reqL2", model: lora2, blockHashes: []uint64{30, 40}, tokens: [][]uint32{{30}, {40}}}
+
+			_, err = blockCache.startRequest(&reqL1, reqL1.blockHashes, reqL1.tokens)
+			Expect(err).NotTo(HaveOccurred())
+			_, err = blockCache.startRequest(&reqL2, reqL2.blockHashes, reqL2.tokens)
+			Expect(err).NotTo(HaveOccurred())
+
+			// finish both - all 4 blocks become unused, cache is full
+			err = blockCache.finishRequest(reqL1.id)
+			Expect(err).NotTo(HaveOccurred())
+			err = blockCache.finishRequest(reqL2.id)
+			Expect(err).NotTo(HaveOccurred())
+
+			// add a new block - should evict from lora2 (unloaded) first
+			reqNew := testRequest{id: "reqNew", model: lora1, blockHashes: []uint64{50}, tokens: [][]uint32{{50}}}
+			_, err = blockCache.startRequest(&reqNew, reqNew.blockHashes, reqNew.tokens)
+			Expect(err).NotTo(HaveOccurred())
+
+			// lora2 block 30 (oldest unloaded) should be evicted
+			_, exists := blockCache.getBlockInfo(blockKey{hash: 30, modelName: lora2})
+			Expect(exists).To(BeFalse())
+
+			// lora1 blocks should still exist
+			_, exists = blockCache.getBlockInfo(blockKey{hash: 10, modelName: lora1})
+			Expect(exists).To(BeTrue())
+			_, exists = blockCache.getBlockInfo(blockKey{hash: 20, modelName: lora1})
+			Expect(exists).To(BeTrue())
+		})
+
+		It("should fall back to oldest loaded-model block when no unloaded blocks exist", func() {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			config := &common.Configuration{
+				IP:          localhost,
+				Port:        1234,
+				Model:       common.TestModelName,
+				KVCacheSize: 3,
+			}
+
+			blockCache, err := newBlockCache(ctx, config, GinkgoLogr, nil)
+			Expect(err).NotTo(HaveOccurred())
+
+			blockCache.setModelLoaded(lora1)
+
+			// fill cache with lora1 blocks only (all loaded)
+			req1 := testRequest{id: "req1", model: lora1, blockHashes: []uint64{1, 2, 3}, tokens: [][]uint32{{1}, {2}, {3}}}
+			_, err = blockCache.startRequest(&req1, req1.blockHashes, req1.tokens)
+			Expect(err).NotTo(HaveOccurred())
+			err = blockCache.finishRequest(req1.id)
+			Expect(err).NotTo(HaveOccurred())
+
+			// add a new block - must evict from loaded model (only option)
+			reqNew := testRequest{id: "reqNew", model: lora1, blockHashes: []uint64{99}, tokens: [][]uint32{{99}}}
+			_, err = blockCache.startRequest(&reqNew, reqNew.blockHashes, reqNew.tokens)
+			Expect(err).NotTo(HaveOccurred())
+
+			// exactly one of the three original blocks should be evicted
+			surviving := 0
+			for i := 1; i <= 3; i++ {
+				_, exists := blockCache.getBlockInfo(blockKey{hash: uint64(i), modelName: lora1})
+				if exists {
+					surviving++
+				}
+			}
+			Expect(surviving).To(Equal(2), "expected exactly 1 eviction out of 3 blocks")
+		})
+
+		It("should prefer newly unloaded model blocks after setModelUnloaded", func() {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			config := &common.Configuration{
+				IP:          localhost,
+				Port:        1234,
+				Model:       common.TestModelName,
+				KVCacheSize: 4,
+			}
+
+			blockCache, err := newBlockCache(ctx, config, GinkgoLogr, nil)
+			Expect(err).NotTo(HaveOccurred())
+
+			// both loras loaded
+			blockCache.setModelLoaded(lora1)
+			blockCache.setModelLoaded(lora2)
+
+			reqL1 := testRequest{id: "reqL1", model: lora1, blockHashes: []uint64{10, 20}, tokens: [][]uint32{{10}, {20}}}
+			reqL2 := testRequest{id: "reqL2", model: lora2, blockHashes: []uint64{30, 40}, tokens: [][]uint32{{30}, {40}}}
+
+			_, err = blockCache.startRequest(&reqL1, reqL1.blockHashes, reqL1.tokens)
+			Expect(err).NotTo(HaveOccurred())
+			_, err = blockCache.startRequest(&reqL2, reqL2.blockHashes, reqL2.tokens)
+			Expect(err).NotTo(HaveOccurred())
+
+			err = blockCache.finishRequest(reqL1.id)
+			Expect(err).NotTo(HaveOccurred())
+			err = blockCache.finishRequest(reqL2.id)
+			Expect(err).NotTo(HaveOccurred())
+
+			// unload lora2 - its blocks become low-priority eviction candidates
+			blockCache.setModelUnloaded(lora2)
+
+			// force eviction
+			reqNew := testRequest{id: "reqNew", model: lora1, blockHashes: []uint64{50}, tokens: [][]uint32{{50}}}
+			_, err = blockCache.startRequest(&reqNew, reqNew.blockHashes, reqNew.tokens)
+			Expect(err).NotTo(HaveOccurred())
+
+			// lora2 block (unloaded) should be evicted first
+			_, exists := blockCache.getBlockInfo(blockKey{hash: 30, modelName: lora2})
+			Expect(exists).To(BeFalse())
+
+			// lora1 blocks should remain
+			_, exists = blockCache.getBlockInfo(blockKey{hash: 10, modelName: lora1})
+			Expect(exists).To(BeTrue())
+			_, exists = blockCache.getBlockInfo(blockKey{hash: 20, modelName: lora1})
+			Expect(exists).To(BeTrue())
+		})
+	})
+
+	Context("lora fields in events", func() {
+
+		It("store events should carry lora metadata", func() {
+			ctx, cancel := context.WithCancel(context.Background())
+
+			config := &common.Configuration{
+				IP:             localhost,
+				Port:           1234,
+				Model:          common.TestModelName,
+				KVCacheSize:    10,
+				EventBatchSize: 1,
+			}
+
+			topic := CreateKVEventsTopic(localhost, config.Model)
+			sub, endpoint := common.CreateSub(ctx, topic)
+			config.ZMQEndpoint = endpoint
+			//nolint
+			defer sub.Close()
+
+			wg := sync.WaitGroup{}
+			wg.Add(1)
+
+			blockCache, err := newBlockCache(ctx, config, GinkgoLogr, nil)
+			Expect(err).NotTo(HaveOccurred())
+
+			go func() {
+				blockCache.start(ctx)
+				wg.Done()
+			}()
+
+			defer func() {
+				cancel()
+				wg.Wait()
+			}()
+
+			loraName := "lora1"
+			loraID := 1
+
+			go func() {
+				time.Sleep(time.Second)
+
+				// base model request - no lora info
+				reqBase := testRequest{
+					id:          "reqBase",
+					model:       common.TestModelName,
+					blockHashes: []uint64{1, 2},
+					tokens:      [][]uint32{{1}, {2}},
+				}
+				_, err := blockCache.startRequest(&reqBase, reqBase.blockHashes, reqBase.tokens)
+				Expect(err).NotTo(HaveOccurred())
+
+				// lora request - with lora info
+				reqLora := testRequest{
+					id:          "reqLora",
+					model:       loraName,
+					loraName:    &loraName,
+					loraID:      &loraID,
+					blockHashes: []uint64{3, 4},
+					tokens:      [][]uint32{{3}, {4}},
+				}
+				_, err = blockCache.startRequest(&reqLora, reqLora.blockHashes, reqLora.tokens)
+				Expect(err).NotTo(HaveOccurred())
+			}()
+
+			// collect 2 store events
+			storedEvents := make([]StoredEventInfo, 0)
+			seq := uint64(1)
+			for len(storedEvents) < 2 {
+				msg, err := sub.Recv()
+				Expect(err).NotTo(HaveOccurred())
+				events, _, _ := ParseKVEvent(msg.Frames, topic, seq)
+				storedEvents = append(storedEvents, events...)
+				seq++
+			}
+
+			// first event (base model) should have nil lora fields
+			Expect(storedEvents[0].LoraName).To(BeNil())
+			Expect(storedEvents[0].LoraID).To(BeNil())
+			Expect(storedEvents[0].BlockHashes).To(Equal([]uint64{1, 2}))
+
+			// second event (lora) should carry lora metadata
+			Expect(storedEvents[1].LoraName).NotTo(BeNil())
+			Expect(*storedEvents[1].LoraName).To(Equal(loraName))
+			Expect(storedEvents[1].LoraID).NotTo(BeNil())
+			Expect(*storedEvents[1].LoraID).To(Equal(loraID))
+			Expect(storedEvents[1].BlockHashes).To(Equal([]uint64{3, 4}))
+		})
+
+		It("same prompt with base model and lora should produce separate events", func() {
+			ctx, cancel := context.WithCancel(context.Background())
+
+			config := &common.Configuration{
+				IP:             localhost,
+				Port:           1234,
+				Model:          common.TestModelName,
+				KVCacheSize:    10,
+				EventBatchSize: 1,
+			}
+
+			topic := CreateKVEventsTopic(localhost, config.Model)
+			sub, endpoint := common.CreateSub(ctx, topic)
+			config.ZMQEndpoint = endpoint
+			//nolint
+			defer sub.Close()
+
+			wg := sync.WaitGroup{}
+			wg.Add(1)
+
+			blockCache, err := newBlockCache(ctx, config, GinkgoLogr, nil)
+			Expect(err).NotTo(HaveOccurred())
+
+			go func() {
+				blockCache.start(ctx)
+				wg.Done()
+			}()
+
+			defer func() {
+				cancel()
+				wg.Wait()
+			}()
+
+			loraName := "lora1"
+			loraID := 1
+
+			go func() {
+				time.Sleep(time.Second)
+
+				// same hashes, different models
+				req1 := testRequest{
+					id:          "req1",
+					model:       common.TestModelName,
+					blockHashes: []uint64{10, 20},
+					tokens:      [][]uint32{{10}, {20}},
+				}
+				_, err := blockCache.startRequest(&req1, req1.blockHashes, req1.tokens)
+				Expect(err).NotTo(HaveOccurred())
+
+				req2 := testRequest{
+					id:          "req2",
+					model:       loraName,
+					loraName:    &loraName,
+					loraID:      &loraID,
+					blockHashes: []uint64{10, 20},
+					tokens:      [][]uint32{{10}, {20}},
+				}
+				_, err = blockCache.startRequest(&req2, req2.blockHashes, req2.tokens)
+				Expect(err).NotTo(HaveOccurred())
+			}()
+
+			// both requests store new blocks (4 total) since models differ
+			storedEvents := make([]StoredEventInfo, 0)
+			seq := uint64(1)
+			totalStoredHashes := 0
+			for totalStoredHashes < 4 {
+				msg, err := sub.Recv()
+				Expect(err).NotTo(HaveOccurred())
+				events, _, _ := ParseKVEvent(msg.Frames, topic, seq)
+				for _, e := range events {
+					totalStoredHashes += len(e.BlockHashes)
+				}
+				storedEvents = append(storedEvents, events...)
+				seq++
+			}
+
+			Expect(totalStoredHashes).To(Equal(4))
+			Expect(storedEvents).To(HaveLen(2))
+
+			// first event: base model, no lora
+			Expect(storedEvents[0].LoraName).To(BeNil())
+			Expect(storedEvents[0].BlockHashes).To(Equal([]uint64{10, 20}))
+
+			// second event: lora
+			Expect(storedEvents[1].LoraName).NotTo(BeNil())
+			Expect(*storedEvents[1].LoraName).To(Equal(loraName))
+			Expect(*storedEvents[1].LoraID).To(Equal(loraID))
+			Expect(storedEvents[1].BlockHashes).To(Equal([]uint64{10, 20}))
+		})
 	})
 })
 

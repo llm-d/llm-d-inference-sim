@@ -107,7 +107,7 @@ func (h *KVCacheHelper) OnRequestStart(req openaiserverapi.Request) (PrefixCache
 	}
 
 	// get block keys
-	blockKeys, err := h.tokensProcessor.TokensToKVBlockKeys(kvblock.EmptyBlockHash, tokens, req.GetModel(), extraFeatures)
+	blockKeys, err := h.tokensProcessor.TokensToKVBlockKeys(kvblock.EmptyBlockHash, tokens, req.GetDisplayedModel(), extraFeatures)
 	if err != nil {
 		return PrefixCacheStats{}, fmt.Errorf("failed to convert tokens to block keys: %w", err)
 	}

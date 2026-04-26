@@ -36,6 +36,13 @@ type Request interface {
 	IsStream() bool
 	// GetModel returns model name as defined in the request
 	GetModel() string
+	// GetDisplayedModel returns model name to be used in the processing
+	// in case served model names were defined on the simulator load, and this request
+	// contains one of aliases of the base model - the first alias is usedas the model name
+	// in all other cases - the model name is used as is from the request
+	GetDisplayedModel() string
+	// SetDisplayedModel sets the displayed model name for the request
+	SetDisplayedModel(model string)
 	// GetLoraName returns the LoRA name or nil if model is the base model
 	GetLoraName() *string
 	GetLoraID() *int
@@ -101,8 +108,13 @@ type baseCompletionRequest struct {
 	Stream bool `json:"stream"`
 	// StreamOptions defines streaming options in case Stream is set to true
 	StreamOptions StreamOptions `json:"stream_options"`
-	// Model defines Model name to use for "inference", could be base Model name or one of available LoRA adapters
+	// Model defines Model name to use for "inference",
+	// could be base Model name or one of available LoRA adapters
 	Model string `json:"model"`
+	// DisplayedModel is the model name to be used in the request processing and in the response,
+	// in case served model names were defined on the simulator load, and this request contains one of aliases of the base model - the first alias is used as the DisplayedModel name
+	// in all other cases - the Model name is used as is from the request
+	DisplayedModel string
 	// ID of the LoRA adapter if the model is a LoRA, 0 if the model is the base model
 	loraID int
 	// KVParams kv transfer related fields
@@ -191,6 +203,14 @@ func (b *baseCompletionRequest) IsStream() bool {
 
 func (b *baseCompletionRequest) GetModel() string {
 	return b.Model
+}
+
+func (b *baseCompletionRequest) GetDisplayedModel() string {
+	return b.DisplayedModel
+}
+
+func (b *baseCompletionRequest) SetDisplayedModel(model string) {
+	b.DisplayedModel = model
 }
 
 func (b *baseCompletionRequest) GetLoraName() *string {

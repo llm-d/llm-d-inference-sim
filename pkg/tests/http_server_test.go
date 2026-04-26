@@ -306,8 +306,8 @@ var _ = Describe("Server", func() {
 			}()
 			msg, err := sub.Recv()
 			Expect(err).NotTo(HaveOccurred())
-			stored, _, _ := kvcache.ParseKVEvent(msg.Frames, topic, uint64(1))
-			Expect(stored).To(HaveLen(1))
+			storedCount, _, _ := kvcache.CountKVEventBlocks(msg.Frames, topic, uint64(1))
+			Expect(storedCount).To(Equal(1))
 
 			// Sleep and check that AllBlocksCleared event was sent
 			go func() {
@@ -318,7 +318,7 @@ var _ = Describe("Server", func() {
 			}()
 			msg, err = sub.Recv()
 			Expect(err).NotTo(HaveOccurred())
-			_, _, allCleared := kvcache.ParseKVEvent(msg.Frames, topic, uint64(2))
+			_, _, allCleared := kvcache.CountKVEventBlocks(msg.Frames, topic, uint64(2))
 			Expect(allCleared).To(BeTrue())
 
 			checkSimSleeping(client, true)
@@ -341,8 +341,8 @@ var _ = Describe("Server", func() {
 			}()
 			msg, err = sub.Recv()
 			Expect(err).NotTo(HaveOccurred())
-			stored, _, _ = kvcache.ParseKVEvent(msg.Frames, topic, uint64(3))
-			Expect(stored).To(HaveLen(1))
+			storedCount, _, _ = kvcache.CountKVEventBlocks(msg.Frames, topic, uint64(3))
+			Expect(storedCount).To(Equal(1))
 
 			// Sleep again and wait for AllBlocksCleared
 			go func() {
@@ -354,7 +354,7 @@ var _ = Describe("Server", func() {
 
 			msg, err = sub.Recv()
 			Expect(err).NotTo(HaveOccurred())
-			_, _, allCleared = kvcache.ParseKVEvent(msg.Frames, topic, uint64(4))
+			_, _, allCleared = kvcache.CountKVEventBlocks(msg.Frames, topic, uint64(4))
 			Expect(allCleared).To(BeTrue())
 
 			checkSimSleeping(client, true)
@@ -385,8 +385,8 @@ var _ = Describe("Server", func() {
 			}()
 			msg, err = sub.Recv()
 			Expect(err).NotTo(HaveOccurred())
-			stored, _, _ = kvcache.ParseKVEvent(msg.Frames, topic, uint64(5))
-			Expect(stored).To(HaveLen(1))
+			storedCount, _, _ = kvcache.CountKVEventBlocks(msg.Frames, topic, uint64(5))
+			Expect(storedCount).To(Equal(1))
 		})
 	})
 })

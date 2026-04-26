@@ -240,29 +240,28 @@ func (s *VllmSimulator) processing(ctx context.Context) {
 			}
 		case reqCtx := <-s.newRequests.Channel:
 			// A new request was received. Find a free worker, and check that the request can run LoRA wise.
-			model := reqCtx.request().GetModel()
-
 			worker := s.getFreeWorker()
 			if worker == nil {
+				// use real model name for the logs
 				s.Context.logger.V(logging.TRACE).Info("No free worker - sending the request to the waiting queue",
-					"model", model, "req id", reqCtx.request().GetRequestID())
+					"model", reqCtx.request().GetModel(), "req id", reqCtx.request().GetRequestID())
 				// no free worker, add this request to the waiting queue
 				s.addRequestToQueue(reqCtx)
 				break
 			}
 
 			// check if lora usage allows the request to run
-			if s.Context.isLora(model) && !s.Context.loadLora(model) {
+			if s.Context.isLora(reqCtx.request().GetDisplayedModel()) && !s.Context.loadLora(reqCtx.request().GetDisplayedModel()) {
 				// free the worker
 				s.freeWorkers <- worker
 				s.Context.logger.V(logging.TRACE).Info("LoRA cannot be loaded - sending the request to the waiting queue",
-					"LoRA", model, "req id", reqCtx.request().GetRequestID())
+					"LoRA", reqCtx.request().GetDisplayedModel(), "req id", reqCtx.request().GetRequestID())
 				// LoRA max reached, try to enqueue
 				s.addRequestToQueue(reqCtx)
 				break
 			}
 
-			s.Context.logger.V(logging.TRACE).Info("Sending the request to the processing channel", "model", model,
+			s.Context.logger.V(logging.TRACE).Info("Sending the request to the processing channel", "model", reqCtx.request().GetModel(),
 				"req id", reqCtx.request().GetRequestID(), "worker", worker.id)
 			common.WriteToChannel(worker.reqChan, reqCtx, s.Context.logger)
 		}
@@ -273,6 +272,7 @@ func (s *VllmSimulator) findRequestAndSendToProcess(worker *worker) bool {
 	nextReq := s.dequeue()
 	if nextReq != nil {
 		// send this request for processing in this worker
+		// use model defined in the requiest for the logs to present real model name in the logs
 		s.Context.logger.V(logging.TRACE).Info("Sending request to processing", "model", nextReq.request().GetModel(),
 			"req", nextReq.request().GetRequestID(), "worker", worker.id)
 		common.WriteToChannel(worker.reqChan, nextReq, s.Context.logger)
@@ -298,8 +298,8 @@ func (s *VllmSimulator) addRequestToQueue(reqCtx requestContext) {
 	// increment the waiting requests metric
 	common.WriteToChannel(s.Context.metrics.waitingReqChan, common.MetricInfo{Value: 1}, s.Context.logger)
 	// update loraInfo metrics with the new waiting request
-	if s.Context.isLora(reqCtx.request().GetModel()) {
-		common.WriteToChannel(s.Context.metrics.lorasChan, loraUsage{reqCtx.request().GetModel(), waitingUsageState},
+	if s.Context.isLora(reqCtx.request().GetDisplayedModel()) {
+		common.WriteToChannel(s.Context.metrics.lorasChan, loraUsage{reqCtx.request().GetDisplayedModel(), waitingUsageState},
 			s.Context.logger)
 	}
 }
@@ -311,11 +311,16 @@ func (s *VllmSimulator) HandleRequest(req Request) (bool, *common.Channel[*Respo
 		return false, nil, &failure, true
 	}
 
+	// the model defined in the request should be checked here
 	if !s.isValidModel(req.GetModel()) {
 		err := openaiserverapi.NewError(fmt.Sprintf("The model `%s` does not exist.",
 			req.GetModel()), fasthttp.StatusNotFound, nil)
 		return false, nil, &err, false
 	}
+
+	// the model is valid, update the displayed model which will be different from the model mentioned in the request only in case of base model aliases
+	// in this case the first alias is used, in all other cases the model from the request is used as the displayed model
+	req.SetDisplayedModel(s.Context.getDisplayedModelName(req.GetModel()))
 
 	errMsg, errCode := req.validate(s.toolsValidator)
 	if errMsg != "" {
@@ -351,9 +356,9 @@ func (s *VllmSimulator) dequeue() requestContext {
 	// Find first request for a loaded LoRA
 	for elem := s.waitingQueue.Front(); elem != nil; elem = elem.Next() {
 		item, ok := elem.Value.(waitingQueueItem)
-		if ok && item.reqCtx != nil && s.Context.loraIsLoaded(item.reqCtx.request().GetModel()) {
+		if ok && item.reqCtx != nil && s.Context.loraIsLoaded(item.reqCtx.request().GetDisplayedModel()) {
 			s.waitingQueue.Remove(elem)
-			s.Context.incrementLora(item.reqCtx.request().GetModel())
+			s.Context.incrementLora(item.reqCtx.request().GetDisplayedModel())
 			common.WriteToChannel(s.Context.metrics.reqQueueTimeChan, time.Since(item.enqueueTime).Seconds(),
 				s.Context.logger)
 			return item.reqCtx
@@ -363,7 +368,7 @@ func (s *VllmSimulator) dequeue() requestContext {
 	// All the requests require a LoRA that is not loaded, check if we can load a LoRA
 	for elem := s.waitingQueue.Front(); elem != nil; elem = elem.Next() {
 		item, ok := elem.Value.(waitingQueueItem)
-		if ok && item.reqCtx != nil && s.Context.loadLora(item.reqCtx.request().GetModel()) {
+		if ok && item.reqCtx != nil && s.Context.loadLora(item.reqCtx.request().GetDisplayedModel()) {
 			s.waitingQueue.Remove(elem)
 			common.WriteToChannel(s.Context.metrics.reqQueueTimeChan, time.Since(item.enqueueTime).Seconds(),
 				s.Context.logger)
@@ -431,7 +436,7 @@ func (s *VllmSimulator) ResponseSentCallback(reqCtx requestContext) {
 	// decrement running requests count
 	common.WriteToChannel(s.Context.metrics.runReqChan, common.MetricInfo{Value: -1}, s.Context.logger)
 
-	model := reqCtx.request().GetModel()
+	model := reqCtx.request().GetDisplayedModel()
 	if s.Context.isLora(model) {
 		// update loraInfo metrics to reflect that the request processing has been finished
 		common.WriteToChannel(s.Context.metrics.lorasChan, loraUsage{model, doneUsageState},

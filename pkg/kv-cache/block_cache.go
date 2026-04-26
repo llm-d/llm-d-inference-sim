@@ -39,7 +39,7 @@ const (
 // contains sub-set of openai server api request fields that are relevant for the block cache
 type Request interface {
 	GetRequestID() string
-	GetModel() string
+	GetDisplayedModel() string
 	GetLoraName() *string
 	GetLoraID() *int
 }
@@ -180,7 +180,7 @@ func (bc *blockCache) startRequest(req Request, blockHashes []uint64, blockToken
 	// count number of new blocks + number of blocks that are in the unused blocks
 	// don't update the data until we are sure that it's ok
 	for i, blockHash := range blockHashes {
-		bKey := blockKey{hash: blockHash, modelName: req.GetModel()}
+		bKey := blockKey{hash: blockHash, modelName: req.GetDisplayedModel()}
 		if _, exists := bc.unusedBlocks[bKey]; exists {
 			blockToMoveToUsed = append(blockToMoveToUsed, bKey)
 		} else if _, exists := bc.usedBlocks[bKey]; !exists {
@@ -250,7 +250,7 @@ func (bc *blockCache) startRequest(req Request, blockHashes []uint64, blockToken
 	// store blockKeys and not only plain uint64
 	bc.requestToBlocks[req.GetRequestID()] = make([]blockKey, len(blockHashes))
 	for i, blockHash := range blockHashes {
-		bKey := blockKey{hash: blockHash, modelName: req.GetModel()}
+		bKey := blockKey{hash: blockHash, modelName: req.GetDisplayedModel()}
 		bc.requestToBlocks[req.GetRequestID()][i] = bKey
 	}
 

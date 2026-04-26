@@ -1378,9 +1378,9 @@ var _ = Describe("Simulator", func() {
 			// read one event
 			msg, err := sub.Recv()
 			Expect(err).NotTo(HaveOccurred())
-			stored, removed, _ := kvcache.ParseKVEvent(msg.Frames, topic, 1)
-			Expect(stored).To(HaveLen(4))
-			Expect(removed).To(BeEmpty())
+			storedCount, removedCount, _ := kvcache.CountKVEventBlocks(msg.Frames, topic, 1)
+			Expect(storedCount).To(Equal(4))
+			Expect(removedCount).To(Equal(0))
 		})
 
 		It("completions", func() {
@@ -1409,9 +1409,9 @@ var _ = Describe("Simulator", func() {
 			// read one event
 			msg, err := sub.Recv()
 			Expect(err).NotTo(HaveOccurred())
-			stored, removed, _ := kvcache.ParseKVEvent(msg.Frames, topic, 1)
-			Expect(stored).To(HaveLen(2))
-			Expect(removed).To(BeEmpty())
+			storedCount, removedCount, _ := kvcache.CountKVEventBlocks(msg.Frames, topic, 1)
+			Expect(storedCount).To(Equal(2))
+			Expect(removedCount).To(Equal(0))
 		})
 	})
 })

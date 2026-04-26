@@ -27,39 +27,53 @@ import (
 
 var vllmAdapter *engineadapter.VLLMAdapter = engineadapter.NewVLLMAdapter()
 
-func ParseKVEvent(parts [][]byte, expectedTopic string, expectedSeq uint64) ([]uint64, []uint64, bool) {
+// StoredEventInfo holds parsed metadata from a single BlockStoredEvent
+type StoredEventInfo struct {
+	BlockHashes []uint64
+	LoraName    *string
+	LoraID      *int
+}
+
+func parseBatch(parts [][]byte, expectedTopic string, expectedSeq uint64) kvevents.EventBatch {
 	// The message should be [topic, seq, payload]
 	gomega.Expect(parts).To(gomega.HaveLen(3))
-
 	gomega.Expect(string(parts[0])).To(gomega.Equal(expectedTopic))
 
 	seq := binary.BigEndian.Uint64(parts[1])
 	gomega.Expect(seq).To(gomega.Equal(expectedSeq))
 
-	// vllmAdapter := engineadapter.NewVLLMAdapter()
 	rawMsg := kvevents.RawMessage{
 		Topic:    string(parts[0]),
 		Sequence: seq,
 		Payload:  parts[2],
 	}
 
-	// use vllm adapter from kv-cache to parse the message into a batch of generic events
 	_, _, batch, err := vllmAdapter.ParseMessage(&rawMsg)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
+	return batch
+}
+
+// ParseKVEvent parses a ZMQ message and returns rich stored event info (with LoRA metadata),
+// removed block hashes, and whether an all-blocks-cleared event was received.
+func ParseKVEvent(parts [][]byte, expectedTopic string, expectedSeq uint64) ([]StoredEventInfo, []uint64, bool) {
+	batch := parseBatch(parts, expectedTopic, expectedSeq)
+
 	removed := make([]uint64, 0)
-	stored := make([]uint64, 0)
+	storedEvents := make([]StoredEventInfo, 0)
 	allCleared := false
 
 	for _, genEvent := range batch.Events {
 		switch genEvent.Type() {
 		case kvevents.EventTypeBlockStored:
-			var storeEvent *kvevents.BlockStoredEvent
 			storeEvent, ok := genEvent.(*kvevents.BlockStoredEvent)
 			gomega.Expect(ok).To(gomega.BeTrue())
-			stored = append(stored, storeEvent.BlockHashes...)
+			storedEvents = append(storedEvents, StoredEventInfo{
+				BlockHashes: storeEvent.BlockHashes,
+				LoraName:    storeEvent.LoraName,
+				LoraID:      storeEvent.LoraID,
+			})
 		case kvevents.EventTypeBlockRemoved:
-			var removeEvent *kvevents.BlockRemovedEvent
 			removeEvent, ok := genEvent.(*kvevents.BlockRemovedEvent)
 			gomega.Expect(ok).To(gomega.BeTrue())
 			removed = append(removed, removeEvent.BlockHashes...)
@@ -69,9 +83,39 @@ func ParseKVEvent(parts [][]byte, expectedTopic string, expectedSeq uint64) ([]u
 			allCleared = true
 		default:
 			ginkgo.Fail("unexpected tag " + string(genEvent.Type()))
-			continue
 		}
 	}
 
-	return stored, removed, allCleared
+	return storedEvents, removed, allCleared
+}
+
+// CountKVEventBlocks parses a ZMQ message and returns the total number of stored blocks,
+// total number of removed blocks, and whether an all-blocks-cleared event was received.
+func CountKVEventBlocks(parts [][]byte, expectedTopic string, expectedSeq uint64) (int, int, bool) {
+	batch := parseBatch(parts, expectedTopic, expectedSeq)
+
+	storedCount := 0
+	removedCount := 0
+	allCleared := false
+
+	for _, genEvent := range batch.Events {
+		switch genEvent.Type() {
+		case kvevents.EventTypeBlockStored:
+			storeEvent, ok := genEvent.(*kvevents.BlockStoredEvent)
+			gomega.Expect(ok).To(gomega.BeTrue())
+			storedCount += len(storeEvent.BlockHashes)
+		case kvevents.EventTypeBlockRemoved:
+			removeEvent, ok := genEvent.(*kvevents.BlockRemovedEvent)
+			gomega.Expect(ok).To(gomega.BeTrue())
+			removedCount += len(removeEvent.BlockHashes)
+		case kvevents.EventTypeAllBlocksCleared:
+			_, ok := genEvent.(*kvevents.AllBlocksClearedEvent)
+			gomega.Expect(ok).To(gomega.BeTrue())
+			allCleared = true
+		default:
+			ginkgo.Fail("unexpected tag " + string(genEvent.Type()))
+		}
+	}
+
+	return storedCount, removedCount, allCleared
 }
