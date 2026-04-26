@@ -38,7 +38,7 @@ type Request interface {
 	GetModel() string
 	// GetDisplayedModel returns model name to be used in the processing
 	// in case served model names were defined on the simulator load, and this request
-	// contains one of aliases of the base model - the first alias is usedas the model name
+	// contains one of aliases of the base model - the first alias is used as the model name
 	// in all other cases - the model name is used as is from the request
 	GetDisplayedModel() string
 	// SetDisplayedModel sets the displayed model name for the request
