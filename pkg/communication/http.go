@@ -63,6 +63,7 @@ func (c *Communication) startHTTPServer(listener net.Listener) (*fasthttp.Server
 	// support completion APIs
 	r.POST("/v1/chat/completions", c.HandleChatCompletions)
 	r.POST("/v1/completions", c.HandleTextCompletions)
+	r.POST("/v1/responses", c.HandleResponses)
 	if !c.simulator.Context.Config.MMEncoderOnly {
 		r.POST("/v1/embeddings", c.HandleEmbeddings)
 	}
@@ -127,6 +128,11 @@ func (c *Communication) HandleTextCompletions(ctx *fasthttp.RequestCtx) {
 	c.handleHTTP(&vllmsim.TextCompletionRequest{}, &textComplHTTPRespBuilder{}, ctx)
 }
 
+// HandleResponses http handler for /v1/responses
+func (c *Communication) HandleResponses(ctx *fasthttp.RequestCtx) {
+	c.handleHTTP(&vllmsim.ResponsesCreateRequest{}, &responsesCreateHTTPRespBuilder{}, ctx)
+}
+
 // addResponseHeaders adds optional pod/port/namespace/request-id headers to the response for testing/debugging.
 func (c *Communication) addResponseHeaders(ctx *fasthttp.RequestCtx, requestID string) {
 	if c.simulator.Context.Config.PodName != "" {
@@ -147,15 +153,15 @@ func (c *Communication) handleHTTP(req vllmsim.Request, respBuilder responseBuil
 		return
 	}
 
-	requestID := c.getRequestID(ctx)
-	req.SetRequestID(requestID)
-
 	if err := req.Unmarshal(ctx.Request.Body()); err != nil {
 		c.logger.Error(err, "failed to read and parse request body")
 		errToSend := openaiserverapi.NewError("Failed to read and parse request body, "+err.Error(), fasthttp.StatusBadRequest, nil)
 		c.sendError(ctx, &errToSend, false)
 		return
 	}
+
+	requestID := c.getRequestID(ctx)
+	req.SetRequestID(requestID)
 
 	// Check for X-Return-Error header - deterministic error trigger
 	if errCodeStr := string(ctx.Request.Header.Peek(XReturnErrorHeader)); errCodeStr != "" {

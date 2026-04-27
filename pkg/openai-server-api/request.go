@@ -18,12 +18,17 @@ limitations under the License.
 package openaiserverapi
 
 import (
+	"encoding/json"
+	"errors"
+	"fmt"
+
 	"github.com/llm-d/llm-d-kv-cache/pkg/tokenization"
 )
 
 const (
-	RoleAssistant = "assistant"
-	RoleUser      = "user"
+	RoleAssistant    = "assistant"
+	RoleUser         = "user"
+	inputItemMessage = "message"
 )
 
 // Request defines an interface for request information retrieval
@@ -100,14 +105,10 @@ type Request interface {
 	SetCacheThresholdFinishReason(bool)
 }
 
-// baseCompletionRequest contains base completion request related information
-type baseCompletionRequest struct {
+// baseRequest contains base completion request related information
+type baseRequest struct {
 	// RequestID is the unique id of this request
 	RequestID string
-	// Stream is a boolean value, defines whether response should be sent as a Stream
-	Stream bool `json:"stream"`
-	// StreamOptions defines streaming options in case Stream is set to true
-	StreamOptions StreamOptions `json:"stream_options"`
 	// Model defines Model name to use for "inference",
 	// could be base Model name or one of available LoRA adapters
 	Model string `json:"model"`
@@ -117,12 +118,27 @@ type baseCompletionRequest struct {
 	DisplayedModel string
 	// ID of the LoRA adapter if the model is a LoRA, 0 if the model is the base model
 	loraID int
+	// Stream is a boolean value, defines whether response should be sent as a Stream
+	Stream bool `json:"stream"`
 	// KVParams kv transfer related fields
 	KVParams *KVTransferParams `json:"kv_transfer_params"`
 	// The number of tokens in the prompt that are in the local KV Cache
 	cachedPromptTokens int
 	// IgnoreEOS is a boolean value, true when the model should ignore end-of-sequence tokens
 	IgnoreEOS bool `json:"ignore_eos"`
+	// tokenizedPrompt is the tokenized prompt
+	tokenizedPrompt *Tokenized
+	// tokenizedPromptForEcho is the tokenized part of the prompt to be used in echo mode, exists only in echo mode
+	tokenizedPromptForEcho *Tokenized
+	// mmFeatures holds multimodal metadata produced by the tokenizer, exists only for multimodal requests
+	mmFeatures *tokenization.MultiModalFeatures
+}
+
+// baseRequest contains base completion request related information
+type baseCompletionsRequest struct {
+	baseRequest
+	// StreamOptions defines streaming options in case Stream is set to true
+	StreamOptions StreamOptions `json:"stream_options"`
 	// CacheHitThreshold is a value between 0 and 1 that specifies the minimum cache hit rate required
 	// to proceed with request processing. If the actual cache hit rate is below this threshold,
 	// the request will return with cache_threshold finish reason.
@@ -130,12 +146,6 @@ type baseCompletionRequest struct {
 	// cacheThresholdFinishReason is a boolean value extracted from the request's HTTP header,
 	//  when true, forces a cache_threshold finish reason
 	cacheThresholdFinishReason bool
-	// tokenizedPrompt is the tokenized prompt
-	tokenizedPrompt *Tokenized
-	// tokenizedPromptForEcho is the tokenized part of the prompt to be used in echo mode, exists only in echo mode
-	tokenizedPromptForEcho *Tokenized
-	// mmFeatures holds multimodal metadata produced by the tokenizer, exists only for multimodal requests
-	mmFeatures *tokenization.MultiModalFeatures
 }
 
 type KVTransferParams struct {
@@ -189,31 +199,31 @@ func (t *Tokenized) Append(other Tokenized) {
 	t.Tokens = append(t.Tokens, other.Tokens...)
 }
 
-func (b *baseCompletionRequest) GetRequestID() string {
+func (b *baseRequest) GetRequestID() string {
 	return b.RequestID
 }
 
-func (b *baseCompletionRequest) SetRequestID(id string) {
+func (b *baseRequest) SetRequestID(id string) {
 	b.RequestID = id
 }
 
-func (b *baseCompletionRequest) IsStream() bool {
+func (b *baseRequest) IsStream() bool {
 	return b.Stream
 }
 
-func (b *baseCompletionRequest) GetModel() string {
+func (b *baseRequest) GetModel() string {
 	return b.Model
 }
 
-func (b *baseCompletionRequest) GetDisplayedModel() string {
+func (b *baseRequest) GetDisplayedModel() string {
 	return b.DisplayedModel
 }
 
-func (b *baseCompletionRequest) SetDisplayedModel(model string) {
+func (b *baseRequest) SetDisplayedModel(model string) {
 	b.DisplayedModel = model
 }
 
-func (b *baseCompletionRequest) GetLoraName() *string {
+func (b *baseRequest) GetLoraName() *string {
 	if b.loraID > 0 {
 		name := b.Model
 		return &name
@@ -221,7 +231,7 @@ func (b *baseCompletionRequest) GetLoraName() *string {
 	return nil
 }
 
-func (b *baseCompletionRequest) GetLoraID() *int {
+func (b *baseRequest) GetLoraID() *int {
 	if b.loraID > 0 {
 		id := b.loraID
 		return &id
@@ -229,93 +239,112 @@ func (b *baseCompletionRequest) GetLoraID() *int {
 	return nil
 }
 
-func (b *baseCompletionRequest) SetModelLoraID(id int) {
+func (b *baseRequest) SetModelLoraID(id int) {
 	b.loraID = id
 }
 
-func (b *baseCompletionRequest) IncludeUsage() bool {
-	return !b.Stream || b.StreamOptions.IncludeUsage
+func (b *baseRequest) IncludeUsage() bool {
+	return true
 }
 
-func (b *baseCompletionRequest) IsDoRemoteDecode() bool {
+func (b *baseRequest) IsDoRemoteDecode() bool {
 	return b.KVParams != nil && b.KVParams.DoRemoteDecode
 }
 
-func (b *baseCompletionRequest) IsDoRemotePrefill() bool {
+func (b *baseRequest) IsDoRemotePrefill() bool {
 	return b.KVParams != nil && b.KVParams.DoRemotePrefill
 }
 
 // GetNumberOfCachedPromptTokens returns the number of tokens in the prompt that are
 // in the local KV Cache
-func (b *baseCompletionRequest) GetNumberOfCachedPromptTokens() int {
+func (b *baseRequest) GetNumberOfCachedPromptTokens() int {
 	return b.cachedPromptTokens
 }
 
 // GetIgnoreEOS returns the value of IgnoreEOS
-func (b *baseCompletionRequest) GetIgnoreEOS() bool {
+func (b *baseRequest) GetIgnoreEOS() bool {
 	return b.IgnoreEOS
 }
 
 // SetIgnoreEOS sets the value of IgnoreEOS
-func (b *baseCompletionRequest) SetIgnoreEOS(ignorEOS bool) {
+func (b *baseRequest) SetIgnoreEOS(ignorEOS bool) {
 	b.IgnoreEOS = ignorEOS
 }
 
 // SetNumberOfCachedPromptTokens sets the number of tokens in the prompt that are
 // in the local KV Cache
-func (b *baseCompletionRequest) SetNumberOfCachedPromptTokens(cachedPromptTokens int) {
+func (b *baseRequest) SetNumberOfCachedPromptTokens(cachedPromptTokens int) {
 	b.cachedPromptTokens = cachedPromptTokens
 }
 
 // GetCacheHitThreshold returns the cache hit threshold value
-func (b *baseCompletionRequest) GetCacheHitThreshold() *float64 {
+func (b *baseRequest) GetCacheHitThreshold() *float64 {
+	return nil
+}
+
+// CacheThresholdFinishReason returns cacheThresholdFinishReason,  when true,
+// forces a cache_threshold finish reason
+func (b *baseRequest) CacheThresholdFinishReason() bool {
+	return false
+}
+
+// SetCacheThresholdFinishReason sets cacheThresholdFinishReason
+func (b *baseRequest) SetCacheThresholdFinishReason(value bool) {
+}
+
+// TokenizedPrompt returns the tokenized prompt
+func (b *baseRequest) TokenizedPrompt() *Tokenized {
+	return b.tokenizedPrompt
+}
+
+// SetTokenizedPrompt sets the tokenized prompt
+func (b *baseRequest) SetTokenizedPrompt(tokenized *Tokenized) {
+	b.tokenizedPrompt = tokenized
+}
+
+// TokenizedPromptForEcho returns the tokenized response in echo mode
+func (b *baseRequest) TokenizedPromptForEcho() *Tokenized {
+	return b.tokenizedPromptForEcho
+}
+
+// SetTokenizedPromptForEcho sets the tokenized response in echo mode
+func (b *baseRequest) SetTokenizedPromptForEcho(tokenized *Tokenized) {
+	b.tokenizedPromptForEcho = tokenized
+}
+
+// TokenizedPrompt returns the tokenized prompt
+func (b *baseRequest) MMFeatures() *tokenization.MultiModalFeatures {
+	return b.mmFeatures
+}
+
+// SetMMFeatures sets the multimodal features
+func (b *baseRequest) SetMMFeatures(mmFeatures *tokenization.MultiModalFeatures) {
+	b.mmFeatures = mmFeatures
+}
+
+func (b *baseCompletionsRequest) IncludeUsage() bool {
+	return !b.Stream || b.StreamOptions.IncludeUsage
+}
+
+// GetCacheHitThreshold returns the cache hit threshold value
+func (b *baseCompletionsRequest) GetCacheHitThreshold() *float64 {
 	return b.CacheHitThreshold
 }
 
 // CacheThresholdFinishReason returns cacheThresholdFinishReason,  when true,
 // forces a cache_threshold finish reason
-func (b *baseCompletionRequest) CacheThresholdFinishReason() bool {
+func (b *baseCompletionsRequest) CacheThresholdFinishReason() bool {
 	return b.cacheThresholdFinishReason
 }
 
 // SetCacheThresholdFinishReason sets cacheThresholdFinishReason
-func (b *baseCompletionRequest) SetCacheThresholdFinishReason(value bool) {
+func (b *baseCompletionsRequest) SetCacheThresholdFinishReason(value bool) {
 	b.cacheThresholdFinishReason = value
-}
-
-// TokenizedPrompt returns the tokenized prompt
-func (b *baseCompletionRequest) TokenizedPrompt() *Tokenized {
-	return b.tokenizedPrompt
-}
-
-// SetTokenizedPrompt sets the tokenized prompt
-func (b *baseCompletionRequest) SetTokenizedPrompt(tokenized *Tokenized) {
-	b.tokenizedPrompt = tokenized
-}
-
-// TokenizedPromptForEcho returns the tokenized response in echo mode
-func (b *baseCompletionRequest) TokenizedPromptForEcho() *Tokenized {
-	return b.tokenizedPromptForEcho
-}
-
-// SetTokenizedPromptForEcho sets the tokenized response in echo mode
-func (b *baseCompletionRequest) SetTokenizedPromptForEcho(tokenized *Tokenized) {
-	b.tokenizedPromptForEcho = tokenized
-}
-
-// TokenizedPrompt returns the tokenized prompt
-func (b *baseCompletionRequest) MMFeatures() *tokenization.MultiModalFeatures {
-	return b.mmFeatures
-}
-
-// SetMMFeatures sets the multimodal features
-func (b *baseCompletionRequest) SetMMFeatures(mmFeatures *tokenization.MultiModalFeatures) {
-	b.mmFeatures = mmFeatures
 }
 
 // ChatCompletionRequest defines structure of /chat/completion request
 type ChatCompletionRequest struct {
-	baseCompletionRequest
+	baseCompletionsRequest
 	// Messages list of request's Messages
 	Messages []Message `json:"messages"`
 
@@ -402,7 +431,7 @@ func (c *ChatCompletionRequest) GetLogprobs() *int {
 // v1/completion
 // TextCompletionRequest defines structure of /completion request
 type TextCompletionRequest struct {
-	baseCompletionRequest
+	baseCompletionsRequest
 	// Prompt defines request's content
 	Prompt string `json:"prompt"`
 
@@ -444,9 +473,9 @@ func (t *TextCompletionRequest) GetLogprobs() *int {
 	return t.Logprobs
 }
 
-// GenerationRequest defines structure of /completion request
+// GenerationRequest defines structure of generation request
 type GenerationRequest struct {
-	baseCompletionRequest
+	baseRequest
 	// Prompt defines request's content
 	Prompt string
 
@@ -492,11 +521,179 @@ func (t *GenerationRequest) GetLogprobs() *int {
 
 func NewGenerationRequest(requestID string, stream bool, model string, maxTokens *int64) *GenerationRequest {
 	return &GenerationRequest{
-		baseCompletionRequest: baseCompletionRequest{
+		baseRequest: baseRequest{
 			RequestID: requestID,
 			Stream:    stream,
 			Model:     model,
 		},
 		MaxTokens: maxTokens,
 	}
+}
+
+// Responses
+
+type ResponsesCreateRequest struct {
+	baseRequest
+	Input           []InputItem `json:"input,omitempty"`
+	Instructions    string      `json:"instructions,omitempty"`
+	MaxOutputTokens *int        `json:"max_output_tokens,omitempty"`
+	// Ignored for now, always text
+	Text *TextSettings `json:"text,omitempty"`
+}
+
+var _ Request = (*ResponsesCreateRequest)(nil)
+
+type TextSettings struct {
+	Format *TextFormat `json:"format,omitempty"`
+}
+
+type TextFormat struct {
+	Type       string          `json:"type"` // text, json_object, json_schema
+	JsonSchema *JSONSchemaSpec `json:"json_schema,omitempty"`
+}
+
+type JSONSchemaSpec struct {
+	Name   string         `json:"name"`
+	Strict *bool          `json:"strict,omitempty"`
+	Schema map[string]any `json:"schema"`
+}
+
+type InputItem interface {
+	isInputItem()
+	json.Unmarshaler
+}
+
+type InputMessage struct {
+	Type    string         `json:"type"` // always "message"
+	Role    string         `json:"role"` // user, system, developer
+	Status  string         `json:"status,omitempty"`
+	Content []InputContent `json:"content"`
+}
+
+func (InputMessage) isInputItem() {}
+
+func (m *InputMessage) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		Type    string          `json:"type"`
+		Role    string          `json:"role"`
+		Status  string          `json:"status"`
+		Content json.RawMessage `json:"content"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if raw.Type != "" && raw.Type != inputItemMessage {
+		return fmt.Errorf("unsupported input item type %q", raw.Type)
+	}
+	m.Type = inputItemMessage
+	m.Role = raw.Role
+	m.Status = raw.Status
+
+	if len(raw.Content) == 0 || string(raw.Content) == "null" {
+		return nil
+	}
+	// content can be a plain string or an array of InputContent objects
+	var str string
+	if err := json.Unmarshal(raw.Content, &str); err == nil {
+		m.Content = []InputContent{{Type: "input_text", Text: str}}
+		return nil
+	}
+	return json.Unmarshal(raw.Content, &m.Content)
+}
+
+type InputContent struct {
+	Type string `json:"type"` // input_text
+	Text string `json:"text"`
+}
+
+func (c *InputContent) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		Type string `json:"type"`
+		Text string `json:"text"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if raw.Type != "" && raw.Type != "input_text" {
+		return fmt.Errorf("unsupported input content type %q", raw.Type)
+	}
+	c.Type = "input_text"
+	c.Text = raw.Text
+	return nil
+}
+
+// At the moment UnmarshalJSON handles only two forms of the `input` field:
+// - a plain string: wrapped into a single user InputMessage
+// - an array of message objects: each element is unmarshaled as *InputMessage
+func (req *ResponsesCreateRequest) UnmarshalJSON(data []byte) error {
+	// Use an alias to unmarshal all fields except Input normally.
+	type alias struct {
+		baseRequest
+		Input           json.RawMessage `json:"input,omitempty"`
+		Instructions    string          `json:"instructions,omitempty"`
+		MaxOutputTokens *int            `json:"max_output_tokens,omitempty"`
+		Text            *TextSettings   `json:"text,omitempty"`
+	}
+	var a alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		return err
+	}
+	req.baseRequest = a.baseRequest
+	req.Instructions = a.Instructions
+	req.MaxOutputTokens = a.MaxOutputTokens
+	req.Text = a.Text
+
+	if len(a.Input) == 0 || string(a.Input) == "null" {
+		return errors.New("input is required")
+	}
+
+	// string input: wrap as a single user message
+	var str string
+	if err := json.Unmarshal(a.Input, &str); err == nil {
+		req.Input = []InputItem{&InputMessage{
+			Type:    inputItemMessage,
+			Role:    RoleUser,
+			Content: []InputContent{{Type: "input_text", Text: str}},
+		}}
+		return nil
+	}
+
+	// array input: unmarshal each element as *InputMessage
+	var raw []json.RawMessage
+	if err := json.Unmarshal(a.Input, &raw); err != nil {
+		return fmt.Errorf("input must be a string or array: %w", err)
+	}
+	req.Input = make([]InputItem, 0, len(raw))
+	for _, r := range raw {
+		msg := &InputMessage{}
+		if err := json.Unmarshal(r, msg); err != nil {
+			return err
+		}
+		req.Input = append(req.Input, msg)
+	}
+	return nil
+}
+
+func (req *ResponsesCreateRequest) GetTools() []Tool {
+	return nil
+}
+
+func (req *ResponsesCreateRequest) GetToolChoice() ToolChoice {
+	return ToolChoice{}
+}
+
+func (req *ResponsesCreateRequest) GetMaxCompletionTokens() *int64 {
+	return req.ExtractMaxTokens()
+}
+
+func (req *ResponsesCreateRequest) GetLogprobs() *int {
+	return nil
+}
+
+func (req *ResponsesCreateRequest) ExtractMaxTokens() *int64 {
+	if req.MaxOutputTokens == nil {
+		return nil
+	}
+	v := int64(*req.MaxOutputTokens)
+	return &v
 }

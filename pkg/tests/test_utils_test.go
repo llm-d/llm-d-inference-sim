@@ -44,6 +44,7 @@ import (
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
 	"github.com/openai/openai-go/v3/packages/param"
+	"github.com/openai/openai-go/v3/responses"
 	"github.com/valyala/fasthttp/fasthttputil"
 	"k8s.io/klog/v2"
 
@@ -322,6 +323,26 @@ func getOpenAIClentAndCompletionParams(client option.HTTPClient, model string, m
 	}
 	if streaming {
 		params.StreamOptions = openai.ChatCompletionStreamOptionsParam{IncludeUsage: param.NewOpt(true)}
+	}
+	return openaiclient, params
+}
+
+// getOpenAIClientAndResponsesParams creates an openai client and params for /v1/responses call with a string input.
+// Pass a non-empty instructions string to set a system prompt.
+func getOpenAIClientAndResponsesParams(client option.HTTPClient, model string, message string, instructions ...string) (openai.Client, responses.ResponseNewParams) {
+	openaiclient := openai.NewClient(
+		option.WithBaseURL(baseURL),
+		option.WithHTTPClient(client),
+		option.WithMaxRetries(0))
+
+	params := responses.ResponseNewParams{
+		Model: model,
+		Input: responses.ResponseNewParamsInputUnion{
+			OfString: param.NewOpt(message),
+		},
+	}
+	if len(instructions) > 0 && instructions[0] != "" {
+		params.Instructions = param.NewOpt(instructions[0])
 	}
 	return openaiclient, params
 }

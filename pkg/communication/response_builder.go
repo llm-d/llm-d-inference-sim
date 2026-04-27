@@ -253,3 +253,51 @@ func (respBuilder *generationGRPCRespBuilder) createLastChunk(respCtx vllmsim.Re
 }
 
 var _ responseBuilder = (*generationGRPCRespBuilder)(nil)
+
+type responsesCreateHTTPRespBuilder struct{}
+
+func (respBuilder *responsesCreateHTTPRespBuilder) createResponse(respCtx vllmsim.ResponseContext,
+	tokens *openaiserverapi.Tokenized) response {
+	text := strings.Join(tokens.Strings, "")
+	usage := respCtx.UsageData()
+	return openaiserverapi.CreateResponsesCreateResponse(
+		respCtx.DisplayModel(),
+		respCtx.RequestID(),
+		time.Now().Unix(),
+		respCtx.Instructions(),
+		[]openaiserverapi.OutputItem{
+			openaiserverapi.MessageOutput{
+				Type:   "message",
+				Role:   openaiserverapi.RoleAssistant,
+				Status: "completed",
+				Content: []openaiserverapi.OutputContent{
+					{Type: "output_text", Text: text},
+				},
+			},
+		},
+		&openaiserverapi.ResponsesUsage{
+			InputTokens:  usage.PromptTokens,
+			OutputTokens: usage.CompletionTokens,
+			TotalTokens:  usage.TotalTokens,
+		},
+	)
+}
+
+func (respBuilder *responsesCreateHTTPRespBuilder) createUsageChunk(respCtx vllmsim.ResponseContext) response {
+	return nil
+}
+
+func (respBuilder *responsesCreateHTTPRespBuilder) createChunk(respCtx vllmsim.ResponseContext,
+	tokens *openaiserverapi.Tokenized, tool *openaiserverapi.ToolCall, role string, finishReason *string) response {
+	return nil
+}
+
+func (respBuilder *responsesCreateHTTPRespBuilder) createFirstChunk(respCtx vllmsim.ResponseContext) response {
+	return nil
+}
+
+func (respBuilder *responsesCreateHTTPRespBuilder) createLastChunk(respCtx vllmsim.ResponseContext) response {
+	return nil
+}
+
+var _ responseBuilder = (*responsesCreateHTTPRespBuilder)(nil)

@@ -38,6 +38,7 @@ import (
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
 	"github.com/openai/openai-go/v3/packages/param"
+	"github.com/openai/openai-go/v3/responses"
 	"github.com/valyala/fasthttp"
 )
 
@@ -1423,6 +1424,115 @@ var _ = Describe("Simulator", func() {
 			// Wait for both requests to finish — counter must return to zero
 			wg.Wait()
 			Expect(server.OpenRequests()).To(Equal(int64(0)))
+		})
+	})
+
+	Context("responses API", func() {
+		DescribeTable("responses with string and array input",
+			func(model string, mode string, useStringInput bool) {
+				ctx := context.TODO()
+				args := []string{"cmd", "--model", model, "--mode", mode}
+				client, err := startServerWithArgs(ctx, args)
+				Expect(err).NotTo(HaveOccurred())
+
+				openaiclient, params := getOpenAIClientAndResponsesParams(client, model, testUserMessage)
+				if !useStringInput {
+					params.Input = responses.ResponseNewParamsInputUnion{
+						OfInputItemList: responses.ResponseInputParam{
+							responses.ResponseInputItemUnionParam{
+								OfMessage: &responses.EasyInputMessageParam{
+									Role:    responses.EasyInputMessageRoleUser,
+									Content: responses.EasyInputMessageContentUnionParam{OfString: param.NewOpt(testUserMessage)},
+								},
+							},
+						},
+					}
+				}
+
+				resp, err := openaiclient.Responses.New(ctx, params)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(resp).NotTo(BeNil())
+
+				outputText := resp.OutputText()
+				Expect(outputText).NotTo(BeEmpty())
+				if mode == common.ModeEcho {
+					Expect(outputText).To(Equal(testUserMessage))
+				} else {
+					Expect(dataset.IsValidText(outputText)).To(BeTrue())
+				}
+
+				Expect(resp.Usage.InputTokens).To(BeNumerically(">", 0))
+				Expect(resp.Usage.OutputTokens).To(BeNumerically(">", 0))
+				Expect(resp.Usage.TotalTokens).To(Equal(resp.Usage.InputTokens + resp.Usage.OutputTokens))
+
+				Expect(resp.ID).To(HavePrefix(openaiserverapi.ResponsesIDPrefix))
+				Expect(resp.Status).To(Equal(responses.ResponseStatusCompleted))
+				Expect(resp.Instructions.AsString()).To(BeEmpty())
+
+				Expect(resp.Output).NotTo(BeEmpty())
+				firstItem := resp.Output[0]
+				Expect(string(firstItem.Role)).To(Equal("assistant"))
+				Expect(firstItem.Content).NotTo(BeEmpty())
+				Expect(firstItem.Content[0].Type).To(Equal("output_text"))
+			},
+			func(model string, mode string, useStringInput bool) string {
+				inputType := "array"
+				if useStringInput {
+					inputType = "string"
+				}
+				return fmt.Sprintf("model: %s mode: %s input: %s", model, mode, inputType)
+			},
+			Entry(nil, common.TestModelName, common.ModeRandom, true),
+			Entry(nil, common.TestModelName, common.ModeEcho, true),
+			Entry(nil, common.TestModelName, common.ModeRandom, false),
+			Entry(nil, common.TestModelName, common.ModeEcho, false),
+			Entry(nil, common.QwenModelName, common.ModeRandom, true),
+			Entry(nil, common.QwenModelName, common.ModeEcho, true),
+			Entry(nil, common.QwenModelName, common.ModeRandom, false),
+			Entry(nil, common.QwenModelName, common.ModeEcho, false),
+		)
+
+		It("Should echo instructions in the response", func() {
+			ctx := context.TODO()
+			client, err := startServer(ctx, common.ModeRandom)
+			Expect(err).NotTo(HaveOccurred())
+
+			const testInstructions = "Reply in French"
+			openaiclient, params := getOpenAIClientAndResponsesParams(client, common.TestModelName, testUserMessage, testInstructions)
+
+			resp, err := openaiclient.Responses.New(ctx, params)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.Instructions.AsString()).To(Equal(testInstructions))
+		})
+
+		It("Should respect max_output_tokens", func() {
+			ctx := context.TODO()
+			server, _, client, err := startServerHandle(ctx, common.ModeRandom, nil, nil)
+			Expect(err).NotTo(HaveOccurred())
+
+			openaiclient, params := getOpenAIClientAndResponsesParams(client, common.TestModelName, testUserMessage)
+			params.MaxOutputTokens = param.NewOpt(int64(2))
+
+			resp, err := openaiclient.Responses.New(ctx, params)
+			Expect(err).NotTo(HaveOccurred())
+
+			outputText := resp.OutputText()
+			_, tokens, err := server.Context.Tokenizer.RenderText(outputText)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(len(tokens)).To(BeNumerically("<=", 2))
+		})
+
+		It("Should return error for invalid model", func() {
+			ctx := context.TODO()
+			client, err := startServer(ctx, common.ModeRandom)
+			Expect(err).NotTo(HaveOccurred())
+
+			openaiclient, params := getOpenAIClientAndResponsesParams(client, "nonexistent-model", testUserMessage)
+			_, err = openaiclient.Responses.New(ctx, params)
+			Expect(err).To(HaveOccurred())
+			var openaiError *openai.Error
+			Expect(errors.As(err, &openaiError)).To(BeTrue())
+			Expect(openaiError.StatusCode).To(Equal(fasthttp.StatusNotFound))
 		})
 	})
 

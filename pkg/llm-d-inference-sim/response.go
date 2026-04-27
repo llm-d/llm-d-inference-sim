@@ -41,6 +41,7 @@ type ResponseContext interface {
 	FinishReason() *string
 	SendUsageData() bool
 	ToolCalls() []openaiserverapi.ToolCall
+	Instructions() *string
 	CreationTime() int64
 	SetCreationTime(int64)
 	Logprobs() *int
@@ -134,6 +135,10 @@ func (respCtx *baseResponseContext) CreationTime() int64 {
 }
 func (respCtx *baseResponseContext) Logprobs() *int {
 	return respCtx.nLogprobs
+}
+
+func (respCtx *baseResponseContext) Instructions() *string {
+	return nil
 }
 
 func (b *baseResponseContext) Done() {

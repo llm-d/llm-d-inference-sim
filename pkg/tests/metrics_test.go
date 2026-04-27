@@ -714,6 +714,117 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 			Expect(*hits).To(BeNumerically("<=", *queries))
 		})
 
+		It("Should send correct kv cache usage metrics for parallel /responses requests", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.QwenModelName, "--mode", common.ModeRandom,
+				"--enable-kvcache", "true", "--kv-cache-size", "16", "--block-size", "8",
+				"--time-to-first-token", "2000", "--v", "5"}
+
+			client, err := startServerWithArgsAndEnv(ctx, common.ModeRandom, args, map[string]string{"POD_IP": "localhost"})
+			Expect(err).NotTo(HaveOccurred())
+
+			inputs := []string{
+				"What is the weather like in Haifa today? Is it cold?",
+				"What is the weather like in Haifa today?",
+				"What is the weather like in Haifa today?",
+				"What is the weather like in New York today?",
+			}
+
+			instructions := []string{
+				"Reply in French",
+				"Reply in French",
+				"Reply in English",
+				"Reply in English",
+			}
+
+			for i, input := range inputs {
+				go func() {
+					defer GinkgoRecover()
+					time.Sleep(100 * time.Millisecond)
+					openaiclient, params := getOpenAIClientAndResponsesParams(client, common.QwenModelName, input,
+						instructions[i])
+					_, err := openaiclient.Responses.New(ctx, params)
+					Expect(err).NotTo(HaveOccurred())
+				}()
+			}
+
+			var wg sync.WaitGroup
+			wg.Go(func() {
+				defer GinkgoRecover()
+
+				time.Sleep(time.Second)
+				metricsResp, err := client.Get(metricsUrl)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
+
+				data, err := io.ReadAll(metricsResp.Body)
+				Expect(err).NotTo(HaveOccurred())
+				metrics := string(data)
+				// Expect four running requests
+				Expect(metrics).To(ContainSubstring(getCountMetricLine(common.QwenModelName, vllmsim.ReqRunningMetricName, 4)))
+				// There should be 2 blocks for the instructions.
+				// The first two requests add 1 block. (The first request is not long enough for two blocks).
+				// The third request adds 1 block, because it has a different parent from the first two requests.
+				// The fourth request adds 1 block.
+				// 5/16 = 0.3125
+				Expect(metrics).To(ContainSubstring(getCountMetricLine(common.QwenModelName, vllmsim.KVCacheUsageMetricName, 0.3125)))
+
+				time.Sleep(2 * time.Second)
+				metricsResp, err = client.Get(metricsUrl)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
+
+				data, err = io.ReadAll(metricsResp.Body)
+				Expect(err).NotTo(HaveOccurred())
+				metrics = string(data)
+				// The requests finished running, expect 0 usage
+				Expect(metrics).To(ContainSubstring(getCountMetricLine(common.QwenModelName, vllmsim.ReqRunningMetricName, 0)))
+				Expect(metrics).To(ContainSubstring(getCountMetricLine(common.QwenModelName, vllmsim.KVCacheUsageMetricName, 0)))
+			})
+			wg.Wait()
+		})
+
+		It("Should increment prefix cache counters for /responses requests with shared prefixes", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.QwenModelName, "--mode", common.ModeRandom,
+				"--enable-kvcache", "true", "--kv-cache-size", "64", "--block-size", "8",
+				"--time-to-first-token", "100"}
+
+			client, err := startServerWithArgsAndEnv(ctx, common.ModeRandom, args, map[string]string{"POD_IP": "localhost"})
+			Expect(err).NotTo(HaveOccurred())
+
+			// Send requests sequentially so the cache is populated between requests
+			inputs := []string{
+				"What is the weather like in Haifa today?",
+				"What is the weather like in Haifa today? Is it cold?",
+			}
+			for _, input := range inputs {
+				openaiclient, params := getOpenAIClientAndResponsesParams(client, common.QwenModelName, input, "You are a helpful weather assistant.")
+				_, err = openaiclient.Responses.New(ctx, params)
+				Expect(err).NotTo(HaveOccurred())
+			}
+
+			time.Sleep(500 * time.Millisecond)
+			metricsResp, err := client.Get(metricsUrl)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
+
+			data, err := io.ReadAll(metricsResp.Body)
+			Expect(err).NotTo(HaveOccurred())
+			metricsLines := strings.Split(string(data), "\n")
+
+			queries := findIntMetric(metricsLines, getCountMetricPrefix(common.QwenModelName, vllmsim.PrefixCacheQueriesMetricName))
+			Expect(queries).NotTo(BeNil())
+			Expect(*queries).To(BeNumerically(">", 0))
+
+			// The second request shares a prefix with the first, so hits should be non-zero
+			hits := findIntMetric(metricsLines, getCountMetricPrefix(common.QwenModelName, vllmsim.PrefixCacheHitsMetricName))
+			Expect(hits).NotTo(BeNil())
+			Expect(*hits).To(BeNumerically(">", 0))
+
+			Expect(*hits).To(BeNumerically("<=", *queries))
+		})
+
 		It("Should send correct kv cache config metrics", func() {
 			ctx := context.TODO()
 			args := []string{"cmd", "--model", common.QwenModelName, "--mode", common.ModeRandom,

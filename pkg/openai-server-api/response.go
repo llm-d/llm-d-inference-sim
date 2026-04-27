@@ -20,6 +20,7 @@ package openaiserverapi
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/valyala/fasthttp"
@@ -28,32 +29,40 @@ import (
 const (
 	chatComplIDPrefix         = "chatcmpl-"
 	textComplIDPrefix         = "cmpl-"
+	ResponsesIDPrefix         = "resp_"
 	TextCompletionObject      = "text_completion"
 	ChatCompletionObject      = "chat.completion"
 	ChatCompletionChunkObject = "chat.completion.chunk"
+	ResponsesObject           = "response"
+	ResponsesStatusCompleted  = "completed"
 )
 
-// CompletionResponse interface representing both completion response types (text and chat)
-type CompletionResponse interface {
+// Response interface representing response types
+type Response interface {
 	GetRequestID() string
 }
 
-// baseCompletionResponse contains base completion response related information
-type baseCompletionResponse struct {
+// baseResponse contains base response related information
+type baseResponse struct {
 	// ID defines the response ID
 	ID string `json:"id"`
-	// Created defines the response creation timestamp
-	Created int64 `json:"created"`
 	// Model defines the Model name for current request
 	Model string `json:"model"`
-	// Usage contains the token usage statistics for the request
-	Usage *Usage `json:"usage"`
 	// Object is the Object type, "text_completion", "chat.completion", or "chat.completion.chunk"
 	Object string `json:"object"`
 	// KVParams kv transfer related fields
 	KVParams *KVTransferParams `json:"kv_transfer_params"`
 	// RequestID is the unique request ID for tracking
 	RequestID string `json:"-"`
+}
+
+// baseCompletionResponse contains base completion response related information
+type baseCompletionResponse struct {
+	baseResponse
+	// Created defines the response creation timestamp
+	Created int64 `json:"created"`
+	// Usage contains the token usage statistics for the request
+	Usage *Usage `json:"usage"`
 }
 
 // Usage contains token Usage statistics
@@ -354,7 +363,14 @@ func CreateTextRespChoice(base baseResponseChoice, text string) TextRespChoice {
 }
 
 func CreateBaseCompletionResponse(created int64, model string, usage *Usage, requestID string, doRemoteDecode bool) baseCompletionResponse {
-	baseResp := baseCompletionResponse{Created: created, Model: model, Usage: usage, RequestID: requestID}
+	baseResp := baseCompletionResponse{
+		baseResponse: baseResponse{
+			Model:     model,
+			RequestID: requestID,
+		},
+		Created: created,
+		Usage:   usage,
+	}
 	if doRemoteDecode {
 		baseResp.KVParams = &KVTransferParams{}
 		// add special fields related to the prefill pod special behavior
@@ -371,7 +387,7 @@ func CreateBaseCompletionResponse(created int64, model string, usage *Usage, req
 }
 
 // GetRequestID returns the request ID from the response
-func (b baseCompletionResponse) GetRequestID() string {
+func (b baseResponse) GetRequestID() string {
 	return b.RequestID
 }
 
@@ -392,4 +408,86 @@ func CreateChatCompletionRespChunk(base baseCompletionResponse, choices []ChatRe
 
 func CreateGenerationResponse(base baseCompletionResponse, tokens *Tokenized) *GenerationResponse {
 	return &GenerationResponse{baseCompletionResponse: base, Tokenized: tokens}
+}
+
+func CreateResponsesCreateResponse(model string, requestID string, createdAt int64,
+	instructions *string, output []OutputItem, usage *ResponsesUsage) *ResponsesCreateResponse {
+	return &ResponsesCreateResponse{
+		baseResponse: baseResponse{
+			ID:        ResponsesIDPrefix + requestID,
+			Model:     model,
+			Object:    ResponsesObject,
+			RequestID: requestID,
+		},
+		CreatedAt:    createdAt,
+		Status:       ResponsesStatusCompleted,
+		Instructions: instructions,
+		Text:         &TextSettings{Format: &TextFormat{Type: "text"}},
+		Output:       output,
+		Usage:        usage,
+	}
+}
+
+// Responses
+
+type OutputItem interface {
+	isOutputItem()
+	json.Marshaler
+}
+
+type ResponsesCreateResponse struct {
+	baseResponse
+	CreatedAt    int64           `json:"created_at,omitempty"`
+	Status       string          `json:"status,omitempty"`
+	Instructions *string         `json:"instructions,omitempty"`
+	Output       []OutputItem    `json:"output,omitempty"`
+	Text         *TextSettings   `json:"text,omitempty"`
+	Usage        *ResponsesUsage `json:"usage,omitempty"`
+	Error        *Error          `json:"error,omitempty"`
+	Store        *bool           `json:"store,omitempty"`
+}
+
+type MessageOutput struct {
+	Type    string          `json:"type"` // message
+	ID      string          `json:"id,omitempty"`
+	Role    string          `json:"role"` // assistant
+	Status  string          `json:"status,omitempty"`
+	Content []OutputContent `json:"content,omitempty"`
+}
+
+func (MessageOutput) isOutputItem() {}
+
+func (m MessageOutput) MarshalJSON() ([]byte, error) {
+	if m.Type == "" {
+		m.Type = "message"
+	}
+	type alias MessageOutput
+	return json.Marshal(alias(m))
+}
+
+type OutputContent struct {
+	Type string `json:"type"` // output_text or refusal
+	Text string `json:"text,omitempty"`
+}
+
+func (c OutputContent) MarshalJSON() ([]byte, error) {
+	switch c.Type {
+	case "", "output_text":
+		if c.Type == "" {
+			c.Type = "output_text"
+		}
+		type x struct {
+			Type string `json:"type"`
+			Text string `json:"text,omitempty"`
+		}
+		return json.Marshal(x(c))
+	default:
+		return nil, fmt.Errorf("unsupported output content type %q", c.Type)
+	}
+}
+
+type ResponsesUsage struct {
+	InputTokens  int `json:"input_tokens,omitempty"`
+	OutputTokens int `json:"output_tokens,omitempty"`
+	TotalTokens  int `json:"total_tokens,omitempty"`
 }
