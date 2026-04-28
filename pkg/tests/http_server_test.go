@@ -82,8 +82,8 @@ var _ = Describe("Server", func() {
 			var tokenizeResp vllmapi.TokenizeResponse
 			err = json.Unmarshal(body, &tokenizeResp)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(tokenizeResp.Count).To(Equal(19))
-			Expect(tokenizeResp.Tokens).To(HaveLen(19))
+			Expect(tokenizeResp.Count).To(Equal(20))
+			Expect(tokenizeResp.Tokens).To(HaveLen(20))
 			Expect(tokenizeResp.MaxModelLen).To(Equal(2048))
 		})
 

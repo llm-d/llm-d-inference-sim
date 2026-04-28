@@ -354,9 +354,9 @@ var _ = Describe("Simulator", func() {
 				model, maxTokens)
 		},
 		Entry(nil, common.TestModelName, common.ModeEcho, 1),
-		Entry(nil, common.MMModelName, common.ModeRandom, 1),
+		Entry(nil, common.QwenModelName, common.ModeRandom, 1),
 		Entry(nil, common.TestModelName, common.ModeRandom, 10),
-		Entry(nil, common.MMModelName, common.ModeEcho, 10),
+		Entry(nil, common.QwenModelName, common.ModeEcho, 10),
 	)
 
 	It("echo mode with structured content blocks", func() {

@@ -26,8 +26,7 @@ import (
 // constants
 const (
 	TestModelName    = "testmodel"
-	QwenModelName    = "Qwen/Qwen2-0.5B"
-	MMModelName      = "Qwen/Qwen2-VL-2B-Instruct"
+	QwenModelName    = "Qwen/Qwen2-VL-2B-Instruct"
 	wildcardEndpoint = "tcp://*:*"
 )
 

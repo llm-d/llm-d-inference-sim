@@ -129,14 +129,12 @@ func startServerHelper(ctx context.Context, mode string, args []string, envs map
 	}
 	s.Context.Config = config
 
-	gomega.Expect(config.Model).To(gomega.BeElementOf(common.TestModelName, common.QwenModelName, common.MMModelName))
+	gomega.Expect(config.Model).To(gomega.BeElementOf(common.TestModelName, common.QwenModelName, common.QwenModelName))
 	switch config.Model {
 	case common.TestModelName:
 		s.Context.Tokenizer = tokenizerMngr.TestTokenizer()
 	case common.QwenModelName:
 		s.Context.Tokenizer = tokenizerMngr.RealTokenizer()
-	case common.MMModelName:
-		s.Context.Tokenizer = tokenizerMngr.MMTokenizer()
 	}
 
 	// calculate number of tokens for user message,

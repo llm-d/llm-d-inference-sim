@@ -83,7 +83,7 @@ func (tm *TokenizerManager) Init(ctx context.Context, logger logr.Logger) error 
 	}
 
 	// create tokenizer for multimodal model
-	tm.mmTokenizer, err = tm.newTokenizer(ctx, address, common.MMModelName)
+	tm.mmTokenizer, err = tm.newTokenizer(ctx, address, common.QwenModelName)
 	if err != nil {
 		cleanup()
 		return err
