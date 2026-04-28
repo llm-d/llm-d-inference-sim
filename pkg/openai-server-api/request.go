@@ -21,14 +21,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/llm-d/llm-d-kv-cache/pkg/tokenization"
 )
 
 const (
-	RoleAssistant    = "assistant"
-	RoleUser         = "user"
-	inputItemMessage = "message"
+	RoleAssistant      = "assistant"
+	RoleUser           = "user"
+	inputItemMessage   = "message"
+	ResponsesInputText = "input_text"
 )
 
 // Request defines an interface for request information retrieval
@@ -61,9 +63,9 @@ type Request interface {
 	// SetNumberOfCachedPromptTokens sets the number of tokens in the prompt that are
 	// in the local KV Cache
 	SetNumberOfCachedPromptTokens(cachedPromptTokens int)
-	// GetTools returns tools to use (in chat completion)
+	// GetTools returns tools to use (in chat completions)
 	GetTools() []Tool
-	// GetToolChoice returns tool choice (in chat completion)
+	// GetToolChoice returns tool choice (in chat completions)
 	GetToolChoice() ToolChoice
 	// GetMaxCompletionTokens returns the maximum completion tokens requested
 	GetMaxCompletionTokens() *int64
@@ -78,8 +80,8 @@ type Request interface {
 	// whereas decode phase is done on local pod, thus this is a decode request
 	IsDoRemotePrefill() bool
 	// ExtractMaxTokens extracts the max tokens from the request:
-	// for chat completion - max_completion_tokens field is used
-	// for text completion - max_tokens field is used
+	// for chat completions - max_completion_tokens field is used
+	// for text completions - max_tokens field is used
 	ExtractMaxTokens() *int64
 	// GetLogprobs returns nil if no logprobs needed, or pointer to number of logprob options to include
 	GetLogprobs() *int
@@ -105,7 +107,7 @@ type Request interface {
 	SetCacheThresholdFinishReason(bool)
 }
 
-// baseRequest contains base completion request related information
+// baseRequest contains base completions request related information
 type baseRequest struct {
 	// RequestID is the unique id of this request
 	RequestID string
@@ -134,7 +136,7 @@ type baseRequest struct {
 	mmFeatures *tokenization.MultiModalFeatures
 }
 
-// baseRequest contains base completion request related information
+// baseCompletionsRequest contains base completions request related information
 type baseCompletionsRequest struct {
 	baseRequest
 	// StreamOptions defines streaming options in case Stream is set to true
@@ -342,21 +344,21 @@ func (b *baseCompletionsRequest) SetCacheThresholdFinishReason(value bool) {
 	b.cacheThresholdFinishReason = value
 }
 
-// ChatCompletionRequest defines structure of /chat/completion request
-type ChatCompletionRequest struct {
+// ChatCompletionsRequest defines structure of /chat/completions request
+type ChatCompletionsRequest struct {
 	baseCompletionsRequest
 	// Messages list of request's Messages
 	Messages []Message `json:"messages"`
 
 	// The maximum number of tokens that can be generated in the chat
-	// completion. This value can be used to control costs for text
+	// completions. This value can be used to control costs for text
 	// generated via API.
 	// This value is now deprecated in favor of max_completion_tokens
 	// and is not compatible with o1 series models.
 	MaxTokens *int64 `json:"max_tokens"`
 
 	// An upper bound for the number of tokens that can be
-	// generated for a completion, including visible output
+	// generated for a completions, including visible output
 	// tokens and reasoning tokens.
 	MaxCompletionTokens *int64 `json:"max_completion_tokens"`
 
@@ -374,7 +376,7 @@ type ChatCompletionRequest struct {
 	TopLogprobs *int `json:"top_logprobs,omitempty"`
 }
 
-var _ Request = (*ChatCompletionRequest)(nil)
+var _ Request = (*ChatCompletionsRequest)(nil)
 
 // function defines a tool
 type function struct {
@@ -386,7 +388,7 @@ type function struct {
 	Description string `json:"description"`
 }
 
-// Tool defines a Tool to use in chat completion
+// Tool defines a Tool to use in chat completions
 type Tool struct {
 	// Function describes the tool
 	Function function `json:"function"`
@@ -395,15 +397,15 @@ type Tool struct {
 	Type string `json:"type"`
 }
 
-func (c *ChatCompletionRequest) GetTools() []Tool {
+func (c *ChatCompletionsRequest) GetTools() []Tool {
 	return c.Tools
 }
 
-func (c *ChatCompletionRequest) GetToolChoice() ToolChoice {
+func (c *ChatCompletionsRequest) GetToolChoice() ToolChoice {
 	return c.ToolChoice
 }
 
-func (c *ChatCompletionRequest) GetMaxCompletionTokens() *int64 {
+func (c *ChatCompletionsRequest) GetMaxCompletionTokens() *int64 {
 	if c.MaxCompletionTokens != nil {
 		return c.MaxCompletionTokens
 	}
@@ -411,12 +413,12 @@ func (c *ChatCompletionRequest) GetMaxCompletionTokens() *int64 {
 }
 
 // ExtractMaxTokens extracts the max tokens from the request
-// for chat completion - max_completion_tokens field is used
-func (req *ChatCompletionRequest) ExtractMaxTokens() *int64 {
+// for chat completions - max_completion_tokens field is used
+func (req *ChatCompletionsRequest) ExtractMaxTokens() *int64 {
 	return req.GetMaxCompletionTokens()
 }
 
-func (c *ChatCompletionRequest) GetLogprobs() *int {
+func (c *ChatCompletionsRequest) GetLogprobs() *int {
 	if !c.Logprobs {
 		return nil // No logprobs requested
 	}
@@ -428,15 +430,15 @@ func (c *ChatCompletionRequest) GetLogprobs() *int {
 	return &defaultVal
 }
 
-// v1/completion
-// TextCompletionRequest defines structure of /completion request
-type TextCompletionRequest struct {
+// v1/completions
+// TextCompletionsRequest defines structure of /completions request
+type TextCompletionsRequest struct {
 	baseCompletionsRequest
 	// Prompt defines request's content
 	Prompt string `json:"prompt"`
 
 	// The maximum number of [tokens](/tokenizer) that can be generated in the
-	// completion.
+	// completions.
 	//
 	// The token count of your prompt plus `max_tokens` cannot exceed the model's
 	// context length.
@@ -449,27 +451,27 @@ type TextCompletionRequest struct {
 	Logprobs *int `json:"logprobs,omitempty"`
 }
 
-var _ Request = (*TextCompletionRequest)(nil)
+var _ Request = (*TextCompletionsRequest)(nil)
 
-func (c *TextCompletionRequest) GetTools() []Tool {
+func (c *TextCompletionsRequest) GetTools() []Tool {
 	return nil
 }
 
-func (c *TextCompletionRequest) GetToolChoice() ToolChoice {
+func (c *TextCompletionsRequest) GetToolChoice() ToolChoice {
 	return ToolChoice{}
 }
 
-func (c *TextCompletionRequest) GetMaxCompletionTokens() *int64 {
+func (c *TextCompletionsRequest) GetMaxCompletionTokens() *int64 {
 	return c.MaxTokens
 }
 
 // ExtractMaxTokens extracts the max tokens from the request
-// for text completion - max_tokens field is used
-func (req *TextCompletionRequest) ExtractMaxTokens() *int64 {
+// for text completions - max_tokens field is used
+func (req *TextCompletionsRequest) ExtractMaxTokens() *int64 {
 	return req.MaxTokens
 }
 
-func (t *TextCompletionRequest) GetLogprobs() *int {
+func (t *TextCompletionsRequest) GetLogprobs() *int {
 	return t.Logprobs
 }
 
@@ -480,7 +482,7 @@ type GenerationRequest struct {
 	Prompt string
 
 	// The maximum number of [tokens](/tokenizer) that can be generated in the
-	// completion.
+	// completions.
 	//
 	// The token count of your prompt plus `max_tokens` cannot exceed the model's
 	// context length.
@@ -510,7 +512,7 @@ func (t *GenerationRequest) GetFullPrompt() string {
 }
 
 // ExtractMaxTokens extracts the max tokens from the request
-// for text completion - max_tokens field is used
+// for text completions - max_tokens field is used
 func (req *GenerationRequest) ExtractMaxTokens() *int64 {
 	return req.MaxTokens
 }
@@ -532,16 +534,16 @@ func NewGenerationRequest(requestID string, stream bool, model string, maxTokens
 
 // Responses
 
-type ResponsesCreateRequest struct {
+type ResponsesRequest struct {
 	baseRequest
 	Input           []InputItem `json:"input,omitempty"`
 	Instructions    string      `json:"instructions,omitempty"`
-	MaxOutputTokens *int        `json:"max_output_tokens,omitempty"`
+	MaxOutputTokens *int64      `json:"max_output_tokens,omitempty"`
 	// Ignored for now, always text
 	Text *TextSettings `json:"text,omitempty"`
 }
 
-var _ Request = (*ResponsesCreateRequest)(nil)
+var _ Request = (*ResponsesRequest)(nil)
 
 type TextSettings struct {
 	Format *TextFormat `json:"format,omitempty"`
@@ -595,10 +597,21 @@ func (m *InputMessage) UnmarshalJSON(data []byte) error {
 	// content can be a plain string or an array of InputContent objects
 	var str string
 	if err := json.Unmarshal(raw.Content, &str); err == nil {
-		m.Content = []InputContent{{Type: "input_text", Text: str}}
+		m.Content = []InputContent{{Type: ResponsesInputText, Text: str}}
 		return nil
 	}
 	return json.Unmarshal(raw.Content, &m.Content)
+}
+
+func (m *InputMessage) ReadableText() string {
+	var parts []string
+	for _, c := range m.Content {
+		switch c.Type { // nolint
+		case ResponsesInputText:
+			parts = append(parts, c.Text)
+		}
+	}
+	return strings.Join(parts, "\n")
 }
 
 type InputContent struct {
@@ -614,10 +627,10 @@ func (c *InputContent) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}
-	if raw.Type != "" && raw.Type != "input_text" {
+	if raw.Type != "" && raw.Type != ResponsesInputText {
 		return fmt.Errorf("unsupported input content type %q", raw.Type)
 	}
-	c.Type = "input_text"
+	c.Type = ResponsesInputText
 	c.Text = raw.Text
 	return nil
 }
@@ -625,13 +638,13 @@ func (c *InputContent) UnmarshalJSON(data []byte) error {
 // At the moment UnmarshalJSON handles only two forms of the `input` field:
 // - a plain string: wrapped into a single user InputMessage
 // - an array of message objects: each element is unmarshaled as *InputMessage
-func (req *ResponsesCreateRequest) UnmarshalJSON(data []byte) error {
+func (req *ResponsesRequest) UnmarshalJSON(data []byte) error {
 	// Use an alias to unmarshal all fields except Input normally.
 	type alias struct {
 		baseRequest
 		Input           json.RawMessage `json:"input,omitempty"`
 		Instructions    string          `json:"instructions,omitempty"`
-		MaxOutputTokens *int            `json:"max_output_tokens,omitempty"`
+		MaxOutputTokens *int64          `json:"max_output_tokens,omitempty"`
 		Text            *TextSettings   `json:"text,omitempty"`
 	}
 	var a alias
@@ -653,7 +666,7 @@ func (req *ResponsesCreateRequest) UnmarshalJSON(data []byte) error {
 		req.Input = []InputItem{&InputMessage{
 			Type:    inputItemMessage,
 			Role:    RoleUser,
-			Content: []InputContent{{Type: "input_text", Text: str}},
+			Content: []InputContent{{Type: ResponsesInputText, Text: str}},
 		}}
 		return nil
 	}
@@ -674,26 +687,22 @@ func (req *ResponsesCreateRequest) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func (req *ResponsesCreateRequest) GetTools() []Tool {
+func (req *ResponsesRequest) GetTools() []Tool {
 	return nil
 }
 
-func (req *ResponsesCreateRequest) GetToolChoice() ToolChoice {
+func (req *ResponsesRequest) GetToolChoice() ToolChoice {
 	return ToolChoice{}
 }
 
-func (req *ResponsesCreateRequest) GetMaxCompletionTokens() *int64 {
+func (req *ResponsesRequest) GetMaxCompletionTokens() *int64 {
 	return req.ExtractMaxTokens()
 }
 
-func (req *ResponsesCreateRequest) GetLogprobs() *int {
+func (req *ResponsesRequest) GetLogprobs() *int {
 	return nil
 }
 
-func (req *ResponsesCreateRequest) ExtractMaxTokens() *int64 {
-	if req.MaxOutputTokens == nil {
-		return nil
-	}
-	v := int64(*req.MaxOutputTokens)
-	return &v
+func (req *ResponsesRequest) ExtractMaxTokens() *int64 {
+	return req.MaxOutputTokens
 }

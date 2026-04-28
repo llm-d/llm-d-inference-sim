@@ -718,31 +718,27 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 			ctx := context.TODO()
 			args := []string{"cmd", "--model", common.QwenModelName, "--mode", common.ModeRandom,
 				"--enable-kvcache", "true", "--kv-cache-size", "16", "--block-size", "8",
-				"--time-to-first-token", "2000", "--v", "5"}
+				"--time-to-first-token", "2000"}
 
 			client, err := startServerWithArgsAndEnv(ctx, common.ModeRandom, args, map[string]string{"POD_IP": "localhost"})
 			Expect(err).NotTo(HaveOccurred())
 
-			inputs := []string{
-				"What is the weather like in Haifa today? Is it cold?",
-				"What is the weather like in Haifa today?",
-				"What is the weather like in Haifa today?",
-				"What is the weather like in New York today?",
+			requests := []struct {
+				input        string
+				instructions string
+			}{
+				{"What is the weather like in Haifa today? Is it cold?", "Reply in French"},
+				{"What is the weather like in Haifa today?", "Reply in French"},
+				{"What is the weather like in Haifa today?", "Reply in English"},
+				{"What is the weather like in New York today?", "Reply in English"},
 			}
 
-			instructions := []string{
-				"Reply in French",
-				"Reply in French",
-				"Reply in English",
-				"Reply in English",
-			}
-
-			for i, input := range inputs {
+			for _, req := range requests {
 				go func() {
 					defer GinkgoRecover()
 					time.Sleep(100 * time.Millisecond)
-					openaiclient, params := getOpenAIClientAndResponsesParams(client, common.QwenModelName, input,
-						instructions[i])
+					openaiclient, params := getOpenAIClientAndResponsesParams(client, common.QwenModelName, req.input,
+						req.instructions)
 					_, err := openaiclient.Responses.New(ctx, params)
 					Expect(err).NotTo(HaveOccurred())
 				}()

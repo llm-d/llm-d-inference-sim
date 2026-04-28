@@ -40,7 +40,7 @@ var _ = Describe("Check latency calculator", Ordered, func() {
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
-			ttftRes, totalTime := sendCompletionRequestForLatencyTest(client, common.TestModelName, testUserMessage, streaming, doRemotePrefill)
+			ttftRes, totalTime := sendCompletionsRequestForLatencyTest(client, common.TestModelName, testUserMessage, streaming, doRemotePrefill)
 
 			Expect(ttftRes.Milliseconds()).To(BeNumerically(comparator, expectedTTFT))
 			Expect(totalTime.Milliseconds()).To(BeNumerically(comparator, expectedTotal))

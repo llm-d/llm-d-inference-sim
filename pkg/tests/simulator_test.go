@@ -1473,7 +1473,7 @@ var _ = Describe("Simulator", func() {
 				firstItem := resp.Output[0]
 				Expect(string(firstItem.Role)).To(Equal("assistant"))
 				Expect(firstItem.Content).NotTo(BeEmpty())
-				Expect(firstItem.Content[0].Type).To(Equal("output_text"))
+				Expect(firstItem.Content[0].Type).To(Equal(openaiserverapi.ResponsesOutputText))
 			},
 			func(model string, mode string, useStringInput bool) string {
 				inputType := "array"

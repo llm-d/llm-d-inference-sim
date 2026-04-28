@@ -27,16 +27,16 @@ import (
 )
 
 // Implementation of request for /chat/completions requests
-type ChatCompletionRequest struct {
-	openaiserverapi.ChatCompletionRequest
+type ChatCompletionsRequest struct {
+	openaiserverapi.ChatCompletionsRequest
 }
 
 // reads and parses data from the body of the given request
-func (c *ChatCompletionRequest) Unmarshal(data []byte) error {
+func (c *ChatCompletionsRequest) Unmarshal(data []byte) error {
 	return json.Unmarshal(data, c)
 }
 
-func (c *ChatCompletionRequest) validate(toolsValidator *toolsValidator) (string, int) {
+func (c *ChatCompletionsRequest) validate(toolsValidator *toolsValidator) (string, int) {
 	for _, tool := range c.Tools {
 		toolJson, err := json.Marshal(tool.Function)
 		if err != nil {
@@ -51,7 +51,7 @@ func (c *ChatCompletionRequest) validate(toolsValidator *toolsValidator) (string
 	return validateRequest(c)
 }
 
-func (c *ChatCompletionRequest) buildRequestContext(simCtx *SimContext, channel common.Channel[*ResponseInfo]) requestContext {
+func (c *ChatCompletionsRequest) buildRequestContext(simCtx *SimContext, channel common.Channel[*ResponseInfo]) requestContext {
 	reqCtx := &chatCompletionReqCtx{
 		baseRequestContext: newBaseRequestContext(simCtx, channel),
 		req:                c,
@@ -61,16 +61,16 @@ func (c *ChatCompletionRequest) buildRequestContext(simCtx *SimContext, channel 
 	return reqCtx
 }
 
-func (c *ChatCompletionRequest) AsString() string {
+func (c *ChatCompletionsRequest) AsString() string {
 	return "chat completion request (req id " + c.RequestID + ")"
 }
 
-func (c *ChatCompletionRequest) createResponseContext(reqCtx requestContext, displayModel string,
+func (c *ChatCompletionsRequest) createResponseContext(reqCtx requestContext, displayModel string,
 	responseTokens *openaiserverapi.Tokenized, finishReason *string, usageData *openaiserverapi.Usage,
 	sendUsageData bool, logprobs *int, toolCalls []openaiserverapi.ToolCall) ResponseContext {
 	base := newBaseResponseContext(reqCtx, displayModel, responseTokens, finishReason, usageData, sendUsageData,
 		logprobs, c.GetRequestID(), c.IsDoRemotePrefill(), c.IsDoRemoteDecode(), c.GetNumberOfCachedPromptTokens())
-	return &chatCompletionResponseCtx{
+	return &chatCompletionsResponseCtx{
 		baseResponseContext: base,
 		toolsCalls:          toolCalls,
 	}
@@ -88,12 +88,12 @@ func (c *chatCompletionReqCtx) tokenizedPromptForEcho() (*openaiserverapi.Tokeni
 	return &openaiserverapi.Tokenized{Tokens: tokens, Strings: strTokens}, nil
 }
 
-var _ Request = (*ChatCompletionRequest)(nil)
+var _ Request = (*ChatCompletionsRequest)(nil)
 
 // Implementation of requestContext for /chat/completions requests
 type chatCompletionReqCtx struct {
 	baseRequestContext
-	req *ChatCompletionRequest
+	req *ChatCompletionsRequest
 }
 
 func (c *chatCompletionReqCtx) request() Request {
@@ -119,14 +119,14 @@ func (c *chatCompletionReqCtx) createToolCalls() ([]openaiserverapi.ToolCall, in
 var _ requestContext = (*chatCompletionReqCtx)(nil)
 
 // Implementation of responseContext for /chat/completions requests
-type chatCompletionResponseCtx struct {
+type chatCompletionsResponseCtx struct {
 	baseResponseContext
 	// tool calls to be sent in the response
 	toolsCalls []openaiserverapi.ToolCall
 }
 
-func (respCtx *chatCompletionResponseCtx) ToolCalls() []openaiserverapi.ToolCall {
+func (respCtx *chatCompletionsResponseCtx) ToolCalls() []openaiserverapi.ToolCall {
 	return respCtx.toolsCalls
 }
 
-var _ ResponseContext = (*chatCompletionResponseCtx)(nil)
+var _ ResponseContext = (*chatCompletionsResponseCtx)(nil)

@@ -199,19 +199,19 @@ func startServerForLatencyTest(modelName string, ttft int, prefillTimePerToken i
 func singleRequestLatencyTest(ttft int, prefillTimePerToken int, interTokenLatency int, kvcacheTransferLatency int,
 	kvCacheTransferTimePerToken int, isStreaming bool, numOfTokens int, doRemotePrefill bool) {
 	client := startServerForLatencyTest(common.TestModelName, ttft, prefillTimePerToken, interTokenLatency, kvcacheTransferLatency, kvCacheTransferTimePerToken)
-	sendCompletionRequestForLatencyTest(client, common.TestModelName, testUserMessage, isStreaming, doRemotePrefill)
+	sendCompletionsRequestForLatencyTest(client, common.TestModelName, testUserMessage, isStreaming, doRemotePrefill)
 	checkLatencyMetrics(client, common.TestModelName, numOfTokens, numOfTokens, ttft, prefillTimePerToken, interTokenLatency, kvcacheTransferLatency,
 		kvCacheTransferTimePerToken, doRemotePrefill)
 
 }
 
-// sendCompletionRequestForLatencyTest sends completion request according the given parameters
+// sendCompletionsRequestForLatencyTest sends completion request according the given parameters
 // uses http.Post and not openai-api function because vllm specific fields should be sent
-func sendCompletionRequestForLatencyTest(client *http.Client, modelName string, prompt string, isStreaming bool,
+func sendCompletionsRequestForLatencyTest(client *http.Client, modelName string, prompt string, isStreaming bool,
 	doRemotePrefill bool) (time.Duration, time.Duration) {
 	// send completions request using http post because disagregated PD fields should be included
 	// Test with raw HTTP to verify the error response format
-	req := &openaiserverapi.TextCompletionRequest{Prompt: prompt}
+	req := &openaiserverapi.TextCompletionsRequest{Prompt: prompt}
 	req.KVParams = &openaiserverapi.KVTransferParams{DoRemotePrefill: doRemotePrefill}
 	req.Model = modelName
 	req.Stream = isStreaming
@@ -625,8 +625,8 @@ func checkSimSleeping(client *http.Client, expectedToSleep bool) {
 	gomega.Expect(string(body)).To(gomega.Equal(expect))
 }
 
-// sendTextCompletionRequest sends one text completions request
-func sendTextCompletionRequest(ctx context.Context, client *http.Client) {
+// sendTextCompletionsRequest sends one text completions request
+func sendTextCompletionsRequest(ctx context.Context, client *http.Client) {
 	message := "aa bb cc dd ee ff gg hh ii jj aa bb cc dd ee ff gg hh ii jj"
 	openaiclient, params := getOpenAIClientAndTextParams(client, common.QwenModelName, message, false)
 	resp, err := openaiclient.Completions.New(ctx, params)

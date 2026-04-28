@@ -41,7 +41,7 @@ type textComplHTTPRespBuilder struct{}
 
 func (respBuilder *textComplHTTPRespBuilder) createResponse(respCtx vllmsim.ResponseContext,
 	tokens *openaiserverapi.Tokenized) response {
-	baseResp := openaiserverapi.CreateBaseCompletionResponse(
+	baseResp := openaiserverapi.CreateBaseCompletionsResponse(
 		time.Now().Unix(), respCtx.DisplayModel(), respCtx.UsageData(), respCtx.RequestID(), respCtx.DoRemoteDecode())
 	baseChoice := openaiserverapi.CreateBaseResponseChoice(0, respCtx.FinishReason())
 	respText := strings.Join(tokens.Strings, "")
@@ -63,22 +63,22 @@ func (respBuilder *textComplHTTPRespBuilder) createResponse(respCtx vllmsim.Resp
 	}
 
 	baseResp.Object = openaiserverapi.TextCompletionObject
-	return openaiserverapi.CreateTextCompletionResponse(baseResp, []openaiserverapi.TextRespChoice{choice})
+	return openaiserverapi.CreateTextCompletionsResponse(baseResp, []openaiserverapi.TextRespChoice{choice})
 }
 
 func (respBuilder *textComplHTTPRespBuilder) createUsageChunk(respCtx vllmsim.ResponseContext) response {
-	baseChunk := openaiserverapi.CreateBaseCompletionResponse(
+	baseChunk := openaiserverapi.CreateBaseCompletionsResponse(
 		respCtx.CreationTime(), respCtx.DisplayModel(), respCtx.UsageData(), respCtx.RequestID(), false)
 	baseChunk.Object = openaiserverapi.TextCompletionObject
-	return openaiserverapi.CreateTextCompletionResponse(baseChunk, []openaiserverapi.TextRespChoice{})
+	return openaiserverapi.CreateTextCompletionsResponse(baseChunk, []openaiserverapi.TextRespChoice{})
 }
 
-// createChunk creates and returns a CompletionRespChunk, a single chunk of streamed completion API response,
+// createChunk creates and returns a CompletionsRespChunk, a single chunk of streamed completion API response,
 // for text completion.
 func (respBuilder *textComplHTTPRespBuilder) createChunk(respCtx vllmsim.ResponseContext, tokens *openaiserverapi.Tokenized,
 	tool *openaiserverapi.ToolCall, role string, finishReason *string) response {
 
-	baseChunk := openaiserverapi.CreateBaseCompletionResponse(
+	baseChunk := openaiserverapi.CreateBaseCompletionsResponse(
 		respCtx.CreationTime(), respCtx.DisplayModel(), nil, respCtx.RequestID(), false)
 	baseChunk.Object = openaiserverapi.TextCompletionObject
 
@@ -98,7 +98,7 @@ func (respBuilder *textComplHTTPRespBuilder) createChunk(respCtx vllmsim.Respons
 		}
 	}
 
-	return openaiserverapi.CreateTextCompletionResponse(baseChunk, []openaiserverapi.TextRespChoice{choice})
+	return openaiserverapi.CreateTextCompletionsResponse(baseChunk, []openaiserverapi.TextRespChoice{choice})
 }
 
 func (respBuilder *textComplHTTPRespBuilder) createFirstChunk(respCtx vllmsim.ResponseContext) response {
@@ -115,7 +115,7 @@ type chatComplHTTPRespBuilder struct{}
 
 func (respBuilder *chatComplHTTPRespBuilder) createResponse(respCtx vllmsim.ResponseContext,
 	tokens *openaiserverapi.Tokenized) response {
-	baseResp := openaiserverapi.CreateBaseCompletionResponse(
+	baseResp := openaiserverapi.CreateBaseCompletionsResponse(
 		time.Now().Unix(), respCtx.DisplayModel(), respCtx.UsageData(), respCtx.RequestID(), respCtx.DoRemoteDecode())
 	baseChoice := openaiserverapi.CreateBaseResponseChoice(0, respCtx.FinishReason())
 	baseResp.Object = openaiserverapi.ChatCompletionObject
@@ -144,24 +144,24 @@ func (respBuilder *chatComplHTTPRespBuilder) createResponse(respCtx vllmsim.Resp
 		choice.Logprobs = nil
 	}
 
-	return openaiserverapi.CreateChatCompletionResponse(baseResp, []openaiserverapi.ChatRespChoice{choice})
+	return openaiserverapi.CreateChatCompletionsResponse(baseResp, []openaiserverapi.ChatRespChoice{choice})
 }
 
 func (respBuilder *chatComplHTTPRespBuilder) createUsageChunk(respCtx vllmsim.ResponseContext) response {
-	baseChunk := openaiserverapi.CreateBaseCompletionResponse(
+	baseChunk := openaiserverapi.CreateBaseCompletionsResponse(
 		respCtx.CreationTime(), respCtx.DisplayModel(), respCtx.UsageData(), respCtx.RequestID(), false)
 	baseChunk.Object = openaiserverapi.ChatCompletionChunkObject
-	return openaiserverapi.CreateChatCompletionResponse(baseChunk, []openaiserverapi.ChatRespChoice{})
+	return openaiserverapi.CreateChatCompletionsResponse(baseChunk, []openaiserverapi.ChatRespChoice{})
 }
 
-// createChunk creates and returns a CompletionRespChunk, a single chunk of streamed completion
+// createChunk creates and returns a CompletionsRespChunk, a single chunk of streamed completion
 // API response, for chat completion. It sets either role, or token, or tool call info in the message.
 func (respBuilder *chatComplHTTPRespBuilder) createChunk(respCtx vllmsim.ResponseContext, tokens *openaiserverapi.Tokenized,
 	tool *openaiserverapi.ToolCall, role string, finishReason *string) response {
-	baseChunk := openaiserverapi.CreateBaseCompletionResponse(
+	baseChunk := openaiserverapi.CreateBaseCompletionsResponse(
 		respCtx.CreationTime(), respCtx.DisplayModel(), nil, respCtx.RequestID(), false)
 	baseChunk.Object = openaiserverapi.ChatCompletionChunkObject
-	chunk := openaiserverapi.CreateChatCompletionRespChunk(baseChunk,
+	chunk := openaiserverapi.CreateChatCompletionsRespChunk(baseChunk,
 		[]openaiserverapi.ChatRespChunkChoice{
 			openaiserverapi.CreateChatRespChunkChoice(
 				openaiserverapi.CreateBaseResponseChoice(0, finishReason), openaiserverapi.Message{})})
@@ -254,13 +254,13 @@ func (respBuilder *generationGRPCRespBuilder) createLastChunk(respCtx vllmsim.Re
 
 var _ responseBuilder = (*generationGRPCRespBuilder)(nil)
 
-type responsesCreateHTTPRespBuilder struct{}
+type responsesHTTPRespBuilder struct{}
 
-func (respBuilder *responsesCreateHTTPRespBuilder) createResponse(respCtx vllmsim.ResponseContext,
+func (respBuilder *responsesHTTPRespBuilder) createResponse(respCtx vllmsim.ResponseContext,
 	tokens *openaiserverapi.Tokenized) response {
 	text := strings.Join(tokens.Strings, "")
 	usage := respCtx.UsageData()
-	return openaiserverapi.CreateResponsesCreateResponse(
+	return openaiserverapi.CreateResponsesResponse(
 		respCtx.DisplayModel(),
 		respCtx.RequestID(),
 		time.Now().Unix(),
@@ -271,7 +271,7 @@ func (respBuilder *responsesCreateHTTPRespBuilder) createResponse(respCtx vllmsi
 				Role:   openaiserverapi.RoleAssistant,
 				Status: "completed",
 				Content: []openaiserverapi.OutputContent{
-					{Type: "output_text", Text: text},
+					{Type: openaiserverapi.ResponsesOutputText, Text: text},
 				},
 			},
 		},
@@ -283,21 +283,21 @@ func (respBuilder *responsesCreateHTTPRespBuilder) createResponse(respCtx vllmsi
 	)
 }
 
-func (respBuilder *responsesCreateHTTPRespBuilder) createUsageChunk(respCtx vllmsim.ResponseContext) response {
+func (respBuilder *responsesHTTPRespBuilder) createUsageChunk(respCtx vllmsim.ResponseContext) response {
 	return nil
 }
 
-func (respBuilder *responsesCreateHTTPRespBuilder) createChunk(respCtx vllmsim.ResponseContext,
+func (respBuilder *responsesHTTPRespBuilder) createChunk(respCtx vllmsim.ResponseContext,
 	tokens *openaiserverapi.Tokenized, tool *openaiserverapi.ToolCall, role string, finishReason *string) response {
 	return nil
 }
 
-func (respBuilder *responsesCreateHTTPRespBuilder) createFirstChunk(respCtx vllmsim.ResponseContext) response {
+func (respBuilder *responsesHTTPRespBuilder) createFirstChunk(respCtx vllmsim.ResponseContext) response {
 	return nil
 }
 
-func (respBuilder *responsesCreateHTTPRespBuilder) createLastChunk(respCtx vllmsim.ResponseContext) response {
+func (respBuilder *responsesHTTPRespBuilder) createLastChunk(respCtx vllmsim.ResponseContext) response {
 	return nil
 }
 
-var _ responseBuilder = (*responsesCreateHTTPRespBuilder)(nil)
+var _ responseBuilder = (*responsesHTTPRespBuilder)(nil)

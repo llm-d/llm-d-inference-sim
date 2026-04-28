@@ -20,7 +20,6 @@ package openaiserverapi
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"strings"
 
 	"github.com/valyala/fasthttp"
@@ -35,6 +34,7 @@ const (
 	ChatCompletionChunkObject = "chat.completion.chunk"
 	ResponsesObject           = "response"
 	ResponsesStatusCompleted  = "completed"
+	ResponsesOutputText       = "output_text"
 )
 
 // Response interface representing response types
@@ -56,8 +56,8 @@ type baseResponse struct {
 	RequestID string `json:"-"`
 }
 
-// baseCompletionResponse contains base completion response related information
-type baseCompletionResponse struct {
+// baseCompletionsResponse contains base completions response related information
+type baseCompletionsResponse struct {
 	baseResponse
 	// Created defines the response creation timestamp
 	Created int64 `json:"created"`
@@ -113,23 +113,23 @@ type TextLogprobs struct {
 	TextOffset []int `json:"text_offset"`
 }
 
-// ChatCompletionResponse defines structure of /chat/completion response
-type ChatCompletionResponse struct {
-	baseCompletionResponse
+// ChatCompletionsResponse defines structure of /chat/completions response
+type ChatCompletionsResponse struct {
+	baseCompletionsResponse
 	// Choices list of Choices of the response, according of OpenAI API
 	Choices []ChatRespChoice `json:"choices"`
 }
 
-// baseResponseChoice contains base completion response's choice related information
+// baseResponseChoice contains base completions response's choice related information
 type baseResponseChoice struct {
-	// Index defines completion response choice Index
+	// Index defines completions response choice Index
 	Index int `json:"index"`
 	// FinishReason defines finish reason for response or for chunks, for not last chunks is defined as null
 	FinishReason *string `json:"finish_reason"`
 }
 
-// v1/chat/completion
-// Message defines vLLM chat completion Message
+// v1/chat/completions
+// Message defines vLLM chat completions Message
 type Message struct {
 	// Role is the message Role, optional values are 'user', 'assistant', ...
 	Role string `json:"role,omitempty"`
@@ -243,7 +243,7 @@ type ToolCall struct {
 	Index int `json:"index"`
 }
 
-// ChatRespChoice represents a single chat completion response choise
+// ChatRespChoice represents a single chat completions response choise
 type ChatRespChoice struct {
 	baseResponseChoice
 	// Message contains choice's Message
@@ -252,14 +252,14 @@ type ChatRespChoice struct {
 	Logprobs *ChatLogprobs `json:"logprobs,omitempty"`
 }
 
-// TextCompletionResponse defines structure of /completion response
-type TextCompletionResponse struct {
-	baseCompletionResponse
+// TextCompletionsResponse defines structure of /completions response
+type TextCompletionsResponse struct {
+	baseCompletionsResponse
 	// Choices list of Choices of the response, according of OpenAI API
 	Choices []TextRespChoice `json:"choices"`
 }
 
-// TextRespChoice represents a single text completion response choise
+// TextRespChoice represents a single text completions response choise
 type TextRespChoice struct {
 	baseResponseChoice
 	// Text defines request's content
@@ -268,17 +268,17 @@ type TextRespChoice struct {
 	Logprobs *TextLogprobs `json:"logprobs,omitempty"`
 }
 
-// CompletionRespChunk is an interface that defines a single response chunk
-type CompletionRespChunk interface{}
+// CompletionsRespChunk is an interface that defines a single response chunk
+type CompletionsRespChunk interface{}
 
-// ChatCompletionRespChunk is a single chat completion response chunk
-type ChatCompletionRespChunk struct {
-	baseCompletionResponse
+// ChatCompletionsRespChunk is a single chat completions response chunk
+type ChatCompletionsRespChunk struct {
+	baseCompletionsResponse
 	// Choices list of Choices of the response, according of OpenAI API
 	Choices []ChatRespChunkChoice `json:"choices"`
 }
 
-// ChatRespChunkChoice represents a single chat completion response choise in case of streaming
+// ChatRespChunkChoice represents a single chat completions response choise in case of streaming
 type ChatRespChunkChoice struct {
 	baseResponseChoice
 	// Delta is a content of the chunk
@@ -289,7 +289,7 @@ type ChatRespChunkChoice struct {
 
 // GenerationResponse defines structure of generation response
 type GenerationResponse struct {
-	baseCompletionResponse
+	baseCompletionsResponse
 	Tokenized *Tokenized
 }
 
@@ -362,8 +362,8 @@ func CreateTextRespChoice(base baseResponseChoice, text string) TextRespChoice {
 	return TextRespChoice{baseResponseChoice: base, Text: text, Logprobs: nil}
 }
 
-func CreateBaseCompletionResponse(created int64, model string, usage *Usage, requestID string, doRemoteDecode bool) baseCompletionResponse {
-	baseResp := baseCompletionResponse{
+func CreateBaseCompletionsResponse(created int64, model string, usage *Usage, requestID string, doRemoteDecode bool) baseCompletionsResponse {
+	baseResp := baseCompletionsResponse{
 		baseResponse: baseResponse{
 			Model:     model,
 			RequestID: requestID,
@@ -391,28 +391,28 @@ func (b baseResponse) GetRequestID() string {
 	return b.RequestID
 }
 
-func CreateChatCompletionResponse(base baseCompletionResponse, choices []ChatRespChoice) *ChatCompletionResponse {
+func CreateChatCompletionsResponse(base baseCompletionsResponse, choices []ChatRespChoice) *ChatCompletionsResponse {
 	base.ID = chatComplIDPrefix + base.RequestID
-	return &ChatCompletionResponse{baseCompletionResponse: base, Choices: choices}
+	return &ChatCompletionsResponse{baseCompletionsResponse: base, Choices: choices}
 }
 
-func CreateTextCompletionResponse(base baseCompletionResponse, choices []TextRespChoice) *TextCompletionResponse {
+func CreateTextCompletionsResponse(base baseCompletionsResponse, choices []TextRespChoice) *TextCompletionsResponse {
 	base.ID = textComplIDPrefix + base.RequestID
-	return &TextCompletionResponse{baseCompletionResponse: base, Choices: choices}
+	return &TextCompletionsResponse{baseCompletionsResponse: base, Choices: choices}
 }
 
-func CreateChatCompletionRespChunk(base baseCompletionResponse, choices []ChatRespChunkChoice) *ChatCompletionRespChunk {
+func CreateChatCompletionsRespChunk(base baseCompletionsResponse, choices []ChatRespChunkChoice) *ChatCompletionsRespChunk {
 	base.ID = chatComplIDPrefix + base.RequestID
-	return &ChatCompletionRespChunk{baseCompletionResponse: base, Choices: choices}
+	return &ChatCompletionsRespChunk{baseCompletionsResponse: base, Choices: choices}
 }
 
-func CreateGenerationResponse(base baseCompletionResponse, tokens *Tokenized) *GenerationResponse {
-	return &GenerationResponse{baseCompletionResponse: base, Tokenized: tokens}
+func CreateGenerationResponse(base baseCompletionsResponse, tokens *Tokenized) *GenerationResponse {
+	return &GenerationResponse{baseCompletionsResponse: base, Tokenized: tokens}
 }
 
-func CreateResponsesCreateResponse(model string, requestID string, createdAt int64,
-	instructions *string, output []OutputItem, usage *ResponsesUsage) *ResponsesCreateResponse {
-	return &ResponsesCreateResponse{
+func CreateResponsesResponse(model string, requestID string, createdAt int64,
+	instructions *string, output []OutputItem, usage *ResponsesUsage) *ResponsesResponse {
+	return &ResponsesResponse{
 		baseResponse: baseResponse{
 			ID:        ResponsesIDPrefix + requestID,
 			Model:     model,
@@ -435,7 +435,7 @@ type OutputItem interface {
 	json.Marshaler
 }
 
-type ResponsesCreateResponse struct {
+type ResponsesResponse struct {
 	baseResponse
 	CreatedAt    int64           `json:"created_at,omitempty"`
 	Status       string          `json:"status,omitempty"`
@@ -466,24 +466,19 @@ func (m MessageOutput) MarshalJSON() ([]byte, error) {
 }
 
 type OutputContent struct {
-	Type string `json:"type"` // output_text or refusal
+	Type string `json:"type"` // output_text
 	Text string `json:"text,omitempty"`
 }
 
 func (c OutputContent) MarshalJSON() ([]byte, error) {
-	switch c.Type {
-	case "", "output_text":
-		if c.Type == "" {
-			c.Type = "output_text"
-		}
-		type x struct {
-			Type string `json:"type"`
-			Text string `json:"text,omitempty"`
-		}
-		return json.Marshal(x(c))
-	default:
-		return nil, fmt.Errorf("unsupported output content type %q", c.Type)
+	if c.Type == "" {
+		c.Type = ResponsesOutputText
 	}
+	type x struct {
+		Type string `json:"type"`
+		Text string `json:"text,omitempty"`
+	}
+	return json.Marshal(x(c))
 }
 
 type ResponsesUsage struct {

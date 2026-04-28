@@ -120,17 +120,17 @@ func (c *Communication) getRequestID(ctx *fasthttp.RequestCtx) string {
 
 // HandleChatCompletions http handler for /v1/chat/completions
 func (c *Communication) HandleChatCompletions(ctx *fasthttp.RequestCtx) {
-	c.handleHTTP(&vllmsim.ChatCompletionRequest{}, &chatComplHTTPRespBuilder{}, ctx)
+	c.handleHTTP(&vllmsim.ChatCompletionsRequest{}, &chatComplHTTPRespBuilder{}, ctx)
 }
 
 // HandleTextCompletions http handler for /v1/completions
 func (c *Communication) HandleTextCompletions(ctx *fasthttp.RequestCtx) {
-	c.handleHTTP(&vllmsim.TextCompletionRequest{}, &textComplHTTPRespBuilder{}, ctx)
+	c.handleHTTP(&vllmsim.TextCompletionsRequest{}, &textComplHTTPRespBuilder{}, ctx)
 }
 
 // HandleResponses http handler for /v1/responses
 func (c *Communication) HandleResponses(ctx *fasthttp.RequestCtx) {
-	c.handleHTTP(&vllmsim.ResponsesCreateRequest{}, &responsesCreateHTTPRespBuilder{}, ctx)
+	c.handleHTTP(&vllmsim.ResponsesRequest{}, &responsesHTTPRespBuilder{}, ctx)
 }
 
 // addResponseHeaders adds optional pod/port/namespace/request-id headers to the response for testing/debugging.
@@ -363,7 +363,7 @@ func (c *Communication) sendStreamedTools(respCtx vllmsim.ResponseContext, respB
 		toolChunkInsert.Function.Name = tc.Function.Name
 	}
 
-	var chunk openaiserverapi.CompletionRespChunk
+	var chunk openaiserverapi.CompletionsRespChunk
 	var finishReasonToSend *string
 	if index == tc.Function.TokenizedArguments().Length()-1 && (*respCtx.FinishReason() == common.LengthFinishReason ||
 		*respCtx.FinishReason() == common.ToolsFinishReason ||
@@ -375,7 +375,7 @@ func (c *Communication) sendStreamedTools(respCtx vllmsim.ResponseContext, respB
 }
 
 // sendChunk send a single token chunk in a streamed completion API response,
-// receives either a completionRespChunk or a string with the data to send.
+// receives either a completionsRespChunk or a string with the data to send.
 func (c *Communication) sendChunk(w *bufio.Writer, chunk response, dataString string) error {
 	if dataString == "" {
 		data, err := json.Marshal(chunk)

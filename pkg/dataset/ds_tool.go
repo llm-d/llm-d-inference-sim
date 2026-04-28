@@ -184,7 +184,7 @@ func (dt *DatasetTool) toOutputRecords(dsRecords []datasetRecord) []outputRecord
 	resultRecs := []outputRecord{}
 
 	for index, dsRecord := range dsRecords {
-		chatRequest := openaiserverapi.ChatCompletionRequest{}
+		chatRequest := openaiserverapi.ChatCompletionsRequest{}
 		chatRequest.Messages = []openaiserverapi.Message{}
 
 		// read conversations in pairs
@@ -210,11 +210,11 @@ func (dt *DatasetTool) toOutputRecords(dsRecords []datasetRecord) []outputRecord
 // conversationToOutputRecords creates output records from the given parameters
 // updates the given chatRequest with a new step in the conversation
 func (dt *DatasetTool) conversationToOutputRecords(userTxt, assistantTxt string,
-	chatRequest *openaiserverapi.ChatCompletionRequest) ([]outputRecord, error) {
+	chatRequest *openaiserverapi.ChatCompletionsRequest) ([]outputRecord, error) {
 	result := []outputRecord{}
 
 	// create completions request
-	textRequest := openaiserverapi.TextCompletionRequest{
+	textRequest := openaiserverapi.TextCompletionsRequest{
 		Prompt: userTxt,
 	}
 

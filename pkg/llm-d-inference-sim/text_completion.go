@@ -25,20 +25,20 @@ import (
 )
 
 // Implementation of request for /completions requests
-type TextCompletionRequest struct {
-	openaiserverapi.TextCompletionRequest
+type TextCompletionsRequest struct {
+	openaiserverapi.TextCompletionsRequest
 }
 
 // reads and parses data from the body of the given request
-func (t *TextCompletionRequest) Unmarshal(data []byte) error {
+func (t *TextCompletionsRequest) Unmarshal(data []byte) error {
 	return json.Unmarshal(data, t)
 }
 
-func (t *TextCompletionRequest) validate(toolsValidator *toolsValidator) (string, int) {
+func (t *TextCompletionsRequest) validate(toolsValidator *toolsValidator) (string, int) {
 	return validateRequest(t)
 }
 
-func (t *TextCompletionRequest) buildRequestContext(simCtx *SimContext, channel common.Channel[*ResponseInfo]) requestContext {
+func (t *TextCompletionsRequest) buildRequestContext(simCtx *SimContext, channel common.Channel[*ResponseInfo]) requestContext {
 	reqCtx := &textCompletionReqCtx{
 		baseRequestContext: newBaseRequestContext(simCtx, channel),
 		req:                t,
@@ -48,26 +48,26 @@ func (t *TextCompletionRequest) buildRequestContext(simCtx *SimContext, channel 
 	return reqCtx
 }
 
-func (t *TextCompletionRequest) AsString() string {
+func (t *TextCompletionsRequest) AsString() string {
 	return "text completion request (req id " + t.RequestID + ")"
 }
 
-func (t *TextCompletionRequest) createResponseContext(reqCtx requestContext, displayModel string,
+func (t *TextCompletionsRequest) createResponseContext(reqCtx requestContext, displayModel string,
 	responseTokens *openaiserverapi.Tokenized, finishReason *string, usageData *openaiserverapi.Usage, sendUsageData bool,
 	logprobs *int, toolCalls []openaiserverapi.ToolCall) ResponseContext {
 	base := newBaseResponseContext(reqCtx, displayModel, responseTokens, finishReason, usageData, sendUsageData,
 		logprobs, t.GetRequestID(), t.IsDoRemotePrefill(), t.IsDoRemoteDecode(), t.GetNumberOfCachedPromptTokens())
-	return &textCompletionResponseCtx{
+	return &textCompletionsResponseCtx{
 		baseResponseContext: base,
 	}
 }
 
-var _ Request = (*TextCompletionRequest)(nil)
+var _ Request = (*TextCompletionsRequest)(nil)
 
 // Implementation of requestContext for /completions requests
 type textCompletionReqCtx struct {
 	baseRequestContext
-	req *TextCompletionRequest
+	req *TextCompletionsRequest
 }
 
 func (t *textCompletionReqCtx) request() Request {
@@ -90,12 +90,12 @@ func (t *textCompletionReqCtx) tokenizedPromptForEcho() (*openaiserverapi.Tokeni
 var _ requestContext = (*textCompletionReqCtx)(nil)
 
 // Implementation of responseContext for /completions requests
-type textCompletionResponseCtx struct {
+type textCompletionsResponseCtx struct {
 	baseResponseContext
 }
 
-func (respCtx *textCompletionResponseCtx) ToolCalls() []openaiserverapi.ToolCall {
+func (respCtx *textCompletionsResponseCtx) ToolCalls() []openaiserverapi.ToolCall {
 	return nil
 }
 
-var _ ResponseContext = (*textCompletionResponseCtx)(nil)
+var _ ResponseContext = (*textCompletionsResponseCtx)(nil)
