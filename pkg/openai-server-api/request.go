@@ -105,6 +105,11 @@ type Request interface {
 	CacheThresholdFinishReason() bool
 	// SetCacheThresholdFinishReason sets cacheThresholdFinishReason
 	SetCacheThresholdFinishReason(bool)
+
+	// SetRawRequestPayload sets the raw request payload as bytes
+	SetRawRequestPayload(payload []byte)
+	// RawRequestPayload returns the raw request payload as bytes
+	RawRequestPayload() []byte
 }
 
 // baseRequest contains base completions request related information
@@ -134,6 +139,9 @@ type baseRequest struct {
 	tokenizedPromptForEcho *Tokenized
 	// mmFeatures holds multimodal metadata produced by the tokenizer, exists only for multimodal requests
 	mmFeatures *tokenization.MultiModalFeatures
+	// rawRequestPayload holds the raw request payload as bytes,
+	// which can be used for request rendering
+	rawRequestPayload []byte
 }
 
 // baseCompletionsRequest contains base completions request related information
@@ -302,6 +310,8 @@ func (b *baseRequest) TokenizedPrompt() *Tokenized {
 // SetTokenizedPrompt sets the tokenized prompt
 func (b *baseRequest) SetTokenizedPrompt(tokenized *Tokenized) {
 	b.tokenizedPrompt = tokenized
+	// clear raw request payload to save memory, as tokenized prompt is now available
+	b.rawRequestPayload = nil
 }
 
 // TokenizedPromptForEcho returns the tokenized response in echo mode
@@ -312,6 +322,8 @@ func (b *baseRequest) TokenizedPromptForEcho() *Tokenized {
 // SetTokenizedPromptForEcho sets the tokenized response in echo mode
 func (b *baseRequest) SetTokenizedPromptForEcho(tokenized *Tokenized) {
 	b.tokenizedPromptForEcho = tokenized
+	// clear raw request payload to save memory, as tokenized prompt is now available
+	b.rawRequestPayload = nil
 }
 
 // TokenizedPrompt returns the tokenized prompt
@@ -322,6 +334,16 @@ func (b *baseRequest) MMFeatures() *tokenization.MultiModalFeatures {
 // SetMMFeatures sets the multimodal features
 func (b *baseRequest) SetMMFeatures(mmFeatures *tokenization.MultiModalFeatures) {
 	b.mmFeatures = mmFeatures
+}
+
+// SetRawRequestPayload sets the raw request payload as bytes
+func (b *baseRequest) SetRawRequestPayload(payload []byte) {
+	b.rawRequestPayload = payload
+}
+
+// RawRequestPayload returns the raw request payload as bytes
+func (b *baseRequest) RawRequestPayload() []byte {
+	return b.rawRequestPayload
 }
 
 func (b *baseCompletionsRequest) IncludeUsage() bool {

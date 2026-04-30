@@ -170,6 +170,7 @@ func (c *Communication) handleHTTP(req vllmsim.Request, respBuilder responseBuil
 
 	requestID := c.getRequestID(ctx)
 	req.SetRequestID(requestID)
+	req.SetRawRequestPayload(ctx.Request.Body())
 
 	// Check for X-Return-Error header - deterministic error trigger
 	if errCodeStr := string(ctx.Request.Header.Peek(XReturnErrorHeader)); errCodeStr != "" {
