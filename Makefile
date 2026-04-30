@@ -24,7 +24,6 @@ include Makefile.tools.mk
 SHELL := /usr/bin/env bash
 
 # Defaults
-TARGETOS ?= $(shell go env GOOS)
 TARGETARCH ?= $(shell go env GOARCH)
 PROJECT_NAME ?= llm-d-inference-sim
 IMAGE_REGISTRY ?= ghcr.io/llm-d
@@ -83,8 +82,8 @@ ds-tool-build: check-go ## Build the dataset tool binary
 image-build: check-container-tool ## Build Docker image ## Build Docker image using $(CONTAINER_TOOL)
 	@printf "\033[33;1m==== Building Docker image $(IMG) ====\033[0m\n"
 	$(CONTAINER_TOOL) build \
-		--platform $(TARGETOS)/$(TARGETARCH) \
-		--build-arg TARGETOS=$(TARGETOS) \
+		--platform linux/$(TARGETARCH) \
+		--build-arg TARGETOS=linux \
 		--build-arg TARGETARCH=$(TARGETARCH) \
 		-t $(IMG) .
 
