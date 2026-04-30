@@ -320,6 +320,18 @@ func (respBuilder *responsesHTTPRespBuilder) createResponse(respCtx vllmsim.Resp
 	tokens *openaiserverapi.Tokenized) any {
 	text := strings.Join(tokens.Strings, "")
 	usage := respCtx.UsageData()
+
+	outputContent := openaiserverapi.OutputContent{
+		Type: openaiserverapi.ResponsesOutputText,
+		Text: text,
+	}
+
+	if respCtx.Logprobs() != nil {
+		if logprobs := common.GenerateResponsesLogprobs(tokens.Strings, *respCtx.Logprobs()); len(logprobs) > 0 {
+			outputContent.Logprobs = logprobs
+		}
+	}
+
 	return openaiserverapi.CreateResponsesResponse(
 		respCtx.DisplayModel(),
 		respCtx.RequestID(),
@@ -327,12 +339,10 @@ func (respBuilder *responsesHTTPRespBuilder) createResponse(respCtx vllmsim.Resp
 		respCtx.Instructions(),
 		[]openaiserverapi.OutputItem{
 			openaiserverapi.MessageOutput{
-				Type:   openaiserverapi.ResponsesOutputMessage,
-				Role:   openaiserverapi.RoleAssistant,
-				Status: openaiserverapi.ResponsesStatusCompleted,
-				Content: []openaiserverapi.OutputContent{
-					{Type: openaiserverapi.ResponsesOutputText, Text: text},
-				},
+				Type:    openaiserverapi.ResponsesOutputMessage,
+				Role:    openaiserverapi.RoleAssistant,
+				Status:  openaiserverapi.ResponsesStatusCompleted,
+				Content: []openaiserverapi.OutputContent{outputContent},
 			},
 		},
 		&openaiserverapi.ResponsesUsage{

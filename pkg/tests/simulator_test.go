@@ -1618,6 +1618,48 @@ var _ = Describe("Simulator", func() {
 			// Entry(nil, common.QwenModelName, common.ModeRandom),
 			// Entry(nil, common.QwenModelName, common.ModeEcho),
 		)
+
+		DescribeTable("responses with logprobs",
+			func(includeLogprobs bool, topLogprobs int) {
+				ctx := context.TODO()
+				client, err := startServer(ctx, common.ModeEcho)
+				Expect(err).NotTo(HaveOccurred())
+
+				openaiclient, params := getOpenAIClientAndResponsesParams(client, common.TestModelName, testUserMessage)
+				if includeLogprobs {
+					params.Include = []responses.ResponseIncludable{responses.ResponseIncludableMessageOutputTextLogprobs}
+					if topLogprobs > 0 {
+						params.TopLogprobs = param.NewOpt(int64(topLogprobs))
+					}
+				}
+
+				resp, err := openaiclient.Responses.New(ctx, params)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(resp).NotTo(BeNil())
+				Expect(resp.Output).NotTo(BeEmpty())
+
+				contentItem := resp.Output[0].Content[0]
+				if includeLogprobs {
+					Expect(contentItem.Logprobs).NotTo(BeEmpty())
+					Expect(contentItem.Logprobs[0].Token).NotTo(BeEmpty())
+					Expect(contentItem.Logprobs[0].Logprob).To(BeNumerically("<=", 0))
+					if topLogprobs > 0 {
+						Expect(contentItem.Logprobs[0].TopLogprobs).To(HaveLen(topLogprobs))
+						Expect(contentItem.Logprobs[0].TopLogprobs[0].Token).To(Equal(contentItem.Logprobs[0].Token))
+					} else {
+						Expect(contentItem.Logprobs[0].TopLogprobs).To(BeEmpty())
+					}
+				} else {
+					Expect(contentItem.Logprobs).To(BeEmpty())
+				}
+			},
+			func(includeLogprobs bool, topLogprobs int) string {
+				return fmt.Sprintf("includeLogprobs: %t top_logprobs: %d", includeLogprobs, topLogprobs)
+			},
+			Entry(nil, true, 0),  // logprobs requested, no top alternatives
+			Entry(nil, true, 2),  // logprobs requested, 2 top alternatives
+			Entry(nil, false, 0), // logprobs not requested
+		)
 	})
 
 	Context("kv-events for requests", func() {

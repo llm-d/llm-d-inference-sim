@@ -465,20 +465,33 @@ func (m MessageOutput) MarshalJSON() ([]byte, error) {
 	return json.Marshal(alias(m))
 }
 
+// TopLogprob represents a top alternative token in Responses API logprobs
+type TopLogprob struct {
+	Token   string  `json:"token"`
+	Logprob float64 `json:"logprob"`
+	Bytes   []int   `json:"bytes"`
+}
+
+// ResponsesLogprob represents logprobs for a single token in the Responses API
+type ResponsesLogprob struct {
+	Token       string       `json:"token"`
+	Logprob     float64      `json:"logprob"`
+	Bytes       []int        `json:"bytes"`
+	TopLogprobs []TopLogprob `json:"top_logprobs"`
+}
+
 type OutputContent struct {
-	Type string `json:"type"` // output_text
-	Text string `json:"text,omitempty"`
+	Type     string             `json:"type"` // output_text
+	Text     string             `json:"text,omitempty"`
+	Logprobs []ResponsesLogprob `json:"logprobs,omitempty"`
 }
 
 func (c OutputContent) MarshalJSON() ([]byte, error) {
 	if c.Type == "" {
 		c.Type = ResponsesOutputText
 	}
-	type x struct {
-		Type string `json:"type"`
-		Text string `json:"text,omitempty"`
-	}
-	return json.Marshal(x(c))
+	type alias OutputContent
+	return json.Marshal(alias(c))
 }
 
 type ResponsesUsage struct {
