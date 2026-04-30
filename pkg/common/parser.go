@@ -32,6 +32,8 @@ const (
 	vllmServerDevModeEnv = "VLLM_SERVER_DEV_MODE"
 	PodNameEnv           = "POD_NAME"
 	PodNsEnv             = "POD_NAMESPACE"
+	// ModelEnv, if non-empty, overrides the loaded model name after parsing --config and --model.
+	ModelEnv = "SIM_MODEL"
 )
 
 // Needed to parse values that contain multiple strings
@@ -108,7 +110,8 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 	f := pflag.NewFlagSet("llm-d-inference-sim flags", pflag.ContinueOnError)
 
 	f.IntVar(&config.Port, "port", config.Port, "Port")
-	f.StringVar(&config.Model, "model", config.Model, "Currently 'loaded' model")
+	f.StringVar(&config.Model, "model", config.Model,
+		"Currently 'loaded' model (overridden by "+ModelEnv+" when that env var is non-empty)")
 	f.IntVar(&config.MaxNumSeqs, "max-num-seqs", config.MaxNumSeqs, "Maximum number of inference requests that could be processed at the same time")
 	f.IntVar(&config.MaxWaitingQueueLength, "max-waiting-queue-length", config.MaxWaitingQueueLength, "Maximum length of inference requests waiting queue")
 	f.IntVar(&config.MaxLoras, "max-loras", config.MaxLoras, "Maximum number of LoRAs in a single batch")
@@ -163,6 +166,7 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 
 	addToggle(f, &config.EnableSleepMode, "enable-sleep-mode", "Enable sleep mode", "Disable sleep mode")
 	f.BoolVar(&config.EnableRequestIDHeaders, "enable-request-id-headers", config.EnableRequestIDHeaders, "Enable including X-Request-Id header in responses")
+	f.BoolVar(&config.LogHTTP, "log-http", config.LogHTTP, "Log full HTTP request and response (method, URI, headers, bodies when buffered, status); streamed bodies are not logged")
 
 	f.IntVar(&config.FailureInjectionRate, "failure-injection-rate", config.FailureInjectionRate, "Probability (0-100) of injecting failures")
 	failureTypes := getParamValueFromArgs("failure-types")
@@ -233,6 +237,10 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 	config.PodName = os.Getenv(PodNameEnv)
 	config.PodNameSpace = os.Getenv(PodNsEnv)
 	config.VllmDevMode = os.Getenv(vllmServerDevModeEnv) == "1"
+
+	if modelFromEnv := os.Getenv(ModelEnv); modelFromEnv != "" {
+		config.Model = modelFromEnv
+	}
 
 	// Need to read in a variable to avoid merging the values with the config file ones
 	if loraModuleNames != nil {

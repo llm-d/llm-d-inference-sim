@@ -45,6 +45,8 @@ const (
 	RequestIDHeader                  = "X-Request-Id"
 	CacheThresholdFinishReasonHeader = "X-Cache-Threshold-Finish-Reason"
 	XReturnErrorHeader               = "X-Return-Error"
+
+	maxHTTPLogBodyBytes = 512 * 1024
 )
 
 func (c *Communication) newListener() (net.Listener, error) {
@@ -84,9 +86,14 @@ func (c *Communication) startHTTPServer(listener net.Listener) (*fasthttp.Server
 	r.POST("/wake_up", c.HandleWakeUp)
 	r.GET("/is_sleeping", c.HandleIsSleeping)
 
+	handler := r.Handler
+	if c.simulator.Context.Config.LogHTTP {
+		handler = c.logHTTPMiddleware(handler)
+	}
+
 	server := &fasthttp.Server{
 		ErrorHandler: c.HandleError,
-		Handler:      r.Handler,
+		Handler:      handler,
 		Logger:       c,
 	}
 
@@ -697,6 +704,73 @@ func (c *Communication) HandleWakeUp(ctx *fasthttp.RequestCtx) {
 	c.simulator.IsSleeping = false
 
 	ctx.Response.Header.SetStatusCode(fasthttp.StatusOK)
+}
+
+func formatRequestHeaders(h *fasthttp.RequestHeader) string {
+	var b strings.Builder
+	for key, value := range h.All() {
+		b.Write(key)
+		b.WriteString(": ")
+		b.Write(value)
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
+
+func formatResponseHeaders(h *fasthttp.ResponseHeader) string {
+	var b strings.Builder
+	for key, value := range h.All() {
+		b.Write(key)
+		b.WriteString(": ")
+		b.Write(value)
+		b.WriteByte('\n')
+	}
+	return b.String()
+}
+
+func truncateBodyForLog(body []byte) string {
+	if len(body) == 0 {
+		return ""
+	}
+	if len(body) <= maxHTTPLogBodyBytes {
+		return string(body)
+	}
+	return string(body[:maxHTTPLogBodyBytes]) + fmt.Sprintf(" ... [truncated, total %d bytes]", len(body))
+}
+
+func (c *Communication) logHTTPMiddleware(next fasthttp.RequestHandler) fasthttp.RequestHandler {
+	return func(ctx *fasthttp.RequestCtx) {
+		c.logHTTPRequest(ctx)
+		next(ctx)
+		c.logHTTPResponse(ctx)
+	}
+}
+
+func (c *Communication) logHTTPRequest(ctx *fasthttp.RequestCtx) {
+	c.logger.V(logging.INFO).Info("HTTP request",
+		"method", string(ctx.Method()),
+		"requestURI", string(ctx.RequestURI()),
+		"remoteAddr", ctx.RemoteAddr().String(),
+		"headers", formatRequestHeaders(&ctx.Request.Header),
+		"body", truncateBodyForLog(ctx.Request.Body()),
+	)
+}
+
+func (c *Communication) logHTTPResponse(ctx *fasthttp.RequestCtx) {
+	resp := &ctx.Response
+	if resp.BodyStream() != nil {
+		c.logger.V(logging.INFO).Info("HTTP response",
+			"statusCode", resp.StatusCode(),
+			"headers", formatResponseHeaders(&resp.Header),
+			"body", "<streamed response body not logged>",
+		)
+		return
+	}
+	c.logger.V(logging.INFO).Info("HTTP response",
+		"statusCode", resp.StatusCode(),
+		"headers", formatResponseHeaders(&resp.Header),
+		"body", truncateBodyForLog(resp.Body()),
+	)
 }
 
 // HandleFakeMetrics HTTP handler for /fake_metrics

@@ -270,6 +270,9 @@ type Configuration struct {
 	// EnableRequestIDHeaders enables including X-Request-Id header in responses
 	EnableRequestIDHeaders bool `yaml:"enable-request-id-headers" json:"enable-request-id-headers"`
 
+	// LogHTTP logs full HTTP request and response details (method, URI, headers, bodies where buffered, status) for each request.
+	LogHTTP bool `yaml:"log-http" json:"log-http"`
+
 	// LatencyCalculator is the name of the latency calculator to use in the simulation of the response latencies.
 	// The default calculation is based on the current load of the simulator and on the configured latency
 	// parameters, e.g., time-to-first-token and prefill-time-per-token.
