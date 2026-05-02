@@ -163,6 +163,7 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 
 	addToggle(f, &config.EnableSleepMode, "enable-sleep-mode", "Enable sleep mode", "Disable sleep mode")
 	f.BoolVar(&config.EnableRequestIDHeaders, "enable-request-id-headers", config.EnableRequestIDHeaders, "Enable including X-Request-Id header in responses")
+	f.BoolVar(&config.LogHTTP, "log-http", config.LogHTTP, "Log full HTTP request and response (method, URI, headers, bodies when buffered, status); streamed bodies are not logged")
 
 	f.IntVar(&config.FailureInjectionRate, "failure-injection-rate", config.FailureInjectionRate, "Probability (0-100) of injecting failures")
 	failureTypes := getParamValueFromArgs("failure-types")
