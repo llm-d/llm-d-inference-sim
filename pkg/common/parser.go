@@ -32,6 +32,10 @@ const (
 	vllmServerDevModeEnv = "VLLM_SERVER_DEV_MODE"
 	PodNameEnv           = "POD_NAME"
 	PodNsEnv             = "POD_NAMESPACE"
+	// ModelEnv is read when the --model flag is not passed; see configuration precedence in the docs.
+	ModelEnv = "SIM_MODEL"
+	// PythonHashSeedEnv is read when the --hash-seed flag is not passed; see configuration precedence in the docs.
+	PythonHashSeedEnv = "PYTHONHASHSEED"
 )
 
 // Needed to parse values that contain multiple strings
@@ -90,7 +94,8 @@ func addToggle(f *pflag.FlagSet, ptr *bool, name, nameUsage, noNameUsage string)
 }
 
 // ParseCommandParamsAndLoadConfig loads configuration, parses command line parameters, merges the values
-// (command line values overwrite the config file ones), and validates the configuration
+// (command line overwrites the config file; see documentation for configuration precedence involving environment variables),
+// and validates the configuration.
 func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 	config := newConfig()
 
@@ -108,7 +113,8 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 	f := pflag.NewFlagSet("llm-d-inference-sim flags", pflag.ContinueOnError)
 
 	f.IntVar(&config.Port, "port", config.Port, "Port")
-	f.StringVar(&config.Model, "model", config.Model, "Currently 'loaded' model")
+	f.StringVar(&config.Model, "model", config.Model,
+		"Currently 'loaded' model (if omitted on the command line, "+ModelEnv+" may set the model; see docs)")
 	f.IntVar(&config.MaxNumSeqs, "max-num-seqs", config.MaxNumSeqs, "Maximum number of inference requests that could be processed at the same time")
 	f.IntVar(&config.MaxWaitingQueueLength, "max-waiting-queue-length", config.MaxWaitingQueueLength, "Maximum length of inference requests waiting queue")
 	f.IntVar(&config.MaxLoras, "max-loras", config.MaxLoras, "Maximum number of LoRAs in a single batch")
@@ -145,7 +151,8 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 	f.IntVar(&config.KVCacheSize, "kv-cache-size", config.KVCacheSize, "Maximum number of token blocks in kv cache")
 	f.Float64Var(&config.GlobalCacheHitThreshold, "global-cache-hit-threshold", 0, "Default cache hit threshold [0, 1] for all requests. If a request specifies cache_hit_threshold, it takes precedence")
 	f.IntVar(&config.TokenBlockSize, "block-size", config.TokenBlockSize, "Token block size for contiguous chunks of tokens, possible values: 8,16,32,64,128")
-	f.StringVar(&config.HashSeed, "hash-seed", config.HashSeed, "Seed for hash generation (if not set, is read from PYTHONHASHSEED environment variable)")
+	f.StringVar(&config.HashSeed, "hash-seed", config.HashSeed,
+		"Seed for hash generation (if omitted on the command line, "+PythonHashSeedEnv+" may set it; see docs)")
 	f.StringVar(&config.ZMQEndpoint, "zmq-endpoint", config.ZMQEndpoint, "ZMQ address to publish events")
 	f.IntVar(&config.EventBatchSize, "event-batch-size", config.EventBatchSize, "Maximum number of kv-cache events to be sent together")
 	f.IntVar(&config.DPSize, "data-parallel-size", config.DPSize, "Number of ranks to run")
@@ -234,6 +241,13 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 	config.PodNameSpace = os.Getenv(PodNsEnv)
 	config.VllmDevMode = os.Getenv(vllmServerDevModeEnv) == "1"
 
+	// Precedence for model and hash-seed: command-line flags > these env vars > YAML > defaults.
+	if !f.Changed("model") {
+		if v := os.Getenv(ModelEnv); v != "" {
+			config.Model = v
+		}
+	}
+
 	// Need to read in a variable to avoid merging the values with the config file ones
 	if loraModuleNames != nil {
 		config.LoraModulesString = loraModuleNames
@@ -253,10 +267,9 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 		config.FailureTypes = failureTypes
 	}
 
-	if config.HashSeed == "" {
-		hashSeed := os.Getenv("PYTHONHASHSEED")
-		if hashSeed != "" {
-			config.HashSeed = hashSeed
+	if !f.Changed("hash-seed") {
+		if v := os.Getenv(PythonHashSeedEnv); v != "" {
+			config.HashSeed = v
 		}
 	}
 

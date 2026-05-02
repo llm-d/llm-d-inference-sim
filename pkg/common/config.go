@@ -205,7 +205,7 @@ type Configuration struct {
 
 	// TokenBlockSize is token block size for contiguous chunks of tokens, possible values: 8,16,32,64,128, defaults to 16
 	TokenBlockSize int `yaml:"block-size" json:"block-size"`
-	// HashSeed is the seed for hash generation (if not set, is read from PYTHONHASHSEED environment variable)
+	// HashSeed is the seed for hash generation. Effective value follows configuration precedence in the docs (command-line --hash-seed, else PYTHONHASHSEED, else YAML, else default).
 	HashSeed string `yaml:"hash-seed" json:"hash-seed"`
 
 	// ZMQEndpoint is the ZMQ address to publish events, the default value is tcp://localhost:5557

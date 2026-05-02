@@ -1,10 +1,20 @@
 # Command line parameters
 The simulator can be configured using either command-line arguments or a YAML file. Parameter names are consistent across both methods.
 
+## Configuration precedence
+For a setting that can come from a YAML file, an environment variable, and command-line flags, the simulator resolves the value in this order (first wins):
+
+1. **Command-line flags** — for example `--model` or `--hash-seed`.
+2. **Environment variables** — only where documented for that setting (for example `SIM_MODEL` for `model`, or `PYTHONHASHSEED` for `hash-seed`, when the corresponding flag is not passed).
+3. **YAML configuration file** — when you pass `--config` and the file defines the field.
+4. **Built-in defaults** — when nothing else set the value.
+
+Some environment variables (for example `POD_NAME`, `POD_NAMESPACE`) are not overrides of a YAML field in this sense; they populate separate runtime fields after parsing.
+
 ## General
 - `config`: the path to a yaml configuration file that can contain the simulator's command line parameters. If a parameter is defined in both the config file and the command line, the command line value overwrites the configuration file value. An example configuration file can be found at [manifests/config.yaml](../manifests/config.yaml)
 - `port`: the port the simulator listents on, default is 8000
-- `model`: the currently 'loaded' model, mandatory
+- `model`: the currently 'loaded' model, mandatory. If you omit `--model` on the command line, a non-empty `SIM_MODEL` environment variable can supply the model; see [Configuration precedence](#configuration-precedence) and [Environment variables](#environment-variables).
 - `served-model-name`: model names exposed by the API (a list of space-separated strings)
 - `lora-modules`: a list of LoRA adapters (a list of space-separated JSON strings): '{"name": "name", "path": "lora_path", "base_model_name": "id"}', optional, empty by default
 - `max-loras`: maximum number of LoRAs in a single batch, optional, default is one
@@ -56,7 +66,7 @@ All latency-related parameters are defined in duration format, e.g., 100ms. Inte
 - `kv-cache-size`: the maximum number of token blocks in kv cache
 - `global-cache-hit-threshold`: default cache hit threshold [0, 1] for all requests. If a request specifies cache_hit_threshold, it takes precedence over this global value
 - `block-size`: token block size for contiguous chunks of tokens, possible values: 8,16,32,64,128
-- `hash-seed`: seed for hash generation (if not set, is read from PYTHONHASHSEED environment variable)
+- `hash-seed`: seed for hash generation. If you omit `--hash-seed` on the command line, a non-empty `PYTHONHASHSEED` environment variable can supply the seed; see [Configuration precedence](#configuration-precedence) and [Environment variables](#environment-variables).
 - `zmq-endpoint`: ZMQ address to publish events
 - `event-batch-size`: the maximum number of kv-cache events to be sent together, defaults to 16
 
@@ -153,6 +163,8 @@ In addition, as we are using klog, the following parameters are available:
 - `vmodule`: comma-separated list of pattern=N settings for file-filtered logging
 
 # Environment variables
+- `SIM_MODEL`: when non-empty and **`--model` is not passed on the command line**, sets the model name. In that case it overrides the `model` value from the YAML file (if any) and the default. If you pass `--model`, it always wins. Useful in Kubernetes when the same image arguments are reused and the model name comes from the pod environment.
+- `PYTHONHASHSEED`: when **`--hash-seed` is not passed on the command line**, a non-empty value supplies the hash seed and overrides `hash-seed` from the YAML file (if any) and the default. If you pass `--hash-seed`, it always wins. Matches common Python hash randomization behavior.
 - `POD_NAME`: the simulator pod name. If defined, the response will contain the HTTP header `x-inference-pod` with this value, and the HTTP header `x-inference-port` with the port that the request was received on 
 - `POD_NAMESPACE`: the simulator pod namespace. If defined, the response will contain the HTTP header `x-inference-namespace` with this value
 - `POD_IP`: the simulator pod IP address. Used in kv-events topic name.

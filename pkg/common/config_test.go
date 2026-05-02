@@ -658,3 +658,55 @@ var _ = Describe("Simulator configuration", func() {
 		})
 	}
 })
+
+var _ = Describe("Model environment variable", func() {
+	BeforeEach(func() {
+		Expect(os.Unsetenv(ModelEnv)).To(Succeed())
+	})
+	AfterEach(func() {
+		Expect(os.Unsetenv(ModelEnv)).To(Succeed())
+	})
+
+	It("does not override --model when the flag is passed", func() {
+		Expect(os.Setenv(ModelEnv, "from-env")).To(Succeed())
+		config, err := createSimConfig([]string{"cmd", "--model", TestModelName, "--mode", ModeRandom, "--seed", "100"})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(config.Model).To(Equal(TestModelName))
+	})
+
+	It("overrides model from config file when --model is omitted", func() {
+		Expect(os.Setenv(ModelEnv, "env-override-model")).To(Succeed())
+		config, err := createSimConfig([]string{"cmd", "--config", "../../manifests/config.yaml"})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(config.Model).To(Equal("env-override-model"))
+	})
+
+	It("does not change model when unset and --model is passed", func() {
+		config, err := createSimConfig([]string{"cmd", "--model", TestModelName, "--mode", ModeRandom, "--seed", "100"})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(config.Model).To(Equal(TestModelName))
+	})
+})
+
+var _ = Describe("PYTHONHASHSEED environment variable", func() {
+	BeforeEach(func() {
+		Expect(os.Unsetenv(PythonHashSeedEnv)).To(Succeed())
+	})
+	AfterEach(func() {
+		Expect(os.Unsetenv(PythonHashSeedEnv)).To(Succeed())
+	})
+
+	It("does not override --hash-seed when the flag is passed", func() {
+		Expect(os.Setenv(PythonHashSeedEnv, "from-env")).To(Succeed())
+		config, err := createSimConfig([]string{"cmd", "--model", TestModelName, "--hash-seed", "from-flag", "--mode", ModeRandom, "--seed", "100"})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(config.HashSeed).To(Equal("from-flag"))
+	})
+
+	It("applies when --hash-seed is omitted", func() {
+		Expect(os.Setenv(PythonHashSeedEnv, "env-seed")).To(Succeed())
+		config, err := createSimConfig([]string{"cmd", "--model", TestModelName, "--mode", ModeRandom, "--seed", "100"})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(config.HashSeed).To(Equal("env-seed"))
+	})
+})
