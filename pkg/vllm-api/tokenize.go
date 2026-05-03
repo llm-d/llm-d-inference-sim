@@ -30,7 +30,7 @@ type TokenizeRequest struct {
 	// Prompt is the text to tokenize
 	Prompt string `json:"prompt"`
 	// Messages is an array of messages to tokenize
-	Messages []openaiserverapi.Message `json:"messages"`
+	Messages []openaiserverapi.ChatComplMessage `json:"messages"`
 }
 
 // GetPrompt returns the text to tokenize, either the text prompt

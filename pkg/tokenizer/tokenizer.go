@@ -34,7 +34,7 @@ type Tokenizer interface {
 	// Converts input text to tokens
 	RenderText(input string) ([]uint32, []string, error)
 	// Converts input to tokens in two steps: templatization and tokenization
-	RenderChatCompletion(messages []openaiserverapi.Message) ([]uint32, []string, *tokenization.MultiModalFeatures, error)
+	RenderChatCompletion(messages []openaiserverapi.ChatComplMessage) ([]uint32, []string, *tokenization.MultiModalFeatures, error)
 }
 
 type SimpleTokenizer struct {
@@ -64,7 +64,7 @@ func (st *SimpleTokenizer) RenderText(input string) ([]uint32, []string, error) 
 }
 
 // Converts input to tokens in two steps: templatization and tokenization
-func (st *SimpleTokenizer) RenderChatCompletion(messages []openaiserverapi.Message) ([]uint32, []string, *tokenization.MultiModalFeatures, error) {
+func (st *SimpleTokenizer) RenderChatCompletion(messages []openaiserverapi.ChatComplMessage) ([]uint32, []string, *tokenization.MultiModalFeatures, error) {
 	input := FlattenChatRequest(messages)
 	tokens, textTokens := st.tokenize(input)
 	return tokens, textTokens, nil, nil
@@ -77,7 +77,7 @@ func (st *SimpleTokenizer) tokenize(input string) ([]uint32, []string) {
 }
 
 // Creates a string representing the given chat completions request
-func FlattenChatRequest(messages []openaiserverapi.Message) string {
+func FlattenChatRequest(messages []openaiserverapi.ChatComplMessage) string {
 	var builder strings.Builder
 	for _, msg := range messages {
 		builder.WriteString(fmt.Sprintf("### %s:\n%s\n", msg.Role, msg.Content.Raw))

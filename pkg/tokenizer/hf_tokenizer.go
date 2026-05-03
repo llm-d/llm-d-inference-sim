@@ -73,7 +73,7 @@ func (hft *HFTokenizer) RenderText(input string) ([]uint32, []string, error) {
 }
 
 // Converts input to tokens in two steps: templatization and tokenization
-func (hft *HFTokenizer) RenderChatCompletion(messages []openaiserverapi.Message) ([]uint32, []string, *tokenization.MultiModalFeatures, error) {
+func (hft *HFTokenizer) RenderChatCompletion(messages []openaiserverapi.ChatComplMessage) ([]uint32, []string, *tokenization.MultiModalFeatures, error) {
 	// Convert messages to conversation format
 	conversations := make([]types.Conversation, len(messages))
 	for i, msg := range messages {

@@ -23,13 +23,13 @@ import (
 
 var _ = Describe("Content ReadableText", func() {
 	It("returns raw string when content is plain text", func() {
-		c := Content{Raw: "hello world"}
+		c := ChatComplContent{Raw: "hello world"}
 		Expect(c.ReadableText()).To(Equal("hello world"))
 	})
 
 	It("returns text block content for structured text", func() {
-		c := Content{
-			Structured: []ContentBlock{
+		c := ChatComplContent{
+			Structured: []ChatComplContentBlock{
 				{Type: "text", Text: "Describe this"},
 			},
 		}
@@ -37,50 +37,50 @@ var _ = Describe("Content ReadableText", func() {
 	})
 
 	It("returns image_url block as image: <url>", func() {
-		c := Content{
-			Structured: []ContentBlock{
-				{Type: "image_url", ImageURL: ImageBlock{Url: "https://example.com/img.png"}},
+		c := ChatComplContent{
+			Structured: []ChatComplContentBlock{
+				{Type: "image_url", ImageURL: ChatComplImageBlock{Url: "https://example.com/img.png"}},
 			},
 		}
 		Expect(c.ReadableText()).To(Equal("image: https://example.com/img.png"))
 	})
 
 	It("joins multiple blocks with newlines", func() {
-		c := Content{
-			Structured: []ContentBlock{
+		c := ChatComplContent{
+			Structured: []ChatComplContentBlock{
 				{Type: "text", Text: "Describe this"},
-				{Type: "image_url", ImageURL: ImageBlock{Url: "https://example.com/img.png"}},
+				{Type: "image_url", ImageURL: ChatComplImageBlock{Url: "https://example.com/img.png"}},
 			},
 		}
 		Expect(c.ReadableText()).To(Equal("Describe this\nimage: https://example.com/img.png"))
 	})
 
 	It("returns empty string for empty structured content", func() {
-		c := Content{Structured: []ContentBlock{}}
+		c := ChatComplContent{Structured: []ChatComplContentBlock{}}
 		Expect(c.ReadableText()).To(Equal(""))
 	})
 
 	It("returns empty string for zero-value content", func() {
-		c := Content{}
+		c := ChatComplContent{}
 		Expect(c.ReadableText()).To(Equal(""))
 	})
 
 	It("skips unknown block types", func() {
-		c := Content{
-			Structured: []ContentBlock{
+		c := ChatComplContent{
+			Structured: []ChatComplContentBlock{
 				{Type: "text", Text: "hello"},
 				{Type: "unknown", Text: "ignored"},
-				{Type: "image_url", ImageURL: ImageBlock{Url: "https://example.com/img.png"}},
+				{Type: "image_url", ImageURL: ChatComplImageBlock{Url: "https://example.com/img.png"}},
 			},
 		}
 		Expect(c.ReadableText()).To(Equal("hello\nimage: https://example.com/img.png"))
 	})
 
 	It("does not modify PlainText behavior", func() {
-		c := Content{
-			Structured: []ContentBlock{
+		c := ChatComplContent{
+			Structured: []ChatComplContentBlock{
 				{Type: "text", Text: "hello"},
-				{Type: "image_url", ImageURL: ImageBlock{Url: "https://example.com/img.png"}},
+				{Type: "image_url", ImageURL: ChatComplImageBlock{Url: "https://example.com/img.png"}},
 			},
 		}
 		Expect(c.PlainText()).To(Equal("hello "))

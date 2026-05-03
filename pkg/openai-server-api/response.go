@@ -129,33 +129,33 @@ type baseResponseChoice struct {
 }
 
 // v1/chat/completions
-// Message defines vLLM chat completions Message
-type Message struct {
+// ChatComplMessage defines vLLM chat completions ChatComplMessage
+type ChatComplMessage struct {
 	// Role is the message Role, optional values are 'user', 'assistant', ...
 	Role string `json:"role,omitempty"`
 	// Content defines text of this message
-	Content Content `json:"content,omitempty"`
+	Content ChatComplContent `json:"content,omitempty"`
 	// ToolCalls are the tool calls created by the model
 	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
 }
 
-type Content struct {
+type ChatComplContent struct {
 	Raw        string
-	Structured []ContentBlock
+	Structured []ChatComplContentBlock
 }
 
-type ContentBlock struct {
-	Type     string     `json:"type"`
-	Text     string     `json:"text,omitempty"`
-	ImageURL ImageBlock `json:"image_url,omitempty"`
+type ChatComplContentBlock struct {
+	Type     string              `json:"type"`
+	Text     string              `json:"text,omitempty"`
+	ImageURL ChatComplImageBlock `json:"image_url,omitempty"`
 }
 
-type ImageBlock struct {
+type ChatComplImageBlock struct {
 	Url string `json:"url,omitempty"`
 }
 
 // UnmarshalJSON allow use both format
-func (mc *Content) UnmarshalJSON(data []byte) error {
+func (mc *ChatComplContent) UnmarshalJSON(data []byte) error {
 	// Raw format
 	var str string
 	if err := json.Unmarshal(data, &str); err == nil {
@@ -164,7 +164,7 @@ func (mc *Content) UnmarshalJSON(data []byte) error {
 	}
 
 	// Block format
-	var blocks []ContentBlock
+	var blocks []ChatComplContentBlock
 	if err := json.Unmarshal(data, &blocks); err == nil {
 		mc.Structured = blocks
 		return nil
@@ -173,7 +173,7 @@ func (mc *Content) UnmarshalJSON(data []byte) error {
 	return errors.New("content format not supported")
 }
 
-func (mc Content) MarshalJSON() ([]byte, error) {
+func (mc ChatComplContent) MarshalJSON() ([]byte, error) {
 	if mc.Raw != "" {
 		return json.Marshal(mc.Raw)
 	}
@@ -183,7 +183,7 @@ func (mc Content) MarshalJSON() ([]byte, error) {
 	return json.Marshal("")
 }
 
-func (mc Content) ReadableText() string {
+func (mc ChatComplContent) ReadableText() string {
 	if mc.Raw != "" {
 		return mc.Raw
 	}
@@ -199,7 +199,7 @@ func (mc Content) ReadableText() string {
 	return strings.Join(parts, "\n")
 }
 
-func (mc Content) PlainText() string {
+func (mc ChatComplContent) PlainText() string {
 	if mc.Raw != "" {
 		return mc.Raw
 	}
@@ -247,7 +247,7 @@ type ToolCall struct {
 type ChatRespChoice struct {
 	baseResponseChoice
 	// Message contains choice's Message
-	Message Message `json:"message"`
+	Message ChatComplMessage `json:"message"`
 	// Logprobs contains the log probabilities for the response
 	Logprobs *ChatLogprobs `json:"logprobs,omitempty"`
 }
@@ -282,7 +282,7 @@ type ChatCompletionsRespChunk struct {
 type ChatRespChunkChoice struct {
 	baseResponseChoice
 	// Delta is a content of the chunk
-	Delta Message `json:"delta"`
+	Delta ChatComplMessage `json:"delta"`
 	// Logprobs contains the log probabilities for the response chunk
 	Logprobs *ChatLogprobs `json:"logprobs,omitempty"`
 }
@@ -350,11 +350,11 @@ func CreateBaseResponseChoice(index int, finishReason *string) baseResponseChoic
 	return baseResponseChoice{Index: index, FinishReason: finishReason}
 }
 
-func CreateChatRespChoice(base baseResponseChoice, message Message) ChatRespChoice {
+func CreateChatRespChoice(base baseResponseChoice, message ChatComplMessage) ChatRespChoice {
 	return ChatRespChoice{baseResponseChoice: base, Message: message, Logprobs: nil}
 }
 
-func CreateChatRespChunkChoice(base baseResponseChoice, message Message) ChatRespChunkChoice {
+func CreateChatRespChunkChoice(base baseResponseChoice, message ChatComplMessage) ChatRespChunkChoice {
 	return ChatRespChunkChoice{baseResponseChoice: base, Delta: message, Logprobs: nil}
 }
 

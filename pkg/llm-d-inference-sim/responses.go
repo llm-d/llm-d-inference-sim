@@ -74,31 +74,31 @@ func (r *responsesReqCtx) request() Request {
 }
 
 func (r *responsesReqCtx) encode() ([]uint32, []string, *tokenization.MultiModalFeatures, error) {
-	var messages []openaiserverapi.Message
+	var messages []openaiserverapi.ChatComplMessage
 
 	if r.req.Instructions != "" {
-		messages = append(messages, openaiserverapi.Message{
+		messages = append(messages, openaiserverapi.ChatComplMessage{
 			Role:    "system",
-			Content: openaiserverapi.Content{Raw: r.req.Instructions},
+			Content: openaiserverapi.ChatComplContent{Raw: r.req.Instructions},
 		})
 	}
 
 	for _, item := range r.req.Input {
 		if msg, ok := item.(*openaiserverapi.InputMessage); ok {
-			var content openaiserverapi.Content
+			var content openaiserverapi.ChatComplContent
 			switch len(msg.Content) {
 			case 0:
 				// no content
 			case 1:
-				content = openaiserverapi.Content{Raw: msg.Content[0].Text}
+				content = openaiserverapi.ChatComplContent{Raw: msg.Content[0].Text}
 			default:
-				blocks := make([]openaiserverapi.ContentBlock, len(msg.Content))
+				blocks := make([]openaiserverapi.ChatComplContentBlock, len(msg.Content))
 				for i, c := range msg.Content {
-					blocks[i] = openaiserverapi.ContentBlock{Type: "text", Text: c.Text}
+					blocks[i] = openaiserverapi.ChatComplContentBlock{Type: "text", Text: c.Text}
 				}
-				content = openaiserverapi.Content{Structured: blocks}
+				content = openaiserverapi.ChatComplContent{Structured: blocks}
 			}
-			messages = append(messages, openaiserverapi.Message{
+			messages = append(messages, openaiserverapi.ChatComplMessage{
 				Role:    msg.Role,
 				Content: content,
 			})

@@ -237,10 +237,10 @@ var _ = Describe("Echo Dataset", Ordered, func() {
 		})
 		It("should return the last message in chat completion", func() {
 			req := &openaiserverapi.ChatCompletionsRequest{
-				Messages: []openaiserverapi.Message{
-					{Role: openaiserverapi.RoleUser, Content: openaiserverapi.Content{Raw: "user message1"}},
-					{Role: openaiserverapi.RoleAssistant, Content: openaiserverapi.Content{Raw: "assistant message1"}},
-					{Role: openaiserverapi.RoleUser, Content: openaiserverapi.Content{Raw: testPrompt}},
+				Messages: []openaiserverapi.ChatComplMessage{
+					{Role: openaiserverapi.RoleUser, Content: openaiserverapi.ChatComplContent{Raw: "user message1"}},
+					{Role: openaiserverapi.RoleAssistant, Content: openaiserverapi.ChatComplContent{Raw: "assistant message1"}},
+					{Role: openaiserverapi.RoleUser, Content: openaiserverapi.ChatComplContent{Raw: testPrompt}},
 				},
 			}
 			promptTokens, promptStrTokens, _, err := tokenizerMngr.TestTokenizer().RenderChatCompletion(req.Messages)
@@ -264,7 +264,7 @@ var _ = Describe("Echo Dataset", Ordered, func() {
 			var req openaiserverapi.Request
 			if isChat {
 				chatReq := openaiserverapi.ChatCompletionsRequest{MaxTokens: maxTokens}
-				chatReq.Messages = []openaiserverapi.Message{{Role: openaiserverapi.RoleUser, Content: openaiserverapi.Content{Raw: testPrompt}}}
+				chatReq.Messages = []openaiserverapi.ChatComplMessage{{Role: openaiserverapi.RoleUser, Content: openaiserverapi.ChatComplContent{Raw: testPrompt}}}
 				chatReq.IgnoreEOS = ignoreEos
 				req = &chatReq
 			} else {

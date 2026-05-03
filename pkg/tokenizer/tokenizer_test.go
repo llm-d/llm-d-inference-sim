@@ -29,10 +29,10 @@ const (
 )
 
 var _ = Describe("tokenizer", func() {
-	messages := []openaiserverapi.Message{
-		{Role: openaiserverapi.RoleUser, Content: openaiserverapi.Content{Raw: "q1"}},
-		{Role: openaiserverapi.RoleAssistant, Content: openaiserverapi.Content{Raw: "a1"}},
-		{Role: openaiserverapi.RoleUser, Content: openaiserverapi.Content{Raw: "q2"}},
+	messages := []openaiserverapi.ChatComplMessage{
+		{Role: openaiserverapi.RoleUser, Content: openaiserverapi.ChatComplContent{Raw: "q1"}},
+		{Role: openaiserverapi.RoleAssistant, Content: openaiserverapi.ChatComplContent{Raw: "a1"}},
+		{Role: openaiserverapi.RoleUser, Content: openaiserverapi.ChatComplContent{Raw: "q2"}},
 	}
 
 	It("should tokenize with simple tokenizer", func() {

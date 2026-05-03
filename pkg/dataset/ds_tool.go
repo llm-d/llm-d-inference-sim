@@ -185,7 +185,7 @@ func (dt *DatasetTool) toOutputRecords(dsRecords []datasetRecord) []outputRecord
 
 	for index, dsRecord := range dsRecords {
 		chatRequest := openaiserverapi.ChatCompletionsRequest{}
-		chatRequest.Messages = []openaiserverapi.Message{}
+		chatRequest.Messages = []openaiserverapi.ChatComplMessage{}
 
 		// read conversations in pairs
 		for conversationIndex := 0; conversationIndex < len(dsRecord.Conversations)-1; conversationIndex += 2 {
@@ -219,9 +219,9 @@ func (dt *DatasetTool) conversationToOutputRecords(userTxt, assistantTxt string,
 	}
 
 	// add current user message
-	chatRequest.Messages = append(chatRequest.Messages, openaiserverapi.Message{
+	chatRequest.Messages = append(chatRequest.Messages, openaiserverapi.ChatComplMessage{
 		Role:    openaiserverapi.RoleUser,
-		Content: openaiserverapi.Content{Raw: userTxt},
+		Content: openaiserverapi.ChatComplContent{Raw: userTxt},
 	})
 
 	// create db record for /completions (without the messages concatenation)
@@ -250,8 +250,8 @@ func (dt *DatasetTool) conversationToOutputRecords(userTxt, assistantTxt string,
 
 	// add answer for this turn to be ready for the next question
 	chatRequest.Messages = append(chatRequest.Messages,
-		openaiserverapi.Message{Role: openaiserverapi.RoleAssistant,
-			Content: openaiserverapi.Content{Raw: assistantTxt}})
+		openaiserverapi.ChatComplMessage{Role: openaiserverapi.RoleAssistant,
+			Content: openaiserverapi.ChatComplContent{Raw: assistantTxt}})
 
 	return result, nil
 }

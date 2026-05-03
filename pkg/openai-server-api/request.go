@@ -348,7 +348,7 @@ func (b *baseCompletionsRequest) SetCacheThresholdFinishReason(value bool) {
 type ChatCompletionsRequest struct {
 	baseCompletionsRequest
 	// Messages list of request's Messages
-	Messages []Message `json:"messages"`
+	Messages []ChatComplMessage `json:"messages"`
 
 	// The maximum number of tokens that can be generated in the chat
 	// completions. This value can be used to control costs for text
