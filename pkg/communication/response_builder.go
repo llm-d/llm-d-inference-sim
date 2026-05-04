@@ -74,7 +74,6 @@ type responseBuilder interface {
 	createDoneChunk() sseChunk
 }
 
-
 type textComplHTTPRespBuilder struct{}
 
 func (respBuilder *textComplHTTPRespBuilder) createResponse(respCtx vllmsim.ResponseContext,
@@ -288,8 +287,7 @@ func (respBuilder *generationGRPCRespBuilder) createResponse(respCtx vllmsim.Res
 	}
 }
 
-func (respBuilder *generationGRPCRespBuilder) createChunk(respCtx vllmsim.ResponseContext, tokens *openaiserverapi.Tokenized,
-	tool *openaiserverapi.ToolCall, role string, finishReason *string) any {
+func (respBuilder *generationGRPCRespBuilder) createChunk(respCtx vllmsim.ResponseContext, tokens *openaiserverapi.Tokenized) any {
 	return &pb.GenerateResponse{
 		Response: &pb.GenerateResponse_Chunk{
 			Chunk: &pb.GenerateStreamChunk{
@@ -302,10 +300,9 @@ func (respBuilder *generationGRPCRespBuilder) createChunk(respCtx vllmsim.Respon
 	}
 }
 
-func (respBuilder *generationGRPCRespBuilder) createLastChunk(respCtx vllmsim.ResponseContext, finishReason string) any {
+func (respBuilder *generationGRPCRespBuilder) createLastChunk(respCtx vllmsim.ResponseContext) any {
 	return respBuilder.createResponse(respCtx, nil)
 }
-
 
 type responsesHTTPRespBuilder struct {
 	accumulated strings.Builder
