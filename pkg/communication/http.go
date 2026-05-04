@@ -253,6 +253,7 @@ func (c *Communication) sendStream(ctx *fasthttp.RequestCtx, channel common.Chan
 	go func() {
 		w := bufio.NewWriter(pw)
 		first := true
+		firstTokens := true
 		var respCtx vllmsim.ResponseContext
 
 		defer func() {
@@ -271,20 +272,29 @@ func (c *Communication) sendStream(ctx *fasthttp.RequestCtx, channel common.Chan
 			if first {
 				respCtx = response.RespCtx
 				respCtx.SetCreationTime(time.Now().Unix())
+				first = false
+				if response.Status == vllmsim.ResponseStatusCreated {
+					if chunk := respBuilder.createInitialChunk(respCtx); chunk != nil {
+						if err := c.sendChunk(w, chunk); err != nil {
+							c.chunkSendFailed(ctx, "Sending first stream chunk failed, ", err)
+							return
+						}
+					}
+					continue
+				}
 			}
 
 			// nolint
 			if response.Tokens != nil {
 				// in chat completion first chunk contains the role
-				if first {
-					chunk := respBuilder.createFirstChunk(respCtx)
-					if chunk != nil {
-						if err := c.sendChunk(w, chunk, ""); err != nil {
+				if firstTokens {
+					if chunk := respBuilder.createFirstChunk(respCtx); chunk != nil {
+						if err := c.sendChunk(w, chunk); err != nil {
 							c.chunkSendFailed(ctx, "Sending first stream chunk failed, ", err)
 							return
 						}
 					}
-					first = false
+					firstTokens = false
 				}
 				if response.ToolCall != nil {
 					if lastToolCall != response.ToolCall {
@@ -300,17 +310,18 @@ func (c *Communication) sendStream(ctx *fasthttp.RequestCtx, channel common.Chan
 					lastToolCall = response.ToolCall
 				} else {
 					chunk := respBuilder.createChunk(respCtx, response.Tokens, nil, "", nil)
-					if err := c.sendChunk(w, chunk, ""); err != nil {
+					if err := c.sendChunk(w, chunk); err != nil {
 						c.chunkSendFailed(ctx, "Sending stream chunk failed, ", err)
 						return
 					}
 				}
 			} else if respCtx.FinishReason() != nil && *respCtx.FinishReason() == common.CacheThresholdFinishReason {
 				// No tokens to stream but we still need to emit a finish chunk for cache_threshold
-				chunk := respBuilder.createChunk(respCtx, nil, nil, "", respCtx.FinishReason())
-				if err := c.sendChunk(w, chunk, ""); err != nil {
-					c.chunkSendFailed(ctx, "Sending finish chunk failed, ", err)
-					return
+				if chunk := respBuilder.createChunk(respCtx, nil, nil, "", respCtx.FinishReason()); chunk != nil {
+					if err := c.sendChunk(w, chunk); err != nil {
+						c.chunkSendFailed(ctx, "Sending finish chunk failed, ", err)
+						return
+					}
 				}
 				break
 			} else {
@@ -319,28 +330,28 @@ func (c *Communication) sendStream(ctx *fasthttp.RequestCtx, channel common.Chan
 			}
 		}
 
-		// send the last chunk if finish reason is stop
-		if *respCtx.FinishReason() == common.StopFinishReason {
-			chunk := respBuilder.createLastChunk(respCtx)
-			if err := c.sendChunk(w, chunk, ""); err != nil {
+		// each builder decides whether to produce a last chunk based on the finish reason
+		if chunk := respBuilder.createLastChunk(respCtx, *respCtx.FinishReason()); chunk != nil {
+			if err := c.sendChunk(w, chunk); err != nil {
 				c.chunkSendFailed(ctx, "Sending last stream chunk failed, ", err)
 				return
 			}
 		}
 
-		// send usage
-		if respCtx.SendUsageData() {
-			chunk := respBuilder.createUsageChunk(respCtx)
-			if err := c.sendChunk(w, chunk, ""); err != nil {
+		// send usage — builder returns nil when it has nothing to emit
+		if chunk := respBuilder.createUsageChunk(respCtx); chunk != nil {
+			if err := c.sendChunk(w, chunk); err != nil {
 				c.chunkSendFailed(ctx, "Sending usage chunk failed, ", err)
 				return
 			}
 		}
 
-		// finish sse events stream
-		if err := c.sendChunk(w, nil, "[DONE]"); err != nil {
-			c.chunkSendFailed(ctx, "Sending [DONE] chunk failed, ", err)
-			return
+		// finish sse events stream — builder returns nil to omit [DONE]
+		if chunk := respBuilder.createDoneChunk(); chunk != nil {
+			if err := c.sendChunk(w, chunk); err != nil {
+				c.chunkSendFailed(ctx, "Sending [DONE] chunk failed, ", err)
+				return
+			}
 		}
 	}()
 
@@ -371,39 +382,24 @@ func (c *Communication) sendStreamedTools(respCtx vllmsim.ResponseContext, respB
 		toolChunkInsert.Function.Name = tc.Function.Name
 	}
 
-	var chunk openaiserverapi.CompletionsRespChunk
 	var finishReasonToSend *string
 	if index == tc.Function.TokenizedArguments().Length()-1 && (*respCtx.FinishReason() == common.LengthFinishReason ||
 		*respCtx.FinishReason() == common.ToolsFinishReason ||
 		*respCtx.FinishReason() == common.CacheThresholdFinishReason) {
 		finishReasonToSend = respCtx.FinishReason()
 	}
-	chunk = respBuilder.createChunk(respCtx, nil, toolChunkInsert, "", finishReasonToSend)
-	return c.sendChunk(w, chunk, "")
+	return c.sendChunk(w, respBuilder.createChunk(respCtx, nil, toolChunkInsert, "", finishReasonToSend))
 }
 
-// sendChunk send a single token chunk in a streamed completion API response,
-// receives either a completionsRespChunk or a string with the data to send.
-func (c *Communication) sendChunk(w *bufio.Writer, chunk response, dataString string) error {
-	if dataString == "" {
-		data, err := json.Marshal(chunk)
-		if err != nil {
-			return err
-		}
-		dataString = string(data)
-	}
-
-	_, err := fmt.Fprintf(w, "data: %s\n\n", dataString)
+func (c *Communication) sendChunk(w *bufio.Writer, chunk sseChunk) error {
+	b, err := chunk.SSEBytes()
 	if err != nil {
 		return err
 	}
-
-	err = w.Flush()
-	if err != nil {
+	if _, err = w.Write(b); err != nil {
 		return err
 	}
-
-	return nil
+	return w.Flush()
 }
 
 func (c *Communication) sendError(ctx *fasthttp.RequestCtx, err *openaiserverapi.Error, isInjected bool) {

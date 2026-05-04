@@ -379,13 +379,19 @@ func (s *VllmSimulator) dequeue() requestContext {
 	return nil
 }
 
-func (s *VllmSimulator) sendResponse(reqCtx requestContext, respCtx ResponseContext) {
+func (s *VllmSimulator) sendResponse(respCtx ResponseContext) {
+	reqCtx := respCtx.RequestContext()
 	// Skip delays if finish reason is cache_threshold (immediate return)
 	if respCtx.FinishReason() != nil && *respCtx.FinishReason() == common.CacheThresholdFinishReason {
 		common.WriteToChannel(reqCtx.responseChannel(), &ResponseInfo{RespCtx: respCtx},
 			s.Context.logger)
 	} else {
 		s.Context.simulateTTFT(respCtx)
+
+		// Response started
+		common.WriteToChannel(reqCtx.responseChannel(),
+			&ResponseInfo{RespCtx: respCtx, Status: ResponseStatusCreated},
+			s.Context.logger)
 
 		startDecode := time.Now()
 		if respIsEmpty(respCtx) {

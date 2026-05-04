@@ -73,7 +73,7 @@ func (s *VllmSimulator) processRequest(reqCtx requestContext) {
 	wg.Add(1)
 	respCtx.setWG(&wg)
 
-	s.sendResponse(reqCtx, respCtx)
+	s.sendResponse(respCtx)
 
 	// Wait for the response to be fully sent, with a timeout to prevent
 	// the worker from hanging indefinitely when the client doesn't consume the stream.
