@@ -22,11 +22,14 @@ import (
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 )
 
+const ResponseStatusCreated = "created"
+
 type ResponseInfo struct {
 	Tokens   *openaiserverapi.Tokenized
 	RespCtx  ResponseContext
 	Err      *openaiserverapi.Error
 	ToolCall *openaiserverapi.ToolCall
+	Status   string
 }
 
 type ResponseContext interface {

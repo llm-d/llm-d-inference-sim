@@ -29,12 +29,15 @@ const (
 	chatComplIDPrefix         = "chatcmpl-"
 	textComplIDPrefix         = "cmpl-"
 	ResponsesIDPrefix         = "resp_"
+	ResponsesMessageIDPrefix  = "msg_"
 	TextCompletionObject      = "text_completion"
 	ChatCompletionObject      = "chat.completion"
 	ChatCompletionChunkObject = "chat.completion.chunk"
 	ResponsesObject           = "response"
 	ResponsesStatusCompleted  = "completed"
+	ResponsesStatusInProgress = "in_progress"
 	ResponsesOutputText       = "output_text"
+	ResponsesOutputMessage    = "message"
 )
 
 // Response interface representing response types
@@ -452,14 +455,14 @@ type MessageOutput struct {
 	ID      string          `json:"id,omitempty"`
 	Role    string          `json:"role"` // assistant
 	Status  string          `json:"status,omitempty"`
-	Content []OutputContent `json:"content,omitempty"`
+	Content []OutputContent `json:"content"`
 }
 
 func (MessageOutput) isOutputItem() {}
 
 func (m MessageOutput) MarshalJSON() ([]byte, error) {
 	if m.Type == "" {
-		m.Type = "message"
+		m.Type = ResponsesOutputMessage
 	}
 	type alias MessageOutput
 	return json.Marshal(alias(m))
@@ -485,4 +488,38 @@ type ResponsesUsage struct {
 	InputTokens  int `json:"input_tokens,omitempty"`
 	OutputTokens int `json:"output_tokens,omitempty"`
 	TotalTokens  int `json:"total_tokens,omitempty"`
+}
+
+// Responses API streaming event types
+const (
+	ResponsesEventCreated          = "response.created"
+	ResponsesEventInProgress       = "response.in_progress"
+	ResponsesEventOutputItemAdded  = "response.output_item.added"
+	ResponsesEventContentPartAdded = "response.content_part.added"
+	ResponsesEventTextDelta        = "response.output_text.delta"
+	ResponsesEventTextDone         = "response.output_text.done"
+	ResponsesEventContentPartDone  = "response.content_part.done"
+	ResponsesEventOutputItemDone   = "response.output_item.done"
+	ResponsesEventCompleted        = "response.completed"
+)
+
+// ResponsesResponseEvent is used for events that carry a full response object
+// (response.created, response.in_progress, response.completed).
+type ResponsesResponseEvent struct {
+	Type     string             `json:"type"`
+	Response *ResponsesResponse `json:"response"`
+}
+
+// ResponsesItemEvent is used for all item/content/text streaming events
+// (output_item.added/done, content_part.added/done, output_text.delta/done).
+// Fields not relevant to a given event type are omitted via omitempty.
+type ResponsesItemEvent struct {
+	Type         string         `json:"type"`
+	OutputIndex  int            `json:"output_index,omitempty"`
+	ContentIndex int            `json:"content_index,omitempty"`
+	ItemID       string         `json:"item_id,omitempty"`
+	Item         OutputItem     `json:"item,omitempty"`
+	Part         *OutputContent `json:"part,omitempty"`
+	Delta        string         `json:"delta,omitempty"`
+	Text         string         `json:"text,omitempty"`
 }

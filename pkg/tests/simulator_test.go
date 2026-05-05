@@ -1423,6 +1423,7 @@ var _ = Describe("Simulator", func() {
 
 			// Wait for both requests to finish — counter must return to zero
 			wg.Wait()
+			time.Sleep(200 * time.Millisecond)
 			Expect(server.OpenRequests()).To(Equal(int64(0)))
 		})
 	})
@@ -1534,6 +1535,88 @@ var _ = Describe("Simulator", func() {
 			Expect(errors.As(err, &openaiError)).To(BeTrue())
 			Expect(openaiError.StatusCode).To(Equal(fasthttp.StatusNotFound))
 		})
+
+		DescribeTable("responses streaming",
+			func(model string, mode string) {
+				ctx := context.TODO()
+				args := []string{"cmd", "--model", model, "--mode", mode}
+				client, err := startServerWithArgs(ctx, args)
+				Expect(err).NotTo(HaveOccurred())
+
+				openaiclient, params := getOpenAIClientAndResponsesParams(client, model, testUserMessage)
+
+				stream := openaiclient.Responses.NewStreaming(ctx, params)
+				defer func() {
+					Expect(stream.Close()).NotTo(HaveOccurred())
+				}()
+
+				var eventTypes []string
+				var deltas []string
+
+				for stream.Next() {
+					event := stream.Current()
+					eventTypes = append(eventTypes, event.Type)
+					switch event.Type {
+					case openaiserverapi.ResponsesEventCreated:
+						created := event.AsResponseCreated()
+						Expect(string(created.Response.Status)).To(Equal(openaiserverapi.ResponsesStatusInProgress))
+					case openaiserverapi.ResponsesEventOutputItemAdded:
+						added := event.AsResponseOutputItemAdded()
+						Expect(added.OutputIndex).To(Equal(int64(0)))
+					case openaiserverapi.ResponsesEventTextDelta:
+						delta := event.AsResponseOutputTextDelta()
+						Expect(delta.Delta).NotTo(BeEmpty())
+						deltas = append(deltas, delta.Delta)
+					case openaiserverapi.ResponsesEventTextDone:
+						done := event.AsResponseOutputTextDone()
+						Expect(done.Text).NotTo(BeEmpty())
+						Expect(done.Text).To(Equal(strings.Join(deltas, "")))
+					case openaiserverapi.ResponsesEventCompleted:
+						completed := event.AsResponseCompleted()
+						Expect(completed.Response.Usage.InputTokens).To(BeNumerically(">", 0))
+						Expect(completed.Response.Usage.OutputTokens).To(BeNumerically(">", 0))
+						Expect(completed.Response.Usage.TotalTokens).To(Equal(
+							completed.Response.Usage.InputTokens + completed.Response.Usage.OutputTokens))
+						Expect(string(completed.Response.Status)).To(Equal(openaiserverapi.ResponsesStatusCompleted))
+					}
+				}
+				Expect(stream.Err()).NotTo(HaveOccurred())
+
+				// Verify the mandatory fixed positions in the event sequence:
+				// [0] created, [1] in_progress, [2] output_item.added, [3] content_part.added,
+				// [4..n-5] deltas, [n-4] text.done, [n-3] content_part.done,
+				// [n-2] output_item.done, [n-1] completed
+				Expect(len(eventTypes)).To(BeNumerically(">=", 9), "expected at least 9 events")
+				Expect(eventTypes[0]).To(Equal(openaiserverapi.ResponsesEventCreated))
+				Expect(eventTypes[1]).To(Equal(openaiserverapi.ResponsesEventInProgress))
+				Expect(eventTypes[2]).To(Equal(openaiserverapi.ResponsesEventOutputItemAdded))
+				Expect(eventTypes[3]).To(Equal(openaiserverapi.ResponsesEventContentPartAdded))
+				// deltas occupy positions [4 .. len-5]
+				nDeltas := len(eventTypes) - 8
+				Expect(nDeltas).To(BeNumerically(">=", 1), "expected at least one delta event")
+				for i := 4; i < 4+nDeltas; i++ {
+					Expect(eventTypes[i]).To(Equal(openaiserverapi.ResponsesEventTextDelta))
+				}
+				Expect(eventTypes[len(eventTypes)-4]).To(Equal(openaiserverapi.ResponsesEventTextDone))
+				Expect(eventTypes[len(eventTypes)-3]).To(Equal(openaiserverapi.ResponsesEventContentPartDone))
+				Expect(eventTypes[len(eventTypes)-2]).To(Equal(openaiserverapi.ResponsesEventOutputItemDone))
+				Expect(eventTypes[len(eventTypes)-1]).To(Equal(openaiserverapi.ResponsesEventCompleted))
+
+				fullText := strings.Join(deltas, "")
+				if mode == common.ModeEcho {
+					Expect(fullText).To(Equal(testUserMessage))
+				} else {
+					Expect(dataset.IsValidText(fullText)).To(BeTrue())
+				}
+			},
+			func(model string, mode string) string {
+				return fmt.Sprintf("model: %s mode: %s", model, mode)
+			},
+			Entry(nil, common.TestModelName, common.ModeRandom),
+			Entry(nil, common.TestModelName, common.ModeEcho),
+			// Entry(nil, common.QwenModelName, common.ModeRandom),
+			// Entry(nil, common.QwenModelName, common.ModeEcho),
+		)
 	})
 
 	Context("kv-events for requests", func() {

@@ -67,8 +67,8 @@ func (c *Communication) Generate(in *pb.GenerateRequest, out grpc.ServerStreamin
 			if in.Stream {
 				// Send response chunk
 				if response.Tokens != nil {
-					response := respBuilder.createChunk(respCtx, response.Tokens, nil, "", nil)
-					if err := sendResponse(response, out); err != nil {
+					chunk := respBuilder.createChunk(respCtx, response.Tokens)
+					if err := sendResponse(chunk, out); err != nil {
 						return err
 					}
 				}
@@ -78,13 +78,13 @@ func (c *Communication) Generate(in *pb.GenerateRequest, out grpc.ServerStreamin
 		}
 	}
 
-	var response response
+	var resp any
 	if in.Stream {
-		response = respBuilder.createLastChunk(respCtx)
+		resp = respBuilder.createLastChunk(respCtx)
 	} else {
-		response = respBuilder.createResponse(respCtx, &tokens)
+		resp = respBuilder.createResponse(respCtx, &tokens)
 	}
-	if err := sendResponse(response, out); err != nil {
+	if err := sendResponse(resp, out); err != nil {
 		return err
 	}
 
@@ -152,7 +152,7 @@ func (c *Communication) pbRequestToRequest(in *pb.GenerateRequest) *vllmsim.Gene
 	return &vllmsim.GenerationRequest{GenerationRequest: *req}
 }
 
-func sendResponse(response response, out grpc.ServerStreamingServer[pb.GenerateResponse]) error {
+func sendResponse(response any, out grpc.ServerStreamingServer[pb.GenerateResponse]) error {
 	resp, ok := response.(*pb.GenerateResponse)
 	if !ok {
 		return status.Error(codes.Internal, "response of invalid type")

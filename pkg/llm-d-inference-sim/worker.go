@@ -69,7 +69,7 @@ func (s *VllmSimulator) processRequest(reqCtx requestContext) {
 		return
 	}
 
-	s.simulateResponseProcessing(reqCtx, respCtx)
+	s.simulateResponseProcessing(respCtx)
 	s.Context.logger.V(logging.DEBUG).Info("Finished processing request", "id", req.GetRequestID())
 
 	common.WriteToChannel(s.Context.metrics.requestSuccessChan,
