@@ -19,6 +19,7 @@ package llmdinferencesim
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"sync"
 	"time"
 
@@ -66,6 +67,19 @@ type SimContext struct {
 	latencyCalculator LatencyCalculator
 	// Tokenizer used for request tokenization and in /tokenize
 	Tokenizer tokenizer.Tokenizer
+	// renderModelRe maps each served model/LoRA name to a compiled regexp
+	// used to rewrite that name to the base model name in requests forwarded to the render backend
+	renderModelRe sync.Map // map[string]*regexp.Regexp
+}
+
+func NewSimContext(logger logr.Logger) *SimContext {
+	return &SimContext{
+		logger: logger,
+		loras: &lorasUsageInfo{
+			loadedLoras: make(map[string]int),
+		},
+		kvcacheHelper: nil, // kvcache helper will be created only if required after reading configuration
+	}
 }
 
 func (s *SimContext) initialize(ctx context.Context) error {
@@ -88,6 +102,16 @@ func (s *SimContext) initialize(ctx context.Context) error {
 	s.loras.loraRemovable = common.Channel[int]{
 		Channel: make(chan int, s.Config.MaxNumSeqs),
 		Name:    "loraRemovable",
+	}
+
+	// initialize renderModelRe for served model names + static LoRAs
+	for _, name := range s.Config.ServedModelNames {
+		s.renderModelRe.Store(name,
+			regexp.MustCompile(`("model"\s*:\s*)"`+regexp.QuoteMeta(name)+`"`))
+	}
+	for _, lora := range s.Config.LoraModules {
+		s.renderModelRe.Store(lora,
+			regexp.MustCompile(`("model"\s*:\s*)"`+regexp.QuoteMeta(lora.Name)+`"`))
 	}
 
 	// initialize prometheus metrics
@@ -234,4 +258,14 @@ func (s *SimContext) CreateModelsResponse() *vllmapi.ModelsResponse {
 	}
 
 	return &modelsResp
+}
+
+// EnsureModelInPayload make sure that returned payload contains base model abd the request model
+// The original model could contain one of model aliases defined by --served-model-names or LoRA's name
+func (s *SimContext) EnsureModelInPayload(model string, payload []byte) []byte {
+	if re, ok := s.renderModelRe.Load(model); ok {
+		repl := []byte(`$1"` + s.Config.Model + `"`)
+		return re.(*regexp.Regexp).ReplaceAll(payload, repl)
+	}
+	return payload
 }

@@ -18,7 +18,6 @@ package tokenizer
 
 import (
 	"context"
-	"fmt"
 	"hash/fnv"
 	"regexp"
 	"strings"
@@ -31,58 +30,77 @@ import (
 )
 
 type Tokenizer interface {
-	// Converts input text to tokens
-	RenderText(input string) ([]uint32, []string, error)
-	// Converts input to tokens in two steps: templatization and tokenization
-	RenderChatCompletion(messages []openaiserverapi.ChatComplMessage) ([]uint32, []string, *tokenization.MultiModalFeatures, error)
+	// RenderRequest renders the given request and returns token IDs and string and multimodal features if relevant
+	RenderRequest(req openaiserverapi.Request) ([]uint32, []string, *tokenization.MultiModalFeatures, error)
+
+	// RenderPlainText renders the given request and returns token IDs and string
+	RenderPlainText(text string) ([]uint32, []string, error)
+}
+
+type baseTokenizer struct {
+	re *regexp.Regexp
 }
 
 type SimpleTokenizer struct {
-	re *regexp.Regexp
+	baseTokenizer
+}
+
+func New(ctx context.Context, config *common.Configuration, logger logr.Logger) (Tokenizer, error) {
+	var err error
+	var tokenizer Tokenizer
+
+	if modelExists(config.Model) {
+		tokenizer, err = NewHFTokenizer(ctx, logger, config.RenderURL, config.Model, config.RenderTimeout, config.MMRenderTimeout)
+	} else {
+		logger.Info("Model is not a real HF model, using simulated tokenizer", "model", config.Model)
+		tokenizer = NewSimpleTokenizer()
+	}
+
+	return tokenizer, err
+}
+
+func newBaseTokenizer() baseTokenizer {
+	re := regexp.MustCompile(`(\{|\}|:|,|-|\.|\?|\!|;|@|#|\$|%|\^|&|\*|\(|\)|\+|\-|_|~|/|\\|>|<|\[|\]|=|"|\w+)(\s*)`)
+	return baseTokenizer{re: re}
+}
+
+func (bt *baseTokenizer) splitIntoTokens(input string, count int) []string {
+	// separate the given string into sub-strings simulating tokens
+	tokens := bt.re.FindAllString(input, -1)
+
+	// if tokens length is ok - return the textual tokens
+	if count == -1 || count == len(tokens) {
+		return tokens
+	}
+	// there are not enough tokens to return, padd with empty strings
+	if count > len(tokens) {
+		return append(tokens, make([]string, count-len(tokens))...)
+	}
+
+	// there too many tokens, merge tail into the last kept token, and return the required number of tokens
+	tokens[count-1] = strings.Join(tokens[count-1:], "")
+	return tokens[:count]
 }
 
 // Simple Tokenizer
 func NewSimpleTokenizer() *SimpleTokenizer {
-	re := regexp.MustCompile(`(\{|\}|:|,|-|\.|\?|\!|;|@|#|\$|%|\^|&|\*|\(|\)|\+|\-|_|~|/|\\|>|<|\[|\]|=|"|\w+)(\s*)`)
-	return &SimpleTokenizer{re: re}
+	return &SimpleTokenizer{baseTokenizer: newBaseTokenizer()}
 }
 
-func stringsToUint32sHash(strings []string) []uint32 {
-	hashes := make([]uint32, len(strings))
-	for i, s := range strings {
-		h := fnv.New32a()
-		h.Write([]byte(s))
-		hashes[i] = h.Sum32()
-	}
-	return hashes
-}
-
-// Converts input to tokens
-func (st *SimpleTokenizer) RenderText(input string) ([]uint32, []string, error) {
-	tokens, textTokens := st.tokenize(input)
-	return tokens, textTokens, nil
-}
-
-// Converts input to tokens in two steps: templatization and tokenization
-func (st *SimpleTokenizer) RenderChatCompletion(messages []openaiserverapi.ChatComplMessage) ([]uint32, []string, *tokenization.MultiModalFeatures, error) {
-	input := FlattenChatRequest(messages)
-	tokens, textTokens := st.tokenize(input)
-	return tokens, textTokens, nil, nil
-}
-
-func (st *SimpleTokenizer) tokenize(input string) ([]uint32, []string) {
-	strTokens := st.re.FindAllString(input, -1)
+func (st *baseTokenizer) tokenize(input string) ([]uint32, []string) {
+	strTokens := st.splitIntoTokens(input, -1)
 
 	return stringsToUint32sHash(strTokens), strTokens
 }
 
-// Creates a string representing the given chat completions request
-func FlattenChatRequest(messages []openaiserverapi.ChatComplMessage) string {
-	var builder strings.Builder
-	for _, msg := range messages {
-		builder.WriteString(fmt.Sprintf("### %s:\n%s\n", msg.Role, msg.Content.Raw))
-	}
-	return builder.String()
+func (st *SimpleTokenizer) RenderRequest(req openaiserverapi.Request) ([]uint32, []string, *tokenization.MultiModalFeatures, error) {
+	tokens, textTokens := st.tokenize(req.PlainText())
+	return tokens, textTokens, nil, nil
+}
+
+func (st *SimpleTokenizer) RenderPlainText(text string) ([]uint32, []string, error) {
+	tokens, textTokens := st.tokenize(text)
+	return tokens, textTokens, nil
 }
 
 func modelExists(model string) bool {
@@ -96,16 +114,12 @@ func modelExists(model string) bool {
 	return statusCode == fasthttp.StatusOK
 }
 
-func New(ctx context.Context, config *common.Configuration, logger logr.Logger) (Tokenizer, error) {
-	var err error
-	var tokenizer Tokenizer
-
-	if modelExists(config.Model) {
-		tokenizer, err = NewHFTokenizer(ctx, logger, config.UDSSocketPath, config.Model)
-	} else {
-		logger.Info("Model is not a real HF model, using simulated tokenizer", "model", config.Model)
-		tokenizer = NewSimpleTokenizer()
+func stringsToUint32sHash(strings []string) []uint32 {
+	hashes := make([]uint32, len(strings))
+	for i, s := range strings {
+		h := fnv.New32a()
+		h.Write([]byte(s))
+		hashes[i] = h.Sum32()
 	}
-
-	return tokenizer, err
+	return hashes
 }

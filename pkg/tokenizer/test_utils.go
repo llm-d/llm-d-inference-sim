@@ -19,11 +19,11 @@ package tokenizer
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
-	"github.com/llm-d/llm-d-kv-cache/pkg/tokenization"
 	crlog "sigs.k8s.io/controller-runtime/pkg/log"
 
 	testcontainers "github.com/testcontainers/testcontainers-go"
@@ -63,27 +63,23 @@ func (tm *TokenizerManager) Init(ctx context.Context, logger logr.Logger) error 
 	crlog.SetLogger(logger)
 
 	// no need to start a stand alone tokenizer - it will not be used for the test model
-	tokenizer, err := tm.newTokenizer(ctx, "", common.TestModelName)
-	if err != nil {
-		return err
-	}
-	tm.testTokenizer = tokenizer
+	tm.testTokenizer = tm.newSimpleTokenizer(common.TestModelName)
 
-	// run one container for all real model tokenizers
-	address, cleanup, err := tm.startTokenizerContainer(ctx)
+	// run one container for qwen model
+	renderURL, cleanup, err := tm.startRenderContainer(ctx, common.QwenModelName)
 	if err != nil {
 		return err
 	}
 	tm.cleanupFunc = cleanup
 	// create tokenizer for Qwen model
-	tm.qwenTokenizer, err = tm.newTokenizer(ctx, address, common.QwenModelName)
+	tm.qwenTokenizer, err = tm.newTokenizer(ctx, logger, renderURL, common.QwenModelName, 3*time.Second, 10*time.Second)
 	if err != nil {
 		cleanup()
 		return err
 	}
 
 	// create tokenizer for multimodal model
-	tm.mmTokenizer, err = tm.newTokenizer(ctx, address, common.QwenModelName)
+	tm.mmTokenizer, err = tm.newTokenizer(ctx, logger, renderURL, common.QwenModelName, 3*time.Second, 10*time.Second)
 	if err != nil {
 		cleanup()
 		return err
@@ -98,69 +94,112 @@ func (tm *TokenizerManager) Clean() {
 	}
 }
 
-// starts a tokenizer in a docker container
-// returns docker address, cleanup function and error
-func (tm *TokenizerManager) startTokenizerContainer(ctx context.Context) (string, func(), error) {
+// starts a docker container which runs cpu vLLM in render mode (vllm serve)
+// returns the HTTP base URL (http://host:port), cleanup function and error
+func (tm *TokenizerManager) startRenderContainer(ctx context.Context, model string) (string, func(), error) {
 	container, err := testcontainers.Run(ctx,
-		"ghcr.io/llm-d/llm-d-uds-tokenizer:v0.7.1",
-		testcontainers.WithExposedPorts("50051/tcp"),
-		testcontainers.WithEnv(map[string]string{
-			"GRPC_PORT": "50051",
-		}),
+		"vllm/vllm-openai-cpu:v0.19.1",
+		testcontainers.WithExposedPorts("8000/tcp"),
+		testcontainers.WithEntrypoint("vllm"),
+		testcontainers.WithCmd("launch", "render", model, "--port=8000"),
+		testcontainers.WithTmpfs(map[string]string{"/.cache": "rw"}),
 		testcontainers.WithWaitStrategy(
-			wait.ForListeningPort("50051/tcp"),
+			wait.ForHTTP("/health").
+				WithPort("8000/tcp").
+				WithStartupTimeout(10*time.Minute),
 		),
 	)
 	if err != nil {
-		return "", nil, fmt.Errorf("failed to start testcontainer: %w", err)
+		return "", nil, fmt.Errorf("failed to start render container: %w", err)
 	}
 
 	// get mapped port
-	mappedPort, err := container.MappedPort(ctx, "50051")
+	mappedPort, err := container.MappedPort(ctx, "8000")
 	if err != nil {
+		_ = container.Terminate(context.Background())
 		return "", nil, fmt.Errorf("failed to get mapped port: %w", err)
 	}
 
 	// get host
 	host, err := container.Host(ctx)
 	if err != nil {
+		_ = container.Terminate(context.Background())
 		return "", nil, fmt.Errorf("failed to get container host: %w", err)
 	}
 
-	address := fmt.Sprintf("%s:%s", host, mappedPort.Port())
+	address := fmt.Sprintf("http://%s:%s", host, mappedPort.Port())
 
 	cleanup := func() {
 		// use another context for cleanup in case the original ctx was cancelled
 		if err := container.Terminate(context.Background()); err != nil {
-			fmt.Printf("failed to terminate container: %s\n", err)
+			fmt.Printf("failed to terminate render container: %s\n", err)
 		}
 	}
 
 	return address, cleanup, nil
 }
 
-func (tm *TokenizerManager) newTokenizer(ctx context.Context, address string, model string) (Tokenizer, error) {
+// starts a tokenizer in a docker container
+// returns docker address, cleanup function and error
+// func (tm *TokenizerManager) startTokenizerContainer(ctx context.Context) (string, func(), error) {
+// 	container, err := testcontainers.Run(ctx,
+// 		"ghcr.io/llm-d/llm-d-uds-tokenizer:v0.7.1",
+// 		testcontainers.WithExposedPorts("50051/tcp"),
+// 		testcontainers.WithEnv(map[string]string{
+// 			"GRPC_PORT": "50051",
+// 		}),
+// 		testcontainers.WithWaitStrategy(
+// 			wait.ForListeningPort("50051/tcp"),
+// 		),
+// 	)
+// 	if err != nil {
+// 		return "", nil, fmt.Errorf("failed to start testcontainer: %w", err)
+// 	}
+
+// 	// get mapped port
+// 	mappedPort, err := container.MappedPort(ctx, "50051")
+// 	if err != nil {
+// 		return "", nil, fmt.Errorf("failed to get mapped port: %w", err)
+// 	}
+
+// 	// get host
+// 	host, err := container.Host(ctx)
+// 	if err != nil {
+// 		return "", nil, fmt.Errorf("failed to get container host: %w", err)
+// 	}
+
+// 	address := fmt.Sprintf("%s:%s", host, mappedPort.Port())
+
+// 	cleanup := func() {
+// 		// use another context for cleanup in case the original ctx was cancelled
+// 		if err := container.Terminate(context.Background()); err != nil {
+// 			fmt.Printf("failed to terminate container: %s\n", err)
+// 		}
+// 	}
+
+// 	return address, cleanup, nil
+// }
+
+func (tm *TokenizerManager) newTokenizer(ctx context.Context, logger logr.Logger, renderURL, model string,
+	timeout, mmTimeout time.Duration) (Tokenizer, error) {
 	if modelExists(model) {
 		// for real model create HF tokenizer
-		return tm.newHFTokenizer(ctx, address, model)
+		return tm.newHFTokenizer(ctx, logger, renderURL, model, timeout, mmTimeout)
 	} else {
 		// for dummy model create simple tokenizer
-		tm.logger.Info("Model is not a real HF model, using simulated tokenizer", "model", model)
-		tokenizer := NewSimpleTokenizer()
-		return tokenizer, nil
+		return tm.newSimpleTokenizer(model), nil
 	}
 }
 
-// create HF Tokenizer
-func (tm *TokenizerManager) newHFTokenizer(ctx context.Context, tokenizerAddress, model string) (*HFTokenizer, error) {
-	// in test mode don't use uds socker, use tcp instead
-	udsTokenizer, err := tokenization.NewUdsTokenizer(ctx,
-		&tokenization.UdsTokenizerConfig{SocketFile: tokenizerAddress, UseTCP: true}, model)
-	if err != nil {
-		tm.logger.Error(err, "failed to connect to tokenizer using TCP")
-		return nil, err
-	}
+// create Simple Tokenizer
+func (tm *TokenizerManager) newSimpleTokenizer(model string) *SimpleTokenizer {
+	tm.logger.Info("Model is not a real HF model, using simulated tokenizer", "model", model)
+	return NewSimpleTokenizer()
+}
 
-	tm.logger.V(logging.DEBUG).Info("Connected to tokenizer using TCP", "address", tokenizerAddress)
-	return &HFTokenizer{ctx: ctx, model: model, udsTokenizer: udsTokenizer, logger: tm.logger}, nil
+// create HF Tokenizer
+func (tm *TokenizerManager) newHFTokenizer(ctx context.Context, logger logr.Logger, renderURL, model string,
+	timeout, mmTimeout time.Duration) (*HFTokenizer, error) {
+	tm.logger.V(logging.DEBUG).Info("Creating HF tokenizer", "renderURL", renderURL)
+	return NewHFTokenizer(ctx, logger, renderURL, model, timeout, mmTimeout)
 }

@@ -183,11 +183,11 @@ var _ = Describe("Echo Dataset", Ordered, func() {
 		smallMaxTokens = int64(2)
 
 		var err error
-		promptTokens, promptStrTokens, err = tokenizerMngr.TestTokenizer().RenderText(testPrompt)
+		promptTokens, promptStrTokens, err = tokenizerMngr.TestTokenizer().RenderPlainText(testPrompt)
 		Expect(err).NotTo(HaveOccurred())
 
 		theText = "Give a man a fish and you feed him for a day; teach a man to fish and you feed him for a lifetime"
-		theTextTokens, theTextStrTokens, err = tokenizerMngr.TestTokenizer().RenderText(theText)
+		theTextTokens, theTextStrTokens, err = tokenizerMngr.TestTokenizer().RenderPlainText(theText)
 		Expect(err).NotTo(HaveOccurred())
 	})
 
@@ -236,25 +236,31 @@ var _ = Describe("Echo Dataset", Ordered, func() {
 			Expect(finishReason).Should(Equal(common.LengthFinishReason))
 		})
 		It("should return the last message in chat completion", func() {
-			req := &openaiserverapi.ChatCompletionsRequest{
-				Messages: []openaiserverapi.ChatComplMessage{
+			textReq, err := common.CreateRequestForRenderText(common.QwenModelName, testPrompt)
+			Expect(err).ShouldNot(HaveOccurred())
+
+			chatReq, err := common.CreateRequestForRenderChatMessages(common.QwenModelName,
+				[]openaiserverapi.ChatComplMessage{
 					{Role: openaiserverapi.RoleUser, Content: openaiserverapi.ChatComplContent{Raw: "user message1"}},
 					{Role: openaiserverapi.RoleAssistant, Content: openaiserverapi.ChatComplContent{Raw: "assistant message1"}},
 					{Role: openaiserverapi.RoleUser, Content: openaiserverapi.ChatComplContent{Raw: testPrompt}},
-				},
-			}
-			promptTokens, promptStrTokens, _, err := tokenizerMngr.TestTokenizer().RenderChatCompletion(req.Messages)
-			Expect(err).ShouldNot(HaveOccurred())
-			respTokens, resptStrTokens, err := tokenizerMngr.TestTokenizer().RenderText(testPrompt)
+				})
 			Expect(err).ShouldNot(HaveOccurred())
 
-			req.SetTokenizedPrompt(&openaiserverapi.Tokenized{Tokens: promptTokens, Strings: promptStrTokens})
-			req.SetTokenizedPromptForEcho(&openaiserverapi.Tokenized{Tokens: respTokens, Strings: resptStrTokens})
-
-			tokens, _, err := dataset.GetResponseTokens(req)
+			promptTokens, promptStrTokens, _, err := tokenizerMngr.TestTokenizer().RenderRequest(chatReq)
 			Expect(err).ShouldNot(HaveOccurred())
 
-			Expect(tokens.Strings).Should(Equal(resptStrTokens))
+			respTokens, respStrTokens, _, err := tokenizerMngr.TestTokenizer().RenderRequest(textReq)
+			Expect(err).ShouldNot(HaveOccurred())
+
+			chatReq.SetTokenizedPrompt(&openaiserverapi.Tokenized{Tokens: promptTokens, Strings: promptStrTokens})
+			chatReq.SetTokenizedPromptForEcho(&openaiserverapi.Tokenized{Tokens: respTokens, Strings: respStrTokens})
+
+			tokens, _, err := dataset.GetResponseTokens(chatReq)
+			Expect(err).ShouldNot(HaveOccurred())
+
+			Expect(tokens.Tokens).Should(Equal(respTokens))
+			Expect(tokens.Strings).Should(Equal(respStrTokens))
 		})
 	})
 

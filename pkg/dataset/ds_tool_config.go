@@ -20,36 +20,41 @@ import (
 	"errors"
 	"os"
 	"path"
+	"time"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/spf13/pflag"
 )
 
 type DSToolConfiguration struct {
-	hfRepo        string
-	localPath     string
-	inputFile     string
-	token         string
-	maxRecords    int
-	udsSocketPath string
-	model         string
-	outputPath    string
-	outputFile    string
-	tableName     string
+	hfRepo          string
+	localPath       string
+	inputFile       string
+	token           string
+	maxRecords      int
+	renderURL       string
+	renderTimeout   time.Duration
+	mmRenderTimeout time.Duration
+	model           string
+	outputPath      string
+	outputFile      string
+	tableName       string
 }
 
 func NewDefaultDSToolConfiguration() *DSToolConfiguration {
 	return &DSToolConfiguration{
-		hfRepo:        "",
-		localPath:     "",
-		inputFile:     "",
-		outputFile:    "inference-sim-dataset",
-		outputPath:    "",
-		token:         "",
-		maxRecords:    10000,
-		udsSocketPath: "/tmp/tokenizer/tokenizer-uds.socket",
-		model:         "",
-		tableName:     "llmd",
+		hfRepo:          "",
+		localPath:       "",
+		inputFile:       "",
+		outputFile:      "inference-sim-dataset",
+		outputPath:      "",
+		token:           "",
+		maxRecords:      10000,
+		renderURL:       "",
+		renderTimeout:   5 * time.Second,
+		mmRenderTimeout: 30 * time.Second,
+		model:           "",
+		tableName:       "llmd",
 	}
 }
 
@@ -64,7 +69,9 @@ func (c *DSToolConfiguration) LoadConfig() error {
 	f.StringVar(&c.outputPath, "output-path", "", "Output path")
 	f.StringVar(&c.outputPath, "table-name", common.DefaultDSTableName, "Table name, default is 'llmd'")
 	f.IntVar(&c.maxRecords, "max-records", 10000, "Maximum number of source dataset records to process; if the dataset contains more, the rest are discarded")
-	f.StringVar(&c.udsSocketPath, "uds-socket-path", c.udsSocketPath, "UDS socket path for communication with HF tokenizer, default is '/tmp/tokenizer/tokenizer-uds.socket'")
+	f.StringVar(&c.renderURL, "render-url", c.renderURL, "URL of the tokenizer render service")
+	f.DurationVar(&c.renderTimeout, "render-timeout", c.renderTimeout, "Timeout for tokenizer render requests")
+	f.DurationVar(&c.mmRenderTimeout, "mm-render-timeout", c.mmRenderTimeout, "Timeout for multi-modal tokenizer render requests")
 
 	f.StringVar(&c.model, "model", "", "Model name")
 
@@ -98,8 +105,8 @@ func (c *DSToolConfiguration) validate() error {
 		return errors.New("--local-path defined but --file is empty")
 	}
 
-	if c.udsSocketPath == "" {
-		return errors.New("--uds-socket-path is empty")
+	if c.renderURL == "" {
+		return errors.New("--render-url is not defined")
 	}
 
 	if err := validateFileNotExist(c.getOutputDBFullFileName()); err != nil {

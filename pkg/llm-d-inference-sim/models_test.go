@@ -17,8 +17,11 @@ limitations under the License.
 package llmdinferencesim
 
 import (
+	"context"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	vllmapi "github.com/llm-d/llm-d-inference-sim/pkg/vllm-api"
@@ -34,13 +37,14 @@ func findByID(models []vllmapi.ModelsResponseModelInfo, id string) *vllmapi.Mode
 }
 
 var _ = Describe("CreateModelsResponse", func() {
+	logger := log.FromContext(context.Background())
+
 	It("should set root to actual model path, not alias", func() {
-		s := &SimContext{
-			Config: &common.Configuration{
-				Model:            "Qwen/Qwen3-0.6B-Base",
-				ServedModelNames: []string{"alias1", "alias2"},
-				MaxModelLen:      32768,
-			},
+		s := NewSimContext(logger)
+		s.Config = &common.Configuration{
+			Model:            "Qwen/Qwen3-0.6B-Base",
+			ServedModelNames: []string{"alias1", "alias2"},
+			MaxModelLen:      32768,
 		}
 
 		resp := s.CreateModelsResponse()
@@ -56,12 +60,11 @@ var _ = Describe("CreateModelsResponse", func() {
 	})
 
 	It("should include max_model_len for LoRA adapters", func() {
-		s := &SimContext{
-			Config: &common.Configuration{
-				Model:            "Qwen/Qwen3-0.6B-Base",
-				ServedModelNames: []string{"base-model"},
-				MaxModelLen:      4096,
-			},
+		s := NewSimContext(logger)
+		s.Config = &common.Configuration{
+			Model:            "Qwen/Qwen3-0.6B-Base",
+			ServedModelNames: []string{"base-model"},
+			MaxModelLen:      4096,
 		}
 		s.loraAdaptors.Store("lora1", true)
 		s.loraAdaptors.Store("lora2", true)
@@ -85,12 +88,11 @@ var _ = Describe("CreateModelsResponse", func() {
 	})
 
 	It("should use model name as root when no aliases are set", func() {
-		s := &SimContext{
-			Config: &common.Configuration{
-				Model:            "meta-llama/Llama-3-8B",
-				ServedModelNames: []string{"meta-llama/Llama-3-8B"},
-				MaxModelLen:      1024,
-			},
+		s := NewSimContext(logger)
+		s.Config = &common.Configuration{
+			Model:            "meta-llama/Llama-3-8B",
+			ServedModelNames: []string{"meta-llama/Llama-3-8B"},
+			MaxModelLen:      1024,
 		}
 
 		resp := s.CreateModelsResponse()
@@ -101,12 +103,11 @@ var _ = Describe("CreateModelsResponse", func() {
 	})
 
 	It("should set LoRA root to the adapter path when one is recorded", func() {
-		s := &SimContext{
-			Config: &common.Configuration{
-				Model:            "Qwen/Qwen3-0.6B-Base",
-				ServedModelNames: []string{"base-model"},
-				MaxModelLen:      4096,
-			},
+		s := NewSimContext(logger)
+		s.Config = &common.Configuration{
+			Model:            "Qwen/Qwen3-0.6B-Base",
+			ServedModelNames: []string{"base-model"},
+			MaxModelLen:      4096,
 		}
 		s.loraAdaptors.Store("lora-with-path", "/lora/path/adapter1")
 		s.loraAdaptors.Store("lora-without-path", "")

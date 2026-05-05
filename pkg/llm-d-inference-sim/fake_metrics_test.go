@@ -17,11 +17,14 @@ limitations under the License.
 package llmdinferencesim
 
 import (
+	"context"
+
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	vllmapi "github.com/llm-d/llm-d-inference-sim/pkg/vllm-api"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/prometheus/client_golang/prometheus"
+	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 var _ = Describe("total tokens", func() {
@@ -119,7 +122,8 @@ var _ = Describe("total tokens", func() {
 			},
 		}
 
-		s := SimContext{Config: &common.Configuration{Model: "test", ServedModelNames: []string{"test"}}}
+		s := NewSimContext(log.FromContext(context.Background()))
+		s.Config = &common.Configuration{Model: "test", ServedModelNames: []string{"test"}}
 
 		for _, test := range tests {
 			hist := prometheus.NewHistogramVec(

@@ -202,7 +202,7 @@ var _ = Describe("Simulator", func() {
 				Expect(msg).Should(Equal(testUserMessage))
 			} else {
 				if numTokens > 0 {
-					_, tokens, err := server.Context.Tokenizer.RenderText(msg)
+					_, tokens, err := server.Context.Tokenizer.RenderPlainText(msg)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(int64(len(tokens))).Should(BeNumerically("<=", numTokens))
 				} else {
@@ -277,7 +277,7 @@ var _ = Describe("Simulator", func() {
 				Expect(text).Should(Equal(testUserMessage))
 			} else {
 				if numTokens != 0 {
-					_, tokens, err := server.Context.Tokenizer.RenderText(text)
+					_, tokens, err := server.Context.Tokenizer.RenderPlainText(text)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(int64(len(tokens))).Should(BeNumerically("<=", numTokens))
 				} else {
@@ -345,7 +345,7 @@ var _ = Describe("Simulator", func() {
 			for _, t := range msg {
 				Expect(t).To(Equal('!'))
 			}
-			_, tokens, err := server.Context.Tokenizer.RenderText(msg)
+			_, tokens, err := server.Context.Tokenizer.RenderPlainText(msg)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(int64(len(tokens))).Should(BeNumerically("<=", maxTokens))
 		},
@@ -754,7 +754,7 @@ var _ = Describe("Simulator", func() {
 						// When logprobs requested, Content should be populated
 						Expect(chatResp.Choices[0].Logprobs.Content).NotTo(BeEmpty())
 
-						_, tokens, err := server.Context.Tokenizer.RenderText(chatResp.Choices[0].Message.Content)
+						_, tokens, err := server.Context.Tokenizer.RenderPlainText(chatResp.Choices[0].Message.Content)
 						Expect(err).NotTo(HaveOccurred())
 						Expect(chatResp.Choices[0].Logprobs.Content).To(HaveLen(len(tokens)))
 					} else {
@@ -770,7 +770,7 @@ var _ = Describe("Simulator", func() {
 						// When logprobs requested, fields should be populated
 						Expect(textResp.Choices[0].Logprobs.Tokens).NotTo(BeNil())
 
-						_, tokens, err := server.Context.Tokenizer.RenderText(textResp.Choices[0].Text)
+						_, tokens, err := server.Context.Tokenizer.RenderPlainText(textResp.Choices[0].Text)
 						Expect(err).NotTo(HaveOccurred())
 						Expect(textResp.Choices[0].Logprobs.Tokens).To(HaveLen(len(tokens)))
 					} else {
@@ -797,21 +797,22 @@ var _ = Describe("Simulator", func() {
 	Context("max-model-len context window validation", func() {
 		It("Should reject requests exceeding context window", func() {
 			ctx := context.TODO()
+			model := common.TestModelName
 			// Start server with max-model-len=10
-			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom, "--max-model-len", "10"}
+			args := []string{"cmd", "--model", model, "--mode", common.ModeRandom, "--max-model-len", "10"}
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
 			maxTokens := 8
 			prompt := "This is a test message"
-			promptChatTokens := getChatPromptTokensCountForTestModel(prompt)
+			promptChatTokens := getChatPromptTokensCountForTestModel(model, prompt)
 
 			// Test with raw HTTP to verify the error response format
 			reqBody := fmt.Sprintf(`{
 				"messages": [{"role": "user", "content": "%s"}],
 				"model": "%s",
 				"max_tokens": %d
-			}`, prompt, common.TestModelName, maxTokens)
+			}`, prompt, model, maxTokens)
 
 			resp, err := client.Post("http://localhost/v1/chat/completions", "application/json", strings.NewReader(reqBody))
 			Expect(err).NotTo(HaveOccurred())
@@ -830,7 +831,7 @@ var _ = Describe("Simulator", func() {
 			Expect(string(body)).To(ContainSubstring("BadRequestError"))
 
 			// Also test with OpenAI client to ensure it gets an error
-			openaiclient, params := getOpenAIClientAndChatParams(client, common.TestModelName, prompt, false)
+			openaiclient, params := getOpenAIClientAndChatParams(client, model, prompt, false)
 			params.MaxTokens = openai.Int(8)
 
 			_, err = openaiclient.Chat.Completions.New(ctx, params)
@@ -1518,7 +1519,7 @@ var _ = Describe("Simulator", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			outputText := resp.OutputText()
-			_, tokens, err := server.Context.Tokenizer.RenderText(outputText)
+			_, tokens, err := server.Context.Tokenizer.RenderPlainText(outputText)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(len(tokens)).To(BeNumerically("<=", 2))
 		})

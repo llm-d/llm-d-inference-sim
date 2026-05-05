@@ -170,7 +170,10 @@ func (c *Communication) handleHTTP(req vllmsim.Request, respBuilder responseBuil
 
 	requestID := c.getRequestID(ctx)
 	req.SetRequestID(requestID)
-	req.SetRawRequestPayload(ctx.Request.Body())
+
+	// ensure that the request payload that will be sent to the render backend contains base model
+	updatedPayload := c.simulator.Context.EnsureModelInPayload(req.GetModel(), ctx.Request.Body())
+	req.SetRawRequestPayload(updatedPayload)
 
 	// Check for X-Return-Error header - deterministic error trigger
 	if errCodeStr := string(ctx.Request.Header.Peek(XReturnErrorHeader)); errCodeStr != "" {
@@ -429,6 +432,7 @@ func (c *Communication) readTokenizeRequest(ctx *fasthttp.RequestCtx) (*vllmapi.
 		c.logger.Error(err, "failed to unmarshal tokenize request body")
 		return nil, err
 	}
+
 	return &tokenizeReq, nil
 }
 
@@ -492,7 +496,7 @@ func (c *Communication) HandleEmbeddings(ctx *fasthttp.RequestCtx) {
 				c.sendError(ctx, &errToSend, false)
 				return
 			}
-			tokens, _, err := c.simulator.Context.Tokenizer.RenderText(text)
+			tokens, _, _, err := c.simulator.Context.Tokenizer.RenderRequest(&openaiserverapi.TextCompletionsRequest{Prompt: text})
 			if err != nil {
 				c.logger.Error(err, "failed to tokenize embedding input")
 				ctx.Error("Failed to tokenize input, "+err.Error(), fasthttp.StatusInternalServerError)
@@ -551,12 +555,16 @@ func (c *Communication) HandleTokenize(ctx *fasthttp.RequestCtx) {
 	}
 
 	var tokens []uint32
+	var renderReq openaiserverapi.Request
+
 	if req.Prompt != "" {
-		tokens, _, err = c.simulator.Context.Tokenizer.RenderText(req.Prompt)
+		renderReq = &openaiserverapi.TextCompletionsRequest{Prompt: req.Prompt}
 	} else {
 		// has messages
-		tokens, _, _, err = c.simulator.Context.Tokenizer.RenderChatCompletion(req.Messages)
+		renderReq = &openaiserverapi.ChatCompletionsRequest{Messages: req.Messages}
 	}
+
+	tokens, _, _, err = c.simulator.Context.Tokenizer.RenderRequest(renderReq)
 	if err != nil {
 		c.logger.Error(err, "failed to tokenize")
 		ctx.Error("Failed to tokenize, "+err.Error(), fasthttp.StatusInternalServerError)

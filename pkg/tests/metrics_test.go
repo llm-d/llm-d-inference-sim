@@ -160,9 +160,10 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 
 		prompt := strings.Repeat("hello ", 25)
 		maxTokens := 25
-		expectedPromptTokensCnt := getChatPromptTokensCountForTestModel(prompt)
+		model := common.TestModelName
+		expectedPromptTokensCnt := getChatPromptTokensCountForTestModel(model, prompt)
 
-		args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
+		args := []string{"cmd", "--model", model, "--mode", common.ModeRandom,
 			"--time-to-first-token", "100", "--max-num-seqs", "4"}
 
 		client, err := startServerWithArgs(ctx, args)
@@ -176,7 +177,7 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 			Messages: []openai.ChatCompletionMessageParamUnion{
 				openai.UserMessage(prompt),
 			},
-			Model:       common.TestModelName,
+			Model:       model,
 			MaxTokens:   openai.Int(int64(maxTokens)),
 			Temperature: openai.Float(0.0),
 		}
@@ -198,24 +199,24 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 
 		for _, boundary := range buckets {
 			if boundary <= 20 {
-				Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllmsim.PromptTokensMetricName, boundary, 0)))
-				Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllmsim.ParamMaxTokensMetricName, boundary, 0)))
+				Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(model, vllmsim.PromptTokensMetricName, boundary, 0)))
+				Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(model, vllmsim.ParamMaxTokensMetricName, boundary, 0)))
 			} else {
-				Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllmsim.PromptTokensMetricName, boundary, 1)))
-				Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllmsim.ParamMaxTokensMetricName, boundary, 1)))
+				Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(model, vllmsim.PromptTokensMetricName, boundary, 1)))
+				Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(model, vllmsim.ParamMaxTokensMetricName, boundary, 1)))
 			}
 		}
-		Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllmsim.PromptTokensMetricName, math.Inf(1), 1)))
-		Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllmsim.ParamMaxTokensMetricName, math.Inf(1), 1)))
+		Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(model, vllmsim.PromptTokensMetricName, math.Inf(1), 1)))
+		Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(model, vllmsim.ParamMaxTokensMetricName, math.Inf(1), 1)))
 
-		Expect(metrics).To(MatchRegexp(fmt.Sprintf(`vllm:prompt_tokens_total{model_name="%s"} %d`, common.TestModelName, expectedPromptTokensCnt)))
+		Expect(metrics).To(MatchRegexp(fmt.Sprintf(`vllm:prompt_tokens_total{model_name="%s"} %d`, model, expectedPromptTokensCnt)))
 
 		// request_generation_tokens
 		// We do not verify the distribution of the number of tokens generated per request,
 		// as the number of generated tokens is unpredictable in this test.
 		// Therefore, we only verify the number of requests and the total number of generated tokens,
 		// and skip the bucket distribution.
-		Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllmsim.GenerationTokensMetricName+"_count", 1)))
+		Expect(metrics).To(ContainSubstring(getCountMetricLine(model, vllmsim.GenerationTokensMetricName+"_count", 1)))
 		// request_success_total
 		Expect(metrics).To(MatchRegexp(fmt.Sprintf(`vllm:request_success_total{finish_reason="(stop|length)",model_name="%s"} 1`, common.TestModelName)))
 	})
@@ -845,7 +846,7 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 			func(testNamePrefix string, ttft int, prefillTimePerToken int, interTokenLatency int,
 				kvcacheTransferLatency int, kvCacheTransferTimePerToken int, doRemotePrefill bool) {
 
-				_, tokens, err := tokenizerMngr.TestTokenizer().RenderText(testUserMessage)
+				_, tokens, err := tokenizerMngr.TestTokenizer().RenderPlainText(testUserMessage)
 				Expect(err).ShouldNot(HaveOccurred())
 				numOfTokens := len(tokens)
 

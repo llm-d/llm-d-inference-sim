@@ -50,7 +50,7 @@ type requestContext interface {
 	createToolCalls() ([]openaiserverapi.ToolCall, int, string, error)
 	handleRequest() (ResponseContext, *openaiserverapi.Error)
 	responseChannel() common.Channel[*ResponseInfo]
-	tokenizedPromptForEcho() (*openaiserverapi.Tokenized, error)
+	// tokenizedPromptForEcho() (*openaiserverapi.Tokenized, error)
 	encode() ([]uint32, []string, *tokenization.MultiModalFeatures, error)
 }
 
@@ -97,17 +97,17 @@ func (b *baseRequestContext) tokenize() *openaiserverapi.Error {
 		req.SetMMFeatures(mmFeatures)
 	}
 
-	if b.sim.Config.Mode == common.ModeEcho {
+	if b.sim.Config.Mode == common.ModeEcho && req.TokenizedPromptForEcho() == nil {
 		// in echo mode need to calculate which part of input will be sent back,
 		// e.g. in /chat/completions we send back only the last message's content
-		echoTokenized, err := b.tokenizedPromptForEcho()
+		tokens, strTokens, err := b.sim.Tokenizer.RenderPlainText(req.PlainTextForEcho())
 		if err != nil {
 			b.sim.logger.Error(err, "failed to tokenize prompt part for echo mode")
 			serverErr := openaiserverapi.NewError("Failed to tokenize prompt part for echo mode, "+err.Error(), fasthttp.StatusInternalServerError, nil)
 			return &serverErr
 		}
 
-		req.SetTokenizedPromptForEcho(echoTokenized)
+		req.SetTokenizedPromptForEcho(&openaiserverapi.Tokenized{Tokens: tokens, Strings: strTokens})
 	}
 
 	return nil

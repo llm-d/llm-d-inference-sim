@@ -18,93 +18,89 @@ package tokenizer
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
+	"github.com/llm-d/llm-d-kv-cache/pkg/kvcache/kvblock"
 	"github.com/llm-d/llm-d-kv-cache/pkg/tokenization"
-	types "github.com/llm-d/llm-d-kv-cache/pkg/tokenization/types"
 	crlog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 type HFTokenizer struct {
-	udsTokenizer *tokenization.UdsTokenizer
-	model        string
+	baseTokenizer
+
+	baseModel    string
 	ctx          context.Context
 	logger       logr.Logger
+	renderClient *renderClient
 }
 
 // HF Tokenizer
-func NewHFTokenizer(ctx context.Context, logger logr.Logger, udsSocketPath, model string) (*HFTokenizer, error) {
+func NewHFTokenizer(ctx context.Context, logger logr.Logger, renderURL, baseModel string,
+	timeout, mmTimeout time.Duration) (*HFTokenizer, error) {
 	crlog.SetLogger(logger)
-	logger.V(logging.INFO).Info("Connecting to UDS tokenizer", "socket path", udsSocketPath)
-	udsTokenizer, err := tokenization.NewUdsTokenizer(ctx,
-		&tokenization.UdsTokenizerConfig{SocketFile: udsSocketPath}, model)
-
-	if err != nil {
-		logger.Error(err, "failed to connect to UDS tokenizer")
-		return nil, err
-	}
-
-	logger.V(logging.INFO).Info("Connected to UDS tokenizer")
-	return &HFTokenizer{ctx: ctx, model: model, udsTokenizer: udsTokenizer, logger: logger}, nil
+	url := strings.TrimRight(renderURL, "/")
+	logger.V(logging.INFO).Info("HF tokenizer created", "render URL", url)
+	return &HFTokenizer{
+		baseTokenizer: newBaseTokenizer(),
+		ctx:           ctx,
+		baseModel:     baseModel,
+		renderClient:  newRenderClient(ctx, logger, renderURL, timeout, mmTimeout),
+		logger:        logger,
+	}, nil
 }
 
-// Converts input to tokens
-func (hft *HFTokenizer) RenderText(input string) ([]uint32, []string, error) {
-	tokens, offsets, err := hft.udsTokenizer.Render(input)
+// RenderRequest sends req.RawRequestPayload() to {renderURL}{req.GetEndpoint()}/render
+// and returns the token IDs and multimodal features from the response.
+func (hft *HFTokenizer) RenderRequest(req openaiserverapi.Request) ([]uint32, []string, *tokenization.MultiModalFeatures, error) {
+	endpoint := req.GetEndpoint()
+	if endpoint == "" {
+		return nil, nil, nil, errors.New("RenderRequest: request type does not support a render endpoint")
+	}
 
+	payload := req.RawRequestPayload()
+	if len(payload) == 0 {
+		return nil, nil, nil, errors.New("RenderRequest: raw request payload is empty")
+	}
+
+	tokenIDs, features, err := hft.renderClient.render(endpoint, payload, req.IsMultiModal())
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("RenderRequest: %w", err)
+	}
+
+	strTokens := hft.splitIntoTokens(req.PlainText(), len(tokenIDs))
+	return tokenIDs, strTokens, hft.toKVCacheMM(features), nil
+}
+
+func (hft *HFTokenizer) RenderPlainText(text string) ([]uint32, []string, error) {
+	req, err := common.CreateRequestForRenderText(hft.baseModel, text)
 	if err != nil {
 		return nil, nil, err
 	}
-
-	textTokens := make([]string, len(tokens))
-
-	if len(offsets) > 0 {
-		for i, offset := range offsets {
-			textTokens[i] = input[offset[0]:offset[1]]
-		}
-	} else {
-		// only one token returned, use the whole input as the text token
-		textTokens[0] = input
-	}
-
-	return tokens, textTokens, err
+	tokens, strTokens, _, err := hft.RenderRequest(req)
+	return tokens, strTokens, err
 }
 
-// Converts input to tokens in two steps: templatization and tokenization
-func (hft *HFTokenizer) RenderChatCompletion(messages []openaiserverapi.ChatComplMessage) ([]uint32, []string, *tokenization.MultiModalFeatures, error) {
-	// Convert messages to conversation format
-	conversations := make([]types.Conversation, len(messages))
-	for i, msg := range messages {
-		conversations[i].Role = msg.Role
-
-		if msg.Content.Structured != nil {
-			conversations[i].Content.Structured = make([]types.ContentBlock, len(msg.Content.Structured))
-
-			// copy structured content
-			for j, block := range msg.Content.Structured {
-				conversations[i].Content.Structured[j] = types.ContentBlock{
-					Type: block.Type,
-					Text: block.Text,
-					ImageURL: types.ImageBlock{
-						URL: block.ImageURL.Url,
-					},
-				}
-			}
-		} else {
-			conversations[i].Content.Raw = msg.Content.Raw
+func (hft *HFTokenizer) toKVCacheMM(f *renderMMFeatures) *tokenization.MultiModalFeatures {
+	if f == nil || (len(f.MMHashes) == 0 && len(f.MMPlaceholders) == 0) {
+		return nil
+	}
+	out := &tokenization.MultiModalFeatures{
+		MMHashes:       f.MMHashes,
+		MMPlaceholders: make(map[string][]kvblock.PlaceholderRange, len(f.MMPlaceholders)),
+	}
+	for k, prs := range f.MMPlaceholders {
+		ranges := make([]kvblock.PlaceholderRange, len(prs))
+		for i, pr := range prs {
+			ranges[i] = kvblock.PlaceholderRange{Offset: pr.Offset, Length: pr.Length}
 		}
+		out.MMPlaceholders[k] = ranges
 	}
-
-	renderReq := types.RenderChatRequest{
-		Conversation:        conversations,
-		Tools:               make([]any, 0),
-		Documents:           make([]any, 0),
-		AddGenerationPrompt: false,
-	}
-
-	tokens, mmFeatures, err := hft.udsTokenizer.RenderChat(&renderReq)
-
-	return tokens, []string{}, mmFeatures, err
+	return out
 }

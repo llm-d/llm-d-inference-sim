@@ -48,7 +48,7 @@ type waitingQueueItem struct {
 
 // VllmSimulator simulates vLLM server supporting OpenAI API
 type VllmSimulator struct {
-	Context SimContext
+	Context *SimContext
 	// schema validator for tools parameters
 	toolsValidator *toolsValidator
 	// indication whether the simulator is sleeping
@@ -79,14 +79,8 @@ func New(logger logr.Logger) (*VllmSimulator, error) {
 
 	return &VllmSimulator{
 		toolsValidator: toolsValidator,
-		Context: SimContext{
-			logger: logger,
-			loras: &lorasUsageInfo{
-				loadedLoras: make(map[string]int),
-			},
-			kvcacheHelper: nil, // kvcache helper will be created only if required after reading configuration
-		},
-		waitingQueue: list.New(),
+		Context:        NewSimContext(logger),
+		waitingQueue:   list.New(),
 	}, nil
 }
 
@@ -332,7 +326,7 @@ func (s *VllmSimulator) HandleRequest(req Request) (bool, *common.Channel[*Respo
 		Channel: make(chan *ResponseInfo, s.Context.Config.MaxModelLen),
 		Name:    "responseInfo",
 	}
-	reqCtx := req.buildRequestContext(&s.Context, channel)
+	reqCtx := req.buildRequestContext(s.Context, channel)
 	common.WriteToChannel(s.newRequests, reqCtx, s.Context.logger)
 	return req.IsStream(), &channel, nil, false
 }

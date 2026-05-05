@@ -27,10 +27,12 @@ import (
 )
 
 const (
-	RoleAssistant      = "assistant"
-	RoleUser           = "user"
-	inputItemMessage   = "message"
-	ResponsesInputText = "input_text"
+	RoleAssistant         = "assistant"
+	RoleUser              = "user"
+	inputItemMessage      = "message"
+	ResponsesInputText    = "input_text"
+	StartMessageSeparator = "### "
+	EndMessageSeparator   = "\n"
 )
 
 // Request defines an interface for request information retrieval
@@ -110,6 +112,18 @@ type Request interface {
 	SetRawRequestPayload(payload []byte)
 	// RawRequestPayload returns the raw request payload as bytes
 	RawRequestPayload() []byte
+
+	// GetEndpoint returns the OpenAI API endpoint path for this request type,
+	// e.g. "/v1/completions" or "/v1/chat/completions".
+	// Used to construct render URLs: GetEndpoint() + "/render".
+	GetEndpoint() string
+
+	// IsMultiModal returns true if the request contains multimodal content (e.g. images).
+	IsMultiModal() bool
+
+	// Textual representation of the request
+	PlainText() string
+	PlainTextForEcho() string
 }
 
 // baseRequest contains base completions request related information
@@ -148,7 +162,8 @@ type baseRequest struct {
 type baseCompletionsRequest struct {
 	baseRequest
 	// StreamOptions defines streaming options in case Stream is set to true
-	StreamOptions StreamOptions `json:"stream_options"`
+	// StreamOptions StreamOptions `json:"stream_options"`
+	StreamOptions *StreamOptions `json:"stream_options,omitempty"`
 	// CacheHitThreshold is a value between 0 and 1 that specifies the minimum cache hit rate required
 	// to proceed with request processing. If the actual cache hit rate is below this threshold,
 	// the request will return with cache_threshold finish reason.
@@ -346,8 +361,12 @@ func (b *baseRequest) RawRequestPayload() []byte {
 	return b.rawRequestPayload
 }
 
+func (b *baseRequest) IsMultiModal() bool {
+	return false
+}
+
 func (b *baseCompletionsRequest) IncludeUsage() bool {
-	return !b.Stream || b.StreamOptions.IncludeUsage
+	return !b.Stream || (b.StreamOptions != nil && b.StreamOptions.IncludeUsage)
 }
 
 // GetCacheHitThreshold returns the cache hit threshold value
@@ -452,6 +471,40 @@ func (c *ChatCompletionsRequest) GetLogprobs() *int {
 	return &defaultVal
 }
 
+func (c *ChatCompletionsRequest) GetEndpoint() string {
+	return "/v1/chat/completions"
+}
+
+func (c *ChatCompletionsRequest) IsMultiModal() bool {
+	for _, msg := range c.Messages {
+		for _, block := range msg.Content.Structured {
+			if block.Type == "image_url" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (c *ChatCompletionsRequest) PlainText() string {
+	var builder strings.Builder
+
+	for _, msg := range c.Messages {
+		builder.WriteString(StartMessageSeparator)
+		builder.WriteString(msg.plainText(true))
+		builder.WriteString(EndMessageSeparator)
+	}
+
+	return builder.String()
+}
+
+func (c *ChatCompletionsRequest) PlainTextForEcho() string {
+	if len(c.Messages) == 0 {
+		return ""
+	}
+	return c.Messages[len(c.Messages)-1].plainText(false)
+}
+
 // v1/completions
 // TextCompletionsRequest defines structure of /completions request
 type TextCompletionsRequest struct {
@@ -497,6 +550,18 @@ func (t *TextCompletionsRequest) GetLogprobs() *int {
 	return t.Logprobs
 }
 
+func (t *TextCompletionsRequest) GetEndpoint() string {
+	return "/v1/completions"
+}
+
+func (t *TextCompletionsRequest) PlainText() string {
+	return t.Prompt
+}
+
+func (t *TextCompletionsRequest) PlainTextForEcho() string {
+	return t.Prompt
+}
+
 // GenerationRequest defines structure of generation request
 type GenerationRequest struct {
 	baseRequest
@@ -513,10 +578,6 @@ type GenerationRequest struct {
 
 var _ Request = (*GenerationRequest)(nil)
 
-func (t *GenerationRequest) GetPrompt() string {
-	return t.Prompt
-}
-
 func (c *GenerationRequest) GetTools() []Tool {
 	return nil
 }
@@ -529,10 +590,6 @@ func (c *GenerationRequest) GetMaxCompletionTokens() *int64 {
 	return c.MaxTokens
 }
 
-func (t *GenerationRequest) GetFullPrompt() string {
-	return t.Prompt
-}
-
 // ExtractMaxTokens extracts the max tokens from the request
 // for text completions - max_tokens field is used
 func (req *GenerationRequest) ExtractMaxTokens() *int64 {
@@ -541,6 +598,19 @@ func (req *GenerationRequest) ExtractMaxTokens() *int64 {
 
 func (t *GenerationRequest) GetLogprobs() *int {
 	return nil
+}
+
+func (t *GenerationRequest) GetEndpoint() string {
+	// tokenizetion of generation endpoint input is done in the same way as completions request
+	return "/v1/completions"
+}
+
+func (t *GenerationRequest) PlainText() string {
+	return t.Prompt
+}
+
+func (t *GenerationRequest) PlainTextForEcho() string {
+	return t.Prompt
 }
 
 func NewGenerationRequest(requestID string, stream bool, model string, maxTokens *int64) *GenerationRequest {
@@ -584,6 +654,7 @@ type JSONSchemaSpec struct {
 
 type InputItem interface {
 	isInputItem()
+	plainText(includeRole bool) string
 	json.Unmarshaler
 }
 
@@ -625,7 +696,14 @@ func (m *InputMessage) UnmarshalJSON(data []byte) error {
 	return json.Unmarshal(raw.Content, &m.Content)
 }
 
-func (m *InputMessage) ReadableText() string {
+func (m *InputMessage) plainText(includeRole bool) string {
+	var builder strings.Builder
+
+	if includeRole {
+		builder.WriteString(m.Role)
+		builder.WriteString(": ")
+	}
+
 	var parts []string
 	for _, c := range m.Content {
 		switch c.Type { // nolint
@@ -633,8 +711,22 @@ func (m *InputMessage) ReadableText() string {
 			parts = append(parts, c.Text)
 		}
 	}
-	return strings.Join(parts, "\n")
+	builder.WriteString(strings.Join(parts, "\n"))
+
+	return builder.String()
 }
+
+// TODO MAYAB - do we need this?
+// func (m *InputMessage) ReadableText() string {
+// 	var parts []string
+// 	for _, c := range m.Content {
+// 		switch c.Type { // nolint
+// 		case ResponsesInputText:
+// 			parts = append(parts, c.Text)
+// 		}
+// 	}
+// 	return strings.Join(parts, "\n")
+// }
 
 type InputContent struct {
 	Type string `json:"type"` // input_text
@@ -727,4 +819,40 @@ func (req *ResponsesRequest) GetLogprobs() *int {
 
 func (req *ResponsesRequest) ExtractMaxTokens() *int64 {
 	return req.MaxOutputTokens
+}
+
+func (req *ResponsesRequest) GetEndpoint() string {
+	return "/v1/responses"
+}
+
+func (req *ResponsesRequest) IsMultiModal() bool {
+	for _, item := range req.Input {
+		if msg, ok := item.(*InputMessage); ok {
+			for _, c := range msg.Content {
+				if c.Type != ResponsesInputText {
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
+func (req *ResponsesRequest) PlainText() string {
+	var builder strings.Builder
+
+	for _, msg := range req.Input {
+		builder.WriteString(StartMessageSeparator)
+		builder.WriteString(msg.plainText(true))
+		builder.WriteString(EndMessageSeparator)
+	}
+
+	return builder.String()
+}
+
+func (req *ResponsesRequest) PlainTextForEcho() string {
+	if len(req.Input) == 0 {
+		return ""
+	}
+	return req.Input[len(req.Input)-1].plainText(false)
 }

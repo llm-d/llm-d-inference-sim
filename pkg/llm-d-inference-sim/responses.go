@@ -74,38 +74,7 @@ func (r *responsesReqCtx) request() Request {
 }
 
 func (r *responsesReqCtx) encode() ([]uint32, []string, *tokenization.MultiModalFeatures, error) {
-	var messages []openaiserverapi.ChatComplMessage
-
-	if r.req.Instructions != "" {
-		messages = append(messages, openaiserverapi.ChatComplMessage{
-			Role:    "system",
-			Content: openaiserverapi.ChatComplContent{Raw: r.req.Instructions},
-		})
-	}
-
-	for _, item := range r.req.Input {
-		if msg, ok := item.(*openaiserverapi.InputMessage); ok {
-			var content openaiserverapi.ChatComplContent
-			switch len(msg.Content) {
-			case 0:
-				// no content
-			case 1:
-				content = openaiserverapi.ChatComplContent{Raw: msg.Content[0].Text}
-			default:
-				blocks := make([]openaiserverapi.ChatComplContentBlock, len(msg.Content))
-				for i, c := range msg.Content {
-					blocks[i] = openaiserverapi.ChatComplContentBlock{Type: "text", Text: c.Text}
-				}
-				content = openaiserverapi.ChatComplContent{Structured: blocks}
-			}
-			messages = append(messages, openaiserverapi.ChatComplMessage{
-				Role:    msg.Role,
-				Content: content,
-			})
-		}
-	}
-
-	tokens, strTokens, _, err := r.sim.Tokenizer.RenderChatCompletion(messages)
+	tokens, strTokens, _, err := r.sim.Tokenizer.RenderRequest(r.req)
 	return tokens, strTokens, nil, err
 }
 
@@ -113,21 +82,21 @@ func (r *responsesReqCtx) createToolCalls() ([]openaiserverapi.ToolCall, int, st
 	return nil, 0, "", nil
 }
 
-func (r *responsesReqCtx) tokenizedPromptForEcho() (*openaiserverapi.Tokenized, error) {
-	// echo the text of the last input message, matching chat completion behavior
-	text := ""
-	if len(r.req.Input) > 0 {
-		if msg, ok := r.req.Input[len(r.req.Input)-1].(*openaiserverapi.InputMessage); ok {
-			text = msg.ReadableText()
-		}
-	}
+// func (r *responsesReqCtx) tokenizedPromptForEcho() (*openaiserverapi.Tokenized, error) {
+// 	// echo the text of the last input message, matching chat completion behavior
+// 	text := ""
+// 	if len(r.req.Input) > 0 {
+// 		if msg, ok := r.req.Input[len(r.req.Input)-1].(*openaiserverapi.InputMessage); ok {
+// 			text = msg.ReadableText()
+// 		}
+// 	}
 
-	tokens, strTokens, err := r.sim.Tokenizer.RenderText(text)
-	if err != nil {
-		return nil, err
-	}
-	return &openaiserverapi.Tokenized{Tokens: tokens, Strings: strTokens}, nil
-}
+// 	tokens, strTokens, err := r.sim.Tokenizer.RenderText(text)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	return &openaiserverapi.Tokenized{Tokens: tokens, Strings: strTokens}, nil
+// }
 
 var _ requestContext = (*responsesReqCtx)(nil)
 

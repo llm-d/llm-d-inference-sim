@@ -26,6 +26,7 @@ import (
 	"path/filepath"
 
 	"github.com/go-logr/logr"
+	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 )
@@ -61,7 +62,7 @@ type DatasetTool struct {
 
 // NewDatasetTool creates DatasetTool instance based on the given parameters
 func NewDatasetTool(ctx context.Context, config *DSToolConfiguration, logger logr.Logger) (*DatasetTool, error) {
-	t, err := tokenizer.NewHFTokenizer(ctx, logger, config.udsSocketPath, config.model)
+	t, err := tokenizer.NewHFTokenizer(ctx, logger, config.renderURL, config.model, config.renderTimeout, config.mmRenderTimeout)
 	if err != nil {
 		return nil, err
 	}
@@ -214,18 +215,13 @@ func (dt *DatasetTool) conversationToOutputRecords(userTxt, assistantTxt string,
 	result := []outputRecord{}
 
 	// create completions request
-	textRequest := openaiserverapi.TextCompletionsRequest{
-		Prompt: userTxt,
+	textRequest, err := common.CreateRequestForRenderText(dt.config.model, userTxt)
+	if err != nil {
+		return nil, err
 	}
 
-	// add current user message
-	chatRequest.Messages = append(chatRequest.Messages, openaiserverapi.ChatComplMessage{
-		Role:    openaiserverapi.RoleUser,
-		Content: openaiserverapi.ChatComplContent{Raw: userTxt},
-	})
-
 	// create db record for /completions (without the messages concatenation)
-	inputTokens, _, err := dt.tokenizer.RenderText(textRequest.Prompt)
+	inputTokens, _, _, err := dt.tokenizer.RenderRequest(textRequest)
 	if err != nil {
 		return nil, errors.Join(err, fmt.Errorf("input tokenization failed (%s)", textRequest.Prompt))
 	}
@@ -236,13 +232,23 @@ func (dt *DatasetTool) conversationToOutputRecords(userTxt, assistantTxt string,
 		result = append(result, *rec)
 	}
 
-	// create db record for /chat/completions with all messages till now
-	inputTokens, _, _, err = dt.tokenizer.RenderChatCompletion(chatRequest.Messages)
-	rawInput := tokenizer.FlattenChatRequest(chatRequest.Messages)
+	// add current user message
+	chatRequest.Messages = append(chatRequest.Messages, openaiserverapi.ChatComplMessage{
+		Role:    openaiserverapi.RoleUser,
+		Content: openaiserverapi.ChatComplContent{Raw: userTxt},
+	})
+	// Create a new chat completion request using this special function to ne sure
+	// that request's raw payload is up-to-date
+	chatRequestForRender, err := common.CreateRequestForRenderChatMessages(dt.config.model, chatRequest.Messages)
 	if err != nil {
-		return nil, errors.Join(err, fmt.Errorf("input tokenization failed (%s)", rawInput))
+		return nil, err
 	}
-	if rec, err := dt.createOutputRecord(inputTokens, assistantTxt, rawInput); err != nil {
+
+	// create db record for /chat/completions with all messages till now
+	if inputTokens, _, _, err = dt.tokenizer.RenderRequest(chatRequestForRender); err != nil {
+		return nil, err
+	}
+	if rec, err := dt.createOutputRecord(inputTokens, assistantTxt, chatRequestForRender.PlainText()); err != nil {
 		return nil, err
 	} else {
 		result = append(result, *rec)
@@ -260,7 +266,7 @@ func (dt *DatasetTool) conversationToOutputRecords(userTxt, assistantTxt string,
 // rawInput represents the input for reference and debug purpose, it uses "dummy templatisation"
 // and not real model's templatization
 func (dt *DatasetTool) createOutputRecord(inputTokens []uint32, generatedText string, rawInput string) (*outputRecord, error) {
-	generatedTokens, genTextTokens, err := dt.tokenizer.RenderText(generatedText)
+	generatedTokens, genTextTokens, err := dt.tokenizer.RenderPlainText(generatedText)
 	if err != nil {
 		return nil, errors.Join(err, fmt.Errorf("output tokenization failed (%s)", generatedText))
 	}

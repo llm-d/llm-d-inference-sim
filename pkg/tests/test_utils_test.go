@@ -138,13 +138,20 @@ func startServerHelper(ctx context.Context, mode string, args []string, envs map
 	}
 
 	// calculate number of tokens for user message,
-	tokens, _, err := s.Context.Tokenizer.RenderText(testUserMessage)
+	textReq, err := common.CreateRequestForRenderText(config.Model, testUserMessage)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	tokens, _, _, err := s.Context.Tokenizer.RenderRequest(textReq)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 	userMsgTokens = int64(len(tokens))
 	// calculate number of tokens for user message as chat/completions
-	tokens, _, _, err = s.Context.Tokenizer.RenderChatCompletion([]openaiserverapi.ChatComplMessage{{Role: openaiserverapi.RoleUser, Content: openaiserverapi.ChatComplContent{Raw: testUserMessage}}})
+	chatReq, err := common.CreateRequestForRenderChatMessages(config.Model,
+		[]openaiserverapi.ChatComplMessage{
+			{Role: openaiserverapi.RoleUser,
+				Content: openaiserverapi.ChatComplContent{Raw: testUserMessage}}})
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	tokens, _, _, err = s.Context.Tokenizer.RenderRequest(chatReq)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -651,8 +658,11 @@ func getOpenAIClientAndTextParams(client option.HTTPClient, model string, messag
 }
 
 // renders the given messages using the test model
-func getChatPromptTokensCountForTestModel(message string) int64 {
-	tokens, _, _, err := tokenizerMngr.TestTokenizer().RenderChatCompletion([]openaiserverapi.ChatComplMessage{{Role: openaiserverapi.RoleUser, Content: openaiserverapi.ChatComplContent{Raw: message}}})
+func getChatPromptTokensCountForTestModel(model, message string) int64 {
+	chatReq, err := common.CreateRequestForRenderChatMessages(model,
+		[]openaiserverapi.ChatComplMessage{{Role: openaiserverapi.RoleUser, Content: openaiserverapi.ChatComplContent{Raw: message}}})
+	gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
+	tokens, _, _, err := tokenizerMngr.TestTokenizer().RenderRequest(chatReq)
 	gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
 
 	return int64(len(tokens))

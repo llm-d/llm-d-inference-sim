@@ -257,8 +257,14 @@ type Configuration struct {
 	// DatasetTableName defines custom SQLite dataset table name
 	DatasetTableName string `yaml:"dataset-table-name" json:"dataset-table-name"`
 
-	// Tokenizer UDS socker path
+	// UDSSocketPath is the Tokenizer UDS socket path
 	UDSSocketPath string `yaml:"uds-socket-path" json:"uds-socket-path"`
+	// RenderURL is the URL of the tokenizer render service
+	RenderURL string `yaml:"render-url" json:"render-url"`
+	// RenderTimeout is the timeout for tokenizer render requests
+	RenderTimeout time.Duration `yaml:"render-timeout" json:"render-timeout"`
+	// MMRenderTimeout is the timeout for multi-modal tokenizer render requests
+	MMRenderTimeout time.Duration `yaml:"mm-render-timeout" json:"mm-render-timeout"`
 
 	// StartupDuration defines how long /health/ready returns 503 to simulate GPU model loading.
 	// After this duration from startup, /health/ready returns 200. Default is 0 (immediately ready).
@@ -336,6 +342,8 @@ func newConfig() *Configuration {
 		DefaultEmbeddingDimensions: 384,
 		FakeMetricsRefreshInterval: 100 * time.Millisecond,
 		UDSSocketPath:              "/tmp/tokenizer/tokenizer-uds.socket",
+		RenderTimeout:              30 * time.Second,
+		MMRenderTimeout:            60 * time.Second,
 	}
 }
 
