@@ -187,10 +187,3 @@ func (c *Communication) start(ctx context.Context) error {
 func (c *Communication) Printf(format string, args ...interface{}) {
 	c.logger.V(logging.WARN).Info("Server error", "msg", fmt.Sprintf(format, args...))
 }
-
-func (c *Communication) onResponseSendFinished(respCtx vllmsim.ResponseContext) {
-	if respCtx != nil {
-		c.simulator.ResponseSentCallback(respCtx.RequestContext())
-		respCtx.Done()
-	}
-}

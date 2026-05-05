@@ -379,7 +379,7 @@ func (s *VllmSimulator) dequeue() requestContext {
 	return nil
 }
 
-func (s *VllmSimulator) sendResponse(reqCtx requestContext, respCtx ResponseContext) {
+func (s *VllmSimulator) simulateResponseProcessing(reqCtx requestContext, respCtx ResponseContext) {
 	// Skip delays if finish reason is cache_threshold (immediate return)
 	if respCtx.FinishReason() != nil && *respCtx.FinishReason() == common.CacheThresholdFinishReason {
 		common.WriteToChannel(reqCtx.responseChannel(), &ResponseInfo{RespCtx: respCtx},
@@ -432,7 +432,7 @@ func (s *VllmSimulator) sendResponse(reqCtx requestContext, respCtx ResponseCont
 }
 
 // request processing finished
-func (s *VllmSimulator) ResponseSentCallback(reqCtx requestContext) {
+func (s *VllmSimulator) onResponseProcessingFinished(reqCtx requestContext) {
 	// decrement running requests count
 	common.WriteToChannel(s.Context.metrics.runReqChan, common.MetricInfo{Value: -1}, s.Context.logger)
 

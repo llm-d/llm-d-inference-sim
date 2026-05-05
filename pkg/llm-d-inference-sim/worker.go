@@ -18,7 +18,6 @@ package llmdinferencesim
 
 import (
 	"context"
-	"sync"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -59,40 +58,19 @@ type requestProcessor interface {
 }
 
 func (s *VllmSimulator) processRequest(reqCtx requestContext) {
+	defer s.onResponseProcessingFinished(reqCtx)
+
 	startTime := time.Now()
 	req := reqCtx.request()
 	respCtx, err := reqCtx.handleRequest()
 	if err != nil {
 		common.WriteToChannel(reqCtx.responseChannel(), &ResponseInfo{RespCtx: respCtx, Err: err},
 			s.Context.logger)
-		s.ResponseSentCallback(reqCtx)
 		return
 	}
 
-	wg := sync.WaitGroup{}
-	wg.Add(1)
-	respCtx.setWG(&wg)
-
-	s.sendResponse(reqCtx, respCtx)
-
-	// Wait for the response to be fully sent, with a timeout to prevent
-	// the worker from hanging indefinitely when the client doesn't consume the stream.
-	doneCh := make(chan struct{})
-	go func() {
-		wg.Wait()
-		close(doneCh)
-	}()
-
-	const sendTimeout = 60 * time.Second
-	select {
-	case <-doneCh:
-		// Response sent successfully
-	case <-time.After(sendTimeout):
-		s.Context.logger.Error(nil, "Timeout waiting for response to be sent, releasing worker",
-			"id", req.GetRequestID(), "timeout", sendTimeout)
-		s.ResponseSentCallback(reqCtx)
-		return
-	}
+	s.simulateResponseProcessing(reqCtx, respCtx)
+	s.Context.logger.V(logging.DEBUG).Info("Finished processing request", "id", req.GetRequestID())
 
 	common.WriteToChannel(s.Context.metrics.requestSuccessChan,
 		requestSuccessEvent{
@@ -104,9 +82,6 @@ func (s *VllmSimulator) processRequest(reqCtx requestContext) {
 			finishReason:       *respCtx.FinishReason()},
 		s.Context.logger)
 
-	s.Context.logger.V(logging.DEBUG).Info("Finished processing request", "id", req.GetRequestID())
-
-	// calculate inference time and finish e2e latency calculation only when sure that request processing was finished for streaming requests too
 	common.WriteToChannel(s.Context.metrics.e2eReqLatencyChan, time.Since(reqCtx.startProcessingTime()).Seconds(), s.Context.logger)
 	common.WriteToChannel(s.Context.metrics.reqInferenceTimeChan, time.Since(startTime).Seconds(), s.Context.logger)
 }

@@ -235,7 +235,6 @@ func (c *Communication) sendNonStream(ctx *fasthttp.RequestCtx, channel common.C
 		respCtx = response.RespCtx
 	}
 
-	defer c.onResponseSendFinished(respCtx)
 	resp := respBuilder.createResponse(respCtx, &tokens)
 	data, err := json.Marshal(resp)
 	if err != nil {
@@ -258,7 +257,6 @@ func (c *Communication) sendStream(ctx *fasthttp.RequestCtx, channel common.Chan
 		defer func() {
 			w.Flush()  //nolint:errcheck
 			pw.Close() //nolint:errcheck
-			c.onResponseSendFinished(respCtx)
 		}()
 
 		var lastToolCall *openaiserverapi.ToolCall
