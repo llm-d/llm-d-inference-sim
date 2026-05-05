@@ -1559,7 +1559,7 @@ var _ = Describe("Simulator", func() {
 					switch event.Type {
 					case openaiserverapi.ResponsesEventCreated:
 						created := event.AsResponseCreated()
-						Expect(string(created.Response.Status)).To(Equal("in_progress"))
+						Expect(string(created.Response.Status)).To(Equal(openaiserverapi.ResponsesStatusInProgress))
 					case openaiserverapi.ResponsesEventOutputItemAdded:
 						added := event.AsResponseOutputItemAdded()
 						Expect(added.OutputIndex).To(Equal(int64(0)))
@@ -1577,6 +1577,7 @@ var _ = Describe("Simulator", func() {
 						Expect(completed.Response.Usage.OutputTokens).To(BeNumerically(">", 0))
 						Expect(completed.Response.Usage.TotalTokens).To(Equal(
 							completed.Response.Usage.InputTokens + completed.Response.Usage.OutputTokens))
+						Expect(string(completed.Response.Status)).To(Equal(openaiserverapi.ResponsesStatusCompleted))
 					}
 				}
 				Expect(stream.Err()).NotTo(HaveOccurred())

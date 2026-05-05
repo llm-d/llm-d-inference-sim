@@ -29,12 +29,15 @@ const (
 	chatComplIDPrefix         = "chatcmpl-"
 	textComplIDPrefix         = "cmpl-"
 	ResponsesIDPrefix         = "resp_"
+	ResponsesMessageIDPrefix  = "msg_"
 	TextCompletionObject      = "text_completion"
 	ChatCompletionObject      = "chat.completion"
 	ChatCompletionChunkObject = "chat.completion.chunk"
 	ResponsesObject           = "response"
 	ResponsesStatusCompleted  = "completed"
+	ResponsesStatusInProgress = "in_progress"
 	ResponsesOutputText       = "output_text"
+	ResponsesOutputMessage    = "message"
 )
 
 // Response interface representing response types
@@ -459,7 +462,7 @@ func (MessageOutput) isOutputItem() {}
 
 func (m MessageOutput) MarshalJSON() ([]byte, error) {
 	if m.Type == "" {
-		m.Type = "message"
+		m.Type = ResponsesOutputMessage
 	}
 	type alias MessageOutput
 	return json.Marshal(alias(m))

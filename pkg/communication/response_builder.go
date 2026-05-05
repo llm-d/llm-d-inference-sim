@@ -33,10 +33,10 @@ type sseChunk interface {
 }
 
 // jsonDataChunk formats its value as "data: <json>\n\n".
-type jsonDataChunk struct{ v any }
+type jsonDataChunk struct{ data any }
 
 func (j *jsonDataChunk) SSEBytes() ([]byte, error) {
-	b, err := json.Marshal(j.v)
+	b, err := json.Marshal(j.data)
 	if err != nil {
 		return nil, err
 	}
@@ -45,16 +45,24 @@ func (j *jsonDataChunk) SSEBytes() ([]byte, error) {
 
 // namedEventChunk formats its value as "event: <name>\ndata: <json>\n\n".
 type namedEventChunk struct {
-	name string
-	v    any
+	names []string
+	data  []any
 }
 
 func (e *namedEventChunk) SSEBytes() ([]byte, error) {
-	b, err := json.Marshal(e.v)
-	if err != nil {
-		return nil, err
+	var result strings.Builder
+	for i, data := range e.data {
+		b, err := json.Marshal(data)
+		if err != nil {
+			return nil, err
+		}
+		result.WriteString("event: ")
+		result.WriteString(e.names[i])
+		result.WriteString("\ndata: ")
+		result.Write(b)
+		result.WriteString("\n\n")
 	}
-	return []byte("event: " + e.name + "\ndata: " + string(b) + "\n\n"), nil
+	return []byte(result.String()), nil
 }
 
 // doneMarker emits the SSE stream terminator "data: [DONE]\n\n".
@@ -110,7 +118,7 @@ func (respBuilder *textComplHTTPRespBuilder) createUsageChunk(respCtx vllmsim.Re
 	baseChunk := openaiserverapi.CreateBaseCompletionsResponse(
 		respCtx.CreationTime(), respCtx.DisplayModel(), respCtx.UsageData(), respCtx.RequestID(), false)
 	baseChunk.Object = openaiserverapi.TextCompletionObject
-	return &jsonDataChunk{v: openaiserverapi.CreateTextCompletionsResponse(baseChunk, []openaiserverapi.TextRespChoice{})}
+	return &jsonDataChunk{data: openaiserverapi.CreateTextCompletionsResponse(baseChunk, []openaiserverapi.TextRespChoice{})}
 }
 
 // createChunk creates and returns a CompletionsRespChunk, a single chunk of streamed completion API response,
@@ -138,7 +146,7 @@ func (respBuilder *textComplHTTPRespBuilder) createChunk(respCtx vllmsim.Respons
 		}
 	}
 
-	return &jsonDataChunk{v: openaiserverapi.CreateTextCompletionsResponse(baseChunk, []openaiserverapi.TextRespChoice{choice})}
+	return &jsonDataChunk{data: openaiserverapi.CreateTextCompletionsResponse(baseChunk, []openaiserverapi.TextRespChoice{choice})}
 }
 
 func (respBuilder *textComplHTTPRespBuilder) createInitialChunk(respCtx vllmsim.ResponseContext) sseChunk {
@@ -203,7 +211,7 @@ func (respBuilder *chatComplHTTPRespBuilder) createUsageChunk(respCtx vllmsim.Re
 	baseChunk := openaiserverapi.CreateBaseCompletionsResponse(
 		respCtx.CreationTime(), respCtx.DisplayModel(), respCtx.UsageData(), respCtx.RequestID(), false)
 	baseChunk.Object = openaiserverapi.ChatCompletionChunkObject
-	return &jsonDataChunk{v: openaiserverapi.CreateChatCompletionsResponse(baseChunk, []openaiserverapi.ChatRespChoice{})}
+	return &jsonDataChunk{data: openaiserverapi.CreateChatCompletionsResponse(baseChunk, []openaiserverapi.ChatRespChoice{})}
 }
 
 // createChunk creates and returns a CompletionsRespChunk, a single chunk of streamed completion
@@ -240,7 +248,7 @@ func (respBuilder *chatComplHTTPRespBuilder) createChunk(respCtx vllmsim.Respons
 		}
 	}
 
-	return &jsonDataChunk{v: &chunk}
+	return &jsonDataChunk{data: &chunk}
 }
 
 func (respBuilder *chatComplHTTPRespBuilder) createInitialChunk(respCtx vllmsim.ResponseContext) sseChunk {
@@ -319,9 +327,9 @@ func (respBuilder *responsesHTTPRespBuilder) createResponse(respCtx vllmsim.Resp
 		respCtx.Instructions(),
 		[]openaiserverapi.OutputItem{
 			openaiserverapi.MessageOutput{
-				Type:   "message",
+				Type:   openaiserverapi.ResponsesOutputMessage,
 				Role:   openaiserverapi.RoleAssistant,
-				Status: "completed",
+				Status: openaiserverapi.ResponsesStatusCompleted,
 				Content: []openaiserverapi.OutputContent{
 					{Type: openaiserverapi.ResponsesOutputText, Text: text},
 				},
@@ -345,10 +353,10 @@ func (respBuilder *responsesHTTPRespBuilder) createUsageChunk(respCtx vllmsim.Re
 		respCtx.Instructions(),
 		[]openaiserverapi.OutputItem{
 			openaiserverapi.MessageOutput{
-				Type:   "message",
-				ID:     "msg_" + respCtx.RequestID(),
+				Type:   openaiserverapi.ResponsesOutputMessage,
+				ID:     openaiserverapi.ResponsesMessageIDPrefix + respCtx.RequestID(),
 				Role:   openaiserverapi.RoleAssistant,
-				Status: "completed",
+				Status: openaiserverapi.ResponsesStatusCompleted,
 				Content: []openaiserverapi.OutputContent{
 					{Type: openaiserverapi.ResponsesOutputText, Text: text},
 				},
@@ -360,10 +368,12 @@ func (respBuilder *responsesHTTPRespBuilder) createUsageChunk(respCtx vllmsim.Re
 			TotalTokens:  usage.TotalTokens,
 		},
 	)
-	return &namedEventChunk{name: openaiserverapi.ResponsesEventCompleted, v: &openaiserverapi.ResponsesResponseEvent{
-		Type:     openaiserverapi.ResponsesEventCompleted,
-		Response: resp,
-	}}
+	return &namedEventChunk{
+		names: []string{openaiserverapi.ResponsesEventCompleted},
+		data: []any{&openaiserverapi.ResponsesResponseEvent{
+			Type:     openaiserverapi.ResponsesEventCompleted,
+			Response: resp,
+		}}}
 }
 
 func (respBuilder *responsesHTTPRespBuilder) createChunk(respCtx vllmsim.ResponseContext,
@@ -373,33 +383,13 @@ func (respBuilder *responsesHTTPRespBuilder) createChunk(respCtx vllmsim.Respons
 	}
 	delta := strings.Join(tokens.Strings, "")
 	respBuilder.accumulated.WriteString(delta)
-	return &namedEventChunk{name: openaiserverapi.ResponsesEventTextDelta, v: &openaiserverapi.ResponsesItemEvent{
-		Type:   openaiserverapi.ResponsesEventTextDelta,
-		ItemID: "msg_" + respCtx.RequestID(),
-		Delta:  delta,
-	}}
-}
-
-// responsesInitialEvents emits response.created + response.in_progress as one sendChunk call.
-type responsesInitialEvents struct {
-	resp *openaiserverapi.ResponsesResponse
-}
-
-func (e *responsesInitialEvents) SSEBytes() ([]byte, error) {
-	created := openaiserverapi.ResponsesResponseEvent{Type: openaiserverapi.ResponsesEventCreated, Response: e.resp}
-	inProgress := openaiserverapi.ResponsesResponseEvent{Type: openaiserverapi.ResponsesEventInProgress, Response: e.resp}
-	b1, err := json.Marshal(created)
-	if err != nil {
-		return nil, err
-	}
-	b2, err := json.Marshal(inProgress)
-	if err != nil {
-		return nil, err
-	}
-	return []byte(
-		"event: " + created.Type + "\ndata: " + string(b1) + "\n\n" +
-			"event: " + inProgress.Type + "\ndata: " + string(b2) + "\n\n",
-	), nil
+	return &namedEventChunk{
+		names: []string{openaiserverapi.ResponsesEventTextDelta},
+		data: []any{&openaiserverapi.ResponsesItemEvent{
+			Type:   openaiserverapi.ResponsesEventTextDelta,
+			ItemID: openaiserverapi.ResponsesMessageIDPrefix + respCtx.RequestID(),
+			Delta:  delta,
+		}}}
 }
 
 func (respBuilder *responsesHTTPRespBuilder) createInitialChunk(respCtx vllmsim.ResponseContext) sseChunk {
@@ -411,21 +401,23 @@ func (respBuilder *responsesHTTPRespBuilder) createInitialChunk(respCtx vllmsim.
 		nil,
 		nil,
 	)
-	resp.Status = "in_progress"
-	return &responsesInitialEvents{resp: resp}
+	resp.Status = openaiserverapi.ResponsesStatusInProgress
+	created := openaiserverapi.ResponsesResponseEvent{Type: openaiserverapi.ResponsesEventCreated, Response: resp}
+	inProgress := openaiserverapi.ResponsesResponseEvent{Type: openaiserverapi.ResponsesEventInProgress, Response: resp}
+
+	return &namedEventChunk{
+		names: []string{created.Type, inProgress.Type},
+		data:  []any{created, inProgress},
+	}
 }
 
-// responsesFirstEvents is a composite that emits output_item.added + content_part.added in one sendChunk call.
-type responsesFirstEvents struct {
-	itemID string
-}
-
-func (e *responsesFirstEvents) SSEBytes() ([]byte, error) {
+func (respBuilder *responsesHTTPRespBuilder) createFirstChunk(respCtx vllmsim.ResponseContext) sseChunk {
+	itemID := openaiserverapi.ResponsesMessageIDPrefix + respCtx.RequestID()
 	outputItemAdded := openaiserverapi.ResponsesItemEvent{
 		Type: openaiserverapi.ResponsesEventOutputItemAdded,
 		Item: openaiserverapi.MessageOutput{
-			Type:    "message",
-			ID:      e.itemID,
+			Type:    openaiserverapi.ResponsesOutputMessage,
+			ID:      itemID,
 			Role:    openaiserverapi.RoleAssistant,
 			Status:  "in_progress",
 			Content: []openaiserverapi.OutputContent{},
@@ -434,80 +426,46 @@ func (e *responsesFirstEvents) SSEBytes() ([]byte, error) {
 	part := openaiserverapi.OutputContent{Type: openaiserverapi.ResponsesOutputText, Text: ""}
 	contentPartAdded := openaiserverapi.ResponsesItemEvent{
 		Type:   openaiserverapi.ResponsesEventContentPartAdded,
-		ItemID: e.itemID,
+		ItemID: itemID,
 		Part:   &part,
 	}
-	b1, err := json.Marshal(outputItemAdded)
-	if err != nil {
-		return nil, err
+	return &namedEventChunk{
+		names: []string{outputItemAdded.Type, contentPartAdded.Type},
+		data:  []any{outputItemAdded, contentPartAdded},
 	}
-	b2, err := json.Marshal(contentPartAdded)
-	if err != nil {
-		return nil, err
-	}
-	return []byte(
-		"event: " + outputItemAdded.Type + "\ndata: " + string(b1) + "\n\n" +
-			"event: " + contentPartAdded.Type + "\ndata: " + string(b2) + "\n\n",
-	), nil
 }
 
-func (respBuilder *responsesHTTPRespBuilder) createFirstChunk(respCtx vllmsim.ResponseContext) sseChunk {
-	return &responsesFirstEvents{itemID: "msg_" + respCtx.RequestID()}
-}
+func (respBuilder *responsesHTTPRespBuilder) createLastChunk(respCtx vllmsim.ResponseContext, _ string) sseChunk {
+	itemID := openaiserverapi.ResponsesMessageIDPrefix + respCtx.RequestID()
+	text := respBuilder.accumulated.String()
 
-// responsesLastEvents emits text.done + content_part.done + output_item.done as one sendChunk call.
-type responsesLastEvents struct {
-	itemID string
-	text   string
-}
-
-func (e *responsesLastEvents) SSEBytes() ([]byte, error) {
 	textDone := openaiserverapi.ResponsesItemEvent{
 		Type:   openaiserverapi.ResponsesEventTextDone,
-		ItemID: e.itemID,
-		Text:   e.text,
+		ItemID: itemID,
+		Text:   text,
 	}
-	part := openaiserverapi.OutputContent{Type: openaiserverapi.ResponsesOutputText, Text: e.text}
+	part := openaiserverapi.OutputContent{Type: openaiserverapi.ResponsesOutputText, Text: text}
 	contentPartDone := openaiserverapi.ResponsesItemEvent{
 		Type:   openaiserverapi.ResponsesEventContentPartDone,
-		ItemID: e.itemID,
+		ItemID: itemID,
 		Part:   &part,
 	}
 	outputItemDone := openaiserverapi.ResponsesItemEvent{
 		Type: openaiserverapi.ResponsesEventOutputItemDone,
 		Item: openaiserverapi.MessageOutput{
-			Type:   "message",
-			ID:     e.itemID,
+			Type:   openaiserverapi.ResponsesOutputMessage,
+			ID:     itemID,
 			Role:   openaiserverapi.RoleAssistant,
-			Status: "completed",
+			Status: openaiserverapi.ResponsesStatusCompleted,
 			Content: []openaiserverapi.OutputContent{
-				{Type: openaiserverapi.ResponsesOutputText, Text: e.text},
+				{Type: openaiserverapi.ResponsesOutputText, Text: text},
 			},
 		},
 	}
-	b1, err := json.Marshal(textDone)
-	if err != nil {
-		return nil, err
-	}
-	b2, err := json.Marshal(contentPartDone)
-	if err != nil {
-		return nil, err
-	}
-	b3, err := json.Marshal(outputItemDone)
-	if err != nil {
-		return nil, err
-	}
-	return []byte(
-		"event: " + textDone.Type + "\ndata: " + string(b1) + "\n\n" +
-			"event: " + contentPartDone.Type + "\ndata: " + string(b2) + "\n\n" +
-			"event: " + outputItemDone.Type + "\ndata: " + string(b3) + "\n\n",
-	), nil
-}
 
-func (respBuilder *responsesHTTPRespBuilder) createLastChunk(respCtx vllmsim.ResponseContext, _ string) sseChunk {
-	return &responsesLastEvents{
-		itemID: "msg_" + respCtx.RequestID(),
-		text:   respBuilder.accumulated.String(),
+	return &namedEventChunk{
+		names: []string{textDone.Type, contentPartDone.Type, outputItemDone.Type},
+		data:  []any{textDone, contentPartDone, outputItemDone},
 	}
 }
 
