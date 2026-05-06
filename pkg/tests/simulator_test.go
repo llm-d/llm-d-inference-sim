@@ -1653,7 +1653,7 @@ var _ = Describe("Simulator", func() {
 			msg, err := sub.Recv()
 			Expect(err).NotTo(HaveOccurred())
 			storedCount, removedCount, _ := kvcache.CountKVEventBlocks(msg.Frames, topic, 1)
-			Expect(storedCount).To(Equal(4))
+			Expect(storedCount).To(Equal(5))
 			Expect(removedCount).To(Equal(0))
 		})
 

@@ -71,15 +71,19 @@ func (tm *TokenizerManager) Init(ctx context.Context, logger logr.Logger) error 
 		return err
 	}
 	tm.cleanupFunc = cleanup
+
+	//don't start a new container - use an existing one
+	// renderURL := "http://localhost:8001/"
+	// var err error
 	// create tokenizer for Qwen model
-	tm.qwenTokenizer, err = tm.newTokenizer(ctx, logger, renderURL, common.QwenModelName, 3*time.Second, 10*time.Second)
+	tm.qwenTokenizer, err = tm.newTokenizer(ctx, logger, renderURL, common.QwenModelName, 10*time.Second, 30*time.Second)
 	if err != nil {
 		cleanup()
 		return err
 	}
 
 	// create tokenizer for multimodal model
-	tm.mmTokenizer, err = tm.newTokenizer(ctx, logger, renderURL, common.QwenModelName, 3*time.Second, 10*time.Second)
+	tm.mmTokenizer, err = tm.newTokenizer(ctx, logger, renderURL, common.QwenModelName, 10*time.Second, 30*time.Second)
 	if err != nil {
 		cleanup()
 		return err

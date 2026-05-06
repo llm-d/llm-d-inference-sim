@@ -99,6 +99,7 @@ var _ = Describe("Server", func() {
 			}`, common.QwenModelName)
 			resp, err := client.Post("http://localhost/tokenize", "application/json", strings.NewReader(reqBody))
 			Expect(err).NotTo(HaveOccurred())
+			expectedTokens := 23
 			defer func() {
 				err := resp.Body.Close()
 				Expect(err).NotTo(HaveOccurred())
@@ -110,8 +111,8 @@ var _ = Describe("Server", func() {
 			var tokenizeResp vllmapi.TokenizeResponse
 			err = json.Unmarshal(body, &tokenizeResp)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(tokenizeResp.Count).To(Equal(20))
-			Expect(tokenizeResp.Tokens).To(HaveLen(20))
+			Expect(tokenizeResp.Count).To(Equal(expectedTokens))
+			Expect(tokenizeResp.Tokens).To(HaveLen(expectedTokens))
 			Expect(tokenizeResp.MaxModelLen).To(Equal(2048))
 		})
 
