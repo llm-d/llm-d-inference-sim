@@ -2,26 +2,14 @@
 
 The `ds-tool` is used to convert conversation datasets into the format required by llm-d-inference-sim. It processes source datasets (from HuggingFace or local files) and generates both JSON and SQLite outputs with tokenized data. In addition, a dataset card is generated too.
 
-This tool requires the **UDS tokenizer**, which should run as a local server. You can find more information about the UDS tokenizer [here](https://github.com/llm-d/llm-d-kv-cache/tree/main/services/uds_tokenizer). 
-To run the UDS tokenizer, perform the following steps:
-1. Clone the kv-cache project
-   ```bash
-   git clone git@github.com:llm-d/llm-d-kv-cache.git
-   ```
-2. Create and activate a python virtual environment
-   ```bash
-   python -m venv <virt env folder>
-   source <virt env folder>/bin/activate
-   ```
-3. Navigate to 'llm-d-kv-cache/services/uds_tokenizer' and install the requirements
-   ```bash
-   pip install -e .
-   ```
-4. If the model you want to use requires an HuggingFace token, define the `HF_TOKEN` environment variable. For more details, see the tokenizer guide.
-5. Run the UDS tokenizer
-   ```bash
-   python ./run_grpc_server.py
-   ```
+This tool requires a **vLLM render server**, which handles tokenization over HTTP. Start it with Docker before running the tool:
+
+```bash
+docker run --rm -p 8082:8082 vllm/vllm-openai-cpu:v0.19.1 \
+  vllm launch render <model> --port=8082
+```
+
+Replace `<model>` with the same model name you pass to `--model`. If the model requires a HuggingFace token, set the `HF_TOKEN` environment variable and add `-e HF_TOKEN=$HF_TOKEN` to the Docker command.
 
 
 ## Prerequisites
@@ -33,7 +21,7 @@ To run the UDS tokenizer, perform the following steps:
 
 2. **Model and Tokenizer:** Ensure you have access to the model you want to use for tokenization.
 
-3. **UDS Tokenizer:** Ensure the UDS tokenizer is running.
+3. **vLLM render server:** Ensure the vLLM render server is running (see above).
 
 ## Command Line Options
 
@@ -47,7 +35,7 @@ To run the UDS tokenizer, perform the following steps:
 | `--output-file` | string | No | `inference-sim-dataset` | Output file name without extension (creates `.json`, `.sqlite3` and `.md` files) |
 | `--table-name` | string | No | `llmd` | Name of the table created in the SQLite DB |
 | `--max-records` | int | No | `10000` | Maximum number of source dataset records to process; if the dataset contains more, the rest are discarded. |
-| `--uds-socket-path` | string | No | `/tmp/tokenizer/tokenizer-uds.socket` | UDS socket path for communication with the tokenizer |
+| `--render-url` | string | Yes | - | URL of the vLLM render server (e.g. `http://localhost:8082`) |
 
 **Note:** Either `--hf-repo` or `--local-path` must be specified, but not both.
 

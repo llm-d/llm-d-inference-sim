@@ -93,8 +93,8 @@ func Start(ctx context.Context, config *common.Configuration, logger logr.Logger
 		logger.Error(err, "failed to initialize dataset")
 		return nil, err
 	}
-	// Use context.Background() so the tokenizer's gRPC connection to the UDS
-	// sidecar is not tied to the parent context. Workers run on drainCtx (cancelled
+	// Use context.Background() so the tokenizer's HTTP connection to the render
+	// backend is not tied to the parent context. Workers run on drainCtx (cancelled
 	// only after all requests drain) and must be able to call the tokenizer until
 	// the very end, after the parent context has already been cancelled.
 	tokenizer, err := tokenizer.New(context.Background(), config, logger)

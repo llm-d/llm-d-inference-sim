@@ -129,35 +129,19 @@ make build
 
 ### Running
 
-To run the vLLM simulator in a standalone test environment with real model:
+To run the vLLM simulator in a standalone test environment with a real model:
 
-1. Run the UDS tokenizer, see details [here](https://github.com/llm-d/llm-d-kv-cache/tree/main/services/uds_tokenizer).<br>
-   a. Clone the kv-cache project
-      ```bash
-      git clone git@github.com:llm-d/llm-d-kv-cache.git
-      ```
-   b. Create and activate a python virtual environment
-      ```bash
-      python -m venv <virt env folder>
-      source <virt env folder>/bin/activate
-      ```
-   c. Navigate to 'llm-d-kv-cache/services/uds_tokenizer'
-      ```bash
-      cd llm-d-kv-cache/services/uds_tokenizer
-      ```
-   d. Install the requirements
-      ```bash
-      pip install -e .
-      ```
-   e. Run the UDS tokenizer
-      ```bash
-      python ./run_grpc_server.py
-      ```
+1. Start the vLLM render server (requires a container engine, e.g. Docker or Podman):
+   ```bash
+   docker run --rm -p 8082:8082 vllm/vllm-openai-cpu:v0.19.1 \
+     vllm launch render Qwen/Qwen2.5-0.5B-Instruct --port=8082
+   ```
 2. Start the simulator:
-```bash
-./bin/llm-d-inference-sim --model Qwen/Qwen2.5-0.5B-Instruct --port 8000
-```
-**Note:** If the model is not a real model, there is no need to run the UDS tokenizer.
+   ```bash
+   ./bin/llm-d-inference-sim --model Qwen/Qwen2.5-0.5B-Instruct --port 8000 --render-url http://localhost:8082
+   ```
+
+**Note:** If the model is not a real HuggingFace model, there is no need to run the vLLM render server.
 
 ## Testing locally
 ### Prerequisites
@@ -200,7 +184,7 @@ make dev-env-kind
 Check [Makefile](Makefile) for environment variables to tune the process.
 For example:
 ```bash
- KIND_CLUSTER_NAME=mytest UDS_TOKENIZER_TAG=v0.6.0 SIM_TAG=dev make dev-env-kind
+ KIND_CLUSTER_NAME=mytest SIM_TAG=dev make dev-env-kind
 ``` 
 
 To verify the deployment is available, run:

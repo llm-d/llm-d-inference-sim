@@ -31,36 +31,30 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       initContainers:
-      # UDS Tokenizer sidecar - handles tokenization via gRPC over Unix Domain Socket
+      # vLLM render sidecar - handles tokenization via HTTP (vllm launch render)
       # restartPolicy: Always makes this a native sidecar (K8s 1.29+):
       # the simulator will not start until this container's readinessProbe passes
-      - name: uds-tokenizer
-        image: {{ .Values.udsTokenizer.image }}
-        imagePullPolicy: {{ .Values.udsTokenizer.imagePullPolicy }}
+      - name: vllm-render
+        image: {{ .Values.vllmRender.image }}
+        imagePullPolicy: {{ .Values.vllmRender.imagePullPolicy }}
         restartPolicy: Always
-        env:
-        - name: LOG_LEVEL
-          value: {{ .Values.udsTokenizer.logLevel | quote }}
-        - name: PROBE_PORT
-          value: {{ .Values.udsTokenizer.probePort | quote }}
+        command: ["vllm"]
+        args: ["launch", "render", {{ .Values.config.model | quote }}, "--port={{ .Values.vllmRender.port }}"]
         ports:
-        - name: health
-          containerPort: {{ .Values.udsTokenizer.probePort }}
+        - name: http
+          containerPort: {{ .Values.vllmRender.port }}
         livenessProbe:
           httpGet:
             path: /health
-            port: {{ .Values.udsTokenizer.probePort }}
+            port: {{ .Values.vllmRender.port }}
           initialDelaySeconds: 10
           periodSeconds: 10
         readinessProbe:
           httpGet:
             path: /health
-            port: {{ .Values.udsTokenizer.probePort }}
+            port: {{ .Values.vllmRender.port }}
           initialDelaySeconds: 5
           periodSeconds: 5
-        volumeMounts:
-        - name: uds-socket
-          mountPath: /tmp/tokenizer
       containers:
         - name: {{ .Chart.Name }}
           {{- with .Values.securityContext }}
@@ -83,6 +77,10 @@ spec:
                 fieldRef:
                   apiVersion: v1
                   fieldPath: metadata.namespace
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
           ports:
             - name: http
               containerPort: {{ .Values.service.port }}
@@ -102,15 +100,10 @@ spec:
           volumeMounts:
             - name: config
               mountPath: /config
-            - name: uds-socket
-              mountPath: /tmp/tokenizer
       volumes:
         - name: config
           configMap:
             name: {{ include "llm-d-inference-sim.fullname" . }}-config
-        # Shared volume for Unix Domain Socket communication between the simulator and UDS tokenizer
-        - name: uds-socket
-          emptyDir: {}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

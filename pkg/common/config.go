@@ -257,8 +257,6 @@ type Configuration struct {
 	// DatasetTableName defines custom SQLite dataset table name
 	DatasetTableName string `yaml:"dataset-table-name" json:"dataset-table-name"`
 
-	// UDSSocketPath is the Tokenizer UDS socket path
-	UDSSocketPath string `yaml:"uds-socket-path" json:"uds-socket-path"`
 	// RenderURL is the URL of the tokenizer render service
 	RenderURL string `yaml:"render-url" json:"render-url"`
 	// RenderTimeout is the timeout for tokenizer render requests
@@ -341,7 +339,6 @@ func newConfig() *Configuration {
 		DatasetTableName:           DefaultDSTableName,
 		DefaultEmbeddingDimensions: 384,
 		FakeMetricsRefreshInterval: 100 * time.Millisecond,
-		UDSSocketPath:              "/tmp/tokenizer/tokenizer-uds.socket",
 		RenderTimeout:              30 * time.Second,
 		MMRenderTimeout:            60 * time.Second,
 	}

@@ -20,7 +20,7 @@ Add `--enable-kvcache true` (CLI) or `enable-kvcache: true` (YAML config):
 **Prerequisites**:
 
 1. `POD_IP` environment variable must be set — it is embedded in the ZMQ topic name so subscribers can identify which pod published the event.
-2. The UDS tokenizer sidecar must be running — the KV cache relies on actual token IDs to compute block hashes. See [manifests/deployment_kvcache.yaml](../manifests/deployment_kvcache.yaml) for a complete Kubernetes example.
+2. The vLLM render sidecar must be running — the KV cache relies on actual token IDs to compute block hashes. See [manifests/deployment_kvcache.yaml](../manifests/deployment_kvcache.yaml) for a complete Kubernetes example.
 3. KV cache is **not** supported in `--mm-encoder-only` mode.
 
 ## Configuration options
@@ -247,9 +247,8 @@ When [sleep mode](http-enpdpoints.md) is enabled (`--enable-sleep-mode` and `VLL
 
 [manifests/deployment_kvcache.yaml](../manifests/deployment_kvcache.yaml) provides a complete example including:
 
-- The UDS tokenizer sidecar (`llm-d-uds-tokenizer`) as a native sidecar init container
+- The vLLM render sidecar (`vllm/vllm-openai-cpu`) as a native sidecar init container
 - `POD_IP` injected from the pod's downward API
-- A shared `emptyDir` volume for the UDS socket
 
 Key environment variable setup:
 

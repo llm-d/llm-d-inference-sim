@@ -40,8 +40,6 @@ type TokenizerManager struct {
 }
 
 // creates a new tokenizer manager, each suite creates it's own manager
-// 1 - checks which type of connection should be used: UDS socket or TCP
-// 2 - based on the information above creates two tokenizers
 func NewTokenizerManager() *TokenizerManager {
 	return &TokenizerManager{}
 }
@@ -72,7 +70,7 @@ func (tm *TokenizerManager) Init(ctx context.Context, logger logr.Logger) error 
 	}
 	tm.cleanupFunc = cleanup
 
-	//don't start a new container - use an existing one
+	// don't start a new container - use an existing one
 	// renderURL := "http://localhost:8001/"
 	// var err error
 	// create tokenizer for Qwen model
@@ -142,47 +140,6 @@ func (tm *TokenizerManager) startRenderContainer(ctx context.Context, model stri
 
 	return address, cleanup, nil
 }
-
-// starts a tokenizer in a docker container
-// returns docker address, cleanup function and error
-// func (tm *TokenizerManager) startTokenizerContainer(ctx context.Context) (string, func(), error) {
-// 	container, err := testcontainers.Run(ctx,
-// 		"ghcr.io/llm-d/llm-d-uds-tokenizer:v0.7.1",
-// 		testcontainers.WithExposedPorts("50051/tcp"),
-// 		testcontainers.WithEnv(map[string]string{
-// 			"GRPC_PORT": "50051",
-// 		}),
-// 		testcontainers.WithWaitStrategy(
-// 			wait.ForListeningPort("50051/tcp"),
-// 		),
-// 	)
-// 	if err != nil {
-// 		return "", nil, fmt.Errorf("failed to start testcontainer: %w", err)
-// 	}
-
-// 	// get mapped port
-// 	mappedPort, err := container.MappedPort(ctx, "50051")
-// 	if err != nil {
-// 		return "", nil, fmt.Errorf("failed to get mapped port: %w", err)
-// 	}
-
-// 	// get host
-// 	host, err := container.Host(ctx)
-// 	if err != nil {
-// 		return "", nil, fmt.Errorf("failed to get container host: %w", err)
-// 	}
-
-// 	address := fmt.Sprintf("%s:%s", host, mappedPort.Port())
-
-// 	cleanup := func() {
-// 		// use another context for cleanup in case the original ctx was cancelled
-// 		if err := container.Terminate(context.Background()); err != nil {
-// 			fmt.Printf("failed to terminate container: %s\n", err)
-// 		}
-// 	}
-
-// 	return address, cleanup, nil
-// }
 
 func (tm *TokenizerManager) newTokenizer(ctx context.Context, logger logr.Logger, renderURL, model string,
 	timeout, mmTimeout time.Duration) (Tokenizer, error) {

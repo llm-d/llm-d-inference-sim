@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# This shell script deploys a kind cluster with the UDS tokenizer and the simulator
+# This shell script deploys a kind cluster with the vLLM renderer and the simulator
 set -eo pipefail
 
 # ------------------------------------------------------------------------------
@@ -18,13 +18,11 @@ require_non_empty CLUSTER_NAME
 require_non_empty HOST_PORT
 require_non_empty MODEL_NAME
 require_non_empty VLLM_SIMULATOR_IMAGE
-require_non_empty UDS_TOKENIZER_IMAGE
 
 export CLUSTER_NAME
 export HOST_PORT
 export MODEL_NAME
 export VLLM_SIMULATOR_IMAGE
-export UDS_TOKENIZER_IMAGE
 export HF_TOKEN
 
 # ------------------------------------------------------------------------------
@@ -67,7 +65,7 @@ apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
 - role: control-plane
   extraPortMappings:
-  - containerPort: ${HOST_PORT}  
+  - containerPort: ${HOST_PORT}
     hostPort: ${HOST_PORT}
     protocol: TCP
 EOF
@@ -96,7 +94,7 @@ kubectl --context ${KUBE_CONTEXT} -n local-path-storage wait --for=condition=Rea
 # Load Container Images
 # ------------------------------------------------------------------------------
 
-# Load the vllm simulator and uds tokenizer images into the cluster (only if it's a locally built image)
+# Load the vllm simulator image into the cluster (only if it's a locally built image)
 
 if [ -n "$(${CONTAINER_RUNTIME} images -q "${VLLM_SIMULATOR_IMAGE}")" ]; then
     echo "INFO: Loading vllm-sim image into KIND cluster..."
@@ -107,21 +105,12 @@ if [ -n "$(${CONTAINER_RUNTIME} images -q "${VLLM_SIMULATOR_IMAGE}")" ]; then
     fi
 fi
 
-if [ -n "$(${CONTAINER_RUNTIME} images -q "${UDS_TOKENIZER_IMAGE}")" ]; then
-  echo "INFO: Loading uds-tokenizer image into KIND cluster..."
-  if [ "${CONTAINER_RUNTIME}" == "podman" ]; then
-    podman save ${UDS_TOKENIZER_IMAGE} -o /dev/stdout | kind --name ${CLUSTER_NAME} load image-archive /dev/stdin
-  else
-    kind --name ${CLUSTER_NAME} load docker-image ${UDS_TOKENIZER_IMAGE}
-  fi
-fi
-
 # ------------------------------------------------------------------------------
 # Development Environment
 # ------------------------------------------------------------------------------
 
 kubectl kustomize deploy \
-	| envsubst '${MODEL_NAME} ${VLLM_SIMULATOR_IMAGE} ${UDS_TOKENIZER_IMAGE} ${HOST_PORT} ${HF_TOKEN}' \
+	| envsubst '${MODEL_NAME} ${VLLM_SIMULATOR_IMAGE} ${HOST_PORT} ${HF_TOKEN}' \
   | kubectl --context ${KUBE_CONTEXT} apply -f -
 
 # ------------------------------------------------------------------------------
@@ -141,7 +130,7 @@ Deployment completed!
 Status:
 
 * The vllm simulator is running
-* The UDS tokenizer is running
+* The vllm renderer is running
 
 You can watch the Simulator logs with:
 

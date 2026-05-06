@@ -163,7 +163,6 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 	f.BoolVar(&config.DatasetInMemory, "dataset-in-memory", config.DatasetInMemory, "Load the entire dataset into memory for faster access")
 	f.StringVar(&config.DatasetTableName, "dataset-table-name", config.DatasetTableName, "Table name for custom dataset, default is 'llmd'")
 
-	f.StringVar(&config.UDSSocketPath, "uds-socket-path", config.UDSSocketPath, "UDS socket path for communication with HF tokenizer, default is '/tmp/tokenizer/tokenizer-uds.socket'")
 	f.StringVar(&config.RenderURL, "render-url", config.RenderURL, "URL of the tokenizer render service")
 	f.DurationVar(&config.RenderTimeout, "render-timeout", config.RenderTimeout, "Timeout for tokenizer render requests (e.g. 30s)")
 	f.DurationVar(&config.MMRenderTimeout, "mm-render-timeout", config.MMRenderTimeout, "Timeout for multi-modal tokenizer render requests (e.g. 60s)")

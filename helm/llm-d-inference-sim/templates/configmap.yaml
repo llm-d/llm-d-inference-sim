@@ -21,3 +21,4 @@ data:
     inter-token-latency: {{ .Values.config.interTokenLatency }}
     kv-cache-transfer-latency: {{ .Values.config.kvCacheTransferLatency }}
     seed: {{ .Values.config.seed }}
+    render-url: "http://localhost:{{ .Values.vllmRender.port }}"

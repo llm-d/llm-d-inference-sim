@@ -73,16 +73,6 @@ resources: {}
   #   cpu: 100m
   #   memory: 128Mi
 
-# This is to setup the liveness and readiness probes more information can be found here: https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/
-livenessProbe:
-  httpGet:
-    path: /
-    port: http
-readinessProbe:
-  httpGet:
-    path: /
-    port: http
-
 # Additional volumes on the output Deployment definition.
 volumes: []
 # - name: foo
@@ -102,11 +92,10 @@ tolerations: []
 
 affinity: {}
 
-udsTokenizer:
-  image: ghcr.io/llm-d/llm-d-uds-tokenizer:v0.7.1
+vllmRender:
+  image: vllm/vllm-openai-cpu:v0.19.1
   imagePullPolicy: IfNotPresent
-  logLevel: "DEBUG"
-  probePort: 8082
+  port: 8082
 
 config:
   port: 8001

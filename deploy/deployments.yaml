@@ -13,22 +13,20 @@ spec:
         app: vllm-sim
     spec:
       initContainers:
-      # UDS Tokenizer sidecar - handles tokenization via gRPC over Unix Domain Socket
+      # vLLM render sidecar - handles tokenization via HTTP (vllm launch render)
       # restartPolicy: Always makes this a native sidecar (K8s 1.29+):
       # vllm-sim will not start until this container's readinessProbe passes
-      - name: uds-tokenizer
-        image: ${UDS_TOKENIZER_IMAGE}
+      - name: vllm-render
+        image: vllm/vllm-openai-cpu:v0.19.1
         imagePullPolicy: IfNotPresent
         restartPolicy: Always
+        command: ["vllm"]
+        args: ["launch", "render", "${MODEL_NAME}", "--port=8082"]
         env:
-        - name: LOG_LEVEL
-          value: "DEBUG"
-        - name: PROBE_PORT
-          value: "8082"
         - name: HF_TOKEN
           value: "${HF_TOKEN}"
         ports:
-        - name: health
+        - name: http
           containerPort: 8082
         livenessProbe:
           httpGet:
@@ -42,12 +40,8 @@ spec:
             port: 8082
           initialDelaySeconds: 5
           periodSeconds: 5
-        volumeMounts:
-        - name: uds-socket
-          mountPath: /tmp/tokenizer
       containers:
       - name: vllm-sim
-        # Change to the next release which will use uds tokenizer
         image: ${VLLM_SIMULATOR_IMAGE}
         imagePullPolicy: IfNotPresent
         args:
@@ -55,6 +49,8 @@ spec:
         - "${MODEL_NAME}"
         - "--port"
         - "8000"
+        - "--render-url"
+        - "http://localhost:8082"
         env:
           - name: POD_NAME
             valueFrom:
@@ -74,13 +70,6 @@ spec:
         - containerPort: 8000
           name: http
           protocol: TCP
-        volumeMounts:
-        - name: uds-socket
-          mountPath: /tmp/tokenizer
-      volumes:
-      # Shared volume for Unix Domain Socket communication between the simulator and UDS tokenizer
-      - name: uds-socket
-        emptyDir: {}
 ---
 apiVersion: v1
 kind: Service
@@ -99,4 +88,3 @@ spec:
       port: 8000
       targetPort: 8000
       nodePort: ${HOST_PORT}
-

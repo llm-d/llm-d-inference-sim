@@ -19,7 +19,6 @@ COPY cmd/llm-d-inference-sim/main.go cmd/cmd.go
 COPY . .
 
 # Build simulator, no Python, no embedded tokenizer, no CGO for ZMQ, use pure Go
-# The default kv-cache build uses UDS tokenizer (//go:build !embedded_tokenizers)
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o bin/llm-d-inference-sim cmd/cmd.go
 
 FROM registry.access.redhat.com/ubi9/ubi-micro:9.7
