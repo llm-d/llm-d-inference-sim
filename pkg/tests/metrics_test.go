@@ -161,7 +161,7 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 		prompt := strings.Repeat("hello ", 25)
 		maxTokens := 25
 		model := common.TestModelName
-		expectedPromptTokensCnt := getChatPromptTokensCountForTestModel(model, prompt)
+		expectedPromptTokensCnt := getChatPromptTokensCountForTestModel(prompt)
 
 		args := []string{"cmd", "--model", model, "--mode", common.ModeRandom,
 			"--time-to-first-token", "100", "--max-num-seqs", "4"}
@@ -846,7 +846,7 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 			func(testNamePrefix string, ttft int, prefillTimePerToken int, interTokenLatency int,
 				kvcacheTransferLatency int, kvCacheTransferTimePerToken int, doRemotePrefill bool) {
 
-				_, tokens, err := tokenizerMngr.TestTokenizer().RenderPlainText(testUserMessage)
+				_, tokens, err := tokenizerMngr.TestTokenizer().RenderText(testUserMessage)
 				Expect(err).ShouldNot(HaveOccurred())
 				numOfTokens := len(tokens)
 

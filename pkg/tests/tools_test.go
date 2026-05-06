@@ -379,7 +379,7 @@ var _ = Describe("Simulator for request with tools", Ordered, func() {
 	BeforeAll(func() {
 		ctx = context.TODO()
 		model = common.TestModelName
-		userMsgTokens = getChatPromptTokensCountForTestModel(model, testUserMessage)
+		userMsgTokens = getChatPromptTokensCountForTestModel(testUserMessage)
 	})
 
 	DescribeTable("streaming",

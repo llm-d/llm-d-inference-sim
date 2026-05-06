@@ -107,23 +107,6 @@ type Request interface {
 	CacheThresholdFinishReason() bool
 	// SetCacheThresholdFinishReason sets cacheThresholdFinishReason
 	SetCacheThresholdFinishReason(bool)
-
-	// SetRawRequestPayload sets the raw request payload as bytes
-	SetRawRequestPayload(payload []byte)
-	// RawRequestPayload returns the raw request payload as bytes
-	RawRequestPayload() []byte
-
-	// GetEndpoint returns the OpenAI API endpoint path for this request type,
-	// e.g. "/v1/completions" or "/v1/chat/completions".
-	// Used to construct render URLs: GetEndpoint() + "/render".
-	GetEndpoint() string
-
-	// IsMultiModal returns true if the request contains multimodal content (e.g. images).
-	IsMultiModal() bool
-
-	// Textual representation of the request
-	PlainText() string
-	PlainTextForEcho() string
 }
 
 // baseRequest contains base completions request related information
@@ -153,16 +136,12 @@ type baseRequest struct {
 	tokenizedPromptForEcho *Tokenized
 	// mmFeatures holds multimodal metadata produced by the tokenizer, exists only for multimodal requests
 	mmFeatures *tokenization.MultiModalFeatures
-	// rawRequestPayload holds the raw request payload as bytes,
-	// which can be used for request rendering
-	rawRequestPayload []byte
 }
 
 // baseCompletionsRequest contains base completions request related information
 type baseCompletionsRequest struct {
 	baseRequest
 	// StreamOptions defines streaming options in case Stream is set to true
-	// StreamOptions StreamOptions `json:"stream_options"`
 	StreamOptions *StreamOptions `json:"stream_options,omitempty"`
 	// CacheHitThreshold is a value between 0 and 1 that specifies the minimum cache hit rate required
 	// to proceed with request processing. If the actual cache hit rate is below this threshold,
@@ -325,8 +304,6 @@ func (b *baseRequest) TokenizedPrompt() *Tokenized {
 // SetTokenizedPrompt sets the tokenized prompt
 func (b *baseRequest) SetTokenizedPrompt(tokenized *Tokenized) {
 	b.tokenizedPrompt = tokenized
-	// clear raw request payload to save memory, as tokenized prompt is now available
-	b.rawRequestPayload = nil
 }
 
 // TokenizedPromptForEcho returns the tokenized response in echo mode
@@ -337,8 +314,6 @@ func (b *baseRequest) TokenizedPromptForEcho() *Tokenized {
 // SetTokenizedPromptForEcho sets the tokenized response in echo mode
 func (b *baseRequest) SetTokenizedPromptForEcho(tokenized *Tokenized) {
 	b.tokenizedPromptForEcho = tokenized
-	// clear raw request payload to save memory, as tokenized prompt is now available
-	b.rawRequestPayload = nil
 }
 
 // TokenizedPrompt returns the tokenized prompt
@@ -349,20 +324,6 @@ func (b *baseRequest) MMFeatures() *tokenization.MultiModalFeatures {
 // SetMMFeatures sets the multimodal features
 func (b *baseRequest) SetMMFeatures(mmFeatures *tokenization.MultiModalFeatures) {
 	b.mmFeatures = mmFeatures
-}
-
-// SetRawRequestPayload sets the raw request payload as bytes
-func (b *baseRequest) SetRawRequestPayload(payload []byte) {
-	b.rawRequestPayload = payload
-}
-
-// RawRequestPayload returns the raw request payload as bytes
-func (b *baseRequest) RawRequestPayload() []byte {
-	return b.rawRequestPayload
-}
-
-func (b *baseRequest) IsMultiModal() bool {
-	return false
 }
 
 func (b *baseCompletionsRequest) IncludeUsage() bool {
@@ -471,40 +432,6 @@ func (c *ChatCompletionsRequest) GetLogprobs() *int {
 	return &defaultVal
 }
 
-func (c *ChatCompletionsRequest) GetEndpoint() string {
-	return "/v1/chat/completions"
-}
-
-func (c *ChatCompletionsRequest) IsMultiModal() bool {
-	for _, msg := range c.Messages {
-		for _, block := range msg.Content.Structured {
-			if block.Type == "image_url" {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-func (c *ChatCompletionsRequest) PlainText() string {
-	var builder strings.Builder
-
-	for _, msg := range c.Messages {
-		builder.WriteString(StartMessageSeparator)
-		builder.WriteString(msg.plainText(true))
-		builder.WriteString(EndMessageSeparator)
-	}
-
-	return builder.String()
-}
-
-func (c *ChatCompletionsRequest) PlainTextForEcho() string {
-	if len(c.Messages) == 0 {
-		return ""
-	}
-	return c.Messages[len(c.Messages)-1].plainText(false)
-}
-
 // v1/completions
 // TextCompletionsRequest defines structure of /completions request
 type TextCompletionsRequest struct {
@@ -550,18 +477,6 @@ func (t *TextCompletionsRequest) GetLogprobs() *int {
 	return t.Logprobs
 }
 
-func (t *TextCompletionsRequest) GetEndpoint() string {
-	return "/v1/completions"
-}
-
-func (t *TextCompletionsRequest) PlainText() string {
-	return t.Prompt
-}
-
-func (t *TextCompletionsRequest) PlainTextForEcho() string {
-	return t.Prompt
-}
-
 // GenerationRequest defines structure of generation request
 type GenerationRequest struct {
 	baseRequest
@@ -598,19 +513,6 @@ func (req *GenerationRequest) ExtractMaxTokens() *int64 {
 
 func (t *GenerationRequest) GetLogprobs() *int {
 	return nil
-}
-
-func (t *GenerationRequest) GetEndpoint() string {
-	// tokenizetion of generation endpoint input is done in the same way as completions request
-	return "/v1/completions"
-}
-
-func (t *GenerationRequest) PlainText() string {
-	return t.Prompt
-}
-
-func (t *GenerationRequest) PlainTextForEcho() string {
-	return t.Prompt
 }
 
 func NewGenerationRequest(requestID string, stream bool, model string, maxTokens *int64) *GenerationRequest {
@@ -654,7 +556,6 @@ type JSONSchemaSpec struct {
 
 type InputItem interface {
 	isInputItem()
-	plainText(includeRole bool) string
 	json.Unmarshaler
 }
 
@@ -696,7 +597,7 @@ func (m *InputMessage) UnmarshalJSON(data []byte) error {
 	return json.Unmarshal(raw.Content, &m.Content)
 }
 
-func (m *InputMessage) plainText(includeRole bool) string {
+func (m *InputMessage) PlainText(includeRole bool) string {
 	var builder strings.Builder
 
 	if includeRole {
@@ -715,18 +616,6 @@ func (m *InputMessage) plainText(includeRole bool) string {
 
 	return builder.String()
 }
-
-// TODO MAYAB - do we need this?
-// func (m *InputMessage) ReadableText() string {
-// 	var parts []string
-// 	for _, c := range m.Content {
-// 		switch c.Type { // nolint
-// 		case ResponsesInputText:
-// 			parts = append(parts, c.Text)
-// 		}
-// 	}
-// 	return strings.Join(parts, "\n")
-// }
 
 type InputContent struct {
 	Type string `json:"type"` // input_text
@@ -819,40 +708,4 @@ func (req *ResponsesRequest) GetLogprobs() *int {
 
 func (req *ResponsesRequest) ExtractMaxTokens() *int64 {
 	return req.MaxOutputTokens
-}
-
-func (req *ResponsesRequest) GetEndpoint() string {
-	return "/v1/responses"
-}
-
-func (req *ResponsesRequest) IsMultiModal() bool {
-	for _, item := range req.Input {
-		if msg, ok := item.(*InputMessage); ok {
-			for _, c := range msg.Content {
-				if c.Type != ResponsesInputText {
-					return true
-				}
-			}
-		}
-	}
-	return false
-}
-
-func (req *ResponsesRequest) PlainText() string {
-	var builder strings.Builder
-
-	for _, msg := range req.Input {
-		builder.WriteString(StartMessageSeparator)
-		builder.WriteString(msg.plainText(true))
-		builder.WriteString(EndMessageSeparator)
-	}
-
-	return builder.String()
-}
-
-func (req *ResponsesRequest) PlainTextForEcho() string {
-	if len(req.Input) == 0 {
-		return ""
-	}
-	return req.Input[len(req.Input)-1].plainText(false)
 }

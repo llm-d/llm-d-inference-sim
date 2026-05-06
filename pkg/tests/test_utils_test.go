@@ -138,20 +138,16 @@ func startServerHelper(ctx context.Context, mode string, args []string, envs map
 	}
 
 	// calculate number of tokens for user message,
-	textReq, err := common.CreateRequestForRenderText(config.Model, testUserMessage)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	tokens, _, _, err := s.Context.Tokenizer.RenderRequest(textReq)
+	tokens, _, err := s.Context.Tokenizer.RenderText(testUserMessage)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 	userMsgTokens = int64(len(tokens))
 	// calculate number of tokens for user message as chat/completions
-	chatReq, err := common.CreateRequestForRenderChatMessages(config.Model,
-		[]openaiserverapi.ChatComplMessage{
-			{Role: openaiserverapi.RoleUser,
-				Content: openaiserverapi.ChatComplContent{Raw: testUserMessage}}})
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	tokens, _, _, err = s.Context.Tokenizer.RenderRequest(chatReq)
+	messages := []openaiserverapi.ChatComplMessage{
+		{Role: openaiserverapi.RoleUser,
+			Content: openaiserverapi.ChatComplContent{Raw: testUserMessage}}}
+	tokens, _, _, err = s.Context.Tokenizer.RenderMessages(messages)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -658,11 +654,9 @@ func getOpenAIClientAndTextParams(client option.HTTPClient, model string, messag
 }
 
 // renders the given messages using the test model
-func getChatPromptTokensCountForTestModel(model, message string) int64 {
-	chatReq, err := common.CreateRequestForRenderChatMessages(model,
-		[]openaiserverapi.ChatComplMessage{{Role: openaiserverapi.RoleUser, Content: openaiserverapi.ChatComplContent{Raw: message}}})
-	gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
-	tokens, _, _, err := tokenizerMngr.TestTokenizer().RenderRequest(chatReq)
+func getChatPromptTokensCountForTestModel(message string) int64 {
+	messages := []openaiserverapi.ChatComplMessage{{Role: openaiserverapi.RoleUser, Content: openaiserverapi.ChatComplContent{Raw: message}}}
+	tokens, _, _, err := tokenizerMngr.TestTokenizer().RenderMessages(messages)
 	gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
 
 	return int64(len(tokens))

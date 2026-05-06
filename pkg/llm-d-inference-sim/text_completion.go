@@ -75,16 +75,17 @@ func (t *textCompletionReqCtx) request() Request {
 }
 
 func (t *textCompletionReqCtx) encode() ([]uint32, []string, *tokenization.MultiModalFeatures, error) {
-	return t.sim.Tokenizer.RenderRequest(t.req)
+	tokens, strTokens, err := t.sim.Tokenizer.RenderText(t.req.Prompt)
+	return tokens, strTokens, nil, err
 }
 
 func (t *textCompletionReqCtx) createToolCalls() ([]openaiserverapi.ToolCall, int, string, error) {
 	return nil, 0, "", nil
 }
 
-// func (t *textCompletionReqCtx) tokenizedPromptForEcho() (*openaiserverapi.Tokenized, error) {
-// 	return t.req.TokenizedPrompt(), nil
-// }
+func (t *textCompletionReqCtx) tokenizedPromptForEcho() (*openaiserverapi.Tokenized, error) {
+	return t.req.TokenizedPrompt(), nil
+}
 
 var _ requestContext = (*textCompletionReqCtx)(nil)
 

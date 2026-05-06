@@ -30,11 +30,10 @@ import (
 )
 
 type Tokenizer interface {
-	// RenderRequest renders the given request and returns token IDs and string and multimodal features if relevant
-	RenderRequest(req openaiserverapi.Request) ([]uint32, []string, *tokenization.MultiModalFeatures, error)
-
-	// RenderPlainText renders the given request and returns token IDs and string
-	RenderPlainText(text string) ([]uint32, []string, error)
+	// RenderText renders plain text and returns token IDs and string tokens
+	RenderText(text string) ([]uint32, []string, error)
+	// RenderMessages renders chat messages and returns token IDs, string tokens, and multimodal features
+	RenderMessages(messages []openaiserverapi.ChatComplMessage) ([]uint32, []string, *tokenization.MultiModalFeatures, error)
 }
 
 type baseTokenizer struct {
@@ -93,14 +92,21 @@ func (st *baseTokenizer) tokenize(input string) ([]uint32, []string) {
 	return stringsToUint32sHash(strTokens), strTokens
 }
 
-func (st *SimpleTokenizer) RenderRequest(req openaiserverapi.Request) ([]uint32, []string, *tokenization.MultiModalFeatures, error) {
-	tokens, textTokens := st.tokenize(req.PlainText())
-	return tokens, textTokens, nil, nil
-}
-
-func (st *SimpleTokenizer) RenderPlainText(text string) ([]uint32, []string, error) {
+func (st *SimpleTokenizer) RenderText(text string) ([]uint32, []string, error) {
 	tokens, textTokens := st.tokenize(text)
 	return tokens, textTokens, nil
+}
+
+func (st *SimpleTokenizer) RenderMessages(messages []openaiserverapi.ChatComplMessage) ([]uint32, []string, *tokenization.MultiModalFeatures, error) {
+	var builder strings.Builder
+	for _, msg := range messages {
+		builder.WriteString(openaiserverapi.StartMessageSeparator)
+		text := msg.PlainText(true)
+		builder.WriteString(text)
+		builder.WriteString(openaiserverapi.EndMessageSeparator)
+	}
+	tokens, textTokens := st.tokenize(builder.String())
+	return tokens, textTokens, nil, nil
 }
 
 func modelExists(model string) bool {
@@ -122,4 +128,12 @@ func stringsToUint32sHash(strings []string) []uint32 {
 		hashes[i] = h.Sum32()
 	}
 	return hashes
+}
+
+func FlattenMessages(messages []openaiserverapi.ChatComplMessage) string {
+	var builder strings.Builder
+	for _, msg := range messages {
+		builder.WriteString(msg.PlainText(true))
+	}
+	return builder.String()
 }

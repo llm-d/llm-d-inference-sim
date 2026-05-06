@@ -38,9 +38,8 @@ const (
 )
 
 type validDBElement struct {
-	// input          string
-	// messages       []openaiserverapi.ChatComplMessage
-	req            openaiserverapi.Request
+	input          string
+	messages       []openaiserverapi.ChatComplMessage
 	tokenizedInput openaiserverapi.Tokenized
 	hexa           string
 	respTokens     openaiserverapi.Tokenized
@@ -64,7 +63,6 @@ var _ = Describe("CustomDataset", Ordered, func() {
 	)
 
 	BeforeAll(func() {
-		fmt.Printf(">>> 1\n")
 		random = common.NewRandom(time.Now().UnixNano(), 8080)
 		file_folder = ".llm-d"
 		path = file_folder + "/test.sqlite3"
@@ -81,10 +79,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 		validDB = make([]validDBElement, 3)
 
 		// #1 in db: intput1, completions, short response
-		// validDB[0].input = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10"
-		req, err := common.CreateRequestForRenderText(common.QwenModelName, "1, 2, 3, 4, 5, 6, 7, 8, 9, 10")
-		Expect(err).NotTo(HaveOccurred())
-		validDB[0].req = req
+		validDB[0].input = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10"
 		validDB[0].hexa = "73205d2e432e6b117e0b75cdddeac019ee863f4b524f75bf57c15c5a47a445e4"
 		validDB[0].respTokens = openaiserverapi.Tokenized{
 			Strings: []string{"Hello", " human", "!"},
@@ -92,10 +87,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 		}
 
 		// #3 in db: intput2, message1, completions, long response
-		// validDB[1].input = "Hello world!"
-		textReq, err := common.CreateRequestForRenderText(common.QwenModelName, "Hello world!")
-		Expect(err).NotTo(HaveOccurred())
-		validDB[1].req = textReq
+		validDB[1].input = "Hello world!"
 		validDB[1].hexa = "90db35b48bf168f20fa36537861e1d64fac6af372267aec9d10437a3f83f8bec"
 		validDB[1].respTokens = openaiserverapi.Tokenized{
 			Strings: []string{"this", " is", " assistant", " long", " response", ",", " it", " should", " contain", " at",
@@ -104,53 +96,41 @@ var _ = Describe("CustomDataset", Ordered, func() {
 		}
 
 		// #6 in db: intput2, message2, chat completions, short response
-		// validDB[2].input = ""
-		// validDB[2].messages = []openaiserverapi.ChatComplMessage{
-		// 	{Role: openaiserverapi.RoleUser, Content: openaiserverapi.ChatComplContent{Raw: "Hello world!"}},
-		// 	{Role: openaiserverapi.RoleAssistant, Content: openaiserverapi.ChatComplContent{Raw: "this is assistant long response, it should contain at least 10 tokens"}},
-		// 	{Role: openaiserverapi.RoleUser, Content: openaiserverapi.ChatComplContent{Raw: "Hello world again"}},
-		// }
-		chatReq, err := common.CreateRequestForRenderChatMessages(common.QwenModelName,
-			[]openaiserverapi.ChatComplMessage{
-				{Role: openaiserverapi.RoleUser, Content: openaiserverapi.ChatComplContent{Raw: "Hello world!"}},
-				{Role: openaiserverapi.RoleAssistant, Content: openaiserverapi.ChatComplContent{Raw: "this is assistant long response, it should contain at least 10 tokens"}},
-				{Role: openaiserverapi.RoleUser, Content: openaiserverapi.ChatComplContent{Raw: "Hello world again"}},
-			})
-		Expect(err).NotTo(HaveOccurred())
-		validDB[2].req = chatReq
+		validDB[2].input = ""
+		validDB[2].messages = []openaiserverapi.ChatComplMessage{
+			{Role: openaiserverapi.RoleUser, Content: openaiserverapi.ChatComplContent{Raw: "Hello world!"}},
+			{Role: openaiserverapi.RoleAssistant, Content: openaiserverapi.ChatComplContent{Raw: "this is assistant long response, it should contain at least 10 tokens"}},
+			{Role: openaiserverapi.RoleUser, Content: openaiserverapi.ChatComplContent{Raw: "Hello world again"}},
+		}
 		validDB[2].hexa = "a57863ca4a26f377c8e67471c418ab26315b6d60b323ce34676de0aca3f7cec8"
 		validDB[2].respTokens = openaiserverapi.Tokenized{
 			Strings: []string{"short", " response"},
 			Tokens:  []uint32{8676, 2033},
 		}
 
-		fmt.Printf(">>> 2\n")
 		for i := range validDB {
 			var tokens []uint32
 			var strTokens []string
 			var err error
 
-			fmt.Printf(">>> Loop - %d\n", i)
-			tokens, strTokens, _, err = tokenizerMngr.RealTokenizer().RenderRequest(validDB[i].req)
-
-			// if len(validDB[i].input) > 0 {
-			// 	// has prompt
-			// 	tokens, strTokens, err = tokenizerMngr.RealTokenizer().RenderText(validDB[i].input)
-			// } else {
-			// 	// has messages
-			// 	tokens, strTokens, _, err = tokenizerMngr.RealTokenizer().RenderChatCompletion(validDB[i].messages)
-			// }
+			if len(validDB[i].input) > 0 {
+				// has prompt
+				tokens, strTokens, err = tokenizerMngr.RealTokenizer().RenderText(validDB[i].input)
+			} else {
+				// has messages
+				tokens, strTokens, _, err = tokenizerMngr.RealTokenizer().RenderMessages(validDB[i].messages)
+			}
 			Expect(err).ToNot(HaveOccurred())
 			Expect(tokens).ToNot(BeNil())
 			Expect(tokens).ToNot(BeEmpty())
-			// if len(validDB[i].input) > 0 {
-			// for text rendering string tokens returned, for chat string tokens array is empty
-			// TODO MAYA uncomment after string tokens will be calculated
-			// Expect(strTokens).ToNot(BeNil())
-			// Expect(strTokens).ToNot(BeEmpty())
-			// }
+			if len(validDB[i].input) > 0 {
+				// for text rendering string tokens returned, for chat string tokens array is empty
+				Expect(strTokens).ToNot(BeNil())
+				Expect(strTokens).ToNot(BeEmpty())
+			}
 			validDB[i].tokenizedInput = openaiserverapi.Tokenized{Tokens: tokens, Strings: strTokens}
 		}
+		fmt.Println("After initializing custom dataset test")
 	})
 
 	BeforeEach(func() {
@@ -159,9 +139,9 @@ var _ = Describe("CustomDataset", Ordered, func() {
 	})
 
 	AfterAll(func() {
-		// remove temp test db
+		// remove temp test db if exists
 		err := os.Remove(path)
-		Expect(err).NotTo(HaveOccurred())
+		Expect(err).To(Or(BeNil(), MatchError(os.ErrNotExist)))
 		// remove test tokenizer directory
 		err = os.RemoveAll(tokenizerTmpDir)
 		Expect(err).NotTo(HaveOccurred())
@@ -257,7 +237,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 	})
 
 	It("should return correct prompt hash in hex", func() {
-		tokens, strTokens, _, err := tokenizerMngr.RealTokenizer().RenderRequest(validDB[0].req)
+		tokens, strTokens, err := tokenizerMngr.RealTokenizer().RenderText(validDB[0].input)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(tokens).To(Equal(validDB[0].tokenizedInput.Tokens))
 		Expect(strTokens).To(Equal(validDB[0].tokenizedInput.Strings))
@@ -346,23 +326,23 @@ var _ = Describe("CustomDataset", Ordered, func() {
 		})
 
 		It("should successfully init dataset with in-memory option", func() {
-			// req := &openaiserverapi.TextCompletionsRequest{
-			// 	Prompt: validDB[1].input,
-			// }
-			// req.SetTokenizedPrompt(&validDB[1].tokenizedInput)
+			req := &openaiserverapi.TextCompletionsRequest{
+				Prompt: validDB[1].input,
+			}
+			req.SetTokenizedPrompt(&validDB[1].tokenizedInput)
 
-			tokens, finishReason, err := dataset.GetResponseTokens(validDB[1].req)
+			tokens, finishReason, err := dataset.GetResponseTokens(req)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(finishReason).To(Equal(common.StopFinishReason))
 			Expect(*tokens).To(Equal(validDB[1].respTokens))
 		})
 
 		It("should work correctly for chat request with multiple messages", func() {
-			// req := openaiserverapi.ChatCompletionsRequest{MaxTokens: &maxTokens}
-			// req.Messages = validDB[2].messages
-			// req.SetTokenizedPrompt(&validDB[2].tokenizedInput)
+			req := openaiserverapi.ChatCompletionsRequest{MaxTokens: &maxTokens}
+			req.Messages = validDB[2].messages
+			req.SetTokenizedPrompt(&validDB[2].tokenizedInput)
 
-			tokens, finishReason, err := dataset.GetResponseTokens(validDB[2].req)
+			tokens, finishReason, err := dataset.GetResponseTokens(&req)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(tokens.Length()).To(BeNumerically("<=", maxTokens))
 			Expect((tokens.Length() == int(maxTokens) && finishReason == common.LengthFinishReason) ||

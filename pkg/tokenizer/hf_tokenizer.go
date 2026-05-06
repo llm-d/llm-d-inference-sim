@@ -24,7 +24,6 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	"github.com/llm-d/llm-d-kv-cache/pkg/kvcache/kvblock"
@@ -56,35 +55,37 @@ func NewHFTokenizer(ctx context.Context, logger logr.Logger, renderURL, baseMode
 	}, nil
 }
 
-// RenderRequest sends req.RawRequestPayload() to {renderURL}{req.GetEndpoint()}/render
-// and returns the token IDs and multimodal features from the response.
-func (hft *HFTokenizer) RenderRequest(req openaiserverapi.Request) ([]uint32, []string, *tokenization.MultiModalFeatures, error) {
-	endpoint := req.GetEndpoint()
-	if endpoint == "" {
-		return nil, nil, nil, errors.New("RenderRequest: request type does not support a render endpoint")
+func (hft *HFTokenizer) RenderText(text string) ([]uint32, []string, error) {
+	req := openaiserverapi.NewTextCompletionsRenderRequest(hft.baseModel, text)
+
+	tokens, strTokens, _, err := hft.renderRequest(&req, text)
+
+	return tokens, strTokens, err
+}
+
+func (hft *HFTokenizer) RenderMessages(messages []openaiserverapi.ChatComplMessage) ([]uint32, []string, *tokenization.MultiModalFeatures, error) {
+	req := openaiserverapi.NewChatCompletionsRenderRequest(hft.baseModel, messages)
+
+	return hft.renderRequest(&req, FlattenMessages(messages))
+}
+
+func (hft *HFTokenizer) renderRequest(req openaiserverapi.RenderRequest, plainText string) ([]uint32, []string, *tokenization.MultiModalFeatures, error) {
+	if req.GetEndpoint() == "" {
+		return nil, nil, nil, errors.New("renderRequest: render endpoint is empty")
 	}
 
-	payload := req.RawRequestPayload()
-	if len(payload) == 0 {
-		return nil, nil, nil, errors.New("RenderRequest: raw request payload is empty")
+	payload, err := req.MarshalForRenderer()
+	if err != nil {
+		return nil, nil, nil, err
 	}
 
-	tokenIDs, features, err := hft.renderClient.render(endpoint, payload, req.IsMultiModal())
+	tokenIDs, features, err := hft.renderClient.render(req.GetEndpoint(), payload, req.IsMultiModal())
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("RenderRequest: %w", err)
 	}
 
-	strTokens := hft.splitIntoTokens(req.PlainText(), len(tokenIDs))
+	strTokens := hft.splitIntoTokens(plainText, len(tokenIDs))
 	return tokenIDs, strTokens, hft.toKVCacheMM(features), nil
-}
-
-func (hft *HFTokenizer) RenderPlainText(text string) ([]uint32, []string, error) {
-	req, err := common.CreateRequestForRenderText(hft.baseModel, text)
-	if err != nil {
-		return nil, nil, err
-	}
-	tokens, strTokens, _, err := hft.RenderRequest(req)
-	return tokens, strTokens, err
 }
 
 func (hft *HFTokenizer) toKVCacheMM(f *renderMMFeatures) *tokenization.MultiModalFeatures {

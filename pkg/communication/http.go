@@ -171,10 +171,6 @@ func (c *Communication) handleHTTP(req vllmsim.Request, respBuilder responseBuil
 	requestID := c.getRequestID(ctx)
 	req.SetRequestID(requestID)
 
-	// ensure that the request payload that will be sent to the render backend contains base model
-	updatedPayload := c.simulator.Context.EnsureModelInPayload(req.GetModel(), ctx.Request.Body())
-	req.SetRawRequestPayload(updatedPayload)
-
 	// Check for X-Return-Error header - deterministic error trigger
 	if errCodeStr := string(ctx.Request.Header.Peek(XReturnErrorHeader)); errCodeStr != "" {
 		code, err := strconv.Atoi(errCodeStr)
@@ -496,7 +492,7 @@ func (c *Communication) HandleEmbeddings(ctx *fasthttp.RequestCtx) {
 				c.sendError(ctx, &errToSend, false)
 				return
 			}
-			tokens, _, _, err := c.simulator.Context.Tokenizer.RenderRequest(&openaiserverapi.TextCompletionsRequest{Prompt: text})
+			tokens, _, err := c.simulator.Context.Tokenizer.RenderText(text)
 			if err != nil {
 				c.logger.Error(err, "failed to tokenize embedding input")
 				ctx.Error("Failed to tokenize input, "+err.Error(), fasthttp.StatusInternalServerError)
@@ -555,16 +551,14 @@ func (c *Communication) HandleTokenize(ctx *fasthttp.RequestCtx) {
 	}
 
 	var tokens []uint32
-	var renderReq openaiserverapi.Request
 
 	if req.Prompt != "" {
-		renderReq = &openaiserverapi.TextCompletionsRequest{Prompt: req.Prompt}
+		tokens, _, err = c.simulator.Context.Tokenizer.RenderText(req.Prompt)
 	} else {
 		// has messages
-		renderReq = &openaiserverapi.ChatCompletionsRequest{Messages: req.Messages}
+		tokens, _, _, err = c.simulator.Context.Tokenizer.RenderMessages(req.Messages)
 	}
 
-	tokens, _, _, err = c.simulator.Context.Tokenizer.RenderRequest(renderReq)
 	if err != nil {
 		c.logger.Error(err, "failed to tokenize")
 		ctx.Error("Failed to tokenize, "+err.Error(), fasthttp.StatusInternalServerError)

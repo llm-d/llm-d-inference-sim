@@ -142,7 +142,7 @@ type ChatComplMessage struct {
 	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
 }
 
-func (m *ChatComplMessage) plainText(includeRole bool) string {
+func (m *ChatComplMessage) PlainText(includeRole bool) string {
 	var builder strings.Builder
 
 	if includeRole {

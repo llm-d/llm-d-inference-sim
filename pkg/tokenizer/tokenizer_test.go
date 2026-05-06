@@ -19,7 +19,6 @@ package tokenizer
 import (
 	"strings"
 
-	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -30,16 +29,15 @@ const (
 )
 
 var _ = Describe("tokenizer", func() {
-	textCompletionReq := openaiserverapi.TextCompletionsRequest{Prompt: input}
-	chatComplReq := openaiserverapi.ChatCompletionsRequest{Messages: []openaiserverapi.ChatComplMessage{
+	// textCompletionReq := openaiserverapi.TextCompletionsRequest{Prompt: input}
+	messages := []openaiserverapi.ChatComplMessage{
 		{Role: openaiserverapi.RoleUser, Content: openaiserverapi.ChatComplContent{Raw: "q1"}},
 		{Role: openaiserverapi.RoleAssistant, Content: openaiserverapi.ChatComplContent{Raw: "a1"}},
 		{Role: openaiserverapi.RoleUser, Content: openaiserverapi.ChatComplContent{Raw: "q2"}},
-	}}
+	}
 
 	It("should tokenize with simple tokenizer", func() {
-		textCompletionReq.Model = common.TestModelName
-		tokens, strTokens, _, err := tokenizerMngr.TestTokenizer().RenderRequest(&textCompletionReq)
+		tokens, strTokens, err := tokenizerMngr.TestTokenizer().RenderText(input)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(tokens).NotTo(BeEmpty())
 		Expect(strTokens).NotTo(BeEmpty())
@@ -50,8 +48,7 @@ var _ = Describe("tokenizer", func() {
 	})
 
 	It("should tokenize chat with simple tokenizer", func() {
-		chatComplReq.Model = common.TestModelName
-		tokens, strTokens, _, err := tokenizerMngr.TestTokenizer().RenderRequest(&chatComplReq)
+		tokens, strTokens, _, err := tokenizerMngr.TestTokenizer().RenderMessages(messages)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(tokens).NotTo(BeEmpty())
 		Expect(strTokens).NotTo(BeEmpty())
@@ -59,8 +56,7 @@ var _ = Describe("tokenizer", func() {
 	})
 
 	It("should tokenize with real tokenizer", func() {
-		textCompletionReq.Model = common.QwenModelName
-		tokens, strTokens, _, err := tokenizerMngr.RealTokenizer().RenderRequest(&textCompletionReq)
+		tokens, strTokens, err := tokenizerMngr.RealTokenizer().RenderText(input)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(tokens).NotTo(BeEmpty())
 		Expect(strTokens).NotTo(BeEmpty())
@@ -72,8 +68,7 @@ var _ = Describe("tokenizer", func() {
 
 	It("should tokenize chat with real tokenizer", func() {
 		// in /chat/completions case the string tokens are not returned
-		chatComplReq.Model = common.QwenModelName
-		tokens, _, _, err := tokenizerMngr.RealTokenizer().RenderRequest(&chatComplReq)
+		tokens, _, _, err := tokenizerMngr.RealTokenizer().RenderMessages(messages)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(tokens).NotTo(BeEmpty())
 	})

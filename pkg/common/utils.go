@@ -17,7 +17,6 @@ limitations under the License.
 package common
 
 import (
-	"encoding/json"
 	"fmt"
 	"math/rand"
 	"regexp"
@@ -28,7 +27,6 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/google/uuid"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
-	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	"github.com/pkg/errors"
 	"gopkg.in/yaml.v3"
 )
@@ -290,28 +288,4 @@ func BuildStubEmbedding(tokens []uint32, dim int) []float32 {
 
 func ReplaceModelName(payload []byte, newModel string) []byte {
 	return modelNameRe.ReplaceAll(payload, []byte(`$1"`+newModel+`"`))
-}
-
-func CreateRequestForRenderText(model, text string) (*openaiserverapi.TextCompletionsRequest, error) {
-	req := openaiserverapi.TextCompletionsRequest{Prompt: text}
-	req.Model = model
-	payload, err := json.Marshal(&req)
-	if err != nil {
-		return nil, fmt.Errorf("RenderPlainText: marshal request: %w", err)
-	}
-	req.SetRawRequestPayload(payload)
-
-	return &req, nil
-}
-
-func CreateRequestForRenderChatMessages(model string, messages []openaiserverapi.ChatComplMessage) (*openaiserverapi.ChatCompletionsRequest, error) {
-	req := openaiserverapi.ChatCompletionsRequest{Messages: messages}
-	req.Model = model
-	payload, err := json.Marshal(&req)
-	if err != nil {
-		return nil, fmt.Errorf("createRequestForRenderChatMessages: marshal request: %w", err)
-	}
-	req.SetRawRequestPayload(payload)
-
-	return &req, nil
 }

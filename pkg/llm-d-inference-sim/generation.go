@@ -71,16 +71,16 @@ func (g *generationReqCtx) request() Request {
 	return g.req
 }
 
-// func (g *generationReqCtx) tokenizedPromptForEcho() (*openaiserverapi.Tokenized, error) {
-// 	return g.req.TokenizedPrompt(), nil
-// }
+func (g *generationReqCtx) tokenizedPromptForEcho() (*openaiserverapi.Tokenized, error) {
+	return g.req.TokenizedPrompt(), nil
+}
 
 func (g *generationReqCtx) encode() ([]uint32, []string, *tokenization.MultiModalFeatures, error) {
 	tokenizedPrompt := g.req.TokenizedPrompt()
 	if tokenizedPrompt != nil {
 		return tokenizedPrompt.Tokens, tokenizedPrompt.Strings, nil, nil
 	}
-	tokens, strTokens, _, err := g.sim.Tokenizer.RenderRequest(g.req)
+	tokens, strTokens, err := g.sim.Tokenizer.RenderText(g.req.Prompt)
 	return tokens, strTokens, nil, err
 }
 

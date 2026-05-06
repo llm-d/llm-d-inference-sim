@@ -73,30 +73,64 @@ func (r *responsesReqCtx) request() Request {
 	return r.req
 }
 
+// convertInputToMessages converts ResponsesRequest Input to ChatComplMessages
+func convertInputToMessages(input []openaiserverapi.InputItem) []openaiserverapi.ChatComplMessage {
+	messages := make([]openaiserverapi.ChatComplMessage, 0, len(input))
+	for _, item := range input {
+		if inputMsg, ok := item.(*openaiserverapi.InputMessage); ok {
+			// Convert InputMessage to ChatComplMessage
+			msg := openaiserverapi.ChatComplMessage{
+				Role: inputMsg.Role,
+			}
+
+			// Convert InputContent to ChatComplContent
+			if len(inputMsg.Content) == 1 && inputMsg.Content[0].Type == openaiserverapi.ResponsesInputText {
+				// Simple text content
+				msg.Content.Raw = inputMsg.Content[0].Text
+			} else {
+				// Structured content
+				blocks := make([]openaiserverapi.ChatComplContentBlock, 0, len(inputMsg.Content))
+				for _, content := range inputMsg.Content {
+					if content.Type == openaiserverapi.ResponsesInputText {
+						blocks = append(blocks, openaiserverapi.ChatComplContentBlock{
+							Type: "text",
+							Text: content.Text,
+						})
+					}
+				}
+				msg.Content.Structured = blocks
+			}
+
+			messages = append(messages, msg)
+		}
+	}
+	return messages
+}
+
 func (r *responsesReqCtx) encode() ([]uint32, []string, *tokenization.MultiModalFeatures, error) {
-	tokens, strTokens, _, err := r.sim.Tokenizer.RenderRequest(r.req)
-	return tokens, strTokens, nil, err
+	messages := convertInputToMessages(r.req.Input)
+	return r.sim.Tokenizer.RenderMessages(messages)
 }
 
 func (r *responsesReqCtx) createToolCalls() ([]openaiserverapi.ToolCall, int, string, error) {
 	return nil, 0, "", nil
 }
 
-// func (r *responsesReqCtx) tokenizedPromptForEcho() (*openaiserverapi.Tokenized, error) {
-// 	// echo the text of the last input message, matching chat completion behavior
-// 	text := ""
-// 	if len(r.req.Input) > 0 {
-// 		if msg, ok := r.req.Input[len(r.req.Input)-1].(*openaiserverapi.InputMessage); ok {
-// 			text = msg.ReadableText()
-// 		}
-// 	}
-
-// 	tokens, strTokens, err := r.sim.Tokenizer.RenderText(text)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	return &openaiserverapi.Tokenized{Tokens: tokens, Strings: strTokens}, nil
-// }
+func (r *responsesReqCtx) tokenizedPromptForEcho() (*openaiserverapi.Tokenized, error) {
+	// echo the text of the last input message, matching chat completion behavior
+	lastMsg := ""
+	if len(r.req.Input) > 0 {
+		// in echo mode return the last message without role
+		if msg, ok := r.req.Input[len(r.req.Input)-1].(*openaiserverapi.InputMessage); ok {
+			lastMsg = msg.PlainText(false)
+		}
+	}
+	tokens, strTokens, err := r.sim.Tokenizer.RenderText(lastMsg)
+	if err != nil {
+		return nil, err
+	}
+	return &openaiserverapi.Tokenized{Tokens: tokens, Strings: strTokens}, nil
+}
 
 var _ requestContext = (*responsesReqCtx)(nil)
 

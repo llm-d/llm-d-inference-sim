@@ -76,17 +76,18 @@ func (c *ChatCompletionsRequest) createResponseContext(reqCtx requestContext, di
 	}
 }
 
-// func (c *chatCompletionReqCtx) tokenizedPromptForEcho() (*openaiserverapi.Tokenized, error) {
-// 	lastMsg := ""
-// 	if len(c.req.Messages) > 0 {
-// 		lastMsg = c.req.Messages[len(c.req.Messages)-1].Content.ReadableText()
-// 	}
-// 	tokens, strTokens, err := c.sim.Tokenizer.RenderText(lastMsg)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	return &openaiserverapi.Tokenized{Tokens: tokens, Strings: strTokens}, nil
-// }
+func (c *chatCompletionReqCtx) tokenizedPromptForEcho() (*openaiserverapi.Tokenized, error) {
+	lastMsg := ""
+	if len(c.req.Messages) > 0 {
+		// in echo mode return the last message without role
+		lastMsg = c.req.Messages[len(c.req.Messages)-1].PlainText(false)
+	}
+	tokens, strTokens, err := c.sim.Tokenizer.RenderText(lastMsg)
+	if err != nil {
+		return nil, err
+	}
+	return &openaiserverapi.Tokenized{Tokens: tokens, Strings: strTokens}, nil
+}
 
 var _ Request = (*ChatCompletionsRequest)(nil)
 
@@ -101,7 +102,7 @@ func (c *chatCompletionReqCtx) request() Request {
 }
 
 func (c *chatCompletionReqCtx) encode() ([]uint32, []string, *tokenization.MultiModalFeatures, error) {
-	return c.sim.Tokenizer.RenderRequest(c.req)
+	return c.sim.Tokenizer.RenderMessages(c.req.Messages)
 }
 
 func (c *chatCompletionReqCtx) createToolCalls() ([]openaiserverapi.ToolCall, int, string, error) {
