@@ -29,8 +29,7 @@ const (
 )
 
 var _ = Describe("tokenizer", func() {
-	// textCompletionReq := openaiserverapi.TextCompletionsRequest{Prompt: input}
-	messages := []openaiserverapi.ChatComplMessage{
+	messages := []openaiserverapi.Message{
 		{Role: openaiserverapi.RoleUser, Content: openaiserverapi.ChatComplContent{Raw: "q1"}},
 		{Role: openaiserverapi.RoleAssistant, Content: openaiserverapi.ChatComplContent{Raw: "a1"}},
 		{Role: openaiserverapi.RoleUser, Content: openaiserverapi.ChatComplContent{Raw: "q2"}},

@@ -20,7 +20,6 @@ package llmdinferencesim
 import (
 	"encoding/json"
 	"fmt"
-	"regexp"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
@@ -75,10 +74,6 @@ func (s *SimContext) LoadLoraAdaptor(ctx *fasthttp.RequestCtx) {
 	}
 
 	s.loraAdaptors.Store(req.LoraName, req.LoraPath)
-
-	// add regular expression for the new lora replacement when request is sent to renderer
-	s.renderModelRe.Store(req.LoraName,
-		regexp.MustCompile(`("model"\s*:\s*)"`+regexp.QuoteMeta(req.LoraName)+`"`))
 }
 
 func (s *SimContext) UnloadLoraAdaptor(ctx *fasthttp.RequestCtx) {
@@ -91,8 +86,6 @@ func (s *SimContext) UnloadLoraAdaptor(ctx *fasthttp.RequestCtx) {
 	}
 
 	s.loraAdaptors.Delete(req.LoraName)
-
-	s.renderModelRe.Delete(req.LoraName)
 }
 
 // Checks if the LoRA adaptor is loaded

@@ -29,6 +29,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
+	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 )
 
 type renderClient struct {
@@ -53,7 +54,7 @@ func newRenderClient(ctx context.Context, logger logr.Logger, renderURL string, 
 	}
 }
 
-func (rc *renderClient) render(endpoint string, payload []byte, mm bool) ([]uint32, *renderMMFeatures, error) {
+func (rc *renderClient) render(endpoint string, payload []byte, mm bool) ([]uint32, *openaiserverapi.RenderMMFeatures, error) {
 	if endpoint == "" {
 		return nil, nil, errors.New("render endpoint is empty")
 	}
@@ -80,14 +81,14 @@ func (rc *renderClient) render(endpoint string, payload []byte, mm bool) ([]uint
 }
 
 // parseRenderResponse handles both array (completions) and object (chat/responses) response shapes.
-func (rc *renderClient) parseRenderResponse(body []byte) ([]uint32, *renderMMFeatures, error) {
+func (rc *renderClient) parseRenderResponse(body []byte) ([]uint32, *openaiserverapi.RenderMMFeatures, error) {
 	body = bytes.TrimSpace(body)
 	if len(body) == 0 {
 		return nil, nil, errors.New("empty response body")
 	}
 
 	if body[0] == '[' {
-		var arr []renderResponse
+		var arr []openaiserverapi.RenderResponse
 		if err := json.Unmarshal(body, &arr); err != nil {
 			return nil, nil, fmt.Errorf("unmarshal array response: %w", err)
 		}
@@ -97,26 +98,11 @@ func (rc *renderClient) parseRenderResponse(body []byte) ([]uint32, *renderMMFea
 		return arr[0].TokenIDs, arr[0].Features, nil
 	}
 
-	var single renderResponse
+	var single openaiserverapi.RenderResponse
 	if err := json.Unmarshal(body, &single); err != nil {
 		return nil, nil, fmt.Errorf("unmarshal response: %w", err)
 	}
 	return single.TokenIDs, single.Features, nil
-}
-
-type renderResponse struct {
-	TokenIDs []uint32          `json:"token_ids"`
-	Features *renderMMFeatures `json:"features,omitempty"`
-}
-
-type renderMMFeatures struct {
-	MMHashes       map[string][]string            `json:"mm_hashes"`
-	MMPlaceholders map[string][]renderPlaceholder `json:"mm_placeholders"`
-}
-
-type renderPlaceholder struct {
-	Offset int `json:"offset"`
-	Length int `json:"length"`
 }
 
 func (rc *renderClient) postRaw(path string, payload []byte, timeout time.Duration) ([]byte, error) {

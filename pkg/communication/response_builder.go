@@ -177,7 +177,7 @@ func (respBuilder *chatComplHTTPRespBuilder) createResponse(respCtx vllmsim.Resp
 	baseChoice := openaiserverapi.CreateBaseResponseChoice(0, respCtx.FinishReason())
 	baseResp.Object = openaiserverapi.ChatCompletionObject
 
-	message := openaiserverapi.ChatComplMessage{Role: openaiserverapi.RoleAssistant}
+	message := openaiserverapi.Message{Role: openaiserverapi.RoleAssistant}
 	if respCtx.ToolCalls() != nil {
 		message.ToolCalls = respCtx.ToolCalls()
 	} else {
@@ -224,7 +224,7 @@ func (respBuilder *chatComplHTTPRespBuilder) createChunk(respCtx vllmsim.Respons
 	chunk := openaiserverapi.CreateChatCompletionsRespChunk(baseChunk,
 		[]openaiserverapi.ChatRespChunkChoice{
 			openaiserverapi.CreateChatRespChunkChoice(
-				openaiserverapi.CreateBaseResponseChoice(0, finishReason), openaiserverapi.ChatComplMessage{})})
+				openaiserverapi.CreateBaseResponseChoice(0, finishReason), openaiserverapi.Message{})})
 
 	if len(role) > 0 {
 		chunk.Choices[0].Delta.Role = role

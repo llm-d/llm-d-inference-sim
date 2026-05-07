@@ -23,7 +23,6 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	kvcache "github.com/llm-d/llm-d-inference-sim/pkg/kv-cache"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
-	"github.com/llm-d/llm-d-kv-cache/pkg/tokenization"
 	"github.com/valyala/fasthttp"
 )
 
@@ -51,7 +50,7 @@ type requestContext interface {
 	handleRequest() (ResponseContext, *openaiserverapi.Error)
 	responseChannel() common.Channel[*ResponseInfo]
 	tokenizedPromptForEcho() (*openaiserverapi.Tokenized, error)
-	encode() ([]uint32, []string, *tokenization.MultiModalFeatures, error)
+	encode() ([]uint32, []string, *openaiserverapi.RenderMMFeatures, error)
 }
 
 type baseRequestContext struct {

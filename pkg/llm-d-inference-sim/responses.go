@@ -21,7 +21,6 @@ import (
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
-	"github.com/llm-d/llm-d-kv-cache/pkg/tokenization"
 )
 
 // Implementation of request for /responses requests
@@ -73,13 +72,12 @@ func (r *responsesReqCtx) request() Request {
 	return r.req
 }
 
-// convertInputToMessages converts ResponsesRequest Input to ChatComplMessages
-func convertInputToMessages(input []openaiserverapi.InputItem) []openaiserverapi.ChatComplMessage {
-	messages := make([]openaiserverapi.ChatComplMessage, 0, len(input))
+// convertInputToMessages converts ResponsesRequest Input to Messages
+func convertInputToMessages(input []openaiserverapi.InputItem) []openaiserverapi.Message {
+	messages := make([]openaiserverapi.Message, 0, len(input))
 	for _, item := range input {
 		if inputMsg, ok := item.(*openaiserverapi.InputMessage); ok {
-			// Convert InputMessage to ChatComplMessage
-			msg := openaiserverapi.ChatComplMessage{
+			msg := openaiserverapi.Message{
 				Role: inputMsg.Role,
 			}
 
@@ -107,7 +105,7 @@ func convertInputToMessages(input []openaiserverapi.InputItem) []openaiserverapi
 	return messages
 }
 
-func (r *responsesReqCtx) encode() ([]uint32, []string, *tokenization.MultiModalFeatures, error) {
+func (r *responsesReqCtx) encode() ([]uint32, []string, *openaiserverapi.RenderMMFeatures, error) {
 	messages := convertInputToMessages(r.req.Input)
 	return r.sim.Tokenizer.RenderMessages(messages)
 }

@@ -1,5 +1,5 @@
 /*
-Copyright 2025 The llm-d-inference-sim Authors.
+Copyright 2026 The llm-d-inference-sim Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -22,8 +22,8 @@ import (
 )
 
 type RenderRequest interface {
-	GetModel() string
-	GetEndpoint() string
+	Model() string
+	Endpoint() string
 	IsMultiModal() bool
 	MarshalForRenderer() ([]byte, error)
 }
@@ -31,34 +31,34 @@ type RenderRequest interface {
 func NewTextCompletionsRenderRequest(model, prompt string) TextCompletionsRenderRequest {
 	return TextCompletionsRenderRequest{
 		baseRenderRequest: baseRenderRequest{
-			Model:    model,
-			Endpoint: "/v1/completions",
+			ModelName: model,
+			endpoint:  "/v1/completions",
 		},
 		Prompt: prompt,
 	}
 }
 
-func NewChatCompletionsRenderRequest(model string, messages []ChatComplMessage) ChatCompletionsRenderRequest {
+func NewChatCompletionsRenderRequest(model string, messages []Message) ChatCompletionsRenderRequest {
 	return ChatCompletionsRenderRequest{
 		baseRenderRequest: baseRenderRequest{
-			Model:    model,
-			Endpoint: "/v1/chat/completions",
+			ModelName: model,
+			endpoint:  "/v1/chat/completions",
 		},
 		Messages: messages,
 	}
 }
 
 type baseRenderRequest struct {
-	Model    string `json:"model"`
-	Endpoint string `json:"-"`
+	ModelName string `json:"model"`
+	endpoint  string `json:"-"`
 }
 
-func (b *baseRenderRequest) GetModel() string {
-	return b.Model
+func (b *baseRenderRequest) Model() string {
+	return b.ModelName
 }
 
-func (b *baseRenderRequest) GetEndpoint() string {
-	return b.Endpoint
+func (b *baseRenderRequest) Endpoint() string {
+	return b.endpoint
 }
 
 func (b *baseRenderRequest) IsMultiModal() bool {
@@ -84,7 +84,7 @@ type ChatCompletionsRenderRequest struct {
 	baseRenderRequest
 
 	// Messages list of request's Messages
-	Messages []ChatComplMessage `json:"messages"`
+	Messages []Message `json:"messages"`
 }
 
 func (c *ChatCompletionsRenderRequest) IsMultiModal() bool {
@@ -102,4 +102,19 @@ func (c *ChatCompletionsRenderRequest) IsMultiModal() bool {
 // containing only model and messages fields with all their inner fields
 func (c *ChatCompletionsRenderRequest) MarshalForRenderer() ([]byte, error) {
 	return json.Marshal(c)
+}
+
+type RenderResponse struct {
+	TokenIDs []uint32          `json:"token_ids"`
+	Features *RenderMMFeatures `json:"features,omitempty"`
+}
+
+type RenderMMFeatures struct {
+	MMHashes       map[string][]string            `json:"mm_hashes"`
+	MMPlaceholders map[string][]RenderPlaceholder `json:"mm_placeholders"`
+}
+
+type RenderPlaceholder struct {
+	Offset int `json:"offset"`
+	Length int `json:"length"`
 }

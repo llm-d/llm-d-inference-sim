@@ -19,7 +19,6 @@ package llmdinferencesim
 import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
-	"github.com/llm-d/llm-d-kv-cache/pkg/tokenization"
 )
 
 // Implementation of request for generation requests
@@ -75,7 +74,7 @@ func (g *generationReqCtx) tokenizedPromptForEcho() (*openaiserverapi.Tokenized,
 	return g.req.TokenizedPrompt(), nil
 }
 
-func (g *generationReqCtx) encode() ([]uint32, []string, *tokenization.MultiModalFeatures, error) {
+func (g *generationReqCtx) encode() ([]uint32, []string, *openaiserverapi.RenderMMFeatures, error) {
 	tokenizedPrompt := g.req.TokenizedPrompt()
 	if tokenizedPrompt != nil {
 		return tokenizedPrompt.Tokens, tokenizedPrompt.Strings, nil, nil

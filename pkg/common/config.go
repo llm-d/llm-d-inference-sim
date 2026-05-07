@@ -339,6 +339,7 @@ func newConfig() *Configuration {
 		DatasetTableName:           DefaultDSTableName,
 		DefaultEmbeddingDimensions: 384,
 		FakeMetricsRefreshInterval: 100 * time.Millisecond,
+		RenderURL:                  "http://localhost:8082",
 		RenderTimeout:              30 * time.Second,
 		MMRenderTimeout:            60 * time.Second,
 	}

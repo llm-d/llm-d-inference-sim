@@ -39,7 +39,7 @@ const (
 
 type validDBElement struct {
 	input          string
-	messages       []openaiserverapi.ChatComplMessage
+	messages       []openaiserverapi.Message
 	tokenizedInput openaiserverapi.Tokenized
 	hexa           string
 	respTokens     openaiserverapi.Tokenized
@@ -97,7 +97,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 
 		// #6 in db: intput2, message2, chat completions, short response
 		validDB[2].input = ""
-		validDB[2].messages = []openaiserverapi.ChatComplMessage{
+		validDB[2].messages = []openaiserverapi.Message{
 			{Role: openaiserverapi.RoleUser, Content: openaiserverapi.ChatComplContent{Raw: "Hello world!"}},
 			{Role: openaiserverapi.RoleAssistant, Content: openaiserverapi.ChatComplContent{Raw: "this is assistant long response, it should contain at least 10 tokens"}},
 			{Role: openaiserverapi.RoleUser, Content: openaiserverapi.ChatComplContent{Raw: "Hello world again"}},
@@ -130,7 +130,6 @@ var _ = Describe("CustomDataset", Ordered, func() {
 			}
 			validDB[i].tokenizedInput = openaiserverapi.Tokenized{Tokens: tokens, Strings: strTokens}
 		}
-		fmt.Println("After initializing custom dataset test")
 	})
 
 	BeforeEach(func() {

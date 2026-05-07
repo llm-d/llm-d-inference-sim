@@ -102,7 +102,7 @@ func (h *KVCacheHelper) OnRequestStart(req openaiserverapi.Request) (PrefixCache
 
 	if mmFeatres != nil {
 		extraFeatures = kvblock.ComputeBlockExtraFeatures(
-			mmFeatres.MMHashes, mmFeatres.MMPlaceholders,
+			mmFeatres.MMHashes, h.convertMMPlaceholders(mmFeatres.MMPlaceholders),
 			h.blockSize, len(tokens))
 	}
 
@@ -149,4 +149,16 @@ func (h *KVCacheHelper) SetModelLoaded(model string) {
 // SetModelUnloaded marks a model as unloaded, its blocks become low-priority eviction candidates
 func (h *KVCacheHelper) SetModelUnloaded(model string) {
 	h.blockCache.setModelUnloaded(model)
+}
+
+func (h *KVCacheHelper) convertMMPlaceholders(placeholders map[string][]openaiserverapi.RenderPlaceholder) map[string][]kvblock.PlaceholderRange {
+	res := make(map[string][]kvblock.PlaceholderRange, len(placeholders))
+
+	for k, prs := range placeholders {
+		res[k] = make([]kvblock.PlaceholderRange, len(prs))
+		for i, pr := range prs {
+			res[k][i] = kvblock.PlaceholderRange{Offset: pr.Offset, Length: pr.Length}
+		}
+	}
+	return res
 }

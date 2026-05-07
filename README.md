@@ -136,6 +136,11 @@ To run the vLLM simulator in a standalone test environment with a real model:
    docker run --rm -p 8082:8082 vllm/vllm-openai-cpu:v0.19.1 \
      vllm launch render Qwen/Qwen2.5-0.5B-Instruct --port=8082
    ```
+   Alternatively, use the `run-render` Makefile target, which runs the same container via your configured container engine (Docker or Podman):
+   ```bash
+   make run-render MODEL_NAME=Qwen/Qwen2.5-0.5B-Instruct RENDER_PORT=8082
+   ```
+   Both `MODEL_NAME` and `RENDER_PORT` are optional and default to `TinyLlama/TinyLlama-1.1B-Chat-v1.0` and `8082` respectively.
 2. Start the simulator:
    ```bash
    ./bin/llm-d-inference-sim --model Qwen/Qwen2.5-0.5B-Instruct --port 8000 --render-url http://localhost:8082

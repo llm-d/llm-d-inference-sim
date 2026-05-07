@@ -35,7 +35,7 @@ Replace `<model>` with the same model name you pass to `--model`. If the model r
 | `--output-file` | string | No | `inference-sim-dataset` | Output file name without extension (creates `.json`, `.sqlite3` and `.md` files) |
 | `--table-name` | string | No | `llmd` | Name of the table created in the SQLite DB |
 | `--max-records` | int | No | `10000` | Maximum number of source dataset records to process; if the dataset contains more, the rest are discarded. |
-| `--render-url` | string | Yes | - | URL of the vLLM render server (e.g. `http://localhost:8082`) |
+| `--render-url` | string | Yes | `http://localhost:8082` | URL of the vLLM render server |
 
 **Note:** Either `--hf-repo` or `--local-path` must be specified, but not both.
 

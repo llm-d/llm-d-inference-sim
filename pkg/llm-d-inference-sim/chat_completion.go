@@ -23,7 +23,6 @@ import (
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
-	"github.com/llm-d/llm-d-kv-cache/pkg/tokenization"
 )
 
 // Implementation of request for /chat/completions requests
@@ -101,7 +100,7 @@ func (c *chatCompletionReqCtx) request() Request {
 	return c.req
 }
 
-func (c *chatCompletionReqCtx) encode() ([]uint32, []string, *tokenization.MultiModalFeatures, error) {
+func (c *chatCompletionReqCtx) encode() ([]uint32, []string, *openaiserverapi.RenderMMFeatures, error) {
 	return c.sim.Tokenizer.RenderMessages(c.req.Messages)
 }
 

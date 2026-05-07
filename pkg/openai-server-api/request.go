@@ -22,8 +22,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-
-	"github.com/llm-d/llm-d-kv-cache/pkg/tokenization"
 )
 
 const (
@@ -98,9 +96,9 @@ type Request interface {
 	// SetTokenizedPromptForEcho sets the tokenized response in echo mode
 	SetTokenizedPromptForEcho(tokenized *Tokenized)
 	// MMFeatures returns the multimodal features
-	MMFeatures() *tokenization.MultiModalFeatures
+	MMFeatures() *RenderMMFeatures
 	// SetMMFeatures sets the multimodal features
-	SetMMFeatures(mmFeatures *tokenization.MultiModalFeatures)
+	SetMMFeatures(mmFeatures *RenderMMFeatures)
 
 	// CacheThresholdFinishReason returns cacheThresholdFinishReason,  when true,
 	// forces a cache_threshold finish reason
@@ -135,7 +133,7 @@ type baseRequest struct {
 	// tokenizedPromptForEcho is the tokenized part of the prompt to be used in echo mode, exists only in echo mode
 	tokenizedPromptForEcho *Tokenized
 	// mmFeatures holds multimodal metadata produced by the tokenizer, exists only for multimodal requests
-	mmFeatures *tokenization.MultiModalFeatures
+	mmFeatures *RenderMMFeatures
 }
 
 // baseCompletionsRequest contains base completions request related information
@@ -317,12 +315,12 @@ func (b *baseRequest) SetTokenizedPromptForEcho(tokenized *Tokenized) {
 }
 
 // TokenizedPrompt returns the tokenized prompt
-func (b *baseRequest) MMFeatures() *tokenization.MultiModalFeatures {
+func (b *baseRequest) MMFeatures() *RenderMMFeatures {
 	return b.mmFeatures
 }
 
 // SetMMFeatures sets the multimodal features
-func (b *baseRequest) SetMMFeatures(mmFeatures *tokenization.MultiModalFeatures) {
+func (b *baseRequest) SetMMFeatures(mmFeatures *RenderMMFeatures) {
 	b.mmFeatures = mmFeatures
 }
 
@@ -350,7 +348,7 @@ func (b *baseCompletionsRequest) SetCacheThresholdFinishReason(value bool) {
 type ChatCompletionsRequest struct {
 	baseCompletionsRequest
 	// Messages list of request's Messages
-	Messages []ChatComplMessage `json:"messages"`
+	Messages []Message `json:"messages"`
 
 	// The maximum number of tokens that can be generated in the chat
 	// completions. This value can be used to control costs for text

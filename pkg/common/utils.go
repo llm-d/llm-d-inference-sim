@@ -19,7 +19,6 @@ package common
 import (
 	"fmt"
 	"math/rand"
-	"regexp"
 	"strconv"
 	"sync"
 	"time"
@@ -32,8 +31,6 @@ import (
 )
 
 const InvalidMaxTokensErrMsg = "Max completion tokens and max tokens should be positive"
-
-var modelNameRe = regexp.MustCompile(`("model"\s*:\s*)"[^"]*"`)
 
 // Definition of buckets for time-to-first-token and time-per-output-token metrics, each value is an upper boundary of a bucket
 var TTFTBucketsBoundaries = []float64{0.001, 0.005, 0.01, 0.02, 0.04, 0.06, 0.08, 0.1, 0.25, 0.5,
@@ -284,8 +281,4 @@ func BuildStubEmbedding(tokens []uint32, dim int) []float32 {
 		emb[i] = v
 	}
 	return emb
-}
-
-func ReplaceModelName(payload []byte, newModel string) []byte {
-	return modelNameRe.ReplaceAll(payload, []byte(`$1"`+newModel+`"`))
 }

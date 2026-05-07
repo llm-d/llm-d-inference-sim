@@ -21,7 +21,6 @@ import (
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
-	"github.com/llm-d/llm-d-kv-cache/pkg/tokenization"
 )
 
 // Implementation of request for /completions requests
@@ -74,7 +73,7 @@ func (t *textCompletionReqCtx) request() Request {
 	return t.req
 }
 
-func (t *textCompletionReqCtx) encode() ([]uint32, []string, *tokenization.MultiModalFeatures, error) {
+func (t *textCompletionReqCtx) encode() ([]uint32, []string, *openaiserverapi.RenderMMFeatures, error) {
 	tokens, strTokens, err := t.sim.Tokenizer.RenderText(t.req.Prompt)
 	return tokens, strTokens, nil, err
 }

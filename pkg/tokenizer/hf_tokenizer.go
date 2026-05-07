@@ -26,8 +26,6 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
-	"github.com/llm-d/llm-d-kv-cache/pkg/kvcache/kvblock"
-	"github.com/llm-d/llm-d-kv-cache/pkg/tokenization"
 	crlog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -63,14 +61,14 @@ func (hft *HFTokenizer) RenderText(text string) ([]uint32, []string, error) {
 	return tokens, strTokens, err
 }
 
-func (hft *HFTokenizer) RenderMessages(messages []openaiserverapi.ChatComplMessage) ([]uint32, []string, *tokenization.MultiModalFeatures, error) {
+func (hft *HFTokenizer) RenderMessages(messages []openaiserverapi.Message) ([]uint32, []string, *openaiserverapi.RenderMMFeatures, error) {
 	req := openaiserverapi.NewChatCompletionsRenderRequest(hft.baseModel, messages)
 
 	return hft.renderRequest(&req, FlattenMessages(messages))
 }
 
-func (hft *HFTokenizer) renderRequest(req openaiserverapi.RenderRequest, plainText string) ([]uint32, []string, *tokenization.MultiModalFeatures, error) {
-	if req.GetEndpoint() == "" {
+func (hft *HFTokenizer) renderRequest(req openaiserverapi.RenderRequest, plainText string) ([]uint32, []string, *openaiserverapi.RenderMMFeatures, error) {
+	if req.Endpoint() == "" {
 		return nil, nil, nil, errors.New("renderRequest: render endpoint is empty")
 	}
 
@@ -79,29 +77,11 @@ func (hft *HFTokenizer) renderRequest(req openaiserverapi.RenderRequest, plainTe
 		return nil, nil, nil, err
 	}
 
-	tokenIDs, features, err := hft.renderClient.render(req.GetEndpoint(), payload, req.IsMultiModal())
+	tokenIDs, features, err := hft.renderClient.render(req.Endpoint(), payload, req.IsMultiModal())
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("RenderRequest: %w", err)
 	}
 
 	strTokens := hft.splitIntoTokens(plainText, len(tokenIDs))
-	return tokenIDs, strTokens, hft.toKVCacheMM(features), nil
-}
-
-func (hft *HFTokenizer) toKVCacheMM(f *renderMMFeatures) *tokenization.MultiModalFeatures {
-	if f == nil || (len(f.MMHashes) == 0 && len(f.MMPlaceholders) == 0) {
-		return nil
-	}
-	out := &tokenization.MultiModalFeatures{
-		MMHashes:       f.MMHashes,
-		MMPlaceholders: make(map[string][]kvblock.PlaceholderRange, len(f.MMPlaceholders)),
-	}
-	for k, prs := range f.MMPlaceholders {
-		ranges := make([]kvblock.PlaceholderRange, len(prs))
-		for i, pr := range prs {
-			ranges[i] = kvblock.PlaceholderRange{Offset: pr.Offset, Length: pr.Length}
-		}
-		out.MMPlaceholders[k] = ranges
-	}
-	return out
+	return tokenIDs, strTokens, features, nil
 }

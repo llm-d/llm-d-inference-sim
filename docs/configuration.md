@@ -94,7 +94,7 @@ All latency-related parameters are defined in duration format, e.g., 100ms. Inte
 - `dataset-table-name`: Table name for custom dataset, optional, default is 'llmd'
 
 ## Tokenizer
-- `render-url`: URL of the vLLM render service used for tokenization (e.g. `http://localhost:8000`). Required when the model is a real HuggingFace model; omit for simulated/dummy models.
+- `render-url`: URL of the vLLM render service used for tokenization. Required when the model is a real HuggingFace model; omit for simulated/dummy models. Default is `http://localhost:8082`.
 - `render-timeout`: Timeout for tokenizer render requests (e.g. `30s`). Default is `30s`.
 - `mm-render-timeout`: Timeout for multi-modal tokenizer render requests (e.g. `60s`). Default is `60s`.
 
