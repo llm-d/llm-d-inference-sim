@@ -23,7 +23,7 @@ spec:
         imagePullPolicy: IfNotPresent
         restartPolicy: Always
         command: ["vllm"]
-        args: ["launch", "render", "meta-llama/Llama-3.1-8B-Instruct", "--port=8082"]
+        args: ["launch", "render", "Qwen/Qwen2.5-0.5B-Instruct", "--port=8082"]
         ports:
         - name: http
           containerPort: 8082
@@ -46,7 +46,7 @@ spec:
           args:
             - "--v=4"
             - "--port=8000"
-            - "--model=meta-llama/Llama-3.1-8B-Instruct"
+            - "--model=Qwen/Qwen2.5-0.5B-Instruct"
             - "--data-parallel-size=1"
             - "--prefill-time-per-token=200"
             - "--prefill-time-std-dev=3"
@@ -78,7 +78,7 @@ spec:
         imagePullPolicy: IfNotPresent
         restartPolicy: Always
         command: ["vllm"]
-        args: ["launch", "render", "meta-llama/Llama-3.1-8B-Instruct", "--port=8082"]
+        args: ["launch", "render", "Qwen/Qwen2.5-0.5B-Instruct", "--port=8082"]
         ports:
         - name: http
           containerPort: 8082
@@ -112,7 +112,7 @@ spec:
         args:
           - "--v=4"
           - "--port=8200"
-          - "--model=meta-llama/Llama-3.1-8B-Instruct"
+          - "--model=Qwen/Qwen2.5-0.5B-Instruct"
           - "--data-parallel-size=1"
           - "--render-url=http://localhost:8082"
         ports:

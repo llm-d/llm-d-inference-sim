@@ -54,7 +54,7 @@ curl -v http://localhost:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
   -H "x-prefiller-host-port: vllm-sim-p-service:8000" \
   -d '{
-    "model": "meta-llama/Llama-3.1-8B-Instruct",
+    "model": "Qwen/Qwen2.5-0.5B-Instruct",
     "messages": [{"role": "user", "content": "Hello from P/D architecture!"}],
     "max_tokens": 32
   }'

@@ -38,7 +38,8 @@ spec:
           initialDelaySeconds: 5
           periodSeconds: 5
       containers:
-      - args:
+      - name: vllm-sim
+        args:
         - --model
         - Qwen/Qwen2.5-1.5B-Instruct
         - --port
@@ -50,7 +51,6 @@ spec:
         - http://localhost:8082
         image: ghcr.io/llm-d/llm-d-inference-sim:latest
         imagePullPolicy: IfNotPresent
-        name: vllm-sim
         env:
           - name: POD_NAME
             valueFrom:
