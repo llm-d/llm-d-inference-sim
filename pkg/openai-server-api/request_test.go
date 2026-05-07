@@ -21,11 +21,6 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-// Helper function to create string pointer
-func stringPtr(s string) *string {
-	return &s
-}
-
 const (
 	model  = "test_model"
 	prompt = "Hello, world!"

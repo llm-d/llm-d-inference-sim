@@ -18,6 +18,7 @@ package tokenizer
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -72,7 +73,7 @@ func (hft *HFTokenizer) renderRequest(req openaiserverapi.RenderRequest, plainTe
 		return nil, nil, nil, errors.New("renderRequest: render endpoint is empty")
 	}
 
-	payload, err := req.MarshalForRenderer()
+	payload, err := json.Marshal(req)
 	if err != nil {
 		return nil, nil, nil, err
 	}

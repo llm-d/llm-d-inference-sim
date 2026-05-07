@@ -17,15 +17,10 @@ limitations under the License.
 // Contains structures and functions related to requests for all supported APIs
 package openaiserverapi
 
-import (
-	"encoding/json"
-)
-
 type RenderRequest interface {
 	Model() string
 	Endpoint() string
 	IsMultiModal() bool
-	MarshalForRenderer() ([]byte, error)
 }
 
 func NewTextCompletionsRenderRequest(model, prompt string) TextCompletionsRenderRequest {
@@ -73,12 +68,6 @@ type TextCompletionsRenderRequest struct {
 	Prompt string `json:"prompt"`
 }
 
-// MarshalForRenderer creates a minimal JSON payload for the renderer
-// containing only model and prompt fields
-func (t *TextCompletionsRenderRequest) MarshalForRenderer() ([]byte, error) {
-	return json.Marshal(t)
-}
-
 // ChatCompletionsRenderRequest contains chat completions render request related information
 type ChatCompletionsRenderRequest struct {
 	baseRenderRequest
@@ -96,12 +85,6 @@ func (c *ChatCompletionsRenderRequest) IsMultiModal() bool {
 		}
 	}
 	return false
-}
-
-// MarshalForRenderer creates a minimal JSON payload for the renderer
-// containing only model and messages fields with all their inner fields
-func (c *ChatCompletionsRenderRequest) MarshalForRenderer() ([]byte, error) {
-	return json.Marshal(c)
 }
 
 type RenderResponse struct {
