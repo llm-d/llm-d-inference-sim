@@ -337,6 +337,7 @@ func (respBuilder *responsesHTTPRespBuilder) createResponse(respCtx vllmsim.Resp
 		respCtx.RequestID(),
 		time.Now().Unix(),
 		respCtx.Instructions(),
+		respCtx.Logprobs(),
 		[]openaiserverapi.OutputItem{
 			openaiserverapi.MessageOutput{
 				Type:    openaiserverapi.ResponsesOutputMessage,
@@ -361,6 +362,7 @@ func (respBuilder *responsesHTTPRespBuilder) createUsageChunk(respCtx vllmsim.Re
 		respCtx.RequestID(),
 		respCtx.CreationTime(),
 		respCtx.Instructions(),
+		respCtx.Logprobs(),
 		[]openaiserverapi.OutputItem{
 			openaiserverapi.MessageOutput{
 				Type:   openaiserverapi.ResponsesOutputMessage,
@@ -393,13 +395,27 @@ func (respBuilder *responsesHTTPRespBuilder) createChunk(respCtx vllmsim.Respons
 	}
 	delta := strings.Join(tokens.Strings, "")
 	respBuilder.accumulated.WriteString(delta)
-	return &namedEventChunk{
-		names: []string{openaiserverapi.ResponsesEventTextDelta},
-		data: []any{&openaiserverapi.ResponsesItemEvent{
-			Type:   openaiserverapi.ResponsesEventTextDelta,
-			ItemID: openaiserverapi.ResponsesMessageIDPrefix + respCtx.RequestID(),
-			Delta:  delta,
-		}}}
+
+	itemID := openaiserverapi.ResponsesMessageIDPrefix + respCtx.RequestID()
+	names := []string{openaiserverapi.ResponsesEventTextDelta}
+	data := []any{&openaiserverapi.ResponsesItemEvent{
+		Type:   openaiserverapi.ResponsesEventTextDelta,
+		ItemID: itemID,
+		Delta:  delta,
+	}}
+
+	if respCtx.Logprobs() != nil {
+		if logprobs := common.GenerateResponsesLogprobs(tokens.Strings, *respCtx.Logprobs()); len(logprobs) > 0 {
+			names = append(names, openaiserverapi.ResponsesEventTextLogprobsDelta)
+			data = append(data, &openaiserverapi.ResponsesItemEvent{
+				Type:     openaiserverapi.ResponsesEventTextLogprobsDelta,
+				ItemID:   itemID,
+				Logprobs: logprobs,
+			})
+		}
+	}
+
+	return &namedEventChunk{names: names, data: data}
 }
 
 func (respBuilder *responsesHTTPRespBuilder) createInitialChunk(respCtx vllmsim.ResponseContext) sseChunk {
@@ -408,6 +424,7 @@ func (respBuilder *responsesHTTPRespBuilder) createInitialChunk(respCtx vllmsim.
 		respCtx.RequestID(),
 		respCtx.CreationTime(),
 		respCtx.Instructions(),
+		respCtx.Logprobs(),
 		nil,
 		nil,
 	)

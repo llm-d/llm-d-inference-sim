@@ -411,7 +411,7 @@ func CreateGenerationResponse(base baseCompletionsResponse, tokens *Tokenized) *
 }
 
 func CreateResponsesResponse(model string, requestID string, createdAt int64,
-	instructions *string, output []OutputItem, usage *ResponsesUsage) *ResponsesResponse {
+	instructions *string, topLogprobs *int, output []OutputItem, usage *ResponsesUsage) *ResponsesResponse {
 	return &ResponsesResponse{
 		baseResponse: baseResponse{
 			ID:        ResponsesIDPrefix + requestID,
@@ -425,6 +425,7 @@ func CreateResponsesResponse(model string, requestID string, createdAt int64,
 		Text:         &TextSettings{Format: &TextFormat{Type: "text"}},
 		Output:       output,
 		Usage:        usage,
+		TopLogprobs:  topLogprobs,
 	}
 }
 
@@ -445,6 +446,7 @@ type ResponsesResponse struct {
 	Usage        *ResponsesUsage `json:"usage,omitempty"`
 	Error        *Error          `json:"error,omitempty"`
 	Store        *bool           `json:"store,omitempty"`
+	TopLogprobs  *int            `json:"top_logprobs,omitempty"`
 }
 
 type MessageOutput struct {
@@ -502,15 +504,16 @@ type ResponsesUsage struct {
 
 // Responses API streaming event types
 const (
-	ResponsesEventCreated          = "response.created"
-	ResponsesEventInProgress       = "response.in_progress"
-	ResponsesEventOutputItemAdded  = "response.output_item.added"
-	ResponsesEventContentPartAdded = "response.content_part.added"
-	ResponsesEventTextDelta        = "response.output_text.delta"
-	ResponsesEventTextDone         = "response.output_text.done"
-	ResponsesEventContentPartDone  = "response.content_part.done"
-	ResponsesEventOutputItemDone   = "response.output_item.done"
-	ResponsesEventCompleted        = "response.completed"
+	ResponsesEventCreated           = "response.created"
+	ResponsesEventInProgress        = "response.in_progress"
+	ResponsesEventOutputItemAdded   = "response.output_item.added"
+	ResponsesEventContentPartAdded  = "response.content_part.added"
+	ResponsesEventTextDelta         = "response.output_text.delta"
+	ResponsesEventTextLogprobsDelta = "response.output_text.logprobs.delta"
+	ResponsesEventTextDone          = "response.output_text.done"
+	ResponsesEventContentPartDone   = "response.content_part.done"
+	ResponsesEventOutputItemDone    = "response.output_item.done"
+	ResponsesEventCompleted         = "response.completed"
 )
 
 // ResponsesResponseEvent is used for events that carry a full response object
@@ -521,15 +524,17 @@ type ResponsesResponseEvent struct {
 }
 
 // ResponsesItemEvent is used for all item/content/text streaming events
-// (output_item.added/done, content_part.added/done, output_text.delta/done).
+// (output_item.added/done, content_part.added/done, output_text.delta/done,
+// output_text.logprobs.delta).
 // Fields not relevant to a given event type are omitted via omitempty.
 type ResponsesItemEvent struct {
-	Type         string         `json:"type"`
-	OutputIndex  int            `json:"output_index,omitempty"`
-	ContentIndex int            `json:"content_index,omitempty"`
-	ItemID       string         `json:"item_id,omitempty"`
-	Item         OutputItem     `json:"item,omitempty"`
-	Part         *OutputContent `json:"part,omitempty"`
-	Delta        string         `json:"delta,omitempty"`
-	Text         string         `json:"text,omitempty"`
+	Type         string             `json:"type"`
+	OutputIndex  int                `json:"output_index,omitempty"`
+	ContentIndex int                `json:"content_index,omitempty"`
+	ItemID       string             `json:"item_id,omitempty"`
+	Item         OutputItem         `json:"item,omitempty"`
+	Part         *OutputContent     `json:"part,omitempty"`
+	Delta        string             `json:"delta,omitempty"`
+	Text         string             `json:"text,omitempty"`
+	Logprobs     []ResponsesLogprob `json:"logprobs,omitempty"`
 }

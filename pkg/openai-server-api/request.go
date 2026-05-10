@@ -715,7 +715,11 @@ func (req *ResponsesRequest) GetMaxCompletionTokens() *int64 {
 func (req *ResponsesRequest) GetLogprobs() *int {
 	// include logprobs only if "message.output_text.logprobs" presents in the Include list
 	if slices.Contains(req.Include, ResponsesIncludeLogprobs) {
-		return req.TopLogprobs
+		if req.TopLogprobs != nil {
+			return req.TopLogprobs
+		}
+		zero := 0
+		return &zero
 	}
 	return nil
 }
