@@ -124,7 +124,7 @@ type baseRequest struct {
 	// Stream is a boolean value, defines whether response should be sent as a Stream
 	Stream bool `json:"stream"`
 	// KVParams kv transfer related fields
-	KVParams *KVTransferParams `json:"kv_transfer_params"`
+	KVParams *KVTransferParams `json:"kv_transfer_params,omitempty"`
 	// The number of tokens in the prompt that are in the local KV Cache
 	cachedPromptTokens int
 	// IgnoreEOS is a boolean value, true when the model should ignore end-of-sequence tokens

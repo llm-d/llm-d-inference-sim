@@ -1660,6 +1660,82 @@ var _ = Describe("Simulator", func() {
 			Entry(nil, true, 2),  // logprobs requested, 2 top alternatives
 			Entry(nil, false, 0), // logprobs not requested
 		)
+
+		DescribeTable("responses streaming with logprobs",
+			func(includeLogprobs bool, topLogprobs int) {
+				ctx := context.TODO()
+				client, err := startServer(ctx, common.ModeEcho)
+				Expect(err).NotTo(HaveOccurred())
+
+				openaiclient, params := getOpenAIClientAndResponsesParams(client, common.TestModelName, testUserMessage)
+				if includeLogprobs {
+					params.Include = []responses.ResponseIncludable{responses.ResponseIncludableMessageOutputTextLogprobs}
+					if topLogprobs > 0 {
+						params.TopLogprobs = param.NewOpt(int64(topLogprobs))
+					}
+				}
+
+				stream := openaiclient.Responses.NewStreaming(ctx, params)
+				defer func() {
+					Expect(stream.Close()).NotTo(HaveOccurred())
+				}()
+
+				deltaCount := 0
+				deltaLogprobsCount := 0
+
+				for stream.Next() {
+					event := stream.Current()
+					switch event.Type {
+					case openaiserverapi.ResponsesEventTextDelta:
+						delta := event.AsResponseOutputTextDelta()
+						Expect(delta.Delta).NotTo(BeEmpty())
+						deltaCount++
+						if includeLogprobs {
+							Expect(delta.JSON.Logprobs.Valid()).To(BeTrue(),
+								"delta event should have logprobs field present")
+							Expect(delta.Logprobs).NotTo(BeEmpty(),
+								"delta event should have non-empty logprobs when requested")
+							for _, lp := range delta.Logprobs {
+								Expect(lp.Token).NotTo(BeEmpty())
+								Expect(lp.Logprob).To(BeNumerically("<=", 0))
+								if topLogprobs > 0 {
+									Expect(lp.TopLogprobs).To(HaveLen(topLogprobs))
+								}
+							}
+							deltaLogprobsCount++
+						} else {
+							Expect(delta.Logprobs).To(BeEmpty(),
+								"delta event should have no logprobs when not requested")
+						}
+					case openaiserverapi.ResponsesEventTextDone:
+						done := event.AsResponseOutputTextDone()
+						Expect(done.Text).NotTo(BeEmpty())
+						if includeLogprobs {
+							Expect(done.JSON.Logprobs.Valid()).To(BeTrue(),
+								"done event should have logprobs field present (as [])")
+							Expect(done.Logprobs).To(BeEmpty(),
+								"done event logprobs should be empty array, not populated")
+						} else {
+							Expect(done.JSON.Logprobs.Valid()).To(BeFalse(),
+								"done event should not have logprobs field when not requested")
+						}
+					}
+				}
+				Expect(stream.Err()).NotTo(HaveOccurred())
+
+				Expect(deltaCount).To(BeNumerically(">", 0), "should have received delta events")
+				if includeLogprobs {
+					Expect(deltaLogprobsCount).To(Equal(deltaCount),
+						"all delta events should have logprobs when requested")
+				}
+			},
+			func(includeLogprobs bool, topLogprobs int) string {
+				return fmt.Sprintf("includeLogprobs: %t top_logprobs: %d", includeLogprobs, topLogprobs)
+			},
+			Entry(nil, true, 0),  // logprobs requested, no top alternatives
+			Entry(nil, true, 2),  // logprobs requested, 2 top alternatives
+			Entry(nil, false, 0), // logprobs not requested
+		)
 	})
 
 	Context("kv-events for requests", func() {

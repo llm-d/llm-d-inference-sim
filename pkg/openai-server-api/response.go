@@ -54,7 +54,7 @@ type baseResponse struct {
 	// Object is the Object type, "text_completion", "chat.completion", or "chat.completion.chunk"
 	Object string `json:"object"`
 	// KVParams kv transfer related fields
-	KVParams *KVTransferParams `json:"kv_transfer_params"`
+	KVParams *KVTransferParams `json:"kv_transfer_params,omitempty"`
 	// RequestID is the unique request ID for tracking
 	RequestID string `json:"-"`
 }
@@ -483,9 +483,11 @@ type ResponsesLogprob struct {
 }
 
 type OutputContent struct {
-	Type     string             `json:"type"` // output_text
-	Text     string             `json:"text,omitempty"`
-	Logprobs []ResponsesLogprob `json:"logprobs,omitempty"`
+	Type string `json:"type"` // output_text
+	Text string `json:"text,omitempty"`
+	// nil ptr → omit (not requested); non-nil ptr to nil slice → null; non-nil ptr to empty slice → [];
+	// non-nil ptr to populated slice → full array
+	Logprobs *[]ResponsesLogprob `json:"logprobs,omitempty"`
 }
 
 func (c OutputContent) MarshalJSON() ([]byte, error) {
@@ -528,13 +530,13 @@ type ResponsesResponseEvent struct {
 // output_text.logprobs.delta).
 // Fields not relevant to a given event type are omitted via omitempty.
 type ResponsesItemEvent struct {
-	Type         string             `json:"type"`
-	OutputIndex  int                `json:"output_index,omitempty"`
-	ContentIndex int                `json:"content_index,omitempty"`
-	ItemID       string             `json:"item_id,omitempty"`
-	Item         OutputItem         `json:"item,omitempty"`
-	Part         *OutputContent     `json:"part,omitempty"`
-	Delta        string             `json:"delta,omitempty"`
-	Text         string             `json:"text,omitempty"`
-	Logprobs     []ResponsesLogprob `json:"logprobs,omitempty"`
+	Type         string              `json:"type"`
+	OutputIndex  int                 `json:"output_index,omitempty"`
+	ContentIndex int                 `json:"content_index,omitempty"`
+	ItemID       string              `json:"item_id,omitempty"`
+	Item         OutputItem          `json:"item,omitempty"`
+	Part         *OutputContent      `json:"part,omitempty"`
+	Delta        string              `json:"delta,omitempty"`
+	Text         string              `json:"text,omitempty"`
+	Logprobs     *[]ResponsesLogprob `json:"logprobs,omitempty"`
 }
