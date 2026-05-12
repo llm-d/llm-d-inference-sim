@@ -71,4 +71,45 @@ var _ = Describe("tokenizer", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(tokens).NotTo(BeEmpty())
 	})
+
+	Describe("splitIntoTokens", func() {
+		bt := newBaseTokenizer()
+		const text = "I hear it's very cold."
+		// Natural split produced by the regex — every entry includes any trailing
+		// whitespace, so joining the slice reproduces the original text exactly.
+		naturalTokens := []string{"I ", "hear ", "it", "'", "s ", "very ", "cold", "."}
+
+		It("returns the natural split when count is -1", func() {
+			Expect(bt.splitIntoTokens(text, -1)).To(Equal(naturalTokens))
+		})
+
+		It("returns the natural split when count equals the natural length", func() {
+			Expect(bt.splitIntoTokens(text, len(naturalTokens))).To(Equal(naturalTokens))
+		})
+
+		It("pads with empty strings when count exceeds the natural length", func() {
+			result := bt.splitIntoTokens(text, len(naturalTokens)+3)
+			Expect(result).To(HaveLen(len(naturalTokens) + 3))
+			Expect(result[:len(naturalTokens)]).To(Equal(naturalTokens))
+			Expect(result[len(naturalTokens):]).To(Equal([]string{"", "", ""}))
+		})
+
+		It("merges the tail into the last kept token when count is smaller", func() {
+			result := bt.splitIntoTokens(text, 3)
+			Expect(result).To(HaveLen(3))
+			Expect(result[0]).To(Equal(naturalTokens[0]))
+			Expect(result[1]).To(Equal(naturalTokens[1]))
+			// The third token absorbs the remaining natural tokens.
+			Expect(result[2]).To(Equal(strings.Join(naturalTokens[2:], "")))
+			Expect(strings.Join(result, "")).To(Equal(text))
+		})
+
+		It("returns an empty slice for empty input with count -1", func() {
+			Expect(bt.splitIntoTokens("", -1)).To(BeEmpty())
+		})
+
+		It("pads empty input when count is positive", func() {
+			Expect(bt.splitIntoTokens("", 4)).To(Equal([]string{"", "", "", ""}))
+		})
+	})
 })

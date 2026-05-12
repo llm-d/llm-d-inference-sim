@@ -1566,7 +1566,6 @@ var _ = Describe("Simulator", func() {
 						Expect(added.OutputIndex).To(Equal(int64(0)))
 					case openaiserverapi.ResponsesEventTextDelta:
 						delta := event.AsResponseOutputTextDelta()
-						Expect(delta.Delta).NotTo(BeEmpty())
 						deltas = append(deltas, delta.Delta)
 					case openaiserverapi.ResponsesEventTextDone:
 						done := event.AsResponseOutputTextDone()
@@ -1615,8 +1614,8 @@ var _ = Describe("Simulator", func() {
 			},
 			Entry(nil, common.TestModelName, common.ModeRandom),
 			Entry(nil, common.TestModelName, common.ModeEcho),
-			// Entry(nil, common.QwenModelName, common.ModeRandom),
-			// Entry(nil, common.QwenModelName, common.ModeEcho),
+			Entry(nil, common.QwenModelName, common.ModeRandom),
+			Entry(nil, common.QwenModelName, common.ModeEcho),
 		)
 	})
 
