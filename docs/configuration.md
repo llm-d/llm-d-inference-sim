@@ -97,6 +97,7 @@ All latency-related parameters are defined in duration format, e.g., 100ms. Inte
 - `render-url`: URL of the vLLM render service used for tokenization. Required when the model is a real HuggingFace model; omit for simulated/dummy models. Default is `http://localhost:8082`.
 - `render-timeout`: Timeout for tokenizer render requests (e.g. `30s`). Default is `30s`.
 - `mm-render-timeout`: Timeout for multi-modal tokenizer render requests (e.g. `60s`). Default is `60s`.
+- `force-dummy-tokenizer`: Force the use of dummy tokenizer even if a real model name is provided. When this flag is set, the system bypasses loading the real tokenizer and uses a regex-based dummy tokenizer instead. This is useful for testing scenarios where you want to use a real model name but avoid the overhead of downloading and loading the actual tokenizer. Default is `false`.
 
 ## Embeddings
 - `default-embedding-dimensions`: default size of embedding vectors returned by `/v1/embeddings` when the request does not specify a `dimensions` field, optional, defaults to 384.
