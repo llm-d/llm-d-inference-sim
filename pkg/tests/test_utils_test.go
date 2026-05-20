@@ -661,3 +661,13 @@ func getChatPromptTokensCountForTestModel(message string) int64 {
 
 	return int64(len(tokens))
 }
+
+// writeTestConfig writes a test configuration file
+func writeTestConfig(path string, content string) error {
+	return os.WriteFile(path, []byte(content), 0644)
+}
+
+// removeTestConfig removes a test configuration file
+func removeTestConfig(path string) error {
+	return os.Remove(path)
+}
