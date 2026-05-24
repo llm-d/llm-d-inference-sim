@@ -31,6 +31,7 @@ const (
 	ResponsesInputText    = "input_text"
 	StartMessageSeparator = "### "
 	EndMessageSeparator   = "\n"
+	nullString            = "null"
 )
 
 // Request defines an interface for request information retrieval
@@ -489,7 +490,7 @@ func (t *TextCompletionsParsedRequest) UnmarshalJSON(data []byte) error {
 	}
 	t.baseTextCompletionsRequest = a.baseTextCompletionsRequest
 
-	if len(a.Prompt) == 0 || string(a.Prompt) == "null" {
+	if len(a.Prompt) == 0 || string(a.Prompt) == nullString {
 		t.Prompt = nil
 		return nil
 	}
@@ -656,7 +657,7 @@ func (m *InputMessage) UnmarshalJSON(data []byte) error {
 	m.Role = raw.Role
 	m.Status = raw.Status
 
-	if len(raw.Content) == 0 || string(raw.Content) == "null" {
+	if len(raw.Content) == 0 || string(raw.Content) == nullString {
 		return nil
 	}
 	// content can be a plain string or an array of InputContent objects
@@ -730,7 +731,7 @@ func (req *ResponsesRequest) UnmarshalJSON(data []byte) error {
 	req.MaxOutputTokens = a.MaxOutputTokens
 	req.Text = a.Text
 
-	if len(a.Input) == 0 || string(a.Input) == "null" {
+	if len(a.Input) == 0 || string(a.Input) == nullString {
 		return errors.New("input is required")
 	}
 
