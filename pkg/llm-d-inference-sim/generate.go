@@ -49,15 +49,21 @@ func (g *GenerateRequest) validate(toolsValidator *toolsValidator) (string, int)
 	return validateRequest(g)
 }
 
-func (g *GenerateRequest) buildRequestContext(simCtx *SimContext, channel common.Channel[*ResponseInfo]) requestContext {
+func (g *GenerateRequest) buildRequestContext(simCtx *SimContext, channel common.Channel[*ResponseInfo],
+	choiceIdx int, doneFn func()) requestContext {
 	reqCtx := &generateReqCtx{
-		baseRequestContext: newBaseRequestContext(simCtx, channel),
+		baseRequestContext: newBaseRequestContext(simCtx, channel, choiceIdx, doneFn),
 		req:                g,
 	}
 	// wire generateReqCtx into embedded requestContext interface
 	reqCtx.requestContext = reqCtx
 
 	return reqCtx
+}
+
+// split is a no-op: generate requests always carry a single prompt.
+func (g *GenerateRequest) split() []Request {
+	return []Request{g}
 }
 
 func (g *GenerateRequest) AsString() string {

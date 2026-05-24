@@ -86,7 +86,7 @@ func (t *TextCompletionsParsedRequest) buildRequestContext(_ *SimContext, _ comm
 
 func (t *TextCompletionsParsedRequest) createResponseContext(_ requestContext, _ string,
 	_ *openaiserverapi.Tokenized, _ *string, _ *openaiserverapi.Usage, _ bool,
-	_ *int, _ []openaiserverapi.ToolCall) ResponseContext {
+	_ *int, _ []openaiserverapi.ToolCall, _ bool) ResponseContext {
 	panic("TextCompletionsParsedRequest.createResponseContext: split must be called first")
 }
 

@@ -505,11 +505,12 @@ var _ responseBuilder = (*responsesHTTPRespBuilder)(nil)
 
 type generateHTTPRespBuilder struct{}
 
-func (respBuilder *generateHTTPRespBuilder) createResponse(respCtx vllmsim.ResponseContext,
-	tokens *openaiserverapi.Tokenized) any {
+func (respBuilder *generateHTTPRespBuilder) createResponse(respCtxPerChoice []vllmsim.ResponseContext,
+	tokens []openaiserverapi.Tokenized) any {
+	respCtx := respCtxPerChoice[0]
 	var tokenIDs []uint32
-	if tokens != nil {
-		tokenIDs = tokens.Tokens
+	if len(tokens) > 0 {
+		tokenIDs = tokens[0].Tokens
 	}
 	choice := openaiserverapi.GenerateRespChoice{TokenIDs: tokenIDs}
 	choice.Index = 0
@@ -521,24 +522,24 @@ func (respBuilder *generateHTTPRespBuilder) createResponse(respCtx vllmsim.Respo
 	}
 }
 
-func (respBuilder *generateHTTPRespBuilder) createUsageChunk(respCtx vllmsim.ResponseContext) sseChunk {
+func (respBuilder *generateHTTPRespBuilder) createUsageChunk(_ []vllmsim.ResponseContext) sseChunk {
 	return nil
 }
 
-func (respBuilder *generateHTTPRespBuilder) createChunk(respCtx vllmsim.ResponseContext,
-	tokens *openaiserverapi.Tokenized, tool *openaiserverapi.ToolCall, role string, finishReason *string) sseChunk {
+func (respBuilder *generateHTTPRespBuilder) createChunk(_ vllmsim.ResponseContext,
+	_ *openaiserverapi.Tokenized, _ *openaiserverapi.ToolCall, _ string, _ *string, _ int) sseChunk {
 	return nil
 }
 
-func (respBuilder *generateHTTPRespBuilder) createInitialChunk(respCtx vllmsim.ResponseContext) sseChunk {
+func (respBuilder *generateHTTPRespBuilder) createInitialChunk(_ vllmsim.ResponseContext) sseChunk {
 	return nil
 }
 
-func (respBuilder *generateHTTPRespBuilder) createFirstChunk(respCtx vllmsim.ResponseContext) sseChunk {
+func (respBuilder *generateHTTPRespBuilder) createFirstChunk(_ vllmsim.ResponseContext, _ int) sseChunk {
 	return nil
 }
 
-func (respBuilder *generateHTTPRespBuilder) createLastChunk(respCtx vllmsim.ResponseContext, finishReason string) sseChunk {
+func (respBuilder *generateHTTPRespBuilder) createLastChunk(_ vllmsim.ResponseContext, _ string, _ int) sseChunk {
 	return nil
 }
 
