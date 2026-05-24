@@ -212,7 +212,7 @@ func sendCompletionsRequestForLatencyTest(client *http.Client, modelName string,
 	doRemotePrefill bool) (time.Duration, time.Duration) {
 	// send completions request using http post because disagregated PD fields should be included
 	// Test with raw HTTP to verify the error response format
-	req := &openaiserverapi.TextCompletionsParsedRequest{Prompt: openaiserverapi.NewStringOrArray(prompt)}
+	req := &openaiserverapi.TextCompletionsParsedRequest{Prompt: []string{prompt}}
 	req.KVParams = &openaiserverapi.KVTransferParams{DoRemotePrefill: doRemotePrefill}
 	req.Model = modelName
 	req.Stream = isStreaming

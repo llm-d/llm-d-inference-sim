@@ -38,7 +38,7 @@ func (t *TextCompletionsParsedRequest) Unmarshal(data []byte) error {
 }
 
 func (t *TextCompletionsParsedRequest) validate(_ *toolsValidator) (string, int) {
-	if t.Prompt.IsArray() && len(t.Prompt.Array()) == 0 {
+	if len(t.Prompt) == 0 {
 		return "prompt array must contain at least one prompt", fasthttp.StatusBadRequest
 	}
 	return validateRequest(t)
@@ -49,17 +49,15 @@ func (t *TextCompletionsParsedRequest) AsString() string {
 }
 
 // split converts the parsed wire form into one or more processing-form
-// TextCompletionsRequest values. When the client sent a single string the
-// result has length 1 and the original RequestID is reused; when the client
-// sent an array (even of length 1) each element gets a "<requestID>-<i>"
-// suffix.
+// TextCompletionsRequest values. A single-prompt request keeps its original
+// RequestID; multi-prompt requests get a "<requestID>-<i>" suffix per
+// sub-request so each carries a unique ID.
 func (t *TextCompletionsParsedRequest) split() []Request {
-	if !t.Prompt.IsArray() {
-		return []Request{t.toSingle(t.Prompt.String(), t.RequestID)}
+	if len(t.Prompt) == 1 {
+		return []Request{t.toSingle(t.Prompt[0], t.RequestID)}
 	}
-	arr := t.Prompt.Array()
-	out := make([]Request, len(arr))
-	for i, prompt := range arr {
+	out := make([]Request, len(t.Prompt))
+	for i, prompt := range t.Prompt {
 		out[i] = t.toSingle(prompt, fmt.Sprintf("%s-%d", t.RequestID, i))
 	}
 	return out

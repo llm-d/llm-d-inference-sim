@@ -41,7 +41,7 @@ func newTextCompletionsFixture() *TextCompletionsParsedRequest {
 	req.StreamOptions = &openaiserverapi.StreamOptions{IncludeUsage: true}
 	threshold := 0.25
 	req.CacheHitThreshold = &threshold
-	req.Prompt = openaiserverapi.NewStringOrArrayFromSlice([]string{"one", "two"})
+	req.Prompt = []string{"one", "two"}
 	req.MaxTokens = ptrInt64(42)
 	req.Logprobs = ptrInt(3)
 	return req
@@ -78,11 +78,11 @@ var _ = Describe("TextCompletionsParsedRequest.split", func() {
 		Expect(sub.GetCacheHitThreshold()).To(Equal(orig.GetCacheHitThreshold()))
 	})
 
-	It("returns a single sub-request with the original RequestID for a string prompt", func() {
+	It("returns a single sub-request with the original RequestID when there's just one prompt", func() {
 		orig := &TextCompletionsParsedRequest{}
 		orig.RequestID = "req-xyz"
 		orig.Model = "test-model"
-		orig.Prompt = openaiserverapi.NewStringOrArray("only-prompt")
+		orig.Prompt = []string{"only-prompt"}
 
 		subs := orig.split()
 
@@ -94,13 +94,12 @@ var _ = Describe("TextCompletionsParsedRequest.split", func() {
 
 	It("does not mutate the parsed request", func() {
 		orig := newTextCompletionsFixture()
-		origPromptArr := orig.Prompt.Array()
+		origPrompt := append([]string(nil), orig.Prompt...)
 		origID := orig.GetRequestID()
 
 		_ = orig.split()
 
 		Expect(orig.GetRequestID()).To(Equal(origID))
-		Expect(orig.Prompt.IsArray()).To(BeTrue())
-		Expect(orig.Prompt.Array()).To(Equal(origPromptArr))
+		Expect(orig.Prompt).To(Equal(origPrompt))
 	})
 })

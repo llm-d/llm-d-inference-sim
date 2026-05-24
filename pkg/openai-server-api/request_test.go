@@ -55,15 +55,14 @@ var _ = Describe("render requests", func() {
 	})
 })
 
-var _ = Describe("StringOrArray", func() {
+var _ = Describe("TextCompletionsParsedRequest prompt", func() {
 	Context("UnmarshalJSON", func() {
-		It("should unmarshal a string prompt", func() {
+		It("should unmarshal a string prompt as a one-element slice", func() {
 			jsonData := []byte(`{"prompt": "Hello, world!"}`)
 			var req TextCompletionsParsedRequest
 			err := json.Unmarshal(jsonData, &req)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(req.Prompt.IsArray()).To(BeFalse())
-			Expect(req.Prompt.String()).To(Equal("Hello, world!"))
+			Expect(req.Prompt).To(Equal([]string{"Hello, world!"}))
 		})
 
 		It("should unmarshal an array prompt", func() {
@@ -71,12 +70,7 @@ var _ = Describe("StringOrArray", func() {
 			var req TextCompletionsParsedRequest
 			err := json.Unmarshal(jsonData, &req)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(req.Prompt.IsArray()).To(BeTrue())
-			Expect(req.Prompt.String()).To(Equal("Hello\nworld"))
-			arr := req.Prompt.Array()
-			Expect(arr).To(HaveLen(2))
-			Expect(arr[0]).To(Equal("Hello"))
-			Expect(arr[1]).To(Equal("world"))
+			Expect(req.Prompt).To(Equal([]string{"Hello", "world"}))
 		})
 
 		It("should return error for invalid prompt type", func() {
@@ -86,58 +80,15 @@ var _ = Describe("StringOrArray", func() {
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("prompt must be a string or array of strings"))
 		})
-	})
 
-	Context("MarshalJSON", func() {
-		It("should marshal a string prompt", func() {
-			req := TextCompletionsParsedRequest{
-				Prompt: NewStringOrArray("Hello, world!"),
-			}
-			data, err := json.Marshal(req)
-			Expect(err).NotTo(HaveOccurred())
-			var result map[string]interface{}
-			err = json.Unmarshal(data, &result)
-			Expect(err).NotTo(HaveOccurred())
-			prompt, ok := result["prompt"].(string)
-			Expect(ok).To(BeTrue())
-			Expect(prompt).To(Equal("Hello, world!"))
-		})
+		It("should leave Prompt nil when the field is absent or null", func() {
+			var req TextCompletionsParsedRequest
+			Expect(json.Unmarshal([]byte(`{}`), &req)).To(Succeed())
+			Expect(req.Prompt).To(BeNil())
 
-		It("should marshal an array prompt", func() {
-			req := TextCompletionsParsedRequest{
-				Prompt: NewStringOrArrayFromSlice([]string{"Hello", "world"}),
-			}
-			data, err := json.Marshal(req)
-			Expect(err).NotTo(HaveOccurred())
-			var result map[string]interface{}
-			err = json.Unmarshal(data, &result)
-			Expect(err).NotTo(HaveOccurred())
-			promptArr, ok := result["prompt"].([]interface{})
-			Expect(ok).To(BeTrue())
-			Expect(promptArr).To(HaveLen(2))
-			Expect(promptArr[0].(string)).To(Equal("Hello"))
-			Expect(promptArr[1].(string)).To(Equal("world"))
-		})
-	})
-
-	Context("Helper methods", func() {
-		It("should convert string to array with one element", func() {
-			s := NewStringOrArray("test")
-			arr := s.Array()
-			Expect(arr).To(HaveLen(1))
-			Expect(arr[0]).To(Equal("test"))
-		})
-
-		It("should join array elements with newlines", func() {
-			s := NewStringOrArrayFromSlice([]string{"line1", "line2", "line3"})
-			Expect(s.String()).To(Equal("line1\nline2\nline3"))
-		})
-
-		It("should correctly identify array type", func() {
-			str := NewStringOrArray("test")
-			arr := NewStringOrArrayFromSlice([]string{"test"})
-			Expect(str.IsArray()).To(BeFalse())
-			Expect(arr.IsArray()).To(BeTrue())
+			req = TextCompletionsParsedRequest{}
+			Expect(json.Unmarshal([]byte(`{"prompt": null}`), &req)).To(Succeed())
+			Expect(req.Prompt).To(BeNil())
 		})
 	})
 })

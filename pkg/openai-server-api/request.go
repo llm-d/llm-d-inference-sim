@@ -457,14 +457,15 @@ type baseTextCompletionsRequest struct {
 	Logprobs *int `json:"logprobs,omitempty"`
 }
 
-// TextCompletionsParsedRequest is the wire form of a /completions request:
-// its Prompt field may be a single string or an array. It is only used
-// between JSON unmarshaling and the simulator's split step — workers never
-// see this type.
+// TextCompletionsParsedRequest is the wire form of a /completions request.
+// On the wire `prompt` may be a single string or an array of strings; the
+// custom UnmarshalJSON below normalizes both forms into Prompt — a plain
+// string becomes a one-element slice. Used only between JSON unmarshaling
+// and the simulator's split step; workers never see this type.
 type TextCompletionsParsedRequest struct {
 	baseTextCompletionsRequest
-	// Prompt defines the request's content — a string or array of strings.
-	Prompt StringOrArray `json:"prompt"`
+	// Prompt holds one or more prompts. Always non-empty for valid requests.
+	Prompt []string `json:"prompt"`
 }
 
 // TextCompletionsRequest is the processing form of a /completions request:
@@ -473,6 +474,35 @@ type TextCompletionsRequest struct {
 	baseTextCompletionsRequest
 	// Prompt is the single prompt this request will generate against.
 	Prompt string
+}
+
+// UnmarshalJSON accepts either a string or an array of strings for the
+// `prompt` field, normalizing both into a []string.
+func (t *TextCompletionsParsedRequest) UnmarshalJSON(data []byte) error {
+	type alias struct {
+		baseTextCompletionsRequest
+		Prompt json.RawMessage `json:"prompt"`
+	}
+	var a alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		return err
+	}
+	t.baseTextCompletionsRequest = a.baseTextCompletionsRequest
+
+	if len(a.Prompt) == 0 || string(a.Prompt) == "null" {
+		t.Prompt = nil
+		return nil
+	}
+
+	var str string
+	if err := json.Unmarshal(a.Prompt, &str); err == nil {
+		t.Prompt = []string{str}
+		return nil
+	}
+	if err := json.Unmarshal(a.Prompt, &t.Prompt); err != nil {
+		return fmt.Errorf("prompt must be a string or array of strings: %w", err)
+	}
+	return nil
 }
 
 // AsSingle returns a single-prompt TextCompletionsRequest sharing this
@@ -488,84 +518,6 @@ func (t *TextCompletionsParsedRequest) AsSingle(prompt string) TextCompletionsRe
 		baseTextCompletionsRequest: t.baseTextCompletionsRequest,
 		Prompt:                     prompt,
 	}
-}
-
-// StringOrArray can hold either a single string or an array of strings
-type StringOrArray struct {
-	isArray bool
-	str     string
-	arr     []string
-}
-
-// NewStringOrArray creates a StringOrArray from a single string
-func NewStringOrArray(s string) StringOrArray {
-	return StringOrArray{
-		isArray: false,
-		str:     s,
-		arr:     nil,
-	}
-}
-
-// NewStringOrArrayFromSlice creates a StringOrArray from a slice of strings
-func NewStringOrArrayFromSlice(arr []string) StringOrArray {
-	return StringOrArray{
-		isArray: true,
-		str:     "",
-		arr:     arr,
-	}
-}
-
-// UnmarshalJSON implements custom JSON unmarshaling for StringOrArray
-func (s *StringOrArray) UnmarshalJSON(data []byte) error {
-	// Try to unmarshal as a string first
-	var str string
-	if err := json.Unmarshal(data, &str); err == nil {
-		s.isArray = false
-		s.str = str
-		s.arr = nil
-		return nil
-	}
-
-	// Try to unmarshal as an array of strings
-	var arr []string
-	if err := json.Unmarshal(data, &arr); err != nil {
-		return fmt.Errorf("prompt must be a string or array of strings: %w", err)
-	}
-	s.isArray = true
-	s.str = ""
-	s.arr = arr
-	return nil
-}
-
-// MarshalJSON implements custom JSON marshaling for StringOrArray
-func (s StringOrArray) MarshalJSON() ([]byte, error) {
-	if s.isArray {
-		return json.Marshal(s.arr)
-	}
-	return json.Marshal(s.str)
-}
-
-// String returns the prompt as a single string
-// If it's an array, joins with newlines
-func (s *StringOrArray) String() string {
-	if s.isArray {
-		return strings.Join(s.arr, "\n")
-	}
-	return s.str
-}
-
-// IsArray returns true if the prompt is an array
-func (s *StringOrArray) IsArray() bool {
-	return s.isArray
-}
-
-// Array returns the prompt as an array of strings
-// If it's a single string, returns a slice with one element
-func (s *StringOrArray) Array() []string {
-	if s.isArray {
-		return s.arr
-	}
-	return []string{s.str}
 }
 
 var _ Request = (*TextCompletionsRequest)(nil)
