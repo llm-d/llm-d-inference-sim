@@ -27,12 +27,12 @@ import (
 func ptrInt64(v int64) *int64 { return &v }
 func ptrInt(v int) *int       { return &v }
 
-// newTextCompletionsFixture builds a TextCompletionsRequest populated with a
-// cross-section of fields that duplicateWithPrompt must preserve when splitting
-// an array-prompt request. Keep this exhaustive — if you add a field to the
-// request type that should survive the copy, add it here too.
-func newTextCompletionsFixture() *TextCompletionsRequest {
-	req := &TextCompletionsRequest{}
+// newTextCompletionsFixture builds a TextCompletionsParsedRequest populated
+// with a cross-section of fields that split must preserve on each sub-request.
+// Keep this exhaustive — if you add a field to the parsed type that should
+// survive the copy, add it here too.
+func newTextCompletionsFixture() *TextCompletionsParsedRequest {
+	req := &TextCompletionsParsedRequest{}
 	req.RequestID = "req-abc"
 	req.Model = "test-model"
 	req.DisplayedModel = "test-model-alias"
@@ -47,39 +47,57 @@ func newTextCompletionsFixture() *TextCompletionsRequest {
 	return req
 }
 
-var _ = Describe("duplicateWithPrompt", func() {
-	It("returns a fresh request with a single-string prompt and the new RequestID", func() {
+var _ = Describe("TextCompletionsParsedRequest.split", func() {
+	It("returns one sub-request per array element with suffixed RequestIDs", func() {
 		orig := newTextCompletionsFixture()
 
-		dup := orig.duplicateWithPrompt("just-this", "req-abc-1").(*TextCompletionsRequest)
+		subs := orig.split()
 
-		Expect(dup).NotTo(BeIdenticalTo(orig))
-		Expect(dup.GetRequestID()).To(Equal("req-abc-1"))
-		Expect(dup.Prompt.IsArray()).To(BeFalse())
-		Expect(dup.Prompt.String()).To(Equal("just-this"))
+		Expect(subs).To(HaveLen(2))
+		first := subs[0].(*TextCompletionsRequest)
+		second := subs[1].(*TextCompletionsRequest)
+		Expect(first.GetRequestID()).To(Equal("req-abc-0"))
+		Expect(first.Prompt).To(Equal("one"))
+		Expect(second.GetRequestID()).To(Equal("req-abc-1"))
+		Expect(second.Prompt).To(Equal("two"))
 	})
 
-	It("preserves non-prompt fields from the original", func() {
+	It("preserves non-prompt fields on each sub-request", func() {
 		orig := newTextCompletionsFixture()
 
-		dup := orig.duplicateWithPrompt("x", "req-abc-0").(*TextCompletionsRequest)
+		subs := orig.split()
+		sub := subs[0].(*TextCompletionsRequest)
 
-		Expect(dup.GetModel()).To(Equal(orig.GetModel()))
-		Expect(dup.GetDisplayedModel()).To(Equal(orig.GetDisplayedModel()))
-		Expect(dup.IsStream()).To(Equal(orig.IsStream()))
-		Expect(dup.IncludeUsage()).To(Equal(orig.IncludeUsage()))
-		Expect(dup.GetIgnoreEOS()).To(Equal(orig.GetIgnoreEOS()))
-		Expect(dup.ExtractMaxTokens()).To(Equal(orig.ExtractMaxTokens()))
-		Expect(dup.GetLogprobs()).To(Equal(orig.GetLogprobs()))
-		Expect(dup.GetCacheHitThreshold()).To(Equal(orig.GetCacheHitThreshold()))
+		Expect(sub.GetModel()).To(Equal(orig.GetModel()))
+		Expect(sub.GetDisplayedModel()).To(Equal(orig.GetDisplayedModel()))
+		Expect(sub.IsStream()).To(Equal(orig.IsStream()))
+		Expect(sub.IncludeUsage()).To(Equal(orig.IncludeUsage()))
+		Expect(sub.GetIgnoreEOS()).To(Equal(orig.GetIgnoreEOS()))
+		Expect(sub.ExtractMaxTokens()).To(Equal(orig.ExtractMaxTokens()))
+		Expect(sub.GetLogprobs()).To(Equal(orig.GetLogprobs()))
+		Expect(sub.GetCacheHitThreshold()).To(Equal(orig.GetCacheHitThreshold()))
 	})
 
-	It("does not mutate the original request", func() {
+	It("returns a single sub-request with the original RequestID for a string prompt", func() {
+		orig := &TextCompletionsParsedRequest{}
+		orig.RequestID = "req-xyz"
+		orig.Model = "test-model"
+		orig.Prompt = openaiserverapi.NewStringOrArray("only-prompt")
+
+		subs := orig.split()
+
+		Expect(subs).To(HaveLen(1))
+		sub := subs[0].(*TextCompletionsRequest)
+		Expect(sub.GetRequestID()).To(Equal("req-xyz"))
+		Expect(sub.Prompt).To(Equal("only-prompt"))
+	})
+
+	It("does not mutate the parsed request", func() {
 		orig := newTextCompletionsFixture()
 		origPromptArr := orig.Prompt.Array()
 		origID := orig.GetRequestID()
 
-		_ = orig.duplicateWithPrompt("other", "req-abc-9")
+		_ = orig.split()
 
 		Expect(orig.GetRequestID()).To(Equal(origID))
 		Expect(orig.Prompt.IsArray()).To(BeTrue())

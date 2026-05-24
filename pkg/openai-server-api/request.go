@@ -105,11 +105,6 @@ type Request interface {
 	CacheThresholdFinishReason() bool
 	// SetCacheThresholdFinishReason sets cacheThresholdFinishReason
 	SetCacheThresholdFinishReason(bool)
-	// GetPrompts returns the array of prompts from the request when the client
-	// sent an array (TextCompletionsRequest with an array Prompt). Returns nil
-	// when there is no array to split — single-string prompts, chat, generation,
-	// and responses requests.
-	GetPrompts() []string
 }
 
 // baseRequest contains base completions request related information
@@ -289,13 +284,6 @@ func (b *baseRequest) GetCacheHitThreshold() *float64 {
 	return nil
 }
 
-// GetPrompts is the default implementation for request types that can't carry
-// an array of prompts. Returns nil so the simulator enqueues the original
-// request unchanged.
-func (b *baseRequest) GetPrompts() []string {
-	return nil
-}
-
 // CacheThresholdFinishReason returns cacheThresholdFinishReason,  when true,
 // forces a cache_threshold finish reason
 func (b *baseRequest) CacheThresholdFinishReason() bool {
@@ -443,24 +431,63 @@ func (c *ChatCompletionsRequest) GetLogprobs() *int {
 }
 
 // v1/completions
-// TextCompletionsRequest defines structure of /completions request
-type TextCompletionsRequest struct {
+
+// baseTextCompletionsRequest is the shared envelope for both forms of a
+// /completions request: TextCompletionsParsedRequest (wire form, prompt may be
+// a single string or an array) and TextCompletionsRequest (post-split
+// processing form, single prompt). Only the Prompt field differs between the
+// two; everything else lives here. The type is unexported because callers in
+// other packages should hold a TextCompletionsParsedRequest or a
+// TextCompletionsRequest and let the envelope details ride along by embedding.
+type baseTextCompletionsRequest struct {
 	baseCompletionsRequest
-	// Prompt defines request's content - can be a string or array of strings
-	Prompt StringOrArray `json:"prompt"`
 
 	// The maximum number of [tokens](/tokenizer) that can be generated in the
 	// completions.
 	//
-	// The token count of your prompt plus `max_tokens` cannot exceed the model's
-	// context length.
+	// The token count of your prompt plus `max_tokens` cannot exceed the
+	// model's context length.
 	MaxTokens *int64 `json:"max_tokens"`
 
-	// Logprobs includes the log probabilities on the logprobs most likely tokens,
-	// as well the chosen tokens. For example, if logprobs is 5, the API will return
-	// a list of the 5 most likely tokens. The API will always return the logprob
-	// of the sampled token, so there may be up to logprobs+1 elements in the response.
+	// Logprobs includes the log probabilities on the logprobs most likely
+	// tokens, as well as the chosen tokens. For example, if logprobs is 5,
+	// the API will return a list of the 5 most likely tokens. The API will
+	// always return the logprob of the sampled token, so there may be up to
+	// logprobs+1 elements in the response.
 	Logprobs *int `json:"logprobs,omitempty"`
+}
+
+// TextCompletionsParsedRequest is the wire form of a /completions request:
+// its Prompt field may be a single string or an array. It is only used
+// between JSON unmarshaling and the simulator's split step — workers never
+// see this type.
+type TextCompletionsParsedRequest struct {
+	baseTextCompletionsRequest
+	// Prompt defines the request's content — a string or array of strings.
+	Prompt StringOrArray `json:"prompt"`
+}
+
+// TextCompletionsRequest is the processing form of a /completions request:
+// it always carries a single prompt.
+type TextCompletionsRequest struct {
+	baseTextCompletionsRequest
+	// Prompt is the single prompt this request will generate against.
+	Prompt string
+}
+
+// AsSingle returns a single-prompt TextCompletionsRequest sharing this
+// request's envelope (model, lora, max_tokens, KV params, …) with the given
+// prompt. The returned request inherits the parsed request's RequestID;
+// callers that build multiple sub-requests should stamp a unique ID after.
+//
+// This helper exists so the splitting logic — which lives in another package —
+// can produce sub-requests without needing access to the unexported
+// baseTextCompletionsRequest field.
+func (t *TextCompletionsParsedRequest) AsSingle(prompt string) TextCompletionsRequest {
+	return TextCompletionsRequest{
+		baseTextCompletionsRequest: t.baseTextCompletionsRequest,
+		Prompt:                     prompt,
+	}
 }
 
 // StringOrArray can hold either a single string or an array of strings
@@ -542,36 +569,31 @@ func (s *StringOrArray) Array() []string {
 }
 
 var _ Request = (*TextCompletionsRequest)(nil)
+var _ Request = (*TextCompletionsParsedRequest)(nil)
 
-func (c *TextCompletionsRequest) GetTools() []Tool {
+// Methods below are shared between TextCompletionsRequest and
+// TextCompletionsParsedRequest via embedding of baseTextCompletionsRequest.
+
+func (b *baseTextCompletionsRequest) GetTools() []Tool {
 	return nil
 }
 
-func (c *TextCompletionsRequest) GetToolChoice() ToolChoice {
+func (b *baseTextCompletionsRequest) GetToolChoice() ToolChoice {
 	return ToolChoice{}
 }
 
-func (c *TextCompletionsRequest) GetMaxCompletionTokens() *int64 {
-	return c.MaxTokens
+func (b *baseTextCompletionsRequest) GetMaxCompletionTokens() *int64 {
+	return b.MaxTokens
 }
 
 // ExtractMaxTokens extracts the max tokens from the request
-// for text completions - max_tokens field is used
-func (req *TextCompletionsRequest) ExtractMaxTokens() *int64 {
-	return req.MaxTokens
+// for text completions - max_tokens field is used.
+func (b *baseTextCompletionsRequest) ExtractMaxTokens() *int64 {
+	return b.MaxTokens
 }
 
-func (t *TextCompletionsRequest) GetLogprobs() *int {
-	return t.Logprobs
-}
-
-// GetPrompts returns the array of prompts if the client sent one, or nil if
-// the request carries a single-string prompt.
-func (t *TextCompletionsRequest) GetPrompts() []string {
-	if t.Prompt.IsArray() {
-		return t.Prompt.Array()
-	}
-	return nil
+func (b *baseTextCompletionsRequest) GetLogprobs() *int {
+	return b.Logprobs
 }
 
 // GenerationRequest defines structure of generation request

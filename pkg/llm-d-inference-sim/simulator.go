@@ -330,31 +330,21 @@ func (s *VllmSimulator) HandleRequest(req Request) (bool, *common.Channel[*Respo
 		return false, nil, &err, false
 	}
 
-	// Single shared channel for all prompts; each sub-request stamps its ChoiceIdx on
-	// responses and calls signalDone when it's finished. A watcher goroutine closes the
-	// channel once all sub-requests have signalled completion.
-	//
-	// GetPrompts returns nil when there's no array to split (single-string prompt,
-	// chat/generation/responses requests); in that case we enqueue the original
-	// request as a single sub-request at ChoiceIdx 0.
-	prompts := req.GetPrompts()
+	// Single shared channel for all sub-requests; each stamps its ChoiceIdx on
+	// responses and calls signalDone when finished. A watcher goroutine closes
+	// the channel once all sub-requests have signalled completion. For most
+	// request types split returns just the receiver; only the parsed text
+	// completions form (which can carry an array of prompts) fans out.
+	subReqs := req.split()
 	channel := common.Channel[*ResponseInfo]{
 		Channel: make(chan *ResponseInfo, s.Context.Config.MaxModelLen),
 		Name:    "responseInfo-" + req.GetRequestID(),
 	}
 	var wg sync.WaitGroup
-	if prompts == nil {
-		wg.Add(1)
-		reqCtx := req.buildRequestContext(&s.Context, channel, 0, wg.Done)
+	wg.Add(len(subReqs))
+	for i, subReq := range subReqs {
+		reqCtx := subReq.buildRequestContext(&s.Context, channel, i, wg.Done)
 		common.WriteToChannel(s.newRequests, reqCtx, s.Context.logger)
-	} else {
-		wg.Add(len(prompts))
-		for i, prompt := range prompts {
-			newRequestID := fmt.Sprintf("%s-%d", req.GetRequestID(), i)
-			subReq := req.duplicateWithPrompt(prompt, newRequestID)
-			reqCtx := subReq.buildRequestContext(&s.Context, channel, i, wg.Done)
-			common.WriteToChannel(s.newRequests, reqCtx, s.Context.logger)
-		}
 	}
 	go func() {
 		wg.Wait()

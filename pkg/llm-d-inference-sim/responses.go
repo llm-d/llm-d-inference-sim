@@ -61,9 +61,9 @@ func (r *ResponsesRequest) createResponseContext(reqCtx requestContext, displayM
 	}
 }
 
-// duplicateWithPrompt returns the original request (responses requests don't support prompt arrays)
-func (r *ResponsesRequest) duplicateWithPrompt(prompt string, newRequestID string) Request {
-	return r
+// split is a no-op: responses requests always carry a single prompt.
+func (r *ResponsesRequest) split() []Request {
+	return []Request{r}
 }
 
 var _ Request = (*ResponsesRequest)(nil)

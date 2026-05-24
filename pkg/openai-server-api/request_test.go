@@ -59,7 +59,7 @@ var _ = Describe("StringOrArray", func() {
 	Context("UnmarshalJSON", func() {
 		It("should unmarshal a string prompt", func() {
 			jsonData := []byte(`{"prompt": "Hello, world!"}`)
-			var req TextCompletionsRequest
+			var req TextCompletionsParsedRequest
 			err := json.Unmarshal(jsonData, &req)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(req.Prompt.IsArray()).To(BeFalse())
@@ -68,7 +68,7 @@ var _ = Describe("StringOrArray", func() {
 
 		It("should unmarshal an array prompt", func() {
 			jsonData := []byte(`{"prompt": ["Hello", "world"]}`)
-			var req TextCompletionsRequest
+			var req TextCompletionsParsedRequest
 			err := json.Unmarshal(jsonData, &req)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(req.Prompt.IsArray()).To(BeTrue())
@@ -81,7 +81,7 @@ var _ = Describe("StringOrArray", func() {
 
 		It("should return error for invalid prompt type", func() {
 			jsonData := []byte(`{"prompt": 123}`)
-			var req TextCompletionsRequest
+			var req TextCompletionsParsedRequest
 			err := json.Unmarshal(jsonData, &req)
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("prompt must be a string or array of strings"))
@@ -90,7 +90,7 @@ var _ = Describe("StringOrArray", func() {
 
 	Context("MarshalJSON", func() {
 		It("should marshal a string prompt", func() {
-			req := TextCompletionsRequest{
+			req := TextCompletionsParsedRequest{
 				Prompt: NewStringOrArray("Hello, world!"),
 			}
 			data, err := json.Marshal(req)
@@ -104,7 +104,7 @@ var _ = Describe("StringOrArray", func() {
 		})
 
 		It("should marshal an array prompt", func() {
-			req := TextCompletionsRequest{
+			req := TextCompletionsParsedRequest{
 				Prompt: NewStringOrArrayFromSlice([]string{"Hello", "world"}),
 			}
 			data, err := json.Marshal(req)
@@ -139,29 +139,5 @@ var _ = Describe("StringOrArray", func() {
 			Expect(str.IsArray()).To(BeFalse())
 			Expect(arr.IsArray()).To(BeTrue())
 		})
-	})
-})
-
-var _ = Describe("GetPrompts", func() {
-	It("returns nil for a TextCompletionsRequest with a single-string prompt", func() {
-		req := &TextCompletionsRequest{Prompt: NewStringOrArray("hello")}
-		Expect(req.GetPrompts()).To(BeNil())
-	})
-
-	It("returns the array for a TextCompletionsRequest with an array prompt", func() {
-		req := &TextCompletionsRequest{Prompt: NewStringOrArrayFromSlice([]string{"a", "b", "c"})}
-		Expect(req.GetPrompts()).To(Equal([]string{"a", "b", "c"}))
-	})
-
-	It("returns a non-nil empty slice for a TextCompletionsRequest with an empty array prompt", func() {
-		req := &TextCompletionsRequest{Prompt: NewStringOrArrayFromSlice([]string{})}
-		prompts := req.GetPrompts()
-		Expect(prompts).NotTo(BeNil())
-		Expect(prompts).To(BeEmpty())
-	})
-
-	It("returns nil for a ChatCompletionsRequest (default implementation)", func() {
-		req := &ChatCompletionsRequest{Messages: []Message{{Role: RoleUser, Content: ChatComplContent{Raw: "hi"}}}}
-		Expect(req.GetPrompts()).To(BeNil())
 	})
 })

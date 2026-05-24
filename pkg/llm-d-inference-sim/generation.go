@@ -59,9 +59,9 @@ func (g *GenerationRequest) createResponseContext(reqCtx requestContext, display
 	}
 }
 
-// duplicateWithPrompt returns the original request (generation requests don't support prompt arrays)
-func (g *GenerationRequest) duplicateWithPrompt(prompt string, newRequestID string) Request {
-	return g
+// split is a no-op: generation requests always carry a single prompt.
+func (g *GenerationRequest) split() []Request {
+	return []Request{g}
 }
 
 var _ Request = (*GenerationRequest)(nil)

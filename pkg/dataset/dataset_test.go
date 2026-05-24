@@ -194,7 +194,7 @@ var _ = Describe("Echo Dataset", Ordered, func() {
 	Context("getTokensInEchoMode", func() {
 		It("should return the same text, max tokens is not defined", func() {
 			req := &openaiserverapi.TextCompletionsRequest{
-				Prompt: openaiserverapi.NewStringOrArray(theText),
+				Prompt: theText,
 			}
 
 			promptTokenized := openaiserverapi.Tokenized{Tokens: theTextTokens, Strings: theTextStrTokens}
@@ -207,10 +207,8 @@ var _ = Describe("Echo Dataset", Ordered, func() {
 		})
 		It("should return the same text, max tokens is higher than the text length", func() {
 			maxTokens := int64(1000)
-			req := &openaiserverapi.TextCompletionsRequest{
-				Prompt:    openaiserverapi.NewStringOrArray(theText),
-				MaxTokens: &maxTokens,
-			}
+			req := &openaiserverapi.TextCompletionsRequest{Prompt: theText}
+			req.MaxTokens = &maxTokens
 			promptTokenized := openaiserverapi.Tokenized{Tokens: theTextTokens, Strings: theTextStrTokens}
 			req.SetTokenizedPrompt(&promptTokenized)
 			req.SetTokenizedPromptForEcho(&promptTokenized)
@@ -222,10 +220,8 @@ var _ = Describe("Echo Dataset", Ordered, func() {
 		})
 		It("should return the same text, finish reason is length", func() {
 			maxTokens := int64(2)
-			req := &openaiserverapi.TextCompletionsRequest{
-				Prompt:    openaiserverapi.NewStringOrArray(theText),
-				MaxTokens: &maxTokens,
-			}
+			req := &openaiserverapi.TextCompletionsRequest{Prompt: theText}
+			req.MaxTokens = &maxTokens
 			promptTokenized := openaiserverapi.Tokenized{Tokens: theTextTokens, Strings: theTextStrTokens}
 			req.SetTokenizedPrompt(&promptTokenized)
 			req.SetTokenizedPromptForEcho(&promptTokenized)
@@ -268,7 +264,8 @@ var _ = Describe("Echo Dataset", Ordered, func() {
 				chatReq.IgnoreEOS = ignoreEos
 				req = &chatReq
 			} else {
-				textReq := openaiserverapi.TextCompletionsRequest{Prompt: openaiserverapi.NewStringOrArray(testPrompt), MaxTokens: maxTokens}
+				textReq := openaiserverapi.TextCompletionsRequest{Prompt: testPrompt}
+				textReq.MaxTokens = maxTokens
 				textReq.IgnoreEOS = ignoreEos
 				req = &textReq
 			}

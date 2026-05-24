@@ -89,6 +89,11 @@ func (c *chatCompletionReqCtx) tokenizedPromptForEcho() (*openaiserverapi.Tokeni
 	return &openaiserverapi.Tokenized{Tokens: tokens, Strings: strTokens}, nil
 }
 
+// split is a no-op: chat completions always carry a single prompt.
+func (c *ChatCompletionsRequest) split() []Request {
+	return []Request{c}
+}
+
 var _ Request = (*ChatCompletionsRequest)(nil)
 
 // Implementation of requestContext for /chat/completions requests
@@ -115,11 +120,6 @@ func (c *chatCompletionReqCtx) createToolCalls() ([]openaiserverapi.ToolCall, in
 		return toolCalls, completionTokens, finishReason, err
 	}
 	return nil, 0, "", nil
-}
-
-// duplicateWithPrompt returns the original request (chat completions don't support prompt arrays)
-func (c *ChatCompletionsRequest) duplicateWithPrompt(prompt string, newRequestID string) Request {
-	return c
 }
 
 var _ requestContext = (*chatCompletionReqCtx)(nil)

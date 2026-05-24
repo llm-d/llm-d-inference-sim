@@ -133,7 +133,7 @@ func (c *Communication) HandleChatCompletions(ctx *fasthttp.RequestCtx) {
 
 // HandleTextCompletions http handler for /v1/completions
 func (c *Communication) HandleTextCompletions(ctx *fasthttp.RequestCtx) {
-	c.handleHTTP(&vllmsim.TextCompletionsRequest{}, &textComplHTTPRespBuilder{}, ctx)
+	c.handleHTTP(&vllmsim.TextCompletionsParsedRequest{}, &textComplHTTPRespBuilder{}, ctx)
 }
 
 // HandleResponses http handler for /v1/responses

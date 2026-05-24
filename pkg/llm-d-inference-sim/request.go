@@ -33,9 +33,12 @@ type requestBuilder interface {
 	AsString() string
 	createResponseContext(reqCtx requestContext, displayModel string, responseTokens *openaiserverapi.Tokenized, finishReason *string,
 		usageData *openaiserverapi.Usage, sendUsageData bool, logprobs *int, toolCalls []openaiserverapi.ToolCall) ResponseContext
-	// duplicateWithPrompt creates a copy of the request with a new prompt and request ID
-	// For requests that don't support multiple prompts, returns the original request
-	duplicateWithPrompt(prompt string, newRequestID string) Request
+	// split returns one or more processing-form Requests, each carrying a single
+	// prompt with a unique RequestID. For request types whose wire form is always
+	// a single prompt (chat, generation, responses, post-split text completions),
+	// the implementation is trivial: return the receiver wrapped in a one-element
+	// slice. Only TextCompletionsParsedRequest does real work here.
+	split() []Request
 }
 
 type Request interface {

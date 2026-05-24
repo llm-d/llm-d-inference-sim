@@ -44,13 +44,6 @@ func getNumberOfPromptTokens(req openaiserverapi.Request) int {
 }
 
 func validateRequest(req openaiserverapi.Request) (string, int) {
-	// GetPrompts returns nil when the request doesn't carry an array of prompts;
-	// a non-nil empty slice means the client sent `"prompt": []`, which the
-	// simulator has nothing to generate against.
-	if prompts := req.GetPrompts(); prompts != nil && len(prompts) == 0 {
-		return "prompt array must contain at least one prompt", fasthttp.StatusBadRequest
-	}
-
 	if req.GetMaxCompletionTokens() != nil && *req.GetMaxCompletionTokens() <= 0 {
 		return common.InvalidMaxTokensErrMsg, fasthttp.StatusBadRequest
 	}
