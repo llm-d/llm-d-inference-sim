@@ -31,8 +31,9 @@ type requestBuilder interface {
 	validate(toolsValidator *toolsValidator) (string, int)
 	buildRequestContext(simCtx *SimContext, channel common.Channel[*ResponseInfo], choiceIdx int, doneFn func()) requestContext
 	AsString() string
-	createResponseContext(reqCtx requestContext, displayModel string, responseTokens *openaiserverapi.Tokenized, finishReason *string,
-		usageData *openaiserverapi.Usage, sendUsageData bool, logprobs *int, toolCalls []openaiserverapi.ToolCall) ResponseContext
+	createResponseContext(reqCtx requestContext, displayModel string, responseTokens *openaiserverapi.Tokenized,
+		finishReason *string, usageData *openaiserverapi.Usage, sendUsageData bool, logprobs *int,
+		toolCalls []openaiserverapi.ToolCall, mmEncoderOnlyMode bool) ResponseContext
 	// split returns one or more processing-form Requests, each carrying a single
 	// prompt with a unique RequestID. For request types whose wire form is always
 	// a single prompt (chat, generation, responses, post-split text completions),
@@ -197,7 +198,7 @@ func (reqCtx *baseRequestContext) handleRequest() (ResponseContext, *openaiserve
 		}
 		sendUsageData := !req.IsStream() || req.IncludeUsage()
 		respCtx := req.createResponseContext(reqCtx, dispModel, &openaiserverapi.Tokenized{},
-			&finishReason, &usageData, sendUsageData, logprobs, nil)
+			&finishReason, &usageData, sendUsageData, logprobs, nil, reqCtx.sim.Config.MMEncoderOnly)
 		return respCtx, nil
 	}
 
@@ -241,7 +242,7 @@ func (reqCtx *baseRequestContext) handleRequest() (ResponseContext, *openaiserve
 	}
 
 	respCtx := req.createResponseContext(reqCtx, dispModel, responseTokens, &finishReason,
-		&usageData, sendUsageData, logprobs, toolCalls)
+		&usageData, sendUsageData, logprobs, toolCalls, reqCtx.sim.Config.MMEncoderOnly)
 
 	return respCtx, nil
 }

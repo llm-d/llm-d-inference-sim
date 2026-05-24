@@ -67,7 +67,7 @@ func (c *ChatCompletionsRequest) AsString() string {
 
 func (c *ChatCompletionsRequest) createResponseContext(reqCtx requestContext, displayModel string,
 	responseTokens *openaiserverapi.Tokenized, finishReason *string, usageData *openaiserverapi.Usage,
-	sendUsageData bool, logprobs *int, toolCalls []openaiserverapi.ToolCall) ResponseContext {
+	sendUsageData bool, logprobs *int, toolCalls []openaiserverapi.ToolCall, _ bool) ResponseContext {
 	base := newBaseResponseContext(reqCtx, displayModel, responseTokens, finishReason, usageData, sendUsageData,
 		logprobs, c.GetRequestID(), c.IsDoRemotePrefill(), c.IsDoRemoteDecode(), c.GetNumberOfCachedPromptTokens())
 	return &chatCompletionsResponseCtx{

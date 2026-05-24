@@ -48,11 +48,11 @@ type Response interface {
 // baseResponse contains base response related information
 type baseResponse struct {
 	// ID defines the response ID
-	ID string `json:"id"`
+	ID string `json:"id,omitempty"`
 	// Model defines the Model name for current request
-	Model string `json:"model"`
+	Model string `json:"model,omitempty"`
 	// Object is the Object type, "text_completion", "chat.completion", or "chat.completion.chunk"
-	Object string `json:"object"`
+	Object string `json:"object,omitempty"`
 	// KVParams kv transfer related fields
 	KVParams *KVTransferParams `json:"kv_transfer_params"`
 	// RequestID is the unique request ID for tracking
@@ -519,4 +519,26 @@ type ResponsesItemEvent struct {
 	Part         *OutputContent `json:"part,omitempty"`
 	Delta        string         `json:"delta,omitempty"`
 	Text         string         `json:"text,omitempty"`
+}
+
+// Generate
+
+// GenerateResponse defines structure of generate response
+type GenerateResponse struct {
+	baseResponse
+	Choices          []GenerateRespChoice        `json:"choices"`
+	GenRequestID     string                      `json:"request_id"`
+	ECTransferParams map[string]ECTransferParams `json:"ec_transfer_params"`
+}
+
+type GenerateRespChoice struct {
+	baseResponseChoice
+	TokenIDs []uint32 `json:"token_ids"`
+}
+
+type ECTransferParams struct {
+	PeerHost      string `json:"peer_host"`
+	PeerPort      int    `json:"peer_port"`
+	SizeBytes     int    `json:"size_bytes"`
+	NixlAgentData []byte `json:"nixl_agent_metadata_b64"`
 }

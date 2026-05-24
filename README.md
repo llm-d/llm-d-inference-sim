@@ -98,7 +98,7 @@ Image Repository: [ghcr.io/llm-d/llm-d-inference-sim](ghcr.io/llm-d/llm-d-infere
 You can pull the latest version of the simulator directly via Docker:
 
 ```Bash
-docker pull ghcr.io/llm-d/llm-d-inference-sim:v0.8.0
+docker pull ghcr.io/llm-d/llm-d-inference-sim:v0.9.0
 ```
 
 2. Deployment via Kubernetes<br>

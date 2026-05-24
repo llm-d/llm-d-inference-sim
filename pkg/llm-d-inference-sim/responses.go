@@ -53,7 +53,7 @@ func (r *ResponsesRequest) AsString() string {
 
 func (r *ResponsesRequest) createResponseContext(reqCtx requestContext, displayModel string,
 	responseTokens *openaiserverapi.Tokenized, finishReason *string, usageData *openaiserverapi.Usage, sendUsageData bool,
-	logprobs *int, toolCalls []openaiserverapi.ToolCall) ResponseContext {
+	logprobs *int, toolCalls []openaiserverapi.ToolCall, _ bool) ResponseContext {
 	base := newBaseResponseContext(reqCtx, displayModel, responseTokens, finishReason, usageData, sendUsageData,
 		logprobs, r.GetRequestID(), r.IsDoRemotePrefill(), r.IsDoRemoteDecode(), r.GetNumberOfCachedPromptTokens())
 	return &responsesResponseCtx{

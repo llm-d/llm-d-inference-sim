@@ -828,3 +828,41 @@ func (req *ResponsesRequest) GetLogprobs() *int {
 func (req *ResponsesRequest) ExtractMaxTokens() *int64 {
 	return req.MaxOutputTokens
 }
+
+// GenerateRequest defines structure of generate request
+type GenerateRequest struct {
+	baseRequest
+	TokenIDs       []uint32          `json:"token_ids"`
+	SamplingParams *SamplingParams   `json:"sampling_params"`
+	Features       *EncodeMMFeatures `json:"features"`
+}
+
+type SamplingParams struct {
+	MaxTokens *int64 `json:"max_tokens"`
+}
+
+type EncodeMMFeatures struct {
+	MMHashes map[string][]string `json:"mm_hashes"`
+}
+
+var _ Request = (*GenerateRequest)(nil)
+
+func (g *GenerateRequest) GetTools() []Tool {
+	return nil
+}
+
+func (g *GenerateRequest) GetToolChoice() ToolChoice {
+	return ToolChoice{}
+}
+
+func (g *GenerateRequest) GetMaxCompletionTokens() *int64 {
+	return g.SamplingParams.MaxTokens
+}
+
+func (g *GenerateRequest) ExtractMaxTokens() *int64 {
+	return g.SamplingParams.MaxTokens
+}
+
+func (g *GenerateRequest) GetLogprobs() *int {
+	return nil
+}

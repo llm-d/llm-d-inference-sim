@@ -49,6 +49,7 @@ type ResponseContext interface {
 	CreationTime() int64
 	SetCreationTime(int64)
 	Logprobs() *int
+	ECTransferParams() map[string]openaiserverapi.ECTransferParams
 	setWG(*sync.WaitGroup)
 	Done()
 }
@@ -142,6 +143,10 @@ func (respCtx *baseResponseContext) Logprobs() *int {
 }
 
 func (respCtx *baseResponseContext) Instructions() *string {
+	return nil
+}
+
+func (respCtx *baseResponseContext) ECTransferParams() map[string]openaiserverapi.ECTransferParams {
 	return nil
 }
 

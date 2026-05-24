@@ -502,3 +502,46 @@ func (respBuilder *responsesHTTPRespBuilder) createLastChunk(respCtx vllmsim.Res
 func (*responsesHTTPRespBuilder) createDoneChunk() sseChunk { return nil }
 
 var _ responseBuilder = (*responsesHTTPRespBuilder)(nil)
+
+type generateHTTPRespBuilder struct{}
+
+func (respBuilder *generateHTTPRespBuilder) createResponse(respCtx vllmsim.ResponseContext,
+	tokens *openaiserverapi.Tokenized) any {
+	var tokenIDs []uint32
+	if tokens != nil {
+		tokenIDs = tokens.Tokens
+	}
+	choice := openaiserverapi.GenerateRespChoice{TokenIDs: tokenIDs}
+	choice.Index = 0
+	choice.FinishReason = respCtx.FinishReason()
+	return &openaiserverapi.GenerateResponse{
+		Choices:          []openaiserverapi.GenerateRespChoice{choice},
+		GenRequestID:     respCtx.RequestID(),
+		ECTransferParams: respCtx.ECTransferParams(),
+	}
+}
+
+func (respBuilder *generateHTTPRespBuilder) createUsageChunk(respCtx vllmsim.ResponseContext) sseChunk {
+	return nil
+}
+
+func (respBuilder *generateHTTPRespBuilder) createChunk(respCtx vllmsim.ResponseContext,
+	tokens *openaiserverapi.Tokenized, tool *openaiserverapi.ToolCall, role string, finishReason *string) sseChunk {
+	return nil
+}
+
+func (respBuilder *generateHTTPRespBuilder) createInitialChunk(respCtx vllmsim.ResponseContext) sseChunk {
+	return nil
+}
+
+func (respBuilder *generateHTTPRespBuilder) createFirstChunk(respCtx vllmsim.ResponseContext) sseChunk {
+	return nil
+}
+
+func (respBuilder *generateHTTPRespBuilder) createLastChunk(respCtx vllmsim.ResponseContext, finishReason string) sseChunk {
+	return nil
+}
+
+func (*generateHTTPRespBuilder) createDoneChunk() sseChunk { return nil }
+
+var _ responseBuilder = (*generateHTTPRespBuilder)(nil)

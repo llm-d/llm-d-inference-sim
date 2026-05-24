@@ -21,7 +21,8 @@ COPY . .
 # Build simulator, no Python, no embedded tokenizer, no CGO for ZMQ, use pure Go
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -o bin/llm-d-inference-sim cmd/cmd.go
 
-FROM registry.access.redhat.com/ubi9/ubi-micro:9.7
+# FROM registry.access.redhat.com/ubi9/ubi-micro:9.7
+FROM gcr.io/distroless/static:nonroot
 
 WORKDIR /
 

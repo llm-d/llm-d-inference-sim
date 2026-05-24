@@ -66,6 +66,7 @@ func (c *Communication) startHTTPServer(listener net.Listener) (*fasthttp.Server
 	r.POST("/v1/chat/completions", c.HandleChatCompletions)
 	r.POST("/v1/completions", c.HandleTextCompletions)
 	r.POST("/v1/responses", c.HandleResponses)
+	r.POST("/inference/v1/generate", c.HandleGenerate)
 	if !c.simulator.Context.Config.MMEncoderOnly {
 		r.POST("/v1/embeddings", c.HandleEmbeddings)
 	}
@@ -139,6 +140,11 @@ func (c *Communication) HandleTextCompletions(ctx *fasthttp.RequestCtx) {
 // HandleResponses http handler for /v1/responses
 func (c *Communication) HandleResponses(ctx *fasthttp.RequestCtx) {
 	c.handleHTTP(&vllmsim.ResponsesRequest{}, &responsesHTTPRespBuilder{}, ctx)
+}
+
+// HandleGenerate http handler for /inference/v1/generate
+func (c *Communication) HandleGenerate(ctx *fasthttp.RequestCtx) {
+	c.handleHTTP(&vllmsim.GenerateRequest{}, &generateHTTPRespBuilder{}, ctx)
 }
 
 // addResponseHeaders adds optional pod/port/namespace/request-id headers to the response for testing/debugging.
