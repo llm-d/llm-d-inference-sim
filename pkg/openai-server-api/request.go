@@ -506,19 +506,21 @@ func (t *TextCompletionsParsedRequest) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// AsSingle returns a single-prompt TextCompletionsRequest sharing this
-// request's envelope (model, lora, max_tokens, KV params, …) with the given
-// prompt. The returned request inherits the parsed request's RequestID;
-// callers that build multiple sub-requests should stamp a unique ID after.
+// AsSingle returns a single-prompt TextCompletionsRequest for t.Prompt[index],
+// sharing this request's envelope (model, lora, max_tokens, KV params, …). The
+// sub-request's RequestID is stamped as "<requestID>-<index>" so each sub
+// carries a unique, deterministic id derived from the parent.
 //
 // This helper exists so the splitting logic — which lives in another package —
 // can produce sub-requests without needing access to the unexported
 // baseTextCompletionsRequest field.
-func (t *TextCompletionsParsedRequest) AsSingle(prompt string) TextCompletionsRequest {
-	return TextCompletionsRequest{
+func (t *TextCompletionsParsedRequest) AsSingle(index int) TextCompletionsRequest {
+	sub := TextCompletionsRequest{
 		baseTextCompletionsRequest: t.baseTextCompletionsRequest,
-		Prompt:                     prompt,
+		Prompt:                     t.Prompt[index],
 	}
+	sub.RequestID = fmt.Sprintf("%s-%d", t.RequestID, index)
+	return sub
 }
 
 var _ Request = (*TextCompletionsRequest)(nil)

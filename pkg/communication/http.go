@@ -200,7 +200,7 @@ func (c *Communication) handleHTTP(req vllmsim.Request, respBuilder responseBuil
 		req.SetCacheThresholdFinishReason(parsedValue)
 	}
 
-	isStream, channel, err, errInjected := c.simulator.HandleRequest(req)
+	numChoices, isStream, channel, err, errInjected := c.simulator.HandleRequest(req)
 	if err != nil {
 		c.sendError(ctx, err, errInjected)
 		return
@@ -214,17 +214,23 @@ func (c *Communication) handleHTTP(req vllmsim.Request, respBuilder responseBuil
 
 	if isStream {
 		ctx.SetContentType("text/event-stream")
-		c.sendStream(ctx, *channel, respBuilder)
+		c.sendStream(ctx, *channel, respBuilder, numChoices)
 	} else {
 		ctx.SetContentType("application/json")
-		c.sendNonStream(ctx, *channel, respBuilder)
+		c.sendNonStream(ctx, *channel, respBuilder, numChoices)
 	}
 }
 
 func (c *Communication) sendNonStream(ctx *fasthttp.RequestCtx, channel common.Channel[*vllmsim.ResponseInfo],
-	respBuilder responseBuilder) {
-	var tokens []openaiserverapi.Tokenized
-	var respCtxPerChoice []vllmsim.ResponseContext
+	respBuilder responseBuilder, numChoices int) {
+	tokens := make([]openaiserverapi.Tokenized, numChoices)
+	for i := range tokens {
+		tokens[i] = openaiserverapi.Tokenized{
+			Tokens:  make([]uint32, 0),
+			Strings: make([]string, 0),
+		}
+	}
+	respCtxPerChoice := make([]vllmsim.ResponseContext, numChoices)
 	for response := range channel.Channel {
 		if response.Err != nil {
 			// Fail-fast: abort the whole request. Drain remaining responses in the
@@ -232,14 +238,6 @@ func (c *Communication) sendNonStream(ctx *fasthttp.RequestCtx, channel common.C
 			go drainResponseChannel(channel)
 			c.sendError(ctx, response.Err, false)
 			return
-		}
-		// Grow slices if this choice index hasn't been seen yet.
-		for len(tokens) <= response.ChoiceIdx {
-			tokens = append(tokens, openaiserverapi.Tokenized{
-				Tokens:  make([]uint32, 0),
-				Strings: make([]string, 0),
-			})
-			respCtxPerChoice = append(respCtxPerChoice, nil)
 		}
 		if response.Tokens != nil {
 			tokens[response.ChoiceIdx].Append(*response.Tokens)
@@ -275,22 +273,32 @@ func (c *Communication) sendStreamErrorAndDone(w *bufio.Writer, err *openaiserve
 	_ = c.sendChunk(w, &doneMarker{})
 }
 
-// streamState holds per-choice streaming state, grown lazily as new choice
-// indices appear on the response channel.
+// streamState holds per-choice streaming state, sized once at the start of
+// the stream from the known number of choices, plus stream-global flags
+// tracking whether the first response and the initial chunk have been seen.
 type streamState struct {
+	first            bool
+	initialSent      bool
 	firstTokens      []bool
 	lastToolCall     []*openaiserverapi.ToolCall
 	toolCallIndex    []int
 	respCtxPerChoice []vllmsim.ResponseContext
 }
 
-// ensure grows the state slices so index i is addressable.
-func (s *streamState) ensure(i int) {
-	for len(s.firstTokens) <= i {
-		s.firstTokens = append(s.firstTokens, true)
-		s.lastToolCall = append(s.lastToolCall, nil)
-		s.toolCallIndex = append(s.toolCallIndex, 0)
-		s.respCtxPerChoice = append(s.respCtxPerChoice, nil)
+// newStreamState allocates per-choice slices for numChoices choices. The
+// firstTokens slice starts true for every choice (no token has been emitted
+// yet); the rest start at their zero values.
+func newStreamState(numChoices int) streamState {
+	firstTokens := make([]bool, numChoices)
+	for i := range firstTokens {
+		firstTokens[i] = true
+	}
+	return streamState{
+		first:            true,
+		firstTokens:      firstTokens,
+		lastToolCall:     make([]*openaiserverapi.ToolCall, numChoices),
+		toolCallIndex:    make([]int, numChoices),
+		respCtxPerChoice: make([]vllmsim.ResponseContext, numChoices),
 	}
 }
 
@@ -309,15 +317,13 @@ func (c *Communication) sendOrFail(ctx *fasthttp.RequestCtx, w *bufio.Writer, ch
 }
 
 func (c *Communication) sendStream(ctx *fasthttp.RequestCtx, channel common.Channel[*vllmsim.ResponseInfo],
-	respBuilder responseBuilder) {
+	respBuilder responseBuilder, numChoices int) {
 	pr, pw := io.Pipe()
 
 	go func() {
 		w := bufio.NewWriter(pw)
-		first := true
-		initialSent := false
 		var respCtx vllmsim.ResponseContext
-		var state streamState
+		state := newStreamState(numChoices)
 
 		defer func() {
 			w.Flush()  //nolint:errcheck
@@ -325,8 +331,6 @@ func (c *Communication) sendStream(ctx *fasthttp.RequestCtx, channel common.Chan
 		}()
 
 		for response := range channel.Channel {
-			choiceIdx := response.ChoiceIdx
-			state.ensure(choiceIdx)
 			if response.Err != nil {
 				// Fail-fast: previously streamed chunks remain sent; emit a single error
 				// frame followed by [DONE] and stop reading from the other prompts.
@@ -335,11 +339,13 @@ func (c *Communication) sendStream(ctx *fasthttp.RequestCtx, channel common.Chan
 				return
 			}
 			// Set respCtx once from the first response seen across all choices.
-			if first {
+			if state.first {
 				respCtx = response.RespCtx
 				respCtx.SetCreationTime(time.Now().Unix())
-				first = false
+				state.first = false
 			}
+
+			choiceIdx := response.ChoiceIdx
 			// Capture per-choice respCtx so the final usage chunk can aggregate
 			// across all sub-requests and send separate finish reason for each choices.
 			if state.respCtxPerChoice[choiceIdx] == nil {
@@ -348,11 +354,11 @@ func (c *Communication) sendStream(ctx *fasthttp.RequestCtx, channel common.Chan
 			// Every choice emits a Created status as its first message. Emit the initial
 			// chunk once globally and skip the response — Created has no tokens.
 			if response.Status == vllmsim.ResponseStatusCreated {
-				if !initialSent {
+				if !state.initialSent {
 					if !c.sendOrFail(ctx, w, respBuilder.createInitialChunk(respCtx), "Sending first stream chunk failed, ") {
 						return
 					}
-					initialSent = true
+					state.initialSent = true
 				}
 				continue
 			}

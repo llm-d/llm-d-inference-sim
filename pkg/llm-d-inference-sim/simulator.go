@@ -306,18 +306,25 @@ func (s *VllmSimulator) addRequestToQueue(reqCtx requestContext) {
 	}
 }
 
-func (s *VllmSimulator) HandleRequest(req Request) (bool, *common.Channel[*ResponseInfo], *openaiserverapi.Error, bool) {
+// HandleRequest validates and enqueues req. On success it returns the number
+// of sub-requests (== number of choices in the eventual response), whether the
+// caller asked for a streamed response, and the channel that workers will
+// publish per-choice results on. On failure it returns numChoices = 0 and a
+// non-nil error; errInjected indicates whether the failure came from the
+// failure-injection path so the caller can attribute it correctly.
+func (s *VllmSimulator) HandleRequest(req Request) (numChoices int, isStream bool,
+	channel *common.Channel[*ResponseInfo], err *openaiserverapi.Error, errInjected bool) {
 	// Check if we should inject a failure
 	if shouldInjectFailure(s.Context.Config, s.Context.Random) {
 		failure := getRandomFailure(s.Context.Config, s.Context.Random)
-		return false, nil, &failure, true
+		return 0, false, nil, &failure, true
 	}
 
 	// the model defined in the request should be checked here
 	if !s.isValidModel(req.GetModel()) {
-		err := openaiserverapi.NewError(fmt.Sprintf("The model `%s` does not exist.",
+		serverErr := openaiserverapi.NewError(fmt.Sprintf("The model `%s` does not exist.",
 			req.GetModel()), fasthttp.StatusNotFound, nil)
-		return false, nil, &err, false
+		return 0, false, nil, &serverErr, false
 	}
 
 	// the model is valid, update the displayed model which will be different from the model mentioned in the request only in case of base model aliases
@@ -326,8 +333,8 @@ func (s *VllmSimulator) HandleRequest(req Request) (bool, *common.Channel[*Respo
 
 	errMsg, errCode := req.validate(s.toolsValidator)
 	if errMsg != "" {
-		err := openaiserverapi.NewError(errMsg, errCode, nil)
-		return false, nil, &err, false
+		serverErr := openaiserverapi.NewError(errMsg, errCode, nil)
+		return 0, false, nil, &serverErr, false
 	}
 
 	// Single shared channel for all sub-requests; each stamps its ChoiceIdx on
@@ -336,22 +343,22 @@ func (s *VllmSimulator) HandleRequest(req Request) (bool, *common.Channel[*Respo
 	// request types split returns just the receiver; only the parsed text
 	// completions form (which can carry an array of prompts) fans out.
 	subReqs := req.split()
-	channel := common.Channel[*ResponseInfo]{
+	respChan := &common.Channel[*ResponseInfo]{
 		Channel: make(chan *ResponseInfo, s.Context.Config.MaxModelLen),
 		Name:    "responseInfo-" + req.GetRequestID(),
 	}
 	var wg sync.WaitGroup
 	wg.Add(len(subReqs))
 	for i, subReq := range subReqs {
-		reqCtx := subReq.buildRequestContext(&s.Context, channel, i, wg.Done)
+		reqCtx := subReq.buildRequestContext(&s.Context, *respChan, i, wg.Done)
 		common.WriteToChannel(s.newRequests, reqCtx, s.Context.logger)
 	}
 	go func() {
 		wg.Wait()
-		close(channel.Channel)
+		close(respChan.Channel)
 	}()
 
-	return req.IsStream(), &channel, nil, false
+	return len(subReqs), req.IsStream(), respChan, nil, false
 }
 
 func (s *VllmSimulator) enqueue(req requestContext) error {

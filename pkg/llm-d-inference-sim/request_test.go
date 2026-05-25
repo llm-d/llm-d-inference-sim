@@ -78,7 +78,7 @@ var _ = Describe("TextCompletionsParsedRequest.split", func() {
 		Expect(sub.GetCacheHitThreshold()).To(Equal(orig.GetCacheHitThreshold()))
 	})
 
-	It("returns a single sub-request with the original RequestID when there's just one prompt", func() {
+	It("returns a single sub-request with the -0 suffix when there's just one prompt", func() {
 		orig := &TextCompletionsParsedRequest{}
 		orig.RequestID = "req-xyz"
 		orig.Model = "test-model"
@@ -88,7 +88,7 @@ var _ = Describe("TextCompletionsParsedRequest.split", func() {
 
 		Expect(subs).To(HaveLen(1))
 		sub := subs[0].(*TextCompletionsRequest)
-		Expect(sub.GetRequestID()).To(Equal("req-xyz"))
+		Expect(sub.GetRequestID()).To(Equal("req-xyz-0"))
 		Expect(sub.Prompt).To(Equal("only-prompt"))
 	})
 

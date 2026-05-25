@@ -304,7 +304,8 @@ var _ = Describe("Simulator", func() {
 	DescribeTable("text completions with array prompt",
 		func(streaming bool) {
 			ctx := context.TODO()
-			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho}
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho,
+				"--time-to-first-token", "500ms", "--time-to-first-token-std-dev", "100ms"}
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -464,6 +465,77 @@ var _ = Describe("Simulator", func() {
 		Expect(resp.Choices).To(HaveLen(1))
 		Expect(resp.Choices[0].Index).To(BeEquivalentTo(0))
 		Expect(resp.Choices[0].Text).To(Equal(prompt1))
+	})
+
+	It("text completions wire form accepts both string and array prompts", func() {
+		// This test sends raw JSON (bypassing the OpenAI SDK's encoding) to pin
+		// down the dual-form contract on the `prompt` field directly:
+		//   - "prompt": "..."  → single-choice response.
+		//   - "prompt": [...]  → one choice per element, in order.
+		// The X-Request-ID response header echoes the parent request id (the
+		// "-i" suffix is stamped on internal sub-request ids only).
+		ctx := context.TODO()
+		args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho,
+			"--enable-request-id-headers"}
+		client, err := startServerWithArgs(ctx, args)
+		Expect(err).NotTo(HaveOccurred())
+
+		post := func(body, requestID string) *http.Response {
+			req, err := http.NewRequest("POST", "http://localhost/v1/completions", strings.NewReader(body))
+			Expect(err).NotTo(HaveOccurred())
+			req.Header.Set("Content-Type", "application/json")
+			if requestID != "" {
+				req.Header.Set(communication.RequestIDHeader, requestID)
+			}
+			resp, err := client.Do(req)
+			Expect(err).NotTo(HaveOccurred())
+			return resp
+		}
+
+		decode := func(resp *http.Response) openai.Completion {
+			defer func() { Expect(resp.Body.Close()).To(Succeed()) }()
+			Expect(resp.StatusCode).To(Equal(200))
+			body, err := io.ReadAll(resp.Body)
+			Expect(err).NotTo(HaveOccurred())
+			var out openai.Completion
+			Expect(json.Unmarshal(body, &out)).To(Succeed())
+			return out
+		}
+
+		// Single-string prompt — wire form `"prompt": "..."`.
+		strResp := post(fmt.Sprintf(`{"model":%q,"prompt":%q}`, common.TestModelName, prompt1), "rid-string")
+		Expect(strResp.Header.Get(communication.RequestIDHeader)).To(Equal("rid-string"))
+		strBody := decode(strResp)
+		Expect(strBody.Choices).To(HaveLen(1))
+		Expect(strBody.Choices[0].Index).To(BeEquivalentTo(0))
+		Expect(strBody.Choices[0].Text).To(Equal(prompt1))
+
+		// Two-element array prompt — wire form `"prompt": ["...", "..."]`.
+		arrBody := fmt.Sprintf(`{"model":%q,"prompt":[%q,%q]}`, common.TestModelName, prompt1, prompt2)
+		arrResp := post(arrBody, "rid-array")
+		Expect(arrResp.Header.Get(communication.RequestIDHeader)).To(Equal("rid-array"))
+		arr := decode(arrResp)
+		Expect(arr.Choices).To(HaveLen(2))
+		Expect(arr.Choices[0].Index).To(BeEquivalentTo(0))
+		Expect(arr.Choices[0].Text).To(Equal(prompt1))
+		Expect(arr.Choices[1].Index).To(BeEquivalentTo(1))
+		Expect(arr.Choices[1].Text).To(Equal(prompt2))
+
+		// Single-element array — equivalent to the string form.
+		oneResp := post(fmt.Sprintf(`{"model":%q,"prompt":[%q]}`, common.TestModelName, prompt1), "rid-onearr")
+		Expect(oneResp.Header.Get(communication.RequestIDHeader)).To(Equal("rid-onearr"))
+		oneBody := decode(oneResp)
+		Expect(oneBody.Choices).To(HaveLen(1))
+		Expect(oneBody.Choices[0].Index).To(BeEquivalentTo(0))
+		Expect(oneBody.Choices[0].Text).To(Equal(prompt1))
+
+		// Invalid prompt type (number) — must be rejected at JSON unmarshaling.
+		badResp := post(fmt.Sprintf(`{"model":%q,"prompt":123}`, common.TestModelName), "")
+		defer func() { Expect(badResp.Body.Close()).To(Succeed()) }()
+		Expect(badResp.StatusCode).To(Equal(400))
+		badBytes, err := io.ReadAll(badResp.Body)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(string(badBytes)).To(ContainSubstring("prompt must be a string or array of strings"))
 	})
 
 	It("text completions empty array prompt is rejected with 400", func() {

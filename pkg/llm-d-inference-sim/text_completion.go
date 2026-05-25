@@ -18,7 +18,6 @@ package llmdinferencesim
 
 import (
 	"encoding/json"
-	"fmt"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
@@ -49,29 +48,14 @@ func (t *TextCompletionsParsedRequest) AsString() string {
 }
 
 // split converts the parsed wire form into one or more processing-form
-// TextCompletionsRequest values. A single-prompt request keeps its original
-// RequestID; multi-prompt requests get a "<requestID>-<i>" suffix per
-// sub-request so each carries a unique ID.
+// TextCompletionsRequest values. Each sub-request gets the parent envelope and
+// a "<requestID>-<i>" id stamped by openaiserverapi.AsSingle.
 func (t *TextCompletionsParsedRequest) split() []Request {
-	if len(t.Prompt) == 1 {
-		return []Request{t.toSingle(t.Prompt[0], t.RequestID)}
-	}
 	out := make([]Request, len(t.Prompt))
-	for i, prompt := range t.Prompt {
-		out[i] = t.toSingle(prompt, fmt.Sprintf("%s-%d", t.RequestID, i))
+	for i := range t.Prompt {
+		out[i] = &TextCompletionsRequest{TextCompletionsRequest: t.AsSingle(i)}
 	}
 	return out
-}
-
-// toSingle builds a processing-form TextCompletionsRequest sharing the parsed
-// request's envelope (model, lora, KV params, stream options, …) with the
-// given prompt and requestID. The envelope copy is delegated to
-// openaiserverapi.TextCompletionsParsedRequest.AsSingle so this package
-// doesn't need to reach into the unexported base.
-func (t *TextCompletionsParsedRequest) toSingle(prompt, requestID string) *TextCompletionsRequest {
-	sub := &TextCompletionsRequest{TextCompletionsRequest: t.AsSingle(prompt)}
-	sub.SetRequestID(requestID)
-	return sub
 }
 
 // buildRequestContext / createResponseContext are required by the Request
