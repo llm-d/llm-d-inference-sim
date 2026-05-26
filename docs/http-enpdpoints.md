@@ -130,4 +130,21 @@ Structure of requests/responses
             - root
             - parent
 
+### `/v1/completions` prompt forms
+
+The `prompt` field accepts four wire forms, matching the OpenAI spec:
+
+| Form | JSON example | Result |
+|---|---|---|
+| string | `"hello"` | one prompt, one choice in the response |
+| array of strings | `["a", "b"]` | one sub-request per element; one choice per element, indexed in input order |
+| array of token ids | `[1, 2, 3]` | one prompt already tokenized; the simulator skips tokenization and uses the ids directly |
+| array of arrays of token ids | `[[1,2], [3,4]]` | one sub-request per inner array, each already tokenized |
+
+Notes:
+
+- An empty top-level array (`[]`), an empty string element (`""`), or an empty token-id element (`[]` inside the outer array) are rejected with `400 Bad Request`.
+- For pre-tokenized prompts, `prompt_tokens` in the usage equals the number of input ids — the tokenizer is never invoked on the prompt.
+- In `--mode echo`, a token-id prompt is replayed back to the client as the comma-separated decimal of the ids (e.g. `[1,2,3]` → `"1,2,3"`); a string prompt is replayed verbatim.
+
 For full details on the expected API behavior and specification, please refer to the [vLLM OpenAI Compatibility Documentation](https://docs.vllm.ai/en/stable/getting_started/quickstart.html#openai-completions-api-with-vllm).

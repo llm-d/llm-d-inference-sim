@@ -391,6 +391,150 @@ var _ = Describe("Simulator", func() {
 		Entry("streaming", true),
 	)
 
+	// Token-id prompts: /completions accepts the prompt as []uint32 (a single
+	// pre-tokenized prompt) or [][]uint32 (an array of pre-tokenized prompts).
+	// In echo mode the simulator replays the ids back as a comma-separated
+	// decimal string ("1,2,3"), so prompt_tokens stays equal to the input
+	// length and the tokenizer is never invoked on the prompt — which is why
+	// the same expectations hold for both the simulated and real-model tokenizers.
+	DescribeTable("text completions with token-id prompt",
+		func(model string, mode string, streaming bool) {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", model, "--mode", mode}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			openaiclient := openai.NewClient(
+				option.WithBaseURL(baseURL),
+				option.WithHTTPClient(client))
+
+			tokens := []int64{1, 2, 3, 4}
+			expectedPromptTokens := int64(len(tokens))
+			expectedEcho := "1,2,3,4"
+			params := openai.CompletionNewParams{
+				Prompt: openai.CompletionNewParamsPromptUnion{OfArrayOfTokens: tokens},
+				Model:  openai.CompletionNewParamsModel(model),
+			}
+
+			var text string
+			var usage openai.CompletionUsage
+			if streaming {
+				params.StreamOptions = openai.ChatCompletionStreamOptionsParam{IncludeUsage: param.NewOpt(true)}
+				stream := openaiclient.Completions.NewStreaming(ctx, params)
+				defer func() { Expect(stream.Close()).To(Succeed()) }()
+				var b strings.Builder
+				for stream.Next() {
+					chunk := stream.Current()
+					for _, choice := range chunk.Choices {
+						b.WriteString(choice.Text)
+					}
+					if chunk.Usage.TotalTokens != 0 {
+						usage = chunk.Usage
+					}
+				}
+				Expect(stream.Err()).NotTo(HaveOccurred())
+				text = b.String()
+			} else {
+				resp, err := openaiclient.Completions.New(ctx, params)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(resp.Choices).To(HaveLen(1))
+				text = resp.Choices[0].Text
+				usage = resp.Usage
+			}
+
+			Expect(usage.PromptTokens).To(Equal(expectedPromptTokens))
+			if mode == common.ModeEcho {
+				Expect(text).To(Equal(expectedEcho))
+			} else {
+				Expect(text).NotTo(BeEmpty())
+				Expect(dataset.IsValidText(text)).To(BeTrue())
+			}
+		},
+		func(model string, mode string, streaming bool) string {
+			return fmt.Sprintf("model: %s mode: %s streaming: %v", model, mode, streaming)
+		},
+		Entry(nil, common.TestModelName, common.ModeEcho, false),
+		Entry(nil, common.TestModelName, common.ModeEcho, true),
+		Entry(nil, common.TestModelName, common.ModeRandom, false),
+		Entry(nil, common.TestModelName, common.ModeRandom, true),
+		Entry(nil, common.QwenModelName, common.ModeEcho, false),
+		Entry(nil, common.QwenModelName, common.ModeEcho, true),
+		Entry(nil, common.QwenModelName, common.ModeRandom, false),
+		Entry(nil, common.QwenModelName, common.ModeRandom, true),
+	)
+
+	DescribeTable("text completions with token-id arrays prompt",
+		func(model string, mode string, streaming bool) {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", model, "--mode", mode}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			openaiclient := openai.NewClient(
+				option.WithBaseURL(baseURL),
+				option.WithHTTPClient(client))
+
+			promptTokens := [][]int64{{1, 2, 3}, {10, 20}, {7}}
+			expectedEcho := []string{"1,2,3", "10,20", "7"}
+			var expectedPromptTokens int64
+			for _, ids := range promptTokens {
+				expectedPromptTokens += int64(len(ids))
+			}
+
+			params := openai.CompletionNewParams{
+				Prompt: openai.CompletionNewParamsPromptUnion{OfArrayOfTokenArrays: promptTokens},
+				Model:  openai.CompletionNewParamsModel(model),
+			}
+
+			texts := make([]string, len(promptTokens))
+			var usage openai.CompletionUsage
+			if streaming {
+				params.StreamOptions = openai.ChatCompletionStreamOptionsParam{IncludeUsage: param.NewOpt(true)}
+				stream := openaiclient.Completions.NewStreaming(ctx, params)
+				defer func() { Expect(stream.Close()).To(Succeed()) }()
+				for stream.Next() {
+					chunk := stream.Current()
+					for _, choice := range chunk.Choices {
+						texts[choice.Index] += choice.Text
+					}
+					if chunk.Usage.TotalTokens != 0 {
+						usage = chunk.Usage
+					}
+				}
+				Expect(stream.Err()).NotTo(HaveOccurred())
+			} else {
+				resp, err := openaiclient.Completions.New(ctx, params)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(resp.Choices).To(HaveLen(len(promptTokens)))
+				for _, choice := range resp.Choices {
+					texts[choice.Index] = choice.Text
+				}
+				usage = resp.Usage
+			}
+
+			Expect(usage.PromptTokens).To(Equal(expectedPromptTokens))
+			for i, text := range texts {
+				if mode == common.ModeEcho {
+					Expect(text).To(Equal(expectedEcho[i]))
+				} else {
+					Expect(text).NotTo(BeEmpty())
+					Expect(dataset.IsValidText(text)).To(BeTrue())
+				}
+			}
+		},
+		func(model string, mode string, streaming bool) string {
+			return fmt.Sprintf("model: %s mode: %s streaming: %v", model, mode, streaming)
+		},
+		Entry(nil, common.TestModelName, common.ModeEcho, false),
+		Entry(nil, common.TestModelName, common.ModeEcho, true),
+		Entry(nil, common.TestModelName, common.ModeRandom, false),
+		Entry(nil, common.TestModelName, common.ModeRandom, true),
+		Entry(nil, common.QwenModelName, common.ModeEcho, false),
+		Entry(nil, common.QwenModelName, common.ModeEcho, true),
+		Entry(nil, common.QwenModelName, common.ModeRandom, false),
+		Entry(nil, common.QwenModelName, common.ModeRandom, true),
+	)
+
 	DescribeTable("text completions with array prompt fail-fast when one sub-request errors",
 		func(streaming bool) {
 			ctx := context.TODO()
@@ -535,7 +679,7 @@ var _ = Describe("Simulator", func() {
 		Expect(badResp.StatusCode).To(Equal(400))
 		badBytes, err := io.ReadAll(badResp.Body)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(string(badBytes)).To(ContainSubstring("prompt must be a string or array of strings"))
+		Expect(string(badBytes)).To(ContainSubstring("prompt must be a string, an array of strings, an array of token ids, or an array of arrays of token ids"))
 	})
 
 	It("text completions empty array prompt is rejected with 400", func() {
@@ -569,7 +713,7 @@ var _ = Describe("Simulator", func() {
 		Expect(followUp.Choices[0].Text).To(Equal(prompt1))
 	})
 
-	It("text completions array containing empty strings maps each choice to its prompt", func() {
+	It("text completions array containing an empty string is rejected with 400", func() {
 		ctx := context.TODO()
 		args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho}
 		client, err := startServerWithArgs(ctx, args)
@@ -579,22 +723,36 @@ var _ = Describe("Simulator", func() {
 			option.WithBaseURL(baseURL),
 			option.WithHTTPClient(client))
 
-		// Mixed empty and non-empty entries. In echo mode the expected text for an
-		// empty-string prompt is simply empty. createRequestForPrompt's empty-string
-		// branch currently reuses the original request object — this test pins the
-		// externally-visible contract (one choice per input, text echoes the input).
-		prompts := []string{"", prompt1, ""}
-		resp, err := openaiclient.Completions.New(ctx, openai.CompletionNewParams{
-			Prompt: openai.CompletionNewParamsPromptUnion{OfArrayOfStrings: prompts},
+		_, err = openaiclient.Completions.New(ctx, openai.CompletionNewParams{
+			Prompt: openai.CompletionNewParamsPromptUnion{OfArrayOfStrings: []string{"", prompt1, ""}},
 			Model:  openai.CompletionNewParamsModel(common.TestModelName),
 		})
+		Expect(err).To(HaveOccurred())
+		var oaiErr *openai.Error
+		Expect(errors.As(err, &oaiErr)).To(BeTrue())
+		Expect(oaiErr.StatusCode).To(Equal(fasthttp.StatusBadRequest))
+		Expect(oaiErr.Message).To(ContainSubstring("prompt must not contain an empty string"))
+	})
+
+	It("text completions array containing an empty token-id array is rejected with 400", func() {
+		ctx := context.TODO()
+		args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho}
+		client, err := startServerWithArgs(ctx, args)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(resp.Choices).To(HaveLen(len(prompts)))
-		for i, p := range prompts {
-			Expect(resp.Choices[i].Index).To(BeEquivalentTo(i))
-			Expect(resp.Choices[i].Text).To(Equal(p),
-				"choice %d should echo its prompt exactly (got %q, want %q)", i, resp.Choices[i].Text, p)
-		}
+
+		openaiclient := openai.NewClient(
+			option.WithBaseURL(baseURL),
+			option.WithHTTPClient(client))
+
+		_, err = openaiclient.Completions.New(ctx, openai.CompletionNewParams{
+			Prompt: openai.CompletionNewParamsPromptUnion{OfArrayOfTokenArrays: [][]int64{{1, 2}, {}, {3}}},
+			Model:  openai.CompletionNewParamsModel(common.TestModelName),
+		})
+		Expect(err).To(HaveOccurred())
+		var oaiErr *openai.Error
+		Expect(errors.As(err, &oaiErr)).To(BeTrue())
+		Expect(oaiErr.StatusCode).To(Equal(fasthttp.StatusBadRequest))
+		Expect(oaiErr.Message).To(ContainSubstring("prompt must not contain an empty token-id array"))
 	})
 
 	It("text completions array prompt in random mode yields per-choice content and aggregated usage", func() {

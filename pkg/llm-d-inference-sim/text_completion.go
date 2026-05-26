@@ -18,6 +18,7 @@ package llmdinferencesim
 
 import (
 	"encoding/json"
+	"strconv"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
@@ -39,6 +40,15 @@ func (t *TextCompletionsParsedRequest) Unmarshal(data []byte) error {
 func (t *TextCompletionsParsedRequest) validate(_ *toolsValidator) (string, int) {
 	if len(t.Prompt) == 0 {
 		return "prompt array must contain at least one prompt", fasthttp.StatusBadRequest
+	}
+	for _, p := range t.Prompt {
+		if p.IsTokens() {
+			if len(p.Tokens) == 0 {
+				return "prompt must not contain an empty token-id array", fasthttp.StatusBadRequest
+			}
+		} else if p.Text == "" {
+			return "prompt must not contain an empty string", fasthttp.StatusBadRequest
+		}
 	}
 	return validateRequest(t)
 }
@@ -135,7 +145,11 @@ func (t *textCompletionReqCtx) request() Request {
 }
 
 func (t *textCompletionReqCtx) encode() ([]uint32, []string, *openaiserverapi.RenderMMFeatures, error) {
-	tokens, strTokens, err := t.sim.Tokenizer.RenderText(t.req.Prompt)
+	if t.req.Prompt.IsTokens() {
+		return t.req.Prompt.Tokens, nil, nil, nil
+	}
+
+	tokens, strTokens, err := t.sim.Tokenizer.RenderText(t.req.Prompt.Text)
 	return tokens, strTokens, nil, err
 }
 
@@ -144,6 +158,20 @@ func (t *textCompletionReqCtx) createToolCalls() ([]openaiserverapi.ToolCall, in
 }
 
 func (t *textCompletionReqCtx) tokenizedPromptForEcho() (*openaiserverapi.Tokenized, error) {
+	if t.req.Prompt.IsTokens() {
+		// prompt arrived as token ids; render each id as its decimal form with
+		// a trailing comma on all but the last so joining the Strings with ""
+		// yields "id0,id1,...,idN" — what echo mode replays back to the client
+		ids := t.req.Prompt.Tokens
+		strs := make([]string, len(ids))
+		for i, id := range ids {
+			strs[i] = strconv.FormatUint(uint64(id), 10)
+			if i < len(ids)-1 {
+				strs[i] += ","
+			}
+		}
+		return &openaiserverapi.Tokenized{Tokens: ids, Strings: strs}, nil
+	}
 	return t.req.TokenizedPrompt(), nil
 }
 

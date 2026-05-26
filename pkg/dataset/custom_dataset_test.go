@@ -326,7 +326,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 
 		It("should successfully init dataset with in-memory option", func() {
 			req := &openaiserverapi.TextCompletionsRequest{
-				Prompt: validDB[1].input,
+				Prompt: openaiserverapi.PromptInput{Text: validDB[1].input},
 			}
 			req.SetTokenizedPrompt(&validDB[1].tokenizedInput)
 

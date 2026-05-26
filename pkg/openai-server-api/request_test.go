@@ -62,7 +62,7 @@ var _ = Describe("TextCompletionsParsedRequest prompt", func() {
 			var req TextCompletionsParsedRequest
 			err := json.Unmarshal(jsonData, &req)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(req.Prompt).To(Equal([]string{"Hello, world!"}))
+			Expect(req.Prompt).To(Equal([]PromptInput{{Text: "Hello, world!"}}))
 		})
 
 		It("should unmarshal an array prompt", func() {
@@ -70,7 +70,7 @@ var _ = Describe("TextCompletionsParsedRequest prompt", func() {
 			var req TextCompletionsParsedRequest
 			err := json.Unmarshal(jsonData, &req)
 			Expect(err).NotTo(HaveOccurred())
-			Expect(req.Prompt).To(Equal([]string{"Hello", "world"}))
+			Expect(req.Prompt).To(Equal([]PromptInput{{Text: "Hello"}, {Text: "world"}}))
 		})
 
 		It("should return error for invalid prompt type", func() {
@@ -78,7 +78,7 @@ var _ = Describe("TextCompletionsParsedRequest prompt", func() {
 			var req TextCompletionsParsedRequest
 			err := json.Unmarshal(jsonData, &req)
 			Expect(err).To(HaveOccurred())
-			Expect(err.Error()).To(ContainSubstring("prompt must be a string or array of strings"))
+			Expect(err.Error()).To(ContainSubstring("prompt must be a string, an array of strings, an array of token ids, or an array of arrays of token ids"))
 		})
 
 		It("should leave Prompt nil when the field is absent or null", func() {

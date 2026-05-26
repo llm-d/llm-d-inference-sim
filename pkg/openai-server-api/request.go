@@ -174,6 +174,21 @@ type StreamOptions struct {
 	IncludeUsage bool `json:"include_usage"`
 }
 
+// PromptInput is a single prompt as it arrived on the wire. Exactly one of
+// Text or Tokens is populated: Text for string-form prompts, Tokens for
+// token-id-array-form prompts. /completions accepts both forms (and arrays of
+// either), and downstream code branches on IsTokens to decide whether the
+// prompt still needs to be tokenized.
+type PromptInput struct {
+	Text   string
+	Tokens []uint32
+}
+
+// IsTokens reports whether this prompt is already tokenized.
+func (p PromptInput) IsTokens() bool {
+	return p.Tokens != nil
+}
+
 // Tokenized is the tokenized representation with numerical and string tokens
 type Tokenized struct {
 	Tokens  []uint32
@@ -466,7 +481,7 @@ type baseTextCompletionsRequest struct {
 type TextCompletionsParsedRequest struct {
 	baseTextCompletionsRequest
 	// Prompt holds one or more prompts. Always non-empty for valid requests.
-	Prompt []string `json:"prompt"`
+	Prompt []PromptInput `json:"prompt"`
 }
 
 // TextCompletionsRequest is the processing form of a /completions request:
@@ -474,11 +489,12 @@ type TextCompletionsParsedRequest struct {
 type TextCompletionsRequest struct {
 	baseTextCompletionsRequest
 	// Prompt is the single prompt this request will generate against.
-	Prompt string
+	Prompt PromptInput
 }
 
-// UnmarshalJSON accepts either a string or an array of strings for the
-// `prompt` field, normalizing both into a []string.
+// UnmarshalJSON accepts any of the four wire forms allowed for the `prompt`
+// field — a string, an array of strings, an array of token ids, or an array
+// of token-id arrays — and normalizes them into a []PromptInput.
 func (t *TextCompletionsParsedRequest) UnmarshalJSON(data []byte) error {
 	type alias struct {
 		baseTextCompletionsRequest
@@ -495,15 +511,84 @@ func (t *TextCompletionsParsedRequest) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 
+	// prompt is a string
 	var str string
 	if err := json.Unmarshal(a.Prompt, &str); err == nil {
-		t.Prompt = []string{str}
+		t.Prompt = []PromptInput{{Text: str}}
 		return nil
 	}
-	if err := json.Unmarshal(a.Prompt, &t.Prompt); err != nil {
-		return fmt.Errorf("prompt must be a string or array of strings: %w", err)
+	// prompt is an array of strings
+	var strs []string
+	if err := json.Unmarshal(a.Prompt, &strs); err == nil {
+		t.Prompt = make([]PromptInput, len(strs))
+		for i, s := range strs {
+			t.Prompt[i] = PromptInput{Text: s}
+		}
+		return nil
+	}
+	// prompt is an array of token ids
+	var tokens []uint32
+	if err := json.Unmarshal(a.Prompt, &tokens); err == nil {
+		t.Prompt = []PromptInput{{Tokens: tokens}}
+		return nil
+	}
+	// prompt is an array of arrays of token ids
+	var tokenLists [][]uint32
+	if err := json.Unmarshal(a.Prompt, &tokenLists); err != nil {
+		return fmt.Errorf("prompt must be a string, an array of strings, an array of token ids, or an array of arrays of token ids: %w", err)
+	}
+	t.Prompt = make([]PromptInput, len(tokenLists))
+	for i, ids := range tokenLists {
+		t.Prompt[i] = PromptInput{Tokens: ids}
 	}
 	return nil
+}
+
+// MarshalJSON emits the prompt back in the wire form that mirrors the input
+// shape preserved on each PromptInput: a single text prompt as a string, a
+// single token-id prompt as a numeric array, multiple text prompts as an
+// array of strings, and multiple token-id prompts as an array of numeric
+// arrays. nil/empty Prompt is emitted as JSON null.
+// Used in the tests.
+func (t *TextCompletionsParsedRequest) MarshalJSON() ([]byte, error) {
+	type alias struct {
+		baseTextCompletionsRequest
+		Prompt any `json:"prompt"`
+	}
+	a := alias{baseTextCompletionsRequest: t.baseTextCompletionsRequest}
+
+	switch {
+	case len(t.Prompt) == 0:
+		a.Prompt = nil
+	case len(t.Prompt) == 1:
+		if t.Prompt[0].IsTokens() {
+			a.Prompt = t.Prompt[0].Tokens
+		} else {
+			a.Prompt = t.Prompt[0].Text
+		}
+	default:
+		allTokens := true
+		for _, p := range t.Prompt {
+			if !p.IsTokens() {
+				allTokens = false
+				break
+			}
+		}
+		if allTokens {
+			arrs := make([][]uint32, len(t.Prompt))
+			for i, p := range t.Prompt {
+				arrs[i] = p.Tokens
+			}
+			a.Prompt = arrs
+		} else {
+			strs := make([]string, len(t.Prompt))
+			for i, p := range t.Prompt {
+				strs[i] = p.Text
+			}
+			a.Prompt = strs
+		}
+	}
+	return json.Marshal(a)
 }
 
 // AsSingle returns a single-prompt TextCompletionsRequest for t.Prompt[index],
@@ -520,6 +605,12 @@ func (t *TextCompletionsParsedRequest) AsSingle(index int) TextCompletionsReques
 		Prompt:                     t.Prompt[index],
 	}
 	sub.RequestID = fmt.Sprintf("%s-%d", t.RequestID, index)
+	if sub.Prompt.IsTokens() {
+		// prompt arrived already tokenized; pre-populate TokenizedPrompt so the
+		// worker can skip the encode() round-trip. Strings is left nil and
+		// rebuilt on demand by the request's tokenizedPromptForEcho.
+		sub.tokenizedPrompt = &Tokenized{Tokens: sub.Prompt.Tokens}
+	}
 	return sub
 }
 
