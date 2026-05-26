@@ -529,7 +529,7 @@ var _ = Describe("Simulator", func() {
 		Expect(oneBody.Choices[0].Index).To(BeEquivalentTo(0))
 		Expect(oneBody.Choices[0].Text).To(Equal(prompt1))
 
-		// Invalid prompt type (number) — must be rejected at JSON unmarshaling.
+		// Invalid prompt type (number) — must be rejected at JSON unmarshalling.
 		badResp := post(fmt.Sprintf(`{"model":%q,"prompt":123}`, common.TestModelName), "")
 		defer func() { Expect(badResp.Body.Close()).To(Succeed()) }()
 		Expect(badResp.StatusCode).To(Equal(400))

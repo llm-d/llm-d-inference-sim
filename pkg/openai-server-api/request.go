@@ -461,7 +461,7 @@ type baseTextCompletionsRequest struct {
 // TextCompletionsParsedRequest is the wire form of a /completions request.
 // On the wire `prompt` may be a single string or an array of strings; the
 // custom UnmarshalJSON below normalizes both forms into Prompt — a plain
-// string becomes a one-element slice. Used only between JSON unmarshaling
+// string becomes a one-element slice. Used only between JSON unmarshalling
 // and the simulator's split step; workers never see this type.
 type TextCompletionsParsedRequest struct {
 	baseTextCompletionsRequest
