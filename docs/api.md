@@ -6,7 +6,6 @@ HTTP requests are routed to the HTTP server, and HTTP2 requests are routed to th
 Currently, the simulator supports a partial OpenAI-compatible API:
 - `/v1/chat/completions`
 - `/v1/completions`
-- `/v1/responses`
 - `/v1/embeddings`
 - `/v1/models`
 
@@ -38,7 +37,7 @@ In addition to standard HTTP headers, the simulator recognizes a few simulator-s
 | Header | Description |
 |---|---|
 | `X-Request-Id` | Read on incoming requests to all generation endpoints (including `/v1/embeddings`) and echoed back as a response header when `--enable-request-id-headers` is set. Used to correlate client requests with server logs. |
-| `X-Return-Error` | Deterministic failure injection. When set to a numeric HTTP status code (e.g. `429`, `500`), the simulator immediately returns a synthetic error response with that status code, bypassing the probabilistic `--failure-injection-rate` mechanism. A non-integer value yields HTTP 400. Honored on `/v1/chat/completions`, `/v1/completions`, `/v1/responses`, and `/inference/v1/generate`; not honored by `/v1/embeddings`. |
+| `X-Return-Error` | Deterministic failure injection. When set to a numeric HTTP status code (e.g. `429`, `500`), the simulator immediately returns a synthetic error response with that status code, bypassing the probabilistic `--failure-injection-rate` mechanism. A non-integer value yields HTTP 400. Honored on `/v1/chat/completions`, `/v1/completions`, and `/inference/v1/generate`; not honored by `/v1/embeddings`. |
 | `X-Cache-Threshold-Finish-Reason` | Deterministic forcing of the `cache_threshold` finish reason. When set to `true`, the response is forced to use the `cache_threshold` finish reason regardless of the actual cache hit rate or the configured `cache_hit_threshold` / `global-cache-hit-threshold` values. Any other value (including `false`, missing, or unparseable) leaves the normal cache-threshold logic in place. The header is parsed for all generation endpoints, but only takes effect on `/v1/chat/completions` and `/v1/completions` (the other endpoints' request types do not implement the cache-threshold override). |
 
 ## gRPC Endpoints
