@@ -98,6 +98,9 @@ All latency-related parameters are defined in duration format, e.g., 100ms. Inte
 - `render-timeout`: Timeout for tokenizer render requests (e.g. `30s`). Default is `30s`.
 - `mm-render-timeout`: Timeout for multi-modal tokenizer render requests (e.g. `60s`). Default is `60s`.
 
+## Embeddings
+- `default-embedding-dimensions`: default size of embedding vectors returned by `/v1/embeddings` when the request does not specify a `dimensions` field, optional, defaults to 384.
+
 ## SSL
 - `ssl-certfile`: Path to SSL certificate file for HTTPS (optional)
 - `ssl-keyfile`: Path to SSL private key file for HTTPS (optional)
@@ -133,6 +136,10 @@ All latency-related parameters are defined in duration format, e.g., 100ms. Inte
     - `request-max-generation-tokens` - array of values for max_num_generation_tokens buckets
     - `request-params-max-tokens` - array of values for  max_tokens parameter buckets
     - `request-success-total` - number of successful requests per finish reason, key: finish-reason (stop, length, etc.).
+    - `total-prompt-tokens` - initial value for the `vllm:prompt_tokens_total` counter (total number of prompt tokens processed).
+    - `total-generation-tokens` - initial value for the `vllm:generation_tokens_total` counter (total number of generated tokens).
+    - `prefix-cache-hits` - initial value for the `vllm:prefix_cache_hits` counter (in tokens).
+    - `prefix-cache-queries` - initial value for the `vllm:prefix_cache_queries` counter (in tokens).
     <br>
     **Example:**<br>
       --fake-metrics '{"running-requests":"oscillate:0:10:5s","waiting-requests":30,"kv-cache-usage":0.4,"loras":[{"running":"lora4,lora2","waiting":"lora3","timestamp":1257894567},{"running":"lora4,lora3","waiting":"","timestamp":1257894569}]}'
@@ -168,6 +175,7 @@ In addition, as we are using klog, the following parameters are available:
 # Environment variables
 - `SIM_MODEL`: when non-empty and **`--model` is not passed on the command line**, sets the model name. In that case it overrides the `model` value from the YAML file (if any) and the default. If you pass `--model`, it always wins. Useful in Kubernetes when the same image arguments are reused and the model name comes from the pod environment.
 - `PYTHONHASHSEED`: when **`--hash-seed` is not passed on the command line**, a non-empty value supplies the hash seed and overrides `hash-seed` from the YAML file (if any) and the default. If you pass `--hash-seed`, it always wins. Matches common Python hash randomization behavior.
+- `VLLM_SERVER_DEV_MODE`: when set to `1`, enables vLLM development mode. Currently used as an additional gate for the `/sleep` endpoint: even with `--enable-sleep-mode`, `/sleep` is a no-op unless `VLLM_SERVER_DEV_MODE=1` is set in the simulator's environment.
 - `POD_NAME`: the simulator pod name. If defined, the response will contain the HTTP header `x-inference-pod` with this value, and the HTTP header `x-inference-port` with the port that the request was received on 
 - `POD_NAMESPACE`: the simulator pod namespace. If defined, the response will contain the HTTP header `x-inference-namespace` with this value
 - `POD_IP`: the simulator pod IP address. Used in kv-events topic name.

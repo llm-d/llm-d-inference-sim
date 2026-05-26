@@ -13,7 +13,11 @@ Structure of requests/responses
         - model
         - messages
             - role
-            - content
+            - content (string, or array of content blocks)
+              - type (`text` or `image_url`)
+              - text
+              - image_url
+                - url
             - tool_calls
               - function
                 - name
@@ -68,6 +72,11 @@ Structure of requests/responses
               - bytes
               - top_logprobs
         - usage
+          - prompt_tokens
+          - completion_tokens
+          - total_tokens
+          - prompt_tokens_detail
+            - cached_tokens
         - object
         - kv_transfer_params
           - do_remote_decode
@@ -129,5 +138,132 @@ Structure of requests/responses
             - owned_by
             - root
             - parent
+            - max_model_len
+- `/v1/embeddings`
+    - **request**
+        - model
+        - input (string, array of strings, array of token ids, or array of arrays of token ids)
+        - dimensions
+        - encoding_format (`float` (default) or `base64`)
+        - user
+    - **response**
+        - object (`list`)
+        - model
+        - data
+            - object (`embedding`)
+            - index
+            - embedding (array of floats when `encoding_format` is `float`, base64 string when `base64`)
+        - usage
+            - prompt_tokens
+            - total_tokens
+- `/v1/responses`
+    - **request**
+        - stream
+        - model
+        - input (string, or array of input message objects)
+            - type (`message`)
+            - role (`user`, `system`, `developer`)
+            - status
+            - content (string, or array of content blocks)
+                - type (`input_text` or `output_text`)
+                - text
+        - instructions
+        - max_output_tokens
+        - text
+            - format
+                - type (`text`, `json_object`, or `json_schema`)
+                - json_schema
+                    - name
+                    - strict
+                    - schema
+        - ignore_eos
+        - kv_transfer_params
+          - do_remote_decode
+          - do_remote_prefill
+          - remote_engine_id
+          - remote_block_ids
+          - remote_host
+          - remote_port
+          - tp_size
+    - **response**
+        - id
+        - object
+        - model
+        - created_at
+        - status
+        - instructions
+        - text
+            - format
+                - type
+        - output
+            - type (`message`)
+            - id
+            - role (`assistant`)
+            - status
+            - content
+                - type (`output_text`)
+                - text
+        - usage
+            - input_tokens
+            - output_tokens
+            - total_tokens
+        - kv_transfer_params
+          - do_remote_decode
+          - do_remote_prefill
+          - remote_engine_id
+          - remote_block_ids
+          - remote_host
+          - remote_port
+          - tp_size
+- `/inference/v1/generate`
+    - **request**
+        - stream
+        - model
+        - token_ids
+        - sampling_params
+            - max_tokens
+        - features
+            - mm_hashes
+        - ignore_eos
+        - kv_transfer_params
+          - do_remote_decode
+          - do_remote_prefill
+          - remote_engine_id
+          - remote_block_ids
+          - remote_host
+          - remote_port
+          - tp_size
+    - **response**
+        - id
+        - model
+        - object
+        - request_id
+        - choices
+            - index
+            - finish_reason
+            - token_ids
+        - kv_transfer_params
+          - do_remote_decode
+          - do_remote_prefill
+          - remote_engine_id
+          - remote_block_ids
+          - remote_host
+          - remote_port
+          - tp_size
+        - ec_transfer_params (map keyed by remote engine id)
+            - peer_host
+            - peer_port
+            - size_bytes
+            - nixl_agent_metadata_b64
+
+## `finish_reason` values
+
+The `finish_reason` field in choices may be one of:
+
+- `stop` — generation finished normally (EOS reached or generation budget exhausted).
+- `length` — generation stopped because the `max_tokens` / `max_completion_tokens` / `max_output_tokens` limit was reached.
+- `tool_calls` — generation produced tool calls (chat completions only).
+- `remote_decode` — used when `kv_transfer_params.do_remote_decode` is set; signals that decode is to be performed on a remote pod.
+- `cache_threshold` — the request's effective KV-cache hit rate fell below `cache_hit_threshold` (or the global `global-cache-hit-threshold`), or the `X-Cache-Threshold-Finish-Reason: true` header was set. See [KV Cache Guide](kv-cache.md).
 
 For full details on the expected API behavior and specification, please refer to the [vLLM OpenAI Compatibility Documentation](https://docs.vllm.ai/en/stable/getting_started/quickstart.html#openai-completions-api-with-vllm).
