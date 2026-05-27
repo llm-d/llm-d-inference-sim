@@ -9,15 +9,13 @@ Currently, the simulator supports a partial OpenAI-compatible API:
 - `/v1/embeddings`
 - `/v1/models`
 
-In addition, the following vLLM-specific generation endpoint is supported:
-- `/inference/v1/generate`
-
 For details see the [HTTP Endpoints Guide](http-enpdpoints.md)
 
 In addition, a set of the vLLM HTTP endpoints are suppored:
 
 | Endpoint | Description |
 |---|---|
+| /inference/v1/generate  | vLLM-specific generation endpoint |
 | /v1/load_lora_adapter   | Simulates the dynamic registration of a LoRA adapter |
 | /v1/unload_lora_adapter | Simulates the dynamic unloading and unregistration of a LoRA adapter |
 | /tokenize               | Tokenizes input text and returns token information |
