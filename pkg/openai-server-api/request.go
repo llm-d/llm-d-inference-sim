@@ -567,14 +567,16 @@ func (t *TextCompletionsParsedRequest) MarshalJSON() ([]byte, error) {
 			a.Prompt = t.Prompt[0].Text
 		}
 	default:
-		allTokens := true
-		for _, p := range t.Prompt {
-			if !p.IsTokens() {
-				allTokens = false
-				break
+		// vLLM only accepts homogeneous prompt arrays — all strings or all
+		// token-id arrays. Reject mixed inputs rather than silently dropping
+		// the minority shape.
+		firstIsTokens := t.Prompt[0].IsTokens()
+		for i, p := range t.Prompt[1:] {
+			if p.IsTokens() != firstIsTokens {
+				return nil, fmt.Errorf("prompt array is not homogeneous: entry 0 and entry %d have different types", i+1)
 			}
 		}
-		if allTokens {
+		if firstIsTokens {
 			arrs := make([][]uint32, len(t.Prompt))
 			for i, p := range t.Prompt {
 				arrs[i] = p.Tokens
