@@ -1,0 +1,18 @@
+# Profile 2: 70B model on 8xH100 (TP=8), throughput-optimized (coarse form).
+# Mirrors a Llama-3-70B deployment running close to max-num-seqs saturation.
+# See docs/latency-defaults.md for the full discussion.
+
+port: 8000
+model: "meta-llama/Llama-3.1-70B-Instruct"
+max-num-seqs: 64
+mode: "random"
+
+time-to-first-token: 200ms
+time-to-first-token-std-dev: 40ms
+inter-token-latency: 25ms
+inter-token-latency-std-dev: 4ms
+
+kv-cache-transfer-latency: 2ms
+kv-cache-transfer-latency-std-dev: 400us
+
+time-factor-under-load: 3.0

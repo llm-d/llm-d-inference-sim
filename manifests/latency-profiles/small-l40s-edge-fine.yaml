@@ -1,0 +1,21 @@
+# Profile 3: Small (1-3B) model on L40S, low-latency edge (fine form).
+# Same target deployment as the coarse form, but TTFT and KV-transfer scale with prompt
+# length.
+# See docs/latency-defaults.md for the full discussion.
+
+port: 8000
+model: "meta-llama/Llama-3.2-3B-Instruct"
+max-num-seqs: 4
+mode: "random"
+
+inter-token-latency: 15ms
+inter-token-latency-std-dev: 2ms
+
+prefill-overhead: 20ms
+prefill-time-per-token: 230us
+prefill-time-std-dev: 3ms
+
+kv-cache-transfer-time-per-token: 12us
+kv-cache-transfer-time-std-dev: 500us
+
+time-factor-under-load: 1.5

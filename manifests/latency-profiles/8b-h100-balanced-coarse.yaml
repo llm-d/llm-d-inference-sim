@@ -1,0 +1,18 @@
+# Profile 1: 8B-class model on H100, balanced load (coarse form).
+# Mirrors a production Llama-3-8B deployment on a single H100 at moderate concurrency.
+# See docs/latency-defaults.md for the full discussion.
+
+port: 8000
+model: "meta-llama/Llama-3.1-8B-Instruct"
+max-num-seqs: 16
+mode: "random"
+
+time-to-first-token: 100ms
+time-to-first-token-std-dev: 20ms
+inter-token-latency: 12ms
+inter-token-latency-std-dev: 2ms
+
+kv-cache-transfer-latency: 2ms
+kv-cache-transfer-latency-std-dev: 400us
+
+time-factor-under-load: 2.0

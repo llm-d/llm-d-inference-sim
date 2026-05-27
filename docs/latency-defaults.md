@@ -309,7 +309,9 @@ scheduling, not bandwidth:
 
 ## Suggested Default Profiles
 
-Three ready-to-use profiles. Drop one into your YAML config and adjust as needed.
+Three ready-to-use profiles. Each is provided as a complete YAML file under
+[`manifests/latency-profiles/`](../manifests/latency-profiles/) - pass it directly with
+`--config`, or copy the latency fields into your existing config.
 
 For each profile, pick **one** of two forms per request-type:
 
@@ -326,6 +328,9 @@ that the prefill cost for a ~256-token prompt is in the same range as the coarse
 ### Profile 1: 8B-class model on H100, balanced load
 
 Mirrors a production Llama-3-8B deployment on a single H100, moderate concurrency.
+
+Full configs: [coarse](../manifests/latency-profiles/8b-h100-balanced-coarse.yaml) |
+[fine](../manifests/latency-profiles/8b-h100-balanced-fine.yaml).
 
 Coarse form:
 
@@ -363,6 +368,9 @@ Mirrors a Llama-3-70B deployment using tensor parallelism (TP=8) on H100 nodes,
 running close to `max-num-seqs` saturation. The fine-form KV values assume an InfiniBand 
 interconnect for cross-node disaggregated serving.
 
+Full configs: [coarse](../manifests/latency-profiles/70b-h100-tp8-throughput-coarse.yaml) |
+[fine](../manifests/latency-profiles/70b-h100-tp8-throughput-fine.yaml).
+
 Coarse form:
 
 ```yaml
@@ -397,6 +405,9 @@ time-factor-under-load: 3.0
 
 Mirrors a small (1–3B) model on a single L40S at the edge, tuned for low concurrency and
 quick responses. KV-transfer values assume a modest network for cross-node P/D.
+
+Full configs: [coarse](../manifests/latency-profiles/small-l40s-edge-coarse.yaml) |
+[fine](../manifests/latency-profiles/small-l40s-edge-fine.yaml).
 
 Coarse form:
 
