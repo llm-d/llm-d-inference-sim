@@ -156,6 +156,24 @@ Structure of requests/responses
         - usage
             - prompt_tokens
             - total_tokens
+- `/v1/completions/render`
+    - **request** — same shape as `/v1/completions`; only `model` and `prompt` are inspected
+        - model
+        - prompt (string, array of strings, array of token ids, or array of arrays of token ids — see [`/v1/completions` prompt forms](#v1completions-prompt-forms))
+    - **response** — JSON array, one entry per prompt
+        - token_ids (array of token ids; for token-id prompts the input ids are returned verbatim)
+        - features (omitted; multimodal features are only produced by the chat render endpoint)
+- `/v1/chat/completions/render`
+    - **request** — same shape as `/v1/chat/completions`; only `model` and `messages` are inspected
+        - model
+        - messages (same structure as `/v1/chat/completions`, including `image_url` content blocks)
+    - **response** — single JSON object
+        - token_ids
+        - features (present only when at least one message contains an `image_url` block)
+            - mm_hashes (map keyed by modality, e.g. `image`, to an array of opaque hash strings)
+            - mm_placeholders (map keyed by modality to an array of placeholder regions)
+                - offset (token index where the multimodal region begins)
+                - length (number of tokens the region spans)
 - `/inference/v1/generate`
     - **request**
         - stream
@@ -225,3 +243,14 @@ Notes:
 - In `--mode echo`, a token-id prompt is replayed back to the client as the comma-separated decimal of the ids (e.g. `[1,2,3]` → `"1,2,3"`); a string prompt is replayed verbatim.
 
 For full details on the expected API behavior and specification, please refer to the [vLLM OpenAI Compatibility Documentation](https://docs.vllm.ai/en/stable/getting_started/quickstart.html#openai-completions-api-with-vllm).
+
+### Render endpoints
+
+`/v1/completions/render` and `/v1/chat/completions/render` mirror vLLM's `/render` behavior — they return the tokenized form of a request without running generation. They are useful for debugging tokenization, pre-computing prompt token counts, and exercising multimodal feature handling.
+
+Pre-tokenized prompts on `/v1/completions/render` (a token-id array, or an array of token-id arrays) are copied through verbatim — the tokenizer is not invoked for those entries — regardless of which tokenizer is active.
+
+For everything else, behavior depends on the active tokenizer (selected automatically based on `--model`):
+
+- **HuggingFace tokenizer** (real model): each text prompt and chat-completions request is forwarded to the upstream vLLM render service at `--render-url`. For chat requests, `mm_features` returned by the upstream are passed through.
+- **Simulated tokenizer** (dummy model): the simulator tokenizes locally using its regex-based splitter. For chat requests containing `image_url` blocks, synthetic `mm_features` are produced so multimodal-aware downstream code paths can be exercised without a real renderer.

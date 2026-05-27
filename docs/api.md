@@ -19,6 +19,8 @@ In addition, a set of the vLLM HTTP endpoints are suppored:
 | /v1/load_lora_adapter   | Simulates the dynamic registration of a LoRA adapter |
 | /v1/unload_lora_adapter | Simulates the dynamic unloading and unregistration of a LoRA adapter |
 | /tokenize               | Tokenizes input text and returns token information |
+| /v1/completions/render       | Returns the token IDs for a `/v1/completions` request body without generating a response |
+| /v1/chat/completions/render  | Returns the token IDs (and multimodal features when applicable) for a `/v1/chat/completions` request body without generating a response |
 | /sleep                  | Puts the simulator into sleep mode. Requires both the `enable-sleep-mode` flag and the `VLLM_SERVER_DEV_MODE=1` environment variable; otherwise the request is accepted (HTTP 200) but ignored. |
 | /wake_up                | Wakes up the simulator from sleep mode. Accepts an optional `?tags=kv_cache` query parameter; when set (or when no `tags` parameter is provided), the KV cache is re-activated on wake-up. Any other `tags` value wakes up the simulator without re-activating the KV cache. |
 | /is_sleeping            | Checks if the simulator is currently in sleep mode |

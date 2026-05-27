@@ -23,6 +23,7 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	kvcache "github.com/llm-d/llm-d-inference-sim/pkg/kv-cache"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
+	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 	"github.com/valyala/fasthttp"
 )
 
@@ -40,6 +41,20 @@ type requestBuilder interface {
 	// the implementation is trivial: return the receiver wrapped in a one-element
 	// slice. Only TextCompletionsParsedRequest does real work here.
 	split() []Request
+}
+
+// RenderableRequest is implemented by the request types reachable from the
+// /v1/{chat/,}completions/render endpoints (ChatCompletionsRequest and
+// TextCompletionsParsedRequest). It lets the HTTP layer parse + render
+// without going through the worker pipeline.
+type RenderableRequest interface {
+	Request
+	// Validate checks that the unmarshalled body matches the endpoint's
+	// expected shape.
+	Validate() (string, int)
+	// Render tokenizes the request and returns the JSON body to send back
+	// to the client.
+	Render(t tokenizer.Tokenizer) ([]byte, error)
 }
 
 type Request interface {

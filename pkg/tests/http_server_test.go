@@ -32,6 +32,7 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/communication"
 	kvcache "github.com/llm-d/llm-d-inference-sim/pkg/kv-cache"
+	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	vllmapi "github.com/llm-d/llm-d-inference-sim/pkg/vllm-api"
 )
 
@@ -145,6 +146,131 @@ var _ = Describe("Server", func() {
 			Expect(tokenizeResp.MaxModelLen).To(Equal(2048))
 		})
 	})
+
+	DescribeTable("render endpoints",
+		func(model, endpoint, reqBody string, assert func(body []byte)) {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", model, "--mode", common.ModeRandom}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			resp, err := client.Post("http://localhost"+endpoint, "application/json", strings.NewReader(reqBody))
+			Expect(err).NotTo(HaveOccurred())
+			defer func() {
+				err := resp.Body.Close()
+				Expect(err).NotTo(HaveOccurred())
+			}()
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+			body, err := io.ReadAll(resp.Body)
+			Expect(err).NotTo(HaveOccurred())
+			assert(body)
+		},
+		Entry("simulate /v1/completions/render with a string prompt",
+			common.TestModelName, "/v1/completions/render",
+			fmt.Sprintf(`{"model":"%s","prompt":"hello world"}`, common.TestModelName),
+			func(body []byte) {
+				var arr []openaiserverapi.RenderResponse
+				Expect(json.Unmarshal(body, &arr)).To(Succeed())
+				Expect(arr).To(HaveLen(1))
+				Expect(arr[0].TokenIDs).NotTo(BeEmpty())
+				Expect(arr[0].Features).To(BeNil())
+			}),
+		Entry("simulate /v1/completions/render with an array prompt",
+			common.TestModelName, "/v1/completions/render",
+			fmt.Sprintf(`{"model":"%s","prompt":["hello","world"]}`, common.TestModelName),
+			func(body []byte) {
+				var arr []openaiserverapi.RenderResponse
+				Expect(json.Unmarshal(body, &arr)).To(Succeed())
+				Expect(arr).To(HaveLen(2))
+				Expect(arr[0].TokenIDs).NotTo(BeEmpty())
+				Expect(arr[0].Features).To(BeNil())
+				Expect(arr[1].TokenIDs).NotTo(BeEmpty())
+				Expect(arr[1].Features).To(BeNil())
+			}),
+		Entry("simulate /v1/completions/render with a token-id prompt copies tokens through",
+			common.TestModelName, "/v1/completions/render",
+			fmt.Sprintf(`{"model":"%s","prompt":[10,20,30]}`, common.TestModelName),
+			func(body []byte) {
+				var arr []openaiserverapi.RenderResponse
+				Expect(json.Unmarshal(body, &arr)).To(Succeed())
+				Expect(arr).To(HaveLen(1))
+				Expect(arr[0].TokenIDs).To(Equal([]uint32{10, 20, 30}))
+				Expect(arr[0].Features).To(BeNil())
+			}),
+		Entry("simulate /v1/completions/render with a token-id-array prompt copies tokens through",
+			common.TestModelName, "/v1/completions/render",
+			fmt.Sprintf(`{"model":"%s","prompt":[[1,2],[3,4,5]]}`, common.TestModelName),
+			func(body []byte) {
+				var arr []openaiserverapi.RenderResponse
+				Expect(json.Unmarshal(body, &arr)).To(Succeed())
+				Expect(arr).To(HaveLen(2))
+				Expect(arr[0].TokenIDs).To(Equal([]uint32{1, 2}))
+				Expect(arr[0].Features).To(BeNil())
+				Expect(arr[1].TokenIDs).To(Equal([]uint32{3, 4, 5}))
+				Expect(arr[1].Features).To(BeNil())
+			}),
+		Entry("simulate /v1/chat/completions/render with text-only messages",
+			common.TestModelName, "/v1/chat/completions/render",
+			fmt.Sprintf(`{"model":"%s","messages":[{"role":"user","content":"This is a test"}]}`, common.TestModelName),
+			func(body []byte) {
+				var resp openaiserverapi.RenderResponse
+				Expect(json.Unmarshal(body, &resp)).To(Succeed())
+				Expect(resp.TokenIDs).NotTo(BeEmpty())
+				Expect(resp.Features).To(BeNil())
+			}),
+		Entry("simulate /v1/chat/completions/render with image_url synthesizes mm features",
+			common.TestModelName, "/v1/chat/completions/render",
+			fmt.Sprintf(`{"model":"%s","messages":[{"role":"user","content":[`+
+				`{"type":"text","text":"describe this"},`+
+				`{"type":"image_url","image_url":{"url":"http://example.com/a.png"}}`+
+				`]}]}`, common.TestModelName),
+			func(body []byte) {
+				var resp openaiserverapi.RenderResponse
+				Expect(json.Unmarshal(body, &resp)).To(Succeed())
+				Expect(resp.TokenIDs).NotTo(BeEmpty())
+				Expect(resp.Features).NotTo(BeNil())
+				Expect(resp.Features.MMHashes).To(HaveKey("image"))
+				Expect(resp.Features.MMHashes["image"]).To(HaveLen(1))
+				Expect(resp.Features.MMPlaceholders).To(HaveKey("image"))
+				Expect(resp.Features.MMPlaceholders["image"]).To(HaveLen(1))
+			}),
+		Entry("proxy /v1/completions/render to the upstream renderer (HF model)",
+			common.QwenModelName, "/v1/completions/render",
+			fmt.Sprintf(`{"model":"%s","prompt":"This is a test"}`, common.QwenModelName),
+			func(body []byte) {
+				var arr []openaiserverapi.RenderResponse
+				Expect(json.Unmarshal(body, &arr)).To(Succeed())
+				Expect(arr).NotTo(BeEmpty())
+				Expect(arr[0].TokenIDs).NotTo(BeEmpty())
+				Expect(arr[0].Features).To(BeNil())
+			}),
+		Entry("proxy /v1/chat/completions/render to the upstream renderer (HF model)",
+			common.QwenModelName, "/v1/chat/completions/render",
+			fmt.Sprintf(`{"model":"%s","messages":[{"role":"user","content":"This is a test"}]}`, common.QwenModelName),
+			func(body []byte) {
+				var resp openaiserverapi.RenderResponse
+				Expect(json.Unmarshal(body, &resp)).To(Succeed())
+				Expect(resp.TokenIDs).NotTo(BeEmpty())
+				Expect(resp.Features).To(BeNil())
+			}),
+		Entry("proxy /v1/chat/completions/render with image_url returns mm features (HF model)",
+			common.QwenModelName, "/v1/chat/completions/render",
+			// 1x1 transparent PNG inlined as a data URL — keeps the test
+			// hermetic (no outbound fetch) and small enough to embed.
+			fmt.Sprintf(`{"model":"%s","messages":[{"role":"user","content":[`+
+				`{"type":"text","text":"describe this"},`+
+				`{"type":"image_url","image_url":{"url":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="}}`+
+				`]}]}`, common.QwenModelName),
+			func(body []byte) {
+				var resp openaiserverapi.RenderResponse
+				Expect(json.Unmarshal(body, &resp)).To(Succeed())
+				Expect(resp.TokenIDs).NotTo(BeEmpty())
+				Expect(resp.Features).NotTo(BeNil())
+				Expect(resp.Features.MMHashes).NotTo(BeEmpty())
+				Expect(resp.Features.MMPlaceholders).NotTo(BeEmpty())
+			}),
+	)
 
 	Context("SSL/HTTPS Configuration", func() {
 		It("Should start HTTPS server with provided SSL certificates", func(ctx SpecContext) {

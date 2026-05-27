@@ -22,6 +22,7 @@ import (
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
+	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 	"github.com/valyala/fasthttp"
 )
 
@@ -37,7 +38,11 @@ func (t *TextCompletionsParsedRequest) Unmarshal(data []byte) error {
 	return json.Unmarshal(data, t)
 }
 
-func (t *TextCompletionsParsedRequest) validate(_ *toolsValidator) (string, int) {
+// Validate checks that a /v1/completions/render body has the required text
+// shape — at minimum, a non-empty prompt with non-empty entries. Catches
+// chat-shaped bodies (which JSON-unmarshal cleanly into
+// TextCompletionsParsedRequest with empty Prompt).
+func (t *TextCompletionsParsedRequest) Validate() (string, int) {
 	if len(t.Prompt) == 0 {
 		return "prompt array must contain at least one prompt", fasthttp.StatusBadRequest
 	}
@@ -49,6 +54,34 @@ func (t *TextCompletionsParsedRequest) validate(_ *toolsValidator) (string, int)
 		} else if p.Text == "" {
 			return "prompt must not contain an empty string", fasthttp.StatusBadRequest
 		}
+	}
+	return "", 0
+}
+
+// Render serves an inbound /v1/completions/render request: it tokenizes each
+// prompt (passing pre-tokenized prompts through verbatim) and returns the JSON
+// array body to send back to the client. vLLM's /v1/completions/render always
+// returns an array — one entry per prompt — regardless of whether the request
+// used a string or array prompt.
+func (t *TextCompletionsParsedRequest) Render(tk tokenizer.Tokenizer) ([]byte, error) {
+	responses := make([]openaiserverapi.RenderResponse, 0, len(t.Prompt))
+	for _, p := range t.Prompt {
+		tokens := p.Tokens
+		if !p.IsTokens() {
+			var err error
+			tokens, _, err = tk.RenderText(p.Text)
+			if err != nil {
+				return nil, err
+			}
+		}
+		responses = append(responses, openaiserverapi.RenderResponse{TokenIDs: tokens})
+	}
+	return json.Marshal(responses)
+}
+
+func (t *TextCompletionsParsedRequest) validate(_ *toolsValidator) (string, int) {
+	if msg, code := t.Validate(); msg != "" {
+		return msg, code
 	}
 	return validateRequest(t)
 }

@@ -23,6 +23,7 @@ import (
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
+	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 )
 
 // Implementation of request for /chat/completions requests
@@ -33,6 +34,28 @@ type ChatCompletionsRequest struct {
 // reads and parses data from the body of the given request
 func (c *ChatCompletionsRequest) Unmarshal(data []byte) error {
 	return json.Unmarshal(data, c)
+}
+
+// Validate checks that a /v1/chat/completions/render body has the required
+// chat shape — at minimum, a non-empty messages array. Catches text-shaped
+// bodies (which JSON-unmarshal cleanly into ChatCompletionsRequest with empty
+// Messages because Go ignores unknown fields by default).
+func (c *ChatCompletionsRequest) Validate() (string, int) {
+	if len(c.Messages) == 0 {
+		return "messages must not be empty", fasthttp.StatusBadRequest
+	}
+	return "", 0
+}
+
+// Render serves an inbound /v1/chat/completions/render request: it tokenizes
+// the messages and returns the JSON body (with mm_features when produced by
+// the tokenizer) to send back to the client.
+func (c *ChatCompletionsRequest) Render(tk tokenizer.Tokenizer) ([]byte, error) {
+	tokens, _, features, err := tk.RenderMessages(c.Messages)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(openaiserverapi.RenderResponse{TokenIDs: tokens, Features: features})
 }
 
 func (c *ChatCompletionsRequest) validate(toolsValidator *toolsValidator) (string, int) {

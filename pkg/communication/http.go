@@ -65,6 +65,8 @@ func (c *Communication) startHTTPServer(listener net.Listener) (*fasthttp.Server
 	// support completion APIs
 	r.POST("/v1/chat/completions", c.HandleChatCompletions)
 	r.POST("/v1/completions", c.HandleTextCompletions)
+	r.POST("/v1/chat/completions/render", c.HandleChatCompletionsRender)
+	r.POST("/v1/completions/render", c.HandleTextCompletionsRender)
 	r.POST("/v1/responses", c.HandleResponses)
 	r.POST("/inference/v1/generate", c.HandleGenerate)
 	if !c.simulator.Context.Config.MMEncoderOnly {
@@ -145,6 +147,45 @@ func (c *Communication) HandleResponses(ctx *fasthttp.RequestCtx) {
 // HandleGenerate http handler for /inference/v1/generate
 func (c *Communication) HandleGenerate(ctx *fasthttp.RequestCtx) {
 	c.handleHTTP(&vllmsim.GenerateRequest{}, &generateHTTPRespBuilder{}, ctx)
+}
+
+// HandleChatCompletionsRender http handler for /v1/chat/completions/render
+func (c *Communication) HandleChatCompletionsRender(ctx *fasthttp.RequestCtx) {
+	c.handleRender(ctx, &vllmsim.ChatCompletionsRequest{})
+}
+
+// HandleTextCompletionsRender http handler for /v1/completions/render
+func (c *Communication) HandleTextCompletionsRender(ctx *fasthttp.RequestCtx) {
+	c.handleRender(ctx, &vllmsim.TextCompletionsParsedRequest{})
+}
+
+// handleRender unmarshals the body into req (returning 400 on failure to mirror
+// the regular completion endpoints), validates the request shape, and then
+// asks req to render itself with the configured tokenizer.
+func (c *Communication) handleRender(ctx *fasthttp.RequestCtx, req vllmsim.RenderableRequest) {
+	c.logger.V(logging.TRACE).Info("Render request received", "endpoint", string(ctx.Path()))
+	if err := req.Unmarshal(ctx.Request.Body()); err != nil {
+		c.logger.Error(err, "failed to read and parse render request body")
+		errToSend := openaiserverapi.NewError("Failed to read and parse request body, "+err.Error(), fasthttp.StatusBadRequest, nil)
+		c.sendError(ctx, &errToSend, false)
+		return
+	}
+	if errMsg, errCode := req.Validate(); errMsg != "" {
+		errToSend := openaiserverapi.NewError(errMsg, errCode, nil)
+		c.sendError(ctx, &errToSend, false)
+		return
+	}
+	respBody, err := req.Render(c.simulator.Context.Tokenizer)
+	if err != nil {
+		c.logger.Error(err, "render failed")
+		errToSend := openaiserverapi.NewError("Render failed, "+err.Error(), fasthttp.StatusInternalServerError, nil)
+		c.sendError(ctx, &errToSend, false)
+		return
+	}
+	c.addResponseHeaders(ctx, c.getRequestID(ctx))
+	ctx.Response.Header.SetContentType("application/json")
+	ctx.Response.Header.SetStatusCode(fasthttp.StatusOK)
+	ctx.Response.SetBody(respBody)
 }
 
 // addResponseHeaders adds optional pod/port/namespace/request-id headers to the response for testing/debugging.
