@@ -1,0 +1,21 @@
+# Profile 2: 70B model on 8xH100 (TP=8), throughput-optimized (fine form).
+# Same target deployment as the coarse form, but TTFT and KV-transfer scale with prompt
+# length. KV values assume an InfiniBand interconnect for cross-node disaggregated serving.
+# See docs/latency-defaults.md for the full discussion.
+
+port: 8000
+model: "meta-llama/Llama-3.1-70B-Instruct"
+max-num-seqs: 64
+mode: "random"
+
+inter-token-latency: 25ms
+inter-token-latency-std-dev: 4ms
+
+prefill-overhead: 80ms
+prefill-time-per-token: 500us
+prefill-time-std-dev: 15ms
+
+kv-cache-transfer-time-per-token: 8us
+kv-cache-transfer-time-std-dev: 500us
+
+time-factor-under-load: 3.0
