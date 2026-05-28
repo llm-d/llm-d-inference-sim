@@ -44,7 +44,7 @@ func (s *SimContext) setInitialFakeMetrics() error {
 	// Build a map of all configured JSON keys so that UpdateFakeMetrics
 	// processes every field. Fields with omitempty that are nil/zero are
 	// naturally excluded by json.Marshal.
-	data, err := json.Marshal(s.Config.FakeMetrics)
+	data, err := json.Marshal(s.Config().FakeMetrics)
 	if err != nil {
 		return err
 	}
@@ -72,7 +72,7 @@ func (s *SimContext) setInitialFakeMetrics() error {
 
 func (s *SimContext) updateGeneratedFakeMetrics() {
 	start := time.Now()
-	ticker := time.NewTicker(s.Config.FakeMetricsRefreshInterval)
+	ticker := time.NewTicker(s.Config().FakeMetricsRefreshInterval)
 	defer ticker.Stop()
 	for {
 		select {
@@ -177,7 +177,7 @@ func (s *SimContext) initFakeHistogram(hist *prometheus.HistogramVec, bucketsBou
 
 		for range bucketSamplesCount {
 			// create required number of observations for the calculated sample
-			hist.WithLabelValues(s.Config.DisplayModelName).Observe(valueToObserve)
+			hist.WithLabelValues(s.Config().DisplayModelName).Observe(valueToObserve)
 		}
 
 		total += int64(bucketSamplesCount) * int64(valueToObserve)
@@ -205,15 +205,15 @@ func (s *SimContext) UpdateFakeMetrics(fakeMetricsMap map[string]any, oldFakeMet
 		generatedFakeMetricsWasEmpty = true
 	}
 	if _, ok := fakeMetricsMap["running-requests"]; ok {
-		s.setFakeMetricWithFunction(s.Config.DisplayModelName, &s.Config.FakeMetrics.RunningRequests, s.metrics.runningRequests,
+		s.setFakeMetricWithFunction(s.Config().DisplayModelName, &s.Config().FakeMetrics.RunningRequests, s.metrics.runningRequests,
 			s.metrics.runReqChan, true)
 	}
 	if _, ok := fakeMetricsMap["waiting-requests"]; ok {
-		s.setFakeMetricWithFunction(s.Config.DisplayModelName, &s.Config.FakeMetrics.WaitingRequests, s.metrics.waitingRequests,
+		s.setFakeMetricWithFunction(s.Config().DisplayModelName, &s.Config().FakeMetrics.WaitingRequests, s.metrics.waitingRequests,
 			s.metrics.waitingReqChan, true)
 	}
 	if _, ok := fakeMetricsMap["kv-cache-usage"]; ok {
-		s.setFakeMetricWithFunction(s.Config.DisplayModelName, &s.Config.FakeMetrics.KVCacheUsagePercentage, s.metrics.kvCacheUsagePercentage,
+		s.setFakeMetricWithFunction(s.Config().DisplayModelName, &s.Config().FakeMetrics.KVCacheUsagePercentage, s.metrics.kvCacheUsagePercentage,
 			s.metrics.kvCacheUsageChan, false)
 	}
 
@@ -224,7 +224,7 @@ func (s *SimContext) UpdateFakeMetrics(fakeMetricsMap map[string]any, oldFakeMet
 				return err
 			}
 		}
-		s.initFakeHistogram(s.metrics.ttft, common.TTFTBucketsBoundaries, s.Config.FakeMetrics.TTFTBucketValues)
+		s.initFakeHistogram(s.metrics.ttft, common.TTFTBucketsBoundaries, s.Config().FakeMetrics.TTFTBucketValues)
 	}
 
 	if _, ok := fakeMetricsMap["tpot-buckets-values"]; ok {
@@ -235,8 +235,8 @@ func (s *SimContext) UpdateFakeMetrics(fakeMetricsMap map[string]any, oldFakeMet
 				return err
 			}
 		}
-		s.initFakeHistogram(s.metrics.tpot, common.TPOTBucketsBoundaries, s.Config.FakeMetrics.TPOTBucketValues)
-		s.initFakeHistogram(s.metrics.interTokenLatency, common.TPOTBucketsBoundaries, s.Config.FakeMetrics.TPOTBucketValues)
+		s.initFakeHistogram(s.metrics.tpot, common.TPOTBucketsBoundaries, s.Config().FakeMetrics.TPOTBucketValues)
+		s.initFakeHistogram(s.metrics.interTokenLatency, common.TPOTBucketsBoundaries, s.Config().FakeMetrics.TPOTBucketValues)
 	}
 
 	if _, ok := fakeMetricsMap["e2erl-buckets-values"]; ok {
@@ -246,7 +246,7 @@ func (s *SimContext) UpdateFakeMetrics(fakeMetricsMap map[string]any, oldFakeMet
 				return err
 			}
 		}
-		s.initFakeHistogram(s.metrics.e2eReqLatency, common.RequestLatencyBucketsBoundaries, s.Config.FakeMetrics.E2ERequestLatencyBucketValues)
+		s.initFakeHistogram(s.metrics.e2eReqLatency, common.RequestLatencyBucketsBoundaries, s.Config().FakeMetrics.E2ERequestLatencyBucketValues)
 	}
 
 	if _, ok := fakeMetricsMap["queue-time-buckets-values"]; ok {
@@ -256,7 +256,7 @@ func (s *SimContext) UpdateFakeMetrics(fakeMetricsMap map[string]any, oldFakeMet
 				return err
 			}
 		}
-		s.initFakeHistogram(s.metrics.reqQueueTime, common.RequestLatencyBucketsBoundaries, s.Config.FakeMetrics.ReqQueueTimeBucketValues)
+		s.initFakeHistogram(s.metrics.reqQueueTime, common.RequestLatencyBucketsBoundaries, s.Config().FakeMetrics.ReqQueueTimeBucketValues)
 	}
 
 	if _, ok := fakeMetricsMap["inf-time-buckets-values"]; ok {
@@ -266,7 +266,7 @@ func (s *SimContext) UpdateFakeMetrics(fakeMetricsMap map[string]any, oldFakeMet
 				return err
 			}
 		}
-		s.initFakeHistogram(s.metrics.reqInferenceTime, common.RequestLatencyBucketsBoundaries, s.Config.FakeMetrics.ReqInfTimeBucketValues)
+		s.initFakeHistogram(s.metrics.reqInferenceTime, common.RequestLatencyBucketsBoundaries, s.Config().FakeMetrics.ReqInfTimeBucketValues)
 	}
 
 	if _, ok := fakeMetricsMap["prefill-time-buckets-values"]; ok {
@@ -276,7 +276,7 @@ func (s *SimContext) UpdateFakeMetrics(fakeMetricsMap map[string]any, oldFakeMet
 				return err
 			}
 		}
-		s.initFakeHistogram(s.metrics.reqPrefillTime, common.RequestLatencyBucketsBoundaries, s.Config.FakeMetrics.ReqPrefillTimeBucketValues)
+		s.initFakeHistogram(s.metrics.reqPrefillTime, common.RequestLatencyBucketsBoundaries, s.Config().FakeMetrics.ReqPrefillTimeBucketValues)
 	}
 
 	if _, ok := fakeMetricsMap["decode-time-buckets-values"]; ok {
@@ -286,10 +286,10 @@ func (s *SimContext) UpdateFakeMetrics(fakeMetricsMap map[string]any, oldFakeMet
 				return err
 			}
 		}
-		s.initFakeHistogram(s.metrics.reqDecodeTime, common.RequestLatencyBucketsBoundaries, s.Config.FakeMetrics.ReqDecodeTimeBucketValues)
+		s.initFakeHistogram(s.metrics.reqDecodeTime, common.RequestLatencyBucketsBoundaries, s.Config().FakeMetrics.ReqDecodeTimeBucketValues)
 	}
 
-	buckets := Build125Buckets(s.Config.MaxModelLen)
+	buckets := Build125Buckets(s.Config().MaxModelLen)
 
 	if _, ok := fakeMetricsMap["request-params-max-tokens"]; ok {
 		if oldFakeMetrics.RequestParamsMaxTokens != nil {
@@ -298,7 +298,7 @@ func (s *SimContext) UpdateFakeMetrics(fakeMetricsMap map[string]any, oldFakeMet
 				return err
 			}
 		}
-		s.initFakeHistogram(s.metrics.requestParamsMaxTokens, buckets, s.Config.FakeMetrics.RequestParamsMaxTokens)
+		s.initFakeHistogram(s.metrics.requestParamsMaxTokens, buckets, s.Config().FakeMetrics.RequestParamsMaxTokens)
 	}
 
 	if _, ok := fakeMetricsMap["request-max-generation-tokens"]; ok {
@@ -308,29 +308,29 @@ func (s *SimContext) UpdateFakeMetrics(fakeMetricsMap map[string]any, oldFakeMet
 				return err
 			}
 		}
-		s.initFakeHistogram(s.metrics.maxNumGenerationTokens, buckets, s.Config.FakeMetrics.RequestMaxGenerationTokens)
+		s.initFakeHistogram(s.metrics.maxNumGenerationTokens, buckets, s.Config().FakeMetrics.RequestMaxGenerationTokens)
 	}
 
 	if err := s.updateTokenMetrics(
-		s.Config.DisplayModelName, buckets, fakeMetricsMap,
+		s.Config().DisplayModelName, buckets, fakeMetricsMap,
 		"request-prompt-tokens", "total-prompt-tokens",
-		s.Config.FakeMetrics.RequestPromptTokens, oldFakeMetrics.RequestPromptTokens,
-		s.Config.FakeMetrics.TotalPromptTokens, oldFakeMetrics.TotalPromptTokens,
+		s.Config().FakeMetrics.RequestPromptTokens, oldFakeMetrics.RequestPromptTokens,
+		s.Config().FakeMetrics.TotalPromptTokens, oldFakeMetrics.TotalPromptTokens,
 		&s.metrics.requestPromptTokens, &s.metrics.promptTokensTotal,
 		s.createAndRegisterReqPromptTokensMetrics, s.createAndRegisterPromptTokensTotalMetrics,
-		func() { s.Config.FakeMetrics.TotalPromptTokens = nil },
+		func() { s.Config().FakeMetrics.TotalPromptTokens = nil },
 	); err != nil {
 		return err
 	}
 
 	if err := s.updateTokenMetrics(
-		s.Config.DisplayModelName, buckets, fakeMetricsMap,
+		s.Config().DisplayModelName, buckets, fakeMetricsMap,
 		"request-generation-tokens", "total-generation-tokens",
-		s.Config.FakeMetrics.RequestGenerationTokens, oldFakeMetrics.RequestGenerationTokens,
-		s.Config.FakeMetrics.TotalGenerationTokens, oldFakeMetrics.TotalGenerationTokens,
+		s.Config().FakeMetrics.RequestGenerationTokens, oldFakeMetrics.RequestGenerationTokens,
+		s.Config().FakeMetrics.TotalGenerationTokens, oldFakeMetrics.TotalGenerationTokens,
 		&s.metrics.requestGenerationTokens, &s.metrics.generationTokensTotal,
 		s.createAndRegisterReqGenerationTokensMetrics, s.createAndRegisterGenerationTokensTotalMetrics,
-		func() { s.Config.FakeMetrics.TotalGenerationTokens = nil },
+		func() { s.Config().FakeMetrics.TotalGenerationTokens = nil },
 	); err != nil {
 		return err
 	}
@@ -342,8 +342,8 @@ func (s *SimContext) UpdateFakeMetrics(fakeMetricsMap map[string]any, oldFakeMet
 				return err
 			}
 		}
-		if s.Config.FakeMetrics.PrefixCacheQueries != nil {
-			s.metrics.prefixCacheQueries.WithLabelValues(s.Config.DisplayModelName).Add(float64(*s.Config.FakeMetrics.PrefixCacheQueries))
+		if s.Config().FakeMetrics.PrefixCacheQueries != nil {
+			s.metrics.prefixCacheQueries.WithLabelValues(s.Config().DisplayModelName).Add(float64(*s.Config().FakeMetrics.PrefixCacheQueries))
 		}
 	}
 
@@ -354,8 +354,8 @@ func (s *SimContext) UpdateFakeMetrics(fakeMetricsMap map[string]any, oldFakeMet
 				return err
 			}
 		}
-		if s.Config.FakeMetrics.PrefixCacheHits != nil {
-			s.metrics.prefixCacheHits.WithLabelValues(s.Config.DisplayModelName).Add(float64(*s.Config.FakeMetrics.PrefixCacheHits))
+		if s.Config().FakeMetrics.PrefixCacheHits != nil {
+			s.metrics.prefixCacheHits.WithLabelValues(s.Config().DisplayModelName).Add(float64(*s.Config().FakeMetrics.PrefixCacheHits))
 		}
 	}
 
@@ -366,8 +366,8 @@ func (s *SimContext) UpdateFakeMetrics(fakeMetricsMap map[string]any, oldFakeMet
 				return err
 			}
 		}
-		for reason, requestSuccessTotal := range s.Config.FakeMetrics.RequestSuccessTotal {
-			s.metrics.requestSuccessTotal.WithLabelValues(s.Config.DisplayModelName, reason).Add(float64(requestSuccessTotal))
+		for reason, requestSuccessTotal := range s.Config().FakeMetrics.RequestSuccessTotal {
+			s.metrics.requestSuccessTotal.WithLabelValues(s.Config().DisplayModelName, reason).Add(float64(requestSuccessTotal))
 		}
 	}
 
@@ -376,16 +376,16 @@ func (s *SimContext) UpdateFakeMetrics(fakeMetricsMap map[string]any, oldFakeMet
 		if err := s.createAndRegisterLoraInfoMetric(); err != nil {
 			return err
 		}
-		if len(s.Config.FakeMetrics.LoraMetrics) != 0 {
-			for _, metrics := range s.Config.FakeMetrics.LoraMetrics {
+		if len(s.Config().FakeMetrics.LoraMetrics) != 0 {
+			for _, metrics := range s.Config().FakeMetrics.LoraMetrics {
 				s.metrics.loraInfo.WithLabelValues(
-					strconv.Itoa(s.Config.MaxLoras),
+					strconv.Itoa(s.Config().MaxLoras),
 					metrics.RunningLoras,
 					metrics.WaitingLoras).Set(metrics.Timestamp)
 			}
 		} else {
 			s.metrics.loraInfo.WithLabelValues(
-				strconv.Itoa(s.Config.MaxLoras),
+				strconv.Itoa(s.Config().MaxLoras),
 				"",
 				"").Set(float64(time.Now().Unix()))
 		}

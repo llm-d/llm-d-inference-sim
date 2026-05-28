@@ -30,6 +30,17 @@ import (
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 )
 
+const adminConfigURL = "http://localhost/admin/config"
+
+func postAdminConfig(client *http.Client, body string) *http.Response {
+	req, err := http.NewRequest("POST", adminConfigURL, strings.NewReader(body))
+	Expect(err).NotTo(HaveOccurred())
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := client.Do(req)
+	Expect(err).NotTo(HaveOccurred())
+	return resp
+}
+
 var _ = Describe("Failures", func() {
 	Describe("Simulator with failure injection", func() {
 		var (
@@ -157,6 +168,51 @@ var _ = Describe("Failures", func() {
 				Expect(resp.Choices).To(HaveLen(1))
 				Expect(resp.Choices[0].Message.Content).ToNot(BeEmpty())
 				Expect(resp.Model).To(Equal(common.TestModelName))
+			})
+		})
+
+		Context("with admin config update", func() {
+			BeforeEach(func() {
+				ctx = context.Background()
+				var err error
+				client, err = startServerWithArgs(ctx, []string{
+					"cmd", "--model", common.TestModelName,
+					"--failure-injection-rate", "0",
+				})
+				Expect(err).ToNot(HaveOccurred())
+			})
+
+			It("starts succeeding then fails after enabling failures via /admin/config", func() {
+				openaiClient, params := getOpenAIClientAndChatParams(client, common.TestModelName, testUserMessage, false)
+
+				// Initially no failures.
+				_, err := openaiClient.Chat.Completions.New(ctx, params)
+				Expect(err).ToNot(HaveOccurred())
+
+				// Enable rate-limit failures at 100%.
+				resp := postAdminConfig(client, `{"failure-injection-rate":100,"failure-types":["`+common.FailureTypeRateLimit+`"]}`)
+				Expect(resp.Body.Close()).To(Succeed())
+				Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+				_, err = openaiClient.Chat.Completions.New(ctx, params)
+				Expect(err).To(HaveOccurred())
+				var openaiError *openai.Error
+				Expect(errors.As(err, &openaiError)).To(BeTrue())
+				Expect(openaiError.StatusCode).To(Equal(429))
+
+				// Disable failures again — requests succeed.
+				resp = postAdminConfig(client, `{"failure-injection-rate":0}`)
+				Expect(resp.Body.Close()).To(Succeed())
+				Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+				_, err = openaiClient.Chat.Completions.New(ctx, params)
+				Expect(err).ToNot(HaveOccurred())
+			})
+
+			It("rejects an invalid failure type", func() {
+				resp := postAdminConfig(client, `{"failure-types":["bogus"]}`)
+				defer func() { Expect(resp.Body.Close()).To(Succeed()) }()
+				Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
 			})
 		})
 

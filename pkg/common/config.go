@@ -513,9 +513,9 @@ func (c *Configuration) validate() error {
 		FailureTypeInvalidRequest: true,
 		FailureTypeModelNotFound:  true,
 	}
-	for _, failureType := range c.FailureTypes {
-		if !validFailureTypes[failureType] {
-			return fmt.Errorf("invalid failure type '%s', valid types are: %s, %s, %s, %s, %s, %s", failureType,
+	for _, ft := range c.FailureTypes {
+		if !validFailureTypes[ft] {
+			return fmt.Errorf("invalid failure type '%s', valid types are: %s, %s, %s, %s, %s, %s", ft,
 				FailureTypeRateLimit, FailureTypeInvalidAPIKey, FailureTypeContextLength,
 				FailureTypeServerError, FailureTypeInvalidRequest, FailureTypeModelNotFound)
 		}
@@ -576,6 +576,41 @@ func (c *Configuration) SSLEnabled() bool {
 	return (c.SSLCertFile != "" && c.SSLKeyFile != "") || c.SelfSignedCerts
 }
 
+// adminConfigurableFields lists the JSON keys (matching json tags on
+// Configuration) that the /admin/config endpoint is allowed to update.
+var adminConfigurableFields = map[string]bool{
+	"failure-injection-rate": true,
+	"failure-types":          true,
+}
+
+// ApplyAdminUpdate validates a partial JSON update from the /admin/config
+// endpoint and returns a new Configuration with the changes applied, leaving
+// the receiver unchanged. The caller is expected to swap the configuration
+// pointer atomically.
+func (c *Configuration) ApplyAdminUpdate(body []byte) (*Configuration, error) {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal payload: %w", err)
+	}
+	for key := range raw {
+		if !adminConfigurableFields[key] {
+			return nil, fmt.Errorf("field '%s' is not admin-configurable", key)
+		}
+	}
+
+	next, err := c.Copy()
+	if err != nil {
+		return nil, fmt.Errorf("failed to copy configuration: %w", err)
+	}
+	if err := json.Unmarshal(body, next); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal payload: %w", err)
+	}
+	if err := next.validate(); err != nil {
+		return nil, err
+	}
+	return next, nil
+}
+
 func (c *Configuration) Copy() (*Configuration, error) {
 	var dst Configuration
 	data, err := json.Marshal(c)
@@ -586,33 +621,49 @@ func (c *Configuration) Copy() (*Configuration, error) {
 	return &dst, err
 }
 
-func (c *Configuration) Show(logger logr.Logger) error {
+// cleanedMap returns the configuration as a JSON-friendly map with internal
+// fields removed/renamed for external display (logs, /admin/config GET).
+func (c *Configuration) cleanedMap() (map[string]interface{}, error) {
 	cfgJSON, err := json.Marshal(c)
 	if err != nil {
-		return fmt.Errorf("failed to marshal configuration to JSON: %w", err)
+		return nil, fmt.Errorf("failed to marshal configuration to JSON: %w", err)
 	}
 
 	var m map[string]interface{}
-	err = json.Unmarshal(cfgJSON, &m)
-	if err != nil {
-		return fmt.Errorf("failed to unmarshal JSON to map: %w", err)
+	if err := json.Unmarshal(cfgJSON, &m); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal JSON to map: %w", err)
 	}
 	if c.DPSize > 1 {
-		// remove the port
+		// in DP mode, the per-rank port is not meaningful externally
 		delete(m, "port")
 	}
-	// clean LoraModulesString field
+	// rename LoraModules → lora-modules and drop the helper string field
 	m["lora-modules"] = m["LoraModules"]
 	delete(m, "LoraModules")
 	delete(m, "LoraModulesString")
 
-	// clean fake-metrics field
 	if field, ok := m["fake-metrics"].(map[string]interface{}); ok {
 		delete(field, "LorasString")
 	}
+	return m, nil
+}
 
-	// show in JSON
-	cfgJSON, err = json.MarshalIndent(m, "", "  ")
+// MarshalCleaned returns the configuration as JSON suitable for external
+// display (e.g. /admin/config GET), with internal fields removed.
+func (c *Configuration) MarshalCleaned() ([]byte, error) {
+	m, err := c.cleanedMap()
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(m)
+}
+
+func (c *Configuration) Show(logger logr.Logger) error {
+	m, err := c.cleanedMap()
+	if err != nil {
+		return err
+	}
+	cfgJSON, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal configuration to JSON: %w", err)
 	}

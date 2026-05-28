@@ -141,7 +141,7 @@ func Start(ctx context.Context, config *common.Configuration, logger logr.Logger
 		if err != nil {
 			return nil, err
 		}
-		sim.Context.Config = rankConfig
+		sim.Context.SetConfig(rankConfig)
 		// use the same tokenizer in all ranks
 		sim.Context.Tokenizer = tokenizer
 		sims[dpRank] = sim
@@ -166,18 +166,18 @@ func (s *VllmSimulator) InitializeSim(ctx context.Context) error {
 		return err
 	}
 
-	s.queueCapacity = s.Context.Config.MaxWaitingQueueLength
+	s.queueCapacity = s.Context.Config().MaxWaitingQueueLength
 
-	maxNumberOfRequests := s.Context.Config.MaxNumSeqs + s.Context.Config.MaxWaitingQueueLength
+	maxNumberOfRequests := s.Context.Config().MaxNumSeqs + s.Context.Config().MaxWaitingQueueLength
 	s.newRequests = common.Channel[requestContext]{
 		Channel: make(chan requestContext, maxNumberOfRequests),
 		Name:    "newRequests",
 	}
 
 	// run request processing workers
-	s.freeWorkers = make(chan *worker, s.Context.Config.MaxNumSeqs)
-	s.workerFinished = make(chan *requestCompleted, s.Context.Config.MaxNumSeqs)
-	for i := 1; i <= s.Context.Config.MaxNumSeqs; i++ {
+	s.freeWorkers = make(chan *worker, s.Context.Config().MaxNumSeqs)
+	s.workerFinished = make(chan *requestCompleted, s.Context.Config().MaxNumSeqs)
+	for i := 1; i <= s.Context.Config().MaxNumSeqs; i++ {
 		worker := &worker{
 			id:           i,
 			ctx:          drainCtx,
@@ -315,8 +315,8 @@ func (s *VllmSimulator) addRequestToQueue(reqCtx requestContext) {
 func (s *VllmSimulator) HandleRequest(req Request) (numChoices int, isStream bool,
 	channel *common.Channel[*ResponseInfo], err *openaiserverapi.Error, errInjected bool) {
 	// Check if we should inject a failure
-	if shouldInjectFailure(s.Context.Config, s.Context.Random) {
-		failure := getRandomFailure(s.Context.Config, s.Context.Random)
+	if shouldInjectFailure(s.Context.Config(), s.Context.Random) {
+		failure := getRandomFailure(s.Context.Config(), s.Context.Random)
 		return 0, false, nil, &failure, true
 	}
 
@@ -344,7 +344,7 @@ func (s *VllmSimulator) HandleRequest(req Request) (numChoices int, isStream boo
 	// completions form (which can carry an array of prompts) fans out.
 	subReqs := req.split()
 	respChan := &common.Channel[*ResponseInfo]{
-		Channel: make(chan *ResponseInfo, s.Context.Config.MaxModelLen),
+		Channel: make(chan *ResponseInfo, s.Context.Config().MaxModelLen),
 		Name:    "responseInfo-" + req.GetRequestID(),
 	}
 	var wg sync.WaitGroup

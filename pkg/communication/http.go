@@ -50,7 +50,7 @@ const (
 )
 
 func (c *Communication) newListener() (net.Listener, error) {
-	listener, err := net.Listen("tcp4", fmt.Sprintf(":%d", c.simulator.Context.Config.Port))
+	listener, err := net.Listen("tcp4", fmt.Sprintf(":%d", c.simulator.Context.Config().Port))
 	if err != nil {
 		return nil, err
 	}
@@ -67,7 +67,7 @@ func (c *Communication) startHTTPServer(listener net.Listener) (*fasthttp.Server
 	r.POST("/v1/completions", c.HandleTextCompletions)
 	r.POST("/v1/responses", c.HandleResponses)
 	r.POST("/inference/v1/generate", c.HandleGenerate)
-	if !c.simulator.Context.Config.MMEncoderOnly {
+	if !c.simulator.Context.Config().MMEncoderOnly {
 		r.POST("/v1/embeddings", c.HandleEmbeddings)
 	}
 	// supports /models API
@@ -86,9 +86,11 @@ func (c *Communication) startHTTPServer(listener net.Listener) (*fasthttp.Server
 	r.POST("/sleep", c.HandleSleep)
 	r.POST("/wake_up", c.HandleWakeUp)
 	r.GET("/is_sleeping", c.HandleIsSleeping)
+	r.GET("/admin/config", c.HandleGetAdminConfig)
+	r.POST("/admin/config", c.HandlePostAdminConfig)
 
 	handler := r.Handler
-	if c.simulator.Context.Config.LogHTTP {
+	if c.simulator.Context.Config().LogHTTP {
 		handler = c.logHTTPMiddleware(handler)
 	}
 
@@ -104,11 +106,11 @@ func (c *Communication) startHTTPServer(listener net.Listener) (*fasthttp.Server
 
 	errCh := make(chan error, 1)
 	go func() {
-		if c.simulator.Context.Config.SSLEnabled() {
-			c.logger.V(logging.INFO).Info("Server starting", "protocol", "HTTPS", "port", c.simulator.Context.Config.Port)
+		if c.simulator.Context.Config().SSLEnabled() {
+			c.logger.V(logging.INFO).Info("Server starting", "protocol", "HTTPS", "port", c.simulator.Context.Config().Port)
 			errCh <- server.ServeTLS(listener, "", "")
 		} else {
-			c.logger.V(logging.INFO).Info("Server starting", "protocol", "HTTP", "port", c.simulator.Context.Config.Port)
+			c.logger.V(logging.INFO).Info("Server starting", "protocol", "HTTP", "port", c.simulator.Context.Config().Port)
 			errCh <- server.Serve(listener)
 		}
 	}()
@@ -118,7 +120,7 @@ func (c *Communication) startHTTPServer(listener net.Listener) (*fasthttp.Server
 
 // getRequestID retrieves the request ID from the X-Request-Id header or generates a new one if not present
 func (c *Communication) getRequestID(ctx *fasthttp.RequestCtx) string {
-	if c.simulator.Context.Config.EnableRequestIDHeaders {
+	if c.simulator.Context.Config().EnableRequestIDHeaders {
 		requestID := string(ctx.Request.Header.Peek(RequestIDHeader))
 		if requestID != "" {
 			return requestID
@@ -149,14 +151,14 @@ func (c *Communication) HandleGenerate(ctx *fasthttp.RequestCtx) {
 
 // addResponseHeaders adds optional pod/port/namespace/request-id headers to the response for testing/debugging.
 func (c *Communication) addResponseHeaders(ctx *fasthttp.RequestCtx, requestID string) {
-	if c.simulator.Context.Config.PodName != "" {
-		ctx.Response.Header.Add(PodHeader, c.simulator.Context.Config.PodName)
-		ctx.Response.Header.Add(PortHeader, strconv.Itoa(c.simulator.Context.Config.Port))
+	if c.simulator.Context.Config().PodName != "" {
+		ctx.Response.Header.Add(PodHeader, c.simulator.Context.Config().PodName)
+		ctx.Response.Header.Add(PortHeader, strconv.Itoa(c.simulator.Context.Config().Port))
 	}
-	if c.simulator.Context.Config.PodNameSpace != "" {
-		ctx.Response.Header.Add(NamespaceHeader, c.simulator.Context.Config.PodNameSpace)
+	if c.simulator.Context.Config().PodNameSpace != "" {
+		ctx.Response.Header.Add(NamespaceHeader, c.simulator.Context.Config().PodNameSpace)
 	}
-	if c.simulator.Context.Config.EnableRequestIDHeaders {
+	if c.simulator.Context.Config().EnableRequestIDHeaders {
 		ctx.Response.Header.Add(RequestIDHeader, requestID)
 	}
 }
@@ -532,9 +534,9 @@ func (c *Communication) HandleEmbeddings(ctx *fasthttp.RequestCtx) {
 	}
 	model := req.Model
 	if model == "" {
-		model = c.simulator.Context.Config.Model
+		model = c.simulator.Context.Config().Model
 	}
-	dim := c.simulator.Context.Config.DefaultEmbeddingDimensions
+	dim := c.simulator.Context.Config().DefaultEmbeddingDimensions
 	if req.Dimensions != nil {
 		if *req.Dimensions < 1 {
 			errToSend := openaiserverapi.NewError("dimensions must be at least 1", fasthttp.StatusBadRequest, nil)
@@ -650,7 +652,7 @@ func (c *Communication) HandleTokenize(ctx *fasthttp.RequestCtx) {
 	resp := vllmapi.TokenizeResponse{
 		Count:       len(tokens),
 		Tokens:      tokens,
-		MaxModelLen: c.simulator.Context.Config.MaxModelLen,
+		MaxModelLen: c.simulator.Context.Config().MaxModelLen,
 	}
 	data, err := json.Marshal(resp)
 	if err != nil {
@@ -704,7 +706,7 @@ func (c *Communication) HandleHealth(ctx *fasthttp.RequestCtx) {
 func (c *Communication) HandleHealthReady(ctx *fasthttp.RequestCtx) {
 	c.logger.V(logging.TRACE).Info("Health ready request received")
 	ctx.Response.Header.SetContentType("application/json")
-	if d := c.simulator.Context.Config.StartupDuration; d > 0 && time.Since(c.startTime) < d {
+	if d := c.simulator.Context.Config().StartupDuration; d > 0 && time.Since(c.startTime) < d {
 		ctx.Response.Header.SetStatusCode(fasthttp.StatusServiceUnavailable)
 		return
 	}
@@ -742,13 +744,13 @@ func (c *Communication) HandleIsSleeping(ctx *fasthttp.RequestCtx) {
 
 // HandleSleep http handler for /sleep
 func (c *Communication) HandleSleep(ctx *fasthttp.RequestCtx) {
-	if c.simulator.Context.Config.EnableSleepMode && c.simulator.Context.Config.VllmDevMode {
+	if c.simulator.Context.Config().EnableSleepMode && c.simulator.Context.Config().VllmDevMode {
 		c.logger.V(logging.INFO).Info("Sleep request received")
 		c.sleepMutex.Lock()
 		defer c.sleepMutex.Unlock()
 
 		c.simulator.IsSleeping = true
-		if c.simulator.Context.Config.EnableKVCache {
+		if c.simulator.Context.Config().EnableKVCache {
 			c.simulator.DiscardKVCache()
 		}
 	} else {
@@ -776,7 +778,7 @@ func (c *Communication) HandleWakeUp(ctx *fasthttp.RequestCtx) {
 	defer c.sleepMutex.Unlock()
 
 	// Activate the kv cache if either the tags are "kv_cache" or there are no tags
-	if c.simulator.Context.Config.EnableKVCache && wakeUpKVCache {
+	if c.simulator.Context.Config().EnableKVCache && wakeUpKVCache {
 		c.simulator.ActivateKVCache()
 	}
 
@@ -852,17 +854,48 @@ func (c *Communication) logHTTPResponse(ctx *fasthttp.RequestCtx) {
 	)
 }
 
+// HandleGetAdminConfig http handler for GET /admin/config — returns the full configuration.
+func (c *Communication) HandleGetAdminConfig(ctx *fasthttp.RequestCtx) {
+	c.logger.V(logging.TRACE).Info("Get admin config request received")
+	c.writeAdminConfigResponse(ctx)
+}
+
+// HandlePostAdminConfig http handler for POST /admin/config — updates the
+// admin-configurable subset of fields.
+func (c *Communication) HandlePostAdminConfig(ctx *fasthttp.RequestCtx) {
+	c.logger.V(logging.INFO).Info("Update admin config request received")
+
+	if err := c.simulator.Context.ApplyAdminConfigUpdate(ctx.Request.Body()); err != nil {
+		ctx.SetStatusCode(fasthttp.StatusBadRequest)
+		ctx.SetBodyString(err.Error())
+		return
+	}
+	c.writeAdminConfigResponse(ctx)
+}
+
+func (c *Communication) writeAdminConfigResponse(ctx *fasthttp.RequestCtx) {
+	data, err := c.simulator.Context.Config().MarshalCleaned()
+	if err != nil {
+		c.logger.Error(err, "failed to marshal admin config response")
+		ctx.Error("Failed to marshal admin config response, "+err.Error(), fasthttp.StatusInternalServerError)
+		return
+	}
+	ctx.Response.Header.SetContentType("application/json")
+	ctx.Response.Header.SetStatusCode(fasthttp.StatusOK)
+	ctx.Response.SetBody(data)
+}
+
 // HandleFakeMetrics HTTP handler for /fake_metrics
 func (c *Communication) HandleFakeMetrics(ctx *fasthttp.RequestCtx) {
 	c.logger.V(logging.INFO).Info("Fake metrics update received")
 
-	if c.simulator.Context.Config.FakeMetrics == nil {
+	if c.simulator.Context.Config().FakeMetrics == nil {
 		ctx.SetStatusCode(fasthttp.StatusBadRequest)
 		ctx.SetBodyString("The simulator is reporting real metrics; fake metrics cannot be updated.")
 		return
 	}
 
-	oldFakeMetrics, fmMap, err := c.simulator.Context.Config.FakeMetrics.UnmarshalUpdateJSON(ctx.Request.Body())
+	oldFakeMetrics, fmMap, err := c.simulator.Context.Config().FakeMetrics.UnmarshalUpdateJSON(ctx.Request.Body())
 	if err != nil {
 		ctx.SetStatusCode(fasthttp.StatusBadRequest)
 		ctx.SetBodyString("Failed to unmarshal the payload: " + err.Error())

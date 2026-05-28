@@ -25,7 +25,7 @@ import (
 
 // isValidModel checks if the given model is the base model or one of "loaded" LoRAs
 func (s *VllmSimulator) isValidModel(model string) bool {
-	for _, name := range s.Context.Config.ServedModelNames {
+	for _, name := range s.Context.Config().ServedModelNames {
 		if model == name {
 			return true
 		}

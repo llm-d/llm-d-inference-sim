@@ -659,6 +659,64 @@ var _ = Describe("Simulator configuration", func() {
 	}
 })
 
+var _ = Describe("ApplyAdminUpdate", func() {
+	var base *Configuration
+
+	BeforeEach(func() {
+		base = createDefaultConfig("model", nil)
+		base.FailureInjectionRate = 10
+		base.FailureTypes = []string{FailureTypeRateLimit}
+	})
+
+	It("updates failure-injection-rate and returns a new Configuration", func() {
+		next, err := base.ApplyAdminUpdate([]byte(`{"failure-injection-rate": 42}`))
+		Expect(err).ToNot(HaveOccurred())
+		Expect(next).ToNot(BeIdenticalTo(base))
+		Expect(next.FailureInjectionRate).To(Equal(42))
+		Expect(next.FailureTypes).To(Equal([]string{FailureTypeRateLimit}))
+		// original is unchanged
+		Expect(base.FailureInjectionRate).To(Equal(10))
+	})
+
+	It("updates failure-types", func() {
+		next, err := base.ApplyAdminUpdate([]byte(`{"failure-types": ["server_error", "model_not_found"]}`))
+		Expect(err).ToNot(HaveOccurred())
+		Expect(next.FailureTypes).To(Equal([]string{FailureTypeServerError, FailureTypeModelNotFound}))
+		Expect(next.FailureInjectionRate).To(Equal(10))
+		Expect(base.FailureTypes).To(Equal([]string{FailureTypeRateLimit}))
+	})
+
+	It("updates both fields at once", func() {
+		next, err := base.ApplyAdminUpdate([]byte(`{"failure-injection-rate": 5, "failure-types": ["invalid_request"]}`))
+		Expect(err).ToNot(HaveOccurred())
+		Expect(next.FailureInjectionRate).To(Equal(5))
+		Expect(next.FailureTypes).To(Equal([]string{FailureTypeInvalidRequest}))
+	})
+
+	It("rejects fields that are not admin-configurable", func() {
+		_, err := base.ApplyAdminUpdate([]byte(`{"port": 9000}`))
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("not admin-configurable"))
+	})
+
+	It("rejects an out-of-range failure-injection-rate", func() {
+		_, err := base.ApplyAdminUpdate([]byte(`{"failure-injection-rate": 150}`))
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("failure injection rate"))
+	})
+
+	It("rejects an unknown failure type", func() {
+		_, err := base.ApplyAdminUpdate([]byte(`{"failure-types": ["bogus"]}`))
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("invalid failure type"))
+	})
+
+	It("rejects malformed JSON", func() {
+		_, err := base.ApplyAdminUpdate([]byte(`not json`))
+		Expect(err).To(HaveOccurred())
+	})
+})
+
 var _ = Describe("Model environment variable", func() {
 	BeforeEach(func() {
 		Expect(os.Unsetenv(ModelEnv)).To(Succeed())

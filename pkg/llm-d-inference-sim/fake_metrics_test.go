@@ -119,7 +119,8 @@ var _ = Describe("total tokens", func() {
 			},
 		}
 
-		s := SimContext{Config: &common.Configuration{Model: "test", ServedModelNames: []string{"test"}}}
+		s := SimContext{}
+		s.SetConfig(&common.Configuration{Model: "test", ServedModelNames: []string{"test"}})
 
 		for _, test := range tests {
 			hist := prometheus.NewHistogramVec(

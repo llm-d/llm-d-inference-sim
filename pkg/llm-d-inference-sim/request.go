@@ -119,7 +119,7 @@ func (b *baseRequestContext) tokenize() *openaiserverapi.Error {
 		req.SetMMFeatures(mmFeatures)
 	}
 
-	if b.sim.Config.Mode == common.ModeEcho {
+	if b.sim.Config().Mode == common.ModeEcho {
 		// in echo mode need to calculate which part of input will be sent back,
 		// e.g. in /chat/completions we send back only the last message's content
 		echoTokenized, err := b.tokenizedPromptForEcho()
@@ -140,10 +140,10 @@ func (b *baseRequestContext) validateContextWindow() (string, int) {
 	promptTokens := getNumberOfPromptTokens(b.request())
 	completionTokens := b.request().GetMaxCompletionTokens()
 	isValid, actualCompletionTokens, totalTokens := common.ValidateContextWindow(promptTokens, completionTokens,
-		b.sim.Config.MaxModelLen)
+		b.sim.Config().MaxModelLen)
 	if !isValid {
 		message := fmt.Sprintf("This model's maximum context length is %d tokens. However, you requested %d tokens (%d in the messages, %d in the completion). Please reduce the length of the messages or completion",
-			b.sim.Config.MaxModelLen, totalTokens, promptTokens, actualCompletionTokens)
+			b.sim.Config().MaxModelLen, totalTokens, promptTokens, actualCompletionTokens)
 		return message, fasthttp.StatusBadRequest
 	}
 	return "", fasthttp.StatusOK
@@ -198,7 +198,7 @@ func (reqCtx *baseRequestContext) handleRequest() (ResponseContext, *openaiserve
 		}
 		sendUsageData := !req.IsStream() || req.IncludeUsage()
 		respCtx := req.createResponseContext(reqCtx, dispModel, &openaiserverapi.Tokenized{},
-			&finishReason, &usageData, sendUsageData, logprobs, nil, reqCtx.sim.Config.MMEncoderOnly)
+			&finishReason, &usageData, sendUsageData, logprobs, nil, reqCtx.sim.Config().MMEncoderOnly)
 		return respCtx, nil
 	}
 
@@ -242,7 +242,7 @@ func (reqCtx *baseRequestContext) handleRequest() (ResponseContext, *openaiserve
 	}
 
 	respCtx := req.createResponseContext(reqCtx, dispModel, responseTokens, &finishReason,
-		&usageData, sendUsageData, logprobs, toolCalls, reqCtx.sim.Config.MMEncoderOnly)
+		&usageData, sendUsageData, logprobs, toolCalls, reqCtx.sim.Config().MMEncoderOnly)
 
 	return respCtx, nil
 }
@@ -254,13 +254,13 @@ func (reqCtx *baseRequestContext) shouldReturnCacheThresholdFinishReason(req ope
 	}
 	// Check cache hit threshold if specified and KV cache is enabled
 	// First, get cache hit info without modifying cache state
-	if reqCtx.sim.Config.EnableKVCache {
+	if reqCtx.sim.Config().EnableKVCache {
 		// Get cacheHitThreshold from request first, fall back to global cacheHitThreshold if not set
 		var cacheHitThreshold *float64
 		if reqThreshold := req.GetCacheHitThreshold(); reqThreshold != nil && *reqThreshold >= 0 && *reqThreshold <= 1 {
 			cacheHitThreshold = reqThreshold
-		} else if reqCtx.sim.Config.GlobalCacheHitThreshold > 0 {
-			cacheHitThreshold = &reqCtx.sim.Config.GlobalCacheHitThreshold
+		} else if reqCtx.sim.Config().GlobalCacheHitThreshold > 0 {
+			cacheHitThreshold = &reqCtx.sim.Config().GlobalCacheHitThreshold
 		}
 
 		if cacheHitThreshold != nil {
@@ -275,7 +275,7 @@ func (reqCtx *baseRequestContext) shouldReturnCacheThresholdFinishReason(req ope
 }
 
 func (reqCtx *baseRequestContext) kvCacheOnRequestStart() (stat kvcache.PrefixCacheStats, oaiServerError *openaiserverapi.Error) {
-	if reqCtx.sim.Config.EnableKVCache {
+	if reqCtx.sim.Config().EnableKVCache {
 		var err error
 		stat, err = reqCtx.sim.kvcacheHelper.OnRequestStart(reqCtx.request())
 		if err != nil {
@@ -288,7 +288,7 @@ func (reqCtx *baseRequestContext) kvCacheOnRequestStart() (stat kvcache.PrefixCa
 }
 
 func (reqCtx *baseRequestContext) kvCacheOnRequestEnd() {
-	if reqCtx.sim.Config.EnableKVCache {
+	if reqCtx.sim.Config().EnableKVCache {
 		if err := reqCtx.sim.kvcacheHelper.OnRequestEnd(reqCtx.request().GetRequestID()); err != nil {
 			reqCtx.sim.logger.Error(err, "kv cache failed to process request end")
 		}

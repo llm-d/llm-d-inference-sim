@@ -28,6 +28,30 @@ In addition, a set of the vLLM HTTP endpoints are suppored:
 
 The simulator also provides a `POST /fake_metrics` endpoint that supports partial updates to [fake metric](configuration.md#fake-metrics) values at runtime. This endpoint is specific to the simulator and is available only when a `--fake-metrics` configuration is provided at startup. The request body must be a JSON object containing the metrics to update; any metrics not specified are left unchanged.
 
+### `/admin/config`
+
+The simulator exposes `GET` and `POST` on `/admin/config` for runtime configuration introspection and partial updates. This endpoint is simulator-specific and is intended for adjusting behavior (currently only failure injection) during a test run without restarting the process.
+
+- **`GET /admin/config`** returns the current configuration as JSON. Internal helper fields (`LoraModulesString`, `LorasString`) are stripped, `LoraModules` is exposed as `lora-modules`, and the per-rank `port` is omitted when running with `--data-parallel-size > 1`.
+- **`POST /admin/config`** applies a partial JSON update and returns the new configuration. The request body must be a JSON object whose keys are a subset of the admin-configurable fields:
+  - `failure-injection-rate` — integer in `[0, 100]`
+  - `failure-types` — array of strings from `rate_limit`, `invalid_api_key`, `context_length`, `server_error`, `invalid_request`, `model_not_found`
+
+  Bodies containing any other field, or values that fail validation, are rejected with `400 Bad Request` and the configuration is left unchanged. Updates are atomic and serialized: concurrent in-flight requests observe either the previous or the new configuration in full, never a mix.
+
+  Example:
+  ```bash
+  # Enable 100% rate-limit failures
+  curl -X POST http://localhost:8000/admin/config \
+    -H 'Content-Type: application/json' \
+    -d '{"failure-injection-rate": 100, "failure-types": ["rate_limit"]}'
+
+  # Disable failures again
+  curl -X POST http://localhost:8000/admin/config \
+    -H 'Content-Type: application/json' \
+    -d '{"failure-injection-rate": 0}'
+  ```
+
 ### Request headers
 
 In addition to standard HTTP headers, the simulator recognizes a few simulator-specific request headers:

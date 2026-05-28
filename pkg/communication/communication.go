@@ -75,7 +75,7 @@ func (c *Communication) start(ctx context.Context) error {
 
 	var grpcServer *grpc.Server
 	var grpcErrCh <-chan error
-	if !c.simulator.Context.Config.MMEncoderOnly {
+	if !c.simulator.Context.Config().MMEncoderOnly {
 		// gRPC uses HTTP/2
 		grpcL := m.Match(cmux.HTTP2())
 		grpcServer, grpcErrCh = c.startGRPC(grpcL)

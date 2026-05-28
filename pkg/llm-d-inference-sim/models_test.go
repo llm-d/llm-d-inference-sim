@@ -35,13 +35,12 @@ func findByID(models []vllmapi.ModelsResponseModelInfo, id string) *vllmapi.Mode
 
 var _ = Describe("CreateModelsResponse", func() {
 	It("should set root to actual model path, not alias", func() {
-		s := &SimContext{
-			Config: &common.Configuration{
-				Model:            "Qwen/Qwen3-0.6B-Base",
-				ServedModelNames: []string{"alias1", "alias2"},
-				MaxModelLen:      32768,
-			},
-		}
+		s := &SimContext{}
+		s.SetConfig(&common.Configuration{
+			Model:            "Qwen/Qwen3-0.6B-Base",
+			ServedModelNames: []string{"alias1", "alias2"},
+			MaxModelLen:      32768,
+		})
 
 		resp := s.CreateModelsResponse()
 		Expect(resp.Data).To(HaveLen(2))
@@ -56,13 +55,12 @@ var _ = Describe("CreateModelsResponse", func() {
 	})
 
 	It("should include max_model_len for LoRA adapters", func() {
-		s := &SimContext{
-			Config: &common.Configuration{
-				Model:            "Qwen/Qwen3-0.6B-Base",
-				ServedModelNames: []string{"base-model"},
-				MaxModelLen:      4096,
-			},
-		}
+		s := &SimContext{}
+		s.SetConfig(&common.Configuration{
+			Model:            "Qwen/Qwen3-0.6B-Base",
+			ServedModelNames: []string{"base-model"},
+			MaxModelLen:      4096,
+		})
 		s.loraAdaptors.Store("lora1", true)
 		s.loraAdaptors.Store("lora2", true)
 
@@ -85,13 +83,12 @@ var _ = Describe("CreateModelsResponse", func() {
 	})
 
 	It("should use model name as root when no aliases are set", func() {
-		s := &SimContext{
-			Config: &common.Configuration{
-				Model:            "meta-llama/Llama-3-8B",
-				ServedModelNames: []string{"meta-llama/Llama-3-8B"},
-				MaxModelLen:      1024,
-			},
-		}
+		s := &SimContext{}
+		s.SetConfig(&common.Configuration{
+			Model:            "meta-llama/Llama-3-8B",
+			ServedModelNames: []string{"meta-llama/Llama-3-8B"},
+			MaxModelLen:      1024,
+		})
 		resp := s.CreateModelsResponse()
 		Expect(resp.Data).To(HaveLen(1))
 		Expect(resp.Data[0].ID).To(Equal("meta-llama/Llama-3-8B"))
@@ -100,13 +97,12 @@ var _ = Describe("CreateModelsResponse", func() {
 	})
 
 	It("should set LoRA root to the adapter path when one is recorded", func() {
-		s := &SimContext{
-			Config: &common.Configuration{
-				Model:            "Qwen/Qwen3-0.6B-Base",
-				ServedModelNames: []string{"base-model"},
-				MaxModelLen:      4096,
-			},
-		}
+		s := &SimContext{}
+		s.SetConfig(&common.Configuration{
+			Model:            "Qwen/Qwen3-0.6B-Base",
+			ServedModelNames: []string{"base-model"},
+			MaxModelLen:      4096,
+		})
 		s.loraAdaptors.Store("lora-with-path", "/lora/path/adapter1")
 		s.loraAdaptors.Store("lora-without-path", "")
 

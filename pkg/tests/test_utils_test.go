@@ -127,7 +127,7 @@ func startServerHelper(ctx context.Context, mode string, args []string, envs map
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	s.Context.Config = config
+	s.Context.SetConfig(config)
 
 	gomega.Expect(config.Model).To(gomega.BeElementOf(common.TestModelName, common.QwenModelName, common.QwenModelName))
 	switch config.Model {

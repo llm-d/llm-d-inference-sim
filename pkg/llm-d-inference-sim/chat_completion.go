@@ -115,7 +115,7 @@ func (c *chatCompletionReqCtx) createToolCalls() ([]openaiserverapi.ToolCall, in
 	if !isToolChoiceNone(req.GetToolChoice()) &&
 		req.GetTools() != nil {
 		toolCalls, completionTokens, err :=
-			createToolCalls(req.GetTools(), req.GetToolChoice(), c.sim.Config, c.sim.Random, c.sim.Tokenizer)
+			createToolCalls(req.GetTools(), req.GetToolChoice(), c.sim.Config(), c.sim.Random, c.sim.Tokenizer)
 		finishReason := common.ToolsFinishReason
 		return toolCalls, completionTokens, finishReason, err
 	}
