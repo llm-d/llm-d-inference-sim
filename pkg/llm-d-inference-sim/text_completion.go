@@ -58,25 +58,23 @@ func (t *TextCompletionsParsedRequest) ValidateBody() (string, int) {
 	return "", 0
 }
 
-// Render serves an inbound /v1/completions/render request: it tokenizes each
-// prompt (passing pre-tokenized prompts through verbatim) and returns the JSON
-// array body to send back to the client. vLLM's /v1/completions/render always
-// returns an array — one entry per prompt — regardless of whether the request
-// used a string or array prompt.
-func (t *TextCompletionsParsedRequest) Render(tk tokenizer.Tokenizer) ([]byte, error) {
-	responses := make([]openaiserverapi.RenderResponse, 0, len(t.Prompt))
-	for _, p := range t.Prompt {
+// Render tokenizes each prompt for /v1/completions/render (passing
+// pre-tokenized prompts through verbatim) and returns one token slice per
+// prompt. Features is always nil for text completions.
+func (t *TextCompletionsParsedRequest) Render(tk tokenizer.Tokenizer) ([][]uint32, *openaiserverapi.RenderMMFeatures, error) {
+	result := make([][]uint32, len(t.Prompt))
+	for i, p := range t.Prompt {
 		tokens := p.Tokens
 		if !p.IsTokens() {
 			var err error
 			tokens, _, err = tk.RenderText(p.Text)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 		}
-		responses = append(responses, openaiserverapi.RenderResponse{TokenIDs: tokens})
+		result[i] = tokens
 	}
-	return json.Marshal(responses)
+	return result, nil, nil
 }
 
 func (t *TextCompletionsParsedRequest) validate(_ *toolsValidator) (string, int) {

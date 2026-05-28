@@ -52,9 +52,10 @@ type RenderableRequest interface {
 	// ValidateBody checks that the unmarshalled body matches the endpoint's
 	// expected shape.
 	ValidateBody() (string, int)
-	// Render tokenizes the request and returns the JSON body to send back
-	// to the client.
-	Render(t tokenizer.Tokenizer) ([]byte, error)
+	// Render tokenizes the request and returns the tokens (one slice per
+	// prompt; chat completions always returns a single slice) and any
+	// mm_features produced by the tokenizer.
+	Render(t tokenizer.Tokenizer) ([][]uint32, *openaiserverapi.RenderMMFeatures, error)
 }
 
 type Request interface {

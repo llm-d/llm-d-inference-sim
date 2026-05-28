@@ -151,18 +151,15 @@ func (c *Communication) HandleGenerate(ctx *fasthttp.RequestCtx) {
 
 // HandleChatCompletionsRender http handler for /v1/chat/completions/render
 func (c *Communication) HandleChatCompletionsRender(ctx *fasthttp.RequestCtx) {
-	c.handleRender(ctx, &vllmsim.ChatCompletionsRequest{})
+	c.handleRender(&vllmsim.ChatCompletionsRequest{}, &chatComplHTTPRespBuilder{}, ctx)
 }
 
 // HandleTextCompletionsRender http handler for /v1/completions/render
 func (c *Communication) HandleTextCompletionsRender(ctx *fasthttp.RequestCtx) {
-	c.handleRender(ctx, &vllmsim.TextCompletionsParsedRequest{})
+	c.handleRender(&vllmsim.TextCompletionsParsedRequest{}, &textComplHTTPRespBuilder{}, ctx)
 }
 
-// handleRender unmarshals the body into req (returning 400 on failure to mirror
-// the regular completion endpoints), validates the request shape, and then
-// asks req to render itself with the configured tokenizer.
-func (c *Communication) handleRender(ctx *fasthttp.RequestCtx, req vllmsim.RenderableRequest) {
+func (c *Communication) handleRender(req vllmsim.RenderableRequest, respBuilder responseBuilder, ctx *fasthttp.RequestCtx) {
 	c.logger.V(logging.TRACE).Info("Render request received", "endpoint", string(ctx.Path()))
 	if err := req.Unmarshal(ctx.Request.Body()); err != nil {
 		c.logger.Error(err, "failed to read and parse render request body")
@@ -180,9 +177,16 @@ func (c *Communication) handleRender(ctx *fasthttp.RequestCtx, req vllmsim.Rende
 		c.sendError(ctx, &errToSend, false)
 		return
 	}
-	respBody, err := req.Render(c.simulator.Context.Tokenizer)
+	tokens, features, err := req.Render(c.simulator.Context.Tokenizer)
 	if err != nil {
 		c.logger.Error(err, "render failed")
+		errToSend := openaiserverapi.NewError("Render failed, "+err.Error(), fasthttp.StatusInternalServerError, nil)
+		c.sendError(ctx, &errToSend, false)
+		return
+	}
+	respBody, err := json.Marshal(respBuilder.createRenderResponse(tokens, features))
+	if err != nil {
+		c.logger.Error(err, "render response marshal failed")
 		errToSend := openaiserverapi.NewError("Render failed, "+err.Error(), fasthttp.StatusInternalServerError, nil)
 		c.sendError(ctx, &errToSend, false)
 		return

@@ -47,15 +47,15 @@ func (c *ChatCompletionsRequest) ValidateBody() (string, int) {
 	return "", 0
 }
 
-// Render serves an inbound /v1/chat/completions/render request: it tokenizes
-// the messages and returns the JSON body (with mm_features when produced by
-// the tokenizer) to send back to the client.
-func (c *ChatCompletionsRequest) Render(tk tokenizer.Tokenizer) ([]byte, error) {
+// Render tokenizes the chat messages for /v1/chat/completions/render and
+// returns the tokens (wrapped as a single-element slice for shape parity with
+// /v1/completions/render) and any mm_features.
+func (c *ChatCompletionsRequest) Render(tk tokenizer.Tokenizer) ([][]uint32, *openaiserverapi.RenderMMFeatures, error) {
 	tokens, _, features, err := tk.RenderMessages(c.Messages)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return json.Marshal(openaiserverapi.RenderResponse{TokenIDs: tokens, Features: features})
+	return [][]uint32{tokens}, features, nil
 }
 
 func (c *ChatCompletionsRequest) validate(toolsValidator *toolsValidator) (string, int) {

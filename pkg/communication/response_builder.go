@@ -80,6 +80,7 @@ type responseBuilder interface {
 	createFirstChunk(respCtx vllmsim.ResponseContext, choiceIdx int) sseChunk
 	createLastChunk(respCtx vllmsim.ResponseContext, finishReason string, choiceIdx int) sseChunk
 	createDoneChunk() sseChunk
+	createRenderResponse(tokens [][]uint32, features *openaiserverapi.RenderMMFeatures) any
 }
 
 // aggregateUsage sums the per-choice usages. Callers must ensure every slot is
@@ -191,6 +192,19 @@ func (respBuilder *textComplHTTPRespBuilder) createLastChunk(respCtx vllmsim.Res
 
 func (*textComplHTTPRespBuilder) createDoneChunk() sseChunk { return &doneMarker{} }
 
+// createRenderResponse builds the wire payload for /v1/completions/render: an
+// array with one RenderResponse per prompt, mirroring vLLM which always
+// returns an array even for a single string prompt. features is unused — the
+// text endpoint never carries multimodal features.
+func (*textComplHTTPRespBuilder) createRenderResponse(tokens [][]uint32,
+	_ *openaiserverapi.RenderMMFeatures) any {
+	responses := make([]openaiserverapi.RenderResponse, len(tokens))
+	for i, t := range tokens {
+		responses[i] = openaiserverapi.RenderResponse{TokenIDs: t}
+	}
+	return responses
+}
+
 var _ responseBuilder = (*textComplHTTPRespBuilder)(nil)
 
 type chatComplHTTPRespBuilder struct{}
@@ -294,6 +308,14 @@ func (respBuilder *chatComplHTTPRespBuilder) createLastChunk(respCtx vllmsim.Res
 }
 
 func (*chatComplHTTPRespBuilder) createDoneChunk() sseChunk { return &doneMarker{} }
+
+// createRenderResponse builds the wire payload for /v1/chat/completions/render:
+// a single RenderResponse object (not an array) carrying the tokens for the
+// flattened prompt and any mm_features produced by the tokenizer.
+func (*chatComplHTTPRespBuilder) createRenderResponse(tokens [][]uint32,
+	features *openaiserverapi.RenderMMFeatures) any {
+	return openaiserverapi.RenderResponse{TokenIDs: tokens[0], Features: features}
+}
 
 var _ responseBuilder = (*chatComplHTTPRespBuilder)(nil)
 
@@ -501,6 +523,11 @@ func (respBuilder *responsesHTTPRespBuilder) createLastChunk(respCtx vllmsim.Res
 
 func (*responsesHTTPRespBuilder) createDoneChunk() sseChunk { return nil }
 
+func (*responsesHTTPRespBuilder) createRenderResponse(_ [][]uint32,
+	_ *openaiserverapi.RenderMMFeatures) any {
+	panic("responsesHTTPRespBuilder: /v1/responses has no /render endpoint")
+}
+
 var _ responseBuilder = (*responsesHTTPRespBuilder)(nil)
 
 type generateHTTPRespBuilder struct{}
@@ -544,5 +571,10 @@ func (respBuilder *generateHTTPRespBuilder) createLastChunk(_ vllmsim.ResponseCo
 }
 
 func (*generateHTTPRespBuilder) createDoneChunk() sseChunk { return nil }
+
+func (*generateHTTPRespBuilder) createRenderResponse(_ [][]uint32,
+	_ *openaiserverapi.RenderMMFeatures) any {
+	panic("generateHTTPRespBuilder: /inference/v1/generate has no /render endpoint")
+}
 
 var _ responseBuilder = (*generateHTTPRespBuilder)(nil)
