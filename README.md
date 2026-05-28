@@ -92,7 +92,7 @@ For detailes see the [Metrics Guide](docs/metrics.md)
 ### Use an existing image
 If you do not wish to build the simulator from source, you can use the pre-built container images hosted on the GitHub Container Registry.
 
-Image Repository: [ghcr.io/llm-d/llm-d-inference-sim](ghcr.io/llm-d/llm-d-inference-sim)
+Image Repository: [ghcr.io/llm-d/llm-d-inference-sim](https://github.com/llm-d/llm-d-inference-sim/pkgs/container/llm-d-inference-sim)
 
 1. Pull the Image
 You can pull the latest version of the simulator directly via Docker:
