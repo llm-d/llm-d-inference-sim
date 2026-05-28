@@ -170,7 +170,12 @@ func (c *Communication) handleRender(ctx *fasthttp.RequestCtx, req vllmsim.Rende
 		c.sendError(ctx, &errToSend, false)
 		return
 	}
-	if errMsg, errCode := req.Validate(); errMsg != "" {
+	if errMsg, errCode := req.ValidateBody(); errMsg != "" {
+		errToSend := openaiserverapi.NewError(errMsg, errCode, nil)
+		c.sendError(ctx, &errToSend, false)
+		return
+	}
+	if errMsg, errCode := c.simulator.ValidateBaseModel(req.GetModel()); errMsg != "" {
 		errToSend := openaiserverapi.NewError(errMsg, errCode, nil)
 		c.sendError(ctx, &errToSend, false)
 		return

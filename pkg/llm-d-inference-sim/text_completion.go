@@ -38,11 +38,11 @@ func (t *TextCompletionsParsedRequest) Unmarshal(data []byte) error {
 	return json.Unmarshal(data, t)
 }
 
-// Validate checks that a /v1/completions/render body has the required text
+// ValidateBody checks that a /v1/completions/render body has the required text
 // shape — at minimum, a non-empty prompt with non-empty entries. Catches
 // chat-shaped bodies (which JSON-unmarshal cleanly into
 // TextCompletionsParsedRequest with empty Prompt).
-func (t *TextCompletionsParsedRequest) Validate() (string, int) {
+func (t *TextCompletionsParsedRequest) ValidateBody() (string, int) {
 	if len(t.Prompt) == 0 {
 		return "prompt array must contain at least one prompt", fasthttp.StatusBadRequest
 	}
@@ -80,7 +80,7 @@ func (t *TextCompletionsParsedRequest) Render(tk tokenizer.Tokenizer) ([]byte, e
 }
 
 func (t *TextCompletionsParsedRequest) validate(_ *toolsValidator) (string, int) {
-	if msg, code := t.Validate(); msg != "" {
+	if msg, code := t.ValidateBody(); msg != "" {
 		return msg, code
 	}
 	return validateRequest(t)

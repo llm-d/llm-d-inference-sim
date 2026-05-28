@@ -36,11 +36,11 @@ func (c *ChatCompletionsRequest) Unmarshal(data []byte) error {
 	return json.Unmarshal(data, c)
 }
 
-// Validate checks that a /v1/chat/completions/render body has the required
+// ValidateBody checks that a /v1/chat/completions/render body has the required
 // chat shape — at minimum, a non-empty messages array. Catches text-shaped
 // bodies (which JSON-unmarshal cleanly into ChatCompletionsRequest with empty
 // Messages because Go ignores unknown fields by default).
-func (c *ChatCompletionsRequest) Validate() (string, int) {
+func (c *ChatCompletionsRequest) ValidateBody() (string, int) {
 	if len(c.Messages) == 0 {
 		return "messages must not be empty", fasthttp.StatusBadRequest
 	}

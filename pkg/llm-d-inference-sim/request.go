@@ -49,9 +49,9 @@ type requestBuilder interface {
 // without going through the worker pipeline.
 type RenderableRequest interface {
 	Request
-	// Validate checks that the unmarshalled body matches the endpoint's
+	// ValidateBody checks that the unmarshalled body matches the endpoint's
 	// expected shape.
-	Validate() (string, int)
+	ValidateBody() (string, int)
 	// Render tokenizes the request and returns the JSON body to send back
 	// to the client.
 	Render(t tokenizer.Tokenizer) ([]byte, error)

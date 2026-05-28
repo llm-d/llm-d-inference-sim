@@ -18,6 +18,8 @@ limitations under the License.
 package llmdinferencesim
 
 import (
+	"fmt"
+
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	"github.com/valyala/fasthttp"
@@ -37,6 +39,20 @@ func (s *VllmSimulator) isValidModel(model string) bool {
 	}
 
 	return false
+}
+
+// ValidateBaseModel checks that model is a known base model. LoRA adapters
+// are rejected because the render endpoints tokenize against the base model
+// and don't go through the LoRA loading path.
+func (s *VllmSimulator) ValidateBaseModel(model string) (string, int) {
+	if !s.isValidModel(model) {
+		return fmt.Sprintf("The model `%s` does not exist.", model), fasthttp.StatusNotFound
+	}
+	if s.Context.isLora(model) {
+		return fmt.Sprintf("The model `%s` is a LoRA adapter and is not supported by the render endpoints.",
+			model), fasthttp.StatusBadRequest
+	}
+	return "", 0
 }
 
 func getNumberOfPromptTokens(req openaiserverapi.Request) int {
