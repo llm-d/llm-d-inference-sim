@@ -331,10 +331,8 @@ func (s *VllmSimulator) HandleRequest(req Request) (numChoices int, isStream boo
 	// in this case the first alias is used, in all other cases the model from the request is used as the displayed model
 	req.SetDisplayedModel(s.Context.getDisplayedModelName(req.GetModel()))
 
-	errMsg, errCode := req.validate(s.toolsValidator)
-	if errMsg != "" {
-		serverErr := openaiserverapi.NewError(errMsg, errCode, nil)
-		return 0, false, nil, &serverErr, false
+	if serverErr := req.validate(s.toolsValidator); serverErr != nil {
+		return 0, false, nil, serverErr, false
 	}
 
 	// Single shared channel for all sub-requests; each stamps its ChoiceIdx on

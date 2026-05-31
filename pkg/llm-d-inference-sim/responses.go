@@ -33,7 +33,7 @@ func (r *ResponsesRequest) Unmarshal(data []byte) error {
 	return json.Unmarshal(data, r)
 }
 
-func (r *ResponsesRequest) validate(toolsValidator *toolsValidator) (string, int) {
+func (r *ResponsesRequest) validate(toolsValidator *toolsValidator) *openaiserverapi.Error {
 	return validateRequest(r)
 }
 

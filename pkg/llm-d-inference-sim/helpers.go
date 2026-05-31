@@ -44,33 +44,40 @@ func (s *VllmSimulator) isValidModel(model string) bool {
 // ValidateBaseModel checks that model is a known base model. LoRA adapters
 // are rejected because the render endpoints tokenize against the base model
 // and don't go through the LoRA loading path.
-func (s *VllmSimulator) ValidateBaseModel(model string) (string, int) {
+func (s *VllmSimulator) ValidateBaseModel(model string) *openaiserverapi.Error {
 	if !s.isValidModel(model) {
-		return fmt.Sprintf("The model `%s` does not exist.", model), fasthttp.StatusNotFound
+		serverErr := openaiserverapi.NewError(fmt.Sprintf("The model `%s` does not exist.", model),
+			fasthttp.StatusNotFound, nil)
+		return &serverErr
 	}
 	if s.Context.isLora(model) {
-		return fmt.Sprintf("The model `%s` is a LoRA adapter and is not supported by the render endpoints.",
-			model), fasthttp.StatusBadRequest
+		serverErr := openaiserverapi.NewError(fmt.Sprintf("The model `%s` is a LoRA adapter and is not supported by the render endpoints.",
+			model), fasthttp.StatusBadRequest, nil)
+		return &serverErr
 	}
-	return "", 0
+	return nil
 }
 
 func getNumberOfPromptTokens(req openaiserverapi.Request) int {
 	return req.TokenizedPrompt().Length()
 }
 
-func validateRequest(req openaiserverapi.Request) (string, int) {
+func validateRequest(req openaiserverapi.Request) *openaiserverapi.Error {
 	if req.GetMaxCompletionTokens() != nil && *req.GetMaxCompletionTokens() <= 0 {
-		return common.InvalidMaxTokensErrMsg, fasthttp.StatusBadRequest
+		err := openaiserverapi.NewError(common.InvalidMaxTokensErrMsg, fasthttp.StatusBadRequest, nil)
+		return &err
 	}
 
 	if req.IsDoRemoteDecode() && req.IsStream() {
-		return "Prefill does not support streaming", fasthttp.StatusBadRequest
+		err := openaiserverapi.NewError("Prefill does not support streaming", fasthttp.StatusBadRequest, nil)
+		return &err
 	}
 
 	if req.GetIgnoreEOS() && req.GetMaxCompletionTokens() == nil {
-		return "Ignore_eos is true but max_completion_tokens (or max_tokens) is not set", fasthttp.StatusBadRequest
+		err := openaiserverapi.NewError("Ignore_eos is true but max_completion_tokens (or max_tokens) is not set",
+			fasthttp.StatusBadRequest, nil)
+		return &err
 	}
 
-	return "", fasthttp.StatusOK
+	return nil
 }

@@ -42,13 +42,15 @@ func (g *GenerateRequest) Unmarshal(data []byte) error {
 	return nil
 }
 
-func (g *GenerateRequest) validate(toolsValidator *toolsValidator) (string, int) {
+func (g *GenerateRequest) validate(toolsValidator *toolsValidator) *openaiserverapi.Error {
 	if g.TokenIDs == nil {
-		return "Missing input token_ids", fasthttp.StatusBadRequest
+		err := openaiserverapi.NewError("Missing input token_ids", fasthttp.StatusBadRequest, nil)
+		return &err
 	}
 
 	if g.SamplingParams == nil {
-		return "Missing sampling_params field", fasthttp.StatusBadRequest
+		err := openaiserverapi.NewError("Missing sampling_params field", fasthttp.StatusBadRequest, nil)
+		return &err
 	}
 
 	return validateRequest(g)

@@ -30,7 +30,7 @@ func (g *GenerationRequest) Unmarshal(data []byte) error {
 	return nil
 }
 
-func (g *GenerationRequest) validate(toolsValidator *toolsValidator) (string, int) {
+func (g *GenerationRequest) validate(toolsValidator *toolsValidator) *openaiserverapi.Error {
 	return validateRequest(g)
 }
 

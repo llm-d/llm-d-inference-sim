@@ -29,7 +29,7 @@ import (
 
 type requestBuilder interface {
 	Unmarshal(data []byte) error
-	validate(toolsValidator *toolsValidator) (string, int)
+	validate(toolsValidator *toolsValidator) *openaiserverapi.Error
 	buildRequestContext(simCtx *SimContext, channel common.Channel[*ResponseInfo], choiceIdx int, doneFn func()) requestContext
 	AsString() string
 	createResponseContext(reqCtx requestContext, displayModel string, responseTokens *openaiserverapi.Tokenized,
@@ -51,7 +51,7 @@ type RenderableRequest interface {
 	Request
 	// ValidateBody checks that the unmarshalled body matches the endpoint's
 	// expected shape.
-	ValidateBody() (string, int)
+	ValidateBody() *openaiserverapi.Error
 	// Render tokenizes the request and returns the tokens (one slice per
 	// prompt; chat completions always returns a single slice) and any
 	// mm_features produced by the tokenizer.

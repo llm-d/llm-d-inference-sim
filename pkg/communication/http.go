@@ -169,14 +169,12 @@ func (c *Communication) handleRender(req vllmsim.RenderableRequest, respBuilder 
 		c.sendError(ctx, &errToSend, false)
 		return
 	}
-	if errMsg, errCode := req.ValidateBody(); errMsg != "" {
-		errToSend := openaiserverapi.NewError(errMsg, errCode, nil)
-		c.sendError(ctx, &errToSend, false)
+	if err := req.ValidateBody(); err != nil {
+		c.sendError(ctx, err, false)
 		return
 	}
-	if errMsg, errCode := c.simulator.ValidateBaseModel(req.GetModel()); errMsg != "" {
-		errToSend := openaiserverapi.NewError(errMsg, errCode, nil)
-		c.sendError(ctx, &errToSend, false)
+	if err := c.simulator.ValidateBaseModel(req.GetModel()); err != nil {
+		c.sendError(ctx, err, false)
 		return
 	}
 	tokens, features, err := req.Render(c.simulator.Context.Tokenizer)

@@ -42,20 +42,26 @@ func (t *TextCompletionsParsedRequest) Unmarshal(data []byte) error {
 // shape — at minimum, a non-empty prompt with non-empty entries. Catches
 // chat-shaped bodies (which JSON-unmarshal cleanly into
 // TextCompletionsParsedRequest with empty Prompt).
-func (t *TextCompletionsParsedRequest) ValidateBody() (string, int) {
+func (t *TextCompletionsParsedRequest) ValidateBody() *openaiserverapi.Error {
 	if len(t.Prompt) == 0 {
-		return "prompt array must contain at least one prompt", fasthttp.StatusBadRequest
+		serverErr := openaiserverapi.NewError("prompt array must contain at least one prompt",
+			fasthttp.StatusBadRequest, nil)
+		return &serverErr
 	}
 	for _, p := range t.Prompt {
 		if p.IsTokens() {
 			if len(p.Tokens) == 0 {
-				return "prompt must not contain an empty token-id array", fasthttp.StatusBadRequest
+				serverErr := openaiserverapi.NewError("prompt must not contain an empty token-id array",
+					fasthttp.StatusBadRequest, nil)
+				return &serverErr
 			}
 		} else if p.Text == "" {
-			return "prompt must not contain an empty string", fasthttp.StatusBadRequest
+			serverErr := openaiserverapi.NewError("prompt must not contain an empty string",
+				fasthttp.StatusBadRequest, nil)
+			return &serverErr
 		}
 	}
-	return "", 0
+	return nil
 }
 
 // Render tokenizes each prompt for /v1/completions/render (passing
@@ -77,9 +83,9 @@ func (t *TextCompletionsParsedRequest) Render(tk tokenizer.Tokenizer) ([][]uint3
 	return result, nil, nil
 }
 
-func (t *TextCompletionsParsedRequest) validate(_ *toolsValidator) (string, int) {
-	if msg, code := t.ValidateBody(); msg != "" {
-		return msg, code
+func (t *TextCompletionsParsedRequest) validate(_ *toolsValidator) *openaiserverapi.Error {
+	if err := t.ValidateBody(); err != nil {
+		return err
 	}
 	return validateRequest(t)
 }
@@ -125,7 +131,7 @@ func (t *TextCompletionsRequest) Unmarshal(data []byte) error {
 	return json.Unmarshal(data, t)
 }
 
-func (t *TextCompletionsRequest) validate(_ *toolsValidator) (string, int) {
+func (t *TextCompletionsRequest) validate(_ *toolsValidator) *openaiserverapi.Error {
 	return validateRequest(t)
 }
 
