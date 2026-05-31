@@ -545,6 +545,12 @@ type GenerateRespChoice struct {
 	TokenIDs []uint32 `json:"token_ids"`
 }
 
+type GenerateStreamResponse struct {
+	RequestID string               `json:"request_id"`
+	Choices   []GenerateRespChoice `json:"choices"`
+	Usage     *Usage               `json:"usage,omitempty"`
+}
+
 type ECTransferParams struct {
 	PeerHost      string `json:"peer_host"`
 	PeerPort      int    `json:"peer_port"`

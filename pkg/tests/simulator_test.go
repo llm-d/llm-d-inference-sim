@@ -44,6 +44,7 @@ import (
 
 const prompt1 = "What is the weather like in New York today?"
 const prompt2 = "I hear it's very cold."
+const sseDoneMarker = "[DONE]"
 
 var _ = Describe("Simulator", func() {
 
@@ -1897,7 +1898,7 @@ var _ = Describe("Simulator", func() {
 
 				if strings.HasPrefix(line, "data: ") {
 					data := strings.TrimPrefix(line, "data: ")
-					if strings.TrimSpace(data) == "[DONE]" {
+					if strings.TrimSpace(data) == sseDoneMarker {
 						break
 					}
 
@@ -2580,6 +2581,144 @@ var _ = Describe("Simulator", func() {
 			Expect(generateResp.KVParams.RemotePort).To(BeNumerically(">", 0))
 			Expect(generateResp.KVParams.RemoteBlockIds).NotTo(BeEmpty())
 			Expect(generateResp.KVParams.RemoteEngineId).NotTo(BeEmpty())
+		})
+
+		It("Should stream SSE chunks for /inference/v1/generate with stream=true", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			reqBody := fmt.Sprintf(`{
+				"model": "%s",
+				"token_ids": [1, 2, 3, 4],
+				"sampling_params": {"max_tokens": 5},
+				"stream": true
+			}`, common.TestModelName)
+
+			resp, err := client.Post("http://localhost/inference/v1/generate", "application/json", strings.NewReader(reqBody))
+			Expect(err).NotTo(HaveOccurred())
+			defer func() {
+				err := resp.Body.Close()
+				Expect(err).NotTo(HaveOccurred())
+			}()
+
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			Expect(resp.Header.Get("Content-Type")).To(Equal("text/event-stream"))
+
+			reader := bufio.NewReader(resp.Body)
+			var tokenChunks []openaiserverapi.GenerateStreamResponse
+			var finishChunk *openaiserverapi.GenerateStreamResponse
+			var usageChunk *openaiserverapi.GenerateStreamResponse
+			gotDone := false
+
+			for {
+				line, err := reader.ReadString('\n')
+				if err == io.EOF {
+					break
+				}
+				Expect(err).NotTo(HaveOccurred())
+
+				if !strings.HasPrefix(line, "data: ") {
+					continue
+				}
+				data := strings.TrimSpace(strings.TrimPrefix(line, "data: "))
+				if data == sseDoneMarker {
+					gotDone = true
+					break
+				}
+
+				var streamResp openaiserverapi.GenerateStreamResponse
+				Expect(json.Unmarshal([]byte(data), &streamResp)).To(Succeed(), "failed to parse SSE chunk: %s", data)
+				if len(streamResp.Choices) == 0 {
+					Expect(streamResp.Usage).NotTo(BeNil(), "empty choices chunk must carry usage")
+					usageChunk = &streamResp
+					continue
+				}
+				choice := streamResp.Choices[0]
+				if choice.TokenIDs != nil {
+					tokenChunks = append(tokenChunks, streamResp)
+				}
+				if choice.FinishReason != nil {
+					finishChunk = &streamResp
+				}
+			}
+
+			Expect(tokenChunks).NotTo(BeEmpty(), "should have received at least one streaming chunk with token_ids")
+			for _, tc := range tokenChunks {
+				Expect(tc.RequestID).NotTo(BeEmpty())
+				Expect(tc.Choices[0].TokenIDs).NotTo(BeEmpty())
+			}
+
+			Expect(finishChunk).NotTo(BeNil(), "should have received a chunk with finish_reason")
+			Expect(finishChunk.RequestID).NotTo(BeEmpty())
+			Expect(*finishChunk.Choices[0].FinishReason).NotTo(BeEmpty())
+			Expect(finishChunk.Usage).To(BeNil(), "finish chunk should not carry usage")
+
+			Expect(usageChunk).To(BeNil(), "should not receive usage chunk without stream_options.include_usage")
+
+			Expect(gotDone).To(BeTrue(), "stream should end with [DONE]")
+		})
+
+		It("Should include usage chunk when stream_options.include_usage is true", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			reqBody := fmt.Sprintf(`{
+				"model": "%s",
+				"token_ids": [1, 2, 3, 4],
+				"sampling_params": {"max_tokens": 5},
+				"stream": true,
+				"stream_options": {"include_usage": true}
+			}`, common.TestModelName)
+
+			resp, err := client.Post("http://localhost/inference/v1/generate", "application/json", strings.NewReader(reqBody))
+			Expect(err).NotTo(HaveOccurred())
+			defer func() {
+				err := resp.Body.Close()
+				Expect(err).NotTo(HaveOccurred())
+			}()
+
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+			reader := bufio.NewReader(resp.Body)
+			var usageChunk *openaiserverapi.GenerateStreamResponse
+			gotDone := false
+
+			for {
+				line, err := reader.ReadString('\n')
+				if err == io.EOF {
+					break
+				}
+				Expect(err).NotTo(HaveOccurred())
+
+				if !strings.HasPrefix(line, "data: ") {
+					continue
+				}
+				data := strings.TrimSpace(strings.TrimPrefix(line, "data: "))
+				if data == sseDoneMarker {
+					gotDone = true
+					break
+				}
+
+				var streamResp openaiserverapi.GenerateStreamResponse
+				Expect(json.Unmarshal([]byte(data), &streamResp)).To(Succeed(), "failed to parse SSE chunk: %s", data)
+				if len(streamResp.Choices) == 0 {
+					Expect(streamResp.Usage).NotTo(BeNil(), "empty choices chunk must carry usage")
+					usageChunk = &streamResp
+					continue
+				}
+			}
+
+			Expect(usageChunk).NotTo(BeNil(), "should have received a usage chunk with choices:[]")
+			Expect(usageChunk.Choices).To(BeEmpty(), "usage chunk should have empty choices")
+			Expect(usageChunk.Usage).NotTo(BeNil())
+			Expect(usageChunk.Usage.PromptTokens).To(BeNumerically(">", 0))
+			Expect(usageChunk.Usage.CompletionTokens).To(BeNumerically(">", 0))
+
+			Expect(gotDone).To(BeTrue(), "stream should end with [DONE]")
 		})
 	})
 

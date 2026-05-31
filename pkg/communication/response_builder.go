@@ -555,13 +555,30 @@ func (respBuilder *generateHTTPRespBuilder) createResponse(respCtxPerChoice []vl
 	return resp
 }
 
-func (respBuilder *generateHTTPRespBuilder) createUsageChunk(_ []vllmsim.ResponseContext) sseChunk {
-	return nil
+func (respBuilder *generateHTTPRespBuilder) createUsageChunk(respCtxPerChoice []vllmsim.ResponseContext) sseChunk {
+	respCtx := respCtxPerChoice[0]
+	if !respCtx.SendUsageData() {
+		return nil
+	}
+	return &jsonDataChunk{data: &openaiserverapi.GenerateStreamResponse{
+		RequestID: respCtx.RequestID(),
+		Choices:   []openaiserverapi.GenerateRespChoice{},
+		Usage:     aggregateUsage(respCtxPerChoice),
+	}}
 }
 
-func (respBuilder *generateHTTPRespBuilder) createChunk(_ vllmsim.ResponseContext,
-	_ *openaiserverapi.Tokenized, _ *openaiserverapi.ToolCall, _ string, _ *string, _ int) sseChunk {
-	return nil
+func (respBuilder *generateHTTPRespBuilder) createChunk(respCtx vllmsim.ResponseContext,
+	tokens *openaiserverapi.Tokenized, _ *openaiserverapi.ToolCall, _ string, finishReason *string, choiceIdx int) sseChunk {
+	choice := openaiserverapi.GenerateRespChoice{}
+	choice.Index = choiceIdx
+	choice.FinishReason = finishReason
+	if tokens != nil {
+		choice.TokenIDs = tokens.Tokens
+	}
+	return &jsonDataChunk{data: &openaiserverapi.GenerateStreamResponse{
+		RequestID: respCtx.RequestID(),
+		Choices:   []openaiserverapi.GenerateRespChoice{choice},
+	}}
 }
 
 func (respBuilder *generateHTTPRespBuilder) createInitialChunk(_ vllmsim.ResponseContext) sseChunk {
@@ -572,11 +589,14 @@ func (respBuilder *generateHTTPRespBuilder) createFirstChunk(_ vllmsim.ResponseC
 	return nil
 }
 
-func (respBuilder *generateHTTPRespBuilder) createLastChunk(_ vllmsim.ResponseContext, _ string, _ int) sseChunk {
-	return nil
+func (respBuilder *generateHTTPRespBuilder) createLastChunk(respCtx vllmsim.ResponseContext, finishReason string, choiceIdx int) sseChunk {
+	if finishReason != common.StopFinishReason {
+		return nil
+	}
+	return respBuilder.createChunk(respCtx, nil, nil, "", respCtx.FinishReason(), choiceIdx)
 }
 
-func (*generateHTTPRespBuilder) createDoneChunk() sseChunk { return nil }
+func (*generateHTTPRespBuilder) createDoneChunk() sseChunk { return &doneMarker{} }
 
 func (*generateHTTPRespBuilder) createRenderResponse(_ [][]uint32,
 	_ *openaiserverapi.RenderMMFeatures) any {

@@ -883,6 +883,11 @@ type GenerateRequest struct {
 	TokenIDs       []uint32          `json:"token_ids"`
 	SamplingParams *SamplingParams   `json:"sampling_params"`
 	Features       *EncodeMMFeatures `json:"features"`
+	StreamOptions  *StreamOptions    `json:"stream_options,omitempty"`
+}
+
+func (g *GenerateRequest) IncludeUsage() bool {
+	return !g.Stream || (g.StreamOptions != nil && g.StreamOptions.IncludeUsage)
 }
 
 type SamplingParams struct {
