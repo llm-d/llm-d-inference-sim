@@ -83,21 +83,40 @@ type responseBuilder interface {
 	createRenderResponse(tokens [][]uint32, features *openaiserverapi.RenderMMFeatures) any
 }
 
-// aggregateUsage sums the per-choice usages. Callers must ensure every slot is
-// populated — by the time we reach here, every non-error response has carried
-// a non-nil RespCtx, so any nil slot is a bug and a nil deref here is the
-// right signal.
+// aggregateUsage combines per-choice usages. Completion tokens are always
+// summed across all choices. For prompt tokens, the aggregation depends on
+// whether choices share the same prompt (n parameter — same request ID) or
+// have different prompts (array-prompt text completions — different request
+// IDs). When all choices share the same request ID, prompt tokens are counted
+// once; otherwise they are summed.
+// Callers must ensure every slot is populated — by the time we reach here, every
+// non-error response has carried a non-nil RespCtx, so any nil slot is a bug and
+// a nil deref here is the right signal.
 func aggregateUsage(respCtxPerChoice []vllmsim.ResponseContext) *openaiserverapi.Usage {
 	if len(respCtxPerChoice) == 1 {
 		return respCtxPerChoice[0].UsageData()
 	}
 	agg := &openaiserverapi.Usage{}
+	firstID := respCtxPerChoice[0].RequestID()
+	allSameRequest := true
 	for _, rc := range respCtxPerChoice {
 		u := rc.UsageData()
-		agg.PromptTokens += u.PromptTokens
 		agg.CompletionTokens += u.CompletionTokens
-		agg.TotalTokens += u.TotalTokens
+		if rc.RequestID() != firstID {
+			allSameRequest = false
+		}
 	}
+	if allSameRequest {
+		// All choices share the same prompt (n parameter): count prompt tokens once.
+		agg.PromptTokens = respCtxPerChoice[0].UsageData().PromptTokens
+		agg.PromptTokensDetail = respCtxPerChoice[0].UsageData().PromptTokensDetail
+	} else {
+		// Different prompts (array-prompt text completions): sum prompt tokens.
+		for _, rc := range respCtxPerChoice {
+			agg.PromptTokens += rc.UsageData().PromptTokens
+		}
+	}
+	agg.TotalTokens = agg.PromptTokens + agg.CompletionTokens
 	return agg
 }
 
@@ -213,35 +232,35 @@ func (respBuilder *chatComplHTTPRespBuilder) createResponse(respCtxPerChoice []v
 	tokens []openaiserverapi.Tokenized) any {
 	respCtx := respCtxPerChoice[0]
 	baseResp := openaiserverapi.CreateBaseCompletionsResponse(
-		time.Now().Unix(), respCtx.DisplayModel(), respCtx.UsageData(), respCtx.RequestID(), respCtx.DoRemoteDecode())
-	baseChoice := openaiserverapi.CreateBaseResponseChoice(0, respCtx.FinishReason())
+		time.Now().Unix(), respCtx.DisplayModel(), aggregateUsage(respCtxPerChoice), respCtx.RequestID(), respCtx.DoRemoteDecode())
 	baseResp.Object = openaiserverapi.ChatCompletionObject
 
-	message := openaiserverapi.Message{Role: openaiserverapi.RoleAssistant}
-	if respCtx.ToolCalls() != nil {
-		message.ToolCalls = respCtx.ToolCalls()
-	} else {
-		respText := strings.Join(tokens[0].Strings, "")
-		message.Content = openaiserverapi.ChatComplContent{Raw: respText}
-	}
+	choices := make([]openaiserverapi.ChatRespChoice, len(tokens))
+	for i, t := range tokens {
+		choiceCtx := respCtxPerChoice[i]
+		baseChoice := openaiserverapi.CreateBaseResponseChoice(i, choiceCtx.FinishReason())
 
-	choice := openaiserverapi.CreateChatRespChoice(baseChoice, message)
-
-	// Generate logprobs if requested
-	if respCtx.Logprobs() != nil && respCtx.ToolCalls() == nil {
-		if logprobsData := common.GenerateChatLogprobs(tokens[0].Strings, *respCtx.Logprobs()); logprobsData != nil &&
-			len(logprobsData.Content) > 0 {
-			choice.Logprobs = logprobsData
+		message := openaiserverapi.Message{Role: openaiserverapi.RoleAssistant}
+		if choiceCtx.ToolCalls() != nil {
+			message.ToolCalls = choiceCtx.ToolCalls()
 		} else {
-			// Set to nil if generation failed or content is empty
-			choice.Logprobs = nil
+			respText := strings.Join(t.Strings, "")
+			message.Content = openaiserverapi.ChatComplContent{Raw: respText}
 		}
-	} else {
-		// Explicitly ensure logprobs is nil when not requested
-		choice.Logprobs = nil
+
+		choice := openaiserverapi.CreateChatRespChoice(baseChoice, message)
+
+		// Generate logprobs if requested
+		if choiceCtx.Logprobs() != nil && choiceCtx.ToolCalls() == nil {
+			if logprobsData := common.GenerateChatLogprobs(t.Strings, *choiceCtx.Logprobs()); logprobsData != nil &&
+				len(logprobsData.Content) > 0 {
+				choice.Logprobs = logprobsData
+			}
+		}
+		choices[i] = choice
 	}
 
-	resp := openaiserverapi.CreateChatCompletionsResponse(baseResp, []openaiserverapi.ChatRespChoice{choice})
+	resp := openaiserverapi.CreateChatCompletionsResponse(baseResp, choices)
 	resp.ECTransferParams = respCtx.ECTransferParams()
 	return resp
 }

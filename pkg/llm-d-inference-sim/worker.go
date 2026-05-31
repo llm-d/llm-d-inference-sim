@@ -76,9 +76,8 @@ func (s *VllmSimulator) processRequest(reqCtx requestContext) {
 
 	common.WriteToChannel(s.Context.metrics.requestSuccessChan,
 		requestSuccessEvent{
-			promptTokens:     respCtx.UsageData().PromptTokens,
-			generationTokens: respCtx.UsageData().CompletionTokens,
-			// currently only responses with a single choice are supported
+			promptTokens:       respCtx.UsageData().PromptTokens,
+			generationTokens:   respCtx.UsageData().CompletionTokens,
 			genTokensPerChoice: []int{respCtx.UsageData().CompletionTokens},
 			maxTokens:          req.GetMaxCompletionTokens(),
 			finishReason:       *respCtx.FinishReason()},
