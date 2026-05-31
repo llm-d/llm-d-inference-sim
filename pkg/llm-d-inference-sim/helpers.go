@@ -81,3 +81,20 @@ func validateRequest(req openaiserverapi.Request) *openaiserverapi.Error {
 
 	return nil
 }
+
+// buildECTransferParams creates simulated ECTransferParams for each MM hash.
+func buildECTransferParams(mmHashes map[string][]string) map[string]openaiserverapi.ECTransferParams {
+	params := make(map[string]openaiserverapi.ECTransferParams)
+
+	for _, hashes := range mmHashes {
+		for _, hash := range hashes {
+			params[hash] = openaiserverapi.ECTransferParams{
+				PeerHost:      "DUMMY",
+				PeerPort:      1234,
+				SizeBytes:     2359296,
+				NixlAgentData: []byte("NIXL_METADATA_PLACEHOLDER"),
+			}
+		}
+	}
+	return params
+}

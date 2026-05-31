@@ -121,6 +121,8 @@ type ChatCompletionsResponse struct {
 	baseCompletionsResponse
 	// Choices list of Choices of the response, according of OpenAI API
 	Choices []ChatRespChoice `json:"choices"`
+	// ECTransferParams holds simulated encoder-cache transfer params per mm hash
+	ECTransferParams map[string]ECTransferParams `json:"ec_transfer_params,omitempty"`
 }
 
 // baseResponseChoice contains base completions response's choice related information

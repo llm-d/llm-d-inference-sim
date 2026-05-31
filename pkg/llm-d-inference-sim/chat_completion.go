@@ -95,12 +95,21 @@ func (c *ChatCompletionsRequest) AsString() string {
 
 func (c *ChatCompletionsRequest) createResponseContext(reqCtx requestContext, displayModel string,
 	responseTokens *openaiserverapi.Tokenized, finishReason *string, usageData *openaiserverapi.Usage,
-	sendUsageData bool, logprobs *int, toolCalls []openaiserverapi.ToolCall, _ bool) ResponseContext {
+	sendUsageData bool, logprobs *int, toolCalls []openaiserverapi.ToolCall, mmEncoderOnlyMode bool) ResponseContext {
 	base := newBaseResponseContext(reqCtx, displayModel, responseTokens, finishReason, usageData, sendUsageData,
 		logprobs, c.GetRequestID(), c.IsDoRemotePrefill(), c.IsDoRemoteDecode(), c.GetNumberOfCachedPromptTokens())
+
+	var ecParams map[string]openaiserverapi.ECTransferParams
+	if mmEncoderOnlyMode {
+		if features := c.MMFeatures(); features != nil {
+			ecParams = buildECTransferParams(features.MMHashes)
+		}
+	}
+
 	return &chatCompletionsResponseCtx{
 		baseResponseContext: base,
 		toolsCalls:          toolCalls,
+		ecTransferParams:    ecParams,
 	}
 }
 
@@ -157,10 +166,16 @@ type chatCompletionsResponseCtx struct {
 	baseResponseContext
 	// tool calls to be sent in the response
 	toolsCalls []openaiserverapi.ToolCall
+	// ecTransferParams holds simulated encoder-cache transfer params per mm hash
+	ecTransferParams map[string]openaiserverapi.ECTransferParams
 }
 
 func (respCtx *chatCompletionsResponseCtx) ToolCalls() []openaiserverapi.ToolCall {
 	return respCtx.toolsCalls
+}
+
+func (respCtx *chatCompletionsResponseCtx) ECTransferParams() map[string]openaiserverapi.ECTransferParams {
+	return respCtx.ecTransferParams
 }
 
 var _ ResponseContext = (*chatCompletionsResponseCtx)(nil)

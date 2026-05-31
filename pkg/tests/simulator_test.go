@@ -976,6 +976,114 @@ var _ = Describe("Simulator", func() {
 		Entry(nil, common.QwenModelName, common.ModeEcho, 10),
 	)
 
+	It("Should return ec_transfer_params on chat completions in MMEncoderOnly mode when messages contain images", func() {
+		ctx := context.TODO()
+		args := []string{"cmd", "--model", common.TestModelName, "--mm-encoder-only",
+			"--mm-processor-kwargs", "args", "--ec-transfer-config", "cfg",
+			"--enforce-eager", "--no-enable-prefix-caching"}
+		client, err := startServerWithArgs(ctx, args)
+		Expect(err).NotTo(HaveOccurred())
+
+		reqBody := fmt.Sprintf(`{
+				"model": "%s",
+				"messages": [
+					{"role": "user", "content": [
+						{"type": "text", "text": "describe"},
+						{"type": "image_url", "image_url": {"url": "https://example.com/a.png"}},
+						{"type": "image_url", "image_url": {"url": "https://example.com/b.png"}}
+					]}
+				],
+				"max_tokens": 1
+			}`, common.TestModelName)
+
+		resp, err := client.Post("http://localhost/v1/chat/completions", "application/json", strings.NewReader(reqBody))
+		Expect(err).NotTo(HaveOccurred())
+		defer func() {
+			err := resp.Body.Close()
+			Expect(err).NotTo(HaveOccurred())
+		}()
+
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+		body, err := io.ReadAll(resp.Body)
+		Expect(err).NotTo(HaveOccurred())
+
+		var chatResp openaiserverapi.ChatCompletionsResponse
+		Expect(json.Unmarshal(body, &chatResp)).To(Succeed())
+		Expect(chatResp.Choices).To(HaveLen(1))
+		Expect(chatResp.ECTransferParams).To(HaveLen(2))
+		for _, params := range chatResp.ECTransferParams {
+			Expect(params.PeerHost).NotTo(BeEmpty())
+			Expect(params.PeerPort).To(BeNumerically(">", 0))
+			Expect(params.SizeBytes).To(BeNumerically(">", 0))
+			Expect(params.NixlAgentData).NotTo(BeEmpty())
+		}
+	})
+
+	It("Should not return ec_transfer_params on chat completions when no images in request", func() {
+		ctx := context.TODO()
+		args := []string{"cmd", "--model", common.TestModelName, "--mm-encoder-only",
+			"--mm-processor-kwargs", "args", "--ec-transfer-config", "cfg",
+			"--enforce-eager", "--no-enable-prefix-caching"}
+		client, err := startServerWithArgs(ctx, args)
+		Expect(err).NotTo(HaveOccurred())
+
+		reqBody := fmt.Sprintf(`{
+				"model": "%s",
+				"messages": [{"role": "user", "content": "hi"}],
+				"max_tokens": 1
+			}`, common.TestModelName)
+
+		resp, err := client.Post("http://localhost/v1/chat/completions", "application/json", strings.NewReader(reqBody))
+		Expect(err).NotTo(HaveOccurred())
+		defer func() {
+			err := resp.Body.Close()
+			Expect(err).NotTo(HaveOccurred())
+		}()
+
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+		body, err := io.ReadAll(resp.Body)
+		Expect(err).NotTo(HaveOccurred())
+
+		var chatResp openaiserverapi.ChatCompletionsResponse
+		Expect(json.Unmarshal(body, &chatResp)).To(Succeed())
+		Expect(chatResp.ECTransferParams).To(BeNil())
+	})
+
+	It("Should not return ec_transfer_params on chat completions when MMEncoderOnly mode is disabled", func() {
+		ctx := context.TODO()
+		args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom}
+		client, err := startServerWithArgs(ctx, args)
+		Expect(err).NotTo(HaveOccurred())
+
+		reqBody := fmt.Sprintf(`{
+				"model": "%s",
+				"messages": [
+					{"role": "user", "content": [
+						{"type": "image_url", "image_url": {"url": "https://example.com/a.png"}}
+					]}
+				],
+				"max_tokens": 1
+			}`, common.TestModelName)
+
+		resp, err := client.Post("http://localhost/v1/chat/completions", "application/json", strings.NewReader(reqBody))
+		Expect(err).NotTo(HaveOccurred())
+		defer func() {
+			err := resp.Body.Close()
+			Expect(err).NotTo(HaveOccurred())
+		}()
+
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+		body, err := io.ReadAll(resp.Body)
+		Expect(err).NotTo(HaveOccurred())
+
+		var chatResp openaiserverapi.ChatCompletionsResponse
+		Expect(json.Unmarshal(body, &chatResp)).To(Succeed())
+		Expect(chatResp.ECTransferParams).To(BeNil())
+	})
+
 	It("echo mode with structured content blocks", func() {
 		ctx := context.TODO()
 		args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho}

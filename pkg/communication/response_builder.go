@@ -241,7 +241,9 @@ func (respBuilder *chatComplHTTPRespBuilder) createResponse(respCtxPerChoice []v
 		choice.Logprobs = nil
 	}
 
-	return openaiserverapi.CreateChatCompletionsResponse(baseResp, []openaiserverapi.ChatRespChoice{choice})
+	resp := openaiserverapi.CreateChatCompletionsResponse(baseResp, []openaiserverapi.ChatRespChoice{choice})
+	resp.ECTransferParams = respCtx.ECTransferParams()
+	return resp
 }
 
 func (respBuilder *chatComplHTTPRespBuilder) createUsageChunk(respCtxPerChoice []vllmsim.ResponseContext) sseChunk {

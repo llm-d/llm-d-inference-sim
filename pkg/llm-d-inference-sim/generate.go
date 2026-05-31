@@ -85,7 +85,7 @@ func (g *GenerateRequest) createResponseContext(reqCtx requestContext, displayMo
 
 	var ecParams map[string]openaiserverapi.ECTransferParams
 	if mmEncoderOnlyMode && g.Features != nil {
-		ecParams = buildECTransferParams(g.Features)
+		ecParams = buildECTransferParams(g.Features.MMHashes)
 	}
 
 	return &generateResponseCtx{
@@ -135,20 +135,3 @@ func (respCtx *generateResponseCtx) ECTransferParams() map[string]openaiserverap
 }
 
 var _ ResponseContext = (*generateResponseCtx)(nil)
-
-// buildECTransferParams creates simulated ECTransferParams for each MM hash in the request features.
-func buildECTransferParams(features *openaiserverapi.EncodeMMFeatures) map[string]openaiserverapi.ECTransferParams {
-	params := make(map[string]openaiserverapi.ECTransferParams)
-
-	for _, hashes := range features.MMHashes {
-		for _, hash := range hashes {
-			params[hash] = openaiserverapi.ECTransferParams{
-				PeerHost:      "DUMMY",
-				PeerPort:      1234,
-				SizeBytes:     2359296,
-				NixlAgentData: []byte("NIXL_METADATA_PLACEHOLDER"),
-			}
-		}
-	}
-	return params
-}
