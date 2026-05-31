@@ -261,6 +261,8 @@ type Configuration struct {
 	RenderTimeout time.Duration `yaml:"render-timeout" json:"render-timeout"`
 	// MMRenderTimeout is the timeout for multi-modal tokenizer render requests
 	MMRenderTimeout time.Duration `yaml:"mm-render-timeout" json:"mm-render-timeout"`
+	// ForceDummyTokenizer forces the use of the dummy tokenizer even if a real model name is provided
+	ForceDummyTokenizer bool `yaml:"force-dummy-tokenizer" json:"force-dummy-tokenizer"`
 
 	// StartupDuration defines how long /health/ready returns 503 to simulate GPU model loading.
 	// After this duration from startup, /health/ready returns 200. Default is 0 (immediately ready).

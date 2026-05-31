@@ -50,9 +50,13 @@ func New(ctx context.Context, config *common.Configuration, logger logr.Logger) 
 	var err error
 	var tokenizer Tokenizer
 
-	if modelExists(config.Model) {
+	switch {
+	case config.ForceDummyTokenizer:
+		logger.Info("Force dummy tokenizer flag is set, using simulated tokenizer", "model", config.Model)
+		tokenizer = NewSimpleTokenizer()
+	case modelExists(config.Model):
 		tokenizer, err = NewHFTokenizer(ctx, logger, config.RenderURL, config.Model, config.RenderTimeout, config.MMRenderTimeout)
-	} else {
+	default:
 		logger.Info("Model is not a real HF model, using simulated tokenizer", "model", config.Model)
 		tokenizer = NewSimpleTokenizer()
 	}
