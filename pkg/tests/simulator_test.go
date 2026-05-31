@@ -2581,6 +2581,148 @@ var _ = Describe("Simulator", func() {
 			Expect(generateResp.KVParams.RemoteBlockIds).NotTo(BeEmpty())
 			Expect(generateResp.KVParams.RemoteEngineId).NotTo(BeEmpty())
 		})
+
+		It("Should stream cache_threshold finish reason for /inference/v1/generate", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			reqBody := fmt.Sprintf(`{
+				"model": "%s",
+				"token_ids": [1, 2, 3, 4],
+				"sampling_params": {"max_tokens": 5},
+				"stream": true
+			}`, common.TestModelName)
+
+			req, err := http.NewRequest("POST", "http://localhost/inference/v1/generate", strings.NewReader(reqBody))
+			Expect(err).NotTo(HaveOccurred())
+			req.Header.Set("Content-Type", "application/json")
+			req.Header.Set(communication.CacheThresholdFinishReasonHeader, "true")
+
+			resp, err := client.Do(req)
+			Expect(err).NotTo(HaveOccurred())
+			defer func() {
+				err := resp.Body.Close()
+				Expect(err).NotTo(HaveOccurred())
+			}()
+
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			Expect(resp.Header.Get("Content-Type")).To(Equal("text/event-stream"))
+
+			reader := bufio.NewReader(resp.Body)
+			hasCacheThreshold := false
+			gotDone := false
+			tokenChunkCount := 0
+			var completeChunkCompletionTokens float64
+
+			for {
+				line, err := reader.ReadString('\n')
+				if err == io.EOF {
+					break
+				}
+				Expect(err).NotTo(HaveOccurred())
+
+				if !strings.HasPrefix(line, "data: ") {
+					continue
+				}
+				data := strings.TrimSpace(strings.TrimPrefix(line, "data: "))
+				if data == "[DONE]" {
+					gotDone = true
+					break
+				}
+
+				var chunk map[string]interface{}
+				if json.Unmarshal([]byte(data), &chunk) != nil {
+					continue
+				}
+				if _, hasTokenIDs := chunk["token_ids"]; hasTokenIDs {
+					tokenChunkCount++
+				}
+				if fr, ok := chunk["finish_reason"].(string); ok && fr == common.CacheThresholdFinishReason {
+					hasCacheThreshold = true
+					if ct, ok := chunk["completion_tokens"].(float64); ok {
+						completeChunkCompletionTokens = ct
+					}
+				}
+			}
+
+			Expect(tokenChunkCount).To(Equal(0), "cache_threshold should not emit any token chunks")
+			Expect(hasCacheThreshold).To(BeTrue(), "should have cache_threshold finish reason in streaming generate response")
+			Expect(completeChunkCompletionTokens).To(Equal(float64(0)), "completion_tokens should be 0 for cache_threshold")
+			Expect(gotDone).To(BeTrue(), "stream should end with [DONE]")
+		})
+
+		It("Should stream SSE chunks for /inference/v1/generate with stream=true", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			reqBody := fmt.Sprintf(`{
+				"model": "%s",
+				"token_ids": [1, 2, 3, 4],
+				"sampling_params": {"max_tokens": 5},
+				"stream": true
+			}`, common.TestModelName)
+
+			resp, err := client.Post("http://localhost/inference/v1/generate", "application/json", strings.NewReader(reqBody))
+			Expect(err).NotTo(HaveOccurred())
+			defer func() {
+				err := resp.Body.Close()
+				Expect(err).NotTo(HaveOccurred())
+			}()
+
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			Expect(resp.Header.Get("Content-Type")).To(Equal("text/event-stream"))
+
+			reader := bufio.NewReader(resp.Body)
+			var chunks []openaiserverapi.GenerateStreamChunkResponse
+			var completeChunk *openaiserverapi.GenerateStreamCompleteResponse
+			gotDone := false
+
+			for {
+				line, err := reader.ReadString('\n')
+				if err == io.EOF {
+					break
+				}
+				Expect(err).NotTo(HaveOccurred())
+
+				if !strings.HasPrefix(line, "data: ") {
+					continue
+				}
+				data := strings.TrimSpace(strings.TrimPrefix(line, "data: "))
+				if data == "[DONE]" {
+					gotDone = true
+					break
+				}
+
+				var chunk openaiserverapi.GenerateStreamChunkResponse
+				if json.Unmarshal([]byte(data), &chunk) == nil && chunk.TokenIDs != nil {
+					chunks = append(chunks, chunk)
+					continue
+				}
+
+				var complete openaiserverapi.GenerateStreamCompleteResponse
+				if json.Unmarshal([]byte(data), &complete) == nil && complete.FinishReason != "" {
+					completeChunk = &complete
+				}
+			}
+
+			Expect(chunks).NotTo(BeEmpty(), "should have received at least one streaming chunk with token_ids")
+			for _, chunk := range chunks {
+				Expect(chunk.TokenIDs).NotTo(BeEmpty())
+				Expect(chunk.PromptTokens).To(BeNumerically(">", 0))
+				Expect(chunk.CompletionTokens).To(BeNumerically(">", 0))
+			}
+
+			Expect(completeChunk).NotTo(BeNil(), "should have received a completion chunk with finish_reason")
+			Expect(completeChunk.FinishReason).NotTo(BeEmpty())
+			Expect(completeChunk.PromptTokens).To(BeNumerically(">", 0))
+			Expect(completeChunk.CompletionTokens).To(BeNumerically(">", 0))
+
+			Expect(gotDone).To(BeTrue(), "stream should end with [DONE]")
+		})
 	})
 
 	Context("kv-events for requests", func() {

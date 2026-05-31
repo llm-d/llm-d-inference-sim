@@ -545,6 +545,20 @@ type GenerateRespChoice struct {
 	TokenIDs []uint32 `json:"token_ids"`
 }
 
+type GenerateStreamChunkResponse struct {
+	TokenIDs         []uint32 `json:"token_ids"`
+	PromptTokens     int      `json:"prompt_tokens"`
+	CompletionTokens int      `json:"completion_tokens"`
+	CachedTokens     int      `json:"cached_tokens"`
+}
+
+type GenerateStreamCompleteResponse struct {
+	FinishReason     string `json:"finish_reason"`
+	PromptTokens     int    `json:"prompt_tokens"`
+	CompletionTokens int    `json:"completion_tokens"`
+	CachedTokens     int    `json:"cached_tokens"`
+}
+
 type ECTransferParams struct {
 	PeerHost      string `json:"peer_host"`
 	PeerPort      int    `json:"peer_port"`
