@@ -213,7 +213,8 @@ func (c *Communication) addResponseHeaders(ctx *fasthttp.RequestCtx, requestID s
 
 func (c *Communication) handleHTTP(req vllmsim.Request, respBuilder responseBuilder, ctx *fasthttp.RequestCtx) {
 	if c.stopping.Load() {
-		ctx.SetStatusCode(fasthttp.StatusServiceUnavailable)
+		errToSend := openaiserverapi.NewError("server is shutting down", fasthttp.StatusServiceUnavailable, nil)
+		c.sendError(ctx, &errToSend, false)
 		return
 	}
 
@@ -468,7 +469,8 @@ func (c *Communication) emitResponseChunks(ctx *fasthttp.RequestCtx, w *bufio.Wr
 			"Sending finish chunk failed, "), true
 	}
 
-	ctx.Error("unexpected response part in streaming", fasthttp.StatusInternalServerError)
+	errToSend := openaiserverapi.NewError("unexpected response part in streaming", fasthttp.StatusInternalServerError, nil)
+	c.sendError(ctx, &errToSend, false)
 	return false, false
 }
 
@@ -493,7 +495,8 @@ func (c *Communication) chunkSendFailed(ctx *fasthttp.RequestCtx, msg string, er
 	if err != nil {
 		message += err.Error()
 	}
-	ctx.Error(message, fasthttp.StatusInternalServerError)
+	errToSend := openaiserverapi.NewError(message, fasthttp.StatusInternalServerError, nil)
+	c.sendError(ctx, &errToSend, false)
 }
 
 func (c *Communication) sendStreamedTools(respCtx vllmsim.ResponseContext, respBuilder responseBuilder,
@@ -545,7 +548,9 @@ func (c *Communication) sendError(ctx *fasthttp.RequestCtx, err *openaiserverapi
 
 	data, jsonErr := json.Marshal(errorResp)
 	if jsonErr != nil {
-		ctx.Error(jsonErr.Error(), fasthttp.StatusInternalServerError)
+		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
+		ctx.SetContentType("application/json")
+		ctx.SetBodyString(`{"error":{"message":"internal error","type":"server_error","param":null,"code":"500"}}`)
 	} else {
 		ctx.SetContentType("application/json")
 		ctx.SetStatusCode(err.Code)
@@ -627,7 +632,8 @@ func (c *Communication) HandleEmbeddings(ctx *fasthttp.RequestCtx) {
 			tokens, _, err := c.simulator.Context.Tokenizer.RenderText(text)
 			if err != nil {
 				c.logger.Error(err, "failed to tokenize embedding input")
-				ctx.Error("Failed to tokenize input, "+err.Error(), fasthttp.StatusInternalServerError)
+				errToSend := openaiserverapi.NewError("Failed to tokenize input, "+err.Error(), fasthttp.StatusInternalServerError, nil)
+				c.sendError(ctx, &errToSend, false)
 				return
 			}
 			totalTokens += len(tokens)
@@ -654,7 +660,8 @@ func (c *Communication) HandleEmbeddings(ctx *fasthttp.RequestCtx) {
 	out, err := json.Marshal(resp)
 	if err != nil {
 		c.logger.Error(err, "failed to marshal embeddings response")
-		ctx.Error("Response body creation failed, "+err.Error(), fasthttp.StatusInternalServerError)
+		errToSend := openaiserverapi.NewError("Response body creation failed, "+err.Error(), fasthttp.StatusInternalServerError, nil)
+		c.sendError(ctx, &errToSend, false)
 		return
 	}
 
@@ -670,7 +677,8 @@ func (c *Communication) HandleTokenize(ctx *fasthttp.RequestCtx) {
 	req, err := c.readTokenizeRequest(ctx)
 	if err != nil {
 		c.logger.Error(err, "failed to read and parse tokenize request body")
-		ctx.Error("Failed to read and parse tokenize request body, "+err.Error(), fasthttp.StatusBadRequest)
+		errToSend := openaiserverapi.NewError("Failed to read and parse tokenize request body, "+err.Error(), fasthttp.StatusBadRequest, nil)
+		c.sendError(ctx, &errToSend, false)
 		return
 	}
 
@@ -693,7 +701,8 @@ func (c *Communication) HandleTokenize(ctx *fasthttp.RequestCtx) {
 
 	if err != nil {
 		c.logger.Error(err, "failed to tokenize")
-		ctx.Error("Failed to tokenize, "+err.Error(), fasthttp.StatusInternalServerError)
+		errToSend := openaiserverapi.NewError("Failed to tokenize, "+err.Error(), fasthttp.StatusInternalServerError, nil)
+		c.sendError(ctx, &errToSend, false)
 		return
 	}
 
@@ -704,7 +713,8 @@ func (c *Communication) HandleTokenize(ctx *fasthttp.RequestCtx) {
 	}
 	data, err := json.Marshal(resp)
 	if err != nil {
-		ctx.Error("Response body creation failed, "+err.Error(), fasthttp.StatusInternalServerError)
+		errToSend := openaiserverapi.NewError("Response body creation failed, "+err.Error(), fasthttp.StatusInternalServerError, nil)
+		c.sendError(ctx, &errToSend, false)
 		return
 	}
 	ctx.Response.Header.SetContentType("application/json")
@@ -714,12 +724,18 @@ func (c *Communication) HandleTokenize(ctx *fasthttp.RequestCtx) {
 
 func (c *Communication) HandleLoadLora(ctx *fasthttp.RequestCtx) {
 	c.logger.V(logging.DEBUG).Info("Load lora request received")
-	c.simulator.Context.LoadLoraAdaptor(ctx)
+	if err := c.simulator.Context.LoadLoraAdaptor(ctx.Request.Body()); err != nil {
+		errToSend := openaiserverapi.NewError(err.Error(), fasthttp.StatusBadRequest, nil)
+		c.sendError(ctx, &errToSend, false)
+	}
 }
 
 func (c *Communication) HandleUnloadLora(ctx *fasthttp.RequestCtx) {
 	c.logger.V(logging.DEBUG).Info("Unload lora request received")
-	c.simulator.Context.UnloadLoraAdaptor(ctx)
+	if err := c.simulator.Context.UnloadLoraAdaptor(ctx.Request.Body()); err != nil {
+		errToSend := openaiserverapi.NewError(err.Error(), fasthttp.StatusBadRequest, nil)
+		c.sendError(ctx, &errToSend, false)
+	}
 }
 
 // HandleModels handles /v1/models request according the data stored in the simulator
@@ -730,7 +746,8 @@ func (c *Communication) HandleModels(ctx *fasthttp.RequestCtx) {
 	data, err := json.Marshal(modelsResp)
 	if err != nil {
 		c.logger.Error(err, "failed to marshal models response")
-		ctx.Error("Failed to marshal models response, "+err.Error(), fasthttp.StatusInternalServerError)
+		errToSend := openaiserverapi.NewError("Failed to marshal models response, "+err.Error(), fasthttp.StatusInternalServerError, nil)
+		c.sendError(ctx, &errToSend, false)
 		return
 	}
 
@@ -781,7 +798,8 @@ func (c *Communication) HandleIsSleeping(ctx *fasthttp.RequestCtx) {
 	data, err := json.Marshal(map[string]bool{"is_sleeping": c.simulator.IsSleeping})
 	if err != nil {
 		c.logger.Error(err, "failed to marshal isSleeping response")
-		ctx.Error("Failed to marshal isSleeping response, "+err.Error(), fasthttp.StatusInternalServerError)
+		errToSend := openaiserverapi.NewError("Failed to marshal isSleeping response, "+err.Error(), fasthttp.StatusInternalServerError, nil)
+		c.sendError(ctx, &errToSend, false)
 		return
 	}
 
@@ -914,8 +932,8 @@ func (c *Communication) HandlePostAdminConfig(ctx *fasthttp.RequestCtx) {
 	c.logger.V(logging.INFO).Info("Update admin config request received")
 
 	if err := c.simulator.Context.ApplyAdminConfigUpdate(ctx.Request.Body()); err != nil {
-		ctx.SetStatusCode(fasthttp.StatusBadRequest)
-		ctx.SetBodyString(err.Error())
+		errToSend := openaiserverapi.NewError(err.Error(), fasthttp.StatusBadRequest, nil)
+		c.sendError(ctx, &errToSend, false)
 		return
 	}
 	c.writeAdminConfigResponse(ctx)
@@ -925,7 +943,8 @@ func (c *Communication) writeAdminConfigResponse(ctx *fasthttp.RequestCtx) {
 	data, err := c.simulator.Context.Config().MarshalCleaned()
 	if err != nil {
 		c.logger.Error(err, "failed to marshal admin config response")
-		ctx.Error("Failed to marshal admin config response, "+err.Error(), fasthttp.StatusInternalServerError)
+		errToSend := openaiserverapi.NewError("Failed to marshal admin config response, "+err.Error(), fasthttp.StatusInternalServerError, nil)
+		c.sendError(ctx, &errToSend, false)
 		return
 	}
 	ctx.Response.Header.SetContentType("application/json")
@@ -938,21 +957,21 @@ func (c *Communication) HandleFakeMetrics(ctx *fasthttp.RequestCtx) {
 	c.logger.V(logging.INFO).Info("Fake metrics update received")
 
 	if c.simulator.Context.Config().FakeMetrics == nil {
-		ctx.SetStatusCode(fasthttp.StatusBadRequest)
-		ctx.SetBodyString("The simulator is reporting real metrics; fake metrics cannot be updated.")
+		errToSend := openaiserverapi.NewError("The simulator is reporting real metrics; fake metrics cannot be updated.", fasthttp.StatusBadRequest, nil)
+		c.sendError(ctx, &errToSend, false)
 		return
 	}
 
 	oldFakeMetrics, fmMap, err := c.simulator.Context.Config().FakeMetrics.UnmarshalUpdateJSON(ctx.Request.Body())
 	if err != nil {
-		ctx.SetStatusCode(fasthttp.StatusBadRequest)
-		ctx.SetBodyString("Failed to unmarshal the payload: " + err.Error())
+		errToSend := openaiserverapi.NewError("Failed to unmarshal the payload: "+err.Error(), fasthttp.StatusBadRequest, nil)
+		c.sendError(ctx, &errToSend, false)
 		return
 	}
 
 	if err := c.simulator.Context.UpdateFakeMetrics(fmMap, oldFakeMetrics); err != nil {
-		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
-		ctx.SetBodyString("Failed to update fake metrics: " + err.Error())
+		errToSend := openaiserverapi.NewError("Failed to update fake metrics: "+err.Error(), fasthttp.StatusInternalServerError, nil)
+		c.sendError(ctx, &errToSend, false)
 		return
 	}
 
