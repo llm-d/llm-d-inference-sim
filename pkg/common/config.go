@@ -583,32 +583,57 @@ var adminConfigurableFields = map[string]bool{
 	"failure-types":          true,
 }
 
-// ApplyAdminUpdate validates a partial JSON update from the /admin/config
+// Update validates a partial JSON update from the /admin/config
 // endpoint and returns a new Configuration with the changes applied, leaving
 // the receiver unchanged. The caller is expected to swap the configuration
 // pointer atomically.
-func (c *Configuration) ApplyAdminUpdate(body []byte) (*Configuration, error) {
+//
+// A "fake-metrics" key in the body is peeled off and returned as raw bytes so
+// the caller can dispatch it to a fake-metrics-specific update path. nil means
+// the body did not contain that key.
+func (c *Configuration) Update(body []byte) (*Configuration, []byte, error) {
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(body, &raw); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal payload: %w", err)
+		return nil, nil, fmt.Errorf("failed to unmarshal payload: %w", err)
 	}
+
+	fakeMetricsRaw := raw["fake-metrics"]
+	delete(raw, "fake-metrics")
+
 	for key := range raw {
 		if !adminConfigurableFields[key] {
-			return nil, fmt.Errorf("field '%s' is not admin-configurable", key)
+			return nil, nil, fmt.Errorf("field '%s' is not admin-configurable", key)
 		}
 	}
 
-	next, err := c.Copy()
+	// Deep-copy via Copy(), but detach FakeMetrics first: its
+	// FakeMetricWithFunction fields encode to a JSON object yet decode only
+	// from number/string, so a naïve round-trip fails. The shared pointer is
+	// restored afterward so a later partial-update through it is visible to
+	// both old and new configs.
+	cWithoutFakeMetrics := *c
+	cWithoutFakeMetrics.FakeMetrics = nil
+	next, err := cWithoutFakeMetrics.Copy()
 	if err != nil {
-		return nil, fmt.Errorf("failed to copy configuration: %w", err)
+		return nil, nil, fmt.Errorf("failed to copy configuration: %w", err)
 	}
-	if err := json.Unmarshal(body, next); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal payload: %w", err)
+	next.FakeMetrics = c.FakeMetrics
+	// Re-marshal raw (without fake-metrics) so the unmarshal into next skips
+	// it; otherwise the body would full-replace the shared FakeMetrics
+	// pointer and clobber the in-place update the caller is responsible for.
+	if len(raw) > 0 {
+		rest, err := json.Marshal(raw)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to marshal payload: %w", err)
+		}
+		if err := json.Unmarshal(rest, next); err != nil {
+			return nil, nil, fmt.Errorf("failed to unmarshal payload: %w", err)
+		}
 	}
 	if err := next.validate(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return next, nil
+	return next, fakeMetricsRaw, nil
 }
 
 func (c *Configuration) Copy() (*Configuration, error) {
