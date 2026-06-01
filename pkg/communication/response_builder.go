@@ -559,9 +559,17 @@ func (respBuilder *generateHTTPRespBuilder) createUsageChunk(_ []vllmsim.Respons
 	return nil
 }
 
-func (respBuilder *generateHTTPRespBuilder) createChunk(_ vllmsim.ResponseContext,
-	_ *openaiserverapi.Tokenized, _ *openaiserverapi.ToolCall, _ string, _ *string, _ int) sseChunk {
-	return nil
+func (respBuilder *generateHTTPRespBuilder) createChunk(respCtx vllmsim.ResponseContext,
+	tokens *openaiserverapi.Tokenized, _ *openaiserverapi.ToolCall, _ string, _ *string, _ int) sseChunk {
+	if tokens == nil {
+		return nil
+	}
+	return &jsonDataChunk{data: &openaiserverapi.GenerateStreamChunkResponse{
+		TokenIDs:         tokens.Tokens,
+		PromptTokens:     respCtx.UsageData().PromptTokens,
+		CompletionTokens: len(tokens.Tokens),
+		CachedTokens:     respCtx.NumberCachedPromptTokens(),
+	}}
 }
 
 func (respBuilder *generateHTTPRespBuilder) createInitialChunk(_ vllmsim.ResponseContext) sseChunk {
@@ -572,11 +580,16 @@ func (respBuilder *generateHTTPRespBuilder) createFirstChunk(_ vllmsim.ResponseC
 	return nil
 }
 
-func (respBuilder *generateHTTPRespBuilder) createLastChunk(_ vllmsim.ResponseContext, _ string, _ int) sseChunk {
-	return nil
+func (respBuilder *generateHTTPRespBuilder) createLastChunk(respCtx vllmsim.ResponseContext, _ string, _ int) sseChunk {
+	return &jsonDataChunk{data: &openaiserverapi.GenerateStreamCompleteResponse{
+		FinishReason:     *respCtx.FinishReason(),
+		PromptTokens:     respCtx.UsageData().PromptTokens,
+		CompletionTokens: respCtx.UsageData().CompletionTokens,
+		CachedTokens:     respCtx.NumberCachedPromptTokens(),
+	}}
 }
 
-func (*generateHTTPRespBuilder) createDoneChunk() sseChunk { return nil }
+func (*generateHTTPRespBuilder) createDoneChunk() sseChunk { return &doneMarker{} }
 
 func (*generateHTTPRespBuilder) createRenderResponse(_ [][]uint32,
 	_ *openaiserverapi.RenderMMFeatures) any {
