@@ -503,6 +503,46 @@ var _ = Describe("Fake metrics", Ordered, func() {
 
 		})
 
+		It("Should update fake metrics via POST /admin/config", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
+				"--fake-metrics",
+				`{"running-requests":1,"waiting-requests":2,"kv-cache-usage":0.1}`,
+			}
+
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			reqBody := `{"failure-injection-rate":42,"fake-metrics":{"running-requests":7,"waiting-requests":8,"kv-cache-usage":0.5}}`
+			req, err := http.NewRequest("POST", "http://localhost/admin/config", strings.NewReader(reqBody))
+			Expect(err).NotTo(HaveOccurred())
+			req.Header.Set("Content-Type", "application/json")
+			resp, err := client.Do(req)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			Expect(resp.Body.Close()).To(Succeed())
+
+			resp, err = client.Get(metricsUrl)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+			data, err := io.ReadAll(resp.Body)
+			Expect(err).NotTo(HaveOccurred())
+			metrics := string(data)
+
+			Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllmsim.ReqRunningMetricName, 7)))
+			Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllmsim.ReqWaitingMetricName, 8)))
+			Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllmsim.KVCacheUsageMetricName, 0.5)))
+
+			// The non-fake-metrics field also took effect.
+			resp, err = client.Get("http://localhost/admin/config")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			data, err = io.ReadAll(resp.Body)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(string(data)).To(ContainSubstring(`"failure-injection-rate":42`))
+		})
+
 		It("Should update fake ttft and tpot metrics correctly", func() {
 			ctx := context.TODO()
 			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,

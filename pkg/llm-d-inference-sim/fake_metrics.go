@@ -20,6 +20,8 @@ package llmdinferencesim
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"math"
 	"strconv"
 	"time"
@@ -28,6 +30,26 @@ import (
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 )
+
+// UpdateFakeMetrics applies a partial fake-metrics update from the given
+// JSON body: mutates the live FakeMetrics in place (reflection-based partial
+// semantics) and refreshes the Prometheus collectors.
+func (s *SimContext) UpdateFakeMetrics(body []byte) error {
+	if s.Config().FakeMetrics == nil {
+		return errors.New("the simulator is reporting real metrics; fake metrics cannot be updated")
+	}
+
+	oldFakeMetrics, fmMap, err := s.Config().FakeMetrics.UnmarshalUpdateJSON(body)
+	if err != nil {
+		return fmt.Errorf("failed to unmarshal the payload: %w", err)
+	}
+
+	if err := s.updateFakeMetrics(fmMap, oldFakeMetrics); err != nil {
+		return fmt.Errorf("failed to update fake metrics: %w", err)
+	}
+
+	return nil
+}
 
 type generator func(params *common.FunctionInfo, t time.Duration) float64
 
@@ -67,7 +89,7 @@ func (s *SimContext) setInitialFakeMetrics() error {
 	allKeys["loras"] = true
 
 	// No previous values on initial setup.
-	return s.UpdateFakeMetrics(allKeys, &common.FakeMetrics{})
+	return s.updateFakeMetrics(allKeys, &common.FakeMetrics{})
 }
 
 func (s *SimContext) updateGeneratedFakeMetrics() {
@@ -186,7 +208,7 @@ func (s *SimContext) initFakeHistogram(hist *prometheus.HistogramVec, bucketsBou
 	return &total
 }
 
-// UpdateFakeMetrics applies a partial update to the simulator's Prometheus metrics
+// updateFakeMetrics applies a partial update to the simulator's Prometheus metrics
 // based on the keys present in fakeMetricsMap. Only metrics whose JSON key appears
 // in the map are touched — absent keys are left unchanged.
 //
@@ -199,7 +221,7 @@ func (s *SimContext) initFakeHistogram(hist *prometheus.HistogramVec, bucketsBou
 // This function is called both during initial setup (via setInitialFakeMetrics with
 // all configured keys and an empty oldFakeMetrics) and at runtime via the POST
 // /fake_metrics HTTP endpoint (with only the keys the caller supplied).
-func (s *SimContext) UpdateFakeMetrics(fakeMetricsMap map[string]any, oldFakeMetrics *common.FakeMetrics) error {
+func (s *SimContext) updateFakeMetrics(fakeMetricsMap map[string]any, oldFakeMetrics *common.FakeMetrics) error {
 	var generatedFakeMetricsWasEmpty bool
 	if len(s.metrics.generatedFakeMetrics) == 0 {
 		generatedFakeMetricsWasEmpty = true

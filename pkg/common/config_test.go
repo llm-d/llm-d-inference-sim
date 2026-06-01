@@ -669,8 +669,9 @@ var _ = Describe("ApplyAdminUpdate", func() {
 	})
 
 	It("updates failure-injection-rate and returns a new Configuration", func() {
-		next, err := base.ApplyAdminUpdate([]byte(`{"failure-injection-rate": 42}`))
+		next, fakeMetricsRaw, err := base.Update([]byte(`{"failure-injection-rate": 42}`))
 		Expect(err).ToNot(HaveOccurred())
+		Expect(fakeMetricsRaw).To(BeNil())
 		Expect(next).ToNot(BeIdenticalTo(base))
 		Expect(next.FailureInjectionRate).To(Equal(42))
 		Expect(next.FailureTypes).To(Equal([]string{FailureTypeRateLimit}))
@@ -679,7 +680,7 @@ var _ = Describe("ApplyAdminUpdate", func() {
 	})
 
 	It("updates failure-types", func() {
-		next, err := base.ApplyAdminUpdate([]byte(`{"failure-types": ["server_error", "model_not_found"]}`))
+		next, _, err := base.Update([]byte(`{"failure-types": ["server_error", "model_not_found"]}`))
 		Expect(err).ToNot(HaveOccurred())
 		Expect(next.FailureTypes).To(Equal([]string{FailureTypeServerError, FailureTypeModelNotFound}))
 		Expect(next.FailureInjectionRate).To(Equal(10))
@@ -687,32 +688,40 @@ var _ = Describe("ApplyAdminUpdate", func() {
 	})
 
 	It("updates both fields at once", func() {
-		next, err := base.ApplyAdminUpdate([]byte(`{"failure-injection-rate": 5, "failure-types": ["invalid_request"]}`))
+		next, _, err := base.Update([]byte(`{"failure-injection-rate": 5, "failure-types": ["invalid_request"]}`))
 		Expect(err).ToNot(HaveOccurred())
 		Expect(next.FailureInjectionRate).To(Equal(5))
 		Expect(next.FailureTypes).To(Equal([]string{FailureTypeInvalidRequest}))
 	})
 
+	It("returns the raw fake-metrics body for caller dispatch", func() {
+		next, fakeMetricsRaw, err := base.Update([]byte(
+			`{"failure-injection-rate": 50, "fake-metrics": {"running-requests": 7}}`))
+		Expect(err).ToNot(HaveOccurred())
+		Expect(next.FailureInjectionRate).To(Equal(50))
+		Expect(string(fakeMetricsRaw)).To(Equal(`{"running-requests": 7}`))
+	})
+
 	It("rejects fields that are not admin-configurable", func() {
-		_, err := base.ApplyAdminUpdate([]byte(`{"port": 9000}`))
+		_, _, err := base.Update([]byte(`{"port": 9000}`))
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("not admin-configurable"))
 	})
 
 	It("rejects an out-of-range failure-injection-rate", func() {
-		_, err := base.ApplyAdminUpdate([]byte(`{"failure-injection-rate": 150}`))
+		_, _, err := base.Update([]byte(`{"failure-injection-rate": 150}`))
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("failure injection rate"))
 	})
 
 	It("rejects an unknown failure type", func() {
-		_, err := base.ApplyAdminUpdate([]byte(`{"failure-types": ["bogus"]}`))
+		_, _, err := base.Update([]byte(`{"failure-types": ["bogus"]}`))
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("invalid failure type"))
 	})
 
 	It("rejects malformed JSON", func() {
-		_, err := base.ApplyAdminUpdate([]byte(`not json`))
+		_, _, err := base.Update([]byte(`not json`))
 		Expect(err).To(HaveOccurred())
 	})
 })

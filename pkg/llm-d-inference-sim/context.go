@@ -84,16 +84,26 @@ func (s *SimContext) SetConfig(c *common.Configuration) {
 	s.config.Store(c)
 }
 
-// ApplyAdminConfigUpdate validates the partial JSON body against the current
+// ApplyConfigUpdate validates the partial JSON body against the current
 // configuration and atomically swaps in the resulting configuration. Updates
 // are serialized so concurrent callers cannot lose each other's changes.
-func (s *SimContext) ApplyAdminConfigUpdate(body []byte) error {
+//
+// A "fake-metrics" field in the body is dispatched to UpdateFakeMetricsConfig,
+// which mutates the live FakeMetrics in place and refreshes the Prometheus
+// state. It runs after the rest of the update validates but before the config
+// swap, so a fake-metrics failure aborts the whole update.
+func (s *SimContext) ApplyConfigUpdate(body []byte) error {
 	s.adminMu.Lock()
 	defer s.adminMu.Unlock()
 
-	next, err := s.Config().ApplyAdminUpdate(body)
+	next, fakeMetricsRaw, err := s.Config().Update(body)
 	if err != nil {
 		return err
+	}
+	if fakeMetricsRaw != nil {
+		if err := s.UpdateFakeMetrics(fakeMetricsRaw); err != nil {
+			return err
+		}
 	}
 	s.SetConfig(next)
 	return nil
