@@ -208,8 +208,8 @@ var _ = Describe("Simulator configuration", func() {
 	// Config from config_with_fake.yaml file
 	c = createDefaultConfig(QwenModelName, nil)
 	c.FakeMetrics = &FakeMetrics{
-		RunningRequests: FakeMetricWithFunction{FixedValue: 16},
-		WaitingRequests: FakeMetricWithFunction{
+		RunningRequests: &FakeMetricWithFunction{FixedValue: 16},
+		WaitingRequests: &FakeMetricWithFunction{
 			FixedValue: 0,
 			IsFunction: true,
 			Function: &FunctionInfo{
@@ -219,7 +219,7 @@ var _ = Describe("Simulator configuration", func() {
 				Period: time.Second,
 			},
 		},
-		KVCacheUsagePercentage: FakeMetricWithFunction{FixedValue: 0.3},
+		KVCacheUsagePercentage: &FakeMetricWithFunction{FixedValue: 0.3},
 		LoraMetrics: []LorasMetrics{
 			{RunningLoras: "lora1,lora2", WaitingLoras: "lora3", Timestamp: 1257894567},
 			{RunningLoras: "lora1,lora3", WaitingLoras: "", Timestamp: 1257894569},
@@ -254,7 +254,7 @@ var _ = Describe("Simulator configuration", func() {
 	c.MaxCPULoras = 1
 	c.Seed = 100
 	c.FakeMetrics = &FakeMetrics{
-		RunningRequests: FakeMetricWithFunction{
+		RunningRequests: &FakeMetricWithFunction{
 			FixedValue: 0,
 			IsFunction: true,
 			Function: &FunctionInfo{
@@ -264,8 +264,8 @@ var _ = Describe("Simulator configuration", func() {
 				Period: 10 * time.Second,
 			},
 		},
-		WaitingRequests:        FakeMetricWithFunction{FixedValue: 30},
-		KVCacheUsagePercentage: FakeMetricWithFunction{FixedValue: 0.4},
+		WaitingRequests:        &FakeMetricWithFunction{FixedValue: 30},
+		KVCacheUsagePercentage: &FakeMetricWithFunction{FixedValue: 0.4},
 		LoraMetrics: []LorasMetrics{
 			{RunningLoras: "lora4,lora2", WaitingLoras: "lora3", Timestamp: 1257894567},
 			{RunningLoras: "lora4,lora3", WaitingLoras: "", Timestamp: 1257894569},
@@ -285,9 +285,9 @@ var _ = Describe("Simulator configuration", func() {
 	// Fake metrics from both the config file and command line
 	c = createDefaultConfig(QwenModelName, nil)
 	c.FakeMetrics = &FakeMetrics{
-		RunningRequests:        FakeMetricWithFunction{FixedValue: 10},
-		WaitingRequests:        FakeMetricWithFunction{FixedValue: 30},
-		KVCacheUsagePercentage: FakeMetricWithFunction{FixedValue: 0.4},
+		RunningRequests:        &FakeMetricWithFunction{FixedValue: 10},
+		WaitingRequests:        &FakeMetricWithFunction{FixedValue: 30},
+		KVCacheUsagePercentage: &FakeMetricWithFunction{FixedValue: 0.4},
 		LoraMetrics: []LorasMetrics{
 			{RunningLoras: "lora4,lora2", WaitingLoras: "lora3", Timestamp: 1257894567},
 			{RunningLoras: "lora4,lora3", WaitingLoras: "", Timestamp: 1257894569},
@@ -669,9 +669,9 @@ var _ = Describe("ApplyAdminUpdate", func() {
 	})
 
 	It("updates failure-injection-rate and returns a new Configuration", func() {
-		next, fakeMetricsRaw, err := base.Update([]byte(`{"failure-injection-rate": 42}`))
+		next, update, err := base.Update([]byte(`{"failure-injection-rate": 42}`))
 		Expect(err).ToNot(HaveOccurred())
-		Expect(fakeMetricsRaw).To(BeNil())
+		Expect(update.FakeMetrics).To(BeNil())
 		Expect(next).ToNot(BeIdenticalTo(base))
 		Expect(next.FailureInjectionRate).To(Equal(42))
 		Expect(next.FailureTypes).To(Equal([]string{FailureTypeRateLimit}))
@@ -694,12 +694,16 @@ var _ = Describe("ApplyAdminUpdate", func() {
 		Expect(next.FailureTypes).To(Equal([]string{FailureTypeInvalidRequest}))
 	})
 
-	It("returns the raw fake-metrics body for caller dispatch", func() {
-		next, fakeMetricsRaw, err := base.Update([]byte(
+	It("returns the parsed fake-metrics partial via update.FakeMetrics", func() {
+		next, update, err := base.Update([]byte(
 			`{"failure-injection-rate": 50, "fake-metrics": {"running-requests": 7}}`))
 		Expect(err).ToNot(HaveOccurred())
 		Expect(next.FailureInjectionRate).To(Equal(50))
-		Expect(string(fakeMetricsRaw)).To(Equal(`{"running-requests": 7}`))
+		Expect(update.FakeMetrics).ToNot(BeNil())
+		Expect(update.FakeMetrics.RunningRequests).ToNot(BeNil())
+		Expect(update.FakeMetrics.RunningRequests.FixedValue).To(Equal(float64(7)))
+		// Fields not in the body are nil on the fake-metrics partial.
+		Expect(update.FakeMetrics.WaitingRequests).To(BeNil())
 	})
 
 	It("rejects fields that are not admin-configurable", func() {

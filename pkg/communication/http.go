@@ -967,7 +967,7 @@ func (c *Communication) HandleFakeMetrics(ctx *fasthttp.RequestCtx) {
 		c.logger.V(logging.INFO).Info("/fake_metrics endpoint is deprecated and will be removed in release v0.12.0; please use POST /admin/config with a 'fake-metrics' field instead")
 	}
 
-	if err := c.simulator.Context.UpdateFakeMetrics(ctx.Request.Body()); err != nil {
+	if err := c.simulator.Context.UpdateFakeMetricsFromBody(ctx.Request.Body()); err != nil {
 		errToSend := openaiserverapi.NewError("Failed to update fake metrics: "+err.Error(), fasthttp.StatusInternalServerError, nil)
 		c.sendError(ctx, &errToSend, false)
 		return
