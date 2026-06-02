@@ -18,6 +18,7 @@ package llmdinferencesim
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -84,16 +85,29 @@ func (s *SimContext) SetConfig(c *common.Configuration) {
 	s.config.Store(c)
 }
 
-// ApplyAdminConfigUpdate validates the partial JSON body against the current
+// ApplyConfigUpdate validates the partial JSON body against the current
 // configuration and atomically swaps in the resulting configuration. Updates
 // are serialized so concurrent callers cannot lose each other's changes.
-func (s *SimContext) ApplyAdminConfigUpdate(body []byte) error {
+//
+// A "fake-metrics" field in the body is applied to Prometheus collectors via
+// updateFakeMetrics; this runs after Configuration.Update has validated the
+// merged result but before the config swap, so a Prometheus side-effect
+// failure aborts the whole update.
+func (s *SimContext) ApplyConfigUpdate(body []byte) error {
 	s.adminMu.Lock()
 	defer s.adminMu.Unlock()
 
-	next, err := s.Config().ApplyAdminUpdate(body)
+	next, update, err := s.Config().Update(body)
 	if err != nil {
 		return err
+	}
+	if update.FakeMetrics != nil {
+		if s.Config().FakeMetrics == nil {
+			return errors.New("the simulator is reporting real metrics; fake metrics cannot be updated")
+		}
+		if err := s.updateFakeMetrics(update.FakeMetrics, s.Config().FakeMetrics); err != nil {
+			return fmt.Errorf("failed to update fake metrics: %w", err)
+		}
 	}
 	s.SetConfig(next)
 	return nil

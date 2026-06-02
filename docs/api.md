@@ -28,20 +28,23 @@ In addition, a set of the vLLM HTTP endpoints are suppored:
 | /health                 | Standard health check endpoint |
 | /health/ready           | Ensure the GPU is "actually working" before allowing the system to send it live traffic |
 
-The simulator also provides a `POST /fake_metrics` endpoint that supports partial updates to [fake metric](configuration.md#fake-metrics) values at runtime. This endpoint is specific to the simulator and is available only when a `--fake-metrics` configuration is provided at startup. The request body must be a JSON object containing the metrics to update; any metrics not specified are left unchanged.
+> **Deprecated:** the simulator also provides a `POST /fake_metrics` endpoint that accepts a [fake metric](configuration.md#fake-metrics) partial-update body directly (only available when started with a `--fake-metrics` configuration). The body is a JSON object containing the metrics to update; unspecified metrics are left unchanged. This endpoint is preserved for backward compatibility and will be removed in release v0.12.0; new callers should use `POST /admin/config` with a `fake-metrics` field instead.
 
 ### `/admin/config`
 
-The simulator exposes `GET` and `POST` on `/admin/config` for runtime configuration introspection and partial updates. This endpoint is simulator-specific and is intended for adjusting behavior (currently only failure injection) during a test run without restarting the process.
+The simulator exposes `GET` and `POST` on `/admin/config` for runtime configuration introspection and partial updates. This endpoint is simulator-specific and is intended for adjusting behavior (currently failure injection and fake metrics) during a test run without restarting the process.
 
 - **`GET /admin/config`** returns the current configuration as JSON. Internal helper fields (`LoraModulesString`, `LorasString`) are stripped, `LoraModules` is exposed as `lora-modules`, and the per-rank `port` is omitted when running with `--data-parallel-size > 1`.
 - **`POST /admin/config`** applies a partial JSON update and returns the new configuration. The request body must be a JSON object whose keys are a subset of the admin-configurable fields:
   - `failure-injection-rate` — integer in `[0, 100]`
   - `failure-types` — array of strings from `rate_limit`, `invalid_api_key`, `context_length`, `server_error`, `invalid_request`, `model_not_found`
+  - `fake-metrics` — partial update of [fake metric](configuration.md#fake-metrics) values. The value is itself a JSON object containing only the metrics to change; any metrics not specified are left unchanged. Available only when the simulator was started with a `--fake-metrics` configuration.
+
+     Absent fields and fields explicitly set to `null` are treated identically — both mean "leave unchanged". To clear a metric whose value is a slice or map (e.g. `ttft-buckets-values`, `request-success-total`), send an empty value: `[]` or `{}`. There is no way to clear a scalar metric (e.g. `running-requests`, `total-prompt-tokens`) via partial update — assign a new value instead.
 
   Bodies containing any other field, or values that fail validation, are rejected with `400 Bad Request` and the configuration is left unchanged. Updates are atomic and serialized: concurrent in-flight requests observe either the previous or the new configuration in full, never a mix.
 
-  Example:
+  Examples:
   ```bash
   # Enable 100% rate-limit failures
   curl -X POST http://localhost:8000/admin/config \
@@ -52,7 +55,13 @@ The simulator exposes `GET` and `POST` on `/admin/config` for runtime configurat
   curl -X POST http://localhost:8000/admin/config \
     -H 'Content-Type: application/json' \
     -d '{"failure-injection-rate": 0}'
+
+  # Update a subset of fake metrics
+  curl -X POST http://localhost:8000/admin/config \
+    -H 'Content-Type: application/json' \
+    -d '{"fake-metrics": {"running-requests": 7, "kv-cache-usage": 0.5}}'
   ```
+
 
 ### Request headers
 

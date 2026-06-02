@@ -19,7 +19,6 @@ limitations under the License.
 package llmdinferencesim
 
 import (
-	"encoding/json"
 	"math"
 	"strconv"
 	"time"
@@ -28,6 +27,17 @@ import (
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 )
+
+// UpdateFakeMetricsFromBody applies a partial fake-metrics update parsed from
+// the body of the deprecated /fake_metrics endpoint. The body is the partial
+// itself (not wrapped in {"fake-metrics": ...}); we wrap it and dispatch
+// through ApplyConfigUpdate so it goes through the same validation, atomic
+// config swap, and Prometheus side-effect path as /admin/config.
+// Will be removed in v0.12.
+func (s *SimContext) UpdateFakeMetricsFromBody(body []byte) error {
+	wrapped := append(append([]byte(`{"fake-metrics":`), body...), '}')
+	return s.ApplyConfigUpdate(wrapped)
+}
 
 type generator func(params *common.FunctionInfo, t time.Duration) float64
 
@@ -41,33 +51,16 @@ type generatedFakeMetrics struct {
 func (s *SimContext) setInitialFakeMetrics() error {
 	s.metrics.generatedFakeMetrics = make(map[string]generatedFakeMetrics)
 
-	// Build a map of all configured JSON keys so that UpdateFakeMetrics
-	// processes every field. Fields with omitempty that are nil/zero are
-	// naturally excluded by json.Marshal.
-	data, err := json.Marshal(s.Config().FakeMetrics)
-	if err != nil {
-		return err
-	}
-	var allKeys map[string]any
-	if err := json.Unmarshal(data, &allKeys); err != nil {
-		return err
-	}
+	initial := s.Config().FakeMetrics
 
-	// Remove keys with null values — they represent unconfigured metrics
-	// (nil slices/maps) and should not be processed. Without this,
-	// updateTokenMetrics would create empty counter time series (e.g.
-	// prompt_tokens_total=0) for metrics the user never configured.
-	for k, v := range allKeys {
-		if v == nil {
-			delete(allKeys, k)
-		}
+	// Loras always need processing on initial setup so the default empty
+	// entry (no adapters, current timestamp) gets registered. Parser
+	// initializes LoraMetrics to a non-nil (possibly empty) slice for the
+	// configured case; force non-nil here to cover any path that didn't.
+	if initial.LoraMetrics == nil {
+		initial.LoraMetrics = []common.LorasMetrics{}
 	}
-	// Loras always need processing: when unconfigured, the default
-	// entry (empty adapters, current timestamp) must be set.
-	allKeys["loras"] = true
-
-	// No previous values on initial setup.
-	return s.UpdateFakeMetrics(allKeys, &common.FakeMetrics{})
+	return s.updateFakeMetrics(initial, nil)
 }
 
 func (s *SimContext) updateGeneratedFakeMetrics() {
@@ -186,198 +179,202 @@ func (s *SimContext) initFakeHistogram(hist *prometheus.HistogramVec, bucketsBou
 	return &total
 }
 
-// UpdateFakeMetrics applies a partial update to the simulator's Prometheus metrics
-// based on the keys present in fakeMetricsMap. Only metrics whose JSON key appears
-// in the map are touched — absent keys are left unchanged.
+// updateFakeMetrics applies a partial update to the simulator's Prometheus
+// metrics. update carries the fields to apply (nil fields are skipped); old
+// is the previous FakeMetrics state used to decide whether a collector
+// already exists and must be unregistered+recreated to drop accumulated
+// observations. old is nil at startup (setInitialFakeMetrics) where there is
+// no prior state.
 //
-// For histogram and counter metrics, if oldFakeMetrics indicates the metric had
-// previous fake values, the old Prometheus collector is unregistered and re-created
-// before applying the new observations. This ensures updated values replace (not
-// accumulate on top of) the old ones. When oldFakeMetrics has nil/zero values for a
-// metric, the metric is assumed clean and observations are added directly.
-//
-// This function is called both during initial setup (via setInitialFakeMetrics with
-// all configured keys and an empty oldFakeMetrics) and at runtime via the POST
-// /fake_metrics HTTP endpoint (with only the keys the caller supplied).
-func (s *SimContext) UpdateFakeMetrics(fakeMetricsMap map[string]any, oldFakeMetrics *common.FakeMetrics) error {
+// This function does not mutate any shared state — the merged FakeMetrics is
+// produced by Configuration.Update and swapped in by the caller via
+// SetConfig.
+func (s *SimContext) updateFakeMetrics(update *common.FakeMetrics, old *common.FakeMetrics) error {
 	var generatedFakeMetricsWasEmpty bool
 	if len(s.metrics.generatedFakeMetrics) == 0 {
 		generatedFakeMetricsWasEmpty = true
 	}
-	if _, ok := fakeMetricsMap["running-requests"]; ok {
-		s.setFakeMetricWithFunction(s.Config().DisplayModelName, &s.Config().FakeMetrics.RunningRequests, s.metrics.runningRequests,
+
+	if update.RunningRequests != nil {
+		s.setFakeMetricWithFunction(s.Config().DisplayModelName, update.RunningRequests, s.metrics.runningRequests,
 			s.metrics.runReqChan, true)
 	}
-	if _, ok := fakeMetricsMap["waiting-requests"]; ok {
-		s.setFakeMetricWithFunction(s.Config().DisplayModelName, &s.Config().FakeMetrics.WaitingRequests, s.metrics.waitingRequests,
+	if update.WaitingRequests != nil {
+		s.setFakeMetricWithFunction(s.Config().DisplayModelName, update.WaitingRequests, s.metrics.waitingRequests,
 			s.metrics.waitingReqChan, true)
 	}
-	if _, ok := fakeMetricsMap["kv-cache-usage"]; ok {
-		s.setFakeMetricWithFunction(s.Config().DisplayModelName, &s.Config().FakeMetrics.KVCacheUsagePercentage, s.metrics.kvCacheUsagePercentage,
+	if update.KVCacheUsagePercentage != nil {
+		s.setFakeMetricWithFunction(s.Config().DisplayModelName, update.KVCacheUsagePercentage, s.metrics.kvCacheUsagePercentage,
 			s.metrics.kvCacheUsageChan, false)
 	}
 
-	if _, ok := fakeMetricsMap["ttft-buckets-values"]; ok {
-		if oldFakeMetrics.TTFTBucketValues != nil {
+	if update.TTFTBucketValues != nil {
+		if old != nil && old.TTFTBucketValues != nil {
 			s.metrics.registry.Unregister(s.metrics.ttft)
 			if err := s.createAndRegisterTTFTMetric(); err != nil {
 				return err
 			}
 		}
-		s.initFakeHistogram(s.metrics.ttft, common.TTFTBucketsBoundaries, s.Config().FakeMetrics.TTFTBucketValues)
+		s.initFakeHistogram(s.metrics.ttft, common.TTFTBucketsBoundaries, update.TTFTBucketValues)
 	}
 
-	if _, ok := fakeMetricsMap["tpot-buckets-values"]; ok {
-		if oldFakeMetrics.TPOTBucketValues != nil {
+	if update.TPOTBucketValues != nil {
+		if old != nil && old.TPOTBucketValues != nil {
 			s.metrics.registry.Unregister(s.metrics.tpot)
 			s.metrics.registry.Unregister(s.metrics.interTokenLatency)
 			if err := s.createAndRegisterTPOTAndInterTokenMetrics(); err != nil {
 				return err
 			}
 		}
-		s.initFakeHistogram(s.metrics.tpot, common.TPOTBucketsBoundaries, s.Config().FakeMetrics.TPOTBucketValues)
-		s.initFakeHistogram(s.metrics.interTokenLatency, common.TPOTBucketsBoundaries, s.Config().FakeMetrics.TPOTBucketValues)
+		s.initFakeHistogram(s.metrics.tpot, common.TPOTBucketsBoundaries, update.TPOTBucketValues)
+		s.initFakeHistogram(s.metrics.interTokenLatency, common.TPOTBucketsBoundaries, update.TPOTBucketValues)
 	}
 
-	if _, ok := fakeMetricsMap["e2erl-buckets-values"]; ok {
-		if oldFakeMetrics.E2ERequestLatencyBucketValues != nil {
+	if update.E2ERequestLatencyBucketValues != nil {
+		if old != nil && old.E2ERequestLatencyBucketValues != nil {
 			s.metrics.registry.Unregister(s.metrics.e2eReqLatency)
 			if err := s.createAndRegisterE2EReqLatencyMetric(); err != nil {
 				return err
 			}
 		}
-		s.initFakeHistogram(s.metrics.e2eReqLatency, common.RequestLatencyBucketsBoundaries, s.Config().FakeMetrics.E2ERequestLatencyBucketValues)
+		s.initFakeHistogram(s.metrics.e2eReqLatency, common.RequestLatencyBucketsBoundaries, update.E2ERequestLatencyBucketValues)
 	}
 
-	if _, ok := fakeMetricsMap["queue-time-buckets-values"]; ok {
-		if oldFakeMetrics.ReqQueueTimeBucketValues != nil {
+	if update.ReqQueueTimeBucketValues != nil {
+		if old != nil && old.ReqQueueTimeBucketValues != nil {
 			s.metrics.registry.Unregister(s.metrics.reqQueueTime)
 			if err := s.createAndRegisterReqQueueTimeMetric(); err != nil {
 				return err
 			}
 		}
-		s.initFakeHistogram(s.metrics.reqQueueTime, common.RequestLatencyBucketsBoundaries, s.Config().FakeMetrics.ReqQueueTimeBucketValues)
+		s.initFakeHistogram(s.metrics.reqQueueTime, common.RequestLatencyBucketsBoundaries, update.ReqQueueTimeBucketValues)
 	}
 
-	if _, ok := fakeMetricsMap["inf-time-buckets-values"]; ok {
-		if oldFakeMetrics.ReqInfTimeBucketValues != nil {
+	if update.ReqInfTimeBucketValues != nil {
+		if old != nil && old.ReqInfTimeBucketValues != nil {
 			s.metrics.registry.Unregister(s.metrics.reqInferenceTime)
 			if err := s.createAndRegisterReqInferenceTimeMetric(); err != nil {
 				return err
 			}
 		}
-		s.initFakeHistogram(s.metrics.reqInferenceTime, common.RequestLatencyBucketsBoundaries, s.Config().FakeMetrics.ReqInfTimeBucketValues)
+		s.initFakeHistogram(s.metrics.reqInferenceTime, common.RequestLatencyBucketsBoundaries, update.ReqInfTimeBucketValues)
 	}
 
-	if _, ok := fakeMetricsMap["prefill-time-buckets-values"]; ok {
-		if oldFakeMetrics.ReqPrefillTimeBucketValues != nil {
+	if update.ReqPrefillTimeBucketValues != nil {
+		if old != nil && old.ReqPrefillTimeBucketValues != nil {
 			s.metrics.registry.Unregister(s.metrics.reqPrefillTime)
 			if err := s.createAndRegisterReqPrefillTimeMetric(); err != nil {
 				return err
 			}
 		}
-		s.initFakeHistogram(s.metrics.reqPrefillTime, common.RequestLatencyBucketsBoundaries, s.Config().FakeMetrics.ReqPrefillTimeBucketValues)
+		s.initFakeHistogram(s.metrics.reqPrefillTime, common.RequestLatencyBucketsBoundaries, update.ReqPrefillTimeBucketValues)
 	}
 
-	if _, ok := fakeMetricsMap["decode-time-buckets-values"]; ok {
-		if oldFakeMetrics.ReqDecodeTimeBucketValues != nil {
+	if update.ReqDecodeTimeBucketValues != nil {
+		if old != nil && old.ReqDecodeTimeBucketValues != nil {
 			s.metrics.registry.Unregister(s.metrics.reqDecodeTime)
 			if err := s.createAndRegisterReqDecodeTimeMetric(); err != nil {
 				return err
 			}
 		}
-		s.initFakeHistogram(s.metrics.reqDecodeTime, common.RequestLatencyBucketsBoundaries, s.Config().FakeMetrics.ReqDecodeTimeBucketValues)
+		s.initFakeHistogram(s.metrics.reqDecodeTime, common.RequestLatencyBucketsBoundaries, update.ReqDecodeTimeBucketValues)
 	}
 
 	buckets := Build125Buckets(s.Config().MaxModelLen)
 
-	if _, ok := fakeMetricsMap["request-params-max-tokens"]; ok {
-		if oldFakeMetrics.RequestParamsMaxTokens != nil {
+	if update.RequestParamsMaxTokens != nil {
+		if old != nil && old.RequestParamsMaxTokens != nil {
 			s.metrics.registry.Unregister(s.metrics.requestParamsMaxTokens)
 			if err := s.createAndRegisterReqParamsMaxTokensMetric(); err != nil {
 				return err
 			}
 		}
-		s.initFakeHistogram(s.metrics.requestParamsMaxTokens, buckets, s.Config().FakeMetrics.RequestParamsMaxTokens)
+		s.initFakeHistogram(s.metrics.requestParamsMaxTokens, buckets, update.RequestParamsMaxTokens)
 	}
 
-	if _, ok := fakeMetricsMap["request-max-generation-tokens"]; ok {
-		if oldFakeMetrics.RequestMaxGenerationTokens != nil {
+	if update.RequestMaxGenerationTokens != nil {
+		if old != nil && old.RequestMaxGenerationTokens != nil {
 			s.metrics.registry.Unregister(s.metrics.maxNumGenerationTokens)
 			if err := s.createAndRegisterMaxNumGenerationTokensMetric(); err != nil {
 				return err
 			}
 		}
-		s.initFakeHistogram(s.metrics.maxNumGenerationTokens, buckets, s.Config().FakeMetrics.RequestMaxGenerationTokens)
+		s.initFakeHistogram(s.metrics.maxNumGenerationTokens, buckets, update.RequestMaxGenerationTokens)
+	}
+
+	var oldRequestPromptTokens, oldRequestGenerationTokens []int
+	var oldTotalPromptTokens, oldTotalGenerationTokens *int64
+	var oldPrefixCacheQueries, oldPrefixCacheHits *int64
+	var oldRequestSuccessTotal map[string]int64
+	if old != nil {
+		oldRequestPromptTokens = old.RequestPromptTokens
+		oldRequestGenerationTokens = old.RequestGenerationTokens
+		oldTotalPromptTokens = old.TotalPromptTokens
+		oldTotalGenerationTokens = old.TotalGenerationTokens
+		oldPrefixCacheQueries = old.PrefixCacheQueries
+		oldPrefixCacheHits = old.PrefixCacheHits
+		oldRequestSuccessTotal = old.RequestSuccessTotal
 	}
 
 	if err := s.updateTokenMetrics(
-		s.Config().DisplayModelName, buckets, fakeMetricsMap,
-		"request-prompt-tokens", "total-prompt-tokens",
-		s.Config().FakeMetrics.RequestPromptTokens, oldFakeMetrics.RequestPromptTokens,
-		s.Config().FakeMetrics.TotalPromptTokens, oldFakeMetrics.TotalPromptTokens,
+		s.Config().DisplayModelName, buckets,
+		update.RequestPromptTokens, oldRequestPromptTokens,
+		update.TotalPromptTokens, oldTotalPromptTokens,
 		&s.metrics.requestPromptTokens, &s.metrics.promptTokensTotal,
 		s.createAndRegisterReqPromptTokensMetrics, s.createAndRegisterPromptTokensTotalMetrics,
-		func() { s.Config().FakeMetrics.TotalPromptTokens = nil },
 	); err != nil {
 		return err
 	}
 
 	if err := s.updateTokenMetrics(
-		s.Config().DisplayModelName, buckets, fakeMetricsMap,
-		"request-generation-tokens", "total-generation-tokens",
-		s.Config().FakeMetrics.RequestGenerationTokens, oldFakeMetrics.RequestGenerationTokens,
-		s.Config().FakeMetrics.TotalGenerationTokens, oldFakeMetrics.TotalGenerationTokens,
+		s.Config().DisplayModelName, buckets,
+		update.RequestGenerationTokens, oldRequestGenerationTokens,
+		update.TotalGenerationTokens, oldTotalGenerationTokens,
 		&s.metrics.requestGenerationTokens, &s.metrics.generationTokensTotal,
 		s.createAndRegisterReqGenerationTokensMetrics, s.createAndRegisterGenerationTokensTotalMetrics,
-		func() { s.Config().FakeMetrics.TotalGenerationTokens = nil },
 	); err != nil {
 		return err
 	}
 
-	if _, ok := fakeMetricsMap["prefix-cache-queries"]; ok {
-		if oldFakeMetrics.PrefixCacheQueries != nil {
+	if update.PrefixCacheQueries != nil {
+		if oldPrefixCacheQueries != nil {
 			s.metrics.registry.Unregister(s.metrics.prefixCacheQueries)
 			if err := s.createAndRegisterPrefixCacheQueriesMetric(); err != nil {
 				return err
 			}
 		}
-		if s.Config().FakeMetrics.PrefixCacheQueries != nil {
-			s.metrics.prefixCacheQueries.WithLabelValues(s.Config().DisplayModelName).Add(float64(*s.Config().FakeMetrics.PrefixCacheQueries))
-		}
+		s.metrics.prefixCacheQueries.WithLabelValues(s.Config().DisplayModelName).Add(float64(*update.PrefixCacheQueries))
 	}
 
-	if _, ok := fakeMetricsMap["prefix-cache-hits"]; ok {
-		if oldFakeMetrics.PrefixCacheHits != nil {
+	if update.PrefixCacheHits != nil {
+		if oldPrefixCacheHits != nil {
 			s.metrics.registry.Unregister(s.metrics.prefixCacheHits)
 			if err := s.createAndRegisterPrefixCacheHitsMetric(); err != nil {
 				return err
 			}
 		}
-		if s.Config().FakeMetrics.PrefixCacheHits != nil {
-			s.metrics.prefixCacheHits.WithLabelValues(s.Config().DisplayModelName).Add(float64(*s.Config().FakeMetrics.PrefixCacheHits))
-		}
+		s.metrics.prefixCacheHits.WithLabelValues(s.Config().DisplayModelName).Add(float64(*update.PrefixCacheHits))
 	}
 
-	if _, ok := fakeMetricsMap["request-success-total"]; ok {
-		if oldFakeMetrics.RequestSuccessTotal != nil {
+	if update.RequestSuccessTotal != nil {
+		if oldRequestSuccessTotal != nil {
 			s.metrics.registry.Unregister(s.metrics.requestSuccessTotal)
 			if err := s.createAndRegisterRequestSuccessTotalMetric(); err != nil {
 				return err
 			}
 		}
-		for reason, requestSuccessTotal := range s.Config().FakeMetrics.RequestSuccessTotal {
+		for reason, requestSuccessTotal := range update.RequestSuccessTotal {
 			s.metrics.requestSuccessTotal.WithLabelValues(s.Config().DisplayModelName, reason).Add(float64(requestSuccessTotal))
 		}
 	}
 
-	if _, ok := fakeMetricsMap["loras"]; ok {
+	if update.LoraMetrics != nil {
 		s.metrics.registry.Unregister(s.metrics.loraInfo)
 		if err := s.createAndRegisterLoraInfoMetric(); err != nil {
 			return err
 		}
-		if len(s.Config().FakeMetrics.LoraMetrics) != 0 {
-			for _, metrics := range s.Config().FakeMetrics.LoraMetrics {
+		if len(update.LoraMetrics) != 0 {
+			for _, metrics := range update.LoraMetrics {
 				s.metrics.loraInfo.WithLabelValues(
 					strconv.Itoa(s.Config().MaxLoras),
 					metrics.RunningLoras,
@@ -401,15 +398,14 @@ func (s *SimContext) UpdateFakeMetrics(fakeMetricsMap map[string]any, oldFakeMet
 	return nil
 }
 
-// updateTokenMetrics handles the update logic for a histogram+counter token metric pair.
-// It updates the histogram if new values are provided, then conditionally resets and updates
-// the associated total counter based on what changed between old and new configurations.
+// updateTokenMetrics handles the update logic for a histogram+counter token
+// metric pair. It updates the histogram if new values are provided, then
+// conditionally resets and updates the associated total counter based on what
+// changed between old and new configurations. No state is mutated; the merged
+// FakeMetrics is produced separately by Configuration.Update.
 func (s *SimContext) updateTokenMetrics(
 	modelName string,
 	buckets []float64,
-	fakeMetricsMap map[string]any,
-	histKey string,
-	totalKey string,
 	newHistValues []int,
 	oldHistValues []int,
 	newExplicitTotal *int64,
@@ -418,10 +414,9 @@ func (s *SimContext) updateTokenMetrics(
 	counter **prometheus.CounterVec,
 	recreateHist func() error,
 	recreateCounter func() error,
-	clearExplicit func(),
 ) error {
-	_, newHasHist := fakeMetricsMap[histKey]
-	_, newHasExplicit := fakeMetricsMap[totalKey]
+	newHasHist := newHistValues != nil
+	newHasExplicit := newExplicitTotal != nil
 
 	// Update histogram if new values are provided.
 	var histTotal *int64
@@ -437,8 +432,7 @@ func (s *SimContext) updateTokenMetrics(
 
 	// The counter can be set from two sources: an explicit total value,
 	// or derived from the request histogram.
-	needsUpdate := (newHasExplicit && newExplicitTotal != nil) || newHasHist
-	if !needsUpdate {
+	if !newHasHist && !newHasExplicit {
 		return nil
 	}
 
@@ -450,20 +444,14 @@ func (s *SimContext) updateTokenMetrics(
 		}
 	}
 
-	// Use the explicit total if provided, otherwise use the total derived from the histogram.
+	// Use the explicit total if provided, otherwise use the total derived from
+	// the histogram.
 	tokenTotal := histTotal
-	if newHasExplicit && newExplicitTotal != nil {
+	if newHasExplicit {
 		tokenTotal = newExplicitTotal
 	}
 	if tokenTotal != nil {
 		(*counter).WithLabelValues(modelName).Add(float64(*tokenTotal))
-	}
-
-	// Clear the stale explicit total when a histogram is newly introduced
-	// without an accompanying explicit total — the counter will now be
-	// derived from the histogram.
-	if !newHasExplicit && newHasHist && oldHistValues == nil {
-		clearExplicit()
 	}
 
 	return nil

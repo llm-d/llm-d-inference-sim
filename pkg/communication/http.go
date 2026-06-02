@@ -781,8 +781,8 @@ func (c *Communication) HandleHealthReady(ctx *fasthttp.RequestCtx) {
 // HandleReady http handler for /ready
 func (c *Communication) HandleReady(ctx *fasthttp.RequestCtx) {
 	c.logger.V(logging.TRACE).Info("Readiness request received")
-	if !c.deprecatedLogged {
-		c.deprecatedLogged = true
+	if !c.readyDeprecatedLogged {
+		c.readyDeprecatedLogged = true
 		c.logger.V(logging.INFO).Info("/ready endpoint is deprecated and will be removed in a future release; please use /health/ready instead")
 	}
 	ctx.Response.Header.SetContentType("application/json")
@@ -927,11 +927,14 @@ func (c *Communication) HandleGetAdminConfig(ctx *fasthttp.RequestCtx) {
 }
 
 // HandlePostAdminConfig http handler for POST /admin/config — updates the
-// admin-configurable subset of fields.
+// admin-configurable subset of fields. A "fake-metrics" key in the body is
+// dispatched (by the simulator context) to ApplyFakeMetricsBody, which has
+// the same partial-update semantics as the (deprecated) /fake_metrics
+// endpoint.
 func (c *Communication) HandlePostAdminConfig(ctx *fasthttp.RequestCtx) {
 	c.logger.V(logging.INFO).Info("Update admin config request received")
 
-	if err := c.simulator.Context.ApplyAdminConfigUpdate(ctx.Request.Body()); err != nil {
+	if err := c.simulator.Context.ApplyConfigUpdate(ctx.Request.Body()); err != nil {
 		errToSend := openaiserverapi.NewError(err.Error(), fasthttp.StatusBadRequest, nil)
 		c.sendError(ctx, &errToSend, false)
 		return
@@ -952,24 +955,19 @@ func (c *Communication) writeAdminConfigResponse(ctx *fasthttp.RequestCtx) {
 	ctx.Response.SetBody(data)
 }
 
-// HandleFakeMetrics HTTP handler for /fake_metrics
+// HandleFakeMetrics HTTP handler for /fake_metrics.
+//
+// Deprecated: superseded by POST /admin/config with a "fake-metrics" field;
+// scheduled for removal in release v0.12.0.
 func (c *Communication) HandleFakeMetrics(ctx *fasthttp.RequestCtx) {
 	c.logger.V(logging.INFO).Info("Fake metrics update received")
 
-	if c.simulator.Context.Config().FakeMetrics == nil {
-		errToSend := openaiserverapi.NewError("The simulator is reporting real metrics; fake metrics cannot be updated.", fasthttp.StatusBadRequest, nil)
-		c.sendError(ctx, &errToSend, false)
-		return
+	if !c.fakeMetricsDeprecatedLogged {
+		c.fakeMetricsDeprecatedLogged = true
+		c.logger.V(logging.INFO).Info("/fake_metrics endpoint is deprecated and will be removed in release v0.12.0; please use POST /admin/config with a 'fake-metrics' field instead")
 	}
 
-	oldFakeMetrics, fmMap, err := c.simulator.Context.Config().FakeMetrics.UnmarshalUpdateJSON(ctx.Request.Body())
-	if err != nil {
-		errToSend := openaiserverapi.NewError("Failed to unmarshal the payload: "+err.Error(), fasthttp.StatusBadRequest, nil)
-		c.sendError(ctx, &errToSend, false)
-		return
-	}
-
-	if err := c.simulator.Context.UpdateFakeMetrics(fmMap, oldFakeMetrics); err != nil {
+	if err := c.simulator.Context.UpdateFakeMetricsFromBody(ctx.Request.Body()); err != nil {
 		errToSend := openaiserverapi.NewError("Failed to update fake metrics: "+err.Error(), fasthttp.StatusInternalServerError, nil)
 		c.sendError(ctx, &errToSend, false)
 		return

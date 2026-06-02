@@ -581,34 +581,53 @@ func (c *Configuration) SSLEnabled() bool {
 var adminConfigurableFields = map[string]bool{
 	"failure-injection-rate": true,
 	"failure-types":          true,
+	"fake-metrics":           true,
 }
 
-// ApplyAdminUpdate validates a partial JSON update from the /admin/config
-// endpoint and returns a new Configuration with the changes applied, leaving
-// the receiver unchanged. The caller is expected to swap the configuration
-// pointer atomically.
-func (c *Configuration) ApplyAdminUpdate(body []byte) (*Configuration, error) {
+// Update validates a partial JSON update and returns two configurations:
+//   - next: a deep copy of the receiver with the body's changes applied.
+//     Ready to be atomically swapped in by the caller.
+//   - update: a fresh Configuration populated only with the fields that
+//     appeared in the body.
+//
+// "field absent" and "field set to null" both decode to a nil pointer or nil
+// slice; explicit null no longer clears a metric. To clear a slice/map
+// metric, send an empty value (`[]` or `{}`).
+func (c *Configuration) Update(body []byte) (*Configuration, *Configuration, error) {
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(body, &raw); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal payload: %w", err)
+		return nil, nil, fmt.Errorf("failed to unmarshal payload: %w", err)
 	}
+
 	for key := range raw {
 		if !adminConfigurableFields[key] {
-			return nil, fmt.Errorf("field '%s' is not admin-configurable", key)
+			return nil, nil, fmt.Errorf("field '%s' is not admin-configurable", key)
 		}
 	}
 
+	// update is a fresh struct populated only with the body's fields; the
+	// caller reads update.FakeMetrics to decide whether to apply Prometheus
+	// side effects.
+	update := &Configuration{}
+	if err := json.Unmarshal(body, update); err != nil {
+		return nil, nil, fmt.Errorf("failed to unmarshal payload: %w", err)
+	}
+
+	// next is a deep copy of c; unmarshalling body on top merges body fields
+	// into next, including overlaying the fake-metrics partial onto next's
+	// (deep-copied) FakeMetrics. validate() then sees the fully merged state.
 	next, err := c.Copy()
 	if err != nil {
-		return nil, fmt.Errorf("failed to copy configuration: %w", err)
+		return nil, nil, fmt.Errorf("failed to copy configuration: %w", err)
 	}
 	if err := json.Unmarshal(body, next); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal payload: %w", err)
+		return nil, nil, fmt.Errorf("failed to unmarshal payload: %w", err)
 	}
+
 	if err := next.validate(); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return next, nil
+	return next, update, nil
 }
 
 func (c *Configuration) Copy() (*Configuration, error) {

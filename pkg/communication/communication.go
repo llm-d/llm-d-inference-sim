@@ -45,7 +45,8 @@ type Communication struct {
 
 	pb.UnimplementedVllmEngineServer
 
-	deprecatedLogged bool
+	readyDeprecatedLogged       bool
+	fakeMetricsDeprecatedLogged bool
 
 	// startTime records when the server started, used for startup-duration readiness check
 	startTime time.Time
