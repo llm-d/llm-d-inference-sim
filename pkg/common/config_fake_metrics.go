@@ -197,7 +197,7 @@ func (f FakeMetricWithFunction) MarshalJSON() ([]byte, error) {
 		f.Function.Name,
 		strconv.FormatFloat(f.Function.Start, 'g', -1, 64),
 		strconv.FormatFloat(f.Function.End, 'g', -1, 64),
-		f.Function.Period,
+		f.Function.Period.String(),
 	)
 	return json.Marshal(encoded)
 }
