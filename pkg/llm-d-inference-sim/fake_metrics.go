@@ -190,10 +190,6 @@ func (s *SimContext) initFakeHistogram(hist *prometheus.HistogramVec, bucketsBou
 // produced by Configuration.Update and swapped in by the caller via
 // SetConfig.
 func (s *SimContext) updateFakeMetrics(update *common.FakeMetrics, old *common.FakeMetrics) error {
-	hadOld := func(check func(o *common.FakeMetrics) bool) bool {
-		return old != nil && check(old)
-	}
-
 	var generatedFakeMetricsWasEmpty bool
 	if len(s.metrics.generatedFakeMetrics) == 0 {
 		generatedFakeMetricsWasEmpty = true
@@ -213,7 +209,7 @@ func (s *SimContext) updateFakeMetrics(update *common.FakeMetrics, old *common.F
 	}
 
 	if update.TTFTBucketValues != nil {
-		if hadOld(func(o *common.FakeMetrics) bool { return o.TTFTBucketValues != nil }) {
+		if old != nil && old.TTFTBucketValues != nil {
 			s.metrics.registry.Unregister(s.metrics.ttft)
 			if err := s.createAndRegisterTTFTMetric(); err != nil {
 				return err
@@ -223,7 +219,7 @@ func (s *SimContext) updateFakeMetrics(update *common.FakeMetrics, old *common.F
 	}
 
 	if update.TPOTBucketValues != nil {
-		if hadOld(func(o *common.FakeMetrics) bool { return o.TPOTBucketValues != nil }) {
+		if old != nil && old.TPOTBucketValues != nil {
 			s.metrics.registry.Unregister(s.metrics.tpot)
 			s.metrics.registry.Unregister(s.metrics.interTokenLatency)
 			if err := s.createAndRegisterTPOTAndInterTokenMetrics(); err != nil {
@@ -235,7 +231,7 @@ func (s *SimContext) updateFakeMetrics(update *common.FakeMetrics, old *common.F
 	}
 
 	if update.E2ERequestLatencyBucketValues != nil {
-		if hadOld(func(o *common.FakeMetrics) bool { return o.E2ERequestLatencyBucketValues != nil }) {
+		if old != nil && old.E2ERequestLatencyBucketValues != nil {
 			s.metrics.registry.Unregister(s.metrics.e2eReqLatency)
 			if err := s.createAndRegisterE2EReqLatencyMetric(); err != nil {
 				return err
@@ -245,7 +241,7 @@ func (s *SimContext) updateFakeMetrics(update *common.FakeMetrics, old *common.F
 	}
 
 	if update.ReqQueueTimeBucketValues != nil {
-		if hadOld(func(o *common.FakeMetrics) bool { return o.ReqQueueTimeBucketValues != nil }) {
+		if old != nil && old.ReqQueueTimeBucketValues != nil {
 			s.metrics.registry.Unregister(s.metrics.reqQueueTime)
 			if err := s.createAndRegisterReqQueueTimeMetric(); err != nil {
 				return err
@@ -255,7 +251,7 @@ func (s *SimContext) updateFakeMetrics(update *common.FakeMetrics, old *common.F
 	}
 
 	if update.ReqInfTimeBucketValues != nil {
-		if hadOld(func(o *common.FakeMetrics) bool { return o.ReqInfTimeBucketValues != nil }) {
+		if old != nil && old.ReqInfTimeBucketValues != nil {
 			s.metrics.registry.Unregister(s.metrics.reqInferenceTime)
 			if err := s.createAndRegisterReqInferenceTimeMetric(); err != nil {
 				return err
@@ -265,7 +261,7 @@ func (s *SimContext) updateFakeMetrics(update *common.FakeMetrics, old *common.F
 	}
 
 	if update.ReqPrefillTimeBucketValues != nil {
-		if hadOld(func(o *common.FakeMetrics) bool { return o.ReqPrefillTimeBucketValues != nil }) {
+		if old != nil && old.ReqPrefillTimeBucketValues != nil {
 			s.metrics.registry.Unregister(s.metrics.reqPrefillTime)
 			if err := s.createAndRegisterReqPrefillTimeMetric(); err != nil {
 				return err
@@ -275,7 +271,7 @@ func (s *SimContext) updateFakeMetrics(update *common.FakeMetrics, old *common.F
 	}
 
 	if update.ReqDecodeTimeBucketValues != nil {
-		if hadOld(func(o *common.FakeMetrics) bool { return o.ReqDecodeTimeBucketValues != nil }) {
+		if old != nil && old.ReqDecodeTimeBucketValues != nil {
 			s.metrics.registry.Unregister(s.metrics.reqDecodeTime)
 			if err := s.createAndRegisterReqDecodeTimeMetric(); err != nil {
 				return err
@@ -287,7 +283,7 @@ func (s *SimContext) updateFakeMetrics(update *common.FakeMetrics, old *common.F
 	buckets := Build125Buckets(s.Config().MaxModelLen)
 
 	if update.RequestParamsMaxTokens != nil {
-		if hadOld(func(o *common.FakeMetrics) bool { return o.RequestParamsMaxTokens != nil }) {
+		if old != nil && old.RequestParamsMaxTokens != nil {
 			s.metrics.registry.Unregister(s.metrics.requestParamsMaxTokens)
 			if err := s.createAndRegisterReqParamsMaxTokensMetric(); err != nil {
 				return err
@@ -297,7 +293,7 @@ func (s *SimContext) updateFakeMetrics(update *common.FakeMetrics, old *common.F
 	}
 
 	if update.RequestMaxGenerationTokens != nil {
-		if hadOld(func(o *common.FakeMetrics) bool { return o.RequestMaxGenerationTokens != nil }) {
+		if old != nil && old.RequestMaxGenerationTokens != nil {
 			s.metrics.registry.Unregister(s.metrics.maxNumGenerationTokens)
 			if err := s.createAndRegisterMaxNumGenerationTokensMetric(); err != nil {
 				return err

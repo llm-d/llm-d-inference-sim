@@ -40,7 +40,7 @@ The simulator exposes `GET` and `POST` on `/admin/config` for runtime configurat
   - `failure-types` — array of strings from `rate_limit`, `invalid_api_key`, `context_length`, `server_error`, `invalid_request`, `model_not_found`
   - `fake-metrics` — partial update of [fake metric](configuration.md#fake-metrics) values. The value is itself a JSON object containing only the metrics to change; any metrics not specified are left unchanged. Available only when the simulator was started with a `--fake-metrics` configuration.
 
-    Field-absent and explicit `null` are treated identically — both mean "leave unchanged". To clear a metric whose value is a slice or map (e.g. `ttft-buckets-values`, `request-success-total`), send an empty value: `[]` or `{}`. There is no way to clear a scalar metric (e.g. `running-requests`, `total-prompt-tokens`) via partial update — assign a new value instead.
+     Absent fields and fields explicitly set to `null` are treated identically — both mean "leave unchanged". To clear a metric whose value is a slice or map (e.g. `ttft-buckets-values`, `request-success-total`), send an empty value: `[]` or `{}`. There is no way to clear a scalar metric (e.g. `running-requests`, `total-prompt-tokens`) via partial update — assign a new value instead.
 
   Bodies containing any other field, or values that fail validation, are rejected with `400 Bad Request` and the configuration is left unchanged. Updates are atomic and serialized: concurrent in-flight requests observe either the previous or the new configuration in full, never a mix.
 
