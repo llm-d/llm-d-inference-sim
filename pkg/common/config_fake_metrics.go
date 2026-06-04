@@ -37,7 +37,7 @@ const (
 type FakeMetrics struct {
 	// LoraMetrics
 	LoraMetrics []LorasMetrics `json:"loras"`
-	LorasString []string       `yaml:"loras"`
+	LorasString []string       `yaml:"loras" json:"-"`
 
 	// The fake metrics of type FakeMetricWithFunction can be either a fixed number or a generator
 	// function that produces fake metric values over time, using the parameters start, end, and period.

@@ -68,10 +68,41 @@ type SimContext struct {
 	kvcacheHelper *kvcache.KVCacheHelper
 	// dataset is used for token generation in responses
 	dataset dataset.Dataset
-	// latencyCalculator calculates the delays in simulator's responses
-	latencyCalculator LatencyCalculator
+	// latencyCalculator calculates the delays in simulator's responses.
+	// Held in an atomic.Pointer (via a holder struct) so admin-config updates
+	// can swap in a fresh calculator without racing against the workers that
+	// read it on every request. A holder is needed because the three
+	// calculator types (default/constant/per-token) are different concrete
+	// types implementing LatencyCalculator, which atomic.Value would reject.
+	latencyCalculator atomic.Pointer[latencyCalcHolder]
 	// Tokenizer used for request tokenization and in /tokenize
 	Tokenizer tokenizer.Tokenizer
+}
+
+type latencyCalcHolder struct {
+	calc LatencyCalculator
+}
+
+// LatencyCalc returns the current latency calculator. Safe for concurrent
+// reads while admin updates rebuild it.
+func (s *SimContext) LatencyCalc() LatencyCalculator {
+	return s.latencyCalculator.Load().calc
+}
+
+// rebuildLatencyCalculator constructs a calculator from the current config
+// and atomically replaces the existing one. Called both at init and after
+// each successful admin-config update.
+func (s *SimContext) rebuildLatencyCalculator() {
+	var calc LatencyCalculator
+	switch s.Config().LatencyCalculator {
+	case common.DefaultLatencyCalculator:
+		calc = newDefaultCalculator(s.Config(), s.Random)
+	case common.ConstantLatencyCalculator:
+		calc = newConstantCalculator(s.Config(), s.Random)
+	case common.PerPromptTokenLatencyCalculator:
+		calc = newPerTokenCalculator(s.Config(), s.Random)
+	}
+	s.latencyCalculator.Store(&latencyCalcHolder{calc: calc})
 }
 
 // Config returns the current configuration. Safe for concurrent reads while
@@ -97,7 +128,7 @@ func (s *SimContext) ApplyConfigUpdate(body []byte) error {
 	s.adminMu.Lock()
 	defer s.adminMu.Unlock()
 
-	next, update, err := s.Config().Update(body)
+	next, update, latencyChanged, err := s.Config().Update(body)
 	if err != nil {
 		return err
 	}
@@ -110,20 +141,18 @@ func (s *SimContext) ApplyConfigUpdate(body []byte) error {
 		}
 	}
 	s.SetConfig(next)
+	// The calculator caches latency-related fields at construction time, so
+	// rebuild it whenever any of those fields was updated.
+	if latencyChanged {
+		s.rebuildLatencyCalculator()
+	}
 	return nil
 }
 
 func (s *SimContext) initialize(ctx context.Context) error {
 	s.Random = common.NewRandom(s.Config().Seed, s.Config().Port)
 
-	switch s.Config().LatencyCalculator {
-	case common.DefaultLatencyCalculator:
-		s.latencyCalculator = newDefaultCalculator(s.Config(), s.Random)
-	case common.ConstantLatencyCalculator:
-		s.latencyCalculator = newConstantCalculator(s.Config(), s.Random)
-	case common.PerPromptTokenLatencyCalculator:
-		s.latencyCalculator = newPerTokenCalculator(s.Config(), s.Random)
-	}
+	s.rebuildLatencyCalculator()
 
 	for _, lora := range s.Config().LoraModules {
 		s.loraAdaptors.Store(lora.Name, lora.Path)
@@ -231,7 +260,7 @@ func (s *SimContext) simulateTTFT(respCtx ResponseContext) {
 		DoRemotePrefill:    respCtx.doRemotePrefill(),
 		RunningReqs:        s.metrics.nRunningReqs,
 	}
-	ttft := s.latencyCalculator.GetTimeToFirstToken(&params)
+	ttft := s.LatencyCalc().GetTimeToFirstToken(&params)
 	time.Sleep(ttft)
 	// report ttft in seconds
 	common.WriteToChannel(s.metrics.ttftChan, ttft.Seconds(), s.logger)
@@ -239,7 +268,7 @@ func (s *SimContext) simulateTTFT(respCtx ResponseContext) {
 }
 
 func (s *SimContext) simulateInterTokenLatency() {
-	perTokenLatency := s.latencyCalculator.GetInterTokenLatency(&InterTokenParams{
+	perTokenLatency := s.LatencyCalc().GetInterTokenLatency(&InterTokenParams{
 		RunningReqs: s.metrics.nRunningReqs})
 	time.Sleep(perTokenLatency)
 

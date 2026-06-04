@@ -32,7 +32,7 @@ In addition, a set of the vLLM HTTP endpoints are suppored:
 
 ### `/admin/config`
 
-The simulator exposes `GET` and `POST` on `/admin/config` for runtime configuration introspection and partial updates. This endpoint is simulator-specific and is intended for adjusting behavior (currently failure injection and fake metrics) during a test run without restarting the process.
+The simulator exposes `GET` and `POST` on `/admin/config` for runtime configuration introspection and partial updates. This endpoint is simulator-specific and is intended for adjusting behavior (currently failure injection, fake metrics, and request latencies) during a test run without restarting the process.
 
 - **`GET /admin/config`** returns the current configuration as JSON. Internal helper fields (`LoraModulesString`, `LorasString`) are stripped, `LoraModules` is exposed as `lora-modules`, and the per-rank `port` is omitted when running with `--data-parallel-size > 1`.
 - **`POST /admin/config`** applies a partial JSON update and returns the new configuration. The request body must be a JSON object whose keys are a subset of the admin-configurable fields:
@@ -40,7 +40,8 @@ The simulator exposes `GET` and `POST` on `/admin/config` for runtime configurat
   - `failure-types` — array of strings from `rate_limit`, `invalid_api_key`, `context_length`, `server_error`, `invalid_request`, `model_not_found`
   - `fake-metrics` — partial update of [fake metric](configuration.md#fake-metrics) values. The value is itself a JSON object containing only the metrics to change; any metrics not specified are left unchanged. Available only when the simulator was started with a `--fake-metrics` configuration.
 
-     Absent fields and fields explicitly set to `null` are treated identically — both mean "leave unchanged". To clear a metric whose value is a slice or map (e.g. `ttft-buckets-values`, `request-success-total`), send an empty value: `[]` or `{}`. There is no way to clear a scalar metric (e.g. `running-requests`, `total-prompt-tokens`) via partial update — assign a new value instead.
+    Absent fields and fields explicitly set to `null` are treated identically — both mean "leave unchanged". To clear a metric whose value is a slice or map (e.g. `ttft-buckets-values`, `request-success-total`), send an empty value: `[]` or `{}`. There is no way to clear a scalar metric (e.g. `running-requests`, `total-prompt-tokens`) via partial update — assign a new value instead.
+  - Latency-related fields: `time-to-first-token`, `time-to-first-token-std-dev`, `inter-token-latency`, `inter-token-latency-std-dev`, `kv-cache-transfer-latency`, `kv-cache-transfer-latency-std-dev`, `prefill-overhead`, `prefill-time-per-token`, `prefill-time-std-dev`, `kv-cache-transfer-time-per-token`, `kv-cache-transfer-time-std-dev`, `time-factor-under-load` (float), `latency-calculator` (string; same accepted values as the `--latency-calculator` flag). Duration fields accept either a Go duration string (e.g. `"250ms"`, `"1s"`) or a JSON integer in nanoseconds — `GET /admin/config` returns duration strings. The same validation rules apply as at startup (no negative values; std-dev ≤ 30 % of base; `time-factor-under-load` ≥ 1.0). Updates take effect on subsequent requests.
 
   Bodies containing any other field, or values that fail validation, are rejected with `400 Bad Request` and the configuration is left unchanged. Updates are atomic and serialized: concurrent in-flight requests observe either the previous or the new configuration in full, never a mix.
 
@@ -60,6 +61,11 @@ The simulator exposes `GET` and `POST` on `/admin/config` for runtime configurat
   curl -X POST http://localhost:8000/admin/config \
     -H 'Content-Type: application/json' \
     -d '{"fake-metrics": {"running-requests": 7, "kv-cache-usage": 0.5}}'
+
+  # Slow down responses: 500 ms TTFT, 20 ms inter-token latency
+  curl -X POST http://localhost:8000/admin/config \
+    -H 'Content-Type: application/json' \
+    -d '{"time-to-first-token": "500ms", "inter-token-latency": "20ms"}'
   ```
 
 
