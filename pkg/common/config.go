@@ -578,24 +578,20 @@ func (c *Configuration) SSLEnabled() bool {
 	return (c.SSLCertFile != "" && c.SSLKeyFile != "") || c.SelfSignedCerts
 }
 
-// rebuildCategoryFields is the set of admin-configurable JSON field names
-// belonging to one rebuild category.
-type rebuildCategoryFields map[string]bool
-
 // durationFields holds the JSON key names of all time.Duration fields in Configuration.
-// configurableFields maps each rebuild category to the set of admin-configurable field
-// JSON keys in that category. The rebuild category is the value of the rebuild struct tag
-// (e.g. "latency"); fields with no rebuild tag use "" as the category.
+// configurableFields maps each admin-configurable JSON field key to the list of rebuild
+// tags it carries (values of the rebuild struct tag, e.g. ["latency"]).
+// Fields with no rebuild tag map to nil.
 // Both are populated once at init via reflection so there is no static list to
 // keep in sync with the struct.
 var (
 	durationFields     map[string]bool
-	configurableFields map[string]rebuildCategoryFields
+	configurableFields map[string][]string
 )
 
 func init() {
 	durationFields = make(map[string]bool)
-	configurableFields = make(map[string]rebuildCategoryFields)
+	configurableFields = make(map[string][]string)
 	durationType := reflect.TypeOf(time.Duration(0))
 	t := reflect.TypeOf(Configuration{})
 	for i := range t.NumField() {
@@ -608,11 +604,11 @@ func init() {
 			durationFields[jsonKey] = true
 		}
 		if f.Tag.Get("admin") == "configurable" {
-			category := f.Tag.Get("rebuild")
-			if configurableFields[category] == nil {
-				configurableFields[category] = make(rebuildCategoryFields)
+			if rebuildTag := f.Tag.Get("rebuild"); rebuildTag != "" {
+				configurableFields[jsonKey] = []string{rebuildTag}
+			} else {
+				configurableFields[jsonKey] = nil
 			}
-			configurableFields[category][jsonKey] = true
 		}
 	}
 }
@@ -640,18 +636,6 @@ func normalizeDurationStrings(raw map[string]json.RawMessage) error {
 		raw[key] = ns
 	}
 	return nil
-}
-
-// isConfigurable returns the rebuild category for key if it is admin-configurable
-// (ok == true), or ("", false) if not. The category is the value of the rebuild
-// struct tag (e.g. "latency"), or "" for fields with no rebuild tag.
-func isConfigurable(key string) (category string, ok bool) {
-	for cat, fields := range configurableFields {
-		if fields[key] {
-			return cat, true
-		}
-	}
-	return "", false
 }
 
 // Update validates a partial JSON update and returns:
@@ -684,12 +668,14 @@ func (c *Configuration) Update(body []byte) (*Configuration, *Configuration, boo
 
 	latencyChanged := false
 	for key := range raw {
-		category, ok := isConfigurable(key)
-		if !ok {
+		rebuildTags, isConfigurable := configurableFields[key]
+		if !isConfigurable {
 			return nil, nil, false, fmt.Errorf("field '%s' is not admin-configurable", key)
 		}
-		if category == "latency" {
-			latencyChanged = true
+		for _, tag := range rebuildTags {
+			if tag == "latency" {
+				latencyChanged = true
+			}
 		}
 	}
 

@@ -898,29 +898,25 @@ var _ = Describe("admin struct tags", func() {
 		}
 	})
 
-	It("configurableFields[\"latency\"] contains exactly the expected latency fields", func() {
-		Expect(configurableFields["latency"]).To(Equal(rebuildCategoryFields{
-			"time-to-first-token":               true,
-			"time-to-first-token-std-dev":       true,
-			"inter-token-latency":               true,
-			"inter-token-latency-std-dev":       true,
-			"kv-cache-transfer-latency":         true,
-			"kv-cache-transfer-latency-std-dev": true,
-			"prefill-overhead":                  true,
-			"prefill-time-per-token":            true,
-			"prefill-time-std-dev":              true,
-			"kv-cache-transfer-time-per-token":  true,
-			"kv-cache-transfer-time-std-dev":    true,
-			"time-factor-under-load":            true,
-			"latency-calculator":                true,
-		}))
-	})
-
-	It("configurableFields[\"\"] contains exactly the expected non-rebuild configurable fields", func() {
-		Expect(configurableFields[""]).To(Equal(rebuildCategoryFields{
-			"failure-injection-rate": true,
-			"failure-types":          true,
-			"fake-metrics":           true,
+	It("configurableFields contains exactly the expected entries with their rebuild tags", func() {
+		latencyTag := []string{"latency"}
+		Expect(configurableFields).To(Equal(map[string][]string{
+			"time-to-first-token":               latencyTag,
+			"time-to-first-token-std-dev":       latencyTag,
+			"inter-token-latency":               latencyTag,
+			"inter-token-latency-std-dev":       latencyTag,
+			"kv-cache-transfer-latency":         latencyTag,
+			"kv-cache-transfer-latency-std-dev": latencyTag,
+			"prefill-overhead":                  latencyTag,
+			"prefill-time-per-token":            latencyTag,
+			"prefill-time-std-dev":              latencyTag,
+			"kv-cache-transfer-time-per-token":  latencyTag,
+			"kv-cache-transfer-time-std-dev":    latencyTag,
+			"time-factor-under-load":            latencyTag,
+			"latency-calculator":                latencyTag,
+			"failure-injection-rate":            nil,
+			"failure-types":                     nil,
+			"fake-metrics":                      nil,
 		}))
 	})
 
