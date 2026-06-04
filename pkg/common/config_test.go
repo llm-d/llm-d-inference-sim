@@ -899,24 +899,23 @@ var _ = Describe("admin struct tags", func() {
 	})
 
 	It("configurableFields contains exactly the expected entries with their rebuild tags", func() {
-		latencyTag := []string{"latency"}
-		Expect(configurableFields).To(Equal(map[string][]string{
-			"time-to-first-token":               latencyTag,
-			"time-to-first-token-std-dev":       latencyTag,
-			"inter-token-latency":               latencyTag,
-			"inter-token-latency-std-dev":       latencyTag,
-			"kv-cache-transfer-latency":         latencyTag,
-			"kv-cache-transfer-latency-std-dev": latencyTag,
-			"prefill-overhead":                  latencyTag,
-			"prefill-time-per-token":            latencyTag,
-			"prefill-time-std-dev":              latencyTag,
-			"kv-cache-transfer-time-per-token":  latencyTag,
-			"kv-cache-transfer-time-std-dev":    latencyTag,
-			"time-factor-under-load":            latencyTag,
-			"latency-calculator":                latencyTag,
-			"failure-injection-rate":            nil,
-			"failure-types":                     nil,
-			"fake-metrics":                      nil,
+		Expect(configurableFields).To(Equal(map[string]string{
+			"time-to-first-token":               "latency",
+			"time-to-first-token-std-dev":       "latency",
+			"inter-token-latency":               "latency",
+			"inter-token-latency-std-dev":       "latency",
+			"kv-cache-transfer-latency":         "latency",
+			"kv-cache-transfer-latency-std-dev": "latency",
+			"prefill-overhead":                  "latency",
+			"prefill-time-per-token":            "latency",
+			"prefill-time-std-dev":              "latency",
+			"kv-cache-transfer-time-per-token":  "latency",
+			"kv-cache-transfer-time-std-dev":    "latency",
+			"time-factor-under-load":            "latency",
+			"latency-calculator":                "latency",
+			"failure-injection-rate":            "",
+			"failure-types":                     "",
+			"fake-metrics":                      "",
 		}))
 	})
 

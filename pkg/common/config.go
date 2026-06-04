@@ -579,19 +579,18 @@ func (c *Configuration) SSLEnabled() bool {
 }
 
 // durationFields holds the JSON key names of all time.Duration fields in Configuration.
-// configurableFields maps each admin-configurable JSON field key to the list of rebuild
-// tags it carries (values of the rebuild struct tag, e.g. ["latency"]).
-// Fields with no rebuild tag map to nil.
+// configurableFields maps each admin-configurable JSON field key to its rebuild tag
+// (value of the rebuild struct tag, e.g. "latency"), or "" for fields with no rebuild tag.
 // Both are populated once at init via reflection so there is no static list to
 // keep in sync with the struct.
 var (
 	durationFields     map[string]bool
-	configurableFields map[string][]string
+	configurableFields map[string]string
 )
 
 func init() {
 	durationFields = make(map[string]bool)
-	configurableFields = make(map[string][]string)
+	configurableFields = make(map[string]string)
 	durationType := reflect.TypeOf(time.Duration(0))
 	t := reflect.TypeOf(Configuration{})
 	for i := range t.NumField() {
@@ -604,11 +603,7 @@ func init() {
 			durationFields[jsonKey] = true
 		}
 		if f.Tag.Get("admin") == "configurable" {
-			if rebuildTag := f.Tag.Get("rebuild"); rebuildTag != "" {
-				configurableFields[jsonKey] = []string{rebuildTag}
-			} else {
-				configurableFields[jsonKey] = nil
-			}
+			configurableFields[jsonKey] = f.Tag.Get("rebuild")
 		}
 	}
 }
@@ -668,14 +663,12 @@ func (c *Configuration) Update(body []byte) (*Configuration, *Configuration, boo
 
 	latencyChanged := false
 	for key := range raw {
-		rebuildTags, isConfigurable := configurableFields[key]
+		rebuildTag, isConfigurable := configurableFields[key]
 		if !isConfigurable {
 			return nil, nil, false, fmt.Errorf("field '%s' is not admin-configurable", key)
 		}
-		for _, tag := range rebuildTags {
-			if tag == "latency" {
-				latencyChanged = true
-			}
+		if rebuildTag == "latency" {
+			latencyChanged = true
 		}
 	}
 
