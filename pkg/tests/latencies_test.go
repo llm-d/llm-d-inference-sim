@@ -82,8 +82,8 @@ var _ = Describe("Latency admin config", func() {
 		}
 	})
 
-	Context("config validation and round-trip", func() {
-		BeforeEach(func() {
+	Context("config validation and round-trip", Ordered, func() {
+		BeforeAll(func() {
 			ctx = context.Background()
 			var err error
 			client, err = startServerWithArgs(ctx, []string{

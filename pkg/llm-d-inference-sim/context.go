@@ -80,12 +80,12 @@ type SimContext struct {
 }
 
 type latencyCalcHolder struct {
-	calc LatencyCalculator
+	calc latencyCalculator
 }
 
-// LatencyCalc returns the current latency calculator. Safe for concurrent
+// latencyCalc returns the current latency calculator. Safe for concurrent
 // reads while admin updates rebuild it.
-func (s *SimContext) LatencyCalc() LatencyCalculator {
+func (s *SimContext) latencyCalc() latencyCalculator {
 	return s.latencyCalculator.Load().calc
 }
 
@@ -93,7 +93,7 @@ func (s *SimContext) LatencyCalc() LatencyCalculator {
 // and atomically replaces the existing one. Called both at init and after
 // each successful admin-config update.
 func (s *SimContext) rebuildLatencyCalculator() {
-	var calc LatencyCalculator
+	var calc latencyCalculator
 	switch s.Config().LatencyCalculator {
 	case common.DefaultLatencyCalculator:
 		calc = newDefaultCalculator(s.Config(), s.Random)
@@ -260,7 +260,7 @@ func (s *SimContext) simulateTTFT(respCtx ResponseContext) {
 		DoRemotePrefill:    respCtx.doRemotePrefill(),
 		RunningReqs:        s.metrics.nRunningReqs,
 	}
-	ttft := s.LatencyCalc().GetTimeToFirstToken(&params)
+	ttft := s.latencyCalc().GetTimeToFirstToken(&params)
 	time.Sleep(ttft)
 	// report ttft in seconds
 	common.WriteToChannel(s.metrics.ttftChan, ttft.Seconds(), s.logger)
@@ -268,7 +268,7 @@ func (s *SimContext) simulateTTFT(respCtx ResponseContext) {
 }
 
 func (s *SimContext) simulateInterTokenLatency() {
-	perTokenLatency := s.LatencyCalc().GetInterTokenLatency(&InterTokenParams{
+	perTokenLatency := s.latencyCalc().GetInterTokenLatency(&InterTokenParams{
 		RunningReqs: s.metrics.nRunningReqs})
 	time.Sleep(perTokenLatency)
 

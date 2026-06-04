@@ -19,7 +19,6 @@ package common
 import (
 	"os"
 	"reflect"
-	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -742,12 +741,6 @@ var _ = Describe("ApplyAdminUpdate", func() {
 		Expect(latencyChanged).To(BeFalse())
 	})
 
-	It("accepts nanosecond integers for duration fields (backward compat)", func() {
-		next, _, _, err := base.Update([]byte(`{"time-to-first-token": 500000000}`))
-		Expect(err).ToNot(HaveOccurred())
-		Expect(next.TimeToFirstToken).To(Equal(500 * time.Millisecond))
-	})
-
 	It("rejects an invalid duration string", func() {
 		_, _, _, err := base.Update([]byte(`{"time-to-first-token": "notaduration"}`))
 		Expect(err).To(HaveOccurred())
@@ -894,50 +887,41 @@ var _ = Describe("admin struct tags", func() {
 		t := reflect.TypeOf(Configuration{})
 		for i := range t.NumField() {
 			f := t.Field(i)
-			Expect(f.Tag.Get("admin")).To(BeElementOf("", "configurable", "omit"),
+			Expect(f.Tag.Get("admin")).To(BeElementOf("", "configurable"),
 				"field %s has unexpected admin tag %q", f.Name, f.Tag.Get("admin"))
-			Expect(f.Tag.Get("latency")).To(BeElementOf("", "rebuild"),
-				"field %s has unexpected latency tag %q", f.Name, f.Tag.Get("latency"))
-			if f.Tag.Get("latency") == "rebuild" {
+			Expect(f.Tag.Get("rebuild")).To(BeElementOf("", "latency"),
+				"field %s has unexpected rebuild tag %q", f.Name, f.Tag.Get("rebuild"))
+			if f.Tag.Get("rebuild") == "latency" {
 				Expect(f.Tag.Get("admin")).To(Equal("configurable"),
-					"field %s has latency:\"rebuild\" but missing admin:\"configurable\"", f.Name)
-			}
-			if f.Tag.Get("admin") == "omit" {
-				jsonKey := strings.SplitN(f.Tag.Get("json"), ",", 2)[0]
-				Expect(latencyConfigKeys).NotTo(HaveKey(jsonKey),
-					"field %s is admin:\"omit\" but in latencyConfigKeys", f.Name)
-				Expect(otherConfigurableFields).NotTo(HaveKey(jsonKey),
-					"field %s is admin:\"omit\" but in otherConfigurableFields", f.Name)
+					"field %s has rebuild:\"latency\" but missing admin:\"configurable\"", f.Name)
 			}
 		}
 	})
 
-	It("latencyConfigKeys and otherConfigurableFields are disjoint", func() {
-		for key := range latencyConfigKeys {
-			Expect(otherConfigurableFields).NotTo(HaveKey(key))
-		}
+	It("configurableFields[\"latency\"] contains exactly the expected latency fields", func() {
+		Expect(configurableFields["latency"]).To(Equal(rebuildCategoryFields{
+			"time-to-first-token":               true,
+			"time-to-first-token-std-dev":        true,
+			"inter-token-latency":                true,
+			"inter-token-latency-std-dev":        true,
+			"kv-cache-transfer-latency":          true,
+			"kv-cache-transfer-latency-std-dev":  true,
+			"prefill-overhead":                   true,
+			"prefill-time-per-token":             true,
+			"prefill-time-std-dev":               true,
+			"kv-cache-transfer-time-per-token":   true,
+			"kv-cache-transfer-time-std-dev":     true,
+			"time-factor-under-load":             true,
+			"latency-calculator":                 true,
+		}))
 	})
 
-	It("latencyConfigKeys contains the expected latency fields", func() {
-		for _, key := range []string{
-			"time-to-first-token", "time-to-first-token-std-dev",
-			"inter-token-latency", "inter-token-latency-std-dev",
-			"kv-cache-transfer-latency", "kv-cache-transfer-latency-std-dev",
-			"prefill-overhead", "prefill-time-per-token", "prefill-time-std-dev",
-			"kv-cache-transfer-time-per-token", "kv-cache-transfer-time-std-dev",
-			"time-factor-under-load", "latency-calculator",
-		} {
-			Expect(latencyConfigKeys).To(HaveKey(key))
-		}
+	It("configurableFields[\"\"] contains exactly the expected non-rebuild configurable fields", func() {
+		Expect(configurableFields[""]).To(Equal(rebuildCategoryFields{
+			"failure-injection-rate": true,
+			"failure-types":          true,
+			"fake-metrics":           true,
+		}))
 	})
 
-	It("otherConfigurableFields contains the expected configurable fields", func() {
-		for _, key := range []string{"failure-injection-rate", "failure-types", "fake-metrics"} {
-			Expect(otherConfigurableFields).To(HaveKey(key))
-		}
-	})
-
-	It("omitFields contains the expected omitted fields", func() {
-		Expect(omitFields).To(HaveKey("lora-modules-string"))
-	})
 })

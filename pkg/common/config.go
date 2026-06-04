@@ -101,7 +101,7 @@ type Configuration struct {
 	// in a single request including input and output. Default value is 1024.
 	MaxModelLen int `yaml:"max-model-len" json:"max-model-len"`
 	// LoraModulesString is a list of LoRA adapters as strings (YAML parse helper; omitted from external output)
-	LoraModulesString []string `yaml:"lora-modules" json:"lora-modules-string" admin:"omit"`
+	LoraModulesString []string `yaml:"lora-modules" json:"-"`
 	// LoraModules is a list of LoRA adapters
 	LoraModules []LoraModule `json:"lora-modules"`
 
@@ -122,38 +122,38 @@ type Configuration struct {
 	// NOTE: For all duration fields please use duration strings, e.g., "100ms", "1.5s"
 
 	// TimeToFirstToken time before the first token will be returned
-	TimeToFirstToken time.Duration `yaml:"time-to-first-token" json:"time-to-first-token" admin:"configurable" latency:"rebuild"`
+	TimeToFirstToken time.Duration `yaml:"time-to-first-token" json:"time-to-first-token" admin:"configurable" rebuild:"latency"`
 	// TimeToFirstTokenStdDev standard deviation for time before the first token will be returned
 	// optional, default is 0, can't be more than 30% of TimeToFirstToken, will not
 	// cause the actual time to first token to differ by more than 70% from TimeToFirstToken
-	TimeToFirstTokenStdDev time.Duration `yaml:"time-to-first-token-std-dev" json:"time-to-first-token-std-dev" admin:"configurable" latency:"rebuild"`
+	TimeToFirstTokenStdDev time.Duration `yaml:"time-to-first-token-std-dev" json:"time-to-first-token-std-dev" admin:"configurable" rebuild:"latency"`
 
 	// InterTokenLatency time between generated tokens
-	InterTokenLatency time.Duration `yaml:"inter-token-latency" json:"inter-token-latency" admin:"configurable" latency:"rebuild"`
+	InterTokenLatency time.Duration `yaml:"inter-token-latency" json:"inter-token-latency" admin:"configurable" rebuild:"latency"`
 	// InterTokenLatencyStdDev standard deviation for time between generated tokens
 	// optional, default is 0, can't be more than 30% of InterTokenLatency, will not cause the actual
 	// inter token latency to differ by more than 70% from InterTokenLatency
-	InterTokenLatencyStdDev time.Duration `yaml:"inter-token-latency-std-dev" json:"inter-token-latency-std-dev" admin:"configurable" latency:"rebuild"`
+	InterTokenLatencyStdDev time.Duration `yaml:"inter-token-latency-std-dev" json:"inter-token-latency-std-dev" admin:"configurable" rebuild:"latency"`
 	// KVCacheTransferLatency time to "transfer" kv-cache from another vLLM instance in case P/D is activated,
-	KVCacheTransferLatency time.Duration `yaml:"kv-cache-transfer-latency" json:"kv-cache-transfer-latency" admin:"configurable" latency:"rebuild"`
+	KVCacheTransferLatency time.Duration `yaml:"kv-cache-transfer-latency" json:"kv-cache-transfer-latency" admin:"configurable" rebuild:"latency"`
 	// KVCacheTransferLatencyStdDev standard deviation for time to "transfer" kv-cache from another
 	// vLLM instance in case P/D is activated, can't be more than 30% of KVCacheTransferLatency, will not
 	// cause the actual latency to differ by more than 70% from KVCacheTransferLatency
-	KVCacheTransferLatencyStdDev time.Duration `yaml:"kv-cache-transfer-latency-std-dev" json:"kv-cache-transfer-latency-std-dev" admin:"configurable" latency:"rebuild"`
+	KVCacheTransferLatencyStdDev time.Duration `yaml:"kv-cache-transfer-latency-std-dev" json:"kv-cache-transfer-latency-std-dev" admin:"configurable" rebuild:"latency"`
 
 	// $Total Prefill Time = PrefillOverhead + n * PrefillTimePerToken$
 	// the assumption is that n is less than k, where k is the number of prallelism units of GPU
 	// PrefillOverhead time taken to prefill the context
-	PrefillOverhead     time.Duration `yaml:"prefill-overhead" json:"prefill-overhead" admin:"configurable" latency:"rebuild"`
-	PrefillTimePerToken time.Duration `yaml:"prefill-time-per-token" json:"prefill-time-per-token" admin:"configurable" latency:"rebuild"`
+	PrefillOverhead     time.Duration `yaml:"prefill-overhead" json:"prefill-overhead" admin:"configurable" rebuild:"latency"`
+	PrefillTimePerToken time.Duration `yaml:"prefill-time-per-token" json:"prefill-time-per-token" admin:"configurable" rebuild:"latency"`
 	// PrefillOverheadStdDev similar to TimeToFirstTokenStdDev
-	PrefillTimeStdDev time.Duration `yaml:"prefill-time-std-dev" json:"prefill-time-std-dev" admin:"configurable" latency:"rebuild"`
+	PrefillTimeStdDev time.Duration `yaml:"prefill-time-std-dev" json:"prefill-time-std-dev" admin:"configurable" rebuild:"latency"`
 	// $Total KV Cache Transfer Time = n * KVCacheTransferTimePerToken$
 	// the assumption is that the cache blocks are all missed at the remote pod
 	// KVCacheTransfer overhead time taken to transfer kv-cache from another vLLM instance in case P/D is activated
-	KVCacheTransferTimePerToken time.Duration `yaml:"kv-cache-transfer-time-per-token" json:"kv-cache-transfer-time-per-token" admin:"configurable" latency:"rebuild"`
+	KVCacheTransferTimePerToken time.Duration `yaml:"kv-cache-transfer-time-per-token" json:"kv-cache-transfer-time-per-token" admin:"configurable" rebuild:"latency"`
 	// KVCacheTransferOverheadStdDev similar to TimeToFirstTokenStdDev
-	KVCacheTransferTimeStdDev time.Duration `yaml:"kv-cache-transfer-time-std-dev" json:"kv-cache-transfer-time-std-dev" admin:"configurable" latency:"rebuild"`
+	KVCacheTransferTimeStdDev time.Duration `yaml:"kv-cache-transfer-time-std-dev" json:"kv-cache-transfer-time-std-dev" admin:"configurable" rebuild:"latency"`
 
 	// TimeFactorUnderLoad is a multiplicative factor that affects the overall time taken for requests when parallel
 	// requests are being processed.
@@ -161,7 +161,7 @@ type Configuration struct {
 	// - If this factor is 1.0, no extra time is added.
 	// - When the factor is x (where x > 1.0) and there are MaxNumSeqs requests, the total time will be multiplied by x.
 	// - The extra time then decreases multiplicatively to 1.0 when the number of requests is less than MaxNumSeqs.
-	TimeFactorUnderLoad float64 `yaml:"time-factor-under-load" json:"time-factor-under-load" admin:"configurable" latency:"rebuild"`
+	TimeFactorUnderLoad float64 `yaml:"time-factor-under-load" json:"time-factor-under-load" admin:"configurable" rebuild:"latency"`
 
 	// Mode defines the simulator response generation mode, valid values: echo, random
 	Mode string `yaml:"mode" json:"mode"`
@@ -280,7 +280,7 @@ type Configuration struct {
 	// LatencyCalculator is the name of the latency calculator to use in the simulation of the response latencies.
 	// The default calculation is based on the current load of the simulator and on the configured latency
 	// parameters, e.g., time-to-first-token and prefill-time-per-token.
-	LatencyCalculator string `yaml:"latency-calculator" json:"latency-calculator" admin:"configurable" latency:"rebuild"`
+	LatencyCalculator string `yaml:"latency-calculator" json:"latency-calculator" admin:"configurable" rebuild:"latency"`
 
 	// DefaultEmbeddingDimensions is the default size of embedding vectors when the request does not specify dimensions.
 	// Used by the /v1/embeddings endpoint. Default is 384.
@@ -578,26 +578,24 @@ func (c *Configuration) SSLEnabled() bool {
 	return (c.SSLCertFile != "" && c.SSLKeyFile != "") || c.SelfSignedCerts
 }
 
-// durationFields holds the JSON key names of all time.Duration fields in
-// Configuration. latencyConfigKeys holds the keys whose updates require
-// rebuilding the latency calculator (admin:"configurable" latency:"rebuild" tags).
-// otherConfigurableFields holds the remaining admin-configurable keys
-// (admin:"configurable" only). omitFields holds keys that are stripped from
-// the external /admin/config response (admin:"omit"). All four maps are populated
-// once at init via reflection so there is no static list to keep in sync with
-// the struct.
+// rebuildCategoryFields is the set of admin-configurable JSON field names
+// belonging to one rebuild category.
+type rebuildCategoryFields map[string]bool
+
+// durationFields holds the JSON key names of all time.Duration fields in Configuration.
+// configurableFields maps each rebuild category to the set of admin-configurable field
+// JSON keys in that category. The rebuild category is the value of the rebuild struct tag
+// (e.g. "latency"); fields with no rebuild tag use "" as the category.
+// Both are populated once at init via reflection so there is no static list to
+// keep in sync with the struct.
 var (
-	durationFields          map[string]bool
-	latencyConfigKeys       map[string]bool
-	otherConfigurableFields map[string]bool
-	omitFields              map[string]bool
+	durationFields     map[string]bool
+	configurableFields map[string]rebuildCategoryFields
 )
 
 func init() {
 	durationFields = make(map[string]bool)
-	latencyConfigKeys = make(map[string]bool)
-	otherConfigurableFields = make(map[string]bool)
-	omitFields = make(map[string]bool)
+	configurableFields = make(map[string]rebuildCategoryFields)
 	durationType := reflect.TypeOf(time.Duration(0))
 	t := reflect.TypeOf(Configuration{})
 	for i := range t.NumField() {
@@ -609,15 +607,12 @@ func init() {
 		if f.Type == durationType {
 			durationFields[jsonKey] = true
 		}
-		switch f.Tag.Get("admin") {
-		case "configurable":
-			if f.Tag.Get("latency") == "rebuild" {
-				latencyConfigKeys[jsonKey] = true
-			} else {
-				otherConfigurableFields[jsonKey] = true
+		if f.Tag.Get("admin") == "configurable" {
+			category := f.Tag.Get("rebuild")
+			if configurableFields[category] == nil {
+				configurableFields[category] = make(rebuildCategoryFields)
 			}
-		case "omit":
-			omitFields[jsonKey] = true
+			configurableFields[category][jsonKey] = true
 		}
 	}
 }
@@ -647,8 +642,16 @@ func normalizeDurationStrings(raw map[string]json.RawMessage) error {
 	return nil
 }
 
-func isConfigurable(key string) bool {
-	return latencyConfigKeys[key] || otherConfigurableFields[key]
+// isConfigurable returns the rebuild category for key if it is admin-configurable
+// (ok == true), or ("", false) if not. The category is the value of the rebuild
+// struct tag (e.g. "latency"), or "" for fields with no rebuild tag.
+func isConfigurable(key string) (category string, ok bool) {
+	for cat, fields := range configurableFields {
+		if fields[key] {
+			return cat, true
+		}
+	}
+	return "", false
 }
 
 // Update validates a partial JSON update and returns:
@@ -681,10 +684,11 @@ func (c *Configuration) Update(body []byte) (*Configuration, *Configuration, boo
 
 	latencyChanged := false
 	for key := range raw {
-		if !isConfigurable(key) {
+		category, ok := isConfigurable(key)
+		if !ok {
 			return nil, nil, false, fmt.Errorf("field '%s' is not admin-configurable", key)
 		}
-		if latencyConfigKeys[key] {
+		if category == "latency" {
 			latencyChanged = true
 		}
 	}
@@ -726,22 +730,19 @@ func (c *Configuration) Copy() (*Configuration, error) {
 
 // cleanedMap returns the configuration as a JSON-friendly map with internal
 // fields removed/renamed for external display (logs, /admin/config GET).
-func (c *Configuration) cleanedMap() (map[string]interface{}, error) {
+func (c *Configuration) cleanedMap() (map[string]any, error) {
 	cfgJSON, err := json.Marshal(c)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal configuration to JSON: %w", err)
 	}
 
-	var m map[string]interface{}
+	var m map[string]any
 	if err := json.Unmarshal(cfgJSON, &m); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal JSON to map: %w", err)
 	}
 	if c.DPSize > 1 {
 		// in DP mode, the per-rank port is not meaningful externally
 		delete(m, "port")
-	}
-	for key := range omitFields {
-		delete(m, key)
 	}
 	for key := range durationFields {
 		if v, ok := m[key]; ok {
