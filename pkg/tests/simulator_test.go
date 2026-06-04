@@ -2664,28 +2664,6 @@ var _ = Describe("Simulator", func() {
 				Expect(simulator.Context.Tokenizer).To(BeAssignableToTypeOf(&tokenizer.SimpleTokenizer{}))
 			})
 
-			It("should use dummy tokenizer for text completions when flag is set", func() {
-				ctx := context.TODO()
-				// Use a real model name but force dummy tokenizer
-				args := []string{"cmd", "--model", common.QwenModelName, "--mode", common.ModeEcho, "--force-dummy-tokenizer"}
-				simulator, _, _, err := startServerHandle(ctx, "", args, nil)
-				Expect(err).NotTo(HaveOccurred())
-
-				// Verify that the dummy tokenizer was actually created
-				Expect(simulator.Context.Tokenizer).To(BeAssignableToTypeOf(&tokenizer.SimpleTokenizer{}))
-			})
-
-			It("should use dummy tokenizer for streaming when flag is set", func() {
-				ctx := context.TODO()
-				// Use a real model name but force dummy tokenizer
-				args := []string{"cmd", "--model", common.QwenModelName, "--mode", common.ModeRandom, "--force-dummy-tokenizer"}
-				simulator, _, _, err := startServerHandle(ctx, "", args, nil)
-				Expect(err).NotTo(HaveOccurred())
-
-				// Verify that the dummy tokenizer was actually created
-				Expect(simulator.Context.Tokenizer).To(BeAssignableToTypeOf(&tokenizer.SimpleTokenizer{}))
-			})
-
 			It("should work with YAML config file", func() {
 				ctx := context.TODO()
 				// Create a temporary config file with force-dummy-tokenizer set
