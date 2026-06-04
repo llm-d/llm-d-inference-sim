@@ -901,18 +901,18 @@ var _ = Describe("admin struct tags", func() {
 	It("configurableFields[\"latency\"] contains exactly the expected latency fields", func() {
 		Expect(configurableFields["latency"]).To(Equal(rebuildCategoryFields{
 			"time-to-first-token":               true,
-			"time-to-first-token-std-dev":        true,
-			"inter-token-latency":                true,
-			"inter-token-latency-std-dev":        true,
-			"kv-cache-transfer-latency":          true,
-			"kv-cache-transfer-latency-std-dev":  true,
-			"prefill-overhead":                   true,
-			"prefill-time-per-token":             true,
-			"prefill-time-std-dev":               true,
-			"kv-cache-transfer-time-per-token":   true,
-			"kv-cache-transfer-time-std-dev":     true,
-			"time-factor-under-load":             true,
-			"latency-calculator":                 true,
+			"time-to-first-token-std-dev":       true,
+			"inter-token-latency":               true,
+			"inter-token-latency-std-dev":       true,
+			"kv-cache-transfer-latency":         true,
+			"kv-cache-transfer-latency-std-dev": true,
+			"prefill-overhead":                  true,
+			"prefill-time-per-token":            true,
+			"prefill-time-std-dev":              true,
+			"kv-cache-transfer-time-per-token":  true,
+			"kv-cache-transfer-time-std-dev":    true,
+			"time-factor-under-load":            true,
+			"latency-calculator":                true,
 		}))
 	})
 
