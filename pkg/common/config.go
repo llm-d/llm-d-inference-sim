@@ -21,6 +21,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"reflect"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -98,10 +100,10 @@ type Configuration struct {
 	// MaxModelLen is the model's context window, the maximum number of tokens
 	// in a single request including input and output. Default value is 1024.
 	MaxModelLen int `yaml:"max-model-len" json:"max-model-len"`
-	// LoraModulesString is a list of LoRA adapters as strings
-	LoraModulesString []string `yaml:"lora-modules" json:"lora-modules"`
+	// LoraModulesString is a list of LoRA adapters as strings (YAML parse helper; omitted from external output)
+	LoraModulesString []string `yaml:"lora-modules" json:"-"`
 	// LoraModules is a list of LoRA adapters
-	LoraModules []LoraModule
+	LoraModules []LoraModule `json:"lora-modules"`
 
 	// PodNameSpace specifies the Kubernetes namespace in which the simulator pod is running.
 	// Useful for multi-namespace deployments and resource scoping.
@@ -120,38 +122,38 @@ type Configuration struct {
 	// NOTE: For all duration fields please use duration strings, e.g., "100ms", "1.5s"
 
 	// TimeToFirstToken time before the first token will be returned
-	TimeToFirstToken time.Duration `yaml:"time-to-first-token" json:"time-to-first-token"`
+	TimeToFirstToken time.Duration `yaml:"time-to-first-token" json:"time-to-first-token" admin:"configurable" rebuild:"latency"`
 	// TimeToFirstTokenStdDev standard deviation for time before the first token will be returned
 	// optional, default is 0, can't be more than 30% of TimeToFirstToken, will not
 	// cause the actual time to first token to differ by more than 70% from TimeToFirstToken
-	TimeToFirstTokenStdDev time.Duration `yaml:"time-to-first-token-std-dev" json:"time-to-first-token-std-dev"`
+	TimeToFirstTokenStdDev time.Duration `yaml:"time-to-first-token-std-dev" json:"time-to-first-token-std-dev" admin:"configurable" rebuild:"latency"`
 
 	// InterTokenLatency time between generated tokens
-	InterTokenLatency time.Duration `yaml:"inter-token-latency" json:"inter-token-latency"`
+	InterTokenLatency time.Duration `yaml:"inter-token-latency" json:"inter-token-latency" admin:"configurable" rebuild:"latency"`
 	// InterTokenLatencyStdDev standard deviation for time between generated tokens
 	// optional, default is 0, can't be more than 30% of InterTokenLatency, will not cause the actual
 	// inter token latency to differ by more than 70% from InterTokenLatency
-	InterTokenLatencyStdDev time.Duration `yaml:"inter-token-latency-std-dev" json:"inter-token-latency-std-dev"`
+	InterTokenLatencyStdDev time.Duration `yaml:"inter-token-latency-std-dev" json:"inter-token-latency-std-dev" admin:"configurable" rebuild:"latency"`
 	// KVCacheTransferLatency time to "transfer" kv-cache from another vLLM instance in case P/D is activated,
-	KVCacheTransferLatency time.Duration `yaml:"kv-cache-transfer-latency" json:"kv-cache-transfer-latency"`
+	KVCacheTransferLatency time.Duration `yaml:"kv-cache-transfer-latency" json:"kv-cache-transfer-latency" admin:"configurable" rebuild:"latency"`
 	// KVCacheTransferLatencyStdDev standard deviation for time to "transfer" kv-cache from another
 	// vLLM instance in case P/D is activated, can't be more than 30% of KVCacheTransferLatency, will not
 	// cause the actual latency to differ by more than 70% from KVCacheTransferLatency
-	KVCacheTransferLatencyStdDev time.Duration `yaml:"kv-cache-transfer-latency-std-dev" json:"kv-cache-transfer-latency-std-dev"`
+	KVCacheTransferLatencyStdDev time.Duration `yaml:"kv-cache-transfer-latency-std-dev" json:"kv-cache-transfer-latency-std-dev" admin:"configurable" rebuild:"latency"`
 
 	// $Total Prefill Time = PrefillOverhead + n * PrefillTimePerToken$
 	// the assumption is that n is less than k, where k is the number of prallelism units of GPU
 	// PrefillOverhead time taken to prefill the context
-	PrefillOverhead     time.Duration `yaml:"prefill-overhead" json:"prefill-overhead"`
-	PrefillTimePerToken time.Duration `yaml:"prefill-time-per-token" json:"prefill-time-per-token"`
+	PrefillOverhead     time.Duration `yaml:"prefill-overhead" json:"prefill-overhead" admin:"configurable" rebuild:"latency"`
+	PrefillTimePerToken time.Duration `yaml:"prefill-time-per-token" json:"prefill-time-per-token" admin:"configurable" rebuild:"latency"`
 	// PrefillOverheadStdDev similar to TimeToFirstTokenStdDev
-	PrefillTimeStdDev time.Duration `yaml:"prefill-time-std-dev" json:"prefill-time-std-dev"`
+	PrefillTimeStdDev time.Duration `yaml:"prefill-time-std-dev" json:"prefill-time-std-dev" admin:"configurable" rebuild:"latency"`
 	// $Total KV Cache Transfer Time = n * KVCacheTransferTimePerToken$
 	// the assumption is that the cache blocks are all missed at the remote pod
 	// KVCacheTransfer overhead time taken to transfer kv-cache from another vLLM instance in case P/D is activated
-	KVCacheTransferTimePerToken time.Duration `yaml:"kv-cache-transfer-time-per-token" json:"kv-cache-transfer-time-per-token"`
+	KVCacheTransferTimePerToken time.Duration `yaml:"kv-cache-transfer-time-per-token" json:"kv-cache-transfer-time-per-token" admin:"configurable" rebuild:"latency"`
 	// KVCacheTransferOverheadStdDev similar to TimeToFirstTokenStdDev
-	KVCacheTransferTimeStdDev time.Duration `yaml:"kv-cache-transfer-time-std-dev" json:"kv-cache-transfer-time-std-dev"`
+	KVCacheTransferTimeStdDev time.Duration `yaml:"kv-cache-transfer-time-std-dev" json:"kv-cache-transfer-time-std-dev" admin:"configurable" rebuild:"latency"`
 
 	// TimeFactorUnderLoad is a multiplicative factor that affects the overall time taken for requests when parallel
 	// requests are being processed.
@@ -159,7 +161,7 @@ type Configuration struct {
 	// - If this factor is 1.0, no extra time is added.
 	// - When the factor is x (where x > 1.0) and there are MaxNumSeqs requests, the total time will be multiplied by x.
 	// - The extra time then decreases multiplicatively to 1.0 when the number of requests is less than MaxNumSeqs.
-	TimeFactorUnderLoad float64 `yaml:"time-factor-under-load" json:"time-factor-under-load"`
+	TimeFactorUnderLoad float64 `yaml:"time-factor-under-load" json:"time-factor-under-load" admin:"configurable" rebuild:"latency"`
 
 	// Mode defines the simulator response generation mode, valid values: echo, random
 	Mode string `yaml:"mode" json:"mode"`
@@ -213,15 +215,15 @@ type Configuration struct {
 	EventBatchSize int `yaml:"event-batch-size" json:"event-batch-size"`
 
 	// FakeMetrics is a set of metrics to send to Prometheus instead of the real data
-	FakeMetrics *FakeMetrics `yaml:"fake-metrics" json:"fake-metrics"`
+	FakeMetrics *FakeMetrics `yaml:"fake-metrics" json:"fake-metrics" admin:"configurable"`
 
 	// FakeMetricsRefreshInterval defines how often function-based fake metrics are recalculated, defaults to 100ms
 	FakeMetricsRefreshInterval time.Duration `yaml:"fake-metrics-refresh-interval" json:"fake-metrics-refresh-interval"`
 
 	// FailureInjectionRate is the probability (0-100) of injecting failures
-	FailureInjectionRate int `yaml:"failure-injection-rate" json:"failure-injection-rate"`
+	FailureInjectionRate int `yaml:"failure-injection-rate" json:"failure-injection-rate" admin:"configurable"`
 	// FailureTypes is a list of specific failure types to inject (empty means all types)
-	FailureTypes []string `yaml:"failure-types" json:"failure-types"`
+	FailureTypes []string `yaml:"failure-types" json:"failure-types" admin:"configurable"`
 
 	// DPSize is data parallel size - a number of ranks to run, minimum is 1, maximum is 8, default is 1
 	DPSize int `yaml:"data-parallel-size" json:"data-parallel-size"`
@@ -278,7 +280,7 @@ type Configuration struct {
 	// LatencyCalculator is the name of the latency calculator to use in the simulation of the response latencies.
 	// The default calculation is based on the current load of the simulator and on the configured latency
 	// parameters, e.g., time-to-first-token and prefill-time-per-token.
-	LatencyCalculator string `yaml:"latency-calculator" json:"latency-calculator"`
+	LatencyCalculator string `yaml:"latency-calculator" json:"latency-calculator" admin:"configurable" rebuild:"latency"`
 
 	// DefaultEmbeddingDimensions is the default size of embedding vectors when the request does not specify dimensions.
 	// Used by the /v1/embeddings endpoint. Default is 384.
@@ -516,9 +518,9 @@ func (c *Configuration) validate() error {
 		FailureTypeInvalidRequest: true,
 		FailureTypeModelNotFound:  true,
 	}
-	for _, failureType := range c.FailureTypes {
-		if !validFailureTypes[failureType] {
-			return fmt.Errorf("invalid failure type '%s', valid types are: %s, %s, %s, %s, %s, %s", failureType,
+	for _, ft := range c.FailureTypes {
+		if !validFailureTypes[ft] {
+			return fmt.Errorf("invalid failure type '%s', valid types are: %s, %s, %s, %s, %s, %s", ft,
 				FailureTypeRateLimit, FailureTypeInvalidAPIKey, FailureTypeContextLength,
 				FailureTypeServerError, FailureTypeInvalidRequest, FailureTypeModelNotFound)
 		}
@@ -579,6 +581,125 @@ func (c *Configuration) SSLEnabled() bool {
 	return (c.SSLCertFile != "" && c.SSLKeyFile != "") || c.SelfSignedCerts
 }
 
+// durationFields holds the JSON key names of all time.Duration fields in Configuration.
+// configurableFields maps each admin-configurable JSON field key to its rebuild tag
+// (value of the rebuild struct tag, e.g. "latency"), or "" for fields with no rebuild tag.
+// Both are populated once at init via reflection so there is no static list to
+// keep in sync with the struct.
+var (
+	durationFields     map[string]bool
+	configurableFields map[string]string
+)
+
+func init() {
+	durationFields = make(map[string]bool)
+	configurableFields = make(map[string]string)
+	durationType := reflect.TypeOf(time.Duration(0))
+	t := reflect.TypeOf(Configuration{})
+	for i := range t.NumField() {
+		f := t.Field(i)
+		jsonKey := strings.SplitN(f.Tag.Get("json"), ",", 2)[0]
+		if jsonKey == "" || jsonKey == "-" {
+			continue
+		}
+		if f.Type == durationType {
+			durationFields[jsonKey] = true
+		}
+		if f.Tag.Get("admin") == "configurable" {
+			configurableFields[jsonKey] = f.Tag.Get("rebuild")
+		}
+	}
+}
+
+// normalizeDurationStrings converts duration string values (e.g. "1s") in raw
+// to nanosecond integers in-place, so subsequent json.Unmarshal into
+// time.Duration fields works correctly. Non-string values are left unchanged.
+func normalizeDurationStrings(raw map[string]json.RawMessage) error {
+	for key, val := range raw {
+		if !durationFields[key] || len(val) < 2 || val[0] != '"' {
+			continue
+		}
+		var s string
+		if err := json.Unmarshal(val, &s); err != nil {
+			return fmt.Errorf("field %q: invalid duration string: %w", key, err)
+		}
+		d, err := time.ParseDuration(s)
+		if err != nil {
+			return fmt.Errorf("field %q: %w", key, err)
+		}
+		ns, err := json.Marshal(int64(d))
+		if err != nil {
+			return fmt.Errorf("field %q: failed to marshal nanoseconds: %w", key, err)
+		}
+		raw[key] = ns
+	}
+	return nil
+}
+
+// Update validates a partial JSON update and returns:
+//   - next: a deep copy of the receiver with the body's changes applied.
+//     Ready to be atomically swapped in by the caller.
+//   - update: a fresh Configuration populated only with the fields that
+//     appeared in the body.
+//   - latencyChanged: true if the body touched any latency-related field, so
+//     the caller knows it must rebuild the latency calculator.
+//
+// "field absent" and "field set to null" both decode to a nil pointer or nil
+// slice; explicit null no longer clears a metric. To clear a slice/map
+// metric, send an empty value (`[]` or `{}`).
+func (c *Configuration) Update(body []byte) (*Configuration, *Configuration, bool, error) {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return nil, nil, false, fmt.Errorf("failed to unmarshal payload: %w", err)
+	}
+
+	// convert any duration-string values (e.g. "1s") to nanosecond integers
+	if err := normalizeDurationStrings(raw); err != nil {
+		return nil, nil, false, err
+	}
+	// re-marshal after normalization so subsequent Unmarshal calls get integers
+	var err error
+	body, err = json.Marshal(raw)
+	if err != nil {
+		return nil, nil, false, fmt.Errorf("failed to re-marshal normalized payload: %w", err)
+	}
+
+	latencyChanged := false
+	for key := range raw {
+		rebuildTag, isConfigurable := configurableFields[key]
+		if !isConfigurable {
+			return nil, nil, false, fmt.Errorf("field '%s' is not admin-configurable", key)
+		}
+		if rebuildTag == "latency" {
+			latencyChanged = true
+		}
+	}
+
+	// update is a fresh struct populated only with the body's fields; the
+	// caller reads update.FakeMetrics to decide whether to apply Prometheus
+	// side effects.
+	update := &Configuration{}
+	if err := json.Unmarshal(body, update); err != nil {
+		return nil, nil, false, fmt.Errorf("failed to unmarshal payload: %w", err)
+	}
+
+	// next is a deep copy of c; unmarshalling body on top merges body fields
+	// into next, including overlaying the fake-metrics partial onto next's
+	// (deep-copied) FakeMetrics. validate() then sees the fully merged state.
+	next, err := c.Copy()
+	if err != nil {
+		return nil, nil, false, fmt.Errorf("failed to copy configuration: %w", err)
+	}
+	if err := json.Unmarshal(body, next); err != nil {
+		return nil, nil, false, fmt.Errorf("failed to unmarshal payload: %w", err)
+	}
+
+	if err := next.validate(); err != nil {
+		return nil, nil, false, err
+	}
+	return next, update, latencyChanged, nil
+}
+
 func (c *Configuration) Copy() (*Configuration, error) {
 	var dst Configuration
 	data, err := json.Marshal(c)
@@ -589,33 +710,48 @@ func (c *Configuration) Copy() (*Configuration, error) {
 	return &dst, err
 }
 
-func (c *Configuration) Show(logger logr.Logger) error {
+// cleanedMap returns the configuration as a JSON-friendly map with internal
+// fields removed/renamed for external display (logs, /admin/config GET).
+func (c *Configuration) cleanedMap() (map[string]any, error) {
 	cfgJSON, err := json.Marshal(c)
 	if err != nil {
-		return fmt.Errorf("failed to marshal configuration to JSON: %w", err)
+		return nil, fmt.Errorf("failed to marshal configuration to JSON: %w", err)
 	}
 
-	var m map[string]interface{}
-	err = json.Unmarshal(cfgJSON, &m)
-	if err != nil {
-		return fmt.Errorf("failed to unmarshal JSON to map: %w", err)
+	var m map[string]any
+	if err := json.Unmarshal(cfgJSON, &m); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal JSON to map: %w", err)
 	}
 	if c.DPSize > 1 {
-		// remove the port
+		// in DP mode, the per-rank port is not meaningful externally
 		delete(m, "port")
 	}
-	// clean LoraModulesString field
-	m["lora-modules"] = m["LoraModules"]
-	delete(m, "LoraModules")
-	delete(m, "LoraModulesString")
-
-	// clean fake-metrics field
-	if field, ok := m["fake-metrics"].(map[string]interface{}); ok {
-		delete(field, "LorasString")
+	for key := range durationFields {
+		if v, ok := m[key]; ok {
+			if ns, ok := v.(float64); ok {
+				m[key] = time.Duration(int64(ns)).String()
+			}
+		}
 	}
+	return m, nil
+}
 
-	// show in JSON
-	cfgJSON, err = json.MarshalIndent(m, "", "  ")
+// MarshalCleaned returns the configuration as JSON suitable for external
+// display (e.g. /admin/config GET), with internal fields removed.
+func (c *Configuration) MarshalCleaned() ([]byte, error) {
+	m, err := c.cleanedMap()
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(m)
+}
+
+func (c *Configuration) Show(logger logr.Logger) error {
+	m, err := c.cleanedMap()
+	if err != nil {
+		return err
+	}
+	cfgJSON, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal configuration to JSON: %w", err)
 	}

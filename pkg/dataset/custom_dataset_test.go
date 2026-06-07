@@ -276,7 +276,8 @@ var _ = Describe("CustomDataset", Ordered, func() {
 					chatReq.IgnoreEOS = true
 					req = &chatReq
 				} else {
-					textReq := openaiserverapi.TextCompletionsRequest{MaxTokens: maxTokens}
+					textReq := openaiserverapi.TextCompletionsRequest{}
+					textReq.MaxTokens = maxTokens
 					textReq.IgnoreEOS = true
 					req = &textReq
 				}
@@ -315,9 +316,8 @@ var _ = Describe("CustomDataset", Ordered, func() {
 		})
 
 		It("should return at most 2 tokens for existing prompt", func() {
-			req := &openaiserverapi.TextCompletionsRequest{
-				MaxTokens: &smallMaxTokens,
-			}
+			req := &openaiserverapi.TextCompletionsRequest{}
+			req.MaxTokens = &smallMaxTokens
 			req.SetTokenizedPrompt(&validDB[1].tokenizedInput)
 			tokens, _, err := dataset.GetResponseTokens(req)
 			Expect(err).NotTo(HaveOccurred())
@@ -326,7 +326,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 
 		It("should successfully init dataset with in-memory option", func() {
 			req := &openaiserverapi.TextCompletionsRequest{
-				Prompt: validDB[1].input,
+				Prompt: openaiserverapi.PromptInput{Text: validDB[1].input},
 			}
 			req.SetTokenizedPrompt(&validDB[1].tokenizedInput)
 

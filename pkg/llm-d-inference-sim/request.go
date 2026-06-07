@@ -23,17 +23,39 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	kvcache "github.com/llm-d/llm-d-inference-sim/pkg/kv-cache"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
+	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 	"github.com/valyala/fasthttp"
 )
 
 type requestBuilder interface {
 	Unmarshal(data []byte) error
-	validate(toolsValidator *toolsValidator) (string, int)
-	buildRequestContext(simCtx *SimContext, channel common.Channel[*ResponseInfo]) requestContext
+	validate(toolsValidator *toolsValidator) *openaiserverapi.Error
+	buildRequestContext(simCtx *SimContext, channel common.Channel[*ResponseInfo], choiceIdx int, doneFn func()) requestContext
 	AsString() string
 	createResponseContext(reqCtx requestContext, displayModel string, responseTokens *openaiserverapi.Tokenized,
 		finishReason *string, usageData *openaiserverapi.Usage, sendUsageData bool, logprobs *int,
 		toolCalls []openaiserverapi.ToolCall, mmEncoderOnlyMode bool) ResponseContext
+	// split returns one or more processing-form Requests, each carrying a single
+	// prompt with a unique RequestID. For request types whose wire form is always
+	// a single prompt (chat, generation, responses, post-split text completions),
+	// the implementation is trivial: return the receiver wrapped in a one-element
+	// slice. Only TextCompletionsParsedRequest does real work here.
+	split() []Request
+}
+
+// RenderableRequest is implemented by the request types reachable from the
+// /v1/{chat/,}completions/render endpoints (ChatCompletionsRequest and
+// TextCompletionsParsedRequest). It lets the HTTP layer parse + render
+// without going through the worker pipeline.
+type RenderableRequest interface {
+	Request
+	// ValidateBody checks that the unmarshalled body matches the endpoint's
+	// expected shape.
+	ValidateBody() *openaiserverapi.Error
+	// Render tokenizes the request and returns the tokens (one slice per
+	// prompt; chat completions always returns a single slice) and any
+	// mm_features produced by the tokenizer.
+	Render(t tokenizer.Tokenizer) ([][]uint32, *openaiserverapi.RenderMMFeatures, error)
 }
 
 type Request interface {
@@ -52,6 +74,8 @@ type requestContext interface {
 	responseChannel() common.Channel[*ResponseInfo]
 	tokenizedPromptForEcho() (*openaiserverapi.Tokenized, error)
 	encode() ([]uint32, []string, *openaiserverapi.RenderMMFeatures, error)
+	choiceIndex() int
+	signalDone()
 }
 
 type baseRequestContext struct {
@@ -59,18 +83,32 @@ type baseRequestContext struct {
 	sim             *SimContext
 	startProcessing time.Time
 	respChannel     common.Channel[*ResponseInfo]
+	idx             int
+	doneFn          func()
 }
 
-func newBaseRequestContext(simCtx *SimContext, channel common.Channel[*ResponseInfo]) baseRequestContext {
+func newBaseRequestContext(simCtx *SimContext, channel common.Channel[*ResponseInfo], choiceIdx int, doneFn func()) baseRequestContext {
 	return baseRequestContext{
 		sim:             simCtx,
 		startProcessing: time.Now(),
 		respChannel:     channel,
+		idx:             choiceIdx,
+		doneFn:          doneFn,
 	}
 }
 
 func (b *baseRequestContext) responseChannel() common.Channel[*ResponseInfo] {
 	return b.respChannel
+}
+
+func (b *baseRequestContext) choiceIndex() int {
+	return b.idx
+}
+
+func (b *baseRequestContext) signalDone() {
+	if b.doneFn != nil {
+		b.doneFn()
+	}
 }
 
 func (b *baseRequestContext) startProcessingTime() time.Time {
@@ -97,7 +135,7 @@ func (b *baseRequestContext) tokenize() *openaiserverapi.Error {
 		req.SetMMFeatures(mmFeatures)
 	}
 
-	if b.sim.Config.Mode == common.ModeEcho {
+	if b.sim.Config().Mode == common.ModeEcho {
 		// in echo mode need to calculate which part of input will be sent back,
 		// e.g. in /chat/completions we send back only the last message's content
 		echoTokenized, err := b.tokenizedPromptForEcho()
@@ -118,10 +156,10 @@ func (b *baseRequestContext) validateContextWindow() (string, int) {
 	promptTokens := getNumberOfPromptTokens(b.request())
 	completionTokens := b.request().GetMaxCompletionTokens()
 	isValid, actualCompletionTokens, totalTokens := common.ValidateContextWindow(promptTokens, completionTokens,
-		b.sim.Config.MaxModelLen)
+		b.sim.Config().MaxModelLen)
 	if !isValid {
 		message := fmt.Sprintf("This model's maximum context length is %d tokens. However, you requested %d tokens (%d in the messages, %d in the completion). Please reduce the length of the messages or completion",
-			b.sim.Config.MaxModelLen, totalTokens, promptTokens, actualCompletionTokens)
+			b.sim.Config().MaxModelLen, totalTokens, promptTokens, actualCompletionTokens)
 		return message, fasthttp.StatusBadRequest
 	}
 	return "", fasthttp.StatusOK
@@ -176,7 +214,7 @@ func (reqCtx *baseRequestContext) handleRequest() (ResponseContext, *openaiserve
 		}
 		sendUsageData := !req.IsStream() || req.IncludeUsage()
 		respCtx := req.createResponseContext(reqCtx, dispModel, &openaiserverapi.Tokenized{},
-			&finishReason, &usageData, sendUsageData, logprobs, nil, reqCtx.sim.Config.MMEncoderOnly)
+			&finishReason, &usageData, sendUsageData, logprobs, nil, reqCtx.sim.Config().MMEncoderOnly)
 		return respCtx, nil
 	}
 
@@ -220,7 +258,7 @@ func (reqCtx *baseRequestContext) handleRequest() (ResponseContext, *openaiserve
 	}
 
 	respCtx := req.createResponseContext(reqCtx, dispModel, responseTokens, &finishReason,
-		&usageData, sendUsageData, logprobs, toolCalls, reqCtx.sim.Config.MMEncoderOnly)
+		&usageData, sendUsageData, logprobs, toolCalls, reqCtx.sim.Config().MMEncoderOnly)
 
 	return respCtx, nil
 }
@@ -232,13 +270,13 @@ func (reqCtx *baseRequestContext) shouldReturnCacheThresholdFinishReason(req ope
 	}
 	// Check cache hit threshold if specified and KV cache is enabled
 	// First, get cache hit info without modifying cache state
-	if reqCtx.sim.Config.EnableKVCache {
+	if reqCtx.sim.Config().EnableKVCache {
 		// Get cacheHitThreshold from request first, fall back to global cacheHitThreshold if not set
 		var cacheHitThreshold *float64
 		if reqThreshold := req.GetCacheHitThreshold(); reqThreshold != nil && *reqThreshold >= 0 && *reqThreshold <= 1 {
 			cacheHitThreshold = reqThreshold
-		} else if reqCtx.sim.Config.GlobalCacheHitThreshold > 0 {
-			cacheHitThreshold = &reqCtx.sim.Config.GlobalCacheHitThreshold
+		} else if reqCtx.sim.Config().GlobalCacheHitThreshold > 0 {
+			cacheHitThreshold = &reqCtx.sim.Config().GlobalCacheHitThreshold
 		}
 
 		if cacheHitThreshold != nil {
@@ -253,7 +291,7 @@ func (reqCtx *baseRequestContext) shouldReturnCacheThresholdFinishReason(req ope
 }
 
 func (reqCtx *baseRequestContext) kvCacheOnRequestStart() (stat kvcache.PrefixCacheStats, oaiServerError *openaiserverapi.Error) {
-	if reqCtx.sim.Config.EnableKVCache {
+	if reqCtx.sim.Config().EnableKVCache {
 		var err error
 		stat, err = reqCtx.sim.kvcacheHelper.OnRequestStart(reqCtx.request())
 		if err != nil {
@@ -266,7 +304,7 @@ func (reqCtx *baseRequestContext) kvCacheOnRequestStart() (stat kvcache.PrefixCa
 }
 
 func (reqCtx *baseRequestContext) kvCacheOnRequestEnd() {
-	if reqCtx.sim.Config.EnableKVCache {
+	if reqCtx.sim.Config().EnableKVCache {
 		if err := reqCtx.sim.kvcacheHelper.OnRequestEnd(reqCtx.request().GetRequestID()); err != nil {
 			reqCtx.sim.logger.Error(err, "kv cache failed to process request end")
 		}

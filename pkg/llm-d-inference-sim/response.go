@@ -25,11 +25,12 @@ import (
 const ResponseStatusCreated = "created"
 
 type ResponseInfo struct {
-	Tokens   *openaiserverapi.Tokenized
-	RespCtx  ResponseContext
-	Err      *openaiserverapi.Error
-	ToolCall *openaiserverapi.ToolCall
-	Status   string
+	Tokens    *openaiserverapi.Tokenized
+	RespCtx   ResponseContext
+	Err       *openaiserverapi.Error
+	ToolCall  *openaiserverapi.ToolCall
+	Status    string
+	ChoiceIdx int
 }
 
 type ResponseContext interface {

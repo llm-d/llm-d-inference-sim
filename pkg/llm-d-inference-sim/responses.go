@@ -33,13 +33,14 @@ func (r *ResponsesRequest) Unmarshal(data []byte) error {
 	return json.Unmarshal(data, r)
 }
 
-func (r *ResponsesRequest) validate(toolsValidator *toolsValidator) (string, int) {
+func (r *ResponsesRequest) validate(toolsValidator *toolsValidator) *openaiserverapi.Error {
 	return validateRequest(r)
 }
 
-func (r *ResponsesRequest) buildRequestContext(simCtx *SimContext, channel common.Channel[*ResponseInfo]) requestContext {
+func (r *ResponsesRequest) buildRequestContext(simCtx *SimContext, channel common.Channel[*ResponseInfo],
+	choiceIdx int, doneFn func()) requestContext {
 	reqCtx := &responsesReqCtx{
-		baseRequestContext: newBaseRequestContext(simCtx, channel),
+		baseRequestContext: newBaseRequestContext(simCtx, channel, choiceIdx, doneFn),
 		req:                r,
 	}
 	reqCtx.requestContext = reqCtx
@@ -58,6 +59,11 @@ func (r *ResponsesRequest) createResponseContext(reqCtx requestContext, displayM
 	return &responsesResponseCtx{
 		baseResponseContext: base,
 	}
+}
+
+// split is a no-op: responses requests always carry a single prompt.
+func (r *ResponsesRequest) split() []Request {
+	return []Request{r}
 }
 
 var _ Request = (*ResponsesRequest)(nil)

@@ -56,6 +56,7 @@ const (
 	testUserMessage      = "This is a test."
 	metricsUrl           = "http://localhost/metrics"
 	updateFakeMetricsUrl = "http://localhost/fake_metrics"
+	adminConfigURL       = "http://localhost/admin/config"
 )
 
 var userMsgTokens int64
@@ -127,7 +128,7 @@ func startServerHelper(ctx context.Context, mode string, args []string, envs map
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	s.Context.Config = config
+	s.Context.SetConfig(config)
 
 	gomega.Expect(config.Model).To(gomega.BeElementOf(common.TestModelName, common.QwenModelName, common.QwenModelName))
 	switch config.Model {
@@ -208,11 +209,13 @@ func singleRequestLatencyTest(ttft int, prefillTimePerToken int, interTokenLaten
 
 // sendCompletionsRequestForLatencyTest sends completion request according the given parameters
 // uses http.Post and not openai-api function because vllm specific fields should be sent
+//
+//nolint:unparam // modelName/prompt are kept as parameters to allow future variations.
 func sendCompletionsRequestForLatencyTest(client *http.Client, modelName string, prompt string, isStreaming bool,
 	doRemotePrefill bool) (time.Duration, time.Duration) {
 	// send completions request using http post because disagregated PD fields should be included
 	// Test with raw HTTP to verify the error response format
-	req := &openaiserverapi.TextCompletionsRequest{Prompt: prompt}
+	req := &openaiserverapi.TextCompletionsParsedRequest{Prompt: []openaiserverapi.PromptInput{{Text: prompt}}}
 	req.KVParams = &openaiserverapi.KVTransferParams{DoRemotePrefill: doRemotePrefill}
 	req.Model = modelName
 	req.Stream = isStreaming
@@ -651,6 +654,15 @@ func getOpenAIClientAndTextParams(client option.HTTPClient, model string, messag
 		params.StreamOptions = openai.ChatCompletionStreamOptionsParam{IncludeUsage: param.NewOpt(true)}
 	}
 	return openaiclient, params
+}
+
+func postAdminConfig(client *http.Client, body string) *http.Response {
+	req, err := http.NewRequest("POST", adminConfigURL, strings.NewReader(body))
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := client.Do(req)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	return resp
 }
 
 // renders the given messages using the test model

@@ -166,7 +166,7 @@ func (s *SimContext) MetricsRegistry() *prometheus.Registry {
 
 // createAndRegisterPrometheus creates and registers prometheus metrics used by vLLM simulator
 func (s *SimContext) createAndRegisterPrometheus(ctx context.Context) error {
-	maxNumberOfRequests := s.Config.MaxNumSeqs + s.Config.MaxWaitingQueueLength
+	maxNumberOfRequests := s.Config().MaxNumSeqs + s.Config().MaxWaitingQueueLength
 
 	s.metrics.registry = prometheus.NewRegistry()
 
@@ -235,7 +235,7 @@ func (s *SimContext) createAndRegisterPrometheus(ctx context.Context) error {
 	}
 
 	s.metrics.tpotChan = common.Channel[float64]{
-		Channel: make(chan float64, maxNumberOfRequests*s.Config.MaxModelLen),
+		Channel: make(chan float64, maxNumberOfRequests*s.Config().MaxModelLen),
 		Name:    "metrics.tpotChan",
 	}
 	go s.tpotUpdater(ctx)
@@ -377,18 +377,18 @@ func (s *SimContext) createAndRegisterPrometheus(ctx context.Context) error {
 // setInitialPrometheusMetrics sends the default values to prometheus or
 // the fake metrics if set
 func (s *SimContext) setInitialPrometheusMetrics(cacheConfig *prometheus.GaugeVec) error {
-	cacheConfig.WithLabelValues(strconv.Itoa(s.Config.TokenBlockSize), strconv.Itoa(s.Config.KVCacheSize)).Set(1)
+	cacheConfig.WithLabelValues(strconv.Itoa(s.Config().TokenBlockSize), strconv.Itoa(s.Config().KVCacheSize)).Set(1)
 
-	if s.Config.FakeMetrics != nil {
+	if s.Config().FakeMetrics != nil {
 		return s.setInitialFakeMetrics()
 	}
 
-	s.metrics.runningRequests.WithLabelValues(s.Config.DisplayModelName).Set(0)
-	s.metrics.waitingRequests.WithLabelValues(s.Config.DisplayModelName).Set(0)
-	s.metrics.kvCacheUsagePercentage.WithLabelValues(s.Config.DisplayModelName).Set(0)
+	s.metrics.runningRequests.WithLabelValues(s.Config().DisplayModelName).Set(0)
+	s.metrics.waitingRequests.WithLabelValues(s.Config().DisplayModelName).Set(0)
+	s.metrics.kvCacheUsagePercentage.WithLabelValues(s.Config().DisplayModelName).Set(0)
 
 	s.metrics.loraInfo.WithLabelValues(
-		strconv.Itoa(s.Config.MaxLoras),
+		strconv.Itoa(s.Config().MaxLoras),
 		"",
 		"").Set(float64(time.Now().Unix()))
 
@@ -397,7 +397,7 @@ func (s *SimContext) setInitialPrometheusMetrics(cacheConfig *prometheus.GaugeVe
 
 // reportLoras sets information about loaded LoRA adapters
 func (s *SimContext) reportLoras() {
-	if s.Config.FakeMetrics != nil {
+	if s.Config().FakeMetrics != nil {
 		return
 	}
 	if s.metrics.loraInfo == nil {
@@ -421,7 +421,7 @@ func (s *SimContext) reportLoras() {
 	})
 
 	s.metrics.loraInfo.WithLabelValues(
-		strconv.Itoa(s.Config.MaxLoras),
+		strconv.Itoa(s.Config().MaxLoras),
 		strings.Join(runningLoras, ","),
 		strings.Join(waitingLoras, ",")).Set(float64(time.Now().Unix()))
 }
@@ -430,7 +430,7 @@ func (s *SimContext) reportLoras() {
 func (s *SimContext) reportRunningRequests() {
 	if s.metrics.runningRequests != nil {
 		s.metrics.runningRequests.WithLabelValues(
-			s.Config.DisplayModelName).Set(float64(s.metrics.nRunningReqs))
+			s.Config().DisplayModelName).Set(float64(s.metrics.nRunningReqs))
 	}
 }
 
@@ -438,24 +438,24 @@ func (s *SimContext) reportRunningRequests() {
 func (s *SimContext) reportWaitingRequests() {
 	if s.metrics.waitingRequests != nil {
 		s.metrics.waitingRequests.WithLabelValues(
-			s.Config.DisplayModelName).Set(float64(s.metrics.nWaitingReqs))
+			s.Config().DisplayModelName).Set(float64(s.metrics.nWaitingReqs))
 	}
 }
 
 // reportHistogramValue sets the given value in the given histogram
 func (s *SimContext) reportHistogramValue(hist *prometheus.HistogramVec, val float64) {
-	if s.Config.FakeMetrics != nil {
+	if s.Config().FakeMetrics != nil {
 		return
 	}
 	if hist != nil {
-		hist.WithLabelValues(s.Config.DisplayModelName).Observe(val)
+		hist.WithLabelValues(s.Config().DisplayModelName).Observe(val)
 	}
 }
 
 // reportKVCacheUsage sets information about kv cache usage
 func (s *SimContext) reportKVCacheUsage(value float64) {
 	if s.metrics.kvCacheUsagePercentage != nil {
-		s.metrics.kvCacheUsagePercentage.WithLabelValues(s.Config.DisplayModelName).Set(value)
+		s.metrics.kvCacheUsagePercentage.WithLabelValues(s.Config().DisplayModelName).Set(value)
 	}
 }
 
@@ -467,7 +467,7 @@ func (s *SimContext) waitingRequestsUpdater(ctx context.Context) {
 			return
 		case upd := <-s.metrics.waitingReqChan.Channel:
 			// Only proceed if the "fakeness" of the update matches the config
-			if (s.Config.FakeMetrics != nil) != upd.IsFake {
+			if (s.Config().FakeMetrics != nil) != upd.IsFake {
 				continue
 			}
 
@@ -490,7 +490,7 @@ func (s *SimContext) runningRequestsUpdater(ctx context.Context) {
 			return
 		case upd := <-s.metrics.runReqChan.Channel:
 			// Only proceed if the "fakeness" of the update matches the config
-			if (s.Config.FakeMetrics != nil) != upd.IsFake {
+			if (s.Config().FakeMetrics != nil) != upd.IsFake {
 				continue
 			}
 
@@ -512,7 +512,7 @@ func (s *SimContext) kvCacheUsageUpdater(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case value := <-s.metrics.kvCacheUsageChan.Channel:
-			if (s.Config.FakeMetrics != nil) == value.IsFake {
+			if (s.Config().FakeMetrics != nil) == value.IsFake {
 				s.reportKVCacheUsage(value.Value)
 			}
 		}
@@ -533,15 +533,15 @@ func (s *SimContext) prefixCacheStatsUpdater(ctx context.Context) {
 
 // reportPrefixCacheStats increments the prefix cache counters
 func (s *SimContext) reportPrefixCacheStats(stats kvcache.PrefixCacheStats) {
-	if s.Config.FakeMetrics != nil {
+	if s.Config().FakeMetrics != nil {
 		return
 	}
 
 	if s.metrics.prefixCacheQueries != nil {
-		s.metrics.prefixCacheQueries.WithLabelValues(s.Config.DisplayModelName).Add(float64(stats.QueriedTokens))
+		s.metrics.prefixCacheQueries.WithLabelValues(s.Config().DisplayModelName).Add(float64(stats.QueriedTokens))
 	}
 	if s.metrics.prefixCacheHits != nil {
-		s.metrics.prefixCacheHits.WithLabelValues(s.Config.DisplayModelName).Add(float64(stats.CachedTokens))
+		s.metrics.prefixCacheHits.WithLabelValues(s.Config().DisplayModelName).Add(float64(stats.CachedTokens))
 	}
 }
 
@@ -713,16 +713,16 @@ type requestSuccessEvent struct {
 func (s *SimContext) recordRequestMetricsOnSuccess(promptTokens,
 	generationTokens int, genTokensPerChoice []int, maxTokens *int64, finishReason string) {
 
-	s.metrics.requestPromptTokens.WithLabelValues(s.Config.DisplayModelName).Observe(float64(promptTokens))
-	s.metrics.requestGenerationTokens.WithLabelValues(s.Config.DisplayModelName).Observe(float64(generationTokens))
-	s.metrics.promptTokensTotal.WithLabelValues(s.Config.DisplayModelName).Add(float64(promptTokens))
-	s.metrics.generationTokensTotal.WithLabelValues(s.Config.DisplayModelName).Add(float64(generationTokens))
+	s.metrics.requestPromptTokens.WithLabelValues(s.Config().DisplayModelName).Observe(float64(promptTokens))
+	s.metrics.requestGenerationTokens.WithLabelValues(s.Config().DisplayModelName).Observe(float64(generationTokens))
+	s.metrics.promptTokensTotal.WithLabelValues(s.Config().DisplayModelName).Add(float64(promptTokens))
+	s.metrics.generationTokensTotal.WithLabelValues(s.Config().DisplayModelName).Add(float64(generationTokens))
 	if maxTokens != nil {
-		s.metrics.requestParamsMaxTokens.WithLabelValues(s.Config.DisplayModelName).Observe(float64(*maxTokens))
+		s.metrics.requestParamsMaxTokens.WithLabelValues(s.Config().DisplayModelName).Observe(float64(*maxTokens))
 	}
-	s.metrics.requestSuccessTotal.WithLabelValues(s.Config.DisplayModelName, finishReason).Inc()
+	s.metrics.requestSuccessTotal.WithLabelValues(s.Config().DisplayModelName, finishReason).Inc()
 	if maxGenTokens, err := common.MaxIntSlice(genTokensPerChoice); err == nil {
-		s.metrics.maxNumGenerationTokens.WithLabelValues(s.Config.DisplayModelName).Observe(float64(maxGenTokens))
+		s.metrics.maxNumGenerationTokens.WithLabelValues(s.Config().DisplayModelName).Observe(float64(maxGenTokens))
 	}
 }
 
@@ -814,7 +814,7 @@ func (s *SimContext) createAndRegisterReqPromptTokensMetrics() error {
 			Subsystem: "",
 			Name:      PromptTokensMetricName,
 			Help:      "Number of prefill tokens processed.",
-			Buckets:   Build125Buckets(s.Config.MaxModelLen),
+			Buckets:   Build125Buckets(s.Config().MaxModelLen),
 		},
 		[]string{vllmapi.PromLabelModelName},
 	)
@@ -849,7 +849,7 @@ func (s *SimContext) createAndRegisterReqGenerationTokensMetrics() error {
 			Subsystem: "",
 			Name:      GenerationTokensMetricName,
 			Help:      "Number of generation tokens processed.",
-			Buckets:   Build125Buckets(s.Config.MaxModelLen),
+			Buckets:   Build125Buckets(s.Config().MaxModelLen),
 		},
 		[]string{vllmapi.PromLabelModelName},
 	)
@@ -961,7 +961,7 @@ func (s *SimContext) createAndRegisterReqParamsMaxTokensMetric() error {
 		prometheus.HistogramOpts{
 			Name:    ParamMaxTokensMetricName,
 			Help:    "Histogram of the max_tokens request parameter.",
-			Buckets: Build125Buckets(s.Config.MaxModelLen),
+			Buckets: Build125Buckets(s.Config().MaxModelLen),
 		},
 		[]string{vllmapi.PromLabelModelName},
 	)
@@ -977,7 +977,7 @@ func (s *SimContext) createAndRegisterMaxNumGenerationTokensMetric() error {
 		prometheus.HistogramOpts{
 			Name:    MaxNumGenerationTokensMetricName,
 			Help:    "Histogram of maximum number of requested generation tokens.",
-			Buckets: Build125Buckets(s.Config.MaxModelLen),
+			Buckets: Build125Buckets(s.Config().MaxModelLen),
 		},
 		[]string{vllmapi.PromLabelModelName},
 	)

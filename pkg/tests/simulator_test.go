@@ -44,6 +44,7 @@ import (
 
 const prompt1 = "What is the weather like in New York today?"
 const prompt2 = "I hear it's very cold."
+const sseDoneMarker = "[DONE]"
 
 var _ = Describe("Simulator", func() {
 
@@ -301,6 +302,623 @@ var _ = Describe("Simulator", func() {
 		Entry(nil, common.QwenModelName, common.ModeRandom, 1000),
 	)
 
+	DescribeTable("text completions with array prompt",
+		func(streaming bool) {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho,
+				"--time-to-first-token", "500ms", "--time-to-first-token-std-dev", "100ms"}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			openaiclient := openai.NewClient(
+				option.WithBaseURL(baseURL),
+				option.WithHTTPClient(client))
+
+			prompts := []string{prompt1, prompt2, "How about tomorrow?"}
+			const logprobsCount = 2
+			params := openai.CompletionNewParams{
+				Prompt:   openai.CompletionNewParamsPromptUnion{OfArrayOfStrings: prompts},
+				Model:    openai.CompletionNewParamsModel(common.TestModelName),
+				Logprobs: param.NewOpt(int64(logprobsCount)),
+			}
+
+			// In echo mode each sub-request's completion equals its prompt, so the
+			// aggregated usage is 2× the sum of per-prompt token counts.
+			var expectedPromptTokens int64
+			for _, p := range prompts {
+				tokens, _, err := tokenizerMngr.TestTokenizer().RenderText(p)
+				Expect(err).NotTo(HaveOccurred())
+				expectedPromptTokens += int64(len(tokens))
+			}
+
+			if streaming {
+				params.StreamOptions = openai.ChatCompletionStreamOptionsParam{IncludeUsage: param.NewOpt(true)}
+				stream := openaiclient.Completions.NewStreaming(ctx, params)
+				defer func() {
+					Expect(stream.Close()).To(Succeed())
+				}()
+				// Collect streamed text per choice index
+				texts := make([]string, len(prompts))
+				chunksWithLogprobs := make([]int, len(prompts))
+				var chunk openai.Completion
+				var usage openai.CompletionUsage
+				for stream.Next() {
+					chunk = stream.Current()
+					for _, choice := range chunk.Choices {
+						texts[choice.Index] += choice.Text
+						if choice.FinishReason == "" && choice.Text != "" && len(choice.Logprobs.Tokens) > 0 {
+							chunksWithLogprobs[choice.Index]++
+							Expect(choice.Logprobs.Tokens[0]).To(Equal(choice.Text))
+							Expect(choice.Logprobs.TokenLogprobs[0]).To(BeNumerically("<=", 0))
+							Expect(choice.Logprobs.TopLogprobs[0]).To(HaveLen(logprobsCount))
+							Expect(choice.Logprobs.TopLogprobs[0]).To(HaveKey(choice.Text))
+						}
+					}
+					if chunk.Usage.TotalTokens != 0 {
+						usage = chunk.Usage
+					}
+				}
+				Expect(stream.Err()).NotTo(HaveOccurred())
+				Expect(string(chunk.Object)).To(Equal(openaiserverapi.TextCompletionObject))
+				for i, prompt := range prompts {
+					Expect(texts[i]).To(Equal(prompt))
+					// Every choice must carry its own logprobs stream.
+					Expect(chunksWithLogprobs[i]).To(BeNumerically(">", 0),
+						"choice %d should have logprobs chunks", i)
+				}
+				Expect(usage.PromptTokens).To(Equal(expectedPromptTokens))
+				Expect(usage.CompletionTokens).To(Equal(expectedPromptTokens))
+				Expect(usage.TotalTokens).To(Equal(expectedPromptTokens * 2))
+			} else {
+				resp, err := openaiclient.Completions.New(ctx, params)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(string(resp.Object)).To(Equal(openaiserverapi.TextCompletionObject))
+				Expect(resp.Choices).To(HaveLen(len(prompts)))
+				// Each choice should echo the corresponding prompt and carry its own index and logprobs.
+				for i, prompt := range prompts {
+					Expect(resp.Choices[i].Index).To(BeEquivalentTo(i))
+					Expect(resp.Choices[i].Text).To(Equal(prompt))
+					Expect(resp.Choices[i].Logprobs.Tokens).NotTo(BeNil())
+					_, tokens, err := tokenizerMngr.TestTokenizer().RenderText(prompt)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(resp.Choices[i].Logprobs.Tokens).To(HaveLen(len(tokens)))
+				}
+				Expect(resp.Usage.PromptTokens).To(Equal(expectedPromptTokens))
+				Expect(resp.Usage.CompletionTokens).To(Equal(expectedPromptTokens))
+				Expect(resp.Usage.TotalTokens).To(Equal(expectedPromptTokens * 2))
+			}
+		},
+		Entry("non-streaming", false),
+		Entry("streaming", true),
+	)
+
+	// Token-id prompts: /completions accepts the prompt as []uint32 (a single
+	// pre-tokenized prompt) or [][]uint32 (an array of pre-tokenized prompts).
+	// In echo mode the simulator replays the ids back as a comma-separated
+	// decimal string ("1,2,3"), so prompt_tokens stays equal to the input
+	// length and the tokenizer is never invoked on the prompt — which is why
+	// the same expectations hold for both the simulated and real-model tokenizers.
+	DescribeTable("text completions with token-id prompt",
+		func(model string, mode string, streaming bool) {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", model, "--mode", mode}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			openaiclient := openai.NewClient(
+				option.WithBaseURL(baseURL),
+				option.WithHTTPClient(client))
+
+			tokens := []int64{1, 2, 3, 4}
+			expectedPromptTokens := int64(len(tokens))
+			expectedEcho := "1,2,3,4"
+			params := openai.CompletionNewParams{
+				Prompt: openai.CompletionNewParamsPromptUnion{OfArrayOfTokens: tokens},
+				Model:  openai.CompletionNewParamsModel(model),
+			}
+
+			var text string
+			var usage openai.CompletionUsage
+			if streaming {
+				params.StreamOptions = openai.ChatCompletionStreamOptionsParam{IncludeUsage: param.NewOpt(true)}
+				stream := openaiclient.Completions.NewStreaming(ctx, params)
+				defer func() { Expect(stream.Close()).To(Succeed()) }()
+				var b strings.Builder
+				for stream.Next() {
+					chunk := stream.Current()
+					for _, choice := range chunk.Choices {
+						b.WriteString(choice.Text)
+					}
+					if chunk.Usage.TotalTokens != 0 {
+						usage = chunk.Usage
+					}
+				}
+				Expect(stream.Err()).NotTo(HaveOccurred())
+				text = b.String()
+			} else {
+				resp, err := openaiclient.Completions.New(ctx, params)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(resp.Choices).To(HaveLen(1))
+				text = resp.Choices[0].Text
+				usage = resp.Usage
+			}
+
+			Expect(usage.PromptTokens).To(Equal(expectedPromptTokens))
+			if mode == common.ModeEcho {
+				Expect(text).To(Equal(expectedEcho))
+			} else {
+				Expect(text).NotTo(BeEmpty())
+				Expect(dataset.IsValidText(text)).To(BeTrue())
+			}
+		},
+		func(model string, mode string, streaming bool) string {
+			return fmt.Sprintf("model: %s mode: %s streaming: %v", model, mode, streaming)
+		},
+		Entry(nil, common.TestModelName, common.ModeEcho, false),
+		Entry(nil, common.TestModelName, common.ModeEcho, true),
+		Entry(nil, common.TestModelName, common.ModeRandom, false),
+		Entry(nil, common.TestModelName, common.ModeRandom, true),
+		Entry(nil, common.QwenModelName, common.ModeEcho, false),
+		Entry(nil, common.QwenModelName, common.ModeEcho, true),
+		Entry(nil, common.QwenModelName, common.ModeRandom, false),
+		Entry(nil, common.QwenModelName, common.ModeRandom, true),
+	)
+
+	DescribeTable("text completions with token-id arrays prompt",
+		func(model string, mode string, streaming bool) {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", model, "--mode", mode}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			openaiclient := openai.NewClient(
+				option.WithBaseURL(baseURL),
+				option.WithHTTPClient(client))
+
+			promptTokens := [][]int64{{1, 2, 3}, {10, 20}, {7}}
+			expectedEcho := []string{"1,2,3", "10,20", "7"}
+			var expectedPromptTokens int64
+			for _, ids := range promptTokens {
+				expectedPromptTokens += int64(len(ids))
+			}
+
+			params := openai.CompletionNewParams{
+				Prompt: openai.CompletionNewParamsPromptUnion{OfArrayOfTokenArrays: promptTokens},
+				Model:  openai.CompletionNewParamsModel(model),
+			}
+
+			texts := make([]string, len(promptTokens))
+			var usage openai.CompletionUsage
+			if streaming {
+				params.StreamOptions = openai.ChatCompletionStreamOptionsParam{IncludeUsage: param.NewOpt(true)}
+				stream := openaiclient.Completions.NewStreaming(ctx, params)
+				defer func() { Expect(stream.Close()).To(Succeed()) }()
+				for stream.Next() {
+					chunk := stream.Current()
+					for _, choice := range chunk.Choices {
+						texts[choice.Index] += choice.Text
+					}
+					if chunk.Usage.TotalTokens != 0 {
+						usage = chunk.Usage
+					}
+				}
+				Expect(stream.Err()).NotTo(HaveOccurred())
+			} else {
+				resp, err := openaiclient.Completions.New(ctx, params)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(resp.Choices).To(HaveLen(len(promptTokens)))
+				for _, choice := range resp.Choices {
+					texts[choice.Index] = choice.Text
+				}
+				usage = resp.Usage
+			}
+
+			Expect(usage.PromptTokens).To(Equal(expectedPromptTokens))
+			for i, text := range texts {
+				if mode == common.ModeEcho {
+					Expect(text).To(Equal(expectedEcho[i]))
+				} else {
+					Expect(text).NotTo(BeEmpty())
+					Expect(dataset.IsValidText(text)).To(BeTrue())
+				}
+			}
+		},
+		func(model string, mode string, streaming bool) string {
+			return fmt.Sprintf("model: %s mode: %s streaming: %v", model, mode, streaming)
+		},
+		Entry(nil, common.TestModelName, common.ModeEcho, false),
+		Entry(nil, common.TestModelName, common.ModeEcho, true),
+		Entry(nil, common.TestModelName, common.ModeRandom, false),
+		Entry(nil, common.TestModelName, common.ModeRandom, true),
+		Entry(nil, common.QwenModelName, common.ModeEcho, false),
+		Entry(nil, common.QwenModelName, common.ModeEcho, true),
+		Entry(nil, common.QwenModelName, common.ModeRandom, false),
+		Entry(nil, common.QwenModelName, common.ModeRandom, true),
+	)
+
+	DescribeTable("text completions with array prompt fail-fast when one sub-request errors",
+		func(streaming bool) {
+			ctx := context.TODO()
+			// max-num-seqs=1 + max-waiting-queue-length=1 means only the first two
+			// sub-requests fit (1 running + 1 waiting). The third hits the queue-full
+			// error. TTFT is high enough that the queue-full error arrives before any
+			// token chunks would.
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
+				"--time-to-first-token", "3s",
+				"--max-num-seqs", "1", "--max-waiting-queue-length", "1"}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			openaiclient := openai.NewClient(
+				option.WithBaseURL(baseURL),
+				option.WithHTTPClient(client))
+
+			params := openai.CompletionNewParams{
+				Prompt: openai.CompletionNewParamsPromptUnion{OfArrayOfStrings: []string{prompt1, prompt2, "a third prompt"}},
+				Model:  openai.CompletionNewParamsModel(common.TestModelName),
+			}
+
+			if streaming {
+				stream := openaiclient.Completions.NewStreaming(ctx, params)
+				defer func() { Expect(stream.Close()).To(Succeed()) }()
+
+				// Fail-fast contract: no token chunks leak through before the error.
+				// Every chunk we observe must have empty Text on every choice.
+				for stream.Next() {
+					for _, c := range stream.Current().Choices {
+						Expect(c.Text).To(BeEmpty(),
+							"no token chunk should appear before the fail-fast error")
+					}
+				}
+				Expect(stream.Err()).To(HaveOccurred())
+				// TODO: check after fixing inconsistency in error responses in HTTP
+				// var oaiErr *openai.Error
+				// Expect(errors.As(stream.Err(), &oaiErr)).To(BeTrue())
+				// Expect(oaiErr.StatusCode).To(Equal(fasthttp.StatusTooManyRequests))
+				// Expect(oaiErr.Message).To(ContainSubstring("waiting requests queue is full"))
+			} else {
+				_, err := openaiclient.Completions.New(ctx, params)
+				Expect(err).To(HaveOccurred())
+				var oaiErr *openai.Error
+				Expect(errors.As(err, &oaiErr)).To(BeTrue())
+				Expect(oaiErr.StatusCode).To(Equal(fasthttp.StatusTooManyRequests))
+				Expect(oaiErr.Message).To(ContainSubstring("waiting requests queue is full"))
+			}
+		},
+		Entry("non-streaming", false),
+		Entry("streaming", true),
+	)
+
+	It("text completions single-element array prompt behaves like a single-prompt request", func() {
+		ctx := context.TODO()
+		args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho}
+		client, err := startServerWithArgs(ctx, args)
+		Expect(err).NotTo(HaveOccurred())
+
+		openaiclient := openai.NewClient(
+			option.WithBaseURL(baseURL),
+			option.WithHTTPClient(client))
+
+		params := openai.CompletionNewParams{
+			Prompt: openai.CompletionNewParamsPromptUnion{OfArrayOfStrings: []string{prompt1}},
+			Model:  openai.CompletionNewParamsModel(common.TestModelName),
+		}
+
+		resp, err := openaiclient.Completions.New(ctx, params)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(string(resp.Object)).To(Equal(openaiserverapi.TextCompletionObject))
+		Expect(resp.Choices).To(HaveLen(1))
+		Expect(resp.Choices[0].Index).To(BeEquivalentTo(0))
+		Expect(resp.Choices[0].Text).To(Equal(prompt1))
+	})
+
+	It("text completions wire form accepts both string and array prompts", func() {
+		// This test sends raw JSON (bypassing the OpenAI SDK's encoding) to pin
+		// down the dual-form contract on the `prompt` field directly:
+		//   - "prompt": "..."  → single-choice response.
+		//   - "prompt": [...]  → one choice per element, in order.
+		// The X-Request-ID response header echoes the parent request id (the
+		// "-i" suffix is stamped on internal sub-request ids only).
+		ctx := context.TODO()
+		args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho,
+			"--enable-request-id-headers"}
+		client, err := startServerWithArgs(ctx, args)
+		Expect(err).NotTo(HaveOccurred())
+
+		post := func(body, requestID string) *http.Response {
+			req, err := http.NewRequest("POST", "http://localhost/v1/completions", strings.NewReader(body))
+			Expect(err).NotTo(HaveOccurred())
+			req.Header.Set("Content-Type", "application/json")
+			if requestID != "" {
+				req.Header.Set(communication.RequestIDHeader, requestID)
+			}
+			resp, err := client.Do(req)
+			Expect(err).NotTo(HaveOccurred())
+			return resp
+		}
+
+		decode := func(resp *http.Response) openai.Completion {
+			defer func() { Expect(resp.Body.Close()).To(Succeed()) }()
+			Expect(resp.StatusCode).To(Equal(200))
+			body, err := io.ReadAll(resp.Body)
+			Expect(err).NotTo(HaveOccurred())
+			var out openai.Completion
+			Expect(json.Unmarshal(body, &out)).To(Succeed())
+			return out
+		}
+
+		// Single-string prompt — wire form `"prompt": "..."`.
+		strResp := post(fmt.Sprintf(`{"model":%q,"prompt":%q}`, common.TestModelName, prompt1), "rid-string")
+		Expect(strResp.Header.Get(communication.RequestIDHeader)).To(Equal("rid-string"))
+		strBody := decode(strResp)
+		Expect(strBody.Choices).To(HaveLen(1))
+		Expect(strBody.Choices[0].Index).To(BeEquivalentTo(0))
+		Expect(strBody.Choices[0].Text).To(Equal(prompt1))
+
+		// Two-element array prompt — wire form `"prompt": ["...", "..."]`.
+		arrBody := fmt.Sprintf(`{"model":%q,"prompt":[%q,%q]}`, common.TestModelName, prompt1, prompt2)
+		arrResp := post(arrBody, "rid-array")
+		Expect(arrResp.Header.Get(communication.RequestIDHeader)).To(Equal("rid-array"))
+		arr := decode(arrResp)
+		Expect(arr.Choices).To(HaveLen(2))
+		Expect(arr.Choices[0].Index).To(BeEquivalentTo(0))
+		Expect(arr.Choices[0].Text).To(Equal(prompt1))
+		Expect(arr.Choices[1].Index).To(BeEquivalentTo(1))
+		Expect(arr.Choices[1].Text).To(Equal(prompt2))
+
+		// Single-element array — equivalent to the string form.
+		oneResp := post(fmt.Sprintf(`{"model":%q,"prompt":[%q]}`, common.TestModelName, prompt1), "rid-onearr")
+		Expect(oneResp.Header.Get(communication.RequestIDHeader)).To(Equal("rid-onearr"))
+		oneBody := decode(oneResp)
+		Expect(oneBody.Choices).To(HaveLen(1))
+		Expect(oneBody.Choices[0].Index).To(BeEquivalentTo(0))
+		Expect(oneBody.Choices[0].Text).To(Equal(prompt1))
+
+		// Invalid prompt type (number) — must be rejected at JSON unmarshalling.
+		badResp := post(fmt.Sprintf(`{"model":%q,"prompt":123}`, common.TestModelName), "")
+		defer func() { Expect(badResp.Body.Close()).To(Succeed()) }()
+		Expect(badResp.StatusCode).To(Equal(400))
+		badBytes, err := io.ReadAll(badResp.Body)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(string(badBytes)).To(ContainSubstring("prompt must be a string, an array of strings, an array of token ids, or an array of arrays of token ids"))
+	})
+
+	It("text completions empty array prompt is rejected with 400", func() {
+		ctx := context.TODO()
+		args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho}
+		client, err := startServerWithArgs(ctx, args)
+		Expect(err).NotTo(HaveOccurred())
+
+		openaiclient := openai.NewClient(
+			option.WithBaseURL(baseURL),
+			option.WithHTTPClient(client))
+
+		_, err = openaiclient.Completions.New(ctx, openai.CompletionNewParams{
+			Prompt: openai.CompletionNewParamsPromptUnion{OfArrayOfStrings: []string{}},
+			Model:  openai.CompletionNewParamsModel(common.TestModelName),
+		})
+		Expect(err).To(HaveOccurred())
+		var oaiErr *openai.Error
+		Expect(errors.As(err, &oaiErr)).To(BeTrue())
+		Expect(oaiErr.StatusCode).To(Equal(fasthttp.StatusBadRequest))
+		Expect(oaiErr.Message).To(ContainSubstring("prompt array must contain at least one prompt"))
+
+		// Follow-up single-prompt request must still succeed — proves rejecting the
+		// bad request didn't affect the worker pool or response channel machinery.
+		followUp, err := openaiclient.Completions.New(ctx, openai.CompletionNewParams{
+			Prompt: openai.CompletionNewParamsPromptUnion{OfString: param.NewOpt(prompt1)},
+			Model:  openai.CompletionNewParamsModel(common.TestModelName),
+		})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(followUp.Choices).To(HaveLen(1))
+		Expect(followUp.Choices[0].Text).To(Equal(prompt1))
+	})
+
+	It("text completions array containing an empty string is rejected with 400", func() {
+		ctx := context.TODO()
+		args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho}
+		client, err := startServerWithArgs(ctx, args)
+		Expect(err).NotTo(HaveOccurred())
+
+		openaiclient := openai.NewClient(
+			option.WithBaseURL(baseURL),
+			option.WithHTTPClient(client))
+
+		_, err = openaiclient.Completions.New(ctx, openai.CompletionNewParams{
+			Prompt: openai.CompletionNewParamsPromptUnion{OfArrayOfStrings: []string{"", prompt1, ""}},
+			Model:  openai.CompletionNewParamsModel(common.TestModelName),
+		})
+		Expect(err).To(HaveOccurred())
+		var oaiErr *openai.Error
+		Expect(errors.As(err, &oaiErr)).To(BeTrue())
+		Expect(oaiErr.StatusCode).To(Equal(fasthttp.StatusBadRequest))
+		Expect(oaiErr.Message).To(ContainSubstring("prompt must not contain an empty string"))
+	})
+
+	It("text completions array containing an empty token-id array is rejected with 400", func() {
+		ctx := context.TODO()
+		args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho}
+		client, err := startServerWithArgs(ctx, args)
+		Expect(err).NotTo(HaveOccurred())
+
+		openaiclient := openai.NewClient(
+			option.WithBaseURL(baseURL),
+			option.WithHTTPClient(client))
+
+		_, err = openaiclient.Completions.New(ctx, openai.CompletionNewParams{
+			Prompt: openai.CompletionNewParamsPromptUnion{OfArrayOfTokenArrays: [][]int64{{1, 2}, {}, {3}}},
+			Model:  openai.CompletionNewParamsModel(common.TestModelName),
+		})
+		Expect(err).To(HaveOccurred())
+		var oaiErr *openai.Error
+		Expect(errors.As(err, &oaiErr)).To(BeTrue())
+		Expect(oaiErr.StatusCode).To(Equal(fasthttp.StatusBadRequest))
+		Expect(oaiErr.Message).To(ContainSubstring("prompt must not contain an empty token-id array"))
+	})
+
+	It("text completions array prompt in random mode yields per-choice content and aggregated usage", func() {
+		ctx := context.TODO()
+		args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
+			"--max-num-seqs", "3"}
+		client, err := startServerWithArgs(ctx, args)
+		Expect(err).NotTo(HaveOccurred())
+
+		openaiclient := openai.NewClient(
+			option.WithBaseURL(baseURL),
+			option.WithHTTPClient(client))
+
+		prompts := []string{prompt1, prompt2, "a third prompt"}
+
+		var expectedPromptTokens int64
+		for _, p := range prompts {
+			tokens, _, err := tokenizerMngr.TestTokenizer().RenderText(p)
+			Expect(err).NotTo(HaveOccurred())
+			expectedPromptTokens += int64(len(tokens))
+		}
+
+		resp, err := openaiclient.Completions.New(ctx, openai.CompletionNewParams{
+			Prompt: openai.CompletionNewParamsPromptUnion{OfArrayOfStrings: prompts},
+			Model:  openai.CompletionNewParamsModel(common.TestModelName),
+		})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.Choices).To(HaveLen(len(prompts)))
+
+		// Indexes must be 0..N-1 with no duplicates, regardless of worker completion order.
+		seen := make(map[int64]bool, len(prompts))
+		for _, c := range resp.Choices {
+			Expect(seen[c.Index]).To(BeFalse(), "duplicate choice index %d", c.Index)
+			seen[c.Index] = true
+			// Random mode content is non-deterministic but must be non-empty and the
+			// finish reason must be a recognized terminal state.
+			Expect(c.Text).NotTo(BeEmpty())
+			Expect(string(c.FinishReason)).To(BeElementOf(common.StopFinishReason, common.LengthFinishReason))
+		}
+		for i := int64(0); i < int64(len(prompts)); i++ {
+			Expect(seen[i]).To(BeTrue(), "missing choice index %d", i)
+		}
+
+		Expect(resp.Usage.PromptTokens).To(Equal(expectedPromptTokens))
+		Expect(resp.Usage.TotalTokens).To(Equal(resp.Usage.PromptTokens + resp.Usage.CompletionTokens))
+	})
+
+	It("text completions array prompt with low max-tokens produces length finish reasons", func() {
+		ctx := context.TODO()
+		// max-tokens=1 forces every sub-request to finish with "length" (except any
+		// that happens to generate an EOS at position 0 — so the assertion tolerates
+		// both, but at least one must be "length").
+		args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
+			"--max-num-seqs", "3"}
+		client, err := startServerWithArgs(ctx, args)
+		Expect(err).NotTo(HaveOccurred())
+
+		openaiclient := openai.NewClient(
+			option.WithBaseURL(baseURL),
+			option.WithHTTPClient(client))
+
+		prompts := []string{prompt1, prompt2, "third"}
+		resp, err := openaiclient.Completions.New(ctx, openai.CompletionNewParams{
+			Prompt:    openai.CompletionNewParamsPromptUnion{OfArrayOfStrings: prompts},
+			Model:     openai.CompletionNewParamsModel(common.TestModelName),
+			MaxTokens: param.NewOpt(int64(1)),
+		})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.Choices).To(HaveLen(len(prompts)))
+		sawLength := false
+		for _, c := range resp.Choices {
+			Expect(string(c.FinishReason)).To(BeElementOf(common.StopFinishReason, common.LengthFinishReason))
+			if c.FinishReason == common.LengthFinishReason {
+				sawLength = true
+			}
+		}
+		Expect(sawLength).To(BeTrue(), "expected at least one choice to hit max_tokens")
+		// With max-tokens=1 each choice contributes at most 1 completion token.
+		Expect(resp.Usage.CompletionTokens).To(BeNumerically("<=", int64(len(prompts))))
+	})
+
+	It("text completions array prompt without logprobs returns nil logprobs on every choice", func() {
+		ctx := context.TODO()
+		args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho}
+		client, err := startServerWithArgs(ctx, args)
+		Expect(err).NotTo(HaveOccurred())
+
+		openaiclient := openai.NewClient(
+			option.WithBaseURL(baseURL),
+			option.WithHTTPClient(client))
+
+		prompts := []string{prompt1, prompt2}
+
+		// Non-streaming: the openai-go type is a value, not a pointer, so we check
+		// that its fields are all zero — that's how "no logprobs" manifests.
+		resp, err := openaiclient.Completions.New(ctx, openai.CompletionNewParams{
+			Prompt: openai.CompletionNewParamsPromptUnion{OfArrayOfStrings: prompts},
+			Model:  openai.CompletionNewParamsModel(common.TestModelName),
+		})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.Choices).To(HaveLen(len(prompts)))
+		for i, c := range resp.Choices {
+			Expect(c.Logprobs.Tokens).To(BeEmpty(), "choice %d should have no logprobs tokens", i)
+			Expect(c.Logprobs.TokenLogprobs).To(BeEmpty(), "choice %d should have no logprobs token_logprobs", i)
+			Expect(c.Logprobs.TopLogprobs).To(BeEmpty(), "choice %d should have no top_logprobs", i)
+		}
+
+		// Streaming: no chunk for any choice should carry logprobs content.
+		streamParams := openai.CompletionNewParams{
+			Prompt: openai.CompletionNewParamsPromptUnion{OfArrayOfStrings: prompts},
+			Model:  openai.CompletionNewParamsModel(common.TestModelName),
+		}
+		stream := openaiclient.Completions.NewStreaming(ctx, streamParams)
+		defer func() { Expect(stream.Close()).To(Succeed()) }()
+		for stream.Next() {
+			chunk := stream.Current()
+			for _, c := range chunk.Choices {
+				Expect(c.Logprobs.Tokens).To(BeEmpty(),
+					"streaming choice %d unexpectedly has logprobs tokens", c.Index)
+			}
+		}
+		Expect(stream.Err()).NotTo(HaveOccurred())
+	})
+
+	It("text completions array prompt still serves new requests after a fail-fast abort", func() {
+		// The existing fail-fast test verifies the client sees an error + [DONE].
+		// This test covers the *follow-up*: after fail-fast triggers `drainResponseChannel`
+		// and the original request's remaining sub-requests drain in the background,
+		// the simulator must be ready to serve another request. Regression guard for
+		// wg leaks, dangling worker state, or permanently-stuck waiting queue.
+		ctx := context.TODO()
+		args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
+			"--time-to-first-token", "1s",
+			"--max-num-seqs", "1", "--max-waiting-queue-length", "1"}
+		client, err := startServerWithArgs(ctx, args)
+		Expect(err).NotTo(HaveOccurred())
+
+		openaiclient := openai.NewClient(
+			option.WithBaseURL(baseURL),
+			option.WithHTTPClient(client))
+
+		// First: trigger fail-fast via queue overflow on a 3-prompt array.
+		_, err = openaiclient.Completions.New(ctx, openai.CompletionNewParams{
+			Prompt: openai.CompletionNewParamsPromptUnion{OfArrayOfStrings: []string{prompt1, prompt2, "third"}},
+			Model:  openai.CompletionNewParamsModel(common.TestModelName),
+		})
+		Expect(err).To(HaveOccurred())
+		var oaiErr *openai.Error
+		Expect(errors.As(err, &oaiErr)).To(BeTrue())
+		Expect(oaiErr.StatusCode).To(Equal(fasthttp.StatusTooManyRequests))
+
+		// Give the background drain/wg bookkeeping time to complete before we probe.
+		// 2× TTFT covers the worst case where the queued sub-request was already past TTFT.
+		time.Sleep(2500 * time.Millisecond)
+
+		// Follow-up: a single-prompt request must succeed end-to-end.
+		followUp, err := openaiclient.Completions.New(ctx, openai.CompletionNewParams{
+			Prompt: openai.CompletionNewParamsPromptUnion{OfString: param.NewOpt(prompt1)},
+			Model:  openai.CompletionNewParamsModel(common.TestModelName),
+		})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(followUp.Choices).To(HaveLen(1))
+		Expect(followUp.Choices[0].Text).NotTo(BeEmpty())
+	})
+
 	DescribeTable("mm encoder only",
 		func(model string, mode string, maxTokens int) {
 			ctx := context.TODO()
@@ -358,6 +976,114 @@ var _ = Describe("Simulator", func() {
 		Entry(nil, common.TestModelName, common.ModeRandom, 10),
 		Entry(nil, common.QwenModelName, common.ModeEcho, 10),
 	)
+
+	It("Should return ec_transfer_params on chat completions in MMEncoderOnly mode when messages contain images", func() {
+		ctx := context.TODO()
+		args := []string{"cmd", "--model", common.TestModelName, "--mm-encoder-only",
+			"--mm-processor-kwargs", "args", "--ec-transfer-config", "cfg",
+			"--enforce-eager", "--no-enable-prefix-caching"}
+		client, err := startServerWithArgs(ctx, args)
+		Expect(err).NotTo(HaveOccurred())
+
+		reqBody := fmt.Sprintf(`{
+				"model": "%s",
+				"messages": [
+					{"role": "user", "content": [
+						{"type": "text", "text": "describe"},
+						{"type": "image_url", "image_url": {"url": "https://example.com/a.png"}},
+						{"type": "image_url", "image_url": {"url": "https://example.com/b.png"}}
+					]}
+				],
+				"max_tokens": 1
+			}`, common.TestModelName)
+
+		resp, err := client.Post("http://localhost/v1/chat/completions", "application/json", strings.NewReader(reqBody))
+		Expect(err).NotTo(HaveOccurred())
+		defer func() {
+			err := resp.Body.Close()
+			Expect(err).NotTo(HaveOccurred())
+		}()
+
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+		body, err := io.ReadAll(resp.Body)
+		Expect(err).NotTo(HaveOccurred())
+
+		var chatResp openaiserverapi.ChatCompletionsResponse
+		Expect(json.Unmarshal(body, &chatResp)).To(Succeed())
+		Expect(chatResp.Choices).To(HaveLen(1))
+		Expect(chatResp.ECTransferParams).To(HaveLen(2))
+		for _, params := range chatResp.ECTransferParams {
+			Expect(params.PeerHost).NotTo(BeEmpty())
+			Expect(params.PeerPort).To(BeNumerically(">", 0))
+			Expect(params.SizeBytes).To(BeNumerically(">", 0))
+			Expect(params.NixlAgentData).NotTo(BeEmpty())
+		}
+	})
+
+	It("Should not return ec_transfer_params on chat completions when no images in request", func() {
+		ctx := context.TODO()
+		args := []string{"cmd", "--model", common.TestModelName, "--mm-encoder-only",
+			"--mm-processor-kwargs", "args", "--ec-transfer-config", "cfg",
+			"--enforce-eager", "--no-enable-prefix-caching"}
+		client, err := startServerWithArgs(ctx, args)
+		Expect(err).NotTo(HaveOccurred())
+
+		reqBody := fmt.Sprintf(`{
+				"model": "%s",
+				"messages": [{"role": "user", "content": "hi"}],
+				"max_tokens": 1
+			}`, common.TestModelName)
+
+		resp, err := client.Post("http://localhost/v1/chat/completions", "application/json", strings.NewReader(reqBody))
+		Expect(err).NotTo(HaveOccurred())
+		defer func() {
+			err := resp.Body.Close()
+			Expect(err).NotTo(HaveOccurred())
+		}()
+
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+		body, err := io.ReadAll(resp.Body)
+		Expect(err).NotTo(HaveOccurred())
+
+		var chatResp openaiserverapi.ChatCompletionsResponse
+		Expect(json.Unmarshal(body, &chatResp)).To(Succeed())
+		Expect(chatResp.ECTransferParams).To(BeNil())
+	})
+
+	It("Should not return ec_transfer_params on chat completions when MMEncoderOnly mode is disabled", func() {
+		ctx := context.TODO()
+		args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom}
+		client, err := startServerWithArgs(ctx, args)
+		Expect(err).NotTo(HaveOccurred())
+
+		reqBody := fmt.Sprintf(`{
+				"model": "%s",
+				"messages": [
+					{"role": "user", "content": [
+						{"type": "image_url", "image_url": {"url": "https://example.com/a.png"}}
+					]}
+				],
+				"max_tokens": 1
+			}`, common.TestModelName)
+
+		resp, err := client.Post("http://localhost/v1/chat/completions", "application/json", strings.NewReader(reqBody))
+		Expect(err).NotTo(HaveOccurred())
+		defer func() {
+			err := resp.Body.Close()
+			Expect(err).NotTo(HaveOccurred())
+		}()
+
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+		body, err := io.ReadAll(resp.Body)
+		Expect(err).NotTo(HaveOccurred())
+
+		var chatResp openaiserverapi.ChatCompletionsResponse
+		Expect(json.Unmarshal(body, &chatResp)).To(Succeed())
+		Expect(chatResp.ECTransferParams).To(BeNil())
+	})
 
 	It("echo mode with structured content blocks", func() {
 		ctx := context.TODO()
@@ -1172,7 +1898,7 @@ var _ = Describe("Simulator", func() {
 
 				if strings.HasPrefix(line, "data: ") {
 					data := strings.TrimPrefix(line, "data: ")
-					if strings.TrimSpace(data) == "[DONE]" {
+					if strings.TrimSpace(data) == sseDoneMarker {
 						break
 					}
 
@@ -1755,6 +2481,244 @@ var _ = Describe("Simulator", func() {
 			var generateResp openaiserverapi.GenerateResponse
 			Expect(json.Unmarshal(body, &generateResp)).To(Succeed())
 			Expect(generateResp.ECTransferParams).To(BeNil())
+		})
+
+		It("Should return kv_transfer_params when do_remote_decode is true", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			reqBody := fmt.Sprintf(`{
+				"model": "%s",
+				"token_ids": [1, 2, 3, 4],
+				"sampling_params": {"max_tokens": 5},
+				"kv_transfer_params": {"do_remote_decode": true}
+			}`, common.TestModelName)
+
+			resp, err := client.Post("http://localhost/inference/v1/generate", "application/json", strings.NewReader(reqBody))
+			Expect(err).NotTo(HaveOccurred())
+			defer func() {
+				err := resp.Body.Close()
+				Expect(err).NotTo(HaveOccurred())
+			}()
+
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+			body, err := io.ReadAll(resp.Body)
+			Expect(err).NotTo(HaveOccurred())
+
+			var generateResp openaiserverapi.GenerateResponse
+			Expect(json.Unmarshal(body, &generateResp)).To(Succeed())
+			Expect(generateResp.KVParams).NotTo(BeNil())
+			Expect(generateResp.KVParams.DoRemotePrefill).To(BeTrue())
+			Expect(generateResp.KVParams.DoRemoteDecode).To(BeFalse())
+			Expect(generateResp.KVParams.RemoteHost).NotTo(BeEmpty())
+			Expect(generateResp.KVParams.RemotePort).To(BeNumerically(">", 0))
+			Expect(generateResp.KVParams.RemoteBlockIds).NotTo(BeEmpty())
+			Expect(generateResp.KVParams.RemoteEngineId).NotTo(BeEmpty())
+		})
+
+		It("Should not return kv_transfer_params when do_remote_decode is absent", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			reqBody := fmt.Sprintf(`{
+				"model": "%s",
+				"token_ids": [1, 2, 3, 4],
+				"sampling_params": {"max_tokens": 5}
+			}`, common.TestModelName)
+
+			resp, err := client.Post("http://localhost/inference/v1/generate", "application/json", strings.NewReader(reqBody))
+			Expect(err).NotTo(HaveOccurred())
+			defer func() {
+				err := resp.Body.Close()
+				Expect(err).NotTo(HaveOccurred())
+			}()
+
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+			body, err := io.ReadAll(resp.Body)
+			Expect(err).NotTo(HaveOccurred())
+
+			var generateResp openaiserverapi.GenerateResponse
+			Expect(json.Unmarshal(body, &generateResp)).To(Succeed())
+			Expect(generateResp.KVParams).To(BeNil())
+		})
+
+		It("Should return kv_transfer_params when do_remote_decode is true inside sampling_params.extra_args", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			reqBody := fmt.Sprintf(`{
+				"model": "%s",
+				"token_ids": [1, 2, 3, 4],
+				"sampling_params": {"max_tokens": 5, "extra_args": {"kv_transfer_params": {"do_remote_decode": true}}}
+			}`, common.TestModelName)
+
+			resp, err := client.Post("http://localhost/inference/v1/generate", "application/json", strings.NewReader(reqBody))
+			Expect(err).NotTo(HaveOccurred())
+			defer func() {
+				err := resp.Body.Close()
+				Expect(err).NotTo(HaveOccurred())
+			}()
+
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+			body, err := io.ReadAll(resp.Body)
+			Expect(err).NotTo(HaveOccurred())
+
+			var generateResp openaiserverapi.GenerateResponse
+			Expect(json.Unmarshal(body, &generateResp)).To(Succeed())
+			Expect(generateResp.KVParams).NotTo(BeNil())
+			Expect(generateResp.KVParams.DoRemotePrefill).To(BeTrue())
+			Expect(generateResp.KVParams.DoRemoteDecode).To(BeFalse())
+			Expect(generateResp.KVParams.RemoteHost).NotTo(BeEmpty())
+			Expect(generateResp.KVParams.RemotePort).To(BeNumerically(">", 0))
+			Expect(generateResp.KVParams.RemoteBlockIds).NotTo(BeEmpty())
+			Expect(generateResp.KVParams.RemoteEngineId).NotTo(BeEmpty())
+		})
+
+		It("Should stream SSE chunks for /inference/v1/generate with stream=true", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			reqBody := fmt.Sprintf(`{
+				"model": "%s",
+				"token_ids": [1, 2, 3, 4],
+				"sampling_params": {"max_tokens": 5},
+				"stream": true
+			}`, common.TestModelName)
+
+			resp, err := client.Post("http://localhost/inference/v1/generate", "application/json", strings.NewReader(reqBody))
+			Expect(err).NotTo(HaveOccurred())
+			defer func() {
+				err := resp.Body.Close()
+				Expect(err).NotTo(HaveOccurred())
+			}()
+
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			Expect(resp.Header.Get("Content-Type")).To(Equal("text/event-stream"))
+
+			reader := bufio.NewReader(resp.Body)
+			var tokenChunks []openaiserverapi.GenerateStreamResponse
+			var finishChunk *openaiserverapi.GenerateStreamResponse
+			var usageChunk *openaiserverapi.GenerateStreamResponse
+			gotDone := false
+
+			for {
+				line, err := reader.ReadString('\n')
+				if err == io.EOF {
+					break
+				}
+				Expect(err).NotTo(HaveOccurred())
+
+				if !strings.HasPrefix(line, "data: ") {
+					continue
+				}
+				data := strings.TrimSpace(strings.TrimPrefix(line, "data: "))
+				if data == sseDoneMarker {
+					gotDone = true
+					break
+				}
+
+				var streamResp openaiserverapi.GenerateStreamResponse
+				Expect(json.Unmarshal([]byte(data), &streamResp)).To(Succeed(), "failed to parse SSE chunk: %s", data)
+				if len(streamResp.Choices) == 0 {
+					Expect(streamResp.Usage).NotTo(BeNil(), "empty choices chunk must carry usage")
+					usageChunk = &streamResp
+					continue
+				}
+				choice := streamResp.Choices[0]
+				if choice.TokenIDs != nil {
+					tokenChunks = append(tokenChunks, streamResp)
+				}
+				if choice.FinishReason != nil {
+					finishChunk = &streamResp
+				}
+			}
+
+			Expect(tokenChunks).NotTo(BeEmpty(), "should have received at least one streaming chunk with token_ids")
+			for _, tc := range tokenChunks {
+				Expect(tc.RequestID).NotTo(BeEmpty())
+				Expect(tc.Choices[0].TokenIDs).NotTo(BeEmpty())
+			}
+
+			Expect(finishChunk).NotTo(BeNil(), "should have received a chunk with finish_reason")
+			Expect(finishChunk.RequestID).NotTo(BeEmpty())
+			Expect(*finishChunk.Choices[0].FinishReason).NotTo(BeEmpty())
+			Expect(finishChunk.Usage).To(BeNil(), "finish chunk should not carry usage")
+
+			Expect(usageChunk).To(BeNil(), "should not receive usage chunk without stream_options.include_usage")
+
+			Expect(gotDone).To(BeTrue(), "stream should end with [DONE]")
+		})
+
+		It("Should include usage chunk when stream_options.include_usage is true", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			reqBody := fmt.Sprintf(`{
+				"model": "%s",
+				"token_ids": [1, 2, 3, 4],
+				"sampling_params": {"max_tokens": 5},
+				"stream": true,
+				"stream_options": {"include_usage": true}
+			}`, common.TestModelName)
+
+			resp, err := client.Post("http://localhost/inference/v1/generate", "application/json", strings.NewReader(reqBody))
+			Expect(err).NotTo(HaveOccurred())
+			defer func() {
+				err := resp.Body.Close()
+				Expect(err).NotTo(HaveOccurred())
+			}()
+
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+			reader := bufio.NewReader(resp.Body)
+			var usageChunk *openaiserverapi.GenerateStreamResponse
+			gotDone := false
+
+			for {
+				line, err := reader.ReadString('\n')
+				if err == io.EOF {
+					break
+				}
+				Expect(err).NotTo(HaveOccurred())
+
+				if !strings.HasPrefix(line, "data: ") {
+					continue
+				}
+				data := strings.TrimSpace(strings.TrimPrefix(line, "data: "))
+				if data == sseDoneMarker {
+					gotDone = true
+					break
+				}
+
+				var streamResp openaiserverapi.GenerateStreamResponse
+				Expect(json.Unmarshal([]byte(data), &streamResp)).To(Succeed(), "failed to parse SSE chunk: %s", data)
+				if len(streamResp.Choices) == 0 {
+					Expect(streamResp.Usage).NotTo(BeNil(), "empty choices chunk must carry usage")
+					usageChunk = &streamResp
+					continue
+				}
+			}
+
+			Expect(usageChunk).NotTo(BeNil(), "should have received a usage chunk with choices:[]")
+			Expect(usageChunk.Choices).To(BeEmpty(), "usage chunk should have empty choices")
+			Expect(usageChunk.Usage).NotTo(BeNil())
+			Expect(usageChunk.Usage.PromptTokens).To(BeNumerically(">", 0))
+			Expect(usageChunk.Usage.CompletionTokens).To(BeNumerically(">", 0))
+
+			Expect(gotDone).To(BeTrue(), "stream should end with [DONE]")
 		})
 	})
 

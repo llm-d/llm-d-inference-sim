@@ -121,6 +121,8 @@ type ChatCompletionsResponse struct {
 	baseCompletionsResponse
 	// Choices list of Choices of the response, according of OpenAI API
 	Choices []ChatRespChoice `json:"choices"`
+	// ECTransferParams holds simulated encoder-cache transfer params per mm hash
+	ECTransferParams map[string]ECTransferParams `json:"ec_transfer_params,omitempty"`
 }
 
 // baseResponseChoice contains base completions response's choice related information
@@ -372,18 +374,25 @@ func CreateBaseCompletionsResponse(created int64, model string, usage *Usage, re
 		Usage:   usage,
 	}
 	if doRemoteDecode {
-		baseResp.KVParams = &KVTransferParams{}
-		// add special fields related to the prefill pod special behavior
-		baseResp.KVParams.DoRemoteDecode = false
-		baseResp.KVParams.DoRemotePrefill = true
-		// currently remote prefill information is hard-coded
-		baseResp.KVParams.RemoteBlockIds = []string{"DUMMY_ID"}
-		baseResp.KVParams.RemoteEngineId = "DUMMY_ID"
-		baseResp.KVParams.RemoteHost = "DUMMY"
-		baseResp.KVParams.RemotePort = 1234
-		baseResp.KVParams.TPSize = 1
+		baseResp.KVParams = BuildPrefillKVTransferParams()
 	}
 	return baseResp
+}
+
+// BuildPrefillKVTransferParams returns a KVTransferParams populated with the
+// hard-coded "this pod did the prefill" values used by the simulator across all
+// completion-style endpoints. The fields are placeholders — a real prefill pod
+// would set these from its own engine/host/port and the blocks it produced.
+func BuildPrefillKVTransferParams() *KVTransferParams {
+	return &KVTransferParams{
+		DoRemoteDecode:  false,
+		DoRemotePrefill: true,
+		RemoteBlockIds:  []string{"DUMMY_ID"},
+		RemoteEngineId:  "DUMMY_ID",
+		RemoteHost:      "DUMMY",
+		RemotePort:      1234,
+		TPSize:          1,
+	}
 }
 
 // GetRequestID returns the request ID from the response
@@ -534,6 +543,12 @@ type GenerateResponse struct {
 type GenerateRespChoice struct {
 	baseResponseChoice
 	TokenIDs []uint32 `json:"token_ids"`
+}
+
+type GenerateStreamResponse struct {
+	RequestID string               `json:"request_id"`
+	Choices   []GenerateRespChoice `json:"choices"`
+	Usage     *Usage               `json:"usage,omitempty"`
 }
 
 type ECTransferParams struct {

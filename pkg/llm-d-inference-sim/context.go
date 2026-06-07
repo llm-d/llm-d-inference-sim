@@ -18,8 +18,10 @@ package llmdinferencesim
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -50,8 +52,12 @@ type SimContext struct {
 	logger logr.Logger
 	// metrics contains all Prometheus metrics related data
 	metrics metricsData
-	// Config is the simulator's configuration
-	Config *common.Configuration
+	// config holds the simulator's configuration as an atomic pointer so that
+	// admin updates can swap it under concurrent readers. Access via Config()/SetConfig().
+	config atomic.Pointer[common.Configuration]
+	// adminMu serializes admin-config updates so two concurrent updates can't
+	// each load-then-store with a stale value.
+	adminMu sync.Mutex
 	// loraAdaptors contains list of LoRA available adaptors
 	loraAdaptors sync.Map
 	// loras contains information about which LoRAs are in use
@@ -62,31 +68,99 @@ type SimContext struct {
 	kvcacheHelper *kvcache.KVCacheHelper
 	// dataset is used for token generation in responses
 	dataset dataset.Dataset
-	// latencyCalculator calculates the delays in simulator's responses
-	latencyCalculator LatencyCalculator
+	// latencyCalculator calculates the delays in simulator's responses.
+	// Held in an atomic.Pointer (via a holder struct) so admin-config updates
+	// can swap in a fresh calculator without racing against the workers that
+	// read it on every request. A holder is needed because the three
+	// calculator types (default/constant/per-token) are different concrete
+	// types implementing LatencyCalculator, which atomic.Value would reject.
+	latencyCalculator atomic.Pointer[latencyCalcHolder]
 	// Tokenizer used for request tokenization and in /tokenize
 	Tokenizer tokenizer.Tokenizer
 }
 
-func (s *SimContext) initialize(ctx context.Context) error {
-	s.Random = common.NewRandom(s.Config.Seed, s.Config.Port)
+type latencyCalcHolder struct {
+	calc latencyCalculator
+}
 
-	switch s.Config.LatencyCalculator {
+// latencyCalc returns the current latency calculator. Safe for concurrent
+// reads while admin updates rebuild it.
+func (s *SimContext) latencyCalc() latencyCalculator {
+	return s.latencyCalculator.Load().calc
+}
+
+// rebuildLatencyCalculator constructs a calculator from the current config
+// and atomically replaces the existing one. Called both at init and after
+// each successful admin-config update.
+func (s *SimContext) rebuildLatencyCalculator() {
+	var calc latencyCalculator
+	switch s.Config().LatencyCalculator {
 	case common.DefaultLatencyCalculator:
-		s.latencyCalculator = newDefaultCalculator(s.Config, s.Random)
+		calc = newDefaultCalculator(s.Config(), s.Random)
 	case common.ConstantLatencyCalculator:
-		s.latencyCalculator = newConstantCalculator(s.Config, s.Random)
+		calc = newConstantCalculator(s.Config(), s.Random)
 	case common.PerPromptTokenLatencyCalculator:
-		s.latencyCalculator = newPerTokenCalculator(s.Config, s.Random)
+		calc = newPerTokenCalculator(s.Config(), s.Random)
 	}
+	s.latencyCalculator.Store(&latencyCalcHolder{calc: calc})
+}
 
-	for _, lora := range s.Config.LoraModules {
+// Config returns the current configuration. Safe for concurrent reads while
+// admin updates swap the pointer via SetConfig.
+func (s *SimContext) Config() *common.Configuration {
+	return s.config.Load()
+}
+
+// SetConfig atomically replaces the configuration pointer.
+func (s *SimContext) SetConfig(c *common.Configuration) {
+	s.config.Store(c)
+}
+
+// ApplyConfigUpdate validates the partial JSON body against the current
+// configuration and atomically swaps in the resulting configuration. Updates
+// are serialized so concurrent callers cannot lose each other's changes.
+//
+// A "fake-metrics" field in the body is applied to Prometheus collectors via
+// updateFakeMetrics; this runs after Configuration.Update has validated the
+// merged result but before the config swap, so a Prometheus side-effect
+// failure aborts the whole update.
+func (s *SimContext) ApplyConfigUpdate(body []byte) error {
+	s.adminMu.Lock()
+	defer s.adminMu.Unlock()
+
+	next, update, latencyChanged, err := s.Config().Update(body)
+	if err != nil {
+		return err
+	}
+	if update.FakeMetrics != nil {
+		if s.Config().FakeMetrics == nil {
+			return errors.New("the simulator is reporting real metrics; fake metrics cannot be updated")
+		}
+		if err := s.updateFakeMetrics(update.FakeMetrics, s.Config().FakeMetrics); err != nil {
+			return fmt.Errorf("failed to update fake metrics: %w", err)
+		}
+	}
+	s.SetConfig(next)
+	// The calculator caches latency-related fields at construction time, so
+	// rebuild it whenever any of those fields was updated.
+	if latencyChanged {
+		s.rebuildLatencyCalculator()
+	}
+	return nil
+}
+
+func (s *SimContext) initialize(ctx context.Context) error {
+	s.Random = common.NewRandom(s.Config().Seed, s.Config().Port)
+
+	s.rebuildLatencyCalculator()
+
+	for _, lora := range s.Config().LoraModules {
 		s.loraAdaptors.Store(lora.Name, lora.Path)
 	}
-	s.loras.maxLoras = s.Config.MaxLoras
-	s.loras.loraIDs = make([]string, s.Config.MaxLoras)
+	s.loras.maxLoras = s.Config().MaxLoras
+	s.loras.loraIDs = make([]string, s.Config().MaxLoras)
 	s.loras.loraRemovable = common.Channel[int]{
-		Channel: make(chan int, s.Config.MaxNumSeqs),
+		Channel: make(chan int, s.Config().MaxNumSeqs),
 		Name:    "loraRemovable",
 	}
 
@@ -98,8 +172,8 @@ func (s *SimContext) initialize(ctx context.Context) error {
 
 	// KVCache doesn't support images at the moment, so in mm-encoder only mode
 	// we don't start it.
-	if s.Config.EnableKVCache && !s.Config.MMEncoderOnly {
-		s.kvcacheHelper, err = kvcache.NewKVCacheHelper(ctx, s.Config, s.logger,
+	if s.Config().EnableKVCache && !s.Config().MMEncoderOnly {
+		s.kvcacheHelper, err = kvcache.NewKVCacheHelper(ctx, s.Config(), s.logger,
 			s.metrics.kvCacheUsageChan, s.metrics.prefixCacheStatsChan, s.Tokenizer)
 		if err != nil {
 			return err
@@ -117,7 +191,7 @@ func (s *SimContext) initialize(ctx context.Context) error {
 }
 
 func (s *SimContext) initDataset(ctx context.Context) error {
-	if s.Config.MMEncoderOnly {
+	if s.Config().MMEncoderOnly {
 		var err error
 		s.dataset, err = dataset.NewMMEncoderOnlyDataset(s.logger, s.Tokenizer)
 		if err != nil {
@@ -126,15 +200,15 @@ func (s *SimContext) initDataset(ctx context.Context) error {
 		return nil
 	}
 
-	if s.Config.Mode == common.ModeEcho {
+	if s.Config().Mode == common.ModeEcho {
 		s.dataset = &dataset.EchoDataset{}
 		return nil
 	}
 
-	if s.Config.DatasetPath == "" && s.Config.DatasetURL == "" {
+	if s.Config().DatasetPath == "" && s.Config().DatasetURL == "" {
 		// use predefined sentences as responses
 		randDataset := &dataset.DefaultDataset{}
-		err := randDataset.Init(ctx, s.logger, s.Random, s.Config.MaxModelLen, s.Tokenizer)
+		err := randDataset.Init(ctx, s.logger, s.Random, s.Config().MaxModelLen, s.Tokenizer)
 		if err != nil {
 			return fmt.Errorf("failed to initialize random dataset: %w", err)
 		}
@@ -145,8 +219,8 @@ func (s *SimContext) initDataset(ctx context.Context) error {
 
 	// use dataset containing responses
 	custDataset := &dataset.CustomDataset{}
-	err := custDataset.Init(ctx, s.logger, s.Random, s.Config.DatasetPath, s.Config.DatasetTableName,
-		s.Config.DatasetInMemory, s.Config.MaxModelLen, s.Tokenizer)
+	err := custDataset.Init(ctx, s.logger, s.Random, s.Config().DatasetPath, s.Config().DatasetTableName,
+		s.Config().DatasetInMemory, s.Config().MaxModelLen, s.Tokenizer)
 
 	if err == nil {
 		s.dataset = custDataset
@@ -174,7 +248,7 @@ func (s *SimContext) getDisplayedModelName(reqModel string) string {
 	if s.isLora(reqModel) {
 		return reqModel
 	}
-	return s.Config.ServedModelNames[0]
+	return s.Config().ServedModelNames[0]
 }
 
 func (s *SimContext) simulateTTFT(respCtx ResponseContext) {
@@ -186,7 +260,7 @@ func (s *SimContext) simulateTTFT(respCtx ResponseContext) {
 		DoRemotePrefill:    respCtx.doRemotePrefill(),
 		RunningReqs:        s.metrics.nRunningReqs,
 	}
-	ttft := s.latencyCalculator.GetTimeToFirstToken(&params)
+	ttft := s.latencyCalc().GetTimeToFirstToken(&params)
 	time.Sleep(ttft)
 	// report ttft in seconds
 	common.WriteToChannel(s.metrics.ttftChan, ttft.Seconds(), s.logger)
@@ -194,7 +268,7 @@ func (s *SimContext) simulateTTFT(respCtx ResponseContext) {
 }
 
 func (s *SimContext) simulateInterTokenLatency() {
-	perTokenLatency := s.latencyCalculator.GetInterTokenLatency(&InterTokenParams{
+	perTokenLatency := s.latencyCalc().GetInterTokenLatency(&InterTokenParams{
 		RunningReqs: s.metrics.nRunningReqs})
 	time.Sleep(perTokenLatency)
 
@@ -207,20 +281,20 @@ func (s *SimContext) CreateModelsResponse() *vllmapi.ModelsResponse {
 	modelsResp := vllmapi.ModelsResponse{Object: "list", Data: []vllmapi.ModelsResponseModelInfo{}}
 
 	// Advertise every public model alias
-	for _, alias := range s.Config.ServedModelNames {
+	for _, alias := range s.Config().ServedModelNames {
 		modelsResp.Data = append(modelsResp.Data, vllmapi.ModelsResponseModelInfo{
 			ID:          alias,
 			Object:      vllmapi.ObjectModel,
 			Created:     time.Now().Unix(),
 			OwnedBy:     "vllm",
-			Root:        s.Config.Model,
+			Root:        s.Config().Model,
 			Parent:      nil,
-			MaxModelLen: s.Config.MaxModelLen,
+			MaxModelLen: s.Config().MaxModelLen,
 		})
 	}
 
 	// add LoRA adapter's info
-	parent := s.Config.ServedModelNames[0]
+	parent := s.Config().ServedModelNames[0]
 	for _, lora := range s.getLoras() {
 		modelsResp.Data = append(modelsResp.Data, vllmapi.ModelsResponseModelInfo{
 			ID:          lora,
@@ -229,7 +303,7 @@ func (s *SimContext) CreateModelsResponse() *vllmapi.ModelsResponse {
 			OwnedBy:     "vllm",
 			Root:        s.getLoraPath(lora),
 			Parent:      &parent,
-			MaxModelLen: s.Config.MaxModelLen,
+			MaxModelLen: s.Config().MaxModelLen,
 		})
 	}
 

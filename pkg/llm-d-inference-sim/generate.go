@@ -33,31 +33,44 @@ func (g *GenerateRequest) Unmarshal(data []byte) error {
 	if err := json.Unmarshal(data, g); err != nil {
 		return err
 	}
+	// Fall back to sampling_params.extra_args.kv_transfer_params when not provided at the root.
+	// Real vLLM has a bug where the parameters land in extra_args; accept both locations.
+	if g.KVParams == nil && g.SamplingParams != nil && g.SamplingParams.ExtraArgs != nil {
+		g.KVParams = g.SamplingParams.ExtraArgs.KVTransferParams
+	}
 	g.SetTokenizedPrompt(&openaiserverapi.Tokenized{Tokens: g.TokenIDs, Strings: []string{}})
 	return nil
 }
 
-func (g *GenerateRequest) validate(toolsValidator *toolsValidator) (string, int) {
+func (g *GenerateRequest) validate(toolsValidator *toolsValidator) *openaiserverapi.Error {
 	if g.TokenIDs == nil {
-		return "Missing input token_ids", fasthttp.StatusBadRequest
+		err := openaiserverapi.NewError("Missing input token_ids", fasthttp.StatusBadRequest, nil)
+		return &err
 	}
 
 	if g.SamplingParams == nil {
-		return "Missing sampling_params field", fasthttp.StatusBadRequest
+		err := openaiserverapi.NewError("Missing sampling_params field", fasthttp.StatusBadRequest, nil)
+		return &err
 	}
 
 	return validateRequest(g)
 }
 
-func (g *GenerateRequest) buildRequestContext(simCtx *SimContext, channel common.Channel[*ResponseInfo]) requestContext {
+func (g *GenerateRequest) buildRequestContext(simCtx *SimContext, channel common.Channel[*ResponseInfo],
+	choiceIdx int, doneFn func()) requestContext {
 	reqCtx := &generateReqCtx{
-		baseRequestContext: newBaseRequestContext(simCtx, channel),
+		baseRequestContext: newBaseRequestContext(simCtx, channel, choiceIdx, doneFn),
 		req:                g,
 	}
 	// wire generateReqCtx into embedded requestContext interface
 	reqCtx.requestContext = reqCtx
 
 	return reqCtx
+}
+
+// split is a no-op: generate requests always carry a single prompt.
+func (g *GenerateRequest) split() []Request {
+	return []Request{g}
 }
 
 func (g *GenerateRequest) AsString() string {
@@ -72,7 +85,7 @@ func (g *GenerateRequest) createResponseContext(reqCtx requestContext, displayMo
 
 	var ecParams map[string]openaiserverapi.ECTransferParams
 	if mmEncoderOnlyMode && g.Features != nil {
-		ecParams = buildECTransferParams(g.Features)
+		ecParams = buildECTransferParams(g.Features.MMHashes)
 	}
 
 	return &generateResponseCtx{
@@ -122,20 +135,3 @@ func (respCtx *generateResponseCtx) ECTransferParams() map[string]openaiserverap
 }
 
 var _ ResponseContext = (*generateResponseCtx)(nil)
-
-// buildECTransferParams creates simulated ECTransferParams for each MM hash in the request features.
-func buildECTransferParams(features *openaiserverapi.EncodeMMFeatures) map[string]openaiserverapi.ECTransferParams {
-	params := make(map[string]openaiserverapi.ECTransferParams)
-
-	for _, hashes := range features.MMHashes {
-		for _, hash := range hashes {
-			params[hash] = openaiserverapi.ECTransferParams{
-				PeerHost:      "DUMMY",
-				PeerPort:      1234,
-				SizeBytes:     2359296,
-				NixlAgentData: []byte("NIXL_METADATA_PLACEHOLDER"),
-			}
-		}
-	}
-	return params
-}

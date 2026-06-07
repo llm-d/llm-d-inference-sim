@@ -447,57 +447,71 @@ var _ = Describe("Simulator requests scheduling", Ordered, func() {
 			wg.Wait()
 		})
 
-		It("Should work correctly with queue capacity reached", func() {
-			ctx := context.TODO()
-			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
-				"--time-to-first-token", "1s",
-				"--max-num-seqs", "1", "--max-waiting-queue-length", "1",
-			}
+		DescribeTable("Should work correctly with queue capacity reached",
+			func(streaming bool) {
+				ctx := context.TODO()
+				args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
+					"--time-to-first-token", "1s",
+					"--max-num-seqs", "1", "--max-waiting-queue-length", "1",
+				}
 
-			client, err := startServerWithArgs(ctx, args)
-			Expect(err).NotTo(HaveOccurred())
+				client, err := startServerWithArgs(ctx, args)
+				Expect(err).NotTo(HaveOccurred())
 
-			openaiClient := openai.NewClient(option.WithBaseURL(baseURL), option.WithHTTPClient(client),
-				option.WithMaxRetries(0))
+				openaiClient := openai.NewClient(option.WithBaseURL(baseURL), option.WithHTTPClient(client),
+					option.WithMaxRetries(0))
 
-			var wg sync.WaitGroup
+				var wg sync.WaitGroup
 
-			numberOfRequests := 5
-			wg.Add(numberOfRequests)
+				numberOfRequests := 5
+				wg.Add(numberOfRequests)
 
-			params := openai.ChatCompletionNewParams{
-				Messages: []openai.ChatCompletionMessageParamUnion{
-					openai.UserMessage(testUserMessage),
-				},
-				Model: common.TestModelName,
-			}
+				params := openai.ChatCompletionNewParams{
+					Messages: []openai.ChatCompletionMessageParamUnion{
+						openai.UserMessage(testUserMessage),
+					},
+					Model: common.TestModelName,
+				}
 
-			// One worker, queue capacity = 1
-			// The first request runs on the single worker, the second request enters the queue,
-			// the rest should return a
-			for i := range numberOfRequests {
-				go func() {
-					defer wg.Done()
-					defer GinkgoRecover()
+				// One worker, queue capacity = 1
+				// The first request runs on the single worker, the second request enters the queue,
+				// the rest should return an error
+				for i := range numberOfRequests {
+					go func() {
+						defer wg.Done()
+						defer GinkgoRecover()
 
-					time.Sleep(200 * time.Duration(i) * time.Millisecond)
-					_, err := openaiClient.Chat.Completions.New(ctx, params)
-					if i < 2 {
-						Expect(err).NotTo(HaveOccurred())
-					} else {
-						Expect(err).To(HaveOccurred())
-						var openaiError *openai.Error
-						ok := errors.As(err, &openaiError)
-						Expect(ok).To(BeTrue())
-						Expect(openaiError.StatusCode).To(BeNumerically("==", fasthttp.StatusTooManyRequests))
-						Expect(openaiError.Type).ToNot(BeEmpty())
-						Expect(openaiError.Message).To(ContainSubstring("waiting requests queue is full"))
-					}
-				}()
-			}
+						time.Sleep(200 * time.Duration(i) * time.Millisecond)
+						var reqErr error
+						if streaming {
+							stream := openaiClient.Chat.Completions.NewStreaming(ctx, params)
+							for stream.Next() {
+							}
+							reqErr = stream.Err()
+							_ = stream.Close()
+						} else {
+							_, reqErr = openaiClient.Chat.Completions.New(ctx, params)
+						}
+						if i < 2 {
+							Expect(reqErr).NotTo(HaveOccurred())
+						} else {
+							Expect(reqErr).To(HaveOccurred())
+							var openaiError *openai.Error
+							if ok := errors.As(reqErr, &openaiError); ok {
+								Expect(ok).To(BeTrue())
+								Expect(openaiError.StatusCode).To(BeNumerically("==", fasthttp.StatusTooManyRequests))
+								Expect(openaiError.Type).ToNot(BeEmpty())
+								Expect(openaiError.Message).To(ContainSubstring("waiting requests queue is full"))
+							}
+						}
+					}()
+				}
 
-			wg.Wait()
-		})
+				wg.Wait()
+			},
+			Entry("non-streaming", false),
+			Entry("streaming", true),
+		)
 	})
 })
 

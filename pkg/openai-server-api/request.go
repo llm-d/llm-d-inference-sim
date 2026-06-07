@@ -31,6 +31,7 @@ const (
 	ResponsesInputText    = "input_text"
 	StartMessageSeparator = "### "
 	EndMessageSeparator   = "\n"
+	nullString            = "null"
 )
 
 // Request defines an interface for request information retrieval
@@ -123,7 +124,7 @@ type baseRequest struct {
 	// Stream is a boolean value, defines whether response should be sent as a Stream
 	Stream bool `json:"stream"`
 	// KVParams kv transfer related fields
-	KVParams *KVTransferParams `json:"kv_transfer_params"`
+	KVParams *KVTransferParams `json:"kv_transfer_params,omitempty"`
 	// The number of tokens in the prompt that are in the local KV Cache
 	cachedPromptTokens int
 	// IgnoreEOS is a boolean value, true when the model should ignore end-of-sequence tokens
@@ -171,6 +172,21 @@ type KVTransferParams struct {
 type StreamOptions struct {
 	// IncludeUsage is a boolean value, defines whether response contain usage statistics
 	IncludeUsage bool `json:"include_usage"`
+}
+
+// PromptInput is a single prompt as it arrived on the wire. Exactly one of
+// Text or Tokens is populated: Text for string-form prompts, Tokens for
+// token-id-array-form prompts. /completions accepts both forms (and arrays of
+// either), and downstream code branches on IsTokens to decide whether the
+// prompt still needs to be tokenized.
+type PromptInput struct {
+	Text   string
+	Tokens []uint32
+}
+
+// IsTokens reports whether this prompt is already tokenized.
+func (p PromptInput) IsTokens() bool {
+	return p.Tokens != nil
 }
 
 // Tokenized is the tokenized representation with numerical and string tokens
@@ -431,48 +447,201 @@ func (c *ChatCompletionsRequest) GetLogprobs() *int {
 }
 
 // v1/completions
-// TextCompletionsRequest defines structure of /completions request
-type TextCompletionsRequest struct {
+
+// baseTextCompletionsRequest is the shared envelope for both forms of a
+// /completions request: TextCompletionsParsedRequest (wire form, prompt may be
+// a single string or an array) and TextCompletionsRequest (post-split
+// processing form, single prompt). Only the Prompt field differs between the
+// two; everything else lives here. The type is unexported because callers in
+// other packages should hold a TextCompletionsParsedRequest or a
+// TextCompletionsRequest and let the envelope details ride along by embedding.
+type baseTextCompletionsRequest struct {
 	baseCompletionsRequest
-	// Prompt defines request's content
-	Prompt string `json:"prompt"`
 
 	// The maximum number of [tokens](/tokenizer) that can be generated in the
 	// completions.
 	//
-	// The token count of your prompt plus `max_tokens` cannot exceed the model's
-	// context length.
+	// The token count of your prompt plus `max_tokens` cannot exceed the
+	// model's context length.
 	MaxTokens *int64 `json:"max_tokens"`
 
-	// Logprobs includes the log probabilities on the logprobs most likely tokens,
-	// as well the chosen tokens. For example, if logprobs is 5, the API will return
-	// a list of the 5 most likely tokens. The API will always return the logprob
-	// of the sampled token, so there may be up to logprobs+1 elements in the response.
+	// Logprobs includes the log probabilities on the logprobs most likely
+	// tokens, as well as the chosen tokens. For example, if logprobs is 5,
+	// the API will return a list of the 5 most likely tokens. The API will
+	// always return the logprob of the sampled token, so there may be up to
+	// logprobs+1 elements in the response.
 	Logprobs *int `json:"logprobs,omitempty"`
 }
 
-var _ Request = (*TextCompletionsRequest)(nil)
+// TextCompletionsParsedRequest is the wire form of a /completions request.
+// On the wire `prompt` may be a single string or an array of strings; the
+// custom UnmarshalJSON below normalizes both forms into Prompt — a plain
+// string becomes a one-element slice. Used only between JSON unmarshalling
+// and the simulator's split step; workers never see this type.
+type TextCompletionsParsedRequest struct {
+	baseTextCompletionsRequest
+	// Prompt holds one or more prompts. Always non-empty for valid requests.
+	Prompt []PromptInput `json:"prompt"`
+}
 
-func (c *TextCompletionsRequest) GetTools() []Tool {
+// TextCompletionsRequest is the processing form of a /completions request:
+// it always carries a single prompt.
+type TextCompletionsRequest struct {
+	baseTextCompletionsRequest
+	// Prompt is the single prompt this request will generate against.
+	Prompt PromptInput
+}
+
+// UnmarshalJSON accepts any of the four wire forms allowed for the `prompt`
+// field — a string, an array of strings, an array of token ids, or an array
+// of token-id arrays — and normalizes them into a []PromptInput.
+func (t *TextCompletionsParsedRequest) UnmarshalJSON(data []byte) error {
+	type alias struct {
+		baseTextCompletionsRequest
+		Prompt json.RawMessage `json:"prompt"`
+	}
+	var a alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		return err
+	}
+	t.baseTextCompletionsRequest = a.baseTextCompletionsRequest
+
+	if len(a.Prompt) == 0 || string(a.Prompt) == nullString {
+		t.Prompt = nil
+		return nil
+	}
+
+	// prompt is a string
+	var str string
+	if err := json.Unmarshal(a.Prompt, &str); err == nil {
+		t.Prompt = []PromptInput{{Text: str}}
+		return nil
+	}
+	// prompt is an array of strings
+	var strs []string
+	if err := json.Unmarshal(a.Prompt, &strs); err == nil {
+		t.Prompt = make([]PromptInput, len(strs))
+		for i, s := range strs {
+			t.Prompt[i] = PromptInput{Text: s}
+		}
+		return nil
+	}
+	// prompt is an array of token ids
+	var tokens []uint32
+	if err := json.Unmarshal(a.Prompt, &tokens); err == nil {
+		t.Prompt = []PromptInput{{Tokens: tokens}}
+		return nil
+	}
+	// prompt is an array of arrays of token ids
+	var tokenLists [][]uint32
+	if err := json.Unmarshal(a.Prompt, &tokenLists); err != nil {
+		return fmt.Errorf("prompt must be a string, an array of strings, an array of token ids, or an array of arrays of token ids: %w", err)
+	}
+	t.Prompt = make([]PromptInput, len(tokenLists))
+	for i, ids := range tokenLists {
+		t.Prompt[i] = PromptInput{Tokens: ids}
+	}
 	return nil
 }
 
-func (c *TextCompletionsRequest) GetToolChoice() ToolChoice {
+// MarshalJSON emits the prompt back in the wire form that mirrors the input
+// shape preserved on each PromptInput: a single text prompt as a string, a
+// single token-id prompt as a numeric array, multiple text prompts as an
+// array of strings, and multiple token-id prompts as an array of numeric
+// arrays. nil/empty Prompt is emitted as JSON null.
+// Used in the tests.
+func (t *TextCompletionsParsedRequest) MarshalJSON() ([]byte, error) {
+	type alias struct {
+		baseTextCompletionsRequest
+		Prompt any `json:"prompt"`
+	}
+	a := alias{baseTextCompletionsRequest: t.baseTextCompletionsRequest}
+
+	switch {
+	case len(t.Prompt) == 0:
+		a.Prompt = nil
+	case len(t.Prompt) == 1:
+		if t.Prompt[0].IsTokens() {
+			a.Prompt = t.Prompt[0].Tokens
+		} else {
+			a.Prompt = t.Prompt[0].Text
+		}
+	default:
+		// vLLM only accepts homogeneous prompt arrays — all strings or all
+		// token-id arrays. Reject mixed inputs rather than silently dropping
+		// the minority shape.
+		firstIsTokens := t.Prompt[0].IsTokens()
+		for i, p := range t.Prompt[1:] {
+			if p.IsTokens() != firstIsTokens {
+				return nil, fmt.Errorf("prompt array is not homogeneous: entry 0 and entry %d have different types", i+1)
+			}
+		}
+		if firstIsTokens {
+			arrs := make([][]uint32, len(t.Prompt))
+			for i, p := range t.Prompt {
+				arrs[i] = p.Tokens
+			}
+			a.Prompt = arrs
+		} else {
+			strs := make([]string, len(t.Prompt))
+			for i, p := range t.Prompt {
+				strs[i] = p.Text
+			}
+			a.Prompt = strs
+		}
+	}
+	return json.Marshal(a)
+}
+
+// AsSingle returns a single-prompt TextCompletionsRequest for t.Prompt[index],
+// sharing this request's envelope (model, lora, max_tokens, KV params, …). The
+// sub-request's RequestID is stamped as "<requestID>-<index>" so each sub
+// carries a unique, deterministic id derived from the parent.
+//
+// This helper exists so the splitting logic — which lives in another package —
+// can produce sub-requests without needing access to the unexported
+// baseTextCompletionsRequest field.
+func (t *TextCompletionsParsedRequest) AsSingle(index int) TextCompletionsRequest {
+	sub := TextCompletionsRequest{
+		baseTextCompletionsRequest: t.baseTextCompletionsRequest,
+		Prompt:                     t.Prompt[index],
+	}
+	sub.RequestID = fmt.Sprintf("%s-%d", t.RequestID, index)
+	if sub.Prompt.IsTokens() {
+		// prompt arrived already tokenized; pre-populate TokenizedPrompt so the
+		// worker can skip the encode() round-trip. Strings is left nil and
+		// rebuilt on demand by the request's tokenizedPromptForEcho.
+		sub.tokenizedPrompt = &Tokenized{Tokens: sub.Prompt.Tokens}
+	}
+	return sub
+}
+
+var _ Request = (*TextCompletionsRequest)(nil)
+var _ Request = (*TextCompletionsParsedRequest)(nil)
+
+// Methods below are shared between TextCompletionsRequest and
+// TextCompletionsParsedRequest via embedding of baseTextCompletionsRequest.
+
+func (b *baseTextCompletionsRequest) GetTools() []Tool {
+	return nil
+}
+
+func (b *baseTextCompletionsRequest) GetToolChoice() ToolChoice {
 	return ToolChoice{}
 }
 
-func (c *TextCompletionsRequest) GetMaxCompletionTokens() *int64 {
-	return c.MaxTokens
+func (b *baseTextCompletionsRequest) GetMaxCompletionTokens() *int64 {
+	return b.MaxTokens
 }
 
 // ExtractMaxTokens extracts the max tokens from the request
-// for text completions - max_tokens field is used
-func (req *TextCompletionsRequest) ExtractMaxTokens() *int64 {
-	return req.MaxTokens
+// for text completions - max_tokens field is used.
+func (b *baseTextCompletionsRequest) ExtractMaxTokens() *int64 {
+	return b.MaxTokens
 }
 
-func (t *TextCompletionsRequest) GetLogprobs() *int {
-	return t.Logprobs
+func (b *baseTextCompletionsRequest) GetLogprobs() *int {
+	return b.Logprobs
 }
 
 // GenerationRequest defines structure of generation request
@@ -583,7 +752,7 @@ func (m *InputMessage) UnmarshalJSON(data []byte) error {
 	m.Role = raw.Role
 	m.Status = raw.Status
 
-	if len(raw.Content) == 0 || string(raw.Content) == "null" {
+	if len(raw.Content) == 0 || string(raw.Content) == nullString {
 		return nil
 	}
 	// content can be a plain string or an array of InputContent objects
@@ -628,7 +797,7 @@ func (c *InputContent) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}
-	if raw.Type != "" && raw.Type != ResponsesInputText {
+	if raw.Type != "" && raw.Type != ResponsesInputText && raw.Type != ResponsesOutputText {
 		return fmt.Errorf("unsupported input content type %q", raw.Type)
 	}
 	c.Type = ResponsesInputText
@@ -657,7 +826,7 @@ func (req *ResponsesRequest) UnmarshalJSON(data []byte) error {
 	req.MaxOutputTokens = a.MaxOutputTokens
 	req.Text = a.Text
 
-	if len(a.Input) == 0 || string(a.Input) == "null" {
+	if len(a.Input) == 0 || string(a.Input) == nullString {
 		return errors.New("input is required")
 	}
 
@@ -714,10 +883,23 @@ type GenerateRequest struct {
 	TokenIDs       []uint32          `json:"token_ids"`
 	SamplingParams *SamplingParams   `json:"sampling_params"`
 	Features       *EncodeMMFeatures `json:"features"`
+	StreamOptions  *StreamOptions    `json:"stream_options,omitempty"`
+}
+
+func (g *GenerateRequest) IncludeUsage() bool {
+	return !g.Stream || (g.StreamOptions != nil && g.StreamOptions.IncludeUsage)
 }
 
 type SamplingParams struct {
-	MaxTokens *int64 `json:"max_tokens"`
+	MaxTokens *int64             `json:"max_tokens"`
+	ExtraArgs *SamplingExtraArgs `json:"extra_args"`
+}
+
+// SamplingExtraArgs holds extra fields nested inside sampling_params.extra_args.
+// Real vLLM has a bug where kv_transfer_params is sometimes passed here instead of
+// at the root of the request, so we accept it in either location.
+type SamplingExtraArgs struct {
+	KVTransferParams *KVTransferParams `json:"kv_transfer_params"`
 }
 
 type EncodeMMFeatures struct {

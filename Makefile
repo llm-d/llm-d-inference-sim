@@ -39,6 +39,7 @@ ZMQ_IMG ?= $(IMAGE_REGISTRY)/$(ZMQ_IMAGE_NAME):$(ZMQ_IMAGE_TAG)
 CONTAINER_TOOL := $(shell { command -v docker >/dev/null 2>&1 && echo docker; } || { command -v podman >/dev/null 2>&1 && echo podman; } || echo "")
 BUILDER := $(shell command -v buildah >/dev/null 2>&1 && echo buildah || echo $(CONTAINER_TOOL))
 
+VLLM_RENDER_IMAGE ?= vllm/vllm-openai-cpu:v0.19.1
 RENDER_PORT ?= 8082
 
 .PHONY: help
@@ -241,6 +242,7 @@ dev-env-kind:
 	HOST_PORT=${HOST_PORT} \
 	MODEL_NAME=${MODEL_NAME} \
 	VLLM_SIMULATOR_IMAGE=${IMG} \
+	VLLM_RENDER_IMAGE=${VLLM_RENDER_IMAGE} \
 	./kind-deploy.sh
 
 .PHONY: clean-dev-env-kind
@@ -252,4 +254,4 @@ clean-dev-env-kind: ## Cleanup kind setup (delete cluster ${KIND_CLUSTER_NAME})
 .PHONY: run-render
 run-render: 
 	@echo "INFO: run vLLM render"
-	$(CONTAINER_TOOL) run --rm  -p $(RENDER_PORT):$(RENDER_PORT) --entrypoint vllm vllm/vllm-openai-cpu:v0.19.1 launch render $(MODEL_NAME) --port=$(RENDER_PORT)
+	$(CONTAINER_TOOL) run --rm  -p $(RENDER_PORT):$(RENDER_PORT) --entrypoint vllm $(VLLM_RENDER_IMAGE) launch render $(MODEL_NAME) --port=$(RENDER_PORT)

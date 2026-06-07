@@ -17,6 +17,8 @@ limitations under the License.
 package openaiserverapi
 
 import (
+	"encoding/json"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -50,5 +52,43 @@ var _ = Describe("render requests", func() {
 		Expect(req.Model()).To(Equal(model))
 		Expect(req.Messages).To(HaveLen(1))
 		Expect(req.Endpoint()).To(Equal("/v1/chat/completions"))
+	})
+})
+
+var _ = Describe("TextCompletionsParsedRequest prompt", func() {
+	Context("UnmarshalJSON", func() {
+		It("should unmarshal a string prompt as a one-element slice", func() {
+			jsonData := []byte(`{"prompt": "Hello, world!"}`)
+			var req TextCompletionsParsedRequest
+			err := json.Unmarshal(jsonData, &req)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(req.Prompt).To(Equal([]PromptInput{{Text: "Hello, world!"}}))
+		})
+
+		It("should unmarshal an array prompt", func() {
+			jsonData := []byte(`{"prompt": ["Hello", "world"]}`)
+			var req TextCompletionsParsedRequest
+			err := json.Unmarshal(jsonData, &req)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(req.Prompt).To(Equal([]PromptInput{{Text: "Hello"}, {Text: "world"}}))
+		})
+
+		It("should return error for invalid prompt type", func() {
+			jsonData := []byte(`{"prompt": 123}`)
+			var req TextCompletionsParsedRequest
+			err := json.Unmarshal(jsonData, &req)
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring("prompt must be a string, an array of strings, an array of token ids, or an array of arrays of token ids"))
+		})
+
+		It("should leave Prompt nil when the field is absent or null", func() {
+			var req TextCompletionsParsedRequest
+			Expect(json.Unmarshal([]byte(`{}`), &req)).To(Succeed())
+			Expect(req.Prompt).To(BeNil())
+
+			req = TextCompletionsParsedRequest{}
+			Expect(json.Unmarshal([]byte(`{"prompt": null}`), &req)).To(Succeed())
+			Expect(req.Prompt).To(BeNil())
+		})
 	})
 })

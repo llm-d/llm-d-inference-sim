@@ -33,17 +33,17 @@ import (
 
 // Based on: https://github.com/kubernetes-sigs/gateway-api-inference-extension/blob/8d01161ec48d6b49cd371f179551b35da46e6fd6/internal/tls/tls.go
 func (c *Communication) configureSSL(server *fasthttp.Server) error {
-	if !c.simulator.Context.Config.SSLEnabled() {
+	if !c.simulator.Context.Config().SSLEnabled() {
 		return nil
 	}
 
 	var cert tls.Certificate
 	var err error
 
-	if c.simulator.Context.Config.SSLCertFile != "" && c.simulator.Context.Config.SSLKeyFile != "" {
-		c.logger.V(logging.INFO).Info("HTTPS server starting with certificate files", "cert", c.simulator.Context.Config.SSLCertFile, "key", c.simulator.Context.Config.SSLKeyFile)
-		cert, err = tls.LoadX509KeyPair(c.simulator.Context.Config.SSLCertFile, c.simulator.Context.Config.SSLKeyFile)
-	} else if c.simulator.Context.Config.SelfSignedCerts {
+	if c.simulator.Context.Config().SSLCertFile != "" && c.simulator.Context.Config().SSLKeyFile != "" {
+		c.logger.V(logging.INFO).Info("HTTPS server starting with certificate files", "cert", c.simulator.Context.Config().SSLCertFile, "key", c.simulator.Context.Config().SSLKeyFile)
+		cert, err = tls.LoadX509KeyPair(c.simulator.Context.Config().SSLCertFile, c.simulator.Context.Config().SSLKeyFile)
+	} else if c.simulator.Context.Config().SelfSignedCerts {
 		c.logger.V(logging.INFO).Info("HTTPS server starting with self-signed certificate")
 		cert, err = CreateSelfSignedTLSCertificate()
 	}

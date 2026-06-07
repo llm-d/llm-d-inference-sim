@@ -13,7 +13,11 @@ Structure of requests/responses
         - model
         - messages
             - role
-            - content
+            - content (string, or array of content blocks)
+              - type (`text` or `image_url`)
+              - text
+              - image_url
+                - url
             - tool_calls
               - function
                 - name
@@ -68,6 +72,11 @@ Structure of requests/responses
               - bytes
               - top_logprobs
         - usage
+          - prompt_tokens
+          - completion_tokens
+          - total_tokens
+          - prompt_tokens_detail
+            - cached_tokens
         - object
         - kv_transfer_params
           - do_remote_decode
@@ -129,5 +138,119 @@ Structure of requests/responses
             - owned_by
             - root
             - parent
+            - max_model_len
+- `/v1/embeddings`
+    - **request**
+        - model
+        - input (string, array of strings, array of token ids, or array of arrays of token ids)
+        - dimensions
+        - encoding_format (`float` (default) or `base64`)
+        - user
+    - **response**
+        - object (`list`)
+        - model
+        - data
+            - object (`embedding`)
+            - index
+            - embedding (array of floats when `encoding_format` is `float`, base64 string when `base64`)
+        - usage
+            - prompt_tokens
+            - total_tokens
+- `/v1/completions/render`
+    - **request** — same shape as `/v1/completions`; only `model` and `prompt` are inspected
+        - model
+        - prompt (string, array of strings, array of token ids, or array of arrays of token ids — see [`/v1/completions` prompt forms](#v1completions-prompt-forms))
+    - **response** — JSON array, one entry per prompt
+        - token_ids (array of token ids; for token-id prompts the input ids are returned verbatim)
+        - features (omitted; multimodal features are only produced by the chat render endpoint)
+- `/v1/chat/completions/render`
+    - **request** — same shape as `/v1/chat/completions`; only `model` and `messages` are inspected
+        - model
+        - messages (same structure as `/v1/chat/completions`, including `image_url` content blocks)
+    - **response** — single JSON object
+        - token_ids
+        - features (present only when at least one message contains an `image_url` block)
+            - mm_hashes (map keyed by modality, e.g. `image`, to an array of opaque hash strings)
+            - mm_placeholders (map keyed by modality to an array of placeholder regions)
+                - offset (token index where the multimodal region begins)
+                - length (number of tokens the region spans)
+- `/inference/v1/generate`
+    - **request**
+        - stream
+        - model
+        - token_ids
+        - sampling_params
+            - max_tokens
+        - features
+            - mm_hashes
+        - ignore_eos
+        - kv_transfer_params
+          - do_remote_decode
+          - do_remote_prefill
+          - remote_engine_id
+          - remote_block_ids
+          - remote_host
+          - remote_port
+          - tp_size
+    - **response**
+        - id
+        - model
+        - object
+        - request_id
+        - choices
+            - index
+            - finish_reason
+            - token_ids
+        - kv_transfer_params
+          - do_remote_decode
+          - do_remote_prefill
+          - remote_engine_id
+          - remote_block_ids
+          - remote_host
+          - remote_port
+          - tp_size
+        - ec_transfer_params (map keyed by remote engine id)
+            - peer_host
+            - peer_port
+            - size_bytes
+            - nixl_agent_metadata_b64
+
+## `finish_reason` values
+
+The `finish_reason` field in choices may be one of:
+
+- `stop` — generation finished normally (EOS reached or generation budget exhausted).
+- `length` — generation stopped because the `max_tokens` / `max_completion_tokens` limit was reached.
+- `tool_calls` — generation produced tool calls (chat completions only).
+- `remote_decode` — used when `kv_transfer_params.do_remote_decode` is set; signals that decode is to be performed on a remote pod.
+- `cache_threshold` — the request's effective KV-cache hit rate fell below `cache_hit_threshold` (or the global `global-cache-hit-threshold`), or the `X-Cache-Threshold-Finish-Reason: true` header was set. See [KV Cache Guide](kv-cache.md).
+
+### `/v1/completions` prompt forms
+
+The `prompt` field accepts four wire forms, matching the OpenAI spec:
+
+| Form | JSON example | Result |
+|---|---|---|
+| string | `"hello"` | one prompt, one choice in the response |
+| array of strings | `["a", "b"]` | one sub-request per element; one choice per element, indexed in input order |
+| array of token ids | `[1, 2, 3]` | one prompt already tokenized; the simulator skips tokenization and uses the ids directly |
+| array of arrays of token ids | `[[1,2], [3,4]]` | one sub-request per inner array, each already tokenized |
+
+Notes:
+
+- An empty top-level array (`[]`), an empty string element (`""`), or an empty token-id element (`[]` inside the outer array) are rejected with `400 Bad Request`.
+- For pre-tokenized prompts, `prompt_tokens` in the usage equals the number of input ids — the tokenizer is never invoked on the prompt.
+- In `--mode echo`, a token-id prompt is replayed back to the client as the comma-separated decimal of the ids (e.g. `[1,2,3]` → `"1,2,3"`); a string prompt is replayed verbatim.
 
 For full details on the expected API behavior and specification, please refer to the [vLLM OpenAI Compatibility Documentation](https://docs.vllm.ai/en/stable/getting_started/quickstart.html#openai-completions-api-with-vllm).
+
+### Render endpoints
+
+`/v1/completions/render` and `/v1/chat/completions/render` mirror vLLM's `/render` behavior — they return the tokenized form of a request without running generation. They are useful for debugging tokenization, pre-computing prompt token counts, and exercising multimodal feature handling.
+
+Pre-tokenized prompts on `/v1/completions/render` (a token-id array, or an array of token-id arrays) are copied through verbatim — the tokenizer is not invoked for those entries — regardless of which tokenizer is active.
+
+For everything else, behavior depends on the active tokenizer (selected automatically based on `--model`):
+
+- **HuggingFace tokenizer** (real model): each text prompt and chat-completions request is forwarded to the upstream vLLM render service at `--render-url`. For chat requests, `mm_features` returned by the upstream are passed through.
+- **Simulated tokenizer** (dummy model): the simulator tokenizes locally using its regex-based splitter. For chat requests containing `image_url` blocks, synthetic `mm_features` are produced so multimodal-aware downstream code paths can be exercised without a real renderer.

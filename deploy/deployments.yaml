@@ -17,7 +17,7 @@ spec:
       # restartPolicy: Always makes this a native sidecar (K8s 1.29+):
       # vllm-sim will not start until this container's readinessProbe passes
       - name: vllm-render
-        image: vllm/vllm-openai-cpu:v0.19.1
+        image: ${VLLM_RENDER_IMAGE}
         imagePullPolicy: IfNotPresent
         restartPolicy: Always
         command: ["vllm"]

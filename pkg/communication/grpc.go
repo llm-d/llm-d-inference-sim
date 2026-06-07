@@ -40,7 +40,7 @@ func (c *Communication) Generate(in *pb.GenerateRequest, out grpc.ServerStreamin
 
 	req := c.pbRequestToRequest(in)
 	respBuilder := &generationGRPCRespBuilder{}
-	_, channel, err, _ := c.simulator.HandleRequest(req)
+	_, _, channel, err, _ := c.simulator.HandleRequest(req)
 	if err != nil {
 		return status.Errorf(extractGRPCCode(err), err.Message, err)
 	}
@@ -82,7 +82,7 @@ func (c *Communication) Generate(in *pb.GenerateRequest, out grpc.ServerStreamin
 	if in.Stream {
 		resp = respBuilder.createLastChunk(respCtx)
 	} else {
-		resp = respBuilder.createResponse(respCtx, &tokens)
+		resp = respBuilder.createResponse([]vllmsim.ResponseContext{respCtx}, []openaiserverapi.Tokenized{tokens})
 	}
 	if err := sendResponse(resp, out); err != nil {
 		return err
@@ -109,7 +109,7 @@ func (c *Communication) Abort(ctx context.Context, in *pb.AbortRequest) (*pb.Abo
 // Get model information
 func (c *Communication) GetModelInfo(ctx context.Context, in *pb.GetModelInfoRequest) (*pb.GetModelInfoResponse, error) {
 	return &pb.GetModelInfoResponse{
-		ModelPath: c.simulator.Context.Config.Model,
+		ModelPath: c.simulator.Context.Config().Model,
 	}, nil
 }
 
@@ -126,7 +126,7 @@ func (c *Communication) startGRPC(listener net.Listener) (*grpc.Server, <-chan e
 	reflection.Register(server)
 	errCh := make(chan error, 1)
 	go func() {
-		c.logger.V(logging.INFO).Info("Server starting", "protocol", "gRPC", "port", c.simulator.Context.Config.Port)
+		c.logger.V(logging.INFO).Info("Server starting", "protocol", "gRPC", "port", c.simulator.Context.Config().Port)
 		errCh <- server.Serve(listener)
 	}()
 	return server, errCh
@@ -139,7 +139,7 @@ func (c *Communication) pbRequestToRequest(in *pb.GenerateRequest) *vllmsim.Gene
 		maxTokens = &maxTokensValue
 	}
 	req := openaiserverapi.NewGenerationRequest(in.GetRequestId(), in.GetStream(),
-		c.simulator.Context.Config.Model, maxTokens)
+		c.simulator.Context.Config().Model, maxTokens)
 
 	if in.GetTokenized() != nil {
 		prompt := &openaiserverapi.Tokenized{}

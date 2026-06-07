@@ -30,13 +30,14 @@ func (g *GenerationRequest) Unmarshal(data []byte) error {
 	return nil
 }
 
-func (g *GenerationRequest) validate(toolsValidator *toolsValidator) (string, int) {
+func (g *GenerationRequest) validate(toolsValidator *toolsValidator) *openaiserverapi.Error {
 	return validateRequest(g)
 }
 
-func (g *GenerationRequest) buildRequestContext(simCtx *SimContext, channel common.Channel[*ResponseInfo]) requestContext {
+func (g *GenerationRequest) buildRequestContext(simCtx *SimContext, channel common.Channel[*ResponseInfo],
+	choiceIdx int, doneFn func()) requestContext {
 	reqCtx := &generationReqCtx{
-		baseRequestContext: newBaseRequestContext(simCtx, channel),
+		baseRequestContext: newBaseRequestContext(simCtx, channel, choiceIdx, doneFn),
 		req:                g,
 	}
 	// wire generationReqCtx into embedded requestContext interface
@@ -56,6 +57,11 @@ func (g *GenerationRequest) createResponseContext(reqCtx requestContext, display
 	return &generationResponseCtx{
 		baseResponseContext: base,
 	}
+}
+
+// split is a no-op: generation requests always carry a single prompt.
+func (g *GenerationRequest) split() []Request {
+	return []Request{g}
 }
 
 var _ Request = (*GenerationRequest)(nil)

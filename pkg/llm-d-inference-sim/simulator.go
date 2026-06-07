@@ -141,7 +141,7 @@ func Start(ctx context.Context, config *common.Configuration, logger logr.Logger
 		if err != nil {
 			return nil, err
 		}
-		sim.Context.Config = rankConfig
+		sim.Context.SetConfig(rankConfig)
 		// use the same tokenizer in all ranks
 		sim.Context.Tokenizer = tokenizer
 		sims[dpRank] = sim
@@ -166,18 +166,18 @@ func (s *VllmSimulator) InitializeSim(ctx context.Context) error {
 		return err
 	}
 
-	s.queueCapacity = s.Context.Config.MaxWaitingQueueLength
+	s.queueCapacity = s.Context.Config().MaxWaitingQueueLength
 
-	maxNumberOfRequests := s.Context.Config.MaxNumSeqs + s.Context.Config.MaxWaitingQueueLength
+	maxNumberOfRequests := s.Context.Config().MaxNumSeqs + s.Context.Config().MaxWaitingQueueLength
 	s.newRequests = common.Channel[requestContext]{
 		Channel: make(chan requestContext, maxNumberOfRequests),
 		Name:    "newRequests",
 	}
 
 	// run request processing workers
-	s.freeWorkers = make(chan *worker, s.Context.Config.MaxNumSeqs)
-	s.workerFinished = make(chan *requestCompleted, s.Context.Config.MaxNumSeqs)
-	for i := 1; i <= s.Context.Config.MaxNumSeqs; i++ {
+	s.freeWorkers = make(chan *worker, s.Context.Config().MaxNumSeqs)
+	s.workerFinished = make(chan *requestCompleted, s.Context.Config().MaxNumSeqs)
+	for i := 1; i <= s.Context.Config().MaxNumSeqs; i++ {
 		worker := &worker{
 			id:           i,
 			ctx:          drainCtx,
@@ -291,8 +291,10 @@ func (s *VllmSimulator) addRequestToQueue(reqCtx requestContext) {
 		s.Context.logger.Error(err, "failed to enqueue request")
 		err := openaiserverapi.NewError("Failed to enqueue request, "+err.Error(),
 			fasthttp.StatusTooManyRequests, nil)
-		common.WriteToChannel(reqCtx.responseChannel(), &ResponseInfo{Err: &err},
+		common.WriteToChannel(reqCtx.responseChannel(),
+			&ResponseInfo{Err: &err, ChoiceIdx: reqCtx.choiceIndex()},
 			s.Context.logger)
+		reqCtx.signalDone()
 		return
 	}
 	// increment the waiting requests metric
@@ -304,37 +306,57 @@ func (s *VllmSimulator) addRequestToQueue(reqCtx requestContext) {
 	}
 }
 
-func (s *VllmSimulator) HandleRequest(req Request) (bool, *common.Channel[*ResponseInfo], *openaiserverapi.Error, bool) {
+// HandleRequest validates and enqueues req. On success it returns the number
+// of sub-requests (== number of choices in the eventual response), whether the
+// caller asked for a streamed response, and the channel that workers will
+// publish per-choice results on. On failure it returns numChoices = 0 and a
+// non-nil error; errInjected indicates whether the failure came from the
+// failure-injection path so the caller can attribute it correctly.
+func (s *VllmSimulator) HandleRequest(req Request) (numChoices int, isStream bool,
+	channel *common.Channel[*ResponseInfo], err *openaiserverapi.Error, errInjected bool) {
 	// Check if we should inject a failure
-	if shouldInjectFailure(s.Context.Config, s.Context.Random) {
-		failure := getRandomFailure(s.Context.Config, s.Context.Random)
-		return false, nil, &failure, true
+	if shouldInjectFailure(s.Context.Config(), s.Context.Random) {
+		failure := getRandomFailure(s.Context.Config(), s.Context.Random)
+		return 0, false, nil, &failure, true
 	}
 
 	// the model defined in the request should be checked here
 	if !s.isValidModel(req.GetModel()) {
-		err := openaiserverapi.NewError(fmt.Sprintf("The model `%s` does not exist.",
+		serverErr := openaiserverapi.NewError(fmt.Sprintf("The model `%s` does not exist.",
 			req.GetModel()), fasthttp.StatusNotFound, nil)
-		return false, nil, &err, false
+		return 0, false, nil, &serverErr, false
 	}
 
 	// the model is valid, update the displayed model which will be different from the model mentioned in the request only in case of base model aliases
 	// in this case the first alias is used, in all other cases the model from the request is used as the displayed model
 	req.SetDisplayedModel(s.Context.getDisplayedModelName(req.GetModel()))
 
-	errMsg, errCode := req.validate(s.toolsValidator)
-	if errMsg != "" {
-		err := openaiserverapi.NewError(errMsg, errCode, nil)
-		return false, nil, &err, false
+	if serverErr := req.validate(s.toolsValidator); serverErr != nil {
+		return 0, false, nil, serverErr, false
 	}
 
-	channel := common.Channel[*ResponseInfo]{
-		Channel: make(chan *ResponseInfo, s.Context.Config.MaxModelLen),
-		Name:    "responseInfo",
+	// Single shared channel for all sub-requests; each stamps its ChoiceIdx on
+	// responses and calls signalDone when finished. A watcher goroutine closes
+	// the channel once all sub-requests have signalled completion. For most
+	// request types split returns just the receiver; only the parsed text
+	// completions form (which can carry an array of prompts) fans out.
+	subReqs := req.split()
+	respChan := &common.Channel[*ResponseInfo]{
+		Channel: make(chan *ResponseInfo, s.Context.Config().MaxModelLen),
+		Name:    "responseInfo-" + req.GetRequestID(),
 	}
-	reqCtx := req.buildRequestContext(&s.Context, channel)
-	common.WriteToChannel(s.newRequests, reqCtx, s.Context.logger)
-	return req.IsStream(), &channel, nil, false
+	var wg sync.WaitGroup
+	wg.Add(len(subReqs))
+	for i, subReq := range subReqs {
+		reqCtx := subReq.buildRequestContext(&s.Context, *respChan, i, wg.Done)
+		common.WriteToChannel(s.newRequests, reqCtx, s.Context.logger)
+	}
+	go func() {
+		wg.Wait()
+		close(respChan.Channel)
+	}()
+
+	return len(subReqs), req.IsStream(), respChan, nil, false
 }
 
 func (s *VllmSimulator) enqueue(req requestContext) error {
@@ -381,22 +403,23 @@ func (s *VllmSimulator) dequeue() requestContext {
 
 func (s *VllmSimulator) simulateResponseProcessing(respCtx ResponseContext) {
 	reqCtx := respCtx.RequestContext()
+	choiceIdx := reqCtx.choiceIndex()
 	// Skip delays if finish reason is cache_threshold (immediate return)
 	if respCtx.FinishReason() != nil && *respCtx.FinishReason() == common.CacheThresholdFinishReason {
-		common.WriteToChannel(reqCtx.responseChannel(), &ResponseInfo{RespCtx: respCtx},
+		common.WriteToChannel(reqCtx.responseChannel(), &ResponseInfo{RespCtx: respCtx, ChoiceIdx: choiceIdx},
 			s.Context.logger)
 	} else {
 		s.Context.simulateTTFT(respCtx)
 
 		// Response started
 		common.WriteToChannel(reqCtx.responseChannel(),
-			&ResponseInfo{RespCtx: respCtx, Status: ResponseStatusCreated},
+			&ResponseInfo{RespCtx: respCtx, Status: ResponseStatusCreated, ChoiceIdx: choiceIdx},
 			s.Context.logger)
 
 		startDecode := time.Now()
 		if respIsEmpty(respCtx) {
 			common.WriteToChannel(reqCtx.responseChannel(),
-				&ResponseInfo{RespCtx: respCtx}, s.Context.logger)
+				&ResponseInfo{RespCtx: respCtx, ChoiceIdx: choiceIdx}, s.Context.logger)
 		} else {
 			if respCtx.responseTokens() != nil {
 				for i, token := range respCtx.responseTokens().Tokens {
@@ -412,7 +435,7 @@ func (s *VllmSimulator) simulateResponseProcessing(respCtx ResponseContext) {
 						tokens.Strings = append(tokens.Strings, respCtx.responseTokens().Strings[i])
 					}
 					common.WriteToChannel(reqCtx.responseChannel(),
-						&ResponseInfo{Tokens: tokens, RespCtx: respCtx},
+						&ResponseInfo{Tokens: tokens, RespCtx: respCtx, ChoiceIdx: choiceIdx},
 						s.Context.logger)
 				}
 			} else {
@@ -427,14 +450,14 @@ func (s *VllmSimulator) simulateResponseProcessing(respCtx ResponseContext) {
 							&ResponseInfo{Tokens: &openaiserverapi.Tokenized{
 								Tokens:  []uint32{token},
 								Strings: []string{tc.Function.TokenizedArguments().Strings[i]}},
-								RespCtx: respCtx, ToolCall: &tc}, s.Context.logger)
+								RespCtx: respCtx, ToolCall: &tc, ChoiceIdx: choiceIdx}, s.Context.logger)
 					}
 				}
 			}
 		}
 		common.WriteToChannel(s.Context.metrics.reqDecodeTimeChan, time.Since(startDecode).Seconds(), s.Context.logger)
 	}
-	close(reqCtx.responseChannel().Channel)
+	reqCtx.signalDone()
 }
 
 // request processing finished

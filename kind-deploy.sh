@@ -18,11 +18,13 @@ require_non_empty CLUSTER_NAME
 require_non_empty HOST_PORT
 require_non_empty MODEL_NAME
 require_non_empty VLLM_SIMULATOR_IMAGE
+require_non_empty VLLM_RENDER_IMAGE
 
 export CLUSTER_NAME
 export HOST_PORT
 export MODEL_NAME
 export VLLM_SIMULATOR_IMAGE
+export VLLM_RENDER_IMAGE
 export HF_TOKEN
 
 # ------------------------------------------------------------------------------
@@ -94,23 +96,55 @@ kubectl --context ${KUBE_CONTEXT} -n local-path-storage wait --for=condition=Rea
 # Load Container Images
 # ------------------------------------------------------------------------------
 
-# Load the vllm simulator image into the cluster (only if it's a locally built image)
+LINUX_ARCH="$(uname -m)"
+case "${LINUX_ARCH}" in
+    x86_64) LINUX_ARCH="amd64" ;;
+    aarch64|arm64) LINUX_ARCH="arm64" ;;
+esac
 
-if [ -n "$(${CONTAINER_RUNTIME} images -q "${VLLM_SIMULATOR_IMAGE}")" ]; then
-    echo "INFO: Loading vllm-sim image into KIND cluster..."
-    if [ "${CONTAINER_RUNTIME}" == "podman" ]; then
-        podman save ${VLLM_SIMULATOR_IMAGE} -o /dev/stdout | kind --name ${CLUSTER_NAME} load image-archive /dev/stdin
-    else
-        kind --name ${CLUSTER_NAME} load docker-image ${VLLM_SIMULATOR_IMAGE}
-    fi
+PLATFORM_ARGS=()
+SAVE_ARGS=()
+if [ "${CONTAINER_RUNTIME}" == "docker" ]; then
+    PLATFORM_ARGS=("--platform" "linux/${LINUX_ARCH}")
+elif [ "${CONTAINER_RUNTIME}" == "podman" ]; then
+    SAVE_ARGS=("--format=docker-archive")
 fi
+
+pull_image() {
+    local image="$1"
+    if ! "${CONTAINER_RUNTIME}" image inspect "${image}" > /dev/null 2>&1; then
+        echo "Image ${image} not found locally, pulling..."
+        "${CONTAINER_RUNTIME}" pull ${PLATFORM_ARGS[@]+"${PLATFORM_ARGS[@]}"} "${image}"
+    fi
+}
+
+load_image() {
+    local image="$1"
+    echo "Loading ${image} into kind cluster..."
+    if [ "${CONTAINER_RUNTIME}" == "docker" ]; then
+        # KIND's `kind load` uses `ctr import --all-platforms` internally, which
+        # fails when only the target architecture's layers are locally cached
+        # (e.g. after `docker pull --platform linux/amd64` of a multi-arch image).
+        # Bypass this by piping directly to `ctr import` without --all-platforms.
+        docker save "${image}" | \
+            docker exec --privileged -i "${CLUSTER_NAME}-control-plane" \
+            ctr --namespace=k8s.io images import --digests --snapshotter=overlayfs -
+    else
+        "${CONTAINER_RUNTIME}" save ${SAVE_ARGS[@]+"${SAVE_ARGS[@]}"} "${image}" | kind --name "${CLUSTER_NAME}" load image-archive /dev/stdin
+    fi
+}
+
+for IMAGE in "${VLLM_SIMULATOR_IMAGE}" "${VLLM_RENDER_IMAGE}"; do
+    pull_image "${IMAGE}"
+    load_image "${IMAGE}"
+done
 
 # ------------------------------------------------------------------------------
 # Development Environment
 # ------------------------------------------------------------------------------
 
 kubectl kustomize deploy \
-	| envsubst '${MODEL_NAME} ${VLLM_SIMULATOR_IMAGE} ${HOST_PORT} ${HF_TOKEN}' \
+	| envsubst '${MODEL_NAME} ${VLLM_SIMULATOR_IMAGE} ${VLLM_RENDER_IMAGE} ${HOST_PORT} ${HF_TOKEN}' \
   | kubectl --context ${KUBE_CONTEXT} apply -f -
 
 # ------------------------------------------------------------------------------

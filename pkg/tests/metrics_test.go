@@ -22,6 +22,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -219,6 +220,96 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 		Expect(metrics).To(ContainSubstring(getCountMetricLine(model, vllmsim.GenerationTokensMetricName+"_count", 1)))
 		// request_success_total
 		Expect(metrics).To(MatchRegexp(fmt.Sprintf(`vllm:request_success_total{finish_reason="(stop|length)",model_name="%s"} 1`, common.TestModelName)))
+	})
+
+	It("Should record correct metrics for text completions with array prompt", func() {
+		ctx := context.TODO()
+
+		const numPrompts = 3
+		const maxNumSeqs = 2
+		prompts := []string{
+			strings.Repeat("hello ", 25),
+			strings.Repeat("world ", 30),
+			strings.Repeat("foo ", 20),
+		}
+		Expect(prompts).To(HaveLen(numPrompts))
+
+		var expectedPromptTokensTotal int64
+		for _, p := range prompts {
+			tokens, _, err := tokenizerMngr.TestTokenizer().RenderText(p)
+			Expect(err).NotTo(HaveOccurred())
+			expectedPromptTokensTotal += int64(len(tokens))
+		}
+
+		// TTFT is high enough to observe maxNumSeqs running and the rest waiting.
+		args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
+			"--time-to-first-token", "1.5s", "--max-num-seqs", strconv.Itoa(maxNumSeqs)}
+
+		client, err := startServerWithArgs(ctx, args)
+		Expect(err).NotTo(HaveOccurred())
+
+		openaiclient := openai.NewClient(
+			option.WithBaseURL(baseURL),
+			option.WithHTTPClient(client))
+
+		params := openai.CompletionNewParams{
+			Prompt: openai.CompletionNewParamsPromptUnion{OfArrayOfStrings: prompts},
+			Model:  openai.CompletionNewParamsModel(common.TestModelName),
+		}
+
+		done := make(chan struct{})
+		go func() {
+			defer GinkgoRecover()
+			defer close(done)
+			_, err := openaiclient.Completions.New(ctx, params)
+			Expect(err).NotTo(HaveOccurred())
+		}()
+
+		// While the sub-requests are running (TTFT hasn't fired), maxNumSeqs should be in
+		// "running" and the rest in "waiting".
+		time.Sleep(500 * time.Millisecond)
+		metricsResp, err := client.Get(metricsUrl)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
+		data, err := io.ReadAll(metricsResp.Body)
+		Expect(err).NotTo(HaveOccurred())
+		metrics := string(data)
+		Expect(metrics).To(ContainSubstring(
+			getCountMetricLine(common.TestModelName, vllmsim.ReqRunningMetricName, maxNumSeqs)))
+		Expect(metrics).To(ContainSubstring(
+			getCountMetricLine(common.TestModelName, vllmsim.ReqWaitingMetricName, numPrompts-maxNumSeqs)))
+
+		<-done
+		time.Sleep(500 * time.Millisecond)
+
+		metricsResp, err = client.Get(metricsUrl)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
+		data, err = io.ReadAll(metricsResp.Body)
+		Expect(err).NotTo(HaveOccurred())
+		metrics = string(data)
+
+		// No running/waiting after all sub-requests complete.
+		Expect(metrics).To(ContainSubstring(
+			getCountMetricLine(common.TestModelName, vllmsim.ReqRunningMetricName, 0)))
+		Expect(metrics).To(ContainSubstring(
+			getCountMetricLine(common.TestModelName, vllmsim.ReqWaitingMetricName, 0)))
+
+		// Each prompt in the array produces its own sub-request, so histograms/counters
+		// should observe numPrompts samples.
+		Expect(metrics).To(ContainSubstring(
+			getCountMetricLine(common.TestModelName, vllmsim.E2EReqLatencyMetricName+"_count", numPrompts)))
+		Expect(metrics).To(ContainSubstring(
+			getCountMetricLine(common.TestModelName, vllmsim.MaxNumGenerationTokensMetricName+"_count", numPrompts)))
+		Expect(metrics).To(ContainSubstring(
+			getCountMetricLine(common.TestModelName, vllmsim.PromptTokensMetricName+"_count", numPrompts)))
+		Expect(metrics).To(ContainSubstring(
+			getCountMetricLine(common.TestModelName, vllmsim.GenerationTokensMetricName+"_count", numPrompts)))
+		Expect(metrics).To(MatchRegexp(fmt.Sprintf(
+			`vllm:request_success_total{finish_reason="(stop|length)",model_name="%s"} %d`,
+			common.TestModelName, numPrompts)))
+		Expect(metrics).To(ContainSubstring(fmt.Sprintf(
+			`vllm:prompt_tokens_total{model_name="%s"} %d`, common.TestModelName, expectedPromptTokensTotal)))
 	})
 
 	DescribeTable("should send correct lora metrics",

@@ -72,51 +72,77 @@ func (*doneMarker) SSEBytes() ([]byte, error) { return []byte("data: [DONE]\n\n"
 
 // responseBuilder is the HTTP streaming builder interface.
 type responseBuilder interface {
-	createResponse(respCtx vllmsim.ResponseContext, tokens *openaiserverapi.Tokenized) any
-	createUsageChunk(respCtx vllmsim.ResponseContext) sseChunk
+	createResponse(respCtxPerChoice []vllmsim.ResponseContext, tokens []openaiserverapi.Tokenized) any
+	createUsageChunk(respCtxPerChoice []vllmsim.ResponseContext) sseChunk
 	createChunk(respCtx vllmsim.ResponseContext, tokens *openaiserverapi.Tokenized, tool *openaiserverapi.ToolCall,
-		role string, finishReason *string) sseChunk
+		role string, finishReason *string, choiceIdx int) sseChunk
 	createInitialChunk(respCtx vllmsim.ResponseContext) sseChunk
-	createFirstChunk(respCtx vllmsim.ResponseContext) sseChunk
-	createLastChunk(respCtx vllmsim.ResponseContext, finishReason string) sseChunk
+	createFirstChunk(respCtx vllmsim.ResponseContext, choiceIdx int) sseChunk
+	createLastChunk(respCtx vllmsim.ResponseContext, finishReason string, choiceIdx int) sseChunk
 	createDoneChunk() sseChunk
+	createRenderResponse(tokens [][]uint32, features *openaiserverapi.RenderMMFeatures) any
+}
+
+// aggregateUsage sums the per-choice usages. Callers must ensure every slot is
+// populated — by the time we reach here, every non-error response has carried
+// a non-nil RespCtx, so any nil slot is a bug and a nil deref here is the
+// right signal.
+func aggregateUsage(respCtxPerChoice []vllmsim.ResponseContext) *openaiserverapi.Usage {
+	if len(respCtxPerChoice) == 1 {
+		return respCtxPerChoice[0].UsageData()
+	}
+	agg := &openaiserverapi.Usage{}
+	for _, rc := range respCtxPerChoice {
+		u := rc.UsageData()
+		agg.PromptTokens += u.PromptTokens
+		agg.CompletionTokens += u.CompletionTokens
+		agg.TotalTokens += u.TotalTokens
+	}
+	return agg
 }
 
 type textComplHTTPRespBuilder struct{}
 
-func (respBuilder *textComplHTTPRespBuilder) createResponse(respCtx vllmsim.ResponseContext,
-	tokens *openaiserverapi.Tokenized) any {
+func (respBuilder *textComplHTTPRespBuilder) createResponse(respCtxPerChoice []vllmsim.ResponseContext,
+	tokens []openaiserverapi.Tokenized) any {
+	respCtx := respCtxPerChoice[0]
 	baseResp := openaiserverapi.CreateBaseCompletionsResponse(
-		time.Now().Unix(), respCtx.DisplayModel(), respCtx.UsageData(), respCtx.RequestID(), respCtx.DoRemoteDecode())
-	baseChoice := openaiserverapi.CreateBaseResponseChoice(0, respCtx.FinishReason())
-	respText := strings.Join(tokens.Strings, "")
+		time.Now().Unix(), respCtx.DisplayModel(), aggregateUsage(respCtxPerChoice), respCtx.RequestID(), respCtx.DoRemoteDecode())
 
-	choice := openaiserverapi.CreateTextRespChoice(baseChoice, respText)
+	choices := make([]openaiserverapi.TextRespChoice, len(tokens))
+	for i, t := range tokens {
+		choiceCtx := respCtxPerChoice[i]
+		baseChoice := openaiserverapi.CreateBaseResponseChoice(i, choiceCtx.FinishReason())
+		respText := strings.Join(t.Strings, "")
+		choice := openaiserverapi.CreateTextRespChoice(baseChoice, respText)
 
-	// Generate logprobs if requested for text completion
-	if respCtx.Logprobs() != nil && *respCtx.Logprobs() > 0 {
-		if logprobsData := common.GenerateTextLogprobs(tokens.Strings, *respCtx.Logprobs()); logprobsData != nil &&
-			len(logprobsData.Tokens) > 0 {
-			choice.Logprobs = logprobsData
+		// Generate logprobs if requested for text completion
+		if choiceCtx.Logprobs() != nil && *choiceCtx.Logprobs() > 0 {
+			if logprobsData := common.GenerateTextLogprobs(t.Strings, *choiceCtx.Logprobs()); logprobsData != nil &&
+				len(logprobsData.Tokens) > 0 {
+				choice.Logprobs = logprobsData
+			} else {
+				// Set to nil if generation failed or tokens is empty
+				choice.Logprobs = nil
+			}
 		} else {
-			// Set to nil if generation failed or tokens is empty
+			// Explicitly ensure logprobs is nil when not requested
 			choice.Logprobs = nil
 		}
-	} else {
-		// Explicitly ensure logprobs is nil when not requested
-		choice.Logprobs = nil
+		choices[i] = choice
 	}
 
 	baseResp.Object = openaiserverapi.TextCompletionObject
-	return openaiserverapi.CreateTextCompletionsResponse(baseResp, []openaiserverapi.TextRespChoice{choice})
+	return openaiserverapi.CreateTextCompletionsResponse(baseResp, choices)
 }
 
-func (respBuilder *textComplHTTPRespBuilder) createUsageChunk(respCtx vllmsim.ResponseContext) sseChunk {
+func (respBuilder *textComplHTTPRespBuilder) createUsageChunk(respCtxPerChoice []vllmsim.ResponseContext) sseChunk {
+	respCtx := respCtxPerChoice[0]
 	if !respCtx.SendUsageData() {
 		return nil
 	}
 	baseChunk := openaiserverapi.CreateBaseCompletionsResponse(
-		respCtx.CreationTime(), respCtx.DisplayModel(), respCtx.UsageData(), respCtx.RequestID(), false)
+		respCtx.CreationTime(), respCtx.DisplayModel(), aggregateUsage(respCtxPerChoice), respCtx.RequestID(), false)
 	baseChunk.Object = openaiserverapi.TextCompletionObject
 	return &jsonDataChunk{data: openaiserverapi.CreateTextCompletionsResponse(baseChunk, []openaiserverapi.TextRespChoice{})}
 }
@@ -124,7 +150,7 @@ func (respBuilder *textComplHTTPRespBuilder) createUsageChunk(respCtx vllmsim.Re
 // createChunk creates and returns a CompletionsRespChunk, a single chunk of streamed completion API response,
 // for text completion.
 func (respBuilder *textComplHTTPRespBuilder) createChunk(respCtx vllmsim.ResponseContext, tokens *openaiserverapi.Tokenized,
-	tool *openaiserverapi.ToolCall, role string, finishReason *string) sseChunk {
+	tool *openaiserverapi.ToolCall, role string, finishReason *string, choiceIdx int) sseChunk {
 
 	baseChunk := openaiserverapi.CreateBaseCompletionsResponse(
 		respCtx.CreationTime(), respCtx.DisplayModel(), nil, respCtx.RequestID(), false)
@@ -134,7 +160,7 @@ func (respBuilder *textComplHTTPRespBuilder) createChunk(respCtx vllmsim.Respons
 	if tokens != nil {
 		tokensStr = strings.Join(tokens.Strings, "")
 	}
-	choice := openaiserverapi.CreateTextRespChoice(openaiserverapi.CreateBaseResponseChoice(0, finishReason), tokensStr)
+	choice := openaiserverapi.CreateTextRespChoice(openaiserverapi.CreateBaseResponseChoice(choiceIdx, finishReason), tokensStr)
 
 	// Generate logprobs if requested and tokens is not empty
 	if respCtx.Logprobs() != nil && tokens != nil && len(tokens.Strings) > 0 && *respCtx.Logprobs() > 0 {
@@ -153,25 +179,39 @@ func (respBuilder *textComplHTTPRespBuilder) createInitialChunk(respCtx vllmsim.
 	return nil
 }
 
-func (respBuilder *textComplHTTPRespBuilder) createFirstChunk(respCtx vllmsim.ResponseContext) sseChunk {
+func (respBuilder *textComplHTTPRespBuilder) createFirstChunk(respCtx vllmsim.ResponseContext, choiceIdx int) sseChunk {
 	return nil
 }
 
-func (respBuilder *textComplHTTPRespBuilder) createLastChunk(respCtx vllmsim.ResponseContext, finishReason string) sseChunk {
+func (respBuilder *textComplHTTPRespBuilder) createLastChunk(respCtx vllmsim.ResponseContext, finishReason string, choiceIdx int) sseChunk {
 	if finishReason != common.StopFinishReason {
 		return nil
 	}
-	return respBuilder.createChunk(respCtx, nil, nil, "", respCtx.FinishReason())
+	return respBuilder.createChunk(respCtx, nil, nil, "", respCtx.FinishReason(), choiceIdx)
 }
 
 func (*textComplHTTPRespBuilder) createDoneChunk() sseChunk { return &doneMarker{} }
+
+// createRenderResponse builds the wire payload for /v1/completions/render: an
+// array with one RenderResponse per prompt, mirroring vLLM which always
+// returns an array even for a single string prompt. features is unused — the
+// text endpoint never carries multimodal features.
+func (*textComplHTTPRespBuilder) createRenderResponse(tokens [][]uint32,
+	_ *openaiserverapi.RenderMMFeatures) any {
+	responses := make([]openaiserverapi.RenderResponse, len(tokens))
+	for i, t := range tokens {
+		responses[i] = openaiserverapi.RenderResponse{TokenIDs: t}
+	}
+	return responses
+}
 
 var _ responseBuilder = (*textComplHTTPRespBuilder)(nil)
 
 type chatComplHTTPRespBuilder struct{}
 
-func (respBuilder *chatComplHTTPRespBuilder) createResponse(respCtx vllmsim.ResponseContext,
-	tokens *openaiserverapi.Tokenized) any {
+func (respBuilder *chatComplHTTPRespBuilder) createResponse(respCtxPerChoice []vllmsim.ResponseContext,
+	tokens []openaiserverapi.Tokenized) any {
+	respCtx := respCtxPerChoice[0]
 	baseResp := openaiserverapi.CreateBaseCompletionsResponse(
 		time.Now().Unix(), respCtx.DisplayModel(), respCtx.UsageData(), respCtx.RequestID(), respCtx.DoRemoteDecode())
 	baseChoice := openaiserverapi.CreateBaseResponseChoice(0, respCtx.FinishReason())
@@ -181,7 +221,7 @@ func (respBuilder *chatComplHTTPRespBuilder) createResponse(respCtx vllmsim.Resp
 	if respCtx.ToolCalls() != nil {
 		message.ToolCalls = respCtx.ToolCalls()
 	} else {
-		respText := strings.Join(tokens.Strings, "")
+		respText := strings.Join(tokens[0].Strings, "")
 		message.Content = openaiserverapi.ChatComplContent{Raw: respText}
 	}
 
@@ -189,7 +229,7 @@ func (respBuilder *chatComplHTTPRespBuilder) createResponse(respCtx vllmsim.Resp
 
 	// Generate logprobs if requested
 	if respCtx.Logprobs() != nil && respCtx.ToolCalls() == nil {
-		if logprobsData := common.GenerateChatLogprobs(tokens.Strings, *respCtx.Logprobs()); logprobsData != nil &&
+		if logprobsData := common.GenerateChatLogprobs(tokens[0].Strings, *respCtx.Logprobs()); logprobsData != nil &&
 			len(logprobsData.Content) > 0 {
 			choice.Logprobs = logprobsData
 		} else {
@@ -201,15 +241,18 @@ func (respBuilder *chatComplHTTPRespBuilder) createResponse(respCtx vllmsim.Resp
 		choice.Logprobs = nil
 	}
 
-	return openaiserverapi.CreateChatCompletionsResponse(baseResp, []openaiserverapi.ChatRespChoice{choice})
+	resp := openaiserverapi.CreateChatCompletionsResponse(baseResp, []openaiserverapi.ChatRespChoice{choice})
+	resp.ECTransferParams = respCtx.ECTransferParams()
+	return resp
 }
 
-func (respBuilder *chatComplHTTPRespBuilder) createUsageChunk(respCtx vllmsim.ResponseContext) sseChunk {
+func (respBuilder *chatComplHTTPRespBuilder) createUsageChunk(respCtxPerChoice []vllmsim.ResponseContext) sseChunk {
+	respCtx := respCtxPerChoice[0]
 	if !respCtx.SendUsageData() {
 		return nil
 	}
 	baseChunk := openaiserverapi.CreateBaseCompletionsResponse(
-		respCtx.CreationTime(), respCtx.DisplayModel(), respCtx.UsageData(), respCtx.RequestID(), false)
+		respCtx.CreationTime(), respCtx.DisplayModel(), aggregateUsage(respCtxPerChoice), respCtx.RequestID(), false)
 	baseChunk.Object = openaiserverapi.ChatCompletionChunkObject
 	return &jsonDataChunk{data: openaiserverapi.CreateChatCompletionsResponse(baseChunk, []openaiserverapi.ChatRespChoice{})}
 }
@@ -217,14 +260,14 @@ func (respBuilder *chatComplHTTPRespBuilder) createUsageChunk(respCtx vllmsim.Re
 // createChunk creates and returns a CompletionsRespChunk, a single chunk of streamed completion
 // API response, for chat completion. It sets either role, or token, or tool call info in the message.
 func (respBuilder *chatComplHTTPRespBuilder) createChunk(respCtx vllmsim.ResponseContext, tokens *openaiserverapi.Tokenized,
-	tool *openaiserverapi.ToolCall, role string, finishReason *string) sseChunk {
+	tool *openaiserverapi.ToolCall, role string, finishReason *string, choiceIdx int) sseChunk {
 	baseChunk := openaiserverapi.CreateBaseCompletionsResponse(
 		respCtx.CreationTime(), respCtx.DisplayModel(), nil, respCtx.RequestID(), false)
 	baseChunk.Object = openaiserverapi.ChatCompletionChunkObject
 	chunk := openaiserverapi.CreateChatCompletionsRespChunk(baseChunk,
 		[]openaiserverapi.ChatRespChunkChoice{
 			openaiserverapi.CreateChatRespChunkChoice(
-				openaiserverapi.CreateBaseResponseChoice(0, finishReason), openaiserverapi.Message{})})
+				openaiserverapi.CreateBaseResponseChoice(choiceIdx, finishReason), openaiserverapi.Message{})})
 
 	if len(role) > 0 {
 		chunk.Choices[0].Delta.Role = role
@@ -255,31 +298,40 @@ func (respBuilder *chatComplHTTPRespBuilder) createInitialChunk(respCtx vllmsim.
 	return nil
 }
 
-func (respBuilder *chatComplHTTPRespBuilder) createFirstChunk(respCtx vllmsim.ResponseContext) sseChunk {
-	return respBuilder.createChunk(respCtx, nil, nil, openaiserverapi.RoleAssistant, nil)
+func (respBuilder *chatComplHTTPRespBuilder) createFirstChunk(respCtx vllmsim.ResponseContext, choiceIdx int) sseChunk {
+	return respBuilder.createChunk(respCtx, nil, nil, openaiserverapi.RoleAssistant, nil, choiceIdx)
 }
 
-func (respBuilder *chatComplHTTPRespBuilder) createLastChunk(respCtx vllmsim.ResponseContext, finishReason string) sseChunk {
+func (respBuilder *chatComplHTTPRespBuilder) createLastChunk(respCtx vllmsim.ResponseContext, finishReason string, choiceIdx int) sseChunk {
 	if finishReason != common.StopFinishReason {
 		return nil
 	}
-	return respBuilder.createChunk(respCtx, nil, nil, "", respCtx.FinishReason())
+	return respBuilder.createChunk(respCtx, nil, nil, "", respCtx.FinishReason(), choiceIdx)
 }
 
 func (*chatComplHTTPRespBuilder) createDoneChunk() sseChunk { return &doneMarker{} }
+
+// createRenderResponse builds the wire payload for /v1/chat/completions/render:
+// a single RenderResponse object (not an array) carrying the tokens for the
+// flattened prompt and any mm_features produced by the tokenizer.
+func (*chatComplHTTPRespBuilder) createRenderResponse(tokens [][]uint32,
+	features *openaiserverapi.RenderMMFeatures) any {
+	return openaiserverapi.RenderResponse{TokenIDs: tokens[0], Features: features}
+}
 
 var _ responseBuilder = (*chatComplHTTPRespBuilder)(nil)
 
 type generationGRPCRespBuilder struct{}
 
-func (respBuilder *generationGRPCRespBuilder) createResponse(respCtx vllmsim.ResponseContext,
-	tokens *openaiserverapi.Tokenized) any {
+func (respBuilder *generationGRPCRespBuilder) createResponse(respCtxPerChoice []vllmsim.ResponseContext,
+	tokens []openaiserverapi.Tokenized) any {
+	respCtx := respCtxPerChoice[0]
 
 	var completionTokens uint32
 	var outputIds []uint32
-	if tokens != nil {
+	if len(tokens) > 0 {
 		completionTokens = uint32(respCtx.UsageData().CompletionTokens)
-		outputIds = tokens.Tokens
+		outputIds = tokens[0].Tokens
 	}
 
 	return &pb.GenerateResponse{
@@ -309,16 +361,17 @@ func (respBuilder *generationGRPCRespBuilder) createChunk(respCtx vllmsim.Respon
 }
 
 func (respBuilder *generationGRPCRespBuilder) createLastChunk(respCtx vllmsim.ResponseContext) any {
-	return respBuilder.createResponse(respCtx, nil)
+	return respBuilder.createResponse([]vllmsim.ResponseContext{respCtx}, nil)
 }
 
 type responsesHTTPRespBuilder struct {
 	accumulated strings.Builder
 }
 
-func (respBuilder *responsesHTTPRespBuilder) createResponse(respCtx vllmsim.ResponseContext,
-	tokens *openaiserverapi.Tokenized) any {
-	text := strings.Join(tokens.Strings, "")
+func (respBuilder *responsesHTTPRespBuilder) createResponse(respCtxPerChoice []vllmsim.ResponseContext,
+	tokens []openaiserverapi.Tokenized) any {
+	respCtx := respCtxPerChoice[0]
+	text := strings.Join(tokens[0].Strings, "")
 	usage := respCtx.UsageData()
 	return openaiserverapi.CreateResponsesResponse(
 		respCtx.DisplayModel(),
@@ -343,8 +396,9 @@ func (respBuilder *responsesHTTPRespBuilder) createResponse(respCtx vllmsim.Resp
 	)
 }
 
-func (respBuilder *responsesHTTPRespBuilder) createUsageChunk(respCtx vllmsim.ResponseContext) sseChunk {
-	usage := respCtx.UsageData()
+func (respBuilder *responsesHTTPRespBuilder) createUsageChunk(respCtxPerChoice []vllmsim.ResponseContext) sseChunk {
+	respCtx := respCtxPerChoice[0]
+	usage := aggregateUsage(respCtxPerChoice)
 	text := respBuilder.accumulated.String()
 	resp := openaiserverapi.CreateResponsesResponse(
 		respCtx.DisplayModel(),
@@ -377,7 +431,7 @@ func (respBuilder *responsesHTTPRespBuilder) createUsageChunk(respCtx vllmsim.Re
 }
 
 func (respBuilder *responsesHTTPRespBuilder) createChunk(respCtx vllmsim.ResponseContext,
-	tokens *openaiserverapi.Tokenized, tool *openaiserverapi.ToolCall, role string, finishReason *string) sseChunk {
+	tokens *openaiserverapi.Tokenized, tool *openaiserverapi.ToolCall, role string, finishReason *string, choiceIdx int) sseChunk {
 	if tokens == nil || len(tokens.Strings) == 0 {
 		return nil
 	}
@@ -411,7 +465,7 @@ func (respBuilder *responsesHTTPRespBuilder) createInitialChunk(respCtx vllmsim.
 	}
 }
 
-func (respBuilder *responsesHTTPRespBuilder) createFirstChunk(respCtx vllmsim.ResponseContext) sseChunk {
+func (respBuilder *responsesHTTPRespBuilder) createFirstChunk(respCtx vllmsim.ResponseContext, choiceIdx int) sseChunk {
 	itemID := openaiserverapi.ResponsesMessageIDPrefix + respCtx.RequestID()
 	outputItemAdded := openaiserverapi.ResponsesItemEvent{
 		Type: openaiserverapi.ResponsesEventOutputItemAdded,
@@ -435,7 +489,7 @@ func (respBuilder *responsesHTTPRespBuilder) createFirstChunk(respCtx vllmsim.Re
 	}
 }
 
-func (respBuilder *responsesHTTPRespBuilder) createLastChunk(respCtx vllmsim.ResponseContext, _ string) sseChunk {
+func (respBuilder *responsesHTTPRespBuilder) createLastChunk(respCtx vllmsim.ResponseContext, _ string, choiceIdx int) sseChunk {
 	itemID := openaiserverapi.ResponsesMessageIDPrefix + respCtx.RequestID()
 	text := respBuilder.accumulated.String()
 
@@ -471,47 +525,82 @@ func (respBuilder *responsesHTTPRespBuilder) createLastChunk(respCtx vllmsim.Res
 
 func (*responsesHTTPRespBuilder) createDoneChunk() sseChunk { return nil }
 
+func (*responsesHTTPRespBuilder) createRenderResponse(_ [][]uint32,
+	_ *openaiserverapi.RenderMMFeatures) any {
+	panic("responsesHTTPRespBuilder: /v1/responses has no /render endpoint")
+}
+
 var _ responseBuilder = (*responsesHTTPRespBuilder)(nil)
 
 type generateHTTPRespBuilder struct{}
 
-func (respBuilder *generateHTTPRespBuilder) createResponse(respCtx vllmsim.ResponseContext,
-	tokens *openaiserverapi.Tokenized) any {
+func (respBuilder *generateHTTPRespBuilder) createResponse(respCtxPerChoice []vllmsim.ResponseContext,
+	tokens []openaiserverapi.Tokenized) any {
+	respCtx := respCtxPerChoice[0]
 	var tokenIDs []uint32
-	if tokens != nil {
-		tokenIDs = tokens.Tokens
+	if len(tokens) > 0 {
+		tokenIDs = tokens[0].Tokens
 	}
 	choice := openaiserverapi.GenerateRespChoice{TokenIDs: tokenIDs}
 	choice.Index = 0
 	choice.FinishReason = respCtx.FinishReason()
-	return &openaiserverapi.GenerateResponse{
+	resp := &openaiserverapi.GenerateResponse{
 		Choices:          []openaiserverapi.GenerateRespChoice{choice},
 		GenRequestID:     respCtx.RequestID(),
 		ECTransferParams: respCtx.ECTransferParams(),
 	}
+	if respCtx.DoRemoteDecode() {
+		resp.KVParams = openaiserverapi.BuildPrefillKVTransferParams()
+	}
+	return resp
 }
 
-func (respBuilder *generateHTTPRespBuilder) createUsageChunk(respCtx vllmsim.ResponseContext) sseChunk {
-	return nil
+func (respBuilder *generateHTTPRespBuilder) createUsageChunk(respCtxPerChoice []vllmsim.ResponseContext) sseChunk {
+	respCtx := respCtxPerChoice[0]
+	if !respCtx.SendUsageData() {
+		return nil
+	}
+	return &jsonDataChunk{data: &openaiserverapi.GenerateStreamResponse{
+		RequestID: respCtx.RequestID(),
+		Choices:   []openaiserverapi.GenerateRespChoice{},
+		Usage:     aggregateUsage(respCtxPerChoice),
+	}}
 }
 
 func (respBuilder *generateHTTPRespBuilder) createChunk(respCtx vllmsim.ResponseContext,
-	tokens *openaiserverapi.Tokenized, tool *openaiserverapi.ToolCall, role string, finishReason *string) sseChunk {
+	tokens *openaiserverapi.Tokenized, _ *openaiserverapi.ToolCall, _ string, finishReason *string, choiceIdx int) sseChunk {
+	choice := openaiserverapi.GenerateRespChoice{}
+	choice.Index = choiceIdx
+	choice.FinishReason = finishReason
+	if tokens != nil {
+		choice.TokenIDs = tokens.Tokens
+	}
+	return &jsonDataChunk{data: &openaiserverapi.GenerateStreamResponse{
+		RequestID: respCtx.RequestID(),
+		Choices:   []openaiserverapi.GenerateRespChoice{choice},
+	}}
+}
+
+func (respBuilder *generateHTTPRespBuilder) createInitialChunk(_ vllmsim.ResponseContext) sseChunk {
 	return nil
 }
 
-func (respBuilder *generateHTTPRespBuilder) createInitialChunk(respCtx vllmsim.ResponseContext) sseChunk {
+func (respBuilder *generateHTTPRespBuilder) createFirstChunk(_ vllmsim.ResponseContext, _ int) sseChunk {
 	return nil
 }
 
-func (respBuilder *generateHTTPRespBuilder) createFirstChunk(respCtx vllmsim.ResponseContext) sseChunk {
-	return nil
+func (respBuilder *generateHTTPRespBuilder) createLastChunk(respCtx vllmsim.ResponseContext, finishReason string, choiceIdx int) sseChunk {
+	if finishReason != common.StopFinishReason {
+		return nil
+	}
+	return respBuilder.createChunk(respCtx, nil, nil, "", respCtx.FinishReason(), choiceIdx)
 }
 
-func (respBuilder *generateHTTPRespBuilder) createLastChunk(respCtx vllmsim.ResponseContext, finishReason string) sseChunk {
-	return nil
-}
+func (*generateHTTPRespBuilder) createDoneChunk() sseChunk { return &doneMarker{} }
 
-func (*generateHTTPRespBuilder) createDoneChunk() sseChunk { return nil }
+func (*generateHTTPRespBuilder) createRenderResponse(_ [][]uint32,
+	_ *openaiserverapi.RenderMMFeatures) any {
+	panic("generateHTTPRespBuilder: /inference/v1/generate has no /render endpoint")
+}
 
 var _ responseBuilder = (*generateHTTPRespBuilder)(nil)

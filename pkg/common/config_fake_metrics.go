@@ -20,7 +20,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -38,7 +37,7 @@ const (
 type FakeMetrics struct {
 	// LoraMetrics
 	LoraMetrics []LorasMetrics `json:"loras"`
-	LorasString []string       `yaml:"loras"`
+	LorasString []string       `yaml:"loras" json:"-"`
 
 	// The fake metrics of type FakeMetricWithFunction can be either a fixed number or a generator
 	// function that produces fake metric values over time, using the parameters start, end, and period.
@@ -49,12 +48,16 @@ type FakeMetrics struct {
 	//  - squarewave: Alternates between start and end, staying at each level for half of the period.
 	// The configuration format is: fun:start:end:period, for example: ramp:10:0:5s or oscillate:0:10:5s.
 
+	// All scalar fields are pointers so that absence (nil) can be
+	// distinguished from a zero value during partial updates via
+	// /admin/config — only non-nil fields are applied.
+
 	// RunningRequests is the number of inference requests that are currently being processed
-	RunningRequests FakeMetricWithFunction `yaml:"running-requests" json:"running-requests"`
+	RunningRequests *FakeMetricWithFunction `yaml:"running-requests" json:"running-requests,omitempty"`
 	// WaitingRequests is the number of inference requests that are waiting to be processed
-	WaitingRequests FakeMetricWithFunction `yaml:"waiting-requests" json:"waiting-requests"`
+	WaitingRequests *FakeMetricWithFunction `yaml:"waiting-requests" json:"waiting-requests,omitempty"`
 	// KVCacheUsagePercentage  is the fraction of KV-cache blocks currently in use (from 0 to 1)
-	KVCacheUsagePercentage FakeMetricWithFunction `yaml:"kv-cache-usage" json:"kv-cache-usage"`
+	KVCacheUsagePercentage *FakeMetricWithFunction `yaml:"kv-cache-usage" json:"kv-cache-usage,omitempty"`
 
 	// Histogram metrics - defined by array of values.
 	// Each value in this array is a value for the corresponding bucket.
@@ -166,6 +169,18 @@ func (f *FakeMetricWithFunction) UnmarshalYAML(value *yaml.Node) error {
 	return f.parseFunction(value.Value)
 }
 
+// MarshalJSON emits a JSON value that round-trips through UnmarshalJSON: a
+// number for fixed values, or the canonical "func:start:end:period" string
+// for generator functions. This keeps Configuration.Copy()'s marshal+unmarshal
+// symmetric and gives /admin/config a clean wire form.
+func (f *FakeMetricWithFunction) MarshalJSON() ([]byte, error) {
+	if f.IsFunction && f.Function != nil {
+		return json.Marshal(fmt.Sprintf("%s:%g:%g:%s",
+			f.Function.Name, f.Function.Start, f.Function.End, f.Function.Period))
+	}
+	return json.Marshal(f.FixedValue)
+}
+
 func (f *FakeMetricWithFunction) UnmarshalJSON(data []byte) error {
 	// Try number first
 	var n float64
@@ -214,91 +229,34 @@ func (c *Configuration) unmarshalLoraFakeMetrics() error {
 	return nil
 }
 
-type fakeMetricsAlias FakeMetrics
-
-// UnmarshalUpdateJSON applies a partial JSON update to the receiver.
-// Unlike standard json.Unmarshal, it only overwrites fields whose JSON keys
-// are explicitly present in data — unmentioned fields are left unchanged.
-// This allows callers to PATCH individual metrics without resetting the rest.
-//
-// It uses a type alias (fakeMetricsAlias) to decode data without triggering
-// custom UnmarshalJSON methods, then copies only the present fields into f
-// via reflection.
-//
-// Returns:
-//   - before: a snapshot of f's state before any mutation, used by the caller
-//     to detect what changed (e.g. whether to unregister old Prometheus metrics).
-//   - updatedKeys: the raw JSON key map (from json.Unmarshal into map[string]any),
-//     so the caller knows exactly which keys were supplied. Keys with explicit
-//     null values ARE included — this lets callers distinguish "field set to null"
-//     (clear the metric) from "field absent" (leave it alone).
-//   - err: any JSON decoding error.
-func (f *FakeMetrics) UnmarshalUpdateJSON(data []byte) (before *FakeMetrics, updatedKeys map[string]any, err error) {
-	// First decode into a raw map to see which keys are present.
-	var raw map[string]any
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return nil, nil, err
-	}
-
-	// Decode into an alias so zero values are set, then selectively copy.
-	var aux fakeMetricsAlias
-	if err := json.Unmarshal(data, &aux); err != nil {
-		return nil, nil, err
-	}
-
-	// Snapshot the current state before mutation.
-	old := *f
-	before = &old
-
-	// Use reflection to copy only present fields from aux into f.
-	v := reflect.ValueOf(f).Elem()
-	t := v.Type()
-
-	for i := 0; i < t.NumField(); i++ {
-		field := t.Field(i)
-		if !field.IsExported() {
-			continue
-		}
-
-		jsonTag := field.Tag.Get("json")
-		// remove ,omitempty
-		parts := strings.SplitN(jsonTag, ",", 2)
-		jsonTag = strings.TrimSpace(parts[0])
-
-		if _, ok := raw[jsonTag]; ok {
-			auxVal := reflect.ValueOf(&aux).Elem().Field(i)
-			dest := v.Field(i)
-
-			// Direct copy: auxVal already has correct type/value for JSON fields
-			if auxVal.Type() == dest.Type() && auxVal.CanInterface() {
-				dest.Set(auxVal)
-			}
-		}
-	}
-
-	return before, raw, nil
-}
-
 func (f *FakeMetrics) validate() error {
-	if f.RunningRequests.FixedValue < 0 || f.WaitingRequests.FixedValue < 0 {
+	if (f.RunningRequests != nil && f.RunningRequests.FixedValue < 0) ||
+		(f.WaitingRequests != nil && f.WaitingRequests.FixedValue < 0) {
 		return errors.New("fake metrics request counters cannot be negative")
 	}
-	if f.KVCacheUsagePercentage.FixedValue < 0 || f.KVCacheUsagePercentage.FixedValue > 1 {
+	if f.KVCacheUsagePercentage != nil &&
+		(f.KVCacheUsagePercentage.FixedValue < 0 || f.KVCacheUsagePercentage.FixedValue > 1) {
 		return errors.New("fake metrics KV cache usage must be between 0 and 1")
 	}
-	if err := f.RunningRequests.Function.validate(); err != nil {
-		return err
+	if f.RunningRequests != nil {
+		if err := f.RunningRequests.Function.validate(); err != nil {
+			return err
+		}
 	}
-	if err := f.WaitingRequests.Function.validate(); err != nil {
-		return err
+	if f.WaitingRequests != nil {
+		if err := f.WaitingRequests.Function.validate(); err != nil {
+			return err
+		}
 	}
-	if err := f.KVCacheUsagePercentage.Function.validate(); err != nil {
-		return err
-	}
-	if f.KVCacheUsagePercentage.IsFunction {
-		if f.KVCacheUsagePercentage.Function.Start < 0 || f.KVCacheUsagePercentage.Function.Start > 1 ||
-			f.KVCacheUsagePercentage.Function.End < 0 || f.KVCacheUsagePercentage.Function.End > 1 {
-			return errors.New("fake metrics KV cache usage start and end must be between 0 and 1")
+	if f.KVCacheUsagePercentage != nil {
+		if err := f.KVCacheUsagePercentage.Function.validate(); err != nil {
+			return err
+		}
+		if f.KVCacheUsagePercentage.IsFunction {
+			if f.KVCacheUsagePercentage.Function.Start < 0 || f.KVCacheUsagePercentage.Function.Start > 1 ||
+				f.KVCacheUsagePercentage.Function.End < 0 || f.KVCacheUsagePercentage.Function.End > 1 {
+				return errors.New("fake metrics KV cache usage start and end must be between 0 and 1")
+			}
 		}
 	}
 

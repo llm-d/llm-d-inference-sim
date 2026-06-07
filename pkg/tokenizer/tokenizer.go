@@ -18,6 +18,7 @@ package tokenizer
 
 import (
 	"context"
+	"fmt"
 	"hash/fnv"
 	"regexp"
 	"strings"
@@ -27,6 +28,8 @@ import (
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	"github.com/valyala/fasthttp"
 )
+
+const mmModalityImage = "image"
 
 type Tokenizer interface {
 	// RenderText renders plain text and returns token IDs and string tokens
@@ -96,6 +99,9 @@ func (st *SimpleTokenizer) RenderText(text string) ([]uint32, []string, error) {
 	return tokens, textTokens, nil
 }
 
+// RenderMessages tokenizes the messages and synthesizes stub mm_features when
+// any message contains image_url blocks, so downstream MM-aware code paths can
+// be exercised without a real renderer.
 func (st *SimpleTokenizer) RenderMessages(messages []openaiserverapi.Message) ([]uint32, []string, *openaiserverapi.RenderMMFeatures, error) {
 	var builder strings.Builder
 	for _, msg := range messages {
@@ -105,7 +111,60 @@ func (st *SimpleTokenizer) RenderMessages(messages []openaiserverapi.Message) ([
 		builder.WriteString(openaiserverapi.EndMessageSeparator)
 	}
 	tokens, textTokens := st.tokenize(builder.String())
-	return tokens, textTokens, nil, nil
+	features := stubMMFeaturesForMessages(messages, len(tokens))
+	return tokens, textTokens, features, nil
+}
+
+// stubMMFeaturesForMessages returns synthetic mm_features when any message
+// contains image_url blocks; otherwise nil.
+func stubMMFeaturesForMessages(messages []openaiserverapi.Message, totalTokens int) *openaiserverapi.RenderMMFeatures {
+	var imageURLs []string
+	for _, msg := range messages {
+		for _, block := range msg.Content.Structured {
+			if block.Type == "image_url" {
+				imageURLs = append(imageURLs, block.ImageURL.Url)
+			}
+		}
+	}
+	if len(imageURLs) == 0 {
+		return nil
+	}
+
+	// One stub hash + placeholder per image. Spread the placeholders evenly
+	// across the prompt's token range so they look like distinct,
+	// non-overlapping image regions.
+	hashes := make([]string, len(imageURLs))
+	placeholders := make([]openaiserverapi.RenderPlaceholder, len(imageURLs))
+	// span: per-image slice of the token range — used as both the gap between
+	// successive image offsets and the default placeholder length. Floored at
+	// 1 so each image still gets a non-empty slot when images outnumber tokens.
+	span := max(totalTokens/len(imageURLs), 1)
+	for i, url := range imageURLs {
+		// Deterministic hash so repeat calls produce stable KV-cache keys.
+		hashes[i] = fmt.Sprintf("sim_img_%d_%x", i, fnv32(url))
+		// Place each image right after the previous one, clamped into the
+		// valid token range for the degenerate case totalTokens < numImages.
+		offset := i * span
+		if offset >= totalTokens {
+			offset = totalTokens - 1
+		}
+		if offset < 0 {
+			offset = 0
+		}
+		// Trim length so offset+length stays within bounds; never zero.
+		length := span
+		if offset+length > totalTokens {
+			length = totalTokens - offset
+		}
+		if length < 1 {
+			length = 1
+		}
+		placeholders[i] = openaiserverapi.RenderPlaceholder{Offset: offset, Length: length}
+	}
+	return &openaiserverapi.RenderMMFeatures{
+		MMHashes:       map[string][]string{mmModalityImage: hashes},
+		MMPlaceholders: map[string][]openaiserverapi.RenderPlaceholder{mmModalityImage: placeholders},
+	}
 }
 
 func modelExists(model string) bool {
@@ -119,12 +178,16 @@ func modelExists(model string) bool {
 	return statusCode == fasthttp.StatusOK
 }
 
+func fnv32(s string) uint32 {
+	h := fnv.New32a()
+	h.Write([]byte(s))
+	return h.Sum32()
+}
+
 func stringsToUint32sHash(strings []string) []uint32 {
 	hashes := make([]uint32, len(strings))
 	for i, s := range strings {
-		h := fnv.New32a()
-		h.Write([]byte(s))
-		hashes[i] = h.Sum32()
+		hashes[i] = fnv32(s)
 	}
 	return hashes
 }
