@@ -517,6 +517,60 @@ var _ = Describe("Simulator", func() {
 		Entry(nil, common.ModeEcho, 3),
 	)
 
+	It("text completions with array prompt and n parameter", func() {
+		ctx := context.TODO()
+		args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho, "--max-num-seqs", "10"}
+		client, err := startServerWithArgs(ctx, args)
+		Expect(err).NotTo(HaveOccurred())
+
+		openaiclient := openai.NewClient(
+			option.WithBaseURL(baseURL),
+			option.WithHTTPClient(client))
+
+		prompts := []string{prompt1, prompt2}
+		n := 3
+
+		var expectedPromptTokens int64
+		for _, p := range prompts {
+			tokens, _, err := tokenizerMngr.TestTokenizer().RenderText(p)
+			Expect(err).NotTo(HaveOccurred())
+			expectedPromptTokens += int64(len(tokens))
+		}
+
+		resp, err := openaiclient.Completions.New(ctx, openai.CompletionNewParams{
+			Prompt: openai.CompletionNewParamsPromptUnion{OfArrayOfStrings: prompts},
+			Model:  openai.CompletionNewParamsModel(common.TestModelName),
+			N:      param.NewOpt(int64(n)),
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		// Total choices = len(prompts) * n
+		totalChoices := len(prompts) * n
+		Expect(resp.Choices).To(HaveLen(totalChoices))
+
+		// Indexes must be 0..totalChoices-1 with no duplicates.
+		seen := make(map[int64]bool, totalChoices)
+		for _, c := range resp.Choices {
+			Expect(seen[c.Index]).To(BeFalse(), "duplicate choice index %d", c.Index)
+			seen[c.Index] = true
+		}
+		for i := int64(0); i < int64(totalChoices); i++ {
+			Expect(seen[i]).To(BeTrue(), "missing choice index %d", i)
+		}
+
+		// In echo mode, each group of n choices for a prompt should echo that prompt.
+		// Prompt 0 → choices 0..n-1, Prompt 1 → choices n..2n-1.
+		for _, c := range resp.Choices {
+			promptIdx := int(c.Index) / n
+			Expect(c.Text).To(Equal(prompts[promptIdx]),
+				"choice %d should echo prompt %d (%q)", c.Index, promptIdx, prompts[promptIdx])
+		}
+
+		// Prompt tokens counted once per prompt, not once per choice.
+		Expect(resp.Usage.PromptTokens).To(Equal(expectedPromptTokens))
+		Expect(resp.Usage.TotalTokens).To(Equal(resp.Usage.PromptTokens + resp.Usage.CompletionTokens))
+	})
+
 	DescribeTable("text completions with array prompt",
 		func(streaming bool) {
 			ctx := context.TODO()

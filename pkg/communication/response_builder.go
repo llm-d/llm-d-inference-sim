@@ -97,23 +97,22 @@ func aggregateUsage(respCtxPerChoice []vllmsim.ResponseContext) *openaiserverapi
 		return respCtxPerChoice[0].UsageData()
 	}
 	agg := &openaiserverapi.Usage{}
-	firstID := respCtxPerChoice[0].RequestID()
-	allSameRequest := true
+	// Track which request IDs we've already counted prompt tokens for.
+	// With the n parameter, multiple choices share the same request ID and
+	// prompt tokens should be counted once per unique ID. With array-prompt
+	// text completions each prompt has a distinct ID, so prompt tokens are
+	// summed across prompts. This handles the combined case (array + n)
+	// correctly: prompt tokens are counted once per prompt, not once per choice.
+	seenIDs := make(map[string]bool)
 	for _, rc := range respCtxPerChoice {
 		u := rc.UsageData()
 		agg.CompletionTokens += u.CompletionTokens
-		if rc.RequestID() != firstID {
-			allSameRequest = false
-		}
-	}
-	if allSameRequest {
-		// All choices share the same prompt (n parameter): count prompt tokens once.
-		agg.PromptTokens = respCtxPerChoice[0].UsageData().PromptTokens
-		agg.PromptTokensDetail = respCtxPerChoice[0].UsageData().PromptTokensDetail
-	} else {
-		// Different prompts (array-prompt text completions): sum prompt tokens.
-		for _, rc := range respCtxPerChoice {
-			agg.PromptTokens += rc.UsageData().PromptTokens
+		if !seenIDs[rc.RequestID()] {
+			seenIDs[rc.RequestID()] = true
+			agg.PromptTokens += u.PromptTokens
+			if u.PromptTokensDetail != nil && agg.PromptTokensDetail == nil {
+				agg.PromptTokensDetail = u.PromptTokensDetail
+			}
 		}
 	}
 	agg.TotalTokens = agg.PromptTokens + agg.CompletionTokens
