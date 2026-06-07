@@ -1,6 +1,6 @@
 # Profile 1: 8B-class model on H100, balanced load (coarse form).
 # Mirrors a production Llama-3-8B deployment on a single H100 at moderate concurrency.
-# See docs/latency-defaults.md for the full discussion.
+# See docs/latency-profiles.md for the full discussion.
 
 port: 8000
 model: "meta-llama/Llama-3.1-8B-Instruct"

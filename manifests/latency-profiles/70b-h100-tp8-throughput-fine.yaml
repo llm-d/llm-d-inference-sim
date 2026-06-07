@@ -1,7 +1,7 @@
 # Profile 2: 70B model on 8xH100 (TP=8), throughput-optimized (fine form).
 # Same target deployment as the coarse form, but TTFT and KV-transfer scale with prompt
 # length. KV values assume an InfiniBand interconnect for cross-node disaggregated serving.
-# See docs/latency-defaults.md for the full discussion.
+# See docs/latency-profiles.md for the full discussion.
 
 port: 8000
 model: "meta-llama/Llama-3.1-70B-Instruct"

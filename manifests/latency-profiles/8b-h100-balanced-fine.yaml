@@ -1,7 +1,7 @@
 # Profile 1: 8B-class model on H100, balanced load (fine form).
 # Same target deployment as the coarse form, but TTFT and KV-transfer scale with prompt
 # length. Use this when you care about routing/scheduling experiments.
-# See docs/latency-defaults.md for the full discussion.
+# See docs/latency-profiles.md for the full discussion.
 
 port: 8000
 model: "meta-llama/Llama-3.1-8B-Instruct"

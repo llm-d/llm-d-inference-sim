@@ -34,7 +34,7 @@ Some environment variables (for example `POD_NAME`, `POD_NAMESPACE`) are not ove
 ## Latency 
 All latency-related parameters are defined in duration format, e.g., 100ms. Integer format is deprecated.
 
-For a detailed explanation of how the simulator models inference time, plus guidance on choosing realistic values for these parameters — including reference tables by model size and GPU, and ready-to-use YAML profiles — see the [Latency Configuration Reference](latency-defaults.md).
+For a detailed explanation of how the simulator models inference time and what each latency parameter does, see [Latency Simulation](latency-simulation.md). For suggested values for each parameter and ready-to-use YAML profiles, see [Latency Reference Tables and Profiles](latency-profiles.md).
 
 - `latency-calculator`: specifies the latency calculator to be used to simulate response times. By default, the latency is computed based on the simulator’s current load and the configured latency parameters, such as `time-to-first-token` and `prefill-time-per-token`. Supported values are `per-token` and `constant`, indicating whether or not the calculation accounts for the prompt size.
 - `time-to-first-token`: the time to the first token, optional, by default zero
