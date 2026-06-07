@@ -102,9 +102,8 @@ func (t *TextCompletionsParsedRequest) split() []Request {
 	n := t.GetN()
 	out := make([]Request, 0, len(t.Prompt)*n)
 	for i := range t.Prompt {
-		single := &TextCompletionsRequest{TextCompletionsRequest: t.AsSingle(i)}
 		for range n {
-			out = append(out, single)
+			out = append(out, &TextCompletionsRequest{TextCompletionsRequest: t.AsSingle(i)})
 		}
 	}
 	return out
@@ -158,7 +157,8 @@ func (t *TextCompletionsRequest) split() []Request {
 	n := t.GetN()
 	out := make([]Request, n)
 	for i := range n {
-		out[i] = t
+		cp := *t
+		out[i] = &cp
 	}
 	return out
 }

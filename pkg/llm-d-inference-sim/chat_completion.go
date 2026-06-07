@@ -134,7 +134,8 @@ func (c *ChatCompletionsRequest) split() []Request {
 	n := c.GetN()
 	out := make([]Request, n)
 	for i := range n {
-		out[i] = c
+		cp := *c
+		out[i] = &cp
 	}
 	return out
 }
