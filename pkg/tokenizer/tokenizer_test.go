@@ -72,6 +72,94 @@ var _ = Describe("tokenizer", func() {
 		Expect(tokens).NotTo(BeEmpty())
 	})
 
+	Describe("stubMMFeaturesForMessages", func() {
+		text := func(s string) openaiserverapi.ChatComplContentBlock {
+			return openaiserverapi.ChatComplContentBlock{Type: "text", Text: s}
+		}
+		image := func(url string) openaiserverapi.ChatComplContentBlock {
+			return openaiserverapi.ChatComplContentBlock{
+				Type:     "image_url",
+				ImageURL: openaiserverapi.ChatComplImageBlock{Url: url},
+			}
+		}
+		audio := func(data, format string) openaiserverapi.ChatComplContentBlock {
+			return openaiserverapi.ChatComplContentBlock{
+				Type:       "input_audio",
+				InputAudio: openaiserverapi.ChatComplAudioBlock{Data: data, Format: format},
+			}
+		}
+		video := func(url string) openaiserverapi.ChatComplContentBlock {
+			return openaiserverapi.ChatComplContentBlock{
+				Type:     "video_url",
+				VideoURL: openaiserverapi.ChatComplVideoBlock{Url: url},
+			}
+		}
+		mkMsg := func(blocks ...openaiserverapi.ChatComplContentBlock) openaiserverapi.Message {
+			return openaiserverapi.Message{
+				Role:    openaiserverapi.RoleUser,
+				Content: openaiserverapi.ChatComplContent{Structured: blocks},
+			}
+		}
+
+		It("returns nil when no media blocks are present", func() {
+			feats := stubMMFeaturesForMessages([]openaiserverapi.Message{mkMsg(text("hello"))}, 100)
+			Expect(feats).To(BeNil())
+		})
+
+		It("emits an image hash keyed by image", func() {
+			feats := stubMMFeaturesForMessages([]openaiserverapi.Message{mkMsg(text("describe"), image("http://x/a.jpg"))}, 100)
+			Expect(feats).NotTo(BeNil())
+			Expect(feats.MMHashes).To(HaveKey(mmModalityImage))
+			Expect(feats.MMHashes[mmModalityImage]).To(HaveLen(1))
+			Expect(feats.MMHashes[mmModalityImage][0]).To(HavePrefix("sim_img_"))
+			Expect(feats.MMPlaceholders[mmModalityImage]).To(HaveLen(1))
+		})
+
+		It("emits an audio hash keyed by audio", func() {
+			feats := stubMMFeaturesForMessages([]openaiserverapi.Message{mkMsg(text("transcribe"), audio("base64data", "wav"))}, 100)
+			Expect(feats).NotTo(BeNil())
+			Expect(feats.MMHashes).To(HaveKey(mmModalityAudio))
+			Expect(feats.MMHashes[mmModalityAudio][0]).To(HavePrefix("sim_audio_"))
+		})
+
+		It("emits a video hash keyed by video", func() {
+			feats := stubMMFeaturesForMessages([]openaiserverapi.Message{mkMsg(text("watch"), video("http://x/v.mp4"))}, 100)
+			Expect(feats).NotTo(BeNil())
+			Expect(feats.MMHashes).To(HaveKey(mmModalityVideo))
+			Expect(feats.MMHashes[mmModalityVideo][0]).To(HavePrefix("sim_video_"))
+		})
+
+		It("returns all three modality keys for mixed multimedia", func() {
+			feats := stubMMFeaturesForMessages([]openaiserverapi.Message{mkMsg(
+				text("mixed"), image("http://x/a.jpg"), audio("data", "wav"), video("http://x/v.mp4"),
+			)}, 120)
+			Expect(feats).NotTo(BeNil())
+			Expect(feats.MMHashes).To(HaveKey(mmModalityImage))
+			Expect(feats.MMHashes).To(HaveKey(mmModalityAudio))
+			Expect(feats.MMHashes).To(HaveKey(mmModalityVideo))
+		})
+
+		It("produces deterministic hashes for identical input", func() {
+			msgs := []openaiserverapi.Message{mkMsg(image("http://x/a.jpg"), audio("data", "wav"), video("http://x/v.mp4"))}
+			a := stubMMFeaturesForMessages(msgs, 100)
+			b := stubMMFeaturesForMessages(msgs, 100)
+			Expect(a).To(Equal(b))
+		})
+
+		It("skips media blocks with empty identifiers", func() {
+			feats := stubMMFeaturesForMessages([]openaiserverapi.Message{mkMsg(
+				image(""), audio("", "wav"), video(""),
+			)}, 100)
+			Expect(feats).To(BeNil())
+		})
+
+		It("treats audio format as routing-irrelevant (same data different format collides)", func() {
+			wav := stubMMFeaturesForMessages([]openaiserverapi.Message{mkMsg(audio("samebytes", "wav"))}, 100)
+			mp3 := stubMMFeaturesForMessages([]openaiserverapi.Message{mkMsg(audio("samebytes", "mp3"))}, 100)
+			Expect(wav.MMHashes[mmModalityAudio]).To(Equal(mp3.MMHashes[mmModalityAudio]))
+		})
+	})
+
 	Describe("splitIntoTokens", func() {
 		bt := newBaseTokenizer()
 		const text = "I hear it's very cold."

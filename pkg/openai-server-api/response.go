@@ -177,12 +177,23 @@ type ChatComplContent struct {
 }
 
 type ChatComplContentBlock struct {
-	Type     string              `json:"type"`
-	Text     string              `json:"text,omitempty"`
-	ImageURL ChatComplImageBlock `json:"image_url,omitempty"`
+	Type       string              `json:"type"`
+	Text       string              `json:"text,omitempty"`
+	ImageURL   ChatComplImageBlock `json:"image_url,omitempty"`
+	InputAudio ChatComplAudioBlock `json:"input_audio,omitempty"`
+	VideoURL   ChatComplVideoBlock `json:"video_url,omitempty"`
 }
 
 type ChatComplImageBlock struct {
+	Url string `json:"url,omitempty"`
+}
+
+type ChatComplAudioBlock struct {
+	Data   string `json:"data,omitempty"`
+	Format string `json:"format,omitempty"`
+}
+
+type ChatComplVideoBlock struct {
 	Url string `json:"url,omitempty"`
 }
 
