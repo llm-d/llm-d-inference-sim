@@ -2851,4 +2851,30 @@ force-dummy-tokenizer: false
 			})
 		})
 	})
+
+	Context("Mooncake bootstrap query", func() {
+		It("Should return a dp_rank to engine_id map on /query", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			resp, err := client.Get("http://localhost/query")
+			Expect(err).NotTo(HaveOccurred())
+			defer func() {
+				Expect(resp.Body.Close()).To(Succeed())
+			}()
+
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+			body, err := io.ReadAll(resp.Body)
+			Expect(err).NotTo(HaveOccurred())
+
+			engines := map[string]map[string]string{}
+			Expect(json.Unmarshal(body, &engines)).To(Succeed())
+			Expect(engines).To(HaveKey("0"))
+			Expect(engines["0"]).To(HaveKey("engine_id"))
+			Expect(engines["0"]["engine_id"]).NotTo(BeEmpty())
+		})
+	})
 })

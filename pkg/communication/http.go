@@ -83,6 +83,8 @@ func (c *Communication) startHTTPServer(listener net.Listener) (*fasthttp.Server
 	// supports standard Kubernetes health and readiness checks
 	r.GET("/health", c.HandleHealth)
 	r.GET("/health/ready", c.HandleHealthReady)
+	// emulates vLLM's Mooncake bootstrap endpoint on the prefill pod; the routing sidecar queries it to resolve remote engine ids
+	r.GET("/query", c.HandleMooncakeQuery)
 	r.GET("/ready", c.HandleReady)
 	r.POST("/tokenize", c.HandleTokenize)
 	r.POST("/sleep", c.HandleSleep)
@@ -787,6 +789,34 @@ func (c *Communication) HandleReady(ctx *fasthttp.RequestCtx) {
 	}
 	ctx.Response.Header.SetContentType("application/json")
 	ctx.Response.Header.SetStatusCode(fasthttp.StatusOK)
+}
+
+// HandleMooncakeQuery emulates vLLM's Mooncake bootstrap endpoint (/query) served on
+// the prefill pod. The routing sidecar calls it to resolve the remote engine id used
+// for KV transfer, receiving a dp_rank -> {engine_id} map. The engine ids are
+// placeholders; a real vLLM prefill pod reports the ids of its running KV engines.
+func (c *Communication) HandleMooncakeQuery(ctx *fasthttp.RequestCtx) {
+	c.logger.V(logging.TRACE).Info("/query request received")
+
+	dpSize := c.simulator.Context.Config().DPSize
+	engines := make(map[string]map[string]string, dpSize)
+	for rank := 0; rank < dpSize; rank++ {
+		engines[strconv.Itoa(rank)] = map[string]string{
+			"engine_id": c.simulator.Context.Random.GenerateUUIDString(),
+		}
+	}
+
+	data, err := json.Marshal(engines)
+	if err != nil {
+		c.logger.Error(err, "failed to marshal mooncake query response")
+		errToSend := openaiserverapi.NewError("Failed to marshal mooncake query response, "+err.Error(), fasthttp.StatusInternalServerError, nil)
+		c.sendError(ctx, &errToSend, false)
+		return
+	}
+
+	ctx.Response.Header.SetContentType("application/json")
+	ctx.Response.Header.SetStatusCode(fasthttp.StatusOK)
+	ctx.Response.SetBody(data)
 }
 
 // HandleIsSleeping handles /is_sleeping request according
