@@ -49,6 +49,7 @@ import (
 	"github.com/valyala/fasthttp/fasthttputil"
 	"k8s.io/klog/v2"
 
+	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 )
 
@@ -172,6 +173,11 @@ func startServerHelper(ctx context.Context, mode string, args []string, envs map
 
 	listener := fasthttputil.NewInmemoryListener()
 	comm := communication.New(logger, s)
+
+	ginkgo.DeferCleanup(func() {
+		listener.Close() //nolint:errcheck
+		s.Stop()
+	})
 
 	// start the http server
 	go func() {
