@@ -58,6 +58,11 @@ type requestProcessor interface {
 }
 
 func (s *VllmSimulator) processRequest(reqCtx requestContext) {
+	defer func() {
+		s.onResponseProcessingFinished(reqCtx)
+		reqCtx.signalDone()
+	}()
+
 	startTime := time.Now()
 	req := reqCtx.request()
 	respCtx, err := reqCtx.handleRequest()
@@ -65,8 +70,6 @@ func (s *VllmSimulator) processRequest(reqCtx requestContext) {
 		common.WriteToChannel(reqCtx.responseChannel(),
 			&ResponseInfo{RespCtx: respCtx, Err: err, ChoiceIdx: reqCtx.choiceIndex()},
 			s.Context.logger)
-		s.onResponseProcessingFinished(reqCtx)
-		reqCtx.signalDone()
 		return
 	}
 
@@ -85,8 +88,6 @@ func (s *VllmSimulator) processRequest(reqCtx requestContext) {
 
 	common.WriteToChannel(s.Context.metrics.e2eReqLatencyChan, time.Since(reqCtx.startProcessingTime()).Seconds(), s.Context.logger)
 	common.WriteToChannel(s.Context.metrics.reqInferenceTimeChan, time.Since(startTime).Seconds(), s.Context.logger)
-	s.onResponseProcessingFinished(reqCtx)
-	reqCtx.signalDone()
 }
 
 // getFreeWorker returns a free worker or nil if none are available (non-blocking)
