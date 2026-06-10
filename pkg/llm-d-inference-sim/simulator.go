@@ -472,6 +472,7 @@ func (s *VllmSimulator) onResponseProcessingFinished(reqCtx requestContext) {
 	}
 
 	reqCtx.kvCacheOnRequestEnd()
+	reqCtx.signalDone()
 }
 
 // OpenRequests returns the number of requests currently in the system

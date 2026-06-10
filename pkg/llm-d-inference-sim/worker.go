@@ -58,10 +58,7 @@ type requestProcessor interface {
 }
 
 func (s *VllmSimulator) processRequest(reqCtx requestContext) {
-	defer func() {
-		s.onResponseProcessingFinished(reqCtx)
-		reqCtx.signalDone()
-	}()
+	defer s.onResponseProcessingFinished(reqCtx)
 
 	startTime := time.Now()
 	req := reqCtx.request()
