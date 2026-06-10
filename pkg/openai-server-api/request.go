@@ -88,6 +88,10 @@ type Request interface {
 	GetLogprobs() *int
 	// GetN returns the number of completion choices to generate, defaulting to 1
 	GetN() int
+	// GetRawN returns the raw n pointer from the request, nil when the field was
+	// omitted. Used by validation to reject explicit n <= 0 while still allowing
+	// the absent case to default to 1.
+	GetRawN() *int
 	// GetCacheHitThreshold returns the cache hit threshold (0-1) or nil if not set
 	GetCacheHitThreshold() *float64
 	// TokenizedPrompt returns the tokenized prompt
@@ -294,6 +298,11 @@ func (b *baseRequest) GetN() int {
 	return 1
 }
 
+// GetRawN returns nil for non-completions requests that don't support the n parameter.
+func (b *baseRequest) GetRawN() *int {
+	return nil
+}
+
 // SetIgnoreEOS sets the value of IgnoreEOS
 func (b *baseRequest) SetIgnoreEOS(ignorEOS bool) {
 	b.IgnoreEOS = ignorEOS
@@ -360,6 +369,11 @@ func (b *baseCompletionsRequest) GetN() int {
 		return 1
 	}
 	return *b.N
+}
+
+// GetRawN returns the raw n pointer, nil when the field was omitted.
+func (b *baseCompletionsRequest) GetRawN() *int {
+	return b.N
 }
 
 // GetCacheHitThreshold returns the cache hit threshold value

@@ -323,10 +323,8 @@ var _ = Describe("Simulator", func() {
 			Expect(resp.Usage.TotalTokens).To(Equal(resp.Usage.PromptTokens + resp.Usage.CompletionTokens))
 
 			// Each choice must have valid content and a sequential index
-			seen := make(map[int64]bool, n)
-			for _, choice := range resp.Choices {
-				Expect(seen[choice.Index]).To(BeFalse(), "duplicate choice index %d", choice.Index)
-				seen[choice.Index] = true
+			for i, choice := range resp.Choices {
+				Expect(choice.Index).To(BeEquivalentTo(i))
 				msg := choice.Message.Content
 				Expect(msg).ShouldNot(BeEmpty())
 
@@ -335,9 +333,6 @@ var _ = Describe("Simulator", func() {
 				} else {
 					Expect(dataset.IsValidText(msg)).To(BeTrue())
 				}
-			}
-			for i := int64(0); i < int64(n); i++ {
-				Expect(seen[i]).To(BeTrue(), "missing choice index %d", i)
 			}
 		},
 		func(mode string, n int) string {
@@ -434,10 +429,8 @@ var _ = Describe("Simulator", func() {
 			Expect(resp.Usage.TotalTokens).To(Equal(resp.Usage.PromptTokens + resp.Usage.CompletionTokens))
 
 			// Each choice must have valid content and a sequential index
-			seen := make(map[int64]bool, n)
-			for _, choice := range resp.Choices {
-				Expect(seen[choice.Index]).To(BeFalse(), "duplicate choice index %d", choice.Index)
-				seen[choice.Index] = true
+			for i, choice := range resp.Choices {
+				Expect(choice.Index).To(BeEquivalentTo(i))
 				Expect(choice.Text).ShouldNot(BeEmpty())
 
 				if mode == common.ModeEcho {
@@ -445,9 +438,6 @@ var _ = Describe("Simulator", func() {
 				} else {
 					Expect(dataset.IsValidText(choice.Text)).To(BeTrue())
 				}
-			}
-			for i := int64(0); i < int64(n); i++ {
-				Expect(seen[i]).To(BeTrue(), "missing choice index %d", i)
 			}
 		},
 		func(mode string, n int) string {
@@ -548,19 +538,10 @@ var _ = Describe("Simulator", func() {
 		totalChoices := len(prompts) * n
 		Expect(resp.Choices).To(HaveLen(totalChoices))
 
-		// Indexes must be 0..totalChoices-1 with no duplicates.
-		seen := make(map[int64]bool, totalChoices)
-		for _, c := range resp.Choices {
-			Expect(seen[c.Index]).To(BeFalse(), "duplicate choice index %d", c.Index)
-			seen[c.Index] = true
-		}
-		for i := int64(0); i < int64(totalChoices); i++ {
-			Expect(seen[i]).To(BeTrue(), "missing choice index %d", i)
-		}
-
 		// In echo mode, each group of n choices for a prompt should echo that prompt.
 		// Prompt 0 → choices 0..n-1, Prompt 1 → choices n..2n-1.
-		for _, c := range resp.Choices {
+		for i, c := range resp.Choices {
+			Expect(c.Index).To(BeEquivalentTo(i))
 			promptIdx := int(c.Index) / n
 			Expect(c.Text).To(Equal(prompts[promptIdx]),
 				"choice %d should echo prompt %d (%q)", c.Index, promptIdx, prompts[promptIdx])
@@ -568,6 +549,9 @@ var _ = Describe("Simulator", func() {
 
 		// Prompt tokens counted once per prompt, not once per choice.
 		Expect(resp.Usage.PromptTokens).To(Equal(expectedPromptTokens))
+		// In echo mode completion tokens equal the sum of prompt tokens across
+		// all choices: each of the n copies for each prompt echoes the full prompt.
+		Expect(resp.Usage.CompletionTokens).To(Equal(expectedPromptTokens * int64(n)))
 		Expect(resp.Usage.TotalTokens).To(Equal(resp.Usage.PromptTokens + resp.Usage.CompletionTokens))
 	})
 

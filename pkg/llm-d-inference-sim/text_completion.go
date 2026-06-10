@@ -150,17 +150,12 @@ func (t *TextCompletionsRequest) buildRequestContext(simCtx *SimContext, channel
 	return reqCtx
 }
 
-// split returns n copies of this request, one per completion choice. Each
-// sub-request shares the same underlying TextCompletionsRequest. When n==1
-// (the default) this degenerates to the original single-element slice.
+// split is a no-op: TextCompletionsRequest always carries a single prompt.
+// The n parameter is handled by TextCompletionsParsedRequest.split which
+// produces the per-choice sub-requests before any TextCompletionsRequest
+// reaches HandleRequest.
 func (t *TextCompletionsRequest) split() []Request {
-	n := t.GetN()
-	out := make([]Request, n)
-	for i := range n {
-		cp := *t
-		out[i] = &cp
-	}
-	return out
+	return []Request{t}
 }
 
 func (t *TextCompletionsRequest) AsString() string {
