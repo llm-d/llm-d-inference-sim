@@ -301,6 +301,276 @@ var _ = Describe("Simulator", func() {
 		Entry(nil, common.QwenModelName, common.ModeRandom, 1000),
 	)
 
+	DescribeTable("chat completions with n parameter",
+		func(mode string, n int) {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", mode, "--max-num-seqs", "10"}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			openaiclient, params := getOpenAIClientAndChatParams(client, common.TestModelName, testUserMessage, false)
+			params.N = param.NewOpt(int64(n))
+			resp, err := openaiclient.Chat.Completions.New(ctx, params)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Exact number of choices must match n
+			Expect(resp.Choices).To(HaveLen(n))
+			Expect(string(resp.Object)).To(Equal(openaiserverapi.ChatCompletionObject))
+
+			// Prompt tokens should be counted once, not n times
+			Expect(resp.Usage.PromptTokens).To(Equal(userMsgChatTokens))
+			Expect(resp.Usage.CompletionTokens).To(BeNumerically(">", 0))
+			Expect(resp.Usage.TotalTokens).To(Equal(resp.Usage.PromptTokens + resp.Usage.CompletionTokens))
+
+			// Each choice must have valid content and a sequential index
+			seen := make(map[int64]bool, n)
+			for _, choice := range resp.Choices {
+				Expect(seen[choice.Index]).To(BeFalse(), "duplicate choice index %d", choice.Index)
+				seen[choice.Index] = true
+				msg := choice.Message.Content
+				Expect(msg).ShouldNot(BeEmpty())
+
+				if mode == common.ModeEcho {
+					Expect(msg).Should(Equal(testUserMessage))
+				} else {
+					Expect(dataset.IsValidText(msg)).To(BeTrue())
+				}
+			}
+			for i := int64(0); i < int64(n); i++ {
+				Expect(seen[i]).To(BeTrue(), "missing choice index %d", i)
+			}
+		},
+		func(mode string, n int) string {
+			return fmt.Sprintf("mode: %s n: %d", mode, n)
+		},
+		Entry(nil, common.ModeRandom, 1),
+		Entry(nil, common.ModeEcho, 1),
+		Entry(nil, common.ModeRandom, 3),
+		Entry(nil, common.ModeEcho, 3),
+		Entry(nil, common.ModeRandom, 5),
+	)
+
+	DescribeTable("chat completions streaming with n parameter",
+		func(mode string, n int) {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", mode, "--max-num-seqs", "10"}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			openaiclient, params := getOpenAIClientAndChatParams(client, common.TestModelName, testUserMessage, true)
+			params.N = param.NewOpt(int64(n))
+			stream := openaiclient.Chat.Completions.NewStreaming(ctx, params)
+			defer func() {
+				err := stream.Close()
+				Expect(err).NotTo(HaveOccurred())
+			}()
+
+			tokensPerChoice := make(map[int64][]string)
+			roles := make(map[int64]string)
+			var chunk openai.ChatCompletionChunk
+			numberOfChunksWithUsage := 0
+			for stream.Next() {
+				chunk = stream.Current()
+				for _, choice := range chunk.Choices {
+					if choice.Delta.Role != "" {
+						roles[choice.Index] = choice.Delta.Role
+					} else if choice.FinishReason == "" {
+						tokensPerChoice[choice.Index] = append(tokensPerChoice[choice.Index], choice.Delta.Content)
+					}
+				}
+				if chunk.Usage.CompletionTokens != 0 || chunk.Usage.PromptTokens != 0 || chunk.Usage.TotalTokens != 0 {
+					numberOfChunksWithUsage++
+				}
+			}
+			Expect(stream.Err()).NotTo(HaveOccurred())
+
+			Expect(numberOfChunksWithUsage).To(Equal(1))
+			// Prompt tokens counted once
+			Expect(chunk.Usage.PromptTokens).To(Equal(userMsgChatTokens))
+			Expect(chunk.Usage.CompletionTokens).To(BeNumerically(">", 0))
+			Expect(chunk.Usage.TotalTokens).To(Equal(chunk.Usage.PromptTokens + chunk.Usage.CompletionTokens))
+
+			// Exactly n choices must have been seen
+			Expect(tokensPerChoice).To(HaveLen(n))
+			for i := int64(0); i < int64(n); i++ {
+				Expect(roles[i]).To(Equal("assistant"), "choice %d missing role", i)
+				msg := strings.Join(tokensPerChoice[i], "")
+				Expect(msg).ShouldNot(BeEmpty(), "choice %d has empty content", i)
+				if mode == common.ModeEcho {
+					Expect(msg).Should(Equal(testUserMessage))
+				} else {
+					Expect(dataset.IsValidText(msg)).To(BeTrue())
+				}
+			}
+		},
+		func(mode string, n int) string {
+			return fmt.Sprintf("mode: %s n: %d", mode, n)
+		},
+		Entry(nil, common.ModeRandom, 1),
+		Entry(nil, common.ModeEcho, 1),
+		Entry(nil, common.ModeRandom, 3),
+		Entry(nil, common.ModeEcho, 3),
+	)
+
+	DescribeTable("text completions with n parameter",
+		func(mode string, n int) {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", mode, "--max-num-seqs", "10"}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			openaiclient, params := getOpenAIClentAndCompletionParams(client, common.TestModelName, testUserMessage, false)
+			params.N = param.NewOpt(int64(n))
+			resp, err := openaiclient.Completions.New(ctx, params)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Exact number of choices must match n
+			Expect(resp.Choices).To(HaveLen(n))
+			Expect(string(resp.Object)).To(Equal(openaiserverapi.TextCompletionObject))
+
+			// Prompt tokens should be counted once
+			Expect(resp.Usage.PromptTokens).To(Equal(userMsgTokens))
+			Expect(resp.Usage.CompletionTokens).To(BeNumerically(">", 0))
+			Expect(resp.Usage.TotalTokens).To(Equal(resp.Usage.PromptTokens + resp.Usage.CompletionTokens))
+
+			// Each choice must have valid content and a sequential index
+			seen := make(map[int64]bool, n)
+			for _, choice := range resp.Choices {
+				Expect(seen[choice.Index]).To(BeFalse(), "duplicate choice index %d", choice.Index)
+				seen[choice.Index] = true
+				Expect(choice.Text).ShouldNot(BeEmpty())
+
+				if mode == common.ModeEcho {
+					Expect(choice.Text).Should(Equal(testUserMessage))
+				} else {
+					Expect(dataset.IsValidText(choice.Text)).To(BeTrue())
+				}
+			}
+			for i := int64(0); i < int64(n); i++ {
+				Expect(seen[i]).To(BeTrue(), "missing choice index %d", i)
+			}
+		},
+		func(mode string, n int) string {
+			return fmt.Sprintf("mode: %s n: %d", mode, n)
+		},
+		Entry(nil, common.ModeRandom, 1),
+		Entry(nil, common.ModeEcho, 1),
+		Entry(nil, common.ModeRandom, 3),
+		Entry(nil, common.ModeEcho, 3),
+		Entry(nil, common.ModeRandom, 5),
+	)
+
+	DescribeTable("text completions streaming with n parameter",
+		func(mode string, n int) {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", mode, "--max-num-seqs", "10"}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			openaiclient, params := getOpenAIClentAndCompletionParams(client, common.TestModelName, testUserMessage, true)
+			params.N = param.NewOpt(int64(n))
+			stream := openaiclient.Completions.NewStreaming(ctx, params)
+			defer func() {
+				err := stream.Close()
+				Expect(err).NotTo(HaveOccurred())
+			}()
+
+			tokensPerChoice := make(map[int64][]string)
+			var chunk openai.Completion
+			numberOfChunksWithUsage := 0
+			for stream.Next() {
+				chunk = stream.Current()
+				for _, choice := range chunk.Choices {
+					if choice.FinishReason == "" {
+						tokensPerChoice[choice.Index] = append(tokensPerChoice[choice.Index], choice.Text)
+					}
+				}
+				if chunk.Usage.CompletionTokens != 0 || chunk.Usage.PromptTokens != 0 || chunk.Usage.TotalTokens != 0 {
+					numberOfChunksWithUsage++
+				}
+			}
+			Expect(stream.Err()).NotTo(HaveOccurred())
+
+			Expect(numberOfChunksWithUsage).To(Equal(1))
+			Expect(chunk.Usage.PromptTokens).To(Equal(userMsgTokens))
+			Expect(chunk.Usage.CompletionTokens).To(BeNumerically(">", 0))
+			Expect(chunk.Usage.TotalTokens).To(Equal(chunk.Usage.PromptTokens + chunk.Usage.CompletionTokens))
+
+			// Exactly n choices must have been seen
+			Expect(tokensPerChoice).To(HaveLen(n))
+			for i := int64(0); i < int64(n); i++ {
+				msg := strings.Join(tokensPerChoice[i], "")
+				Expect(msg).ShouldNot(BeEmpty(), "choice %d has empty content", i)
+				if mode == common.ModeEcho {
+					Expect(msg).Should(Equal(testUserMessage))
+				} else {
+					Expect(dataset.IsValidText(msg)).To(BeTrue())
+				}
+			}
+		},
+		func(mode string, n int) string {
+			return fmt.Sprintf("mode: %s n: %d", mode, n)
+		},
+		Entry(nil, common.ModeRandom, 1),
+		Entry(nil, common.ModeEcho, 1),
+		Entry(nil, common.ModeRandom, 3),
+		Entry(nil, common.ModeEcho, 3),
+	)
+
+	It("text completions with array prompt and n parameter", func() {
+		ctx := context.TODO()
+		args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho, "--max-num-seqs", "10"}
+		client, err := startServerWithArgs(ctx, args)
+		Expect(err).NotTo(HaveOccurred())
+
+		openaiclient := openai.NewClient(
+			option.WithBaseURL(baseURL),
+			option.WithHTTPClient(client))
+
+		prompts := []string{prompt1, prompt2}
+		n := 3
+
+		var expectedPromptTokens int64
+		for _, p := range prompts {
+			tokens, _, err := tokenizerMngr.TestTokenizer().RenderText(p)
+			Expect(err).NotTo(HaveOccurred())
+			expectedPromptTokens += int64(len(tokens))
+		}
+
+		resp, err := openaiclient.Completions.New(ctx, openai.CompletionNewParams{
+			Prompt: openai.CompletionNewParamsPromptUnion{OfArrayOfStrings: prompts},
+			Model:  openai.CompletionNewParamsModel(common.TestModelName),
+			N:      param.NewOpt(int64(n)),
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		// Total choices = len(prompts) * n
+		totalChoices := len(prompts) * n
+		Expect(resp.Choices).To(HaveLen(totalChoices))
+
+		// Indexes must be 0..totalChoices-1 with no duplicates.
+		seen := make(map[int64]bool, totalChoices)
+		for _, c := range resp.Choices {
+			Expect(seen[c.Index]).To(BeFalse(), "duplicate choice index %d", c.Index)
+			seen[c.Index] = true
+		}
+		for i := int64(0); i < int64(totalChoices); i++ {
+			Expect(seen[i]).To(BeTrue(), "missing choice index %d", i)
+		}
+
+		// In echo mode, each group of n choices for a prompt should echo that prompt.
+		// Prompt 0 → choices 0..n-1, Prompt 1 → choices n..2n-1.
+		for _, c := range resp.Choices {
+			promptIdx := int(c.Index) / n
+			Expect(c.Text).To(Equal(prompts[promptIdx]),
+				"choice %d should echo prompt %d (%q)", c.Index, promptIdx, prompts[promptIdx])
+		}
+
+		// Prompt tokens counted once per prompt, not once per choice.
+		Expect(resp.Usage.PromptTokens).To(Equal(expectedPromptTokens))
+		Expect(resp.Usage.TotalTokens).To(Equal(resp.Usage.PromptTokens + resp.Usage.CompletionTokens))
+	})
+
 	DescribeTable("text completions with array prompt",
 		func(streaming bool) {
 			ctx := context.TODO()

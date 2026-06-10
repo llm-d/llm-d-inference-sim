@@ -86,6 +86,8 @@ type Request interface {
 	ExtractMaxTokens() *int64
 	// GetLogprobs returns nil if no logprobs needed, or pointer to number of logprob options to include
 	GetLogprobs() *int
+	// GetN returns the number of completion choices to generate, defaulting to 1
+	GetN() int
 	// GetCacheHitThreshold returns the cache hit threshold (0-1) or nil if not set
 	GetCacheHitThreshold() *float64
 	// TokenizedPrompt returns the tokenized prompt
@@ -149,6 +151,9 @@ type baseCompletionsRequest struct {
 	// cacheThresholdFinishReason is a boolean value extracted from the request's HTTP header,
 	//  when true, forces a cache_threshold finish reason
 	cacheThresholdFinishReason bool
+	// N is the number of completion choices to generate for each prompt.
+	// Optional and defaults to 1.
+	N *int `json:"n,omitempty"`
 }
 
 type KVTransferParams struct {
@@ -284,6 +289,11 @@ func (b *baseRequest) GetIgnoreEOS() bool {
 	return b.IgnoreEOS
 }
 
+// GetN returns 1 for non-completions requests that don't support the n parameter.
+func (b *baseRequest) GetN() int {
+	return 1
+}
+
 // SetIgnoreEOS sets the value of IgnoreEOS
 func (b *baseRequest) SetIgnoreEOS(ignorEOS bool) {
 	b.IgnoreEOS = ignorEOS
@@ -342,6 +352,14 @@ func (b *baseRequest) SetMMFeatures(mmFeatures *RenderMMFeatures) {
 
 func (b *baseCompletionsRequest) IncludeUsage() bool {
 	return !b.Stream || (b.StreamOptions != nil && b.StreamOptions.IncludeUsage)
+}
+
+// GetN returns the number of completion choices to generate, defaulting to 1.
+func (b *baseCompletionsRequest) GetN() int {
+	if b.N == nil || *b.N <= 0 {
+		return 1
+	}
+	return *b.N
 }
 
 // GetCacheHitThreshold returns the cache hit threshold value

@@ -55,6 +55,55 @@ var _ = Describe("render requests", func() {
 	})
 })
 
+var _ = Describe("GetN", func() {
+	It("returns 1 when N is nil", func() {
+		req := &baseCompletionsRequest{}
+		Expect(req.GetN()).To(Equal(1))
+	})
+
+	It("returns 1 when N is zero", func() {
+		n := 0
+		req := &baseCompletionsRequest{N: &n}
+		Expect(req.GetN()).To(Equal(1))
+	})
+
+	It("returns 1 when N is negative", func() {
+		n := -5
+		req := &baseCompletionsRequest{N: &n}
+		Expect(req.GetN()).To(Equal(1))
+	})
+
+	It("returns the value when N is positive", func() {
+		n := 3
+		req := &baseCompletionsRequest{N: &n}
+		Expect(req.GetN()).To(Equal(3))
+	})
+
+	It("unmarshals n from JSON", func() {
+		jsonData := []byte(`{"n": 5, "prompt": "test"}`)
+		var req TextCompletionsParsedRequest
+		err := json.Unmarshal(jsonData, &req)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(req.GetN()).To(Equal(5))
+	})
+
+	It("unmarshals n from chat completions JSON", func() {
+		jsonData := []byte(`{"n": 3, "model": "test", "messages": [{"role": "user", "content": "hi"}]}`)
+		var req ChatCompletionsRequest
+		err := json.Unmarshal(jsonData, &req)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(req.GetN()).To(Equal(3))
+	})
+
+	It("defaults to 1 when n is absent from JSON", func() {
+		jsonData := []byte(`{"model": "test", "messages": [{"role": "user", "content": "hi"}]}`)
+		var req ChatCompletionsRequest
+		err := json.Unmarshal(jsonData, &req)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(req.GetN()).To(Equal(1))
+	})
+})
+
 var _ = Describe("TextCompletionsParsedRequest prompt", func() {
 	Context("UnmarshalJSON", func() {
 		It("should unmarshal a string prompt as a one-element slice", func() {
