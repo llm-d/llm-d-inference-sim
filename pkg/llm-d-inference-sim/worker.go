@@ -67,7 +67,6 @@ func (s *VllmSimulator) processRequest(reqCtx requestContext) {
 		common.WriteToChannel(reqCtx.responseChannel(),
 			&ResponseInfo{RespCtx: respCtx, Err: err, ChoiceIdx: reqCtx.choiceIndex()},
 			s.Context.logger)
-		reqCtx.signalDone()
 		return
 	}
 

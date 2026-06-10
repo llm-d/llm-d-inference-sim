@@ -457,7 +457,6 @@ func (s *VllmSimulator) simulateResponseProcessing(respCtx ResponseContext) {
 		}
 		common.WriteToChannel(s.Context.metrics.reqDecodeTimeChan, time.Since(startDecode).Seconds(), s.Context.logger)
 	}
-	reqCtx.signalDone()
 }
 
 // request processing finished
@@ -473,6 +472,7 @@ func (s *VllmSimulator) onResponseProcessingFinished(reqCtx requestContext) {
 	}
 
 	reqCtx.kvCacheOnRequestEnd()
+	reqCtx.signalDone()
 }
 
 // OpenRequests returns the number of requests currently in the system

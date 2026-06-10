@@ -30,17 +30,6 @@ import (
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 )
 
-const adminConfigURL = "http://localhost/admin/config"
-
-func postAdminConfig(client *http.Client, body string) *http.Response {
-	req, err := http.NewRequest("POST", adminConfigURL, strings.NewReader(body))
-	Expect(err).NotTo(HaveOccurred())
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := client.Do(req)
-	Expect(err).NotTo(HaveOccurred())
-	return resp
-}
-
 var _ = Describe("Failures", func() {
 	Describe("Simulator with failure injection", func() {
 		var (

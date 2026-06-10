@@ -503,6 +503,46 @@ var _ = Describe("Fake metrics", Ordered, func() {
 
 		})
 
+		It("Should update fake metrics via POST /admin/config", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
+				"--fake-metrics",
+				`{"running-requests":1,"waiting-requests":2,"kv-cache-usage":0.1}`,
+			}
+
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			reqBody := `{"failure-injection-rate":42,"fake-metrics":{"running-requests":7,"waiting-requests":8,"kv-cache-usage":0.5}}`
+			req, err := http.NewRequest("POST", "http://localhost/admin/config", strings.NewReader(reqBody))
+			Expect(err).NotTo(HaveOccurred())
+			req.Header.Set("Content-Type", "application/json")
+			resp, err := client.Do(req)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			Expect(resp.Body.Close()).To(Succeed())
+
+			resp, err = client.Get(metricsUrl)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+			data, err := io.ReadAll(resp.Body)
+			Expect(err).NotTo(HaveOccurred())
+			metrics := string(data)
+
+			Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllmsim.ReqRunningMetricName, 7)))
+			Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllmsim.ReqWaitingMetricName, 8)))
+			Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllmsim.KVCacheUsageMetricName, 0.5)))
+
+			// The non-fake-metrics field also took effect.
+			resp, err = client.Get("http://localhost/admin/config")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			data, err = io.ReadAll(resp.Body)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(string(data)).To(ContainSubstring(`"failure-injection-rate":42`))
+		})
+
 		It("Should update fake ttft and tpot metrics correctly", func() {
 			ctx := context.TODO()
 			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
@@ -546,7 +586,7 @@ var _ = Describe("Fake metrics", Ordered, func() {
 			// Update
 			reqBody := `{
             "ttft-buckets-values":[1,2,3],
-			"tpot-buckets-values":null
+			"tpot-buckets-values":[]
         }`
 
 			req, err := http.NewRequest("POST", updateFakeMetricsUrl, strings.NewReader(reqBody))
@@ -939,21 +979,21 @@ var _ = Describe("Fake metrics", Ordered, func() {
 				tokenTestPhase{nil, intPtr(58)}, tokenTestPhase{nil, intPtr(77)},
 				`{"request-prompt-tokens":[10, 20], "request-generation-tokens":[1,2,3]}`,
 				tokenTestPhase{checkBuckets10_20, intPtr(50)}, tokenTestPhase{checkBuckets123, intPtr(20)}),
-			// Prompt tokens: hist+total → empty (no change) → null hist (remove)
-			// Generated tokens: hist+total → empty (no change) → null hist (remove)
-			Entry("#4 Both: hist+total; then empty, then null hists",
+			// Prompt tokens: hist+total → empty (no change) → empty hist (remove)
+			// Generated tokens: hist+total → empty (no change) → empty hist (remove)
+			Entry("#4 Both: hist+total; then empty, then empty hists",
 				`{"request-prompt-tokens":[1,2,3], "total-prompt-tokens":12345, "request-generation-tokens":[10,20], "total-generation-tokens":54321}`,
 				tokenTestPhase{checkBuckets123, intPtr(12345)}, tokenTestPhase{checkBuckets10_20, intPtr(54321)},
 				`{}`,
 				tokenTestPhase{checkBuckets123, intPtr(12345)}, tokenTestPhase{checkBuckets10_20, intPtr(54321)},
-				`{"request-prompt-tokens":null, "request-generation-tokens":null}`,
+				`{"request-prompt-tokens":[], "request-generation-tokens":[]}`,
 				tokenTestPhase{nil, nil}, tokenTestPhase{nil, nil}),
 			// Prompt tokens: only hist → empty hist → update hist
-			// Generated tokens: only hist → null total (no-op) → update hist
-			Entry("#5 Both: only hist; then empty/null clears, then re-add hists",
+			// Generated tokens: only hist → field absent (no-op) → update hist
+			Entry("#5 Both: only hist; then empty clears prompt, then re-add hists",
 				`{"request-prompt-tokens":[1,2,3], "request-generation-tokens":[10,20]}`,
 				tokenTestPhase{checkBuckets123, intPtr(20)}, tokenTestPhase{checkBuckets10_20, intPtr(50)},
-				`{"request-prompt-tokens":[], "total-generation-tokens":null}`,
+				`{"request-prompt-tokens":[]}`,
 				tokenTestPhase{nil, nil}, tokenTestPhase{checkBuckets10_20, intPtr(50)},
 				`{"request-prompt-tokens":[10, 20], "request-generation-tokens":[1,2,3]}`,
 				tokenTestPhase{checkBuckets10_20, intPtr(50)}, tokenTestPhase{checkBuckets123, intPtr(20)}),

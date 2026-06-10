@@ -23,7 +23,6 @@ import (
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
-	"github.com/valyala/fasthttp"
 )
 
 type loadLoraRequest struct {
@@ -64,28 +63,26 @@ func (s *SimContext) getLoraPath(name string) string {
 	return name
 }
 
-func (s *SimContext) LoadLoraAdaptor(ctx *fasthttp.RequestCtx) {
+func (s *SimContext) LoadLoraAdaptor(body []byte) error {
 	var req loadLoraRequest
-	err := json.Unmarshal(ctx.Request.Body(), &req)
-	if err != nil {
+	if err := json.Unmarshal(body, &req); err != nil {
 		s.logger.Error(err, "failed to read and parse load lora request body")
-		ctx.Error("failed to read and parse load lora request body, "+err.Error(), fasthttp.StatusBadRequest)
-		return
+		return fmt.Errorf("failed to read and parse load lora request body, %w", err)
 	}
 
 	s.loraAdaptors.Store(req.LoraName, req.LoraPath)
+	return nil
 }
 
-func (s *SimContext) UnloadLoraAdaptor(ctx *fasthttp.RequestCtx) {
+func (s *SimContext) UnloadLoraAdaptor(body []byte) error {
 	var req unloadLoraRequest
-	err := json.Unmarshal(ctx.Request.Body(), &req)
-	if err != nil {
+	if err := json.Unmarshal(body, &req); err != nil {
 		s.logger.Error(err, "failed to read and parse unload lora request body")
-		ctx.Error("failed to read and parse unload lora request body, "+err.Error(), fasthttp.StatusBadRequest)
-		return
+		return fmt.Errorf("failed to read and parse unload lora request body, %w", err)
 	}
 
 	s.loraAdaptors.Delete(req.LoraName)
+	return nil
 }
 
 // Checks if the LoRA adaptor is loaded

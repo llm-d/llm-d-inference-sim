@@ -38,6 +38,9 @@ const (
 	ResponsesStatusInProgress = "in_progress"
 	ResponsesOutputText       = "output_text"
 	ResponsesOutputMessage    = "message"
+
+	SSEDoneMarker = "[DONE]"
+	SSEDataPrefix = "data: "
 )
 
 // Response interface representing response types
@@ -54,7 +57,7 @@ type baseResponse struct {
 	// Object is the Object type, "text_completion", "chat.completion", or "chat.completion.chunk"
 	Object string `json:"object,omitempty"`
 	// KVParams kv transfer related fields
-	KVParams *KVTransferParams `json:"kv_transfer_params"`
+	KVParams *KVTransferParams `json:"kv_transfer_params,omitempty"`
 	// RequestID is the unique request ID for tracking
 	RequestID string `json:"-"`
 }
@@ -177,12 +180,23 @@ type ChatComplContent struct {
 }
 
 type ChatComplContentBlock struct {
-	Type     string              `json:"type"`
-	Text     string              `json:"text,omitempty"`
-	ImageURL ChatComplImageBlock `json:"image_url,omitempty"`
+	Type       string              `json:"type"`
+	Text       string              `json:"text,omitempty"`
+	ImageURL   ChatComplImageBlock `json:"image_url,omitempty"`
+	InputAudio ChatComplAudioBlock `json:"input_audio,omitempty"`
+	VideoURL   ChatComplVideoBlock `json:"video_url,omitempty"`
 }
 
 type ChatComplImageBlock struct {
+	Url string `json:"url,omitempty"`
+}
+
+type ChatComplAudioBlock struct {
+	Data   string `json:"data,omitempty"`
+	Format string `json:"format,omitempty"`
+}
+
+type ChatComplVideoBlock struct {
 	Url string `json:"url,omitempty"`
 }
 
@@ -420,7 +434,7 @@ func CreateGenerationResponse(base baseCompletionsResponse, tokens *Tokenized) *
 }
 
 func CreateResponsesResponse(model string, requestID string, createdAt int64,
-	instructions *string, output []OutputItem, usage *ResponsesUsage) *ResponsesResponse {
+	instructions *string, topLogprobs *int, output []OutputItem, usage *ResponsesUsage) *ResponsesResponse {
 	return &ResponsesResponse{
 		baseResponse: baseResponse{
 			ID:        ResponsesIDPrefix + requestID,
@@ -434,6 +448,7 @@ func CreateResponsesResponse(model string, requestID string, createdAt int64,
 		Text:         &TextSettings{Format: &TextFormat{Type: "text"}},
 		Output:       output,
 		Usage:        usage,
+		TopLogprobs:  topLogprobs,
 	}
 }
 
@@ -454,6 +469,7 @@ type ResponsesResponse struct {
 	Usage        *ResponsesUsage `json:"usage,omitempty"`
 	Error        *Error          `json:"error,omitempty"`
 	Store        *bool           `json:"store,omitempty"`
+	TopLogprobs  *int            `json:"top_logprobs,omitempty"`
 }
 
 type MessageOutput struct {
@@ -474,20 +490,35 @@ func (m MessageOutput) MarshalJSON() ([]byte, error) {
 	return json.Marshal(alias(m))
 }
 
+// TopLogprob represents a top alternative token in Responses API logprobs
+type TopLogprob struct {
+	Token   string  `json:"token"`
+	Logprob float64 `json:"logprob"`
+	Bytes   []int   `json:"bytes"`
+}
+
+// ResponsesLogprob represents logprobs for a single token in the Responses API
+type ResponsesLogprob struct {
+	Token       string       `json:"token"`
+	Logprob     float64      `json:"logprob"`
+	Bytes       []int        `json:"bytes"`
+	TopLogprobs []TopLogprob `json:"top_logprobs"`
+}
+
 type OutputContent struct {
 	Type string `json:"type"` // output_text
 	Text string `json:"text,omitempty"`
+	// nil ptr → omit (not requested); non-nil ptr to nil slice → null; non-nil ptr to empty slice → [];
+	// non-nil ptr to populated slice → full array
+	Logprobs *[]ResponsesLogprob `json:"logprobs,omitempty"`
 }
 
 func (c OutputContent) MarshalJSON() ([]byte, error) {
 	if c.Type == "" {
 		c.Type = ResponsesOutputText
 	}
-	type x struct {
-		Type string `json:"type"`
-		Text string `json:"text,omitempty"`
-	}
-	return json.Marshal(x(c))
+	type alias OutputContent
+	return json.Marshal(alias(c))
 }
 
 type ResponsesUsage struct {
@@ -498,15 +529,16 @@ type ResponsesUsage struct {
 
 // Responses API streaming event types
 const (
-	ResponsesEventCreated          = "response.created"
-	ResponsesEventInProgress       = "response.in_progress"
-	ResponsesEventOutputItemAdded  = "response.output_item.added"
-	ResponsesEventContentPartAdded = "response.content_part.added"
-	ResponsesEventTextDelta        = "response.output_text.delta"
-	ResponsesEventTextDone         = "response.output_text.done"
-	ResponsesEventContentPartDone  = "response.content_part.done"
-	ResponsesEventOutputItemDone   = "response.output_item.done"
-	ResponsesEventCompleted        = "response.completed"
+	ResponsesEventCreated           = "response.created"
+	ResponsesEventInProgress        = "response.in_progress"
+	ResponsesEventOutputItemAdded   = "response.output_item.added"
+	ResponsesEventContentPartAdded  = "response.content_part.added"
+	ResponsesEventTextDelta         = "response.output_text.delta"
+	ResponsesEventTextLogprobsDelta = "response.output_text.logprobs.delta"
+	ResponsesEventTextDone          = "response.output_text.done"
+	ResponsesEventContentPartDone   = "response.content_part.done"
+	ResponsesEventOutputItemDone    = "response.output_item.done"
+	ResponsesEventCompleted         = "response.completed"
 )
 
 // ResponsesResponseEvent is used for events that carry a full response object
@@ -517,17 +549,19 @@ type ResponsesResponseEvent struct {
 }
 
 // ResponsesItemEvent is used for all item/content/text streaming events
-// (output_item.added/done, content_part.added/done, output_text.delta/done).
+// (output_item.added/done, content_part.added/done, output_text.delta/done,
+// output_text.logprobs.delta).
 // Fields not relevant to a given event type are omitted via omitempty.
 type ResponsesItemEvent struct {
-	Type         string         `json:"type"`
-	OutputIndex  int            `json:"output_index,omitempty"`
-	ContentIndex int            `json:"content_index,omitempty"`
-	ItemID       string         `json:"item_id,omitempty"`
-	Item         OutputItem     `json:"item,omitempty"`
-	Part         *OutputContent `json:"part,omitempty"`
-	Delta        string         `json:"delta,omitempty"`
-	Text         string         `json:"text,omitempty"`
+	Type         string              `json:"type"`
+	OutputIndex  int                 `json:"output_index,omitempty"`
+	ContentIndex int                 `json:"content_index,omitempty"`
+	ItemID       string              `json:"item_id,omitempty"`
+	Item         OutputItem          `json:"item,omitempty"`
+	Part         *OutputContent      `json:"part,omitempty"`
+	Delta        string              `json:"delta,omitempty"`
+	Text         string              `json:"text,omitempty"`
+	Logprobs     *[]ResponsesLogprob `json:"logprobs,omitempty"`
 }
 
 // Generate
@@ -543,6 +577,12 @@ type GenerateResponse struct {
 type GenerateRespChoice struct {
 	baseResponseChoice
 	TokenIDs []uint32 `json:"token_ids"`
+}
+
+type GenerateStreamResponse struct {
+	RequestID string               `json:"request_id"`
+	Choices   []GenerateRespChoice `json:"choices"`
+	Usage     *Usage               `json:"usage,omitempty"`
 }
 
 type ECTransferParams struct {

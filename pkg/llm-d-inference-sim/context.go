@@ -18,6 +18,7 @@ package llmdinferencesim
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -67,10 +68,41 @@ type SimContext struct {
 	kvcacheHelper *kvcache.KVCacheHelper
 	// dataset is used for token generation in responses
 	dataset dataset.Dataset
-	// latencyCalculator calculates the delays in simulator's responses
-	latencyCalculator LatencyCalculator
+	// latencyCalculator calculates the delays in simulator's responses.
+	// Held in an atomic.Pointer (via a holder struct) so admin-config updates
+	// can swap in a fresh calculator without racing against the workers that
+	// read it on every request. A holder is needed because the three
+	// calculator types (default/constant/per-token) are different concrete
+	// types implementing LatencyCalculator, which atomic.Value would reject.
+	latencyCalculator atomic.Pointer[latencyCalcHolder]
 	// Tokenizer used for request tokenization and in /tokenize
 	Tokenizer tokenizer.Tokenizer
+}
+
+type latencyCalcHolder struct {
+	calc latencyCalculator
+}
+
+// latencyCalc returns the current latency calculator. Safe for concurrent
+// reads while admin updates rebuild it.
+func (s *SimContext) latencyCalc() latencyCalculator {
+	return s.latencyCalculator.Load().calc
+}
+
+// rebuildLatencyCalculator constructs a calculator from the current config
+// and atomically replaces the existing one. Called both at init and after
+// each successful admin-config update.
+func (s *SimContext) rebuildLatencyCalculator() {
+	var calc latencyCalculator
+	switch s.Config().LatencyCalculator {
+	case common.DefaultLatencyCalculator:
+		calc = newDefaultCalculator(s.Config(), s.Random)
+	case common.ConstantLatencyCalculator:
+		calc = newConstantCalculator(s.Config(), s.Random)
+	case common.PerPromptTokenLatencyCalculator:
+		calc = newPerTokenCalculator(s.Config(), s.Random)
+	}
+	s.latencyCalculator.Store(&latencyCalcHolder{calc: calc})
 }
 
 // Config returns the current configuration. Safe for concurrent reads while
@@ -84,32 +116,43 @@ func (s *SimContext) SetConfig(c *common.Configuration) {
 	s.config.Store(c)
 }
 
-// ApplyAdminConfigUpdate validates the partial JSON body against the current
+// ApplyConfigUpdate validates the partial JSON body against the current
 // configuration and atomically swaps in the resulting configuration. Updates
 // are serialized so concurrent callers cannot lose each other's changes.
-func (s *SimContext) ApplyAdminConfigUpdate(body []byte) error {
+//
+// A "fake-metrics" field in the body is applied to Prometheus collectors via
+// updateFakeMetrics; this runs after Configuration.Update has validated the
+// merged result but before the config swap, so a Prometheus side-effect
+// failure aborts the whole update.
+func (s *SimContext) ApplyConfigUpdate(body []byte) error {
 	s.adminMu.Lock()
 	defer s.adminMu.Unlock()
 
-	next, err := s.Config().ApplyAdminUpdate(body)
+	next, update, latencyChanged, err := s.Config().Update(body)
 	if err != nil {
 		return err
 	}
+	if update.FakeMetrics != nil {
+		if s.Config().FakeMetrics == nil {
+			return errors.New("the simulator is reporting real metrics; fake metrics cannot be updated")
+		}
+		if err := s.updateFakeMetrics(update.FakeMetrics, s.Config().FakeMetrics); err != nil {
+			return fmt.Errorf("failed to update fake metrics: %w", err)
+		}
+	}
 	s.SetConfig(next)
+	// The calculator caches latency-related fields at construction time, so
+	// rebuild it whenever any of those fields was updated.
+	if latencyChanged {
+		s.rebuildLatencyCalculator()
+	}
 	return nil
 }
 
 func (s *SimContext) initialize(ctx context.Context) error {
 	s.Random = common.NewRandom(s.Config().Seed, s.Config().Port)
 
-	switch s.Config().LatencyCalculator {
-	case common.DefaultLatencyCalculator:
-		s.latencyCalculator = newDefaultCalculator(s.Config(), s.Random)
-	case common.ConstantLatencyCalculator:
-		s.latencyCalculator = newConstantCalculator(s.Config(), s.Random)
-	case common.PerPromptTokenLatencyCalculator:
-		s.latencyCalculator = newPerTokenCalculator(s.Config(), s.Random)
-	}
+	s.rebuildLatencyCalculator()
 
 	for _, lora := range s.Config().LoraModules {
 		s.loraAdaptors.Store(lora.Name, lora.Path)
@@ -217,7 +260,7 @@ func (s *SimContext) simulateTTFT(respCtx ResponseContext) {
 		DoRemotePrefill:    respCtx.doRemotePrefill(),
 		RunningReqs:        s.metrics.nRunningReqs,
 	}
-	ttft := s.latencyCalculator.GetTimeToFirstToken(&params)
+	ttft := s.latencyCalc().GetTimeToFirstToken(&params)
 	time.Sleep(ttft)
 	// report ttft in seconds
 	common.WriteToChannel(s.metrics.ttftChan, ttft.Seconds(), s.logger)
@@ -225,7 +268,7 @@ func (s *SimContext) simulateTTFT(respCtx ResponseContext) {
 }
 
 func (s *SimContext) simulateInterTokenLatency() {
-	perTokenLatency := s.latencyCalculator.GetInterTokenLatency(&InterTokenParams{
+	perTokenLatency := s.latencyCalc().GetInterTokenLatency(&InterTokenParams{
 		RunningReqs: s.metrics.nRunningReqs})
 	time.Sleep(perTokenLatency)
 

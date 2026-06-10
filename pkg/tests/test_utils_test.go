@@ -41,6 +41,7 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/communication"
 	vllmsim "github.com/llm-d/llm-d-inference-sim/pkg/llm-d-inference-sim"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
+	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
 	"github.com/openai/openai-go/v3/packages/param"
@@ -48,6 +49,7 @@ import (
 	"github.com/valyala/fasthttp/fasthttputil"
 	"k8s.io/klog/v2"
 
+	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 )
 
@@ -56,6 +58,7 @@ const (
 	testUserMessage      = "This is a test."
 	metricsUrl           = "http://localhost/metrics"
 	updateFakeMetricsUrl = "http://localhost/fake_metrics"
+	adminConfigURL       = "http://localhost/admin/config"
 )
 
 var userMsgTokens int64
@@ -129,12 +132,23 @@ func startServerHelper(ctx context.Context, mode string, args []string, envs map
 	}
 	s.Context.SetConfig(config)
 
-	gomega.Expect(config.Model).To(gomega.BeElementOf(common.TestModelName, common.QwenModelName, common.QwenModelName))
-	switch config.Model {
-	case common.TestModelName:
-		s.Context.Tokenizer = tokenizerMngr.TestTokenizer()
-	case common.QwenModelName:
-		s.Context.Tokenizer = tokenizerMngr.RealTokenizer()
+	// Initialize tokenizer based on configuration
+	if config.ForceDummyTokenizer {
+		// When force-dummy-tokenizer is set, create the tokenizer using tokenizer.New()
+		// which will respect the flag and create a SimpleTokenizer
+		s.Context.Tokenizer, err = tokenizer.New(ctx, config, logger)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+	} else {
+		// Use test tokenizers for normal test cases
+		gomega.Expect(config.Model).To(gomega.BeElementOf(common.TestModelName, common.QwenModelName, common.QwenModelName))
+		switch config.Model {
+		case common.TestModelName:
+			s.Context.Tokenizer = tokenizerMngr.TestTokenizer()
+		case common.QwenModelName:
+			s.Context.Tokenizer = tokenizerMngr.RealTokenizer()
+		}
 	}
 
 	// calculate number of tokens for user message,
@@ -159,6 +173,11 @@ func startServerHelper(ctx context.Context, mode string, args []string, envs map
 
 	listener := fasthttputil.NewInmemoryListener()
 	comm := communication.New(logger, s)
+
+	ginkgo.DeferCleanup(func() {
+		listener.Close() //nolint:errcheck
+		s.Stop()
+	})
 
 	// start the http server
 	go func() {
@@ -208,6 +227,8 @@ func singleRequestLatencyTest(ttft int, prefillTimePerToken int, interTokenLaten
 
 // sendCompletionsRequestForLatencyTest sends completion request according the given parameters
 // uses http.Post and not openai-api function because vllm specific fields should be sent
+//
+//nolint:unparam // modelName/prompt are kept as parameters to allow future variations.
 func sendCompletionsRequestForLatencyTest(client *http.Client, modelName string, prompt string, isStreaming bool,
 	doRemotePrefill bool) (time.Duration, time.Duration) {
 	// send completions request using http post because disagregated PD fields should be included
@@ -653,6 +674,15 @@ func getOpenAIClientAndTextParams(client option.HTTPClient, model string, messag
 	return openaiclient, params
 }
 
+func postAdminConfig(client *http.Client, body string) *http.Response {
+	req, err := http.NewRequest("POST", adminConfigURL, strings.NewReader(body))
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := client.Do(req)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	return resp
+}
+
 // renders the given messages using the test model
 func getChatPromptTokensCountForTestModel(message string) int64 {
 	messages := []openaiserverapi.Message{{Role: openaiserverapi.RoleUser, Content: openaiserverapi.ChatComplContent{Raw: message}}}
@@ -660,4 +690,14 @@ func getChatPromptTokensCountForTestModel(message string) int64 {
 	gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
 
 	return int64(len(tokens))
+}
+
+// writeTestConfig writes a test configuration file
+func writeTestConfig(path string, content string) error {
+	return os.WriteFile(path, []byte(content), 0644)
+}
+
+// removeTestConfig removes a test configuration file
+func removeTestConfig(path string) error {
+	return os.Remove(path)
 }

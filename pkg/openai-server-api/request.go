@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -32,6 +33,8 @@ const (
 	StartMessageSeparator = "### "
 	EndMessageSeparator   = "\n"
 	nullString            = "null"
+	// ResponsesIncludeLogprobs is the include value that enables logprobs in the Responses API
+	ResponsesIncludeLogprobs = "message.output_text.logprobs"
 )
 
 // Request defines an interface for request information retrieval
@@ -734,6 +737,10 @@ type ResponsesRequest struct {
 	MaxOutputTokens *int64      `json:"max_output_tokens,omitempty"`
 	// Ignored for now, always text
 	Text *TextSettings `json:"text,omitempty"`
+	// Include specifies additional output data to include. Use "message.output_text.logprobs" to include logprobs.
+	Include []string `json:"include,omitempty"`
+	// TopLogprobs specifies the number of most likely tokens to return at each position with log probabilities.
+	TopLogprobs *int `json:"top_logprobs,omitempty"`
 }
 
 var _ Request = (*ResponsesRequest)(nil)
@@ -848,6 +855,8 @@ func (req *ResponsesRequest) UnmarshalJSON(data []byte) error {
 		Instructions    string          `json:"instructions,omitempty"`
 		MaxOutputTokens *int64          `json:"max_output_tokens,omitempty"`
 		Text            *TextSettings   `json:"text,omitempty"`
+		Include         []string        `json:"include,omitempty"`
+		TopLogprobs     *int            `json:"top_logprobs,omitempty"`
 	}
 	var a alias
 	if err := json.Unmarshal(data, &a); err != nil {
@@ -857,6 +866,8 @@ func (req *ResponsesRequest) UnmarshalJSON(data []byte) error {
 	req.Instructions = a.Instructions
 	req.MaxOutputTokens = a.MaxOutputTokens
 	req.Text = a.Text
+	req.Include = a.Include
+	req.TopLogprobs = a.TopLogprobs
 
 	if len(a.Input) == 0 || string(a.Input) == nullString {
 		return errors.New("input is required")
@@ -902,6 +913,14 @@ func (req *ResponsesRequest) GetMaxCompletionTokens() *int64 {
 }
 
 func (req *ResponsesRequest) GetLogprobs() *int {
+	// include logprobs only if "message.output_text.logprobs" presents in the Include list
+	if slices.Contains(req.Include, ResponsesIncludeLogprobs) {
+		if req.TopLogprobs != nil {
+			return req.TopLogprobs
+		}
+		zero := 0
+		return &zero
+	}
 	return nil
 }
 
@@ -915,6 +934,11 @@ type GenerateRequest struct {
 	TokenIDs       []uint32          `json:"token_ids"`
 	SamplingParams *SamplingParams   `json:"sampling_params"`
 	Features       *EncodeMMFeatures `json:"features"`
+	StreamOptions  *StreamOptions    `json:"stream_options,omitempty"`
+}
+
+func (g *GenerateRequest) IncludeUsage() bool {
+	return !g.Stream || (g.StreamOptions != nil && g.StreamOptions.IncludeUsage)
 }
 
 type SamplingParams struct {

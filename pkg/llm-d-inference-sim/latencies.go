@@ -33,7 +33,7 @@ type InterTokenParams struct {
 	RunningReqs int64
 }
 
-type LatencyCalculator interface {
+type latencyCalculator interface {
 	// GetTimeToFirstToken returns time to first token. The simulator will wait
 	// this amount of time before generating the first token.
 	GetTimeToFirstToken(params *TTFTParams) time.Duration

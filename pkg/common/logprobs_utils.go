@@ -139,6 +139,7 @@ func GenerateSingleTokenTextLogprobs(token string, tokenPosition int, logprobsCo
 }
 
 // GenerateTextLogprobs generates synthetic log probabilities for text completion responses
+// topLogprobsCount specifies the number of top alternatives per token (0 = no alternatives, only main token)
 func GenerateTextLogprobs(tokens []string, logprobsCount int) *openaiserverapi.TextLogprobs {
 	// Return empty struct for empty input (not nil)
 	if len(tokens) == 0 {
@@ -190,6 +191,7 @@ func GenerateTextLogprobs(tokens []string, logprobsCount int) *openaiserverapi.T
 }
 
 // GenerateChatLogprobs generates synthetic log probabilities for chat completion responses
+// topLogprobsCount specifies the number of top alternatives per token (0 = no alternatives, only main token)
 func GenerateChatLogprobs(tokens []string, topLogprobsCount int) *openaiserverapi.ChatLogprobs {
 	// Return empty struct for empty input (not nil)
 	if len(tokens) == 0 {
@@ -245,6 +247,30 @@ func GenerateChatLogprobs(tokens []string, topLogprobsCount int) *openaiserverap
 	}
 
 	return logprobs
+}
+
+// GenerateMessagesLogprobs generates synthetic log probabilities for Responses API output_text content
+// topLogprobsCount specifies the number of top alternatives per token (0 = no alternatives, only main token)
+func GenerateMessagesLogprobs(tokens []string, topLogprobsCount int) []openaiserverapi.ResponsesLogprob {
+	chat := GenerateChatLogprobs(tokens, topLogprobsCount)
+	result := make([]openaiserverapi.ResponsesLogprob, len(chat.Content))
+	for i, c := range chat.Content {
+		topLogprobs := make([]openaiserverapi.TopLogprob, len(c.TopLogprobs))
+		for j, top := range c.TopLogprobs {
+			topLogprobs[j] = openaiserverapi.TopLogprob{
+				Token:   top.Token,
+				Logprob: top.Logprob,
+				Bytes:   top.Bytes,
+			}
+		}
+		result[i] = openaiserverapi.ResponsesLogprob{
+			Token:       c.Token,
+			Logprob:     c.Logprob,
+			Bytes:       c.Bytes,
+			TopLogprobs: topLogprobs,
+		}
+	}
+	return result
 }
 
 // stringToIntBytes converts a string to []int of byte values inline
