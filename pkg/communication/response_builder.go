@@ -213,8 +213,8 @@ func (respBuilder *textComplHTTPRespBuilder) createLastChunk(respCtx vllmsim.Res
 	return respBuilder.createChunk(respCtx, nil, nil, "", respCtx.FinishReason(), choiceIdx)
 }
 
-func (*textComplHTTPRespBuilder) createDoneChunk() sseChunk              { return &doneMarker{} }
-func (*textComplHTTPRespBuilder) sendFinishReasonWithTokens() bool       { return false }
+func (*textComplHTTPRespBuilder) createDoneChunk() sseChunk        { return &doneMarker{} }
+func (*textComplHTTPRespBuilder) sendFinishReasonWithTokens() bool { return false }
 
 // createRenderResponse builds the wire payload for /v1/completions/render: an
 // array with one RenderResponse per prompt, mirroring vLLM which always
@@ -333,8 +333,8 @@ func (respBuilder *chatComplHTTPRespBuilder) createLastChunk(respCtx vllmsim.Res
 	return respBuilder.createChunk(respCtx, nil, nil, "", respCtx.FinishReason(), choiceIdx)
 }
 
-func (*chatComplHTTPRespBuilder) createDoneChunk() sseChunk              { return &doneMarker{} }
-func (*chatComplHTTPRespBuilder) sendFinishReasonWithTokens() bool       { return false }
+func (*chatComplHTTPRespBuilder) createDoneChunk() sseChunk        { return &doneMarker{} }
+func (*chatComplHTTPRespBuilder) sendFinishReasonWithTokens() bool { return false }
 
 // createRenderResponse builds the wire payload for /v1/chat/completions/render:
 // a single RenderResponse object (not an array) carrying the tokens for the
@@ -611,8 +611,8 @@ func (respBuilder *responsesHTTPRespBuilder) createLastChunk(respCtx vllmsim.Res
 	}
 }
 
-func (*responsesHTTPRespBuilder) createDoneChunk() sseChunk              { return nil }
-func (*responsesHTTPRespBuilder) sendFinishReasonWithTokens() bool       { return false }
+func (*responsesHTTPRespBuilder) createDoneChunk() sseChunk        { return nil }
+func (*responsesHTTPRespBuilder) sendFinishReasonWithTokens() bool { return false }
 
 func (*responsesHTTPRespBuilder) createRenderResponse(_ [][]uint32,
 	_ *openaiserverapi.RenderMMFeatures) any {
@@ -682,8 +682,8 @@ func (respBuilder *generateHTTPRespBuilder) createLastChunk(respCtx vllmsim.Resp
 	return nil
 }
 
-func (*generateHTTPRespBuilder) createDoneChunk() sseChunk              { return &doneMarker{} }
-func (*generateHTTPRespBuilder) sendFinishReasonWithTokens() bool       { return true }
+func (*generateHTTPRespBuilder) createDoneChunk() sseChunk        { return &doneMarker{} }
+func (*generateHTTPRespBuilder) sendFinishReasonWithTokens() bool { return true }
 
 func (*generateHTTPRespBuilder) createRenderResponse(_ [][]uint32,
 	_ *openaiserverapi.RenderMMFeatures) any {
