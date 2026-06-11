@@ -1,5 +1,5 @@
-# Profile 2: 70B model on 8xH100 (TP=8), throughput-optimized (fine form).
-# Same target deployment as the coarse form, but TTFT and KV-transfer scale with prompt
+# Profile 2: 70B model on 8xH100 (TP=8), throughput-optimized (per-token calculator).
+# Same target deployment as the constant calculator, but TTFT and KV-transfer scale with prompt
 # length. KV values assume an InfiniBand interconnect for cross-node disaggregated serving.
 # See docs/latency-profiles.md for the full discussion.
 
@@ -7,6 +7,7 @@ port: 8000
 model: "meta-llama/Llama-3.1-70B-Instruct"
 max-num-seqs: 64
 mode: "random"
+latency-calculator: per-token
 
 inter-token-latency: 25ms
 inter-token-latency-std-dev: 4ms

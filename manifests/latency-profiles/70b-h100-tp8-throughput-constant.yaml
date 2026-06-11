@@ -1,11 +1,13 @@
-# Profile 2: 70B model on 8xH100 (TP=8), throughput-optimized (coarse form).
+# Profile 2: 70B model on 8xH100 (TP=8), throughput-optimized (constant calculator).
 # Mirrors a Llama-3-70B deployment running close to max-num-seqs saturation.
+# kv-cache-transfer-latency assumes RDMA (InfiniBand/RoCE) setup overhead for cross-node P/D.
 # See docs/latency-profiles.md for the full discussion.
 
 port: 8000
 model: "meta-llama/Llama-3.1-70B-Instruct"
 max-num-seqs: 64
 mode: "random"
+latency-calculator: constant
 
 time-to-first-token: 200ms
 time-to-first-token-std-dev: 40ms

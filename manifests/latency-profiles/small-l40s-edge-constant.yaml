@@ -1,4 +1,4 @@
-# Profile 3: Small (1-3B) model on L40S, low-latency edge (coarse form).
+# Profile 3: Small (1-3B) model on L40S, low-latency edge (constant calculator).
 # Tuned for low concurrency and quick responses; KV values assume a modest network
 # for cross-node P/D.
 # See docs/latency-profiles.md for the full discussion.
@@ -7,6 +7,7 @@ port: 8000
 model: "meta-llama/Llama-3.2-3B-Instruct"
 max-num-seqs: 4
 mode: "random"
+latency-calculator: constant
 
 time-to-first-token: 110ms
 time-to-first-token-std-dev: 15ms

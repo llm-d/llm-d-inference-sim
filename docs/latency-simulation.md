@@ -16,64 +16,84 @@ model and hardware.
 
 ## How the Simulator Models Time
 
-A request's wall-clock time in a vLLM-style engine is dominated by two phases:
+A request's wall-clock time is dominated by two phases:
 
 ```
-total_time ≈ prefill_time + (output_tokens − 1) × inter_token_latency
+total_time ≈ prefill_time + decode_time
 ```
 
-- **Prefill** runs the model once over the full prompt to populate the KV (Key/Value
-  attention) cache and produce the first token. Cost grows with prompt length.
-- **Decode** generates output tokens one at a time. Cost per token is roughly constant for
-  a given batch.
+- **Prefill** — runs the model over the prompt to populate the KV cache and produce the
+  first token. Cost grows with prompt length.
+- **Decode** — generates output tokens one at a time. Cost per token is roughly constant
+  for a given batch.
 
 In prefill/decode disaggregation (P/D), the KV cache is transferred over the network before
-decode starts. From the client's perspective, `prefill_time` is replaced by `kv_transfer_time`.
+decode starts; `prefill_time` is replaced by `kv_transfer_time`.
 
-The simulator exposes two ways to model each phase:
+A **calculator** is a pluggable strategy that controls how the simulator turns configuration
+parameters into a concrete duration for each request. It owns the prefill formula — which
+parameters it reads, and whether it scales with prompt length. Select one via
+`latency-calculator`. Decode uses the same formula for all three calculators.
 
-**Prefill:**
-1. **Coarse (`time-to-first-token`)** — a single duration for the whole prefill; does not
-   scale with prompt length.
-2. **Fine (`prefill-overhead` + `prefill-time-per-token`)** — total prefill is
-   `prefill-overhead + (n − n_cached) × prefill-time-per-token`. Use this when TTFT should
-   scale with prompt size, which matters for routing/scheduling experiments.
+Every duration parameter in the formulas below accepts a `-std-dev` companion for Gaussian
+jitter; see the [Parameter Reference](#parameter-by-parameter-reference) for details on
+each field.
 
-**KV-cache transfer (P/D only):**
-- `kv-cache-transfer-latency` — a constant duration per request.
-- `kv-cache-transfer-time-per-token` — scales with prompt length as `n × kv-cache-transfer-time-per-token`.
+### Prefill
 
-`time-to-first-token` takes precedence over the prefill decomposition; `prefill-overhead`/
-`prefill-time-per-token` are used only when both `time-to-first-token` and its std-dev are zero.
+**`constant`** — TTFT is a single flat duration, independent of prompt length. Use when
+prompt size doesn't affect routing or scheduling decisions.
 
-`kv-cache-transfer-latency` takes precedence over the per-token KV form;
-`kv-cache-transfer-time-per-token` is used only when both `kv-cache-transfer-latency` and
-its std-dev are zero.
+```
+prefill_time     = time-to-first-token
+kv_transfer_time = kv-cache-transfer-latency        (P/D only)
+```
 
-`time-factor-under-load` multiplies the GPU-bound latency components when the worker pool
-is saturated. KV-cache transfer latencies are network-bound and are **not** scaled.
+**`per-token`** — TTFT scales with prompt length. Use when routing or scheduling
+experiments require latency to vary with prompt size. `n` is the prompt length; `n_cached`
+is the number of prefix-cache hits (only uncached tokens are re-computed). KV transfer
+uses the full prompt `n` — all KV must be present on the decode node regardless of caching.
 
-Each duration has a `…-std-dev` companion that adds Gaussian jitter (capped at ±70% of the
-mean) to make traces less synthetic.
+```
+prefill_time     = prefill-overhead + (n − n_cached) × prefill-time-per-token
+kv_transfer_time = n × kv-cache-transfer-time-per-token                (P/D only)
+```
 
-### Calculator selection
+**unset / empty string (not recommended)** — Activated by leaving `latency-calculator`
+unset (or set to `""`). Retained for backward compatibility; prefer `constant` or
+`per-token` explicitly. Applies precedence rules: constant form when
+`time-to-first-token` or its std-dev is non-zero, per-token decomposition otherwise.
+The same rule applies independently for KV transfer.
 
-`latency-calculator` selects which calculator the simulator uses:
+---
 
-- `""` (default) — precedence rules above apply.
-- `constant` — always use `time-to-first-token` and `kv-cache-transfer-latency`; per-token
-  fields are ignored regardless of whether the constant field is zero.
-- `per-token` — always use prefill decomposition and per-token KV transfer; constant fields
-  are ignored.
+### Decode
 
-Use the explicit calculators when you want to force a particular shape regardless of which
-fields are set.
+The same formula applies regardless of which calculator is selected.
+
+```
+decode_time = (output_tokens − 1) × inter-token-latency
+```
+
+### Load factor
+
+`time-factor-under-load` multiplies all GPU-bound latency components
+(`time-to-first-token`, `prefill-overhead`, `prefill-time-per-token`, `inter-token-latency`)
+when the worker pool is saturated. KV-cache transfer latencies are network-bound and are
+**not** scaled.
 
 ---
 
 ## Parameter-by-Parameter Reference
 
+Every duration parameter has a `…-std-dev` companion that adds Gaussian jitter (capped at
+±70% of the mean) to make traces less synthetic. The sections below describe each parameter
+and its std-dev together.
+
 ### `time-to-first-token` / `time-to-first-token-std-dev`
+
+Used by the `constant` calculator. With an unset calculator, takes precedence over the
+prefill decomposition when either field is non-zero.
 
 The total time before the first decoded token is emitted. In a real engine this includes
 the prefill forward pass, queueing, and tokenization.
@@ -98,6 +118,9 @@ The std-dev is capped at 30% of the mean; sampled values are clamped to ±70% of
 
 ### `prefill-overhead`, `prefill-time-per-token`, `prefill-time-std-dev`
 
+Used by the `per-token` calculator. With an unset calculator, used when
+`time-to-first-token` and its std-dev are both zero.
+
 Decomposes prefill into a constant overhead plus a per-token cost:
 
 ```
@@ -114,19 +137,23 @@ must travel across the wire), while prefill scales only with the uncached tokens
 
 The linear model is a good approximation for typical prompt sizes — FlashAttention and
 chunking make observed latency scale close to linear in practice. `prefill-time-std-dev` is
-applied to the total prefill time; sampled values are clamped to [0.3, 1.7] × mean.
+applied to the total prefill time; sampled values are clamped to ±70% of the mean.
 
 ### `kv-cache-transfer-latency` / `kv-cache-transfer-latency-std-dev`
 
-The constant per-request overhead of moving KV cache from a prefill node to a decode node
-in P/D disaggregation. Includes RPC handshake, scheduling, and setup that does not scale
-with KV size. Only relevant when P/D is enabled. The std-dev is capped at 30% of the mean;
-sampled values are clamped to ±70% of the mean.
+Used by the `constant` calculator (P/D only). With an unset calculator, takes precedence
+over the per-token KV form when either field is non-zero.
+
+The constant per-request overhead of moving KV cache from a prefill node to a decode node.
+Includes RPC handshake, scheduling, and setup that does not scale with KV size. The std-dev
+is capped at 30% of the mean; sampled values are clamped to ±70% of the mean.
 
 ### `kv-cache-transfer-time-per-token` / `kv-cache-transfer-time-std-dev`
 
-The per-token cost of KV transfer, used only when `kv-cache-transfer-latency` and its
-std-dev are both zero. Total transfer time is:
+Used by the `per-token` calculator (P/D only). With an unset calculator, used when
+`kv-cache-transfer-latency` and its std-dev are both zero.
+
+The per-token cost of KV transfer. Total transfer time is:
 
 ```
 kv_transfer_time = n × kv-cache-transfer-time-per-token
@@ -150,32 +177,3 @@ Must be `>= 1.0`. **Not** applied to KV-cache transfer parameters, which are net
 The factor scales linearly between 1.0 (one request in flight) and the configured value
 (at `max-num-seqs`). When `max-num-seqs <= 1`, the factor is forced to `1.0`.
 
----
-
-## Caveats
-
-- All numbers are **order-of-magnitude estimates**. Real performance varies with engine
-  version, kernel availability, CUDA graphs, chunked prefill, batch composition, and
-  quantization scheme.
-- Decode latency can change by 2–3× depending on KV cache occupancy and whether continuous
-  batching is enabled.
-- Numbers for MI300X and other non-NVIDIA accelerators are less comprehensively documented
-  publicly — treat those rows as lower-confidence.
-- For accurate calibration, measure `time_to_first_token` and `inter_token_latency` directly
-  from the real engine you want to mimic, then plug those values in.
-- The simulator quantizes sampled durations to integer milliseconds. A `…-std-dev` value
-  below `1ms` becomes effectively zero. If you want sub-millisecond jitter, widen the
-  std-dev or change the engine's time resolution.
-
----
-
-## Sources and Further Reading
-
-- **[vLLM blog](https://blog.vllm.ai/)** — performance posts benchmarking popular models on H100/A100/MI300X.
-- **[vLLM documentation](https://docs.vllm.ai/)** — performance and benchmarking guides, plus runnable scripts in `benchmarks/`.
-- **[MLPerf Inference results](https://mlcommons.org/benchmarks/inference-datacenter/)** — industry-standard results broken down by model, accelerator, and submission.
-- **[NVIDIA developer blog](https://developer.nvidia.com/blog/)** — search "TensorRT-LLM" or "inference" for per-model latency tables published with each major release.
-
-When you need a more authoritative number than the ranges here, measure against the real
-engine rather than copying a published benchmark whose batch size, prompt length, or engine
-version may not match yours.

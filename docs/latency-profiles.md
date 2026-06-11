@@ -26,8 +26,8 @@ the standard way to fit a large model and to reduce per-GPU bandwidth pressure.
 
 ### `time-to-first-token` (256-token prompt, batch size 1)
 
-If you do not use the prefill decomposition, set this directly. Values include both prefill
-compute and engine overhead.
+Use directly with the `constant` calculator. Values include both prefill compute and engine
+overhead.
 
 | Model size | H100 (80GB) | A100 (80GB) | L40S (48GB) | MI300X (192GB) |
 |---|---|---|---|---|
@@ -64,7 +64,7 @@ value at or above `1ms` to prevent `RandomNormDuration` from truncating your jit
 ¹ See footnote under `time-to-first-token` above.
 
 
-### Prefill Decomposition (`prefill-overhead` + (n − n_cached) × `prefill-time-per-token`)
+### Per-token calculator: `prefill-overhead` + (n − n_cached) × `prefill-time-per-token`
 
 | Model size | `prefill-overhead` | `prefill-time-per-token` (H100) | `prefill-time-per-token` (A100) | `prefill-time-per-token` (L40S) | `prefill-time-per-token` (MI300X) |
 |---|---|---|---|---|---|
@@ -143,28 +143,30 @@ Three ready-to-use profiles. Each is provided as a complete YAML file under
 [`manifests/latency-profiles/`](../manifests/latency-profiles/) - pass it directly with
 `--config`, or copy the latency fields into your existing config.
 
-For each profile, pick **one** of two forms per request-type:
+Each profile provides two YAML files, one per calculator:
 
-- **Coarse form** - uses the constant fields (`time-to-first-token`,
-  `kv-cache-transfer-latency`). Simpler, latency is independent of prompt length.
-- **Fine form** - uses the per-token fields (`prefill-overhead`/`prefill-time-per-token`,
-  `kv-cache-transfer-time-per-token`). Latency scales with prompt size, which matters for
-  routing/scheduling experiments.
+- **`constant` calculator** — uses `time-to-first-token` and `kv-cache-transfer-latency`.
+  Simpler; TTFT is independent of prompt length.
+- **`per-token` calculator** — uses `prefill-overhead`/`prefill-time-per-token` and
+  `kv-cache-transfer-time-per-token`. TTFT scales with prompt length, which matters for
+  routing and scheduling experiments.
 
-The forms are mutually exclusive: if you set the constant field, the per-token form is
-ignored (see the [parameter reference](latency-simulation.md#parameter-by-parameter-reference)). The fine-form values below are calibrated so
-that the prefill cost for a ~256-token prompt is in the same range as the coarse-form TTFT.
+The `per-token` values below are calibrated so that prefill cost for a ~256-token prompt
+is in the same range as the `constant` TTFT. See the
+[latency simulation reference](latency-simulation.md#how-the-simulator-models-time) for
+details on each calculator.
 
 ### Profile 1: 8B-class model on H100, balanced load
 
 Mirrors a production Llama-3-8B deployment on a single H100, moderate concurrency.
 
-Full configs: [coarse](../manifests/latency-profiles/8b-h100-balanced-coarse.yaml) |
-[fine](../manifests/latency-profiles/8b-h100-balanced-fine.yaml).
+Full configs: [constant](../manifests/latency-profiles/8b-h100-balanced-constant.yaml) |
+[per-token](../manifests/latency-profiles/8b-h100-balanced-per-token.yaml).
 
-Coarse form:
+`constant` calculator:
 
 ```yaml
+latency-calculator: constant
 time-to-first-token: 100ms
 time-to-first-token-std-dev: 20ms
 inter-token-latency: 12ms
@@ -176,9 +178,10 @@ kv-cache-transfer-latency-std-dev: 400us
 time-factor-under-load: 2.0
 ```
 
-Fine form:
+`per-token` calculator:
 
 ```yaml
+latency-calculator: per-token
 inter-token-latency: 12ms
 inter-token-latency-std-dev: 2ms
 
@@ -194,16 +197,17 @@ time-factor-under-load: 2.0
 
 ### Profile 2: 70B model on 8×H100 (TP=8), throughput-optimized
 
-Mirrors a Llama-3-70B deployment using tensor parallelism (TP=8) on H100 nodes, 
-running close to `max-num-seqs` saturation. The fine-form KV values assume an InfiniBand 
-interconnect for cross-node disaggregated serving.
+Mirrors a Llama-3-70B deployment using tensor parallelism (TP=8) on H100 nodes,
+running close to `max-num-seqs` saturation. The per-token calculator KV values assume an
+InfiniBand interconnect for cross-node disaggregated serving.
 
-Full configs: [coarse](../manifests/latency-profiles/70b-h100-tp8-throughput-coarse.yaml) |
-[fine](../manifests/latency-profiles/70b-h100-tp8-throughput-fine.yaml).
+Full configs: [constant](../manifests/latency-profiles/70b-h100-tp8-throughput-constant.yaml) |
+[per-token](../manifests/latency-profiles/70b-h100-tp8-throughput-per-token.yaml).
 
-Coarse form:
+`constant` calculator:
 
 ```yaml
+latency-calculator: constant
 time-to-first-token: 200ms
 time-to-first-token-std-dev: 40ms
 inter-token-latency: 25ms
@@ -215,9 +219,10 @@ kv-cache-transfer-latency-std-dev: 400us
 time-factor-under-load: 3.0
 ```
 
-Fine form:
+`per-token` calculator:
 
 ```yaml
+latency-calculator: per-token
 inter-token-latency: 25ms
 inter-token-latency-std-dev: 4ms
 
@@ -234,14 +239,15 @@ time-factor-under-load: 3.0
 ### Profile 3: Small model (1–3B) on L40S, low-latency edge
 
 Mirrors a small (1–3B) model on a single L40S at the edge, tuned for low concurrency and
-quick responses. KV-transfer values assume a modest network for cross-node P/D.
+quick responses. KV-transfer values assume ~Ethernet 100G (~10 GB/s effective) for cross-node P/D.
 
-Full configs: [coarse](../manifests/latency-profiles/small-l40s-edge-coarse.yaml) |
-[fine](../manifests/latency-profiles/small-l40s-edge-fine.yaml).
+Full configs: [constant](../manifests/latency-profiles/small-l40s-edge-constant.yaml) |
+[per-token](../manifests/latency-profiles/small-l40s-edge-per-token.yaml).
 
-Coarse form:
+`constant` calculator:
 
 ```yaml
+latency-calculator: constant
 time-to-first-token: 110ms
 time-to-first-token-std-dev: 15ms
 inter-token-latency: 15ms
@@ -253,9 +259,10 @@ kv-cache-transfer-latency-std-dev: 1ms
 time-factor-under-load: 1.5
 ```
 
-Fine form:
+`per-token` calculator:
 
 ```yaml
+latency-calculator: per-token
 inter-token-latency: 15ms
 inter-token-latency-std-dev: 2ms
 
@@ -268,3 +275,33 @@ kv-cache-transfer-time-std-dev: 500us
 
 time-factor-under-load: 1.5
 ```
+
+---
+
+## Caveats
+
+- All numbers are **order-of-magnitude estimates**. Real performance varies with engine
+  version, kernel availability, CUDA graphs, chunked prefill, batch composition, and
+  quantization scheme.
+- Decode latency can change by 2–3× depending on KV cache occupancy and whether continuous
+  batching is enabled.
+- Numbers for MI300X and other non-NVIDIA accelerators are less comprehensively documented
+  publicly — treat those rows as lower-confidence.
+- For accurate calibration, measure `time_to_first_token` and `inter_token_latency` directly
+  from the real engine you want to mimic, then plug those values in.
+- The simulator quantizes sampled durations to integer milliseconds. A `…-std-dev` value
+  below `1ms` becomes effectively zero. If you want sub-millisecond jitter, widen the
+  std-dev or change the engine's time resolution.
+
+---
+
+## Sources and Further Reading
+
+- **[vLLM blog](https://blog.vllm.ai/)** — performance posts benchmarking popular models on H100/A100/MI300X.
+- **[vLLM documentation](https://docs.vllm.ai/)** — performance and benchmarking guides, plus runnable scripts in `benchmarks/`.
+- **[MLPerf Inference results](https://mlcommons.org/benchmarks/inference-datacenter/)** — industry-standard results broken down by model, accelerator, and submission.
+- **[NVIDIA developer blog](https://developer.nvidia.com/blog/)** — search "TensorRT-LLM" or "inference" for per-model latency tables published with each major release.
+
+When you need a more authoritative number than the ranges here, measure against the real
+engine rather than copying a published benchmark whose batch size, prompt length, or engine
+version may not match yours.

@@ -1,4 +1,4 @@
-# Profile 1: 8B-class model on H100, balanced load (coarse form).
+# Profile 1: 8B-class model on H100, balanced load (constant calculator).
 # Mirrors a production Llama-3-8B deployment on a single H100 at moderate concurrency.
 # See docs/latency-profiles.md for the full discussion.
 
@@ -6,6 +6,7 @@ port: 8000
 model: "meta-llama/Llama-3.1-8B-Instruct"
 max-num-seqs: 16
 mode: "random"
+latency-calculator: constant
 
 time-to-first-token: 100ms
 time-to-first-token-std-dev: 20ms
