@@ -155,6 +155,56 @@ var _ = Describe("Simulator", func() {
 		Entry(nil, common.QwenModelName, common.ModeRandom),
 	)
 
+	It("Should send length finish_reason chunk in chat completions streaming", func() {
+		ctx := context.TODO()
+		client, err := startServer(ctx, common.ModeRandom)
+		Expect(err).NotTo(HaveOccurred())
+
+		openaiclient, params := getOpenAIClientAndChatParams(client, common.TestModelName, testUserMessage, true)
+		params.MaxTokens = param.NewOpt(int64(1))
+		stream := openaiclient.Chat.Completions.NewStreaming(ctx, params)
+		defer func() {
+			err := stream.Close()
+			Expect(err).NotTo(HaveOccurred())
+		}()
+
+		var finishReason string
+		for stream.Next() {
+			for _, choice := range stream.Current().Choices {
+				if choice.FinishReason != "" {
+					finishReason = choice.FinishReason
+				}
+			}
+		}
+		Expect(stream.Err()).NotTo(HaveOccurred())
+		Expect(finishReason).To(Equal(common.LengthFinishReason))
+	})
+
+	It("Should send length finish_reason chunk in text completions streaming", func() {
+		ctx := context.TODO()
+		client, err := startServer(ctx, common.ModeRandom)
+		Expect(err).NotTo(HaveOccurred())
+
+		openaiclient, params := getOpenAIClentAndCompletionParams(client, common.TestModelName, testUserMessage, true)
+		params.MaxTokens = param.NewOpt(int64(1))
+		stream := openaiclient.Completions.NewStreaming(ctx, params)
+		defer func() {
+			err := stream.Close()
+			Expect(err).NotTo(HaveOccurred())
+		}()
+
+		var finishReason string
+		for stream.Next() {
+			for _, choice := range stream.Current().Choices {
+				if choice.FinishReason != "" {
+					finishReason = string(choice.FinishReason)
+				}
+			}
+		}
+		Expect(stream.Err()).NotTo(HaveOccurred())
+		Expect(finishReason).To(Equal(common.LengthFinishReason))
+	})
+
 	DescribeTable("chat completions",
 		func(model string, mode string, maxTokens int, maxCompletionTokens int) {
 			ctx := context.TODO()
@@ -3184,10 +3234,75 @@ var _ = Describe("Simulator", func() {
 			Expect(finishChunk).NotTo(BeNil(), "should have received a chunk with finish_reason")
 			Expect(finishChunk.RequestID).NotTo(BeEmpty())
 			Expect(*finishChunk.Choices[0].FinishReason).NotTo(BeEmpty())
+			Expect(finishChunk.Choices[0].TokenIDs).NotTo(BeNil(), "finish_reason must be in the last token chunk, not a separate empty chunk")
 			Expect(finishChunk.Usage).To(BeNil(), "finish chunk should not carry usage")
 
 			Expect(usageChunk).To(BeNil(), "should not receive usage chunk without stream_options.include_usage")
 
+			Expect(gotDone).To(BeTrue(), "stream should end with [DONE]")
+		})
+
+		It("Should send length finish_reason in last token chunk for generate streaming", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			// max_tokens: 1 forces length finish reason
+			reqBody := fmt.Sprintf(`{
+				"model": "%s",
+				"token_ids": [1, 2, 3, 4],
+				"sampling_params": {"max_tokens": 1},
+				"stream": true
+			}`, common.TestModelName)
+
+			resp, err := client.Post("http://localhost/inference/v1/generate", "application/json", strings.NewReader(reqBody))
+			Expect(err).NotTo(HaveOccurred())
+			defer func() {
+				err := resp.Body.Close()
+				Expect(err).NotTo(HaveOccurred())
+			}()
+
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+			reader := bufio.NewReader(resp.Body)
+			var lastTokenChunk *openaiserverapi.GenerateStreamResponse
+			gotDone := false
+
+			for {
+				line, err := reader.ReadString('\n')
+				if err == io.EOF {
+					break
+				}
+				Expect(err).NotTo(HaveOccurred())
+
+				if !strings.HasPrefix(line, "data: ") {
+					continue
+				}
+				data := strings.TrimSpace(strings.TrimPrefix(line, "data: "))
+				if data == openaiserverapi.SSEDoneMarker {
+					gotDone = true
+					break
+				}
+
+				var streamResp openaiserverapi.GenerateStreamResponse
+				Expect(json.Unmarshal([]byte(data), &streamResp)).To(Succeed(), "failed to parse SSE chunk: %s", data)
+				if len(streamResp.Choices) == 0 {
+					continue
+				}
+				choice := streamResp.Choices[0]
+				if choice.TokenIDs != nil {
+					lastTokenChunk = &streamResp
+				}
+				// finish_reason must never appear in a separate empty chunk
+				if choice.FinishReason != nil {
+					Expect(choice.TokenIDs).NotTo(BeNil(), "finish_reason must be carried by a token chunk, not a separate empty chunk")
+				}
+			}
+
+			Expect(lastTokenChunk).NotTo(BeNil(), "should have received at least one token chunk")
+			Expect(lastTokenChunk.Choices[0].FinishReason).NotTo(BeNil(), "last token chunk should carry finish_reason")
+			Expect(*lastTokenChunk.Choices[0].FinishReason).To(Equal(common.LengthFinishReason))
 			Expect(gotDone).To(BeTrue(), "stream should end with [DONE]")
 		})
 

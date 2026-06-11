@@ -22,7 +22,10 @@ import (
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 )
 
-const ResponseStatusCreated = "created"
+const (
+	ResponseStatusCreated = "created"
+	ResponseEndOfTokens   = "eot"
+)
 
 type ResponseInfo struct {
 	Tokens    *openaiserverapi.Tokenized

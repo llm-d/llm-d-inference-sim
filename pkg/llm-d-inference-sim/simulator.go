@@ -434,23 +434,32 @@ func (s *VllmSimulator) simulateResponseProcessing(respCtx ResponseContext) {
 					if respCtx.responseTokens().Strings != nil {
 						tokens.Strings = append(tokens.Strings, respCtx.responseTokens().Strings[i])
 					}
-					common.WriteToChannel(reqCtx.responseChannel(),
-						&ResponseInfo{Tokens: tokens, RespCtx: respCtx, ChoiceIdx: choiceIdx},
-						s.Context.logger)
+					respInfo := ResponseInfo{Tokens: tokens, RespCtx: respCtx, ChoiceIdx: choiceIdx}
+					if i == len(respCtx.responseTokens().Tokens)-1 {
+						respInfo.Status = ResponseEndOfTokens
+					}
+					common.WriteToChannel(reqCtx.responseChannel(), &respInfo, s.Context.logger)
 				}
 			} else {
-				for _, tc := range respCtx.ToolCalls() {
+				toolCalls := respCtx.ToolCalls()
+				for tcIdx, tc := range toolCalls {
 					// Tool calls are only supported in HTTP at the moment, so we assume that we always
 					// have string tokenized arguments
-					for i, token := range tc.Function.TokenizedArguments().Tokens {
+					args := tc.Function.TokenizedArguments()
+					for i, token := range args.Tokens {
 						if i != 0 {
 							s.Context.simulateInterTokenLatency()
 						}
-						common.WriteToChannel(reqCtx.responseChannel(),
-							&ResponseInfo{Tokens: &openaiserverapi.Tokenized{
-								Tokens:  []uint32{token},
-								Strings: []string{tc.Function.TokenizedArguments().Strings[i]}},
-								RespCtx: respCtx, ToolCall: &tc, ChoiceIdx: choiceIdx}, s.Context.logger)
+						respInfo := ResponseInfo{
+							Tokens:    &openaiserverapi.Tokenized{Tokens: []uint32{token}, Strings: []string{args.Strings[i]}},
+							RespCtx:   respCtx,
+							ToolCall:  &toolCalls[tcIdx],
+							ChoiceIdx: choiceIdx,
+						}
+						if tcIdx == len(toolCalls)-1 && i == len(args.Tokens)-1 {
+							respInfo.Status = ResponseEndOfTokens
+						}
+						common.WriteToChannel(reqCtx.responseChannel(), &respInfo, s.Context.logger)
 					}
 				}
 			}

@@ -83,6 +83,9 @@ type responseBuilder interface {
 	createLastChunk(respCtx vllmsim.ResponseContext, finishReason string, choiceIdx int) sseChunk
 	createDoneChunk() sseChunk
 	createRenderResponse(tokens [][]uint32, features *openaiserverapi.RenderMMFeatures) any
+	// sendFinishReasonWithTokens returns true if the builder wants the finish
+	// reason included in the last tokens chunk rather than a separate empty chunk.
+	sendFinishReasonWithTokens() bool
 }
 
 // aggregateUsage combines per-choice usages. Completion tokens are always
@@ -204,13 +207,14 @@ func (respBuilder *textComplHTTPRespBuilder) createFirstChunk(respCtx vllmsim.Re
 }
 
 func (respBuilder *textComplHTTPRespBuilder) createLastChunk(respCtx vllmsim.ResponseContext, finishReason string, choiceIdx int) sseChunk {
-	if finishReason != common.StopFinishReason {
+	if finishReason == common.CacheThresholdFinishReason {
 		return nil
 	}
 	return respBuilder.createChunk(respCtx, nil, nil, "", respCtx.FinishReason(), choiceIdx)
 }
 
-func (*textComplHTTPRespBuilder) createDoneChunk() sseChunk { return &doneMarker{} }
+func (*textComplHTTPRespBuilder) createDoneChunk() sseChunk              { return &doneMarker{} }
+func (*textComplHTTPRespBuilder) sendFinishReasonWithTokens() bool       { return false }
 
 // createRenderResponse builds the wire payload for /v1/completions/render: an
 // array with one RenderResponse per prompt, mirroring vLLM which always
@@ -323,13 +327,14 @@ func (respBuilder *chatComplHTTPRespBuilder) createFirstChunk(respCtx vllmsim.Re
 }
 
 func (respBuilder *chatComplHTTPRespBuilder) createLastChunk(respCtx vllmsim.ResponseContext, finishReason string, choiceIdx int) sseChunk {
-	if finishReason != common.StopFinishReason {
+	if finishReason == common.ToolsFinishReason || finishReason == common.CacheThresholdFinishReason {
 		return nil
 	}
 	return respBuilder.createChunk(respCtx, nil, nil, "", respCtx.FinishReason(), choiceIdx)
 }
 
-func (*chatComplHTTPRespBuilder) createDoneChunk() sseChunk { return &doneMarker{} }
+func (*chatComplHTTPRespBuilder) createDoneChunk() sseChunk              { return &doneMarker{} }
+func (*chatComplHTTPRespBuilder) sendFinishReasonWithTokens() bool       { return false }
 
 // createRenderResponse builds the wire payload for /v1/chat/completions/render:
 // a single RenderResponse object (not an array) carrying the tokens for the
@@ -606,7 +611,8 @@ func (respBuilder *responsesHTTPRespBuilder) createLastChunk(respCtx vllmsim.Res
 	}
 }
 
-func (*responsesHTTPRespBuilder) createDoneChunk() sseChunk { return nil }
+func (*responsesHTTPRespBuilder) createDoneChunk() sseChunk              { return nil }
+func (*responsesHTTPRespBuilder) sendFinishReasonWithTokens() bool       { return false }
 
 func (*responsesHTTPRespBuilder) createRenderResponse(_ [][]uint32,
 	_ *openaiserverapi.RenderMMFeatures) any {
@@ -673,13 +679,11 @@ func (respBuilder *generateHTTPRespBuilder) createFirstChunk(_ vllmsim.ResponseC
 }
 
 func (respBuilder *generateHTTPRespBuilder) createLastChunk(respCtx vllmsim.ResponseContext, finishReason string, choiceIdx int) sseChunk {
-	if finishReason != common.StopFinishReason {
-		return nil
-	}
-	return respBuilder.createChunk(respCtx, nil, nil, "", respCtx.FinishReason(), choiceIdx)
+	return nil
 }
 
-func (*generateHTTPRespBuilder) createDoneChunk() sseChunk { return &doneMarker{} }
+func (*generateHTTPRespBuilder) createDoneChunk() sseChunk              { return &doneMarker{} }
+func (*generateHTTPRespBuilder) sendFinishReasonWithTokens() bool       { return true }
 
 func (*generateHTTPRespBuilder) createRenderResponse(_ [][]uint32,
 	_ *openaiserverapi.RenderMMFeatures) any {

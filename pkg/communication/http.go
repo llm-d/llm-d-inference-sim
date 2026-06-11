@@ -416,7 +416,7 @@ func (c *Communication) sendStream(ctx *fasthttp.RequestCtx, channel common.Chan
 				continue
 			}
 
-			ok, stop := c.emitResponseChunks(ctx, w, respBuilder, response, respCtx, &state)
+			ok, stop := c.emitResponseChunks(ctx, w, respBuilder, response, respCtx, &state, response.Status == vllmsim.ResponseEndOfTokens)
 			if !ok {
 				return
 			}
@@ -436,7 +436,7 @@ func (c *Communication) sendStream(ctx *fasthttp.RequestCtx, channel common.Chan
 // already reported via ctx); stop=true means the stream is complete and the main
 // loop should break out to finalize.
 func (c *Communication) emitResponseChunks(ctx *fasthttp.RequestCtx, w *bufio.Writer, respBuilder responseBuilder,
-	response *vllmsim.ResponseInfo, respCtx vllmsim.ResponseContext, state *streamState) (ok bool, stop bool) {
+	response *vllmsim.ResponseInfo, respCtx vllmsim.ResponseContext, state *streamState, lastTokensChunk bool) (ok bool, stop bool) {
 	choiceIdx := response.ChoiceIdx
 
 	if response.Tokens != nil {
@@ -461,7 +461,12 @@ func (c *Communication) emitResponseChunks(ctx *fasthttp.RequestCtx, w *bufio.Wr
 			state.lastToolCall[choiceIdx] = response.ToolCall
 			return true, false
 		}
-		return c.sendOrFail(ctx, w, respBuilder.createChunk(respCtx, response.Tokens, nil, "", nil, choiceIdx),
+
+		var finishReason *string
+		if lastTokensChunk && respBuilder.sendFinishReasonWithTokens() {
+			finishReason = respCtx.FinishReason()
+		}
+		return c.sendOrFail(ctx, w, respBuilder.createChunk(respCtx, response.Tokens, nil, "", finishReason, choiceIdx),
 			"Sending stream chunk failed, "), false
 	}
 
