@@ -171,14 +171,25 @@ func (r *Random) RandomNumericString(length int) string {
 type Channel[T any] struct {
 	Channel chan T
 	Name    string
+	// Done, if set, suppresses the dropped-write warning when closed (e.g. pass ctx.Done()).
+	Done <-chan struct{}
 }
 
 func WriteToChannel[T any](channel Channel[T], object T, logger logr.Logger) {
 	select {
 	case channel.Channel <- object:
+		return
 	default:
-		logger.V(logging.WARN).Info("failed to write to", "channel", channel.Name)
 	}
+	// Channel was full — only warn if we are not shutting down.
+	if channel.Done != nil {
+		select {
+		case <-channel.Done:
+			return
+		default:
+		}
+	}
+	logger.V(logging.WARN).Info("failed to write to", "channel", channel.Name)
 }
 
 // MaxIntSlice receives a slice of ints, returns the maximum value in the slice if not empty,

@@ -177,6 +177,7 @@ func (s *SimContext) createAndRegisterPrometheus(ctx context.Context) error {
 	s.metrics.lorasChan = common.Channel[loraUsage]{
 		Channel: make(chan loraUsage, maxNumberOfRequests),
 		Name:    "metrics.lorasChan",
+		Done:    ctx.Done(),
 	}
 	go s.lorasUpdater(ctx)
 
@@ -197,6 +198,7 @@ func (s *SimContext) createAndRegisterPrometheus(ctx context.Context) error {
 	s.metrics.runReqChan = common.Channel[common.MetricInfo]{
 		Channel: make(chan common.MetricInfo, maxNumberOfRequests),
 		Name:    "metrics.runReqChan",
+		Done:    ctx.Done(),
 	}
 	go s.runningRequestsUpdater(ctx)
 
@@ -217,6 +219,7 @@ func (s *SimContext) createAndRegisterPrometheus(ctx context.Context) error {
 	s.metrics.waitingReqChan = common.Channel[common.MetricInfo]{
 		Channel: make(chan common.MetricInfo, maxNumberOfRequests),
 		Name:    "metrics.waitingReqChan",
+		Done:    ctx.Done(),
 	}
 	go s.waitingRequestsUpdater(ctx)
 
@@ -227,6 +230,7 @@ func (s *SimContext) createAndRegisterPrometheus(ctx context.Context) error {
 	s.metrics.ttftChan = common.Channel[float64]{
 		Channel: make(chan float64, maxNumberOfRequests),
 		Name:    "metrics.ttftChan",
+		Done:    ctx.Done(),
 	}
 	go s.ttftUpdater(ctx)
 
@@ -237,6 +241,7 @@ func (s *SimContext) createAndRegisterPrometheus(ctx context.Context) error {
 	s.metrics.tpotChan = common.Channel[float64]{
 		Channel: make(chan float64, maxNumberOfRequests*s.Config().MaxModelLen),
 		Name:    "metrics.tpotChan",
+		Done:    ctx.Done(),
 	}
 	go s.tpotUpdater(ctx)
 
@@ -247,6 +252,7 @@ func (s *SimContext) createAndRegisterPrometheus(ctx context.Context) error {
 	s.metrics.e2eReqLatencyChan = common.Channel[float64]{
 		Channel: make(chan float64, maxNumberOfRequests),
 		Name:    "metrics.e2eReqLatencyChan",
+		Done:    ctx.Done(),
 	}
 	go s.e2eReqLatencyUpdater(ctx)
 
@@ -257,6 +263,7 @@ func (s *SimContext) createAndRegisterPrometheus(ctx context.Context) error {
 	s.metrics.reqQueueTimeChan = common.Channel[float64]{
 		Channel: make(chan float64, maxNumberOfRequests),
 		Name:    "metrics.reqQueueTimeChan",
+		Done:    ctx.Done(),
 	}
 	go s.reqQueueTimeUpdater(ctx)
 
@@ -267,6 +274,7 @@ func (s *SimContext) createAndRegisterPrometheus(ctx context.Context) error {
 	s.metrics.reqInferenceTimeChan = common.Channel[float64]{
 		Channel: make(chan float64, maxNumberOfRequests),
 		Name:    "metrics.reqInferenceTimeChan",
+		Done:    ctx.Done(),
 	}
 	go s.reqInferenceTimeUpdater(ctx)
 
@@ -277,6 +285,7 @@ func (s *SimContext) createAndRegisterPrometheus(ctx context.Context) error {
 	s.metrics.reqPrefillTimeChan = common.Channel[float64]{
 		Channel: make(chan float64, maxNumberOfRequests),
 		Name:    "metrics.reqPrefillTimeChan",
+		Done:    ctx.Done(),
 	}
 	go s.reqPrefillTimeUpdater(ctx)
 
@@ -287,6 +296,7 @@ func (s *SimContext) createAndRegisterPrometheus(ctx context.Context) error {
 	s.metrics.reqDecodeTimeChan = common.Channel[float64]{
 		Channel: make(chan float64, maxNumberOfRequests),
 		Name:    "metrics.reqDecodeTimeChan",
+		Done:    ctx.Done(),
 	}
 	go s.reqDecodeTimeUpdater(ctx)
 
@@ -307,6 +317,7 @@ func (s *SimContext) createAndRegisterPrometheus(ctx context.Context) error {
 	s.metrics.kvCacheUsageChan = common.Channel[common.MetricInfo]{
 		Channel: make(chan common.MetricInfo, maxNumberOfRequests),
 		Name:    "metrics.kvCacheUsageChan",
+		Done:    ctx.Done(),
 	}
 	go s.kvCacheUsageUpdater(ctx)
 
@@ -321,6 +332,7 @@ func (s *SimContext) createAndRegisterPrometheus(ctx context.Context) error {
 	s.metrics.prefixCacheStatsChan = common.Channel[kvcache.PrefixCacheStats]{
 		Channel: make(chan kvcache.PrefixCacheStats, maxNumberOfRequests),
 		Name:    "metrics.prefixCacheStatsChan",
+		Done:    ctx.Done(),
 	}
 	go s.prefixCacheStatsUpdater(ctx)
 
@@ -355,6 +367,7 @@ func (s *SimContext) createAndRegisterPrometheus(ctx context.Context) error {
 	s.metrics.requestSuccessChan = common.Channel[requestSuccessEvent]{
 		Channel: make(chan requestSuccessEvent, maxNumberOfRequests),
 		Name:    "metrics.requestSuccessChan",
+		Done:    ctx.Done(),
 	}
 	go s.recordRequestUpdater(ctx)
 

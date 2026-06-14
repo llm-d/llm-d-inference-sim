@@ -172,6 +172,7 @@ func (s *VllmSimulator) InitializeSim(ctx context.Context) error {
 	s.newRequests = common.Channel[requestContext]{
 		Channel: make(chan requestContext, maxNumberOfRequests),
 		Name:    "newRequests",
+		Done:    drainCtx.Done(),
 	}
 
 	// run request processing workers
@@ -186,6 +187,7 @@ func (s *VllmSimulator) InitializeSim(ctx context.Context) error {
 			reqChan: common.Channel[requestContext]{
 				Channel: make(chan requestContext, 1),
 				Name:    "worker's reqChan",
+				Done:    drainCtx.Done(),
 			},
 			processor: s,
 		}

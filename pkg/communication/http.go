@@ -418,6 +418,7 @@ func (c *Communication) sendStream(ctx *fasthttp.RequestCtx, channel common.Chan
 
 			ok, stop := c.emitResponseChunks(ctx, w, respBuilder, response, respCtx, &state, response.Status == vllmsim.ResponseEndOfTokens)
 			if !ok {
+				go drainResponseChannel(channel)
 				return
 			}
 			if stop {
