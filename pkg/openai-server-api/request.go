@@ -30,6 +30,8 @@ const (
 	RoleUser              = "user"
 	inputItemMessage      = "message"
 	ResponsesInputText    = "input_text"
+	ResponsesInputImage   = "input_image"
+	ResponsesInputAudio   = "input_audio"
 	StartMessageSeparator = "### "
 	EndMessageSeparator   = "\n"
 	nullString            = "null"
@@ -813,9 +815,13 @@ func (m *InputMessage) PlainText(includeRole bool) string {
 
 	var parts []string
 	for _, c := range m.Content {
-		switch c.Type { // nolint
+		switch c.Type {
 		case ResponsesInputText:
 			parts = append(parts, c.Text)
+		case ResponsesInputImage:
+			parts = append(parts, "image: "+c.ImageURL)
+		case ResponsesInputAudio:
+			parts = append(parts, "audio: "+c.AudioFormat)
 		}
 	}
 	builder.WriteString(strings.Join(parts, "\n"))
@@ -824,23 +830,40 @@ func (m *InputMessage) PlainText(includeRole bool) string {
 }
 
 type InputContent struct {
-	Type string `json:"type"` // input_text
-	Text string `json:"text"`
+	Type     string `json:"type"` // input_text, input_image, input_audio
+	Text     string `json:"text,omitempty"`
+	ImageURL string `json:"image_url,omitempty"` // URL for input_image
+	// Fields for input_audio
+	AudioData   string `json:"data,omitempty"`   // base64-encoded audio data
+	AudioFormat string `json:"format,omitempty"` // audio format (e.g. "wav", "mp3")
 }
 
 func (c *InputContent) UnmarshalJSON(data []byte) error {
 	var raw struct {
-		Type string `json:"type"`
-		Text string `json:"text"`
+		Type     string `json:"type"`
+		Text     string `json:"text"`
+		ImageURL string `json:"image_url"`
+		// Audio fields
+		Data   string `json:"data"`
+		Format string `json:"format"`
 	}
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}
-	if raw.Type != "" && raw.Type != ResponsesInputText && raw.Type != ResponsesOutputText {
+	switch raw.Type {
+	case "", ResponsesInputText, ResponsesOutputText:
+		c.Type = ResponsesInputText
+		c.Text = raw.Text
+	case ResponsesInputImage:
+		c.Type = ResponsesInputImage
+		c.ImageURL = raw.ImageURL
+	case ResponsesInputAudio:
+		c.Type = ResponsesInputAudio
+		c.AudioData = raw.Data
+		c.AudioFormat = raw.Format
+	default:
 		return fmt.Errorf("unsupported input content type %q", raw.Type)
 	}
-	c.Type = ResponsesInputText
-	c.Text = raw.Text
 	return nil
 }
 

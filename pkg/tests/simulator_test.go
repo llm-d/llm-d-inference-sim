@@ -2926,6 +2926,285 @@ var _ = Describe("Simulator", func() {
 		)
 	})
 
+	Context("responses API with multimodal content", func() {
+		It("Should accept input_image content in responses request", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			reqBody := fmt.Sprintf(`{
+				"model": "%s",
+				"input": [{
+					"role": "user",
+					"content": [
+						{"type": "input_text", "text": "Describe this image"},
+						{"type": "input_image", "image_url": "https://example.com/cat.jpg"}
+					]
+				}]
+			}`, common.TestModelName)
+
+			resp, err := client.Post("http://localhost/v1/responses", "application/json", strings.NewReader(reqBody))
+			Expect(err).NotTo(HaveOccurred())
+			defer func() {
+				err := resp.Body.Close()
+				Expect(err).NotTo(HaveOccurred())
+			}()
+
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+			body, err := io.ReadAll(resp.Body)
+			Expect(err).NotTo(HaveOccurred())
+
+			var respObj map[string]any
+			Expect(json.Unmarshal(body, &respObj)).To(Succeed())
+			Expect(respObj["status"]).To(Equal(openaiserverapi.ResponsesStatusCompleted))
+			Expect(respObj["id"]).To(HavePrefix(openaiserverapi.ResponsesIDPrefix))
+
+			// Verify output contains text content
+			output := respObj["output"].([]any)
+			Expect(output).NotTo(BeEmpty())
+			firstOutput := output[0].(map[string]any)
+			Expect(firstOutput["role"]).To(Equal("assistant"))
+			content := firstOutput["content"].([]any)
+			Expect(content).NotTo(BeEmpty())
+			firstContent := content[0].(map[string]any)
+			Expect(firstContent["type"]).To(Equal(openaiserverapi.ResponsesOutputText))
+			Expect(firstContent["text"]).NotTo(BeEmpty())
+
+			// Verify usage
+			usage := respObj["usage"].(map[string]any)
+			Expect(usage["input_tokens"]).To(BeNumerically(">", 0))
+			Expect(usage["output_tokens"]).To(BeNumerically(">", 0))
+		})
+
+		It("Should accept input_audio content in responses request", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			reqBody := fmt.Sprintf(`{
+				"model": "%s",
+				"input": [{
+					"role": "user",
+					"content": [
+						{"type": "input_text", "text": "Transcribe this audio"},
+						{"type": "input_audio", "data": "base64encodedaudiodata", "format": "wav"}
+					]
+				}]
+			}`, common.TestModelName)
+
+			resp, err := client.Post("http://localhost/v1/responses", "application/json", strings.NewReader(reqBody))
+			Expect(err).NotTo(HaveOccurred())
+			defer func() {
+				err := resp.Body.Close()
+				Expect(err).NotTo(HaveOccurred())
+			}()
+
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+			body, err := io.ReadAll(resp.Body)
+			Expect(err).NotTo(HaveOccurred())
+
+			var respObj map[string]any
+			Expect(json.Unmarshal(body, &respObj)).To(Succeed())
+			Expect(respObj["status"]).To(Equal(openaiserverapi.ResponsesStatusCompleted))
+
+			// Verify output
+			output := respObj["output"].([]any)
+			Expect(output).NotTo(BeEmpty())
+			firstOutput := output[0].(map[string]any)
+			content := firstOutput["content"].([]any)
+			Expect(content).NotTo(BeEmpty())
+			firstContent := content[0].(map[string]any)
+			Expect(firstContent["text"]).NotTo(BeEmpty())
+
+			usage := respObj["usage"].(map[string]any)
+			Expect(usage["input_tokens"]).To(BeNumerically(">", 0))
+			Expect(usage["output_tokens"]).To(BeNumerically(">", 0))
+		})
+
+		It("Should accept mixed image, audio, and text content in responses request", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			reqBody := fmt.Sprintf(`{
+				"model": "%s",
+				"input": [{
+					"role": "user",
+					"content": [
+						{"type": "input_text", "text": "What do you see and hear?"},
+						{"type": "input_image", "image_url": "https://example.com/photo.png"},
+						{"type": "input_audio", "data": "audiobase64data", "format": "mp3"}
+					]
+				}]
+			}`, common.TestModelName)
+
+			resp, err := client.Post("http://localhost/v1/responses", "application/json", strings.NewReader(reqBody))
+			Expect(err).NotTo(HaveOccurred())
+			defer func() {
+				err := resp.Body.Close()
+				Expect(err).NotTo(HaveOccurred())
+			}()
+
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+			body, err := io.ReadAll(resp.Body)
+			Expect(err).NotTo(HaveOccurred())
+
+			var respObj map[string]any
+			Expect(json.Unmarshal(body, &respObj)).To(Succeed())
+			Expect(respObj["status"]).To(Equal(openaiserverapi.ResponsesStatusCompleted))
+
+			output := respObj["output"].([]any)
+			Expect(output).NotTo(BeEmpty())
+
+			usage := respObj["usage"].(map[string]any)
+			Expect(usage["input_tokens"]).To(BeNumerically(">", 0))
+			Expect(usage["output_tokens"]).To(BeNumerically(">", 0))
+			Expect(usage["total_tokens"]).To(Equal(usage["input_tokens"].(float64) + usage["output_tokens"].(float64)))
+		})
+
+		It("Should echo image reference in echo mode", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			reqBody := fmt.Sprintf(`{
+				"model": "%s",
+				"input": [{
+					"role": "user",
+					"content": [
+						{"type": "input_text", "text": "Describe this"},
+						{"type": "input_image", "image_url": "https://example.com/img.png"}
+					]
+				}]
+			}`, common.TestModelName)
+
+			resp, err := client.Post("http://localhost/v1/responses", "application/json", strings.NewReader(reqBody))
+			Expect(err).NotTo(HaveOccurred())
+			defer func() {
+				err := resp.Body.Close()
+				Expect(err).NotTo(HaveOccurred())
+			}()
+
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+			body, err := io.ReadAll(resp.Body)
+			Expect(err).NotTo(HaveOccurred())
+
+			var respObj map[string]any
+			Expect(json.Unmarshal(body, &respObj)).To(Succeed())
+
+			// In echo mode the last message's plain text is echoed back.
+			// PlainText for image content includes "image: <url>"
+			output := respObj["output"].([]any)
+			Expect(output).NotTo(BeEmpty())
+			firstOutput := output[0].(map[string]any)
+			content := firstOutput["content"].([]any)
+			firstContent := content[0].(map[string]any)
+			outputText := firstContent["text"].(string)
+			Expect(outputText).To(ContainSubstring("Describe this"))
+			Expect(outputText).To(ContainSubstring("image: https://example.com/img.png"))
+		})
+
+		It("Should stream responses with image content", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			reqBody := fmt.Sprintf(`{
+				"model": "%s",
+				"stream": true,
+				"input": [{
+					"role": "user",
+					"content": [
+						{"type": "input_text", "text": "Describe this image"},
+						{"type": "input_image", "image_url": "https://example.com/test.jpg"}
+					]
+				}]
+			}`, common.TestModelName)
+
+			req, err := http.NewRequest("POST", "http://localhost/v1/responses", strings.NewReader(reqBody))
+			Expect(err).NotTo(HaveOccurred())
+			req.Header.Set("Content-Type", "application/json")
+
+			httpResp, err := client.Do(req)
+			Expect(err).NotTo(HaveOccurred())
+			defer func() { Expect(httpResp.Body.Close()).To(Succeed()) }()
+			Expect(httpResp.StatusCode).To(Equal(http.StatusOK))
+
+			seenTypes := map[string]bool{}
+			var deltas []string
+			reader := bufio.NewReader(httpResp.Body)
+			for {
+				line, err := reader.ReadString('\n')
+				if err == io.EOF {
+					break
+				}
+				Expect(err).NotTo(HaveOccurred())
+				if !strings.HasPrefix(line, openaiserverapi.SSEDataPrefix) {
+					continue
+				}
+				data := strings.TrimSpace(strings.TrimPrefix(line, openaiserverapi.SSEDataPrefix))
+				if data == openaiserverapi.SSEDoneMarker {
+					break
+				}
+				var event map[string]any
+				Expect(json.Unmarshal([]byte(data), &event)).To(Succeed())
+				eventType, _ := event["type"].(string)
+				seenTypes[eventType] = true
+
+				if eventType == openaiserverapi.ResponsesEventTextDelta {
+					delta, _ := event["delta"].(string)
+					deltas = append(deltas, delta)
+				}
+			}
+
+			Expect(seenTypes[openaiserverapi.ResponsesEventCreated]).To(BeTrue())
+			Expect(seenTypes[openaiserverapi.ResponsesEventCompleted]).To(BeTrue())
+			Expect(seenTypes[openaiserverapi.ResponsesEventTextDelta]).To(BeTrue())
+			Expect(deltas).NotTo(BeEmpty())
+			fullText := strings.Join(deltas, "")
+			Expect(fullText).NotTo(BeEmpty())
+		})
+
+		It("Should reject unsupported content type in responses request", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			reqBody := fmt.Sprintf(`{
+				"model": "%s",
+				"input": [{
+					"role": "user",
+					"content": [
+						{"type": "input_video", "url": "https://example.com/video.mp4"}
+					]
+				}]
+			}`, common.TestModelName)
+
+			resp, err := client.Post("http://localhost/v1/responses", "application/json", strings.NewReader(reqBody))
+			Expect(err).NotTo(HaveOccurred())
+			defer func() {
+				err := resp.Body.Close()
+				Expect(err).NotTo(HaveOccurred())
+			}()
+
+			Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
+
+			body, err := io.ReadAll(resp.Body)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(string(body)).To(ContainSubstring("unsupported input content type"))
+		})
+	})
+
 	Context("generate API", func() {
 		DescribeTable("Should return correct response to /inference/v1/generate",
 			func(model string) {

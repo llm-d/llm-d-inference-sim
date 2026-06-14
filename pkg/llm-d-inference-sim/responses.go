@@ -87,18 +87,37 @@ func convertInputToMessages(input []openaiserverapi.InputItem) []openaiserverapi
 				Role: inputMsg.Role,
 			}
 
-			// Convert InputContent to ChatComplContent
-			if len(inputMsg.Content) == 1 && inputMsg.Content[0].Type == openaiserverapi.ResponsesInputText {
+			// Check if content contains only a single text block
+			allText := true
+			for _, content := range inputMsg.Content {
+				if content.Type != openaiserverapi.ResponsesInputText {
+					allText = false
+					break
+				}
+			}
+
+			if allText && len(inputMsg.Content) == 1 {
 				// Simple text content
 				msg.Content.Raw = inputMsg.Content[0].Text
 			} else {
-				// Structured content
+				// Structured content (text, images, audio)
 				blocks := make([]openaiserverapi.ChatComplContentBlock, 0, len(inputMsg.Content))
 				for _, content := range inputMsg.Content {
-					if content.Type == openaiserverapi.ResponsesInputText {
+					switch content.Type {
+					case openaiserverapi.ResponsesInputText:
 						blocks = append(blocks, openaiserverapi.ChatComplContentBlock{
 							Type: "text",
 							Text: content.Text,
+						})
+					case openaiserverapi.ResponsesInputImage:
+						blocks = append(blocks, openaiserverapi.ChatComplContentBlock{
+							Type:     "image_url",
+							ImageURL: openaiserverapi.ChatComplImageBlock{Url: content.ImageURL},
+						})
+					case openaiserverapi.ResponsesInputAudio:
+						blocks = append(blocks, openaiserverapi.ChatComplContentBlock{
+							Type:       "input_audio",
+							InputAudio: openaiserverapi.ChatComplAudioBlock{Data: content.AudioData, Format: content.AudioFormat},
 						})
 					}
 				}

@@ -47,6 +47,120 @@ func newTextCompletionsFixture() *TextCompletionsParsedRequest {
 	return req
 }
 
+var _ = Describe("convertInputToMessages", func() {
+	It("converts text-only input to raw message content", func() {
+		input := []openaiserverapi.InputItem{
+			&openaiserverapi.InputMessage{
+				Type: "message",
+				Role: openaiserverapi.RoleUser,
+				Content: []openaiserverapi.InputContent{
+					{Type: openaiserverapi.ResponsesInputText, Text: "Hello"},
+				},
+			},
+		}
+		messages := convertInputToMessages(input)
+		Expect(messages).To(HaveLen(1))
+		Expect(messages[0].Role).To(Equal(openaiserverapi.RoleUser))
+		Expect(messages[0].Content.Raw).To(Equal("Hello"))
+	})
+
+	It("converts image input to structured content with image_url block", func() {
+		input := []openaiserverapi.InputItem{
+			&openaiserverapi.InputMessage{
+				Type: "message",
+				Role: openaiserverapi.RoleUser,
+				Content: []openaiserverapi.InputContent{
+					{Type: openaiserverapi.ResponsesInputText, Text: "Describe this"},
+					{Type: openaiserverapi.ResponsesInputImage, ImageURL: "https://example.com/img.png"},
+				},
+			},
+		}
+		messages := convertInputToMessages(input)
+		Expect(messages).To(HaveLen(1))
+		Expect(messages[0].Content.Structured).To(HaveLen(2))
+		Expect(messages[0].Content.Structured[0].Type).To(Equal("text"))
+		Expect(messages[0].Content.Structured[0].Text).To(Equal("Describe this"))
+		Expect(messages[0].Content.Structured[1].Type).To(Equal("image_url"))
+		Expect(messages[0].Content.Structured[1].ImageURL.Url).To(Equal("https://example.com/img.png"))
+	})
+
+	It("converts audio input to structured content with input_audio block", func() {
+		input := []openaiserverapi.InputItem{
+			&openaiserverapi.InputMessage{
+				Type: "message",
+				Role: openaiserverapi.RoleUser,
+				Content: []openaiserverapi.InputContent{
+					{Type: openaiserverapi.ResponsesInputText, Text: "What does this say?"},
+					{Type: openaiserverapi.ResponsesInputAudio, AudioData: "base64data", AudioFormat: "wav"},
+				},
+			},
+		}
+		messages := convertInputToMessages(input)
+		Expect(messages).To(HaveLen(1))
+		Expect(messages[0].Content.Structured).To(HaveLen(2))
+		Expect(messages[0].Content.Structured[0].Type).To(Equal("text"))
+		Expect(messages[0].Content.Structured[0].Text).To(Equal("What does this say?"))
+		Expect(messages[0].Content.Structured[1].Type).To(Equal("input_audio"))
+		Expect(messages[0].Content.Structured[1].InputAudio.Data).To(Equal("base64data"))
+		Expect(messages[0].Content.Structured[1].InputAudio.Format).To(Equal("wav"))
+	})
+
+	It("converts mixed text, image, and audio content to structured blocks", func() {
+		input := []openaiserverapi.InputItem{
+			&openaiserverapi.InputMessage{
+				Type: "message",
+				Role: openaiserverapi.RoleUser,
+				Content: []openaiserverapi.InputContent{
+					{Type: openaiserverapi.ResponsesInputText, Text: "Look at this"},
+					{Type: openaiserverapi.ResponsesInputImage, ImageURL: "https://example.com/a.png"},
+					{Type: openaiserverapi.ResponsesInputAudio, AudioData: "audio==", AudioFormat: "mp3"},
+				},
+			},
+		}
+		messages := convertInputToMessages(input)
+		Expect(messages).To(HaveLen(1))
+		blocks := messages[0].Content.Structured
+		Expect(blocks).To(HaveLen(3))
+		Expect(blocks[0].Type).To(Equal("text"))
+		Expect(blocks[1].Type).To(Equal("image_url"))
+		Expect(blocks[2].Type).To(Equal("input_audio"))
+	})
+
+	It("uses raw content for single text-only message", func() {
+		input := []openaiserverapi.InputItem{
+			&openaiserverapi.InputMessage{
+				Type: "message",
+				Role: openaiserverapi.RoleUser,
+				Content: []openaiserverapi.InputContent{
+					{Type: openaiserverapi.ResponsesInputText, Text: "Simple message"},
+				},
+			},
+		}
+		messages := convertInputToMessages(input)
+		Expect(messages).To(HaveLen(1))
+		// Single text-only input → raw content (not structured)
+		Expect(messages[0].Content.Raw).To(Equal("Simple message"))
+		Expect(messages[0].Content.Structured).To(BeNil())
+	})
+
+	It("uses structured content for single image-only message", func() {
+		input := []openaiserverapi.InputItem{
+			&openaiserverapi.InputMessage{
+				Type: "message",
+				Role: openaiserverapi.RoleUser,
+				Content: []openaiserverapi.InputContent{
+					{Type: openaiserverapi.ResponsesInputImage, ImageURL: "https://example.com/img.png"},
+				},
+			},
+		}
+		messages := convertInputToMessages(input)
+		Expect(messages).To(HaveLen(1))
+		// Even single image → structured content (multimodal)
+		Expect(messages[0].Content.Structured).To(HaveLen(1))
+		Expect(messages[0].Content.Structured[0].Type).To(Equal("image_url"))
+	})
+})
+
 var _ = Describe("TextCompletionsParsedRequest.split", func() {
 	It("returns one sub-request per array element with suffixed RequestIDs", func() {
 		orig := newTextCompletionsFixture()

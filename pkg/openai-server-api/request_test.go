@@ -141,3 +141,170 @@ var _ = Describe("TextCompletionsParsedRequest prompt", func() {
 		})
 	})
 })
+
+var _ = Describe("InputContent UnmarshalJSON", func() {
+	It("should unmarshal input_text content", func() {
+		jsonData := []byte(`{"type": "input_text", "text": "hello"}`)
+		var content InputContent
+		err := json.Unmarshal(jsonData, &content)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(content.Type).To(Equal(ResponsesInputText))
+		Expect(content.Text).To(Equal("hello"))
+	})
+
+	It("should unmarshal input_image content", func() {
+		jsonData := []byte(`{"type": "input_image", "image_url": "https://example.com/img.png"}`)
+		var content InputContent
+		err := json.Unmarshal(jsonData, &content)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(content.Type).To(Equal(ResponsesInputImage))
+		Expect(content.ImageURL).To(Equal("https://example.com/img.png"))
+	})
+
+	It("should unmarshal input_audio content", func() {
+		jsonData := []byte(`{"type": "input_audio", "data": "base64audiodata", "format": "wav"}`)
+		var content InputContent
+		err := json.Unmarshal(jsonData, &content)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(content.Type).To(Equal(ResponsesInputAudio))
+		Expect(content.AudioData).To(Equal("base64audiodata"))
+		Expect(content.AudioFormat).To(Equal("wav"))
+	})
+
+	It("should reject unsupported content type", func() {
+		jsonData := []byte(`{"type": "input_video", "url": "http://example.com/v.mp4"}`)
+		var content InputContent
+		err := json.Unmarshal(jsonData, &content)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("unsupported input content type"))
+	})
+
+	It("should default to input_text when type is empty", func() {
+		jsonData := []byte(`{"text": "hello"}`)
+		var content InputContent
+		err := json.Unmarshal(jsonData, &content)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(content.Type).To(Equal(ResponsesInputText))
+		Expect(content.Text).To(Equal("hello"))
+	})
+})
+
+var _ = Describe("ResponsesRequest UnmarshalJSON with content types", func() {
+	It("should unmarshal request with text input", func() {
+		jsonData := []byte(`{"model":"m","input":"hello"}`)
+		var req ResponsesRequest
+		err := json.Unmarshal(jsonData, &req)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(req.Input).To(HaveLen(1))
+		msg := req.Input[0].(*InputMessage)
+		Expect(msg.Content).To(HaveLen(1))
+		Expect(msg.Content[0].Type).To(Equal(ResponsesInputText))
+		Expect(msg.Content[0].Text).To(Equal("hello"))
+	})
+
+	It("should unmarshal request with mixed image and text content", func() {
+		jsonData := []byte(`{
+			"model": "m",
+			"input": [{
+				"role": "user",
+				"content": [
+					{"type": "input_text", "text": "Describe this image"},
+					{"type": "input_image", "image_url": "https://example.com/cat.jpg"}
+				]
+			}]
+		}`)
+		var req ResponsesRequest
+		err := json.Unmarshal(jsonData, &req)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(req.Input).To(HaveLen(1))
+		msg := req.Input[0].(*InputMessage)
+		Expect(msg.Content).To(HaveLen(2))
+		Expect(msg.Content[0].Type).To(Equal(ResponsesInputText))
+		Expect(msg.Content[0].Text).To(Equal("Describe this image"))
+		Expect(msg.Content[1].Type).To(Equal(ResponsesInputImage))
+		Expect(msg.Content[1].ImageURL).To(Equal("https://example.com/cat.jpg"))
+	})
+
+	It("should unmarshal request with audio content", func() {
+		jsonData := []byte(`{
+			"model": "m",
+			"input": [{
+				"role": "user",
+				"content": [
+					{"type": "input_text", "text": "Transcribe this audio"},
+					{"type": "input_audio", "data": "base64encodedaudio", "format": "mp3"}
+				]
+			}]
+		}`)
+		var req ResponsesRequest
+		err := json.Unmarshal(jsonData, &req)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(req.Input).To(HaveLen(1))
+		msg := req.Input[0].(*InputMessage)
+		Expect(msg.Content).To(HaveLen(2))
+		Expect(msg.Content[0].Type).To(Equal(ResponsesInputText))
+		Expect(msg.Content[1].Type).To(Equal(ResponsesInputAudio))
+		Expect(msg.Content[1].AudioData).To(Equal("base64encodedaudio"))
+		Expect(msg.Content[1].AudioFormat).To(Equal("mp3"))
+	})
+
+	It("should unmarshal request with image, audio, and text content combined", func() {
+		jsonData := []byte(`{
+			"model": "m",
+			"input": [{
+				"role": "user",
+				"content": [
+					{"type": "input_text", "text": "What do you see and hear?"},
+					{"type": "input_image", "image_url": "https://example.com/photo.png"},
+					{"type": "input_audio", "data": "audiobase64", "format": "wav"}
+				]
+			}]
+		}`)
+		var req ResponsesRequest
+		err := json.Unmarshal(jsonData, &req)
+		Expect(err).NotTo(HaveOccurred())
+		msg := req.Input[0].(*InputMessage)
+		Expect(msg.Content).To(HaveLen(3))
+		Expect(msg.Content[0].Type).To(Equal(ResponsesInputText))
+		Expect(msg.Content[1].Type).To(Equal(ResponsesInputImage))
+		Expect(msg.Content[2].Type).To(Equal(ResponsesInputAudio))
+	})
+})
+
+var _ = Describe("InputMessage PlainText with content types", func() {
+	It("should include image URL in plain text", func() {
+		msg := &InputMessage{
+			Role: RoleUser,
+			Content: []InputContent{
+				{Type: ResponsesInputText, Text: "Look at this"},
+				{Type: ResponsesInputImage, ImageURL: "https://example.com/cat.jpg"},
+			},
+		}
+		text := msg.PlainText(false)
+		Expect(text).To(Equal("Look at this\nimage: https://example.com/cat.jpg"))
+	})
+
+	It("should include audio format in plain text", func() {
+		msg := &InputMessage{
+			Role: RoleUser,
+			Content: []InputContent{
+				{Type: ResponsesInputText, Text: "Listen to this"},
+				{Type: ResponsesInputAudio, AudioData: "base64data", AudioFormat: "wav"},
+			},
+		}
+		text := msg.PlainText(false)
+		Expect(text).To(Equal("Listen to this\naudio: wav"))
+	})
+
+	It("should include role when requested", func() {
+		msg := &InputMessage{
+			Role: RoleUser,
+			Content: []InputContent{
+				{Type: ResponsesInputText, Text: "hello"},
+				{Type: ResponsesInputImage, ImageURL: "https://example.com/img.png"},
+			},
+		}
+		text := msg.PlainText(true)
+		Expect(text).To(Equal("user: hello\nimage: https://example.com/img.png"))
+	})
+})

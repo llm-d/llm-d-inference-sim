@@ -174,6 +174,54 @@ Structure of requests/responses
             - mm_placeholders (map keyed by modality to an array of placeholder regions)
                 - offset (token index where the multimodal region begins)
                 - length (number of tokens the region spans)
+- `/v1/responses`
+    - **request**
+        - stream
+        - model
+        - input (array of input items)
+            - type (`message`)
+            - role (`user`, `system`, `developer`)
+            - content (array of content blocks)
+              - type (`input_text`, `input_image`, or `input_audio`)
+              - text (for `input_text`)
+              - image_url (for `input_image` — a URL string)
+              - data (for `input_audio` — base64-encoded audio data)
+              - format (for `input_audio` — e.g. `wav`, `mp3`)
+        - instructions
+        - max_output_tokens
+        - text
+          - format
+            - type (`text`, `json_object`, `json_schema`)
+        - include (array of strings, e.g. `["message.output_text.logprobs"]`)
+        - top_logprobs
+    - **response**
+        - id
+        - model
+        - object (`response`)
+        - created_at
+        - status (`completed`, `in_progress`)
+        - instructions
+        - output (array of output items)
+            - type (`message`)
+            - id
+            - role (`assistant`)
+            - status
+            - content
+              - type (`output_text`)
+              - text
+              - logprobs (when `include` contains `message.output_text.logprobs`)
+                - token
+                - logprob
+                - bytes
+                - top_logprobs
+        - text
+          - format
+            - type
+        - usage
+          - input_tokens
+          - output_tokens
+          - total_tokens
+        - top_logprobs
 - `/inference/v1/generate`
     - **request**
         - stream
@@ -214,6 +262,111 @@ Structure of requests/responses
             - peer_port
             - size_bytes
             - nixl_agent_metadata_b64
+
+### `/v1/responses` examples
+
+#### Text-only request
+
+```bash
+curl -X POST http://localhost:8000/v1/responses \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "model": "test-model",
+    "input": [
+      {
+        "type": "message",
+        "role": "user",
+        "content": [
+          {"type": "input_text", "text": "What is the capital of France?"}
+        ]
+      }
+    ]
+  }'
+```
+
+#### Image input
+
+```bash
+curl -X POST http://localhost:8000/v1/responses \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "model": "test-model",
+    "input": [
+      {
+        "type": "message",
+        "role": "user",
+        "content": [
+          {"type": "input_text", "text": "Describe what you see in this image."},
+          {"type": "input_image", "image_url": "https://example.com/photo.jpg"}
+        ]
+      }
+    ]
+  }'
+```
+
+#### Audio input
+
+```bash
+curl -X POST http://localhost:8000/v1/responses \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "model": "test-model",
+    "input": [
+      {
+        "type": "message",
+        "role": "user",
+        "content": [
+          {"type": "input_text", "text": "Transcribe this audio clip."},
+          {"type": "input_audio", "data": "BASE64_ENCODED_AUDIO_DATA", "format": "wav"}
+        ]
+      }
+    ]
+  }'
+```
+
+#### Mixed content (text + image + audio)
+
+```bash
+curl -X POST http://localhost:8000/v1/responses \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "model": "test-model",
+    "input": [
+      {
+        "type": "message",
+        "role": "user",
+        "content": [
+          {"type": "input_text", "text": "Analyze the following media."},
+          {"type": "input_image", "image_url": "https://example.com/diagram.png"},
+          {"type": "input_audio", "data": "BASE64_ENCODED_AUDIO_DATA", "format": "mp3"}
+        ]
+      }
+    ]
+  }'
+```
+
+#### Streaming responses
+
+```bash
+curl -N -X POST http://localhost:8000/v1/responses \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "model": "test-model",
+    "stream": true,
+    "input": [
+      {
+        "type": "message",
+        "role": "user",
+        "content": [
+          {"type": "input_text", "text": "Tell me a story."},
+          {"type": "input_image", "image_url": "https://example.com/scene.jpg"}
+        ]
+      }
+    ]
+  }'
+```
+
+The streaming response uses Server-Sent Events (SSE) and emits the following event types in order: `response.created`, `response.in_progress`, `response.output_item.added`, `response.content_part.added`, one or more `response.output_text.delta`, `response.output_text.done`, `response.content_part.done`, `response.output_item.done`, `response.completed`.
 
 ## `finish_reason` values
 

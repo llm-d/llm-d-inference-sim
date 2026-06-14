@@ -6,6 +6,7 @@ HTTP requests are routed to the HTTP server, and HTTP2 requests are routed to th
 Currently, the simulator supports a partial OpenAI-compatible API:
 - `/v1/chat/completions`
 - `/v1/completions`
+- `/v1/responses`
 - `/v1/embeddings`
 - `/v1/models`
 
