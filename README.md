@@ -134,7 +134,7 @@ To run the vLLM simulator in a standalone test environment with a real model:
 1. Start the vLLM render server (requires a container engine, e.g. Docker or Podman):
    ```bash
    docker run --rm -p 8082:8082 --entrypoint vllm \
-     vllm/vllm-openai-cpu:v0.19.1 launch render Qwen/Qwen2.5-0.5B-Instruct --port=8082
+     vllm/vllm-openai-cpu:v0.21.0 launch render Qwen/Qwen2.5-0.5B-Instruct --port=8082
    ```
    Alternatively, use the `run-render` Makefile target, which runs the same container via your configured container engine (Docker or Podman):
    ```bash

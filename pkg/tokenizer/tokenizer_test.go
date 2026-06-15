@@ -17,6 +17,7 @@ limitations under the License.
 package tokenizer
 
 import (
+	"encoding/base64"
 	"strings"
 
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
@@ -70,6 +71,33 @@ var _ = Describe("tokenizer", func() {
 		tokens, _, _, err := tokenizerMngr.RealTokenizer().RenderMessages(messages)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(tokens).NotTo(BeEmpty())
+	})
+
+	It("should return kwargs_data for multimodal messages via test tokenizer", func() {
+		mmMessages := []openaiserverapi.Message{
+			{Role: openaiserverapi.RoleUser, Content: openaiserverapi.ChatComplContent{
+				Structured: []openaiserverapi.ChatComplContentBlock{
+					{Type: "image_url", ImageURL: openaiserverapi.ChatComplImageBlock{Url: "http://x/a.jpg"}},
+				},
+			}},
+		}
+		_, _, features, err := tokenizerMngr.TestTokenizer().RenderMessages(mmMessages)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(features).NotTo(BeNil())
+		Expect(features.KwargsData).To(HaveKey(mmModalityImage))
+		Expect(features.KwargsData[mmModalityImage]).To(HaveLen(1))
+		_, decodeErr := base64.StdEncoding.DecodeString(features.KwargsData[mmModalityImage][0])
+		Expect(decodeErr).NotTo(HaveOccurred())
+	})
+
+	It("should return nil kwargs_data for text-only messages via real tokenizer", func() {
+		tokens, _, features, err := tokenizerMngr.RealTokenizer().RenderMessages(messages)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(tokens).NotTo(BeEmpty())
+		// text-only messages carry no MM features
+		if features != nil {
+			Expect(features.KwargsData).To(BeEmpty())
+		}
 	})
 
 	Describe("stubMMFeaturesForMessages", func() {
@@ -157,6 +185,36 @@ var _ = Describe("tokenizer", func() {
 			wav := stubMMFeaturesForMessages([]openaiserverapi.Message{mkMsg(audio("samebytes", "wav"))}, 100)
 			mp3 := stubMMFeaturesForMessages([]openaiserverapi.Message{mkMsg(audio("samebytes", "mp3"))}, 100)
 			Expect(wav.MMHashes[mmModalityAudio]).To(Equal(mp3.MMHashes[mmModalityAudio]))
+		})
+
+		It("emits kwargs_data as valid base64 per modality for a single image", func() {
+			feats := stubMMFeaturesForMessages([]openaiserverapi.Message{mkMsg(image("http://x/a.jpg"))}, 100)
+			Expect(feats).NotTo(BeNil())
+			Expect(feats.KwargsData).To(HaveKey(mmModalityImage))
+			Expect(feats.KwargsData[mmModalityImage]).To(HaveLen(1))
+			_, err := base64.StdEncoding.DecodeString(feats.KwargsData[mmModalityImage][0])
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("emits kwargs_data for all modalities in mixed content, each entry valid base64", func() {
+			feats := stubMMFeaturesForMessages([]openaiserverapi.Message{mkMsg(
+				image("http://x/a.jpg"), audio("data", "wav"), video("http://x/v.mp4"),
+			)}, 120)
+			Expect(feats).NotTo(BeNil())
+			for _, mod := range []string{mmModalityImage, mmModalityAudio, mmModalityVideo} {
+				Expect(feats.KwargsData).To(HaveKey(mod))
+				for _, s := range feats.KwargsData[mod] {
+					_, err := base64.StdEncoding.DecodeString(s)
+					Expect(err).NotTo(HaveOccurred(), "kwargs_data[%s] entry is not valid base64", mod)
+				}
+			}
+		})
+
+		It("produces deterministic kwargs_data for identical input", func() {
+			msgs := []openaiserverapi.Message{mkMsg(image("http://x/a.jpg"), audio("data", "wav"))}
+			a := stubMMFeaturesForMessages(msgs, 100)
+			b := stubMMFeaturesForMessages(msgs, 100)
+			Expect(a.KwargsData).To(Equal(b.KwargsData))
 		})
 	})
 

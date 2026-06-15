@@ -223,7 +223,8 @@ var _ = Describe("Server", func() {
 			common.TestModelName, "/v1/chat/completions/render",
 			fmt.Sprintf(`{"model":"%s","messages":[{"role":"user","content":[`+
 				`{"type":"text","text":"describe this"},`+
-				`{"type":"image_url","image_url":{"url":"http://example.com/a.png"}}`+
+				`{"type":"image_url","image_url":{"url":"http://example.com/a.png"}},`+
+				`{"type":"image_url","image_url":{"url":"http://example.com/b.png"}}`+
 				`]}]}`, common.TestModelName),
 			func(body []byte) {
 				var resp openaiserverapi.RenderResponse
@@ -231,9 +232,11 @@ var _ = Describe("Server", func() {
 				Expect(resp.TokenIDs).NotTo(BeEmpty())
 				Expect(resp.Features).NotTo(BeNil())
 				Expect(resp.Features.MMHashes).To(HaveKey("image"))
-				Expect(resp.Features.MMHashes["image"]).To(HaveLen(1))
+				Expect(resp.Features.MMHashes["image"]).To(HaveLen(2))
 				Expect(resp.Features.MMPlaceholders).To(HaveKey("image"))
-				Expect(resp.Features.MMPlaceholders["image"]).To(HaveLen(1))
+				Expect(resp.Features.MMPlaceholders["image"]).To(HaveLen(2))
+				Expect(resp.Features.KwargsData).To(HaveKey("image"))
+				Expect(resp.Features.KwargsData["image"]).To(HaveLen(2))
 			}),
 		Entry("proxy /v1/completions/render to the upstream renderer (HF model)",
 			common.QwenModelName, "/v1/completions/render",
@@ -256,19 +259,25 @@ var _ = Describe("Server", func() {
 			}),
 		Entry("proxy /v1/chat/completions/render with image_url returns mm features (HF model)",
 			common.QwenModelName, "/v1/chat/completions/render",
-			// 1x1 transparent PNG inlined as a data URL — keeps the test
+			// Two minimal 1x1 RGB PNGs inlined as data URLs — keeps the test
 			// hermetic (no outbound fetch) and small enough to embed.
+			// Pixel values: [0,255,0,0] (red) and [0,0,0,255] (blue).
 			fmt.Sprintf(`{"model":"%s","messages":[{"role":"user","content":[`+
 				`{"type":"text","text":"describe this"},`+
-				`{"type":"image_url","image_url":{"url":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="}}`+
+				`{"type":"image_url","image_url":{"url":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC"}},`+
+				`{"type":"image_url","image_url":{"url":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNgYPgPAAEDAQAIicLsAAAAAElFTkSuQmCC"}}`+
 				`]}]}`, common.QwenModelName),
 			func(body []byte) {
 				var resp openaiserverapi.RenderResponse
 				Expect(json.Unmarshal(body, &resp)).To(Succeed())
 				Expect(resp.TokenIDs).NotTo(BeEmpty())
 				Expect(resp.Features).NotTo(BeNil())
-				Expect(resp.Features.MMHashes).NotTo(BeEmpty())
-				Expect(resp.Features.MMPlaceholders).NotTo(BeEmpty())
+				Expect(resp.Features.MMHashes).To(HaveKey("image"))
+				Expect(resp.Features.MMHashes["image"]).To(HaveLen(2))
+				Expect(resp.Features.MMPlaceholders).To(HaveKey("image"))
+				Expect(resp.Features.MMPlaceholders["image"]).To(HaveLen(2))
+				Expect(resp.Features.KwargsData).To(HaveKey("image"))
+				Expect(resp.Features.KwargsData["image"]).To(HaveLen(2))
 			}),
 	)
 

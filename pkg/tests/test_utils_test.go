@@ -142,7 +142,7 @@ func startServerHelper(ctx context.Context, mode string, args []string, envs map
 		}
 	} else {
 		// Use test tokenizers for normal test cases
-		gomega.Expect(config.Model).To(gomega.BeElementOf(common.TestModelName, common.QwenModelName, common.QwenModelName))
+		gomega.Expect(config.Model).To(gomega.BeElementOf(common.TestModelName, common.QwenModelName))
 		switch config.Model {
 		case common.TestModelName:
 			s.Context.Tokenizer = tokenizerMngr.TestTokenizer()

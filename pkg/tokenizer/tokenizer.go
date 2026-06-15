@@ -18,6 +18,7 @@ package tokenizer
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"hash/fnv"
 	"regexp"
@@ -164,11 +165,15 @@ func stubMMFeaturesForMessages(messages []openaiserverapi.Message, totalTokens i
 	span := max(totalTokens/len(items), 1)
 	mmHashes := map[string][]string{}
 	mmPlaceholders := map[string][]openaiserverapi.RenderPlaceholder{}
+	mmKwargsData := map[string][]string{}
 
 	for i, it := range items {
 		// Deterministic so repeats hit cache.
 		hash := fmt.Sprintf("sim_%s_%d_%x", it.prefix, it.modalIndex, fnv32(it.identifier))
 		mmHashes[it.modality] = append(mmHashes[it.modality], hash)
+
+		kwarg := base64.StdEncoding.EncodeToString([]byte(hash))
+		mmKwargsData[it.modality] = append(mmKwargsData[it.modality], kwarg)
 
 		offset := i * span
 		if offset >= totalTokens {
@@ -190,6 +195,7 @@ func stubMMFeaturesForMessages(messages []openaiserverapi.Message, totalTokens i
 	return &openaiserverapi.RenderMMFeatures{
 		MMHashes:       mmHashes,
 		MMPlaceholders: mmPlaceholders,
+		KwargsData:     mmKwargsData,
 	}
 }
 
