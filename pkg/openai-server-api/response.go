@@ -168,7 +168,7 @@ func (m *Message) PlainText(includeRole bool) string {
 		var parts []string
 		for _, block := range m.Content.Structured {
 			switch block.Type {
-			case "text":
+			case ContentTypeText:
 				parts = append(parts, block.Text)
 			case "image_url":
 				parts = append(parts, "image: "+block.ImageURL.Url)
@@ -462,7 +462,7 @@ func CreateResponsesResponse(model string, requestID string, createdAt int64,
 		CreatedAt:    createdAt,
 		Status:       ResponsesStatusCompleted,
 		Instructions: instructions,
-		Text:         &TextSettings{Format: &TextFormat{Type: "text"}},
+		Text:         &TextSettings{Format: &TextFormat{Type: ContentTypeText}},
 		Output:       output,
 		Usage:        usage,
 		TopLogprobs:  topLogprobs,
@@ -625,6 +625,8 @@ const (
 	MessagesEventContentBlockStop  = "content_block_stop"
 	MessagesEventMessageDelta      = "message_delta"
 	MessagesEventMessageStop       = "message_stop"
+
+	ContentTypeText = "text"
 )
 
 // MessagesUsage contains token usage for the Anthropic Messages API.

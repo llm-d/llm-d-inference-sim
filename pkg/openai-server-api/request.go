@@ -1017,7 +1017,7 @@ func (c *AnthropicToolResultContent) PlainText() string {
 	}
 	var parts []string
 	for _, b := range c.Blocks {
-		if b.Type == "text" {
+		if b.Type == ContentTypeText {
 			parts = append(parts, b.Text)
 		}
 	}
@@ -1083,7 +1083,7 @@ func (c *AnthropicMessageContent) PlainText() string {
 	}
 	var parts []string
 	for _, block := range c.Blocks {
-		if block.Type == "text" {
+		if block.Type == ContentTypeText {
 			parts = append(parts, block.Text)
 		}
 	}
@@ -1194,9 +1194,9 @@ func (m *MessagesRequest) ToChatCompletionsRequest() *ChatCompletionsRequest {
 
 		for _, b := range am.Content.Blocks {
 			switch b.Type {
-			case "text":
+			case ContentTypeText:
 				contentBlocks = append(contentBlocks, ChatComplContentBlock{
-					Type: "text",
+					Type: ContentTypeText,
 					Text: b.Text,
 				})
 			case "image":
@@ -1262,6 +1262,9 @@ func (m *MessagesRequest) ToChatCompletionsRequest() *ChatCompletionsRequest {
 
 	// Convert Anthropic tools to OpenAI format (input_schema → parameters).
 	var tools []Tool
+	if len(m.Tools) > 0 {
+		tools = make([]Tool, 0, len(m.Tools))
+	}
 	for _, at := range m.Tools {
 		tools = append(tools, Tool{
 			Type: "function",
