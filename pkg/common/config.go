@@ -49,6 +49,9 @@ const (
 	RemoteDecodeFinishReason   = "remote_decode"
 	CacheThresholdFinishReason = "cache_threshold"
 
+	ChatCmplToolIDPrefix = "chatcmpl-tool-"
+	MessagesToolIDPrefix = "toolu_"
+
 	podIPEnv = "POD_IP"
 
 	DefaultLatencyCalculator        = ""

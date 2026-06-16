@@ -91,3 +91,28 @@ func (t *ToolChoice) UnmarshalJSON(data []byte) error {
 
 	return nil
 }
+
+func NewToolChoiceRequired() ToolChoice {
+	return ToolChoice{ChatCompletionToolChoiceOptionUnionParam: openai.ChatCompletionToolChoiceOptionUnionParam{
+		OfAuto: param.NewOpt(toolChoiceRequiredValue),
+	}}
+}
+
+func NewToolChoiceNone() ToolChoice {
+	return ToolChoice{ChatCompletionToolChoiceOptionUnionParam: openai.ChatCompletionToolChoiceOptionUnionParam{
+		OfAuto: param.NewOpt(toolChoiceNoneValue),
+	}}
+}
+
+func NewToolChoiceFunction(name string) ToolChoice {
+	return ToolChoice{ChatCompletionToolChoiceOptionUnionParam: openai.ChatCompletionToolChoiceOptionUnionParam{
+		OfFunctionToolChoice: &openai.ChatCompletionNamedToolChoiceParam{
+			Function: openai.ChatCompletionNamedToolChoiceFunctionParam{Name: name},
+		},
+	}}
+}
+
+const (
+	toolChoiceRequiredValue = "required"
+	toolChoiceNoneValue     = "none"
+)

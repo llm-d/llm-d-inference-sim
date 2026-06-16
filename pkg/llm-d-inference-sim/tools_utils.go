@@ -117,6 +117,7 @@ func createToolCalls(
 	config *common.Configuration,
 	random *common.Random,
 	tokenizer tokenizer.Tokenizer,
+	idPrefix string,
 ) ([]openaiserverapi.ToolCall, int, error) {
 	generateCalls := func(availableTools []openaiserverapi.Tool, minCalls int) ([]openaiserverapi.ToolCall, int, error) {
 		if len(availableTools) == 0 {
@@ -163,7 +164,7 @@ func createToolCalls(
 					Arguments: string(argsJson),
 					Name:      &chosenTool.Function.Name,
 				},
-				ID:    "chatcmpl-tool-" + random.RandomNumericString(10),
+				ID:    idPrefix + random.RandomNumericString(10),
 				Type:  "function",
 				Index: i,
 			}

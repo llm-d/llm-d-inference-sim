@@ -83,6 +83,7 @@ func (c *ChatCompletionsRequest) buildRequestContext(simCtx *SimContext, channel
 	reqCtx := &chatCompletionReqCtx{
 		baseRequestContext: newBaseRequestContext(simCtx, channel, choiceIdx, doneFn),
 		req:                c,
+		toolIDPrefix:       common.ChatCmplToolIDPrefix,
 	}
 	// wire chatCompletionReqCtx into embedded requestContext interface
 	reqCtx.requestContext = reqCtx
@@ -145,7 +146,8 @@ var _ Request = (*ChatCompletionsRequest)(nil)
 // Implementation of requestContext for /chat/completions requests
 type chatCompletionReqCtx struct {
 	baseRequestContext
-	req *ChatCompletionsRequest
+	req          *ChatCompletionsRequest
+	toolIDPrefix string
 }
 
 func (c *chatCompletionReqCtx) request() Request {
@@ -161,7 +163,7 @@ func (c *chatCompletionReqCtx) createToolCalls() ([]openaiserverapi.ToolCall, in
 	if !isToolChoiceNone(req.GetToolChoice()) &&
 		req.GetTools() != nil {
 		toolCalls, completionTokens, err :=
-			createToolCalls(req.GetTools(), req.GetToolChoice(), c.sim.Config(), c.sim.Random, c.sim.Tokenizer)
+			createToolCalls(req.GetTools(), req.GetToolChoice(), c.sim.Config(), c.sim.Random, c.sim.Tokenizer, c.toolIDPrefix)
 		finishReason := common.ToolsFinishReason
 		return toolCalls, completionTokens, finishReason, err
 	}

@@ -691,3 +691,201 @@ func (*generateHTTPRespBuilder) createRenderResponse(_ [][]uint32,
 }
 
 var _ responseBuilder = (*generateHTTPRespBuilder)(nil)
+
+// messagesHTTPRespBuilder implements responseBuilder for /v1/messages (Anthropic Messages API).
+type messagesHTTPRespBuilder struct {
+	contentBlockIndex int  // tracks which content block index we are on for streaming
+	inToolMode        bool // true when streaming tool call arguments
+}
+
+func (b *messagesHTTPRespBuilder) stopReason(finishReason string) string {
+	switch finishReason {
+	case common.ToolsFinishReason:
+		return openaiserverapi.MessagesStopReasonToolUse
+	case common.LengthFinishReason, common.CacheThresholdFinishReason:
+		return openaiserverapi.MessagesStopReasonMaxTokens
+	default:
+		return openaiserverapi.MessagesStopReasonEndTurn
+	}
+}
+
+func (b *messagesHTTPRespBuilder) createResponse(respCtxPerChoice []vllmsim.ResponseContext,
+	tokens []openaiserverapi.Tokenized) any {
+	respCtx := respCtxPerChoice[0]
+	usage := respCtx.UsageData()
+	finishReason := ""
+	if respCtx.FinishReason() != nil {
+		finishReason = *respCtx.FinishReason()
+	}
+
+	var content []openaiserverapi.MessagesContentBlock
+	if toolCalls := respCtx.ToolCalls(); len(toolCalls) > 0 {
+		for _, tc := range toolCalls {
+			var input map[string]any
+			if tc.Function.Arguments != "" {
+				_ = json.Unmarshal([]byte(tc.Function.Arguments), &input)
+			}
+			if input == nil {
+				input = map[string]any{}
+			}
+			name := ""
+			if tc.Function.Name != nil {
+				name = *tc.Function.Name
+			}
+			content = append(content, openaiserverapi.MessagesContentBlock{
+				Type:  "tool_use",
+				ID:    tc.ID,
+				Name:  name,
+				Input: input,
+			})
+		}
+	} else {
+		text := strings.Join(tokens[0].Strings, "")
+		content = []openaiserverapi.MessagesContentBlock{{Type: "text", Text: text}}
+	}
+
+	return openaiserverapi.CreateMessagesResponse(
+		respCtx.DisplayModel(),
+		respCtx.RequestID(),
+		b.stopReason(finishReason),
+		content,
+		openaiserverapi.MessagesUsage{
+			InputTokens:  usage.PromptTokens,
+			OutputTokens: usage.CompletionTokens,
+		},
+	)
+}
+
+func (b *messagesHTTPRespBuilder) createUsageChunk(_ []vllmsim.ResponseContext) sseChunk {
+	return nil // usage is delivered in the message_delta streaming event
+}
+
+func (b *messagesHTTPRespBuilder) createInitialChunk(respCtx vllmsim.ResponseContext) sseChunk {
+	msg := openaiserverapi.CreateMessagesStreamStartMessage(
+		respCtx.DisplayModel(),
+		respCtx.RequestID(),
+		respCtx.UsageData().PromptTokens,
+	)
+	return &namedEventChunk{
+		names: []string{openaiserverapi.MessagesEventMessageStart},
+		data:  []any{openaiserverapi.MessagesMessageStartEvent{Type: openaiserverapi.MessagesEventMessageStart, Message: msg}},
+	}
+}
+
+func (b *messagesHTTPRespBuilder) createFirstChunk(respCtx vllmsim.ResponseContext, _ int) sseChunk {
+	b.inToolMode = len(respCtx.ToolCalls()) > 0
+	ping := openaiserverapi.MessagesPingEvent{Type: openaiserverapi.MessagesEventPing}
+
+	if b.inToolMode {
+		// content_block_start for tool blocks is emitted in createChunk when the
+		// first argument token arrives (signalled by tool.Function.Name != nil).
+		return &namedEventChunk{
+			names: []string{openaiserverapi.MessagesEventPing},
+			data:  []any{ping},
+		}
+	}
+
+	blockStart := openaiserverapi.MessagesContentBlockStartEvent{
+		Type:         openaiserverapi.MessagesEventContentBlockStart,
+		Index:        0,
+		ContentBlock: openaiserverapi.MessagesContentBlock{Type: "text", Text: ""},
+	}
+	return &namedEventChunk{
+		names: []string{openaiserverapi.MessagesEventContentBlockStart, openaiserverapi.MessagesEventPing},
+		data:  []any{blockStart, ping},
+	}
+}
+
+func (b *messagesHTTPRespBuilder) createChunk(_ vllmsim.ResponseContext, tokens *openaiserverapi.Tokenized,
+	tool *openaiserverapi.ToolCall, _ string, _ *string, _ int) sseChunk {
+
+	if tool != nil {
+		var names []string
+		var data []any
+
+		// tool.Function.Name != nil on the first argument token of a new tool call.
+		if tool.Function.Name != nil {
+			// Stop the previous block if this is not the first tool call.
+			if b.contentBlockIndex > 0 {
+				stop := openaiserverapi.MessagesContentBlockStopEvent{
+					Type:  openaiserverapi.MessagesEventContentBlockStop,
+					Index: b.contentBlockIndex - 1,
+				}
+				names = append(names, stop.Type)
+				data = append(data, stop)
+			}
+			blockStart := openaiserverapi.MessagesContentBlockStartEvent{
+				Type:  openaiserverapi.MessagesEventContentBlockStart,
+				Index: b.contentBlockIndex,
+				ContentBlock: openaiserverapi.MessagesContentBlock{
+					Type:  "tool_use",
+					ID:    tool.ID,
+					Name:  *tool.Function.Name,
+					Input: map[string]any{},
+				},
+			}
+			names = append(names, blockStart.Type)
+			data = append(data, blockStart)
+			b.contentBlockIndex++
+		}
+
+		delta := openaiserverapi.MessagesContentBlockDeltaEvent{
+			Type:  openaiserverapi.MessagesEventContentBlockDelta,
+			Index: b.contentBlockIndex - 1,
+			Delta: openaiserverapi.MessagesContentBlockDelta{
+				Type:        "input_json_delta",
+				PartialJSON: tool.Function.Arguments,
+			},
+		}
+		names = append(names, delta.Type)
+		data = append(data, delta)
+		return &namedEventChunk{names: names, data: data}
+	}
+
+	if tokens == nil || len(tokens.Strings) == 0 {
+		return nil
+	}
+	text := strings.Join(tokens.Strings, "")
+	delta := openaiserverapi.MessagesContentBlockDeltaEvent{
+		Type:  openaiserverapi.MessagesEventContentBlockDelta,
+		Index: 0,
+		Delta: openaiserverapi.MessagesContentBlockDelta{Type: "text_delta", Text: text},
+	}
+	return &namedEventChunk{
+		names: []string{openaiserverapi.MessagesEventContentBlockDelta},
+		data:  []any{delta},
+	}
+}
+
+func (b *messagesHTTPRespBuilder) createLastChunk(respCtx vllmsim.ResponseContext, finishReason string, _ int) sseChunk {
+	blockIdx := 0
+	if b.inToolMode && b.contentBlockIndex > 0 {
+		blockIdx = b.contentBlockIndex - 1
+	}
+	sr := b.stopReason(finishReason)
+
+	blockStop := openaiserverapi.MessagesContentBlockStopEvent{
+		Type:  openaiserverapi.MessagesEventContentBlockStop,
+		Index: blockIdx,
+	}
+	msgDelta := openaiserverapi.MessagesMessageDeltaEvent{
+		Type:  openaiserverapi.MessagesEventMessageDelta,
+		Delta: openaiserverapi.MessagesMessageDeltaPayload{StopReason: &sr, StopSequence: nil},
+		Usage: openaiserverapi.MessagesStreamUsage{OutputTokens: respCtx.UsageData().CompletionTokens},
+	}
+	msgStop := openaiserverapi.MessagesMessageStopEvent{Type: openaiserverapi.MessagesEventMessageStop}
+
+	return &namedEventChunk{
+		names: []string{blockStop.Type, msgDelta.Type, msgStop.Type},
+		data:  []any{blockStop, msgDelta, msgStop},
+	}
+}
+
+func (*messagesHTTPRespBuilder) createDoneChunk() sseChunk        { return nil }
+func (*messagesHTTPRespBuilder) sendFinishReasonWithTokens() bool { return false }
+
+func (*messagesHTTPRespBuilder) createRenderResponse(_ [][]uint32, _ *openaiserverapi.RenderMMFeatures) any {
+	panic("messagesHTTPRespBuilder: /v1/messages has no /render endpoint")
+}
+
+var _ responseBuilder = (*messagesHTTPRespBuilder)(nil)

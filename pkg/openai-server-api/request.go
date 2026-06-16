@@ -978,3 +978,322 @@ func (g *GenerateRequest) ExtractMaxTokens() *int64 {
 func (g *GenerateRequest) GetLogprobs() *int {
 	return nil
 }
+
+// Anthropic Messages API
+
+// AnthropicImageSource is the source payload for an "image" content block.
+type AnthropicImageSource struct {
+	Type      string `json:"type"`                 // "base64" or "url"
+	MediaType string `json:"media_type,omitempty"` // e.g. "image/jpeg", present for base64 sources
+	Data      string `json:"data,omitempty"`       // base64-encoded bytes, present for base64 sources
+	URL       string `json:"url,omitempty"`        // present for url sources
+}
+
+// AnthropicToolResultContent is the content field inside a "tool_result" block.
+// It can be a plain string or an array of text blocks.
+type AnthropicToolResultContent struct {
+	Raw    string
+	Blocks []AnthropicContentBlock
+}
+
+func (c *AnthropicToolResultContent) UnmarshalJSON(data []byte) error {
+	var str string
+	if err := json.Unmarshal(data, &str); err == nil {
+		c.Raw = str
+		return nil
+	}
+	var blocks []AnthropicContentBlock
+	if err := json.Unmarshal(data, &blocks); err == nil {
+		c.Blocks = blocks
+		return nil
+	}
+	return errors.New("tool_result content format not supported")
+}
+
+// PlainText returns the concatenated plain text from the tool result.
+func (c *AnthropicToolResultContent) PlainText() string {
+	if c.Raw != "" {
+		return c.Raw
+	}
+	var parts []string
+	for _, b := range c.Blocks {
+		if b.Type == "text" {
+			parts = append(parts, b.Text)
+		}
+	}
+	return strings.Join(parts, "\n")
+}
+
+// AnthropicContentBlock is a single content block in an Anthropic message.
+// Fields are populated according to Type:
+//   - "text":        Text
+//   - "image":       Source
+//   - "tool_use":    ID, Name, Input
+//   - "tool_result": ToolUseID, Content
+type AnthropicContentBlock struct {
+	Type string `json:"type"`
+	// text block
+	Text string `json:"text,omitempty"`
+	// image block
+	Source *AnthropicImageSource `json:"source,omitempty"`
+	// tool_use block
+	ID    string         `json:"id,omitempty"`
+	Name  string         `json:"name,omitempty"`
+	Input map[string]any `json:"input,omitempty"`
+	// tool_result block
+	ToolUseID string                      `json:"tool_use_id,omitempty"`
+	Content   *AnthropicToolResultContent `json:"content,omitempty"`
+}
+
+// AnthropicMessageContent holds the content of an Anthropic message.
+// It can be a plain string or an array of content blocks.
+type AnthropicMessageContent struct {
+	Raw    string
+	Blocks []AnthropicContentBlock
+}
+
+func (c *AnthropicMessageContent) UnmarshalJSON(data []byte) error {
+	var str string
+	if err := json.Unmarshal(data, &str); err == nil {
+		c.Raw = str
+		return nil
+	}
+	var blocks []AnthropicContentBlock
+	if err := json.Unmarshal(data, &blocks); err == nil {
+		c.Blocks = blocks
+		return nil
+	}
+	return errors.New("content format not supported")
+}
+
+func (c AnthropicMessageContent) MarshalJSON() ([]byte, error) {
+	if c.Raw != "" {
+		return json.Marshal(c.Raw)
+	}
+	if c.Blocks != nil {
+		return json.Marshal(c.Blocks)
+	}
+	return json.Marshal("")
+}
+
+// PlainText returns the concatenated text from all text blocks.
+func (c *AnthropicMessageContent) PlainText() string {
+	if c.Raw != "" {
+		return c.Raw
+	}
+	var parts []string
+	for _, block := range c.Blocks {
+		if block.Type == "text" {
+			parts = append(parts, block.Text)
+		}
+	}
+	return strings.Join(parts, "\n")
+}
+
+// AnthropicMessage is a single message in the Anthropic Messages API.
+type AnthropicMessage struct {
+	// Role is "user" or "assistant"
+	Role    string                  `json:"role"`
+	Content AnthropicMessageContent `json:"content"`
+}
+
+// PlainText returns the plain text representation of the message.
+func (m *AnthropicMessage) PlainText(includeRole bool) string {
+	var builder strings.Builder
+	if includeRole {
+		builder.WriteString(m.Role)
+		builder.WriteString(": ")
+	}
+	builder.WriteString(m.Content.PlainText())
+	return builder.String()
+}
+
+// AnthropicTool defines a tool in the Anthropic Messages API format.
+type AnthropicTool struct {
+	Name        string         `json:"name"`
+	Description string         `json:"description,omitempty"`
+	InputSchema map[string]any `json:"input_schema"`
+}
+
+// AnthropicToolChoice controls which tool the model calls.
+// Type is "auto" (default), "any" (force a tool call), or "tool" (specific tool via Name).
+type AnthropicToolChoice struct {
+	Type string `json:"type"`
+	Name string `json:"name,omitempty"` // only for type "tool"
+}
+
+// MessagesRequest defines the structure of an Anthropic /v1/messages request.
+type MessagesRequest struct {
+	baseRequest
+	// Messages is the list of input messages (required)
+	Messages []AnthropicMessage `json:"messages"`
+	// System is the optional system prompt
+	System string `json:"system,omitempty"`
+	// MaxTokens is the maximum number of output tokens (required by the API)
+	MaxTokens *int64 `json:"max_tokens"`
+	// Tools is the list of tools available to the model
+	Tools []AnthropicTool `json:"tools,omitempty"`
+	// ToolChoice controls which tool (if any) is called
+	ToolChoice *AnthropicToolChoice `json:"tool_choice,omitempty"`
+}
+
+var _ Request = (*MessagesRequest)(nil)
+
+func (m *MessagesRequest) GetTools() []Tool {
+	return nil
+}
+
+func (m *MessagesRequest) GetToolChoice() ToolChoice {
+	return ToolChoice{}
+}
+
+func (m *MessagesRequest) GetMaxCompletionTokens() *int64 {
+	return m.MaxTokens
+}
+
+func (m *MessagesRequest) ExtractMaxTokens() *int64 {
+	return m.MaxTokens
+}
+
+func (m *MessagesRequest) GetLogprobs() *int {
+	return nil
+}
+
+// ToChatCompletionsRequest converts this Anthropic Messages request to an
+// equivalent ChatCompletionsRequest for processing by the existing pipeline.
+//
+// Mapping rules:
+//   - system prompt → leading Message{Role: "system"}
+//   - "text" block  → ChatComplContentBlock{Type: "text"}
+//   - "image" block → ChatComplContentBlock{Type: "image_url"} (base64 sources become data URLs)
+//   - "tool_use" block (assistant) → Message.ToolCalls entry
+//   - "tool_result" block (user) → separate Message{Role: "tool", ToolCallID: …}
+//   - AnthropicTool → Tool with function.parameters = input_schema
+func (m *MessagesRequest) ToChatCompletionsRequest() *ChatCompletionsRequest {
+	msgs := make([]Message, 0, len(m.Messages)+1)
+	if m.System != "" {
+		msgs = append(msgs, Message{
+			Role:    "system",
+			Content: ChatComplContent{Raw: m.System},
+		})
+	}
+
+	for _, am := range m.Messages {
+		// String-form content: emit directly.
+		if am.Content.Raw != "" {
+			msgs = append(msgs, Message{
+				Role:    am.Role,
+				Content: ChatComplContent{Raw: am.Content.Raw},
+			})
+			continue
+		}
+
+		var contentBlocks []ChatComplContentBlock
+		var toolCalls []ToolCall
+		var toolResults []AnthropicContentBlock
+
+		for _, b := range am.Content.Blocks {
+			switch b.Type {
+			case "text":
+				contentBlocks = append(contentBlocks, ChatComplContentBlock{
+					Type: "text",
+					Text: b.Text,
+				})
+			case "image":
+				if b.Source != nil {
+					var url string
+					if b.Source.Type == "base64" {
+						url = "data:" + b.Source.MediaType + ";base64," + b.Source.Data
+					} else {
+						url = b.Source.URL
+					}
+					contentBlocks = append(contentBlocks, ChatComplContentBlock{
+						Type:     "image_url",
+						ImageURL: ChatComplImageBlock{Url: url},
+					})
+				}
+			case "tool_use":
+				var args []byte
+				if b.Input != nil {
+					args, _ = json.Marshal(b.Input)
+				}
+				if len(args) == 0 {
+					args = []byte("{}")
+				}
+				name := b.Name
+				toolCalls = append(toolCalls, ToolCall{
+					ID:   b.ID,
+					Type: "function",
+					Function: FunctionCall{
+						Name:      &name,
+						Arguments: string(args),
+					},
+				})
+			case "tool_result":
+				toolResults = append(toolResults, b)
+			default:
+				// unknown block types (e.g. "document", "thinking") are skipped to
+				// allow forward compatibility with new Anthropic block types
+			}
+		}
+
+		// Emit the message itself when it carries content or tool calls.
+		if len(contentBlocks) > 0 || len(toolCalls) > 0 {
+			msg := Message{Role: am.Role, ToolCalls: toolCalls}
+			if len(contentBlocks) > 0 {
+				msg.Content = ChatComplContent{Structured: contentBlocks}
+			}
+			msgs = append(msgs, msg)
+		}
+
+		// Each tool_result block becomes a separate "tool" role message.
+		for _, tr := range toolResults {
+			var content string
+			if tr.Content != nil {
+				content = tr.Content.PlainText()
+			}
+			msgs = append(msgs, Message{
+				Role:       "tool",
+				Content:    ChatComplContent{Raw: content},
+				ToolCallID: tr.ToolUseID,
+			})
+		}
+	}
+
+	// Convert Anthropic tools to OpenAI format (input_schema → parameters).
+	var tools []Tool
+	for _, at := range m.Tools {
+		tools = append(tools, Tool{
+			Type: "function",
+			Function: function{
+				Name:        at.Name,
+				Description: at.Description,
+				Parameters:  at.InputSchema,
+			},
+		})
+	}
+
+	var toolChoice ToolChoice
+	if m.ToolChoice != nil {
+		switch m.ToolChoice.Type {
+		case "any":
+			toolChoice = NewToolChoiceRequired()
+		case "none":
+			toolChoice = NewToolChoiceNone()
+		case "tool":
+			if m.ToolChoice.Name != "" {
+				toolChoice = NewToolChoiceFunction(m.ToolChoice.Name)
+			}
+		}
+	}
+
+	return &ChatCompletionsRequest{
+		baseCompletionsRequest: baseCompletionsRequest{
+			baseRequest: m.baseRequest,
+		},
+		Messages:            msgs,
+		MaxCompletionTokens: m.MaxTokens,
+		Tools:               tools,
+		ToolChoice:          toolChoice,
+	}
+}

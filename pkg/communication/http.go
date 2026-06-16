@@ -68,6 +68,7 @@ func (c *Communication) startHTTPServer(listener net.Listener) (*fasthttp.Server
 	r.POST("/v1/chat/completions/render", c.HandleChatCompletionsRender)
 	r.POST("/v1/completions/render", c.HandleTextCompletionsRender)
 	r.POST("/v1/responses", c.HandleResponses)
+	r.POST("/v1/messages", c.HandleMessages)
 	r.POST("/inference/v1/generate", c.HandleGenerate)
 	if !c.simulator.Context.Config().MMEncoderOnly {
 		r.POST("/v1/embeddings", c.HandleEmbeddings)
@@ -146,6 +147,11 @@ func (c *Communication) HandleTextCompletions(ctx *fasthttp.RequestCtx) {
 // HandleResponses http handler for /v1/responses
 func (c *Communication) HandleResponses(ctx *fasthttp.RequestCtx) {
 	c.handleHTTP(&vllmsim.ResponsesRequest{}, &responsesHTTPRespBuilder{}, ctx)
+}
+
+// HandleMessages http handler for /v1/messages (Anthropic Messages API)
+func (c *Communication) HandleMessages(ctx *fasthttp.RequestCtx) {
+	c.handleHTTP(&vllmsim.MessagesRequest{}, &messagesHTTPRespBuilder{}, ctx)
 }
 
 // HandleGenerate http handler for /inference/v1/generate
