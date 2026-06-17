@@ -106,7 +106,7 @@ func (d *CustomDataset) GetResponseTokens(req openaiserverapi.Request) (*openais
 
 	if len(responses) > 0 {
 		// has responses for the given request
-		d.logger.V(logging.TRACE).Info("Reponses were found in the dataset for the request's prompt")
+		d.logger.V(logging.TRACE).Info("Responses were found in the dataset for the request's prompt")
 		shorterOrEqLenResponses, equalLenResponses, longerLenResponses := d.categorizeResponses(responses, maxResponseLen)
 
 		if req.GetIgnoreEOS() {

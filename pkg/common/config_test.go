@@ -411,13 +411,13 @@ var _ = Describe("Simulator configuration", func() {
 			name: "invalid kv-cache-transfer-latency-std-dev",
 			args: []string{"cmd", "--kv-cache-transfer-latency", "70ms", "--kv-cache-transfer-latency-std-dev", "35ms",
 				"--config", "../../manifests/config.yaml"},
-			expectedError: "kv-cache tranfer standard deviation cannot be more than 30% of kv-cache tranfer",
+			expectedError: "kv-cache transfer standard deviation cannot be more than 30% of kv-cache transfer",
 		},
 		{
 			name: "invalid (negative) kv-cache-transfer-latency-std-dev",
 			args: []string{"cmd", "--kv-cache-transfer-latency-std-dev", "-35ms",
 				"--config", "../../manifests/config.yaml"},
-			expectedError: "kv-cache tranfer time standard deviation cannot be negative",
+			expectedError: "kv-cache transfer time standard deviation cannot be negative",
 		},
 		{
 			name: "invalid (negative) kv-cache-size",
@@ -530,13 +530,13 @@ var _ = Describe("Simulator configuration", func() {
 			name: "invalid (negative) kv-cache-transfer-time-per-token",
 			args: []string{"cmd", "--kv-cache-transfer-time-per-token", "-1ms",
 				"--config", "../../manifests/config.yaml"},
-			expectedError: "kv-cache tranfer time per token cannot be negative",
+			expectedError: "kv-cache transfer time per token cannot be negative",
 		},
 		{
 			name: "invalid (negative) kv-cache-transfer-time-std-dev",
 			args: []string{"cmd", "--kv-cache-transfer-time-std-dev", "-1ms",
 				"--config", "../../manifests/config.yaml"},
-			expectedError: "kv-cache tranfer time standard deviation cannot be negative",
+			expectedError: "kv-cache transfer time standard deviation cannot be negative",
 		},
 		{
 			name: "invalid data-parallel-size",

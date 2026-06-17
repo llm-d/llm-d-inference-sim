@@ -259,7 +259,7 @@ type ToolCall struct {
 	Index int `json:"index"`
 }
 
-// ChatRespChoice represents a single chat completions response choise
+// ChatRespChoice represents a single chat completions response choice
 type ChatRespChoice struct {
 	baseResponseChoice
 	// Message contains choice's Message
@@ -275,7 +275,7 @@ type TextCompletionsResponse struct {
 	Choices []TextRespChoice `json:"choices"`
 }
 
-// TextRespChoice represents a single text completions response choise
+// TextRespChoice represents a single text completions response choice
 type TextRespChoice struct {
 	baseResponseChoice
 	// Text defines request's content
@@ -294,7 +294,7 @@ type ChatCompletionsRespChunk struct {
 	Choices []ChatRespChunkChoice `json:"choices"`
 }
 
-// ChatRespChunkChoice represents a single chat completions response choise in case of streaming
+// ChatRespChunkChoice represents a single chat completions response choice in case of streaming
 type ChatRespChunkChoice struct {
 	baseResponseChoice
 	// Delta is a content of the chunk

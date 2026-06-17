@@ -420,23 +420,23 @@ func (c *Configuration) validate() error {
 	}
 
 	if c.KVCacheTransferTimePerToken < 0 {
-		return errors.New("kv-cache tranfer time per token cannot be negative")
+		return errors.New("kv-cache transfer time per token cannot be negative")
 	}
 	if c.KVCacheTransferTimeStdDev < 0 {
-		return errors.New("kv-cache tranfer time standard deviation cannot be negative")
+		return errors.New("kv-cache transfer time standard deviation cannot be negative")
 	}
 	if float32(c.KVCacheTransferTimeStdDev) > 0.3*float32(c.KVCacheTransferTimePerToken) {
-		return errors.New("kv-cache tranfer time standard deviation cannot be more than 30% of kv-cache tranfer time")
+		return errors.New("kv-cache transfer time standard deviation cannot be more than 30% of kv-cache transfer time")
 	}
 
 	if c.KVCacheTransferLatency < 0 {
-		return errors.New("kv-cache tranfer time cannot be negative")
+		return errors.New("kv-cache transfer time cannot be negative")
 	}
 	if c.KVCacheTransferLatencyStdDev < 0 {
-		return errors.New("kv-cache tranfer time standard deviation cannot be negative")
+		return errors.New("kv-cache transfer time standard deviation cannot be negative")
 	}
 	if float32(c.KVCacheTransferLatencyStdDev) > 0.3*float32(c.KVCacheTransferLatency) {
-		return errors.New("kv-cache tranfer standard deviation cannot be more than 30% of kv-cache tranfer")
+		return errors.New("kv-cache transfer standard deviation cannot be more than 30% of kv-cache transfer")
 	}
 
 	if c.TimeFactorUnderLoad < 1.0 {

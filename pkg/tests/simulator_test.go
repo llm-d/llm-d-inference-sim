@@ -111,7 +111,7 @@ var _ = Describe("Simulator", func() {
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
-			openaiclient, params := getOpenAIClentAndCompletionParams(client, model, testUserMessage, true)
+			openaiclient, params := getOpenAIClientAndCompletionParams(client, model, testUserMessage, true)
 			stream := openaiclient.Completions.NewStreaming(ctx, params)
 			defer func() {
 				err := stream.Close()
@@ -185,7 +185,7 @@ var _ = Describe("Simulator", func() {
 		client, err := startServer(ctx, common.ModeRandom)
 		Expect(err).NotTo(HaveOccurred())
 
-		openaiclient, params := getOpenAIClentAndCompletionParams(client, common.TestModelName, testUserMessage, true)
+		openaiclient, params := getOpenAIClientAndCompletionParams(client, common.TestModelName, testUserMessage, true)
 		params.MaxTokens = param.NewOpt(int64(1))
 		stream := openaiclient.Completions.NewStreaming(ctx, params)
 		defer func() {
@@ -214,7 +214,7 @@ var _ = Describe("Simulator", func() {
 
 			openaiclient, params := getOpenAIClientAndChatParams(client, model, testUserMessage, false)
 			numTokens := 0
-			// if maxTokens and maxCompletionTokens are passsed
+			// if maxTokens and maxCompletionTokens are passed
 			// maxCompletionTokens is used
 			if maxTokens != 0 {
 				params.MaxTokens = param.NewOpt(int64(maxTokens))
@@ -293,7 +293,7 @@ var _ = Describe("Simulator", func() {
 			server, _, client, err := startServerHandle(ctx, mode, args, nil)
 			Expect(err).NotTo(HaveOccurred())
 
-			openaiclient, params := getOpenAIClentAndCompletionParams(client, model, testUserMessage, false)
+			openaiclient, params := getOpenAIClientAndCompletionParams(client, model, testUserMessage, false)
 			numTokens := 0
 			if maxTokens != 0 {
 				params.MaxTokens = param.NewOpt(int64(maxTokens))
@@ -465,7 +465,7 @@ var _ = Describe("Simulator", func() {
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
-			openaiclient, params := getOpenAIClentAndCompletionParams(client, common.TestModelName, testUserMessage, false)
+			openaiclient, params := getOpenAIClientAndCompletionParams(client, common.TestModelName, testUserMessage, false)
 			params.N = param.NewOpt(int64(n))
 			resp, err := openaiclient.Completions.New(ctx, params)
 			Expect(err).NotTo(HaveOccurred())
@@ -508,7 +508,7 @@ var _ = Describe("Simulator", func() {
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
-			openaiclient, params := getOpenAIClentAndCompletionParams(client, common.TestModelName, testUserMessage, true)
+			openaiclient, params := getOpenAIClientAndCompletionParams(client, common.TestModelName, testUserMessage, true)
 			params.N = param.NewOpt(int64(n))
 			stream := openaiclient.Completions.NewStreaming(ctx, params)
 			defer func() {
@@ -1546,7 +1546,7 @@ var _ = Describe("Simulator", func() {
 			client, err := startServerWithEnv(ctx, common.ModeRandom, envs)
 			Expect(err).NotTo(HaveOccurred())
 
-			openaiclient, params := getOpenAIClentAndCompletionParams(client, common.TestModelName, testUserMessage, false)
+			openaiclient, params := getOpenAIClientAndCompletionParams(client, common.TestModelName, testUserMessage, false)
 			var httpResp *http.Response
 			resp, err := openaiclient.Completions.New(ctx, params, option.WithResponseInto(&httpResp))
 			Expect(err).NotTo(HaveOccurred())
@@ -1574,7 +1574,7 @@ var _ = Describe("Simulator", func() {
 			client, err := startServerWithEnv(ctx, common.ModeRandom, envs)
 			Expect(err).NotTo(HaveOccurred())
 
-			openaiclient, params := getOpenAIClentAndCompletionParams(client, common.TestModelName, testUserMessage, true)
+			openaiclient, params := getOpenAIClientAndCompletionParams(client, common.TestModelName, testUserMessage, true)
 			var httpResp *http.Response
 			resp, err := openaiclient.Completions.New(ctx, params, option.WithResponseInto(&httpResp))
 			Expect(err).NotTo(HaveOccurred())
@@ -1693,7 +1693,7 @@ var _ = Describe("Simulator", func() {
 				client, err := startServer(ctx, mode)
 				Expect(err).NotTo(HaveOccurred())
 
-				openaiclient, params := getOpenAIClentAndCompletionParams(client, common.TestModelName, testUserMessage, true)
+				openaiclient, params := getOpenAIClientAndCompletionParams(client, common.TestModelName, testUserMessage, true)
 				if logprobsCount > 0 {
 					params.Logprobs = param.NewOpt(int64(logprobsCount))
 				}
@@ -1764,7 +1764,7 @@ var _ = Describe("Simulator", func() {
 					}
 					resp, err = openaiclient.Chat.Completions.New(ctx, params)
 				} else {
-					openaiclient, params := getOpenAIClentAndCompletionParams(client, common.TestModelName, testUserMessage, false)
+					openaiclient, params := getOpenAIClientAndCompletionParams(client, common.TestModelName, testUserMessage, false)
 					if logprobsParam != nil {
 						if logprobsCount, ok := logprobsParam.(int); ok && logprobsCount > 0 {
 							params.Logprobs = param.NewOpt(int64(logprobsCount))
@@ -3422,7 +3422,7 @@ var _ = Describe("Simulator", func() {
 			go func() {
 				time.Sleep(200 * time.Millisecond)
 
-				openaiclient, params := getOpenAIClentAndCompletionParams(client, model, longPrompt, false)
+				openaiclient, params := getOpenAIClientAndCompletionParams(client, model, longPrompt, false)
 				resp, err := openaiclient.Completions.New(ctx, params)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(resp.Choices).ShouldNot(BeEmpty())

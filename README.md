@@ -19,7 +19,7 @@ Running full LLM inference requires significant GPU resources and introduces non
 
 The simulator is designed to act as a drop-in replacement for vLLM, sitting between your client/infrastructure and the void where the GPU usually resides. It processes requests through a configurable simulation engine that governs what is returned and when it is returned.
 
-For detailed configuraiton definitions see the [Configuration Guide](docs/configuration.md)
+For detailed configuration definitions see the [Configuration Guide](docs/configuration.md)
 
 ### Modes of Operation
 The simulator decides the content of the response based on two primary modes:
@@ -85,7 +85,7 @@ The simulator is designed to run either as a standalone binary or within a Kuber
 ### Observability
 The simulator supports a subset of standard vLLM Prometheus metrics.<br>
 
-For detailes see the [Metrics Guide](docs/metrics.md)
+For details see the [Metrics Guide](docs/metrics.md)
 
 ## Working with docker image
 

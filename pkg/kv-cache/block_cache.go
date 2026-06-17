@@ -58,7 +58,7 @@ type blockCache struct {
 	blockToTokens   map[blockKey][]uint32              // block hash -> block tokens
 	loadedModels    map[string]struct{}                // models currently loaded (base model + loaded loras)
 	maxBlocks       int                                // maximum number of blocks in the cache
-	eventSender     *KVEventSender                     // emmits kv events
+	eventSender     *KVEventSender                     // emits kv events
 	eventChan       common.Channel[EventData]          // channel for asynchronous event processing
 	usageChan       *common.Channel[common.MetricInfo] // channel for usage reporting
 	logger          logr.Logger
@@ -169,12 +169,12 @@ func (bc *blockCache) startRequest(req Request, blockHashes []uint64, blockToken
 	}
 
 	// divide list of blocks to three lists:
-	// blockAreadyInUse - blocks, which are already used by currently running request
+	// blockAlreadyInUse - blocks, which are already used by currently running request
 	// blockToMoveToUsed - blocks, which were used in past
 	// blocksToAdd - new blocks
 	blocksToAdd := make([]blockKey, 0)
 	blockToMoveToUsed := make([]blockKey, 0)
-	blockAreadyInUse := make([]blockKey, 0)
+	blockAlreadyInUse := make([]blockKey, 0)
 
 	// first step - ensure that there is enough space for all blocks
 	// count number of new blocks + number of blocks that are in the unused blocks
@@ -186,7 +186,7 @@ func (bc *blockCache) startRequest(req Request, blockHashes []uint64, blockToken
 		} else if _, exists := bc.usedBlocks[bKey]; !exists {
 			blocksToAdd = append(blocksToAdd, bKey)
 		} else {
-			blockAreadyInUse = append(blockAreadyInUse, bKey)
+			blockAlreadyInUse = append(blockAlreadyInUse, bKey)
 		}
 
 		// store block tokens if doesnot in the cache
@@ -200,7 +200,7 @@ func (bc *blockCache) startRequest(req Request, blockHashes []uint64, blockToken
 	}
 
 	// for blocks that are already in use - update the reference
-	for _, block := range blockAreadyInUse {
+	for _, block := range blockAlreadyInUse {
 		bc.usedBlocks[block] += 1
 	}
 
@@ -260,7 +260,7 @@ func (bc *blockCache) startRequest(req Request, blockHashes []uint64, blockToken
 		}
 		common.WriteToChannel(*bc.usageChan, usage, bc.logger)
 	}
-	return len(blockAreadyInUse) + len(blockToMoveToUsed), nil
+	return len(blockAlreadyInUse) + len(blockToMoveToUsed), nil
 }
 
 // finishRequest processes the completion of a request, decreasing reference counts

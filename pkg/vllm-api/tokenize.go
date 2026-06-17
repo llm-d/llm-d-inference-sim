@@ -33,12 +33,12 @@ type TokenizeRequest struct {
 
 // TokenizeResponse is a response for tokenize request
 type TokenizeResponse struct {
-	// MaxModelLen is max model length as dfined in the configuration
+	// MaxModelLen is max model length as defined in the configuration
 	MaxModelLen int `json:"max_model_len"`
 	// Count is the number of returned tokens
 	Count int `json:"count"`
 	// Tokens are an array of tokens - the result of request tokenization
 	Tokens []uint32 `json:"tokens"`
-	// TokenStrs is currently unsupported, will allways be null
+	// TokenStrs is currently unsupported, will always be null
 	TokenStrs []int `json:"token_strs"`
 }

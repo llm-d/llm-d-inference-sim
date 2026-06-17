@@ -222,7 +222,7 @@ func (s *VllmSimulator) processing(ctx context.Context) {
 			// processing with this worker
 			s.findRequestAndSendToProcess(worker)
 		case <-s.Context.loras.loraRemovable.Channel:
-			// there is a LoRA that can be removed, go through availbale workers
+			// there is a LoRA that can be removed, go through available workers
 			// and queued requests and find requests that can run now,
 			// stop if there are no free workers, or no requests
 			s.Context.logger.V(logging.TRACE).Info("LoRA can be removed")

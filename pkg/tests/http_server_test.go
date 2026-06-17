@@ -523,7 +523,7 @@ var _ = Describe("Server", func() {
 
 			checkSimSleeping(client, true)
 
-			// Wake up the weghts only, kv cache shouldn't wake up yet
+			// Wake up the weights only, kv cache shouldn't wake up yet
 			resp, err = client.Post("http://localhost/wake_up?tags=weights", "", nil)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resp.StatusCode).To(Equal(http.StatusOK))

@@ -146,7 +146,7 @@ Each element in the `conversations` array must have:
 ## Dataset Structure
 
 The dataset is provided in two formats:
-- **JSON:** Ideal for debugging and referense.
+- **JSON:** Ideal for debugging and reference.
 - **SQLite:** Used by the simulator.
 
 The tool generates two files:

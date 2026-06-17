@@ -11,7 +11,7 @@ Currently, the simulator supports a partial OpenAI-compatible API:
 
 For details see the [HTTP Endpoints Guide](http-enpdpoints.md)
 
-In addition, a set of the vLLM HTTP endpoints are suppored:
+In addition, a set of the vLLM HTTP endpoints are supported:
 
 | Endpoint | Description |
 |---|---|
@@ -82,7 +82,7 @@ In addition to standard HTTP headers, the simulator recognizes a few simulator-s
 ## gRPC Endpoints
 The simulator implements the `vllm.grpc.engine.VllmEngine` service definition. 
 It is available on the same port as the HTTP server.
-Only `Generate` and `GetModelInfo` methods are currenlty implemented. <br>
+Only `Generate` and `GetModelInfo` methods are currently implemented. <br>
 The `Generate` submits a generation request. Supports streaming responses and standard sampling parameters.<br>
 The `GetModelInfo` retrieves metadata about the currently loaded model.
 
