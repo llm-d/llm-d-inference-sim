@@ -63,6 +63,11 @@ func getNumberOfPromptTokens(req openaiserverapi.Request) int {
 }
 
 func validateRequest(req openaiserverapi.Request) *openaiserverapi.Error {
+	if n := req.GetRawN(); n != nil && *n <= 0 {
+		err := openaiserverapi.NewError("n must be at least 1", fasthttp.StatusBadRequest, nil)
+		return &err
+	}
+
 	if req.GetMaxCompletionTokens() != nil && *req.GetMaxCompletionTokens() <= 0 {
 		err := openaiserverapi.NewError(common.InvalidMaxTokensErrMsg, fasthttp.StatusBadRequest, nil)
 		return &err

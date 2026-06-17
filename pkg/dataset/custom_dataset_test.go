@@ -78,7 +78,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 
 		validDB = make([]validDBElement, 3)
 
-		// #1 in db: intput1, completions, short response
+		// #1 in db: input1, completions, short response
 		validDB[0].input = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10"
 		validDB[0].hexa = "73205d2e432e6b117e0b75cdddeac019ee863f4b524f75bf57c15c5a47a445e4"
 		validDB[0].respTokens = openaiserverapi.Tokenized{
@@ -86,7 +86,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 			Tokens:  []uint32{9707, 3738, 0},
 		}
 
-		// #3 in db: intput2, message1, completions, long response
+		// #3 in db: input2, message1, completions, long response
 		validDB[1].input = "Hello world!"
 		validDB[1].hexa = "90db35b48bf168f20fa36537861e1d64fac6af372267aec9d10437a3f83f8bec"
 		validDB[1].respTokens = openaiserverapi.Tokenized{
@@ -95,7 +95,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 			Tokens: []uint32{574, 374, 17847, 1293, 2033, 11, 432, 1265, 6644, 518, 3245, 220, 16, 15, 11211},
 		}
 
-		// #6 in db: intput2, message2, chat completions, short response
+		// #6 in db: input2, message2, chat completions, short response
 		validDB[2].input = ""
 		validDB[2].messages = []openaiserverapi.Message{
 			{Role: openaiserverapi.RoleUser, Content: openaiserverapi.ChatComplContent{Raw: "Hello world!"}},

@@ -33,6 +33,7 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/dataset"
 	kvcache "github.com/llm-d/llm-d-inference-sim/pkg/kv-cache"
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
+	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/openai/openai-go/v3"
@@ -44,7 +45,6 @@ import (
 
 const prompt1 = "What is the weather like in New York today?"
 const prompt2 = "I hear it's very cold."
-const sseDoneMarker = "[DONE]"
 
 var _ = Describe("Simulator", func() {
 
@@ -111,7 +111,7 @@ var _ = Describe("Simulator", func() {
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
-			openaiclient, params := getOpenAIClentAndCompletionParams(client, model, testUserMessage, true)
+			openaiclient, params := getOpenAIClientAndCompletionParams(client, model, testUserMessage, true)
 			stream := openaiclient.Completions.NewStreaming(ctx, params)
 			defer func() {
 				err := stream.Close()
@@ -155,6 +155,56 @@ var _ = Describe("Simulator", func() {
 		Entry(nil, common.QwenModelName, common.ModeRandom),
 	)
 
+	It("Should send length finish_reason chunk in chat completions streaming", func() {
+		ctx := context.TODO()
+		client, err := startServer(ctx, common.ModeRandom)
+		Expect(err).NotTo(HaveOccurred())
+
+		openaiclient, params := getOpenAIClientAndChatParams(client, common.TestModelName, testUserMessage, true)
+		params.MaxTokens = param.NewOpt(int64(1))
+		stream := openaiclient.Chat.Completions.NewStreaming(ctx, params)
+		defer func() {
+			err := stream.Close()
+			Expect(err).NotTo(HaveOccurred())
+		}()
+
+		var finishReason string
+		for stream.Next() {
+			for _, choice := range stream.Current().Choices {
+				if choice.FinishReason != "" {
+					finishReason = choice.FinishReason
+				}
+			}
+		}
+		Expect(stream.Err()).NotTo(HaveOccurred())
+		Expect(finishReason).To(Equal(common.LengthFinishReason))
+	})
+
+	It("Should send length finish_reason chunk in text completions streaming", func() {
+		ctx := context.TODO()
+		client, err := startServer(ctx, common.ModeRandom)
+		Expect(err).NotTo(HaveOccurred())
+
+		openaiclient, params := getOpenAIClientAndCompletionParams(client, common.TestModelName, testUserMessage, true)
+		params.MaxTokens = param.NewOpt(int64(1))
+		stream := openaiclient.Completions.NewStreaming(ctx, params)
+		defer func() {
+			err := stream.Close()
+			Expect(err).NotTo(HaveOccurred())
+		}()
+
+		var finishReason string
+		for stream.Next() {
+			for _, choice := range stream.Current().Choices {
+				if choice.FinishReason != "" {
+					finishReason = string(choice.FinishReason)
+				}
+			}
+		}
+		Expect(stream.Err()).NotTo(HaveOccurred())
+		Expect(finishReason).To(Equal(common.LengthFinishReason))
+	})
+
 	DescribeTable("chat completions",
 		func(model string, mode string, maxTokens int, maxCompletionTokens int) {
 			ctx := context.TODO()
@@ -164,7 +214,7 @@ var _ = Describe("Simulator", func() {
 
 			openaiclient, params := getOpenAIClientAndChatParams(client, model, testUserMessage, false)
 			numTokens := 0
-			// if maxTokens and maxCompletionTokens are passsed
+			// if maxTokens and maxCompletionTokens are passed
 			// maxCompletionTokens is used
 			if maxTokens != 0 {
 				params.MaxTokens = param.NewOpt(int64(maxTokens))
@@ -243,7 +293,7 @@ var _ = Describe("Simulator", func() {
 			server, _, client, err := startServerHandle(ctx, mode, args, nil)
 			Expect(err).NotTo(HaveOccurred())
 
-			openaiclient, params := getOpenAIClentAndCompletionParams(client, model, testUserMessage, false)
+			openaiclient, params := getOpenAIClientAndCompletionParams(client, model, testUserMessage, false)
 			numTokens := 0
 			if maxTokens != 0 {
 				params.MaxTokens = param.NewOpt(int64(maxTokens))
@@ -301,6 +351,260 @@ var _ = Describe("Simulator", func() {
 		Entry(nil, common.QwenModelName, common.ModeEcho, 1000),
 		Entry(nil, common.QwenModelName, common.ModeRandom, 1000),
 	)
+
+	DescribeTable("chat completions with n parameter",
+		func(mode string, n int) {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", mode, "--max-num-seqs", "10"}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			openaiclient, params := getOpenAIClientAndChatParams(client, common.TestModelName, testUserMessage, false)
+			params.N = param.NewOpt(int64(n))
+			resp, err := openaiclient.Chat.Completions.New(ctx, params)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Exact number of choices must match n
+			Expect(resp.Choices).To(HaveLen(n))
+			Expect(string(resp.Object)).To(Equal(openaiserverapi.ChatCompletionObject))
+
+			// Prompt tokens should be counted once, not n times
+			Expect(resp.Usage.PromptTokens).To(Equal(userMsgChatTokens))
+			Expect(resp.Usage.CompletionTokens).To(BeNumerically(">", 0))
+			Expect(resp.Usage.TotalTokens).To(Equal(resp.Usage.PromptTokens + resp.Usage.CompletionTokens))
+
+			// Each choice must have valid content and a sequential index
+			for i, choice := range resp.Choices {
+				Expect(choice.Index).To(BeEquivalentTo(i))
+				msg := choice.Message.Content
+				Expect(msg).ShouldNot(BeEmpty())
+
+				if mode == common.ModeEcho {
+					Expect(msg).Should(Equal(testUserMessage))
+				} else {
+					Expect(dataset.IsValidText(msg)).To(BeTrue())
+				}
+			}
+		},
+		func(mode string, n int) string {
+			return fmt.Sprintf("mode: %s n: %d", mode, n)
+		},
+		Entry(nil, common.ModeRandom, 1),
+		Entry(nil, common.ModeEcho, 1),
+		Entry(nil, common.ModeRandom, 3),
+		Entry(nil, common.ModeEcho, 3),
+		Entry(nil, common.ModeRandom, 5),
+	)
+
+	DescribeTable("chat completions streaming with n parameter",
+		func(mode string, n int) {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", mode, "--max-num-seqs", "10"}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			openaiclient, params := getOpenAIClientAndChatParams(client, common.TestModelName, testUserMessage, true)
+			params.N = param.NewOpt(int64(n))
+			stream := openaiclient.Chat.Completions.NewStreaming(ctx, params)
+			defer func() {
+				err := stream.Close()
+				Expect(err).NotTo(HaveOccurred())
+			}()
+
+			tokensPerChoice := make(map[int64][]string)
+			roles := make(map[int64]string)
+			var chunk openai.ChatCompletionChunk
+			numberOfChunksWithUsage := 0
+			for stream.Next() {
+				chunk = stream.Current()
+				for _, choice := range chunk.Choices {
+					if choice.Delta.Role != "" {
+						roles[choice.Index] = choice.Delta.Role
+					} else if choice.FinishReason == "" {
+						tokensPerChoice[choice.Index] = append(tokensPerChoice[choice.Index], choice.Delta.Content)
+					}
+				}
+				if chunk.Usage.CompletionTokens != 0 || chunk.Usage.PromptTokens != 0 || chunk.Usage.TotalTokens != 0 {
+					numberOfChunksWithUsage++
+				}
+			}
+			Expect(stream.Err()).NotTo(HaveOccurred())
+
+			Expect(numberOfChunksWithUsage).To(Equal(1))
+			// Prompt tokens counted once
+			Expect(chunk.Usage.PromptTokens).To(Equal(userMsgChatTokens))
+			Expect(chunk.Usage.CompletionTokens).To(BeNumerically(">", 0))
+			Expect(chunk.Usage.TotalTokens).To(Equal(chunk.Usage.PromptTokens + chunk.Usage.CompletionTokens))
+
+			// Exactly n choices must have been seen
+			Expect(tokensPerChoice).To(HaveLen(n))
+			for i := int64(0); i < int64(n); i++ {
+				Expect(roles[i]).To(Equal("assistant"), "choice %d missing role", i)
+				msg := strings.Join(tokensPerChoice[i], "")
+				Expect(msg).ShouldNot(BeEmpty(), "choice %d has empty content", i)
+				if mode == common.ModeEcho {
+					Expect(msg).Should(Equal(testUserMessage))
+				} else {
+					Expect(dataset.IsValidText(msg)).To(BeTrue())
+				}
+			}
+		},
+		func(mode string, n int) string {
+			return fmt.Sprintf("mode: %s n: %d", mode, n)
+		},
+		Entry(nil, common.ModeRandom, 1),
+		Entry(nil, common.ModeEcho, 1),
+		Entry(nil, common.ModeRandom, 3),
+		Entry(nil, common.ModeEcho, 3),
+	)
+
+	DescribeTable("text completions with n parameter",
+		func(mode string, n int) {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", mode, "--max-num-seqs", "10"}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			openaiclient, params := getOpenAIClientAndCompletionParams(client, common.TestModelName, testUserMessage, false)
+			params.N = param.NewOpt(int64(n))
+			resp, err := openaiclient.Completions.New(ctx, params)
+			Expect(err).NotTo(HaveOccurred())
+
+			// Exact number of choices must match n
+			Expect(resp.Choices).To(HaveLen(n))
+			Expect(string(resp.Object)).To(Equal(openaiserverapi.TextCompletionObject))
+
+			// Prompt tokens should be counted once
+			Expect(resp.Usage.PromptTokens).To(Equal(userMsgTokens))
+			Expect(resp.Usage.CompletionTokens).To(BeNumerically(">", 0))
+			Expect(resp.Usage.TotalTokens).To(Equal(resp.Usage.PromptTokens + resp.Usage.CompletionTokens))
+
+			// Each choice must have valid content and a sequential index
+			for i, choice := range resp.Choices {
+				Expect(choice.Index).To(BeEquivalentTo(i))
+				Expect(choice.Text).ShouldNot(BeEmpty())
+
+				if mode == common.ModeEcho {
+					Expect(choice.Text).Should(Equal(testUserMessage))
+				} else {
+					Expect(dataset.IsValidText(choice.Text)).To(BeTrue())
+				}
+			}
+		},
+		func(mode string, n int) string {
+			return fmt.Sprintf("mode: %s n: %d", mode, n)
+		},
+		Entry(nil, common.ModeRandom, 1),
+		Entry(nil, common.ModeEcho, 1),
+		Entry(nil, common.ModeRandom, 3),
+		Entry(nil, common.ModeEcho, 3),
+		Entry(nil, common.ModeRandom, 5),
+	)
+
+	DescribeTable("text completions streaming with n parameter",
+		func(mode string, n int) {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", mode, "--max-num-seqs", "10"}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			openaiclient, params := getOpenAIClientAndCompletionParams(client, common.TestModelName, testUserMessage, true)
+			params.N = param.NewOpt(int64(n))
+			stream := openaiclient.Completions.NewStreaming(ctx, params)
+			defer func() {
+				err := stream.Close()
+				Expect(err).NotTo(HaveOccurred())
+			}()
+
+			tokensPerChoice := make(map[int64][]string)
+			var chunk openai.Completion
+			numberOfChunksWithUsage := 0
+			for stream.Next() {
+				chunk = stream.Current()
+				for _, choice := range chunk.Choices {
+					if choice.FinishReason == "" {
+						tokensPerChoice[choice.Index] = append(tokensPerChoice[choice.Index], choice.Text)
+					}
+				}
+				if chunk.Usage.CompletionTokens != 0 || chunk.Usage.PromptTokens != 0 || chunk.Usage.TotalTokens != 0 {
+					numberOfChunksWithUsage++
+				}
+			}
+			Expect(stream.Err()).NotTo(HaveOccurred())
+
+			Expect(numberOfChunksWithUsage).To(Equal(1))
+			Expect(chunk.Usage.PromptTokens).To(Equal(userMsgTokens))
+			Expect(chunk.Usage.CompletionTokens).To(BeNumerically(">", 0))
+			Expect(chunk.Usage.TotalTokens).To(Equal(chunk.Usage.PromptTokens + chunk.Usage.CompletionTokens))
+
+			// Exactly n choices must have been seen
+			Expect(tokensPerChoice).To(HaveLen(n))
+			for i := int64(0); i < int64(n); i++ {
+				msg := strings.Join(tokensPerChoice[i], "")
+				Expect(msg).ShouldNot(BeEmpty(), "choice %d has empty content", i)
+				if mode == common.ModeEcho {
+					Expect(msg).Should(Equal(testUserMessage))
+				} else {
+					Expect(dataset.IsValidText(msg)).To(BeTrue())
+				}
+			}
+		},
+		func(mode string, n int) string {
+			return fmt.Sprintf("mode: %s n: %d", mode, n)
+		},
+		Entry(nil, common.ModeRandom, 1),
+		Entry(nil, common.ModeEcho, 1),
+		Entry(nil, common.ModeRandom, 3),
+		Entry(nil, common.ModeEcho, 3),
+	)
+
+	It("text completions with array prompt and n parameter", func() {
+		ctx := context.TODO()
+		args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho, "--max-num-seqs", "10"}
+		client, err := startServerWithArgs(ctx, args)
+		Expect(err).NotTo(HaveOccurred())
+
+		openaiclient := openai.NewClient(
+			option.WithBaseURL(baseURL),
+			option.WithHTTPClient(client))
+
+		prompts := []string{prompt1, prompt2}
+		n := 3
+
+		var expectedPromptTokens int64
+		for _, p := range prompts {
+			tokens, _, err := tokenizerMngr.TestTokenizer().RenderText(p)
+			Expect(err).NotTo(HaveOccurred())
+			expectedPromptTokens += int64(len(tokens))
+		}
+
+		resp, err := openaiclient.Completions.New(ctx, openai.CompletionNewParams{
+			Prompt: openai.CompletionNewParamsPromptUnion{OfArrayOfStrings: prompts},
+			Model:  openai.CompletionNewParamsModel(common.TestModelName),
+			N:      param.NewOpt(int64(n)),
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		// Total choices = len(prompts) * n
+		totalChoices := len(prompts) * n
+		Expect(resp.Choices).To(HaveLen(totalChoices))
+
+		// In echo mode, each group of n choices for a prompt should echo that prompt.
+		// Prompt 0 → choices 0..n-1, Prompt 1 → choices n..2n-1.
+		for i, c := range resp.Choices {
+			Expect(c.Index).To(BeEquivalentTo(i))
+			promptIdx := int(c.Index) / n
+			Expect(c.Text).To(Equal(prompts[promptIdx]),
+				"choice %d should echo prompt %d (%q)", c.Index, promptIdx, prompts[promptIdx])
+		}
+
+		// Prompt tokens counted once per prompt, not once per choice.
+		Expect(resp.Usage.PromptTokens).To(Equal(expectedPromptTokens))
+		// In echo mode completion tokens equal the sum of prompt tokens across
+		// all choices: each of the n copies for each prompt echoes the full prompt.
+		Expect(resp.Usage.CompletionTokens).To(Equal(expectedPromptTokens * int64(n)))
+		Expect(resp.Usage.TotalTokens).To(Equal(resp.Usage.PromptTokens + resp.Usage.CompletionTokens))
+	})
 
 	DescribeTable("text completions with array prompt",
 		func(streaming bool) {
@@ -1242,7 +1546,7 @@ var _ = Describe("Simulator", func() {
 			client, err := startServerWithEnv(ctx, common.ModeRandom, envs)
 			Expect(err).NotTo(HaveOccurred())
 
-			openaiclient, params := getOpenAIClentAndCompletionParams(client, common.TestModelName, testUserMessage, false)
+			openaiclient, params := getOpenAIClientAndCompletionParams(client, common.TestModelName, testUserMessage, false)
 			var httpResp *http.Response
 			resp, err := openaiclient.Completions.New(ctx, params, option.WithResponseInto(&httpResp))
 			Expect(err).NotTo(HaveOccurred())
@@ -1270,7 +1574,7 @@ var _ = Describe("Simulator", func() {
 			client, err := startServerWithEnv(ctx, common.ModeRandom, envs)
 			Expect(err).NotTo(HaveOccurred())
 
-			openaiclient, params := getOpenAIClentAndCompletionParams(client, common.TestModelName, testUserMessage, true)
+			openaiclient, params := getOpenAIClientAndCompletionParams(client, common.TestModelName, testUserMessage, true)
 			var httpResp *http.Response
 			resp, err := openaiclient.Completions.New(ctx, params, option.WithResponseInto(&httpResp))
 			Expect(err).NotTo(HaveOccurred())
@@ -1389,7 +1693,7 @@ var _ = Describe("Simulator", func() {
 				client, err := startServer(ctx, mode)
 				Expect(err).NotTo(HaveOccurred())
 
-				openaiclient, params := getOpenAIClentAndCompletionParams(client, common.TestModelName, testUserMessage, true)
+				openaiclient, params := getOpenAIClientAndCompletionParams(client, common.TestModelName, testUserMessage, true)
 				if logprobsCount > 0 {
 					params.Logprobs = param.NewOpt(int64(logprobsCount))
 				}
@@ -1460,7 +1764,7 @@ var _ = Describe("Simulator", func() {
 					}
 					resp, err = openaiclient.Chat.Completions.New(ctx, params)
 				} else {
-					openaiclient, params := getOpenAIClentAndCompletionParams(client, common.TestModelName, testUserMessage, false)
+					openaiclient, params := getOpenAIClientAndCompletionParams(client, common.TestModelName, testUserMessage, false)
 					if logprobsParam != nil {
 						if logprobsCount, ok := logprobsParam.(int); ok && logprobsCount > 0 {
 							params.Logprobs = param.NewOpt(int64(logprobsCount))
@@ -1896,9 +2200,9 @@ var _ = Describe("Simulator", func() {
 				}
 				Expect(err).NotTo(HaveOccurred())
 
-				if strings.HasPrefix(line, "data: ") {
-					data := strings.TrimPrefix(line, "data: ")
-					if strings.TrimSpace(data) == sseDoneMarker {
+				if strings.HasPrefix(line, openaiserverapi.SSEDataPrefix) {
+					data := strings.TrimPrefix(line, openaiserverapi.SSEDataPrefix)
+					if strings.TrimSpace(data) == openaiserverapi.SSEDoneMarker {
 						break
 					}
 
@@ -2156,6 +2460,17 @@ var _ = Describe("Simulator", func() {
 	})
 
 	Context("responses API", func() {
+		responseParts := []string{
+			openaiserverapi.ResponsesEventCreated,
+			openaiserverapi.ResponsesEventInProgress,
+			openaiserverapi.ResponsesEventOutputItemAdded,
+			openaiserverapi.ResponsesEventContentPartAdded,
+			openaiserverapi.ResponsesEventTextDelta,
+			openaiserverapi.ResponsesEventTextDone,
+			openaiserverapi.ResponsesEventContentPartDone,
+			openaiserverapi.ResponsesEventOutputItemDone,
+			openaiserverapi.ResponsesEventCompleted}
+
 		DescribeTable("responses with string and array input",
 			func(model string, mode string, useStringInput bool) {
 				ctx := context.TODO()
@@ -2342,6 +2657,272 @@ var _ = Describe("Simulator", func() {
 			Entry(nil, common.TestModelName, common.ModeEcho),
 			Entry(nil, common.QwenModelName, common.ModeRandom),
 			Entry(nil, common.QwenModelName, common.ModeEcho),
+		)
+
+		DescribeTable("responses with logprobs",
+			func(includeLogprobs bool, topLogprobs int) {
+				ctx := context.TODO()
+				client, err := startServer(ctx, common.ModeEcho)
+				Expect(err).NotTo(HaveOccurred())
+
+				openaiclient, params := getOpenAIClientAndResponsesParams(client, common.TestModelName, testUserMessage)
+				if includeLogprobs {
+					params.Include = []responses.ResponseIncludable{responses.ResponseIncludableMessageOutputTextLogprobs}
+					if topLogprobs > 0 {
+						params.TopLogprobs = param.NewOpt(int64(topLogprobs))
+					}
+				}
+
+				resp, err := openaiclient.Responses.New(ctx, params)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(resp).NotTo(BeNil())
+				Expect(resp.Output).NotTo(BeEmpty())
+
+				contentItem := resp.Output[0].Content[0]
+				if includeLogprobs {
+					Expect(contentItem.Logprobs).NotTo(BeEmpty())
+					Expect(contentItem.Logprobs[0].Token).NotTo(BeEmpty())
+					Expect(contentItem.Logprobs[0].Logprob).To(BeNumerically("<=", 0))
+					if topLogprobs > 0 {
+						Expect(contentItem.Logprobs[0].TopLogprobs).To(HaveLen(topLogprobs))
+						Expect(contentItem.Logprobs[0].TopLogprobs[0].Token).To(Equal(contentItem.Logprobs[0].Token))
+					} else {
+						Expect(contentItem.Logprobs[0].TopLogprobs).To(BeEmpty())
+					}
+				} else {
+					Expect(contentItem.Logprobs).To(BeEmpty())
+				}
+			},
+			func(includeLogprobs bool, topLogprobs int) string {
+				return fmt.Sprintf("includeLogprobs: %t top_logprobs: %d", includeLogprobs, topLogprobs)
+			},
+			Entry(nil, true, 0),  // logprobs requested, no top alternatives
+			Entry(nil, true, 2),  // logprobs requested, 2 top alternatives
+			Entry(nil, false, 0), // logprobs not requested
+		)
+
+		DescribeTable("responses streaming with logprobs",
+			func(includeLogprobs bool, topLogprobs int) {
+				ctx := context.TODO()
+				client, err := startServer(ctx, common.ModeEcho)
+				Expect(err).NotTo(HaveOccurred())
+
+				openaiclient, params := getOpenAIClientAndResponsesParams(client, common.TestModelName, testUserMessage)
+				if includeLogprobs {
+					params.Include = []responses.ResponseIncludable{responses.ResponseIncludableMessageOutputTextLogprobs}
+					if topLogprobs > 0 {
+						params.TopLogprobs = param.NewOpt(int64(topLogprobs))
+					}
+				}
+
+				stream := openaiclient.Responses.NewStreaming(ctx, params)
+				defer func() {
+					Expect(stream.Close()).NotTo(HaveOccurred())
+				}()
+
+				deltaCount := 0
+				deltaLogprobsCount := 0
+
+				for stream.Next() {
+					event := stream.Current()
+					switch event.Type {
+					case openaiserverapi.ResponsesEventTextDelta:
+						delta := event.AsResponseOutputTextDelta()
+						Expect(delta.Delta).NotTo(BeEmpty())
+						deltaCount++
+						if includeLogprobs {
+							Expect(delta.JSON.Logprobs.Valid()).To(BeTrue(),
+								"delta event should have logprobs field present")
+							Expect(delta.Logprobs).NotTo(BeEmpty(),
+								"delta event should have non-empty logprobs when requested")
+							for _, lp := range delta.Logprobs {
+								Expect(lp.Token).NotTo(BeEmpty())
+								Expect(lp.Logprob).To(BeNumerically("<=", 0))
+								if topLogprobs > 0 {
+									Expect(lp.TopLogprobs).To(HaveLen(topLogprobs))
+								}
+							}
+							deltaLogprobsCount++
+						} else {
+							Expect(delta.Logprobs).To(BeEmpty(),
+								"delta event should have no logprobs when not requested")
+						}
+					case openaiserverapi.ResponsesEventTextDone:
+						done := event.AsResponseOutputTextDone()
+						Expect(done.Text).NotTo(BeEmpty())
+						if includeLogprobs {
+							Expect(done.JSON.Logprobs.Valid()).To(BeTrue(),
+								"done event should have logprobs field present (as [])")
+							Expect(done.Logprobs).To(BeEmpty(),
+								"done event logprobs should be empty array, not populated")
+						} else {
+							Expect(done.JSON.Logprobs.Valid()).To(BeFalse(),
+								"done event should not have logprobs field when not requested")
+						}
+					}
+				}
+				Expect(stream.Err()).NotTo(HaveOccurred())
+
+				Expect(deltaCount).To(BeNumerically(">", 0), "should have received delta events")
+				if includeLogprobs {
+					Expect(deltaLogprobsCount).To(Equal(deltaCount),
+						"all delta events should have logprobs when requested")
+				}
+			},
+			func(includeLogprobs bool, topLogprobs int) string {
+				return fmt.Sprintf("includeLogprobs: %t top_logprobs: %d", includeLogprobs, topLogprobs)
+			},
+			Entry(nil, true, 0),  // logprobs requested, no top alternatives
+			Entry(nil, true, 2),  // logprobs requested, 2 top alternatives
+			Entry(nil, false, 0), // logprobs not requested
+		)
+
+		DescribeTable("responses streaming logprobs per chunk type",
+			func(includeLogprobs bool, topLogprobs int) {
+				ctx := context.TODO()
+				client, err := startServer(ctx, common.ModeEcho)
+				Expect(err).NotTo(HaveOccurred())
+
+				reqBody := fmt.Sprintf(`{"model":%q,"input":%q,"stream":true`, common.TestModelName, testUserMessage)
+				if includeLogprobs {
+					reqBody += `,"include":["message.output_text.logprobs"]`
+					if topLogprobs > 0 {
+						reqBody += fmt.Sprintf(`,"top_logprobs":%d`, topLogprobs)
+					}
+				}
+				reqBody += "}"
+
+				req, err := http.NewRequest("POST", "http://localhost/v1/responses", strings.NewReader(reqBody))
+				Expect(err).NotTo(HaveOccurred())
+				req.Header.Set("Content-Type", "application/json")
+
+				httpResp, err := client.Do(req)
+				Expect(err).NotTo(HaveOccurred())
+				defer func() { Expect(httpResp.Body.Close()).To(Succeed()) }()
+				Expect(httpResp.StatusCode).To(Equal(http.StatusOK))
+
+				checkLogprobsMissing := func(part map[string]any, partType string) {
+					_, ok := part["logprobs"]
+					Expect(ok).To(BeFalse(), partType+": logprobs must be absent when not requested")
+				}
+				checkLogprobEmpty := func(partObj map[string]any, partType string, isNullExpected bool) {
+					if includeLogprobs {
+						logprobs, ok := partObj["logprobs"]
+						Expect(ok).To(BeTrue(), partType+": part.logprobs must be present when requested")
+						if isNullExpected {
+							Expect(logprobs).To(BeNil(), partType+": part.logprobs must be null")
+						} else {
+							Expect(logprobs.([]any)).To(BeEmpty(), partType+": part.logprobs must be empty []")
+						}
+					} else {
+						checkLogprobsMissing(partObj, partType)
+					}
+				}
+
+				seenTypes := map[string]bool{}
+				var deltaLogprobs []any
+				reader := bufio.NewReader(httpResp.Body)
+				for {
+					line, err := reader.ReadString('\n')
+					if err == io.EOF {
+						break
+					}
+					Expect(err).NotTo(HaveOccurred())
+					if !strings.HasPrefix(line, openaiserverapi.SSEDataPrefix) {
+						continue
+					}
+					data := strings.TrimSpace(strings.TrimPrefix(line, openaiserverapi.SSEDataPrefix))
+					if data == openaiserverapi.SSEDoneMarker {
+						break
+					}
+					var event map[string]any
+					Expect(json.Unmarshal([]byte(data), &event)).To(Succeed())
+					eventType, _ := event["type"].(string)
+					seenTypes[eventType] = true
+
+					switch eventType {
+					case openaiserverapi.ResponsesEventContentPartAdded:
+						// part.logprobs: [] when requested, absent when not
+						partObj, _ := event["part"].(map[string]any)
+						checkLogprobEmpty(partObj, eventType, false)
+
+					case openaiserverapi.ResponsesEventTextDelta:
+						// logprobs: populated when requested, absent when not
+						if includeLogprobs {
+							logprobsArr, _ := event["logprobs"].([]any)
+							Expect(logprobsArr).NotTo(BeEmpty(), "text.delta: logprobs must be non-empty")
+							for _, lp := range logprobsArr {
+								lpMap, _ := lp.(map[string]any)
+								Expect(lpMap["token"]).NotTo(BeEmpty())
+								Expect(lpMap["logprob"].(float64)).To(BeNumerically("<=", 0))
+								if topLogprobs > 0 {
+									Expect(lpMap["top_logprobs"].([]any)).To(HaveLen(topLogprobs))
+								}
+							}
+							deltaLogprobs = append(deltaLogprobs, logprobsArr...)
+						} else {
+							checkLogprobsMissing(event, eventType)
+						}
+
+					case openaiserverapi.ResponsesEventTextDone:
+						checkLogprobEmpty(event, eventType, false)
+
+					case openaiserverapi.ResponsesEventContentPartDone:
+						// part.logprobs: null when requested (signals per-token entries already streamed), absent when not
+						partObj, _ := event["part"].(map[string]any)
+						checkLogprobEmpty(partObj, eventType, true)
+
+					case openaiserverapi.ResponsesEventOutputItemDone:
+						// item.content[0].logprobs: null when requested, absent when not
+						item, ok := event["item"].(map[string]any)
+						Expect(ok).To(BeTrue(), "output_item.done: event.item must be a map")
+						contentArr, ok := item["content"].([]any)
+						Expect(ok).To(BeTrue(), "output_item.done: item.content must be an array")
+						Expect(contentArr).NotTo(BeEmpty(), "output_item.done: item.content must not be empty")
+						firstContent, ok := contentArr[0].(map[string]any)
+						Expect(ok).To(BeTrue(), "output_item.done: item.content[0] must be a map")
+						checkLogprobEmpty(firstContent, eventType, true)
+
+					case openaiserverapi.ResponsesEventCompleted:
+						// response.output[0].content[0].logprobs: accumulated entries when requested, absent when not
+						response, ok := event["response"].(map[string]any)
+						Expect(ok).To(BeTrue(), "completed: event.response must be a map")
+						outputArr, ok := response["output"].([]any)
+						Expect(ok).To(BeTrue(), "completed: response.output must be an array")
+						Expect(outputArr).NotTo(BeEmpty(), "completed: response.output must not be empty")
+						firstOutput, ok := outputArr[0].(map[string]any)
+						Expect(ok).To(BeTrue(), "completed: response.output[0] must be a map")
+						contentArr, ok := firstOutput["content"].([]any)
+						Expect(ok).To(BeTrue(), "completed: response.output[0].content must be an array")
+						Expect(contentArr).NotTo(BeEmpty(), "completed: response.output[0].content must not be empty")
+						firstContent, ok := contentArr[0].(map[string]any)
+						Expect(ok).To(BeTrue(), "completed: response.output[0].content[0] must be a map")
+						if includeLogprobs {
+							logprobsArr, _ := firstContent["logprobs"].([]any)
+							Expect(logprobsArr).NotTo(BeEmpty(), "completed: content[0].logprobs must have accumulated entries")
+							Expect(logprobsArr).To(HaveLen(len(deltaLogprobs)),
+								"completed: accumulated logprobs count must equal sum of all delta logprobs")
+							for i, lp := range logprobsArr {
+								Expect(lp).To(Equal(deltaLogprobs[i]),
+									"completed: logprobs[%d] must match the corresponding delta logprob entry", i)
+							}
+						} else {
+							checkLogprobsMissing(firstContent, eventType)
+						}
+					}
+				}
+
+				// check that all chunk types were received
+				for _, et := range responseParts {
+					Expect(seenTypes[et]).To(BeTrue(), "event type %q was not received in the stream", et)
+				}
+			},
+			func(includeLogprobs bool, topLogprobs int) string {
+				return fmt.Sprintf("includeLogprobs: %t top_logprobs: %d", includeLogprobs, topLogprobs)
+			},
+			Entry(nil, true, 2),  // logprobs with 2 top alternatives
+			Entry(nil, true, 0),  // logprobs with no top alternatives
+			Entry(nil, false, 0), // no logprobs: logprobs fields must be absent in all chunks
 		)
 	})
 
@@ -2619,11 +3200,11 @@ var _ = Describe("Simulator", func() {
 				}
 				Expect(err).NotTo(HaveOccurred())
 
-				if !strings.HasPrefix(line, "data: ") {
+				if !strings.HasPrefix(line, openaiserverapi.SSEDataPrefix) {
 					continue
 				}
-				data := strings.TrimSpace(strings.TrimPrefix(line, "data: "))
-				if data == sseDoneMarker {
+				data := strings.TrimSpace(strings.TrimPrefix(line, openaiserverapi.SSEDataPrefix))
+				if data == openaiserverapi.SSEDoneMarker {
 					gotDone = true
 					break
 				}
@@ -2653,10 +3234,75 @@ var _ = Describe("Simulator", func() {
 			Expect(finishChunk).NotTo(BeNil(), "should have received a chunk with finish_reason")
 			Expect(finishChunk.RequestID).NotTo(BeEmpty())
 			Expect(*finishChunk.Choices[0].FinishReason).NotTo(BeEmpty())
+			Expect(finishChunk.Choices[0].TokenIDs).NotTo(BeNil(), "finish_reason must be in the last token chunk, not a separate empty chunk")
 			Expect(finishChunk.Usage).To(BeNil(), "finish chunk should not carry usage")
 
 			Expect(usageChunk).To(BeNil(), "should not receive usage chunk without stream_options.include_usage")
 
+			Expect(gotDone).To(BeTrue(), "stream should end with [DONE]")
+		})
+
+		It("Should send length finish_reason in last token chunk for generate streaming", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			// max_tokens: 1 forces length finish reason
+			reqBody := fmt.Sprintf(`{
+				"model": "%s",
+				"token_ids": [1, 2, 3, 4],
+				"sampling_params": {"max_tokens": 1},
+				"stream": true
+			}`, common.TestModelName)
+
+			resp, err := client.Post("http://localhost/inference/v1/generate", "application/json", strings.NewReader(reqBody))
+			Expect(err).NotTo(HaveOccurred())
+			defer func() {
+				err := resp.Body.Close()
+				Expect(err).NotTo(HaveOccurred())
+			}()
+
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+			reader := bufio.NewReader(resp.Body)
+			var lastTokenChunk *openaiserverapi.GenerateStreamResponse
+			gotDone := false
+
+			for {
+				line, err := reader.ReadString('\n')
+				if err == io.EOF {
+					break
+				}
+				Expect(err).NotTo(HaveOccurred())
+
+				if !strings.HasPrefix(line, "data: ") {
+					continue
+				}
+				data := strings.TrimSpace(strings.TrimPrefix(line, "data: "))
+				if data == openaiserverapi.SSEDoneMarker {
+					gotDone = true
+					break
+				}
+
+				var streamResp openaiserverapi.GenerateStreamResponse
+				Expect(json.Unmarshal([]byte(data), &streamResp)).To(Succeed(), "failed to parse SSE chunk: %s", data)
+				if len(streamResp.Choices) == 0 {
+					continue
+				}
+				choice := streamResp.Choices[0]
+				if choice.TokenIDs != nil {
+					lastTokenChunk = &streamResp
+				}
+				// finish_reason must never appear in a separate empty chunk
+				if choice.FinishReason != nil {
+					Expect(choice.TokenIDs).NotTo(BeNil(), "finish_reason must be carried by a token chunk, not a separate empty chunk")
+				}
+			}
+
+			Expect(lastTokenChunk).NotTo(BeNil(), "should have received at least one token chunk")
+			Expect(lastTokenChunk.Choices[0].FinishReason).NotTo(BeNil(), "last token chunk should carry finish_reason")
+			Expect(*lastTokenChunk.Choices[0].FinishReason).To(Equal(common.LengthFinishReason))
 			Expect(gotDone).To(BeTrue(), "stream should end with [DONE]")
 		})
 
@@ -2694,11 +3340,11 @@ var _ = Describe("Simulator", func() {
 				}
 				Expect(err).NotTo(HaveOccurred())
 
-				if !strings.HasPrefix(line, "data: ") {
+				if !strings.HasPrefix(line, openaiserverapi.SSEDataPrefix) {
 					continue
 				}
-				data := strings.TrimSpace(strings.TrimPrefix(line, "data: "))
-				if data == sseDoneMarker {
+				data := strings.TrimSpace(strings.TrimPrefix(line, openaiserverapi.SSEDataPrefix))
+				if data == openaiserverapi.SSEDoneMarker {
 					gotDone = true
 					break
 				}
@@ -2776,7 +3422,7 @@ var _ = Describe("Simulator", func() {
 			go func() {
 				time.Sleep(200 * time.Millisecond)
 
-				openaiclient, params := getOpenAIClentAndCompletionParams(client, model, longPrompt, false)
+				openaiclient, params := getOpenAIClientAndCompletionParams(client, model, longPrompt, false)
 				resp, err := openaiclient.Completions.New(ctx, params)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(resp.Choices).ShouldNot(BeEmpty())
@@ -2788,6 +3434,108 @@ var _ = Describe("Simulator", func() {
 			storedCount, removedCount, _ := kvcache.CountKVEventBlocks(msg.Frames, topic, 1)
 			Expect(storedCount).To(Equal(2))
 			Expect(removedCount).To(Equal(0))
+		})
+
+		Context("force-dummy-tokenizer flag", func() {
+			It("should use dummy tokenizer when flag is set with real model", func() {
+				ctx := context.TODO()
+				// Use a real model name but force dummy tokenizer
+				args := []string{"cmd", "--model", common.QwenModelName, "--mode", common.ModeRandom, "--force-dummy-tokenizer"}
+				simulator, _, _, err := startServerHandle(ctx, "", args, nil)
+				Expect(err).NotTo(HaveOccurred())
+
+				// Verify that the dummy tokenizer was actually created
+				Expect(simulator.Context.Tokenizer).To(BeAssignableToTypeOf(&tokenizer.SimpleTokenizer{}))
+			})
+
+			It("should work with YAML config file", func() {
+				ctx := context.TODO()
+				// Create a temporary config file with force-dummy-tokenizer set
+				configContent := `model: ` + common.QwenModelName + `
+mode: random
+force-dummy-tokenizer: true
+`
+				configFile := "/tmp/test-tokenizer-config.yaml"
+				err := writeTestConfig(configFile, configContent)
+				Expect(err).NotTo(HaveOccurred())
+				defer func() {
+					err := removeTestConfig(configFile)
+					Expect(err).NotTo(HaveOccurred())
+				}()
+
+				args := []string{"cmd", "--config", configFile}
+				simulator, _, _, err := startServerHandle(ctx, "", args, nil)
+				Expect(err).NotTo(HaveOccurred())
+
+				// Verify that the dummy tokenizer was actually created
+				Expect(simulator.Context.Tokenizer).To(BeAssignableToTypeOf(&tokenizer.SimpleTokenizer{}))
+			})
+
+			It("should override YAML config with command line flag", func() {
+				ctx := context.TODO()
+				// Create a config file with force-dummy-tokenizer set to false
+				configContent := `model: ` + common.QwenModelName + `
+mode: random
+force-dummy-tokenizer: false
+`
+				configFile := "/tmp/test-tokenizer-override-config.yaml"
+				err := writeTestConfig(configFile, configContent)
+				Expect(err).NotTo(HaveOccurred())
+				defer func() {
+					err := removeTestConfig(configFile)
+					Expect(err).NotTo(HaveOccurred())
+				}()
+
+				// Override with command line flag
+				args := []string{"cmd", "--config", configFile, "--force-dummy-tokenizer"}
+				simulator, _, _, err := startServerHandle(ctx, "", args, nil)
+				Expect(err).NotTo(HaveOccurred())
+
+				// Verify that the dummy tokenizer was actually created
+				Expect(simulator.Context.Tokenizer).To(BeAssignableToTypeOf(&tokenizer.SimpleTokenizer{}))
+			})
+		})
+	})
+
+	Context("Mooncake bootstrap query", func() {
+		queryEngines := func(client *http.Client) map[string]map[string]string {
+			resp, err := client.Get("http://localhost/query")
+			Expect(err).NotTo(HaveOccurred())
+			defer func() {
+				Expect(resp.Body.Close()).To(Succeed())
+			}()
+
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+			body, err := io.ReadAll(resp.Body)
+			Expect(err).NotTo(HaveOccurred())
+
+			engines := map[string]map[string]string{}
+			Expect(json.Unmarshal(body, &engines)).To(Succeed())
+			return engines
+		}
+
+		It("Should return a dp_rank to engine_id map on /query", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			engines := queryEngines(client)
+			Expect(engines).To(HaveKey("0"))
+			Expect(engines["0"]).To(HaveKey("engine_id"))
+			Expect(engines["0"]["engine_id"]).NotTo(BeEmpty())
+		})
+
+		It("Should return the same engine ids by multiple calls", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			firstCall := queryEngines(client)
+			secondCall := queryEngines(client)
+			Expect(secondCall).To(Equal(firstCall))
 		})
 	})
 })

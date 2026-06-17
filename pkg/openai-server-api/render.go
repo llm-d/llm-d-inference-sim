@@ -95,6 +95,7 @@ type RenderResponse struct {
 type RenderMMFeatures struct {
 	MMHashes       map[string][]string            `json:"mm_hashes"`
 	MMPlaceholders map[string][]RenderPlaceholder `json:"mm_placeholders"`
+	KwargsData     map[string][]string            `json:"kwargs_data,omitempty"`
 }
 
 type RenderPlaceholder struct {

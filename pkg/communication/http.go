@@ -83,6 +83,8 @@ func (c *Communication) startHTTPServer(listener net.Listener) (*fasthttp.Server
 	// supports standard Kubernetes health and readiness checks
 	r.GET("/health", c.HandleHealth)
 	r.GET("/health/ready", c.HandleHealthReady)
+	// emulates vLLM's Mooncake bootstrap endpoint on the prefill pod; the routing sidecar queries it to resolve remote engine ids
+	r.GET("/query", c.HandleMooncakeQuery)
 	r.GET("/ready", c.HandleReady)
 	r.POST("/tokenize", c.HandleTokenize)
 	r.POST("/sleep", c.HandleSleep)
@@ -414,8 +416,9 @@ func (c *Communication) sendStream(ctx *fasthttp.RequestCtx, channel common.Chan
 				continue
 			}
 
-			ok, stop := c.emitResponseChunks(ctx, w, respBuilder, response, respCtx, &state)
+			ok, stop := c.emitResponseChunks(ctx, w, respBuilder, response, respCtx, &state, response.Status == vllmsim.ResponseEndOfTokens)
 			if !ok {
+				go drainResponseChannel(channel)
 				return
 			}
 			if stop {
@@ -434,7 +437,7 @@ func (c *Communication) sendStream(ctx *fasthttp.RequestCtx, channel common.Chan
 // already reported via ctx); stop=true means the stream is complete and the main
 // loop should break out to finalize.
 func (c *Communication) emitResponseChunks(ctx *fasthttp.RequestCtx, w *bufio.Writer, respBuilder responseBuilder,
-	response *vllmsim.ResponseInfo, respCtx vllmsim.ResponseContext, state *streamState) (ok bool, stop bool) {
+	response *vllmsim.ResponseInfo, respCtx vllmsim.ResponseContext, state *streamState, lastTokensChunk bool) (ok bool, stop bool) {
 	choiceIdx := response.ChoiceIdx
 
 	if response.Tokens != nil {
@@ -459,7 +462,12 @@ func (c *Communication) emitResponseChunks(ctx *fasthttp.RequestCtx, w *bufio.Wr
 			state.lastToolCall[choiceIdx] = response.ToolCall
 			return true, false
 		}
-		return c.sendOrFail(ctx, w, respBuilder.createChunk(respCtx, response.Tokens, nil, "", nil, choiceIdx),
+
+		var finishReason *string
+		if lastTokensChunk && respBuilder.sendFinishReasonWithTokens() {
+			finishReason = respCtx.FinishReason()
+		}
+		return c.sendOrFail(ctx, w, respBuilder.createChunk(respCtx, response.Tokens, nil, "", finishReason, choiceIdx),
 			"Sending stream chunk failed, "), false
 	}
 
@@ -787,6 +795,43 @@ func (c *Communication) HandleReady(ctx *fasthttp.RequestCtx) {
 	}
 	ctx.Response.Header.SetContentType("application/json")
 	ctx.Response.Header.SetStatusCode(fasthttp.StatusOK)
+}
+
+// mooncakeEngineMap returns the dp_rank -> {engine_id} map served by /query, generating
+// it once so the engine ids stay stable for the simulator's lifetime.
+func (c *Communication) mooncakeEngineMap() map[string]map[string]string {
+	c.mooncakeEnginesOnce.Do(func() {
+		dpSize := c.simulator.Context.Config().DPSize
+		engines := make(map[string]map[string]string, dpSize)
+		for rank := 0; rank < dpSize; rank++ {
+			engines[strconv.Itoa(rank)] = map[string]string{
+				"engine_id": c.simulator.Context.Random.GenerateUUIDString(),
+			}
+		}
+		c.mooncakeEngines = engines
+	})
+	return c.mooncakeEngines
+}
+
+// HandleMooncakeQuery emulates vLLM's Mooncake bootstrap endpoint (/query) served on
+// the prefill pod. The routing sidecar calls it to resolve the remote engine id used
+// for KV transfer, receiving a dp_rank -> {engine_id} map. The engine ids are
+// placeholders generated once per simulator lifetime; a real vLLM prefill pod reports
+// the ids of its running KV engines.
+func (c *Communication) HandleMooncakeQuery(ctx *fasthttp.RequestCtx) {
+	c.logger.V(logging.TRACE).Info("/query request received")
+
+	data, err := json.Marshal(c.mooncakeEngineMap())
+	if err != nil {
+		c.logger.Error(err, "failed to marshal mooncake query response")
+		errToSend := openaiserverapi.NewError("Failed to marshal mooncake query response, "+err.Error(), fasthttp.StatusInternalServerError, nil)
+		c.sendError(ctx, &errToSend, false)
+		return
+	}
+
+	ctx.Response.Header.SetContentType("application/json")
+	ctx.Response.Header.SetStatusCode(fasthttp.StatusOK)
+	ctx.Response.SetBody(data)
 }
 
 // HandleIsSleeping handles /is_sleeping request according

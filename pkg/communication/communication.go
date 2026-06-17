@@ -50,6 +50,11 @@ type Communication struct {
 
 	// startTime records when the server started, used for startup-duration readiness check
 	startTime time.Time
+
+	// mooncakeEngines holds the per-rank engine ids served by /query, generated once so
+	// they stay stable for the simulator's lifetime
+	mooncakeEnginesOnce sync.Once
+	mooncakeEngines     map[string]map[string]string
 }
 
 func New(logger logr.Logger, simulator *vllmsim.VllmSimulator) *Communication {

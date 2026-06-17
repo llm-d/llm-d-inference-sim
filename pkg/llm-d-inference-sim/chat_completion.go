@@ -126,9 +126,18 @@ func (c *chatCompletionReqCtx) tokenizedPromptForEcho() (*openaiserverapi.Tokeni
 	return &openaiserverapi.Tokenized{Tokens: tokens, Strings: strTokens}, nil
 }
 
-// split is a no-op: chat completions always carry a single prompt.
+// split returns n copies of this request, one per completion choice. Each
+// sub-request shares the same underlying ChatCompletionsRequest so tokenization
+// and prompt data are computed once and reused. When n==1 (the default) this
+// degenerates to the original single-element slice.
 func (c *ChatCompletionsRequest) split() []Request {
-	return []Request{c}
+	n := c.GetN()
+	out := make([]Request, n)
+	for i := range n {
+		cp := *c
+		out[i] = &cp
+	}
+	return out
 }
 
 var _ Request = (*ChatCompletionsRequest)(nil)

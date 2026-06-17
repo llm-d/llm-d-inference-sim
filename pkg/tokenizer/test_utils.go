@@ -74,14 +74,15 @@ func (tm *TokenizerManager) Init(ctx context.Context, logger logr.Logger) error 
 	// renderURL := "http://localhost:8001/"
 	// var err error
 	// create tokenizer for Qwen model
-	tm.qwenTokenizer, err = tm.newTokenizer(ctx, logger, renderURL, common.QwenModelName, 10*time.Second, 30*time.Second)
+	// Use longer timeout (30s) for render requests as the container may need time to fully initialize
+	tm.qwenTokenizer, err = tm.newTokenizer(ctx, logger, renderURL, common.QwenModelName, 30*time.Second, 60*time.Second)
 	if err != nil {
 		cleanup()
 		return err
 	}
 
 	// create tokenizer for multimodal model
-	tm.mmTokenizer, err = tm.newTokenizer(ctx, logger, renderURL, common.QwenModelName, 10*time.Second, 30*time.Second)
+	tm.mmTokenizer, err = tm.newTokenizer(ctx, logger, renderURL, common.QwenModelName, 30*time.Second, 60*time.Second)
 	if err != nil {
 		cleanup()
 		return err
@@ -100,7 +101,7 @@ func (tm *TokenizerManager) Clean() {
 // returns the HTTP base URL (http://host:port), cleanup function and error
 func (tm *TokenizerManager) startRenderContainer(ctx context.Context, model string) (string, func(), error) {
 	container, err := testcontainers.Run(ctx,
-		"vllm/vllm-openai-cpu:v0.19.1",
+		"vllm/vllm-openai-cpu:v0.21.0",
 		testcontainers.WithExposedPorts("8000/tcp"),
 		testcontainers.WithEntrypoint("vllm"),
 		testcontainers.WithCmd("launch", "render", model, "--port=8000"),

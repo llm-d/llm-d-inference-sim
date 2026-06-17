@@ -25,6 +25,7 @@ This mode is activated when the `--model` parameter specifies a name that does n
 ## Performance Considerations
 **Important:** If you want to avoid the cost and operational overhead of running the render service:
 - Use a "fake" or non-existent model name (e.g., `--model fake-model`)
+- Or use the `--force-dummy-tokenizer` flag with any model name
 - This is recommended for testing scenarios where exact tokenization accuracy is not required
 - The render service is only required when you need accurate token counts matching actual HuggingFace models
 
@@ -35,6 +36,7 @@ This mode is activated when the `--model` parameter specifies a name that does n
 | `--render-url` | URL of the vLLM render service. Used only in HuggingFace Mode. | `http://localhost:8082` |
 | `--render-timeout` | Timeout for tokenizer render requests (Go duration, e.g. `30s`). | `30s` |
 | `--mm-render-timeout` | Timeout for multi-modal tokenizer render requests. | `60s` |
+| `--force-dummy-tokenizer` | Force the use of dummy tokenizer even if a real model name is provided | `false` |
 
 
 ## Examples
@@ -48,4 +50,9 @@ Running with HuggingFace tokenization (requires a vLLM render service):
 Running with simulated tokenization (no render service required):
 ```bash
 ./bin/llm-d-inference-sim --model test-sim-model
+```
+
+Running with simulated tokenization (forcing dummy tokenizer with a real model name):
+```bash
+./bin/llm-d-inference-sim --model meta-llama/Llama-3.1-8B-Instruct --force-dummy-tokenizer
 ```

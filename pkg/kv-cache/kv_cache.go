@@ -98,11 +98,11 @@ func (h *KVCacheHelper) OnRequestStart(req openaiserverapi.Request) (PrefixCache
 
 	// compute per-block extra features from multimodal metadata (if present).
 	var extraFeatures []*kvblock.BlockExtraFeatures
-	mmFeatres := req.MMFeatures()
+	mmFeatures := req.MMFeatures()
 
-	if mmFeatres != nil {
+	if mmFeatures != nil {
 		extraFeatures = kvblock.ComputeBlockExtraFeatures(
-			mmFeatres.MMHashes, h.convertMMPlaceholders(mmFeatres.MMPlaceholders),
+			mmFeatures.MMHashes, h.convertMMPlaceholders(mmFeatures.MMPlaceholders),
 			h.blockSize, len(tokens))
 	}
 

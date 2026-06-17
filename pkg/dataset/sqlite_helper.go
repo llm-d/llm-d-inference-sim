@@ -225,7 +225,7 @@ func (s *sqliteHelper) getRecordsCount() (int, error) {
 }
 
 // query runs a SQL query which retrieves response tokens as an array of strings
-// returns multuple responses
+// returns multiple responses
 func (s *sqliteHelper) query(query string) ([]openaiserverapi.Tokenized, error) {
 	rows, err := s.db.Query(query)
 	if err != nil {

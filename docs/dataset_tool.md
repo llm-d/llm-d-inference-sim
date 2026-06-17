@@ -5,7 +5,7 @@ The `ds-tool` is used to convert conversation datasets into the format required 
 This tool requires a **vLLM render server**, which handles tokenization over HTTP. Start it with Docker before running the tool:
 
 ```bash
-docker run --rm -p 8082:8082 vllm/vllm-openai-cpu:v0.19.1 \
+docker run --rm -p 8082:8082 vllm/vllm-openai-cpu:v0.21.0 \
   vllm launch render <model> --port=8082
 ```
 
@@ -146,7 +146,7 @@ Each element in the `conversations` array must have:
 ## Dataset Structure
 
 The dataset is provided in two formats:
-- **JSON:** Ideal for debugging and referense.
+- **JSON:** Ideal for debugging and reference.
 - **SQLite:** Used by the simulator.
 
 The tool generates two files:

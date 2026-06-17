@@ -172,6 +172,7 @@ func (s *VllmSimulator) InitializeSim(ctx context.Context) error {
 	s.newRequests = common.Channel[requestContext]{
 		Channel: make(chan requestContext, maxNumberOfRequests),
 		Name:    "newRequests",
+		Done:    drainCtx.Done(),
 	}
 
 	// run request processing workers
@@ -186,6 +187,7 @@ func (s *VllmSimulator) InitializeSim(ctx context.Context) error {
 			reqChan: common.Channel[requestContext]{
 				Channel: make(chan requestContext, 1),
 				Name:    "worker's reqChan",
+				Done:    drainCtx.Done(),
 			},
 			processor: s,
 		}
@@ -220,7 +222,7 @@ func (s *VllmSimulator) processing(ctx context.Context) {
 			// processing with this worker
 			s.findRequestAndSendToProcess(worker)
 		case <-s.Context.loras.loraRemovable.Channel:
-			// there is a LoRA that can be removed, go through availbale workers
+			// there is a LoRA that can be removed, go through available workers
 			// and queued requests and find requests that can run now,
 			// stop if there are no free workers, or no requests
 			s.Context.logger.V(logging.TRACE).Info("LoRA can be removed")
@@ -434,30 +436,38 @@ func (s *VllmSimulator) simulateResponseProcessing(respCtx ResponseContext) {
 					if respCtx.responseTokens().Strings != nil {
 						tokens.Strings = append(tokens.Strings, respCtx.responseTokens().Strings[i])
 					}
-					common.WriteToChannel(reqCtx.responseChannel(),
-						&ResponseInfo{Tokens: tokens, RespCtx: respCtx, ChoiceIdx: choiceIdx},
-						s.Context.logger)
+					respInfo := ResponseInfo{Tokens: tokens, RespCtx: respCtx, ChoiceIdx: choiceIdx}
+					if i == len(respCtx.responseTokens().Tokens)-1 {
+						respInfo.Status = ResponseEndOfTokens
+					}
+					common.WriteToChannel(reqCtx.responseChannel(), &respInfo, s.Context.logger)
 				}
 			} else {
-				for _, tc := range respCtx.ToolCalls() {
+				toolCalls := respCtx.ToolCalls()
+				for tcIdx, tc := range toolCalls {
 					// Tool calls are only supported in HTTP at the moment, so we assume that we always
 					// have string tokenized arguments
-					for i, token := range tc.Function.TokenizedArguments().Tokens {
+					args := tc.Function.TokenizedArguments()
+					for i, token := range args.Tokens {
 						if i != 0 {
 							s.Context.simulateInterTokenLatency()
 						}
-						common.WriteToChannel(reqCtx.responseChannel(),
-							&ResponseInfo{Tokens: &openaiserverapi.Tokenized{
-								Tokens:  []uint32{token},
-								Strings: []string{tc.Function.TokenizedArguments().Strings[i]}},
-								RespCtx: respCtx, ToolCall: &tc, ChoiceIdx: choiceIdx}, s.Context.logger)
+						respInfo := ResponseInfo{
+							Tokens:    &openaiserverapi.Tokenized{Tokens: []uint32{token}, Strings: []string{args.Strings[i]}},
+							RespCtx:   respCtx,
+							ToolCall:  &toolCalls[tcIdx],
+							ChoiceIdx: choiceIdx,
+						}
+						if tcIdx == len(toolCalls)-1 && i == len(args.Tokens)-1 {
+							respInfo.Status = ResponseEndOfTokens
+						}
+						common.WriteToChannel(reqCtx.responseChannel(), &respInfo, s.Context.logger)
 					}
 				}
 			}
 		}
 		common.WriteToChannel(s.Context.metrics.reqDecodeTimeChan, time.Since(startDecode).Seconds(), s.Context.logger)
 	}
-	reqCtx.signalDone()
 }
 
 // request processing finished
@@ -473,6 +483,7 @@ func (s *VllmSimulator) onResponseProcessingFinished(reqCtx requestContext) {
 	}
 
 	reqCtx.kvCacheOnRequestEnd()
+	reqCtx.signalDone()
 }
 
 // OpenRequests returns the number of requests currently in the system

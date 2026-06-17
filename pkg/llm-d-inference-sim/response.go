@@ -22,7 +22,10 @@ import (
 	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 )
 
-const ResponseStatusCreated = "created"
+const (
+	ResponseStatusCreated = "created"
+	ResponseEndOfTokens   = "eot"
+)
 
 type ResponseInfo struct {
 	Tokens    *openaiserverapi.Tokenized
@@ -48,7 +51,7 @@ type ResponseContext interface {
 	Instructions() *string
 	CreationTime() int64
 	SetCreationTime(int64)
-	Logprobs() *int
+	TopLogprobs() *int
 	ECTransferParams() map[string]openaiserverapi.ECTransferParams
 	setWG(*sync.WaitGroup)
 	Done()
@@ -138,7 +141,7 @@ func (respCtx *baseResponseContext) SetCreationTime(creationTime int64) {
 func (respCtx *baseResponseContext) CreationTime() int64 {
 	return respCtx.created
 }
-func (respCtx *baseResponseContext) Logprobs() *int {
+func (respCtx *baseResponseContext) TopLogprobs() *int {
 	return respCtx.nLogprobs
 }
 

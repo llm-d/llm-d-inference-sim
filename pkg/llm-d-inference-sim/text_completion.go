@@ -96,11 +96,15 @@ func (t *TextCompletionsParsedRequest) AsString() string {
 
 // split converts the parsed wire form into one or more processing-form
 // TextCompletionsRequest values. Each sub-request gets the parent envelope and
-// a "<requestID>-<i>" id stamped by openaiserverapi.AsSingle.
+// a "<requestID>-<i>" id stamped by openaiserverapi.AsSingle. When n > 1 each
+// prompt produces n sub-requests, so the total is len(Prompt) * n.
 func (t *TextCompletionsParsedRequest) split() []Request {
-	out := make([]Request, len(t.Prompt))
+	n := t.GetN()
+	out := make([]Request, 0, len(t.Prompt)*n)
 	for i := range t.Prompt {
-		out[i] = &TextCompletionsRequest{TextCompletionsRequest: t.AsSingle(i)}
+		for range n {
+			out = append(out, &TextCompletionsRequest{TextCompletionsRequest: t.AsSingle(i)})
+		}
 	}
 	return out
 }
@@ -146,7 +150,10 @@ func (t *TextCompletionsRequest) buildRequestContext(simCtx *SimContext, channel
 	return reqCtx
 }
 
-// split is a no-op: TextCompletionsRequest is already the single-prompt form.
+// split is a no-op: TextCompletionsRequest always carries a single prompt.
+// The n parameter is handled by TextCompletionsParsedRequest.split which
+// produces the per-choice sub-requests before any TextCompletionsRequest
+// reaches HandleRequest.
 func (t *TextCompletionsRequest) split() []Request {
 	return []Request{t}
 }

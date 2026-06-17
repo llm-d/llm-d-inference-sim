@@ -19,7 +19,7 @@ Running full LLM inference requires significant GPU resources and introduces non
 
 The simulator is designed to act as a drop-in replacement for vLLM, sitting between your client/infrastructure and the void where the GPU usually resides. It processes requests through a configurable simulation engine that governs what is returned and when it is returned.
 
-For detailed configuraiton definitions see the [Configuration Guide](docs/configuration.md)
+For detailed configuration definitions see the [Configuration Guide](docs/configuration.md)
 
 ### Modes of Operation
 The simulator decides the content of the response based on two primary modes:
@@ -87,7 +87,7 @@ The simulator is designed to run either as a standalone binary or within a Kuber
 ### Observability
 The simulator supports a subset of standard vLLM Prometheus metrics.<br>
 
-For detailes see the [Metrics Guide](docs/metrics.md)
+For details see the [Metrics Guide](docs/metrics.md)
 
 ## Working with docker image
 
@@ -136,7 +136,7 @@ To run the vLLM simulator in a standalone test environment with a real model:
 1. Start the vLLM render server (requires a container engine, e.g. Docker or Podman):
    ```bash
    docker run --rm -p 8082:8082 --entrypoint vllm \
-     vllm/vllm-openai-cpu:v0.19.1 launch render Qwen/Qwen2.5-0.5B-Instruct --port=8082
+     vllm/vllm-openai-cpu:v0.21.0 launch render Qwen/Qwen2.5-0.5B-Instruct --port=8082
    ```
    Alternatively, use the `run-render` Makefile target, which runs the same container via your configured container engine (Docker or Podman):
    ```bash

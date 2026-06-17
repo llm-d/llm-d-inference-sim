@@ -162,6 +162,7 @@ func (s *SimContext) initialize(ctx context.Context) error {
 	s.loras.loraRemovable = common.Channel[int]{
 		Channel: make(chan int, s.Config().MaxNumSeqs),
 		Name:    "loraRemovable",
+		Done:    ctx.Done(),
 	}
 
 	// initialize prometheus metrics

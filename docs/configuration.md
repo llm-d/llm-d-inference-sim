@@ -13,7 +13,7 @@ Some environment variables (for example `POD_NAME`, `POD_NAMESPACE`) are not ove
 
 ## General
 - `config`: the path to a yaml configuration file that can contain the simulator's command line parameters. If a parameter is defined in both the config file and the command line, the command line value overwrites the configuration file value. An example configuration file can be found at [manifests/config.yaml](../manifests/config.yaml)
-- `port`: the port the simulator listents on, default is 8000
+- `port`: the port the simulator listens on, default is 8000
 - `model`: the currently 'loaded' model, mandatory. If you omit `--model` on the command line, a non-empty `SIM_MODEL` environment variable can supply the model; see [Configuration precedence](#configuration-precedence) and [Environment variables](#environment-variables).
 - `served-model-name`: model names exposed by the API (a list of space-separated strings)
 - `lora-modules`: a list of LoRA adapters (a list of space-separated JSON strings): '{"name": "name", "path": "lora_path", "base_model_name": "id"}', optional, empty by default
@@ -103,6 +103,7 @@ For a detailed explanation of how the simulator models inference time and what e
 - `render-url`: URL of the vLLM render service used for tokenization. Required when the model is a real HuggingFace model; omit for simulated/dummy models. Default is `http://localhost:8082`.
 - `render-timeout`: Timeout for tokenizer render requests (e.g. `30s`). Default is `30s`.
 - `mm-render-timeout`: Timeout for multi-modal tokenizer render requests (e.g. `60s`). Default is `60s`.
+- `force-dummy-tokenizer`: Force the use of dummy tokenizer even if a real model name is provided. When this flag is set, the system bypasses loading the real tokenizer and uses a regex-based dummy tokenizer instead. This is useful for testing scenarios where you want to use a real model name but avoid the overhead of downloading and loading the actual tokenizer. Default is `false`.
 
 ## Embeddings
 - `default-embedding-dimensions`: default size of embedding vectors returned by `/v1/embeddings` when the request does not specify a `dimensions` field, optional, defaults to 384.
