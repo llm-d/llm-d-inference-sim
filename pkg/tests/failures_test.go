@@ -27,7 +27,7 @@ import (
 	"github.com/openai/openai-go/v3"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
-	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
+	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 )
 
 var _ = Describe("Failures", func() {
@@ -102,7 +102,7 @@ var _ = Describe("Failures", func() {
 				ok := errors.As(err, &openaiError)
 				Expect(ok).To(BeTrue())
 				Expect(openaiError.StatusCode).To(Equal(429))
-				Expect(openaiError.Type).To(Equal(openaiserverapi.ErrorCodeToType(429)))
+				Expect(openaiError.Type).To(Equal(api.ErrorCodeToType(429)))
 				Expect(strings.Contains(openaiError.Message, common.TestModelName)).To(BeTrue())
 			})
 		})
@@ -133,8 +133,8 @@ var _ = Describe("Failures", func() {
 
 					// Should only be one of the specified types
 					Expect(openaiError.StatusCode == 401 || openaiError.StatusCode == 503).To(BeTrue())
-					Expect(openaiError.Type == openaiserverapi.ErrorCodeToType(401) ||
-						openaiError.Type == openaiserverapi.ErrorCodeToType(503)).To(BeTrue())
+					Expect(openaiError.Type == api.ErrorCodeToType(401) ||
+						openaiError.Type == api.ErrorCodeToType(503)).To(BeTrue())
 				}
 			})
 		})
@@ -228,12 +228,12 @@ var _ = Describe("Failures", func() {
 					// Note: OpenAI Go client doesn't directly expose the error code field,
 					// but we can verify via status code and type
 				},
-				Entry("rate_limit", common.FailureTypeRateLimit, 429, openaiserverapi.ErrorCodeToType(429)),
-				Entry("invalid_api_key", common.FailureTypeInvalidAPIKey, 401, openaiserverapi.ErrorCodeToType(401)),
-				Entry("context_length", common.FailureTypeContextLength, 400, openaiserverapi.ErrorCodeToType(400)),
-				Entry("server_error", common.FailureTypeServerError, 503, openaiserverapi.ErrorCodeToType(503)),
-				Entry("invalid_request", common.FailureTypeInvalidRequest, 400, openaiserverapi.ErrorCodeToType(400)),
-				Entry("model_not_found", common.FailureTypeModelNotFound, 404, openaiserverapi.ErrorCodeToType(404)),
+				Entry("rate_limit", common.FailureTypeRateLimit, 429, api.ErrorCodeToType(429)),
+				Entry("invalid_api_key", common.FailureTypeInvalidAPIKey, 401, api.ErrorCodeToType(401)),
+				Entry("context_length", common.FailureTypeContextLength, 400, api.ErrorCodeToType(400)),
+				Entry("server_error", common.FailureTypeServerError, 503, api.ErrorCodeToType(503)),
+				Entry("invalid_request", common.FailureTypeInvalidRequest, 400, api.ErrorCodeToType(400)),
+				Entry("model_not_found", common.FailureTypeModelNotFound, 404, api.ErrorCodeToType(404)),
 			)
 		})
 	})

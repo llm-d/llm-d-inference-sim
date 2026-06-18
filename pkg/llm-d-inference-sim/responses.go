@@ -20,12 +20,12 @@ import (
 	"encoding/json"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
-	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
+	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 )
 
 // Implementation of request for /responses requests
 type ResponsesRequest struct {
-	openaiserverapi.ResponsesRequest
+	api.ResponsesRequest
 }
 
 // reads and parses data from the body of the given request
@@ -33,7 +33,7 @@ func (r *ResponsesRequest) Unmarshal(data []byte) error {
 	return json.Unmarshal(data, r)
 }
 
-func (r *ResponsesRequest) validate(toolsValidator *toolsValidator) *openaiserverapi.Error {
+func (r *ResponsesRequest) validate(toolsValidator *toolsValidator) *api.Error {
 	return validateRequest(r)
 }
 
@@ -52,8 +52,8 @@ func (r *ResponsesRequest) AsString() string {
 }
 
 func (r *ResponsesRequest) createResponseContext(reqCtx requestContext, displayModel string,
-	responseTokens *openaiserverapi.Tokenized, finishReason *string, usageData *openaiserverapi.Usage, sendUsageData bool,
-	logprobs *int, toolCalls []openaiserverapi.ToolCall, _ bool) ResponseContext {
+	responseTokens *api.Tokenized, finishReason *string, usageData *api.Usage, sendUsageData bool,
+	logprobs *int, toolCalls []api.ToolCall, _ bool) ResponseContext {
 	base := newBaseResponseContext(reqCtx, displayModel, responseTokens, finishReason, usageData, sendUsageData,
 		logprobs, r.GetRequestID(), r.IsDoRemotePrefill(), r.IsDoRemoteDecode(), r.GetNumberOfCachedPromptTokens())
 	return &responsesResponseCtx{
@@ -79,24 +79,24 @@ func (r *responsesReqCtx) request() Request {
 }
 
 // convertInputToMessages converts ResponsesRequest Input to Messages
-func convertInputToMessages(input []openaiserverapi.InputItem) []openaiserverapi.Message {
-	messages := make([]openaiserverapi.Message, 0, len(input))
+func convertInputToMessages(input []api.InputItem) []api.Message {
+	messages := make([]api.Message, 0, len(input))
 	for _, item := range input {
-		if inputMsg, ok := item.(*openaiserverapi.InputMessage); ok {
-			msg := openaiserverapi.Message{
+		if inputMsg, ok := item.(*api.InputMessage); ok {
+			msg := api.Message{
 				Role: inputMsg.Role,
 			}
 
 			// Convert InputContent to ChatComplContent
-			if len(inputMsg.Content) == 1 && inputMsg.Content[0].Type == openaiserverapi.ResponsesInputText {
+			if len(inputMsg.Content) == 1 && inputMsg.Content[0].Type == api.ResponsesInputText {
 				// Simple text content
 				msg.Content.Raw = inputMsg.Content[0].Text
 			} else {
 				// Structured content
-				blocks := make([]openaiserverapi.ChatComplContentBlock, 0, len(inputMsg.Content))
+				blocks := make([]api.ChatComplContentBlock, 0, len(inputMsg.Content))
 				for _, content := range inputMsg.Content {
-					if content.Type == openaiserverapi.ResponsesInputText {
-						blocks = append(blocks, openaiserverapi.ChatComplContentBlock{
+					if content.Type == api.ResponsesInputText {
+						blocks = append(blocks, api.ChatComplContentBlock{
 							Type: "text",
 							Text: content.Text,
 						})
@@ -111,21 +111,21 @@ func convertInputToMessages(input []openaiserverapi.InputItem) []openaiserverapi
 	return messages
 }
 
-func (r *responsesReqCtx) encode() ([]uint32, []string, *openaiserverapi.RenderMMFeatures, error) {
+func (r *responsesReqCtx) encode() ([]uint32, []string, *api.RenderMMFeatures, error) {
 	messages := convertInputToMessages(r.req.Input)
 	return r.sim.Tokenizer.RenderMessages(messages)
 }
 
-func (r *responsesReqCtx) createToolCalls() ([]openaiserverapi.ToolCall, int, string, error) {
+func (r *responsesReqCtx) createToolCalls() ([]api.ToolCall, int, string, error) {
 	return nil, 0, "", nil
 }
 
-func (r *responsesReqCtx) tokenizedPromptForEcho() (*openaiserverapi.Tokenized, error) {
+func (r *responsesReqCtx) tokenizedPromptForEcho() (*api.Tokenized, error) {
 	// echo the text of the last input message, matching chat completion behavior
 	lastMsg := ""
 	if len(r.req.Input) > 0 {
 		// in echo mode return the last message without role
-		if msg, ok := r.req.Input[len(r.req.Input)-1].(*openaiserverapi.InputMessage); ok {
+		if msg, ok := r.req.Input[len(r.req.Input)-1].(*api.InputMessage); ok {
 			lastMsg = msg.PlainText(false)
 		}
 	}
@@ -133,7 +133,7 @@ func (r *responsesReqCtx) tokenizedPromptForEcho() (*openaiserverapi.Tokenized, 
 	if err != nil {
 		return nil, err
 	}
-	return &openaiserverapi.Tokenized{Tokens: tokens, Strings: strTokens}, nil
+	return &api.Tokenized{Tokens: tokens, Strings: strTokens}, nil
 }
 
 var _ requestContext = (*responsesReqCtx)(nil)
@@ -150,7 +150,7 @@ func (respCtx *responsesResponseCtx) Instructions() *string {
 	return nil
 }
 
-func (respCtx *responsesResponseCtx) ToolCalls() []openaiserverapi.ToolCall {
+func (respCtx *responsesResponseCtx) ToolCalls() []api.ToolCall {
 	return nil
 }
 

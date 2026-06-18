@@ -14,11 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package vllmapi
-
-import (
-	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
-)
+package api
 
 // TokenizeRequest is a request to /tokenize endpoint.
 // Should contain either a prompt or messages, not both.
@@ -28,7 +24,7 @@ type TokenizeRequest struct {
 	// Prompt is the text to tokenize
 	Prompt string `json:"prompt"`
 	// Messages is an array of messages to tokenize
-	Messages []openaiserverapi.Message `json:"messages"`
+	Messages []Message `json:"messages"`
 }
 
 // TokenizeResponse is a response for tokenize request

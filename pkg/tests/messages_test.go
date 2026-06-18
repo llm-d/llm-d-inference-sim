@@ -25,7 +25,7 @@ import (
 	"strings"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
-	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
+	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -63,7 +63,7 @@ func buildMessagesBody(model string, stream bool, messages []map[string]any,
 }
 
 // sendMessagesRequest sends a non-streaming POST to /v1/messages and returns the parsed response.
-func sendMessagesRequest(client *http.Client, body string) *openaiserverapi.MessagesResponse {
+func sendMessagesRequest(client *http.Client, body string) *api.MessagesResponse {
 	resp, err := client.Post("http://localhost/v1/messages", "application/json", strings.NewReader(body))
 	Expect(err).NotTo(HaveOccurred())
 	defer resp.Body.Close() //nolint:errcheck
@@ -72,7 +72,7 @@ func sendMessagesRequest(client *http.Client, body string) *openaiserverapi.Mess
 	Expect(err).NotTo(HaveOccurred())
 	Expect(resp.StatusCode).To(Equal(http.StatusOK), "response body: %s", string(data))
 
-	var result openaiserverapi.MessagesResponse
+	var result api.MessagesResponse
 	Expect(json.Unmarshal(data, &result)).To(Succeed())
 	return &result
 }
@@ -152,9 +152,9 @@ var _ = Describe("Simulator for /v1/messages (Anthropic Messages API)", func() {
 
 			resp := sendMessagesRequest(client, body)
 
-			Expect(resp.ID).To(HavePrefix(openaiserverapi.MessagesIDPrefix))
-			Expect(resp.Type).To(Equal(openaiserverapi.MessagesType))
-			Expect(resp.Role).To(Equal(openaiserverapi.RoleAssistant))
+			Expect(resp.ID).To(HavePrefix(api.MessagesIDPrefix))
+			Expect(resp.Type).To(Equal(api.MessagesType))
+			Expect(resp.Role).To(Equal(api.RoleAssistant))
 			Expect(resp.Model).To(Equal(model))
 
 			Expect(resp.Content).To(HaveLen(1))
@@ -163,8 +163,8 @@ var _ = Describe("Simulator for /v1/messages (Anthropic Messages API)", func() {
 
 			Expect(resp.StopReason).NotTo(BeNil())
 			Expect(*resp.StopReason).To(BeElementOf(
-				openaiserverapi.MessagesStopReasonEndTurn,
-				openaiserverapi.MessagesStopReasonMaxTokens,
+				api.MessagesStopReasonEndTurn,
+				api.MessagesStopReasonMaxTokens,
 			))
 			Expect(resp.StopSequence).To(BeNil())
 
@@ -182,12 +182,12 @@ var _ = Describe("Simulator for /v1/messages (Anthropic Messages API)", func() {
 
 			resp := sendMessagesRequest(client, body)
 
-			Expect(resp.Type).To(Equal(openaiserverapi.MessagesType))
+			Expect(resp.Type).To(Equal(api.MessagesType))
 			Expect(resp.Content).To(HaveLen(1))
 			Expect(resp.Content[0].Type).To(Equal("text"))
 			Expect(*resp.StopReason).To(BeElementOf(
-				openaiserverapi.MessagesStopReasonEndTurn,
-				openaiserverapi.MessagesStopReasonMaxTokens,
+				api.MessagesStopReasonEndTurn,
+				api.MessagesStopReasonMaxTokens,
 			))
 			Expect(resp.Usage.InputTokens).To(BeNumerically(">", 0))
 		})
@@ -204,12 +204,12 @@ var _ = Describe("Simulator for /v1/messages (Anthropic Messages API)", func() {
 
 			resp := sendMessagesRequest(client, body)
 
-			Expect(resp.Type).To(Equal(openaiserverapi.MessagesType))
+			Expect(resp.Type).To(Equal(api.MessagesType))
 			Expect(resp.Content).To(HaveLen(1))
 			Expect(resp.Content[0].Type).To(Equal("text"))
 			Expect(*resp.StopReason).To(BeElementOf(
-				openaiserverapi.MessagesStopReasonEndTurn,
-				openaiserverapi.MessagesStopReasonMaxTokens,
+				api.MessagesStopReasonEndTurn,
+				api.MessagesStopReasonMaxTokens,
 			))
 		})
 
@@ -223,8 +223,8 @@ var _ = Describe("Simulator for /v1/messages (Anthropic Messages API)", func() {
 
 			resp := sendMessagesRequest(client, body)
 
-			Expect(resp.Type).To(Equal(openaiserverapi.MessagesType))
-			Expect(*resp.StopReason).To(Equal(openaiserverapi.MessagesStopReasonToolUse))
+			Expect(resp.Type).To(Equal(api.MessagesType))
+			Expect(*resp.StopReason).To(Equal(api.MessagesStopReasonToolUse))
 			Expect(resp.Content).NotTo(BeEmpty())
 			for _, block := range resp.Content {
 				Expect(block.Type).To(Equal("tool_use"))
@@ -249,7 +249,7 @@ var _ = Describe("Simulator for /v1/messages (Anthropic Messages API)", func() {
 
 			resp := sendMessagesRequest(client, body)
 
-			Expect(*resp.StopReason).To(Equal(openaiserverapi.MessagesStopReasonToolUse))
+			Expect(*resp.StopReason).To(Equal(api.MessagesStopReasonToolUse))
 			for _, block := range resp.Content {
 				Expect(block.Name).To(Equal(functionNameGetTemperature))
 				args, ok := block.Input["city"]
@@ -289,25 +289,25 @@ var _ = Describe("Simulator for /v1/messages (Anthropic Messages API)", func() {
 				types[i] = e.EventType
 			}
 
-			Expect(types[0]).To(Equal(openaiserverapi.MessagesEventMessageStart))
-			Expect(types).To(ContainElement(openaiserverapi.MessagesEventContentBlockStart))
-			Expect(types).To(ContainElement(openaiserverapi.MessagesEventPing))
-			Expect(types).To(ContainElement(openaiserverapi.MessagesEventContentBlockDelta))
-			Expect(types).To(ContainElement(openaiserverapi.MessagesEventContentBlockStop))
-			Expect(types).To(ContainElement(openaiserverapi.MessagesEventMessageDelta))
-			Expect(types[len(types)-1]).To(Equal(openaiserverapi.MessagesEventMessageStop))
+			Expect(types[0]).To(Equal(api.MessagesEventMessageStart))
+			Expect(types).To(ContainElement(api.MessagesEventContentBlockStart))
+			Expect(types).To(ContainElement(api.MessagesEventPing))
+			Expect(types).To(ContainElement(api.MessagesEventContentBlockDelta))
+			Expect(types).To(ContainElement(api.MessagesEventContentBlockStop))
+			Expect(types).To(ContainElement(api.MessagesEventMessageDelta))
+			Expect(types[len(types)-1]).To(Equal(api.MessagesEventMessageStop))
 
 			// message_start carries the initial message object
-			var startEvent openaiserverapi.MessagesMessageStartEvent
+			var startEvent api.MessagesMessageStartEvent
 			Expect(json.Unmarshal(events[0].Data, &startEvent)).To(Succeed())
 			Expect(startEvent.Message).NotTo(BeNil())
-			Expect(startEvent.Message.ID).To(HavePrefix(openaiserverapi.MessagesIDPrefix))
-			Expect(startEvent.Message.Role).To(Equal(openaiserverapi.RoleAssistant))
+			Expect(startEvent.Message.ID).To(HavePrefix(api.MessagesIDPrefix))
+			Expect(startEvent.Message.Role).To(Equal(api.RoleAssistant))
 			Expect(startEvent.Message.Usage.InputTokens).To(BeNumerically(">", 0))
 
 			// content_block_start opens a text block
-			cbsIdx := findEventIndex(types, openaiserverapi.MessagesEventContentBlockStart)
-			var blockStart openaiserverapi.MessagesContentBlockStartEvent
+			cbsIdx := findEventIndex(types, api.MessagesEventContentBlockStart)
+			var blockStart api.MessagesContentBlockStartEvent
 			Expect(json.Unmarshal(events[cbsIdx].Data, &blockStart)).To(Succeed())
 			Expect(blockStart.ContentBlock.Type).To(Equal("text"))
 			Expect(blockStart.Index).To(Equal(0))
@@ -317,13 +317,13 @@ var _ = Describe("Simulator for /v1/messages (Anthropic Messages API)", func() {
 			Expect(strings.Join(deltasText, "")).NotTo(BeEmpty())
 
 			// message_delta carries stop_reason and output token count
-			mdIdx := findEventIndex(types, openaiserverapi.MessagesEventMessageDelta)
-			var msgDelta openaiserverapi.MessagesMessageDeltaEvent
+			mdIdx := findEventIndex(types, api.MessagesEventMessageDelta)
+			var msgDelta api.MessagesMessageDeltaEvent
 			Expect(json.Unmarshal(events[mdIdx].Data, &msgDelta)).To(Succeed())
 			Expect(msgDelta.Delta.StopReason).NotTo(BeNil())
 			Expect(*msgDelta.Delta.StopReason).To(BeElementOf(
-				openaiserverapi.MessagesStopReasonEndTurn,
-				openaiserverapi.MessagesStopReasonMaxTokens,
+				api.MessagesStopReasonEndTurn,
+				api.MessagesStopReasonMaxTokens,
 			))
 			Expect(msgDelta.Usage.OutputTokens).To(BeNumerically(">", 0))
 		})
@@ -344,16 +344,16 @@ var _ = Describe("Simulator for /v1/messages (Anthropic Messages API)", func() {
 				types[i] = e.EventType
 			}
 
-			Expect(types[0]).To(Equal(openaiserverapi.MessagesEventMessageStart))
-			Expect(types).To(ContainElement(openaiserverapi.MessagesEventContentBlockStart))
-			Expect(types).To(ContainElement(openaiserverapi.MessagesEventContentBlockDelta))
-			Expect(types).To(ContainElement(openaiserverapi.MessagesEventContentBlockStop))
-			Expect(types).To(ContainElement(openaiserverapi.MessagesEventMessageDelta))
-			Expect(types[len(types)-1]).To(Equal(openaiserverapi.MessagesEventMessageStop))
+			Expect(types[0]).To(Equal(api.MessagesEventMessageStart))
+			Expect(types).To(ContainElement(api.MessagesEventContentBlockStart))
+			Expect(types).To(ContainElement(api.MessagesEventContentBlockDelta))
+			Expect(types).To(ContainElement(api.MessagesEventContentBlockStop))
+			Expect(types).To(ContainElement(api.MessagesEventMessageDelta))
+			Expect(types[len(types)-1]).To(Equal(api.MessagesEventMessageStop))
 
 			// content_block_start must describe a tool_use block
-			cbsIdx := findEventIndex(types, openaiserverapi.MessagesEventContentBlockStart)
-			var blockStart openaiserverapi.MessagesContentBlockStartEvent
+			cbsIdx := findEventIndex(types, api.MessagesEventContentBlockStart)
+			var blockStart api.MessagesContentBlockStartEvent
 			Expect(json.Unmarshal(events[cbsIdx].Data, &blockStart)).To(Succeed())
 			Expect(blockStart.ContentBlock.Type).To(Equal("tool_use"))
 			Expect(blockStart.ContentBlock.ID).To(HavePrefix(common.MessagesToolIDPrefix))
@@ -361,20 +361,20 @@ var _ = Describe("Simulator for /v1/messages (Anthropic Messages API)", func() {
 
 			// content_block_delta events carry input_json_delta
 			for _, e := range events {
-				if e.EventType != openaiserverapi.MessagesEventContentBlockDelta {
+				if e.EventType != api.MessagesEventContentBlockDelta {
 					continue
 				}
-				var delta openaiserverapi.MessagesContentBlockDeltaEvent
+				var delta api.MessagesContentBlockDeltaEvent
 				Expect(json.Unmarshal(e.Data, &delta)).To(Succeed())
 				Expect(delta.Delta.Type).To(Equal("input_json_delta"))
 				Expect(delta.Delta.PartialJSON).NotTo(BeEmpty())
 			}
 
 			// message_delta carries tool_use stop_reason
-			mdIdx := findEventIndex(types, openaiserverapi.MessagesEventMessageDelta)
-			var msgDelta openaiserverapi.MessagesMessageDeltaEvent
+			mdIdx := findEventIndex(types, api.MessagesEventMessageDelta)
+			var msgDelta api.MessagesMessageDeltaEvent
 			Expect(json.Unmarshal(events[mdIdx].Data, &msgDelta)).To(Succeed())
-			Expect(*msgDelta.Delta.StopReason).To(Equal(openaiserverapi.MessagesStopReasonToolUse))
+			Expect(*msgDelta.Delta.StopReason).To(Equal(api.MessagesStopReasonToolUse))
 		})
 	})
 })
@@ -393,10 +393,10 @@ func findEventIndex(types []string, eventType string) int {
 func collectTextDeltas(events []messagesSSEEvent) []string {
 	var out []string
 	for _, e := range events {
-		if e.EventType != openaiserverapi.MessagesEventContentBlockDelta {
+		if e.EventType != api.MessagesEventContentBlockDelta {
 			continue
 		}
-		var delta openaiserverapi.MessagesContentBlockDeltaEvent
+		var delta api.MessagesContentBlockDeltaEvent
 		if err := json.Unmarshal(e.Data, &delta); err != nil {
 			continue
 		}

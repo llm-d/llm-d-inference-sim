@@ -28,8 +28,7 @@ import (
 	"github.com/openai/openai-go/v3/option"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
-	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
-	vllmapi "github.com/llm-d/llm-d-inference-sim/pkg/vllm-api"
+	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 )
 
 var _ = Describe("LoRAs", func() {
@@ -48,7 +47,7 @@ var _ = Describe("LoRAs", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			Expect(resp.Choices).ShouldNot(BeEmpty())
-			Expect(string(resp.Object)).To(Equal(openaiserverapi.ChatCompletionObject))
+			Expect(string(resp.Object)).To(Equal(api.ChatCompletionObject))
 
 			msg := resp.Choices[0].Message.Content
 			Expect(msg).Should(Equal(testUserMessage))
@@ -76,7 +75,7 @@ var _ = Describe("LoRAs", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			// Should be four models: base model and three LoRAs
-			var modelsResp vllmapi.ModelsResponse
+			var modelsResp api.ModelsResponse
 			err = openaiclient.Get(ctx, "/models", nil, &modelsResp)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(modelsResp).NotTo(BeNil())
@@ -104,7 +103,7 @@ var _ = Describe("LoRAs", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			Expect(resp.Choices).ShouldNot(BeEmpty())
-			Expect(string(resp.Object)).To(Equal(openaiserverapi.ChatCompletionObject))
+			Expect(string(resp.Object)).To(Equal(api.ChatCompletionObject))
 
 			msg = resp.Choices[0].Message.Content
 			Expect(msg).Should(Equal(testUserMessage))

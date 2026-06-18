@@ -40,7 +40,7 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/communication"
 	vllmsim "github.com/llm-d/llm-d-inference-sim/pkg/llm-d-inference-sim"
-	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
+	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
@@ -158,9 +158,9 @@ func startServerHelper(ctx context.Context, mode string, args []string, envs map
 	}
 	userMsgTokens = int64(len(tokens))
 	// calculate number of tokens for user message as chat/completions
-	messages := []openaiserverapi.Message{
-		{Role: openaiserverapi.RoleUser,
-			Content: openaiserverapi.ChatComplContent{Raw: testUserMessage}}}
+	messages := []api.Message{
+		{Role: api.RoleUser,
+			Content: api.ChatComplContent{Raw: testUserMessage}}}
 	tokens, _, _, err = s.Context.Tokenizer.RenderMessages(messages)
 	if err != nil {
 		return nil, nil, nil, err
@@ -233,8 +233,8 @@ func sendCompletionsRequestForLatencyTest(client *http.Client, modelName string,
 	doRemotePrefill bool) (time.Duration, time.Duration) {
 	// send completions request using http post because disagregated PD fields should be included
 	// Test with raw HTTP to verify the error response format
-	req := &openaiserverapi.TextCompletionsParsedRequest{Prompt: []openaiserverapi.PromptInput{{Text: prompt}}}
-	req.KVParams = &openaiserverapi.KVTransferParams{DoRemotePrefill: doRemotePrefill}
+	req := &api.TextCompletionsParsedRequest{Prompt: []api.PromptInput{{Text: prompt}}}
+	req.KVParams = &api.KVTransferParams{DoRemotePrefill: doRemotePrefill}
 	req.Model = modelName
 	req.Stream = isStreaming
 
@@ -277,7 +277,7 @@ func sendSimpleChatRequest(envs map[string]string, streaming bool) *http.Respons
 	gomega.Expect(resp).NotTo(gomega.BeNil())
 
 	gomega.Expect(resp.Choices).ShouldNot(gomega.BeEmpty())
-	gomega.Expect(string(resp.Object)).To(gomega.Equal(openaiserverapi.ChatCompletionObject))
+	gomega.Expect(string(resp.Object)).To(gomega.Equal(api.ChatCompletionObject))
 
 	return httpResp
 }
@@ -685,7 +685,7 @@ func postAdminConfig(client *http.Client, body string) *http.Response {
 
 // renders the given messages using the test model
 func getChatPromptTokensCountForTestModel(message string) int64 {
-	messages := []openaiserverapi.Message{{Role: openaiserverapi.RoleUser, Content: openaiserverapi.ChatComplContent{Raw: message}}}
+	messages := []api.Message{{Role: api.RoleUser, Content: api.ChatComplContent{Raw: message}}}
 	tokens, _, _, err := tokenizerMngr.TestTokenizer().RenderMessages(messages)
 	gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
 

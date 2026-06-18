@@ -24,7 +24,7 @@ import (
 	"time"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
-	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
+	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	. "github.com/onsi/ginkgo/v2"
 	"k8s.io/klog/v2"
 
@@ -39,10 +39,10 @@ const (
 
 type validDBElement struct {
 	input          string
-	messages       []openaiserverapi.Message
-	tokenizedInput openaiserverapi.Tokenized
+	messages       []api.Message
+	tokenizedInput api.Tokenized
 	hexa           string
-	respTokens     openaiserverapi.Tokenized
+	respTokens     api.Tokenized
 }
 
 var _ = Describe("CustomDataset", Ordered, func() {
@@ -81,7 +81,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 		// #1 in db: input1, completions, short response
 		validDB[0].input = "1, 2, 3, 4, 5, 6, 7, 8, 9, 10"
 		validDB[0].hexa = "73205d2e432e6b117e0b75cdddeac019ee863f4b524f75bf57c15c5a47a445e4"
-		validDB[0].respTokens = openaiserverapi.Tokenized{
+		validDB[0].respTokens = api.Tokenized{
 			Strings: []string{"Hello", " human", "!"},
 			Tokens:  []uint32{9707, 3738, 0},
 		}
@@ -89,7 +89,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 		// #3 in db: input2, message1, completions, long response
 		validDB[1].input = "Hello world!"
 		validDB[1].hexa = "90db35b48bf168f20fa36537861e1d64fac6af372267aec9d10437a3f83f8bec"
-		validDB[1].respTokens = openaiserverapi.Tokenized{
+		validDB[1].respTokens = api.Tokenized{
 			Strings: []string{"this", " is", " assistant", " long", " response", ",", " it", " should", " contain", " at",
 				" least", " ", "1", "0", " tokens"},
 			Tokens: []uint32{574, 374, 17847, 1293, 2033, 11, 432, 1265, 6644, 518, 3245, 220, 16, 15, 11211},
@@ -97,13 +97,13 @@ var _ = Describe("CustomDataset", Ordered, func() {
 
 		// #6 in db: input2, message2, chat completions, short response
 		validDB[2].input = ""
-		validDB[2].messages = []openaiserverapi.Message{
-			{Role: openaiserverapi.RoleUser, Content: openaiserverapi.ChatComplContent{Raw: "Hello world!"}},
-			{Role: openaiserverapi.RoleAssistant, Content: openaiserverapi.ChatComplContent{Raw: "this is assistant long response, it should contain at least 10 tokens"}},
-			{Role: openaiserverapi.RoleUser, Content: openaiserverapi.ChatComplContent{Raw: "Hello world again"}},
+		validDB[2].messages = []api.Message{
+			{Role: api.RoleUser, Content: api.ChatComplContent{Raw: "Hello world!"}},
+			{Role: api.RoleAssistant, Content: api.ChatComplContent{Raw: "this is assistant long response, it should contain at least 10 tokens"}},
+			{Role: api.RoleUser, Content: api.ChatComplContent{Raw: "Hello world again"}},
 		}
 		validDB[2].hexa = "a57863ca4a26f377c8e67471c418ab26315b6d60b323ce34676de0aca3f7cec8"
-		validDB[2].respTokens = openaiserverapi.Tokenized{
+		validDB[2].respTokens = api.Tokenized{
 			Strings: []string{"short", " response"},
 			Tokens:  []uint32{8676, 2033},
 		}
@@ -128,7 +128,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 				Expect(strTokens).ToNot(BeNil())
 				Expect(strTokens).ToNot(BeEmpty())
 			}
-			validDB[i].tokenizedInput = openaiserverapi.Tokenized{Tokens: tokens, Strings: strTokens}
+			validDB[i].tokenizedInput = api.Tokenized{Tokens: tokens, Strings: strTokens}
 		}
 	})
 
@@ -188,7 +188,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 		row = dataset.sqliteHelper.db.QueryRow(fmt.Sprintf("SELECT gen_tokens FROM llmd WHERE prompt_hash=X'%s';", validDB[0].hexa))
 		err = row.Scan(&jsonStr)
 		Expect(err).NotTo(HaveOccurred())
-		var tokenized openaiserverapi.Tokenized
+		var tokenized api.Tokenized
 		err = json.Unmarshal([]byte(jsonStr), &tokenized)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(tokenized).To(Equal(validDB[0].respTokens))
@@ -227,7 +227,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 	})
 
 	It("should return correct prompt hash in bytes", func() {
-		req := &openaiserverapi.TextCompletionsRequest{}
+		req := &api.TextCompletionsRequest{}
 		req.SetTokenizedPrompt(&validDB[0].tokenizedInput)
 		dataset := &CustomDataset{}
 		hashBytes := dataset.getPromptHash(req)
@@ -241,10 +241,10 @@ var _ = Describe("CustomDataset", Ordered, func() {
 		Expect(tokens).To(Equal(validDB[0].tokenizedInput.Tokens))
 		Expect(strTokens).To(Equal(validDB[0].tokenizedInput.Strings))
 
-		prompt := openaiserverapi.Tokenized{Tokens: tokens, Strings: strTokens}
+		prompt := api.Tokenized{Tokens: tokens, Strings: strTokens}
 		Expect(prompt).To(Equal(validDB[0].tokenizedInput))
 
-		req := &openaiserverapi.TextCompletionsRequest{}
+		req := &api.TextCompletionsRequest{}
 		req.SetTokenizedPrompt(&prompt)
 		dataset := &CustomDataset{}
 		hashBytes := dataset.getPromptHash(req)
@@ -270,13 +270,13 @@ var _ = Describe("CustomDataset", Ordered, func() {
 
 		DescribeTable("should work correctly in random mode with ignore eos",
 			func(index int, maxTokens *int64, isChat bool, expectedFinishReason string) {
-				var req openaiserverapi.Request
+				var req api.Request
 				if isChat {
-					chatReq := openaiserverapi.ChatCompletionsRequest{MaxTokens: maxTokens}
+					chatReq := api.ChatCompletionsRequest{MaxTokens: maxTokens}
 					chatReq.IgnoreEOS = true
 					req = &chatReq
 				} else {
-					textReq := openaiserverapi.TextCompletionsRequest{}
+					textReq := api.TextCompletionsRequest{}
 					textReq.MaxTokens = maxTokens
 					textReq.IgnoreEOS = true
 					req = &textReq
@@ -306,7 +306,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 		)
 
 		It("should return tokens for existing prompt", func() {
-			req := &openaiserverapi.TextCompletionsRequest{}
+			req := &api.TextCompletionsRequest{}
 			req.SetTokenizedPrompt(&validDB[1].tokenizedInput)
 
 			tokens, finishReason, err := dataset.GetResponseTokens(req)
@@ -316,7 +316,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 		})
 
 		It("should return at most 2 tokens for existing prompt", func() {
-			req := &openaiserverapi.TextCompletionsRequest{}
+			req := &api.TextCompletionsRequest{}
 			req.MaxTokens = &smallMaxTokens
 			req.SetTokenizedPrompt(&validDB[1].tokenizedInput)
 			tokens, _, err := dataset.GetResponseTokens(req)
@@ -325,8 +325,8 @@ var _ = Describe("CustomDataset", Ordered, func() {
 		})
 
 		It("should successfully init dataset with in-memory option", func() {
-			req := &openaiserverapi.TextCompletionsRequest{
-				Prompt: openaiserverapi.PromptInput{Text: validDB[1].input},
+			req := &api.TextCompletionsRequest{
+				Prompt: api.PromptInput{Text: validDB[1].input},
 			}
 			req.SetTokenizedPrompt(&validDB[1].tokenizedInput)
 
@@ -337,7 +337,7 @@ var _ = Describe("CustomDataset", Ordered, func() {
 		})
 
 		It("should work correctly for chat request with multiple messages", func() {
-			req := openaiserverapi.ChatCompletionsRequest{MaxTokens: &maxTokens}
+			req := api.ChatCompletionsRequest{MaxTokens: &maxTokens}
 			req.Messages = validDB[2].messages
 			req.SetTokenizedPrompt(&validDB[2].tokenizedInput)
 

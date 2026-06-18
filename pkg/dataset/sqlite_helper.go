@@ -27,7 +27,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
-	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
+	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 )
 
 // use constants for expected column names and types
@@ -226,7 +226,7 @@ func (s *sqliteHelper) getRecordsCount() (int, error) {
 
 // query runs a SQL query which retrieves response tokens as an array of strings
 // returns multiple responses
-func (s *sqliteHelper) query(query string) ([]openaiserverapi.Tokenized, error) {
+func (s *sqliteHelper) query(query string) ([]api.Tokenized, error) {
 	rows, err := s.db.Query(query)
 	if err != nil {
 		s.logger.Error(err, "failed to query database. Ensure dataset file is still valid. Will generate random tokens instead.")
@@ -245,8 +245,8 @@ func (s *sqliteHelper) query(query string) ([]openaiserverapi.Tokenized, error) 
 	return unmarshalAllRecords(rows)
 }
 
-func unmarshalAllRecords(rows *sql.Rows) ([]openaiserverapi.Tokenized, error) {
-	var responses []openaiserverapi.Tokenized
+func unmarshalAllRecords(rows *sql.Rows) ([]api.Tokenized, error) {
+	var responses []api.Tokenized
 
 	for rows.Next() {
 		var responseJSON string
@@ -254,7 +254,7 @@ func unmarshalAllRecords(rows *sql.Rows) ([]openaiserverapi.Tokenized, error) {
 			return nil, fmt.Errorf("failed to scan row: %w", err)
 		}
 
-		var tokens openaiserverapi.Tokenized
+		var tokens api.Tokenized
 		if err := json.Unmarshal([]byte(responseJSON), &tokens); err != nil {
 			return nil, fmt.Errorf("failed to unmarshal tokens JSON: %w", err)
 		}
@@ -282,12 +282,12 @@ func (s *sqliteHelper) buildQuery(where string, isRand bool, isLimitOne bool) st
 	return query
 }
 
-func (s *sqliteHelper) getResponsesForPrompt(promptHashHex string) ([]openaiserverapi.Tokenized, error) {
+func (s *sqliteHelper) getResponsesForPrompt(promptHashHex string) ([]api.Tokenized, error) {
 	query := s.buildQuery(promptHashCol+"=X'"+promptHashHex+"'", false, false)
 	return s.query(query)
 }
 
-func (s *sqliteHelper) getResponsesForLen(maxLen int, isExact bool) ([]openaiserverapi.Tokenized, error) {
+func (s *sqliteHelper) getResponsesForLen(maxLen int, isExact bool) ([]api.Tokenized, error) {
 	sign := "<="
 	if isExact {
 		sign = "="
@@ -296,7 +296,7 @@ func (s *sqliteHelper) getResponsesForLen(maxLen int, isExact bool) ([]openaiser
 	return s.query(query)
 }
 
-func (s *sqliteHelper) getRandomResponse() ([]openaiserverapi.Tokenized, error) {
+func (s *sqliteHelper) getRandomResponse() ([]api.Tokenized, error) {
 	query := s.buildQuery("", true, true)
 	return s.query(query)
 }

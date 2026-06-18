@@ -17,7 +17,7 @@ limitations under the License.
 package llmdinferencesim
 
 import (
-	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
+	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -38,10 +38,10 @@ func newTextCompletionsFixture() *TextCompletionsParsedRequest {
 	req.DisplayedModel = "test-model-alias"
 	req.Stream = true
 	req.IgnoreEOS = true
-	req.StreamOptions = &openaiserverapi.StreamOptions{IncludeUsage: true}
+	req.StreamOptions = &api.StreamOptions{IncludeUsage: true}
 	threshold := 0.25
 	req.CacheHitThreshold = &threshold
-	req.Prompt = []openaiserverapi.PromptInput{{Text: "one"}, {Text: "two"}}
+	req.Prompt = []api.PromptInput{{Text: "one"}, {Text: "two"}}
 	req.MaxTokens = ptrInt64(42)
 	req.Logprobs = ptrInt(3)
 	return req
@@ -57,9 +57,9 @@ var _ = Describe("TextCompletionsParsedRequest.split", func() {
 		first := subs[0].(*TextCompletionsRequest)
 		second := subs[1].(*TextCompletionsRequest)
 		Expect(first.GetRequestID()).To(Equal("req-abc-0"))
-		Expect(first.Prompt).To(Equal(openaiserverapi.PromptInput{Text: "one"}))
+		Expect(first.Prompt).To(Equal(api.PromptInput{Text: "one"}))
 		Expect(second.GetRequestID()).To(Equal("req-abc-1"))
-		Expect(second.Prompt).To(Equal(openaiserverapi.PromptInput{Text: "two"}))
+		Expect(second.Prompt).To(Equal(api.PromptInput{Text: "two"}))
 	})
 
 	It("preserves non-prompt fields on each sub-request", func() {
@@ -82,21 +82,21 @@ var _ = Describe("TextCompletionsParsedRequest.split", func() {
 		orig := &TextCompletionsParsedRequest{}
 		orig.RequestID = "req-xyz"
 		orig.Model = "test-model"
-		orig.Prompt = []openaiserverapi.PromptInput{{Tokens: []uint32{10, 20, 30}}}
+		orig.Prompt = []api.PromptInput{{Tokens: []uint32{10, 20, 30}}}
 
 		subs := orig.split()
 
 		Expect(subs).To(HaveLen(1))
 		sub := subs[0].(*TextCompletionsRequest)
 		Expect(sub.GetRequestID()).To(Equal("req-xyz-0"))
-		Expect(sub.Prompt).To(Equal(openaiserverapi.PromptInput{Tokens: []uint32{10, 20, 30}}))
+		Expect(sub.Prompt).To(Equal(api.PromptInput{Tokens: []uint32{10, 20, 30}}))
 		// AsSingle pre-populates TokenizedPrompt so the worker skips encode().
-		Expect(sub.TokenizedPrompt()).To(Equal(&openaiserverapi.Tokenized{Tokens: []uint32{10, 20, 30}}))
+		Expect(sub.TokenizedPrompt()).To(Equal(&api.Tokenized{Tokens: []uint32{10, 20, 30}}))
 	})
 
 	It("does not mutate the parsed request", func() {
 		orig := newTextCompletionsFixture()
-		origPrompt := append([]openaiserverapi.PromptInput(nil), orig.Prompt...)
+		origPrompt := append([]api.PromptInput(nil), orig.Prompt...)
 		origID := orig.GetRequestID()
 
 		_ = orig.split()

@@ -20,13 +20,13 @@ import (
 	"encoding/json"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
-	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
+	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/valyala/fasthttp"
 )
 
 // Implementation of request for generate requests
 type GenerateRequest struct {
-	openaiserverapi.GenerateRequest
+	api.GenerateRequest
 }
 
 func (g *GenerateRequest) Unmarshal(data []byte) error {
@@ -38,18 +38,18 @@ func (g *GenerateRequest) Unmarshal(data []byte) error {
 	if g.KVParams == nil && g.SamplingParams != nil && g.SamplingParams.ExtraArgs != nil {
 		g.KVParams = g.SamplingParams.ExtraArgs.KVTransferParams
 	}
-	g.SetTokenizedPrompt(&openaiserverapi.Tokenized{Tokens: g.TokenIDs, Strings: []string{}})
+	g.SetTokenizedPrompt(&api.Tokenized{Tokens: g.TokenIDs, Strings: []string{}})
 	return nil
 }
 
-func (g *GenerateRequest) validate(toolsValidator *toolsValidator) *openaiserverapi.Error {
+func (g *GenerateRequest) validate(toolsValidator *toolsValidator) *api.Error {
 	if g.TokenIDs == nil {
-		err := openaiserverapi.NewError("Missing input token_ids", fasthttp.StatusBadRequest, nil)
+		err := api.NewError("Missing input token_ids", fasthttp.StatusBadRequest, nil)
 		return &err
 	}
 
 	if g.SamplingParams == nil {
-		err := openaiserverapi.NewError("Missing sampling_params field", fasthttp.StatusBadRequest, nil)
+		err := api.NewError("Missing sampling_params field", fasthttp.StatusBadRequest, nil)
 		return &err
 	}
 
@@ -78,12 +78,12 @@ func (g *GenerateRequest) AsString() string {
 }
 
 func (g *GenerateRequest) createResponseContext(reqCtx requestContext, displayModel string,
-	responseTokens *openaiserverapi.Tokenized, finishReason *string, usageData *openaiserverapi.Usage,
-	sendUsageData bool, logprobs *int, toolCalls []openaiserverapi.ToolCall, mmEncoderOnlyMode bool) ResponseContext {
+	responseTokens *api.Tokenized, finishReason *string, usageData *api.Usage,
+	sendUsageData bool, logprobs *int, toolCalls []api.ToolCall, mmEncoderOnlyMode bool) ResponseContext {
 	base := newBaseResponseContext(reqCtx, displayModel, responseTokens, finishReason, usageData, sendUsageData,
 		logprobs, g.GetRequestID(), g.IsDoRemotePrefill(), g.IsDoRemoteDecode(), g.GetNumberOfCachedPromptTokens())
 
-	var ecParams map[string]openaiserverapi.ECTransferParams
+	var ecParams map[string]api.ECTransferParams
 	if mmEncoderOnlyMode && g.Features != nil {
 		ecParams = buildECTransferParams(g.Features.MMHashes)
 	}
@@ -106,15 +106,15 @@ func (g *generateReqCtx) request() Request {
 	return g.req
 }
 
-func (g *generateReqCtx) tokenizedPromptForEcho() (*openaiserverapi.Tokenized, error) {
+func (g *generateReqCtx) tokenizedPromptForEcho() (*api.Tokenized, error) {
 	return g.req.TokenizedPrompt(), nil
 }
 
-func (g *generateReqCtx) encode() ([]uint32, []string, *openaiserverapi.RenderMMFeatures, error) {
+func (g *generateReqCtx) encode() ([]uint32, []string, *api.RenderMMFeatures, error) {
 	return g.req.TokenizedPrompt().Tokens, g.req.TokenizedPrompt().Strings, nil, nil
 }
 
-func (g *generateReqCtx) createToolCalls() ([]openaiserverapi.ToolCall, int, string, error) {
+func (g *generateReqCtx) createToolCalls() ([]api.ToolCall, int, string, error) {
 	return nil, 0, "", nil
 }
 
@@ -123,14 +123,14 @@ var _ requestContext = (*generateReqCtx)(nil)
 // Implementation of responseContext for generation requests
 type generateResponseCtx struct {
 	baseResponseContext
-	ecTransferParams map[string]openaiserverapi.ECTransferParams
+	ecTransferParams map[string]api.ECTransferParams
 }
 
-func (respCtx *generateResponseCtx) ToolCalls() []openaiserverapi.ToolCall {
+func (respCtx *generateResponseCtx) ToolCalls() []api.ToolCall {
 	return nil
 }
 
-func (respCtx *generateResponseCtx) ECTransferParams() map[string]openaiserverapi.ECTransferParams {
+func (respCtx *generateResponseCtx) ECTransferParams() map[string]api.ECTransferParams {
 	return respCtx.ecTransferParams
 }
 

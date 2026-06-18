@@ -19,7 +19,7 @@ package common
 import (
 	"fmt"
 
-	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
+	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 )
 
 const (
@@ -57,7 +57,7 @@ func calculateLogprob(tokenPosition int, alternativeIndex int) float64 {
 }
 
 // GenerateSingleTokenChatLogprobs generates logprobs for a single token in chat completion streaming
-func GenerateSingleTokenChatLogprobs(token string, tokenPosition int, topLogprobsCount int) *openaiserverapi.LogprobsContent {
+func GenerateSingleTokenChatLogprobs(token string, tokenPosition int, topLogprobsCount int) *api.LogprobsContent {
 	if token == "" {
 		return nil
 	}
@@ -66,7 +66,7 @@ func GenerateSingleTokenChatLogprobs(token string, tokenPosition int, topLogprob
 	mainLogprob := calculateLogprob(tokenPosition, 0)
 	tokenBytes := stringToIntBytes(token)
 
-	content := openaiserverapi.LogprobsContent{
+	content := api.LogprobsContent{
 		Token:   token,
 		Logprob: mainLogprob,
 		Bytes:   tokenBytes,
@@ -75,10 +75,10 @@ func GenerateSingleTokenChatLogprobs(token string, tokenPosition int, topLogprob
 	// Generate top alternatives if requested
 	if topLogprobsCount > 0 {
 		// Pre-size alternatives slice
-		content.TopLogprobs = make([]openaiserverapi.LogprobsContent, topLogprobsCount)
+		content.TopLogprobs = make([]api.LogprobsContent, topLogprobsCount)
 
 		// Main token first
-		content.TopLogprobs[0] = openaiserverapi.LogprobsContent{
+		content.TopLogprobs[0] = api.LogprobsContent{
 			Token:   token,
 			Logprob: mainLogprob,
 			Bytes:   tokenBytes,
@@ -90,7 +90,7 @@ func GenerateSingleTokenChatLogprobs(token string, tokenPosition int, topLogprob
 			altLogprob := calculateLogprob(tokenPosition, j)
 			altBytes := stringToIntBytes(altToken)
 
-			content.TopLogprobs[j] = openaiserverapi.LogprobsContent{
+			content.TopLogprobs[j] = api.LogprobsContent{
 				Token:   altToken,
 				Logprob: altLogprob,
 				Bytes:   altBytes,
@@ -102,7 +102,7 @@ func GenerateSingleTokenChatLogprobs(token string, tokenPosition int, topLogprob
 }
 
 // GenerateSingleTokenTextLogprobs generates logprobs for a single token in text completion streaming
-func GenerateSingleTokenTextLogprobs(token string, tokenPosition int, logprobsCount int) *openaiserverapi.TextLogprobs {
+func GenerateSingleTokenTextLogprobs(token string, tokenPosition int, logprobsCount int) *api.TextLogprobs {
 	if token == "" {
 		return nil
 	}
@@ -112,7 +112,7 @@ func GenerateSingleTokenTextLogprobs(token string, tokenPosition int, logprobsCo
 		logprobsCount = 1 // Include the main token, at a minimum
 	}
 
-	logprobs := &openaiserverapi.TextLogprobs{
+	logprobs := &api.TextLogprobs{
 		Tokens:        []string{token},
 		TokenLogprobs: make([]float64, 1),
 		TopLogprobs:   make([]map[string]float64, 1),
@@ -140,10 +140,10 @@ func GenerateSingleTokenTextLogprobs(token string, tokenPosition int, logprobsCo
 
 // GenerateTextLogprobs generates synthetic log probabilities for text completion responses
 // topLogprobsCount specifies the number of top alternatives per token (0 = no alternatives, only main token)
-func GenerateTextLogprobs(tokens []string, logprobsCount int) *openaiserverapi.TextLogprobs {
+func GenerateTextLogprobs(tokens []string, logprobsCount int) *api.TextLogprobs {
 	// Return empty struct for empty input (not nil)
 	if len(tokens) == 0 {
-		return &openaiserverapi.TextLogprobs{
+		return &api.TextLogprobs{
 			Tokens:        []string{},
 			TokenLogprobs: []float64{},
 			TopLogprobs:   []map[string]float64{},
@@ -158,7 +158,7 @@ func GenerateTextLogprobs(tokens []string, logprobsCount int) *openaiserverapi.T
 
 	// Avoid reallocations
 	numTokens := len(tokens)
-	logprobs := &openaiserverapi.TextLogprobs{
+	logprobs := &api.TextLogprobs{
 		Tokens:        tokens,
 		TokenLogprobs: make([]float64, numTokens),
 		TopLogprobs:   make([]map[string]float64, numTokens),
@@ -192,17 +192,17 @@ func GenerateTextLogprobs(tokens []string, logprobsCount int) *openaiserverapi.T
 
 // GenerateChatLogprobs generates synthetic log probabilities for chat completion responses
 // topLogprobsCount specifies the number of top alternatives per token (0 = no alternatives, only main token)
-func GenerateChatLogprobs(tokens []string, topLogprobsCount int) *openaiserverapi.ChatLogprobs {
+func GenerateChatLogprobs(tokens []string, topLogprobsCount int) *api.ChatLogprobs {
 	// Return empty struct for empty input (not nil)
 	if len(tokens) == 0 {
-		return &openaiserverapi.ChatLogprobs{
-			Content: []openaiserverapi.LogprobsContent{},
+		return &api.ChatLogprobs{
+			Content: []api.LogprobsContent{},
 		}
 	}
 
 	numTokens := len(tokens)
-	logprobs := &openaiserverapi.ChatLogprobs{
-		Content: make([]openaiserverapi.LogprobsContent, numTokens),
+	logprobs := &api.ChatLogprobs{
+		Content: make([]api.LogprobsContent, numTokens),
 	}
 
 	for i, token := range tokens {
@@ -211,7 +211,7 @@ func GenerateChatLogprobs(tokens []string, topLogprobsCount int) *openaiserverap
 
 		tokenBytes := stringToIntBytes(token)
 
-		content := openaiserverapi.LogprobsContent{
+		content := api.LogprobsContent{
 			Token:   token,
 			Logprob: mainLogprob,
 			Bytes:   tokenBytes,
@@ -220,10 +220,10 @@ func GenerateChatLogprobs(tokens []string, topLogprobsCount int) *openaiserverap
 		// Generate top alternatives if requested
 		if topLogprobsCount > 0 {
 			// Pre-size alternatives slice
-			content.TopLogprobs = make([]openaiserverapi.LogprobsContent, topLogprobsCount)
+			content.TopLogprobs = make([]api.LogprobsContent, topLogprobsCount)
 
 			// Main token first
-			content.TopLogprobs[0] = openaiserverapi.LogprobsContent{
+			content.TopLogprobs[0] = api.LogprobsContent{
 				Token:   token,
 				Logprob: mainLogprob,
 				Bytes:   tokenBytes,
@@ -235,7 +235,7 @@ func GenerateChatLogprobs(tokens []string, topLogprobsCount int) *openaiserverap
 				altLogprob := calculateLogprob(i, j)
 				altBytes := stringToIntBytes(altToken)
 
-				content.TopLogprobs[j] = openaiserverapi.LogprobsContent{
+				content.TopLogprobs[j] = api.LogprobsContent{
 					Token:   altToken,
 					Logprob: altLogprob,
 					Bytes:   altBytes,
@@ -251,19 +251,19 @@ func GenerateChatLogprobs(tokens []string, topLogprobsCount int) *openaiserverap
 
 // GenerateMessagesLogprobs generates synthetic log probabilities for Responses API output_text content
 // topLogprobsCount specifies the number of top alternatives per token (0 = no alternatives, only main token)
-func GenerateMessagesLogprobs(tokens []string, topLogprobsCount int) []openaiserverapi.ResponsesLogprob {
+func GenerateMessagesLogprobs(tokens []string, topLogprobsCount int) []api.ResponsesLogprob {
 	chat := GenerateChatLogprobs(tokens, topLogprobsCount)
-	result := make([]openaiserverapi.ResponsesLogprob, len(chat.Content))
+	result := make([]api.ResponsesLogprob, len(chat.Content))
 	for i, c := range chat.Content {
-		topLogprobs := make([]openaiserverapi.TopLogprob, len(c.TopLogprobs))
+		topLogprobs := make([]api.TopLogprob, len(c.TopLogprobs))
 		for j, top := range c.TopLogprobs {
-			topLogprobs[j] = openaiserverapi.TopLogprob{
+			topLogprobs[j] = api.TopLogprob{
 				Token:   top.Token,
 				Logprob: top.Logprob,
 				Bytes:   top.Bytes,
 			}
 		}
-		result[i] = openaiserverapi.ResponsesLogprob{
+		result[i] = api.ResponsesLogprob{
 			Token:       c.Token,
 			Logprob:     c.Logprob,
 			Bytes:       c.Bytes,

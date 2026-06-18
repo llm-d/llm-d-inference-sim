@@ -24,7 +24,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
-	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
+	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 	"github.com/llm-d/llm-d-kv-cache/pkg/kvcache/kvblock"
 )
@@ -91,7 +91,7 @@ func (h *KVCacheHelper) Activate() {
 	h.blockCache.activate()
 }
 
-func (h *KVCacheHelper) OnRequestStart(req openaiserverapi.Request) (PrefixCacheStats, error) {
+func (h *KVCacheHelper) OnRequestStart(req api.Request) (PrefixCacheStats, error) {
 	h.logger.V(logging.TRACE).Info("KV cache - process request")
 
 	tokens := req.TokenizedPrompt().Tokens
@@ -151,7 +151,7 @@ func (h *KVCacheHelper) SetModelUnloaded(model string) {
 	h.blockCache.setModelUnloaded(model)
 }
 
-func (h *KVCacheHelper) convertMMPlaceholders(placeholders map[string][]openaiserverapi.RenderPlaceholder) map[string][]kvblock.PlaceholderRange {
+func (h *KVCacheHelper) convertMMPlaceholders(placeholders map[string][]api.RenderPlaceholder) map[string][]kvblock.PlaceholderRange {
 	res := make(map[string][]kvblock.PlaceholderRange, len(placeholders))
 
 	for k, prs := range placeholders {

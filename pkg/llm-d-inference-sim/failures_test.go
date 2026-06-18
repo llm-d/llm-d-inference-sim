@@ -24,7 +24,7 @@ import (
 	. "github.com/onsi/gomega"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
-	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
+	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 )
 
 var _ = Describe("Failures", func() {
@@ -52,7 +52,7 @@ var _ = Describe("Failures", func() {
 			}
 			failure := getRandomFailure(config, random)
 			Expect(failure.Code).To(Equal(429))
-			Expect(failure.Type).To(Equal(openaiserverapi.ErrorCodeToType(429)))
+			Expect(failure.Type).To(Equal(api.ErrorCodeToType(429)))
 			Expect(strings.Contains(failure.Message, common.TestModelName)).To(BeTrue())
 		})
 
@@ -62,7 +62,7 @@ var _ = Describe("Failures", func() {
 			}
 			failure := getRandomFailure(config, random)
 			Expect(failure.Code).To(Equal(401))
-			Expect(failure.Type).To(Equal(openaiserverapi.ErrorCodeToType(401)))
+			Expect(failure.Type).To(Equal(api.ErrorCodeToType(401)))
 			Expect(failure.Message).To(Equal("Incorrect API key provided."))
 		})
 
@@ -72,7 +72,7 @@ var _ = Describe("Failures", func() {
 			}
 			failure := getRandomFailure(config, random)
 			Expect(failure.Code).To(Equal(400))
-			Expect(failure.Type).To(Equal(openaiserverapi.ErrorCodeToType(400)))
+			Expect(failure.Type).To(Equal(api.ErrorCodeToType(400)))
 			Expect(failure.Param).ToNot(BeNil())
 			Expect(*failure.Param).To(Equal("messages"))
 		})
@@ -83,7 +83,7 @@ var _ = Describe("Failures", func() {
 			}
 			failure := getRandomFailure(config, random)
 			Expect(failure.Code).To(Equal(503))
-			Expect(failure.Type).To(Equal(openaiserverapi.ErrorCodeToType(503)))
+			Expect(failure.Type).To(Equal(api.ErrorCodeToType(503)))
 		})
 
 		It("should return model not found failure when specified", func() {
@@ -93,7 +93,7 @@ var _ = Describe("Failures", func() {
 			}
 			failure := getRandomFailure(config, random)
 			Expect(failure.Code).To(Equal(404))
-			Expect(failure.Type).To(Equal(openaiserverapi.ErrorCodeToType(404)))
+			Expect(failure.Type).To(Equal(api.ErrorCodeToType(404)))
 			Expect(strings.Contains(failure.Message, getModelNotFoundMessage(common.TestModelName))).To(BeTrue())
 		})
 

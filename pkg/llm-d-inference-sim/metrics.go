@@ -30,7 +30,7 @@ import (
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	kvcache "github.com/llm-d/llm-d-inference-sim/pkg/kv-cache"
-	vllmapi "github.com/llm-d/llm-d-inference-sim/pkg/vllm-api"
+	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 )
 
 const (
@@ -187,7 +187,7 @@ func (s *SimContext) createAndRegisterPrometheus(ctx context.Context) error {
 			Name:      ReqRunningMetricName,
 			Help:      "Number of requests currently running on GPU.",
 		},
-		[]string{vllmapi.PromLabelModelName},
+		[]string{api.PromLabelModelName},
 	)
 
 	if err := s.metrics.registry.Register(s.metrics.runningRequests); err != nil {
@@ -208,7 +208,7 @@ func (s *SimContext) createAndRegisterPrometheus(ctx context.Context) error {
 			Name:      ReqWaitingMetricName,
 			Help:      "Prometheus metric for the number of queued requests.",
 		},
-		[]string{vllmapi.PromLabelModelName},
+		[]string{api.PromLabelModelName},
 	)
 
 	if err := s.metrics.registry.Register(s.metrics.waitingRequests); err != nil {
@@ -306,7 +306,7 @@ func (s *SimContext) createAndRegisterPrometheus(ctx context.Context) error {
 			Name:      KVCacheUsageMetricName,
 			Help:      "Prometheus metric for the fraction of KV-cache blocks currently in use (from 0 to 1).",
 		},
-		[]string{vllmapi.PromLabelModelName},
+		[]string{api.PromLabelModelName},
 	)
 
 	if err := s.metrics.registry.Register(s.metrics.kvCacheUsagePercentage); err != nil {
@@ -377,7 +377,7 @@ func (s *SimContext) createAndRegisterPrometheus(ctx context.Context) error {
 			Name:      CacheConfigName,
 			Help:      "Information of the LLMEngine CacheConfig.",
 		},
-		[]string{vllmapi.PromLabelCacheBlockSize, vllmapi.PromLabelCacheNumGPUBlocks},
+		[]string{api.PromLabelCacheBlockSize, api.PromLabelCacheNumGPUBlocks},
 	)
 	if err := s.metrics.registry.Register(cacheConfig); err != nil {
 		s.logger.Error(err, "prometheus cache config register failed")
@@ -776,7 +776,7 @@ func (s *SimContext) createAndRegisterTTFTMetric() error {
 			Help:      "Histogram of time to first token in seconds.",
 			Buckets:   common.TTFTBucketsBoundaries,
 		},
-		[]string{vllmapi.PromLabelModelName},
+		[]string{api.PromLabelModelName},
 	)
 
 	if err := s.metrics.registry.Register(s.metrics.ttft); err != nil {
@@ -795,7 +795,7 @@ func (s *SimContext) createAndRegisterTPOTAndInterTokenMetrics() error {
 			Help:      "Histogram of time per output token in seconds.",
 			Buckets:   common.TPOTBucketsBoundaries,
 		},
-		[]string{vllmapi.PromLabelModelName},
+		[]string{api.PromLabelModelName},
 	)
 
 	if err := s.metrics.registry.Register(s.metrics.tpot); err != nil {
@@ -811,7 +811,7 @@ func (s *SimContext) createAndRegisterTPOTAndInterTokenMetrics() error {
 			Help:      "Histogram of inter-token latency in seconds.",
 			Buckets:   common.TPOTBucketsBoundaries, // Reuse same buckets as TPOT
 		},
-		[]string{vllmapi.PromLabelModelName},
+		[]string{api.PromLabelModelName},
 	)
 
 	if err := s.metrics.registry.Register(s.metrics.interTokenLatency); err != nil {
@@ -829,7 +829,7 @@ func (s *SimContext) createAndRegisterReqPromptTokensMetrics() error {
 			Help:      "Number of prefill tokens processed.",
 			Buckets:   Build125Buckets(s.Config().MaxModelLen),
 		},
-		[]string{vllmapi.PromLabelModelName},
+		[]string{api.PromLabelModelName},
 	)
 	if err := s.metrics.registry.Register(s.metrics.requestPromptTokens); err != nil {
 		s.logger.Error(err, "prometheus request_prompt_tokens histogram register failed")
@@ -845,7 +845,7 @@ func (s *SimContext) createAndRegisterPromptTokensTotalMetrics() error {
 			Name:      PromptTokensTotalMetricName,
 			Help:      "Total number of prompt tokens processed.",
 		},
-		[]string{vllmapi.PromLabelModelName},
+		[]string{api.PromLabelModelName},
 	)
 
 	if err := s.metrics.registry.Register(s.metrics.promptTokensTotal); err != nil {
@@ -864,7 +864,7 @@ func (s *SimContext) createAndRegisterReqGenerationTokensMetrics() error {
 			Help:      "Number of generation tokens processed.",
 			Buckets:   Build125Buckets(s.Config().MaxModelLen),
 		},
-		[]string{vllmapi.PromLabelModelName},
+		[]string{api.PromLabelModelName},
 	)
 	if err := s.metrics.registry.Register(s.metrics.requestGenerationTokens); err != nil {
 		s.logger.Error(err, "prometheus request_generation_tokens histogram register failed")
@@ -880,7 +880,7 @@ func (s *SimContext) createAndRegisterGenerationTokensTotalMetrics() error {
 			Name:      GenerationTokensTotalMetricName,
 			Help:      "Total number of generated tokens.",
 		},
-		[]string{vllmapi.PromLabelModelName},
+		[]string{api.PromLabelModelName},
 	)
 	if err := s.metrics.registry.Register(s.metrics.generationTokensTotal); err != nil {
 		s.logger.Error(err, "prometheus generation_tokens_total counter register failed")
@@ -896,7 +896,7 @@ func (s *SimContext) createAndRegisterE2EReqLatencyMetric() error {
 			Help:    "Histogram of end to end request latency in seconds.",
 			Buckets: common.RequestLatencyBucketsBoundaries,
 		},
-		[]string{vllmapi.PromLabelModelName},
+		[]string{api.PromLabelModelName},
 	)
 	if err := s.metrics.registry.Register(s.metrics.e2eReqLatency); err != nil {
 		s.logger.Error(err, "prometheus e2e request latency histogram register failed")
@@ -912,7 +912,7 @@ func (s *SimContext) createAndRegisterReqQueueTimeMetric() error {
 			Help:    "Histogram of time spent in WAITING phase for request.",
 			Buckets: common.RequestLatencyBucketsBoundaries,
 		},
-		[]string{vllmapi.PromLabelModelName},
+		[]string{api.PromLabelModelName},
 	)
 	if err := s.metrics.registry.Register(s.metrics.reqQueueTime); err != nil {
 		s.logger.Error(err, "prometheus request queue time histogram register failed")
@@ -928,7 +928,7 @@ func (s *SimContext) createAndRegisterReqInferenceTimeMetric() error {
 			Help:    "Histogram of time spent in RUNNING phase for request.",
 			Buckets: common.RequestLatencyBucketsBoundaries,
 		},
-		[]string{vllmapi.PromLabelModelName},
+		[]string{api.PromLabelModelName},
 	)
 	if err := s.metrics.registry.Register(s.metrics.reqInferenceTime); err != nil {
 		s.logger.Error(err, "prometheus request inference time histogram register failed")
@@ -944,7 +944,7 @@ func (s *SimContext) createAndRegisterReqPrefillTimeMetric() error {
 			Help:    "Histogram of time spent in PREFILL phase for request.",
 			Buckets: common.RequestLatencyBucketsBoundaries,
 		},
-		[]string{vllmapi.PromLabelModelName},
+		[]string{api.PromLabelModelName},
 	)
 	if err := s.metrics.registry.Register(s.metrics.reqPrefillTime); err != nil {
 		s.logger.Error(err, "prometheus request prefill time histogram register failed")
@@ -960,7 +960,7 @@ func (s *SimContext) createAndRegisterReqDecodeTimeMetric() error {
 			Help:    "Histogram of time spent in DECODE phase for request.",
 			Buckets: common.RequestLatencyBucketsBoundaries,
 		},
-		[]string{vllmapi.PromLabelModelName},
+		[]string{api.PromLabelModelName},
 	)
 	if err := s.metrics.registry.Register(s.metrics.reqDecodeTime); err != nil {
 		s.logger.Error(err, "prometheus request decode time histogram register failed")
@@ -976,7 +976,7 @@ func (s *SimContext) createAndRegisterReqParamsMaxTokensMetric() error {
 			Help:    "Histogram of the max_tokens request parameter.",
 			Buckets: Build125Buckets(s.Config().MaxModelLen),
 		},
-		[]string{vllmapi.PromLabelModelName},
+		[]string{api.PromLabelModelName},
 	)
 	if err := s.metrics.registry.Register(s.metrics.requestParamsMaxTokens); err != nil {
 		s.logger.Error(err, "prometheus request_params_max_tokens histogram register failed")
@@ -992,7 +992,7 @@ func (s *SimContext) createAndRegisterMaxNumGenerationTokensMetric() error {
 			Help:    "Histogram of maximum number of requested generation tokens.",
 			Buckets: Build125Buckets(s.Config().MaxModelLen),
 		},
-		[]string{vllmapi.PromLabelModelName},
+		[]string{api.PromLabelModelName},
 	)
 	if err := s.metrics.registry.Register(s.metrics.maxNumGenerationTokens); err != nil {
 		s.logger.Error(err, "prometheus max_num_generation_tokens histogram register failed")
@@ -1007,7 +1007,7 @@ func (s *SimContext) createAndRegisterLoraInfoMetric() error {
 			Name: LoRARequestsMetricName,
 			Help: "Running stats on lora requests.",
 		},
-		[]string{vllmapi.PromLabelMaxLora, vllmapi.PromLabelRunningLoraAdapters, vllmapi.PromLabelWaitingLoraAdapters},
+		[]string{api.PromLabelMaxLora, api.PromLabelRunningLoraAdapters, api.PromLabelWaitingLoraAdapters},
 	)
 	if err := s.metrics.registry.Register(s.metrics.loraInfo); err != nil {
 		s.logger.Error(err, "prometheus lora info gauge register failed")
@@ -1022,7 +1022,7 @@ func (s *SimContext) createAndRegisterRequestSuccessTotalMetric() error {
 			Name: SuccessTotalMetricName,
 			Help: "Count of successfully processed requests.",
 		},
-		[]string{vllmapi.PromLabelModelName, vllmapi.PromLabelFinishReason},
+		[]string{api.PromLabelModelName, api.PromLabelFinishReason},
 	)
 	if err := s.metrics.registry.Register(s.metrics.requestSuccessTotal); err != nil {
 		s.logger.Error(err, "prometheus request_success_total counter register failed")
@@ -1037,7 +1037,7 @@ func (s *SimContext) createAndRegisterPrefixCacheHitsMetric() error {
 			Name: PrefixCacheHitsMetricName,
 			Help: "Prefix cache hits, in terms of number of cached tokens.",
 		},
-		[]string{vllmapi.PromLabelModelName},
+		[]string{api.PromLabelModelName},
 	)
 	if err := s.metrics.registry.Register(s.metrics.prefixCacheHits); err != nil {
 		s.logger.Error(err, "prometheus prefix_cache_hits counter register failed")
@@ -1052,7 +1052,7 @@ func (s *SimContext) createAndRegisterPrefixCacheQueriesMetric() error {
 			Name: PrefixCacheQueriesMetricName,
 			Help: "Prefix cache queries, in terms of number of queried tokens.",
 		},
-		[]string{vllmapi.PromLabelModelName},
+		[]string{api.PromLabelModelName},
 	)
 	if err := s.metrics.registry.Register(s.metrics.prefixCacheQueries); err != nil {
 		s.logger.Error(err, "prometheus prefix_cache_queries counter register failed")

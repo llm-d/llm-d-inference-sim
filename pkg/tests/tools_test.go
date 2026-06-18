@@ -24,7 +24,7 @@ import (
 	"strings"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
-	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
+	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/openai/openai-go/v3"
@@ -428,7 +428,7 @@ var _ = Describe("Simulator for request with tools", Ordered, func() {
 				if chunk.Usage.CompletionTokens != 0 || chunk.Usage.PromptTokens != 0 || chunk.Usage.TotalTokens != 0 {
 					numberOfChunksWithUsage++
 				}
-				Expect(string(chunk.Object)).To(Equal(openaiserverapi.ChatCompletionChunkObject))
+				Expect(string(chunk.Object)).To(Equal(api.ChatCompletionChunkObject))
 			}
 
 			Expect(numberOfChunksWithUsage).To(Equal(1))
@@ -476,7 +476,7 @@ var _ = Describe("Simulator for request with tools", Ordered, func() {
 			resp, err := openaiclient.Chat.Completions.New(ctx, params)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resp.Choices).ShouldNot(BeEmpty())
-			Expect(string(resp.Object)).To(Equal(openaiserverapi.ChatCompletionObject))
+			Expect(string(resp.Object)).To(Equal(api.ChatCompletionObject))
 
 			Expect(resp.Usage.PromptTokens).To(Equal(userMsgTokens))
 			Expect(resp.Usage.CompletionTokens).To(BeNumerically(">", 0))
@@ -529,7 +529,7 @@ var _ = Describe("Simulator for request with tools", Ordered, func() {
 			resp, err := openaiclient.Chat.Completions.New(ctx, params)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resp.Choices).ShouldNot(BeEmpty())
-			Expect(string(resp.Object)).To(Equal(openaiserverapi.ChatCompletionObject))
+			Expect(string(resp.Object)).To(Equal(api.ChatCompletionObject))
 
 			Expect(resp.Usage.PromptTokens).To(Equal(userMsgTokens))
 			Expect(resp.Usage.CompletionTokens).To(BeNumerically(">", 0))
@@ -614,7 +614,7 @@ var _ = Describe("Simulator for request with tools", Ordered, func() {
 			resp, err := openaiclient.Chat.Completions.New(ctx, params)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resp.Choices).ShouldNot(BeEmpty())
-			Expect(string(resp.Object)).To(Equal(openaiserverapi.ChatCompletionObject))
+			Expect(string(resp.Object)).To(Equal(api.ChatCompletionObject))
 
 			Expect(resp.Usage.PromptTokens).To(Equal(userMsgTokens))
 			Expect(resp.Usage.CompletionTokens).To(BeNumerically(">", 0))
@@ -663,7 +663,7 @@ var _ = Describe("Simulator for request with tools", Ordered, func() {
 			resp, err := openaiclient.Chat.Completions.New(ctx, params)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resp.Choices).ShouldNot(BeEmpty())
-			Expect(string(resp.Object)).To(Equal(openaiserverapi.ChatCompletionObject))
+			Expect(string(resp.Object)).To(Equal(api.ChatCompletionObject))
 
 			Expect(resp.Usage.PromptTokens).To(Equal(userMsgTokens))
 			Expect(resp.Usage.CompletionTokens).To(BeNumerically(">", 0))
@@ -735,7 +735,7 @@ var _ = Describe("Simulator for request with tools", Ordered, func() {
 			resp, err := openaiclient.Chat.Completions.New(ctx, params)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resp.Choices).ShouldNot(BeEmpty())
-			Expect(string(resp.Object)).To(Equal(openaiserverapi.ChatCompletionObject))
+			Expect(string(resp.Object)).To(Equal(api.ChatCompletionObject))
 
 			Expect(resp.Usage.PromptTokens).To(Equal(userMsgTokens))
 			Expect(resp.Usage.CompletionTokens).To(BeNumerically(">", 0))
@@ -790,7 +790,7 @@ var _ = Describe("Simulator for request with tools", Ordered, func() {
 			resp, err := openaiclient.Chat.Completions.New(ctx, params)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resp.Choices).ShouldNot(BeEmpty())
-			Expect(string(resp.Object)).To(Equal(openaiserverapi.ChatCompletionObject))
+			Expect(string(resp.Object)).To(Equal(api.ChatCompletionObject))
 
 			Expect(resp.Usage.PromptTokens).To(Equal(userMsgTokens))
 			Expect(resp.Usage.CompletionTokens).To(BeNumerically(">", 0))
@@ -841,7 +841,7 @@ var _ = Describe("Simulator for request with tools", Ordered, func() {
 			resp, err := openaiclient.Chat.Completions.New(ctx, params)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resp.Choices).ShouldNot(BeEmpty())
-			Expect(string(resp.Object)).To(Equal(openaiserverapi.ChatCompletionObject))
+			Expect(string(resp.Object)).To(Equal(api.ChatCompletionObject))
 
 			toolCalls := resp.Choices[0].Message.ToolCalls
 			Expect(toolCalls).To(HaveLen(1))
@@ -881,7 +881,7 @@ var _ = Describe("Simulator for request with tools", Ordered, func() {
 			resp, err := openaiclient.Chat.Completions.New(ctx, params)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resp.Choices).ShouldNot(BeEmpty())
-			Expect(string(resp.Object)).To(Equal(openaiserverapi.ChatCompletionObject))
+			Expect(string(resp.Object)).To(Equal(api.ChatCompletionObject))
 
 			toolCalls := resp.Choices[0].Message.ToolCalls
 			Expect(toolCalls).To(HaveLen(1))

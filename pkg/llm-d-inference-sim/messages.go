@@ -22,7 +22,7 @@ import (
 	"github.com/valyala/fasthttp"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
-	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
+	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 )
 
 // MessagesRequest handles /v1/messages (Anthropic Messages API).
@@ -31,7 +31,7 @@ import (
 // ChatCompletionsRequest via the existing chat completions pipeline.
 type MessagesRequest struct {
 	ChatCompletionsRequest
-	orig openaiserverapi.MessagesRequest // retains original Anthropic fields for validation
+	orig api.MessagesRequest // retains original Anthropic fields for validation
 }
 
 // Unmarshal parses the Anthropic Messages API body and converts it to a
@@ -46,34 +46,34 @@ func (m *MessagesRequest) Unmarshal(data []byte) error {
 
 // validateBlocks checks Anthropic-specific constraints that are lost after conversion:
 // image blocks require a source, and tool_choice of type "tool" requires a name.
-func (m *MessagesRequest) validateBlocks() *openaiserverapi.Error {
+func (m *MessagesRequest) validateBlocks() *api.Error {
 	for _, msg := range m.orig.Messages {
 		for _, block := range msg.Content.Blocks {
 			if block.Type == "image" && block.Source == nil {
-				err := openaiserverapi.NewError("image content block is missing required 'source' field",
+				err := api.NewError("image content block is missing required 'source' field",
 					fasthttp.StatusBadRequest, nil)
 				return &err
 			}
 		}
 	}
 	if m.orig.ToolChoice != nil && m.orig.ToolChoice.Type == "tool" && m.orig.ToolChoice.Name == "" {
-		err := openaiserverapi.NewError("tool_choice of type 'tool' requires a non-empty 'name'",
+		err := api.NewError("tool_choice of type 'tool' requires a non-empty 'name'",
 			fasthttp.StatusBadRequest, nil)
 		return &err
 	}
 	return nil
 }
 
-func (m *MessagesRequest) validate(tv *toolsValidator) *openaiserverapi.Error {
+func (m *MessagesRequest) validate(tv *toolsValidator) *api.Error {
 	if err := m.validateBlocks(); err != nil {
 		return err
 	}
 	if len(m.Messages) == 0 {
-		err := openaiserverapi.NewError("messages must not be empty", fasthttp.StatusBadRequest, nil)
+		err := api.NewError("messages must not be empty", fasthttp.StatusBadRequest, nil)
 		return &err
 	}
 	if m.GetMaxCompletionTokens() == nil {
-		err := openaiserverapi.NewError("max_tokens is required", fasthttp.StatusBadRequest, nil)
+		err := api.NewError("max_tokens is required", fasthttp.StatusBadRequest, nil)
 		return &err
 	}
 	return m.ChatCompletionsRequest.validate(tv)

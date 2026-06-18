@@ -22,7 +22,7 @@ import (
 	"fmt"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
-	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
+	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 	"github.com/openai/openai-go/v3/packages/param"
 	"github.com/santhosh-tekuri/jsonschema/v5"
@@ -47,7 +47,7 @@ var fakeStringArguments = []string{
 	`lifetime`,
 }
 
-func countTokensForToolCalls(toolCalls []openaiserverapi.ToolCall) int {
+func countTokensForToolCalls(toolCalls []api.ToolCall) int {
 	numberOfTokens := 0
 	for _, tc := range toolCalls {
 		// 3 - name, id, and type
@@ -57,7 +57,7 @@ func countTokensForToolCalls(toolCalls []openaiserverapi.ToolCall) int {
 }
 
 // isToolChoiceNone checks if the tool_choice is set to "none".
-func isToolChoiceNone(toolChoice openaiserverapi.ToolChoice) bool {
+func isToolChoiceNone(toolChoice api.ToolChoice) bool {
 	if !param.IsOmitted(toolChoice.OfAuto) {
 		val := toolChoice.OfAuto.Or("")
 		return val == toolChoiceNone
@@ -112,14 +112,14 @@ func (v *toolsValidator) validateTool(tool []byte) error {
 // This function returns the generated tool calls, the number of completion
 // tokens used, and an error if one occurs (e.g., if a specified tool is not found).
 func createToolCalls(
-	tools []openaiserverapi.Tool,
-	toolChoice openaiserverapi.ToolChoice,
+	tools []api.Tool,
+	toolChoice api.ToolChoice,
 	config *common.Configuration,
 	random *common.Random,
 	tokenizer tokenizer.Tokenizer,
 	idPrefix string,
-) ([]openaiserverapi.ToolCall, int, error) {
-	generateCalls := func(availableTools []openaiserverapi.Tool, minCalls int) ([]openaiserverapi.ToolCall, int, error) {
+) ([]api.ToolCall, int, error) {
+	generateCalls := func(availableTools []api.Tool, minCalls int) ([]api.ToolCall, int, error) {
 		if len(availableTools) == 0 {
 			// If no tools are available to choose from, no calls can be made.
 			return nil, 0, errors.New("no tools available to create tool calls")
@@ -135,7 +135,7 @@ func createToolCalls(
 			return nil, 0, nil
 		}
 
-		calls := make([]openaiserverapi.ToolCall, 0, numberOfCalls)
+		calls := make([]api.ToolCall, 0, numberOfCalls)
 		for i := range numberOfCalls {
 			// Randomly choose which tool to call. We may call the same tool more than once.
 			index := 0
@@ -157,10 +157,10 @@ func createToolCalls(
 			if err != nil {
 				return nil, 0, err
 			}
-			tokenizedArgs := &openaiserverapi.Tokenized{Tokens: tokens, Strings: strs}
+			tokenizedArgs := &api.Tokenized{Tokens: tokens, Strings: strs}
 
-			call := openaiserverapi.ToolCall{
-				Function: openaiserverapi.FunctionCall{
+			call := api.ToolCall{
+				Function: api.FunctionCall{
 					Arguments: string(argsJson),
 					Name:      &chosenTool.Function.Name,
 				},
@@ -177,7 +177,7 @@ func createToolCalls(
 	// A specific function is forced.
 	if functionChoice := toolChoice.GetFunction(); functionChoice != nil {
 		requiredFuncName := functionChoice.Name
-		var targetTool *openaiserverapi.Tool
+		var targetTool *api.Tool
 
 		// Find the specified tool in the list of available tools.
 		for i, tool := range tools {
@@ -191,7 +191,7 @@ func createToolCalls(
 			return nil, 0, fmt.Errorf("tool with name '%s' requested in tool_choice but not found in the tools list", requiredFuncName)
 		}
 
-		specificTools := []openaiserverapi.Tool{*targetTool}
+		specificTools := []api.Tool{*targetTool}
 
 		// Generate arguments for the specific tool.
 		return generateCalls(specificTools, len(specificTools))
@@ -207,7 +207,7 @@ func createToolCalls(
 	return generateCalls(tools, min)
 }
 
-func generateToolArguments(tool openaiserverapi.Tool, config *common.Configuration, random *common.Random) (map[string]any, error) {
+func generateToolArguments(tool api.Tool, config *common.Configuration, random *common.Random) (map[string]any, error) {
 	arguments := make(map[string]any)
 	properties, _ := tool.Function.Parameters["properties"].(map[string]any)
 

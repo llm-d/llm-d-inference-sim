@@ -22,7 +22,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
-	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
+	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 	_ "modernc.org/sqlite"
 )
@@ -46,7 +46,7 @@ type Dataset interface {
 	// Close closes the dataset
 	Close() error
 	// GetResponseTokens returns ressponse tokens for the given request
-	GetResponseTokens(req openaiserverapi.Request) (*openaiserverapi.Tokenized, string, error)
+	GetResponseTokens(req api.Request) (*api.Tokenized, string, error)
 }
 
 type EchoDataset struct{}
@@ -56,7 +56,7 @@ type EchoDataset struct{}
 // for /chat/completion request the last user message is returned (if there is no user messages, last message is used)
 // if max-tokens is defined in the request and response's length is >= it value, finish reason is set to LENGTH,
 // otherwise finish reason is STOP
-func (ed *EchoDataset) GetResponseTokens(req openaiserverapi.Request) (*openaiserverapi.Tokenized, string, error) {
+func (ed *EchoDataset) GetResponseTokens(req api.Request) (*api.Tokenized, string, error) {
 	tokens := req.TokenizedPromptForEcho()
 	maxTokens := req.GetMaxCompletionTokens()
 	return tokens, common.FinishReason(maxTokens, tokens.Length()), nil
@@ -67,7 +67,7 @@ func (ed *EchoDataset) Close() error {
 }
 
 type MMEncoderOnlyDataset struct {
-	tokens openaiserverapi.Tokenized
+	tokens api.Tokenized
 }
 
 func NewMMEncoderOnlyDataset(logger logr.Logger, tokenizer tokenizer.Tokenizer) (*MMEncoderOnlyDataset, error) {
@@ -76,7 +76,7 @@ func NewMMEncoderOnlyDataset(logger logr.Logger, tokenizer tokenizer.Tokenizer) 
 		logger.Error(err, "failed to tokenize")
 		return nil, err
 	}
-	mmEncoderResponse := openaiserverapi.Tokenized{
+	mmEncoderResponse := api.Tokenized{
 		Tokens:  tokens,
 		Strings: textTokens,
 	}
@@ -87,7 +87,7 @@ func NewMMEncoderOnlyDataset(logger logr.Logger, tokenizer tokenizer.Tokenizer) 
 
 // GetResponseTokens returns response tokens when simulator is in mm-encoder-only mode
 // The returned content is '!'. If max_tokens is greater than 1, we return a sequence of '!' of this length.
-func (mm *MMEncoderOnlyDataset) GetResponseTokens(req openaiserverapi.Request) (*openaiserverapi.Tokenized, string, error) {
+func (mm *MMEncoderOnlyDataset) GetResponseTokens(req api.Request) (*api.Tokenized, string, error) {
 	maxTokens := req.GetMaxCompletionTokens()
 	numOfTokens := 1
 	if maxTokens != nil {
@@ -97,7 +97,7 @@ func (mm *MMEncoderOnlyDataset) GetResponseTokens(req openaiserverapi.Request) (
 	token := mm.tokens.Tokens[0]
 	str := mm.tokens.Strings[0]
 
-	result := openaiserverapi.Tokenized{
+	result := api.Tokenized{
 		Tokens:  make([]uint32, numOfTokens),
 		Strings: make([]string, numOfTokens),
 	}
@@ -119,7 +119,7 @@ type DefaultDataset struct {
 	maxModelLen        int
 	random             *common.Random
 	histogramHelper    *histogramHelper
-	tokenizedResponses []openaiserverapi.Tokenized
+	tokenizedResponses []api.Tokenized
 }
 
 func (d *DefaultDataset) Init(ctx context.Context, logger logr.Logger, random *common.Random, maxModelLen int,
@@ -129,14 +129,14 @@ func (d *DefaultDataset) Init(ctx context.Context, logger logr.Logger, random *c
 	d.random = random
 	d.histogramHelper = newHistogramHelper(d.random)
 
-	d.tokenizedResponses = make([]openaiserverapi.Tokenized, len(completionFakeResponses))
+	d.tokenizedResponses = make([]api.Tokenized, len(completionFakeResponses))
 	for i, text := range completionFakeResponses {
 		tokens, textTokens, err := tokenizer.RenderText(text)
 		if err != nil {
 			logger.Error(err, "failed to tokenize")
 			return err
 		}
-		d.tokenizedResponses[i] = openaiserverapi.Tokenized{
+		d.tokenizedResponses[i] = api.Tokenized{
 			Tokens:  tokens,
 			Strings: textTokens,
 		}
@@ -150,7 +150,7 @@ func (d *DefaultDataset) Close() error {
 }
 
 // GetResponseTokens returns response tokens and finishReason for the given request
-func (d *DefaultDataset) GetResponseTokens(req openaiserverapi.Request) (*openaiserverapi.Tokenized, string, error) {
+func (d *DefaultDataset) GetResponseTokens(req api.Request) (*api.Tokenized, string, error) {
 	maxRespTokens, isMaxTokensInReq := d.calculateResponseMaxLen(req)
 
 	numOfRespTokens := 0
@@ -182,7 +182,7 @@ func (d *DefaultDataset) GetResponseTokens(req openaiserverapi.Request) (*openai
 // If max-tokens/max-completion-tokens is defined - use it,
 // otherwise use <model content window size> - <number of input tokens>
 // boolean returned value defines whether max tokens number was passed in the request
-func (d *DefaultDataset) calculateResponseMaxLen(req openaiserverapi.Request) (int, bool) {
+func (d *DefaultDataset) calculateResponseMaxLen(req api.Request) (int, bool) {
 	maxTokens := req.GetMaxCompletionTokens()
 
 	if maxTokens != nil {
@@ -209,8 +209,8 @@ func (d *DefaultDataset) getRandomResponseLenByGaussian(maxLen int) int {
 // if number of tokens is lower than required - select another sentence,
 // continue until the required number of tokens is achieved,
 // returned exactly <numOfTokens> tokens
-func (d DefaultDataset) generatePresetRandomTokens(numOfTokens int) openaiserverapi.Tokenized {
-	result := openaiserverapi.Tokenized{
+func (d DefaultDataset) generatePresetRandomTokens(numOfTokens int) api.Tokenized {
+	result := api.Tokenized{
 		Tokens:  make([]uint32, 0),
 		Strings: make([]string, 0),
 	}

@@ -32,7 +32,7 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 	"github.com/llm-d/llm-d-inference-sim/pkg/dataset"
-	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
+	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 )
 
@@ -291,7 +291,7 @@ func (s *VllmSimulator) findRequestAndSendToProcess(worker *worker) bool {
 func (s *VllmSimulator) addRequestToQueue(reqCtx requestContext) {
 	if err := s.enqueue(reqCtx); err != nil {
 		s.Context.logger.Error(err, "failed to enqueue request")
-		err := openaiserverapi.NewError("Failed to enqueue request, "+err.Error(),
+		err := api.NewError("Failed to enqueue request, "+err.Error(),
 			fasthttp.StatusTooManyRequests, nil)
 		common.WriteToChannel(reqCtx.responseChannel(),
 			&ResponseInfo{Err: &err, ChoiceIdx: reqCtx.choiceIndex()},
@@ -315,7 +315,7 @@ func (s *VllmSimulator) addRequestToQueue(reqCtx requestContext) {
 // non-nil error; errInjected indicates whether the failure came from the
 // failure-injection path so the caller can attribute it correctly.
 func (s *VllmSimulator) HandleRequest(req Request) (numChoices int, isStream bool,
-	channel *common.Channel[*ResponseInfo], err *openaiserverapi.Error, errInjected bool) {
+	channel *common.Channel[*ResponseInfo], err *api.Error, errInjected bool) {
 	// Check if we should inject a failure
 	if shouldInjectFailure(s.Context.Config(), s.Context.Random) {
 		failure := getRandomFailure(s.Context.Config(), s.Context.Random)
@@ -324,7 +324,7 @@ func (s *VllmSimulator) HandleRequest(req Request) (numChoices int, isStream boo
 
 	// the model defined in the request should be checked here
 	if !s.isValidModel(req.GetModel()) {
-		serverErr := openaiserverapi.NewError(fmt.Sprintf("The model `%s` does not exist.",
+		serverErr := api.NewError(fmt.Sprintf("The model `%s` does not exist.",
 			req.GetModel()), fasthttp.StatusNotFound, nil)
 		return 0, false, nil, &serverErr, false
 	}
@@ -429,7 +429,7 @@ func (s *VllmSimulator) simulateResponseProcessing(respCtx ResponseContext) {
 						s.Context.simulateInterTokenLatency()
 					}
 
-					tokens := &openaiserverapi.Tokenized{
+					tokens := &api.Tokenized{
 						Tokens:  []uint32{token},
 						Strings: []string{},
 					}
@@ -453,7 +453,7 @@ func (s *VllmSimulator) simulateResponseProcessing(respCtx ResponseContext) {
 							s.Context.simulateInterTokenLatency()
 						}
 						respInfo := ResponseInfo{
-							Tokens:    &openaiserverapi.Tokenized{Tokens: []uint32{token}, Strings: []string{args.Strings[i]}},
+							Tokens:    &api.Tokenized{Tokens: []uint32{token}, Strings: []string{args.Strings[i]}},
 							RespCtx:   respCtx,
 							ToolCall:  &toolCalls[tcIdx],
 							ChoiceIdx: choiceIdx,

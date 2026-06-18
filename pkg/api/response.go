@@ -15,7 +15,7 @@ limitations under the License.
 */
 
 // Contains structures and functions related to responses for all supported APIs
-package openaiserverapi
+package api
 
 import (
 	"encoding/json"

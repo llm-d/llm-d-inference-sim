@@ -23,7 +23,7 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 	"github.com/llm-d/llm-d-inference-sim/pkg/communication/grpc/pb"
 	vllmsim "github.com/llm-d/llm-d-inference-sim/pkg/llm-d-inference-sim"
-	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
+	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/valyala/fasthttp"
 
 	"google.golang.org/grpc"
@@ -48,7 +48,7 @@ func (c *Communication) Generate(in *pb.GenerateRequest, out grpc.ServerStreamin
 	c.logger.V(logging.DEBUG).Info("Received", "new gRPC", req.AsString())
 
 	var respCtx vllmsim.ResponseContext
-	tokens := openaiserverapi.Tokenized{
+	tokens := api.Tokenized{
 		Tokens:  make([]uint32, 0),
 		Strings: make([]string, 0),
 	}
@@ -82,7 +82,7 @@ func (c *Communication) Generate(in *pb.GenerateRequest, out grpc.ServerStreamin
 	if in.Stream {
 		resp = respBuilder.createLastChunk(respCtx)
 	} else {
-		resp = respBuilder.createResponse([]vllmsim.ResponseContext{respCtx}, []openaiserverapi.Tokenized{tokens})
+		resp = respBuilder.createResponse([]vllmsim.ResponseContext{respCtx}, []api.Tokenized{tokens})
 	}
 	if err := sendResponse(resp, out); err != nil {
 		return err
@@ -138,11 +138,11 @@ func (c *Communication) pbRequestToRequest(in *pb.GenerateRequest) *vllmsim.Gene
 		maxTokensValue := int64(*in.GetSamplingParams().MaxTokens)
 		maxTokens = &maxTokensValue
 	}
-	req := openaiserverapi.NewGenerationRequest(in.GetRequestId(), in.GetStream(),
+	req := api.NewGenerationRequest(in.GetRequestId(), in.GetStream(),
 		c.simulator.Context.Config().Model, maxTokens)
 
 	if in.GetTokenized() != nil {
-		prompt := &openaiserverapi.Tokenized{}
+		prompt := &api.Tokenized{}
 		prompt.Tokens = in.GetTokenized().InputIds
 		req.SetTokenizedPrompt(prompt)
 	} else {
@@ -165,7 +165,7 @@ func sendResponse(response any, out grpc.ServerStreamingServer[pb.GenerateRespon
 	return nil
 }
 
-func extractGRPCCode(err *openaiserverapi.Error) codes.Code {
+func extractGRPCCode(err *api.Error) codes.Code {
 	switch err.Code {
 	case fasthttp.StatusBadRequest:
 		return codes.InvalidArgument
