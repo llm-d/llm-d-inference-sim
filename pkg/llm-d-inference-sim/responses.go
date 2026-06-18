@@ -19,8 +19,8 @@ package llmdinferencesim
 import (
 	"encoding/json"
 
-	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
+	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 )
 
 // Implementation of request for /responses requests

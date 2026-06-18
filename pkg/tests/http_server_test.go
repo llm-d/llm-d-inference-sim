@@ -29,10 +29,10 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/valyala/fasthttp"
 
+	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/communication"
 	kvcache "github.com/llm-d/llm-d-inference-sim/pkg/kv-cache"
-	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 )
 
 var _ = Describe("Server", func() {

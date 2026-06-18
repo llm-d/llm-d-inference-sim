@@ -21,8 +21,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
+	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 	"github.com/openai/openai-go/v3/packages/param"
 	"github.com/santhosh-tekuri/jsonschema/v5"

@@ -44,11 +44,11 @@ type datasetRecord struct {
 
 // record of the output dataset
 type outputRecord struct {
-	PromptHash   []byte                    `json:"prompt_hash"`
-	NumGenTokens int                       `json:"n_gen_tokens"`
+	PromptHash   []byte        `json:"prompt_hash"`
+	NumGenTokens int           `json:"n_gen_tokens"`
 	GenTokens    api.Tokenized `json:"gen_tokens"`
-	InputText    string                    `json:"input_text"` // input text for reference and debugging
-	Generated    string                    `json:"generated"`  // generated text for reference and debugging
+	InputText    string        `json:"input_text"` // input text for reference and debugging
+	Generated    string        `json:"generated"`  // generated text for reference and debugging
 }
 
 // DatasetTool the dataset tool

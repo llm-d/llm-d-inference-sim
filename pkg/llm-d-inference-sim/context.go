@@ -26,12 +26,12 @@ import (
 
 	"github.com/go-logr/logr"
 
+	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 	"github.com/llm-d/llm-d-inference-sim/pkg/dataset"
 	kvcache "github.com/llm-d/llm-d-inference-sim/pkg/kv-cache"
 	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
-	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 )
 
 // LoRAs usage info for requests execution

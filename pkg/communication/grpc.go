@@ -20,10 +20,10 @@ import (
 	"context"
 	"net"
 
+	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 	"github.com/llm-d/llm-d-inference-sim/pkg/communication/grpc/pb"
 	vllmsim "github.com/llm-d/llm-d-inference-sim/pkg/llm-d-inference-sim"
-	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/valyala/fasthttp"
 
 	"google.golang.org/grpc"

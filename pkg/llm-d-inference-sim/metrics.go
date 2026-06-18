@@ -28,9 +28,9 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
+	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	kvcache "github.com/llm-d/llm-d-inference-sim/pkg/kv-cache"
-	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 )
 
 const (

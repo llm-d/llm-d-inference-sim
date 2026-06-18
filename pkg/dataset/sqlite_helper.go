@@ -26,8 +26,8 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
+	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 )
 
 // use constants for expected column names and types
