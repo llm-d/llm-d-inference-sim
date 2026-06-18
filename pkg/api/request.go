@@ -307,8 +307,8 @@ func (b *baseRequest) GetRawN() *int {
 }
 
 // SetIgnoreEOS sets the value of IgnoreEOS
-func (b *baseRequest) SetIgnoreEOS(ignorEOS bool) {
-	b.IgnoreEOS = ignorEOS
+func (b *baseRequest) SetIgnoreEOS(ignoreEOS bool) {
+	b.IgnoreEOS = ignoreEOS
 }
 
 // SetNumberOfCachedPromptTokens sets the number of tokens in the prompt that are

@@ -125,7 +125,7 @@ func (d *CustomDataset) GetResponseTokens(req api.Request) (*api.Tokenized, stri
 				responseTokens.Append(d.generatePresetRandomTokens(maxResponseLen - responseTokens.Length()))
 			}
 		} else {
-			// has responses for the request, return response shorter or equal to the maxReponsesLen
+			// has responses for the request, return response shorter or equal to the maxResponsesLen
 			// finishReason = common.LengthFinishReason
 			if len(shorterOrEqLenResponses) > 0 {
 				// has responses shorter or equal length than required - return randomly selected response

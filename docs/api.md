@@ -15,6 +15,7 @@ In addition, a set of the vLLM HTTP endpoints are supported:
 
 | Endpoint | Description |
 |---|---|
+| /v1/messages            | Anthropic Messages API, converted to the chat completions format internally |
 | /inference/v1/generate  | vLLM-specific generation endpoint |
 | /v1/load_lora_adapter   | Simulates the dynamic registration of a LoRA adapter |
 | /v1/unload_lora_adapter | Simulates the dynamic unloading and unregistration of a LoRA adapter |
