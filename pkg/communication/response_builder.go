@@ -420,7 +420,6 @@ func (respBuilder *responsesHTTPRespBuilder) createResponse(respCtxPerChoice []v
 		respCtx.RequestID(),
 		time.Now().Unix(),
 		respCtx.Instructions(),
-		respCtx.TopLogprobs(),
 		[]openaiserverapi.OutputItem{
 			openaiserverapi.MessageOutput{
 				Type:    openaiserverapi.ResponsesOutputMessage,
@@ -452,7 +451,6 @@ func (respBuilder *responsesHTTPRespBuilder) createUsageChunk(respCtxPerChoice [
 		respCtx.RequestID(),
 		respCtx.CreationTime(),
 		respCtx.Instructions(),
-		respCtx.TopLogprobs(),
 		[]openaiserverapi.OutputItem{
 			openaiserverapi.MessageOutput{
 				Type:    openaiserverapi.ResponsesOutputMessage,
@@ -526,7 +524,6 @@ func (respBuilder *responsesHTTPRespBuilder) createInitialChunk(respCtx vllmsim.
 		respCtx.RequestID(),
 		respCtx.CreationTime(),
 		respCtx.Instructions(),
-		respCtx.TopLogprobs(),
 		nil,
 		nil,
 	)

@@ -434,7 +434,7 @@ func CreateGenerationResponse(base baseCompletionsResponse, tokens *Tokenized) *
 }
 
 func CreateResponsesResponse(model string, requestID string, createdAt int64,
-	instructions *string, topLogprobs *int, output []OutputItem, usage *ResponsesUsage) *ResponsesResponse {
+	instructions *string, output []OutputItem, usage *ResponsesUsage) *ResponsesResponse {
 	return &ResponsesResponse{
 		baseResponse: baseResponse{
 			ID:        ResponsesIDPrefix + requestID,
@@ -448,7 +448,6 @@ func CreateResponsesResponse(model string, requestID string, createdAt int64,
 		Text:         &TextSettings{Format: &TextFormat{Type: "text"}},
 		Output:       output,
 		Usage:        usage,
-		TopLogprobs:  topLogprobs,
 	}
 }
 
@@ -469,7 +468,6 @@ type ResponsesResponse struct {
 	Usage        *ResponsesUsage `json:"usage,omitempty"`
 	Error        *Error          `json:"error,omitempty"`
 	Store        *bool           `json:"store,omitempty"`
-	TopLogprobs  *int            `json:"top_logprobs,omitempty"`
 }
 
 type MessageOutput struct {

@@ -181,7 +181,7 @@ Structure of requests/responses
         - input (array of input items)
             - type (`message`)
             - role (`user`, `system`, `developer`)
-            - content (array of content blocks)
+            - content (string or array of content blocks)
               - type (`input_text`, `input_image`, or `input_audio`)
               - text (for `input_text`)
               - image_url (for `input_image` — a URL string)
@@ -221,7 +221,6 @@ Structure of requests/responses
           - input_tokens
           - output_tokens
           - total_tokens
-        - top_logprobs
 - `/inference/v1/generate`
     - **request**
         - stream

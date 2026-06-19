@@ -87,16 +87,7 @@ func convertInputToMessages(input []openaiserverapi.InputItem) []openaiserverapi
 				Role: inputMsg.Role,
 			}
 
-			// Check if content contains only a single text block
-			allText := true
-			for _, content := range inputMsg.Content {
-				if content.Type != openaiserverapi.ResponsesInputText {
-					allText = false
-					break
-				}
-			}
-
-			if allText && len(inputMsg.Content) == 1 {
+			if len(inputMsg.Content) == 1 && inputMsg.Content[0].Type == openaiserverapi.ResponsesInputText {
 				// Simple text content
 				msg.Content.Raw = inputMsg.Content[0].Text
 			} else {
