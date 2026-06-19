@@ -29,11 +29,10 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/valyala/fasthttp"
 
+	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/communication"
 	kvcache "github.com/llm-d/llm-d-inference-sim/pkg/kv-cache"
-	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
-	vllmapi "github.com/llm-d/llm-d-inference-sim/pkg/vllm-api"
 )
 
 var _ = Describe("Server", func() {
@@ -109,7 +108,7 @@ var _ = Describe("Server", func() {
 			body, err := io.ReadAll(resp.Body)
 			Expect(err).NotTo(HaveOccurred())
 
-			var tokenizeResp vllmapi.TokenizeResponse
+			var tokenizeResp api.TokenizeResponse
 			err = json.Unmarshal(body, &tokenizeResp)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(tokenizeResp.Count).To(Equal(expectedTokens))
@@ -138,7 +137,7 @@ var _ = Describe("Server", func() {
 			body, err := io.ReadAll(resp.Body)
 			Expect(err).NotTo(HaveOccurred())
 
-			var tokenizeResp vllmapi.TokenizeResponse
+			var tokenizeResp api.TokenizeResponse
 			err = json.Unmarshal(body, &tokenizeResp)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(tokenizeResp.Count).To(Equal(4))
@@ -170,7 +169,7 @@ var _ = Describe("Server", func() {
 			common.TestModelName, "/v1/completions/render",
 			fmt.Sprintf(`{"model":"%s","prompt":"hello world"}`, common.TestModelName),
 			func(body []byte) {
-				var arr []openaiserverapi.RenderResponse
+				var arr []api.RenderResponse
 				Expect(json.Unmarshal(body, &arr)).To(Succeed())
 				Expect(arr).To(HaveLen(1))
 				Expect(arr[0].TokenIDs).NotTo(BeEmpty())
@@ -180,7 +179,7 @@ var _ = Describe("Server", func() {
 			common.TestModelName, "/v1/completions/render",
 			fmt.Sprintf(`{"model":"%s","prompt":["hello","world"]}`, common.TestModelName),
 			func(body []byte) {
-				var arr []openaiserverapi.RenderResponse
+				var arr []api.RenderResponse
 				Expect(json.Unmarshal(body, &arr)).To(Succeed())
 				Expect(arr).To(HaveLen(2))
 				Expect(arr[0].TokenIDs).NotTo(BeEmpty())
@@ -192,7 +191,7 @@ var _ = Describe("Server", func() {
 			common.TestModelName, "/v1/completions/render",
 			fmt.Sprintf(`{"model":"%s","prompt":[10,20,30]}`, common.TestModelName),
 			func(body []byte) {
-				var arr []openaiserverapi.RenderResponse
+				var arr []api.RenderResponse
 				Expect(json.Unmarshal(body, &arr)).To(Succeed())
 				Expect(arr).To(HaveLen(1))
 				Expect(arr[0].TokenIDs).To(Equal([]uint32{10, 20, 30}))
@@ -202,7 +201,7 @@ var _ = Describe("Server", func() {
 			common.TestModelName, "/v1/completions/render",
 			fmt.Sprintf(`{"model":"%s","prompt":[[1,2],[3,4,5]]}`, common.TestModelName),
 			func(body []byte) {
-				var arr []openaiserverapi.RenderResponse
+				var arr []api.RenderResponse
 				Expect(json.Unmarshal(body, &arr)).To(Succeed())
 				Expect(arr).To(HaveLen(2))
 				Expect(arr[0].TokenIDs).To(Equal([]uint32{1, 2}))
@@ -214,7 +213,7 @@ var _ = Describe("Server", func() {
 			common.TestModelName, "/v1/chat/completions/render",
 			fmt.Sprintf(`{"model":"%s","messages":[{"role":"user","content":"This is a test"}]}`, common.TestModelName),
 			func(body []byte) {
-				var resp openaiserverapi.RenderResponse
+				var resp api.RenderResponse
 				Expect(json.Unmarshal(body, &resp)).To(Succeed())
 				Expect(resp.TokenIDs).NotTo(BeEmpty())
 				Expect(resp.Features).To(BeNil())
@@ -223,23 +222,26 @@ var _ = Describe("Server", func() {
 			common.TestModelName, "/v1/chat/completions/render",
 			fmt.Sprintf(`{"model":"%s","messages":[{"role":"user","content":[`+
 				`{"type":"text","text":"describe this"},`+
-				`{"type":"image_url","image_url":{"url":"http://example.com/a.png"}}`+
+				`{"type":"image_url","image_url":{"url":"http://example.com/a.png"}},`+
+				`{"type":"image_url","image_url":{"url":"http://example.com/b.png"}}`+
 				`]}]}`, common.TestModelName),
 			func(body []byte) {
-				var resp openaiserverapi.RenderResponse
+				var resp api.RenderResponse
 				Expect(json.Unmarshal(body, &resp)).To(Succeed())
 				Expect(resp.TokenIDs).NotTo(BeEmpty())
 				Expect(resp.Features).NotTo(BeNil())
 				Expect(resp.Features.MMHashes).To(HaveKey("image"))
-				Expect(resp.Features.MMHashes["image"]).To(HaveLen(1))
+				Expect(resp.Features.MMHashes["image"]).To(HaveLen(2))
 				Expect(resp.Features.MMPlaceholders).To(HaveKey("image"))
-				Expect(resp.Features.MMPlaceholders["image"]).To(HaveLen(1))
+				Expect(resp.Features.MMPlaceholders["image"]).To(HaveLen(2))
+				Expect(resp.Features.KwargsData).To(HaveKey("image"))
+				Expect(resp.Features.KwargsData["image"]).To(HaveLen(2))
 			}),
 		Entry("proxy /v1/completions/render to the upstream renderer (HF model)",
 			common.QwenModelName, "/v1/completions/render",
 			fmt.Sprintf(`{"model":"%s","prompt":"This is a test"}`, common.QwenModelName),
 			func(body []byte) {
-				var arr []openaiserverapi.RenderResponse
+				var arr []api.RenderResponse
 				Expect(json.Unmarshal(body, &arr)).To(Succeed())
 				Expect(arr).NotTo(BeEmpty())
 				Expect(arr[0].TokenIDs).NotTo(BeEmpty())
@@ -249,26 +251,32 @@ var _ = Describe("Server", func() {
 			common.QwenModelName, "/v1/chat/completions/render",
 			fmt.Sprintf(`{"model":"%s","messages":[{"role":"user","content":"This is a test"}]}`, common.QwenModelName),
 			func(body []byte) {
-				var resp openaiserverapi.RenderResponse
+				var resp api.RenderResponse
 				Expect(json.Unmarshal(body, &resp)).To(Succeed())
 				Expect(resp.TokenIDs).NotTo(BeEmpty())
 				Expect(resp.Features).To(BeNil())
 			}),
 		Entry("proxy /v1/chat/completions/render with image_url returns mm features (HF model)",
 			common.QwenModelName, "/v1/chat/completions/render",
-			// 1x1 transparent PNG inlined as a data URL — keeps the test
+			// Two minimal 1x1 RGB PNGs inlined as data URLs — keeps the test
 			// hermetic (no outbound fetch) and small enough to embed.
+			// Pixel values: [0,255,0,0] (red) and [0,0,0,255] (blue).
 			fmt.Sprintf(`{"model":"%s","messages":[{"role":"user","content":[`+
 				`{"type":"text","text":"describe this"},`+
-				`{"type":"image_url","image_url":{"url":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="}}`+
+				`{"type":"image_url","image_url":{"url":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC"}},`+
+				`{"type":"image_url","image_url":{"url":"data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNgYPgPAAEDAQAIicLsAAAAAElFTkSuQmCC"}}`+
 				`]}]}`, common.QwenModelName),
 			func(body []byte) {
-				var resp openaiserverapi.RenderResponse
+				var resp api.RenderResponse
 				Expect(json.Unmarshal(body, &resp)).To(Succeed())
 				Expect(resp.TokenIDs).NotTo(BeEmpty())
 				Expect(resp.Features).NotTo(BeNil())
-				Expect(resp.Features.MMHashes).NotTo(BeEmpty())
-				Expect(resp.Features.MMPlaceholders).NotTo(BeEmpty())
+				Expect(resp.Features.MMHashes).To(HaveKey("image"))
+				Expect(resp.Features.MMHashes["image"]).To(HaveLen(2))
+				Expect(resp.Features.MMPlaceholders).To(HaveKey("image"))
+				Expect(resp.Features.MMPlaceholders["image"]).To(HaveLen(2))
+				Expect(resp.Features.KwargsData).To(HaveKey("image"))
+				Expect(resp.Features.KwargsData["image"]).To(HaveLen(2))
 			}),
 	)
 
@@ -514,7 +522,7 @@ var _ = Describe("Server", func() {
 
 			checkSimSleeping(client, true)
 
-			// Wake up the weghts only, kv cache shouldn't wake up yet
+			// Wake up the weights only, kv cache shouldn't wake up yet
 			resp, err = client.Post("http://localhost/wake_up?tags=weights", "", nil)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resp.StatusCode).To(Equal(http.StatusOK))

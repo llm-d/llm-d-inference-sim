@@ -21,14 +21,14 @@ import (
 
 	"github.com/valyala/fasthttp"
 
+	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
-	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 )
 
 // Implementation of request for /chat/completions requests
 type ChatCompletionsRequest struct {
-	openaiserverapi.ChatCompletionsRequest
+	api.ChatCompletionsRequest
 }
 
 // reads and parses data from the body of the given request
@@ -40,9 +40,9 @@ func (c *ChatCompletionsRequest) Unmarshal(data []byte) error {
 // chat shape — at minimum, a non-empty messages array. Catches text-shaped
 // bodies (which JSON-unmarshal cleanly into ChatCompletionsRequest with empty
 // Messages because Go ignores unknown fields by default).
-func (c *ChatCompletionsRequest) ValidateBody() *openaiserverapi.Error {
+func (c *ChatCompletionsRequest) ValidateBody() *api.Error {
 	if len(c.Messages) == 0 {
-		serverErr := openaiserverapi.NewError("messages must not be empty", fasthttp.StatusBadRequest, nil)
+		serverErr := api.NewError("messages must not be empty", fasthttp.StatusBadRequest, nil)
 		return &serverErr
 	}
 	return nil
@@ -51,7 +51,7 @@ func (c *ChatCompletionsRequest) ValidateBody() *openaiserverapi.Error {
 // Render tokenizes the chat messages for /v1/chat/completions/render and
 // returns the tokens (wrapped as a single-element slice for shape parity with
 // /v1/completions/render) and any mm_features.
-func (c *ChatCompletionsRequest) Render(tk tokenizer.Tokenizer) ([][]uint32, *openaiserverapi.RenderMMFeatures, error) {
+func (c *ChatCompletionsRequest) Render(tk tokenizer.Tokenizer) ([][]uint32, *api.RenderMMFeatures, error) {
 	tokens, _, features, err := tk.RenderMessages(c.Messages)
 	if err != nil {
 		return nil, nil, err
@@ -59,17 +59,17 @@ func (c *ChatCompletionsRequest) Render(tk tokenizer.Tokenizer) ([][]uint32, *op
 	return [][]uint32{tokens}, features, nil
 }
 
-func (c *ChatCompletionsRequest) validate(toolsValidator *toolsValidator) *openaiserverapi.Error {
+func (c *ChatCompletionsRequest) validate(toolsValidator *toolsValidator) *api.Error {
 	for _, tool := range c.Tools {
 		toolJson, err := json.Marshal(tool.Function)
 		if err != nil {
-			serverErr := openaiserverapi.NewError("Failed to marshal request tools: "+err.Error(),
+			serverErr := api.NewError("Failed to marshal request tools: "+err.Error(),
 				fasthttp.StatusBadRequest, nil)
 			return &serverErr
 		}
 		err = toolsValidator.validateTool(toolJson)
 		if err != nil {
-			serverErr := openaiserverapi.NewError("Tool validation failed: "+err.Error(),
+			serverErr := api.NewError("Tool validation failed: "+err.Error(),
 				fasthttp.StatusBadRequest, nil)
 			return &serverErr
 		}
@@ -83,6 +83,7 @@ func (c *ChatCompletionsRequest) buildRequestContext(simCtx *SimContext, channel
 	reqCtx := &chatCompletionReqCtx{
 		baseRequestContext: newBaseRequestContext(simCtx, channel, choiceIdx, doneFn),
 		req:                c,
+		toolIDPrefix:       common.ChatCmplToolIDPrefix,
 	}
 	// wire chatCompletionReqCtx into embedded requestContext interface
 	reqCtx.requestContext = reqCtx
@@ -94,12 +95,12 @@ func (c *ChatCompletionsRequest) AsString() string {
 }
 
 func (c *ChatCompletionsRequest) createResponseContext(reqCtx requestContext, displayModel string,
-	responseTokens *openaiserverapi.Tokenized, finishReason *string, usageData *openaiserverapi.Usage,
-	sendUsageData bool, logprobs *int, toolCalls []openaiserverapi.ToolCall, mmEncoderOnlyMode bool) ResponseContext {
+	responseTokens *api.Tokenized, finishReason *string, usageData *api.Usage,
+	sendUsageData bool, logprobs *int, toolCalls []api.ToolCall, mmEncoderOnlyMode bool) ResponseContext {
 	base := newBaseResponseContext(reqCtx, displayModel, responseTokens, finishReason, usageData, sendUsageData,
 		logprobs, c.GetRequestID(), c.IsDoRemotePrefill(), c.IsDoRemoteDecode(), c.GetNumberOfCachedPromptTokens())
 
-	var ecParams map[string]openaiserverapi.ECTransferParams
+	var ecParams map[string]api.ECTransferParams
 	if mmEncoderOnlyMode {
 		if features := c.MMFeatures(); features != nil {
 			ecParams = buildECTransferParams(features.MMHashes)
@@ -113,7 +114,7 @@ func (c *ChatCompletionsRequest) createResponseContext(reqCtx requestContext, di
 	}
 }
 
-func (c *chatCompletionReqCtx) tokenizedPromptForEcho() (*openaiserverapi.Tokenized, error) {
+func (c *chatCompletionReqCtx) tokenizedPromptForEcho() (*api.Tokenized, error) {
 	lastMsg := ""
 	if len(c.req.Messages) > 0 {
 		// in echo mode return the last message without role
@@ -123,7 +124,7 @@ func (c *chatCompletionReqCtx) tokenizedPromptForEcho() (*openaiserverapi.Tokeni
 	if err != nil {
 		return nil, err
 	}
-	return &openaiserverapi.Tokenized{Tokens: tokens, Strings: strTokens}, nil
+	return &api.Tokenized{Tokens: tokens, Strings: strTokens}, nil
 }
 
 // split returns n copies of this request, one per completion choice. Each
@@ -145,23 +146,24 @@ var _ Request = (*ChatCompletionsRequest)(nil)
 // Implementation of requestContext for /chat/completions requests
 type chatCompletionReqCtx struct {
 	baseRequestContext
-	req *ChatCompletionsRequest
+	req          *ChatCompletionsRequest
+	toolIDPrefix string
 }
 
 func (c *chatCompletionReqCtx) request() Request {
 	return c.req
 }
 
-func (c *chatCompletionReqCtx) encode() ([]uint32, []string, *openaiserverapi.RenderMMFeatures, error) {
+func (c *chatCompletionReqCtx) encode() ([]uint32, []string, *api.RenderMMFeatures, error) {
 	return c.sim.Tokenizer.RenderMessages(c.req.Messages)
 }
 
-func (c *chatCompletionReqCtx) createToolCalls() ([]openaiserverapi.ToolCall, int, string, error) {
+func (c *chatCompletionReqCtx) createToolCalls() ([]api.ToolCall, int, string, error) {
 	req := c.request()
 	if !isToolChoiceNone(req.GetToolChoice()) &&
 		req.GetTools() != nil {
 		toolCalls, completionTokens, err :=
-			createToolCalls(req.GetTools(), req.GetToolChoice(), c.sim.Config(), c.sim.Random, c.sim.Tokenizer)
+			createToolCalls(req.GetTools(), req.GetToolChoice(), c.sim.Config(), c.sim.Random, c.sim.Tokenizer, c.toolIDPrefix)
 		finishReason := common.ToolsFinishReason
 		return toolCalls, completionTokens, finishReason, err
 	}
@@ -174,16 +176,16 @@ var _ requestContext = (*chatCompletionReqCtx)(nil)
 type chatCompletionsResponseCtx struct {
 	baseResponseContext
 	// tool calls to be sent in the response
-	toolsCalls []openaiserverapi.ToolCall
+	toolsCalls []api.ToolCall
 	// ecTransferParams holds simulated encoder-cache transfer params per mm hash
-	ecTransferParams map[string]openaiserverapi.ECTransferParams
+	ecTransferParams map[string]api.ECTransferParams
 }
 
-func (respCtx *chatCompletionsResponseCtx) ToolCalls() []openaiserverapi.ToolCall {
+func (respCtx *chatCompletionsResponseCtx) ToolCalls() []api.ToolCall {
 	return respCtx.toolsCalls
 }
 
-func (respCtx *chatCompletionsResponseCtx) ECTransferParams() map[string]openaiserverapi.ECTransferParams {
+func (respCtx *chatCompletionsResponseCtx) ECTransferParams() map[string]api.ECTransferParams {
 	return respCtx.ecTransferParams
 }
 

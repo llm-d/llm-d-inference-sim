@@ -19,8 +19,8 @@ package llmdinferencesim
 import (
 	"fmt"
 
+	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
-	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 )
 
 const (
@@ -29,17 +29,17 @@ const (
 	modelNotFoundMessageTemplate = "The model '%s-nonexistent' does not exist"
 )
 
-var predefinedFailures = map[string]openaiserverapi.Error{
-	common.FailureTypeRateLimit:     openaiserverapi.NewError(rateLimitMessageTemplate, 429, nil),
-	common.FailureTypeInvalidAPIKey: openaiserverapi.NewError("Incorrect API key provided.", 401, nil),
-	common.FailureTypeContextLength: openaiserverapi.NewError(
+var predefinedFailures = map[string]api.Error{
+	common.FailureTypeRateLimit:     api.NewError(rateLimitMessageTemplate, 429, nil),
+	common.FailureTypeInvalidAPIKey: api.NewError("Incorrect API key provided.", 401, nil),
+	common.FailureTypeContextLength: api.NewError(
 		"This model's maximum context length is 4096 tokens. However, your messages resulted in 4500 tokens.",
 		400, stringPtr("messages")),
-	common.FailureTypeServerError: openaiserverapi.NewError(
+	common.FailureTypeServerError: api.NewError(
 		"The server is overloaded or not ready yet.", 503, nil),
-	common.FailureTypeInvalidRequest: openaiserverapi.NewError(
+	common.FailureTypeInvalidRequest: api.NewError(
 		"Invalid request: missing required parameter 'model'.", 400, stringPtr("model")),
-	common.FailureTypeModelNotFound: openaiserverapi.NewError(modelNotFoundMessageTemplate,
+	common.FailureTypeModelNotFound: api.NewError(modelNotFoundMessageTemplate,
 		404, stringPtr("model")),
 }
 
@@ -53,7 +53,7 @@ func shouldInjectFailure(config *common.Configuration, random *common.Random) bo
 }
 
 // getRandomFailure returns a random failure from configured types or all types if none specified
-func getRandomFailure(config *common.Configuration, random *common.Random) openaiserverapi.Error {
+func getRandomFailure(config *common.Configuration, random *common.Random) api.Error {
 	var availableFailures []string
 	if len(config.FailureTypes) == 0 {
 		// Use all failure types if none specified

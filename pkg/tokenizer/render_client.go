@@ -28,8 +28,8 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
-	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 )
 
 type renderClient struct {
@@ -54,7 +54,7 @@ func newRenderClient(ctx context.Context, logger logr.Logger, renderURL string, 
 	}
 }
 
-func (rc *renderClient) render(endpoint string, payload []byte, mm bool) ([]uint32, *openaiserverapi.RenderMMFeatures, error) {
+func (rc *renderClient) render(endpoint string, payload []byte, mm bool) ([]uint32, *api.RenderMMFeatures, error) {
 	if endpoint == "" {
 		return nil, nil, errors.New("render endpoint is empty")
 	}
@@ -81,14 +81,14 @@ func (rc *renderClient) render(endpoint string, payload []byte, mm bool) ([]uint
 }
 
 // parseRenderResponse handles both array (completions) and object (chat/responses) response shapes.
-func (rc *renderClient) parseRenderResponse(body []byte) ([]uint32, *openaiserverapi.RenderMMFeatures, error) {
+func (rc *renderClient) parseRenderResponse(body []byte) ([]uint32, *api.RenderMMFeatures, error) {
 	body = bytes.TrimSpace(body)
 	if len(body) == 0 {
 		return nil, nil, errors.New("empty response body")
 	}
 
 	if body[0] == '[' {
-		var arr []openaiserverapi.RenderResponse
+		var arr []api.RenderResponse
 		if err := json.Unmarshal(body, &arr); err != nil {
 			return nil, nil, fmt.Errorf("unmarshal array response: %w", err)
 		}
@@ -98,7 +98,7 @@ func (rc *renderClient) parseRenderResponse(body []byte) ([]uint32, *openaiserve
 		return arr[0].TokenIDs, arr[0].Features, nil
 	}
 
-	var single openaiserverapi.RenderResponse
+	var single api.RenderResponse
 	if err := json.Unmarshal(body, &single); err != nil {
 		return nil, nil, fmt.Errorf("unmarshal response: %w", err)
 	}

@@ -23,8 +23,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
-	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/openai/openai-go/v3"
@@ -421,14 +421,14 @@ var _ = Describe("Simulator for request with tools", Ordered, func() {
 							Expect(tc.Function.Name).To(BeEmpty())
 							args[functionName] = append(args[functionName], tc.Function.Arguments)
 						}
-						Expect(tc.ID).NotTo(BeEmpty())
+						Expect(tc.ID).To(HavePrefix(common.ChatCmplToolIDPrefix))
 						Expect(tc.Type).To(Equal("function"))
 					}
 				}
 				if chunk.Usage.CompletionTokens != 0 || chunk.Usage.PromptTokens != 0 || chunk.Usage.TotalTokens != 0 {
 					numberOfChunksWithUsage++
 				}
-				Expect(string(chunk.Object)).To(Equal(openaiserverapi.ChatCompletionChunkObject))
+				Expect(string(chunk.Object)).To(Equal(api.ChatCompletionChunkObject))
 			}
 
 			Expect(numberOfChunksWithUsage).To(Equal(1))
@@ -476,7 +476,7 @@ var _ = Describe("Simulator for request with tools", Ordered, func() {
 			resp, err := openaiclient.Chat.Completions.New(ctx, params)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resp.Choices).ShouldNot(BeEmpty())
-			Expect(string(resp.Object)).To(Equal(openaiserverapi.ChatCompletionObject))
+			Expect(string(resp.Object)).To(Equal(api.ChatCompletionObject))
 
 			Expect(resp.Usage.PromptTokens).To(Equal(userMsgTokens))
 			Expect(resp.Usage.CompletionTokens).To(BeNumerically(">", 0))
@@ -489,7 +489,7 @@ var _ = Describe("Simulator for request with tools", Ordered, func() {
 			Expect(toolCalls).ToNot(BeEmpty())
 			for _, tc := range toolCalls {
 				Expect(tc.Function.Name).To(Or(Equal(functionNameGetWeather), Equal(functionNameGetTemperature)))
-				Expect(tc.ID).NotTo(BeEmpty())
+				Expect(tc.ID).To(HavePrefix(common.ChatCmplToolIDPrefix))
 				Expect(tc.Type).To(Equal("function"))
 				args := make(map[string]string)
 				err := json.Unmarshal([]byte(tc.Function.Arguments), &args)
@@ -529,7 +529,7 @@ var _ = Describe("Simulator for request with tools", Ordered, func() {
 			resp, err := openaiclient.Chat.Completions.New(ctx, params)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resp.Choices).ShouldNot(BeEmpty())
-			Expect(string(resp.Object)).To(Equal(openaiserverapi.ChatCompletionObject))
+			Expect(string(resp.Object)).To(Equal(api.ChatCompletionObject))
 
 			Expect(resp.Usage.PromptTokens).To(Equal(userMsgTokens))
 			Expect(resp.Usage.CompletionTokens).To(BeNumerically(">", 0))
@@ -542,7 +542,7 @@ var _ = Describe("Simulator for request with tools", Ordered, func() {
 			Expect(toolCalls).ToNot(BeEmpty())
 			for _, tc := range toolCalls {
 				Expect(tc.Function.Name).To(Equal(specificTool))
-				Expect(tc.ID).NotTo(BeEmpty())
+				Expect(tc.ID).To(HavePrefix(common.ChatCmplToolIDPrefix))
 				Expect(tc.Type).To(Equal("function"))
 				args := make(map[string]string)
 				err := json.Unmarshal([]byte(tc.Function.Arguments), &args)
@@ -614,7 +614,7 @@ var _ = Describe("Simulator for request with tools", Ordered, func() {
 			resp, err := openaiclient.Chat.Completions.New(ctx, params)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resp.Choices).ShouldNot(BeEmpty())
-			Expect(string(resp.Object)).To(Equal(openaiserverapi.ChatCompletionObject))
+			Expect(string(resp.Object)).To(Equal(api.ChatCompletionObject))
 
 			Expect(resp.Usage.PromptTokens).To(Equal(userMsgTokens))
 			Expect(resp.Usage.CompletionTokens).To(BeNumerically(">", 0))
@@ -627,7 +627,7 @@ var _ = Describe("Simulator for request with tools", Ordered, func() {
 			Expect(toolCalls).To(HaveLen(1))
 			tc := toolCalls[0]
 			Expect(tc.Function.Name).To(Equal("multiply_numbers"))
-			Expect(tc.ID).NotTo(BeEmpty())
+			Expect(tc.ID).To(HavePrefix(common.ChatCmplToolIDPrefix))
 			Expect(tc.Type).To(Equal("function"))
 			args := make(map[string][]float64)
 			err = json.Unmarshal([]byte(tc.Function.Arguments), &args)
@@ -663,7 +663,7 @@ var _ = Describe("Simulator for request with tools", Ordered, func() {
 			resp, err := openaiclient.Chat.Completions.New(ctx, params)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resp.Choices).ShouldNot(BeEmpty())
-			Expect(string(resp.Object)).To(Equal(openaiserverapi.ChatCompletionObject))
+			Expect(string(resp.Object)).To(Equal(api.ChatCompletionObject))
 
 			Expect(resp.Usage.PromptTokens).To(Equal(userMsgTokens))
 			Expect(resp.Usage.CompletionTokens).To(BeNumerically(">", 0))
@@ -676,7 +676,7 @@ var _ = Describe("Simulator for request with tools", Ordered, func() {
 			Expect(toolCalls).To(HaveLen(1))
 			tc := toolCalls[0]
 			Expect(tc.Function.Name).To(Equal("process_tensor"))
-			Expect(tc.ID).NotTo(BeEmpty())
+			Expect(tc.ID).To(HavePrefix(common.ChatCmplToolIDPrefix))
 			Expect(tc.Type).To(Equal("function"))
 
 			args := make(map[string][][][]string)
@@ -735,7 +735,7 @@ var _ = Describe("Simulator for request with tools", Ordered, func() {
 			resp, err := openaiclient.Chat.Completions.New(ctx, params)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resp.Choices).ShouldNot(BeEmpty())
-			Expect(string(resp.Object)).To(Equal(openaiserverapi.ChatCompletionObject))
+			Expect(string(resp.Object)).To(Equal(api.ChatCompletionObject))
 
 			Expect(resp.Usage.PromptTokens).To(Equal(userMsgTokens))
 			Expect(resp.Usage.CompletionTokens).To(BeNumerically(">", 0))
@@ -748,7 +748,7 @@ var _ = Describe("Simulator for request with tools", Ordered, func() {
 			Expect(toolCalls).To(HaveLen(1))
 			tc := toolCalls[0]
 			Expect(tc.Function.Name).To(Equal("process_order"))
-			Expect(tc.ID).NotTo(BeEmpty())
+			Expect(tc.ID).To(HavePrefix(common.ChatCmplToolIDPrefix))
 			Expect(tc.Type).To(Equal("function"))
 
 			args := make(map[string]any)
@@ -790,7 +790,7 @@ var _ = Describe("Simulator for request with tools", Ordered, func() {
 			resp, err := openaiclient.Chat.Completions.New(ctx, params)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resp.Choices).ShouldNot(BeEmpty())
-			Expect(string(resp.Object)).To(Equal(openaiserverapi.ChatCompletionObject))
+			Expect(string(resp.Object)).To(Equal(api.ChatCompletionObject))
 
 			Expect(resp.Usage.PromptTokens).To(Equal(userMsgTokens))
 			Expect(resp.Usage.CompletionTokens).To(BeNumerically(">", 0))
@@ -803,7 +803,7 @@ var _ = Describe("Simulator for request with tools", Ordered, func() {
 			Expect(toolCalls).To(HaveLen(1))
 			tc := toolCalls[0]
 			Expect(tc.Function.Name).To(Equal("submit_survey"))
-			Expect(tc.ID).NotTo(BeEmpty())
+			Expect(tc.ID).To(HavePrefix(common.ChatCmplToolIDPrefix))
 			Expect(tc.Type).To(Equal("function"))
 
 			args := make(map[string]any)
@@ -841,13 +841,13 @@ var _ = Describe("Simulator for request with tools", Ordered, func() {
 			resp, err := openaiclient.Chat.Completions.New(ctx, params)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resp.Choices).ShouldNot(BeEmpty())
-			Expect(string(resp.Object)).To(Equal(openaiserverapi.ChatCompletionObject))
+			Expect(string(resp.Object)).To(Equal(api.ChatCompletionObject))
 
 			toolCalls := resp.Choices[0].Message.ToolCalls
 			Expect(toolCalls).To(HaveLen(1))
 			tc := toolCalls[0]
 			Expect(tc.Function.Name).To(Equal(functionNameGetTemperature))
-			Expect(tc.ID).NotTo(BeEmpty())
+			Expect(tc.ID).To(HavePrefix(common.ChatCmplToolIDPrefix))
 			Expect(tc.Type).To(Equal("function"))
 			args := make(map[string]string)
 			err = json.Unmarshal([]byte(tc.Function.Arguments), &args)
@@ -881,13 +881,13 @@ var _ = Describe("Simulator for request with tools", Ordered, func() {
 			resp, err := openaiclient.Chat.Completions.New(ctx, params)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resp.Choices).ShouldNot(BeEmpty())
-			Expect(string(resp.Object)).To(Equal(openaiserverapi.ChatCompletionObject))
+			Expect(string(resp.Object)).To(Equal(api.ChatCompletionObject))
 
 			toolCalls := resp.Choices[0].Message.ToolCalls
 			Expect(toolCalls).To(HaveLen(1))
 			tc := toolCalls[0]
 			Expect(tc.Function.Name).To(Equal("process_order"))
-			Expect(tc.ID).NotTo(BeEmpty())
+			Expect(tc.ID).To(HavePrefix(common.ChatCmplToolIDPrefix))
 			Expect(tc.Type).To(Equal("function"))
 
 			args := make(map[string]any)

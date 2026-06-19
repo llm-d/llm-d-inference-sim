@@ -28,11 +28,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/communication"
 	"github.com/llm-d/llm-d-inference-sim/pkg/dataset"
 	kvcache "github.com/llm-d/llm-d-inference-sim/pkg/kv-cache"
-	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -77,7 +77,7 @@ var _ = Describe("Simulator", func() {
 				if chunk.Usage.CompletionTokens != 0 || chunk.Usage.PromptTokens != 0 || chunk.Usage.TotalTokens != 0 {
 					numberOfChunksWithUsage++
 				}
-				Expect(string(chunk.Object)).To(Equal(openaiserverapi.ChatCompletionChunkObject))
+				Expect(string(chunk.Object)).To(Equal(api.ChatCompletionChunkObject))
 			}
 
 			Expect(numberOfChunksWithUsage).To(Equal(1))
@@ -111,7 +111,7 @@ var _ = Describe("Simulator", func() {
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
-			openaiclient, params := getOpenAIClentAndCompletionParams(client, model, testUserMessage, true)
+			openaiclient, params := getOpenAIClientAndCompletionParams(client, model, testUserMessage, true)
 			stream := openaiclient.Completions.NewStreaming(ctx, params)
 			defer func() {
 				err := stream.Close()
@@ -130,7 +130,7 @@ var _ = Describe("Simulator", func() {
 				if chunk.Usage.CompletionTokens != 0 || chunk.Usage.PromptTokens != 0 || chunk.Usage.TotalTokens != 0 {
 					numberOfChunksWithUsage++
 				}
-				Expect(string(chunk.Object)).To(Equal(openaiserverapi.TextCompletionObject))
+				Expect(string(chunk.Object)).To(Equal(api.TextCompletionObject))
 			}
 			Expect(numberOfChunksWithUsage).To(Equal(1))
 			Expect(chunk.Usage.PromptTokens).To(Equal(userMsgTokens))
@@ -185,7 +185,7 @@ var _ = Describe("Simulator", func() {
 		client, err := startServer(ctx, common.ModeRandom)
 		Expect(err).NotTo(HaveOccurred())
 
-		openaiclient, params := getOpenAIClentAndCompletionParams(client, common.TestModelName, testUserMessage, true)
+		openaiclient, params := getOpenAIClientAndCompletionParams(client, common.TestModelName, testUserMessage, true)
 		params.MaxTokens = param.NewOpt(int64(1))
 		stream := openaiclient.Completions.NewStreaming(ctx, params)
 		defer func() {
@@ -214,7 +214,7 @@ var _ = Describe("Simulator", func() {
 
 			openaiclient, params := getOpenAIClientAndChatParams(client, model, testUserMessage, false)
 			numTokens := 0
-			// if maxTokens and maxCompletionTokens are passsed
+			// if maxTokens and maxCompletionTokens are passed
 			// maxCompletionTokens is used
 			if maxTokens != 0 {
 				params.MaxTokens = param.NewOpt(int64(maxTokens))
@@ -239,7 +239,7 @@ var _ = Describe("Simulator", func() {
 			}
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resp.Choices).ShouldNot(BeEmpty())
-			Expect(string(resp.Object)).To(Equal(openaiserverapi.ChatCompletionObject))
+			Expect(string(resp.Object)).To(Equal(api.ChatCompletionObject))
 
 			Expect(resp.Usage.PromptTokens).To(Equal(userMsgChatTokens))
 			Expect(resp.Usage.CompletionTokens).To(BeNumerically(">", 0))
@@ -293,7 +293,7 @@ var _ = Describe("Simulator", func() {
 			server, _, client, err := startServerHandle(ctx, mode, args, nil)
 			Expect(err).NotTo(HaveOccurred())
 
-			openaiclient, params := getOpenAIClentAndCompletionParams(client, model, testUserMessage, false)
+			openaiclient, params := getOpenAIClientAndCompletionParams(client, model, testUserMessage, false)
 			numTokens := 0
 			if maxTokens != 0 {
 				params.MaxTokens = param.NewOpt(int64(maxTokens))
@@ -314,7 +314,7 @@ var _ = Describe("Simulator", func() {
 			}
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resp.Choices).ShouldNot(BeEmpty())
-			Expect(string(resp.Object)).To(Equal(openaiserverapi.TextCompletionObject))
+			Expect(string(resp.Object)).To(Equal(api.TextCompletionObject))
 
 			Expect(resp.Usage.PromptTokens).To(Equal(userMsgTokens))
 			Expect(resp.Usage.CompletionTokens).To(BeNumerically(">", 0))
@@ -366,7 +366,7 @@ var _ = Describe("Simulator", func() {
 
 			// Exact number of choices must match n
 			Expect(resp.Choices).To(HaveLen(n))
-			Expect(string(resp.Object)).To(Equal(openaiserverapi.ChatCompletionObject))
+			Expect(string(resp.Object)).To(Equal(api.ChatCompletionObject))
 
 			// Prompt tokens should be counted once, not n times
 			Expect(resp.Usage.PromptTokens).To(Equal(userMsgChatTokens))
@@ -465,14 +465,14 @@ var _ = Describe("Simulator", func() {
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
-			openaiclient, params := getOpenAIClentAndCompletionParams(client, common.TestModelName, testUserMessage, false)
+			openaiclient, params := getOpenAIClientAndCompletionParams(client, common.TestModelName, testUserMessage, false)
 			params.N = param.NewOpt(int64(n))
 			resp, err := openaiclient.Completions.New(ctx, params)
 			Expect(err).NotTo(HaveOccurred())
 
 			// Exact number of choices must match n
 			Expect(resp.Choices).To(HaveLen(n))
-			Expect(string(resp.Object)).To(Equal(openaiserverapi.TextCompletionObject))
+			Expect(string(resp.Object)).To(Equal(api.TextCompletionObject))
 
 			// Prompt tokens should be counted once
 			Expect(resp.Usage.PromptTokens).To(Equal(userMsgTokens))
@@ -508,7 +508,7 @@ var _ = Describe("Simulator", func() {
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
-			openaiclient, params := getOpenAIClentAndCompletionParams(client, common.TestModelName, testUserMessage, true)
+			openaiclient, params := getOpenAIClientAndCompletionParams(client, common.TestModelName, testUserMessage, true)
 			params.N = param.NewOpt(int64(n))
 			stream := openaiclient.Completions.NewStreaming(ctx, params)
 			defer func() {
@@ -663,7 +663,7 @@ var _ = Describe("Simulator", func() {
 					}
 				}
 				Expect(stream.Err()).NotTo(HaveOccurred())
-				Expect(string(chunk.Object)).To(Equal(openaiserverapi.TextCompletionObject))
+				Expect(string(chunk.Object)).To(Equal(api.TextCompletionObject))
 				for i, prompt := range prompts {
 					Expect(texts[i]).To(Equal(prompt))
 					// Every choice must carry its own logprobs stream.
@@ -676,7 +676,7 @@ var _ = Describe("Simulator", func() {
 			} else {
 				resp, err := openaiclient.Completions.New(ctx, params)
 				Expect(err).NotTo(HaveOccurred())
-				Expect(string(resp.Object)).To(Equal(openaiserverapi.TextCompletionObject))
+				Expect(string(resp.Object)).To(Equal(api.TextCompletionObject))
 				Expect(resp.Choices).To(HaveLen(len(prompts)))
 				// Each choice should echo the corresponding prompt and carry its own index and logprobs.
 				for i, prompt := range prompts {
@@ -910,7 +910,7 @@ var _ = Describe("Simulator", func() {
 
 		resp, err := openaiclient.Completions.New(ctx, params)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(string(resp.Object)).To(Equal(openaiserverapi.TextCompletionObject))
+		Expect(string(resp.Object)).To(Equal(api.TextCompletionObject))
 		Expect(resp.Choices).To(HaveLen(1))
 		Expect(resp.Choices[0].Index).To(BeEquivalentTo(0))
 		Expect(resp.Choices[0].Text).To(Equal(prompt1))
@@ -1257,7 +1257,7 @@ var _ = Describe("Simulator", func() {
 			resp, err := openaiclient.Chat.Completions.New(ctx, params)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resp.Choices).ShouldNot(BeEmpty())
-			Expect(string(resp.Object)).To(Equal(openaiserverapi.ChatCompletionObject))
+			Expect(string(resp.Object)).To(Equal(api.ChatCompletionObject))
 
 			Expect(resp.Usage.CompletionTokens).To(BeNumerically("<=", maxTokens))
 			Expect(resp.Usage.TotalTokens).To(Equal(resp.Usage.PromptTokens + resp.Usage.CompletionTokens))
@@ -1313,7 +1313,7 @@ var _ = Describe("Simulator", func() {
 		body, err := io.ReadAll(resp.Body)
 		Expect(err).NotTo(HaveOccurred())
 
-		var chatResp openaiserverapi.ChatCompletionsResponse
+		var chatResp api.ChatCompletionsResponse
 		Expect(json.Unmarshal(body, &chatResp)).To(Succeed())
 		Expect(chatResp.Choices).To(HaveLen(1))
 		Expect(chatResp.ECTransferParams).To(HaveLen(2))
@@ -1351,7 +1351,7 @@ var _ = Describe("Simulator", func() {
 		body, err := io.ReadAll(resp.Body)
 		Expect(err).NotTo(HaveOccurred())
 
-		var chatResp openaiserverapi.ChatCompletionsResponse
+		var chatResp api.ChatCompletionsResponse
 		Expect(json.Unmarshal(body, &chatResp)).To(Succeed())
 		Expect(chatResp.ECTransferParams).To(BeNil())
 	})
@@ -1384,7 +1384,7 @@ var _ = Describe("Simulator", func() {
 		body, err := io.ReadAll(resp.Body)
 		Expect(err).NotTo(HaveOccurred())
 
-		var chatResp openaiserverapi.ChatCompletionsResponse
+		var chatResp api.ChatCompletionsResponse
 		Expect(json.Unmarshal(body, &chatResp)).To(Succeed())
 		Expect(chatResp.ECTransferParams).To(BeNil())
 	})
@@ -1546,7 +1546,7 @@ var _ = Describe("Simulator", func() {
 			client, err := startServerWithEnv(ctx, common.ModeRandom, envs)
 			Expect(err).NotTo(HaveOccurred())
 
-			openaiclient, params := getOpenAIClentAndCompletionParams(client, common.TestModelName, testUserMessage, false)
+			openaiclient, params := getOpenAIClientAndCompletionParams(client, common.TestModelName, testUserMessage, false)
 			var httpResp *http.Response
 			resp, err := openaiclient.Completions.New(ctx, params, option.WithResponseInto(&httpResp))
 			Expect(err).NotTo(HaveOccurred())
@@ -1574,7 +1574,7 @@ var _ = Describe("Simulator", func() {
 			client, err := startServerWithEnv(ctx, common.ModeRandom, envs)
 			Expect(err).NotTo(HaveOccurred())
 
-			openaiclient, params := getOpenAIClentAndCompletionParams(client, common.TestModelName, testUserMessage, true)
+			openaiclient, params := getOpenAIClientAndCompletionParams(client, common.TestModelName, testUserMessage, true)
 			var httpResp *http.Response
 			resp, err := openaiclient.Completions.New(ctx, params, option.WithResponseInto(&httpResp))
 			Expect(err).NotTo(HaveOccurred())
@@ -1693,7 +1693,7 @@ var _ = Describe("Simulator", func() {
 				client, err := startServer(ctx, mode)
 				Expect(err).NotTo(HaveOccurred())
 
-				openaiclient, params := getOpenAIClentAndCompletionParams(client, common.TestModelName, testUserMessage, true)
+				openaiclient, params := getOpenAIClientAndCompletionParams(client, common.TestModelName, testUserMessage, true)
 				if logprobsCount > 0 {
 					params.Logprobs = param.NewOpt(int64(logprobsCount))
 				}
@@ -1764,7 +1764,7 @@ var _ = Describe("Simulator", func() {
 					}
 					resp, err = openaiclient.Chat.Completions.New(ctx, params)
 				} else {
-					openaiclient, params := getOpenAIClentAndCompletionParams(client, common.TestModelName, testUserMessage, false)
+					openaiclient, params := getOpenAIClientAndCompletionParams(client, common.TestModelName, testUserMessage, false)
 					if logprobsParam != nil {
 						if logprobsCount, ok := logprobsParam.(int); ok && logprobsCount > 0 {
 							params.Logprobs = param.NewOpt(int64(logprobsCount))
@@ -1999,7 +1999,7 @@ var _ = Describe("Simulator", func() {
 			body, err := io.ReadAll(resp.Body)
 			Expect(err).NotTo(HaveOccurred())
 
-			var errResp openaiserverapi.ErrorResponse
+			var errResp api.ErrorResponse
 			err = json.Unmarshal(body, &errResp)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(errResp.Error.Code).To(Equal(422))
@@ -2034,7 +2034,7 @@ var _ = Describe("Simulator", func() {
 			body, err := io.ReadAll(resp.Body)
 			Expect(err).NotTo(HaveOccurred())
 
-			var errResp openaiserverapi.ErrorResponse
+			var errResp api.ErrorResponse
 			err = json.Unmarshal(body, &errResp)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(errResp.Error.Code).To(Equal(400))
@@ -2200,9 +2200,9 @@ var _ = Describe("Simulator", func() {
 				}
 				Expect(err).NotTo(HaveOccurred())
 
-				if strings.HasPrefix(line, openaiserverapi.SSEDataPrefix) {
-					data := strings.TrimPrefix(line, openaiserverapi.SSEDataPrefix)
-					if strings.TrimSpace(data) == openaiserverapi.SSEDoneMarker {
+				if strings.HasPrefix(line, api.SSEDataPrefix) {
+					data := strings.TrimPrefix(line, api.SSEDataPrefix)
+					if strings.TrimSpace(data) == api.SSEDoneMarker {
 						break
 					}
 
@@ -2461,15 +2461,15 @@ var _ = Describe("Simulator", func() {
 
 	Context("responses API", func() {
 		responseParts := []string{
-			openaiserverapi.ResponsesEventCreated,
-			openaiserverapi.ResponsesEventInProgress,
-			openaiserverapi.ResponsesEventOutputItemAdded,
-			openaiserverapi.ResponsesEventContentPartAdded,
-			openaiserverapi.ResponsesEventTextDelta,
-			openaiserverapi.ResponsesEventTextDone,
-			openaiserverapi.ResponsesEventContentPartDone,
-			openaiserverapi.ResponsesEventOutputItemDone,
-			openaiserverapi.ResponsesEventCompleted}
+			api.ResponsesEventCreated,
+			api.ResponsesEventInProgress,
+			api.ResponsesEventOutputItemAdded,
+			api.ResponsesEventContentPartAdded,
+			api.ResponsesEventTextDelta,
+			api.ResponsesEventTextDone,
+			api.ResponsesEventContentPartDone,
+			api.ResponsesEventOutputItemDone,
+			api.ResponsesEventCompleted}
 
 		DescribeTable("responses with string and array input",
 			func(model string, mode string, useStringInput bool) {
@@ -2508,7 +2508,7 @@ var _ = Describe("Simulator", func() {
 				Expect(resp.Usage.OutputTokens).To(BeNumerically(">", 0))
 				Expect(resp.Usage.TotalTokens).To(Equal(resp.Usage.InputTokens + resp.Usage.OutputTokens))
 
-				Expect(resp.ID).To(HavePrefix(openaiserverapi.ResponsesIDPrefix))
+				Expect(resp.ID).To(HavePrefix(api.ResponsesIDPrefix))
 				Expect(resp.Status).To(Equal(responses.ResponseStatusCompleted))
 				Expect(resp.Instructions.AsString()).To(BeEmpty())
 
@@ -2516,7 +2516,7 @@ var _ = Describe("Simulator", func() {
 				firstItem := resp.Output[0]
 				Expect(string(firstItem.Role)).To(Equal("assistant"))
 				Expect(firstItem.Content).NotTo(BeEmpty())
-				Expect(firstItem.Content[0].Type).To(Equal(openaiserverapi.ResponsesOutputText))
+				Expect(firstItem.Content[0].Type).To(Equal(api.ResponsesOutputText))
 			},
 			func(model string, mode string, useStringInput bool) string {
 				inputType := "array"
@@ -2599,26 +2599,26 @@ var _ = Describe("Simulator", func() {
 					event := stream.Current()
 					eventTypes = append(eventTypes, event.Type)
 					switch event.Type {
-					case openaiserverapi.ResponsesEventCreated:
+					case api.ResponsesEventCreated:
 						created := event.AsResponseCreated()
-						Expect(string(created.Response.Status)).To(Equal(openaiserverapi.ResponsesStatusInProgress))
-					case openaiserverapi.ResponsesEventOutputItemAdded:
+						Expect(string(created.Response.Status)).To(Equal(api.ResponsesStatusInProgress))
+					case api.ResponsesEventOutputItemAdded:
 						added := event.AsResponseOutputItemAdded()
 						Expect(added.OutputIndex).To(Equal(int64(0)))
-					case openaiserverapi.ResponsesEventTextDelta:
+					case api.ResponsesEventTextDelta:
 						delta := event.AsResponseOutputTextDelta()
 						deltas = append(deltas, delta.Delta)
-					case openaiserverapi.ResponsesEventTextDone:
+					case api.ResponsesEventTextDone:
 						done := event.AsResponseOutputTextDone()
 						Expect(done.Text).NotTo(BeEmpty())
 						Expect(done.Text).To(Equal(strings.Join(deltas, "")))
-					case openaiserverapi.ResponsesEventCompleted:
+					case api.ResponsesEventCompleted:
 						completed := event.AsResponseCompleted()
 						Expect(completed.Response.Usage.InputTokens).To(BeNumerically(">", 0))
 						Expect(completed.Response.Usage.OutputTokens).To(BeNumerically(">", 0))
 						Expect(completed.Response.Usage.TotalTokens).To(Equal(
 							completed.Response.Usage.InputTokens + completed.Response.Usage.OutputTokens))
-						Expect(string(completed.Response.Status)).To(Equal(openaiserverapi.ResponsesStatusCompleted))
+						Expect(string(completed.Response.Status)).To(Equal(api.ResponsesStatusCompleted))
 					}
 				}
 				Expect(stream.Err()).NotTo(HaveOccurred())
@@ -2628,20 +2628,20 @@ var _ = Describe("Simulator", func() {
 				// [4..n-5] deltas, [n-4] text.done, [n-3] content_part.done,
 				// [n-2] output_item.done, [n-1] completed
 				Expect(len(eventTypes)).To(BeNumerically(">=", 9), "expected at least 9 events")
-				Expect(eventTypes[0]).To(Equal(openaiserverapi.ResponsesEventCreated))
-				Expect(eventTypes[1]).To(Equal(openaiserverapi.ResponsesEventInProgress))
-				Expect(eventTypes[2]).To(Equal(openaiserverapi.ResponsesEventOutputItemAdded))
-				Expect(eventTypes[3]).To(Equal(openaiserverapi.ResponsesEventContentPartAdded))
+				Expect(eventTypes[0]).To(Equal(api.ResponsesEventCreated))
+				Expect(eventTypes[1]).To(Equal(api.ResponsesEventInProgress))
+				Expect(eventTypes[2]).To(Equal(api.ResponsesEventOutputItemAdded))
+				Expect(eventTypes[3]).To(Equal(api.ResponsesEventContentPartAdded))
 				// deltas occupy positions [4 .. len-5]
 				nDeltas := len(eventTypes) - 8
 				Expect(nDeltas).To(BeNumerically(">=", 1), "expected at least one delta event")
 				for i := 4; i < 4+nDeltas; i++ {
-					Expect(eventTypes[i]).To(Equal(openaiserverapi.ResponsesEventTextDelta))
+					Expect(eventTypes[i]).To(Equal(api.ResponsesEventTextDelta))
 				}
-				Expect(eventTypes[len(eventTypes)-4]).To(Equal(openaiserverapi.ResponsesEventTextDone))
-				Expect(eventTypes[len(eventTypes)-3]).To(Equal(openaiserverapi.ResponsesEventContentPartDone))
-				Expect(eventTypes[len(eventTypes)-2]).To(Equal(openaiserverapi.ResponsesEventOutputItemDone))
-				Expect(eventTypes[len(eventTypes)-1]).To(Equal(openaiserverapi.ResponsesEventCompleted))
+				Expect(eventTypes[len(eventTypes)-4]).To(Equal(api.ResponsesEventTextDone))
+				Expect(eventTypes[len(eventTypes)-3]).To(Equal(api.ResponsesEventContentPartDone))
+				Expect(eventTypes[len(eventTypes)-2]).To(Equal(api.ResponsesEventOutputItemDone))
+				Expect(eventTypes[len(eventTypes)-1]).To(Equal(api.ResponsesEventCompleted))
 
 				fullText := strings.Join(deltas, "")
 				if mode == common.ModeEcho {
@@ -2726,7 +2726,7 @@ var _ = Describe("Simulator", func() {
 				for stream.Next() {
 					event := stream.Current()
 					switch event.Type {
-					case openaiserverapi.ResponsesEventTextDelta:
+					case api.ResponsesEventTextDelta:
 						delta := event.AsResponseOutputTextDelta()
 						Expect(delta.Delta).NotTo(BeEmpty())
 						deltaCount++
@@ -2747,7 +2747,7 @@ var _ = Describe("Simulator", func() {
 							Expect(delta.Logprobs).To(BeEmpty(),
 								"delta event should have no logprobs when not requested")
 						}
-					case openaiserverapi.ResponsesEventTextDone:
+					case api.ResponsesEventTextDone:
 						done := event.AsResponseOutputTextDone()
 						Expect(done.Text).NotTo(BeEmpty())
 						if includeLogprobs {
@@ -2828,11 +2828,11 @@ var _ = Describe("Simulator", func() {
 						break
 					}
 					Expect(err).NotTo(HaveOccurred())
-					if !strings.HasPrefix(line, openaiserverapi.SSEDataPrefix) {
+					if !strings.HasPrefix(line, api.SSEDataPrefix) {
 						continue
 					}
-					data := strings.TrimSpace(strings.TrimPrefix(line, openaiserverapi.SSEDataPrefix))
-					if data == openaiserverapi.SSEDoneMarker {
+					data := strings.TrimSpace(strings.TrimPrefix(line, api.SSEDataPrefix))
+					if data == api.SSEDoneMarker {
 						break
 					}
 					var event map[string]any
@@ -2841,12 +2841,12 @@ var _ = Describe("Simulator", func() {
 					seenTypes[eventType] = true
 
 					switch eventType {
-					case openaiserverapi.ResponsesEventContentPartAdded:
+					case api.ResponsesEventContentPartAdded:
 						// part.logprobs: [] when requested, absent when not
 						partObj, _ := event["part"].(map[string]any)
 						checkLogprobEmpty(partObj, eventType, false)
 
-					case openaiserverapi.ResponsesEventTextDelta:
+					case api.ResponsesEventTextDelta:
 						// logprobs: populated when requested, absent when not
 						if includeLogprobs {
 							logprobsArr, _ := event["logprobs"].([]any)
@@ -2864,15 +2864,15 @@ var _ = Describe("Simulator", func() {
 							checkLogprobsMissing(event, eventType)
 						}
 
-					case openaiserverapi.ResponsesEventTextDone:
+					case api.ResponsesEventTextDone:
 						checkLogprobEmpty(event, eventType, false)
 
-					case openaiserverapi.ResponsesEventContentPartDone:
+					case api.ResponsesEventContentPartDone:
 						// part.logprobs: null when requested (signals per-token entries already streamed), absent when not
 						partObj, _ := event["part"].(map[string]any)
 						checkLogprobEmpty(partObj, eventType, true)
 
-					case openaiserverapi.ResponsesEventOutputItemDone:
+					case api.ResponsesEventOutputItemDone:
 						// item.content[0].logprobs: null when requested, absent when not
 						item, ok := event["item"].(map[string]any)
 						Expect(ok).To(BeTrue(), "output_item.done: event.item must be a map")
@@ -2883,7 +2883,7 @@ var _ = Describe("Simulator", func() {
 						Expect(ok).To(BeTrue(), "output_item.done: item.content[0] must be a map")
 						checkLogprobEmpty(firstContent, eventType, true)
 
-					case openaiserverapi.ResponsesEventCompleted:
+					case api.ResponsesEventCompleted:
 						// response.output[0].content[0].logprobs: accumulated entries when requested, absent when not
 						response, ok := event["response"].(map[string]any)
 						Expect(ok).To(BeTrue(), "completed: event.response must be a map")
@@ -2958,8 +2958,8 @@ var _ = Describe("Simulator", func() {
 
 			var respObj map[string]any
 			Expect(json.Unmarshal(body, &respObj)).To(Succeed())
-			Expect(respObj["status"]).To(Equal(openaiserverapi.ResponsesStatusCompleted))
-			Expect(respObj["id"]).To(HavePrefix(openaiserverapi.ResponsesIDPrefix))
+			Expect(respObj["status"]).To(Equal(api.ResponsesStatusCompleted))
+			Expect(respObj["id"]).To(HavePrefix(api.ResponsesIDPrefix))
 
 			// Verify output contains text content
 			output := respObj["output"].([]any)
@@ -2969,7 +2969,7 @@ var _ = Describe("Simulator", func() {
 			content := firstOutput["content"].([]any)
 			Expect(content).NotTo(BeEmpty())
 			firstContent := content[0].(map[string]any)
-			Expect(firstContent["type"]).To(Equal(openaiserverapi.ResponsesOutputText))
+			Expect(firstContent["type"]).To(Equal(api.ResponsesOutputText))
 			Expect(firstContent["text"]).NotTo(BeEmpty())
 
 			// Verify usage
@@ -3009,7 +3009,7 @@ var _ = Describe("Simulator", func() {
 
 			var respObj map[string]any
 			Expect(json.Unmarshal(body, &respObj)).To(Succeed())
-			Expect(respObj["status"]).To(Equal(openaiserverapi.ResponsesStatusCompleted))
+			Expect(respObj["status"]).To(Equal(api.ResponsesStatusCompleted))
 
 			// Verify output
 			output := respObj["output"].([]any)
@@ -3057,7 +3057,7 @@ var _ = Describe("Simulator", func() {
 
 			var respObj map[string]any
 			Expect(json.Unmarshal(body, &respObj)).To(Succeed())
-			Expect(respObj["status"]).To(Equal(openaiserverapi.ResponsesStatusCompleted))
+			Expect(respObj["status"]).To(Equal(api.ResponsesStatusCompleted))
 
 			output := respObj["output"].([]any)
 			Expect(output).NotTo(BeEmpty())
@@ -3148,11 +3148,11 @@ var _ = Describe("Simulator", func() {
 					break
 				}
 				Expect(err).NotTo(HaveOccurred())
-				if !strings.HasPrefix(line, openaiserverapi.SSEDataPrefix) {
+				if !strings.HasPrefix(line, api.SSEDataPrefix) {
 					continue
 				}
-				data := strings.TrimSpace(strings.TrimPrefix(line, openaiserverapi.SSEDataPrefix))
-				if data == openaiserverapi.SSEDoneMarker {
+				data := strings.TrimSpace(strings.TrimPrefix(line, api.SSEDataPrefix))
+				if data == api.SSEDoneMarker {
 					break
 				}
 				var event map[string]any
@@ -3160,15 +3160,15 @@ var _ = Describe("Simulator", func() {
 				eventType, _ := event["type"].(string)
 				seenTypes[eventType] = true
 
-				if eventType == openaiserverapi.ResponsesEventTextDelta {
+				if eventType == api.ResponsesEventTextDelta {
 					delta, _ := event["delta"].(string)
 					deltas = append(deltas, delta)
 				}
 			}
 
-			Expect(seenTypes[openaiserverapi.ResponsesEventCreated]).To(BeTrue())
-			Expect(seenTypes[openaiserverapi.ResponsesEventCompleted]).To(BeTrue())
-			Expect(seenTypes[openaiserverapi.ResponsesEventTextDelta]).To(BeTrue())
+			Expect(seenTypes[api.ResponsesEventCreated]).To(BeTrue())
+			Expect(seenTypes[api.ResponsesEventCompleted]).To(BeTrue())
+			Expect(seenTypes[api.ResponsesEventTextDelta]).To(BeTrue())
 			Expect(deltas).NotTo(BeEmpty())
 			fullText := strings.Join(deltas, "")
 			Expect(fullText).NotTo(BeEmpty())
@@ -3230,7 +3230,7 @@ var _ = Describe("Simulator", func() {
 				body, err := io.ReadAll(resp.Body)
 				Expect(err).NotTo(HaveOccurred())
 
-				var generateResp openaiserverapi.GenerateResponse
+				var generateResp api.GenerateResponse
 				Expect(json.Unmarshal(body, &generateResp)).To(Succeed())
 				Expect(generateResp.GenRequestID).NotTo(BeEmpty())
 				Expect(generateResp.Choices).To(HaveLen(1))
@@ -3304,7 +3304,7 @@ var _ = Describe("Simulator", func() {
 			body, err := io.ReadAll(resp.Body)
 			Expect(err).NotTo(HaveOccurred())
 
-			var generateResp openaiserverapi.GenerateResponse
+			var generateResp api.GenerateResponse
 			Expect(json.Unmarshal(body, &generateResp)).To(Succeed())
 			Expect(generateResp.GenRequestID).NotTo(BeEmpty())
 			Expect(generateResp.Choices).To(HaveLen(1))
@@ -3338,7 +3338,7 @@ var _ = Describe("Simulator", func() {
 			body, err := io.ReadAll(resp.Body)
 			Expect(err).NotTo(HaveOccurred())
 
-			var generateResp openaiserverapi.GenerateResponse
+			var generateResp api.GenerateResponse
 			Expect(json.Unmarshal(body, &generateResp)).To(Succeed())
 			Expect(generateResp.ECTransferParams).To(BeNil())
 		})
@@ -3368,7 +3368,7 @@ var _ = Describe("Simulator", func() {
 			body, err := io.ReadAll(resp.Body)
 			Expect(err).NotTo(HaveOccurred())
 
-			var generateResp openaiserverapi.GenerateResponse
+			var generateResp api.GenerateResponse
 			Expect(json.Unmarshal(body, &generateResp)).To(Succeed())
 			Expect(generateResp.KVParams).NotTo(BeNil())
 			Expect(generateResp.KVParams.DoRemotePrefill).To(BeTrue())
@@ -3403,7 +3403,7 @@ var _ = Describe("Simulator", func() {
 			body, err := io.ReadAll(resp.Body)
 			Expect(err).NotTo(HaveOccurred())
 
-			var generateResp openaiserverapi.GenerateResponse
+			var generateResp api.GenerateResponse
 			Expect(json.Unmarshal(body, &generateResp)).To(Succeed())
 			Expect(generateResp.KVParams).To(BeNil())
 		})
@@ -3432,7 +3432,7 @@ var _ = Describe("Simulator", func() {
 			body, err := io.ReadAll(resp.Body)
 			Expect(err).NotTo(HaveOccurred())
 
-			var generateResp openaiserverapi.GenerateResponse
+			var generateResp api.GenerateResponse
 			Expect(json.Unmarshal(body, &generateResp)).To(Succeed())
 			Expect(generateResp.KVParams).NotTo(BeNil())
 			Expect(generateResp.KVParams.DoRemotePrefill).To(BeTrue())
@@ -3467,9 +3467,9 @@ var _ = Describe("Simulator", func() {
 			Expect(resp.Header.Get("Content-Type")).To(Equal("text/event-stream"))
 
 			reader := bufio.NewReader(resp.Body)
-			var tokenChunks []openaiserverapi.GenerateStreamResponse
-			var finishChunk *openaiserverapi.GenerateStreamResponse
-			var usageChunk *openaiserverapi.GenerateStreamResponse
+			var tokenChunks []api.GenerateStreamResponse
+			var finishChunk *api.GenerateStreamResponse
+			var usageChunk *api.GenerateStreamResponse
 			gotDone := false
 
 			for {
@@ -3479,16 +3479,16 @@ var _ = Describe("Simulator", func() {
 				}
 				Expect(err).NotTo(HaveOccurred())
 
-				if !strings.HasPrefix(line, openaiserverapi.SSEDataPrefix) {
+				if !strings.HasPrefix(line, api.SSEDataPrefix) {
 					continue
 				}
-				data := strings.TrimSpace(strings.TrimPrefix(line, openaiserverapi.SSEDataPrefix))
-				if data == openaiserverapi.SSEDoneMarker {
+				data := strings.TrimSpace(strings.TrimPrefix(line, api.SSEDataPrefix))
+				if data == api.SSEDoneMarker {
 					gotDone = true
 					break
 				}
 
-				var streamResp openaiserverapi.GenerateStreamResponse
+				var streamResp api.GenerateStreamResponse
 				Expect(json.Unmarshal([]byte(data), &streamResp)).To(Succeed(), "failed to parse SSE chunk: %s", data)
 				if len(streamResp.Choices) == 0 {
 					Expect(streamResp.Usage).NotTo(BeNil(), "empty choices chunk must carry usage")
@@ -3545,7 +3545,7 @@ var _ = Describe("Simulator", func() {
 			Expect(resp.StatusCode).To(Equal(http.StatusOK))
 
 			reader := bufio.NewReader(resp.Body)
-			var lastTokenChunk *openaiserverapi.GenerateStreamResponse
+			var lastTokenChunk *api.GenerateStreamResponse
 			gotDone := false
 
 			for {
@@ -3559,12 +3559,12 @@ var _ = Describe("Simulator", func() {
 					continue
 				}
 				data := strings.TrimSpace(strings.TrimPrefix(line, "data: "))
-				if data == openaiserverapi.SSEDoneMarker {
+				if data == api.SSEDoneMarker {
 					gotDone = true
 					break
 				}
 
-				var streamResp openaiserverapi.GenerateStreamResponse
+				var streamResp api.GenerateStreamResponse
 				Expect(json.Unmarshal([]byte(data), &streamResp)).To(Succeed(), "failed to parse SSE chunk: %s", data)
 				if len(streamResp.Choices) == 0 {
 					continue
@@ -3609,7 +3609,7 @@ var _ = Describe("Simulator", func() {
 			Expect(resp.StatusCode).To(Equal(http.StatusOK))
 
 			reader := bufio.NewReader(resp.Body)
-			var usageChunk *openaiserverapi.GenerateStreamResponse
+			var usageChunk *api.GenerateStreamResponse
 			gotDone := false
 
 			for {
@@ -3619,16 +3619,16 @@ var _ = Describe("Simulator", func() {
 				}
 				Expect(err).NotTo(HaveOccurred())
 
-				if !strings.HasPrefix(line, openaiserverapi.SSEDataPrefix) {
+				if !strings.HasPrefix(line, api.SSEDataPrefix) {
 					continue
 				}
-				data := strings.TrimSpace(strings.TrimPrefix(line, openaiserverapi.SSEDataPrefix))
-				if data == openaiserverapi.SSEDoneMarker {
+				data := strings.TrimSpace(strings.TrimPrefix(line, api.SSEDataPrefix))
+				if data == api.SSEDoneMarker {
 					gotDone = true
 					break
 				}
 
-				var streamResp openaiserverapi.GenerateStreamResponse
+				var streamResp api.GenerateStreamResponse
 				Expect(json.Unmarshal([]byte(data), &streamResp)).To(Succeed(), "failed to parse SSE chunk: %s", data)
 				if len(streamResp.Choices) == 0 {
 					Expect(streamResp.Usage).NotTo(BeNil(), "empty choices chunk must carry usage")
@@ -3701,7 +3701,7 @@ var _ = Describe("Simulator", func() {
 			go func() {
 				time.Sleep(200 * time.Millisecond)
 
-				openaiclient, params := getOpenAIClentAndCompletionParams(client, model, longPrompt, false)
+				openaiclient, params := getOpenAIClientAndCompletionParams(client, model, longPrompt, false)
 				resp, err := openaiclient.Completions.New(ctx, params)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(resp.Choices).ShouldNot(BeEmpty())

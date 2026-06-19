@@ -20,21 +20,21 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	kvcache "github.com/llm-d/llm-d-inference-sim/pkg/kv-cache"
-	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 	"github.com/valyala/fasthttp"
 )
 
 type requestBuilder interface {
 	Unmarshal(data []byte) error
-	validate(toolsValidator *toolsValidator) *openaiserverapi.Error
+	validate(toolsValidator *toolsValidator) *api.Error
 	buildRequestContext(simCtx *SimContext, channel common.Channel[*ResponseInfo], choiceIdx int, doneFn func()) requestContext
 	AsString() string
-	createResponseContext(reqCtx requestContext, displayModel string, responseTokens *openaiserverapi.Tokenized,
-		finishReason *string, usageData *openaiserverapi.Usage, sendUsageData bool, logprobs *int,
-		toolCalls []openaiserverapi.ToolCall, mmEncoderOnlyMode bool) ResponseContext
+	createResponseContext(reqCtx requestContext, displayModel string, responseTokens *api.Tokenized,
+		finishReason *string, usageData *api.Usage, sendUsageData bool, logprobs *int,
+		toolCalls []api.ToolCall, mmEncoderOnlyMode bool) ResponseContext
 	// split returns one or more processing-form Requests, each carrying a single
 	// prompt with a unique RequestID. For request types whose wire form is always
 	// a single prompt (chat, generation, responses, post-split text completions),
@@ -51,29 +51,29 @@ type RenderableRequest interface {
 	Request
 	// ValidateBody checks that the unmarshalled body matches the endpoint's
 	// expected shape.
-	ValidateBody() *openaiserverapi.Error
+	ValidateBody() *api.Error
 	// Render tokenizes the request and returns the tokens (one slice per
 	// prompt; chat completions always returns a single slice) and any
 	// mm_features produced by the tokenizer.
-	Render(t tokenizer.Tokenizer) ([][]uint32, *openaiserverapi.RenderMMFeatures, error)
+	Render(t tokenizer.Tokenizer) ([][]uint32, *api.RenderMMFeatures, error)
 }
 
 type Request interface {
 	requestBuilder
-	openaiserverapi.Request
+	api.Request
 }
 
 type requestContext interface {
 	request() Request
 	startProcessingTime() time.Time
-	tokenize() *openaiserverapi.Error
-	kvCacheOnRequestStart() (stats kvcache.PrefixCacheStats, serverError *openaiserverapi.Error)
+	tokenize() *api.Error
+	kvCacheOnRequestStart() (stats kvcache.PrefixCacheStats, serverError *api.Error)
 	kvCacheOnRequestEnd()
-	createToolCalls() ([]openaiserverapi.ToolCall, int, string, error)
-	handleRequest() (ResponseContext, *openaiserverapi.Error)
+	createToolCalls() ([]api.ToolCall, int, string, error)
+	handleRequest() (ResponseContext, *api.Error)
 	responseChannel() common.Channel[*ResponseInfo]
-	tokenizedPromptForEcho() (*openaiserverapi.Tokenized, error)
-	encode() ([]uint32, []string, *openaiserverapi.RenderMMFeatures, error)
+	tokenizedPromptForEcho() (*api.Tokenized, error)
+	encode() ([]uint32, []string, *api.RenderMMFeatures, error)
 	choiceIndex() int
 	signalDone()
 }
@@ -115,7 +115,7 @@ func (b *baseRequestContext) startProcessingTime() time.Time {
 	return b.startProcessing
 }
 
-func (b *baseRequestContext) tokenize() *openaiserverapi.Error {
+func (b *baseRequestContext) tokenize() *api.Error {
 	req := b.request()
 
 	if tokens := req.TokenizedPrompt(); tokens == nil {
@@ -123,11 +123,11 @@ func (b *baseRequestContext) tokenize() *openaiserverapi.Error {
 		tokens, textTokens, mmFeatures, err := b.encode()
 		if err != nil {
 			b.sim.logger.Error(err, "failed to tokenize")
-			serverErr := openaiserverapi.NewError("Failed to tokenize, "+err.Error(), fasthttp.StatusInternalServerError, nil)
+			serverErr := api.NewError("Failed to tokenize, "+err.Error(), fasthttp.StatusInternalServerError, nil)
 			return &serverErr
 		}
 
-		req.SetTokenizedPrompt(&openaiserverapi.Tokenized{
+		req.SetTokenizedPrompt(&api.Tokenized{
 			Tokens:  tokens,
 			Strings: textTokens,
 		})
@@ -141,7 +141,7 @@ func (b *baseRequestContext) tokenize() *openaiserverapi.Error {
 		echoTokenized, err := b.tokenizedPromptForEcho()
 		if err != nil {
 			b.sim.logger.Error(err, "failed to tokenize prompt part for echo mode")
-			serverErr := openaiserverapi.NewError("Failed to tokenize prompt part for echo mode, "+err.Error(), fasthttp.StatusInternalServerError, nil)
+			serverErr := api.NewError("Failed to tokenize prompt part for echo mode, "+err.Error(), fasthttp.StatusInternalServerError, nil)
 			return &serverErr
 		}
 
@@ -165,7 +165,7 @@ func (b *baseRequestContext) validateContextWindow() (string, int) {
 	return "", fasthttp.StatusOK
 }
 
-func (reqCtx *baseRequestContext) handleRequest() (ResponseContext, *openaiserverapi.Error) {
+func (reqCtx *baseRequestContext) handleRequest() (ResponseContext, *api.Error) {
 	req := reqCtx.request()
 	dispModel := req.GetDisplayedModel()
 
@@ -185,7 +185,7 @@ func (reqCtx *baseRequestContext) handleRequest() (ResponseContext, *openaiserve
 	}
 
 	if errMsg, errCode := reqCtx.validateContextWindow(); errMsg != "" {
-		oaiServerError := openaiserverapi.NewError(errMsg, errCode, nil)
+		oaiServerError := api.NewError(errMsg, errCode, nil)
 		return nil, &oaiServerError
 	}
 
@@ -203,7 +203,7 @@ func (reqCtx *baseRequestContext) handleRequest() (ResponseContext, *openaiserve
 		finishReason = common.CacheThresholdFinishReason
 
 		numOfInputTokens := getNumberOfPromptTokens(req)
-		usageData := openaiserverapi.Usage{
+		usageData := api.Usage{
 			PromptTokens:     numOfInputTokens,
 			CompletionTokens: 0,
 			TotalTokens:      numOfInputTokens,
@@ -213,12 +213,12 @@ func (reqCtx *baseRequestContext) handleRequest() (ResponseContext, *openaiserve
 			logprobs = req.GetLogprobs()
 		}
 		sendUsageData := !req.IsStream() || req.IncludeUsage()
-		respCtx := req.createResponseContext(reqCtx, dispModel, &openaiserverapi.Tokenized{},
+		respCtx := req.createResponseContext(reqCtx, dispModel, &api.Tokenized{},
 			&finishReason, &usageData, sendUsageData, logprobs, nil, reqCtx.sim.Config().MMEncoderOnly)
 		return respCtx, nil
 	}
 
-	var responseTokens *openaiserverapi.Tokenized
+	var responseTokens *api.Tokenized
 	toolCalls, completionTokens, finishReason, err := reqCtx.createToolCalls()
 	if toolCalls == nil && err == nil {
 		// Either no tool calls were defined, or we randomly chose not to create tool calls,
@@ -229,16 +229,16 @@ func (reqCtx *baseRequestContext) handleRequest() (ResponseContext, *openaiserve
 	if err != nil {
 		prefix := "failed to create response for " + req.AsString() + " "
 		reqCtx.sim.logger.Error(err, prefix)
-		oaiServerError := openaiserverapi.NewError(prefix+err.Error(), fasthttp.StatusInternalServerError, nil)
+		oaiServerError := api.NewError(prefix+err.Error(), fasthttp.StatusInternalServerError, nil)
 		return nil, &oaiServerError
 	}
 
 	numOfInputTokens := getNumberOfPromptTokens(req)
-	usageData := openaiserverapi.Usage{
+	usageData := api.Usage{
 		PromptTokens:     numOfInputTokens,
 		CompletionTokens: completionTokens,
 		TotalTokens:      numOfInputTokens + completionTokens,
-		PromptTokensDetail: &openaiserverapi.PromptTokensDetail{
+		PromptTokensDetail: &api.PromptTokensDetail{
 			CachedTokens: prefixCacheStats.CachedTokens,
 		},
 	}
@@ -263,7 +263,7 @@ func (reqCtx *baseRequestContext) handleRequest() (ResponseContext, *openaiserve
 	return respCtx, nil
 }
 
-func (reqCtx *baseRequestContext) shouldReturnCacheThresholdFinishReason(req openaiserverapi.Request, hitRate float64) bool {
+func (reqCtx *baseRequestContext) shouldReturnCacheThresholdFinishReason(req api.Request, hitRate float64) bool {
 	// Check for cache threshold finish reason header - this forces a cache_threshold finish reason
 	if req.CacheThresholdFinishReason() {
 		return true
@@ -290,12 +290,12 @@ func (reqCtx *baseRequestContext) shouldReturnCacheThresholdFinishReason(req ope
 	return false
 }
 
-func (reqCtx *baseRequestContext) kvCacheOnRequestStart() (stat kvcache.PrefixCacheStats, oaiServerError *openaiserverapi.Error) {
+func (reqCtx *baseRequestContext) kvCacheOnRequestStart() (stat kvcache.PrefixCacheStats, oaiServerError *api.Error) {
 	if reqCtx.sim.Config().EnableKVCache {
 		var err error
 		stat, err = reqCtx.sim.kvcacheHelper.OnRequestStart(reqCtx.request())
 		if err != nil {
-			serverError := openaiserverapi.NewError(err.Error(), fasthttp.StatusInternalServerError, nil)
+			serverError := api.NewError(err.Error(), fasthttp.StatusInternalServerError, nil)
 			return kvcache.PrefixCacheStats{}, &serverError
 		}
 		return stat, nil

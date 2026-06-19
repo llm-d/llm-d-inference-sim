@@ -18,14 +18,15 @@ package tokenizer
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"hash/fnv"
 	"regexp"
 	"strings"
 
 	"github.com/go-logr/logr"
+	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
-	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	"github.com/valyala/fasthttp"
 )
 
@@ -39,7 +40,7 @@ type Tokenizer interface {
 	// RenderText renders plain text and returns token IDs and string tokens
 	RenderText(text string) ([]uint32, []string, error)
 	// RenderMessages renders chat messages and returns token IDs, string tokens, and multimodal features
-	RenderMessages(messages []openaiserverapi.Message) ([]uint32, []string, *openaiserverapi.RenderMMFeatures, error)
+	RenderMessages(messages []api.Message) ([]uint32, []string, *api.RenderMMFeatures, error)
 }
 
 type baseTokenizer struct {
@@ -110,13 +111,13 @@ func (st *SimpleTokenizer) RenderText(text string) ([]uint32, []string, error) {
 // RenderMessages tokenizes the messages and synthesizes stub mm_features when
 // any message contains image_url blocks, so downstream MM-aware code paths can
 // be exercised without a real renderer.
-func (st *SimpleTokenizer) RenderMessages(messages []openaiserverapi.Message) ([]uint32, []string, *openaiserverapi.RenderMMFeatures, error) {
+func (st *SimpleTokenizer) RenderMessages(messages []api.Message) ([]uint32, []string, *api.RenderMMFeatures, error) {
 	var builder strings.Builder
 	for _, msg := range messages {
-		builder.WriteString(openaiserverapi.StartMessageSeparator)
+		builder.WriteString(api.StartMessageSeparator)
 		text := msg.PlainText(true)
 		builder.WriteString(text)
-		builder.WriteString(openaiserverapi.EndMessageSeparator)
+		builder.WriteString(api.EndMessageSeparator)
 	}
 	tokens, textTokens := st.tokenize(builder.String())
 	features := stubMMFeaturesForMessages(messages, len(tokens))
@@ -125,7 +126,7 @@ func (st *SimpleTokenizer) RenderMessages(messages []openaiserverapi.Message) ([
 
 // stubMMFeaturesForMessages synthesizes per-modality mm_hashes and placeholders
 // for image_url, input_audio, and video_url blocks; nil if none present.
-func stubMMFeaturesForMessages(messages []openaiserverapi.Message, totalTokens int) *openaiserverapi.RenderMMFeatures {
+func stubMMFeaturesForMessages(messages []api.Message, totalTokens int) *api.RenderMMFeatures {
 	type item struct {
 		modality, prefix, identifier string
 		modalIndex                   int
@@ -163,12 +164,16 @@ func stubMMFeaturesForMessages(messages []openaiserverapi.Message, totalTokens i
 
 	span := max(totalTokens/len(items), 1)
 	mmHashes := map[string][]string{}
-	mmPlaceholders := map[string][]openaiserverapi.RenderPlaceholder{}
+	mmPlaceholders := map[string][]api.RenderPlaceholder{}
+	mmKwargsData := map[string][]string{}
 
 	for i, it := range items {
 		// Deterministic so repeats hit cache.
 		hash := fmt.Sprintf("sim_%s_%d_%x", it.prefix, it.modalIndex, fnv32(it.identifier))
 		mmHashes[it.modality] = append(mmHashes[it.modality], hash)
+
+		kwarg := base64.StdEncoding.EncodeToString([]byte(hash))
+		mmKwargsData[it.modality] = append(mmKwargsData[it.modality], kwarg)
 
 		offset := i * span
 		if offset >= totalTokens {
@@ -185,11 +190,12 @@ func stubMMFeaturesForMessages(messages []openaiserverapi.Message, totalTokens i
 		if length < 1 {
 			length = 1
 		}
-		mmPlaceholders[it.modality] = append(mmPlaceholders[it.modality], openaiserverapi.RenderPlaceholder{Offset: offset, Length: length})
+		mmPlaceholders[it.modality] = append(mmPlaceholders[it.modality], api.RenderPlaceholder{Offset: offset, Length: length})
 	}
-	return &openaiserverapi.RenderMMFeatures{
+	return &api.RenderMMFeatures{
 		MMHashes:       mmHashes,
 		MMPlaceholders: mmPlaceholders,
+		KwargsData:     mmKwargsData,
 	}
 }
 
@@ -218,7 +224,7 @@ func stringsToUint32sHash(strings []string) []uint32 {
 	return hashes
 }
 
-func FlattenMessages(messages []openaiserverapi.Message) string {
+func FlattenMessages(messages []api.Message) string {
 	var builder strings.Builder
 	for _, msg := range messages {
 		builder.WriteString(msg.PlainText(true))

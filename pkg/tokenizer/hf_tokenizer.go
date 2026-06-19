@@ -25,8 +25,8 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
-	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	crlog "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -55,20 +55,20 @@ func NewHFTokenizer(ctx context.Context, logger logr.Logger, renderURL, baseMode
 }
 
 func (hft *HFTokenizer) RenderText(text string) ([]uint32, []string, error) {
-	req := openaiserverapi.NewTextCompletionsRenderRequest(hft.baseModel, text)
+	req := api.NewTextCompletionsRenderRequest(hft.baseModel, text)
 
 	tokens, strTokens, _, err := hft.renderRequest(&req, text)
 
 	return tokens, strTokens, err
 }
 
-func (hft *HFTokenizer) RenderMessages(messages []openaiserverapi.Message) ([]uint32, []string, *openaiserverapi.RenderMMFeatures, error) {
-	req := openaiserverapi.NewChatCompletionsRenderRequest(hft.baseModel, messages)
+func (hft *HFTokenizer) RenderMessages(messages []api.Message) ([]uint32, []string, *api.RenderMMFeatures, error) {
+	req := api.NewChatCompletionsRenderRequest(hft.baseModel, messages)
 
 	return hft.renderRequest(&req, FlattenMessages(messages))
 }
 
-func (hft *HFTokenizer) renderRequest(req openaiserverapi.RenderRequest, plainText string) ([]uint32, []string, *openaiserverapi.RenderMMFeatures, error) {
+func (hft *HFTokenizer) renderRequest(req api.RenderRequest, plainText string) ([]uint32, []string, *api.RenderMMFeatures, error) {
 	if req.Endpoint() == "" {
 		return nil, nil, nil, errors.New("renderRequest: render endpoint is empty")
 	}

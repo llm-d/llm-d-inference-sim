@@ -17,8 +17,8 @@ limitations under the License.
 package llmdinferencesim
 
 import (
+	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
-	vllmapi "github.com/llm-d/llm-d-inference-sim/pkg/vllm-api"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/prometheus/client_golang/prometheus"
@@ -128,7 +128,7 @@ var _ = Describe("total tokens", func() {
 					Name:    "dummy",
 					Help:    "Test histogram",
 					Buckets: test.buckets,
-				}, []string{vllmapi.PromLabelModelName},
+				}, []string{api.PromLabelModelName},
 			)
 			result := s.initFakeHistogram(hist, test.buckets, test.counts)
 			if test.shouldBeNil {

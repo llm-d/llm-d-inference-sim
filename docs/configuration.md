@@ -13,7 +13,7 @@ Some environment variables (for example `POD_NAME`, `POD_NAMESPACE`) are not ove
 
 ## General
 - `config`: the path to a yaml configuration file that can contain the simulator's command line parameters. If a parameter is defined in both the config file and the command line, the command line value overwrites the configuration file value. An example configuration file can be found at [manifests/config.yaml](../manifests/config.yaml)
-- `port`: the port the simulator listents on, default is 8000
+- `port`: the port the simulator listens on, default is 8000
 - `model`: the currently 'loaded' model, mandatory. If you omit `--model` on the command line, a non-empty `SIM_MODEL` environment variable can supply the model; see [Configuration precedence](#configuration-precedence) and [Environment variables](#environment-variables).
 - `served-model-name`: model names exposed by the API (a list of space-separated strings)
 - `lora-modules`: a list of LoRA adapters (a list of space-separated JSON strings): '{"name": "name", "path": "lora_path", "base_model_name": "id"}', optional, empty by default
@@ -34,22 +34,28 @@ Some environment variables (for example `POD_NAME`, `POD_NAMESPACE`) are not ove
 ## Latency 
 All latency-related parameters are defined in duration format, e.g., 100ms. Integer format is deprecated.
 
-- `latency-calculator`: specifies the latency calculator to be used to simulate response times. By default, the latency is computed based on the simulator’s current load and the configured latency parameters, such as `time-to-first-token` and `prefill-time-per-token`. Supported values are `per-token` and `constant`, indicating whether or not the calculation accounts for the prompt size.
+For a detailed explanation of how the simulator models inference time and what each latency parameter does, see [Latency Simulation](latency-simulation.md). For suggested values for each parameter and ready-to-use YAML profiles, see [Latency Reference Tables and Profiles](latency-profiles.md).
+
+- `latency-calculator`: specifies the latency calculator for prefill time. Supported values are `constant` and `per-token`; see [Latency Simulation](latency-simulation.md) for details on each. Leaving this field unset (or setting it to `""`) activates a legacy precedence-based mode — retained for backward compatibility, but using `constant` or `per-token` explicitly is recommended.
 - `time-to-first-token`: the time to the first token, optional, by default zero
 - `time-to-first-token-std-dev`: standard deviation for time before the first token will be returned, optional, default is zero. Can't be more than 30% of `time-to-first-token`, will not cause the actual time to first token to differ by more than 70% from `time-to-first-token`
 - `inter-token-latency`: the time to 'generate' each additional token, optional, by default zero
 - `inter-token-latency-std-dev`: standard deviation for time between generated tokens, optional, default is zero. Can't be more than 30% of `inter-token-latency`, will not cause the actual inter token latency to differ by more than 70% from `inter-token-latency`
 - `kv-cache-transfer-latency`: time for KV-cache "transfer" from a remote vLLM, optional, by default zero. Usually much shorter than `time-to-first-token`
 - `kv-cache-transfer-latency-std-dev`: standard deviation for time to "transfer" kv-cache from another vLLM instance in case P/D is activated, optional, default is zero. Can't be more than 30% of `kv-cache-transfer-latency`, will not cause the actual latency to differ by more than 70% from `kv-cache-transfer-latency`
----
-- `prefill-overhead`: constant overhead time for prefill, optional, by default zero. Used in calculating time to first token, this will be ignored if `time-to-first-token` is not zero
-- `prefill-time-per-token`: time taken to generate each token during prefill, optional, by default zero, this will be ignored if `time-to-first-token` is not zero
-- `prefill-time-std-dev`: similar to `time-to-first-token-std-dev`, but is applied on the final prefill time, which is calculated by `prefill-overhead`, `prefill-time-per-token`, and number of prompt tokens, this will be ignored if `time-to-first-token` is not zero
-- `kv-cache-transfer-time-per-token`: time taken to transfer cache for each token in case disaggregated P/D is enabled, optional, by default zero. This will be ignored if `kv-cache-transfer-latency` is not zero
-- `kv-cache-transfer-time-std-dev`: similar to `time-to-first-token-std-dev`, but is applied on the final kv cache transfer time in case disaggregated P/D is enabled, which is calculated by `kv-cache-transfer-time-per-token` and number of prompt tokens, this will be ignored if `kv-cache-transfer-latency` is not zero
----
-- `time-factor-under-load`: a multiplicative factor that affects the overall time taken for requests when parallel requests are being processed. The value of this factor must be >= 1.0, with a default of 1.0. If this factor is 1.0, no extra time is added.  When the factor is x (where x > 1.0) and there are `max-num-seqs` requests, the total time will be multiplied by x. The extra time then decreases multiplicatively to 1.0 when the number of requests is less than `max-num-seqs`.
 - `seed`: random seed for operations (if not set, current Unix time in nanoseconds is used)
+
+#### Per-token calculator parameters
+
+- `prefill-overhead`: constant overhead time for prefill, optional, by default zero. Used by the `per-token` calculator. With an unset calculator, ignored when `time-to-first-token` is non-zero.
+- `prefill-time-per-token`: time per uncached prompt token during prefill, optional, by default zero. Used by the `per-token` calculator. With an unset calculator, ignored when `time-to-first-token` is non-zero.
+- `prefill-time-std-dev`: applied to the total computed prefill time (`prefill-overhead` + per-token cost). Used by the `per-token` calculator. With an unset calculator, ignored when `time-to-first-token` is non-zero.
+- `kv-cache-transfer-time-per-token`: time to transfer KV cache per prompt token in disaggregated P/D, optional, by default zero. Used by the `per-token` calculator. With an unset calculator, ignored when `kv-cache-transfer-latency` is non-zero.
+- `kv-cache-transfer-time-std-dev`: applied to the total computed KV transfer time. Used by the `per-token` calculator. With an unset calculator, ignored when `kv-cache-transfer-latency` is non-zero.
+
+#### Load factor
+
+- `time-factor-under-load`: a multiplicative factor that affects the overall time taken for requests when parallel requests are being processed. The value of this factor must be >= 1.0, with a default of 1.0. If this factor is 1.0, no extra time is added.  When the factor is x (where x > 1.0) and there are `max-num-seqs` requests, the total time will be multiplied by x. The extra time then decreases multiplicatively to 1.0 when the number of requests is less than `max-num-seqs`.
 
 ## Tools 
 - `max-tool-call-integer-param`: the maximum possible value of integer parameters in a tool call, optional, defaults to 100

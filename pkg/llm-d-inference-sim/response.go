@@ -19,7 +19,7 @@ package llmdinferencesim
 import (
 	"sync"
 
-	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
+	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 )
 
 const (
@@ -28,10 +28,10 @@ const (
 )
 
 type ResponseInfo struct {
-	Tokens    *openaiserverapi.Tokenized
+	Tokens    *api.Tokenized
 	RespCtx   ResponseContext
-	Err       *openaiserverapi.Error
-	ToolCall  *openaiserverapi.ToolCall
+	Err       *api.Error
+	ToolCall  *api.ToolCall
 	Status    string
 	ChoiceIdx int
 }
@@ -39,20 +39,20 @@ type ResponseInfo struct {
 type ResponseContext interface {
 	RequestContext() requestContext
 	RequestID() string
-	UsageData() *openaiserverapi.Usage
+	UsageData() *api.Usage
 	DisplayModel() string
 	doRemotePrefill() bool
 	DoRemoteDecode() bool
 	NumberCachedPromptTokens() int
-	responseTokens() *openaiserverapi.Tokenized
+	responseTokens() *api.Tokenized
 	FinishReason() *string
 	SendUsageData() bool
-	ToolCalls() []openaiserverapi.ToolCall
+	ToolCalls() []api.ToolCall
 	Instructions() *string
 	CreationTime() int64
 	SetCreationTime(int64)
 	TopLogprobs() *int
-	ECTransferParams() map[string]openaiserverapi.ECTransferParams
+	ECTransferParams() map[string]api.ECTransferParams
 	setWG(*sync.WaitGroup)
 	Done()
 }
@@ -71,14 +71,14 @@ type baseResponseContext struct {
 	// the number of prompt tokens that are in the local KV Cache
 	nCachedPromptTokens int
 	// tokenized content to be sent in the response
-	respTokens *openaiserverapi.Tokenized
+	respTokens *api.Tokenized
 	// display model name returned to the client and used in metrics. It is either the first alias
 	// from --served-model-name (for a base-model request) or the LoRA adapter name (for a LoRA request)
 	displayModelName string
 	// a pointer to a string that represents finish reason, can be nil or stop or length, ...
 	finishReasonPtr *string
 	// usage (tokens statistics) for this response
-	usage *openaiserverapi.Usage
+	usage *api.Usage
 	// indicates whether to send usage data in this response
 	sendUsage bool
 	// number of logprob options to include or nil if no logprobs needed
@@ -87,8 +87,8 @@ type baseResponseContext struct {
 	wg *sync.WaitGroup
 }
 
-func newBaseResponseContext(reqCtx requestContext, displayModel string, responseTokens *openaiserverapi.Tokenized,
-	finishReason *string, usageData *openaiserverapi.Usage, sendUsageData bool, logprobs *int, id string,
+func newBaseResponseContext(reqCtx requestContext, displayModel string, responseTokens *api.Tokenized,
+	finishReason *string, usageData *api.Usage, sendUsageData bool, logprobs *int, id string,
 	doRemotePrefill bool, doRemoteDecode bool, nCachedPromptTokens int) baseResponseContext {
 	return baseResponseContext{
 		reqCtx:              reqCtx,
@@ -108,7 +108,7 @@ func newBaseResponseContext(reqCtx requestContext, displayModel string, response
 func (respCtx *baseResponseContext) RequestContext() requestContext {
 	return respCtx.reqCtx
 }
-func (respCtx *baseResponseContext) UsageData() *openaiserverapi.Usage {
+func (respCtx *baseResponseContext) UsageData() *api.Usage {
 	return respCtx.usage
 }
 func (respCtx *baseResponseContext) DisplayModel() string {
@@ -126,7 +126,7 @@ func (respCtx *baseResponseContext) DoRemoteDecode() bool {
 func (respCtx *baseResponseContext) NumberCachedPromptTokens() int {
 	return respCtx.nCachedPromptTokens
 }
-func (respCtx *baseResponseContext) responseTokens() *openaiserverapi.Tokenized {
+func (respCtx *baseResponseContext) responseTokens() *api.Tokenized {
 	return respCtx.respTokens
 }
 func (respCtx *baseResponseContext) FinishReason() *string {
@@ -149,7 +149,7 @@ func (respCtx *baseResponseContext) Instructions() *string {
 	return nil
 }
 
-func (respCtx *baseResponseContext) ECTransferParams() map[string]openaiserverapi.ECTransferParams {
+func (respCtx *baseResponseContext) ECTransferParams() map[string]api.ECTransferParams {
 	return nil
 }
 

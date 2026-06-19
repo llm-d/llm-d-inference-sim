@@ -39,7 +39,7 @@ ZMQ_IMG ?= $(IMAGE_REGISTRY)/$(ZMQ_IMAGE_NAME):$(ZMQ_IMAGE_TAG)
 CONTAINER_TOOL := $(shell { command -v docker >/dev/null 2>&1 && echo docker; } || { command -v podman >/dev/null 2>&1 && echo podman; } || echo "")
 BUILDER := $(shell command -v buildah >/dev/null 2>&1 && echo buildah || echo $(CONTAINER_TOOL))
 
-VLLM_RENDER_IMAGE ?= vllm/vllm-openai-cpu:v0.19.1
+VLLM_RENDER_IMAGE ?= vllm/vllm-openai-cpu:v0.21.0
 RENDER_PORT ?= 8082
 
 .PHONY: help

@@ -15,7 +15,7 @@ limitations under the License.
 */
 
 // Contains structures and functions related to responses for all supported APIs
-package openaiserverapi
+package api
 
 import (
 	"encoding/json"
@@ -139,12 +139,14 @@ type baseResponseChoice struct {
 // v1/chat/completions
 // Message defines vLLM chat completions Message
 type Message struct {
-	// Role is the message Role, optional values are 'user', 'assistant', ...
+	// Role is the message Role, optional values are 'user', 'assistant', 'tool', ...
 	Role string `json:"role,omitempty"`
 	// Content defines text of this message
 	Content ChatComplContent `json:"content,omitempty"`
 	// ToolCalls are the tool calls created by the model
 	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
+	// ToolCallID is the ID of the tool call this message is responding to (role: "tool" only)
+	ToolCallID string `json:"tool_call_id,omitempty"`
 }
 
 func (m *Message) PlainText(includeRole bool) string {
@@ -152,6 +154,11 @@ func (m *Message) PlainText(includeRole bool) string {
 
 	if includeRole {
 		builder.WriteString(m.Role)
+		if m.ToolCallID != "" {
+			builder.WriteString("(")
+			builder.WriteString(m.ToolCallID)
+			builder.WriteString(")")
+		}
 		builder.WriteString(": ")
 	}
 
@@ -161,7 +168,7 @@ func (m *Message) PlainText(includeRole bool) string {
 		var parts []string
 		for _, block := range m.Content.Structured {
 			switch block.Type {
-			case "text":
+			case ContentTypeText:
 				parts = append(parts, block.Text)
 			case "image_url":
 				parts = append(parts, "image: "+block.ImageURL.Url)
@@ -169,6 +176,16 @@ func (m *Message) PlainText(includeRole bool) string {
 		}
 
 		builder.WriteString(strings.Join(parts, "\n"))
+	}
+
+	for _, tc := range m.ToolCalls {
+		if tc.Function.Name != nil {
+			builder.WriteString("[")
+			builder.WriteString(*tc.Function.Name)
+			builder.WriteString("(")
+			builder.WriteString(tc.Function.Arguments)
+			builder.WriteString(")]")
+		}
 	}
 
 	return builder.String()
@@ -259,7 +276,7 @@ type ToolCall struct {
 	Index int `json:"index"`
 }
 
-// ChatRespChoice represents a single chat completions response choise
+// ChatRespChoice represents a single chat completions response choice
 type ChatRespChoice struct {
 	baseResponseChoice
 	// Message contains choice's Message
@@ -275,7 +292,7 @@ type TextCompletionsResponse struct {
 	Choices []TextRespChoice `json:"choices"`
 }
 
-// TextRespChoice represents a single text completions response choise
+// TextRespChoice represents a single text completions response choice
 type TextRespChoice struct {
 	baseResponseChoice
 	// Text defines request's content
@@ -294,7 +311,7 @@ type ChatCompletionsRespChunk struct {
 	Choices []ChatRespChunkChoice `json:"choices"`
 }
 
-// ChatRespChunkChoice represents a single chat completions response choise in case of streaming
+// ChatRespChunkChoice represents a single chat completions response choice in case of streaming
 type ChatRespChunkChoice struct {
 	baseResponseChoice
 	// Delta is a content of the chunk
@@ -445,7 +462,7 @@ func CreateResponsesResponse(model string, requestID string, createdAt int64,
 		CreatedAt:    createdAt,
 		Status:       ResponsesStatusCompleted,
 		Instructions: instructions,
-		Text:         &TextSettings{Format: &TextFormat{Type: "text"}},
+		Text:         &TextSettings{Format: &TextFormat{Type: ContentTypeText}},
 		Output:       output,
 		Usage:        usage,
 	}
@@ -588,4 +605,149 @@ type ECTransferParams struct {
 	PeerPort      int    `json:"peer_port"`
 	SizeBytes     int    `json:"size_bytes"`
 	NixlAgentData []byte `json:"nixl_agent_metadata_b64"`
+}
+
+// Anthropic Messages API
+
+const (
+	MessagesIDPrefix            = "msg_"
+	MessagesType                = "message"
+	MessagesStopReasonEndTurn   = "end_turn"
+	MessagesStopReasonToolUse   = "tool_use"
+	MessagesStopReasonMaxTokens = "max_tokens"
+
+	MessagesEventMessageStart      = "message_start"
+	MessagesEventContentBlockStart = "content_block_start"
+	MessagesEventPing              = "ping"
+	MessagesEventContentBlockDelta = "content_block_delta"
+	MessagesEventContentBlockStop  = "content_block_stop"
+	MessagesEventMessageDelta      = "message_delta"
+	MessagesEventMessageStop       = "message_stop"
+
+	ContentTypeText = "text"
+)
+
+// MessagesUsage contains token usage for the Anthropic Messages API.
+type MessagesUsage struct {
+	InputTokens              int `json:"input_tokens"`
+	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+	OutputTokens             int `json:"output_tokens"`
+}
+
+// MessagesStreamUsage carries only output_tokens in streaming delta events.
+type MessagesStreamUsage struct {
+	OutputTokens int `json:"output_tokens"`
+}
+
+// MessagesContentBlock is a single content block in a Messages API response.
+// Type is "text" (text field) or "tool_use" (ID, Name, Input fields).
+type MessagesContentBlock struct {
+	Type  string         `json:"type"`
+	Text  string         `json:"text,omitempty"`
+	ID    string         `json:"id,omitempty"`
+	Name  string         `json:"name,omitempty"`
+	Input map[string]any `json:"input,omitempty"`
+}
+
+// MessagesResponse is the non-streaming Anthropic /v1/messages response.
+type MessagesResponse struct {
+	ID           string                 `json:"id"`
+	Type         string                 `json:"type"`
+	Role         string                 `json:"role"`
+	Content      []MessagesContentBlock `json:"content"`
+	Model        string                 `json:"model"`
+	StopReason   *string                `json:"stop_reason"`
+	StopSequence *string                `json:"stop_sequence"`
+	Usage        MessagesUsage          `json:"usage"`
+	RequestID    string                 `json:"-"`
+}
+
+func (r *MessagesResponse) GetRequestID() string { return r.RequestID }
+
+// CreateMessagesResponse builds a complete non-streaming Messages API response.
+func CreateMessagesResponse(model, requestID, stopReason string,
+	content []MessagesContentBlock, usage MessagesUsage) *MessagesResponse {
+	sr := stopReason
+	if content == nil {
+		content = []MessagesContentBlock{}
+	}
+	return &MessagesResponse{
+		ID:           MessagesIDPrefix + requestID,
+		Type:         MessagesType,
+		Role:         RoleAssistant,
+		Content:      content,
+		Model:        model,
+		StopReason:   &sr,
+		StopSequence: nil,
+		Usage:        usage,
+		RequestID:    requestID,
+	}
+}
+
+// CreateMessagesStreamStartMessage builds the initial message object for the
+// message_start streaming event: empty content, nil stop_reason, input_tokens set.
+func CreateMessagesStreamStartMessage(model, requestID string, inputTokens int) *MessagesResponse {
+	return &MessagesResponse{
+		ID:           MessagesIDPrefix + requestID,
+		Type:         MessagesType,
+		Role:         RoleAssistant,
+		Content:      []MessagesContentBlock{},
+		Model:        model,
+		StopReason:   nil,
+		StopSequence: nil,
+		Usage:        MessagesUsage{InputTokens: inputTokens},
+		RequestID:    requestID,
+	}
+}
+
+// Streaming event structs
+
+type MessagesMessageStartEvent struct {
+	Type    string            `json:"type"`
+	Message *MessagesResponse `json:"message"`
+}
+
+type MessagesContentBlockStartEvent struct {
+	Type         string               `json:"type"`
+	Index        int                  `json:"index"`
+	ContentBlock MessagesContentBlock `json:"content_block"`
+}
+
+// MessagesContentBlockDelta is the delta payload inside a content_block_delta event.
+// Type is "text_delta" (Text field) or "input_json_delta" (PartialJSON field).
+type MessagesContentBlockDelta struct {
+	Type        string `json:"type"`
+	Text        string `json:"text,omitempty"`
+	PartialJSON string `json:"partial_json,omitempty"`
+}
+
+type MessagesContentBlockDeltaEvent struct {
+	Type  string                    `json:"type"`
+	Index int                       `json:"index"`
+	Delta MessagesContentBlockDelta `json:"delta"`
+}
+
+type MessagesContentBlockStopEvent struct {
+	Type  string `json:"type"`
+	Index int    `json:"index"`
+}
+
+type MessagesMessageDeltaPayload struct {
+	StopReason   *string `json:"stop_reason"`
+	StopSequence *string `json:"stop_sequence"`
+}
+
+type MessagesMessageDeltaEvent struct {
+	Type  string                      `json:"type"`
+	Delta MessagesMessageDeltaPayload `json:"delta"`
+	Usage MessagesStreamUsage         `json:"usage"`
+}
+
+type MessagesMessageStopEvent struct {
+	Type string `json:"type"`
+}
+
+type MessagesPingEvent struct {
+	Type string `json:"type"`
 }

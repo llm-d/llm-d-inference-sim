@@ -17,20 +17,20 @@ limitations under the License.
 package llmdinferencesim
 
 import (
+	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
-	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 )
 
 // Implementation of request for generation requests
 type GenerationRequest struct {
-	openaiserverapi.GenerationRequest
+	api.GenerationRequest
 }
 
 func (g *GenerationRequest) Unmarshal(data []byte) error {
 	return nil
 }
 
-func (g *GenerationRequest) validate(toolsValidator *toolsValidator) *openaiserverapi.Error {
+func (g *GenerationRequest) validate(toolsValidator *toolsValidator) *api.Error {
 	return validateRequest(g)
 }
 
@@ -50,8 +50,8 @@ func (g *GenerationRequest) AsString() string {
 }
 
 func (g *GenerationRequest) createResponseContext(reqCtx requestContext, displayModel string,
-	responseTokens *openaiserverapi.Tokenized, finishReason *string, usageData *openaiserverapi.Usage,
-	sendUsageData bool, logprobs *int, toolCalls []openaiserverapi.ToolCall, _ bool) ResponseContext {
+	responseTokens *api.Tokenized, finishReason *string, usageData *api.Usage,
+	sendUsageData bool, logprobs *int, toolCalls []api.ToolCall, _ bool) ResponseContext {
 	base := newBaseResponseContext(reqCtx, displayModel, responseTokens, finishReason, usageData, sendUsageData,
 		logprobs, g.GetRequestID(), g.IsDoRemotePrefill(), g.IsDoRemoteDecode(), g.GetNumberOfCachedPromptTokens())
 	return &generationResponseCtx{
@@ -76,11 +76,11 @@ func (g *generationReqCtx) request() Request {
 	return g.req
 }
 
-func (g *generationReqCtx) tokenizedPromptForEcho() (*openaiserverapi.Tokenized, error) {
+func (g *generationReqCtx) tokenizedPromptForEcho() (*api.Tokenized, error) {
 	return g.req.TokenizedPrompt(), nil
 }
 
-func (g *generationReqCtx) encode() ([]uint32, []string, *openaiserverapi.RenderMMFeatures, error) {
+func (g *generationReqCtx) encode() ([]uint32, []string, *api.RenderMMFeatures, error) {
 	tokenizedPrompt := g.req.TokenizedPrompt()
 	if tokenizedPrompt != nil {
 		return tokenizedPrompt.Tokens, tokenizedPrompt.Strings, nil, nil
@@ -89,7 +89,7 @@ func (g *generationReqCtx) encode() ([]uint32, []string, *openaiserverapi.Render
 	return tokens, strTokens, nil, err
 }
 
-func (g *generationReqCtx) createToolCalls() ([]openaiserverapi.ToolCall, int, string, error) {
+func (g *generationReqCtx) createToolCalls() ([]api.ToolCall, int, string, error) {
 	return nil, 0, "", nil
 }
 
@@ -100,7 +100,7 @@ type generationResponseCtx struct {
 	baseResponseContext
 }
 
-func (respCtx *generationResponseCtx) ToolCalls() []openaiserverapi.ToolCall {
+func (respCtx *generationResponseCtx) ToolCalls() []api.ToolCall {
 	return nil
 }
 

@@ -17,9 +17,10 @@ limitations under the License.
 package tokenizer
 
 import (
+	"encoding/base64"
 	"strings"
 
-	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
+	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -29,10 +30,10 @@ const (
 )
 
 var _ = Describe("tokenizer", func() {
-	messages := []openaiserverapi.Message{
-		{Role: openaiserverapi.RoleUser, Content: openaiserverapi.ChatComplContent{Raw: "q1"}},
-		{Role: openaiserverapi.RoleAssistant, Content: openaiserverapi.ChatComplContent{Raw: "a1"}},
-		{Role: openaiserverapi.RoleUser, Content: openaiserverapi.ChatComplContent{Raw: "q2"}},
+	messages := []api.Message{
+		{Role: api.RoleUser, Content: api.ChatComplContent{Raw: "q1"}},
+		{Role: api.RoleAssistant, Content: api.ChatComplContent{Raw: "a1"}},
+		{Role: api.RoleUser, Content: api.ChatComplContent{Raw: "q2"}},
 	}
 
 	It("should tokenize with simple tokenizer", func() {
@@ -72,42 +73,69 @@ var _ = Describe("tokenizer", func() {
 		Expect(tokens).NotTo(BeEmpty())
 	})
 
+	It("should return kwargs_data for multimodal messages via test tokenizer", func() {
+		mmMessages := []api.Message{
+			{Role: api.RoleUser, Content: api.ChatComplContent{
+				Structured: []api.ChatComplContentBlock{
+					{Type: "image_url", ImageURL: api.ChatComplImageBlock{Url: "http://x/a.jpg"}},
+				},
+			}},
+		}
+		_, _, features, err := tokenizerMngr.TestTokenizer().RenderMessages(mmMessages)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(features).NotTo(BeNil())
+		Expect(features.KwargsData).To(HaveKey(mmModalityImage))
+		Expect(features.KwargsData[mmModalityImage]).To(HaveLen(1))
+		_, decodeErr := base64.StdEncoding.DecodeString(features.KwargsData[mmModalityImage][0])
+		Expect(decodeErr).NotTo(HaveOccurred())
+	})
+
+	It("should return nil kwargs_data for text-only messages via real tokenizer", func() {
+		tokens, _, features, err := tokenizerMngr.RealTokenizer().RenderMessages(messages)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(tokens).NotTo(BeEmpty())
+		// text-only messages carry no MM features
+		if features != nil {
+			Expect(features.KwargsData).To(BeEmpty())
+		}
+	})
+
 	Describe("stubMMFeaturesForMessages", func() {
-		text := func(s string) openaiserverapi.ChatComplContentBlock {
-			return openaiserverapi.ChatComplContentBlock{Type: "text", Text: s}
+		text := func(s string) api.ChatComplContentBlock {
+			return api.ChatComplContentBlock{Type: "text", Text: s}
 		}
-		image := func(url string) openaiserverapi.ChatComplContentBlock {
-			return openaiserverapi.ChatComplContentBlock{
+		image := func(url string) api.ChatComplContentBlock {
+			return api.ChatComplContentBlock{
 				Type:     "image_url",
-				ImageURL: openaiserverapi.ChatComplImageBlock{Url: url},
+				ImageURL: api.ChatComplImageBlock{Url: url},
 			}
 		}
-		audio := func(data, format string) openaiserverapi.ChatComplContentBlock {
-			return openaiserverapi.ChatComplContentBlock{
+		audio := func(data, format string) api.ChatComplContentBlock {
+			return api.ChatComplContentBlock{
 				Type:       "input_audio",
-				InputAudio: openaiserverapi.ChatComplAudioBlock{Data: data, Format: format},
+				InputAudio: api.ChatComplAudioBlock{Data: data, Format: format},
 			}
 		}
-		video := func(url string) openaiserverapi.ChatComplContentBlock {
-			return openaiserverapi.ChatComplContentBlock{
+		video := func(url string) api.ChatComplContentBlock {
+			return api.ChatComplContentBlock{
 				Type:     "video_url",
-				VideoURL: openaiserverapi.ChatComplVideoBlock{Url: url},
+				VideoURL: api.ChatComplVideoBlock{Url: url},
 			}
 		}
-		mkMsg := func(blocks ...openaiserverapi.ChatComplContentBlock) openaiserverapi.Message {
-			return openaiserverapi.Message{
-				Role:    openaiserverapi.RoleUser,
-				Content: openaiserverapi.ChatComplContent{Structured: blocks},
+		mkMsg := func(blocks ...api.ChatComplContentBlock) api.Message {
+			return api.Message{
+				Role:    api.RoleUser,
+				Content: api.ChatComplContent{Structured: blocks},
 			}
 		}
 
 		It("returns nil when no media blocks are present", func() {
-			feats := stubMMFeaturesForMessages([]openaiserverapi.Message{mkMsg(text("hello"))}, 100)
+			feats := stubMMFeaturesForMessages([]api.Message{mkMsg(text("hello"))}, 100)
 			Expect(feats).To(BeNil())
 		})
 
 		It("emits an image hash keyed by image", func() {
-			feats := stubMMFeaturesForMessages([]openaiserverapi.Message{mkMsg(text("describe"), image("http://x/a.jpg"))}, 100)
+			feats := stubMMFeaturesForMessages([]api.Message{mkMsg(text("describe"), image("http://x/a.jpg"))}, 100)
 			Expect(feats).NotTo(BeNil())
 			Expect(feats.MMHashes).To(HaveKey(mmModalityImage))
 			Expect(feats.MMHashes[mmModalityImage]).To(HaveLen(1))
@@ -116,21 +144,21 @@ var _ = Describe("tokenizer", func() {
 		})
 
 		It("emits an audio hash keyed by audio", func() {
-			feats := stubMMFeaturesForMessages([]openaiserverapi.Message{mkMsg(text("transcribe"), audio("base64data", "wav"))}, 100)
+			feats := stubMMFeaturesForMessages([]api.Message{mkMsg(text("transcribe"), audio("base64data", "wav"))}, 100)
 			Expect(feats).NotTo(BeNil())
 			Expect(feats.MMHashes).To(HaveKey(mmModalityAudio))
 			Expect(feats.MMHashes[mmModalityAudio][0]).To(HavePrefix("sim_audio_"))
 		})
 
 		It("emits a video hash keyed by video", func() {
-			feats := stubMMFeaturesForMessages([]openaiserverapi.Message{mkMsg(text("watch"), video("http://x/v.mp4"))}, 100)
+			feats := stubMMFeaturesForMessages([]api.Message{mkMsg(text("watch"), video("http://x/v.mp4"))}, 100)
 			Expect(feats).NotTo(BeNil())
 			Expect(feats.MMHashes).To(HaveKey(mmModalityVideo))
 			Expect(feats.MMHashes[mmModalityVideo][0]).To(HavePrefix("sim_video_"))
 		})
 
 		It("returns all three modality keys for mixed multimedia", func() {
-			feats := stubMMFeaturesForMessages([]openaiserverapi.Message{mkMsg(
+			feats := stubMMFeaturesForMessages([]api.Message{mkMsg(
 				text("mixed"), image("http://x/a.jpg"), audio("data", "wav"), video("http://x/v.mp4"),
 			)}, 120)
 			Expect(feats).NotTo(BeNil())
@@ -140,23 +168,53 @@ var _ = Describe("tokenizer", func() {
 		})
 
 		It("produces deterministic hashes for identical input", func() {
-			msgs := []openaiserverapi.Message{mkMsg(image("http://x/a.jpg"), audio("data", "wav"), video("http://x/v.mp4"))}
+			msgs := []api.Message{mkMsg(image("http://x/a.jpg"), audio("data", "wav"), video("http://x/v.mp4"))}
 			a := stubMMFeaturesForMessages(msgs, 100)
 			b := stubMMFeaturesForMessages(msgs, 100)
 			Expect(a).To(Equal(b))
 		})
 
 		It("skips media blocks with empty identifiers", func() {
-			feats := stubMMFeaturesForMessages([]openaiserverapi.Message{mkMsg(
+			feats := stubMMFeaturesForMessages([]api.Message{mkMsg(
 				image(""), audio("", "wav"), video(""),
 			)}, 100)
 			Expect(feats).To(BeNil())
 		})
 
 		It("treats audio format as routing-irrelevant (same data different format collides)", func() {
-			wav := stubMMFeaturesForMessages([]openaiserverapi.Message{mkMsg(audio("samebytes", "wav"))}, 100)
-			mp3 := stubMMFeaturesForMessages([]openaiserverapi.Message{mkMsg(audio("samebytes", "mp3"))}, 100)
+			wav := stubMMFeaturesForMessages([]api.Message{mkMsg(audio("samebytes", "wav"))}, 100)
+			mp3 := stubMMFeaturesForMessages([]api.Message{mkMsg(audio("samebytes", "mp3"))}, 100)
 			Expect(wav.MMHashes[mmModalityAudio]).To(Equal(mp3.MMHashes[mmModalityAudio]))
+		})
+
+		It("emits kwargs_data as valid base64 per modality for a single image", func() {
+			feats := stubMMFeaturesForMessages([]api.Message{mkMsg(image("http://x/a.jpg"))}, 100)
+			Expect(feats).NotTo(BeNil())
+			Expect(feats.KwargsData).To(HaveKey(mmModalityImage))
+			Expect(feats.KwargsData[mmModalityImage]).To(HaveLen(1))
+			_, err := base64.StdEncoding.DecodeString(feats.KwargsData[mmModalityImage][0])
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("emits kwargs_data for all modalities in mixed content, each entry valid base64", func() {
+			feats := stubMMFeaturesForMessages([]api.Message{mkMsg(
+				image("http://x/a.jpg"), audio("data", "wav"), video("http://x/v.mp4"),
+			)}, 120)
+			Expect(feats).NotTo(BeNil())
+			for _, mod := range []string{mmModalityImage, mmModalityAudio, mmModalityVideo} {
+				Expect(feats.KwargsData).To(HaveKey(mod))
+				for _, s := range feats.KwargsData[mod] {
+					_, err := base64.StdEncoding.DecodeString(s)
+					Expect(err).NotTo(HaveOccurred(), "kwargs_data[%s] entry is not valid base64", mod)
+				}
+			}
+		})
+
+		It("produces deterministic kwargs_data for identical input", func() {
+			msgs := []api.Message{mkMsg(image("http://x/a.jpg"), audio("data", "wav"))}
+			a := stubMMFeaturesForMessages(msgs, 100)
+			b := stubMMFeaturesForMessages(msgs, 100)
+			Expect(a.KwargsData).To(Equal(b.KwargsData))
 		})
 	})
 

@@ -156,6 +156,47 @@ Structure of requests/responses
         - usage
             - prompt_tokens
             - total_tokens
+- `/v1/messages`
+    - **request**
+        - stream
+        - model
+        - messages (required)
+            - role (`user` or `assistant`)
+            - content (string or array of content blocks)
+              - type (`text`, `image`, `tool_use`, `tool_result`)
+              - text (for `text` blocks)
+              - source (for `image` blocks)
+                - type (`base64` or `url`)
+                - media_type
+                - data
+                - url
+              - type, id, name, input (for `tool_use` blocks)
+              - type, tool_use_id, content (for `tool_result` blocks)
+        - system
+        - max_tokens (required)
+        - tools
+          - name
+          - description
+          - input_schema
+        - tool_choice
+          - type (`auto`, `any`, `tool`, `none`)
+          - name (when type is `tool`)
+    - **response**
+        - id
+        - type
+        - role
+        - content (array of content blocks)
+          - type (`text` or `tool_use`)
+          - text (for `text` blocks)
+          - id, name, input (for `tool_use` blocks)
+        - model
+        - stop_reason (`end_turn`, `max_tokens`, `tool_use`)
+        - stop_sequence
+        - usage
+          - input_tokens
+          - cache_creation_input_tokens
+          - cache_read_input_tokens
+          - output_tokens
 - `/v1/completions/render`
     - **request** — same shape as `/v1/completions`; only `model` and `prompt` are inspected
         - model
@@ -174,6 +215,7 @@ Structure of requests/responses
             - mm_placeholders (map keyed by modality to an array of placeholder regions)
                 - offset (token index where the multimodal region begins)
                 - length (number of tokens the region spans)
+            - kwargs_data (map keyed by modality to an array of strings, one per multimodal item; content is tokenizer-dependent — see [Render endpoints](#render-endpoints))
 - `/v1/responses`
     - **request**
         - stream

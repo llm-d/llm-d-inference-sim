@@ -37,10 +37,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/communication"
 	vllmsim "github.com/llm-d/llm-d-inference-sim/pkg/llm-d-inference-sim"
-	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
@@ -142,7 +142,7 @@ func startServerHelper(ctx context.Context, mode string, args []string, envs map
 		}
 	} else {
 		// Use test tokenizers for normal test cases
-		gomega.Expect(config.Model).To(gomega.BeElementOf(common.TestModelName, common.QwenModelName, common.QwenModelName))
+		gomega.Expect(config.Model).To(gomega.BeElementOf(common.TestModelName, common.QwenModelName))
 		switch config.Model {
 		case common.TestModelName:
 			s.Context.Tokenizer = tokenizerMngr.TestTokenizer()
@@ -158,9 +158,9 @@ func startServerHelper(ctx context.Context, mode string, args []string, envs map
 	}
 	userMsgTokens = int64(len(tokens))
 	// calculate number of tokens for user message as chat/completions
-	messages := []openaiserverapi.Message{
-		{Role: openaiserverapi.RoleUser,
-			Content: openaiserverapi.ChatComplContent{Raw: testUserMessage}}}
+	messages := []api.Message{
+		{Role: api.RoleUser,
+			Content: api.ChatComplContent{Raw: testUserMessage}}}
 	tokens, _, _, err = s.Context.Tokenizer.RenderMessages(messages)
 	if err != nil {
 		return nil, nil, nil, err
@@ -233,8 +233,8 @@ func sendCompletionsRequestForLatencyTest(client *http.Client, modelName string,
 	doRemotePrefill bool) (time.Duration, time.Duration) {
 	// send completions request using http post because disagregated PD fields should be included
 	// Test with raw HTTP to verify the error response format
-	req := &openaiserverapi.TextCompletionsParsedRequest{Prompt: []openaiserverapi.PromptInput{{Text: prompt}}}
-	req.KVParams = &openaiserverapi.KVTransferParams{DoRemotePrefill: doRemotePrefill}
+	req := &api.TextCompletionsParsedRequest{Prompt: []api.PromptInput{{Text: prompt}}}
+	req.KVParams = &api.KVTransferParams{DoRemotePrefill: doRemotePrefill}
 	req.Model = modelName
 	req.Stream = isStreaming
 
@@ -277,7 +277,7 @@ func sendSimpleChatRequest(envs map[string]string, streaming bool) *http.Respons
 	gomega.Expect(resp).NotTo(gomega.BeNil())
 
 	gomega.Expect(resp.Choices).ShouldNot(gomega.BeEmpty())
-	gomega.Expect(string(resp.Object)).To(gomega.Equal(openaiserverapi.ChatCompletionObject))
+	gomega.Expect(string(resp.Object)).To(gomega.Equal(api.ChatCompletionObject))
 
 	return httpResp
 }
@@ -330,8 +330,8 @@ func getOpenAIClientAndChatParams(client option.HTTPClient, model string, messag
 }
 
 // nolint
-// getOpenAIClentAndCompletionParams - creates an openai client and params for /completions call based on the given parameters
-func getOpenAIClentAndCompletionParams(client option.HTTPClient, model string, message string,
+// getOpenAIClientAndCompletionParams - creates an openai client and params for /completions call based on the given parameters
+func getOpenAIClientAndCompletionParams(client option.HTTPClient, model string, message string,
 	streaming bool) (openai.Client, openai.CompletionNewParams) {
 	openaiclient := openai.NewClient(
 		option.WithBaseURL(baseURL),
@@ -518,7 +518,7 @@ func findFloatMetric(metrics []string, metricPrefix string) *float64 {
 	return &val
 }
 
-// getFloatBucketMetricLine builds a string which will defin bucket metric line for the given parameters
+// getFloatBucketMetricLine builds a string which will define bucket metric line for the given parameters
 // model the model name
 // metrics the metric name
 // bucketBoundary the upper bucket boundary, Inf(1) defines the last bucket
@@ -537,11 +537,11 @@ func getCountMetricLine(model string, metric string, count float64) string {
 
 // same as getFloatBucketMetricLine but without the value part
 func getFloatBucketMetricPrefix(model string, metric string, bucketBoundary float64) string {
-	buckerBoundStr := "+Inf"
+	bucketBoundStr := "+Inf"
 	if bucketBoundary != math.Inf(1) {
-		buckerBoundStr = fmt.Sprintf("%g", bucketBoundary)
+		bucketBoundStr = fmt.Sprintf("%g", bucketBoundary)
 	}
-	return fmt.Sprintf("%s_bucket{model_name=\"%s\",le=\"%s\"}", metric, model, buckerBoundStr)
+	return fmt.Sprintf("%s_bucket{model_name=\"%s\",le=\"%s\"}", metric, model, bucketBoundStr)
 }
 
 // checkBucketBoundary checks that the given bucket's samples count is valid according the given parameters
@@ -549,28 +549,28 @@ func getFloatBucketMetricPrefix(model string, metric string, bucketBoundary floa
 // Buckets lower than the expected value should have count 0, other buckets - count 1.
 // Important note: since metrics represent real timing, it could be a little bit higher than the expected,
 // which is based on the pure latencies calculations, on in case the expected value is equal or very close to the
-// upper bounary we can get any value (0 or 1), in this case we don't check this bucket
+// upper boundary we can get any value (0 or 1), in this case we don't check this bucket
 // metrics the full metrics response
 // modelName the model name
 // metricName the specific metric name
-// bucketBoudary the upper boundary of the required bucket
+// bucketBoundary the upper boundary of the required bucket
 // prevBoundary the upper boundary of the previous bucket
 // expectedValue expected value in the histogram
-func checkBucketBoundary(metrics string, modelName string, metricName string, bucketBoudary float64,
+func checkBucketBoundary(metrics string, modelName string, metricName string, bucketBoundary float64,
 	prevBoundary float64, expectedValue float64) {
-	if expectedValue > prevBoundary && bucketBoudary >= expectedValue && (bucketBoudary-expectedValue) < 0.005 {
-		// expected time is too close to the bucket's boudary
+	if expectedValue > prevBoundary && bucketBoundary >= expectedValue && (bucketBoundary-expectedValue) < 0.005 {
+		// expected time is too close to the bucket's boundary
 		// it's possiblt that in theory we expect 1 in this bucket but will get 0 and this situation is ok
 		// since there is some additional calculation time
 		fmt.Printf("Expected value is too close to the boundary - skip test for this bucket (%.4f - %.4f] and expected value %.4f\n",
-			prevBoundary, bucketBoudary, expectedValue)
+			prevBoundary, bucketBoundary, expectedValue)
 		return
 	}
 	expectedCount := 0
-	if bucketBoudary > expectedValue {
+	if bucketBoundary > expectedValue {
 		expectedCount = 1
 	}
-	gomega.Expect(metrics).To(gomega.ContainSubstring(getFloatBucketMetricLine(modelName, metricName, bucketBoudary, expectedCount)))
+	gomega.Expect(metrics).To(gomega.ContainSubstring(getFloatBucketMetricLine(modelName, metricName, bucketBoundary, expectedCount)))
 }
 
 // checkLatencyMetrics sends /metrics request and checks that latency related values are valid
@@ -614,12 +614,12 @@ func checkLatencyMetrics(client *http.Client, modelName string, numOfInputTokens
 
 	prevBoundary := math.Inf(-1)
 
-	for _, bucketBoudary := range common.RequestLatencyBucketsBoundaries {
-		checkBucketBoundary(metrics, modelName, vllmsim.PrefillTimeMetricName, bucketBoudary, prevBoundary, expectedPrefillTimeInSecs)
-		checkBucketBoundary(metrics, modelName, vllmsim.DecodeTimeMetricName, bucketBoudary, prevBoundary, expectedDecodeTimeInSecs)
-		checkBucketBoundary(metrics, modelName, vllmsim.E2EReqLatencyMetricName, bucketBoudary, prevBoundary, expectedE2ELatency)
+	for _, bucketBoundary := range common.RequestLatencyBucketsBoundaries {
+		checkBucketBoundary(metrics, modelName, vllmsim.PrefillTimeMetricName, bucketBoundary, prevBoundary, expectedPrefillTimeInSecs)
+		checkBucketBoundary(metrics, modelName, vllmsim.DecodeTimeMetricName, bucketBoundary, prevBoundary, expectedDecodeTimeInSecs)
+		checkBucketBoundary(metrics, modelName, vllmsim.E2EReqLatencyMetricName, bucketBoundary, prevBoundary, expectedE2ELatency)
 
-		prevBoundary = bucketBoudary
+		prevBoundary = bucketBoundary
 	}
 	// check the last bucket
 	lastBoundary := common.RequestLatencyBucketsBoundaries[len(common.RequestLatencyBucketsBoundaries)-1]
@@ -685,7 +685,7 @@ func postAdminConfig(client *http.Client, body string) *http.Response {
 
 // renders the given messages using the test model
 func getChatPromptTokensCountForTestModel(message string) int64 {
-	messages := []openaiserverapi.Message{{Role: openaiserverapi.RoleUser, Content: openaiserverapi.ChatComplContent{Raw: message}}}
+	messages := []api.Message{{Role: api.RoleUser, Content: api.ChatComplContent{Raw: message}}}
 	tokens, _, _, err := tokenizerMngr.TestTokenizer().RenderMessages(messages)
 	gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
 

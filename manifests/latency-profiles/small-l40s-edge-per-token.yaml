@@ -1,0 +1,22 @@
+# Profile 3: Small (1-3B) model on L40S, low-latency edge (per-token calculator).
+# Same target deployment as the constant calculator, but TTFT and KV-transfer scale with prompt
+# length.
+# See docs/latency-profiles.md for the full discussion.
+
+port: 8000
+model: "meta-llama/Llama-3.2-3B-Instruct"
+max-num-seqs: 4
+mode: "random"
+latency-calculator: per-token
+
+inter-token-latency: 15ms
+inter-token-latency-std-dev: 2ms
+
+prefill-overhead: 20ms
+prefill-time-per-token: 350us
+prefill-time-std-dev: 3ms
+
+kv-cache-transfer-time-per-token: 12us
+kv-cache-transfer-time-std-dev: 500us
+
+time-factor-under-load: 1.5

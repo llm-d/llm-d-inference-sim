@@ -20,8 +20,8 @@ import (
 	"encoding/json"
 	"strconv"
 
+	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
-	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 	"github.com/valyala/fasthttp"
 )
@@ -31,7 +31,7 @@ import (
 // TextCompletionsRequest values inside HandleRequest. Workers never see this
 // type, so buildRequestContext / createResponseContext are unreachable on it.
 type TextCompletionsParsedRequest struct {
-	openaiserverapi.TextCompletionsParsedRequest
+	api.TextCompletionsParsedRequest
 }
 
 func (t *TextCompletionsParsedRequest) Unmarshal(data []byte) error {
@@ -42,21 +42,21 @@ func (t *TextCompletionsParsedRequest) Unmarshal(data []byte) error {
 // shape — at minimum, a non-empty prompt with non-empty entries. Catches
 // chat-shaped bodies (which JSON-unmarshal cleanly into
 // TextCompletionsParsedRequest with empty Prompt).
-func (t *TextCompletionsParsedRequest) ValidateBody() *openaiserverapi.Error {
+func (t *TextCompletionsParsedRequest) ValidateBody() *api.Error {
 	if len(t.Prompt) == 0 {
-		serverErr := openaiserverapi.NewError("prompt array must contain at least one prompt",
+		serverErr := api.NewError("prompt array must contain at least one prompt",
 			fasthttp.StatusBadRequest, nil)
 		return &serverErr
 	}
 	for _, p := range t.Prompt {
 		if p.IsTokens() {
 			if len(p.Tokens) == 0 {
-				serverErr := openaiserverapi.NewError("prompt must not contain an empty token-id array",
+				serverErr := api.NewError("prompt must not contain an empty token-id array",
 					fasthttp.StatusBadRequest, nil)
 				return &serverErr
 			}
 		} else if p.Text == "" {
-			serverErr := openaiserverapi.NewError("prompt must not contain an empty string",
+			serverErr := api.NewError("prompt must not contain an empty string",
 				fasthttp.StatusBadRequest, nil)
 			return &serverErr
 		}
@@ -67,7 +67,7 @@ func (t *TextCompletionsParsedRequest) ValidateBody() *openaiserverapi.Error {
 // Render tokenizes each prompt for /v1/completions/render (passing
 // pre-tokenized prompts through verbatim) and returns one token slice per
 // prompt. Features is always nil for text completions.
-func (t *TextCompletionsParsedRequest) Render(tk tokenizer.Tokenizer) ([][]uint32, *openaiserverapi.RenderMMFeatures, error) {
+func (t *TextCompletionsParsedRequest) Render(tk tokenizer.Tokenizer) ([][]uint32, *api.RenderMMFeatures, error) {
 	result := make([][]uint32, len(t.Prompt))
 	for i, p := range t.Prompt {
 		tokens := p.Tokens
@@ -83,7 +83,7 @@ func (t *TextCompletionsParsedRequest) Render(tk tokenizer.Tokenizer) ([][]uint3
 	return result, nil, nil
 }
 
-func (t *TextCompletionsParsedRequest) validate(_ *toolsValidator) *openaiserverapi.Error {
+func (t *TextCompletionsParsedRequest) validate(_ *toolsValidator) *api.Error {
 	if err := t.ValidateBody(); err != nil {
 		return err
 	}
@@ -96,7 +96,7 @@ func (t *TextCompletionsParsedRequest) AsString() string {
 
 // split converts the parsed wire form into one or more processing-form
 // TextCompletionsRequest values. Each sub-request gets the parent envelope and
-// a "<requestID>-<i>" id stamped by openaiserverapi.AsSingle. When n > 1 each
+// a "<requestID>-<i>" id stamped by api.AsSingle. When n > 1 each
 // prompt produces n sub-requests, so the total is len(Prompt) * n.
 func (t *TextCompletionsParsedRequest) split() []Request {
 	n := t.GetN()
@@ -118,8 +118,8 @@ func (t *TextCompletionsParsedRequest) buildRequestContext(_ *SimContext, _ comm
 }
 
 func (t *TextCompletionsParsedRequest) createResponseContext(_ requestContext, _ string,
-	_ *openaiserverapi.Tokenized, _ *string, _ *openaiserverapi.Usage, _ bool,
-	_ *int, _ []openaiserverapi.ToolCall, _ bool) ResponseContext {
+	_ *api.Tokenized, _ *string, _ *api.Usage, _ bool,
+	_ *int, _ []api.ToolCall, _ bool) ResponseContext {
 	panic("TextCompletionsParsedRequest.createResponseContext: split must be called first")
 }
 
@@ -128,14 +128,14 @@ var _ Request = (*TextCompletionsParsedRequest)(nil)
 // TextCompletionsRequest is the processing form: a /completions request that
 // always carries a single prompt. Produced by TextCompletionsParsedRequest.split.
 type TextCompletionsRequest struct {
-	openaiserverapi.TextCompletionsRequest
+	api.TextCompletionsRequest
 }
 
 func (t *TextCompletionsRequest) Unmarshal(data []byte) error {
 	return json.Unmarshal(data, t)
 }
 
-func (t *TextCompletionsRequest) validate(_ *toolsValidator) *openaiserverapi.Error {
+func (t *TextCompletionsRequest) validate(_ *toolsValidator) *api.Error {
 	return validateRequest(t)
 }
 
@@ -163,8 +163,8 @@ func (t *TextCompletionsRequest) AsString() string {
 }
 
 func (t *TextCompletionsRequest) createResponseContext(reqCtx requestContext, displayModel string,
-	responseTokens *openaiserverapi.Tokenized, finishReason *string, usageData *openaiserverapi.Usage, sendUsageData bool,
-	logprobs *int, toolCalls []openaiserverapi.ToolCall, _ bool) ResponseContext {
+	responseTokens *api.Tokenized, finishReason *string, usageData *api.Usage, sendUsageData bool,
+	logprobs *int, toolCalls []api.ToolCall, _ bool) ResponseContext {
 	base := newBaseResponseContext(reqCtx, displayModel, responseTokens, finishReason, usageData, sendUsageData,
 		logprobs, t.GetRequestID(), t.IsDoRemotePrefill(), t.IsDoRemoteDecode(), t.GetNumberOfCachedPromptTokens())
 	return &textCompletionsResponseCtx{
@@ -188,7 +188,7 @@ func (t *textCompletionReqCtx) request() Request {
 	return t.req
 }
 
-func (t *textCompletionReqCtx) encode() ([]uint32, []string, *openaiserverapi.RenderMMFeatures, error) {
+func (t *textCompletionReqCtx) encode() ([]uint32, []string, *api.RenderMMFeatures, error) {
 	if t.req.Prompt.IsTokens() {
 		return t.req.Prompt.Tokens, nil, nil, nil
 	}
@@ -197,11 +197,11 @@ func (t *textCompletionReqCtx) encode() ([]uint32, []string, *openaiserverapi.Re
 	return tokens, strTokens, nil, err
 }
 
-func (t *textCompletionReqCtx) createToolCalls() ([]openaiserverapi.ToolCall, int, string, error) {
+func (t *textCompletionReqCtx) createToolCalls() ([]api.ToolCall, int, string, error) {
 	return nil, 0, "", nil
 }
 
-func (t *textCompletionReqCtx) tokenizedPromptForEcho() (*openaiserverapi.Tokenized, error) {
+func (t *textCompletionReqCtx) tokenizedPromptForEcho() (*api.Tokenized, error) {
 	if t.req.Prompt.IsTokens() {
 		// prompt arrived as token ids; render each id as its decimal form with
 		// a trailing comma on all but the last so joining the Strings with ""
@@ -214,7 +214,7 @@ func (t *textCompletionReqCtx) tokenizedPromptForEcho() (*openaiserverapi.Tokeni
 				strs[i] += ","
 			}
 		}
-		return &openaiserverapi.Tokenized{Tokens: ids, Strings: strs}, nil
+		return &api.Tokenized{Tokens: ids, Strings: strs}, nil
 	}
 	return t.req.TokenizedPrompt(), nil
 }
@@ -226,7 +226,7 @@ type textCompletionsResponseCtx struct {
 	baseResponseContext
 }
 
-func (respCtx *textCompletionsResponseCtx) ToolCalls() []openaiserverapi.ToolCall {
+func (respCtx *textCompletionsResponseCtx) ToolCalls() []api.ToolCall {
 	return nil
 }
 

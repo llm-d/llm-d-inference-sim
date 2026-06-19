@@ -19,7 +19,7 @@ Running full LLM inference requires significant GPU resources and introduces non
 
 The simulator is designed to act as a drop-in replacement for vLLM, sitting between your client/infrastructure and the void where the GPU usually resides. It processes requests through a configurable simulation engine that governs what is returned and when it is returned.
 
-For detailed configuraiton definitions see the [Configuration Guide](docs/configuration.md)
+For detailed configuration definitions see the [Configuration Guide](docs/configuration.md)
 
 ### Modes of Operation
 The simulator decides the content of the response based on two primary modes:
@@ -60,6 +60,8 @@ Unlike simple mock servers that just "sleep" for a fixed time, this simulator mo
 
 - **Disaggregated Prefill (PD)**: Can simulate KV-cache transfer latency instead of standard TTFT when mimicking Prefill/Decode disaggregation architectures.
 
+For a detailed explanation of how the simulator models inference time and what each latency parameter does, see [Latency Simulation](docs/latency-simulation.md). For suggested values for each parameter and ready-to-use YAML profiles, see [Latency Reference Tables and Profiles](docs/latency-profiles.md).
+
 ### Tokenization
 The simulator offers flexible tokenization to balance accuracy vs. performance. The simulator automatically selects between two tokenization modes based on the provided `--model` name:
 * **HuggingFace Mode:** Used for real models (e.g., `meta-llama/Llama-3.1-8B-Instruct`). Downloads actual tokenizers for exact accuracy.
@@ -85,7 +87,7 @@ The simulator is designed to run either as a standalone binary or within a Kuber
 ### Observability
 The simulator supports a subset of standard vLLM Prometheus metrics.<br>
 
-For detailes see the [Metrics Guide](docs/metrics.md)
+For details see the [Metrics Guide](docs/metrics.md)
 
 ## Working with docker image
 
@@ -134,7 +136,7 @@ To run the vLLM simulator in a standalone test environment with a real model:
 1. Start the vLLM render server (requires a container engine, e.g. Docker or Podman):
    ```bash
    docker run --rm -p 8082:8082 --entrypoint vllm \
-     vllm/vllm-openai-cpu:v0.19.1 launch render Qwen/Qwen2.5-0.5B-Instruct --port=8082
+     vllm/vllm-openai-cpu:v0.21.0 launch render Qwen/Qwen2.5-0.5B-Instruct --port=8082
    ```
    Alternatively, use the `run-render` Makefile target, which runs the same container via your configured container engine (Docker or Podman):
    ```bash

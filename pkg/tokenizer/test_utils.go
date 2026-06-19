@@ -101,7 +101,7 @@ func (tm *TokenizerManager) Clean() {
 // returns the HTTP base URL (http://host:port), cleanup function and error
 func (tm *TokenizerManager) startRenderContainer(ctx context.Context, model string) (string, func(), error) {
 	container, err := testcontainers.Run(ctx,
-		"vllm/vllm-openai-cpu:v0.19.1",
+		"vllm/vllm-openai-cpu:v0.21.0",
 		testcontainers.WithExposedPorts("8000/tcp"),
 		testcontainers.WithEntrypoint("vllm"),
 		testcontainers.WithCmd("launch", "render", model, "--port=8000"),

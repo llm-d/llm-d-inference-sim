@@ -20,11 +20,11 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
+	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
-	vllmapi "github.com/llm-d/llm-d-inference-sim/pkg/vllm-api"
 )
 
-func findByID(models []vllmapi.ModelsResponseModelInfo, id string) *vllmapi.ModelsResponseModelInfo {
+func findByID(models []api.ModelsResponseModelInfo, id string) *api.ModelsResponseModelInfo {
 	for i := range models {
 		if models[i].ID == id {
 			return &models[i]

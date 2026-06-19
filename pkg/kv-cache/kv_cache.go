@@ -22,9 +22,9 @@ import (
 	"fmt"
 
 	"github.com/go-logr/logr"
+	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
-	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 	"github.com/llm-d/llm-d-kv-cache/pkg/kvcache/kvblock"
 )
@@ -91,18 +91,18 @@ func (h *KVCacheHelper) Activate() {
 	h.blockCache.activate()
 }
 
-func (h *KVCacheHelper) OnRequestStart(req openaiserverapi.Request) (PrefixCacheStats, error) {
+func (h *KVCacheHelper) OnRequestStart(req api.Request) (PrefixCacheStats, error) {
 	h.logger.V(logging.TRACE).Info("KV cache - process request")
 
 	tokens := req.TokenizedPrompt().Tokens
 
 	// compute per-block extra features from multimodal metadata (if present).
 	var extraFeatures []*kvblock.BlockExtraFeatures
-	mmFeatres := req.MMFeatures()
+	mmFeatures := req.MMFeatures()
 
-	if mmFeatres != nil {
+	if mmFeatures != nil {
 		extraFeatures = kvblock.ComputeBlockExtraFeatures(
-			mmFeatres.MMHashes, h.convertMMPlaceholders(mmFeatres.MMPlaceholders),
+			mmFeatures.MMHashes, h.convertMMPlaceholders(mmFeatures.MMPlaceholders),
 			h.blockSize, len(tokens))
 	}
 
@@ -151,7 +151,7 @@ func (h *KVCacheHelper) SetModelUnloaded(model string) {
 	h.blockCache.setModelUnloaded(model)
 }
 
-func (h *KVCacheHelper) convertMMPlaceholders(placeholders map[string][]openaiserverapi.RenderPlaceholder) map[string][]kvblock.PlaceholderRange {
+func (h *KVCacheHelper) convertMMPlaceholders(placeholders map[string][]api.RenderPlaceholder) map[string][]kvblock.PlaceholderRange {
 	res := make(map[string][]kvblock.PlaceholderRange, len(placeholders))
 
 	for k, prs := range placeholders {

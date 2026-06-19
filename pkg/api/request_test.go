@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package openaiserverapi
+package api
 
 import (
 	"encoding/json"
@@ -101,6 +101,73 @@ var _ = Describe("GetN", func() {
 		err := json.Unmarshal(jsonData, &req)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(req.GetN()).To(Equal(1))
+	})
+})
+
+var _ = Describe("Message PlainText", func() {
+	Context("role:tool message with ToolCallID", func() {
+		It("includes tool_call_id in the role prefix when includeRole is true", func() {
+			msg := Message{
+				Role:       "tool",
+				ToolCallID: "call_abc123",
+				Content:    ChatComplContent{Raw: "sunny"},
+			}
+			Expect(msg.PlainText(true)).To(Equal("tool(call_abc123): sunny"))
+		})
+
+		It("omits the role prefix when includeRole is false", func() {
+			msg := Message{
+				Role:       "tool",
+				ToolCallID: "call_abc123",
+				Content:    ChatComplContent{Raw: "sunny"},
+			}
+			Expect(msg.PlainText(false)).To(Equal("sunny"))
+		})
+	})
+
+	Context("assistant message with ToolCalls", func() {
+		It("appends each tool call as [name(args)] when includeRole is true", func() {
+			funcName := "get_weather"
+			msg := Message{
+				Role: RoleAssistant,
+				ToolCalls: []ToolCall{
+					{
+						ID:   "call_xyz",
+						Type: "function",
+						Function: FunctionCall{
+							Name:      &funcName,
+							Arguments: `{"location":"NYC"}`,
+						},
+					},
+				},
+			}
+			Expect(msg.PlainText(true)).To(Equal(`assistant: [get_weather({"location":"NYC"})]`))
+		})
+	})
+
+	Context("JSON roundtrip", func() {
+		It("marshals and unmarshals tool_call_id", func() {
+			msg := Message{
+				Role:       "tool",
+				ToolCallID: "call_abc123",
+				Content:    ChatComplContent{Raw: "result"},
+			}
+			data, err := json.Marshal(msg)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(string(data)).To(ContainSubstring(`"tool_call_id":"call_abc123"`))
+
+			var got Message
+			Expect(json.Unmarshal(data, &got)).To(Succeed())
+			Expect(got.ToolCallID).To(Equal("call_abc123"))
+		})
+
+		It("deserializes tool_call_id from a chat completions request message", func() {
+			jsonData := []byte(`{"role":"tool","tool_call_id":"call_abc123","content":"result"}`)
+			var msg Message
+			Expect(json.Unmarshal(jsonData, &msg)).To(Succeed())
+			Expect(msg.ToolCallID).To(Equal("call_abc123"))
+			Expect(msg.Content.Raw).To(Equal("result"))
+		})
 	})
 })
 

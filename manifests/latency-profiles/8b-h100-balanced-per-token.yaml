@@ -1,0 +1,22 @@
+# Profile 1: 8B-class model on H100, balanced load (per-token calculator).
+# Same target deployment as the constant calculator, but TTFT and KV-transfer scale with prompt
+# length. Use this when you care about routing/scheduling experiments.
+# See docs/latency-profiles.md for the full discussion.
+
+port: 8000
+model: "meta-llama/Llama-3.1-8B-Instruct"
+max-num-seqs: 16
+mode: "random"
+latency-calculator: per-token
+
+inter-token-latency: 12ms
+inter-token-latency-std-dev: 2ms
+
+prefill-overhead: 30ms
+prefill-time-per-token: 250us
+prefill-time-std-dev: 5ms
+
+kv-cache-transfer-time-per-token: 3us
+kv-cache-transfer-time-std-dev: 200us
+
+time-factor-under-load: 2.0

@@ -26,7 +26,7 @@ import (
 	"path/filepath"
 
 	"github.com/go-logr/logr"
-	openaiserverapi "github.com/llm-d/llm-d-inference-sim/pkg/openai-server-api"
+	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 )
 
@@ -44,11 +44,11 @@ type datasetRecord struct {
 
 // record of the output dataset
 type outputRecord struct {
-	PromptHash   []byte                    `json:"prompt_hash"`
-	NumGenTokens int                       `json:"n_gen_tokens"`
-	GenTokens    openaiserverapi.Tokenized `json:"gen_tokens"`
-	InputText    string                    `json:"input_text"` // input text for reference and debugging
-	Generated    string                    `json:"generated"`  // generated text for reference and debugging
+	PromptHash   []byte        `json:"prompt_hash"`
+	NumGenTokens int           `json:"n_gen_tokens"`
+	GenTokens    api.Tokenized `json:"gen_tokens"`
+	InputText    string        `json:"input_text"` // input text for reference and debugging
+	Generated    string        `json:"generated"`  // generated text for reference and debugging
 }
 
 // DatasetTool the dataset tool
@@ -184,8 +184,8 @@ func (dt *DatasetTool) toOutputRecords(dsRecords []datasetRecord) []outputRecord
 	resultRecs := []outputRecord{}
 
 	for index, dsRecord := range dsRecords {
-		chatRequest := openaiserverapi.ChatCompletionsRequest{}
-		chatRequest.Messages = []openaiserverapi.Message{}
+		chatRequest := api.ChatCompletionsRequest{}
+		chatRequest.Messages = []api.Message{}
 
 		// read conversations in pairs
 		for conversationIndex := 0; conversationIndex < len(dsRecord.Conversations)-1; conversationIndex += 2 {
@@ -210,13 +210,13 @@ func (dt *DatasetTool) toOutputRecords(dsRecords []datasetRecord) []outputRecord
 // conversationToOutputRecords creates output records from the given parameters
 // updates the given chatRequest with a new step in the conversation
 func (dt *DatasetTool) conversationToOutputRecords(userTxt, assistantTxt string,
-	chatRequest *openaiserverapi.ChatCompletionsRequest) ([]outputRecord, error) {
+	chatRequest *api.ChatCompletionsRequest) ([]outputRecord, error) {
 	result := []outputRecord{}
 
 	// add current user message
-	chatRequest.Messages = append(chatRequest.Messages, openaiserverapi.Message{
-		Role:    openaiserverapi.RoleUser,
-		Content: openaiserverapi.ChatComplContent{Raw: userTxt},
+	chatRequest.Messages = append(chatRequest.Messages, api.Message{
+		Role:    api.RoleUser,
+		Content: api.ChatComplContent{Raw: userTxt},
 	})
 
 	// create db record for /completions (without the messages concatenation)
@@ -246,8 +246,8 @@ func (dt *DatasetTool) conversationToOutputRecords(userTxt, assistantTxt string,
 
 	// add answer for this turn to be ready for the next question
 	chatRequest.Messages = append(chatRequest.Messages,
-		openaiserverapi.Message{Role: openaiserverapi.RoleAssistant,
-			Content: openaiserverapi.ChatComplContent{Raw: assistantTxt}})
+		api.Message{Role: api.RoleAssistant,
+			Content: api.ChatComplContent{Raw: assistantTxt}})
 
 	return result, nil
 }
@@ -264,7 +264,7 @@ func (dt *DatasetTool) createOutputRecord(inputTokens []uint32, generatedText st
 	rec := outputRecord{
 		PromptHash:   getInputHash(inputTokens),
 		NumGenTokens: len(generatedTokens),
-		GenTokens:    openaiserverapi.Tokenized{Strings: genTextTokens, Tokens: generatedTokens},
+		GenTokens:    api.Tokenized{Strings: genTextTokens, Tokens: generatedTokens},
 		InputText:    rawInput,
 		Generated:    generatedText,
 	}

@@ -26,12 +26,12 @@ import (
 
 	"github.com/go-logr/logr"
 
+	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 	"github.com/llm-d/llm-d-inference-sim/pkg/dataset"
 	kvcache "github.com/llm-d/llm-d-inference-sim/pkg/kv-cache"
 	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
-	vllmapi "github.com/llm-d/llm-d-inference-sim/pkg/vllm-api"
 )
 
 // LoRAs usage info for requests execution
@@ -278,14 +278,14 @@ func (s *SimContext) simulateInterTokenLatency() {
 }
 
 // CreateModelsResponse creates and returns ModelResponse for the current state, returned array of models contains the base model + LoRA adapters if exist
-func (s *SimContext) CreateModelsResponse() *vllmapi.ModelsResponse {
-	modelsResp := vllmapi.ModelsResponse{Object: "list", Data: []vllmapi.ModelsResponseModelInfo{}}
+func (s *SimContext) CreateModelsResponse() *api.ModelsResponse {
+	modelsResp := api.ModelsResponse{Object: "list", Data: []api.ModelsResponseModelInfo{}}
 
 	// Advertise every public model alias
 	for _, alias := range s.Config().ServedModelNames {
-		modelsResp.Data = append(modelsResp.Data, vllmapi.ModelsResponseModelInfo{
+		modelsResp.Data = append(modelsResp.Data, api.ModelsResponseModelInfo{
 			ID:          alias,
-			Object:      vllmapi.ObjectModel,
+			Object:      api.ObjectModel,
 			Created:     time.Now().Unix(),
 			OwnedBy:     "vllm",
 			Root:        s.Config().Model,
@@ -297,9 +297,9 @@ func (s *SimContext) CreateModelsResponse() *vllmapi.ModelsResponse {
 	// add LoRA adapter's info
 	parent := s.Config().ServedModelNames[0]
 	for _, lora := range s.getLoras() {
-		modelsResp.Data = append(modelsResp.Data, vllmapi.ModelsResponseModelInfo{
+		modelsResp.Data = append(modelsResp.Data, api.ModelsResponseModelInfo{
 			ID:          lora,
-			Object:      vllmapi.ObjectModel,
+			Object:      api.ObjectModel,
 			Created:     time.Now().Unix(),
 			OwnedBy:     "vllm",
 			Root:        s.getLoraPath(lora),
