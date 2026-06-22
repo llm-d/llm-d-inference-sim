@@ -1232,7 +1232,7 @@ func (m *MessagesRequest) ToChatCompletionsRequest() *ChatCompletionsRequest {
 					}
 					contentBlocks = append(contentBlocks, ChatComplContentBlock{
 						Type:     "image_url",
-						ImageURL: ChatComplImageBlock{Url: url},
+						ImageURL: &ChatComplImageBlock{Url: url},
 					})
 				}
 			case "tool_use":

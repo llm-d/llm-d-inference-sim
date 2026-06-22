@@ -44,6 +44,7 @@ const (
 	RequestIDHeader                  = "X-Request-Id"
 	CacheThresholdFinishReasonHeader = "X-Cache-Threshold-Finish-Reason"
 	XReturnErrorHeader               = "X-Return-Error"
+	XSendImageHeader                 = "X-Send-Image"
 
 	maxHTTPLogBodyBytes = 512 * 1024
 )
@@ -258,6 +259,10 @@ func (c *Communication) handleHTTP(req vllmsim.Request, respBuilder responseBuil
 		req.SetCacheThresholdFinishReason(parsedValue)
 	}
 
+	if sendImg, err := strconv.ParseBool(string(ctx.Request.Header.Peek(XSendImageHeader))); err == nil {
+		respBuilder.setSendImage(c.simulator.Context.Config().Omni && sendImg)
+	}
+
 	numChoices, isStream, channel, err, errInjected := c.simulator.HandleRequest(req)
 	if err != nil {
 		c.sendError(ctx, err, errInjected)
@@ -428,6 +433,14 @@ func (c *Communication) sendStream(ctx *fasthttp.RequestCtx, channel common.Chan
 			}
 			if stop {
 				break
+			}
+		}
+
+		if respBuilder.shouldSendImage() {
+			for i := range state.respCtxPerChoice {
+				if !c.sendOrFail(ctx, w, respBuilder.createImageChunk(respCtx, i), "Sending image chunk failed, ") {
+					return
+				}
 			}
 		}
 

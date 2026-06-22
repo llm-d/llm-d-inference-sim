@@ -149,6 +149,23 @@ type Message struct {
 	ToolCallID string `json:"tool_call_id,omitempty"`
 }
 
+// MarshalJSON omits the content field entirely when it carries no data
+// (empty Raw and nil Structured), so finish-reason-only deltas marshal as
+// {"role":...} or {} rather than {"content":""}.
+func (m Message) MarshalJSON() ([]byte, error) {
+	type alias struct {
+		Role       string            `json:"role,omitempty"`
+		Content    *ChatComplContent `json:"content,omitempty"`
+		ToolCalls  []ToolCall        `json:"tool_calls,omitempty"`
+		ToolCallID string            `json:"tool_call_id,omitempty"`
+	}
+	a := alias{Role: m.Role, ToolCalls: m.ToolCalls, ToolCallID: m.ToolCallID}
+	if m.Content.Raw != "" || len(m.Content.Structured) > 0 {
+		a.Content = &m.Content
+	}
+	return json.Marshal(a)
+}
+
 func (m *Message) PlainText(includeRole bool) string {
 	var builder strings.Builder
 
@@ -171,7 +188,9 @@ func (m *Message) PlainText(includeRole bool) string {
 			case ContentTypeText:
 				parts = append(parts, block.Text)
 			case "image_url":
-				parts = append(parts, "image: "+block.ImageURL.Url)
+				if block.ImageURL != nil {
+					parts = append(parts, "image: "+block.ImageURL.Url)
+				}
 			}
 		}
 
@@ -197,11 +216,11 @@ type ChatComplContent struct {
 }
 
 type ChatComplContentBlock struct {
-	Type       string              `json:"type"`
-	Text       string              `json:"text,omitempty"`
-	ImageURL   ChatComplImageBlock `json:"image_url,omitempty"`
-	InputAudio ChatComplAudioBlock `json:"input_audio,omitempty"`
-	VideoURL   ChatComplVideoBlock `json:"video_url,omitempty"`
+	Type       string               `json:"type"`
+	Text       string               `json:"text,omitempty"`
+	ImageURL   *ChatComplImageBlock `json:"image_url,omitempty"`
+	InputAudio *ChatComplAudioBlock `json:"input_audio,omitempty"`
+	VideoURL   *ChatComplVideoBlock `json:"video_url,omitempty"`
 }
 
 type ChatComplImageBlock struct {
@@ -309,6 +328,8 @@ type ChatCompletionsRespChunk struct {
 	baseCompletionsResponse
 	// Choices list of Choices of the response, according of OpenAI API
 	Choices []ChatRespChunkChoice `json:"choices"`
+	// Modality is set to "image" on the synthetic image chunk sent after tokens.
+	Modality string `json:"modality,omitempty"`
 }
 
 // ChatRespChunkChoice represents a single chat completions response choice in case of streaming
@@ -444,6 +465,21 @@ func CreateTextCompletionsResponse(base baseCompletionsResponse, choices []TextR
 func CreateChatCompletionsRespChunk(base baseCompletionsResponse, choices []ChatRespChunkChoice) *ChatCompletionsRespChunk {
 	base.ID = chatComplIDPrefix + base.RequestID
 	return &ChatCompletionsRespChunk{baseCompletionsResponse: base, Choices: choices}
+}
+
+// CreateImageModalityChunk builds the synthetic image SSE chunk sent after the
+// token stream when X-Send-Image is set. The chunk has the same structure as a
+// text chunk but carries modality "image" and an image_url content block.
+func CreateImageModalityChunk(base baseCompletionsResponse, choiceIdx int, imageData string) *ChatCompletionsRespChunk {
+	chunk := CreateChatCompletionsRespChunk(base, []ChatRespChunkChoice{
+		CreateChatRespChunkChoice(
+			CreateBaseResponseChoice(choiceIdx, nil),
+			Message{Content: ChatComplContent{Structured: []ChatComplContentBlock{
+				{Type: "image_url", ImageURL: &ChatComplImageBlock{Url: "data:image/png;base64," + imageData}},
+			}}}),
+	})
+	chunk.Modality = "image"
+	return chunk
 }
 
 func CreateGenerationResponse(base baseCompletionsResponse, tokens *Tokenized) *GenerationResponse {

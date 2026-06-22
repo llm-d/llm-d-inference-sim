@@ -138,19 +138,19 @@ func stubMMFeaturesForMessages(messages []api.Message, totalTokens int) *api.Ren
 		for _, block := range msg.Content.Structured {
 			switch block.Type {
 			case "image_url":
-				if block.ImageURL.Url == "" {
+				if block.ImageURL == nil || block.ImageURL.Url == "" {
 					continue
 				}
 				items = append(items, item{mmModalityImage, "img", block.ImageURL.Url, imgIdx})
 				imgIdx++
 			case "input_audio":
-				if block.InputAudio.Data == "" {
+				if block.InputAudio == nil || block.InputAudio.Data == "" {
 					continue
 				}
 				items = append(items, item{mmModalityAudio, "audio", block.InputAudio.Data, audIdx})
 				audIdx++
 			case "video_url":
-				if block.VideoURL.Url == "" {
+				if block.VideoURL == nil || block.VideoURL.Url == "" {
 					continue
 				}
 				items = append(items, item{mmModalityVideo, "video", block.VideoURL.Url, vidIdx})

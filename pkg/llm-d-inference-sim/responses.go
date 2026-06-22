@@ -103,12 +103,12 @@ func convertInputToMessages(input []api.InputItem) []api.Message {
 					case api.ResponsesInputImage:
 						blocks = append(blocks, api.ChatComplContentBlock{
 							Type:     "image_url",
-							ImageURL: api.ChatComplImageBlock{Url: content.ImageURL},
+							ImageURL: &api.ChatComplImageBlock{Url: content.ImageURL},
 						})
 					case api.ResponsesInputAudio:
 						blocks = append(blocks, api.ChatComplContentBlock{
 							Type:       "input_audio",
-							InputAudio: api.ChatComplAudioBlock{Data: content.AudioData, Format: content.AudioFormat},
+							InputAudio: &api.ChatComplAudioBlock{Data: content.AudioData, Format: content.AudioFormat},
 						})
 					}
 				}
