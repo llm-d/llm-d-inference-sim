@@ -77,7 +77,7 @@ var _ = Describe("tokenizer", func() {
 		mmMessages := []api.Message{
 			{Role: api.RoleUser, Content: api.ChatComplContent{
 				Structured: []api.ChatComplContentBlock{
-					{Type: "image_url", ImageURL: api.ChatComplImageBlock{Url: "http://x/a.jpg"}},
+					{Type: "image_url", ImageURL: &api.ChatComplImageBlock{Url: "http://x/a.jpg"}},
 				},
 			}},
 		}
@@ -107,19 +107,19 @@ var _ = Describe("tokenizer", func() {
 		image := func(url string) api.ChatComplContentBlock {
 			return api.ChatComplContentBlock{
 				Type:     "image_url",
-				ImageURL: api.ChatComplImageBlock{Url: url},
+				ImageURL: &api.ChatComplImageBlock{Url: url},
 			}
 		}
 		audio := func(data, format string) api.ChatComplContentBlock {
 			return api.ChatComplContentBlock{
 				Type:       "input_audio",
-				InputAudio: api.ChatComplAudioBlock{Data: data, Format: format},
+				InputAudio: &api.ChatComplAudioBlock{Data: data, Format: format},
 			}
 		}
 		video := func(url string) api.ChatComplContentBlock {
 			return api.ChatComplContentBlock{
 				Type:     "video_url",
-				VideoURL: api.ChatComplVideoBlock{Url: url},
+				VideoURL: &api.ChatComplVideoBlock{Url: url},
 			}
 		}
 		mkMsg := func(blocks ...api.ChatComplContentBlock) api.Message {

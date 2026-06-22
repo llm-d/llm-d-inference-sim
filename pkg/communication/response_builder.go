@@ -65,6 +65,10 @@ func (e *namedEventChunk) SSEBytes() ([]byte, error) {
 	return []byte(result.String()), nil
 }
 
+// syntheticImageData is a base64-encoded 1×1 transparent PNG used as the
+// synthetic image payload sent in the image chunk after the token stream.
+const syntheticImageData = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+
 // doneMarker emits the SSE stream terminator "data: [DONE]\n\n".
 type doneMarker struct{}
 
@@ -86,6 +90,16 @@ type responseBuilder interface {
 	// sendFinishReasonWithTokens returns true if the builder wants the finish
 	// reason included in the last tokens chunk rather than a separate empty chunk.
 	sendFinishReasonWithTokens() bool
+	// createImageChunk returns a synthetic image SSE frame for the given choice
+	// to be emitted after the token stream, or nil if this builder does not
+	// support image chunks.
+	createImageChunk(respCtx vllmsim.ResponseContext, choiceIdx int) sseChunk
+	// setSendImage tells the builder whether to include a synthetic image in
+	// non-streaming responses. No-op for builders that do not support images.
+	setSendImage(bool)
+	// shouldSendImage reports whether the builder has been asked to emit an
+	// image. Always false for builders that do not support images.
+	shouldSendImage() bool
 }
 
 // aggregateUsage combines per-choice usages. Completion tokens are always
@@ -124,7 +138,23 @@ func aggregateUsage(respCtxPerChoice []vllmsim.ResponseContext) *api.Usage {
 	return agg
 }
 
-type textComplHTTPRespBuilder struct{}
+// baseRespBuilder provides default no-op and nil implementations for the
+// responseBuilder interface. Embed it in concrete builders to avoid repeating
+// shared boilerplate; override only what differs.
+type baseRespBuilder struct{}
+
+func (*baseRespBuilder) createInitialChunk(_ vllmsim.ResponseContext) sseChunk      { return nil }
+func (*baseRespBuilder) createFirstChunk(_ vllmsim.ResponseContext, _ int) sseChunk { return nil }
+func (*baseRespBuilder) createDoneChunk() sseChunk                                  { return &doneMarker{} }
+func (*baseRespBuilder) sendFinishReasonWithTokens() bool                           { return false }
+func (*baseRespBuilder) createImageChunk(_ vllmsim.ResponseContext, _ int) sseChunk { return nil }
+func (*baseRespBuilder) setSendImage(bool)                                          {}
+func (*baseRespBuilder) shouldSendImage() bool                                      { return false }
+func (*baseRespBuilder) createRenderResponse(_ [][]uint32, _ *api.RenderMMFeatures) any {
+	panic("createRenderResponse not supported for this response builder")
+}
+
+type textComplHTTPRespBuilder struct{ baseRespBuilder }
 
 func (respBuilder *textComplHTTPRespBuilder) createResponse(respCtxPerChoice []vllmsim.ResponseContext,
 	tokens []api.Tokenized) any {
@@ -198,23 +228,12 @@ func (respBuilder *textComplHTTPRespBuilder) createChunk(respCtx vllmsim.Respons
 	return &jsonDataChunk{data: api.CreateTextCompletionsResponse(baseChunk, []api.TextRespChoice{choice})}
 }
 
-func (respBuilder *textComplHTTPRespBuilder) createInitialChunk(respCtx vllmsim.ResponseContext) sseChunk {
-	return nil
-}
-
-func (respBuilder *textComplHTTPRespBuilder) createFirstChunk(respCtx vllmsim.ResponseContext, choiceIdx int) sseChunk {
-	return nil
-}
-
 func (respBuilder *textComplHTTPRespBuilder) createLastChunk(respCtx vllmsim.ResponseContext, finishReason string, choiceIdx int) sseChunk {
 	if finishReason == common.CacheThresholdFinishReason {
 		return nil
 	}
 	return respBuilder.createChunk(respCtx, nil, nil, "", respCtx.FinishReason(), choiceIdx)
 }
-
-func (*textComplHTTPRespBuilder) createDoneChunk() sseChunk        { return &doneMarker{} }
-func (*textComplHTTPRespBuilder) sendFinishReasonWithTokens() bool { return false }
 
 // createRenderResponse builds the wire payload for /v1/completions/render: an
 // array with one RenderResponse per prompt, mirroring vLLM which always
@@ -231,7 +250,10 @@ func (*textComplHTTPRespBuilder) createRenderResponse(tokens [][]uint32,
 
 var _ responseBuilder = (*textComplHTTPRespBuilder)(nil)
 
-type chatComplHTTPRespBuilder struct{}
+type chatComplHTTPRespBuilder struct {
+	baseRespBuilder
+	sendImage bool
+}
 
 func (respBuilder *chatComplHTTPRespBuilder) createResponse(respCtxPerChoice []vllmsim.ResponseContext,
 	tokens []api.Tokenized) any {
@@ -248,9 +270,21 @@ func (respBuilder *chatComplHTTPRespBuilder) createResponse(respCtxPerChoice []v
 		message := api.Message{Role: api.RoleAssistant}
 		if choiceCtx.ToolCalls() != nil {
 			message.ToolCalls = choiceCtx.ToolCalls()
+			if respBuilder.sendImage {
+				message.Content = api.ChatComplContent{Structured: []api.ChatComplContentBlock{
+					{Type: "image_url", ImageURL: &api.ChatComplImageBlock{Url: "data:image/png;base64," + syntheticImageData}},
+				}}
+			}
 		} else {
 			respText := strings.Join(t.Strings, "")
-			message.Content = api.ChatComplContent{Raw: respText}
+			if respBuilder.sendImage {
+				message.Content = api.ChatComplContent{Structured: []api.ChatComplContentBlock{
+					{Type: "text", Text: respText},
+					{Type: "image_url", ImageURL: &api.ChatComplImageBlock{Url: "data:image/png;base64," + syntheticImageData}},
+				}}
+			} else {
+				message.Content = api.ChatComplContent{Raw: respText}
+			}
 		}
 
 		choice := api.CreateChatRespChoice(baseChoice, message)
@@ -300,7 +334,13 @@ func (respBuilder *chatComplHTTPRespBuilder) createChunk(respCtx vllmsim.Respons
 		chunk.Choices[0].Delta.ToolCalls = []api.ToolCall{*tool}
 	} else if tokens != nil && len(tokens.Strings) > 0 {
 		tokensStr := strings.Join(tokens.Strings, "")
-		chunk.Choices[0].Delta.Content.Raw = tokensStr
+		if respBuilder.sendImage {
+			chunk.Choices[0].Delta.Content = api.ChatComplContent{Structured: []api.ChatComplContentBlock{
+				{Type: "text", Text: tokensStr},
+			}}
+		} else {
+			chunk.Choices[0].Delta.Content.Raw = tokensStr
+		}
 
 		// Generate logprobs if requested and token is not empty
 		if respCtx.TopLogprobs() != nil {
@@ -318,10 +358,6 @@ func (respBuilder *chatComplHTTPRespBuilder) createChunk(respCtx vllmsim.Respons
 	return &jsonDataChunk{data: &chunk}
 }
 
-func (respBuilder *chatComplHTTPRespBuilder) createInitialChunk(respCtx vllmsim.ResponseContext) sseChunk {
-	return nil
-}
-
 func (respBuilder *chatComplHTTPRespBuilder) createFirstChunk(respCtx vllmsim.ResponseContext, choiceIdx int) sseChunk {
 	return respBuilder.createChunk(respCtx, nil, nil, api.RoleAssistant, nil, choiceIdx)
 }
@@ -333,8 +369,17 @@ func (respBuilder *chatComplHTTPRespBuilder) createLastChunk(respCtx vllmsim.Res
 	return respBuilder.createChunk(respCtx, nil, nil, "", respCtx.FinishReason(), choiceIdx)
 }
 
-func (*chatComplHTTPRespBuilder) createDoneChunk() sseChunk        { return &doneMarker{} }
-func (*chatComplHTTPRespBuilder) sendFinishReasonWithTokens() bool { return false }
+func (b *chatComplHTTPRespBuilder) setSendImage(v bool)   { b.sendImage = v }
+func (b *chatComplHTTPRespBuilder) shouldSendImage() bool { return b.sendImage }
+func (b *chatComplHTTPRespBuilder) createImageChunk(respCtx vllmsim.ResponseContext, choiceIdx int) sseChunk {
+	if respCtx == nil {
+		return nil
+	}
+	base := api.CreateBaseCompletionsResponse(
+		respCtx.CreationTime(), respCtx.DisplayModel(), nil, respCtx.RequestID(), false)
+	base.Object = api.ChatCompletionChunkObject
+	return &jsonDataChunk{data: api.CreateImageModalityChunk(base, choiceIdx, syntheticImageData)}
+}
 
 // createRenderResponse builds the wire payload for /v1/chat/completions/render:
 // a single RenderResponse object (not an array) carrying the tokens for the
@@ -390,6 +435,7 @@ func (respBuilder *generationGRPCRespBuilder) createLastChunk(respCtx vllmsim.Re
 }
 
 type responsesHTTPRespBuilder struct {
+	baseRespBuilder
 	// contains the accumulated text for the response,
 	// used to populate the final chunk and usage chunk
 	accumulated strings.Builder
@@ -608,17 +654,11 @@ func (respBuilder *responsesHTTPRespBuilder) createLastChunk(respCtx vllmsim.Res
 	}
 }
 
-func (*responsesHTTPRespBuilder) createDoneChunk() sseChunk        { return nil }
-func (*responsesHTTPRespBuilder) sendFinishReasonWithTokens() bool { return false }
-
-func (*responsesHTTPRespBuilder) createRenderResponse(_ [][]uint32,
-	_ *api.RenderMMFeatures) any {
-	panic("responsesHTTPRespBuilder: /v1/responses has no /render endpoint")
-}
+func (*responsesHTTPRespBuilder) createDoneChunk() sseChunk { return nil }
 
 var _ responseBuilder = (*responsesHTTPRespBuilder)(nil)
 
-type generateHTTPRespBuilder struct{}
+type generateHTTPRespBuilder struct{ baseRespBuilder }
 
 func (respBuilder *generateHTTPRespBuilder) createResponse(respCtxPerChoice []vllmsim.ResponseContext,
 	tokens []api.Tokenized) any {
@@ -667,30 +707,17 @@ func (respBuilder *generateHTTPRespBuilder) createChunk(respCtx vllmsim.Response
 	}}
 }
 
-func (respBuilder *generateHTTPRespBuilder) createInitialChunk(_ vllmsim.ResponseContext) sseChunk {
-	return nil
-}
-
-func (respBuilder *generateHTTPRespBuilder) createFirstChunk(_ vllmsim.ResponseContext, _ int) sseChunk {
-	return nil
-}
-
 func (respBuilder *generateHTTPRespBuilder) createLastChunk(respCtx vllmsim.ResponseContext, finishReason string, choiceIdx int) sseChunk {
 	return nil
 }
 
-func (*generateHTTPRespBuilder) createDoneChunk() sseChunk        { return &doneMarker{} }
 func (*generateHTTPRespBuilder) sendFinishReasonWithTokens() bool { return true }
-
-func (*generateHTTPRespBuilder) createRenderResponse(_ [][]uint32,
-	_ *api.RenderMMFeatures) any {
-	panic("generateHTTPRespBuilder: /inference/v1/generate has no /render endpoint")
-}
 
 var _ responseBuilder = (*generateHTTPRespBuilder)(nil)
 
 // messagesHTTPRespBuilder implements responseBuilder for /v1/messages (Anthropic Messages API).
 type messagesHTTPRespBuilder struct {
+	baseRespBuilder
 	contentBlockIndex int  // tracks which content block index we are on for streaming
 	inToolMode        bool // true when streaming tool call arguments
 }
@@ -878,11 +905,6 @@ func (b *messagesHTTPRespBuilder) createLastChunk(respCtx vllmsim.ResponseContex
 	}
 }
 
-func (*messagesHTTPRespBuilder) createDoneChunk() sseChunk        { return nil }
-func (*messagesHTTPRespBuilder) sendFinishReasonWithTokens() bool { return false }
-
-func (*messagesHTTPRespBuilder) createRenderResponse(_ [][]uint32, _ *api.RenderMMFeatures) any {
-	panic("messagesHTTPRespBuilder: /v1/messages has no /render endpoint")
-}
+func (*messagesHTTPRespBuilder) createDoneChunk() sseChunk { return nil }
 
 var _ responseBuilder = (*messagesHTTPRespBuilder)(nil)

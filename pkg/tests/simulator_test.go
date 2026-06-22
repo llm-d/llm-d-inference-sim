@@ -3205,6 +3205,169 @@ var _ = Describe("Simulator", func() {
 		})
 	})
 
+	Context("chat completions with image output (omni mode)", func() {
+		const syntheticImagePrefix = "data:image/png;base64,"
+
+		newOmniClient := func(client *http.Client) openai.Client {
+			return openai.NewClient(
+				option.WithBaseURL(baseURL),
+				option.WithHTTPClient(client),
+				option.WithMaxRetries(0))
+		}
+
+		omniParams := func() openai.ChatCompletionNewParams {
+			return openai.ChatCompletionNewParams{
+				Messages:  []openai.ChatCompletionMessageParamUnion{openai.UserMessage("hello")},
+				Model:     common.TestModelName,
+				MaxTokens: param.NewOpt(int64(5)),
+			}
+		}
+
+		It("Should include image content blocks in non-streaming response when omni + X-Send-Image: true", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom, "--omni"}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			openaiclient := newOmniClient(client)
+			resp, err := openaiclient.Chat.Completions.New(ctx, omniParams(),
+				option.WithHeader(communication.XSendImageHeader, "true"))
+			Expect(err).NotTo(HaveOccurred())
+
+			var rawResp map[string]any
+			Expect(json.Unmarshal([]byte(resp.RawJSON()), &rawResp)).To(Succeed())
+
+			choices := rawResp["choices"].([]any)
+			message := choices[0].(map[string]any)["message"].(map[string]any)
+			contentBlocks := message["content"].([]any)
+			Expect(contentBlocks).To(HaveLen(2))
+
+			textBlock := contentBlocks[0].(map[string]any)
+			Expect(textBlock["type"]).To(Equal("text"))
+			Expect(textBlock["text"]).NotTo(BeEmpty())
+
+			imageBlock := contentBlocks[1].(map[string]any)
+			Expect(imageBlock["type"]).To(Equal("image_url"))
+			imageURL := imageBlock["image_url"].(map[string]any)
+			Expect(imageURL["url"].(string)).To(HavePrefix(syntheticImagePrefix))
+		})
+
+		It("Should include image chunk in streaming response when omni + X-Send-Image: true", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom, "--omni"}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			openaiclient := newOmniClient(client)
+			stream := openaiclient.Chat.Completions.NewStreaming(ctx, omniParams(),
+				option.WithHeader(communication.XSendImageHeader, "true"))
+			defer func() { Expect(stream.Close()).To(Succeed()) }()
+
+			var imageChunk map[string]any
+			for stream.Next() {
+				var rawChunk map[string]any
+				Expect(json.Unmarshal([]byte(stream.Current().RawJSON()), &rawChunk)).To(Succeed())
+				if rawChunk["modality"] == "image" {
+					imageChunk = rawChunk
+				}
+			}
+			Expect(stream.Err()).NotTo(HaveOccurred())
+
+			Expect(imageChunk).NotTo(BeNil(), "expected an image modality chunk in the stream")
+			choices := imageChunk["choices"].([]any)
+			delta := choices[0].(map[string]any)["delta"].(map[string]any)
+			contentBlocks := delta["content"].([]any)
+			Expect(contentBlocks).To(HaveLen(1))
+			imageBlock := contentBlocks[0].(map[string]any)
+			Expect(imageBlock["type"]).To(Equal("image_url"))
+			imageURL := imageBlock["image_url"].(map[string]any)
+			Expect(imageURL["url"].(string)).To(HavePrefix(syntheticImagePrefix))
+		})
+
+		It("Should use structured text blocks for token chunks in streaming when omni + X-Send-Image: true", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom, "--omni"}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			openaiclient := newOmniClient(client)
+			stream := openaiclient.Chat.Completions.NewStreaming(ctx, omniParams(),
+				option.WithHeader(communication.XSendImageHeader, "true"))
+			defer func() { Expect(stream.Close()).To(Succeed()) }()
+
+			var tokenChunks []map[string]any
+			for stream.Next() {
+				var rawChunk map[string]any
+				Expect(json.Unmarshal([]byte(stream.Current().RawJSON()), &rawChunk)).To(Succeed())
+				if rawChunk["modality"] == "image" {
+					continue
+				}
+				choices, ok := rawChunk["choices"].([]any)
+				if !ok || len(choices) == 0 {
+					continue
+				}
+				delta := choices[0].(map[string]any)["delta"].(map[string]any)
+				if _, isArray := delta["content"].([]any); isArray {
+					tokenChunks = append(tokenChunks, rawChunk)
+				}
+			}
+			Expect(stream.Err()).NotTo(HaveOccurred())
+
+			Expect(tokenChunks).NotTo(BeEmpty(), "expected token chunks with structured content")
+			for _, chunk := range tokenChunks {
+				choices := chunk["choices"].([]any)
+				delta := choices[0].(map[string]any)["delta"].(map[string]any)
+				blocks := delta["content"].([]any)
+				Expect(blocks).To(HaveLen(1))
+				block := blocks[0].(map[string]any)
+				Expect(block["type"]).To(Equal("text"))
+				Expect(block["text"]).NotTo(BeEmpty())
+			}
+		})
+
+		It("Should NOT include image when omni mode is disabled even with X-Send-Image: true", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			openaiclient := newOmniClient(client)
+			resp, err := openaiclient.Chat.Completions.New(ctx, omniParams(),
+				option.WithHeader(communication.XSendImageHeader, "true"))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.Choices).NotTo(BeEmpty())
+			// Without omni the content must be a plain string
+			Expect(resp.Choices[0].Message.Content).NotTo(BeEmpty())
+
+			var rawResp map[string]any
+			Expect(json.Unmarshal([]byte(resp.RawJSON()), &rawResp)).To(Succeed())
+			choices := rawResp["choices"].([]any)
+			message := choices[0].(map[string]any)["message"].(map[string]any)
+			_, isString := message["content"].(string)
+			Expect(isString).To(BeTrue(), "content must be a plain string when omni is off")
+		})
+
+		It("Should NOT include image when X-Send-Image header is absent even in omni mode", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom, "--omni"}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			openaiclient := newOmniClient(client)
+			resp, err := openaiclient.Chat.Completions.New(ctx, omniParams())
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.Choices).NotTo(BeEmpty())
+			Expect(resp.Choices[0].Message.Content).NotTo(BeEmpty())
+
+			var rawResp map[string]any
+			Expect(json.Unmarshal([]byte(resp.RawJSON()), &rawResp)).To(Succeed())
+			choices := rawResp["choices"].([]any)
+			message := choices[0].(map[string]any)["message"].(map[string]any)
+			_, isString := message["content"].(string)
+			Expect(isString).To(BeTrue(), "content must be a plain string when X-Send-Image is absent")
+		})
+	})
+
 	Context("generate API", func() {
 		DescribeTable("Should return correct response to /inference/v1/generate",
 			func(model string) {

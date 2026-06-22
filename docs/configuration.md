@@ -30,6 +30,7 @@ Some environment variables (for example `POD_NAME`, `POD_NAMESPACE`) are not ove
 - `enable-request-id-headers`: Enable including X-Request-Id header in responses. When enabled, the simulator will include the request ID in response headers
 - `log-http`: When true, logs each HTTP request and response at INFO (method, URI, remote address, headers, and body when buffered). Streamed response bodies (for example SSE) are not logged. Use only in trusted environments; may include secrets such as `Authorization` headers.
 - `mm-encoder-only`, `no-mm-encoder-only`: Skip  (or don't skip) the language component of the model.
+- `omni`, `no-omni`: Enable or disable omni mode. When enabled and the `X-Send-Image: true` header is present on a `/v1/chat/completions` request, the simulator appends a synthetic image (a 1×1 transparent PNG, `data:image/png;base64,…`) to the response. In non-streaming responses the assistant message `content` becomes a structured array — a `text` block carrying the generated tokens followed by an `image_url` block. In streaming responses an extra SSE chunk with `"modality":"image"` is emitted after the token stream, carrying the same image in its delta `content`. When `--omni` is not set (the default), `X-Send-Image` is ignored and the response is a normal text response.
 
 ## Latency 
 All latency-related parameters are defined in duration format, e.g., 100ms. Integer format is deprecated.

@@ -294,6 +294,10 @@ type Configuration struct {
 	// MMEncoderOnly defines whether to skip the language component of the model.
 	MMEncoderOnly bool `yaml:"mm-encoder-only" json:"mm-encoder-only"`
 
+	// Omni enables omni mode: the simulator will emit a synthetic image chunk
+	// after the token stream when the X-Send-Image request header is present.
+	Omni bool `yaml:"omni" json:"omni"`
+
 	// Ignored parameters:
 	// MMProcessorKWArgs defines arguments to be forwarded to the model's processor for multi-modal data.
 	// Ignored in the simulator.
