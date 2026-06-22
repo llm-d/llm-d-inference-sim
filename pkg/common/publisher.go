@@ -68,6 +68,14 @@ func EncodeSeq(seq uint64) []byte {
 }
 
 // Publisher sends events to a ZMQ endpoint.
+// Mode is auto-detected from the endpoint string:
+//   - "tcp://*:<port>" → bind (server mode, like vLLM's default)
+//   - "tcp://<ip>:<port>" → dial (client mode)
+//
+// Heuristic mirrors vLLM's ZmqEventPublisher._socket_setup:
+// https://github.com/vllm-project/vllm/blob/v0.23.0/vllm/distributed/kv_events.py#L385
+// Bind when the endpoint contains a wildcard (*, ::, ipc://, inproc://),
+// otherwise dial (connect).
 type Publisher struct {
 	socket   zmq4.Socket
 	endpoint string
@@ -75,8 +83,9 @@ type Publisher struct {
 }
 
 // NewPublisher creates a new ZMQ publisher.
-// endpoint is the ZMQ address to bind to (e.g., "tcp://*:5557").
-// retries is the maximum number of connection attempts.
+// endpoint is the ZMQ address:
+//   - "tcp://*:<port>": binds (server mode, like vLLM's default)
+//   - "tcp://<ip>:<port>": dials (client mode)
 func NewPublisher(ctx context.Context, endpoint string) (*Publisher, error) {
 	socket := zmq4.NewPub(ctx,
 		// -1 means try forever
@@ -87,20 +96,34 @@ func NewPublisher(ctx context.Context, endpoint string) (*Publisher, error) {
 		zmq4.WithDialerRetry(time.Second),
 	)
 
-	// 2. Push Dial into a background goroutine
-	go func() {
-		// wait until the listener is ready
-		err := socket.Dial(endpoint)
-		if err != nil {
-			// Context cancellation during shutdown is expected — don't treat it as an error.
-			if ctx.Err() != nil {
-				return
-			}
-			log.FromContext(ctx).Error(err, "ZMQ dialer exited", "endpoint", endpoint)
-		} else {
-			log.FromContext(ctx).Info("ZMQ dialer connected", "endpoint", endpoint)
+	// Bind if wildcard present, otherwise dial (mirrors vLLM)
+	if strings.Contains(endpoint, "*") {
+		log.FromContext(ctx).Info("ZMQ publisher binding", "endpoint", endpoint)
+		if err := socket.Listen(endpoint); err != nil {
+			return nil, fmt.Errorf("failed to bind ZMQ publisher: %w", err)
 		}
-	}()
+		log.FromContext(ctx).Info("ZMQ publisher bound", "endpoint", endpoint)
+
+		// Resolve the wildcard to the actual address
+		addr := socket.Addr()
+		if addr != nil {
+			endpoint = "tcp://" + addr.String()
+		}
+	} else {
+		go func() {
+			log.FromContext(ctx).Info("ZMQ publisher dialing", "endpoint", endpoint)
+			err := socket.Dial(endpoint)
+			if err != nil {
+				// Context cancellation during shutdown is expected — don't treat it as an error.
+				if ctx.Err() != nil {
+					return
+				}
+				log.FromContext(ctx).Error(err, "ZMQ dialer exited", "endpoint", endpoint)
+			} else {
+				log.FromContext(ctx).Info("ZMQ dialer connected", "endpoint", endpoint)
+			}
+		}()
+	}
 
 	return &Publisher{
 		socket:   socket,
@@ -131,6 +154,12 @@ func (p *Publisher) PublishEvent(ctx context.Context, topic string, batch interf
 
 	logger.V(logging.TRACE).Info("Published event batch", "topic", topic, "seq", seq)
 	return seq, payload, nil
+}
+
+// GetEndpoint returns the actual endpoint the publisher is bound to or dialing.
+// For wildcard binds (e.g., "tcp://*:0"), this returns the resolved address.
+func (p *Publisher) GetEndpoint() string {
+	return p.endpoint
 }
 
 // Close closes the publisher and cleans up resources.
