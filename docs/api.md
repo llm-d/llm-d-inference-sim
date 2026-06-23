@@ -40,6 +40,7 @@ The simulator exposes `GET` and `POST` on `/admin/config` for runtime configurat
 - **`POST /admin/config`** applies a partial JSON update and returns the new configuration. The request body must be a JSON object whose keys are a subset of the admin-configurable fields:
   - `failure-injection-rate` — integer in `[0, 100]`
   - `failure-types` — array of strings from `rate_limit`, `invalid_api_key`, `context_length`, `server_error`, `invalid_request`, `model_not_found`
+  - `image-emission-rate` — integer in `[0, 100]`; probability that each `/v1/chat/completions` request emits a synthetic image chunk when the simulator is running with `--omni`. 0 disables the rate mechanism (the `X-Send-Image` header still works); 100 means every request gets an image.
   - `fake-metrics` — partial update of [fake metric](configuration.md#fake-metrics) values. The value is itself a JSON object containing only the metrics to change; any metrics not specified are left unchanged. Available only when the simulator was started with a `--fake-metrics` configuration.
 
     Absent fields and fields explicitly set to `null` are treated identically — both mean "leave unchanged". To clear a metric whose value is a slice or map (e.g. `ttft-buckets-values`, `request-success-total`), send an empty value: `[]` or `{}`. There is no way to clear a scalar metric (e.g. `running-requests`, `total-prompt-tokens`) via partial update — assign a new value instead.
@@ -68,6 +69,11 @@ The simulator exposes `GET` and `POST` on `/admin/config` for runtime configurat
   curl -X POST http://localhost:8000/admin/config \
     -H 'Content-Type: application/json' \
     -d '{"time-to-first-token": "500ms", "inter-token-latency": "20ms"}'
+
+  # Emit synthetic images in 30% of omni-mode chat completion responses
+  curl -X POST http://localhost:8000/admin/config \
+    -H 'Content-Type: application/json' \
+    -d '{"image-emission-rate": 30}'
   ```
 
 
@@ -80,7 +86,7 @@ In addition to standard HTTP headers, the simulator recognizes a few simulator-s
 | `X-Request-Id` | Read on incoming requests to all generation endpoints (including `/v1/embeddings`) and echoed back as a response header when `--enable-request-id-headers` is set. Used to correlate client requests with server logs. |
 | `X-Return-Error` | Deterministic failure injection. When set to a numeric HTTP status code (e.g. `429`, `500`), the simulator immediately returns a synthetic error response with that status code, bypassing the probabilistic `--failure-injection-rate` mechanism. A non-integer value yields HTTP 400. Honored on `/v1/chat/completions`, `/v1/completions`, and `/inference/v1/generate`; not honored by `/v1/embeddings`. |
 | `X-Cache-Threshold-Finish-Reason` | Deterministic forcing of the `cache_threshold` finish reason. When set to `true`, the response is forced to use the `cache_threshold` finish reason regardless of the actual cache hit rate or the configured `cache_hit_threshold` / `global-cache-hit-threshold` values. Any other value (including `false`, missing, or unparsable) leaves the normal cache-threshold logic in place. The header is parsed for all generation endpoints, but only takes effect on `/v1/chat/completions` and `/v1/completions` (the other endpoints' request types do not implement the cache-threshold override). |
-| `X-Send-Image` | Image output for omni mode. Requires the simulator to be started with `--omni`. When set to `true`, a synthetic 1×1 transparent PNG (`data:image/png;base64,…`) is appended to `/v1/chat/completions` responses. In non-streaming responses the assistant message `content` becomes a structured array — a `text` block with the generated tokens followed by an `image_url` block. In streaming responses an additional SSE chunk with `"modality":"image"` is emitted after the token stream, carrying the image in its delta `content`. Has no effect when `--omni` is not set or when the header value is not parseable as `true`. |
+| `X-Send-Image` | Image output for omni mode. Requires the simulator to be started with `--omni`. When set to `true`, a synthetic 1×1 transparent PNG (`data:image/png;base64,…`) is appended to `/v1/chat/completions` responses. In non-streaming responses the assistant message `content` becomes a structured array — a `text` block with the generated tokens followed by an `image_url` block. In streaming responses an additional SSE chunk with `"modality":"image"` is emitted after the token stream, carrying the image in its delta `content`. Has no effect when `--omni` is not set or when the header value is not parseable as `true`. Images can also be emitted probabilistically without this header via the `--image-emission-rate` flag (or the `image-emission-rate` field on `POST /admin/config`). |
 
 ## gRPC Endpoints
 The simulator implements the `vllm.grpc.engine.VllmEngine` service definition. 

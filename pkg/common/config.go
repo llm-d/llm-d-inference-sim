@@ -295,8 +295,15 @@ type Configuration struct {
 	MMEncoderOnly bool `yaml:"mm-encoder-only" json:"mm-encoder-only"`
 
 	// Omni enables omni mode: the simulator will emit a synthetic image chunk
-	// after the token stream when the X-Send-Image request header is present.
+	// after the token stream when the X-Send-Image request header is present,
+	// or randomly based on ImageEmissionRate.
 	Omni bool `yaml:"omni" json:"omni"`
+
+	// ImageEmissionRate is the probability (0-100) of emitting a synthetic image
+	// chunk per chat completion request when omni mode is enabled. 0 means never
+	// emit via the rate mechanism, 100 means always emit. The X-Send-Image header
+	// can still trigger emission independently.
+	ImageEmissionRate int `yaml:"image-emission-rate" json:"image-emission-rate" admin:"configurable"`
 
 	// Ignored parameters:
 	// MMProcessorKWArgs defines arguments to be forwarded to the model's processor for multi-modal data.
@@ -517,6 +524,10 @@ func (c *Configuration) validate() error {
 
 	if c.FailureInjectionRate < 0 || c.FailureInjectionRate > 100 {
 		return errors.New("failure injection rate should be between 0 and 100")
+	}
+
+	if c.ImageEmissionRate < 0 || c.ImageEmissionRate > 100 {
+		return errors.New("image emission rate should be between 0 and 100")
 	}
 
 	validFailureTypes := map[string]bool{
