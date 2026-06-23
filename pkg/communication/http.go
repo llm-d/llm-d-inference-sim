@@ -444,7 +444,7 @@ func (c *Communication) sendStream(ctx *fasthttp.RequestCtx, channel common.Chan
 			}
 		}
 
-		c.finalizeStream(ctx, w, respBuilder, &state)
+		c.finalizeStream(ctx, w, respBuilder, &state, respCtx)
 	}()
 
 	ctx.Response.SetBodyStream(pr, -1)
@@ -503,9 +503,9 @@ func (c *Communication) emitResponseChunks(ctx *fasthttp.RequestCtx, w *bufio.Wr
 // finalizeStream emits the post-loop SSE frames: a last chunk per choice (if the
 // builder wants one for the finish reason), the usage chunk, and [DONE].
 func (c *Communication) finalizeStream(ctx *fasthttp.RequestCtx, w *bufio.Writer, respBuilder responseBuilder,
-	state *streamState) {
+	state *streamState, respContext vllmsim.ResponseContext) {
 	for i, rc := range state.respCtxPerChoice {
-		if !c.sendOrFail(ctx, w, respBuilder.createLastChunk(rc, *rc.FinishReason(), i),
+		if !c.sendOrFail(ctx, w, respBuilder.createLastChunk(respContext, *rc.FinishReason(), i),
 			"Sending last stream chunk failed, ") {
 			return
 		}
