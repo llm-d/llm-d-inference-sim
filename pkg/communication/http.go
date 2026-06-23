@@ -259,8 +259,16 @@ func (c *Communication) handleHTTP(req vllmsim.Request, respBuilder responseBuil
 		req.SetCacheThresholdFinishReason(parsedValue)
 	}
 
-	if sendImg, err := strconv.ParseBool(string(ctx.Request.Header.Peek(XSendImageHeader))); err == nil {
-		respBuilder.setSendImage(c.simulator.Context.Config().Omni && sendImg)
+	cfg := c.simulator.Context.Config()
+	if cfg.Omni {
+		sendImg := false
+		if headerVal, err := strconv.ParseBool(string(ctx.Request.Header.Peek(XSendImageHeader))); err == nil {
+			sendImg = headerVal
+		}
+		if !sendImg && cfg.ImageEmissionRate > 0 {
+			sendImg = c.simulator.Context.Random.RandomInt(1, 100) <= cfg.ImageEmissionRate
+		}
+		respBuilder.setSendImage(sendImg)
 	}
 
 	numChoices, isStream, channel, err, errInjected := c.simulator.HandleRequest(req)

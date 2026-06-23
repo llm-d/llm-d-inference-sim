@@ -3223,6 +3223,30 @@ var _ = Describe("Simulator", func() {
 			}
 		}
 
+		assertNoImage := func(ctx context.Context, openaiclient openai.Client, opts ...option.RequestOption) {
+			resp, err := openaiclient.Chat.Completions.New(ctx, omniParams(), opts...)
+			Expect(err).NotTo(HaveOccurred())
+			var rawResp map[string]any
+			Expect(json.Unmarshal([]byte(resp.RawJSON()), &rawResp)).To(Succeed())
+			choices := rawResp["choices"].([]any)
+			message := choices[0].(map[string]any)["message"].(map[string]any)
+			_, isString := message["content"].(string)
+			Expect(isString).To(BeTrue(), "expected plain string content, not image blocks")
+		}
+
+		assertImage := func(ctx context.Context, openaiclient openai.Client, opts ...option.RequestOption) {
+			resp, err := openaiclient.Chat.Completions.New(ctx, omniParams(), opts...)
+			Expect(err).NotTo(HaveOccurred())
+			var rawResp map[string]any
+			Expect(json.Unmarshal([]byte(resp.RawJSON()), &rawResp)).To(Succeed())
+			choices := rawResp["choices"].([]any)
+			message := choices[0].(map[string]any)["message"].(map[string]any)
+			contentBlocks, isArray := message["content"].([]any)
+			Expect(isArray).To(BeTrue(), "expected structured content array")
+			Expect(contentBlocks).To(HaveLen(2))
+			Expect(contentBlocks[1].(map[string]any)["type"]).To(Equal("image_url"))
+		}
+
 		It("Should include image content blocks in non-streaming response when omni + X-Send-Image: true", func() {
 			ctx := context.TODO()
 			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom, "--omni"}
@@ -3331,20 +3355,7 @@ var _ = Describe("Simulator", func() {
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
-			openaiclient := newOmniClient(client)
-			resp, err := openaiclient.Chat.Completions.New(ctx, omniParams(),
-				option.WithHeader(communication.XSendImageHeader, "true"))
-			Expect(err).NotTo(HaveOccurred())
-			Expect(resp.Choices).NotTo(BeEmpty())
-			// Without omni the content must be a plain string
-			Expect(resp.Choices[0].Message.Content).NotTo(BeEmpty())
-
-			var rawResp map[string]any
-			Expect(json.Unmarshal([]byte(resp.RawJSON()), &rawResp)).To(Succeed())
-			choices := rawResp["choices"].([]any)
-			message := choices[0].(map[string]any)["message"].(map[string]any)
-			_, isString := message["content"].(string)
-			Expect(isString).To(BeTrue(), "content must be a plain string when omni is off")
+			assertNoImage(ctx, newOmniClient(client), option.WithHeader(communication.XSendImageHeader, "true"))
 		})
 
 		It("Should NOT include image when X-Send-Image header is absent even in omni mode", func() {
@@ -3353,18 +3364,71 @@ var _ = Describe("Simulator", func() {
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
-			openaiclient := newOmniClient(client)
-			resp, err := openaiclient.Chat.Completions.New(ctx, omniParams())
-			Expect(err).NotTo(HaveOccurred())
-			Expect(resp.Choices).NotTo(BeEmpty())
-			Expect(resp.Choices[0].Message.Content).NotTo(BeEmpty())
+			assertNoImage(ctx, newOmniClient(client))
+		})
 
-			var rawResp map[string]any
-			Expect(json.Unmarshal([]byte(resp.RawJSON()), &rawResp)).To(Succeed())
-			choices := rawResp["choices"].([]any)
-			message := choices[0].(map[string]any)["message"].(map[string]any)
-			_, isString := message["content"].(string)
-			Expect(isString).To(BeTrue(), "content must be a plain string when X-Send-Image is absent")
+		It("Should emit image in non-streaming response when omni + image-emission-rate 100, no header", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom, "--omni", "--image-emission-rate", "100"}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			assertImage(ctx, newOmniClient(client))
+		})
+
+		It("Should NOT emit image when omni + image-emission-rate 0, no header", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom, "--omni", "--image-emission-rate", "0"}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			assertNoImage(ctx, newOmniClient(client))
+		})
+
+		It("Should emit image via X-Send-Image header even when image-emission-rate is 0", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom, "--omni", "--image-emission-rate", "0"}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			assertImage(ctx, newOmniClient(client), option.WithHeader(communication.XSendImageHeader, "true"))
+		})
+
+		Context("with admin config update", func() {
+			It("toggles image emission by updating image-emission-rate via /admin/config", func() {
+				ctx := context.TODO()
+				args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom, "--omni", "--image-emission-rate", "0"}
+				client, err := startServerWithArgs(ctx, args)
+				Expect(err).NotTo(HaveOccurred())
+
+				openaiclient := newOmniClient(client)
+
+				// rate=0: no image emitted without header.
+				assertNoImage(ctx, openaiclient)
+
+				// Enable 100%: image always emitted.
+				resp := postAdminConfig(client, `{"image-emission-rate":100}`)
+				Expect(resp.Body.Close()).To(Succeed())
+				Expect(resp.StatusCode).To(Equal(http.StatusOK))
+				assertImage(ctx, openaiclient)
+
+				// Back to 0: no image again.
+				resp = postAdminConfig(client, `{"image-emission-rate":0}`)
+				Expect(resp.Body.Close()).To(Succeed())
+				Expect(resp.StatusCode).To(Equal(http.StatusOK))
+				assertNoImage(ctx, openaiclient)
+			})
+
+			It("rejects an out-of-range image-emission-rate", func() {
+				ctx := context.TODO()
+				args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom, "--omni"}
+				client, err := startServerWithArgs(ctx, args)
+				Expect(err).NotTo(HaveOccurred())
+
+				resp := postAdminConfig(client, `{"image-emission-rate":101}`)
+				defer func() { Expect(resp.Body.Close()).To(Succeed()) }()
+				Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
+			})
 		})
 	})
 

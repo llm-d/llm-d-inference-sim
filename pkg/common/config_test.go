@@ -916,6 +916,7 @@ var _ = Describe("admin struct tags", func() {
 			"failure-injection-rate":            "",
 			"failure-types":                     "",
 			"fake-metrics":                      "",
+			"image-emission-rate":               "",
 		}))
 	})
 

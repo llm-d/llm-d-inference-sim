@@ -203,6 +203,7 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 		"mm-encoder-only", "Skip the language component of the model", "Don't skip the language component of the model")
 	addToggle(f, &config.Omni,
 		"omni", "Enable omni mode: emit an image chunk when X-Send-Image header is present", "Disable omni mode")
+	f.IntVar(&config.ImageEmissionRate, "image-emission-rate", config.ImageEmissionRate, "Probability (0-100) of emitting a synthetic image chunk per chat completion request in omni mode")
 	f.StringVar(&config.MMProcessorKWArgs, "mm-processor-kwargs", config.MMProcessorKWArgs, "Arguments to be forwarded to the model's processor for multi-modal data, ignored")
 	f.StringVar(&config.ECTransferConfig, "ec-transfer-config", config.ECTransferConfig, "Configuration for distributed EC cache transfer, ignored")
 	addToggle(f, &config.EnforceEager,
