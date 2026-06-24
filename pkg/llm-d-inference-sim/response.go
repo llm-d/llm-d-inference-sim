@@ -53,6 +53,7 @@ type ResponseContext interface {
 	SetCreationTime(int64)
 	TopLogprobs() *int
 	ECTransferParams() map[string]api.ECTransferParams
+	SendImage() bool
 	setWG(*sync.WaitGroup)
 	Done()
 }
@@ -158,6 +159,9 @@ func (b *baseResponseContext) Done() {
 }
 func (b *baseResponseContext) setWG(wg *sync.WaitGroup) {
 	b.wg = wg
+}
+func (b *baseResponseContext) SendImage() bool {
+	return b.reqCtx.request().SendImage()
 }
 
 func respIsEmpty(respCtx ResponseContext) bool {

@@ -29,7 +29,11 @@ import (
 // Implementation of request for /chat/completions requests
 type ChatCompletionsRequest struct {
 	api.ChatCompletionsRequest
+	willSendImage bool
 }
+
+func (c *ChatCompletionsRequest) SetSendImage(v bool) { c.willSendImage = v }
+func (c *ChatCompletionsRequest) SendImage() bool     { return c.willSendImage }
 
 // reads and parses data from the body of the given request
 func (c *ChatCompletionsRequest) Unmarshal(data []byte) error {

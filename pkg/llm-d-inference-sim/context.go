@@ -268,6 +268,13 @@ func (s *SimContext) simulateTTFT(respCtx ResponseContext) {
 	common.WriteToChannel(s.metrics.reqPrefillTimeChan, time.Since(startPrefill).Seconds(), s.logger)
 }
 
+func (s *SimContext) simulateImageGenerationLatency() {
+	cfg := s.Config()
+	if cfg.TimeToGenerateImage > 0 {
+		time.Sleep(s.Random.RandomNormDuration(cfg.TimeToGenerateImage, cfg.TimeToGenerateImageStdDev))
+	}
+}
+
 func (s *SimContext) simulateInterTokenLatency() {
 	perTokenLatency := s.latencyCalc().GetInterTokenLatency(&InterTokenParams{
 		RunningReqs: s.metrics.nRunningReqs})

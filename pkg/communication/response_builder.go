@@ -94,12 +94,6 @@ type responseBuilder interface {
 	// to be emitted after the token stream, or nil if this builder does not
 	// support image chunks.
 	createImageChunk(respCtx vllmsim.ResponseContext, choiceIdx int) sseChunk
-	// setSendImage tells the builder whether to include a synthetic image in
-	// non-streaming responses. No-op for builders that do not support images.
-	setSendImage(bool)
-	// shouldSendImage reports whether the builder has been asked to emit an
-	// image. Always false for builders that do not support images.
-	shouldSendImage() bool
 }
 
 // aggregateUsage combines per-choice usages. Completion tokens are always
@@ -148,8 +142,6 @@ func (*baseRespBuilder) createFirstChunk(_ vllmsim.ResponseContext, _ int) sseCh
 func (*baseRespBuilder) createDoneChunk() sseChunk                                  { return &doneMarker{} }
 func (*baseRespBuilder) sendFinishReasonWithTokens() bool                           { return false }
 func (*baseRespBuilder) createImageChunk(_ vllmsim.ResponseContext, _ int) sseChunk { return nil }
-func (*baseRespBuilder) setSendImage(bool)                                          {}
-func (*baseRespBuilder) shouldSendImage() bool                                      { return false }
 func (*baseRespBuilder) createRenderResponse(_ [][]uint32, _ *api.RenderMMFeatures) any {
 	panic("createRenderResponse not supported for this response builder")
 }
@@ -250,10 +242,7 @@ func (*textComplHTTPRespBuilder) createRenderResponse(tokens [][]uint32,
 
 var _ responseBuilder = (*textComplHTTPRespBuilder)(nil)
 
-type chatComplHTTPRespBuilder struct {
-	baseRespBuilder
-	sendImage bool
-}
+type chatComplHTTPRespBuilder struct{ baseRespBuilder }
 
 func (respBuilder *chatComplHTTPRespBuilder) createResponse(respCtxPerChoice []vllmsim.ResponseContext,
 	tokens []api.Tokenized) any {
@@ -268,16 +257,17 @@ func (respBuilder *chatComplHTTPRespBuilder) createResponse(respCtxPerChoice []v
 		baseChoice := api.CreateBaseResponseChoice(i, choiceCtx.FinishReason())
 
 		message := api.Message{Role: api.RoleAssistant}
+		sendImage := choiceCtx.SendImage()
 		if choiceCtx.ToolCalls() != nil {
 			message.ToolCalls = choiceCtx.ToolCalls()
-			if respBuilder.sendImage {
+			if sendImage {
 				message.Content = api.ChatComplContent{Structured: []api.ChatComplContentBlock{
 					{Type: "image_url", ImageURL: &api.ChatComplImageBlock{Url: "data:image/png;base64," + syntheticImageData}},
 				}}
 			}
 		} else {
 			respText := strings.Join(t.Strings, "")
-			if respBuilder.sendImage {
+			if sendImage {
 				message.Content = api.ChatComplContent{Structured: []api.ChatComplContentBlock{
 					{Type: "text", Text: respText},
 					{Type: "image_url", ImageURL: &api.ChatComplImageBlock{Url: "data:image/png;base64," + syntheticImageData}},
@@ -334,7 +324,7 @@ func (respBuilder *chatComplHTTPRespBuilder) createChunk(respCtx vllmsim.Respons
 		chunk.Choices[0].Delta.ToolCalls = []api.ToolCall{*tool}
 	} else if tokens != nil && len(tokens.Strings) > 0 {
 		tokensStr := strings.Join(tokens.Strings, "")
-		if respBuilder.sendImage {
+		if respCtx.SendImage() {
 			chunk.Choices[0].Delta.Content = api.ChatComplContent{Structured: []api.ChatComplContentBlock{
 				{Type: "text", Text: tokensStr},
 			}}
@@ -369,8 +359,6 @@ func (respBuilder *chatComplHTTPRespBuilder) createLastChunk(respCtx vllmsim.Res
 	return respBuilder.createChunk(respCtx, nil, nil, "", respCtx.FinishReason(), choiceIdx)
 }
 
-func (b *chatComplHTTPRespBuilder) setSendImage(v bool)   { b.sendImage = v }
-func (b *chatComplHTTPRespBuilder) shouldSendImage() bool { return b.sendImage }
 func (b *chatComplHTTPRespBuilder) createImageChunk(respCtx vllmsim.ResponseContext, choiceIdx int) sseChunk {
 	if respCtx == nil {
 		return nil

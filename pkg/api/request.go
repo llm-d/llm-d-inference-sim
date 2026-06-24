@@ -117,6 +117,11 @@ type Request interface {
 	CacheThresholdFinishReason() bool
 	// SetCacheThresholdFinishReason sets cacheThresholdFinishReason
 	SetCacheThresholdFinishReason(bool)
+	// SetSendImage records whether an image will be emitted with this response.
+	// Only meaningful for chat completions in omni mode; no-op for all other request types.
+	SetSendImage(bool)
+	// SendImage reports whether an image will be emitted with this response.
+	SendImage() bool
 }
 
 // baseRequest contains base completions request related information
@@ -363,6 +368,9 @@ func (b *baseRequest) MMFeatures() *RenderMMFeatures {
 func (b *baseRequest) SetMMFeatures(mmFeatures *RenderMMFeatures) {
 	b.mmFeatures = mmFeatures
 }
+
+func (b *baseRequest) SetSendImage(bool) {}
+func (b *baseRequest) SendImage() bool   { return false }
 
 func (b *baseCompletionsRequest) IncludeUsage() bool {
 	return !b.Stream || (b.StreamOptions != nil && b.StreamOptions.IncludeUsage)

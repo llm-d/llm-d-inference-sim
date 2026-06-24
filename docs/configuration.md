@@ -45,6 +45,8 @@ For a detailed explanation of how the simulator models inference time and what e
 - `inter-token-latency-std-dev`: standard deviation for time between generated tokens, optional, default is zero. Can't be more than 30% of `inter-token-latency`, will not cause the actual inter token latency to differ by more than 70% from `inter-token-latency`
 - `kv-cache-transfer-latency`: time for KV-cache "transfer" from a remote vLLM, optional, by default zero. Usually much shorter than `time-to-first-token`
 - `kv-cache-transfer-latency-std-dev`: standard deviation for time to "transfer" kv-cache from another vLLM instance in case P/D is activated, optional, default is zero. Can't be more than 30% of `kv-cache-transfer-latency`, will not cause the actual latency to differ by more than 70% from `kv-cache-transfer-latency`
+- `time-to-generate-image`: simulated time to generate an image in omni mode. When a chat completion request is going to emit an image chunk, the simulator sleeps for this duration before sending it. Optional, default is zero.
+- `time-to-generate-image-std-dev`: standard deviation for `time-to-generate-image`, optional, default is zero. Can't be more than 30% of `time-to-generate-image`, will not cause the actual image generation time to differ by more than 70% from `time-to-generate-image`.
 - `seed`: random seed for operations (if not set, current Unix time in nanoseconds is used)
 
 #### Per-token calculator parameters

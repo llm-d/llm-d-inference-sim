@@ -204,6 +204,8 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 	addToggle(f, &config.Omni,
 		"omni", "Enable omni mode: emit an image chunk when X-Send-Image header is present", "Disable omni mode")
 	f.IntVar(&config.ImageEmissionRate, "image-emission-rate", config.ImageEmissionRate, "Probability (0-100) of emitting a synthetic image chunk per chat completion request in omni mode")
+	f.DurationVar(&config.TimeToGenerateImage, "time-to-generate-image", config.TimeToGenerateImage, "Simulated time to generate an image in omni mode, e.g. 500ms")
+	f.DurationVar(&config.TimeToGenerateImageStdDev, "time-to-generate-image-std-dev", config.TimeToGenerateImageStdDev, "Standard deviation for time to generate an image in omni mode, e.g. 50ms")
 	f.StringVar(&config.MMProcessorKWArgs, "mm-processor-kwargs", config.MMProcessorKWArgs, "Arguments to be forwarded to the model's processor for multi-modal data, ignored")
 	f.StringVar(&config.ECTransferConfig, "ec-transfer-config", config.ECTransferConfig, "Configuration for distributed EC cache transfer, ignored")
 	addToggle(f, &config.EnforceEager,
