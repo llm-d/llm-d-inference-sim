@@ -206,6 +206,23 @@ var _ = Describe("Simulator configuration", func() {
 	}
 	tests = append(tests, test)
 
+	// Config with image generation latencies
+	c = createDefaultConfig(QwenModelName, nil)
+	c.Port = 8001
+	c.MaxLoras = 1
+	c.MaxCPULoras = 1
+	c.TimeToGenerateImage = 500 * time.Millisecond
+	c.TimeToGenerateImageStdDev = 50 * time.Millisecond
+	test = testCase{
+		name: "basic config file with image generation latencies",
+		args: []string{"cmd", "--config", "../../manifests/basic-config.yaml",
+			"--time-to-generate-image", "500ms",
+			"--time-to-generate-image-std-dev", "50ms",
+		},
+		expectedConfig: c,
+	}
+	tests = append(tests, test)
+
 	// Config from config_with_fake.yaml file
 	c = createDefaultConfig(QwenModelName, nil)
 	c.FakeMetrics = &FakeMetrics{
@@ -539,6 +556,24 @@ var _ = Describe("Simulator configuration", func() {
 			expectedError: "kv-cache transfer time standard deviation cannot be negative",
 		},
 		{
+			name: "invalid (negative) time-to-generate-image",
+			args: []string{"cmd", "--time-to-generate-image", "-1ms",
+				"--config", "../../manifests/config.yaml"},
+			expectedError: "time to generate image cannot be negative",
+		},
+		{
+			name: "invalid (negative) time-to-generate-image-std-dev",
+			args: []string{"cmd", "--time-to-generate-image-std-dev", "-1ms",
+				"--config", "../../manifests/config.yaml"},
+			expectedError: "time to generate image standard deviation cannot be negative",
+		},
+		{
+			name: "invalid time-to-generate-image-std-dev exceeds 30%",
+			args: []string{"cmd", "--time-to-generate-image", "500ms", "--time-to-generate-image-std-dev", "200ms",
+				"--config", "../../manifests/config.yaml"},
+			expectedError: "time to generate image standard deviation cannot be more than 30% of time to generate image",
+		},
+		{
 			name: "invalid data-parallel-size",
 			args: []string{"cmd", "--data-parallel-size", "15",
 				"--config", "../../manifests/config.yaml"},
@@ -730,6 +765,10 @@ var _ = Describe("ApplyAdminUpdate", func() {
 			`{"time-to-first-token": "1s", "time-to-first-token-std-dev": "100ms"}`, true),
 		Entry("mixed latency + non-latency -> true",
 			`{"failure-injection-rate": 0, "prefill-overhead": "1ms"}`, true),
+		Entry("time-to-generate-image -> false",
+			`{"time-to-generate-image": "500ms"}`, false),
+		Entry("time-to-generate-image-std-dev -> false",
+			`{"time-to-generate-image": "500ms", "time-to-generate-image-std-dev": "50ms"}`, false),
 	)
 
 	It("returns latencyChanged=false when validation fails on a latency body", func() {
@@ -917,6 +956,8 @@ var _ = Describe("admin struct tags", func() {
 			"failure-types":                     "",
 			"fake-metrics":                      "",
 			"image-emission-rate":               "",
+			"time-to-generate-image":            "",
+			"time-to-generate-image-std-dev":    "",
 		}))
 	})
 

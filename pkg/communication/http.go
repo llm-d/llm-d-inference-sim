@@ -268,7 +268,7 @@ func (c *Communication) handleHTTP(req vllmsim.Request, respBuilder responseBuil
 		if !sendImg && cfg.ImageEmissionRate > 0 {
 			sendImg = c.simulator.Context.Random.RandomInt(1, 100) <= cfg.ImageEmissionRate
 		}
-		respBuilder.setSendImage(sendImg)
+		req.SetSendImage(sendImg)
 	}
 
 	numChoices, isStream, channel, err, errInjected := c.simulator.HandleRequest(req)
@@ -444,7 +444,7 @@ func (c *Communication) sendStream(ctx *fasthttp.RequestCtx, channel common.Chan
 			}
 		}
 
-		if respBuilder.shouldSendImage() {
+		if respCtx.SendImage() {
 			for i := range state.respCtxPerChoice {
 				if !c.sendOrFail(ctx, w, respBuilder.createImageChunk(respCtx, i), "Sending image chunk failed, ") {
 					return

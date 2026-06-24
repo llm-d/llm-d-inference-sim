@@ -158,6 +158,14 @@ type Configuration struct {
 	// KVCacheTransferOverheadStdDev similar to TimeToFirstTokenStdDev
 	KVCacheTransferTimeStdDev time.Duration `yaml:"kv-cache-transfer-time-std-dev" json:"kv-cache-transfer-time-std-dev" admin:"configurable" rebuild:"latency"`
 
+	// TimeToGenerateImage is the simulated time to generate an image in omni mode.
+	// When an image is going to be emitted in a chat completion, the simulator
+	// sleeps for this duration before sending the image chunk.
+	TimeToGenerateImage time.Duration `yaml:"time-to-generate-image" json:"time-to-generate-image" admin:"configurable"`
+	// TimeToGenerateImageStdDev standard deviation for time to generate an image.
+	// Optional, default is 0, can't be more than 30% of TimeToGenerateImage.
+	TimeToGenerateImageStdDev time.Duration `yaml:"time-to-generate-image-std-dev" json:"time-to-generate-image-std-dev" admin:"configurable"`
+
 	// TimeFactorUnderLoad is a multiplicative factor that affects the overall time taken for requests when parallel
 	// requests are being processed.
 	// The value of this factor must be >= 1.0, with a default of 1.0.
@@ -418,6 +426,16 @@ func (c *Configuration) validate() error {
 	}
 	if float32(c.TimeToFirstTokenStdDev) > 0.3*float32(c.TimeToFirstToken) {
 		return errors.New("time to first token standard deviation cannot be more than 30% of time to first token")
+	}
+
+	if c.TimeToGenerateImage < 0 {
+		return errors.New("time to generate image cannot be negative")
+	}
+	if c.TimeToGenerateImageStdDev < 0 {
+		return errors.New("time to generate image standard deviation cannot be negative")
+	}
+	if float32(c.TimeToGenerateImageStdDev) > 0.3*float32(c.TimeToGenerateImage) {
+		return errors.New("time to generate image standard deviation cannot be more than 30% of time to generate image")
 	}
 
 	if c.PrefillOverhead < 0 {

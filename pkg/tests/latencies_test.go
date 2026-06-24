@@ -21,10 +21,15 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
+	"github.com/llm-d/llm-d-inference-sim/pkg/communication"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/option"
+	"github.com/openai/openai-go/v3/packages/param"
 )
 
 var _ = Describe("Check latency calculator", Ordered, func() {
@@ -256,6 +261,96 @@ var _ = Describe("Latency admin config", func() {
 			ttft, _ := sendCompletionsRequestForLatencyTest(
 				client, common.TestModelName, testUserMessage, false, false)
 			Expect(ttft.Milliseconds()).To(BeNumerically(">=", 1000))
+		})
+	})
+
+	Context("image generation latency", func() {
+		BeforeEach(func() {
+			ctx = context.Background()
+			var err error
+			client, err = startServerWithArgs(ctx, []string{
+				"cmd", "--model", common.TestModelName,
+				"--mode", common.ModeEcho,
+				"--omni",
+				"--latency-calculator", common.ConstantLatencyCalculator,
+				"--time-to-first-token", "0ms",
+				"--inter-token-latency", "0ms",
+				"--time-to-generate-image", "500ms",
+			})
+			Expect(err).ToNot(HaveOccurred())
+		})
+
+		It("adds image generation delay after the token stream when X-Send-Image is set", func() {
+			openaiclient := openai.NewClient(
+				option.WithBaseURL(baseURL),
+				option.WithHTTPClient(client),
+				option.WithMaxRetries(0))
+			params := openai.ChatCompletionNewParams{
+				Messages:  []openai.ChatCompletionMessageParamUnion{openai.UserMessage(testUserMessage)},
+				Model:     common.TestModelName,
+				MaxTokens: param.NewOpt(int64(5)),
+			}
+
+			// Without X-Send-Image: no image delay, should complete quickly.
+			start := time.Now()
+			_, err := openaiclient.Chat.Completions.New(ctx, params)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(time.Since(start).Milliseconds()).To(BeNumerically("<", 200))
+
+			// With X-Send-Image: true, total time must include the 500ms image generation delay.
+			start = time.Now()
+			_, err = openaiclient.Chat.Completions.New(ctx, params,
+				option.WithHeader(communication.XSendImageHeader, "true"))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(time.Since(start).Milliseconds()).To(BeNumerically(">=", 500))
+		})
+	})
+
+	Context("update of image generation latency", func() {
+		BeforeEach(func() {
+			ctx = context.Background()
+			var err error
+			client, err = startServerWithArgs(ctx, []string{
+				"cmd", "--model", common.TestModelName,
+				"--mode", common.ModeEcho,
+				"--omni",
+				"--latency-calculator", common.ConstantLatencyCalculator,
+				"--time-to-first-token", "0ms",
+				"--inter-token-latency", "0ms",
+				"--time-to-generate-image", "0ms",
+			})
+			Expect(err).ToNot(HaveOccurred())
+		})
+
+		It("applies a new time-to-generate-image to subsequent requests", func() {
+			openaiclient := openai.NewClient(
+				option.WithBaseURL(baseURL),
+				option.WithHTTPClient(client),
+				option.WithMaxRetries(0))
+			params := openai.ChatCompletionNewParams{
+				Messages:  []openai.ChatCompletionMessageParamUnion{openai.UserMessage(testUserMessage)},
+				Model:     common.TestModelName,
+				MaxTokens: param.NewOpt(int64(5)),
+			}
+
+			// Before: time-to-generate-image=0ms, should complete quickly.
+			start := time.Now()
+			_, err := openaiclient.Chat.Completions.New(ctx, params,
+				option.WithHeader(communication.XSendImageHeader, "true"))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(time.Since(start).Milliseconds()).To(BeNumerically("<", 200))
+
+			// Bump time-to-generate-image to 500ms.
+			resp := postAdminConfig(client, `{"time-to-generate-image":"500ms"}`)
+			Expect(resp.Body.Close()).To(Succeed())
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+			// After: total time must include the 500ms image generation delay.
+			start = time.Now()
+			_, err = openaiclient.Chat.Completions.New(ctx, params,
+				option.WithHeader(communication.XSendImageHeader, "true"))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(time.Since(start).Milliseconds()).To(BeNumerically(">=", 500))
 		})
 	})
 

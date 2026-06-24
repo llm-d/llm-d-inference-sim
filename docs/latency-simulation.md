@@ -177,3 +177,19 @@ Must be `>= 1.0`. **Not** applied to KV-cache transfer parameters, which are net
 The factor scales linearly between 1.0 (one request in flight) and the configured value
 (at `max-num-seqs`). When `max-num-seqs <= 1`, the factor is forced to `1.0`.
 
+### `time-to-generate-image` / `time-to-generate-image-std-dev`
+
+Applies only in omni mode (`--omni`) when a chat completion request is going to emit an
+image chunk. After all output tokens have been produced, the simulator sleeps for a duration drawn from a
+normal distribution centered at `time-to-generate-image` with spread
+`time-to-generate-image-std-dev`. In streaming responses this delays the image chunk; in
+non-streaming responses it delays the complete response body.
+
+This models the latency of a separate image-generation step that runs concurrently with or
+after the text decode phase in real omni models. Set it to something in the range of the
+total decode time for a realistic end-to-end simulation; leave it at zero (the default) to
+emit the image without any added delay.
+
+The std-dev is capped at 30% of the mean; sampled values are clamped to ±70% of the mean.
+Not affected by `time-factor-under-load`.
+

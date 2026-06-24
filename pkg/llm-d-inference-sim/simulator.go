@@ -467,6 +467,10 @@ func (s *VllmSimulator) simulateResponseProcessing(respCtx ResponseContext) {
 			}
 		}
 		common.WriteToChannel(s.Context.metrics.reqDecodeTimeChan, time.Since(startDecode).Seconds(), s.Context.logger)
+
+		if reqCtx.request().SendImage() {
+			s.Context.simulateImageGenerationLatency()
+		}
 	}
 }
 
