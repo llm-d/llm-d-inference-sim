@@ -17,6 +17,7 @@ limitations under the License.
 package communication
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/tls"
@@ -25,37 +26,24 @@ import (
 	"encoding/pem"
 	"fmt"
 	"math/big"
+	"path/filepath"
 	"time"
 
-	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
+	"github.com/go-logr/logr"
+	routercommon "github.com/llm-d/llm-d-router/pkg/common"
 	"github.com/valyala/fasthttp"
+
+	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 )
 
 // Based on: https://github.com/kubernetes-sigs/gateway-api-inference-extension/blob/8d01161ec48d6b49cd371f179551b35da46e6fd6/internal/tls/tls.go
-func (c *Communication) configureSSL(server *fasthttp.Server) error {
+func (c *Communication) configureSSL(ctx context.Context, server *fasthttp.Server) error {
 	if !c.simulator.Context.Config().SSLEnabled() {
 		return nil
 	}
 
-	var cert tls.Certificate
-	var err error
-
-	if c.simulator.Context.Config().SSLCertFile != "" && c.simulator.Context.Config().SSLKeyFile != "" {
-		c.logger.V(logging.INFO).Info("HTTPS server starting with certificate files", "cert", c.simulator.Context.Config().SSLCertFile, "key", c.simulator.Context.Config().SSLKeyFile)
-		cert, err = tls.LoadX509KeyPair(c.simulator.Context.Config().SSLCertFile, c.simulator.Context.Config().SSLKeyFile)
-	} else if c.simulator.Context.Config().SelfSignedCerts {
-		c.logger.V(logging.INFO).Info("HTTPS server starting with self-signed certificate")
-		cert, err = CreateSelfSignedTLSCertificate()
-	}
-
-	if err != nil {
-		c.logger.Error(err, "failed to create TLS certificate")
-		return err
-	}
-
-	server.TLSConfig = &tls.Config{
-		Certificates: []tls.Certificate{cert},
-		MinVersion:   tls.VersionTLS12,
+	tlsConfig := &tls.Config{
+		MinVersion: tls.VersionTLS12,
 		CipherSuites: []uint16{
 			tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
 			tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
@@ -65,6 +53,56 @@ func (c *Communication) configureSSL(server *fasthttp.Server) error {
 			tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305,
 		},
 	}
+
+	cfg := c.simulator.Context.Config()
+
+	if cfg.SSLCertFile != "" && cfg.SSLKeyFile != "" {
+		c.logger.V(logging.INFO).Info("HTTPS server starting with certificate files", "cert", cfg.SSLCertFile, "key", cfg.SSLKeyFile)
+		cert, err := tls.LoadX509KeyPair(cfg.SSLCertFile, cfg.SSLKeyFile)
+		if err != nil {
+			c.logger.Error(err, "failed to load TLS certificate")
+			return err
+		}
+
+		certDir := filepath.Dir(cfg.SSLCertFile)
+		keyDir := filepath.Dir(cfg.SSLKeyFile)
+
+		canReload := true
+		if certDir != keyDir {
+			c.logger.V(logging.WARN).Info("Certificate and key are in different directories; automatic certificate reloading is disabled",
+				"certDir", certDir, "keyDir", keyDir)
+			canReload = false
+		}
+		if filepath.Base(cfg.SSLCertFile) != "tls.crt" || filepath.Base(cfg.SSLKeyFile) != "tls.key" {
+			c.logger.V(logging.WARN).Info("Certificate reloading requires files named tls.crt and tls.key; automatic certificate reloading is disabled",
+				"certFile", filepath.Base(cfg.SSLCertFile), "keyFile", filepath.Base(cfg.SSLKeyFile))
+			canReload = false
+		}
+
+		if canReload {
+			reloaderCtx := logr.NewContext(ctx, c.logger)
+			reloader, err := routercommon.NewCertReloader(reloaderCtx, certDir, &cert)
+			if err != nil {
+				c.logger.Error(err, "failed to create cert reloader")
+				return err
+			}
+			tlsConfig.GetCertificate = func(*tls.ClientHelloInfo) (*tls.Certificate, error) {
+				return reloader.Get(), nil
+			}
+		} else {
+			tlsConfig.Certificates = []tls.Certificate{cert}
+		}
+	} else if cfg.SelfSignedCerts {
+		c.logger.V(logging.INFO).Info("HTTPS server starting with self-signed certificate")
+		cert, err := CreateSelfSignedTLSCertificate()
+		if err != nil {
+			c.logger.Error(err, "failed to create self-signed TLS certificate")
+			return err
+		}
+		tlsConfig.Certificates = []tls.Certificate{cert}
+	}
+
+	server.TLSConfig = tlsConfig
 
 	return nil
 }
