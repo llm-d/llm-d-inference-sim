@@ -325,7 +325,7 @@ var _ = Describe("Server", func() {
 
 			resp, err := client.Get("https://localhost/health")
 			Expect(err).NotTo(HaveOccurred())
-			defer resp.Body.Close()
+			defer func() { _ = resp.Body.Close() }()
 			Expect(resp.StatusCode).To(Equal(http.StatusOK))
 			Expect(resp.TLS).NotTo(BeNil())
 			oldSerial := resp.TLS.PeerCertificates[0].SerialNumber
@@ -347,7 +347,7 @@ var _ = Describe("Server", func() {
 				client.CloseIdleConnections()
 				r, err := client.Get("https://localhost/health")
 				g.Expect(err).NotTo(HaveOccurred())
-				defer r.Body.Close()
+				defer func() { _ = r.Body.Close() }()
 				g.Expect(r.StatusCode).To(Equal(http.StatusOK))
 				g.Expect(r.TLS).NotTo(BeNil())
 				g.Expect(r.TLS.PeerCertificates[0].SerialNumber).NotTo(Equal(oldSerial))
