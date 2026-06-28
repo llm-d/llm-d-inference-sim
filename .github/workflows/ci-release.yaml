@@ -2,13 +2,46 @@ name: CI - Release - Docker Container Image
 
 on:
   push:
+    branches:
+      - main
     tags:
       - 'v*'  # Runs when a tag like v0.1.0 is pushed
   release:
     types: [published]  # Also runs when a GitHub release is published
 
 jobs:
+  dev-build-and-push:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v7
+
+      - name: Set short SHA tag
+        id: tag
+        run: echo "sha_short=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push dev image
+        uses: ./.github/actions/docker-build-and-push
+        with:
+          tag: ${{ steps.tag.outputs.sha_short }}
+          image-name: llm-d-inference-sim-dev
+          registry: ghcr.io/llm-d
+          github-token: ${{ secrets.GHCR_TOKEN }}
+          prerelease: "true"
+
+      - name: Build and push dev zmq listener image
+        uses: ./.github/actions/docker-build-and-push
+        with:
+          tag: ${{ steps.tag.outputs.sha_short }}
+          image-name: zmq-listener-dev
+          registry: ghcr.io/llm-d
+          github-token: ${{ secrets.GHCR_TOKEN }}
+          prerelease: "true"
+          dockerfile: Dockerfile.zmq
+
   docker-build-and-push:
+    if: github.event_name == 'release' || startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout source
