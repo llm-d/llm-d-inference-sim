@@ -141,199 +141,209 @@ type threadTestCase struct {
 	shouldUseAllCache bool
 }
 
+// bothFormats returns two TableEntry values for the given test case name and data,
+// one for the legacy list format and one for the vLLM map format. Use with DescribeTable
+// whose first parameter is useMapFormat bool.
+func bothFormats(name string, tc testCase) []any {
+	return []any{
+		Entry(name+" / list format", false, tc),
+		Entry(name+" / map format", true, tc),
+	}
+}
+
 var _ = Describe("KV cache", Ordered, func() {
 	random := common.NewRandom(time.Now().UnixNano(), 8080)
 
-	Context("general tests", func() {
-		// check single request processing, ensure cache is valid after request processing started
-		// and after the processing was finished
-		req1 := testRequest{id: req1ID, blockHashes: []uint64{1, 2}, tokens: [][]uint32{{1}, {2}}}
-		req2 := testRequest{id: req2ID, blockHashes: []uint64{3, 4}, tokens: [][]uint32{{3}, {4}}}
-		req2_1 := testRequest{id: req2ID, blockHashes: []uint64{1, 3}, tokens: [][]uint32{{1}, {3}}}
-		req3 := testRequest{id: req3ID, blockHashes: []uint64{5, 6}, tokens: [][]uint32{{5}, {6}}}
+	req1 := testRequest{id: req1ID, blockHashes: []uint64{1, 2}, tokens: [][]uint32{{1}, {2}}}
+	req2 := testRequest{id: req2ID, blockHashes: []uint64{3, 4}, tokens: [][]uint32{{3}, {4}}}
+	req2_1 := testRequest{id: req2ID, blockHashes: []uint64{1, 3}, tokens: [][]uint32{{1}, {3}}}
+	req3 := testRequest{id: req3ID, blockHashes: []uint64{5, 6}, tokens: [][]uint32{{5}, {6}}}
 
-		testCases := []testCase{
-			{
-				name:      "single request",
-				cacheSize: 3,
-				actions: []testAction{
-					newTestActionWithExpectedValues(actionStartRequest, req1, 1, 2, 0, nil),
-					newTestActionWithExpectedValues(actionFinishRequest, req1, 0, 2, 2, nil),
-				},
-				expectedRemovedBlocks: 0,
-				expectedStoredBlocks:  2,
+	// generalTestEntries builds both list-format and map-format table entries for each test case.
+	var generalTestEntries []any
+	for _, tc := range []testCase{
+		{
+			name:      "single request",
+			cacheSize: 3,
+			actions: []testAction{
+				newTestActionWithExpectedValues(actionStartRequest, req1, 1, 2, 0, nil),
+				newTestActionWithExpectedValues(actionFinishRequest, req1, 0, 2, 2, nil),
 			},
-			{
-				name:      "two requests",
-				cacheSize: 5,
-				actions: []testAction{
-					newStartAction(req1),
-					newTestActionWithExpectedValues(actionStartRequest, req2, 2, 4, 0, nil),
-					newTestActionWithExpectedValues(actionFinishRequest, req1, 1, 4, 2, nil),
-					newTestActionWithExpectedValues(actionFinishRequest, req2, 0, 4, 4, nil),
-				},
-				expectedRemovedBlocks: 0,
-				expectedStoredBlocks:  4,
+			expectedRemovedBlocks: 0,
+			expectedStoredBlocks:  2,
+		},
+		{
+			name:      "two requests",
+			cacheSize: 5,
+			actions: []testAction{
+				newStartAction(req1),
+				newTestActionWithExpectedValues(actionStartRequest, req2, 2, 4, 0, nil),
+				newTestActionWithExpectedValues(actionFinishRequest, req1, 1, 4, 2, nil),
+				newTestActionWithExpectedValues(actionFinishRequest, req2, 0, 4, 4, nil),
 			},
-			{
-				name:      "reusing blocks",
-				cacheSize: 5,
-				actions: []testAction{
-					newStartAction(req1),
-					// Check block '1' reference count (should be 2)
-					newTestActionWithExpectedValues(actionStartRequest, req2_1, 2, 3, 0, map[uint64]expectedBlockInfo{1: {true, 2}}),
-					// Check block '1' reference count (should be 1)
-					newTestActionWithExpectedValues(actionFinishRequest, req1, 1, 3, 1, map[uint64]expectedBlockInfo{1: {true, 1}}),
-				},
-				expectedRemovedBlocks: 0,
-				expectedStoredBlocks:  3,
+			expectedRemovedBlocks: 0,
+			expectedStoredBlocks:  4,
+		},
+		{
+			name:      "reusing blocks",
+			cacheSize: 5,
+			actions: []testAction{
+				newStartAction(req1),
+				// Check block '1' reference count (should be 2)
+				newTestActionWithExpectedValues(actionStartRequest, req2_1, 2, 3, 0, map[uint64]expectedBlockInfo{1: {true, 2}}),
+				// Check block '1' reference count (should be 1)
+				newTestActionWithExpectedValues(actionFinishRequest, req1, 1, 3, 1, map[uint64]expectedBlockInfo{1: {true, 1}}),
 			},
-			{
-				name:      "block eviction",
-				cacheSize: 4,
-				actions: []testAction{
-					newStartAction(req1),
-					newStartAction(req2),
-					newTestActionWithExpectedValues(actionFinishRequest, req2, -1, -1, -1, map[uint64]expectedBlockInfo{3: {true, 0}}),
-					newTestActionWithExpectedValues(actionStartRequest, req3, -1, -1, -1, map[uint64]expectedBlockInfo{
-						5: {true, 1},
-						3: {false, 0},
-					}),
-				},
-				expectedRemovedBlocks: 2,
-				expectedStoredBlocks:  6,
+			expectedRemovedBlocks: 0,
+			expectedStoredBlocks:  3,
+		},
+		{
+			name:      "block eviction",
+			cacheSize: 4,
+			actions: []testAction{
+				newStartAction(req1),
+				newStartAction(req2),
+				newTestActionWithExpectedValues(actionFinishRequest, req2, -1, -1, -1, map[uint64]expectedBlockInfo{3: {true, 0}}),
+				newTestActionWithExpectedValues(actionStartRequest, req3, -1, -1, -1, map[uint64]expectedBlockInfo{
+					5: {true, 1},
+					3: {false, 0},
+				}),
 			},
-			{
-				name:      "cache full, no eviction",
-				cacheSize: 4,
-				actions: []testAction{
-					newStartAction(req1),
-					newStartAction(req2),
-					newInvalidTestAction(actionStartRequest, req3, capacityError),
-				},
-				expectedRemovedBlocks: 0,
-				expectedStoredBlocks:  4,
+			expectedRemovedBlocks: 2,
+			expectedStoredBlocks:  6,
+		},
+		{
+			name:      "cache full, no eviction",
+			cacheSize: 4,
+			actions: []testAction{
+				newStartAction(req1),
+				newStartAction(req2),
+				newInvalidTestAction(actionStartRequest, req3, capacityError),
 			},
+			expectedRemovedBlocks: 0,
+			expectedStoredBlocks:  4,
+		},
+	} {
+		generalTestEntries = append(generalTestEntries, bothFormats(tc.name, tc)...)
+	}
+
+	generalTestFunc := func(useMapFormat bool, test testCase) {
+		time.Sleep(300 * time.Millisecond)
+
+		ctx, cancel := context.WithCancel(context.Background())
+
+		config := &common.Configuration{
+			IP:                    localhost,
+			Port:                  1234,
+			Model:                 "model",
+			KVCacheSize:           test.cacheSize,
+			EventBatchSize:        1,
+			UseVllmMapEventFormat: useMapFormat,
 		}
 
-		for _, test := range testCases {
-			It(test.name, func() {
-				time.Sleep(300 * time.Millisecond)
+		topic := CreateKVEventsTopic(localhost, config.Model)
+		sub, endpoint := common.CreateSub(ctx, topic)
+		config.ZMQEndpoint = endpoint
+		//nolint
+		defer sub.Close()
 
-				ctx, cancel := context.WithCancel(context.Background())
+		wg := sync.WaitGroup{}
+		wg.Add(1)
 
-				config := &common.Configuration{
-					IP:             localhost,
-					Port:           1234,
-					Model:          "model",
-					KVCacheSize:    test.cacheSize,
-					EventBatchSize: 1,
+		blockCache, err := newBlockCache(ctx, config, GinkgoLogr, nil)
+		Expect(err).NotTo(HaveOccurred())
+
+		go func() {
+			blockCache.start(ctx)
+			wg.Done()
+		}()
+
+		defer func() {
+			cancel()
+			wg.Wait() // wait for goroutine to exit
+		}()
+
+		go func() {
+			// Make sure that the subscriber listens before the events are published
+			time.Sleep(time.Second)
+
+			for _, action := range test.actions {
+				var err error
+				switch action.action {
+				case actionStartRequest:
+					_, err = blockCache.startRequest(&action.request, action.request.blockHashes, action.request.tokens)
+				case actionFinishRequest:
+					err = blockCache.finishRequest(action.request.id)
 				}
 
-				topic := CreateKVEventsTopic(localhost, config.Model)
-				sub, endpoint := common.CreateSub(ctx, topic)
-				config.ZMQEndpoint = endpoint
-				//nolint
-				defer sub.Close()
+				if action.isError {
+					Expect(err).To(HaveOccurred())
+					if len(action.errMsg) > 0 {
+						Expect(err.Error()).To(Equal(action.errMsg))
+					}
+					continue
+				}
 
-				wg := sync.WaitGroup{}
-				wg.Add(1)
-
-				blockCache, err := newBlockCache(ctx, config, GinkgoLogr, nil)
+				// ensure that error has not occurred
 				Expect(err).NotTo(HaveOccurred())
 
-				go func() {
-					blockCache.start(ctx)
-					wg.Done()
-				}()
+				// check cache info if required
+				if action.expectedActiveRequests >= 0 || action.expectedTotalBlocks >= 0 || action.expectedUnusedBlocks >= 0 {
+					activeRequests, totalBlocks, unusedBlocks := blockCache.getStats()
+					if action.expectedActiveRequests >= 0 {
+						Expect(activeRequests).To(Equal(action.expectedActiveRequests))
+					}
+					if action.expectedTotalBlocks >= 0 {
+						Expect(totalBlocks).To(Equal(action.expectedTotalBlocks))
+					}
+					if action.expectedUnusedBlocks >= 0 {
+						Expect(unusedBlocks).To(Equal(action.expectedUnusedBlocks))
+					}
+				}
 
-				defer func() {
-					cancel()
-					wg.Wait() // wait for goroutine to exit
-				}()
-
-				go func() {
-					// Make sure that the subscriber listens before the events are published
-					time.Sleep(time.Second)
-
-					for _, action := range test.actions {
-						var err error
-						switch action.action {
-						case actionStartRequest:
-							_, err = blockCache.startRequest(&action.request, action.request.blockHashes, action.request.tokens)
-						case actionFinishRequest:
-							err = blockCache.finishRequest(action.request.id)
+				// check specific blocks info if required
+				if len(action.expectedBlocksInfo) > 0 {
+					for block, expectedInfo := range action.expectedBlocksInfo {
+						refCount, exists := blockCache.getBlockInfo(blockKey{hash: block, modelName: action.request.GetDisplayedModel()})
+						if expectedInfo.exists {
+							Expect(exists).To(BeTrue())
+						} else {
+							Expect(exists).To(BeFalse())
 						}
-
-						if action.isError {
-							Expect(err).To(HaveOccurred())
-							if len(action.errMsg) > 0 {
-								Expect(err.Error()).To(Equal(action.errMsg))
-							}
-							continue
-						}
-
-						// ensure that error has not occurred
-						Expect(err).NotTo(HaveOccurred())
-
-						// check cache info if required
-						if action.expectedActiveRequests >= 0 || action.expectedTotalBlocks >= 0 || action.expectedUnusedBlocks >= 0 {
-							activeRequests, totalBlocks, unusedBlocks := blockCache.getStats()
-							if action.expectedActiveRequests >= 0 {
-								Expect(activeRequests).To(Equal(action.expectedActiveRequests))
-							}
-							if action.expectedTotalBlocks >= 0 {
-								Expect(totalBlocks).To(Equal(action.expectedTotalBlocks))
-							}
-							if action.expectedUnusedBlocks >= 0 {
-								Expect(unusedBlocks).To(Equal(action.expectedUnusedBlocks))
-							}
-						}
-
-						// check specific blocks info if required
-						if len(action.expectedBlocksInfo) > 0 {
-							for block, expectedInfo := range action.expectedBlocksInfo {
-								refCount, exists := blockCache.getBlockInfo(blockKey{hash: block, modelName: action.request.GetDisplayedModel()})
-								if expectedInfo.exists {
-									Expect(exists).To(BeTrue())
-								} else {
-									Expect(exists).To(BeFalse())
-								}
-								if expectedInfo.refCount >= 0 {
-									Expect(refCount).To(Equal(expectedInfo.refCount))
-								}
-							}
+						if expectedInfo.refCount >= 0 {
+							Expect(refCount).To(Equal(expectedInfo.refCount))
 						}
 					}
-				}()
-
-				storedCount := 0
-				removedCount := 0
-				expectedTotal := test.expectedRemovedBlocks + test.expectedStoredBlocks
-
-				for i, seq := 0, uint64(1); i < expectedTotal; i, seq = storedCount+removedCount, seq+1 {
-					msg, err := sub.Recv()
-					Expect(err).NotTo(HaveOccurred())
-					stored, removed, _ := CountKVEventBlocks(msg.Frames, topic, seq)
-					storedCount += stored
-					removedCount += removed
 				}
-				Expect(removedCount).To(Equal(test.expectedRemovedBlocks))
-				Expect(storedCount).To(Equal(test.expectedStoredBlocks))
-			})
+			}
+		}()
+
+		storedCount := 0
+		removedCount := 0
+		expectedTotal := test.expectedRemovedBlocks + test.expectedStoredBlocks
+
+		for i, seq := 0, uint64(1); i < expectedTotal; i, seq = storedCount+removedCount, seq+1 {
+			msg, err := sub.Recv()
+			Expect(err).NotTo(HaveOccurred())
+			stored, removed, _ := CountKVEventBlocks(msg.Frames, topic, seq)
+			storedCount += stored
+			removedCount += removed
 		}
-	})
+		Expect(removedCount).To(Equal(test.expectedRemovedBlocks))
+		Expect(storedCount).To(Equal(test.expectedStoredBlocks))
+	}
+	DescribeTable("general tests", append([]any{generalTestFunc}, generalTestEntries...)...)
 
-	Context("events", func() {
-
-		It("should send events correctly", func() {
+	DescribeTable("events / should send events correctly",
+		func(useMapFormat bool) {
 			ctx, cancel := context.WithCancel(context.Background())
 
 			config := &common.Configuration{
-				IP:          localhost,
-				Port:        1234,
-				Model:       "model",
-				KVCacheSize: 4,
+				IP:                    localhost,
+				Port:                  1234,
+				Model:                 "model",
+				KVCacheSize:           4,
+				UseVllmMapEventFormat: useMapFormat,
 			}
 
 			topic := CreateKVEventsTopic(localhost, config.Model)
@@ -418,12 +428,140 @@ var _ = Describe("KV cache", Ordered, func() {
 			}
 			Expect(removedBlocks).To(Equal(expectedRemovedBlocks))
 			Expect(storedBlocks).To(Equal(expectedStoredBlocks))
-		})
+		},
+		Entry("list format", false),
+		Entry("map format", true),
+	)
 
-	})
+	DescribeTable("events / should set parent_block_hash correctly",
+		func(useMapFormat bool) {
+			ctx, cancel := context.WithCancel(context.Background())
 
-	Context("thread safety", func() {
-		testCases := []threadTestCase{{
+			config := &common.Configuration{
+				IP:                    localhost,
+				Port:                  1234,
+				Model:                 "model",
+				KVCacheSize:           10,
+				EventBatchSize:        1,
+				UseVllmMapEventFormat: useMapFormat,
+			}
+
+			topic := CreateKVEventsTopic(localhost, config.Model)
+			sub, endpoint := common.CreateSub(ctx, topic)
+			config.ZMQEndpoint = endpoint
+			//nolint
+			defer sub.Close()
+
+			wg := sync.WaitGroup{}
+			wg.Add(1)
+
+			blockCache, err := newBlockCache(ctx, config, GinkgoLogr, nil)
+			Expect(err).NotTo(HaveOccurred())
+
+			go func() {
+				blockCache.start(ctx)
+				wg.Done()
+			}()
+
+			defer func() {
+				cancel()
+				wg.Wait()
+			}()
+
+			go func() {
+				time.Sleep(time.Second)
+
+				// req1: blocks 1,2,3 — all new, no cached prefix → parent should be EmptyBlockHash
+				req1 := testRequest{id: "req1", blockHashes: []uint64{1, 2, 3}, tokens: [][]uint32{{1}, {2}, {3}}}
+				_, err := blockCache.startRequest(&req1, req1.blockHashes, req1.tokens)
+				Expect(err).NotTo(HaveOccurred())
+				err = blockCache.finishRequest(req1.id)
+				Expect(err).NotTo(HaveOccurred())
+
+				// req2: blocks 1,2,3,4 — first 3 are already cached (prefix hit), only block 4 is new
+				// → parent of block 4 is block 3 (blockHashes[2])
+				req2 := testRequest{id: "req2", blockHashes: []uint64{1, 2, 3, 4}, tokens: [][]uint32{{1}, {2}, {3}, {4}}}
+				_, err = blockCache.startRequest(&req2, req2.blockHashes, req2.tokens)
+				Expect(err).NotTo(HaveOccurred())
+			}()
+
+			// collect req1 store event (3 new blocks, no parent)
+			msg, err := sub.Recv()
+			Expect(err).NotTo(HaveOccurred())
+			events, _, _ := ParseKVEvent(msg.Frames, topic, 1)
+			Expect(events).To(HaveLen(1))
+			Expect(events[0].BlockHashes).To(Equal([]uint64{1, 2, 3}))
+			Expect(events[0].ParentHash).To(Equal(uint64(0))) // EmptyBlockHash
+
+			// collect req2 store event (only block 4 is new, parent is block 3)
+			msg, err = sub.Recv()
+			Expect(err).NotTo(HaveOccurred())
+			events, _, _ = ParseKVEvent(msg.Frames, topic, 2)
+			Expect(events).To(HaveLen(1))
+			Expect(events[0].BlockHashes).To(Equal([]uint64{4}))
+			Expect(events[0].ParentHash).To(Equal(uint64(3))) // hash of last cached block
+		},
+		Entry("list format", false),
+		Entry("map format", true),
+	)
+
+	DescribeTable("thread safety",
+		func(testCase threadTestCase) {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			config := common.Configuration{
+				IP:          localhost,
+				Port:        1234,
+				Model:       "model",
+				KVCacheSize: testCase.cacheSize,
+			}
+			blockCache, err := newBlockCache(ctx, &config, GinkgoLogr, nil)
+			Expect(err).NotTo(HaveOccurred())
+			var wg sync.WaitGroup
+
+			// Start multiple goroutines performing concurrent operations
+			for i := range testCase.numGoroutines {
+				wg.Add(1)
+				go func(id int) {
+					defer wg.Done()
+
+					for j := range testCase.numOperations {
+						reqID := fmt.Sprintf("req_%d_%d", id, j)
+						hashes, tokens := createRandomArray(testCase.minBlockLen, testCase.maxBlockLen,
+							testCase.maxHashValue, random)
+
+						req := testRequest{
+							id:          reqID,
+							blockHashes: hashes,
+							tokens:      tokens,
+						}
+						_, err := blockCache.startRequest(&req, hashes, tokens)
+						if err != nil {
+							// some operations may fail due to cache being full, which is expected
+							Expect(err.Error()).To(Equal(capacityError))
+							continue
+						}
+
+						time.Sleep(time.Duration(random.RandomInt(1, 100)) * time.Microsecond)
+
+						err = blockCache.finishRequest(reqID)
+						Expect(err).NotTo(HaveOccurred())
+					}
+				}(i)
+			}
+
+			wg.Wait()
+
+			activeReqs, totalBlocks, unusedBlocks := blockCache.getStats()
+			fmt.Printf("Thread safety test completed. Final stats: Active requests: %d, Total blocks: %d, Unused blocks: %d\n",
+				activeReqs, totalBlocks, unusedBlocks)
+			if testCase.shouldUseAllCache {
+				Expect(totalBlocks).To(Equal(testCase.cacheSize))
+			}
+			Expect(totalBlocks).To(Equal(unusedBlocks))
+		},
+		Entry("run add/remove requests in parallel, use partial cache", threadTestCase{
 			name:              "run add/remove requests in parallel, use partial cache",
 			cacheSize:         1000,
 			numGoroutines:     50,
@@ -432,7 +570,8 @@ var _ = Describe("KV cache", Ordered, func() {
 			maxBlockLen:       10,
 			maxHashValue:      100,
 			shouldUseAllCache: false,
-		}, {
+		}),
+		Entry("run add/remove requests in parallel, use all cache", threadTestCase{
 			name:              "run add/remove requests in parallel, use all cache",
 			cacheSize:         100,
 			numGoroutines:     50,
@@ -441,66 +580,8 @@ var _ = Describe("KV cache", Ordered, func() {
 			maxBlockLen:       10,
 			maxHashValue:      100,
 			shouldUseAllCache: true,
-		}}
-
-		for _, testCase := range testCases {
-			It(testCase.name, func() {
-				ctx, cancel := context.WithCancel(context.Background())
-				defer cancel()
-
-				config := common.Configuration{
-					IP:          localhost,
-					Port:        1234,
-					Model:       "model",
-					KVCacheSize: testCase.cacheSize,
-				}
-				blockCache, err := newBlockCache(ctx, &config, GinkgoLogr, nil)
-				Expect(err).NotTo(HaveOccurred())
-				var wg sync.WaitGroup
-
-				// Start multiple goroutines performing concurrent operations
-				for i := range testCase.numGoroutines {
-					wg.Add(1)
-					go func(id int) {
-						defer wg.Done()
-
-						for j := range testCase.numOperations {
-							reqID := fmt.Sprintf("req_%d_%d", id, j)
-							hashes, tokens := createRandomArray(testCase.minBlockLen, testCase.maxBlockLen,
-								testCase.maxHashValue, random)
-
-							req := testRequest{
-								id:          reqID,
-								blockHashes: hashes,
-								tokens:      tokens,
-							}
-							_, err := blockCache.startRequest(&req, hashes, tokens)
-							if err != nil {
-								// some operations may fail due to cache being full, which is expected
-								Expect(err.Error()).To(Equal(capacityError))
-								continue
-							}
-
-							time.Sleep(time.Duration(random.RandomInt(1, 100)) * time.Microsecond)
-
-							err = blockCache.finishRequest(reqID)
-							Expect(err).NotTo(HaveOccurred())
-						}
-					}(i)
-				}
-
-				wg.Wait()
-
-				activeReqs, totalBlocks, unusedBlocks := blockCache.getStats()
-				fmt.Printf("Thread safety test completed. Final stats: Active requests: %d, Total blocks: %d, Unused blocks: %d\n",
-					activeReqs, totalBlocks, unusedBlocks)
-				if testCase.shouldUseAllCache {
-					Expect(totalBlocks).To(Equal(testCase.cacheSize))
-				}
-				Expect(totalBlocks).To(Equal(unusedBlocks))
-			})
-		}
-	})
+		}),
+	)
 
 	Context("model-aware blocks", func() {
 		const loraModel = "loraX"
@@ -741,17 +822,17 @@ var _ = Describe("KV cache", Ordered, func() {
 		})
 	})
 
-	Context("lora fields in events", func() {
-
-		It("store events should carry lora metadata", func() {
+	DescribeTable("lora fields in events / store events should carry lora metadata",
+		func(useMapFormat bool) {
 			ctx, cancel := context.WithCancel(context.Background())
 
 			config := &common.Configuration{
-				IP:             localhost,
-				Port:           1234,
-				Model:          common.TestModelName,
-				KVCacheSize:    10,
-				EventBatchSize: 1,
+				IP:                    localhost,
+				Port:                  1234,
+				Model:                 common.TestModelName,
+				KVCacheSize:           10,
+				EventBatchSize:        1,
+				UseVllmMapEventFormat: useMapFormat,
 			}
 
 			topic := CreateKVEventsTopic(localhost, config.Model)
@@ -827,17 +908,22 @@ var _ = Describe("KV cache", Ordered, func() {
 			Expect(storedEvents[1].LoraID).NotTo(BeNil())
 			Expect(*storedEvents[1].LoraID).To(Equal(loraID))
 			Expect(storedEvents[1].BlockHashes).To(Equal([]uint64{3, 4}))
-		})
+		},
+		Entry("list format", false),
+		Entry("map format", true),
+	)
 
-		It("same prompt with base model and lora should produce separate events", func() {
+	DescribeTable("lora fields in events / same prompt with base model and lora should produce separate events",
+		func(useMapFormat bool) {
 			ctx, cancel := context.WithCancel(context.Background())
 
 			config := &common.Configuration{
-				IP:             localhost,
-				Port:           1234,
-				Model:          common.TestModelName,
-				KVCacheSize:    10,
-				EventBatchSize: 1,
+				IP:                    localhost,
+				Port:                  1234,
+				Model:                 common.TestModelName,
+				KVCacheSize:           10,
+				EventBatchSize:        1,
+				UseVllmMapEventFormat: useMapFormat,
 			}
 
 			topic := CreateKVEventsTopic(localhost, config.Model)
@@ -917,8 +1003,10 @@ var _ = Describe("KV cache", Ordered, func() {
 			Expect(*storedEvents[1].LoraName).To(Equal(loraName))
 			Expect(*storedEvents[1].LoraID).To(Equal(loraID))
 			Expect(storedEvents[1].BlockHashes).To(Equal([]uint64{10, 20}))
-		})
-	})
+		},
+		Entry("list format", false),
+		Entry("map format", true),
+	)
 })
 
 // returns kv event content - array of blocks hash values and array of tokens for each block

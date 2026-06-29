@@ -87,7 +87,7 @@ func newBlockCache(ctx context.Context, config *common.Configuration, logger log
 	}
 
 	eventSender := NewKVEventSender(publisher, CreateKVEventsTopic(config.IP, config.Model),
-		eChan, config.EventBatchSize, config.TokenBlockSize, delay, logger)
+		eChan, config.EventBatchSize, config.TokenBlockSize, delay, config.UseVllmMapEventFormat, logger)
 
 	bCache := blockCache{
 		requestToBlocks: make(map[string][]blockKey),
@@ -170,28 +170,41 @@ func (bc *blockCache) startRequest(req Request, blockHashes []uint64, blockToken
 
 	// divide list of blocks to three lists:
 	// blockAlreadyInUse - blocks, which are already used by currently running request
-	// blockToMoveToUsed - blocks, which were used in past
+	// blockToMoveToUsed - blocks, which were used in the past
 	// blocksToAdd - new blocks
-	blocksToAdd := make([]blockKey, 0)
+	// blocksToAdd holds new blocks paired with their original blockTokens index,
+	// so that tokens can be written after the capacity check (avoiding orphaned
+	// blockToTokens entries if the check returns an error).
+	type newBlock struct {
+		key      blockKey
+		tokenIdx int
+	}
+	blocksToAdd := make([]newBlock, 0)
 	blockToMoveToUsed := make([]blockKey, 0)
 	blockAlreadyInUse := make([]blockKey, 0)
 
 	// first step - ensure that there is enough space for all blocks
 	// count number of new blocks + number of blocks that are in the unused blocks
 	// don't update the data until we are sure that it's ok
+
+	// lastCachedIdx is the position of the last block in blockHashes that was
+	// already in the cache. Used below to set parent_block_hash on the store event.
+	// Block hashes form a chained prefix sequence, so cached blocks always appear
+	// as a contiguous leading prefix — the parent of the first new block is
+	// always blockHashes[lastCachedIdx].
+	lastCachedIdx := -1
 	for i, blockHash := range blockHashes {
 		bKey := blockKey{hash: blockHash, modelName: req.GetDisplayedModel()}
 		if _, exists := bc.unusedBlocks[bKey]; exists {
 			blockToMoveToUsed = append(blockToMoveToUsed, bKey)
+			lastCachedIdx = i
 		} else if _, exists := bc.usedBlocks[bKey]; !exists {
-			blocksToAdd = append(blocksToAdd, bKey)
+			// new block — record its index so tokens can be written after
+			// the capacity check passes, preventing orphaned entries on error.
+			blocksToAdd = append(blocksToAdd, newBlock{key: bKey, tokenIdx: i})
 		} else {
 			blockAlreadyInUse = append(blockAlreadyInUse, bKey)
-		}
-
-		// store block tokens if doesnot in the cache
-		if _, exists := bc.blockToTokens[bKey]; !exists {
-			bc.blockToTokens[bKey] = blockTokens[i]
+			lastCachedIdx = i
 		}
 	}
 
@@ -228,21 +241,31 @@ func (bc *blockCache) startRequest(req Request, blockHashes []uint64, blockToken
 			delete(bc.blockToTokens, evictHash)
 		}
 
-		// Add the new block
-		bc.usedBlocks[block] = 1
+		// Commit tokens now that capacity is confirmed.
+		bc.blockToTokens[block.key] = blockTokens[block.tokenIdx]
 
-		hashes = append(hashes, block.hash)
-		tokens = append(tokens, bc.blockToTokens[block]...)
+		// Add the new block
+		bc.usedBlocks[block.key] = 1
+
+		hashes = append(hashes, block.key.hash)
+		tokens = append(tokens, bc.blockToTokens[block.key]...)
 	}
 
 	if len(hashes) > 0 {
+		// parent is the last already-cached block; nil when all blocks are new.
+		var parentHash *uint64
+		if lastCachedIdx >= 0 {
+			ph := blockHashes[lastCachedIdx]
+			parentHash = &ph
+		}
 		common.WriteToChannel(bc.eventChan,
 			EventData{
-				action:   eventActionStore,
-				hashes:   hashes,
-				tokens:   tokens,
-				loraName: req.GetLoraName(),
-				loraID:   req.GetLoraID(),
+				action:     eventActionStore,
+				hashes:     hashes,
+				tokens:     tokens,
+				parentHash: parentHash,
+				loraName:   req.GetLoraName(),
+				loraID:     req.GetLoraID(),
 			}, bc.logger)
 	}
 

@@ -30,6 +30,7 @@ var vllmAdapter *engineadapter.VLLMAdapter = engineadapter.NewVLLMAdapter()
 // StoredEventInfo holds parsed metadata from a single BlockStoredEvent
 type StoredEventInfo struct {
 	BlockHashes []uint64
+	ParentHash  uint64
 	LoraName    *string
 	LoraID      *int
 }
@@ -70,6 +71,7 @@ func ParseKVEvent(parts [][]byte, expectedTopic string, expectedSeq uint64) ([]S
 			gomega.Expect(ok).To(gomega.BeTrue())
 			storedEvents = append(storedEvents, StoredEventInfo{
 				BlockHashes: storeEvent.BlockHashes,
+				ParentHash:  storeEvent.ParentHash,
 				LoraName:    storeEvent.LoraName,
 				LoraID:      storeEvent.LoraID,
 			})
