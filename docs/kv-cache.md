@@ -35,6 +35,7 @@ All KV cache parameters can be set via CLI flags or the equivalent YAML keys (na
 | `hash-seed` | string | value of `PYTHONHASHSEED` env var | Seed for block key hash generation; must match the seed used by real vLLM instances to ensure identical block hashes |
 | `zmq-endpoint` | string | `tcp://127.0.0.1:5557` | ZMQ address to publish events (the simulator dials this address) |
 | `event-batch-size` | int | `16` | Maximum number of events bundled into a single ZMQ message |
+| `use-vllm-map-event-format` | bool | `false` | Encode events as msgpack maps with named fields (vLLM PR #42892 format) instead of positional arrays. Set to `true` when the consumer expects the named-field schema. |
 | `global-cache-hit-threshold` | float | `0` (disabled) | Server-wide minimum cache hit rate `[0, 1]`. Requests whose hit rate falls below this threshold return immediately with finish reason `cache_threshold`. Individual requests can override this with the `cache_hit_threshold` field. |
 
 ### Example YAML config
@@ -47,6 +48,7 @@ block-size: 16
 hash-seed: "42"
 zmq-endpoint: "tcp://127.0.0.1:5557"
 event-batch-size: 32
+use-vllm-map-event-format: true
 global-cache-hit-threshold: 0.5
 # latency parameters that interact with the KV cache
 prefill-overhead: 10ms
@@ -124,34 +126,46 @@ The event batch is a msgpack array with three fields:
 
 ### Event types
 
-Events are msgpack arrays where the first element is a string tag.
+Three event types are emitted. The wire encoding — either a positional array or a named-field map — depends on `--use-vllm-map-event-format` (see [Encoding formats](#encoding-formats) below).
 
-**BlockStored** — emitted when new blocks are allocated for a request:
+#### BlockStored
 
-| Position | Field | Type | Notes |
-|----------|-------|------|-------|
-| 0 | tag | string | `"BlockStored"` |
-| 1 | block_hashes | array | uint64 hashes of the stored blocks |
-| 2 | parent_block_hash | uint64 | hash of the preceding block (currently `0`) |
-| 3 | token_ids | array of uint32 | tokens contained in these blocks |
-| 4 | block_size | int | tokens per block (mirrors `--block-size`) |
-| 5 | lora_id | int (optional) | LoRA adapter ID, omitted for base model requests |
-| 6 | medium | string (optional) | always `"GPU"` |
-| 7 | lora_name | string (optional) | LoRA adapter name, omitted for base model requests |
+Emitted when new blocks are allocated for a request:
 
-**BlockRemoved** — emitted when a block is evicted to make room for a new request:
+| Field | Type | Notes |
+|-------|------|-------|
+| `tag` (keyed `"type"` in map format) | string | `"BlockStored"` |
+| `block_hashes` | array of uint64 | hashes of the stored blocks |
+| `parent_block_hash` | uint64 (or `null` in map format) | hash of the last already-cached block before these new blocks; `0` (legacy) or `null` (map format) when the request has no cached prefix |
+| `token_ids` | array of uint32 | tokens contained in these blocks |
+| `block_size` | int | tokens per block (mirrors `--block-size`) |
+| `lora_id` | int (optional) | LoRA adapter ID, omitted for base model requests |
+| `medium` | string (optional) | always `"GPU"` |
+| `lora_name` | string (optional) | LoRA adapter name, omitted for base model requests |
 
-| Position | Field | Type | Notes |
-|----------|-------|------|-------|
-| 0 | tag | string | `"BlockRemoved"` |
-| 1 | block_hashes | array | uint64 hashes of the evicted blocks |
-| 2 | medium | string (optional) | always `"GPU"` |
+#### BlockRemoved
 
-**AllBlocksCleared** — emitted when the cache is fully discarded (see [Sleep mode](#sleep-mode-integration)):
+Emitted when a block is evicted to make room for a new request:
 
-| Position | Field | Type | Notes |
-|----------|-------|------|-------|
-| 0 | tag | string | `"AllBlocksCleared"` |
+| Field | Type | Notes |
+|-------|------|-------|
+| `tag` (keyed `"type"` in map format) | string | `"BlockRemoved"` |
+| `block_hashes` | array of uint64 | hashes of the evicted blocks |
+| `medium` | string (optional) | always `"GPU"` |
+
+#### AllBlocksCleared
+
+Emitted when the cache is fully discarded (see [Sleep mode](#sleep-mode-integration)):
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `tag` (keyed `"type"` in map format) | string | `"AllBlocksCleared"` |
+
+#### Encoding formats
+
+**Legacy format** (default, `use-vllm-map-event-format: false`): each event is a msgpack **array**. The `tag` field is at position 0; all other fields follow in the order listed above. `parent_block_hash` is a `uint64` and is `0` when the request has no cached prefix.
+
+**Map format** (`use-vllm-map-event-format: true`): each event is a msgpack **map** with named string keys, matching the schema introduced in vLLM PR #42892 and consumed by `VLLMAdapter`. The `tag` field is keyed `"type"`. `parent_block_hash` is `null` (not `0`) when the request has no cached prefix; `VLLMAdapter` normalises `null` to `0` on the consumer side.
 
 ### Event batching
 

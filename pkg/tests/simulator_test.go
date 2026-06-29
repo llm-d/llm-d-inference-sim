@@ -1064,6 +1064,63 @@ var _ = Describe("Simulator", func() {
 			Expect(removedCount).To(Equal(0))
 		})
 
+		// extendedPrompt shares all blocks of longPrompt and adds enough text to push past the next block boundary.
+		extendedPrompt := longPrompt + " This extra sentence pushes it past the next block boundary for the test."
+
+		DescribeTable("parent_block_hash on second request with shared prefix",
+			func(useMapFormat string) {
+				// Two consecutive completions: the first stores all blocks with no parent
+				// (ParentHash == 0 / EmptyBlockHash). The second extends the prompt by one
+				// extra block; its store event must carry the hash of the last block from
+				// the first request as parent.
+				topic := kvcache.CreateKVEventsTopic("localhost", model)
+				sub, zmqEndpoint := common.CreateSub(ctx, topic)
+				//nolint
+				defer sub.Close()
+
+				args := []string{"cmd", "--model", model, "--mode", mode,
+					"--enable-kvcache", "true", "--kv-cache-size", "16", "--block-size", "8",
+					"--event-batch-size", "1", "--zmq-endpoint", zmqEndpoint,
+					"--use-vllm-map-event-format", useMapFormat}
+
+				client, err := startServerWithArgsAndEnv(ctx, mode, args, map[string]string{"POD_IP": "localhost"})
+				Expect(err).NotTo(HaveOccurred())
+
+				go func() {
+					time.Sleep(200 * time.Millisecond)
+
+					// First request — all blocks new, no cached prefix
+					openaiclient, params := getOpenAIClientAndCompletionParams(client, model, longPrompt, false)
+					resp, err := openaiclient.Completions.New(ctx, params)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(resp.Choices).ShouldNot(BeEmpty())
+
+					// Second request — shares the prefix, stores at least one new block
+					openaiclient2, params2 := getOpenAIClientAndCompletionParams(client, model, extendedPrompt, false)
+					resp2, err := openaiclient2.Completions.New(ctx, params2)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(resp2.Choices).ShouldNot(BeEmpty())
+				}()
+
+				// First event: all blocks new → parent must be EmptyBlockHash (0)
+				msg1, err := sub.Recv()
+				Expect(err).NotTo(HaveOccurred())
+				events1, _, _ := kvcache.ParseKVEvent(msg1.Frames, topic, 1)
+				Expect(events1).NotTo(BeEmpty())
+				Expect(events1[0].ParentHash).To(Equal(uint64(0)))
+				lastHashFromFirst := events1[0].BlockHashes[len(events1[0].BlockHashes)-1]
+
+				// Second event: only the extra block(s) are new → parent == last block of first request
+				msg2, err := sub.Recv()
+				Expect(err).NotTo(HaveOccurred())
+				events2, _, _ := kvcache.ParseKVEvent(msg2.Frames, topic, 2)
+				Expect(events2).NotTo(BeEmpty())
+				Expect(events2[0].ParentHash).To(Equal(lastHashFromFirst))
+			},
+			Entry("array format (legacy)", "false"),
+			Entry("map format (vLLM PR #42892)", "true"),
+		)
+
 		Context("force-dummy-tokenizer flag", func() {
 			It("should use dummy tokenizer when flag is set with real model", func() {
 				ctx := context.TODO()

@@ -225,6 +225,10 @@ type Configuration struct {
 	// EventBatchSize is the maximum number of kv-cache events to be sent together, defaults to 16
 	EventBatchSize int `yaml:"event-batch-size" json:"event-batch-size"`
 
+	// UseVllmMapEventFormat encodes KV cache events as msgpack maps with named fields (vLLM PR #42892 format)
+	// instead of the legacy positional array format. Default is false (legacy array format).
+	UseVllmMapEventFormat bool `yaml:"use-vllm-map-event-format" json:"use-vllm-map-event-format"`
+
 	// FakeMetrics is a set of metrics to send to Prometheus instead of the real data
 	FakeMetrics *FakeMetrics `yaml:"fake-metrics" json:"fake-metrics" admin:"configurable"`
 

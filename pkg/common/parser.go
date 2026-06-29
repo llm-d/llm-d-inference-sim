@@ -155,6 +155,7 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 		"Seed for hash generation (if omitted on the command line, "+PythonHashSeedEnv+" may set it; see docs)")
 	f.StringVar(&config.ZMQEndpoint, "zmq-endpoint", config.ZMQEndpoint, "ZMQ address to publish events")
 	f.IntVar(&config.EventBatchSize, "event-batch-size", config.EventBatchSize, "Maximum number of kv-cache events to be sent together")
+	f.BoolVar(&config.UseVllmMapEventFormat, "use-vllm-map-event-format", config.UseVllmMapEventFormat, "Encode KV cache events as msgpack maps with named fields (vLLM PR #42892 format) instead of positional arrays")
 	f.IntVar(&config.DPSize, "data-parallel-size", config.DPSize, "Number of ranks to run")
 	f.IntVar(&config.Rank, "data-parallel-rank", config.Rank, "The rank when running each rank in a process. If set, data-parallel-size is ignored")
 
