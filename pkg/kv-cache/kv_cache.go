@@ -54,7 +54,7 @@ func NewKVCacheHelper(ctx context.Context, config *common.Configuration, logger 
 	}
 
 	tokenProcConfig := kvblock.DefaultTokenProcessorConfig()
-	tokenProcConfig.BlockSizeTokens = config.TokenBlockSize
+	tokenProcConfig.BlockSize = config.TokenBlockSize
 	if config.HashSeed != "" {
 		tokenProcConfig.HashSeed = config.HashSeed
 	}

@@ -30,9 +30,9 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
-	routercommon "github.com/llm-d/llm-d-router/pkg/common"
 	"github.com/valyala/fasthttp"
 
+	simcommon "github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 )
 
@@ -81,7 +81,7 @@ func (c *Communication) configureSSL(ctx context.Context, server *fasthttp.Serve
 
 		if canReload {
 			reloaderCtx := logr.NewContext(ctx, c.logger)
-			reloader, err := routercommon.NewCertReloader(reloaderCtx, certDir, &cert)
+			reloader, err := simcommon.NewCertReloader(reloaderCtx, certDir, &cert)
 			if err != nil {
 				c.logger.Error(err, "failed to create cert reloader")
 				return err
