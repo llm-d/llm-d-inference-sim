@@ -65,7 +65,7 @@ func NewCertReloader(ctx context.Context, certFile, keyFile string, init *tls.Ce
 	}
 
 	go func() {
-		defer w.Close()
+		defer func() { _ = w.Close() }()
 
 		var debounceTimer *time.Timer
 
