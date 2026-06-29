@@ -20,6 +20,7 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"path/filepath"
 	"sync/atomic"
 	"time"
 
@@ -35,7 +36,7 @@ type CertReloader struct {
 	cert *atomic.Pointer[tls.Certificate]
 }
 
-func NewCertReloader(ctx context.Context, path string, init *tls.Certificate) (*CertReloader, error) {
+func NewCertReloader(ctx context.Context, certFile, keyFile string, init *tls.Certificate) (*CertReloader, error) {
 	certPtr := &atomic.Pointer[tls.Certificate]{}
 	certPtr.Store(init)
 
@@ -46,12 +47,21 @@ func NewCertReloader(ctx context.Context, path string, init *tls.Certificate) (*
 
 	logger := logr.FromContextOrDiscard(ctx).
 		WithName("cert-reloader").
-		WithValues("path", path)
+		WithValues("certFile", certFile, "keyFile", keyFile)
 	traceLogger := logger.V(logging.TRACE)
 
-	if err := w.Add(path); err != nil {
+	certDir := filepath.Dir(certFile)
+	keyDir := filepath.Dir(keyFile)
+
+	if err := w.Add(certDir); err != nil {
 		_ = w.Close()
-		return nil, fmt.Errorf("failed to watch %q: %w", path, err)
+		return nil, fmt.Errorf("failed to watch %q: %w", certDir, err)
+	}
+	if keyDir != certDir {
+		if err := w.Add(keyDir); err != nil {
+			_ = w.Close()
+			return nil, fmt.Errorf("failed to watch %q: %w", keyDir, err)
+		}
 	}
 
 	go func() {
@@ -73,7 +83,7 @@ func NewCertReloader(ctx context.Context, path string, init *tls.Certificate) (*
 				}
 
 				debounceTimer = time.AfterFunc(debounceDelay, func() {
-					cert, err := tls.LoadX509KeyPair(path+"/tls.crt", path+"/tls.key")
+					cert, err := tls.LoadX509KeyPair(certFile, keyFile)
 					if err != nil {
 						logger.Error(err, "Failed to reload TLS certificate")
 						return

@@ -26,7 +26,6 @@ import (
 	"encoding/pem"
 	"fmt"
 	"math/big"
-	"path/filepath"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -64,33 +63,14 @@ func (c *Communication) configureSSL(ctx context.Context, server *fasthttp.Serve
 			return err
 		}
 
-		certDir := filepath.Dir(cfg.SSLCertFile)
-		keyDir := filepath.Dir(cfg.SSLKeyFile)
-
-		canReload := true
-		if certDir != keyDir {
-			c.logger.V(logging.WARN).Info("Certificate and key are in different directories; automatic certificate reloading is disabled",
-				"certDir", certDir, "keyDir", keyDir)
-			canReload = false
+		reloaderCtx := logr.NewContext(ctx, c.logger)
+		reloader, err := simcommon.NewCertReloader(reloaderCtx, cfg.SSLCertFile, cfg.SSLKeyFile, &cert)
+		if err != nil {
+			c.logger.Error(err, "failed to create cert reloader")
+			return err
 		}
-		if filepath.Base(cfg.SSLCertFile) != "tls.crt" || filepath.Base(cfg.SSLKeyFile) != "tls.key" {
-			c.logger.V(logging.WARN).Info("Certificate reloading requires files named tls.crt and tls.key; automatic certificate reloading is disabled",
-				"certFile", filepath.Base(cfg.SSLCertFile), "keyFile", filepath.Base(cfg.SSLKeyFile))
-			canReload = false
-		}
-
-		if canReload {
-			reloaderCtx := logr.NewContext(ctx, c.logger)
-			reloader, err := simcommon.NewCertReloader(reloaderCtx, certDir, &cert)
-			if err != nil {
-				c.logger.Error(err, "failed to create cert reloader")
-				return err
-			}
-			tlsConfig.GetCertificate = func(*tls.ClientHelloInfo) (*tls.Certificate, error) {
-				return reloader.Get(), nil
-			}
-		} else {
-			tlsConfig.Certificates = []tls.Certificate{cert}
+		tlsConfig.GetCertificate = func(*tls.ClientHelloInfo) (*tls.Certificate, error) {
+			return reloader.Get(), nil
 		}
 	} else if cfg.SelfSignedCerts {
 		c.logger.V(logging.INFO).Info("HTTPS server starting with self-signed certificate")
