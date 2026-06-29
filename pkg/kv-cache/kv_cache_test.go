@@ -160,7 +160,8 @@ var _ = Describe("KV cache", Ordered, func() {
 	req3 := testRequest{id: req3ID, blockHashes: []uint64{5, 6}, tokens: [][]uint32{{5}, {6}}}
 
 	// generalTestEntries builds both list-format and map-format table entries for each test case.
-	var generalTestEntries []any
+	// 5 test cases × 2 formats = 10 entries.
+	generalTestEntries := make([]any, 0, 10)
 	for _, tc := range []testCase{
 		{
 			name:      "single request",
