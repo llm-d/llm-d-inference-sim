@@ -330,6 +330,9 @@ type Configuration struct {
 	// EnablePrefixCaching defines whether to enable prefix caching.
 	// Ignored in the simulator.
 	EnablePrefixCaching bool `yaml:"enable-prefix-caching" json:"enable-prefix-caching"`
+	// MaxRequestBodySizeMB sets the maximum allowed request body size in megabytes for the HTTP server.
+	// Default is 4 (matching the fasthttp built-in default). Must be between 1 and 512.
+	MaxRequestBodySizeMB int `yaml:"max-request-body-size-mb" json:"max-request-body-size-mb"`
 }
 
 type LoraModule struct {
@@ -367,6 +370,7 @@ func newConfig() *Configuration {
 		DatasetTableName:           DefaultDSTableName,
 		DefaultEmbeddingDimensions: 384,
 		FakeMetricsRefreshInterval: 100 * time.Millisecond,
+		MaxRequestBodySizeMB:       4,
 		RenderURL:                  "http://localhost:8082",
 		RenderTimeout:              30 * time.Second,
 		MMRenderTimeout:            60 * time.Second,
@@ -613,6 +617,10 @@ func (c *Configuration) validate() error {
 
 	if c.DefaultEmbeddingDimensions < 1 {
 		return errors.New("default embedding dimensions must be at least 1")
+	}
+
+	if c.MaxRequestBodySizeMB < 1 || c.MaxRequestBodySizeMB > 512 {
+		return fmt.Errorf("max-request-body-size-mb must be between 1 MB and 512 MB, got %d", c.MaxRequestBodySizeMB)
 	}
 
 	return nil

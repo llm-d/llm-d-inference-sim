@@ -113,6 +113,7 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 	f := pflag.NewFlagSet("llm-d-inference-sim flags", pflag.ContinueOnError)
 
 	f.IntVar(&config.Port, "port", config.Port, "Port")
+	f.IntVar(&config.MaxRequestBodySizeMB, "max-request-body-size-mb", config.MaxRequestBodySizeMB, "Maximum allowed size of an HTTP request body in megabytes, must be between 1 and 512, default is 4 (matching the fasthttp built-in default)")
 	f.StringVar(&config.Model, "model", config.Model,
 		"Currently 'loaded' model (if omitted on the command line, "+ModelEnv+" may set the model; see docs)")
 	f.IntVar(&config.MaxNumSeqs, "max-num-seqs", config.MaxNumSeqs, "Maximum number of inference requests that could be processed at the same time")
