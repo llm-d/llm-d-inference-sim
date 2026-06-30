@@ -100,10 +100,10 @@ func (c *Communication) startHTTPServer(listener net.Listener) (*fasthttp.Server
 	}
 
 	server := &fasthttp.Server{
-		ErrorHandler:        c.HandleError,
-		Handler:             handler,
-		Logger:              c,
-		MaxRequestBodySize:  c.simulator.Context.Config().MaxRequestBodySizeMB * 1024 * 1024,
+		ErrorHandler:       c.HandleError,
+		Handler:            handler,
+		Logger:             c,
+		MaxRequestBodySize: c.simulator.Context.Config().MaxRequestBodySizeMB * 1024 * 1024,
 	}
 
 	if err := c.configureSSL(server); err != nil {
