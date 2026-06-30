@@ -322,6 +322,18 @@ var _ = Describe("Simulator configuration", func() {
 	}
 	tests = append(tests, test)
 
+	// max-request-body-size-mb set to exactly 1 MB (lower boundary)
+	c = createConfigWithModel(TestModelName, nil)
+	c.MaxCPULoras = 1
+	c.Seed = 100
+	c.MaxRequestBodySizeMB = 1
+	test = testCase{
+		name:           "valid max-request-body-size-mb (1 MB boundary)",
+		args:           []string{"cmd", "--model", TestModelName, "--seed", "100", "--max-request-body-size-mb", "1"},
+		expectedConfig: c,
+	}
+	tests = append(tests, test)
+
 	for _, test := range tests {
 		When(test.name, func() {
 			It("should create correct configuration", func() {
@@ -679,6 +691,16 @@ var _ = Describe("Simulator configuration", func() {
 			name:          "invalid latency calculator",
 			args:          []string{"cmd", "--config", "../../manifests/config.yaml", "--latency-calculator", "hello"},
 			expectedError: "unknown latency-calculator",
+		},
+		{
+			name:          "invalid max-request-body-size-mb (too small)",
+			args:          []string{"cmd", "--config", "../../manifests/config.yaml", "--max-request-body-size-mb", "-1"},
+			expectedError: "max-request-body-size-mb must be between 1 MB and 512 MB",
+		},
+		{
+			name:          "invalid max-request-body-size-mb (too large)",
+			args:          []string{"cmd", "--config", "../../manifests/config.yaml", "--max-request-body-size-mb", "513"},
+			expectedError: "max-request-body-size-mb must be between 1 MB and 512 MB",
 		},
 	}
 
