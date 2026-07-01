@@ -96,7 +96,7 @@ func (c *Communication) start(ctx context.Context) error {
 	}
 
 	httpL := m.Match(cmux.Any())
-	httpServer, httpErrCh, err := c.startHTTPServer(httpL)
+	httpServer, httpErrCh, err := c.startHTTPServer(ctx, httpL)
 	if err != nil {
 		return err
 	}

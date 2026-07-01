@@ -18,6 +18,7 @@ package communication
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -59,7 +60,7 @@ func (c *Communication) newListener() (net.Listener, error) {
 
 // startHTTPServer builds and starts the HTTP server, returning the server instance and an error channel.
 // It does not handle shutdown — callers are responsible for calling server.Shutdown().
-func (c *Communication) startHTTPServer(listener net.Listener) (*fasthttp.Server, <-chan error, error) {
+func (c *Communication) startHTTPServer(ctx context.Context, listener net.Listener) (*fasthttp.Server, <-chan error, error) {
 	r := fasthttprouter.New()
 
 	// support completion APIs
@@ -106,7 +107,7 @@ func (c *Communication) startHTTPServer(listener net.Listener) (*fasthttp.Server
 		MaxRequestBodySize: c.simulator.Context.Config().MaxRequestBodySizeMB * 1024 * 1024,
 	}
 
-	if err := c.configureSSL(server); err != nil {
+	if err := c.configureSSL(ctx, server); err != nil {
 		return nil, nil, err
 	}
 

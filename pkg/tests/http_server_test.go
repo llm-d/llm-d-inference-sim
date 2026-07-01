@@ -22,6 +22,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -304,6 +306,52 @@ var _ = Describe("Server", func() {
 			resp, err := client.Get("https://localhost/health")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+		})
+
+		It("Should reload certificates when files are updated on disk", func(ctx SpecContext) {
+			tempDir := GinkgoT().TempDir()
+			certFile := filepath.Join(tempDir, "tls.crt")
+			keyFile := filepath.Join(tempDir, "tls.key")
+
+			certPEM1, keyPEM1, err := communication.CreateSelfSignedTLSCertificatePEM()
+			Expect(err).NotTo(HaveOccurred())
+			Expect(os.WriteFile(certFile, certPEM1, 0644)).To(Succeed())
+			Expect(os.WriteFile(keyFile, keyPEM1, 0600)).To(Succeed())
+
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
+				"--ssl-certfile", certFile, "--ssl-keyfile", keyFile}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			resp, err := client.Get("https://localhost/health")
+			Expect(err).NotTo(HaveOccurred())
+			defer func() { _ = resp.Body.Close() }()
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			Expect(resp.TLS).NotTo(BeNil())
+			oldSerial := resp.TLS.PeerCertificates[0].SerialNumber
+
+			certPEM2, keyPEM2, err := communication.CreateSelfSignedTLSCertificatePEM()
+			Expect(err).NotTo(HaveOccurred())
+
+			// Write to temp files and rename atomically so the watcher never
+			// sees a half-written cert/key pair.
+			tmpCert := certFile + ".tmp"
+			tmpKey := keyFile + ".tmp"
+			Expect(os.WriteFile(tmpCert, certPEM2, 0644)).To(Succeed())
+			Expect(os.WriteFile(tmpKey, keyPEM2, 0600)).To(Succeed())
+			Expect(os.Rename(tmpKey, keyFile)).To(Succeed())
+			Expect(os.Rename(tmpCert, certFile)).To(Succeed())
+
+			// Poll until the reloader picks up the new cert (debounce is 250ms).
+			Eventually(func(g Gomega) {
+				client.CloseIdleConnections()
+				r, err := client.Get("https://localhost/health")
+				g.Expect(err).NotTo(HaveOccurred())
+				defer func() { _ = r.Body.Close() }()
+				g.Expect(r.StatusCode).To(Equal(http.StatusOK))
+				g.Expect(r.TLS).NotTo(BeNil())
+				g.Expect(r.TLS.PeerCertificates[0].SerialNumber).NotTo(Equal(oldSerial))
+			}).WithTimeout(5 * time.Second).WithPolling(250 * time.Millisecond).Should(Succeed())
 		})
 
 	})
