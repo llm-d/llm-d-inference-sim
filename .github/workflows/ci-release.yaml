@@ -11,7 +11,7 @@ on:
 
 jobs:
   dev-build-and-push:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.repository.fork != true
     runs-on: ubuntu-latest
     steps:
       - name: Checkout source
