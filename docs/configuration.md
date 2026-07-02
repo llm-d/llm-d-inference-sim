@@ -88,8 +88,8 @@ For a detailed explanation of how the simulator models inference time and what e
 - `failure-types`: list of specific failure types to inject (rate_limit, invalid_api_key, context_length, server_error, invalid_request, model_not_found), optional, if empty all types are used
 
 ## Data parallel
-- `data-parallel-size`: number of ranks to run in Data Parallel deployment, from 1 to 8, default is 1. The ports will be assigned as follows: rank 0 will run on the configured `port`, rank 1 on `port`+1, etc.  
-- `data-parallel-rank`: the rank of this instance, used only when running Data Parallel ranks as separate processes. If set, data-parallel-size is ignored.
+- `data-parallel-size`: number of ranks to run in Data Parallel deployment, from 1 to 8, default is 1. Ports are assigned sequentially: rank 0 uses the configured `port`, rank 1 uses `port+1`, etc. When `--zmq-endpoint` is also set, each rank's ZMQ endpoint port is offset by the same amount — rank 0 publishes to the configured endpoint, rank 1 to `endpoint_port+1`, etc. Each rank also embeds its index in the `data_parallel_rank` field of every published event batch.
+- `data-parallel-rank`: the rank of this instance, used only when running Data Parallel ranks as separate processes. If set, `data-parallel-size` is ignored and a single simulator starts with this rank index embedded in its ZMQ event batches.
 
 ## Datasets
 - `dataset-path`: Optional local file path to the SQLite database file used for generating responses from a dataset.
