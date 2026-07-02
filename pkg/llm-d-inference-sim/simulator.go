@@ -119,13 +119,20 @@ func Start(ctx context.Context, config *common.Configuration, logger logr.Logger
 	sims := make([]*VllmSimulator, dpSize)
 
 	for dpRank := 0; dpRank < dpSize; dpRank++ {
-		rankConfig := config
+		rankConfig, err := config.Copy()
+		if err != nil {
+			return nil, err
+		}
 		if dpRank > 0 {
-			rankConfig, err = config.Copy()
-			if err != nil {
-				return nil, err
-			}
 			rankConfig.Port = config.Port + dpRank
+			if config.ZMQEndpoint != "" {
+				rankConfig.ZMQEndpoint = offsetZMQEndpointPort(config.ZMQEndpoint, dpRank)
+			}
+		}
+		// Store the effective rank in the per-rank config so downstream
+		// components (e.g. KV event sender) can embed it in published batches.
+		if config.Rank < 0 {
+			rankConfig.Rank = dpRank
 		}
 
 		// Add the rank to the logger if dpSize > 1 or the rank was set,

@@ -134,10 +134,11 @@ type KVEventSender struct {
 	batch                 []batchEntry
 	logger                logr.Logger
 	useVllmMapEventFormat bool
+	dpRank                int
 }
 
 func NewKVEventSender(publisher *common.Publisher, topic string, ch common.Channel[EventData], maxBatchSize int,
-	blockSize int, delay time.Duration, useVllmMapEventFormat bool, logger logr.Logger) *KVEventSender {
+	blockSize int, delay time.Duration, useVllmMapEventFormat bool, dpRank int, logger logr.Logger) *KVEventSender {
 	return &KVEventSender{
 		publisher:             publisher,
 		topic:                 topic,
@@ -148,6 +149,7 @@ func NewKVEventSender(publisher *common.Publisher, topic string, ch common.Chann
 		batch:                 make([]batchEntry, 0, maxBatchSize),
 		logger:                logger,
 		useVllmMapEventFormat: useVllmMapEventFormat,
+		dpRank:                dpRank,
 	}
 }
 
@@ -322,7 +324,7 @@ func (s *KVEventSender) publishHelper(ctx context.Context) error {
 		events = append(events, msgpack.RawMessage(eventBytes))
 	}
 
-	dpRank := 0
+	dpRank := s.dpRank
 
 	batch := msgpackEventBatch{
 		TS:               float64(time.Now().UnixNano()) / 1e9,

@@ -87,7 +87,7 @@ func newBlockCache(ctx context.Context, config *common.Configuration, logger log
 	}
 
 	eventSender := NewKVEventSender(publisher, CreateKVEventsTopic(config.IP, config.Model),
-		eChan, config.EventBatchSize, config.TokenBlockSize, delay, config.UseVllmMapEventFormat, logger)
+		eChan, config.EventBatchSize, config.TokenBlockSize, delay, config.UseVllmMapEventFormat, config.Rank, logger)
 
 	bCache := blockCache{
 		requestToBlocks: make(map[string][]blockKey),
