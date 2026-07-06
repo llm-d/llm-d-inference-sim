@@ -16,12 +16,15 @@ limitations under the License.
 
 package communication
 
-import "net"
+import (
+	"context"
+	"net"
+)
 
 // StartHTTPServer starts the HTTP server on the given listener and blocks until it exits.
 // Intended for use in tests with a custom listener. Shutdown is driven by closing the listener.
-func (c *Communication) StartHTTPServer(listener net.Listener) error {
-	_, errCh, err := c.startHTTPServer(listener)
+func (c *Communication) StartHTTPServer(ctx context.Context, listener net.Listener) error {
+	_, errCh, err := c.startHTTPServer(ctx, listener)
 	if err != nil {
 		return err
 	}

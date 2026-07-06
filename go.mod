@@ -4,6 +4,7 @@ go 1.25.7
 
 require (
 	github.com/buaazp/fasthttprouter v0.1.1
+	github.com/fsnotify/fsnotify v1.10.1
 	github.com/go-logr/logr v1.4.3
 	github.com/go-zeromq/zmq4 v0.17.0
 	github.com/google/uuid v1.6.0
