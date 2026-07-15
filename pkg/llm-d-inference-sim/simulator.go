@@ -433,7 +433,7 @@ func (s *VllmSimulator) simulateResponseProcessing(respCtx ResponseContext) {
 						Tokens:  []uint32{token},
 						Strings: []string{},
 					}
-					if respCtx.responseTokens().Strings != nil {
+					if len(respCtx.responseTokens().Strings) != 0 {
 						tokens.Strings = append(tokens.Strings, respCtx.responseTokens().Strings[i])
 					}
 					respInfo := ResponseInfo{Tokens: tokens, RespCtx: respCtx, ChoiceIdx: choiceIdx}
