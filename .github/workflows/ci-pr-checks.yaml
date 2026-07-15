@@ -64,4 +64,29 @@ jobs:
 
       - name: Run make test
         shell: bash
-        run: make test          
+        run: make test
+
+  trivy-scan:
+    needs: check-changes
+    if: ${{ needs.check-changes.outputs.src == 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v7
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build image (local, no push)
+        run: |
+          docker buildx build \
+            --platform linux/amd64 \
+            -f Dockerfile \
+            -t llm-d-inference-sim:ci-${{ github.sha }} \
+            --load .
+        shell: bash
+
+      - name: Run Trivy scan
+        uses: ./.github/actions/trivy-scan
+        with:
+          image: llm-d-inference-sim:ci-${{ github.sha }}
