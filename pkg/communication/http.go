@@ -197,7 +197,8 @@ func (c *Communication) handleRender(req vllmsim.RenderableRequest, respBuilder 
 	respBody, err := json.Marshal(respBuilder.createRenderResponse(tokens, features))
 	if err != nil {
 		c.logger.Error(err, "render response marshal failed")
-		errToSend := api.NewError("Render failed, "+err.Error(), fasthttp.StatusInternalServerError, nil)
+		errToSend := api.NewError("Render response marshal failed, "+err.Error(),
+			fasthttp.StatusInternalServerError, nil)
 		c.sendError(ctx, &errToSend, false)
 		return
 	}
