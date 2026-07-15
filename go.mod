@@ -11,16 +11,16 @@ require (
 	github.com/llm-d/llm-d-kv-cache v0.9.0
 	github.com/onsi/ginkgo/v2 v2.32.0
 	github.com/onsi/gomega v1.42.1
-	github.com/openai/openai-go/v3 v3.41.0
+	github.com/openai/openai-go/v3 v3.42.0
 	github.com/prometheus/client_golang v1.23.2
 	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1
 	github.com/soheilhy/cmux v0.1.5
 	github.com/spf13/pflag v1.0.10
 	github.com/testcontainers/testcontainers-go v0.43.0
-	github.com/valyala/fasthttp v1.71.0
+	github.com/valyala/fasthttp v1.72.0
 	github.com/vmihailenco/msgpack/v5 v5.4.1
-	golang.org/x/sync v0.21.0
-	google.golang.org/grpc v1.81.1
+	golang.org/x/sync v0.22.0
+	google.golang.org/grpc v1.82.0
 	gopkg.in/yaml.v3 v3.0.1
 	k8s.io/klog/v2 v2.140.0
 	modernc.org/sqlite v1.53.0
