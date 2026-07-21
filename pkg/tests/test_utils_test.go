@@ -244,7 +244,7 @@ func startDataParallelServers(ctx context.Context, args []string, envs ...map[st
 		})
 
 		go func() {
-			if err := comm.StartHTTPServer(listener); err != nil {
+			if err := comm.StartHTTPServer(ctx, listener); err != nil {
 				logger.Error(err, "error starting server")
 			}
 		}()
