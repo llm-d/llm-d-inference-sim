@@ -122,7 +122,7 @@ Each message has three ZMQ frames:
 The event batch is a msgpack array with three fields:
 1. `ts` (float64) — Unix timestamp in seconds (`nanoseconds / 1e9`)
 2. `events` (array) — list of msgpack-encoded event arrays
-3. `data_parallel_rank` (int, optional) — always `0`
+3. `data_parallel_rank` (int, optional) — the rank index of the simulator instance that published the batch; `0` for a single-instance deployment, `0`–`N-1` when running with `--data-parallel-size N`
 
 ### Event types
 

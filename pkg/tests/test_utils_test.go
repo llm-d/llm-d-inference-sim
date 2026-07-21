@@ -198,6 +198,70 @@ func startServerHelper(ctx context.Context, mode string, args []string, envs map
 	}, nil
 }
 
+// startDataParallelServers parses the given args, calls vllmsim.Start to obtain
+// one simulator per data-parallel rank, and wires each rank to its own
+// in-memory HTTP listener. It returns one *http.Client per rank, each dialling
+// exclusively into its own server. Cleanup (listener + sim shutdown) is
+// registered via DeferCleanup.
+func startDataParallelServers(ctx context.Context, args []string, envs ...map[string]string) ([]*http.Client, error) {
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = args
+
+	if len(envs) > 0 && envs[0] != nil {
+		for k, v := range envs[0] {
+			if err := os.Setenv(k, v); err != nil {
+				return nil, err
+			}
+		}
+		defer func() {
+			for k := range envs[0] {
+				gomega.Expect(os.Unsetenv(k)).To(gomega.Succeed())
+			}
+		}()
+	}
+
+	config, err := common.ParseCommandParamsAndLoadConfig()
+	if err != nil {
+		return nil, err
+	}
+
+	logger := klog.Background()
+
+	sims, err := vllmsim.Start(ctx, config, logger)
+	if err != nil {
+		return nil, err
+	}
+
+	clients := make([]*http.Client, len(sims))
+	for rank, sim := range sims {
+		listener := fasthttputil.NewInmemoryListener()
+		comm := communication.New(logger, sim)
+
+		ginkgo.DeferCleanup(func() {
+			listener.Close() //nolint:errcheck
+			sim.Stop()
+		})
+
+		go func() {
+			if err := comm.StartHTTPServer(listener); err != nil {
+				logger.Error(err, "error starting server")
+			}
+		}()
+
+		clients[rank] = &http.Client{
+			Transport: &http.Transport{
+				DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
+					return listener.Dial()
+				},
+				TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec
+			},
+		}
+	}
+
+	return clients, nil
+}
+
 // startServerForLatencyTest - starts server configured according the given latency parameters in echo modes
 func startServerForLatencyTest(modelName string, ttft int, prefillTimePerToken int, interTokenLatency int, kvcacheTransferLatency int, kvCacheTransferTimePerToken int) *http.Client {
 	ctx := context.TODO()

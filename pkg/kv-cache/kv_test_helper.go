@@ -23,6 +23,7 @@ import (
 	"github.com/llm-d/llm-d-kv-cache/pkg/kvevents/engineadapter"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	"github.com/vmihailenco/msgpack/v5"
 )
 
 var vllmAdapter *engineadapter.VLLMAdapter = engineadapter.NewVLLMAdapter()
@@ -120,6 +121,21 @@ func CountKVEventBlocks(parts [][]byte, expectedTopic string, expectedSeq uint64
 	}
 
 	return storedCount, removedCount, allCleared
+}
+
+// ParseKVBatchRank decodes the DataParallelRank field from a raw ZMQ message.
+// The payload (frames[2]) is a positional msgpack array [TS, Events, DataParallelRank].
+func ParseKVBatchRank(frames [][]byte) int {
+	gomega.Expect(frames).To(gomega.HaveLen(3))
+	var batch struct {
+		_msgpack         struct{} `msgpack:",as_array"` //nolint:unused
+		TS               float64
+		Events           []msgpack.RawMessage
+		DataParallelRank *int `msgpack:",omitempty"`
+	}
+	gomega.Expect(msgpack.Unmarshal(frames[2], &batch)).To(gomega.Succeed())
+	gomega.Expect(batch.DataParallelRank).NotTo(gomega.BeNil())
+	return *batch.DataParallelRank
 }
 
 // verifySingleBlockEviction ensures that exactly one block from the provided list
