@@ -86,8 +86,15 @@ func newBlockCache(ctx context.Context, config *common.Configuration, logger log
 		}
 	}
 
-	eventSender := NewKVEventSender(publisher, CreateKVEventsTopic(config.IP, config.Model),
-		eChan, config.EventBatchSize, config.TokenBlockSize, delay, config.UseVllmMapEventFormat, config.Rank, logger)
+	topic := CreateKVEventsTopic(config.IP, config.Model)
+
+	var replayer *kvEventsReplayer
+	if config.KVEventsReplayEndpoint != "" {
+		replayer = newKVEventsReplayer(config.KVEventsReplayEndpoint, topic, config.KVEventsReplayQueueSize, logger)
+	}
+
+	eventSender := NewKVEventSender(publisher, topic,
+		eChan, config.EventBatchSize, config.TokenBlockSize, delay, config.UseVllmMapEventFormat, config.Rank, logger, replayer)
 
 	bCache := blockCache{
 		requestToBlocks: make(map[string][]blockKey),

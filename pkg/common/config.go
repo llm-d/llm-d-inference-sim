@@ -222,6 +222,13 @@ type Configuration struct {
 	// ZMQEndpoint is the ZMQ address to publish events, the default value is tcp://localhost:5557
 	ZMQEndpoint string `yaml:"zmq-endpoint" json:"zmq-endpoint"`
 
+	// KVEventsReplayEndpoint is the ZMQ PULL address to bind for receiving KV events replay requests.
+	// Empty (default) disables the replay listener. Example: "tcp://*:5558"
+	KVEventsReplayEndpoint string `yaml:"kv-events-replay-endpoint" json:"kv-events-replay-endpoint"`
+
+	// KVEventsReplayQueueSize is the max number of event batches held in the replay queue; oldest dropped when full. Defaults to 1024.
+	KVEventsReplayQueueSize int `yaml:"kv-events-replay-queue-size" json:"kv-events-replay-queue-size"`
+
 	// EventBatchSize is the maximum number of kv-cache events to be sent together, defaults to 16
 	EventBatchSize int `yaml:"event-batch-size" json:"event-batch-size"`
 
@@ -364,6 +371,7 @@ func newConfig() *Configuration {
 		KVCacheSize:                1024,
 		TokenBlockSize:             16,
 		ZMQEndpoint:                "tcp://127.0.0.1:5557",
+		KVEventsReplayQueueSize:    1024,
 		EventBatchSize:             16,
 		DPSize:                     1,
 		Rank:                       -1,
@@ -548,6 +556,10 @@ func (c *Configuration) validate() error {
 		return errors.New("event batch size cannot less than 1")
 	}
 
+	if c.KVEventsReplayEndpoint != "" && c.KVEventsReplayQueueSize < 1 {
+		return errors.New("kv-events-replay-queue-size cannot be less than 1")
+	}
+
 	if c.FailureInjectionRate < 0 || c.FailureInjectionRate > 100 {
 		return errors.New("failure injection rate should be between 0 and 100")
 	}
@@ -589,6 +601,10 @@ func (c *Configuration) validate() error {
 		return errors.New("data parallel rank must be between 0 and 7")
 	}
 
+	if err := c.validateEndpointPortsDontCollide(); err != nil {
+		return err
+	}
+
 	if (c.SSLCertFile == "") != (c.SSLKeyFile == "") {
 		return errors.New("both ssl-certfile and ssl-keyfile must be provided together")
 	}
@@ -623,6 +639,38 @@ func (c *Configuration) validate() error {
 		return fmt.Errorf("max-request-body-size-mb must be between 1 MB and 512 MB, got %d", c.MaxRequestBodySizeMB)
 	}
 
+	return nil
+}
+
+// validateEndpointPortsDontCollide ensures the ZMQ publish endpoint and the
+// KV-events-replay endpoint don't end up bound to the same port once each
+// rank's offset is applied
+func (c *Configuration) validateEndpointPortsDontCollide() error {
+	if c.ZMQEndpoint == "" || c.KVEventsReplayEndpoint == "" {
+		return nil
+	}
+
+	_, zmqPort, ok := ParseEndpointPort(c.ZMQEndpoint)
+	if !ok {
+		return nil
+	}
+	_, replayPort, ok := ParseEndpointPort(c.KVEventsReplayEndpoint)
+	if !ok {
+		return nil
+	}
+
+	// When data-parallel-rank is set, data-parallel-size is ignored for endpoint
+	// offsetting and both endpoints are offset by the
+	// same fixed rank, so only an exact port match can collide.
+	maxRank := c.DPSize - 1
+	if c.Rank >= 0 {
+		maxRank = 0
+	}
+	// Ports occupied across ranks 0..maxRank: [port, port+maxRank].
+	if zmqPort <= replayPort+maxRank && replayPort <= zmqPort+maxRank {
+		return fmt.Errorf("zmq-endpoint (%s) and kv-events-replay-endpoint (%s) ports collide"+
+			" once offset by data-parallel rank", c.ZMQEndpoint, c.KVEventsReplayEndpoint)
+	}
 	return nil
 }
 

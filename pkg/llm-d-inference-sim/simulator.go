@@ -125,8 +125,20 @@ func Start(ctx context.Context, config *common.Configuration, logger logr.Logger
 		}
 		if dpRank > 0 {
 			rankConfig.Port = config.Port + dpRank
+		}
+		// Offset ZMQ endpoints by the rank: dpRank when this process
+		// hosts all ranks, or the externally-assigned rank when each rank runs in
+		// its own process (config.Rank set).
+		effectiveRank := dpRank
+		if config.Rank >= 0 {
+			effectiveRank = config.Rank
+		}
+		if effectiveRank > 0 {
 			if config.ZMQEndpoint != "" {
-				rankConfig.ZMQEndpoint = offsetZMQEndpointPort(config.ZMQEndpoint, dpRank)
+				rankConfig.ZMQEndpoint = common.OffsetEndpointPort(config.ZMQEndpoint, effectiveRank)
+			}
+			if config.KVEventsReplayEndpoint != "" {
+				rankConfig.KVEventsReplayEndpoint = common.OffsetEndpointPort(config.KVEventsReplayEndpoint, effectiveRank)
 			}
 		}
 		// Store the effective rank in the per-rank config so downstream

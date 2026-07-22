@@ -80,6 +80,13 @@ func NewKVCacheHelper(ctx context.Context, config *common.Configuration, logger 
 
 // Run starts the helper.
 func (h *KVCacheHelper) Run(ctx context.Context) {
+	if r := h.blockCache.eventSender.replayer; r != nil {
+		go func() {
+			if err := r.run(ctx); err != nil {
+				h.logger.Error(err, "KV events replayer stopped with error")
+			}
+		}()
+	}
 	h.blockCache.start(ctx)
 }
 

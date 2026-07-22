@@ -155,6 +155,8 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 	f.StringVar(&config.HashSeed, "hash-seed", config.HashSeed,
 		"Seed for hash generation (if omitted on the command line, "+PythonHashSeedEnv+" may set it; see docs)")
 	f.StringVar(&config.ZMQEndpoint, "zmq-endpoint", config.ZMQEndpoint, "ZMQ address to publish events")
+	f.StringVar(&config.KVEventsReplayEndpoint, "kv-events-replay-endpoint", config.KVEventsReplayEndpoint, "ZMQ PULL address to bind for receiving KV events replay requests (empty disables)")
+	f.IntVar(&config.KVEventsReplayQueueSize, "kv-events-replay-queue-size", config.KVEventsReplayQueueSize, "Max number of event batches held in the replay queue; oldest dropped when full")
 	f.IntVar(&config.EventBatchSize, "event-batch-size", config.EventBatchSize, "Maximum number of kv-cache events to be sent together")
 	f.BoolVar(&config.UseVllmMapEventFormat, "use-vllm-map-event-format", config.UseVllmMapEventFormat, "Encode KV cache events as msgpack maps with named fields (vLLM PR #42892 format) instead of positional arrays")
 	f.IntVar(&config.DPSize, "data-parallel-size", config.DPSize, "Number of ranks to run")

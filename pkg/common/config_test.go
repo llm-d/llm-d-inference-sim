@@ -334,6 +334,66 @@ var _ = Describe("Simulator configuration", func() {
 	}
 	tests = append(tests, test)
 
+	// kv-events-replay-endpoint set via CLI flag
+	c = createConfigWithModel(TestModelName, nil)
+	c.MaxCPULoras = 1
+	c.Seed = 100
+	c.KVEventsReplayEndpoint = "tcp://*:5558"
+	test = testCase{
+		name:           "kv-events-replay-endpoint via CLI",
+		args:           []string{"cmd", "--model", TestModelName, "--seed", "100", "--kv-events-replay-endpoint", "tcp://*:5558"},
+		expectedConfig: c,
+	}
+	tests = append(tests, test)
+
+	// kv-events-replay-endpoint not set — defaults to empty (disabled)
+	c = createConfigWithModel(TestModelName, nil)
+	c.MaxCPULoras = 1
+	c.Seed = 100
+	test = testCase{
+		name:           "kv-events-replay-endpoint disabled by default",
+		args:           []string{"cmd", "--model", TestModelName, "--seed", "100"},
+		expectedConfig: c,
+	}
+	tests = append(tests, test)
+
+	// zmq-endpoint and kv-events-replay-endpoint ports far enough apart that
+	// they don't collide even once each rank's offset (0..data-parallel-size-1) is applied
+	c = createConfigWithModel(TestModelName, nil)
+	c.MaxCPULoras = 1
+	c.Seed = 100
+	c.DPSize = 3
+	c.ZMQEndpoint = "tcp://127.0.0.1:5557"
+	c.KVEventsReplayEndpoint = "tcp://*:5600"
+	test = testCase{
+		name: "zmq-endpoint and kv-events-replay-endpoint ports don't collide with data-parallel-size",
+		args: []string{"cmd", "--model", TestModelName, "--seed", "100", "--data-parallel-size", "3",
+			"--zmq-endpoint", "tcp://127.0.0.1:5557", "--kv-events-replay-endpoint", "tcp://*:5600"},
+		expectedConfig: c,
+	}
+	tests = append(tests, test)
+
+	// data-parallel-rank is set, so data-parallel-size is ignored for endpoint
+	// offsetting purposes: ports 5557/5559 would collide under the DPSize-based
+	// range check (DPSize=3 → range [5557,5559] vs [5559,5561] overlap at 5559),
+	// but since both endpoints get the same fixed rank offset, only an exact
+	// port match can actually collide — so this is valid.
+	c = createConfigWithModel(TestModelName, nil)
+	c.MaxCPULoras = 1
+	c.Seed = 100
+	c.DPSize = 3
+	c.Rank = 2
+	c.ZMQEndpoint = "tcp://127.0.0.1:5557"
+	c.KVEventsReplayEndpoint = "tcp://*:5559"
+	test = testCase{
+		name: "zmq-endpoint and kv-events-replay-endpoint ports don't collide when data-parallel-rank is set",
+		args: []string{"cmd", "--model", TestModelName, "--seed", "100", "--data-parallel-size", "3",
+			"--data-parallel-rank", "2",
+			"--zmq-endpoint", "tcp://127.0.0.1:5557", "--kv-events-replay-endpoint", "tcp://*:5559"},
+		expectedConfig: c,
+	}
+	tests = append(tests, test)
+
 	for _, test := range tests {
 		When(test.name, func() {
 			It("should create correct configuration", func() {
@@ -596,6 +656,36 @@ var _ = Describe("Simulator configuration", func() {
 			args: []string{"cmd", "--data-parallel-rank", "15",
 				"--config", "../../manifests/config.yaml"},
 			expectedError: "data parallel rank must be between 0 and 7",
+		},
+		{
+			name: "invalid zmq-endpoint and kv-events-replay-endpoint on the same port",
+			args: []string{"cmd", "--zmq-endpoint", "tcp://127.0.0.1:5557",
+				"--kv-events-replay-endpoint", "tcp://127.0.0.1:5557",
+				"--config", "../../manifests/config.yaml"},
+			expectedError: "zmq-endpoint (tcp://127.0.0.1:5557) and kv-events-replay-endpoint (tcp://127.0.0.1:5557) ports collide",
+		},
+		{
+			name: "invalid zmq-endpoint and kv-events-replay-endpoint colliding once offset by data-parallel-size",
+			args: []string{"cmd", "--data-parallel-size", "3",
+				"--zmq-endpoint", "tcp://127.0.0.1:5557",
+				"--kv-events-replay-endpoint", "tcp://127.0.0.1:5558",
+				"--config", "../../manifests/config.yaml"},
+			expectedError: "zmq-endpoint (tcp://127.0.0.1:5557) and kv-events-replay-endpoint (tcp://127.0.0.1:5558) ports collide",
+		},
+		{
+			name: "invalid zmq-endpoint and kv-events-replay-endpoint on the same port with data-parallel-rank set",
+			args: []string{"cmd", "--data-parallel-size", "3", "--data-parallel-rank", "2",
+				"--zmq-endpoint", "tcp://127.0.0.1:5557",
+				"--kv-events-replay-endpoint", "tcp://127.0.0.1:5557",
+				"--config", "../../manifests/config.yaml"},
+			expectedError: "zmq-endpoint (tcp://127.0.0.1:5557) and kv-events-replay-endpoint (tcp://127.0.0.1:5557) ports collide",
+		},
+		{
+			name: "invalid kv-events-replay-queue-size",
+			args: []string{"cmd", "--kv-events-replay-endpoint", "tcp://*:5558",
+				"--kv-events-replay-queue-size", "0",
+				"--config", "../../manifests/config.yaml"},
+			expectedError: "kv-events-replay-queue-size cannot be less than 1",
 		},
 		{
 			name: "invalid max-num-seqs",
