@@ -52,7 +52,7 @@ var _ = Describe("Publisher", func() {
 		go func() {
 			// Make sure that sub.RecvMessageBytes is called before pub.PublishEvent
 			time.Sleep(time.Second)
-			err := pub.PublishEvent(ctx, topic, data)
+			_, _, err := pub.PublishEvent(ctx, topic, data)
 			Expect(err).NotTo(HaveOccurred())
 		}()
 

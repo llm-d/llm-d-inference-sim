@@ -19,8 +19,6 @@ package llmdinferencesim
 
 import (
 	"fmt"
-	"strconv"
-	"strings"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
@@ -104,19 +102,4 @@ func buildECTransferParams(mmHashes map[string][]string) map[string]api.ECTransf
 		}
 	}
 	return params
-}
-
-// offsetZMQEndpointPort adds the given offset to the port in a ZMQ endpoint
-// string (e.g. "tcp://127.0.0.1:5557"). Returns the original endpoint unchanged
-// if parsing fails.
-func offsetZMQEndpointPort(endpoint string, offset int) string {
-	lastColon := strings.LastIndex(endpoint, ":")
-	if lastColon < 0 {
-		return endpoint
-	}
-	basePort, err := strconv.Atoi(endpoint[lastColon+1:])
-	if err != nil {
-		return endpoint
-	}
-	return endpoint[:lastColon+1] + strconv.Itoa(basePort+offset)
 }

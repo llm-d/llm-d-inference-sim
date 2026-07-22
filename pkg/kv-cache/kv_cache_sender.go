@@ -135,10 +135,12 @@ type KVEventSender struct {
 	logger                logr.Logger
 	useVllmMapEventFormat bool
 	dpRank                int
+	replayer              *kvEventsReplayer // nil when replay is disabled
 }
 
 func NewKVEventSender(publisher *common.Publisher, topic string, ch common.Channel[EventData], maxBatchSize int,
-	blockSize int, delay time.Duration, useVllmMapEventFormat bool, dpRank int, logger logr.Logger) *KVEventSender {
+	blockSize int, delay time.Duration, useVllmMapEventFormat bool, dpRank int, logger logr.Logger,
+	replayer *kvEventsReplayer) *KVEventSender {
 	return &KVEventSender{
 		publisher:             publisher,
 		topic:                 topic,
@@ -150,6 +152,7 @@ func NewKVEventSender(publisher *common.Publisher, topic string, ch common.Chann
 		logger:                logger,
 		useVllmMapEventFormat: useVllmMapEventFormat,
 		dpRank:                dpRank,
+		replayer:              replayer,
 	}
 }
 
@@ -332,7 +335,10 @@ func (s *KVEventSender) publishHelper(ctx context.Context) error {
 		DataParallelRank: &dpRank,
 	}
 
-	err := s.publisher.PublishEvent(ctx, s.topic, batch)
+	seq, payload, err := s.publisher.PublishEvent(ctx, s.topic, batch)
+	if err == nil && s.replayer != nil {
+		s.replayer.store(seq, payload)
+	}
 
 	// reset batch
 	s.batch = make([]batchEntry, 0, s.maxBatchSize)

@@ -20,6 +20,8 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -29,6 +31,41 @@ import (
 	"k8s.io/klog/v2"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
+
+// ParseEndpointPort splits a ZMQ endpoint string (e.g. "tcp://127.0.0.1:5557")
+// into the prefix up to and including the last colon, and the trailing port
+// number. ok is false if there is no trailing ":<port>".
+func ParseEndpointPort(endpoint string) (prefix string, port int, ok bool) {
+	lastColon := strings.LastIndex(endpoint, ":")
+	if lastColon < 0 {
+		return "", 0, false
+	}
+	port, err := strconv.Atoi(endpoint[lastColon+1:])
+	if err != nil {
+		return "", 0, false
+	}
+	return endpoint[:lastColon+1], port, true
+}
+
+// OffsetEndpointPort adds the given offset to the port in a ZMQ endpoint
+// string (e.g. "tcp://127.0.0.1:5557"). Returns the original
+// endpoint unchanged if parsing fails.
+func OffsetEndpointPort(endpoint string, offset int) string {
+	prefix, port, ok := ParseEndpointPort(endpoint)
+	if !ok {
+		return endpoint
+	}
+	return prefix + strconv.Itoa(port+offset)
+}
+
+// EncodeSeq encodes a sequence number as an 8-byte big-endian slice, the
+// wire format used for the seq frame in both the live PUB stream and KV
+// events replay.
+func EncodeSeq(seq uint64) []byte {
+	b := make([]byte, 8)
+	binary.BigEndian.PutUint64(b, seq)
+	return b
+}
 
 // Publisher sends events to a ZMQ endpoint.
 type Publisher struct {
@@ -71,30 +108,29 @@ func NewPublisher(ctx context.Context, endpoint string) (*Publisher, error) {
 	}, nil
 }
 
-// PublishEvent publishes a KV cache event batch to the ZMQ topic.
-// topic should include the pod identifier (e.g., "kv.pod1").
-func (p *Publisher) PublishEvent(ctx context.Context, topic string, batch interface{}) error {
+// PublishEvent marshals batch, assigns the next sequence number, and sends
+// [topic, seq, payload] over ZMQ. Returns the assigned sequence number and
+// the marshaled payload so callers can store it without re-encoding.
+func (p *Publisher) PublishEvent(ctx context.Context, topic string, batch interface{}) (uint64, []byte, error) {
 	logger := klog.FromContext(ctx).V(0)
 
 	payload, err := msgpack.Marshal(batch)
 	if err != nil {
-		return fmt.Errorf("failed to marshal event batch: %w", err)
+		return 0, nil, fmt.Errorf("failed to marshal event batch: %w", err)
 	}
 
 	// sequence number for ordering
 	seq := atomic.AddUint64(&p.seqNum, 1)
-	seqBytes := make([]byte, 8)
-	binary.BigEndian.PutUint64(seqBytes, seq)
 
 	// send topic, sequence, payload
-	msg := zmq4.NewMsgFrom([]byte(topic), seqBytes, payload)
+	msg := zmq4.NewMsgFrom([]byte(topic), EncodeSeq(seq), payload)
 
 	if err = p.socket.Send(msg); err != nil {
-		return fmt.Errorf("failed to send message to topic %s: %w", topic, err)
+		return 0, nil, fmt.Errorf("failed to send message to topic %s: %w", topic, err)
 	}
 
 	logger.V(logging.TRACE).Info("Published event batch", "topic", topic, "seq", seq)
-	return nil
+	return seq, payload, nil
 }
 
 // Close closes the publisher and cleans up resources.

@@ -68,7 +68,7 @@ var _ = Describe("Data Parallel", func() {
 		longPrompt := "This is a test message for kv cache events, has to be long enough to be tokenized into multiple blocks."
 
 		// Rank 0 gets a random port; ranks 1 and 2 get port+1 and port+2 respectively
-		// (the simulator calls offsetZMQEndpointPort(base, rank) for ranks > 0).
+		// (the simulator calls common.OffsetEndpointPort(base, rank) for ranks > 0).
 		topic := kvcache.CreateKVEventsTopic("localhost", model)
 		sub0, zmqEndpoint := common.CreateSub(ctx, topic)
 		defer sub0.Close() //nolint:errcheck
