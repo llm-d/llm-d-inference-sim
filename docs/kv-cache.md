@@ -252,7 +252,7 @@ The hit rate at any point is `prefix_cache_hits / prefix_cache_queries`.
 
 ## Sleep mode integration
 
-When [sleep mode](http-enpdpoints.md) is enabled (`--enable-sleep-mode` and `VLLM_SERVER_DEV_MODE=1`), the KV cache is integrated with the `/sleep` and `/wake_up` endpoints:
+When [sleep mode](http-endpoints.md) is enabled (`--enable-sleep-mode` and `VLLM_SERVER_DEV_MODE=1`), the KV cache is integrated with the `/sleep` and `/wake_up` endpoints:
 
 - **`POST /sleep`**: disables the cache and emits an `AllBlocksCleared` event so that subscribers know all blocks have been released.
 - **`POST /wake_up`** (no `tags` parameter, or `tags=kv_cache`): re-enables the cache.

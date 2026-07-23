@@ -10,7 +10,7 @@ Currently, the simulator supports a partial OpenAI-compatible API:
 - `/v1/embeddings`
 - `/v1/models`
 
-For details see the [HTTP Endpoints Guide](http-enpdpoints.md)
+For details see the [HTTP Endpoints Guide](http-endpoints.md)
 
 In addition, a set of the vLLM HTTP endpoints are supported:
 
