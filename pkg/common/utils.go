@@ -17,6 +17,7 @@ limitations under the License.
 package common
 
 import (
+	"errors"
 	"fmt"
 	"math/rand"
 	"sync"
@@ -25,7 +26,6 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/google/uuid"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
-	"github.com/pkg/errors"
 )
 
 const InvalidMaxTokensErrMsg = "Max completion tokens and max tokens should be positive"
