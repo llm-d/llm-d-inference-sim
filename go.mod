@@ -20,7 +20,7 @@ require (
 	github.com/valyala/fasthttp v1.71.0
 	github.com/vmihailenco/msgpack/v5 v5.4.1
 	golang.org/x/sync v0.21.0
-	google.golang.org/grpc v1.81.1
+	google.golang.org/grpc v1.82.1
 	gopkg.in/yaml.v3 v3.0.1
 	k8s.io/klog/v2 v2.140.0
 	modernc.org/sqlite v1.53.0
