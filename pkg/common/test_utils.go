@@ -18,6 +18,7 @@ package common
 
 import (
 	"context"
+	"net"
 
 	zmq4 "github.com/go-zeromq/zmq4"
 	"github.com/onsi/gomega"
@@ -40,6 +41,20 @@ func CreateSub(ctx context.Context, topic string) (zmq4.Socket, string) {
 
 func NewSub(ctx context.Context) zmq4.Socket {
 	return zmq4.NewSub(ctx)
+}
+
+// FreeTCPPort asks the OS for a currently-unused TCP port by binding to port
+// 0, reading back the assigned port, and releasing it immediately. There's a
+// small window before the real bind where another process could take the
+// port, but it's negligible in practice and avoids hardcoding ports that can
+// collide with other tests or leftover processes.
+func FreeTCPPort() (int, error) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return 0, err
+	}
+	defer l.Close() //nolint:errcheck
+	return l.Addr().(*net.TCPAddr).Port, nil
 }
 
 // starts the given sub on a random port and subscribes to the given topic. Returns the sub and the real endpoint to publish events on.

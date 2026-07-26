@@ -373,23 +373,24 @@ var _ = Describe("Simulator configuration", func() {
 	}
 	tests = append(tests, test)
 
-	// data-parallel-rank is set, so data-parallel-size is ignored for endpoint
-	// offsetting purposes: ports 5557/5559 would collide under the DPSize-based
-	// range check (DPSize=3 → range [5557,5559] vs [5559,5561] overlap at 5559),
-	// but since both endpoints get the same fixed rank offset, only an exact
-	// port match can actually collide — so this is valid.
+	// data-parallel-rank is set to a single fixed value for this process, but the
+	// collision check still spans the full data-parallel-size range: the other
+	// ranks of the cluster are still out there running with their own fixed rank
+	// and the same base endpoints, so the check is unaffected by data-parallel-rank
+	// being set here. These ports (range [5557,5559] vs [5600,5602]) don't collide
+	// either way.
 	c = createConfigWithModel(TestModelName, nil)
 	c.MaxCPULoras = 1
 	c.Seed = 100
 	c.DPSize = 3
 	c.Rank = 2
 	c.ZMQEndpoint = "tcp://127.0.0.1:5557"
-	c.KVEventsReplayEndpoint = "tcp://*:5559"
+	c.KVEventsReplayEndpoint = "tcp://*:5600"
 	test = testCase{
 		name: "zmq-endpoint and kv-events-replay-endpoint ports don't collide when data-parallel-rank is set",
 		args: []string{"cmd", "--model", TestModelName, "--seed", "100", "--data-parallel-size", "3",
 			"--data-parallel-rank", "2",
-			"--zmq-endpoint", "tcp://127.0.0.1:5557", "--kv-events-replay-endpoint", "tcp://*:5559"},
+			"--zmq-endpoint", "tcp://127.0.0.1:5557", "--kv-events-replay-endpoint", "tcp://*:5600"},
 		expectedConfig: c,
 	}
 	tests = append(tests, test)
@@ -679,6 +680,19 @@ var _ = Describe("Simulator configuration", func() {
 				"--kv-events-replay-endpoint", "tcp://127.0.0.1:5557",
 				"--config", "../../manifests/config.yaml"},
 			expectedError: "zmq-endpoint (tcp://127.0.0.1:5557) and kv-events-replay-endpoint (tcp://127.0.0.1:5557) ports collide",
+		},
+		{
+			// data-parallel-rank is fixed to 2 for this process, but the check still
+			// spans the full data-parallel-size range: rank 2's zmq port (5559) would
+			// collide with rank 0's replay port (5559) elsewhere in the same cluster,
+			// even though this process's own zmq (5559) and replay (5561) ports don't
+			// collide with each other.
+			name: "invalid zmq-endpoint and kv-events-replay-endpoint colliding with another rank's port when data-parallel-rank is set",
+			args: []string{"cmd", "--data-parallel-size", "3", "--data-parallel-rank", "2",
+				"--zmq-endpoint", "tcp://127.0.0.1:5557",
+				"--kv-events-replay-endpoint", "tcp://127.0.0.1:5559",
+				"--config", "../../manifests/config.yaml"},
+			expectedError: "zmq-endpoint (tcp://127.0.0.1:5557) and kv-events-replay-endpoint (tcp://127.0.0.1:5559) ports collide",
 		},
 		{
 			name: "invalid kv-events-replay-queue-size",

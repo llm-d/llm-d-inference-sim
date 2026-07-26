@@ -36,6 +36,8 @@ All KV cache parameters can be set via CLI flags or the equivalent YAML keys (na
 | `zmq-endpoint` | string | `tcp://127.0.0.1:5557` | ZMQ address to publish events (the simulator dials this address) |
 | `event-batch-size` | int | `16` | Maximum number of events bundled into a single ZMQ message |
 | `use-vllm-map-event-format` | bool | `false` | Encode events as msgpack maps with named fields (vLLM PR #42892 format) instead of positional arrays. Set to `true` when the consumer expects the named-field schema. |
+| `kv-events-replay-endpoint` | string | `""` (disabled) | ZMQ ROUTER address to bind for KV events replay requests. See [KV events replay](#kv-events-replay). |
+| `kv-events-replay-queue-size` | int | `1024` | Maximum number of published event batches retained for replay, oldest dropped when full. |
 | `global-cache-hit-threshold` | float | `0` (disabled) | Server-wide minimum cache hit rate `[0, 1]`. Requests whose hit rate falls below this threshold return immediately with finish reason `cache_threshold`. Individual requests can override this with the `cache_hit_threshold` field. |
 
 ### Example YAML config
@@ -172,6 +174,26 @@ Emitted when the cache is fully discarded (see [Sleep mode](#sleep-mode-integrat
 Events are buffered and sent together for efficiency. A batch is flushed when either:
 - The number of pending events reaches `event-batch-size`, or
 - 1 second elapses since the last flush.
+
+## KV events replay
+
+When `kv-events-replay-endpoint` is set, the simulator additionally binds a ZMQ ROUTER socket that lets a late-joining or reconnecting subscriber catch up on batches it missed on the live PUB stream, instead of waiting for new events.
+
+- The simulator keeps a sliding window of the last `kv-events-replay-queue-size` published batches (default `1024`), keyed by their sequence number. Once the window is full, the oldest batch is dropped as new ones arrive.
+
+### Request format
+
+A request is a REQ-style 3-frame message — `[identity, empty-delimiter, startSeq]` — where `startSeq` is an 8-byte big-endian `uint64` meaning "replay every batch with `seq >= startSeq`"; malformed requests are silently ignored.
+
+### Reply format
+
+The simulator replies with each matching batch as a 3-frame message — `[topic, seq (8-byte big-endian), msgpack payload]` — identical in shape to the live PUB frames, so a subscriber can decode replayed and live batches the same way. 
+
+After the last matching batch, the simulator sends an end-of-replay sentinel: empty topic, `seq = 0xFFFFFFFFFFFFFFFF`, empty payload. The client should treat this as "you are caught up".
+
+If `startSeq` is older than every batch still in the window, all retained batches are replayed — there is no error signal for "some history was already evicted"; the client has to also track this against its own expectations.
+
+Replies for one client are sent from a dedicated goroutine, but this only isolates a slow client from the ROUTER socket's *receive* loop — new incoming replay requests still get parsed while a reply is in flight. It does **not** isolate clients from each other's replies: all replies on this endpoint go out over the same ROUTER socket, and the underlying ZMQ library serializes every send on that socket behind one shared, unbounded-blocking write. A client that stops draining its own socket without closing the connection therefore stalls replay for every other client on this rank too, not just its own, until that connection is closed — there is no per-message timeout that can free it. Clients must actively read every reply until the sentinel (or close the connection promptly on error) to avoid this.
 
 ## Block eviction policy
 

@@ -1228,17 +1228,23 @@ force-dummy-tokenizer: false
 
 	Context("kv-events replay", func() {
 		const (
-			replayEndpoint = "tcp://127.0.0.1:15559"
-			replayModel    = common.QwenModelName
-			replayMode     = common.ModeRandom
-			replayPrompt   = "This is a test message for kv cache events, has to be long enough to be tokenized into multiple blocks."
+			replayModel  = common.QwenModelName
+			replayMode   = common.ModeRandom
+			replayPrompt = "This is a test message for kv cache events, has to be long enough to be tokenized into multiple blocks."
 		)
 
-		// setupReplayServer starts the simulator with replay enabled.
-		// Returns the HTTP client, the PUB subscriber (for watching live events), and the topic.
-		setupReplayServer := func(ctx context.Context) (*http.Client, zmq4.Socket, string) {
+		// setupReplayServer starts the simulator with replay enabled on a freshly
+		// probed free port (see freeTCPPort), rather than a fixed port that could
+		// collide with other tests or a leftover process.
+		// Returns the HTTP client, the PUB subscriber (for watching live events),
+		// the topic, and the replay endpoint the simulator was told to bind.
+		setupReplayServer := func(ctx context.Context) (*http.Client, zmq4.Socket, string, string) {
 			topic := kvcache.CreateKVEventsTopic("localhost", replayModel)
 			sub, zmqEndpoint := common.CreateSub(ctx, topic)
+
+			replayPort, err := common.FreeTCPPort()
+			Expect(err).NotTo(HaveOccurred())
+			replayEndpoint := fmt.Sprintf("tcp://127.0.0.1:%d", replayPort)
 
 			args := []string{"cmd", "--model", replayModel, "--mode", replayMode,
 				"--enable-kvcache", "true", "--kv-cache-size", "16", "--block-size", "8",
@@ -1248,35 +1254,23 @@ force-dummy-tokenizer: false
 			}
 			client, err := startServerWithArgsAndEnv(ctx, replayMode, args, map[string]string{"POD_IP": "localhost"})
 			Expect(err).NotTo(HaveOccurred())
-			return client, sub, topic
+			return client, sub, topic, replayEndpoint
 		}
 
-		// sendReplayRequestAndRecv connects a REQ socket to the ROUTER replay endpoint,
-		// sends startSeq, and collects all reply batches until the sentinel.
-		// Replies are [topic, seq(8B), payload] frames (REQ strips identity+delimiter),
-		// the same shape as the live PUB stream.
-		// Returns (totalStoredBlocks, lastSeq).
-		sendReplayRequestAndRecv := func(ctx context.Context, startSeq uint64) (int, uint64) {
-			req := zmq4.NewReq(ctx)
-			DeferCleanup(req.Close)
-
-			Expect(req.Dial(replayEndpoint)).To(Succeed())
-			frame := make([]byte, 8)
-			binary.BigEndian.PutUint64(frame, startSeq)
-			Expect(req.Send(zmq4.NewMsg(frame))).To(Succeed())
+		// sendReplayRequestAndRecv requests replay from startSeq via the shared
+		// kvcache.SendReplayRequestAndRecv helper and aggregates the blocks in the
+		// returned batches, skipping the end-of-replay sentinel (identified by its
+		// empty topic frame). Returns (totalStoredBlocks, lastSeq).
+		sendReplayRequestAndRecv := func(ctx context.Context, replayEndpoint string, startSeq uint64) (int, uint64) {
+			msgs := kvcache.SendReplayRequestAndRecv(ctx, replayEndpoint, startSeq)
 
 			totalStored := 0
 			var lastSeq uint64
-			for {
-				msg, err := req.Recv()
-				Expect(err).NotTo(HaveOccurred())
-				// Each reply: [topic, seq(8B), payload]
-				Expect(msg.Frames).To(HaveLen(3))
-				seq := binary.BigEndian.Uint64(msg.Frames[1])
-				if seq == ^uint64(0) {
-					// End-of-replay sentinel
+			for _, msg := range msgs {
+				if len(msg.Frames[0]) == 0 {
 					break
 				}
+				seq := binary.BigEndian.Uint64(msg.Frames[1])
 				stored, _, _ := kvcache.CountKVEventBlocks(msg.Frames, kvcache.CreateKVEventsTopic("localhost", replayModel), seq)
 				totalStored += stored
 				lastSeq = seq
@@ -1320,7 +1314,7 @@ force-dummy-tokenizer: false
 
 		It("stores published batches and replays them from a given sequence number", func() {
 			ctx := context.TODO()
-			client, sub, topic := setupReplayServer(ctx)
+			client, sub, topic, replayEndpoint := setupReplayServer(ctx)
 			defer sub.Close() //nolint:errcheck
 
 			msgCh := startSubReceiver(sub)
@@ -1341,14 +1335,14 @@ force-dummy-tokenizer: false
 			Expect(lastSeq).To(BeNumerically(">", 0))
 
 			// Request replay from the last seq — exactly that one batch should come back
-			replayedTotal, replayedLastSeq := sendReplayRequestAndRecv(ctx, lastSeq)
+			replayedTotal, replayedLastSeq := sendReplayRequestAndRecv(ctx, replayEndpoint, lastSeq)
 			Expect(replayedTotal).To(BeNumerically(">", 0))
 			Expect(replayedLastSeq).To(Equal(lastSeq))
 		})
 
 		It("replays all stored batches when startSeq is 1", func() {
 			ctx := context.TODO()
-			client, sub, topic := setupReplayServer(ctx)
+			client, sub, topic, replayEndpoint := setupReplayServer(ctx)
 			defer sub.Close() //nolint:errcheck
 
 			msgCh := startSubReceiver(sub)
@@ -1366,13 +1360,13 @@ force-dummy-tokenizer: false
 			Expect(origTotal).To(BeNumerically(">", 0))
 
 			// Replay from seq 1 — all stored batches must be returned
-			replayedTotal, _ := sendReplayRequestAndRecv(ctx, 1)
+			replayedTotal, _ := sendReplayRequestAndRecv(ctx, replayEndpoint, 1)
 			Expect(replayedTotal).To(Equal(origTotal))
 		})
 
 		It("returns only the sentinel when startSeq is beyond all stored batches", func() {
 			ctx := context.TODO()
-			client, sub, topic := setupReplayServer(ctx)
+			client, sub, topic, replayEndpoint := setupReplayServer(ctx)
 			defer sub.Close() //nolint:errcheck
 
 			msgCh := startSubReceiver(sub)
@@ -1389,7 +1383,7 @@ force-dummy-tokenizer: false
 			drainPubUntilQuiet(msgCh, topic, 500*time.Millisecond)
 
 			// Ask for a seq far beyond what was stored — only the sentinel comes back
-			replayedTotal, _ := sendReplayRequestAndRecv(ctx, 999999)
+			replayedTotal, _ := sendReplayRequestAndRecv(ctx, replayEndpoint, 999999)
 			Expect(replayedTotal).To(Equal(0))
 		})
 	})

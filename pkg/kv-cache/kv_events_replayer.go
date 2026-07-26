@@ -18,6 +18,7 @@ package kvcache
 import (
 	"context"
 	"encoding/binary"
+	"net"
 	"sync"
 	"time"
 
@@ -42,61 +43,50 @@ type replayEntry struct {
 // replaySentinel is the sequence value used in the vLLM end-of-replay sentinel frame.
 const replaySentinel = ^uint64(0) // 0xFFFFFFFFFFFFFFFF
 
-// replayQueue is a fixed-capacity ring buffer of replayEntry values.
-// When full, the oldest entry is silently overwritten (sliding window).
+// replayQueue is a bounded FIFO of replayEntry values, holding at most
+// capacity entries in insertion order. When full, the oldest entry is
+// dropped to make room (sliding window).
 type replayQueue struct {
 	mu       sync.Mutex
 	buf      []replayEntry
-	head     int // next write slot
-	size     int // number of valid entries
 	capacity int
 }
 
 func newReplayQueue(capacity int) *replayQueue {
 	return &replayQueue{
-		buf:      make([]replayEntry, capacity),
+		buf:      make([]replayEntry, 0, capacity),
 		capacity: capacity,
 	}
 }
 
-// push adds an entry, overwriting the oldest when full.
+// push adds an entry, dropping the oldest when full.
 func (q *replayQueue) push(entry replayEntry) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
-	q.buf[q.head] = entry
-	q.head = (q.head + 1) % q.capacity
-	if q.size < q.capacity {
-		q.size++
+	if len(q.buf) == q.capacity {
+		copy(q.buf, q.buf[1:])
+		q.buf = q.buf[:len(q.buf)-1]
 	}
+	q.buf = append(q.buf, entry)
 }
 
 // since returns all stored entries with seq >= startSeq, in insertion order.
-// Entries are stored in strictly increasing sequence order. The loop short-circuits
-// on the first match and appends everything from that point on
+// Entries are stored in strictly increasing sequence order, so the search
+// short-circuits on the first match and the rest is copied out in one go.
 func (q *replayQueue) since(startSeq uint64) []replayEntry {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
-	// head points one slot past the newest entry, so stepping back size slots
-	// reaches the oldest entry.
-	// +capacity before % prevents a negative result when
-	// head has wrapped around.
-	oldest := (q.head - q.size + q.capacity) % q.capacity
-
-	var result []replayEntry
-	collecting := false
-	for i := 0; i < q.size; i++ {
-		e := q.buf[(oldest+i)%q.capacity]
-		if !collecting {
-			if e.seq >= startSeq {
-				collecting = true
-			} else {
-				continue
-			}
+	start := len(q.buf)
+	for i, e := range q.buf {
+		if e.seq >= startSeq {
+			start = i
+			break
 		}
-		result = append(result, e)
 	}
+	result := make([]replayEntry, len(q.buf)-start)
+	copy(result, q.buf[start:])
 	return result
 }
 
@@ -104,7 +94,7 @@ func (q *replayQueue) since(startSeq uint64) []replayEntry {
 func (q *replayQueue) len() int {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	return q.size
+	return len(q.buf)
 }
 
 // kvEventsReplayer binds a ZMQ ROUTER socket on the replay endpoint.
@@ -113,6 +103,7 @@ type kvEventsReplayer struct {
 	topic    string
 	queue    *replayQueue
 	logger   logr.Logger
+	socket   zmq4.Socket // set by listen; nil until then
 }
 
 // newKVEventsReplayer creates a replayer that will bind a ROUTER socket on endpoint.
@@ -130,20 +121,34 @@ func newKVEventsReplayer(endpoint string, topic string, queueSize int, logger lo
 // the msgpack payload and its sequence number in the sliding queue.
 func (r *kvEventsReplayer) store(seq uint64, payload []byte) {
 	r.queue.push(replayEntry{seq: seq, payload: payload})
-	r.logger.V(logging.DEBUG).Info("KV events replayer stored batch", "seq", seq, "queue_size", r.queue.len())
+	r.logger.V(logging.TRACE).Info("KV events replayer stored batch", "seq", seq, "queue_size", r.queue.len())
 }
 
-// run binds the ROUTER socket and handles replay requests until ctx is cancelled.
-// Each request arrives as [identity, empty-delimiter, 8-byte-seq] (REQ/ROUTER
-// pair). Replies are sent back to the same identity.
-func (r *kvEventsReplayer) run(ctx context.Context) error {
+// listen creates and binds the ROUTER socket, returning the resolved address.
+// This matters when endpoint uses a wildcard port (e.g. "tcp://127.0.0.1:0"):
+// the caller can only learn the OS-assigned port after Listen succeeds, which
+// is why binding is split out from serve rather than happening inside it.
+// The socket is kept open until serve returns; call serve exactly once after
+// a successful listen.
+func (r *kvEventsReplayer) listen(ctx context.Context) (net.Addr, error) {
 	socket := zmq4.NewRouter(ctx)
-	defer socket.Close() //nolint:errcheck
-
 	if err := socket.Listen(r.endpoint); err != nil {
-		return err
+		_ = socket.Close()
+		return nil, err
 	}
-	r.logger.V(logging.INFO).Info("KV events replayer listening", "endpoint", r.endpoint)
+	r.socket = socket
+
+	addr := socket.Addr()
+	r.logger.V(logging.INFO).Info("KV events replayer listening", "endpoint", addr.String())
+	return addr, nil
+}
+
+// serve handles replay requests on the socket bound by listen, until ctx is
+// cancelled. Each request arrives as [identity, empty-delimiter, 8-byte-seq]
+// (REQ/ROUTER pair). Replies are sent back to the same identity.
+func (r *kvEventsReplayer) serve(ctx context.Context) error {
+	socket := r.socket
+	defer socket.Close() //nolint:errcheck
 
 	for {
 		msg, err := socket.Recv()
@@ -179,14 +184,23 @@ func (r *kvEventsReplayer) run(ctx context.Context) error {
 // format as the live PUB stream so subscribers can decode them identically.
 //
 // The send loop runs in a goroutine so a slow client doesn't block the
-// ROUTER's receive loop (Recv/Send use independent locks in go-zeromq/zmq4).
-// Send() itself blocks for as long as the client takes to drain its socket —
-// there is no per-message timeout, since go-zeromq's Send() performs a
-// literal blocking OS write with no way to bound or cancel it once in
-// flight, so a timeout here couldn't actually free a stuck client's
-// connection anyway; a slow-but-still-reading client (the expected case)
-// just waits, at the cost of leaking this goroutine if a client vanishes
-// without closing its connection.
+// ROUTER's receive loop — Recv and Send use independent locks in
+// go-zeromq/zmq4, so new incoming replay requests are still parsed while a
+// reply is in flight.
+//
+// This does NOT isolate clients from each other, though: every Send() on a
+// ROUTER socket funnels through zmq4's routerMWriter.write(), which holds a
+// single mutex for the entire blocking OS write, regardless of which peer
+// it's writing to (verified against go-zeromq/zmq4@v0.17.0's router.go). So
+// while this goroutine is blocked inside Send() for one client, every other
+// client's reply goroutine — call it from a request received concurrently —
+// blocks too, waiting on that same mutex, even if its own connection is
+// healthy and actively draining. There is no per-message timeout to bound
+// this: go-zeromq's Send() performs a literal blocking OS write with no way
+// to cancel it once in flight (the context timeout it wraps the write in is
+// never wired to a net.Conn deadline), so a single client that stops
+// draining its socket without closing the connection can stall replay for
+// every other client on this rank until that connection is closed.
 func (r *kvEventsReplayer) handleReplayRequest(ctx context.Context, socket zmq4.Socket, identity []byte, frame []byte) {
 	if len(frame) < 8 {
 		r.logger.V(logging.DEBUG).Info("KV events replayer: replay request frame too short, ignoring")

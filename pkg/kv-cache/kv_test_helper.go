@@ -17,8 +17,10 @@ limitations under the License.
 package kvcache
 
 import (
+	"context"
 	"encoding/binary"
 
+	zmq4 "github.com/go-zeromq/zmq4"
 	"github.com/llm-d/llm-d-kv-cache/pkg/kvevents"
 	"github.com/llm-d/llm-d-kv-cache/pkg/kvevents/engineadapter"
 	"github.com/onsi/ginkgo/v2"
@@ -121,6 +123,35 @@ func CountKVEventBlocks(parts [][]byte, expectedTopic string, expectedSeq uint64
 	}
 
 	return storedCount, removedCount, allCleared
+}
+
+// SendReplayRequestAndRecv connects a REQ socket to a KV events replay ROUTER
+// endpoint, sends startSeq as an 8-byte big-endian frame, and returns all
+// reply messages up to and including the end-of-replay sentinel. The REQ
+// socket strips the identity + empty-delimiter frames automatically, so each
+// returned message has frames [topic, seq(8B big-endian), payload]; the
+// sentinel is distinguished from real batches by its empty topic frame.
+func SendReplayRequestAndRecv(ctx context.Context, endpoint string, startSeq uint64) []zmq4.Msg {
+	req := zmq4.NewReq(ctx)
+	defer req.Close() //nolint:errcheck
+
+	gomega.Expect(req.Dial(endpoint)).To(gomega.Succeed())
+
+	frame := make([]byte, 8)
+	binary.BigEndian.PutUint64(frame, startSeq)
+	gomega.Expect(req.Send(zmq4.NewMsg(frame))).To(gomega.Succeed())
+
+	var replies []zmq4.Msg
+	for {
+		msg, err := req.Recv()
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Expect(msg.Frames).To(gomega.HaveLen(3))
+		replies = append(replies, msg)
+		if len(msg.Frames[0]) == 0 {
+			break
+		}
+	}
+	return replies
 }
 
 // ParseKVBatchRank decodes the DataParallelRank field from a raw ZMQ message.

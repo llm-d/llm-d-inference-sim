@@ -222,7 +222,7 @@ type Configuration struct {
 	// ZMQEndpoint is the ZMQ address to publish events, the default value is tcp://localhost:5557
 	ZMQEndpoint string `yaml:"zmq-endpoint" json:"zmq-endpoint"`
 
-	// KVEventsReplayEndpoint is the ZMQ PULL address to bind for receiving KV events replay requests.
+	// KVEventsReplayEndpoint is the ZMQ ROUTER address to bind for receiving KV events replay requests.
 	// Empty (default) disables the replay listener. Example: "tcp://*:5558"
 	KVEventsReplayEndpoint string `yaml:"kv-events-replay-endpoint" json:"kv-events-replay-endpoint"`
 
@@ -644,7 +644,15 @@ func (c *Configuration) validate() error {
 
 // validateEndpointPortsDontCollide ensures the ZMQ publish endpoint and the
 // KV-events-replay endpoint don't end up bound to the same port once each
-// rank's offset is applied
+// rank's offset is applied.
+//
+// This holds even when data-parallel-rank is set to a single fixed value for
+// this process: the other ranks of the same cluster are still out there,
+// each running with their own fixed rank in 0..data-parallel-size-1 and the
+// same base endpoints, so this rank's ZMQ port can still collide with some
+// other rank's replay port (or vice versa). The check therefore always
+// spans the full 0..DPSize-1 range rather than narrowing to this process's
+// own rank.
 func (c *Configuration) validateEndpointPortsDontCollide() error {
 	if c.ZMQEndpoint == "" || c.KVEventsReplayEndpoint == "" {
 		return nil
@@ -659,14 +667,8 @@ func (c *Configuration) validateEndpointPortsDontCollide() error {
 		return nil
 	}
 
-	// When data-parallel-rank is set, data-parallel-size is ignored for endpoint
-	// offsetting and both endpoints are offset by the
-	// same fixed rank, so only an exact port match can collide.
+	// Ports occupied across ranks 0..DPSize-1: [port, port+DPSize-1].
 	maxRank := c.DPSize - 1
-	if c.Rank >= 0 {
-		maxRank = 0
-	}
-	// Ports occupied across ranks 0..maxRank: [port, port+maxRank].
 	if zmqPort <= replayPort+maxRank && replayPort <= zmqPort+maxRank {
 		return fmt.Errorf("zmq-endpoint (%s) and kv-events-replay-endpoint (%s) ports collide"+
 			" once offset by data-parallel rank", c.ZMQEndpoint, c.KVEventsReplayEndpoint)

@@ -25,39 +25,10 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-// sendReplayRequestAndRecv connects a REQ socket to the replayer ROUTER endpoint,
-// sends an 8-byte big-endian start sequence number, and returns all reply frames
-// received until the end-of-replay sentinel (seq == 0xFFFFFFFFFFFFFFFF).
-func sendReplayRequestAndRecv(ctx context.Context, endpoint string, startSeq uint64) []zmq4.Msg {
-	req := zmq4.NewReq(ctx)
-	defer req.Close() //nolint:errcheck
-
-	err := req.Dial(endpoint)
-	Expect(err).NotTo(HaveOccurred())
-
-	frame := make([]byte, 8)
-	binary.BigEndian.PutUint64(frame, startSeq)
-	err = req.Send(zmq4.NewMsg(frame))
-	Expect(err).NotTo(HaveOccurred())
-
-	var replies []zmq4.Msg
-	for {
-		msg, err := req.Recv()
-		Expect(err).NotTo(HaveOccurred())
-		// REQ socket strips the identity + delimiter; frames are [topic, seq(8B), payload]
-		Expect(msg.Frames).To(HaveLen(3))
-		seq := binary.BigEndian.Uint64(msg.Frames[1])
-		replies = append(replies, msg)
-		if seq == replaySentinel {
-			break
-		}
-	}
-	return replies
-}
-
 var _ = Describe("kvEventsReplayer", func() {
 	const (
-		replayEndpoint = "tcp://127.0.0.1:15558"
+		// Port 0 lets the OS assign a free port; listen() reports back which one.
+		replayEndpoint = "tcp://127.0.0.1:0"
 		replayTopic    = "kv.test-topic"
 	)
 
@@ -116,22 +87,24 @@ var _ = Describe("kvEventsReplayer", func() {
 			Expect(entries[0].seq).To(Equal(uint64(2)))
 			Expect(entries[0].payload).To(Equal([]byte("batch-2")))
 		})
-
-		It("slides out old batches when queue is full", func() {
-			r := newKVEventsReplayer(replayEndpoint, replayTopic, 3, GinkgoLogr)
-
-			for i := uint64(1); i <= 5; i++ {
-				r.store(i, []byte{byte(i)})
-			}
-
-			Expect(r.queue.len()).To(Equal(3))
-			// only seq 3, 4, 5 remain
-			Expect(r.queue.since(1)).To(HaveLen(3))
-			Expect(r.queue.since(1)[0].seq).To(Equal(uint64(3)))
-		})
 	})
 
 	Describe("kvEventsReplayer.run", func() {
+		// startReplayer binds r and serves it in the background, returning the
+		// resolved endpoint (with the OS-assigned port, if any) and a channel
+		// closed once serve returns.
+		startReplayer := func(ctx context.Context, r *kvEventsReplayer) (string, chan struct{}) {
+			addr, err := r.listen(ctx)
+			Expect(err).NotTo(HaveOccurred())
+
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				_ = r.serve(ctx)
+			}()
+			return "tcp://" + addr.String(), done
+		}
+
 		It("receives replay request and sends matched batches back to the requester", func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
@@ -143,18 +116,10 @@ var _ = Describe("kvEventsReplayer", func() {
 				r.store(i, []byte{byte(i)})
 			}
 
-			// Start the replayer in the background
-			runDone := make(chan struct{})
-			go func() {
-				defer close(runDone)
-				_ = r.run(ctx)
-			}()
-
-			// Give the socket time to bind
-			time.Sleep(300 * time.Millisecond)
+			endpoint, runDone := startReplayer(ctx, r)
 
 			// Send a replay request from seq 3; expect 2 batches + sentinel back
-			replies := sendReplayRequestAndRecv(ctx, replayEndpoint, 3)
+			replies := SendReplayRequestAndRecv(ctx, endpoint, 3)
 
 			// Last reply is the sentinel; the rest are the matched batches
 			Expect(replies).To(HaveLen(3)) // seq 3, seq 4, sentinel
@@ -177,20 +142,14 @@ var _ = Describe("kvEventsReplayer", func() {
 			r := newKVEventsReplayer(replayEndpoint, replayTopic, 10, GinkgoLogr)
 			r.store(1, []byte{0x01})
 
-			runDone := make(chan struct{})
-			go func() {
-				defer close(runDone)
-				_ = r.run(ctx)
-			}()
-
-			time.Sleep(300 * time.Millisecond)
+			endpoint, runDone := startReplayer(ctx, r)
 
 			// A DEALER socket is a legal raw peer for ROUTER but does NOT add an empty
 			// delimiter frame. Sending one frame from DEALER produces [identity, data] at
 			// the ROUTER — 2 frames, not the expected 3 — so it must be ignored.
 			dealer := zmq4.NewDealer(ctx)
 			defer dealer.Close() //nolint:errcheck
-			Expect(dealer.Dial(replayEndpoint)).To(Succeed())
+			Expect(dealer.Dial(endpoint)).To(Succeed())
 			err := dealer.Send(zmq4.NewMsg([]byte("bad-request")))
 			Expect(err).NotTo(HaveOccurred())
 

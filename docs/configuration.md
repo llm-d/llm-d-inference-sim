@@ -82,6 +82,8 @@ For a detailed explanation of how the simulator models inference time and what e
 - `zmq-endpoint`: ZMQ address to publish events
 - `event-batch-size`: the maximum number of kv-cache events to be sent together, defaults to 16
 - `use-vllm-map-event-format`: when `true`, encodes KV cache events as msgpack maps with named fields, matching the format introduced in vLLM PR #42892. When `false` (the default), events are encoded as positional msgpack arrays (legacy format). Use `true` when the event consumer is the llm-d `VLLMAdapter` parsing the new named-field schema.
+- `kv-events-replay-endpoint`: ZMQ ROUTER address to bind for receiving KV events replay requests. Empty (default) disables the replay listener. Example: `tcp://*:5558`. A client that stops draining its socket without closing the connection stalls replay for every other connected client too, not just its own — see [KV events replay](kv-cache.md#kv-events-replay).
+- `kv-events-replay-queue-size`: the max number of event batches held in the replay queue; oldest dropped when full. Defaults to 1024.
 
 ## Failure injection
 - `failure-injection-rate`: probability (0-100) of injecting failures, optional, default is 0
