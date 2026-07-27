@@ -87,7 +87,6 @@ func (c *Communication) startHTTPServer(ctx context.Context, listener net.Listen
 	r.GET("/health/ready", c.HandleHealthReady)
 	// emulates vLLM's Mooncake bootstrap endpoint on the prefill pod; the routing sidecar queries it to resolve remote engine ids
 	r.GET("/query", c.HandleMooncakeQuery)
-	r.GET("/ready", c.HandleReady)
 	r.POST("/tokenize", c.HandleTokenize)
 	r.POST("/sleep", c.HandleSleep)
 	r.POST("/wake_up", c.HandleWakeUp)
@@ -811,17 +810,6 @@ func (c *Communication) HandleHealthReady(ctx *fasthttp.RequestCtx) {
 		ctx.Response.Header.SetStatusCode(fasthttp.StatusServiceUnavailable)
 		return
 	}
-	ctx.Response.Header.SetStatusCode(fasthttp.StatusOK)
-}
-
-// HandleReady http handler for /ready
-func (c *Communication) HandleReady(ctx *fasthttp.RequestCtx) {
-	c.logger.V(logging.TRACE).Info("Readiness request received")
-	if !c.readyDeprecatedLogged {
-		c.readyDeprecatedLogged = true
-		c.logger.V(logging.INFO).Info("/ready endpoint is deprecated and will be removed in a future release; please use /health/ready instead")
-	}
-	ctx.Response.Header.SetContentType("application/json")
 	ctx.Response.Header.SetStatusCode(fasthttp.StatusOK)
 }
 
