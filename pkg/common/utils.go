@@ -51,7 +51,7 @@ type MetricInfo struct {
 // ValidateContextWindow checks if the request fits within the model's context window
 // Returns validation result, actual completion tokens, and total tokens
 func ValidateContextWindow(promptTokens int, maxCompletionTokens *int64, maxModelLen int) (bool, int64, int64) {
-	completionTokens := int64(0)
+	completionTokens := int64(1)
 	if maxCompletionTokens != nil {
 		completionTokens = *maxCompletionTokens
 	}
