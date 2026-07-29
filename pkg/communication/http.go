@@ -300,8 +300,8 @@ func (c *Communication) handleHTTP(req vllmsim.Request, respBuilder responseBuil
 // HTTP status instead of being forced into a 200 SSE error frame.
 func (c *Communication) handleStream(ctx *fasthttp.RequestCtx, channel common.Channel[*vllmsim.ResponseInfo],
 	respBuilder responseBuilder, numChoices int) {
-	first, ok := <-channel.Channel
-	if ok && first.Err != nil {
+	first := <-channel.Channel
+	if first != nil && first.Err != nil {
 		go drainResponseChannel(channel)
 		c.sendError(ctx, first.Err, false)
 		return
@@ -310,11 +310,7 @@ func (c *Communication) handleStream(ctx *fasthttp.RequestCtx, channel common.Ch
 	ctx.SetStatusCode(fasthttp.StatusOK)
 	ctx.SetContentType("text/event-stream")
 
-	var firstResp *vllmsim.ResponseInfo
-	if ok {
-		firstResp = first
-	}
-	c.sendStream(ctx, channel, respBuilder, numChoices, firstResp)
+	c.sendStream(ctx, channel, respBuilder, numChoices, first)
 }
 
 func (c *Communication) sendNonStream(ctx *fasthttp.RequestCtx, channel common.Channel[*vllmsim.ResponseInfo],
@@ -426,7 +422,6 @@ func (c *Communication) sendStream(ctx *fasthttp.RequestCtx, channel common.Chan
 			pw.Close() //nolint:errcheck
 		}()
 
-	loop:
 		for {
 			var response *vllmsim.ResponseInfo
 			if first != nil {
@@ -434,7 +429,7 @@ func (c *Communication) sendStream(ctx *fasthttp.RequestCtx, channel common.Chan
 			} else {
 				r, ok := <-channel.Channel
 				if !ok {
-					break loop
+					break
 				}
 				response = r
 			}
@@ -477,7 +472,7 @@ func (c *Communication) sendStream(ctx *fasthttp.RequestCtx, channel common.Chan
 				return
 			}
 			if stop {
-				break loop
+				break
 			}
 		}
 
