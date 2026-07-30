@@ -165,7 +165,7 @@ func (d *DefaultDataset) GetResponseTokens(req api.Request) (*api.Tokenized, str
 		numOfRespTokens = d.histogramHelper.getResponseLengthByHistogram(maxRespTokens)
 	default:
 		// no tokens limitation in the request - use gaussian with the mean (currently hard-coded)
-		numOfRespTokens = d.getRandomResponseLenByGaussian(maxRespTokens)
+		numOfRespTokens = d.getRandomResponseLen(maxRespTokens)
 	}
 
 	if numOfRespTokens == maxRespTokens {
@@ -194,6 +194,7 @@ func (d *DefaultDataset) calculateResponseMaxLen(req api.Request) (int, bool) {
 
 // getRandomResponseLenByDistribution returns int in range [1, responseLenMax]
 // numbers are chosen according a gaussian distribution with mean responseLenMean, and standard deviation responseLenStddev
+// note: this implementation can be too expensive for small maxLen.
 func (d *DefaultDataset) getRandomResponseLenByGaussian(maxLen int) int {
 	for {
 		val := d.random.RandomNorm(responseLenMean, responseLenStddev)
@@ -202,6 +203,20 @@ func (d *DefaultDataset) getRandomResponseLenByGaussian(maxLen int) int {
 		}
 		// else reject and resample
 	}
+}
+
+// getRandomResponseLenByUniform returns int in range [1, responseLenMax]
+// numbers are chosen uniformly at random.
+func (d *DefaultDataset) getRandomResponseLenByUniform(maxLen int) int {
+	return d.random.RandomInt(1, maxLen)
+}
+
+func (d *DefaultDataset) getRandomResponseLen(maxLen int) int {
+	// for small maxLen, use uniform distribution.
+	if maxLen < responseLenMean-responseLenStddev {
+		return d.getRandomResponseLenByUniform(maxLen)
+	}
+	return d.getRandomResponseLenByGaussian(maxLen)
 }
 
 // generatePresetRandomTokens generates random tokens for the required number of tokens,

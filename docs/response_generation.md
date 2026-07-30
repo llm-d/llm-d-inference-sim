@@ -55,7 +55,7 @@ If `max_tokens` or `max_completion_tokens` is specified, the response length is 
 |6|20|181-200|
 
 **Default Length:**
-If no maximum length is specified, the length defaults to `<model_context_limit> - <input_length>`. In this specific case, the length is sampled from a Gaussian distribution (Mean=40, SD=20).
+If no maximum length is specified, the length defaults to `<model_context_limit> - <input_length>`. In this specific case, unless the calculated maximum length is smaller than 20, the length is sampled from a Gaussian distribution (Mean=40, SD=20). Otherwise, the length is chosen uniformly at random.
 
 ### Content Generation Source
 
