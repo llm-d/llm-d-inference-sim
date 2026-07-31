@@ -207,6 +207,24 @@ func createToolCalls(
 	return generateCalls(tools, min)
 }
 
+// createSingleToolCall generates at most one tool call. Used by the Responses API
+// path where Praxis requires exactly one function_call per round.
+func createSingleToolCall(
+	tools []api.Tool,
+	toolChoice api.ToolChoice,
+	config *common.Configuration,
+	random *common.Random,
+	tokenizer tokenizer.Tokenizer,
+	idPrefix string,
+) ([]api.ToolCall, int, error) {
+	calls, tokens, err := createToolCalls(tools, toolChoice, config, random, tokenizer, idPrefix)
+	if err != nil || len(calls) <= 1 {
+		return calls, tokens, err
+	}
+	calls = calls[:1]
+	return calls, countTokensForToolCalls(calls), nil
+}
+
 func generateToolArguments(tool api.Tool, config *common.Configuration, random *common.Random) (map[string]any, error) {
 	arguments := make(map[string]any)
 	properties, _ := tool.Function.Parameters["properties"].(map[string]any)

@@ -436,17 +436,49 @@ type responsesHTTPRespBuilder struct {
 func (respBuilder *responsesHTTPRespBuilder) createResponse(respCtxPerChoice []vllmsim.ResponseContext,
 	tokens []api.Tokenized) any {
 	respCtx := respCtxPerChoice[0]
-	text := strings.Join(tokens[0].Strings, "")
 	usage := respCtx.UsageData()
 
-	outputContent := api.OutputContent{
-		Type: api.ResponsesOutputText,
-		Text: text,
-	}
-
-	if respCtx.TopLogprobs() != nil {
-		logprobs := common.GenerateMessagesLogprobs(tokens[0].Strings, *respCtx.TopLogprobs())
-		outputContent.Logprobs = &logprobs
+	var output []api.OutputItem
+	if toolCalls := respCtx.ToolCalls(); len(toolCalls) > 0 {
+		output = make([]api.OutputItem, 0, len(toolCalls))
+		for _, tc := range toolCalls {
+			name := ""
+			if tc.Function.Name != nil {
+				name = *tc.Function.Name
+			}
+			// Internal ToolCall.ID uses the fc_ prefix; derive a matching call_ id for Praxis.
+			fcID := tc.ID
+			callID := strings.Replace(fcID, api.ResponsesFunctionCallIDPrefix, api.ResponsesCallIDPrefix, 1)
+			if callID == fcID {
+				callID = api.ResponsesCallIDPrefix + fcID
+			}
+			output = append(output, api.FunctionCallOutputItem{
+				Type:      api.ResponsesOutputFunctionCall,
+				ID:        fcID,
+				CallID:    callID,
+				Name:      name,
+				Arguments: tc.Function.Arguments,
+				Status:    api.ResponsesStatusCompleted,
+			})
+		}
+	} else {
+		text := strings.Join(tokens[0].Strings, "")
+		outputContent := api.OutputContent{
+			Type: api.ResponsesOutputText,
+			Text: text,
+		}
+		if respCtx.TopLogprobs() != nil {
+			logprobs := common.GenerateMessagesLogprobs(tokens[0].Strings, *respCtx.TopLogprobs())
+			outputContent.Logprobs = &logprobs
+		}
+		output = []api.OutputItem{
+			api.MessageOutput{
+				Type:    api.ResponsesOutputMessage,
+				Role:    api.RoleAssistant,
+				Status:  api.ResponsesStatusCompleted,
+				Content: []api.OutputContent{outputContent},
+			},
+		}
 	}
 
 	return api.CreateResponsesResponse(
@@ -454,14 +486,7 @@ func (respBuilder *responsesHTTPRespBuilder) createResponse(respCtxPerChoice []v
 		respCtx.RequestID(),
 		time.Now().Unix(),
 		respCtx.Instructions(),
-		[]api.OutputItem{
-			api.MessageOutput{
-				Type:    api.ResponsesOutputMessage,
-				Role:    api.RoleAssistant,
-				Status:  api.ResponsesStatusCompleted,
-				Content: []api.OutputContent{outputContent},
-			},
-		},
+		output,
 		&api.ResponsesUsage{
 			InputTokens:  usage.PromptTokens,
 			OutputTokens: usage.CompletionTokens,

@@ -221,16 +221,20 @@ Structure of requests/responses
         - stream
         - model
         - input (array of input items)
-            - type (`message`)
-            - role (`user`, `system`, `developer`)
-            - content (string or array of content blocks)
+            - type (`message`, `function_call`, or `function_call_output`)
+            - role (`user`, `system`, `developer`) — for `message`
+            - content (string or array of content blocks) — for `message`
               - type (`input_text`, `input_image`, or `input_audio`)
               - text (for `input_text`)
               - image_url (for `input_image` — a URL string)
               - data (for `input_audio` — base64-encoded audio data)
               - format (for `input_audio` — e.g. `wav`, `mp3`)
+            - id, call_id, name, arguments, status — for `function_call`
+            - call_id, output — for `function_call_output`
         - instructions
         - max_output_tokens
+        - tools (array of function tools; flat Responses shape: `type`, `name`, `description`, `parameters`)
+        - tool_choice (`none`, `auto`, `required`, or `{"type":"function","name":"..."}`)
         - text
           - format
             - type (`text`, `json_object`, `json_schema`)
@@ -244,11 +248,11 @@ Structure of requests/responses
         - status (`completed`, `in_progress`)
         - instructions
         - output (array of output items)
-            - type (`message`)
+            - type (`message` or `function_call`)
             - id
-            - role (`assistant`)
+            - role (`assistant`) — for `message`
             - status
-            - content
+            - content — for `message`
               - type (`output_text`)
               - text
               - logprobs (when `include` contains `message.output_text.logprobs`)
@@ -256,6 +260,7 @@ Structure of requests/responses
                 - logprob
                 - bytes
                 - top_logprobs
+            - call_id, name, arguments — for `function_call` (`status` is `completed`)
         - text
           - format
             - type
@@ -263,7 +268,8 @@ Structure of requests/responses
           - input_tokens
           - output_tokens
           - total_tokens
-- `/inference/v1/generate`
+
+    Tool turns (non-streaming): when `tools` are present and `tool_choice` is not `none`, the simulator emits exactly one `function_call` output item. If `input` already contains a `function_call_output` (agentic loop re-entry), it returns a normal assistant `message` instead. Parallel / multi tool calls are not supported.- `/inference/v1/generate`
     - **request**
         - stream
         - model

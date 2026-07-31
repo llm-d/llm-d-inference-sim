@@ -26,18 +26,21 @@ import (
 )
 
 const (
-	chatComplIDPrefix         = "chatcmpl-"
-	textComplIDPrefix         = "cmpl-"
-	ResponsesIDPrefix         = "resp_"
-	ResponsesMessageIDPrefix  = "msg_"
-	TextCompletionObject      = "text_completion"
-	ChatCompletionObject      = "chat.completion"
-	ChatCompletionChunkObject = "chat.completion.chunk"
-	ResponsesObject           = "response"
-	ResponsesStatusCompleted  = "completed"
-	ResponsesStatusInProgress = "in_progress"
-	ResponsesOutputText       = "output_text"
-	ResponsesOutputMessage    = "message"
+	chatComplIDPrefix             = "chatcmpl-"
+	textComplIDPrefix             = "cmpl-"
+	ResponsesIDPrefix             = "resp_"
+	ResponsesMessageIDPrefix      = "msg_"
+	ResponsesFunctionCallIDPrefix = "fc_"
+	ResponsesCallIDPrefix         = "call_"
+	TextCompletionObject          = "text_completion"
+	ChatCompletionObject          = "chat.completion"
+	ChatCompletionChunkObject     = "chat.completion.chunk"
+	ResponsesObject               = "response"
+	ResponsesStatusCompleted      = "completed"
+	ResponsesStatusInProgress     = "in_progress"
+	ResponsesOutputText           = "output_text"
+	ResponsesOutputMessage        = "message"
+	ResponsesOutputFunctionCall   = "function_call"
 
 	SSEDoneMarker = "[DONE]"
 	SSEDataPrefix = "data: "
@@ -539,6 +542,29 @@ func (m MessageOutput) MarshalJSON() ([]byte, error) {
 	}
 	type alias MessageOutput
 	return json.Marshal(alias(m))
+}
+
+// FunctionCallOutputItem is a function_call item in a Responses API output array.
+type FunctionCallOutputItem struct {
+	Type      string `json:"type"` // function_call
+	ID        string `json:"id,omitempty"`
+	CallID    string `json:"call_id,omitempty"`
+	Name      string `json:"name,omitempty"`
+	Arguments string `json:"arguments,omitempty"`
+	Status    string `json:"status,omitempty"`
+}
+
+func (FunctionCallOutputItem) isOutputItem() {}
+
+func (f FunctionCallOutputItem) MarshalJSON() ([]byte, error) {
+	if f.Type == "" {
+		f.Type = ResponsesOutputFunctionCall
+	}
+	if f.Status == "" {
+		f.Status = ResponsesStatusCompleted
+	}
+	type alias FunctionCallOutputItem
+	return json.Marshal(alias(f))
 }
 
 // TopLogprob represents a top alternative token in Responses API logprobs

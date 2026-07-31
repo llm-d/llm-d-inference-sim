@@ -19,6 +19,9 @@ package llmdinferencesim
 import (
 	"encoding/json"
 
+	"github.com/openai/openai-go/v3/packages/param"
+	"github.com/valyala/fasthttp"
+
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 )
@@ -34,6 +37,20 @@ func (r *ResponsesRequest) Unmarshal(data []byte) error {
 }
 
 func (r *ResponsesRequest) validate(toolsValidator *toolsValidator) *api.Error {
+	for _, tool := range r.Tools {
+		toolJson, err := json.Marshal(tool.Function)
+		if err != nil {
+			serverErr := api.NewError("Failed to marshal request tools: "+err.Error(),
+				fasthttp.StatusBadRequest, nil)
+			return &serverErr
+		}
+		err = toolsValidator.validateTool(toolJson)
+		if err != nil {
+			serverErr := api.NewError("Tool validation failed: "+err.Error(),
+				fasthttp.StatusBadRequest, nil)
+			return &serverErr
+		}
+	}
 	return validateRequest(r)
 }
 
@@ -42,6 +59,7 @@ func (r *ResponsesRequest) buildRequestContext(simCtx *SimContext, channel commo
 	reqCtx := &responsesReqCtx{
 		baseRequestContext: newBaseRequestContext(simCtx, channel, choiceIdx, doneFn),
 		req:                r,
+		toolIDPrefix:       api.ResponsesFunctionCallIDPrefix,
 	}
 	reqCtx.requestContext = reqCtx
 	return reqCtx
@@ -58,6 +76,7 @@ func (r *ResponsesRequest) createResponseContext(reqCtx requestContext, displayM
 		logprobs, r.GetRequestID(), r.IsDoRemotePrefill(), r.IsDoRemoteDecode(), r.GetNumberOfCachedPromptTokens())
 	return &responsesResponseCtx{
 		baseResponseContext: base,
+		toolsCalls:          toolCalls,
 	}
 }
 
@@ -71,7 +90,8 @@ var _ Request = (*ResponsesRequest)(nil)
 // Implementation of requestContext for /responses requests
 type responsesReqCtx struct {
 	baseRequestContext
-	req *ResponsesRequest
+	req          *ResponsesRequest
+	toolIDPrefix string
 }
 
 func (r *responsesReqCtx) request() Request {
@@ -127,7 +147,31 @@ func (r *responsesReqCtx) encode() ([]uint32, []string, *api.RenderMMFeatures, e
 }
 
 func (r *responsesReqCtx) createToolCalls() ([]api.ToolCall, int, string, error) {
-	return nil, 0, "", nil
+	req := r.req
+	if isToolChoiceNone(req.GetToolChoice()) || len(req.GetTools()) == 0 {
+		return nil, 0, "", nil
+	}
+	// After tool results are present, finish with a normal message so Praxis can exit the loop.
+	if api.HasFunctionCallOutput(req.Input) {
+		return nil, 0, "", nil
+	}
+
+	toolChoice := req.GetToolChoice()
+	// Deterministic first tool turn: treat omitted/auto as required unless a function is forced.
+	if toolChoice.GetFunction() == nil &&
+		(param.IsOmitted(toolChoice.OfAuto) || toolChoice.OfAuto.Or("") == toolChoiceAuto) {
+		toolChoice = api.NewToolChoiceRequired()
+	}
+
+	toolCalls, completionTokens, err := createSingleToolCall(
+		req.GetTools(), toolChoice, r.sim.Config(), r.sim.Random, r.sim.Tokenizer, r.toolIDPrefix)
+	if err != nil {
+		return nil, 0, "", err
+	}
+	if len(toolCalls) == 0 {
+		return nil, 0, "", nil
+	}
+	return toolCalls, completionTokens, common.ToolsFinishReason, nil
 }
 
 func (r *responsesReqCtx) tokenizedPromptForEcho() (*api.Tokenized, error) {
@@ -151,6 +195,7 @@ var _ requestContext = (*responsesReqCtx)(nil)
 // Implementation of responseContext for /responses requests
 type responsesResponseCtx struct {
 	baseResponseContext
+	toolsCalls []api.ToolCall
 }
 
 func (respCtx *responsesResponseCtx) Instructions() *string {
@@ -161,7 +206,7 @@ func (respCtx *responsesResponseCtx) Instructions() *string {
 }
 
 func (respCtx *responsesResponseCtx) ToolCalls() []api.ToolCall {
-	return nil
+	return respCtx.toolsCalls
 }
 
 var _ ResponseContext = (*responsesResponseCtx)(nil)
