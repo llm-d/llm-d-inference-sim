@@ -30,7 +30,7 @@ import (
 
 	. "github.com/onsi/gomega"
 
-	_ "modernc.org/sqlite"
+	_ "github.com/ncruces/go-sqlite3/driver"
 )
 
 const (

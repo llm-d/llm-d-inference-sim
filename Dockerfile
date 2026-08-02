@@ -1,6 +1,6 @@
-# Build Stage: using Go 1.25.0 image
+# Build Stage: using Go 1.26.5 image
 ## Pure Go build, no CGO required
-FROM quay.io/projectquay/golang:1.25 AS builder
+FROM golang:1.26.5 AS builder
 ARG TARGETOS
 ARG TARGETARCH
 

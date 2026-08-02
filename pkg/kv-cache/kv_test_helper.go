@@ -21,8 +21,8 @@ import (
 	"encoding/binary"
 
 	zmq4 "github.com/go-zeromq/zmq4"
-	"github.com/llm-d/llm-d-kv-cache/pkg/kvevents"
-	"github.com/llm-d/llm-d-kv-cache/pkg/kvevents/engineadapter"
+	"github.com/llm-d/llm-d-router/pkg/kvevents"
+	"github.com/llm-d/llm-d-router/pkg/kvevents/engineadapter"
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"github.com/vmihailenco/msgpack/v5"

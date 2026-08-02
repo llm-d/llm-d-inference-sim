@@ -26,7 +26,7 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
-	"github.com/llm-d/llm-d-kv-cache/pkg/kvcache/kvblock"
+	"github.com/llm-d/llm-d-router/pkg/kvcache/kvblock"
 )
 
 // PrefixCacheStats holds token-level prefix cache statistics for a single request,
