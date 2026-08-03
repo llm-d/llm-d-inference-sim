@@ -1051,11 +1051,11 @@ func unmarshalResponsesTools(data []byte) ([]Tool, error) {
 	for _, r := range raw {
 		var nested Tool
 		if err := json.Unmarshal(r, &nested); err == nil && nested.Function.Name != "" {
-			if nested.Type != "" && nested.Type != "function" {
+			if nested.Type != "" && nested.Type != toolChoiceTypeFunction {
 				return nil, fmt.Errorf("unsupported tool type %q", nested.Type)
 			}
 			if nested.Type == "" {
-				nested.Type = "function"
+				nested.Type = toolChoiceTypeFunction
 			}
 			tools = append(tools, nested)
 			continue
@@ -1069,14 +1069,14 @@ func unmarshalResponsesTools(data []byte) ([]Tool, error) {
 		if err := json.Unmarshal(r, &flat); err != nil {
 			return nil, fmt.Errorf("invalid tool entry: %w", err)
 		}
-		if flat.Type != "" && flat.Type != "function" {
+		if flat.Type != "" && flat.Type != toolChoiceTypeFunction {
 			return nil, fmt.Errorf("unsupported tool type %q", flat.Type)
 		}
 		if flat.Name == "" {
 			return nil, errors.New("tool name is required")
 		}
 		tools = append(tools, Tool{
-			Type: "function",
+			Type: toolChoiceTypeFunction,
 			Function: function{
 				Name:        flat.Name,
 				Description: flat.Description,
