@@ -80,7 +80,7 @@ func newBlockCache(ctx context.Context, config *common.Configuration, logger log
 	var publisher *common.Publisher
 	var err error
 	if config.ZMQEndpoint != "" {
-		publisher, err = common.NewPublisher(ctx, config.ZMQEndpoint)
+		publisher, err = common.NewPublisher(ctx, config.ZMQEndpoint, config.ZMQBind)
 		if err != nil {
 			return nil, err
 		}

@@ -75,9 +75,13 @@ type Publisher struct {
 }
 
 // NewPublisher creates a new ZMQ publisher.
-// endpoint is the ZMQ address to bind to (e.g., "tcp://*:5557").
-// retries is the maximum number of connection attempts.
-func NewPublisher(ctx context.Context, endpoint string) (*Publisher, error) {
+//
+// When bind is false (default), the publisher dials out to endpoint — used when the EPP
+// binds a fixed ZMQ SUB socket and simulators connect to it.
+//
+// When bind is true, the publisher listens on endpoint (e.g. "tcp://*:5557") — used in
+// discoverPods mode where the EPP discovers pods and connects to each simulator's local socket.
+func NewPublisher(ctx context.Context, endpoint string, bind bool) (*Publisher, error) {
 	socket := zmq4.NewPub(ctx,
 		// -1 means try forever
 		zmq4.WithDialerMaxRetries(-1),
@@ -87,20 +91,24 @@ func NewPublisher(ctx context.Context, endpoint string) (*Publisher, error) {
 		zmq4.WithDialerRetry(time.Second),
 	)
 
-	// 2. Push Dial into a background goroutine
-	go func() {
-		// wait until the listener is ready
-		err := socket.Dial(endpoint)
-		if err != nil {
-			// Context cancellation during shutdown is expected — don't treat it as an error.
-			if ctx.Err() != nil {
-				return
-			}
-			log.FromContext(ctx).Error(err, "ZMQ dialer exited", "endpoint", endpoint)
-		} else {
-			log.FromContext(ctx).Info("ZMQ dialer connected", "endpoint", endpoint)
+	if bind {
+		if err := socket.Listen(endpoint); err != nil {
+			return nil, fmt.Errorf("ZMQ publisher failed to listen on %s: %w", endpoint, err)
 		}
-	}()
+		log.FromContext(ctx).Info("ZMQ publisher listening", "endpoint", endpoint)
+	} else {
+		go func() {
+			err := socket.Dial(endpoint)
+			if err != nil {
+				if ctx.Err() != nil {
+					return
+				}
+				log.FromContext(ctx).Error(err, "ZMQ dialer exited", "endpoint", endpoint)
+			} else {
+				log.FromContext(ctx).Info("ZMQ dialer connected", "endpoint", endpoint)
+			}
+		}()
+	}
 
 	return &Publisher{
 		socket:   socket,

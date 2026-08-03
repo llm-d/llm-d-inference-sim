@@ -221,6 +221,10 @@ type Configuration struct {
 
 	// ZMQEndpoint is the ZMQ address to publish events, the default value is tcp://localhost:5557
 	ZMQEndpoint string `yaml:"zmq-endpoint" json:"zmq-endpoint"`
+	// ZMQBind controls whether the publisher binds (Listen) or connects (Dial).
+	// Set to true for discoverPods mode where the EPP connects to each simulator;
+	// leave false (default) when simulators dial out to the EPP's fixed ZMQ address.
+	ZMQBind bool `yaml:"zmq-bind" json:"zmq-bind"`
 
 	// KVEventsReplayEndpoint is the ZMQ ROUTER address to bind for receiving KV events replay requests.
 	// Empty (default) disables the replay listener. Example: "tcp://*:5558"

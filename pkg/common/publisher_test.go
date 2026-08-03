@@ -46,7 +46,7 @@ var _ = Describe("Publisher", func() {
 
 		time.Sleep(100 * time.Millisecond)
 
-		pub, err := NewPublisher(ctx, endpoint)
+		pub, err := NewPublisher(ctx, endpoint, false)
 		Expect(err).NotTo(HaveOccurred())
 
 		go func() {
@@ -77,6 +77,47 @@ var _ = Describe("Publisher", func() {
 		Expect(payload).To(Equal(data))
 	})
 
+	It("should bind and receive message when bind=true", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		freePort, err := FreeTCPPort()
+		Expect(err).NotTo(HaveOccurred())
+		endpoint := fmt.Sprintf("tcp://127.0.0.1:%d", freePort)
+
+		pub, err := NewPublisher(ctx, endpoint, true)
+		Expect(err).NotTo(HaveOccurred())
+		// nolint
+		defer pub.Close()
+
+		sub := zmq4.NewSub(ctx)
+		// nolint
+		defer sub.Close()
+		err = sub.Dial(endpoint)
+		Expect(err).NotTo(HaveOccurred())
+		err = sub.SetOption(zmq4.OptionSubscribe, topic)
+		Expect(err).NotTo(HaveOccurred())
+
+		time.Sleep(100 * time.Millisecond)
+
+		go func() {
+			time.Sleep(100 * time.Millisecond)
+			_, _, err := pub.PublishEvent(ctx, topic, data)
+			Expect(err).NotTo(HaveOccurred())
+		}()
+
+		msg, err := sub.Recv()
+		Expect(err).NotTo(HaveOccurred())
+		Expect(msg.Frames).To(HaveLen(3))
+		Expect(string(msg.Frames[0])).To(Equal(topic))
+		seq := binary.BigEndian.Uint64(msg.Frames[1])
+		Expect(seq).To(Equal(uint64(1)))
+		var payload string
+		err = msgpack.Unmarshal(msg.Frames[2], &payload)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(payload).To(Equal(data))
+	})
+
 	It("should connect to zmq listener after delay", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -86,7 +127,7 @@ var _ = Describe("Publisher", func() {
 		endpoint := fmt.Sprintf("tcp://127.0.0.1:%d", freePort)
 
 		// create publisher - it will try to connect to the listener, but the listener is not started yet
-		pub, err := NewPublisher(ctx, endpoint)
+		pub, err := NewPublisher(ctx, endpoint, false)
 		Expect(err).NotTo(HaveOccurred())
 		// nolint
 		defer pub.Close()

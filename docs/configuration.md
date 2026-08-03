@@ -79,7 +79,8 @@ For a detailed explanation of how the simulator models inference time and what e
 - `global-cache-hit-threshold`: default cache hit threshold [0, 1] for all requests. If a request specifies cache_hit_threshold, it takes precedence over this global value
 - `block-size`: token block size for contiguous chunks of tokens, possible values: 8,16,32,64,128
 - `hash-seed`: seed for hash generation. If you omit `--hash-seed` on the command line, a non-empty `PYTHONHASHSEED` environment variable can supply the seed; see [Configuration precedence](#configuration-precedence) and [Environment variables](#environment-variables).
-- `zmq-endpoint`: ZMQ address to publish events
+- `zmq-endpoint`: ZMQ address to publish events; the simulator dials this address by default, or binds/listens when `zmq-bind` is true
+- `zmq-bind`: if true, the simulator binds (listens on) the ZMQ endpoint instead of dialing out. Use in `discoverPods` mode where the EPP connects to each simulator (e.g. `--zmq-endpoint=tcp://*:5557 --zmq-bind`). Default is false.
 - `event-batch-size`: the maximum number of kv-cache events to be sent together, defaults to 16
 - `use-vllm-map-event-format`: when `true`, encodes KV cache events as msgpack maps with named fields, matching the format introduced in vLLM PR #42892. When `false` (the default), events are encoded as positional msgpack arrays (legacy format). Use `true` when the event consumer is the llm-d `VLLMAdapter` parsing the new named-field schema.
 - `kv-events-replay-endpoint`: ZMQ ROUTER address to bind for receiving KV events replay requests. Empty (default) disables the replay listener. Example: `tcp://*:5558`. A client that stops draining its socket without closing the connection stalls replay for every other connected client too, not just its own — see [KV events replay](kv-cache.md#kv-events-replay).
