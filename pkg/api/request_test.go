@@ -445,4 +445,23 @@ var _ = Describe("ResponsesRequest tools and function call input", func() {
 		var req ResponsesRequest
 		Expect(json.Unmarshal(jsonData, &req)).To(HaveOccurred())
 	})
+
+	It("rejects nested non-function tool types", func() {
+		jsonData := []byte(`{
+			"model": "m",
+			"input": "hello",
+			"tools": [{
+				"type": "custom",
+				"function": {
+					"name": "get_weather",
+					"description": "Get weather",
+					"parameters": {"type": "object", "properties": {}}
+				}
+			}]
+		}`)
+		var req ResponsesRequest
+		err := json.Unmarshal(jsonData, &req)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring(`unsupported tool type "custom"`))
+	})
 })

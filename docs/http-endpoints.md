@@ -269,7 +269,9 @@ Structure of requests/responses
           - output_tokens
           - total_tokens
 
-    Tool turns (non-streaming): when `tools` are present and `tool_choice` is not `none`, the simulator emits exactly one `function_call` output item. If `input` already contains a `function_call_output` (agentic loop re-entry), it returns a normal assistant `message` instead. Parallel / multi tool calls are not supported.- `/inference/v1/generate`
+    Tool turns (non-streaming): when `tools` are present and `tool_choice` is not `none`, the simulator emits exactly one `function_call` output item. If `input` already contains a `function_call_output` (agentic loop re-entry), it returns a normal assistant `message` instead. Parallel / multi tool calls are not supported.
+
+- `/inference/v1/generate`
     - **request**
         - stream
         - model

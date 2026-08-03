@@ -1051,6 +1051,9 @@ func unmarshalResponsesTools(data []byte) ([]Tool, error) {
 	for _, r := range raw {
 		var nested Tool
 		if err := json.Unmarshal(r, &nested); err == nil && nested.Function.Name != "" {
+			if nested.Type != "" && nested.Type != "function" {
+				return nil, fmt.Errorf("unsupported tool type %q", nested.Type)
+			}
 			if nested.Type == "" {
 				nested.Type = "function"
 			}
