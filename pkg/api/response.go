@@ -606,16 +606,18 @@ type ResponsesUsage struct {
 
 // Responses API streaming event types
 const (
-	ResponsesEventCreated           = "response.created"
-	ResponsesEventInProgress        = "response.in_progress"
-	ResponsesEventOutputItemAdded   = "response.output_item.added"
-	ResponsesEventContentPartAdded  = "response.content_part.added"
-	ResponsesEventTextDelta         = "response.output_text.delta"
-	ResponsesEventTextLogprobsDelta = "response.output_text.logprobs.delta"
-	ResponsesEventTextDone          = "response.output_text.done"
-	ResponsesEventContentPartDone   = "response.content_part.done"
-	ResponsesEventOutputItemDone    = "response.output_item.done"
-	ResponsesEventCompleted         = "response.completed"
+	ResponsesEventCreated                    = "response.created"
+	ResponsesEventInProgress                 = "response.in_progress"
+	ResponsesEventOutputItemAdded            = "response.output_item.added"
+	ResponsesEventContentPartAdded           = "response.content_part.added"
+	ResponsesEventTextDelta                  = "response.output_text.delta"
+	ResponsesEventTextLogprobsDelta          = "response.output_text.logprobs.delta"
+	ResponsesEventTextDone                   = "response.output_text.done"
+	ResponsesEventContentPartDone            = "response.content_part.done"
+	ResponsesEventFunctionCallArgumentsDelta = "response.function_call_arguments.delta"
+	ResponsesEventFunctionCallArgumentsDone  = "response.function_call_arguments.done"
+	ResponsesEventOutputItemDone             = "response.output_item.done"
+	ResponsesEventCompleted                  = "response.completed"
 )
 
 // ResponsesResponseEvent is used for events that carry a full response object
@@ -627,7 +629,7 @@ type ResponsesResponseEvent struct {
 
 // ResponsesItemEvent is used for all item/content/text streaming events
 // (output_item.added/done, content_part.added/done, output_text.delta/done,
-// output_text.logprobs.delta).
+// output_text.logprobs.delta, function_call_arguments.delta/done).
 // Fields not relevant to a given event type are omitted via omitempty.
 type ResponsesItemEvent struct {
 	Type         string              `json:"type"`
@@ -638,6 +640,8 @@ type ResponsesItemEvent struct {
 	Part         *OutputContent      `json:"part,omitempty"`
 	Delta        string              `json:"delta,omitempty"`
 	Text         string              `json:"text,omitempty"`
+	Name         string              `json:"name,omitempty"`
+	Arguments    string              `json:"arguments,omitempty"`
 	Logprobs     *[]ResponsesLogprob `json:"logprobs,omitempty"`
 }
 

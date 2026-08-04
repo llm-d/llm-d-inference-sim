@@ -269,7 +269,7 @@ Structure of requests/responses
           - output_tokens
           - total_tokens
 
-    Tool turns (non-streaming): when `tools` are present and `tool_choice` is not `none`, the simulator emits exactly one `function_call` output item. If `input` already contains a `function_call_output` (agentic loop re-entry), it returns a normal assistant `message` instead. Parallel / multi tool calls are not supported.
+    Tool turns: when `tools` are present and `tool_choice` is not `none`, the simulator emits exactly one `function_call` output item (non-streaming) or the equivalent SSE event sequence (streaming; see below). If `input` already contains a `function_call_output` (agentic loop re-entry), it returns a normal assistant `message` instead. Parallel / multi tool calls are not supported.
 
 - `/inference/v1/generate`
     - **request**
@@ -416,6 +416,8 @@ curl -N -X POST http://localhost:8000/v1/responses \
 ```
 
 The streaming response uses Server-Sent Events (SSE) and emits the following event types in order: `response.created`, `response.in_progress`, `response.output_item.added`, `response.content_part.added`, one or more `response.output_text.delta`, `response.output_text.done`, `response.content_part.done`, `response.output_item.done`, `response.completed`.
+
+When the turn is a tool call (`tools` present and `tool_choice` is not `none`, and `input` has no `function_call_output`), the stream instead emits: `response.created`, `response.in_progress`, `response.output_item.added` (item type `function_call`), one or more `response.function_call_arguments.delta`, `response.function_call_arguments.done`, `response.output_item.done`, `response.completed` (with a single `function_call` in `output`).
 
 ## `finish_reason` values
 

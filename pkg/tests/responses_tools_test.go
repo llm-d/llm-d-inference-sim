@@ -194,4 +194,157 @@ var _ = Describe("Responses API tools", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(string(body)).To(ContainSubstring("Tool validation failed"))
 	})
+
+	It("streams function_call events when tools are present", func() {
+		ctx := context.TODO()
+		client, err := startServer(ctx, common.ModeRandom)
+		Expect(err).NotTo(HaveOccurred())
+
+		openaiclient, params := getOpenAIClientAndResponsesParams(client, common.TestModelName, "What is the weather in Paris?")
+		params.Tools = []responses.ToolUnionParam{responsesWeatherTool()}
+
+		stream := openaiclient.Responses.NewStreaming(ctx, params)
+		defer func() {
+			Expect(stream.Close()).NotTo(HaveOccurred())
+		}()
+
+		var eventTypes []string
+		var argDeltas []string
+		var addedName string
+		var doneArgs string
+		var doneName string
+
+		for stream.Next() {
+			event := stream.Current()
+			eventTypes = append(eventTypes, event.Type)
+			switch event.Type {
+			case api.ResponsesEventOutputItemAdded:
+				added := event.AsResponseOutputItemAdded()
+				Expect(added.Item.Type).To(Equal("function_call"))
+				fc := added.Item.AsFunctionCall()
+				addedName = fc.Name
+				Expect(fc.ID).To(HavePrefix(api.ResponsesFunctionCallIDPrefix))
+				Expect(fc.CallID).To(HavePrefix(api.ResponsesCallIDPrefix))
+			case api.ResponsesEventFunctionCallArgumentsDelta:
+				delta := event.AsResponseFunctionCallArgumentsDelta()
+				argDeltas = append(argDeltas, delta.Delta)
+				Expect(delta.ItemID).To(HavePrefix(api.ResponsesFunctionCallIDPrefix))
+			case api.ResponsesEventFunctionCallArgumentsDone:
+				done := event.AsResponseFunctionCallArgumentsDone()
+				doneArgs = done.Arguments
+				doneName = done.Name
+				Expect(done.ItemID).To(HavePrefix(api.ResponsesFunctionCallIDPrefix))
+			case api.ResponsesEventCompleted:
+				completed := event.AsResponseCompleted()
+				Expect(string(completed.Response.Status)).To(Equal(api.ResponsesStatusCompleted))
+				Expect(completed.Response.Output).To(HaveLen(1))
+				Expect(completed.Response.Output[0].Type).To(Equal("function_call"))
+				fc := completed.Response.Output[0].AsFunctionCall()
+				Expect(fc.Name).To(Equal(addedName))
+				Expect(fc.Arguments).To(Equal(doneArgs))
+			}
+		}
+		Expect(stream.Err()).NotTo(HaveOccurred())
+
+		Expect(eventTypes[0]).To(Equal(api.ResponsesEventCreated))
+		Expect(eventTypes[1]).To(Equal(api.ResponsesEventInProgress))
+		Expect(eventTypes).To(ContainElement(api.ResponsesEventOutputItemAdded))
+		Expect(eventTypes).To(ContainElement(api.ResponsesEventFunctionCallArgumentsDelta))
+		Expect(eventTypes).To(ContainElement(api.ResponsesEventFunctionCallArgumentsDone))
+		Expect(eventTypes).To(ContainElement(api.ResponsesEventOutputItemDone))
+		Expect(eventTypes[len(eventTypes)-1]).To(Equal(api.ResponsesEventCompleted))
+		Expect(eventTypes).NotTo(ContainElement(api.ResponsesEventTextDelta))
+		Expect(eventTypes).NotTo(ContainElement(api.ResponsesEventContentPartAdded))
+
+		Expect(addedName).To(Equal("get_weather"))
+		Expect(doneName).To(Equal("get_weather"))
+		Expect(doneArgs).To(Equal(strings.Join(argDeltas, "")))
+		var args map[string]any
+		Expect(json.Unmarshal([]byte(doneArgs), &args)).To(Succeed())
+		Expect(args).To(HaveKey("city"))
+
+		functionCallAddedCount := 0
+		for _, t := range eventTypes {
+			if t == api.ResponsesEventOutputItemAdded {
+				functionCallAddedCount++
+			}
+		}
+		Expect(functionCallAddedCount).To(Equal(1))
+	})
+
+	It("streams a message after function_call_output on re-entry", func() {
+		ctx := context.TODO()
+		client, err := startServer(ctx, common.ModeRandom)
+		Expect(err).NotTo(HaveOccurred())
+
+		openaiclient := openai.NewClient(
+			option.WithBaseURL(baseURL),
+			option.WithHTTPClient(client),
+			option.WithMaxRetries(0))
+
+		params := responses.ResponseNewParams{
+			Model: common.TestModelName,
+			Input: responses.ResponseNewParamsInputUnion{
+				OfInputItemList: responses.ResponseInputParam{
+					responses.ResponseInputItemParamOfMessage("What is the weather?", responses.EasyInputMessageRoleUser),
+					responses.ResponseInputItemParamOfFunctionCall(`{"city":"Paris"}`, "call_1", "get_weather"),
+					responses.ResponseInputItemParamOfFunctionCallOutput("call_1", "sunny, 22C"),
+				},
+			},
+			Tools: []responses.ToolUnionParam{responsesWeatherTool()},
+		}
+
+		stream := openaiclient.Responses.NewStreaming(ctx, params)
+		defer func() {
+			Expect(stream.Close()).NotTo(HaveOccurred())
+		}()
+
+		var eventTypes []string
+		for stream.Next() {
+			event := stream.Current()
+			eventTypes = append(eventTypes, event.Type)
+			if event.Type == api.ResponsesEventCompleted {
+				completed := event.AsResponseCompleted()
+				Expect(completed.Response.Output).NotTo(BeEmpty())
+				Expect(completed.Response.Output[0].Type).To(Equal("message"))
+			}
+		}
+		Expect(stream.Err()).NotTo(HaveOccurred())
+		Expect(eventTypes).To(ContainElement(api.ResponsesEventTextDelta))
+		Expect(eventTypes).NotTo(ContainElement(api.ResponsesEventFunctionCallArgumentsDelta))
+		Expect(eventTypes[len(eventTypes)-1]).To(Equal(api.ResponsesEventCompleted))
+	})
+
+	It("streams forced function tool_choice name on output_item.added", func() {
+		ctx := context.TODO()
+		client, err := startServer(ctx, common.ModeRandom)
+		Expect(err).NotTo(HaveOccurred())
+
+		openaiclient, params := getOpenAIClientAndResponsesParams(client, common.TestModelName, "Need data")
+		params.Tools = []responses.ToolUnionParam{responsesWeatherTool(), responsesTemperatureTool()}
+		params.ToolChoice = responses.ResponseNewParamsToolChoiceUnion{
+			OfFunctionTool: &responses.ToolChoiceFunctionParam{Name: "get_temperature"},
+		}
+
+		stream := openaiclient.Responses.NewStreaming(ctx, params)
+		defer func() {
+			Expect(stream.Close()).NotTo(HaveOccurred())
+		}()
+
+		var addedName string
+		for stream.Next() {
+			event := stream.Current()
+			switch event.Type {
+			case api.ResponsesEventOutputItemAdded:
+				fc := event.AsResponseOutputItemAdded().Item.AsFunctionCall()
+				addedName = fc.Name
+			case api.ResponsesEventCompleted:
+				completed := event.AsResponseCompleted()
+				Expect(completed.Response.Output).To(HaveLen(1))
+				Expect(completed.Response.Output[0].AsFunctionCall().Name).To(Equal("get_temperature"))
+			}
+		}
+		Expect(stream.Err()).NotTo(HaveOccurred())
+		Expect(addedName).To(Equal("get_temperature"))
+	})
 })
