@@ -26,15 +26,17 @@ import (
 )
 
 const (
-	RoleAssistant         = "assistant"
-	RoleUser              = "user"
-	inputItemMessage      = "message"
-	ResponsesInputText    = "input_text"
-	ResponsesInputImage   = "input_image"
-	ResponsesInputAudio   = "input_audio"
-	StartMessageSeparator = "### "
-	EndMessageSeparator   = "\n"
-	nullString            = "null"
+	RoleAssistant               = "assistant"
+	RoleUser                    = "user"
+	inputItemMessage            = "message"
+	inputItemFunctionCall       = "function_call"
+	inputItemFunctionCallOutput = "function_call_output"
+	ResponsesInputText          = "input_text"
+	ResponsesInputImage         = "input_image"
+	ResponsesInputAudio         = "input_audio"
+	StartMessageSeparator       = "### "
+	EndMessageSeparator         = "\n"
+	nullString                  = "null"
 	// ResponsesIncludeLogprobs is the include value that enables logprobs in the Responses API
 	ResponsesIncludeLogprobs = "message.output_text.logprobs"
 )
@@ -751,6 +753,10 @@ type ResponsesRequest struct {
 	Include []string `json:"include,omitempty"`
 	// TopLogprobs specifies the number of most likely tokens to return at each position with log probabilities.
 	TopLogprobs *int `json:"top_logprobs,omitempty"`
+	// Tools is a list of tools the model may call (Responses flat function schema, normalized to Tool).
+	Tools []Tool `json:"tools,omitempty"`
+	// ToolChoice controls which (if any) tool is called by the model.
+	ToolChoice ToolChoice `json:"tool_choice,omitzero"`
 }
 
 var _ Request = (*ResponsesRequest)(nil)
@@ -783,6 +789,65 @@ type InputMessage struct {
 }
 
 func (InputMessage) isInputItem() {}
+
+// InputFunctionCall is a prior model function_call item echoed in Responses input.
+type InputFunctionCall struct {
+	Type      string `json:"type"` // always "function_call"
+	ID        string `json:"id,omitempty"`
+	CallID    string `json:"call_id,omitempty"`
+	Name      string `json:"name,omitempty"`
+	Arguments string `json:"arguments,omitempty"`
+	Status    string `json:"status,omitempty"`
+}
+
+func (InputFunctionCall) isInputItem() {}
+
+func (f *InputFunctionCall) UnmarshalJSON(data []byte) error {
+	type alias InputFunctionCall
+	var a alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		return err
+	}
+	if a.Type != "" && a.Type != inputItemFunctionCall {
+		return fmt.Errorf("unsupported input item type %q", a.Type)
+	}
+	a.Type = inputItemFunctionCall
+	*f = InputFunctionCall(a)
+	return nil
+}
+
+// InputFunctionCallOutput is a tool result item in Responses input.
+type InputFunctionCallOutput struct {
+	Type   string `json:"type"` // always "function_call_output"
+	CallID string `json:"call_id,omitempty"`
+	Output string `json:"output,omitempty"`
+}
+
+func (InputFunctionCallOutput) isInputItem() {}
+
+func (f *InputFunctionCallOutput) UnmarshalJSON(data []byte) error {
+	type alias InputFunctionCallOutput
+	var a alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		return err
+	}
+	if a.Type != "" && a.Type != inputItemFunctionCallOutput {
+		return fmt.Errorf("unsupported input item type %q", a.Type)
+	}
+	a.Type = inputItemFunctionCallOutput
+	*f = InputFunctionCallOutput(a)
+	return nil
+}
+
+// HasFunctionCallOutput reports whether input contains any function_call_output item.
+func HasFunctionCallOutput(input []InputItem) bool {
+	for _, item := range input {
+		if _, ok := item.(*InputFunctionCallOutput); ok {
+			return true
+		}
+	}
+	return false
+}
 
 func (m *InputMessage) UnmarshalJSON(data []byte) error {
 	var raw struct {
@@ -875,11 +940,11 @@ func (c *InputContent) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// At the moment UnmarshalJSON handles only two forms of the `input` field:
+// UnmarshalJSON handles:
 // - a plain string: wrapped into a single user InputMessage
-// - an array of message objects: each element is unmarshaled as *InputMessage
+// - an array of input items: message, function_call, function_call_output
 func (req *ResponsesRequest) UnmarshalJSON(data []byte) error {
-	// Use an alias to unmarshal all fields except Input normally.
+	// Use an alias to unmarshal all fields except Input and tools normally.
 	type alias struct {
 		baseRequest
 		Input           json.RawMessage `json:"input,omitempty"`
@@ -888,6 +953,8 @@ func (req *ResponsesRequest) UnmarshalJSON(data []byte) error {
 		Text            *TextSettings   `json:"text,omitempty"`
 		Include         []string        `json:"include,omitempty"`
 		TopLogprobs     *int            `json:"top_logprobs,omitempty"`
+		Tools           json.RawMessage `json:"tools,omitempty"`
+		ToolChoice      ToolChoice      `json:"tool_choice,omitzero"`
 	}
 	var a alias
 	if err := json.Unmarshal(data, &a); err != nil {
@@ -899,6 +966,15 @@ func (req *ResponsesRequest) UnmarshalJSON(data []byte) error {
 	req.Text = a.Text
 	req.Include = a.Include
 	req.TopLogprobs = a.TopLogprobs
+	req.ToolChoice = a.ToolChoice
+
+	if len(a.Tools) > 0 && string(a.Tools) != nullString {
+		tools, err := unmarshalResponsesTools(a.Tools)
+		if err != nil {
+			return err
+		}
+		req.Tools = tools
+	}
 
 	if len(a.Input) == 0 || string(a.Input) == nullString {
 		return errors.New("input is required")
@@ -915,28 +991,108 @@ func (req *ResponsesRequest) UnmarshalJSON(data []byte) error {
 		return nil
 	}
 
-	// array input: unmarshal each element as *InputMessage
+	// array input: dispatch each element by type
 	var raw []json.RawMessage
 	if err := json.Unmarshal(a.Input, &raw); err != nil {
 		return fmt.Errorf("input must be a string or array: %w", err)
 	}
 	req.Input = make([]InputItem, 0, len(raw))
 	for _, r := range raw {
-		msg := &InputMessage{}
-		if err := json.Unmarshal(r, msg); err != nil {
+		item, err := unmarshalInputItem(r)
+		if err != nil {
 			return err
 		}
-		req.Input = append(req.Input, msg)
+		req.Input = append(req.Input, item)
 	}
 	return nil
 }
 
+// unmarshalInputItem dispatches a single Responses input array element by its type field.
+func unmarshalInputItem(data []byte) (InputItem, error) {
+	var typeDetector struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(data, &typeDetector); err != nil {
+		return nil, err
+	}
+	switch typeDetector.Type {
+	case "", inputItemMessage:
+		msg := &InputMessage{}
+		if err := json.Unmarshal(data, msg); err != nil {
+			return nil, err
+		}
+		return msg, nil
+	case inputItemFunctionCall:
+		fc := &InputFunctionCall{}
+		if err := json.Unmarshal(data, fc); err != nil {
+			return nil, err
+		}
+		return fc, nil
+	case inputItemFunctionCallOutput:
+		out := &InputFunctionCallOutput{}
+		if err := json.Unmarshal(data, out); err != nil {
+			return nil, err
+		}
+		return out, nil
+	default:
+		return nil, fmt.Errorf("unsupported input item type %q", typeDetector.Type)
+	}
+}
+
+// unmarshalResponsesTools normalizes Responses flat function tools into nested Tool values.
+// Wire shape: {"type":"function","name":"...","description":"...","parameters":{...}}
+// Also accepts the chat-completions nested shape {"type":"function","function":{...}}.
+func unmarshalResponsesTools(data []byte) ([]Tool, error) {
+	var raw []json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, fmt.Errorf("tools must be an array: %w", err)
+	}
+	tools := make([]Tool, 0, len(raw))
+	for _, r := range raw {
+		var nested Tool
+		if err := json.Unmarshal(r, &nested); err == nil && nested.Function.Name != "" {
+			if nested.Type != "" && nested.Type != toolChoiceTypeFunction {
+				return nil, fmt.Errorf("unsupported tool type %q", nested.Type)
+			}
+			if nested.Type == "" {
+				nested.Type = toolChoiceTypeFunction
+			}
+			tools = append(tools, nested)
+			continue
+		}
+		var flat struct {
+			Type        string         `json:"type"`
+			Name        string         `json:"name"`
+			Description string         `json:"description"`
+			Parameters  map[string]any `json:"parameters"`
+		}
+		if err := json.Unmarshal(r, &flat); err != nil {
+			return nil, fmt.Errorf("invalid tool entry: %w", err)
+		}
+		if flat.Type != "" && flat.Type != toolChoiceTypeFunction {
+			return nil, fmt.Errorf("unsupported tool type %q", flat.Type)
+		}
+		if flat.Name == "" {
+			return nil, errors.New("tool name is required")
+		}
+		tools = append(tools, Tool{
+			Type: toolChoiceTypeFunction,
+			Function: function{
+				Name:        flat.Name,
+				Description: flat.Description,
+				Parameters:  flat.Parameters,
+			},
+		})
+	}
+	return tools, nil
+}
+
 func (req *ResponsesRequest) GetTools() []Tool {
-	return nil
+	return req.Tools
 }
 
 func (req *ResponsesRequest) GetToolChoice() ToolChoice {
-	return ToolChoice{}
+	return req.ToolChoice
 }
 
 func (req *ResponsesRequest) GetMaxCompletionTokens() *int64 {

@@ -375,3 +375,93 @@ var _ = Describe("InputMessage PlainText with content types", func() {
 		Expect(text).To(Equal("user: hello\nimage: https://example.com/img.png"))
 	})
 })
+
+var _ = Describe("ResponsesRequest tools and function call input", func() {
+	It("unmarshals flat function tools and tool_choice", func() {
+		jsonData := []byte(`{
+			"model": "m",
+			"input": "hello",
+			"tool_choice": "auto",
+			"tools": [{
+				"type": "function",
+				"name": "get_weather",
+				"description": "Get weather",
+				"parameters": {
+					"type": "object",
+					"properties": {"city": {"type": "string"}},
+					"required": ["city"]
+				}
+			}]
+		}`)
+		var req ResponsesRequest
+		Expect(json.Unmarshal(jsonData, &req)).To(Succeed())
+		Expect(req.Tools).To(HaveLen(1))
+		Expect(req.Tools[0].Type).To(Equal("function"))
+		Expect(req.Tools[0].Function.Name).To(Equal("get_weather"))
+		Expect(req.Tools[0].Function.Parameters["type"]).To(Equal("object"))
+		Expect(req.GetTools()).To(HaveLen(1))
+	})
+
+	It("unmarshals function_call and function_call_output input items", func() {
+		jsonData := []byte(`{
+			"model": "m",
+			"input": [
+				{"type": "message", "role": "user", "content": "weather?"},
+				{
+					"type": "function_call",
+					"id": "fc_1",
+					"call_id": "call_1",
+					"name": "get_weather",
+					"arguments": "{\"city\":\"Paris\"}",
+					"status": "completed"
+				},
+				{
+					"type": "function_call_output",
+					"call_id": "call_1",
+					"output": "sunny"
+				}
+			]
+		}`)
+		var req ResponsesRequest
+		Expect(json.Unmarshal(jsonData, &req)).To(Succeed())
+		Expect(req.Input).To(HaveLen(3))
+		_, okMsg := req.Input[0].(*InputMessage)
+		Expect(okMsg).To(BeTrue())
+		fc, okFC := req.Input[1].(*InputFunctionCall)
+		Expect(okFC).To(BeTrue())
+		Expect(fc.CallID).To(Equal("call_1"))
+		Expect(fc.Name).To(Equal("get_weather"))
+		out, okOut := req.Input[2].(*InputFunctionCallOutput)
+		Expect(okOut).To(BeTrue())
+		Expect(out.Output).To(Equal("sunny"))
+		Expect(HasFunctionCallOutput(req.Input)).To(BeTrue())
+	})
+
+	It("rejects unknown input item types", func() {
+		jsonData := []byte(`{
+			"model": "m",
+			"input": [{"type": "reasoning", "id": "rs_1"}]
+		}`)
+		var req ResponsesRequest
+		Expect(json.Unmarshal(jsonData, &req)).To(HaveOccurred())
+	})
+
+	It("rejects nested non-function tool types", func() {
+		jsonData := []byte(`{
+			"model": "m",
+			"input": "hello",
+			"tools": [{
+				"type": "custom",
+				"function": {
+					"name": "get_weather",
+					"description": "Get weather",
+					"parameters": {"type": "object", "properties": {}}
+				}
+			}]
+		}`)
+		var req ResponsesRequest
+		err := json.Unmarshal(jsonData, &req)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring(`unsupported tool type "custom"`))
+	})
+})

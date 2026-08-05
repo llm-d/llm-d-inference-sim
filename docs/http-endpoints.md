@@ -221,16 +221,20 @@ Structure of requests/responses
         - stream
         - model
         - input (array of input items)
-            - type (`message`)
-            - role (`user`, `system`, `developer`)
-            - content (string or array of content blocks)
+            - type (`message`, `function_call`, or `function_call_output`)
+            - role (`user`, `system`, `developer`) — for `message`
+            - content (string or array of content blocks) — for `message`
               - type (`input_text`, `input_image`, or `input_audio`)
               - text (for `input_text`)
               - image_url (for `input_image` — a URL string)
               - data (for `input_audio` — base64-encoded audio data)
               - format (for `input_audio` — e.g. `wav`, `mp3`)
+            - id, call_id, name, arguments, status — for `function_call`
+            - call_id, output — for `function_call_output`
         - instructions
         - max_output_tokens
+        - tools (array of function tools; flat Responses shape: `type`, `name`, `description`, `parameters`)
+        - tool_choice (`none`, `auto`, `required`, `{"type":"function","name":"..."}`, or wire shapes `allowed_tools` / `custom` — the latter two are accepted but not enforced)
         - text
           - format
             - type (`text`, `json_object`, `json_schema`)
@@ -244,11 +248,11 @@ Structure of requests/responses
         - status (`completed`, `in_progress`)
         - instructions
         - output (array of output items)
-            - type (`message`)
+            - type (`message` or `function_call`)
             - id
-            - role (`assistant`)
+            - role (`assistant`) — for `message`
             - status
-            - content
+            - content — for `message`
               - type (`output_text`)
               - text
               - logprobs (when `include` contains `message.output_text.logprobs`)
@@ -256,6 +260,7 @@ Structure of requests/responses
                 - logprob
                 - bytes
                 - top_logprobs
+            - call_id, name, arguments — for `function_call` (`status` is `completed`)
         - text
           - format
             - type
@@ -263,6 +268,9 @@ Structure of requests/responses
           - input_tokens
           - output_tokens
           - total_tokens
+
+    Tool turns: when `tools` are present and `tool_choice` is not `none`, the simulator emits exactly one `function_call` output item (non-streaming) or the equivalent SSE event sequence (streaming; see below). On the first tool turn, omitted or `auto` `tool_choice` is forced to call a tool 100% of the time (unlike the real Responses API). If `input` already contains any `function_call_output`, tool-calling stays off for the rest of that conversation — including a later, unrelated user turn that still carries prior tool history — and the simulator returns a normal assistant `message` instead. `allowed_tools` / `custom` `tool_choice` values are accepted on the wire but are not enforced (same limitation as chat completions). Parallel / multi tool calls are not supported.
+
 - `/inference/v1/generate`
     - **request**
         - stream
@@ -408,6 +416,8 @@ curl -N -X POST http://localhost:8000/v1/responses \
 ```
 
 The streaming response uses Server-Sent Events (SSE) and emits the following event types in order: `response.created`, `response.in_progress`, `response.output_item.added`, `response.content_part.added`, one or more `response.output_text.delta`, `response.output_text.done`, `response.content_part.done`, `response.output_item.done`, `response.completed`.
+
+When the turn is a tool call (`tools` present and `tool_choice` is not `none`, and `input` has no `function_call_output`), the stream instead emits: `response.created`, `response.in_progress`, `response.output_item.added` (item type `function_call`), one or more `response.function_call_arguments.delta`, `response.function_call_arguments.done`, `response.output_item.done`, `response.completed` (with a single `function_call` in `output`).
 
 ## `finish_reason` values
 

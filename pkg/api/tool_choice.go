@@ -18,6 +18,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/openai/openai-go/v3"
@@ -67,12 +68,27 @@ func (t *ToolChoice) UnmarshalJSON(data []byte) error {
 
 	// Based on the detected type, unmarshal the data into the correct struct.
 	switch typeDetector.Type {
-	case "function":
-		var functionChoice openai.ChatCompletionNamedToolChoiceParam
-		if err := functionChoice.UnmarshalJSON(data); err != nil {
+	case toolChoiceTypeFunction:
+		// Responses API uses a flat shape {"type":"function","name":"..."}.
+		// Chat completions uses {"type":"function","function":{"name":"..."}}.
+		var flat struct {
+			Type     string `json:"type"`
+			Name     string `json:"name"`
+			Function *struct {
+				Name string `json:"name"`
+			} `json:"function"`
+		}
+		if err := json.Unmarshal(data, &flat); err != nil {
 			return err
 		}
-		t.OfFunctionToolChoice = &functionChoice
+		name := flat.Name
+		if flat.Function != nil && flat.Function.Name != "" {
+			name = flat.Function.Name
+		}
+		if name == "" {
+			return errors.New("tool_choice function requires a name")
+		}
+		*t = NewToolChoiceFunction(name)
 	case "custom":
 		var customChoice openai.ChatCompletionNamedToolChoiceCustomParam
 		if err := customChoice.UnmarshalJSON(data); err != nil {
@@ -115,4 +131,5 @@ func NewToolChoiceFunction(name string) ToolChoice {
 const (
 	toolChoiceRequiredValue = "required"
 	toolChoiceNoneValue     = "none"
+	toolChoiceTypeFunction  = "function"
 )

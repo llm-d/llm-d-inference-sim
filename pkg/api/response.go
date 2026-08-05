@@ -26,18 +26,21 @@ import (
 )
 
 const (
-	chatComplIDPrefix         = "chatcmpl-"
-	textComplIDPrefix         = "cmpl-"
-	ResponsesIDPrefix         = "resp_"
-	ResponsesMessageIDPrefix  = "msg_"
-	TextCompletionObject      = "text_completion"
-	ChatCompletionObject      = "chat.completion"
-	ChatCompletionChunkObject = "chat.completion.chunk"
-	ResponsesObject           = "response"
-	ResponsesStatusCompleted  = "completed"
-	ResponsesStatusInProgress = "in_progress"
-	ResponsesOutputText       = "output_text"
-	ResponsesOutputMessage    = "message"
+	chatComplIDPrefix             = "chatcmpl-"
+	textComplIDPrefix             = "cmpl-"
+	ResponsesIDPrefix             = "resp_"
+	ResponsesMessageIDPrefix      = "msg_"
+	ResponsesFunctionCallIDPrefix = "fc_"
+	ResponsesCallIDPrefix         = "call_"
+	TextCompletionObject          = "text_completion"
+	ChatCompletionObject          = "chat.completion"
+	ChatCompletionChunkObject     = "chat.completion.chunk"
+	ResponsesObject               = "response"
+	ResponsesStatusCompleted      = "completed"
+	ResponsesStatusInProgress     = "in_progress"
+	ResponsesOutputText           = "output_text"
+	ResponsesOutputMessage        = "message"
+	ResponsesOutputFunctionCall   = "function_call"
 
 	SSEDoneMarker = "[DONE]"
 	SSEDataPrefix = "data: "
@@ -541,6 +544,29 @@ func (m MessageOutput) MarshalJSON() ([]byte, error) {
 	return json.Marshal(alias(m))
 }
 
+// FunctionCallOutputItem is a function_call item in a Responses API output array.
+type FunctionCallOutputItem struct {
+	Type      string `json:"type"` // function_call
+	ID        string `json:"id,omitempty"`
+	CallID    string `json:"call_id,omitempty"`
+	Name      string `json:"name,omitempty"`
+	Arguments string `json:"arguments,omitempty"`
+	Status    string `json:"status,omitempty"`
+}
+
+func (FunctionCallOutputItem) isOutputItem() {}
+
+func (f FunctionCallOutputItem) MarshalJSON() ([]byte, error) {
+	if f.Type == "" {
+		f.Type = ResponsesOutputFunctionCall
+	}
+	if f.Status == "" {
+		f.Status = ResponsesStatusCompleted
+	}
+	type alias FunctionCallOutputItem
+	return json.Marshal(alias(f))
+}
+
 // TopLogprob represents a top alternative token in Responses API logprobs
 type TopLogprob struct {
 	Token   string  `json:"token"`
@@ -580,16 +606,18 @@ type ResponsesUsage struct {
 
 // Responses API streaming event types
 const (
-	ResponsesEventCreated           = "response.created"
-	ResponsesEventInProgress        = "response.in_progress"
-	ResponsesEventOutputItemAdded   = "response.output_item.added"
-	ResponsesEventContentPartAdded  = "response.content_part.added"
-	ResponsesEventTextDelta         = "response.output_text.delta"
-	ResponsesEventTextLogprobsDelta = "response.output_text.logprobs.delta"
-	ResponsesEventTextDone          = "response.output_text.done"
-	ResponsesEventContentPartDone   = "response.content_part.done"
-	ResponsesEventOutputItemDone    = "response.output_item.done"
-	ResponsesEventCompleted         = "response.completed"
+	ResponsesEventCreated                    = "response.created"
+	ResponsesEventInProgress                 = "response.in_progress"
+	ResponsesEventOutputItemAdded            = "response.output_item.added"
+	ResponsesEventContentPartAdded           = "response.content_part.added"
+	ResponsesEventTextDelta                  = "response.output_text.delta"
+	ResponsesEventTextLogprobsDelta          = "response.output_text.logprobs.delta"
+	ResponsesEventTextDone                   = "response.output_text.done"
+	ResponsesEventContentPartDone            = "response.content_part.done"
+	ResponsesEventFunctionCallArgumentsDelta = "response.function_call_arguments.delta"
+	ResponsesEventFunctionCallArgumentsDone  = "response.function_call_arguments.done"
+	ResponsesEventOutputItemDone             = "response.output_item.done"
+	ResponsesEventCompleted                  = "response.completed"
 )
 
 // ResponsesResponseEvent is used for events that carry a full response object
@@ -601,7 +629,7 @@ type ResponsesResponseEvent struct {
 
 // ResponsesItemEvent is used for all item/content/text streaming events
 // (output_item.added/done, content_part.added/done, output_text.delta/done,
-// output_text.logprobs.delta).
+// output_text.logprobs.delta, function_call_arguments.delta/done).
 // Fields not relevant to a given event type are omitted via omitempty.
 type ResponsesItemEvent struct {
 	Type         string              `json:"type"`
@@ -612,6 +640,8 @@ type ResponsesItemEvent struct {
 	Part         *OutputContent      `json:"part,omitempty"`
 	Delta        string              `json:"delta,omitempty"`
 	Text         string              `json:"text,omitempty"`
+	Name         string              `json:"name,omitempty"`
+	Arguments    string              `json:"arguments,omitempty"`
 	Logprobs     *[]ResponsesLogprob `json:"logprobs,omitempty"`
 }
 

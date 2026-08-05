@@ -431,22 +431,66 @@ type responsesHTTPRespBuilder struct {
 	accumulatedTokens int
 	// logprobs for the accumulated text
 	accumulatedLogprobs []api.ResponsesLogprob
+
+	// tool-call streaming state (set when ToolCalls() is non-empty)
+	inToolMode      bool
+	accumulatedArgs strings.Builder
+	fcID            string
+	callID          string
+	toolName        string
+}
+
+// functionCallOutputItem builds a Responses function_call output item from an internal ToolCall.
+// Internal ToolCall.ID uses the fc_ prefix; derive a matching call_ id for Praxis.
+func functionCallOutputItem(tc api.ToolCall, status string) api.FunctionCallOutputItem {
+	name := ""
+	if tc.Function.Name != nil {
+		name = *tc.Function.Name
+	}
+	fcID := tc.ID
+	callID := strings.Replace(fcID, api.ResponsesFunctionCallIDPrefix, api.ResponsesCallIDPrefix, 1)
+	if callID == fcID {
+		callID = api.ResponsesCallIDPrefix + fcID
+	}
+	return api.FunctionCallOutputItem{
+		Type:      api.ResponsesOutputFunctionCall,
+		ID:        fcID,
+		CallID:    callID,
+		Name:      name,
+		Arguments: tc.Function.Arguments,
+		Status:    status,
+	}
 }
 
 func (respBuilder *responsesHTTPRespBuilder) createResponse(respCtxPerChoice []vllmsim.ResponseContext,
 	tokens []api.Tokenized) any {
 	respCtx := respCtxPerChoice[0]
-	text := strings.Join(tokens[0].Strings, "")
 	usage := respCtx.UsageData()
 
-	outputContent := api.OutputContent{
-		Type: api.ResponsesOutputText,
-		Text: text,
-	}
-
-	if respCtx.TopLogprobs() != nil {
-		logprobs := common.GenerateMessagesLogprobs(tokens[0].Strings, *respCtx.TopLogprobs())
-		outputContent.Logprobs = &logprobs
+	var output []api.OutputItem
+	if toolCalls := respCtx.ToolCalls(); len(toolCalls) > 0 {
+		output = make([]api.OutputItem, 0, len(toolCalls))
+		for _, tc := range toolCalls {
+			output = append(output, functionCallOutputItem(tc, api.ResponsesStatusCompleted))
+		}
+	} else {
+		text := strings.Join(tokens[0].Strings, "")
+		outputContent := api.OutputContent{
+			Type: api.ResponsesOutputText,
+			Text: text,
+		}
+		if respCtx.TopLogprobs() != nil {
+			logprobs := common.GenerateMessagesLogprobs(tokens[0].Strings, *respCtx.TopLogprobs())
+			outputContent.Logprobs = &logprobs
+		}
+		output = []api.OutputItem{
+			api.MessageOutput{
+				Type:    api.ResponsesOutputMessage,
+				Role:    api.RoleAssistant,
+				Status:  api.ResponsesStatusCompleted,
+				Content: []api.OutputContent{outputContent},
+			},
+		}
 	}
 
 	return api.CreateResponsesResponse(
@@ -454,14 +498,7 @@ func (respBuilder *responsesHTTPRespBuilder) createResponse(respCtxPerChoice []v
 		respCtx.RequestID(),
 		time.Now().Unix(),
 		respCtx.Instructions(),
-		[]api.OutputItem{
-			api.MessageOutput{
-				Type:    api.ResponsesOutputMessage,
-				Role:    api.RoleAssistant,
-				Status:  api.ResponsesStatusCompleted,
-				Content: []api.OutputContent{outputContent},
-			},
-		},
+		output,
 		&api.ResponsesUsage{
 			InputTokens:  usage.PromptTokens,
 			OutputTokens: usage.CompletionTokens,
@@ -473,19 +510,28 @@ func (respBuilder *responsesHTTPRespBuilder) createResponse(respCtxPerChoice []v
 func (respBuilder *responsesHTTPRespBuilder) createUsageChunk(respCtxPerChoice []vllmsim.ResponseContext) sseChunk {
 	respCtx := respCtxPerChoice[0]
 	usage := aggregateUsage(respCtxPerChoice)
-	text := respBuilder.accumulated.String()
-	completedContent := api.OutputContent{Type: api.ResponsesOutputText, Text: text}
-	if respCtx.TopLogprobs() != nil && len(respBuilder.accumulatedLogprobs) > 0 {
-		logprobs := make([]api.ResponsesLogprob, len(respBuilder.accumulatedLogprobs))
-		copy(logprobs, respBuilder.accumulatedLogprobs)
-		completedContent.Logprobs = &logprobs
-	}
-	resp := api.CreateResponsesResponse(
-		respCtx.DisplayModel(),
-		respCtx.RequestID(),
-		respCtx.CreationTime(),
-		respCtx.Instructions(),
-		[]api.OutputItem{
+
+	var output []api.OutputItem
+	if respBuilder.inToolMode {
+		output = []api.OutputItem{
+			api.FunctionCallOutputItem{
+				Type:      api.ResponsesOutputFunctionCall,
+				ID:        respBuilder.fcID,
+				CallID:    respBuilder.callID,
+				Name:      respBuilder.toolName,
+				Arguments: respBuilder.accumulatedArgs.String(),
+				Status:    api.ResponsesStatusCompleted,
+			},
+		}
+	} else {
+		text := respBuilder.accumulated.String()
+		completedContent := api.OutputContent{Type: api.ResponsesOutputText, Text: text}
+		if respCtx.TopLogprobs() != nil && len(respBuilder.accumulatedLogprobs) > 0 {
+			logprobs := make([]api.ResponsesLogprob, len(respBuilder.accumulatedLogprobs))
+			copy(logprobs, respBuilder.accumulatedLogprobs)
+			completedContent.Logprobs = &logprobs
+		}
+		output = []api.OutputItem{
 			api.MessageOutput{
 				Type:    api.ResponsesOutputMessage,
 				ID:      api.ResponsesMessageIDPrefix + respCtx.RequestID(),
@@ -493,7 +539,15 @@ func (respBuilder *responsesHTTPRespBuilder) createUsageChunk(respCtxPerChoice [
 				Status:  api.ResponsesStatusCompleted,
 				Content: []api.OutputContent{completedContent},
 			},
-		},
+		}
+	}
+
+	resp := api.CreateResponsesResponse(
+		respCtx.DisplayModel(),
+		respCtx.RequestID(),
+		respCtx.CreationTime(),
+		respCtx.Instructions(),
+		output,
 		&api.ResponsesUsage{
 			InputTokens:  usage.PromptTokens,
 			OutputTokens: usage.CompletionTokens,
@@ -510,6 +564,9 @@ func (respBuilder *responsesHTTPRespBuilder) createUsageChunk(respCtxPerChoice [
 
 func (respBuilder *responsesHTTPRespBuilder) createChunk(respCtx vllmsim.ResponseContext,
 	tokens *api.Tokenized, tool *api.ToolCall, role string, finishReason *string, choiceIdx int) sseChunk {
+	if tool != nil {
+		return respBuilder.createToolChunk(tool)
+	}
 	if tokens == nil || len(tokens.Strings) == 0 {
 		return nil
 	}
@@ -552,6 +609,37 @@ func (respBuilder *responsesHTTPRespBuilder) createChunk(respCtx vllmsim.Respons
 	return &namedEventChunk{names: []string{api.ResponsesEventTextDelta}, data: []any{deltaEvent}}
 }
 
+// createToolChunk emits function_call streaming events for one argument token fragment.
+// On the first fragment (tool.Function.Name != nil) it also emits output_item.added.
+func (respBuilder *responsesHTTPRespBuilder) createToolChunk(tool *api.ToolCall) sseChunk {
+	var names []string
+	var data []any
+
+	if tool.Function.Name != nil {
+		item := functionCallOutputItem(*tool, api.ResponsesStatusInProgress)
+		item.Arguments = ""
+		respBuilder.fcID = item.ID
+		respBuilder.callID = item.CallID
+		respBuilder.toolName = item.Name
+		outputItemAdded := api.ResponsesItemEvent{
+			Type: api.ResponsesEventOutputItemAdded,
+			Item: item,
+		}
+		names = append(names, outputItemAdded.Type)
+		data = append(data, outputItemAdded)
+	}
+
+	respBuilder.accumulatedArgs.WriteString(tool.Function.Arguments)
+	deltaEvent := api.ResponsesItemEvent{
+		Type:   api.ResponsesEventFunctionCallArgumentsDelta,
+		ItemID: respBuilder.fcID,
+		Delta:  tool.Function.Arguments,
+	}
+	names = append(names, deltaEvent.Type)
+	data = append(data, deltaEvent)
+	return &namedEventChunk{names: names, data: data}
+}
+
 func (respBuilder *responsesHTTPRespBuilder) createInitialChunk(respCtx vllmsim.ResponseContext) sseChunk {
 	resp := api.CreateResponsesResponse(
 		respCtx.DisplayModel(),
@@ -572,6 +660,12 @@ func (respBuilder *responsesHTTPRespBuilder) createInitialChunk(respCtx vllmsim.
 }
 
 func (respBuilder *responsesHTTPRespBuilder) createFirstChunk(respCtx vllmsim.ResponseContext, choiceIdx int) sseChunk {
+	respBuilder.inToolMode = len(respCtx.ToolCalls()) > 0
+	if respBuilder.inToolMode {
+		// output_item.added for function_call is emitted in createToolChunk on the first arg token.
+		return nil
+	}
+
 	itemID := api.ResponsesMessageIDPrefix + respCtx.RequestID()
 	outputItemAdded := api.ResponsesItemEvent{
 		Type: api.ResponsesEventOutputItemAdded,
@@ -600,6 +694,31 @@ func (respBuilder *responsesHTTPRespBuilder) createFirstChunk(respCtx vllmsim.Re
 }
 
 func (respBuilder *responsesHTTPRespBuilder) createLastChunk(respCtx vllmsim.ResponseContext, _ string, choiceIdx int) sseChunk {
+	if respBuilder.inToolMode {
+		args := respBuilder.accumulatedArgs.String()
+		argsDone := api.ResponsesItemEvent{
+			Type:      api.ResponsesEventFunctionCallArgumentsDone,
+			ItemID:    respBuilder.fcID,
+			Name:      respBuilder.toolName,
+			Arguments: args,
+		}
+		outputItemDone := api.ResponsesItemEvent{
+			Type: api.ResponsesEventOutputItemDone,
+			Item: api.FunctionCallOutputItem{
+				Type:      api.ResponsesOutputFunctionCall,
+				ID:        respBuilder.fcID,
+				CallID:    respBuilder.callID,
+				Name:      respBuilder.toolName,
+				Arguments: args,
+				Status:    api.ResponsesStatusCompleted,
+			},
+		}
+		return &namedEventChunk{
+			names: []string{argsDone.Type, outputItemDone.Type},
+			data:  []any{argsDone, outputItemDone},
+		}
+	}
+
 	itemID := api.ResponsesMessageIDPrefix + respCtx.RequestID()
 	text := respBuilder.accumulated.String()
 
