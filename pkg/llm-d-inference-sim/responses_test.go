@@ -18,6 +18,7 @@ package llmdinferencesim
 
 import (
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
@@ -148,6 +149,132 @@ var _ = Describe("Responses createToolCalls policy", func() {
 		Expect(calls).To(HaveLen(1))
 		Expect(finish).To(Equal(common.ToolsFinishReason))
 		Expect(*calls[0].Function.Name).To(Equal("get_temperature"))
+	})
+
+	It("keeps tools disabled after function_call_output even with a later user message", func() {
+		ctx := newResponsesToolTestCtx(
+			[]api.Tool{mustTool("get_weather")},
+			api.ToolChoice{},
+			[]api.InputItem{
+				&api.InputMessage{
+					Type:    "message",
+					Role:    api.RoleUser,
+					Content: []api.InputContent{{Type: api.ResponsesInputText, Text: "weather?"}},
+				},
+				&api.InputFunctionCall{
+					Type: "function_call", CallID: "call_1", Name: "get_weather", Arguments: `{"city":"Paris"}`,
+				},
+				&api.InputFunctionCallOutput{Type: "function_call_output", CallID: "call_1", Output: "sunny"},
+				&api.InputMessage{
+					Type:    "message",
+					Role:    api.RoleUser,
+					Content: []api.InputContent{{Type: api.ResponsesInputText, Text: "and the stock price?"}},
+				},
+			},
+		)
+		calls, tokens, finish, err := ctx.createToolCalls()
+		Expect(err).NotTo(HaveOccurred())
+		Expect(calls).To(BeNil())
+		Expect(tokens).To(Equal(0))
+		Expect(finish).To(Equal(""))
+	})
+
+	It("does not force-required for allowed_tools tool_choice", func() {
+		var choice api.ToolChoice
+		Expect(json.Unmarshal([]byte(`{
+			"type": "allowed_tools",
+			"allowed_tools": {
+				"mode": "auto",
+				"tools": [{"type": "function", "name": "get_weather"}]
+			}
+		}`), &choice)).To(Succeed())
+		Expect(choice.OfAllowedTools).NotTo(BeNil())
+		Expect(shouldForceRequiredToolChoice(choice)).To(BeFalse())
+		Expect(shouldForceRequiredToolChoice(api.ToolChoice{})).To(BeTrue())
+		Expect(shouldForceRequiredToolChoice(api.NewToolChoiceFunction("get_weather"))).To(BeFalse())
+	})
+
+	It("does not force-required for custom tool_choice", func() {
+		var choice api.ToolChoice
+		Expect(json.Unmarshal([]byte(`{"type":"custom","custom":{"name":"my_custom"}}`), &choice)).To(Succeed())
+		Expect(choice.OfCustomToolChoice).NotTo(BeNil())
+		Expect(shouldForceRequiredToolChoice(choice)).To(BeFalse())
+	})
+})
+
+var _ = Describe("Responses convertInputToMessages", func() {
+	It("includes function_call and function_call_output in tokenized prompt", func() {
+		tok := tokenizer.NewSimpleTokenizer()
+		msgOnly := convertInputToMessages([]api.InputItem{
+			&api.InputMessage{
+				Type:    "message",
+				Role:    api.RoleUser,
+				Content: []api.InputContent{{Type: api.ResponsesInputText, Text: "weather?"}},
+			},
+		})
+		withTools := convertInputToMessages([]api.InputItem{
+			&api.InputMessage{
+				Type:    "message",
+				Role:    api.RoleUser,
+				Content: []api.InputContent{{Type: api.ResponsesInputText, Text: "weather?"}},
+			},
+			&api.InputFunctionCall{
+				Type: "function_call", ID: "fc_1", CallID: "call_1",
+				Name: "get_weather", Arguments: `{"city":"Paris"}`,
+			},
+			&api.InputFunctionCallOutput{
+				Type: "function_call_output", CallID: "call_1", Output: "sunny, 22C",
+			},
+		})
+		Expect(withTools).To(HaveLen(3))
+		Expect(withTools[1].Role).To(Equal(api.RoleAssistant))
+		Expect(withTools[1].ToolCalls).To(HaveLen(1))
+		Expect(withTools[2].Role).To(Equal("tool"))
+		Expect(withTools[2].Content.Raw).To(Equal("sunny, 22C"))
+
+		tokensOnly, _, _, err := tok.RenderMessages(msgOnly)
+		Expect(err).NotTo(HaveOccurred())
+		tokensWith, _, _, err := tok.RenderMessages(withTools)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(len(tokensWith)).To(BeNumerically(">", len(tokensOnly)))
+	})
+})
+
+var _ = Describe("Responses tokenizedPromptForEcho", func() {
+	It("echoes function_call_output text when it is the last input item", func() {
+		ctx := newResponsesToolTestCtx(
+			[]api.Tool{mustTool("get_weather")},
+			api.ToolChoice{},
+			[]api.InputItem{
+				&api.InputMessage{
+					Type:    "message",
+					Role:    api.RoleUser,
+					Content: []api.InputContent{{Type: api.ResponsesInputText, Text: "weather?"}},
+				},
+				&api.InputFunctionCallOutput{
+					Type: "function_call_output", CallID: "call_1", Output: "sunny, 22C",
+				},
+			},
+		)
+		tokenized, err := ctx.tokenizedPromptForEcho()
+		Expect(err).NotTo(HaveOccurred())
+		Expect(strings.Join(tokenized.Strings, "")).To(Equal("sunny, 22C"))
+	})
+
+	It("echoes function_call name and arguments when it is the last input item", func() {
+		ctx := newResponsesToolTestCtx(
+			nil,
+			api.ToolChoice{},
+			[]api.InputItem{
+				&api.InputFunctionCall{
+					Type: "function_call", CallID: "call_1",
+					Name: "get_weather", Arguments: `{"city":"Paris"}`,
+				},
+			},
+		)
+		tokenized, err := ctx.tokenizedPromptForEcho()
+		Expect(err).NotTo(HaveOccurred())
+		Expect(strings.Join(tokenized.Strings, "")).To(Equal(`get_weather({"city":"Paris"})`))
 	})
 })
 

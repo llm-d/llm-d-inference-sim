@@ -347,4 +347,126 @@ var _ = Describe("Responses API tools", func() {
 		Expect(stream.Err()).NotTo(HaveOccurred())
 		Expect(addedName).To(Equal("get_temperature"))
 	})
+
+	It("errors when forced tool_choice names a missing function", func() {
+		ctx := context.TODO()
+		client, err := startServer(ctx, common.ModeRandom)
+		Expect(err).NotTo(HaveOccurred())
+
+		resp, postErr := client.Post("http://localhost/v1/responses", "application/json", strings.NewReader(`{
+			"model": "`+common.TestModelName+`",
+			"input": "Need data",
+			"tools": [{
+				"type": "function",
+				"name": "get_weather",
+				"description": "Get weather",
+				"parameters": {"type": "object", "properties": {"city": {"type": "string"}}, "required": ["city"]}
+			}],
+			"tool_choice": {"type": "function", "name": "does_not_exist"}
+		}`))
+		Expect(postErr).NotTo(HaveOccurred())
+		defer func() { Expect(resp.Body.Close()).To(Succeed()) }()
+		Expect(resp.StatusCode).To(Equal(http.StatusInternalServerError))
+		body, err := io.ReadAll(resp.Body)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(string(body)).To(ContainSubstring("not found in the tools list"))
+	})
+
+	It("echoes function_call_output in echo mode", func() {
+		ctx := context.TODO()
+		client, err := startServer(ctx, common.ModeEcho)
+		Expect(err).NotTo(HaveOccurred())
+
+		openaiclient := openai.NewClient(
+			option.WithBaseURL(baseURL),
+			option.WithHTTPClient(client),
+			option.WithMaxRetries(0))
+
+		const toolOutput = "sunny, 22C"
+		params := responses.ResponseNewParams{
+			Model: common.TestModelName,
+			Input: responses.ResponseNewParamsInputUnion{
+				OfInputItemList: responses.ResponseInputParam{
+					responses.ResponseInputItemParamOfMessage("What is the weather?", responses.EasyInputMessageRoleUser),
+					responses.ResponseInputItemParamOfFunctionCall(`{"city":"Paris"}`, "call_1", "get_weather"),
+					responses.ResponseInputItemParamOfFunctionCallOutput("call_1", toolOutput),
+				},
+			},
+			Tools: []responses.ToolUnionParam{responsesWeatherTool()},
+		}
+
+		resp, err := openaiclient.Responses.New(ctx, params)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.Output).NotTo(BeEmpty())
+		Expect(resp.Output[0].Type).To(Equal("message"))
+		Expect(resp.OutputText()).To(Equal(toolOutput))
+	})
+
+	It("keeps tools disabled on a later user turn after function_call_output", func() {
+		ctx := context.TODO()
+		client, err := startServer(ctx, common.ModeRandom)
+		Expect(err).NotTo(HaveOccurred())
+
+		openaiclient := openai.NewClient(
+			option.WithBaseURL(baseURL),
+			option.WithHTTPClient(client),
+			option.WithMaxRetries(0))
+
+		params := responses.ResponseNewParams{
+			Model: common.TestModelName,
+			Input: responses.ResponseNewParamsInputUnion{
+				OfInputItemList: responses.ResponseInputParam{
+					responses.ResponseInputItemParamOfMessage("What is the weather?", responses.EasyInputMessageRoleUser),
+					responses.ResponseInputItemParamOfFunctionCall(`{"city":"Paris"}`, "call_1", "get_weather"),
+					responses.ResponseInputItemParamOfFunctionCallOutput("call_1", "sunny, 22C"),
+					responses.ResponseInputItemParamOfMessage("What is the stock price of ACME?", responses.EasyInputMessageRoleUser),
+				},
+			},
+			Tools: []responses.ToolUnionParam{responsesWeatherTool()},
+		}
+
+		resp, err := openaiclient.Responses.New(ctx, params)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.Output).NotTo(BeEmpty())
+		Expect(resp.Output[0].Type).To(Equal("message"))
+	})
+
+	It("counts function_call input items toward usage.input_tokens", func() {
+		ctx := context.TODO()
+		client, err := startServer(ctx, common.ModeRandom)
+		Expect(err).NotTo(HaveOccurred())
+
+		openaiclient := openai.NewClient(
+			option.WithBaseURL(baseURL),
+			option.WithHTTPClient(client),
+			option.WithMaxRetries(0))
+
+		msgOnly, err := openaiclient.Responses.New(ctx, responses.ResponseNewParams{
+			Model: common.TestModelName,
+			Input: responses.ResponseNewParamsInputUnion{
+				OfInputItemList: responses.ResponseInputParam{
+					responses.ResponseInputItemParamOfMessage("What is the weather?", responses.EasyInputMessageRoleUser),
+				},
+			},
+			ToolChoice: responses.ResponseNewParamsToolChoiceUnion{
+				OfToolChoiceMode: param.NewOpt(responses.ToolChoiceOptionsNone),
+			},
+			Tools: []responses.ToolUnionParam{responsesWeatherTool()},
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		withHistory, err := openaiclient.Responses.New(ctx, responses.ResponseNewParams{
+			Model: common.TestModelName,
+			Input: responses.ResponseNewParamsInputUnion{
+				OfInputItemList: responses.ResponseInputParam{
+					responses.ResponseInputItemParamOfMessage("What is the weather?", responses.EasyInputMessageRoleUser),
+					responses.ResponseInputItemParamOfFunctionCall(`{"city":"Paris"}`, "call_1", "get_weather"),
+					responses.ResponseInputItemParamOfFunctionCallOutput("call_1", "sunny, 22C"),
+				},
+			},
+			Tools: []responses.ToolUnionParam{responsesWeatherTool()},
+		})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(withHistory.Usage.InputTokens).To(BeNumerically(">", msgOnly.Usage.InputTokens))
+	})
 })
