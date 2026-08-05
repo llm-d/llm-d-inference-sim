@@ -64,7 +64,7 @@ func (m *MessagesRequest) validateBlocks() *api.Error {
 	return nil
 }
 
-func (m *MessagesRequest) validate(tv *toolsValidator) *api.Error {
+func (m *MessagesRequest) validate(tv *toolsValidator, skipToolValidation bool) *api.Error {
 	if err := m.validateBlocks(); err != nil {
 		return err
 	}
@@ -76,7 +76,7 @@ func (m *MessagesRequest) validate(tv *toolsValidator) *api.Error {
 		err := api.NewError("max_tokens is required", fasthttp.StatusBadRequest, nil)
 		return &err
 	}
-	return m.ChatCompletionsRequest.validate(tv)
+	return m.ChatCompletionsRequest.validate(tv, skipToolValidation)
 }
 
 func (m *MessagesRequest) AsString() string {

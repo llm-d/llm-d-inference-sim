@@ -63,19 +63,25 @@ func (c *ChatCompletionsRequest) Render(tk tokenizer.Tokenizer) ([][]uint32, *ap
 	return [][]uint32{tokens}, features, nil
 }
 
-func (c *ChatCompletionsRequest) validate(toolsValidator *toolsValidator) *api.Error {
-	for _, tool := range c.Tools {
-		toolJson, err := json.Marshal(tool.Function)
-		if err != nil {
-			serverErr := api.NewError("Failed to marshal request tools: "+err.Error(),
-				fasthttp.StatusBadRequest, nil)
-			return &serverErr
-		}
-		err = toolsValidator.validateTool(toolJson)
-		if err != nil {
-			serverErr := api.NewError("Tool validation failed: "+err.Error(),
-				fasthttp.StatusBadRequest, nil)
-			return &serverErr
+// validate runs schema checks on the incoming tools array and then delegates
+// to validateRequest for the rest. When skipToolValidation is true, the tools
+// loop is bypassed entirely — matches real vLLM, which does not meta-validate
+// the input tool spec against a JSON Schema (see --skip-tool-validation).
+func (c *ChatCompletionsRequest) validate(toolsValidator *toolsValidator, skipToolValidation bool) *api.Error {
+	if !skipToolValidation {
+		for _, tool := range c.Tools {
+			toolJson, err := json.Marshal(tool.Function)
+			if err != nil {
+				serverErr := api.NewError("Failed to marshal request tools: "+err.Error(),
+					fasthttp.StatusBadRequest, nil)
+				return &serverErr
+			}
+			err = toolsValidator.validateTool(toolJson)
+			if err != nil {
+				serverErr := api.NewError("Tool validation failed: "+err.Error(),
+					fasthttp.StatusBadRequest, nil)
+				return &serverErr
+			}
 		}
 	}
 
@@ -164,10 +170,28 @@ func (c *chatCompletionReqCtx) encode() ([]uint32, []string, *api.RenderMMFeatur
 
 func (c *chatCompletionReqCtx) createToolCalls() ([]api.ToolCall, int, string, error) {
 	req := c.request()
-	if !isToolChoiceNone(req.GetToolChoice()) &&
-		req.GetTools() != nil {
+
+	// Deployment-level tool_choice override — lets an operator force "none"
+	// (text-only) or "required" (always call) via metadata without touching
+	// the client. Applied BEFORE the request's tool_choice is consulted.
+	// See Config.ToolChoiceOverride for accepted values.
+	toolChoice := req.GetToolChoice()
+	switch c.sim.Config().ToolChoiceOverride {
+	case "none":
+		// Never call tools. Skip generation regardless of what the client sent.
+		return nil, 0, "", nil
+	case "auto", "required":
+		// Reconstruct toolChoice by unmarshaling the string form — reuses
+		// ToolChoice.UnmarshalJSON so we don't touch its internals here.
+		var forced api.ToolChoice
+		if err := json.Unmarshal([]byte("\""+c.sim.Config().ToolChoiceOverride+"\""), &forced); err == nil {
+			toolChoice = forced
+		}
+	}
+
+	if !isToolChoiceNone(toolChoice) && req.GetTools() != nil {
 		toolCalls, completionTokens, err :=
-			createToolCalls(req.GetTools(), req.GetToolChoice(), c.sim.Config(), c.sim.Random, c.sim.Tokenizer, c.toolIDPrefix)
+			createToolCalls(req.GetTools(), toolChoice, c.sim.Config(), c.sim.Random, c.sim.Tokenizer, c.toolIDPrefix)
 		finishReason := common.ToolsFinishReason
 		return toolCalls, completionTokens, finishReason, err
 	}

@@ -42,7 +42,7 @@ func (g *GenerateRequest) Unmarshal(data []byte) error {
 	return nil
 }
 
-func (g *GenerateRequest) validate(toolsValidator *toolsValidator) *api.Error {
+func (g *GenerateRequest) validate(toolsValidator *toolsValidator, skipToolValidation bool) *api.Error {
 	if g.TokenIDs == nil {
 		err := api.NewError("Missing input token_ids", fasthttp.StatusBadRequest, nil)
 		return &err

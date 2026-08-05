@@ -148,6 +148,10 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 	f.IntVar(&config.ToolCallNotRequiredParamProbability, "tool-call-not-required-param-probability", config.ToolCallNotRequiredParamProbability, "Probability to add a parameter, that is not required, in a tool call")
 	f.IntVar(&config.ObjectToolCallNotRequiredParamProbability, "object-tool-call-not-required-field-probability", config.ObjectToolCallNotRequiredParamProbability, "Probability to add a field, that is not required, in an object in a tool call")
 
+	f.BoolVar(&config.SkipToolValidation, "skip-tool-validation", config.SkipToolValidation, "Skip JSON Schema validation of incoming tool definitions; forward to the tool-call generator as-is (matches real vLLM behavior)")
+	f.StringVar(&config.ToolChoiceOverride, "tool-choice-override", config.ToolChoiceOverride, "Override the request's tool_choice: \"none\" always returns text (no tool calls), \"auto\" lets the sim decide, \"required\" always calls at least one tool. Empty (default) honors the client's tool_choice.")
+	f.IntVar(&config.MaxCompletionTokensCap, "max-completion-tokens-cap", config.MaxCompletionTokensCap, "Hard upper bound on the effective completion-token count regardless of the request's max_tokens; guards against unbounded random-mode responses. 0 (default) = no cap.")
+
 	f.BoolVar(&config.EnableKVCache, "enable-kvcache", config.EnableKVCache, "Defines if KV cache feature is enabled")
 	f.IntVar(&config.KVCacheSize, "kv-cache-size", config.KVCacheSize, "Maximum number of token blocks in kv cache")
 	f.Float64Var(&config.GlobalCacheHitThreshold, "global-cache-hit-threshold", 0, "Default cache hit threshold [0, 1] for all requests. If a request specifies cache_hit_threshold, it takes precedence")

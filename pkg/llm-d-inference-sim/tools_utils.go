@@ -241,9 +241,50 @@ func getRequiredAsMap(property map[string]any) map[string]struct{} {
 	return required
 }
 
+// resolvePrimitiveType normalizes a JSON Schema "type" field to the concrete
+// primitive the arg generator can produce a value for. JSON Schema allows
+// "type" to be a string, an array of type strings (the draft-04+ nullable
+// pattern, e.g. ["null","object"]), or absent. Real vLLM tolerates all of
+// these because it forwards the schema to the model instead of synthesizing
+// arguments; the sim must reduce them to a single concrete type.
+//
+//   - string  → returned as-is
+//   - []any   → the first non-"null" entry wins so the mock returns a useful
+//               value for nullable fields; falls back to "null" only when
+//               every entry is "null" (a truly nullable-only field)
+//   - nil     → "string", the broadest safe default when a caller omits the
+//               type field entirely (the actual model would negotiate this
+//               with the tool at call time)
+//   - other   → "", which lets the caller error explicitly instead of panicking
+func resolvePrimitiveType(t any) string {
+	switch v := t.(type) {
+	case string:
+		return v
+	case []any:
+		fallback := ""
+		for _, entry := range v {
+			s, ok := entry.(string)
+			if !ok {
+				continue
+			}
+			if s != "null" && s != "" {
+				return s
+			}
+			if s == "null" {
+				fallback = "null"
+			}
+		}
+		return fallback
+	case nil:
+		return "string"
+	default:
+		return ""
+	}
+}
+
 func createArgument(property any, config *common.Configuration, random *common.Random) (any, error) {
 	propertyMap, _ := property.(map[string]any)
-	paramType := propertyMap["type"]
+	rawType := propertyMap["type"]
 
 	// If there is an enum, choose from it
 	enum, ok := propertyMap["enum"]
@@ -255,6 +296,8 @@ func createArgument(property any, config *common.Configuration, random *common.R
 		}
 	}
 
+	paramType := resolvePrimitiveType(rawType)
+
 	switch paramType {
 	case "string":
 		return getStringArgument(random), nil
@@ -264,9 +307,19 @@ func createArgument(property any, config *common.Configuration, random *common.R
 		return random.RandomFloat(config.MinToolCallNumberParam, config.MaxToolCallNumberParam), nil
 	case "boolean":
 		return random.FlipCoin(), nil
+	case "null":
+		// A schema whose type is (only) "null" is satisfied by the JSON null
+		// value; return the Go nil and let the JSON encoder emit `null`.
+		return nil, nil
 	case "array":
-		items := propertyMap["items"]
-		itemsMap := items.(map[string]any)
+		// items is optional in JSON Schema — an array with no declared items
+		// accepts anything, so returning an empty array is the honest sample.
+		// Guard the type assertion so a nil or non-map items field doesn't
+		// panic (Claude routinely sends arrays with items omitted).
+		itemsMap, ok := propertyMap["items"].(map[string]any)
+		if !ok {
+			return []any{}, nil
+		}
 		minItems := config.MinToolCallArrayParamLength
 		maxItems := config.MaxToolCallArrayParamLength
 		if value, ok := propertyMap["minItems"]; ok {
@@ -290,7 +343,14 @@ func createArgument(property any, config *common.Configuration, random *common.R
 		return array, nil
 	case "object":
 		required := getRequiredAsMap(propertyMap)
-		objectProperties := propertyMap["properties"].(map[string]any)
+		// properties is optional in JSON Schema (open objects,
+		// additionalProperties-only, or fully-permissive schemas). Guard the
+		// type assertion so a nil properties field returns an empty object
+		// instead of panicking.
+		objectProperties, ok := propertyMap["properties"].(map[string]any)
+		if !ok {
+			return map[string]interface{}{}, nil
+		}
 		object := make(map[string]interface{})
 		for fieldName, fieldProperties := range objectProperties {
 			_, fieldIsRequired := required[fieldName]

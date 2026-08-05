@@ -213,6 +213,9 @@ func (s *SimContext) initDataset(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("failed to initialize random dataset: %w", err)
 		}
+		// Post-init: hard cap on effective completion tokens (see
+		// Config.MaxCompletionTokensCap). 0 keeps legacy request-driven size.
+		randDataset.MaxCompletionTokensCap = s.Config().MaxCompletionTokensCap
 		s.logger.V(logging.INFO).Info("No dataset path or URL provided, using random text for responses")
 		s.dataset = randDataset
 		return nil
@@ -224,6 +227,8 @@ func (s *SimContext) initDataset(ctx context.Context) error {
 		s.Config().DatasetInMemory, s.Config().MaxModelLen, s.Tokenizer)
 
 	if err == nil {
+		// Same cap semantics — CustomDataset embeds DefaultDataset.
+		custDataset.MaxCompletionTokensCap = s.Config().MaxCompletionTokensCap
 		s.dataset = custDataset
 		return nil
 	}

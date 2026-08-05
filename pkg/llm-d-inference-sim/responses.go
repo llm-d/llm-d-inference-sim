@@ -33,7 +33,7 @@ func (r *ResponsesRequest) Unmarshal(data []byte) error {
 	return json.Unmarshal(data, r)
 }
 
-func (r *ResponsesRequest) validate(toolsValidator *toolsValidator) *api.Error {
+func (r *ResponsesRequest) validate(toolsValidator *toolsValidator, skipToolValidation bool) *api.Error {
 	return validateRequest(r)
 }
 

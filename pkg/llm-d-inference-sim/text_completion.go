@@ -83,7 +83,7 @@ func (t *TextCompletionsParsedRequest) Render(tk tokenizer.Tokenizer) ([][]uint3
 	return result, nil, nil
 }
 
-func (t *TextCompletionsParsedRequest) validate(_ *toolsValidator) *api.Error {
+func (t *TextCompletionsParsedRequest) validate(_ *toolsValidator, _ bool) *api.Error {
 	if err := t.ValidateBody(); err != nil {
 		return err
 	}
@@ -135,7 +135,7 @@ func (t *TextCompletionsRequest) Unmarshal(data []byte) error {
 	return json.Unmarshal(data, t)
 }
 
-func (t *TextCompletionsRequest) validate(_ *toolsValidator) *api.Error {
+func (t *TextCompletionsRequest) validate(_ *toolsValidator, _ bool) *api.Error {
 	return validateRequest(t)
 }
 

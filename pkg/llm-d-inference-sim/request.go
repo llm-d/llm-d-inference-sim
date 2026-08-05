@@ -29,7 +29,7 @@ import (
 
 type requestBuilder interface {
 	Unmarshal(data []byte) error
-	validate(toolsValidator *toolsValidator) *api.Error
+	validate(toolsValidator *toolsValidator, skipToolValidation bool) *api.Error
 	buildRequestContext(simCtx *SimContext, channel common.Channel[*ResponseInfo], choiceIdx int, doneFn func()) requestContext
 	AsString() string
 	createResponseContext(reqCtx requestContext, displayModel string, responseTokens *api.Tokenized,
