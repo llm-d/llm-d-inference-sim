@@ -18,6 +18,8 @@ package communication
 
 import (
 	"bufio"
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -977,6 +979,35 @@ func truncateBodyForLog(body []byte) string {
 	return string(body[:maxHTTPLogBodyBytes]) + fmt.Sprintf(" ... [truncated, total %d bytes]", len(body))
 }
 
+// decompressForLog returns the body decoded per the given Content-Encoding.
+// Only gzip is handled today (the sole encoding fasthttp emits by default);
+// unknown / empty encodings return the body unchanged. A decompression error
+// falls back to the raw bytes so logging never becomes lossy on best-effort
+// human readability. Result feeds truncateBodyForLog so the maxHTTPLogBodyBytes
+// cap still applies to the DECODED payload (a small gzipped blob can expand
+// a lot). Only mutates a copy for logging — the wire body is never touched.
+func decompressForLog(body []byte, encoding string) []byte {
+	if len(body) == 0 {
+		return body
+	}
+	switch strings.ToLower(strings.TrimSpace(encoding)) {
+	case "", "identity":
+		return body
+	case "gzip":
+		r, err := gzip.NewReader(bytes.NewReader(body))
+		if err != nil {
+			return body
+		}
+		defer r.Close()
+		out, err := io.ReadAll(io.LimitReader(r, maxHTTPLogBodyBytes+1))
+		if err != nil {
+			return body
+		}
+		return out
+	}
+	return body
+}
+
 func (c *Communication) logHTTPMiddleware(next fasthttp.RequestHandler) fasthttp.RequestHandler {
 	return func(ctx *fasthttp.RequestCtx) {
 		c.logHTTPRequest(ctx)
@@ -986,12 +1017,13 @@ func (c *Communication) logHTTPMiddleware(next fasthttp.RequestHandler) fasthttp
 }
 
 func (c *Communication) logHTTPRequest(ctx *fasthttp.RequestCtx) {
+	reqBody := decompressForLog(ctx.Request.Body(), string(ctx.Request.Header.ContentEncoding()))
 	c.logger.V(logging.INFO).Info("HTTP request",
 		"method", string(ctx.Method()),
 		"requestURI", string(ctx.RequestURI()),
 		"remoteAddr", ctx.RemoteAddr().String(),
 		"headers", formatRequestHeaders(&ctx.Request.Header),
-		"body", truncateBodyForLog(ctx.Request.Body()),
+		"body", truncateBodyForLog(reqBody),
 	)
 }
 
@@ -1005,10 +1037,11 @@ func (c *Communication) logHTTPResponse(ctx *fasthttp.RequestCtx) {
 		)
 		return
 	}
+	respBody := decompressForLog(resp.Body(), string(resp.Header.ContentEncoding()))
 	c.logger.V(logging.INFO).Info("HTTP response",
 		"statusCode", resp.StatusCode(),
 		"headers", formatResponseHeaders(&resp.Header),
-		"body", truncateBodyForLog(resp.Body()),
+		"body", truncateBodyForLog(respBody),
 	)
 }
 

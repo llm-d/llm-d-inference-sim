@@ -206,6 +206,28 @@ type Configuration struct {
 	// in an object in a tool call, optional, defaults to 50
 	ObjectToolCallNotRequiredParamProbability int `yaml:"object-tool-call-not-required-field-probability" json:"object-tool-call-not-required-field-probability"`
 
+	// SkipToolValidation, when true, bypasses the built-in JSON Schema
+	// validation of incoming tool definitions and forwards them to the
+	// tool-call generator as-is. Matches real vLLM's behavior — real vLLM
+	// does not meta-validate the input tool spec. Useful when clients
+	// (e.g. Anthropic → OpenAI translators, Claude Code) send tool schemas
+	// with fields outside the sim's strict inline schema (default, format,
+	// title, oneOf, $ref, examples, minLength, minimum, pattern, ...).
+	// Default false — backward compat.
+	SkipToolValidation bool `yaml:"skip-tool-validation" json:"skip-tool-validation"`
+
+	// ToolChoiceOverride, when non-empty, ignores the request's tool_choice
+	// and forces the sim to behave as if the client had sent this value
+	// instead. Valid values: "" (default, no override), "none", "auto",
+	// "required". Ignored for a client-forced-specific-function tool_choice.
+	ToolChoiceOverride string `yaml:"tool-choice-override" json:"tool-choice-override"`
+
+	// MaxCompletionTokensCap, when > 0, is a HARD upper bound the sim applies
+	// to the effective completion-token count regardless of the request's
+	// max_tokens / max_completion_tokens. Guards against unbounded random-
+	// mode responses. Default 0 = no cap.
+	MaxCompletionTokensCap int `yaml:"max-completion-tokens-cap" json:"max-completion-tokens-cap"`
+
 	// EnableKVCache defines if kv cache feature will be enabled
 	EnableKVCache bool `yaml:"enable-kvcache" json:"enable-kvcache"`
 	//  KVCacheSize is the maximum number of token blocks in kv cache, the default value is 1024

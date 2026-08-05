@@ -120,6 +120,12 @@ type DefaultDataset struct {
 	random             *common.Random
 	histogramHelper    *histogramHelper
 	tokenizedResponses []api.Tokenized
+	// MaxCompletionTokensCap is a HARD upper bound applied on top of the
+	// request's max_tokens and the model-len headroom. 0 (default) disables
+	// the cap. Set from Config.MaxCompletionTokensCap in the sim after Init.
+	// Guards random-mode responses against ballooning to (max-model-len -
+	// prompt) tokens when the client's max_tokens is huge or missing.
+	MaxCompletionTokensCap int
 }
 
 func (d *DefaultDataset) Init(ctx context.Context, logger logr.Logger, random *common.Random, maxModelLen int,
@@ -185,11 +191,20 @@ func (d *DefaultDataset) GetResponseTokens(req api.Request) (*api.Tokenized, str
 func (d *DefaultDataset) calculateResponseMaxLen(req api.Request) (int, bool) {
 	maxTokens := req.GetMaxCompletionTokens()
 
+	var n int
+	var isMax bool
 	if maxTokens != nil {
-		return int(*maxTokens), true
+		n, isMax = int(*maxTokens), true
+	} else {
+		n, isMax = d.maxModelLen-req.TokenizedPrompt().Length(), false
 	}
-
-	return d.maxModelLen - req.TokenizedPrompt().Length(), false
+	if d.MaxCompletionTokensCap > 0 && n > d.MaxCompletionTokensCap {
+		n = d.MaxCompletionTokensCap
+	}
+	if n < 1 {
+		n = 1
+	}
+	return n, isMax
 }
 
 // getRandomResponseLenByDistribution returns int in range [1, responseLenMax]

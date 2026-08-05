@@ -352,7 +352,7 @@ func (s *VllmSimulator) HandleRequest(req Request) (numChoices int, isStream boo
 	// in this case the first alias is used, in all other cases the model from the request is used as the displayed model
 	req.SetDisplayedModel(s.Context.getDisplayedModelName(req.GetModel()))
 
-	if serverErr := req.validate(s.toolsValidator); serverErr != nil {
+	if serverErr := req.validate(s.toolsValidator, s.Context.Config().SkipToolValidation); serverErr != nil {
 		return 0, false, nil, serverErr, false
 	}
 

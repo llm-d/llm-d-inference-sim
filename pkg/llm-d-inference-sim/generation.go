@@ -30,7 +30,7 @@ func (g *GenerationRequest) Unmarshal(data []byte) error {
 	return nil
 }
 
-func (g *GenerationRequest) validate(toolsValidator *toolsValidator) *api.Error {
+func (g *GenerationRequest) validate(toolsValidator *toolsValidator, skipToolValidation bool) *api.Error {
 	return validateRequest(g)
 }
 
