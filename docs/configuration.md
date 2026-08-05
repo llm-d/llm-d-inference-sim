@@ -71,6 +71,7 @@ For a detailed explanation of how the simulator models inference time and what e
 - `min-tool-call-array-param-length`: the minimum possible length of array parameters in a tool call, optional, defaults to 1
 - `tool-call-not-required-param-probability`: the probability to add a parameter, that is not required, in a tool call, optional, defaults to 50
 - `object-tool-call-not-required-field-probability`: the probability to add a field, that is not required, in an object in a tool call, optional, defaults to 50
+- `tool-call-extra-call-probability`: the probability (0-100) to make one additional tool call beyond the minimum. The roll repeats until a roll fails or all available tools are called, so the number of calls follows a truncated geometric distribution that almost always equals the minimum but can reach the total number of available tools. `0` always produces the minimum number of calls (1 for `tool_choice: "required"`, 0 for `"auto"`); `100` always calls every available tool. Optional, defaults to 45.
 
 
 ## KV cache
