@@ -596,7 +596,7 @@ var _ = Describe("Simulator for request with tools", Ordered, func() {
 	)
 
 	// A well-formed JSON Schema that the built-in validator rejects only because
-	// "title" is outside its whitelist. Real vLLM forwards such schemas verbatim.
+	// "$comment" is outside its whitelist. Real vLLM forwards such schemas verbatim.
 	unwhitelistedTool := []openai.ChatCompletionToolUnionParam{
 		{
 			OfFunction: &openai.ChatCompletionFunctionToolParam{
@@ -604,8 +604,8 @@ var _ = Describe("Simulator for request with tools", Ordered, func() {
 					Name:        functionNameGetWeather,
 					Description: openai.String("Get weather at the given location"),
 					Parameters: openai.FunctionParameters{
-						"type":  "object",
-						"title": "Weather query",
+						"type":     "object",
+						"$comment": "Weather query",
 						"properties": map[string]interface{}{
 							"location": map[string]string{
 								"type": "string",
