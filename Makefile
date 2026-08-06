@@ -49,7 +49,7 @@ help: ## Print help
 ##@ Development
 
 .PHONY: clean
-clean:
+clean: ## Clean artifacts and caches
 	go clean -testcache -cache
 
 .PHONY: test
@@ -82,7 +82,7 @@ ds-tool-build: check-go ## Build the dataset tool binary
 ##@ Container Build/Push
 
 .PHONY:	image-build
-image-build: check-container-tool ## Build Docker image ## Build Docker image using $(CONTAINER_TOOL)
+image-build: check-container-tool ## Build Docker image using $(CONTAINER_TOOL)
 	@printf "\033[33;1m==== Building Docker image $(IMG) ====\033[0m\n"
 	$(CONTAINER_TOOL) build \
 		--platform linux/$(TARGETARCH) \
@@ -124,7 +124,12 @@ check-builder:
 		echo "✅ Using builder: $(BUILDER)"; \
 	fi
 
-##@ Alias checking
+.PHONY: run-render
+run-render: ## Run vLLM renderer using $(CONTAINER_TOOL)
+	@echo "INFO: run vLLM render"
+	$(CONTAINER_TOOL) run --rm  -p $(RENDER_PORT):$(RENDER_PORT) --entrypoint vllm $(VLLM_RENDER_IMAGE) launch render $(MODEL_NAME) --port=$(RENDER_PORT)
+
+
 .PHONY: check-alias
 check-alias: check-container-tool
 	@echo "🔍 Checking alias functionality for container '$(PROJECT_NAME)-container'..."
@@ -145,7 +150,7 @@ install-hooks: ## Install git hooks
 
 # Docker targets
 .PHONY: zmq-image-build
-zmq-image-build:
+zmq-image-build: check-container-tool ## Build the zmq image using $(CONTAINER_TOOL)
 	$(CONTAINER_TOOL) build \
 	--platform linux/amd64,linux/arm64 \
 	--build-arg TARGETOS=linux \
@@ -234,9 +239,10 @@ HOST_PORT ?= 30080
 MODEL_NAME ?= TinyLlama/TinyLlama-1.1B-Chat-v1.0
 HF_TOKEN ?= ""
 
-# Deploy the simulator and vllm renderer on kind
+##@ Kind
+
 .PHONY: dev-env-kind
-dev-env-kind:
+dev-env-kind: ## Deploy the simulator and vllm renderer on kind
 	@printf "\033[33;1m==== Deploying on kind ====\033[0m\n"
 	CLUSTER_NAME=${KIND_CLUSTER_NAME} \
 	HOST_PORT=${HOST_PORT} \
@@ -249,9 +255,3 @@ dev-env-kind:
 clean-dev-env-kind: ## Cleanup kind setup (delete cluster ${KIND_CLUSTER_NAME})
 	@echo "INFO: cleaning up kind cluster ${KIND_CLUSTER_NAME}"
 	kind delete cluster --name ${KIND_CLUSTER_NAME}
-
-
-.PHONY: run-render
-run-render: 
-	@echo "INFO: run vLLM render"
-	$(CONTAINER_TOOL) run --rm  -p $(RENDER_PORT):$(RENDER_PORT) --entrypoint vllm $(VLLM_RENDER_IMAGE) launch render $(MODEL_NAME) --port=$(RENDER_PORT)
