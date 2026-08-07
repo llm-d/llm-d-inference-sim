@@ -67,6 +67,10 @@ func isToolChoiceNone(toolChoice api.ToolChoice) bool {
 
 type toolsValidator struct {
 	schema *jsonschema.Schema
+	// skip reports whether tool schema validation is currently disabled. It is read on
+	// every call so that a configuration swapped in at runtime takes effect immediately.
+	// A nil skip means validation is always performed.
+	skip func() bool
 }
 
 func createToolsValidator() (*toolsValidator, error) {
@@ -78,6 +82,10 @@ func createToolsValidator() (*toolsValidator, error) {
 }
 
 func (v *toolsValidator) validateTool(tool []byte) error {
+	if v.skip != nil && v.skip() {
+		return nil
+	}
+
 	var value interface{}
 	if err := json.Unmarshal(tool, &value); err != nil {
 		return err

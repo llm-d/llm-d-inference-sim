@@ -71,6 +71,7 @@ For a detailed explanation of how the simulator models inference time and what e
 - `min-tool-call-array-param-length`: the minimum possible length of array parameters in a tool call, optional, defaults to 1
 - `tool-call-not-required-param-probability`: the probability to add a parameter, that is not required, in a tool call, optional, defaults to 50
 - `object-tool-call-not-required-field-probability`: the probability to add a field, that is not required, in an object in a tool call, optional, defaults to 50
+- `skip-tool-validation`: skip the built-in validation of incoming tool schemas, optional, defaults to `false`. The simulator validates every tool's `function.parameters` against a strict schema that whitelists a small subset of JSON Schema fields. Real vLLM does not meta-validate tool schemas, so a schema using fields outside that whitelist is rejected with a 400 by the simulator but accepted upstream. Enable this to match vLLM's behavior. Note that tool call generation still synthesizes arguments from the schema, so unsupported parameter types fail at generation time rather than at validation time
 
 
 ## KV cache

@@ -77,7 +77,7 @@ func New(logger logr.Logger) (*VllmSimulator, error) {
 		return nil, fmt.Errorf("failed to create tools validator: %s", err)
 	}
 
-	return &VllmSimulator{
+	sim := &VllmSimulator{
 		toolsValidator: toolsValidator,
 		Context: SimContext{
 			logger: logger,
@@ -87,7 +87,15 @@ func New(logger logr.Logger) (*VllmSimulator, error) {
 			kvcacheHelper: nil, // kvcache helper will be created only if required after reading configuration
 		},
 		waitingQueue: list.New(),
-	}, nil
+	}
+	// The configuration is set after construction and may be swapped at runtime by admin
+	// updates, so read it per call rather than capturing the flag here.
+	sim.toolsValidator.skip = func() bool {
+		config := sim.Context.Config()
+		return config != nil && config.SkipToolValidation
+	}
+
+	return sim, nil
 }
 
 func Start(ctx context.Context, config *common.Configuration, logger logr.Logger) ([]*VllmSimulator, error) {

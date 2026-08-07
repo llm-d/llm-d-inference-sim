@@ -205,6 +205,10 @@ type Configuration struct {
 	// ObjectToolCallNotRequiredParamProbability is the probability to add a field, that is not required,
 	// in an object in a tool call, optional, defaults to 50
 	ObjectToolCallNotRequiredParamProbability int `yaml:"object-tool-call-not-required-field-probability" json:"object-tool-call-not-required-field-probability"`
+	// SkipToolValidation disables the built-in meta-validation of incoming tool schemas.
+	// Real vLLM forwards tool schemas to the model verbatim, so schemas using fields outside
+	// the simulator's whitelist are rejected here but accepted upstream. Optional, defaults to false.
+	SkipToolValidation bool `yaml:"skip-tool-validation" json:"skip-tool-validation"`
 
 	// EnableKVCache defines if kv cache feature will be enabled
 	EnableKVCache bool `yaml:"enable-kvcache" json:"enable-kvcache"`

@@ -595,6 +595,69 @@ var _ = Describe("Simulator for request with tools", Ordered, func() {
 		Entry(nil, common.ModeRandom),
 	)
 
+	// A well-formed JSON Schema that the built-in validator rejects only because
+	// "title" is outside its whitelist. Real vLLM forwards such schemas verbatim.
+	unwhitelistedTool := []openai.ChatCompletionToolUnionParam{
+		{
+			OfFunction: &openai.ChatCompletionFunctionToolParam{
+				Function: openai.FunctionDefinitionParam{
+					Name:        functionNameGetWeather,
+					Description: openai.String("Get weather at the given location"),
+					Parameters: openai.FunctionParameters{
+						"type":  "object",
+						"title": "Weather query",
+						"properties": map[string]interface{}{
+							"location": map[string]string{
+								"type": "string",
+							},
+						},
+						"required": []string{"location"},
+					},
+				},
+			},
+		},
+	}
+
+	newToolParams := func() openai.ChatCompletionNewParams {
+		return openai.ChatCompletionNewParams{
+			Messages:   []openai.ChatCompletionMessageParamUnion{openai.UserMessage(testUserMessage)},
+			Model:      model,
+			ToolChoice: openai.ChatCompletionToolChoiceOptionUnionParam{OfAuto: param.NewOpt("required")},
+			Tools:      unwhitelistedTool,
+		}
+	}
+
+	It("should reject a schema with non-whitelisted fields by default", func() {
+		ctx := context.TODO()
+		client, err := startServer(ctx, common.ModeRandom)
+		Expect(err).NotTo(HaveOccurred())
+
+		openaiclient := openai.NewClient(
+			option.WithBaseURL(baseURL),
+			option.WithHTTPClient(client))
+
+		_, err = openaiclient.Chat.Completions.New(ctx, newToolParams())
+		Expect(err).To(HaveOccurred())
+	})
+
+	It("should accept a schema with non-whitelisted fields when skip-tool-validation is set", func() {
+		ctx := context.TODO()
+		client, err := startServerWithArgs(ctx, []string{
+			"cmd", "--model", model, "--mode", common.ModeRandom,
+			"--skip-tool-validation",
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		openaiclient := openai.NewClient(
+			option.WithBaseURL(baseURL),
+			option.WithHTTPClient(client))
+
+		resp, err := openaiclient.Chat.Completions.New(ctx, newToolParams())
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.Choices).To(HaveLen(1))
+		Expect(resp.Choices[0].Message.ToolCalls).ToNot(BeEmpty())
+	})
+
 	DescribeTable("array parameter, no streaming",
 		func(mode string, minLength int, maxLength int, min float64, max float64) {
 			ctx := context.TODO()
