@@ -27,6 +27,7 @@ jobs:
               - Dockerfile.sidecar
               - Makefile*
               - go.mod  
+              - .github/workflows/**
   lint-and-test:
     needs: check-changes
     if: ${{ needs.check-changes.outputs.src == 'true' }}    
