@@ -34,28 +34,28 @@ import (
 )
 
 const (
-	E2EReqLatencyMetricName          = "vllm:e2e_request_latency_seconds"
-	ReqQueueTimeMetricName           = "vllm:request_queue_time_seconds"
-	ReqInferenceTimeMetricName       = "vllm:request_inference_time_seconds"
-	PrefillTimeMetricName            = "vllm:request_prefill_time_seconds"
-	DecodeTimeMetricName             = "vllm:request_decode_time_seconds"
-	TTFTMetricName                   = "vllm:time_to_first_token_seconds"
-	TPOTMetricName                   = "vllm:time_per_output_token_seconds"
-	InterTokenLatencyMetricName      = "vllm:inter_token_latency_seconds"
-	MaxNumGenerationTokensMetricName = "vllm:max_num_generation_tokens"
-	GenerationTokensMetricName       = "vllm:request_generation_tokens"
-	ParamMaxTokensMetricName         = "vllm:request_params_max_tokens"
-	PromptTokensMetricName           = "vllm:request_prompt_tokens"
-	GenerationTokensTotalMetricName  = "vllm:generation_tokens_total"
-	PromptTokensTotalMetricName      = "vllm:prompt_tokens_total"
-	SuccessTotalMetricName           = "vllm:request_success_total"
-	LoRARequestsMetricName           = "vllm:lora_requests_info"
-	ReqRunningMetricName             = "vllm:num_requests_running"
-	ReqWaitingMetricName             = "vllm:num_requests_waiting"
-	KVCacheUsageMetricName           = "vllm:kv_cache_usage_perc"
-	CacheConfigName                  = "vllm:cache_config_info"
-	PrefixCacheHitsMetricName        = "vllm:prefix_cache_hits"
-	PrefixCacheQueriesMetricName     = "vllm:prefix_cache_queries"
+	E2EReqLatencyMetricName           = "vllm:e2e_request_latency_seconds"
+	ReqQueueTimeMetricName            = "vllm:request_queue_time_seconds"
+	ReqInferenceTimeMetricName        = "vllm:request_inference_time_seconds"
+	PrefillTimeMetricName             = "vllm:request_prefill_time_seconds"
+	DecodeTimeMetricName              = "vllm:request_decode_time_seconds"
+	TTFTMetricName                    = "vllm:time_to_first_token_seconds"
+	TPOTMetricName                    = "vllm:time_per_output_token_seconds"
+	InterTokenLatencyMetricName       = "vllm:inter_token_latency_seconds"
+	MaxNumGenerationTokensMetricName  = "vllm:max_num_generation_tokens"
+	GenerationTokensMetricName        = "vllm:request_generation_tokens"
+	ParamMaxTokensMetricName          = "vllm:request_params_max_tokens"
+	PromptTokensMetricName            = "vllm:request_prompt_tokens"
+	GenerationTokensTotalMetricName   = "vllm:generation_tokens_total"
+	PromptTokensTotalMetricName       = "vllm:prompt_tokens_total"
+	SuccessTotalMetricName            = "vllm:request_success_total"
+	LoRARequestsMetricName            = "vllm:lora_requests_info"
+	ReqRunningMetricName              = "vllm:num_requests_running"
+	ReqWaitingMetricName              = "vllm:num_requests_waiting"
+	KVCacheUsageMetricName            = "vllm:kv_cache_usage_perc"
+	CacheConfigName                   = "vllm:cache_config_info"
+	PrefixCacheHitsTotalMetricName    = "vllm:prefix_cache_hits_total"
+	PrefixCacheQueriesTotalMetricName = "vllm:prefix_cache_queries_total"
 )
 
 const (
@@ -149,10 +149,10 @@ type metricsData struct {
 	requestParamsMaxTokens *prometheus.HistogramVec
 	// requestSuccessTotal is prometheus counter for total number of successful requests
 	requestSuccessTotal *prometheus.CounterVec
-	// prefixCacheHits is prometheus counter for total cached tokens (prefix cache hits)
-	prefixCacheHits *prometheus.CounterVec
-	// prefixCacheQueries is prometheus counter for total queried tokens (prefix cache queries)
-	prefixCacheQueries *prometheus.CounterVec
+	// prefixCacheHitsTotal is prometheus counter for total cached tokens (prefix cache hits)
+	prefixCacheHitsTotal *prometheus.CounterVec
+	// prefixCacheQueriesTotal is prometheus counter for total queried tokens (prefix cache queries)
+	prefixCacheQueriesTotal *prometheus.CounterVec
 	// prefixCacheStatsChan is a channel to update prefix cache hit/query counters
 	prefixCacheStatsChan common.Channel[kvcache.PrefixCacheStats]
 
@@ -321,11 +321,11 @@ func (s *SimContext) createAndRegisterPrometheus(ctx context.Context) error {
 	}
 	go s.kvCacheUsageUpdater(ctx)
 
-	if err := s.createAndRegisterPrefixCacheHitsMetric(); err != nil {
+	if err := s.createAndRegisterPrefixCacheHitsTotalMetric(); err != nil {
 		return err
 	}
 
-	if err := s.createAndRegisterPrefixCacheQueriesMetric(); err != nil {
+	if err := s.createAndRegisterPrefixCacheQueriesTotalMetric(); err != nil {
 		return err
 	}
 
@@ -550,11 +550,11 @@ func (s *SimContext) reportPrefixCacheStats(stats kvcache.PrefixCacheStats) {
 		return
 	}
 
-	if s.metrics.prefixCacheQueries != nil {
-		s.metrics.prefixCacheQueries.WithLabelValues(s.Config().DisplayModelName).Add(float64(stats.QueriedTokens))
+	if s.metrics.prefixCacheQueriesTotal != nil {
+		s.metrics.prefixCacheQueriesTotal.WithLabelValues(s.Config().DisplayModelName).Add(float64(stats.QueriedTokens))
 	}
-	if s.metrics.prefixCacheHits != nil {
-		s.metrics.prefixCacheHits.WithLabelValues(s.Config().DisplayModelName).Add(float64(stats.CachedTokens))
+	if s.metrics.prefixCacheHitsTotal != nil {
+		s.metrics.prefixCacheHitsTotal.WithLabelValues(s.Config().DisplayModelName).Add(float64(stats.CachedTokens))
 	}
 }
 
@@ -1031,30 +1031,30 @@ func (s *SimContext) createAndRegisterRequestSuccessTotalMetric() error {
 	return nil
 }
 
-func (s *SimContext) createAndRegisterPrefixCacheHitsMetric() error {
-	s.metrics.prefixCacheHits = prometheus.NewCounterVec(
+func (s *SimContext) createAndRegisterPrefixCacheHitsTotalMetric() error {
+	s.metrics.prefixCacheHitsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: PrefixCacheHitsMetricName,
+			Name: PrefixCacheHitsTotalMetricName,
 			Help: "Prefix cache hits, in terms of number of cached tokens.",
 		},
 		[]string{api.PromLabelModelName},
 	)
-	if err := s.metrics.registry.Register(s.metrics.prefixCacheHits); err != nil {
+	if err := s.metrics.registry.Register(s.metrics.prefixCacheHitsTotal); err != nil {
 		s.logger.Error(err, "prometheus prefix_cache_hits counter register failed")
 		return err
 	}
 	return nil
 }
 
-func (s *SimContext) createAndRegisterPrefixCacheQueriesMetric() error {
-	s.metrics.prefixCacheQueries = prometheus.NewCounterVec(
+func (s *SimContext) createAndRegisterPrefixCacheQueriesTotalMetric() error {
+	s.metrics.prefixCacheQueriesTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: PrefixCacheQueriesMetricName,
+			Name: PrefixCacheQueriesTotalMetricName,
 			Help: "Prefix cache queries, in terms of number of queried tokens.",
 		},
 		[]string{api.PromLabelModelName},
 	)
-	if err := s.metrics.registry.Register(s.metrics.prefixCacheQueries); err != nil {
+	if err := s.metrics.registry.Register(s.metrics.prefixCacheQueriesTotal); err != nil {
 		s.logger.Error(err, "prometheus prefix_cache_queries counter register failed")
 		return err
 	}

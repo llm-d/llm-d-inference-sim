@@ -7,7 +7,7 @@ The simulator includes a prefix-cache subsystem that mimics vLLM's KV cache beha
 - **Prefix cache tracking**: incoming prompts are tokenized and split into fixed-size blocks. Blocks already present in the cache are counted as cache hits and do not need to be prefilled.
 - **ZMQ event emission**: `BlockStored`, `BlockRemoved`, and `AllBlocksCleared` events are published over ZMQ so that external consumers (e.g., the llm-d KV cache router) can maintain an accurate view of which blocks each pod holds.
 - **Latency simulation**: when `prefill-time-per-token` is configured, cache hits reduce the simulated TTFT proportionally — only non-cached tokens contribute to prefill time.
-- **Prometheus metrics**: `vllm:kv_cache_usage_perc`, `vllm:prefix_cache_hits`, and `vllm:prefix_cache_queries` are reported.
+- **Prometheus metrics**: `vllm:kv_cache_usage_perc`, `vllm:prefix_cache_hits_total`, and `vllm:prefix_cache_queries_total` are reported.
 
 ## Enabling KV cache
 
@@ -266,11 +266,11 @@ When KV cache is enabled, the response `usage` object includes cached token info
 | Metric | Description |
 |--------|-------------|
 | `vllm:kv_cache_usage_perc` | Fraction of KV cache blocks currently in use (0–1). Updated after each request starts and finishes. |
-| `vllm:prefix_cache_hits` | Cumulative number of prompt tokens served from cache across all requests |
-| `vllm:prefix_cache_queries` | Cumulative number of prompt tokens checked against the cache across all requests |
+| `vllm:prefix_cache_hits_total` | Cumulative number of prompt tokens served from cache across all requests |
+| `vllm:prefix_cache_queries_total` | Cumulative number of prompt tokens checked against the cache across all requests |
 | `vllm:cache_config_info` | Static info gauge with labels `cache_dtype`, `num_gpu_blocks`, `num_cpu_blocks`, `block_size` |
 
-The hit rate at any point is `prefix_cache_hits / prefix_cache_queries`.
+The hit rate at any point is `prefix_cache_hits_total / prefix_cache_queries_total`.
 
 ## Sleep mode integration
 

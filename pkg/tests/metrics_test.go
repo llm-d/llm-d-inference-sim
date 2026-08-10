@@ -793,12 +793,12 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 			metricsLines := strings.Split(string(data), "\n")
 
 			// prefix_cache_queries should reflect total prompt tokens across both requests
-			queries := findIntMetric(metricsLines, getCountMetricPrefix(common.QwenModelName, vllmsim.PrefixCacheQueriesMetricName))
+			queries := findIntMetric(metricsLines, getCountMetricPrefix(common.QwenModelName, vllmsim.PrefixCacheQueriesTotalMetricName))
 			Expect(queries).NotTo(BeNil())
 			Expect(*queries).To(BeNumerically(">", 0))
 
 			// The second request shares a prefix with the first, so hits should be non-zero
-			hits := findIntMetric(metricsLines, getCountMetricPrefix(common.QwenModelName, vllmsim.PrefixCacheHitsMetricName))
+			hits := findIntMetric(metricsLines, getCountMetricPrefix(common.QwenModelName, vllmsim.PrefixCacheHitsTotalMetricName))
 			Expect(hits).NotTo(BeNil())
 			Expect(*hits).To(BeNumerically(">", 0))
 
@@ -901,12 +901,12 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 			Expect(err).NotTo(HaveOccurred())
 			metricsLines := strings.Split(string(data), "\n")
 
-			queries := findIntMetric(metricsLines, getCountMetricPrefix(common.QwenModelName, vllmsim.PrefixCacheQueriesMetricName))
+			queries := findIntMetric(metricsLines, getCountMetricPrefix(common.QwenModelName, vllmsim.PrefixCacheQueriesTotalMetricName))
 			Expect(queries).NotTo(BeNil())
 			Expect(*queries).To(BeNumerically(">", 0))
 
 			// The second request shares a prefix with the first, so hits should be non-zero
-			hits := findIntMetric(metricsLines, getCountMetricPrefix(common.QwenModelName, vllmsim.PrefixCacheHitsMetricName))
+			hits := findIntMetric(metricsLines, getCountMetricPrefix(common.QwenModelName, vllmsim.PrefixCacheHitsTotalMetricName))
 			Expect(hits).NotTo(BeNil())
 			Expect(*hits).To(BeNumerically(">", 0))
 
