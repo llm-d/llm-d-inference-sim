@@ -154,8 +154,8 @@ For a detailed explanation of how the simulator models inference time and what e
     - `request-success-total` - number of successful requests per finish reason, key: finish-reason (stop, length, etc.).
     - `total-prompt-tokens` - initial value for the `vllm:prompt_tokens_total` counter (total number of prompt tokens processed).
     - `total-generation-tokens` - initial value for the `vllm:generation_tokens_total` counter (total number of generated tokens).
-    - `prefix-cache-hits` - initial value for the `vllm:prefix_cache_hits` counter (in tokens).
-    - `prefix-cache-queries` - initial value for the `vllm:prefix_cache_queries` counter (in tokens).
+    - `prefix-cache-hits` - initial value for the `vllm:prefix_cache_hits_total` counter (in tokens).
+    - `prefix-cache-queries` - initial value for the `vllm:prefix_cache_queries_total` counter (in tokens).
     <br>
     **Example:**<br>
       --fake-metrics '{"running-requests":"oscillate:0:10:5s","waiting-requests":30,"kv-cache-usage":0.4,"loras":[{"running":"lora4,lora2","waiting":"lora3","timestamp":1257894567},{"running":"lora4,lora3","waiting":"","timestamp":1257894569}]}'

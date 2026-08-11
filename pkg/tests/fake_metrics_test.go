@@ -138,8 +138,8 @@ var _ = Describe("Fake metrics", Ordered, func() {
 			Expect(metrics).To(ContainSubstring(fmt.Sprintf(`vllm:request_success_total{finish_reason="stop",model_name="%s"} 20`, common.TestModelName)))
 			Expect(metrics).To(ContainSubstring(fmt.Sprintf(`vllm:request_success_total{finish_reason="tool_calls",model_name="%s"} 0`, common.TestModelName)))
 
-			Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllmsim.PrefixCacheHitsMetricName, 750)))
-			Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllmsim.PrefixCacheQueriesMetricName, 2000)))
+			Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllmsim.PrefixCacheHitsTotalMetricName, 750)))
+			Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllmsim.PrefixCacheQueriesTotalMetricName, 2000)))
 		})
 
 		It("Should generate correct fake metrics using functions", func() {
@@ -283,8 +283,8 @@ var _ = Describe("Fake metrics", Ordered, func() {
 			data, err := io.ReadAll(resp.Body)
 			Expect(err).NotTo(HaveOccurred())
 			metrics := string(data)
-			Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllmsim.PrefixCacheQueriesMetricName, 1000)))
-			Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllmsim.PrefixCacheHitsMetricName, 500)))
+			Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllmsim.PrefixCacheQueriesTotalMetricName, 1000)))
+			Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllmsim.PrefixCacheHitsTotalMetricName, 500)))
 		})
 
 		It("Should not update prefix cache counters from real requests when fake metrics are set", func() {
@@ -321,8 +321,8 @@ var _ = Describe("Fake metrics", Ordered, func() {
 			Expect(err).NotTo(HaveOccurred())
 			metrics := string(data)
 			// Fake values should be unchanged — reportPrefixCacheStats returns early when FakeMetrics is set
-			Expect(metrics).To(ContainSubstring(getCountMetricLine(common.QwenModelName, vllmsim.PrefixCacheQueriesMetricName, 200)))
-			Expect(metrics).To(ContainSubstring(getCountMetricLine(common.QwenModelName, vllmsim.PrefixCacheHitsMetricName, 100)))
+			Expect(metrics).To(ContainSubstring(getCountMetricLine(common.QwenModelName, vllmsim.PrefixCacheQueriesTotalMetricName, 200)))
+			Expect(metrics).To(ContainSubstring(getCountMetricLine(common.QwenModelName, vllmsim.PrefixCacheHitsTotalMetricName, 100)))
 		})
 	})
 
@@ -760,8 +760,8 @@ var _ = Describe("Fake metrics", Ordered, func() {
 
 			Expect(metrics).To(ContainSubstring(fmt.Sprintf(`vllm:request_success_total{finish_reason="stop",model_name="%s"} 20`, common.TestModelName)))
 			Expect(metrics).To(ContainSubstring(fmt.Sprintf(`vllm:request_success_total{finish_reason="length",model_name="%s"} 5`, common.TestModelName)))
-			Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllmsim.PrefixCacheHitsMetricName, 500)))
-			Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllmsim.PrefixCacheQueriesMetricName, 1000)))
+			Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllmsim.PrefixCacheHitsTotalMetricName, 500)))
+			Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllmsim.PrefixCacheQueriesTotalMetricName, 1000)))
 
 			// Update all three
 			reqBody := `{
@@ -790,8 +790,8 @@ var _ = Describe("Fake metrics", Ordered, func() {
 			Expect(metrics).To(ContainSubstring(fmt.Sprintf(`vllm:request_success_total{finish_reason="length",model_name="%s"} 50`, common.TestModelName)))
 			Expect(metrics).To(ContainSubstring(fmt.Sprintf(`vllm:request_success_total{finish_reason="tool_calls",model_name="%s"} 10`, common.TestModelName)))
 			Expect(metrics).To(ContainSubstring(fmt.Sprintf(`vllm:request_success_total{finish_reason="remote_decode",model_name="%s"} 5`, common.TestModelName)))
-			Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllmsim.PrefixCacheHitsMetricName, 750)))
-			Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllmsim.PrefixCacheQueriesMetricName, 2000)))
+			Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllmsim.PrefixCacheHitsTotalMetricName, 750)))
+			Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllmsim.PrefixCacheQueriesTotalMetricName, 2000)))
 		})
 
 		It("Should update fake lora metrics correctly", func() {

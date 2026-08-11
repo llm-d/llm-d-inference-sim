@@ -26,5 +26,5 @@ Currently supported are the following metrics:
 | vllm:lora_requests_info | Running stats on LoRA requests |
 | vllm:kv_cache_usage_perc | The fraction of KV-cache blocks currently in use (from 0 to 1) |
 | vllm:cache_config_info | Information of the LLMEngine CacheConfig |
-| vllm:prefix_cache_hits | Prefix cache hits, in terms of number of cached tokens |
-| vllm:prefix_cache_queries | Prefix cache queries, in terms of number of queried tokens |
+| vllm:prefix_cache_hits_total | Prefix cache hits, in terms of number of cached tokens |
+| vllm:prefix_cache_queries_total | Prefix cache queries, in terms of number of queried tokens |

@@ -338,22 +338,22 @@ func (s *SimContext) updateFakeMetrics(update *common.FakeMetrics, old *common.F
 
 	if update.PrefixCacheQueries != nil {
 		if oldPrefixCacheQueries != nil {
-			s.metrics.registry.Unregister(s.metrics.prefixCacheQueries)
-			if err := s.createAndRegisterPrefixCacheQueriesMetric(); err != nil {
+			s.metrics.registry.Unregister(s.metrics.prefixCacheQueriesTotal)
+			if err := s.createAndRegisterPrefixCacheQueriesTotalMetric(); err != nil {
 				return err
 			}
 		}
-		s.metrics.prefixCacheQueries.WithLabelValues(s.Config().DisplayModelName).Add(float64(*update.PrefixCacheQueries))
+		s.metrics.prefixCacheQueriesTotal.WithLabelValues(s.Config().DisplayModelName).Add(float64(*update.PrefixCacheQueries))
 	}
 
 	if update.PrefixCacheHits != nil {
 		if oldPrefixCacheHits != nil {
-			s.metrics.registry.Unregister(s.metrics.prefixCacheHits)
-			if err := s.createAndRegisterPrefixCacheHitsMetric(); err != nil {
+			s.metrics.registry.Unregister(s.metrics.prefixCacheHitsTotal)
+			if err := s.createAndRegisterPrefixCacheHitsTotalMetric(); err != nil {
 				return err
 			}
 		}
-		s.metrics.prefixCacheHits.WithLabelValues(s.Config().DisplayModelName).Add(float64(*update.PrefixCacheHits))
+		s.metrics.prefixCacheHitsTotal.WithLabelValues(s.Config().DisplayModelName).Add(float64(*update.PrefixCacheHits))
 	}
 
 	if update.RequestSuccessTotal != nil {
