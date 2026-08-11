@@ -169,6 +169,7 @@ The following command line parameters are ignored by the simulator:
 - `ec-transfer-config` - configuration for distributed EC cache transfer, ignored
 - `enforce-eager`, `no-enforce-eager` - controls whether PyTorch eager mode is always enforced, ignored
 - `enable-prefix-caching`, `no-enable-prefix-caching` - enable or disable prefix caching, ignored, behaves as enable-prefix-caching=true
+- `tensor-parallel-size` - number of tensor parallel replicas, ignored
 
 ## Klog
 In addition, as we are using klog, the following parameters are available:

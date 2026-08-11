@@ -357,6 +357,18 @@ var _ = Describe("Simulator configuration", func() {
 	}
 	tests = append(tests, test)
 
+	// tensor-parallel-size is accepted for vLLM command line compatibility and ignored
+	c = createConfigWithModel(TestModelName, nil)
+	c.MaxCPULoras = 1
+	c.Seed = 100
+	c.TPSize = 2
+	test = testCase{
+		name:           "tensor-parallel-size",
+		args:           []string{"cmd", "--model", TestModelName, "--seed", "100", "--tensor-parallel-size", "2"},
+		expectedConfig: c,
+	}
+	tests = append(tests, test)
+
 	// zmq-endpoint and kv-events-replay-endpoint ports far enough apart that
 	// they don't collide even once each rank's offset (0..data-parallel-size-1) is applied
 	c = createConfigWithModel(TestModelName, nil)
