@@ -587,9 +587,13 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 						// ensure that values for buckets up to 0.075 have count 0
 						Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, metricName, boundary, 0)))
 					} else {
-						// buckets higher than 0.75 should be greater than 0, we don't know the exact value since it depends on the random response length
+						// buckets higher than 0.075 should be greater than 0, we don't know the exact value since it depends on the random response length
 						count := findIntMetric(metricsLines, getFloatBucketMetricPrefix(common.TestModelName, metricName, boundary))
 						Expect(count).ToNot(BeNil())
+						// note: request TPOT is actually measured. we can't assert the exact timing.
+						if boundary == 0.1 && metricName == vllmsim.ReqTPOTMetricName {
+							continue
+						}
 						Expect(*count).To(BeNumerically(">", 0))
 					}
 				}
@@ -603,6 +607,9 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 
 			// validate new inter_token_latency metric
 			validateLatencyMetric(vllmsim.InterTokenLatencyMetricName)
+
+			// validate request tpot metric
+			validateLatencyMetric(vllmsim.ReqTPOTMetricName)
 		}()
 
 		metricsWg.Wait()

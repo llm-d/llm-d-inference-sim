@@ -41,6 +41,7 @@ const (
 	DecodeTimeMetricName              = "vllm:request_decode_time_seconds"
 	TTFTMetricName                    = "vllm:time_to_first_token_seconds"
 	TPOTMetricName                    = "vllm:time_per_output_token_seconds"
+	ReqTPOTMetricName                 = "vllm:request_time_per_output_token_seconds"
 	InterTokenLatencyMetricName       = "vllm:inter_token_latency_seconds"
 	MaxNumGenerationTokensMetricName  = "vllm:max_num_generation_tokens"
 	GenerationTokensMetricName        = "vllm:request_generation_tokens"
@@ -107,6 +108,8 @@ type metricsData struct {
 	reqPrefillTimeChan common.Channel[float64]
 	// reqDecodeTimeChan is a channel to update request decode time
 	reqDecodeTimeChan common.Channel[float64]
+	// reqTpotChan is a channel to update request TPOT
+	reqTpotChan common.Channel[float64]
 	// kvCacheUsageChan is a channel to update kvCacheUsagePercentage
 	kvCacheUsageChan common.Channel[common.MetricInfo]
 	// registry is a Prometheus registry
@@ -133,6 +136,8 @@ type metricsData struct {
 	reqPrefillTime *prometheus.HistogramVec
 	// reqDecodeTime is prometheus histogram of request decode time in seconds
 	reqDecodeTime *prometheus.HistogramVec
+	// reqtpot is prometheus histogram for time_per_output_token_seconds per request
+	reqTpot *prometheus.HistogramVec
 	// kvCacheUsagePercentage is prometheus gauge
 	kvCacheUsagePercentage *prometheus.GaugeVec
 	// requestPromptTokens is prometheus histogram for number of input (prompt) tokens in request
@@ -299,6 +304,17 @@ func (s *SimContext) createAndRegisterPrometheus(ctx context.Context) error {
 		Done:    ctx.Done(),
 	}
 	go s.reqDecodeTimeUpdater(ctx)
+
+	if err := s.createAndRegisterReqTpotMetric(); err != nil {
+		return err
+	}
+
+	s.metrics.reqTpotChan = common.Channel[float64]{
+		Channel: make(chan float64, maxNumberOfRequests),
+		Name:    "metrics.reqTpotChan",
+		Done:    ctx.Done(),
+	}
+	go s.reqTpotUpdater(ctx)
 
 	s.metrics.kvCacheUsagePercentage = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
@@ -643,6 +659,18 @@ func (s *SimContext) reqDecodeTimeUpdater(ctx context.Context) {
 	}
 }
 
+// reqTpotUpdater updates the request TPOT metric by listening on the relevant channel
+func (s *SimContext) reqTpotUpdater(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case value := <-s.metrics.reqTpotChan.Channel:
+			s.reportHistogramValue(s.metrics.reqTpot, value)
+		}
+	}
+}
+
 // lorasUpdater updates the running loras metric by listening on the relevant channel
 // one function updates both waiting and running loras since they a part of the same prometheus gauge
 func (s *SimContext) lorasUpdater(ctx context.Context) {
@@ -964,6 +992,23 @@ func (s *SimContext) createAndRegisterReqDecodeTimeMetric() error {
 	)
 	if err := s.metrics.registry.Register(s.metrics.reqDecodeTime); err != nil {
 		s.logger.Error(err, "prometheus request decode time histogram register failed")
+		return err
+	}
+	return nil
+}
+
+func (s *SimContext) createAndRegisterReqTpotMetric() error {
+	s.metrics.reqTpot = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Subsystem: "",
+			Name:      ReqTPOTMetricName,
+			Help:      "Histogram of time_per_output_token_seconds per request.",
+			Buckets:   common.TPOTBucketsBoundaries,
+		},
+		[]string{api.PromLabelModelName},
+	)
+	if err := s.metrics.registry.Register(s.metrics.reqTpot); err != nil {
+		s.logger.Error(err, "prometheus time_per_output_token_seconds per request histogram register failed")
 		return err
 	}
 	return nil

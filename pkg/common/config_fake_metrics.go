@@ -107,6 +107,8 @@ type FakeMetrics struct {
 	ReqPrefillTimeBucketValues []int `yaml:"prefill-time-buckets-values" json:"prefill-time-buckets-values"`
 	// ReqDecodeTimeBucketValues is an array of values for request decode time buckets.
 	ReqDecodeTimeBucketValues []int `yaml:"decode-time-buckets-values" json:"decode-time-buckets-values"`
+	// ReqTpotBucketValues is an array of values for request time-per-output-token buckets.
+	ReqTPOTBucketValues []int `yaml:"request-tpot-buckets-values" json:"request-tpot-buckets-values"`
 
 	// PrefixCacheHits is the initial value for the prefix cache hits counter (in tokens)
 	PrefixCacheHits *int64 `yaml:"prefix-cache-hits" json:"prefix-cache-hits,omitempty"`
@@ -341,6 +343,11 @@ func (f *FakeMetrics) validate() error {
 	for _, v := range f.ReqDecodeTimeBucketValues {
 		if v < 0 {
 			return errors.New("fake metrics decode-time-buckets-values cannot contain negative values")
+		}
+	}
+	for _, v := range f.ReqTPOTBucketValues {
+		if v < 0 {
+			return errors.New("fake metrics request-tpot-buckets-values cannot contain negative values")
 		}
 	}
 	if f.PrefixCacheHits != nil && *f.PrefixCacheHits < 0 {

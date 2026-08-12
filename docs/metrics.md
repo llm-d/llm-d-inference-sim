@@ -20,6 +20,7 @@ Currently supported are the following metrics:
 | vllm:request_queue_time_seconds | Histogram of time spent in WAITING phase for request |
 | vllm:request_prefill_time_seconds | Histogram of time spent in PREFILL phase for request |
 | vllm:request_decode_time_seconds | Histogram of time spent in DECODE phase for request |
+| vllm:request_time_per_output_token_seconds | Histogram of time_per_output_token_seconds per request |
 | vllm:time_to_first_token_seconds | Histogram of time to first token in seconds |
 | vllm:time_per_output_token_seconds | Histogram of time per output token in seconds |
 | vllm:inter_token_latency_seconds | Histogram of inter-token latency in seconds |
