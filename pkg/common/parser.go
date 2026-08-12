@@ -217,6 +217,7 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 		"enforce-eager", "Always use eager-mode PyTorch, ignored", "Don't always use eager-mode PyTorch, ignored")
 	addToggle(f, &config.EnablePrefixCaching,
 		"enable-prefix-caching", "Enable prefix caching, ignored", "Disable prefix caching, ignored")
+	f.IntVar(&config.TPSize, "tensor-parallel-size", config.TPSize, "Number of tensor parallel replicas, ignored")
 
 	// These values were manually parsed above in getParamValueFromArgs, we leave this in order to get these flags in --help
 	var dummyString string

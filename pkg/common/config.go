@@ -341,6 +341,9 @@ type Configuration struct {
 	// EnablePrefixCaching defines whether to enable prefix caching.
 	// Ignored in the simulator.
 	EnablePrefixCaching bool `yaml:"enable-prefix-caching" json:"enable-prefix-caching"`
+	// TPSize defines the number of tensor parallel replicas.
+	// Ignored in the simulator.
+	TPSize int `yaml:"tensor-parallel-size" json:"tensor-parallel-size"`
 	// MaxRequestBodySizeMB sets the maximum allowed request body size in megabytes for the HTTP server.
 	// Default is 4 (matching the fasthttp built-in default). Must be between 1 and 512.
 	MaxRequestBodySizeMB int `yaml:"max-request-body-size-mb" json:"max-request-body-size-mb"`
