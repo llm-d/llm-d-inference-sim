@@ -134,9 +134,13 @@ func createToolCalls(
 		}
 
 		numberOfCalls := minCalls
-		if len(availableTools) > minCalls {
-			// Randomly decide how many tools to call, between minCalls and the total available.
-			numberOfCalls = random.RandomInt(minCalls, len(availableTools))
+		maxCalls := len(availableTools)
+		// Truncated geometric: start at minCalls and add one extra call with
+		// probability ToolCallExtraCallProbability, repeating until a roll
+		// fails or we reach maxCalls. The minimum is always possible and the
+		// maximum is always reachable, but higher counts are increasingly rare.
+		for numberOfCalls < maxCalls && random.RandomBool(config.ToolCallExtraCallProbability) {
+			numberOfCalls++
 		}
 
 		if numberOfCalls == 0 {

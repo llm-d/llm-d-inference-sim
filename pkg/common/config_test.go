@@ -486,6 +486,12 @@ var _ = Describe("Simulator configuration", func() {
 			expectedError: "ObjectToolCallNotRequiredParamProbability should be between 0 and 100",
 		},
 		{
+			name: "invalid tool-call-extra-call-probability",
+			args: []string{"cmd", "--tool-call-extra-call-probability", "-1",
+				"--config", "../../manifests/config.yaml"},
+			expectedError: "ToolCallExtraCallProbability should be between 0 and 100",
+		},
+		{
 			name: "invalid time-to-first-token-std-dev",
 			args: []string{"cmd", "--time-to-first-token-std-dev", "3000ms",
 				"--config", "../../manifests/config.yaml"},

@@ -209,6 +209,12 @@ type Configuration struct {
 	// Real vLLM forwards tool schemas to the model verbatim, so schemas using fields outside
 	// the simulator's whitelist are rejected here but accepted upstream. Optional, defaults to false.
 	SkipToolValidation bool `yaml:"skip-tool-validation" json:"skip-tool-validation"`
+	// ToolCallExtraCallProbability is the probability (0-100) to make one additional tool call beyond the
+	// minimum. Rolls repeat until a roll fails or len(availableTools) is reached, so the number of calls
+	// follows a truncated geometric distribution that almost always equals the minimum but can reach
+	// the total number of available tools. A value of 0 always produces the minimum number of calls;
+	// a value of 100 always produces len(availableTools) calls. Optional, defaults to 45.
+	ToolCallExtraCallProbability int `yaml:"tool-call-extra-call-probability" json:"tool-call-extra-call-probability"`
 
 	// EnableKVCache defines if kv cache feature will be enabled
 	EnableKVCache bool `yaml:"enable-kvcache" json:"enable-kvcache"`
@@ -375,20 +381,21 @@ func newConfig() *Configuration {
 		MinToolCallArrayParamLength:         1,
 		ToolCallNotRequiredParamProbability: 50,
 		ObjectToolCallNotRequiredParamProbability: 50,
-		KVCacheSize:                1024,
-		TokenBlockSize:             16,
-		ZMQEndpoint:                "tcp://127.0.0.1:5557",
-		KVEventsReplayQueueSize:    1024,
-		EventBatchSize:             16,
-		DPSize:                     1,
-		Rank:                       -1,
-		DatasetTableName:           DefaultDSTableName,
-		DefaultEmbeddingDimensions: 384,
-		FakeMetricsRefreshInterval: 100 * time.Millisecond,
-		MaxRequestBodySizeMB:       4,
-		RenderURL:                  "http://localhost:8082",
-		RenderTimeout:              30 * time.Second,
-		MMRenderTimeout:            60 * time.Second,
+		ToolCallExtraCallProbability:              45,
+		KVCacheSize:                               1024,
+		TokenBlockSize:                            16,
+		ZMQEndpoint:                               "tcp://127.0.0.1:5557",
+		KVEventsReplayQueueSize:                   1024,
+		EventBatchSize:                            16,
+		DPSize:                                    1,
+		Rank:                                      -1,
+		DatasetTableName:                          DefaultDSTableName,
+		DefaultEmbeddingDimensions:                384,
+		FakeMetricsRefreshInterval:                100 * time.Millisecond,
+		MaxRequestBodySizeMB:                      4,
+		RenderURL:                                 "http://localhost:8082",
+		RenderTimeout:                             30 * time.Second,
+		MMRenderTimeout:                           60 * time.Second,
 	}
 }
 
@@ -549,6 +556,9 @@ func (c *Configuration) validate() error {
 	}
 	if c.ObjectToolCallNotRequiredParamProbability < 0 || c.ObjectToolCallNotRequiredParamProbability > 100 {
 		return errors.New("ObjectToolCallNotRequiredParamProbability should be between 0 and 100")
+	}
+	if c.ToolCallExtraCallProbability < 0 || c.ToolCallExtraCallProbability > 100 {
+		return errors.New("ToolCallExtraCallProbability should be between 0 and 100")
 	}
 
 	if c.TokenBlockSize != 8 && c.TokenBlockSize != 16 && c.TokenBlockSize != 32 &&
