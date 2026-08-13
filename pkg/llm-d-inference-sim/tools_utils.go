@@ -431,6 +431,44 @@ const schema = `{
         "maxItems": {
           "type": "integer",
           "minimum": 0
+        },
+        "default": {
+          "description": "A default value for the parameter"
+        },
+        "minimum": {
+          "type": "number"
+        },
+        "maximum": {
+          "type": "number"
+        },
+        "exclusiveMinimum": {
+          "type": [
+            "number",
+            "boolean"
+          ]
+        },
+        "exclusiveMaximum": {
+          "type": [
+            "number",
+            "boolean"
+          ]
+        },
+        "minLength": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "maxLength": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "pattern": {
+          "type": "string"
+        },
+        "format": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
         }
       },
       "required": [
