@@ -445,6 +445,7 @@ func (s *VllmSimulator) simulateResponseProcessing(respCtx ResponseContext) {
 			&ResponseInfo{RespCtx: respCtx, Status: ResponseStatusCreated, ChoiceIdx: choiceIdx},
 			s.Context.logger)
 
+		nTokens := 0
 		startDecode := time.Now()
 		if respIsEmpty(respCtx) {
 			common.WriteToChannel(reqCtx.responseChannel(),
@@ -454,6 +455,7 @@ func (s *VllmSimulator) simulateResponseProcessing(respCtx ResponseContext) {
 				for i, token := range respCtx.responseTokens().Tokens {
 					if i != 0 {
 						s.Context.simulateInterTokenLatency()
+						nTokens++
 					}
 
 					tokens := &api.Tokenized{
@@ -478,6 +480,7 @@ func (s *VllmSimulator) simulateResponseProcessing(respCtx ResponseContext) {
 					for i, token := range args.Tokens {
 						if i != 0 {
 							s.Context.simulateInterTokenLatency()
+							nTokens++
 						}
 						respInfo := ResponseInfo{
 							Tokens:    &api.Tokenized{Tokens: []uint32{token}, Strings: []string{args.Strings[i]}},
@@ -493,7 +496,13 @@ func (s *VllmSimulator) simulateResponseProcessing(respCtx ResponseContext) {
 				}
 			}
 		}
-		common.WriteToChannel(s.Context.metrics.reqDecodeTimeChan, time.Since(startDecode).Seconds(), s.Context.logger)
+		decodeTime := time.Since(startDecode).Seconds()
+		meanTPOT := 0.0
+		if nTokens > 0 {
+			meanTPOT = decodeTime / float64(nTokens)
+		}
+		common.WriteToChannel(s.Context.metrics.reqTpotChan, meanTPOT, s.Context.logger)
+		common.WriteToChannel(s.Context.metrics.reqDecodeTimeChan, decodeTime, s.Context.logger)
 
 		if reqCtx.request().SendImage() {
 			s.Context.simulateImageGenerationLatency()

@@ -53,6 +53,7 @@ var _ = Describe("Fake metrics", Ordered, func() {
 					`"request-generation-tokens":[10,20,30],` +
 					`"request-max-generation-tokens":[10,20,30],` +
 					`"request-params-max-tokens":[10,20,30],` +
+					`"request-tpot-buckets-values":[0,2,4,6,8],` +
 					`"ttft-buckets-values":[1,2,3],` +
 					`"tpot-buckets-values":[0,0,1,2,3],` +
 					`"prefix-cache-hits":750,` +
@@ -107,6 +108,13 @@ var _ = Describe("Fake metrics", Ordered, func() {
 			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllmsim.InterTokenLatencyMetricName, 0.075, 3)))
 			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllmsim.InterTokenLatencyMetricName, 0.1, 6)))
 			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllmsim.InterTokenLatencyMetricName, 0.15, 6)))
+
+			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllmsim.ReqTPOTMetricName, 0.01, 0)))
+			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllmsim.ReqTPOTMetricName, 0.025, 2)))
+			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllmsim.ReqTPOTMetricName, 0.05, 6)))
+			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllmsim.ReqTPOTMetricName, 0.075, 12)))
+			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllmsim.ReqTPOTMetricName, 0.1, 20)))
+			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllmsim.ReqTPOTMetricName, 0.15, 20)))
 
 			buckets := vllmsim.Build125Buckets(1024)
 			var expectedCount int

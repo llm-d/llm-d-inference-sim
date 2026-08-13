@@ -280,6 +280,16 @@ func (s *SimContext) updateFakeMetrics(update *common.FakeMetrics, old *common.F
 		s.initFakeHistogram(s.metrics.reqDecodeTime, common.RequestLatencyBucketsBoundaries, update.ReqDecodeTimeBucketValues)
 	}
 
+	if update.ReqTPOTBucketValues != nil {
+		if old != nil && old.ReqTPOTBucketValues != nil {
+			s.metrics.registry.Unregister(s.metrics.reqTpot)
+			if err := s.createAndRegisterReqTpotMetric(); err != nil {
+				return err
+			}
+		}
+		s.initFakeHistogram(s.metrics.reqTpot, common.TPOTBucketsBoundaries, update.ReqTPOTBucketValues)
+	}
+
 	buckets := Build125Buckets(s.Config().MaxModelLen)
 
 	if update.RequestParamsMaxTokens != nil {

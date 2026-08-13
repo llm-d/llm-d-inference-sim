@@ -202,16 +202,20 @@ var _ = Describe("gRPC Metrics", Ordered, func() {
 			}
 			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllmsim.TTFTMetricName, math.Inf(1), 1)))
 
-			// Check TPOT and inter-token latency buckets
-			for _, metricName := range []string{vllmsim.TPOTMetricName, vllmsim.InterTokenLatencyMetricName} {
+			// Check TPOT, inter-token latency and request TPOT buckets
+			for _, metricName := range []string{vllmsim.TPOTMetricName, vllmsim.InterTokenLatencyMetricName, vllmsim.ReqTPOTMetricName} {
 				for _, boundary := range common.TPOTBucketsBoundaries {
 					if boundary < 0.075 {
 						// ensure that values for buckets up to 0.075 have count 0
 						Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, metricName, boundary, 0)))
 					} else {
-						// buckets higher than 0.75 should be greater than 0, we don't know the exact value since it depends on the random response length
+						// buckets higher than 0.075 should be greater than 0, we don't know the exact value since it depends on the random response length
 						count := findIntMetric(metricsLines, getFloatBucketMetricPrefix(common.TestModelName, metricName, boundary))
 						Expect(count).ToNot(BeNil())
+						// note: request TPOT is actually measured. we can't assert the exact timing.
+						if boundary == 0.075 && metricName == vllmsim.ReqTPOTMetricName {
+							continue
+						}
 						Expect(*count).To(BeNumerically(">", 0))
 					}
 				}
