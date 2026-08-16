@@ -15,7 +15,7 @@ spec:
       initContainers:
       # vLLM render sidecar - handles tokenization via HTTP (vllm launch render)
       # restartPolicy: Always makes this a native sidecar (K8s 1.29+):
-      # the simulator will not start until this container's readinessProbe passes
+      # the simulator will not start until this container's startupProbe succeeds
       - name: vllm-render
         image: vllm/vllm-openai-cpu:v0.21.0
         imagePullPolicy: IfNotPresent
@@ -28,6 +28,12 @@ spec:
         ports:
         - name: http
           containerPort: 8082
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 8082
+          periodSeconds: 2
+          failureThreshold: 150
         livenessProbe:
           httpGet:
             path: /health
