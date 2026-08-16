@@ -143,7 +143,7 @@ var _ = Describe("gRPC Metrics", Ordered, func() {
 	It("should send correct ttft, tpot and inter_token_latency metrics via gRPC", func() {
 		ctx := context.TODO()
 		args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho,
-			"--time-to-first-token", "100ms", "--inter-token-latency", "75ms"}
+			"--time-to-first-token", "200ms", "--inter-token-latency", "80ms"}
 
 		_, comm, httpClient, err := startServerHandle(ctx, common.ModeEcho, args, nil)
 		Expect(err).NotTo(HaveOccurred())
@@ -192,7 +192,7 @@ var _ = Describe("gRPC Metrics", Ordered, func() {
 
 			// Check TTFT buckets
 			for _, boundary := range common.TTFTBucketsBoundaries {
-				if boundary < 0.1 {
+				if boundary <= 0.1 {
 					// buckets up to 0.1 should be empty
 					Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllmsim.TTFTMetricName, boundary, 0)))
 				} else {
@@ -205,17 +205,13 @@ var _ = Describe("gRPC Metrics", Ordered, func() {
 			// Check TPOT, inter-token latency and request TPOT buckets
 			for _, metricName := range []string{vllmsim.TPOTMetricName, vllmsim.InterTokenLatencyMetricName, vllmsim.ReqTPOTMetricName} {
 				for _, boundary := range common.TPOTBucketsBoundaries {
-					if boundary < 0.075 {
+					if boundary <= 0.075 {
 						// ensure that values for buckets up to 0.075 have count 0
 						Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, metricName, boundary, 0)))
 					} else {
 						// buckets higher than 0.075 should be greater than 0, we don't know the exact value since it depends on the random response length
 						count := findIntMetric(metricsLines, getFloatBucketMetricPrefix(common.TestModelName, metricName, boundary))
 						Expect(count).ToNot(BeNil())
-						// note: request TPOT is actually measured. we can't assert the exact timing.
-						if boundary == 0.075 && metricName == vllmsim.ReqTPOTMetricName {
-							continue
-						}
 						Expect(*count).To(BeNumerically(">", 0))
 					}
 				}
