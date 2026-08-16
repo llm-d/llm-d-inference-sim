@@ -529,12 +529,12 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 		}
 	})
 
-	It("Should send correct ttft, tpot and inter_token_latency metrics", func() {
+	It("should send correct ttft, tpot and inter_token_latency metrics", func() {
 		// Send one request, check that ttft, tpot, and inter_token_latency are as defined in the simulator command line params
 		ctx := context.TODO()
 		// use mode echo to be sure that response is more than one token - this makes sure that tpot is reported to prometheus
 		args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho,
-			"--time-to-first-token", "200ms", "--inter-token-latency", "100ms"}
+			"--time-to-first-token", "200ms", "--inter-token-latency", "80ms"}
 
 		client, err := startServerWithArgs(ctx, args)
 		Expect(err).NotTo(HaveOccurred())
@@ -590,10 +590,6 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 						// buckets higher than 0.075 should be greater than 0, we don't know the exact value since it depends on the random response length
 						count := findIntMetric(metricsLines, getFloatBucketMetricPrefix(common.TestModelName, metricName, boundary))
 						Expect(count).ToNot(BeNil())
-						// note: request TPOT is actually measured. we can't assert the exact timing.
-						if boundary == 0.1 && metricName == vllmsim.ReqTPOTMetricName {
-							continue
-						}
 						Expect(*count).To(BeNumerically(">", 0))
 					}
 				}
