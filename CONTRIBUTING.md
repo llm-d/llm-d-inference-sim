@@ -20,7 +20,7 @@ This project adheres to the llm-d [Code of Conduct and Covenant](CODE_OF_CONDUCT
 ## Community and Communication
 
 * **Developer Slack:** [Join our developer Slack workspace](https://llm-d.slack.com/archives/C097SUE2HSL) to connect with the core maintainers and other contributors, ask questions, and participate in discussions.
-* **Code**: Hosted in the [llm-d-inference-sim]([https://github.com/llm-d](https://github.com/llm-d/llm-d-inference-sim) GitHub repo
+* **Code**: Hosted in the [llm-d-inference-sim](https://github.com/llm-d/llm-d-inference-sim) GitHub repo
 * **Issues**: Project-scoped bugs or issues should be reported in [llm-d-inference/issues](https://github.com/llm-d/llm-d-inference-sim/issues)
 
 ## Contributing Process
@@ -35,17 +35,15 @@ All features involving public APIs, behavior between core components, or new cor
 
 **Process:**
 
-1. Create a pull request adding a markdown file under `./proposals` with a descriptive name (e.g., `proposals/disaggregated_serving.md`)
-2. Use the template at `./proposals/PROPOSAL_TEMPLATE.md` with these sections:
-   * **Summary**: A sentence or two suitable for any contributor or any user to understand the change proposed and the outcome
-   * **Motivation**: Problem to be solved, including Goals/Non-Goals, and any necessary background
-   * **Proposal**: Can include User Stories ("As a User I want to X"), should have enough detail that reviewers can understand exactly what you're proposing, but should not include things like API designs or implementation. What is the desired outcome and how do we measure success?
-   * **Design Details**: Should contain enough information that the specifics of your change are understandable. This may include API specs (though not always required) or even code snippets. If there's any ambiguity about HOW your proposal will be implemented, this is the place to discuss them.
-   * **Alternatives**: Provide alternative implementations/proposals and a short summary of why they were rejected
-   * **Release Notes**" Call out any impact on user facing aspects, such as documentation, release notes,
-   deprecation and replacement of existing functionality, etc.
-3. Get review from impacted component maintainers
-4. Get approval from project maintainers
+1. Open a GitHub issue in [llm-d-inference-sim/issues](https://github.com/llm-d/llm-d-inference-sim/issues) describing the proposal. The issue should include:
+   * **Summary**: A sentence or two suitable for any contributor or user to understand the change proposed and the outcome.
+   * **Motivation**: The problem to be solved, including Goals/Non-Goals, and any necessary background.
+   * **Proposed Solution**: What is the desired outcome and how do we measure success? Can include User Stories ("As a User I want to X"). Should have enough detail that reviewers can understand exactly what you're proposing.
+   * **Design Details** (optional at the issue stage, expected before implementation): Enough information that the specifics of the change are understandable. May include API specs or code snippets. If there's any ambiguity about HOW the proposal will be implemented, discuss it here.
+   * **Alternatives**: Alternative implementations/proposals and a short summary of why they were rejected.
+   * **Release Notes**: Any impact on user-facing aspects, such as documentation, release notes, deprecation, and replacement of existing functionality.
+2. Discuss the issue with impacted component maintainers.
+3. Get approval from project maintainers on the issue before opening an implementation PR.
 
 The proposal must be reviewed by the impacted component maintainers and approved by project maintainers. Proposal review should enforce overall principles and ensure consistency and coherence of the project. Approval of a proposal should reflect lazy consensus that the proposal is the right path, and the proposal should have high priority for review.
 
@@ -54,7 +52,7 @@ The proposal must be reviewed by the impacted component maintainers and approved
 For changes that fix broken code or add small changes within a component:
 
 * All bugs and commits must have a clear description of the bug, how to reproduce, and how the change is made
-* Any other changes can be proposed in a pull-request to a component or an issue in llm-d/llm-d, a maintainer must approve the change (within the spirit of the component design and scope of change)
+* Any other changes can be proposed in a pull-request to a component or an issue in [llm-d-inference-sim/issues](https://github.com/llm-d/llm-d-inference-sim/issues), a maintainer must approve the change (within the spirit of the component design and scope of change)
   * A good way to bring attention for moderate size changes is to create an RFC issue in GitHub, then engage in Slack
   * Within components, use project proposals when scope of change is large or impact to users is high
 
@@ -64,7 +62,7 @@ AI tools have lowered the cost of opening a PR without lowering the cost of revi
 
 ### Contributions that Benefit from Discussion First
 
-These are not requirements, but contributions in the following categories tend to land more smoothly when the approach is agreed on first. Opening an issue or proposing in the appropriate SIG channel is usually faster than writing a PR and iterating.
+These are not requirements, but contributions in the following categories tend to land more smoothly when the approach is agreed on first. Opening an issue or proposing in the appropriate Slack channel is usually faster than writing a PR and iterating.
 
 * **New features.** Even features that do not rise to a project proposal (no new public API or component) benefit from a brief issue describing the problem and the proposed approach before implementation.
 * **New testing methodologies.** Fuzzing, property-based testing, chaos testing, load testing, or other testing approaches that introduce a new class of ongoing maintenance (new CI jobs, curated inputs, triage, release-gating policy). See the worked example below.
@@ -98,84 +96,14 @@ Examples of patterns maintainers may close or redirect:
 
 AI-assisted contributions are welcome under the same standards as any other contribution. The human submitter is the author of record and must be able to defend the change on substance.
 
-## Feature testing
-
-The first key step in testing a feature, or bugfix is to identify what layer of the stack are you testing. Here are some test cases:
-
-### Deployment related changes
-
-* Swapping GIE helm chart version and `llm-d-router` image upgrades - check `llm-d EPP` container logs
-  * Check that your `InferencePool` exists (`kubectl get InferencePool.inference.networking.k8s.io`)
-* Upgrading Infra helmchart or anything affecting Gateway infrastructure
-  * Check the `gateway` object (`kubectl get gateway -o yaml`)
-    * Check the `status` section, make sure it has an `address` and that there is a message saying `"Resource programmed, assigned to service(s) <gateway_service_address>"`
-    * Check the `parametersRef` for the `gateway` `infrastructure` exists (`kubectl get gateway wide-ep-inference-gateway -o yaml | yq .spec.infrastructure.parametersRef`, and then check to ensure that resource itself exists)
-  * If using `istio` also check that your `DestinationRule` exists
-* Check the `httpRoute` object `status` section (`kubectl get httpRoute -o yaml | yq '.status.parents[]'`)
-  * Ensure there is a message in the conditions stating: `"Route was valid"`
-  * Ensure there is a parent ref on the `httpRoute`, pointing to the `httpRoute` being attached properly to the `gateway`
-* Modelservice helm chart upgrades
-  * Ensure `vLLM` pods up
-  * `prefill` and `decode` `podmonitor`s are deployed if metrics are enabled
-
-### Container Image Build Changes and Upgrades
-
-* Kernel upgrades and changes (`deepep`, `deepgemm`) - Ignore `flash-infer`
-  * To test these ensure you use the proper vLLM backend via the `--all2all-backend` vLLM CLI arg.
-    * For single-node testing without extra dependencies, use `allgather_reducescatter` (the default)
-    * For testing the deepseek kernels, you can set `prefill`s backend to `deepep_high_throughput` and `decode` backend to `deepep_low_latency`
-      * This needs to be tested in either `pd-disaggregation` or better yet `wide-ep-lws`
-* `UCX` + `NIXL` version bumps and changes
-  * This can be tested in `pd-disaggregation` or `wide-ep-lws`
-  * Currently we build `UCX` from source, and then build `NIXL` against our build of `NIXL`
-* `LMCache` version bumps and changes (coming soon)
-  * Currently nothing uses the `LMCache` codepath directly, this will come as a subset of the KVCache offloading epic
-* `vLLM` version bumps and changes
-  * By default we build `vLLM` with precompiled binaries from the upstream vLLM wheels index.
-  * This can be tested in any example
-* `EFA`
-  * To test the libfabric plugin itself over NIXL you can do the following inside a container image built with EFA support (does not require GPUs or EFA):
-
-```bash
-export NIXL_LOG_LEVEL=debug
-python3 - <<'EOF'
-from nixl._api import nixl_agent, nixl_agent_config
-agent_config = nixl_agent_config(backends=["LIBFABRIC"])
-nixl_agent1 = nixl_agent("target", agent_config)
-EOF
-```
-
-* To test actual inference over EFA in AWS with P5+ instances ensure that `UCX_TLS` includes an option with high priority for accelerating over EFA via an ENV var:
-
-```yaml
-  - name: UCX_TLS
-    value: "efa,sockcm,sm,self,cuda_copy,cuda_ipc"
-```
-
-* Ensure that the containers request an instance of the EFA resource:
-
-```yaml
-  requests:
-    vpc.amazonaws.com/efa: 1
-```
-
-### Container Image Checklist
-
-* [ ] `llm-d Router` guide
-* [ ] `precise-kv-cache-aware` example
-* [ ] `pd-disaggregation` example (also covers deepseek kernels)
-* [ ] `wide-ep-lws` example (also covers deepseek kernels)
-* [ ] a `guidellm` benchmark to do a load test for performance regressions (any example)
-* [ ] run `pd-disaggregation` or `wide-ep-lws` with deepseek kernels (for `prefill`s set `--all2all-backend` to `deepep_high_throughput` and set `decode` `--all2all-backend` to `deepep_low_latency`)
-
-### Code Review Requirements
+## Code Review Requirements
 
 * **All code changes** must be submitted as pull requests (no direct pushes)
 * **All changes** must be reviewed and approved by a maintainer other than the author
-* **All repositories** must gate merges on compilation and passing tests
+* **The repository** must gate merges on compilation and passing tests
 * **All experimental features** must be off by default and require explicit opt-in
 
-### Commit and Pull Request Style
+## Commit and Pull Request Style
 
 * **Pull requests** should describe the problem succinctly
 * **Descriptions** should accurately reflect what the diff does
@@ -189,60 +117,11 @@ EOF
   * Enough detail for someone reviewing git history to understand the scope
 * **DCO Sign-off**: All commits must include a valid DCO sign-off line (`Signed-off-by: Name <email@domain.com>`)
   * Add automatically with `git commit -s`
-  * See [PR_SIGNOFF.md](PR_SIGNOFF.md) for configuration details
   * Required for all contributions per [Developer Certificate of Origin](https://developercertificate.org/)
-
-## Code Organization and Ownership
-
-### Components and Maintainers
-
-* **Components** are the primary unit of code organization (repo scope or directory/package/module within a repo)
-* **Maintainers** own components and approve changes
-* **Contributors** can become maintainers through sufficient evidence of contribution
-* Code ownership is reflected in [OWNERS files](https://go.k8s.io/owners) consistent with Kubernetes project conventions
-
-### Core vs Incubating Components
-
-* **Core components**: Supported by the project with strong lifecycle controls and forward compatibility
-* **Incubating components**: Rapidly iterating, not yet ready for production use, allowing greater freedom for testing ideas
-
-## Experimental Features and Incubation
-
-We encourage fast iteration and exploration with these constraints:
-
-1. **Clear identification** as experimental in code and documentation
-2. **Default to off** and require explicit enablement
-3. **Best effort support** only
-4. **Removal if unmaintained** with no one to move it forward
-5. **No stigma** to experimental or incubating status
-
-### Incubating Components Process
-
-1. **Create repositories** in `llm-d-incubation` GitHub org with maintainers and clear goals
-2. **Define timeframe** for experimentation
-3. **Iterate and test** with initial users
-4. **For well-lit path components**:
-   * Create project proposal covering integration
-   * Define graduation success criteria
-   * Add to well-lit path after approval
-5. **For standalone components**:
-   * Create project proposal with graduation criteria
-   * Component can be used with experimental label
-6. **Graduation**: Move to core `llm-d` org and follow core process
-7. **If not graduating**: Archive for 3+ months before removal
-
-### Experimental Features in Core Components
-
-1. Open pull request to existing core component
-2. Maintainer classifies as experimental, enforces "off-by-default" gating
-3. Provide tests for both on/off states
-4. When graduating, default to on and remove conditional logic after one release
-
-**Naming convention**: Experimental flags must include `experimental` in name (e.g., `--experimental-disaggregation-v2=true`)
 
 ## API Changes and Deprecation
 
-* **No breaking changes**: Once an API/protocol is in GA release (non-experimental), it cannot be removed or behavior changed
+* **Breaking changes**: Once an API/protocol is in a GA release (non-experimental), breaking changes are strongly discouraged and only permitted in exceptional circumstances (for example, to address a security issue, correct a specification-level defect, or resolve behavior that blocks the project's long-term direction). Any such change must be proposed and discussed in a GitHub issue, explicitly approved by the project maintainers, and clearly documented in the release notes — including the motivation, the user-visible impact, and any available migration path.
 * **Includes**: All protocols, API endpoints, internal APIs, command line flags/arguments
 * **Exception**: Bug fixes that don't impact significant number of consumers (As the project matures, we will be stricter about such changes - Hyrum's Law is real)
 * **Versioning**: All protocols and APIs should be versionable with clear forward and backward compatibility requirements. A new version may change behavior and fields.
@@ -250,59 +129,19 @@ We encourage fast iteration and exploration with these constraints:
 
 ## Testing Requirements
 
-We use three tiers of testing:
+All code changes are expected to include tests, and every pull request must keep the existing test suite green. The project uses Go's standard testing tooling together with [Ginkgo](https://onsi.github.io/ginkgo/) suites under `pkg/`; new code should follow the same conventions and live alongside the code it exercises. 
+Tests should cover the behavior being added or changed — including relevant error paths and edge cases — rather than mirror the implementation. 
+Appropriate test coverage is an important part of code review, and reviewers may request additional cases before approving a change. 
 
-1. **Unit tests**: Fast verification of code parts, testing different arguments
-   * Best for fast verification of parts of code, testing different arguments
-   * Doesn't cover interactions between code
-2. **Integration tests**: Testing protocols between components and built artifacts
-   * Best for testing protocols and agreements between components
-   * May not model interactions between components as they are deployed
-3. **End-to-end (e2e) tests**: Whole system testing including benchmarking
-   * Best for preventing end to end regression and verifying overall correctness
-   * Execution can be slow
-
-Strong e2e coverage is required for deployed systems to prevent performance regression. Appropriate test coverage is an important part of code review.
+Contributors are also encouraged to run the full suite locally (`make test`) before opening a PR.
 
 ## Security
 
 Maintain appropriate security mindset for production serving. The project will establish a project email address for responsible disclosure of security issues that will be reviewed by the project maintainers. Prior to the first GA release we will formalize a security component and process.
 
-## Project Structure
-
-### Core Organization (`llm-d`)
-
-* Production-ready code on well-lit path
-* Follows API Changes and Deprecation process
-* All major changes require project proposals
-
-### Incubation Organization (`llm-d-incubation`)
-
-* Experimental components not yet fully supported
-* Bias towards accepting experimentation with clear goals
-* Each repo must have README describing purpose and goal
-* Graduated components move to `llm-d` org
-
 ## Documentation
 
-The Markdown under [`docs/`](docs/) is the source of truth for the documentation
-rendered on [llm-d.ai](https://llm-d.ai). The website ([`llm-d/llm-d.github.io`](https://github.com/llm-d/llm-d.github.io))
-syncs `docs/` from this repository on every merge to `main`, so keep pages in plain,
-portable Markdown that also reads well on GitHub.
-
-### Sidebar order and labels (`docs/menu-config.json`)
-
-The documentation sidebar is generated automatically from the `docs/` folder tree.
-Section labels, ordering, and collapse state are controlled **only** by
-[`docs/menu-config.json`](docs/menu-config.json) — **do not** add `_category_.json`
-files or `sidebar_position` / `sidebar_label` frontmatter to docs.
-
-* **`categories`** — keyed by folder path relative to `docs/` (any depth, slash-separated,
-  e.g. `well-lit-paths/foundations`). Fields: `label`, `position` (order among siblings),
-  `collapsed`.
-* **`pages`** — keyed by doc id (path under `docs/` without extension, e.g.
-  `getting-started/quickstart`). Fields: `position`, `label`.
-
-When you **add a page or folder**, add its entry to `docs/menu-config.json` so it gets a
-human-readable label and an explicit position. Items with no entry still appear, but sort
-alphabetically after positioned siblings and use an auto-generated label.
+Project documentation lives under [`docs/`](docs/) as plain Markdown. 
+Any contribution that adds a new feature, changes existing behavior, adds or modifies a configuration option or command-line flag, or otherwise affects how users interact with the simulator must include a corresponding documentation update in the same pull request. 
+When adding a new topic, create a new Markdown file under `docs/` and link it from the [README](README.md) so it is discoverable. 
+Reviewers will treat missing or out-of-date documentation the same as missing tests.
