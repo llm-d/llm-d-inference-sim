@@ -1,8 +1,8 @@
 ## Contributing Guidelines
 
-Thank you for your interest in contributing to llm-d. Community involvement is highly valued and crucial for the project's growth and success. The llm-d project accepts contributions via GitHub pull requests. This outlines the process to help get your contribution accepted.
+Thank you for your interest in contributing to llm-d-inference-sim. Community involvement is highly valued and crucial for the project's growth and success. The llm-d-inference-sim project accepts contributions via GitHub pull requests. This outlines the process to help get your contribution accepted.
 
-To ensure a clear direction and cohesive vision for the project, the project leads have the final decision on all contributions. However, these guidelines outline how you can contribute effectively to llm-d.
+To ensure a clear direction and cohesive vision for the project, the project leads have the final decision on all contributions. However, these guidelines outline how you can contribute effectively to llm-d-inference-sim.
 
 ## How You Can Contribute
 
@@ -19,19 +19,9 @@ This project adheres to the llm-d [Code of Conduct and Covenant](CODE_OF_CONDUCT
 
 ## Community and Communication
 
-* **Developer Slack:** [Join our developer Slack workspace](https://llm-d.ai/slack) to connect with the core maintainers and other contributors, ask questions, and participate in discussions.
-* **Weekly Meetings:** Project updates, ongoing work discussions, and Q&A will be covered in our bi-weekly project meeting every other Wednesday at 12:30 PM ET. Please join by [adding the shared calendar](https://red.ht/llm-d-public-calendar). You can also [join our Google Group](https://groups.google.com/g/llm-d-contributors) for access to shared diagrams and other content.
-  * Access meeting recordings and meeting notes on the [llm-d Public Google Drive](https://drive.google.com/drive/folders/1Y9ahJ9BhhDuwnPK6QHmKTi8uoz1FTqvA)
-* **SIGs:** Join one of our [Special Interest Groups (SIGs)](SIGS.md) to contribute to specific areas of the project and collaborate with domain experts.
-  * Access SIG meeting recordings and project documentation on the [Public SIG Documentation Google Drive](https://drive.google.com/drive/folders/13PVmYoIJitt5iZyaFTZiAgp_o66qAS8t)
-* **Code**: Hosted in the [llm-d](https://github.com/llm-d) GitHub organization
-* **Issues**: Project-scoped bugs or issues should be reported in [llm-d/llm-d](https://github.com/llm-d/llm-d)
-* **Mailing List**: [llm-d-contributors@googlegroups.com](mailto:llm-d-contributors@googlegroups.com) for document sharing and collaboration
-* **Social Media:** Follow us on social media for the latest news, announcements, and updates:
-  * **X:** [https://x.com/\_llm_d\_](https://x.com/_llm_d_)
-  * **LinkedIn:** [https://linkedin.com/company/llm-d](https://linkedin.com/company/llm-d)
-  * **Reddit:** [https://www.reddit.com/r/llm_d/](https://www.reddit.com/r/llm_d/)
-  * **YouTube** [@llm-d-project](https://youtube.com/@llm-d-project)
+* **Developer Slack:** [Join our developer Slack workspace](https://llm-d.slack.com/archives/C097SUE2HSL) to connect with the core maintainers and other contributors, ask questions, and participate in discussions.
+* **Code**: Hosted in the [llm-d-inference-sim]([https://github.com/llm-d](https://github.com/llm-d/llm-d-inference-sim) GitHub repo
+* **Issues**: Project-scoped bugs or issues should be reported in [llm-d-inference/issues](https://github.com/llm-d/llm-d-inference-sim/issues)
 
 ## Contributing Process
 
