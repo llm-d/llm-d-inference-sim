@@ -86,7 +86,7 @@ The vLLM deployment configures event publishing via:
   \"enable_kv_cache_events\":true,
   \"publisher\":\"zmq\",
   \"endpoint\":\"tcp://zmq-listener-service:5557\",
-  \"topic\":\"kv@${POD_IP}@Qwen/Qwen3-0.6B\"
+  \"topic\":\"kv@${POD_IP}:8000@Qwen/Qwen3-0.6B\"
 }"
 ```
 

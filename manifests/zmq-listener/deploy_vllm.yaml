@@ -28,7 +28,7 @@ spec:
               --block-size 16 \
               --prefix-caching-hash-algo sha256_cbor \
               --kv-transfer-config '{"kv_connector":"NixlConnector", "kv_role":"kv_both"}' \
-              --kv-events-config "{\"enable_kv_cache_events\":true,\"publisher\":\"zmq\",\"endpoint\":\"tcp://zmq-listener-service:5557\",\"topic\":\"kv@${POD_IP}@Qwen/Qwen3-0.6B\"}"
+              --kv-events-config "{\"enable_kv_cache_events\":true,\"publisher\":\"zmq\",\"endpoint\":\"tcp://zmq-listener-service:5557\",\"topic\":\"kv@${POD_IP}:8000@Qwen/Qwen3-0.6B\"}"
           env:
           - name: NAMESPACE
             valueFrom:

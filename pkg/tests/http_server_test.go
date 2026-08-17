@@ -498,7 +498,7 @@ var _ = Describe("Server", func() {
 		It("Should enter sleep mode and wake up", func() {
 			ctx := context.TODO()
 
-			topic := kvcache.CreateKVEventsTopic("localhost", common.QwenModelName)
+			topic := kvcache.CreateKVEventsTopic("localhost", 8000, common.QwenModelName)
 			sub, endpoint := common.CreateSub(ctx, topic)
 
 			client, err := startServerWithArgsAndEnv(ctx, common.ModeRandom,

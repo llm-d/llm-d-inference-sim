@@ -19,6 +19,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -86,7 +87,7 @@ func newBlockCache(ctx context.Context, config *common.Configuration, logger log
 		}
 	}
 
-	topic := CreateKVEventsTopic(config.IP, config.Model)
+	topic := CreateKVEventsTopic(config.IP, config.Port, config.Model)
 
 	var replayer *kvEventsReplayer
 	if config.KVEventsReplayEndpoint != "" {
@@ -454,7 +455,15 @@ func (bc *blockCache) setModelUnloaded(model string) {
 	delete(bc.loadedModels, model)
 }
 
-// ZMQ topic format is: kv@<pod-ip>@<model-name>
-func CreateKVEventsTopic(ip string, model string) string {
-	return topicNamePrefix + topicNameSeparator + ip + topicNameSeparator + model
+// CreateKVEventsTopic builds the ZMQ topic used to publish KV-cache events.
+//
+// The format is: kv@<pod-ip>:<serving-port>@<model-name>
+//
+// The <ip>:<port> pair matches how the EPP prefix-cache scorer addresses pods
+// (as <Address>:<Port>), so the block index can look up the pod that owns a
+// cached block. The serving port is the port each simulator instance serves on
+// (config.Port, offset per rank when one process hosts multiple ranks), so
+// each data-parallel rank publishes on its own topic.
+func CreateKVEventsTopic(ip string, port int, model string) string {
+	return topicNamePrefix + topicNameSeparator + ip + ":" + strconv.Itoa(port) + topicNameSeparator + model
 }

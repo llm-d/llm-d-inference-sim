@@ -131,6 +131,10 @@ func Start(ctx context.Context, config *common.Configuration, logger logr.Logger
 		if err != nil {
 			return nil, err
 		}
+		// Offset the serving port per rank only in --data-parallel-size mode
+		// (all ranks share one pod IP, so they must differ by port). In
+		// --data-parallel-rank mode each rank is a separate pod (distinct IP),
+		// so the serving port stays at --port as started.
 		if dpRank > 0 {
 			rankConfig.Port = config.Port + dpRank
 		}

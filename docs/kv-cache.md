@@ -104,12 +104,14 @@ When `enable-kvcache` is true and `zmq-endpoint` is set, the simulator publishes
 ### Topic format
 
 ```
-kv@<POD_IP>@<model-name>
+kv@<POD_IP>:<serving-port>@<model-name>
 ```
 
-Example: `kv@10.0.0.1@Qwen/Qwen2.5-1.5B-Instruct`
+Example: `kv@10.0.0.1:8000@Qwen/Qwen2.5-1.5B-Instruct`
 
 The model name used is the base model name (`--model`), not a served-model-name alias.
+
+The `<ip>:<port>` pair matches how the EPP prefix-cache scorer addresses pods (as `<Address>:<Port>`), so the block index can look up the pod that owns a cached block. The serving port is the port each simulator instance serves on, so each data-parallel rank publishes on its own topic.
 
 ### Message format
 

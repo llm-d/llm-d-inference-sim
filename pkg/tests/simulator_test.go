@@ -1006,7 +1006,7 @@ var _ = Describe("Simulator", func() {
 
 		It("chat completions", func() {
 			// create kv events listener
-			topic := kvcache.CreateKVEventsTopic("localhost", model)
+			topic := kvcache.CreateKVEventsTopic("localhost", 8000, model)
 			sub, zmqEndpoint := common.CreateSub(ctx, topic)
 			//nolint
 			defer sub.Close()
@@ -1037,7 +1037,7 @@ var _ = Describe("Simulator", func() {
 
 		It("completions", func() {
 			// create kv events listener
-			topic := kvcache.CreateKVEventsTopic("localhost", model)
+			topic := kvcache.CreateKVEventsTopic("localhost", 8000, model)
 			sub, zmqEndpoint := common.CreateSub(ctx, topic)
 			//nolint
 			defer sub.Close()
@@ -1075,7 +1075,7 @@ var _ = Describe("Simulator", func() {
 				// (ParentHash == 0 / EmptyBlockHash). The second extends the prompt by one
 				// extra block; its store event must carry the hash of the last block from
 				// the first request as parent.
-				topic := kvcache.CreateKVEventsTopic("localhost", model)
+				topic := kvcache.CreateKVEventsTopic("localhost", 8000, model)
 				sub, zmqEndpoint := common.CreateSub(ctx, topic)
 				//nolint
 				defer sub.Close()
@@ -1239,7 +1239,7 @@ force-dummy-tokenizer: false
 		// Returns the HTTP client, the PUB subscriber (for watching live events),
 		// the topic, and the replay endpoint the simulator was told to bind.
 		setupReplayServer := func(ctx context.Context) (*http.Client, zmq4.Socket, string, string) {
-			topic := kvcache.CreateKVEventsTopic("localhost", replayModel)
+			topic := kvcache.CreateKVEventsTopic("localhost", 8000, replayModel)
 			sub, zmqEndpoint := common.CreateSub(ctx, topic)
 
 			replayPort, err := common.FreeTCPPort()
@@ -1271,7 +1271,7 @@ force-dummy-tokenizer: false
 					break
 				}
 				seq := binary.BigEndian.Uint64(msg.Frames[1])
-				stored, _, _ := kvcache.CountKVEventBlocks(msg.Frames, kvcache.CreateKVEventsTopic("localhost", replayModel), seq)
+				stored, _, _ := kvcache.CountKVEventBlocks(msg.Frames, kvcache.CreateKVEventsTopic("localhost", 8000, replayModel), seq)
 				totalStored += stored
 				lastSeq = seq
 			}

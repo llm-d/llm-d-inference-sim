@@ -198,7 +198,7 @@ In addition, as we are using klog, the following parameters are available:
 - `VLLM_SERVER_DEV_MODE`: when set to `1`, enables vLLM development mode. Currently used as an additional gate for the `/sleep` endpoint: even with `--enable-sleep-mode`, `/sleep` is a no-op unless `VLLM_SERVER_DEV_MODE=1` is set in the simulator's environment.
 - `POD_NAME`: the simulator pod name. If defined, the response will contain the HTTP header `x-inference-pod` with this value, and the HTTP header `x-inference-port` with the port that the request was received on 
 - `POD_NAMESPACE`: the simulator pod namespace. If defined, the response will contain the HTTP header `x-inference-namespace` with this value
-- `POD_IP`: the simulator pod IP address. Used in kv-events topic name.
+- `POD_IP`: the simulator pod IP address. Used together with the serving port (`--port`) to build the kv-events topic `kv@<ip>:<port>@<model>` (see [KV cache](kv-cache.md#topic-format)).
 Example of definition in yaml: 
   ```yaml
   env:

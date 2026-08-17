@@ -151,6 +151,23 @@ func bothFormats(name string, tc testCase) []any {
 	}
 }
 
+var _ = Describe("CreateKVEventsTopic", func() {
+	It("embeds the ip, serving port and model in the topic", func() {
+		Expect(CreateKVEventsTopic("10.0.0.1", 8000, "Qwen/Qwen2.5-1.5B-Instruct")).
+			To(Equal("kv@10.0.0.1:8000@Qwen/Qwen2.5-1.5B-Instruct"))
+	})
+
+	It("uses a distinct topic per data-parallel rank serving port", func() {
+		model := "Qwen/Qwen2.5-1.5B-Instruct"
+		topic0 := CreateKVEventsTopic("10.0.0.1", 8000, model)
+		topic1 := CreateKVEventsTopic("10.0.0.1", 8001, model)
+		topic2 := CreateKVEventsTopic("10.0.0.1", 8002, model)
+		Expect(topic0).NotTo(Equal(topic1))
+		Expect(topic0).NotTo(Equal(topic2))
+		Expect(topic1).NotTo(Equal(topic2))
+	})
+})
+
 var _ = Describe("KV cache", Ordered, func() {
 	random := common.NewRandom(time.Now().UnixNano(), 8080)
 
@@ -242,7 +259,7 @@ var _ = Describe("KV cache", Ordered, func() {
 			UseVllmMapEventFormat: useMapFormat,
 		}
 
-		topic := CreateKVEventsTopic(localhost, config.Model)
+		topic := CreateKVEventsTopic(localhost, config.Port, config.Model)
 		sub, endpoint := common.CreateSub(ctx, topic)
 		config.ZMQEndpoint = endpoint
 		//nolint
@@ -347,7 +364,7 @@ var _ = Describe("KV cache", Ordered, func() {
 				UseVllmMapEventFormat: useMapFormat,
 			}
 
-			topic := CreateKVEventsTopic(localhost, config.Model)
+			topic := CreateKVEventsTopic(localhost, config.Port, config.Model)
 			sub, endpoint := common.CreateSub(ctx, topic)
 			config.ZMQEndpoint = endpoint
 			//nolint
@@ -447,7 +464,7 @@ var _ = Describe("KV cache", Ordered, func() {
 				UseVllmMapEventFormat: useMapFormat,
 			}
 
-			topic := CreateKVEventsTopic(localhost, config.Model)
+			topic := CreateKVEventsTopic(localhost, config.Port, config.Model)
 			sub, endpoint := common.CreateSub(ctx, topic)
 			config.ZMQEndpoint = endpoint
 			//nolint
@@ -836,7 +853,7 @@ var _ = Describe("KV cache", Ordered, func() {
 				UseVllmMapEventFormat: useMapFormat,
 			}
 
-			topic := CreateKVEventsTopic(localhost, config.Model)
+			topic := CreateKVEventsTopic(localhost, config.Port, config.Model)
 			sub, endpoint := common.CreateSub(ctx, topic)
 			config.ZMQEndpoint = endpoint
 			//nolint
@@ -927,7 +944,7 @@ var _ = Describe("KV cache", Ordered, func() {
 				UseVllmMapEventFormat: useMapFormat,
 			}
 
-			topic := CreateKVEventsTopic(localhost, config.Model)
+			topic := CreateKVEventsTopic(localhost, config.Port, config.Model)
 			sub, endpoint := common.CreateSub(ctx, topic)
 			config.ZMQEndpoint = endpoint
 			//nolint

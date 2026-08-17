@@ -67,24 +67,31 @@ var _ = Describe("Data Parallel", func() {
 		model := common.QwenModelName
 		longPrompt := "This is a test message for kv cache events, has to be long enough to be tokenized into multiple blocks."
 
-		// Rank 0 gets a random port; ranks 1 and 2 get port+1 and port+2 respectively
-		// (the simulator calls common.OffsetEndpointPort(base, rank) for ranks > 0).
-		topic := kvcache.CreateKVEventsTopic("localhost", model)
-		sub0, zmqEndpoint := common.CreateSub(ctx, topic)
+		// Each data-parallel rank serves on its own port (baseServingPort + rank)
+		// and therefore publishes KV events on a per-rank topic
+		// kv@<ip>:<port>@<model>, so the EPP block index can distinguish ranks.
+		// Rank 0's ZMQ PUB endpoint gets a random port; ranks 1 and 2 get port+1
+		// and port+2 respectively (the simulator calls
+		// common.OffsetEndpointPort(base, rank) for ranks > 0).
+		const baseServingPort = 8000
+		topic0 := kvcache.CreateKVEventsTopic("localhost", baseServingPort, model)
+		sub0, zmqEndpoint := common.CreateSub(ctx, topic0)
 		defer sub0.Close() //nolint:errcheck
 
-		// Derive fixed endpoints for rank 1 and rank 2 from rank 0's port.
+		// Derive fixed ZMQ endpoints for rank 1 and rank 2 from rank 0's port.
 		lastColon := strings.LastIndex(zmqEndpoint, ":")
 		Expect(lastColon).To(BeNumerically(">", 0))
-		basePort, err := strconv.Atoi(zmqEndpoint[lastColon+1:])
+		baseZMQPort, err := strconv.Atoi(zmqEndpoint[lastColon+1:])
 		Expect(err).NotTo(HaveOccurred())
 
+		topic1 := kvcache.CreateKVEventsTopic("localhost", baseServingPort+1, model)
 		sub1 := common.NewSub(ctx)
-		common.StartSub(sub1, fmt.Sprintf("tcp://*:%d", basePort+1), topic)
+		common.StartSub(sub1, fmt.Sprintf("tcp://*:%d", baseZMQPort+1), topic1)
 		defer sub1.Close() //nolint:errcheck
 
+		topic2 := kvcache.CreateKVEventsTopic("localhost", baseServingPort+2, model)
 		sub2 := common.NewSub(ctx)
-		common.StartSub(sub2, fmt.Sprintf("tcp://*:%d", basePort+2), topic)
+		common.StartSub(sub2, fmt.Sprintf("tcp://*:%d", baseZMQPort+2), topic2)
 		defer sub2.Close() //nolint:errcheck
 
 		clients, err := startDataParallelServers(ctx, []string{
@@ -92,6 +99,7 @@ var _ = Describe("Data Parallel", func() {
 			"--model", model,
 			"--mode", common.ModeRandom,
 			"--data-parallel-size", "3",
+			"--port", strconv.Itoa(baseServingPort),
 			"--force-dummy-tokenizer",
 			"--enable-kvcache", "true", "--kv-cache-size", "16", "--block-size", "8",
 			"--event-batch-size", "1", "--zmq-endpoint", zmqEndpoint,
@@ -119,12 +127,14 @@ var _ = Describe("Data Parallel", func() {
 			}()
 		}
 
-		// Assert that each rank published at least one store event on its own endpoint,
-		// and that the DataParallelRank embedded in the batch matches the rank index.
+		// Assert that each rank published at least one store event on its own
+		// per-rank topic, and that the DataParallelRank embedded in the batch
+		// matches the rank index.
+		rankTopics := []string{topic0, topic1, topic2}
 		for expectedRank, sub := range []zmq4.Socket{sub0, sub1, sub2} {
 			msg, err := sub.Recv()
 			Expect(err).NotTo(HaveOccurred())
-			storedCount, removedCount, _ := kvcache.CountKVEventBlocks(msg.Frames, topic, 1)
+			storedCount, removedCount, _ := kvcache.CountKVEventBlocks(msg.Frames, rankTopics[expectedRank], 1)
 			Expect(storedCount).To(BeNumerically(">", 0), "expected store events from rank %d", expectedRank)
 			Expect(removedCount).To(Equal(0))
 			Expect(kvcache.ParseKVBatchRank(msg.Frames)).To(Equal(expectedRank),
