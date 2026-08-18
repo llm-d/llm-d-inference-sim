@@ -23,10 +23,12 @@ jobs:
             src:
               - '**/*.go'
               - '**/*.py'
-              - Dockerfile.epp
-              - Dockerfile.sidecar
+              - Dockerfile
+              - Dockerfile.zmq
               - Makefile*
-              - go.mod  
+              - go.mod
+              - go.sum
+              - .golangci.yml
               - .github/workflows/**
   lint-and-test:
     needs: check-changes
