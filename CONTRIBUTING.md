@@ -13,6 +13,10 @@ There are several ways you can contribute to llm-d:
 * **Improving Documentation:** Help make the project more accessible by enhancing the documentation.
 * **Submitting Code Contributions (with consideration):** While the project leads maintain final say, code contributions that align with the project's vision are always welcome.
 
+## Code of Conduct
+
+This project adheres to the llm-d [Code of Conduct and Covenant](CODE_OF_CONDUCT.md). By participating, you are expected to uphold this code.
+
 ## Community and Communication
 
 * **Developer Slack:** [Join our developer Slack workspace](https://llm-d.slack.com/archives/C097SUE2HSL) to connect with the core maintainers and other contributors, ask questions, and participate in discussions.
