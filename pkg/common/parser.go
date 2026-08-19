@@ -21,7 +21,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
 
 	"github.com/spf13/pflag"
@@ -37,8 +36,6 @@ const (
 	ModelEnv = "SIM_MODEL"
 	// PythonHashSeedEnv is read when the --hash-seed flag is not passed; see configuration precedence in the docs.
 	PythonHashSeedEnv = "PYTHONHASHSEED"
-	// VllmMaxNSequencesEnv is read when the --max-n-choices flag is not passed; see configuration precedence in the docs.
-	VllmMaxNSequencesEnv = "VLLM_MAX_N_SEQUENCES"
 )
 
 // Needed to parse values that contain multiple strings
@@ -124,8 +121,6 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 	f.IntVar(&config.MaxLoras, "max-loras", config.MaxLoras, "Maximum number of LoRAs in a single batch")
 	f.IntVar(&config.MaxCPULoras, "max-cpu-loras", config.MaxCPULoras, "Maximum number of LoRAs to store in CPU memory")
 	f.IntVar(&config.MaxModelLen, "max-model-len", config.MaxModelLen, "Model's context window, maximum number of tokens in a single request including input and output")
-	f.IntVar(&config.MaxNChoices, "max-n-choices", config.MaxNChoices,
-		"Maximum allowed value of the n parameter (number of choices) in a request (if omitted on the command line, "+VllmMaxNSequencesEnv+" may set it; see docs)")
 
 	f.StringVar(&config.Mode, "mode", config.Mode, "Simulator mode: echo - returns the same text that was sent in the request, for chat completion returns the last message; random - returns random sentence from a bank of pre-defined sentences")
 	f.DurationVar(&config.InterTokenLatency, "inter-token-latency", config.InterTokenLatency, "Time to generate one token, e.g. 100ms")
@@ -291,16 +286,6 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 	if !f.Changed("hash-seed") {
 		if v := os.Getenv(PythonHashSeedEnv); v != "" {
 			config.HashSeed = v
-		}
-	}
-
-	if !f.Changed("max-n-choices") {
-		if v := os.Getenv(VllmMaxNSequencesEnv); v != "" {
-			n, err := strconv.Atoi(v)
-			if err != nil {
-				return nil, fmt.Errorf("invalid %s value %q: %w", VllmMaxNSequencesEnv, v, err)
-			}
-			config.MaxNChoices = n
 		}
 	}
 

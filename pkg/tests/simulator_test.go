@@ -1012,8 +1012,7 @@ var _ = Describe("Simulator", func() {
 		It("Should not drop tokens across many concurrent requests (echo mode)", func() {
 			ctx := context.TODO()
 			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho,
-				"--max-num-seqs", "100", "--max-model-len", "16", "--max-waiting-queue-length", "1",
-				"--max-n-choices", "10"}
+				"--max-num-seqs", "100", "--max-model-len", "16", "--max-waiting-queue-length", "1"}
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -1043,8 +1042,7 @@ var _ = Describe("Simulator", func() {
 		It("Should not drop tokens across multiple prompts each with n>1 choices (echo mode)", func() {
 			ctx := context.TODO()
 			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho,
-				"--max-num-seqs", "100", "--max-model-len", "16", "--max-waiting-queue-length", "1",
-				"--max-n-choices", "3"}
+				"--max-num-seqs", "100", "--max-model-len", "16", "--max-waiting-queue-length", "1"}
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 

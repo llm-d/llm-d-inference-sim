@@ -147,29 +147,3 @@ var _ = Describe("HandleRequest enqueue failure", func() {
 		Expect(completedCount).To(Equal(2))
 	})
 })
-
-var _ = Describe("HandleRequest max-n-choices validation", func() {
-	It("rejects a request whose n exceeds --max-n-choices without touching newRequests", func() {
-		sim := newHandleRequestTestSim(context.Background(), 10, "--max-n-choices", "2")
-
-		numChoices, _, channel, topErr, _ := sim.HandleRequest(newTextCompletionsRequestWithChoices("too-many-choices", 3))
-
-		Expect(topErr).NotTo(BeNil())
-		Expect(topErr.Code).To(Equal(fasthttp.StatusBadRequest))
-		Expect(topErr.Message).To(ContainSubstring("n must be less than or equal to 2"))
-		Expect(numChoices).To(Equal(0))
-		Expect(channel).To(BeNil())
-		Expect(sim.newRequests.Channel).To(BeEmpty())
-	})
-
-	It("accepts a request whose n is within --max-n-choices", func() {
-		sim := newHandleRequestTestSim(context.Background(), 10, "--max-n-choices", "2")
-
-		numChoices, _, channel, topErr, _ := sim.HandleRequest(newTextCompletionsRequestWithChoices("within-limit", 2))
-
-		Expect(topErr).To(BeNil())
-		Expect(numChoices).To(Equal(2))
-		Expect(channel).NotTo(BeNil())
-		Expect(sim.newRequests.Channel).To(HaveLen(2))
-	})
-})

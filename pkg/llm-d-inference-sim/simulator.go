@@ -371,12 +371,6 @@ func (s *VllmSimulator) HandleRequest(req Request) (numChoices int, isStream boo
 		return 0, false, nil, serverErr, false
 	}
 
-	if maxNChoices := s.Context.Config().MaxNChoices; req.GetN() > maxNChoices {
-		serverErr := api.NewError(fmt.Sprintf("n must be less than or equal to %d", maxNChoices),
-			fasthttp.StatusBadRequest, nil)
-		return 0, false, nil, &serverErr, false
-	}
-
 	// Single shared channel for all sub-requests; each stamps its ChoiceIdx on
 	// responses and calls signalDone when finished. A watcher goroutine closes
 	// the channel once all sub-requests have signalled completion. For most

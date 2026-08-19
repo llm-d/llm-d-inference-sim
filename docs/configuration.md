@@ -22,7 +22,6 @@ Some environment variables (for example `POD_NAME`, `POD_NAMESPACE`) are not ove
 - `max-cpu-loras`: maximum number of LoRAs to store in CPU memory, optional, must be >= than max-loras, default is max-loras
 - `max-model-len`: model's context window, maximum number of tokens in a single request including input and output, optional, default is 1024
 - `max-num-seqs`: maximum number of sequences per iteration (maximum number of inference requests that could be processed at the same time), default is 5
-- `max-n-choices`: maximum allowed value of the `n` parameter (number of choices) in a request, default is 8. If you omit `--max-n-choices` on the command line, a non-empty `VLLM_MAX_N_SEQUENCES` environment variable can supply it; see [Configuration precedence](#configuration-precedence) and [Environment variables](#environment-variables).
 - `max-waiting-queue-length`: maximum length of inference requests waiting queue, default is 1000
 - `mode`: the simulator mode, optional, by default `random`
     - `echo`: returns the same text that was sent in the request
@@ -196,7 +195,6 @@ In addition, as we are using klog, the following parameters are available:
 # Environment variables
 - `SIM_MODEL`: when non-empty and **`--model` is not passed on the command line**, sets the model name. In that case it overrides the `model` value from the YAML file (if any) and the default. If you pass `--model`, it always wins. Useful in Kubernetes when the same image arguments are reused and the model name comes from the pod environment.
 - `PYTHONHASHSEED`: when **`--hash-seed` is not passed on the command line**, a non-empty value supplies the hash seed and overrides `hash-seed` from the YAML file (if any) and the default. If you pass `--hash-seed`, it always wins. Matches common Python hash randomization behavior.
-- `VLLM_MAX_N_SEQUENCES`: when **`--max-n-choices` is not passed on the command line**, a non-empty value supplies the maximum allowed `n` (number of choices) in a request and overrides `max-n-choices` from the YAML file (if any) and the default. If you pass `--max-n-choices`, it always wins. Must parse as an integer.
 - `VLLM_SERVER_DEV_MODE`: when set to `1`, enables vLLM development mode. Currently used as an additional gate for the `/sleep` endpoint: even with `--enable-sleep-mode`, `/sleep` is a no-op unless `VLLM_SERVER_DEV_MODE=1` is set in the simulator's environment.
 - `POD_NAME`: the simulator pod name. If defined, the response will contain the HTTP header `x-inference-pod` with this value, and the HTTP header `x-inference-port` with the port that the request was received on 
 - `POD_NAMESPACE`: the simulator pod namespace. If defined, the response will contain the HTTP header `x-inference-namespace` with this value
