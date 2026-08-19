@@ -1,6 +1,6 @@
 module github.com/llm-d/llm-d-inference-sim
 
-go 1.26.5
+go 1.26.6
 
 require (
 	github.com/buaazp/fasthttprouter v0.1.1
