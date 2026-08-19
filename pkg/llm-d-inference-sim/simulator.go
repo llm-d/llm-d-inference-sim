@@ -199,7 +199,10 @@ func (s *VllmSimulator) InitializeSim(ctx context.Context) error {
 
 	s.queueCapacity = s.Context.Config().MaxWaitingQueueLength
 
-	maxNumberOfRequests := s.Context.Config().MaxNumSeqs + s.Context.Config().MaxWaitingQueueLength
+	// Extra MaxNumSeqs of headroom covers a benign race: freed workers aren't reflected in
+	// freeWorkers until the single processing() goroutine catches up, so a finishing batch can
+	// make new requests look momentarily over capacity. They just wait here briefly, not rejected.
+	maxNumberOfRequests := s.Context.Config().MaxNumSeqs*2 + s.Context.Config().MaxWaitingQueueLength
 	s.newRequests = common.Channel[requestContext]{
 		Channel: make(chan requestContext, maxNumberOfRequests),
 		Name:    "newRequests",
@@ -368,21 +371,38 @@ func (s *VllmSimulator) HandleRequest(req Request) (numChoices int, isStream boo
 		return 0, false, nil, serverErr, false
 	}
 
+	if maxNChoices := s.Context.Config().MaxNChoices; req.GetN() > maxNChoices {
+		serverErr := api.NewError(fmt.Sprintf("n must be less than or equal to %d", maxNChoices),
+			fasthttp.StatusBadRequest, nil)
+		return 0, false, nil, &serverErr, false
+	}
+
 	// Single shared channel for all sub-requests; each stamps its ChoiceIdx on
 	// responses and calls signalDone when finished. A watcher goroutine closes
 	// the channel once all sub-requests have signalled completion. For most
 	// request types split returns just the receiver; only the parsed text
-	// completions form (which can carry an array of prompts) fans out.
+	// completions form (which can carry an array of prompts) fans out, so this
+	// must be sized off len(subReqs) (total sub-requests sharing the channel),
+	// not req.GetN() (choices per prompt) -- those differ once there's more
+	// than one prompt.
 	subReqs := req.split()
 	respChan := &common.Channel[*ResponseInfo]{
-		Channel: make(chan *ResponseInfo, s.Context.Config().MaxModelLen),
+		Channel: make(chan *ResponseInfo, s.Context.Config().MaxModelLen*len(subReqs)),
 		Name:    "responseInfo-" + req.GetRequestID(),
 	}
 	var wg sync.WaitGroup
 	wg.Add(len(subReqs))
 	for i, subReq := range subReqs {
 		reqCtx := subReq.buildRequestContext(&s.Context, *respChan, i, wg.Done)
-		common.WriteToChannel(s.newRequests, reqCtx, s.Context.logger)
+		if err := common.WriteToChannelWithError(s.newRequests, reqCtx); err != nil {
+			s.Context.logger.Error(err, "failed to enqueue request")
+			err := api.NewError("Failed to enqueue request, "+err.Error(),
+				fasthttp.StatusTooManyRequests, nil)
+			common.WriteToChannel(reqCtx.responseChannel(),
+				&ResponseInfo{Err: &err, ChoiceIdx: reqCtx.choiceIndex()},
+				s.Context.logger)
+			reqCtx.signalDone()
+		}
 	}
 	go func() {
 		wg.Wait()

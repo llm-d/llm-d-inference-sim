@@ -103,6 +103,10 @@ type Configuration struct {
 	// MaxModelLen is the model's context window, the maximum number of tokens
 	// in a single request including input and output. Default value is 1024.
 	MaxModelLen int `yaml:"max-model-len" json:"max-model-len"`
+	// MaxNChoices is the maximum allowed value of the n parameter (number of choices) in a request.
+	// Effective value follows configuration precedence in the docs (command-line --max-n-choices,
+	// else VLLM_MAX_N_SEQUENCES, else YAML, else default 8).
+	MaxNChoices int `yaml:"max-n-choices" json:"max-n-choices"`
 	// LoraModulesString is a list of LoRA adapters as strings (YAML parse helper; omitted from external output)
 	LoraModulesString []string `yaml:"lora-modules" json:"-"`
 	// LoraModules is a list of LoRA adapters
@@ -372,6 +376,7 @@ func newConfig() *Configuration {
 		MaxNumSeqs:                          5,
 		MaxWaitingQueueLength:               1000,
 		MaxModelLen:                         1024,
+		MaxNChoices:                         8,
 		Mode:                                ModeRandom,
 		Seed:                                time.Now().UnixNano(),
 		TimeFactorUnderLoad:                 1.0,
@@ -524,6 +529,10 @@ func (c *Configuration) validate() error {
 
 	if c.MaxNumSeqs < 1 {
 		return errors.New("max num seqs cannot be less than 1")
+	}
+
+	if c.MaxNChoices < 1 {
+		return errors.New("max n choices cannot be less than 1")
 	}
 
 	if c.MaxWaitingQueueLength < 1 {

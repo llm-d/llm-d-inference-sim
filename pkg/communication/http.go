@@ -339,6 +339,15 @@ func (c *Communication) sendNonStream(ctx *fasthttp.RequestCtx, channel common.C
 		}
 	}
 
+	for choiceIdx, rc := range respCtxPerChoice {
+		if rc == nil {
+			err := api.NewError(fmt.Sprintf("Response body creation failed: no tokens for choice index: %d", choiceIdx),
+				fasthttp.StatusInternalServerError, nil)
+			c.sendError(ctx, &err, false)
+			return
+		}
+	}
+
 	resp := respBuilder.createResponse(respCtxPerChoice, tokens)
 	data, err := json.Marshal(resp)
 	if err != nil {
@@ -450,7 +459,7 @@ func (c *Communication) sendStream(ctx *fasthttp.RequestCtx, channel common.Chan
 
 			choiceIdx := response.ChoiceIdx
 			// Capture per-choice respCtx so the final usage chunk can aggregate
-			// across all sub-requests and send separate finish reason for each choices.
+			// across all sub-requests and send separate finish reason for each choice.
 			if state.respCtxPerChoice[choiceIdx] == nil {
 				state.respCtxPerChoice[choiceIdx] = response.RespCtx
 			}
@@ -473,6 +482,15 @@ func (c *Communication) sendStream(ctx *fasthttp.RequestCtx, channel common.Chan
 			}
 			if stop {
 				break
+			}
+		}
+
+		for choiceIdx, rc := range state.respCtxPerChoice {
+			if rc == nil {
+				err := api.NewError(fmt.Sprintf("Response body creation failed: no tokens for choice index: %d", choiceIdx),
+					fasthttp.StatusInternalServerError, nil)
+				c.sendError(ctx, &err, false)
+				return
 			}
 		}
 

@@ -171,7 +171,9 @@ func (s *SimContext) MetricsRegistry() *prometheus.Registry {
 
 // createAndRegisterPrometheus creates and registers prometheus metrics used by vLLM simulator
 func (s *SimContext) createAndRegisterPrometheus(ctx context.Context) error {
-	maxNumberOfRequests := s.Config().MaxNumSeqs + s.Config().MaxWaitingQueueLength
+	maxNumberOfRequests := (s.Config().MaxNumSeqs + s.Config().MaxWaitingQueueLength) * 2
+	maxNumberOfRunningRequests := s.Config().MaxNumSeqs * 2
+	maxNumberOfWaitingRequests := s.Config().MaxWaitingQueueLength * 2
 
 	s.metrics.registry = prometheus.NewRegistry()
 
@@ -201,7 +203,7 @@ func (s *SimContext) createAndRegisterPrometheus(ctx context.Context) error {
 	}
 
 	s.metrics.runReqChan = common.Channel[common.MetricInfo]{
-		Channel: make(chan common.MetricInfo, maxNumberOfRequests),
+		Channel: make(chan common.MetricInfo, maxNumberOfRunningRequests),
 		Name:    "metrics.runReqChan",
 		Done:    ctx.Done(),
 	}
@@ -222,7 +224,7 @@ func (s *SimContext) createAndRegisterPrometheus(ctx context.Context) error {
 	}
 
 	s.metrics.waitingReqChan = common.Channel[common.MetricInfo]{
-		Channel: make(chan common.MetricInfo, maxNumberOfRequests),
+		Channel: make(chan common.MetricInfo, maxNumberOfWaitingRequests),
 		Name:    "metrics.waitingReqChan",
 		Done:    ctx.Done(),
 	}
@@ -233,7 +235,7 @@ func (s *SimContext) createAndRegisterPrometheus(ctx context.Context) error {
 	}
 
 	s.metrics.ttftChan = common.Channel[float64]{
-		Channel: make(chan float64, maxNumberOfRequests),
+		Channel: make(chan float64, maxNumberOfRunningRequests),
 		Name:    "metrics.ttftChan",
 		Done:    ctx.Done(),
 	}
@@ -244,7 +246,7 @@ func (s *SimContext) createAndRegisterPrometheus(ctx context.Context) error {
 	}
 
 	s.metrics.tpotChan = common.Channel[float64]{
-		Channel: make(chan float64, maxNumberOfRequests*s.Config().MaxModelLen),
+		Channel: make(chan float64, maxNumberOfRunningRequests*s.Config().MaxModelLen),
 		Name:    "metrics.tpotChan",
 		Done:    ctx.Done(),
 	}
@@ -255,7 +257,7 @@ func (s *SimContext) createAndRegisterPrometheus(ctx context.Context) error {
 	}
 
 	s.metrics.e2eReqLatencyChan = common.Channel[float64]{
-		Channel: make(chan float64, maxNumberOfRequests),
+		Channel: make(chan float64, maxNumberOfRunningRequests),
 		Name:    "metrics.e2eReqLatencyChan",
 		Done:    ctx.Done(),
 	}
@@ -266,7 +268,7 @@ func (s *SimContext) createAndRegisterPrometheus(ctx context.Context) error {
 	}
 
 	s.metrics.reqQueueTimeChan = common.Channel[float64]{
-		Channel: make(chan float64, maxNumberOfRequests),
+		Channel: make(chan float64, maxNumberOfWaitingRequests),
 		Name:    "metrics.reqQueueTimeChan",
 		Done:    ctx.Done(),
 	}
@@ -277,7 +279,7 @@ func (s *SimContext) createAndRegisterPrometheus(ctx context.Context) error {
 	}
 
 	s.metrics.reqInferenceTimeChan = common.Channel[float64]{
-		Channel: make(chan float64, maxNumberOfRequests),
+		Channel: make(chan float64, maxNumberOfRunningRequests),
 		Name:    "metrics.reqInferenceTimeChan",
 		Done:    ctx.Done(),
 	}
@@ -288,7 +290,7 @@ func (s *SimContext) createAndRegisterPrometheus(ctx context.Context) error {
 	}
 
 	s.metrics.reqPrefillTimeChan = common.Channel[float64]{
-		Channel: make(chan float64, maxNumberOfRequests),
+		Channel: make(chan float64, maxNumberOfRunningRequests),
 		Name:    "metrics.reqPrefillTimeChan",
 		Done:    ctx.Done(),
 	}
@@ -299,7 +301,7 @@ func (s *SimContext) createAndRegisterPrometheus(ctx context.Context) error {
 	}
 
 	s.metrics.reqDecodeTimeChan = common.Channel[float64]{
-		Channel: make(chan float64, maxNumberOfRequests),
+		Channel: make(chan float64, maxNumberOfRunningRequests),
 		Name:    "metrics.reqDecodeTimeChan",
 		Done:    ctx.Done(),
 	}
@@ -310,7 +312,7 @@ func (s *SimContext) createAndRegisterPrometheus(ctx context.Context) error {
 	}
 
 	s.metrics.reqTpotChan = common.Channel[float64]{
-		Channel: make(chan float64, maxNumberOfRequests),
+		Channel: make(chan float64, maxNumberOfRunningRequests),
 		Name:    "metrics.reqTpotChan",
 		Done:    ctx.Done(),
 	}
@@ -331,7 +333,7 @@ func (s *SimContext) createAndRegisterPrometheus(ctx context.Context) error {
 	}
 
 	s.metrics.kvCacheUsageChan = common.Channel[common.MetricInfo]{
-		Channel: make(chan common.MetricInfo, maxNumberOfRequests),
+		Channel: make(chan common.MetricInfo, maxNumberOfRunningRequests),
 		Name:    "metrics.kvCacheUsageChan",
 		Done:    ctx.Done(),
 	}
@@ -346,7 +348,7 @@ func (s *SimContext) createAndRegisterPrometheus(ctx context.Context) error {
 	}
 
 	s.metrics.prefixCacheStatsChan = common.Channel[kvcache.PrefixCacheStats]{
-		Channel: make(chan kvcache.PrefixCacheStats, maxNumberOfRequests),
+		Channel: make(chan kvcache.PrefixCacheStats, maxNumberOfRunningRequests),
 		Name:    "metrics.prefixCacheStatsChan",
 		Done:    ctx.Done(),
 	}
@@ -381,7 +383,7 @@ func (s *SimContext) createAndRegisterPrometheus(ctx context.Context) error {
 	}
 
 	s.metrics.requestSuccessChan = common.Channel[requestSuccessEvent]{
-		Channel: make(chan requestSuccessEvent, maxNumberOfRequests),
+		Channel: make(chan requestSuccessEvent, maxNumberOfRunningRequests),
 		Name:    "metrics.requestSuccessChan",
 		Done:    ctx.Done(),
 	}

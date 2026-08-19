@@ -732,6 +732,18 @@ var _ = Describe("Simulator configuration", func() {
 			expectedError: "max num seqs cannot be less than 1",
 		},
 		{
+			name: "invalid max-n-choices",
+			args: []string{"cmd", "--max-n-choices", "0",
+				"--config", "../../manifests/config.yaml"},
+			expectedError: "max n choices cannot be less than 1",
+		},
+		{
+			name: "invalid max-n-choices",
+			args: []string{"cmd", "--max-n-choices", "-1",
+				"--config", "../../manifests/config.yaml"},
+			expectedError: "max n choices cannot be less than 1",
+		},
+		{
 			name: "invalid max-waiting-queue-length",
 			args: []string{"cmd", "--max-waiting-queue-length", "0",
 				"--config", "../../manifests/config.yaml"},
@@ -1003,6 +1015,41 @@ var _ = Describe("PYTHONHASHSEED environment variable", func() {
 		config, err := createSimConfig([]string{"cmd", "--model", TestModelName, "--mode", ModeRandom, "--seed", "100"})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(config.HashSeed).To(Equal("env-seed"))
+	})
+})
+
+var _ = Describe("VLLM_MAX_N_SEQUENCES environment variable", func() {
+	BeforeEach(func() {
+		Expect(os.Unsetenv(VllmMaxNSequencesEnv)).To(Succeed())
+	})
+	AfterEach(func() {
+		Expect(os.Unsetenv(VllmMaxNSequencesEnv)).To(Succeed())
+	})
+
+	It("defaults to 8 when neither the flag nor the env var are set", func() {
+		config, err := createSimConfig([]string{"cmd", "--model", TestModelName, "--mode", ModeRandom, "--seed", "100"})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(config.MaxNChoices).To(Equal(8))
+	})
+
+	It("does not override --max-n-choices when the flag is passed", func() {
+		Expect(os.Setenv(VllmMaxNSequencesEnv, "20")).To(Succeed())
+		config, err := createSimConfig([]string{"cmd", "--model", TestModelName, "--max-n-choices", "3", "--mode", ModeRandom, "--seed", "100"})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(config.MaxNChoices).To(Equal(3))
+	})
+
+	It("applies when --max-n-choices is omitted", func() {
+		Expect(os.Setenv(VllmMaxNSequencesEnv, "20")).To(Succeed())
+		config, err := createSimConfig([]string{"cmd", "--model", TestModelName, "--mode", ModeRandom, "--seed", "100"})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(config.MaxNChoices).To(Equal(20))
+	})
+
+	It("returns an error when the env var is not a valid integer", func() {
+		Expect(os.Setenv(VllmMaxNSequencesEnv, "not-a-number")).To(Succeed())
+		_, err := createSimConfig([]string{"cmd", "--model", TestModelName, "--mode", ModeRandom, "--seed", "100"})
+		Expect(err).To(HaveOccurred())
 	})
 })
 

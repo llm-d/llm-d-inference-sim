@@ -175,21 +175,29 @@ type Channel[T any] struct {
 	Done <-chan struct{}
 }
 
-func WriteToChannel[T any](channel Channel[T], object T, logger logr.Logger) {
+// WriteToChannelWithError attempts a non-blocking write to channel and returns an error
+// if the channel is full, unless channel.Done is closed (shutting down), in which case a
+// full channel is not reported as an error.
+func WriteToChannelWithError[T any](channel Channel[T], object T) error {
 	select {
 	case channel.Channel <- object:
-		return
+		return nil
 	default:
 	}
-	// Channel was full — only warn if we are not shutting down.
 	if channel.Done != nil {
 		select {
 		case <-channel.Done:
-			return
+			return nil
 		default:
 		}
 	}
-	logger.V(logging.WARN).Info("failed to write to", "channel", channel.Name)
+	return fmt.Errorf("failed to write to channel %s: channel is full", channel.Name)
+}
+
+func WriteToChannel[T any](channel Channel[T], object T, logger logr.Logger) {
+	if err := WriteToChannelWithError(channel, object); err != nil {
+		logger.V(logging.WARN).Info("failed to write to", "channel", channel.Name)
+	}
 }
 
 // MaxIntSlice receives a slice of ints, returns the maximum value in the slice if not empty,

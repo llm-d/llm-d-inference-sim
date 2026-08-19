@@ -998,6 +998,73 @@ var _ = Describe("Simulator", func() {
 		})
 	})
 
+	Context("Response channel buffer sizing", func() {
+		// buildWordPrompt returns a prompt of n space-separated distinct words, which the
+		// SimpleTokenizer used in tests renders as exactly n tokens.
+		buildWordPrompt := func(n int) string {
+			words := make([]string, n)
+			for i := range words {
+				words[i] = fmt.Sprintf("tok%d", i)
+			}
+			return strings.Join(words, " ")
+		}
+
+		It("Should not drop tokens across many concurrent requests (echo mode)", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho,
+				"--max-num-seqs", "100", "--max-model-len", "16", "--max-waiting-queue-length", "1",
+				"--max-n-choices", "10"}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			prompt := buildWordPrompt(15)
+			openaiclient, params := getOpenAIClientAndCompletionParams(client, common.TestModelName, prompt, false)
+			n := 10
+			params.N = param.NewOpt(int64(n))
+
+			var wg sync.WaitGroup
+			numberOfRequests := 10
+			wg.Add(numberOfRequests)
+			for range numberOfRequests {
+				go func() {
+					defer GinkgoRecover()
+					defer wg.Done()
+					resp, err := openaiclient.Completions.New(ctx, params)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(resp.Choices).To(HaveLen(n))
+					for i := range n {
+						Expect(resp.Choices[i].Text).To(Equal(prompt))
+					}
+				}()
+			}
+			wg.Wait()
+		})
+
+		It("Should not drop tokens across multiple prompts each with n>1 choices (echo mode)", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho,
+				"--max-num-seqs", "100", "--max-model-len", "16", "--max-waiting-queue-length", "1",
+				"--max-n-choices", "3"}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			prompts := []string{buildWordPrompt(15), buildWordPrompt(14), buildWordPrompt(13)}
+			openaiclient, params := getOpenAIClientAndCompletionParams(client, common.TestModelName, prompts[0], false)
+			params.Prompt = openai.CompletionNewParamsPromptUnion{OfArrayOfStrings: prompts}
+			n := 3
+			params.N = param.NewOpt(int64(n))
+
+			resp, err := openaiclient.Completions.New(ctx, params)
+			Expect(err).NotTo(HaveOccurred())
+			// len(prompts) * n choices, one respCtx per choice, must all have arrived
+			// on the single response channel shared by this request.
+			Expect(resp.Choices).To(HaveLen(len(prompts) * n))
+			for i, choice := range resp.Choices {
+				Expect(choice.Text).To(Equal(prompts[i/n]))
+			}
+		})
+	})
+
 	Context("kv-events for requests", func() {
 		ctx := context.TODO()
 		model := common.QwenModelName
