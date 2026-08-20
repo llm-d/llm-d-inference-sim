@@ -6,6 +6,7 @@ HTTP requests are routed to the HTTP server, and HTTP2 requests are routed to th
 Currently, the simulator supports a partial OpenAI-compatible API:
 - `/v1/chat/completions`
 - `/v1/completions`
+- `/v1/audio/speech`
 - `/v1/responses`
 - `/v1/embeddings`
 - `/v1/models`
@@ -94,5 +95,4 @@ It is available on the same port as the HTTP server.
 Only `Generate` and `GetModelInfo` methods are currently implemented. <br>
 The `Generate` submits a generation request. Supports streaming responses and standard sampling parameters.<br>
 The `GetModelInfo` retrieves metadata about the currently loaded model.
-
 
