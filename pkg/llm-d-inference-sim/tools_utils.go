@@ -295,8 +295,11 @@ func createArgument(property any, config *common.Configuration, random *common.R
 	case "boolean":
 		return random.FlipCoin(), nil
 	case "array":
-		items := propertyMap["items"]
-		itemsMap := items.(map[string]any)
+		// A schema may omit items; there is no element shape to generate from.
+		itemsMap, ok := propertyMap["items"].(map[string]any)
+		if !ok {
+			return []any{}, nil
+		}
 		minItems := config.MinToolCallArrayParamLength
 		maxItems := config.MaxToolCallArrayParamLength
 		if value, ok := propertyMap["minItems"]; ok {
@@ -320,7 +323,11 @@ func createArgument(property any, config *common.Configuration, random *common.R
 		return array, nil
 	case "object":
 		required := getRequiredAsMap(propertyMap)
-		objectProperties := propertyMap["properties"].(map[string]any)
+		// A schema may omit properties; there are no fields to generate.
+		objectProperties, ok := propertyMap["properties"].(map[string]any)
+		if !ok {
+			return map[string]any{}, nil
+		}
 		object := make(map[string]interface{})
 		for fieldName, fieldProperties := range objectProperties {
 			_, fieldIsRequired := required[fieldName]
