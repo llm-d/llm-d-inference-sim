@@ -526,8 +526,8 @@ func (c *Configuration) validate() error {
 		return errors.New("max num seqs cannot be less than 1")
 	}
 
-	if c.MaxWaitingQueueLength < 1 {
-		return errors.New("max waiting queue size cannot be less than 1")
+	if c.MaxWaitingQueueLength < 0 {
+		return errors.New("max waiting queue size cannot be less than 0")
 	}
 
 	for _, lora := range c.LoraModules {

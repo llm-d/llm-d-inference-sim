@@ -1,4 +1,4 @@
-# Build Stage: using Go 1.26.5 image
+# Build Stage: using Go 1.26.6 image
 ## Pure Go build, no CGO required
 FROM golang:1.26.6 AS builder
 ARG TARGETOS

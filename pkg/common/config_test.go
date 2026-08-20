@@ -733,15 +733,9 @@ var _ = Describe("Simulator configuration", func() {
 		},
 		{
 			name: "invalid max-waiting-queue-length",
-			args: []string{"cmd", "--max-waiting-queue-length", "0",
-				"--config", "../../manifests/config.yaml"},
-			expectedError: "max waiting queue size cannot be less than 1",
-		},
-		{
-			name: "invalid max-waiting-queue-length",
 			args: []string{"cmd", "--max-waiting-queue-length", "-1",
 				"--config", "../../manifests/config.yaml"},
-			expectedError: "max waiting queue size cannot be less than 1",
+			expectedError: "max waiting queue size cannot be less than 0",
 		},
 		{
 			name: "invalid time-factor-under-load",
