@@ -62,10 +62,58 @@ else
 endif
 
 
+.PHONY: presubmit
+presubmit: LINT_NEW_ONLY=true
+presubmit: git-branch-check signed-commits-check go-mod-check format lint vulncheck check-latest-tags ## Run all pre-merge checks
+	@printf "\033[32;1m==== presubmit passed ====\033[0m\n"
+
+.PHONY: git-branch-check
+git-branch-check: ## Fail if current branch is main
+	@branch=$$(git rev-parse --abbrev-ref HEAD); \
+	if [ "$$branch" = "main" ]; then \
+	  echo "ERROR: Direct push to 'main' is not allowed."; \
+	  echo "Create a feature branch and open a PR."; \
+	  exit 1; \
+	fi
+
+.PHONY: signed-commits-check
+signed-commits-check: ## Verify commits are GPG-signed and DCO signed-off
+	@./scripts/check-commits.sh upstream/main
+
+.PHONY: go-mod-check
+go-mod-check: check-go ## Verify go.mod and go.sum are tidy
+	@printf "\033[33;1m==== Checking go.mod tidiness ====\033[0m\n"
+	@go mod tidy
+	@git diff --exit-code go.mod go.sum || { \
+	  echo "ERROR: go.mod / go.sum are not tidy. Run 'go mod tidy' and commit."; \
+	  exit 1; \
+	}
+
+.PHONY: format
+format: $(GOLANGCI_LINT) ## Format Go code
+	@printf "\033[33;1m==== Formatting ====\033[0m\n"
+	gofmt -l -w .
+	$(GOLANGCI_LINT) fmt --config=./.golangci.yml
+
+.PHONY: vulncheck
+vulncheck: check-go ## Run govulncheck
+	@printf "\033[33;1m==== Running vulncheck ====\033[0m\n"
+	@GOBIN=$(LOCALBIN) go install golang.org/x/vuln/cmd/govulncheck@latest
+	$(LOCALBIN)/govulncheck ./...
+
+.PHONY: check-latest-tags
+check-latest-tags: ## Warn on YAML using image :latest tag
+	@./scripts/check-latest-tags.sh
+
+LINT_ARGS ?=
+ifeq ($(LINT_NEW_ONLY),true)
+LINT_ARGS += --new
+endif
+
 .PHONY: lint
-lint: $(GOLANGCI_LINT) ## Run lint
+lint: $(GOLANGCI_LINT) ## Run lint (set LINT_NEW_ONLY=true to lint only new code)
 	@printf "\033[33;1m==== Running linting ====\033[0m\n"
-	$(GOLANGCI_LINT) run
+	GOFLAGS=-buildvcs=false $(GOLANGCI_LINT) run $(LINT_ARGS)
 
 ##@ Build
 
