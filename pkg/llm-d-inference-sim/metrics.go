@@ -24,6 +24,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -84,8 +85,11 @@ type metricsData struct {
 	waitingLoras sync.Map
 	// lorasChan is a channel to update waitingLoras and runningLoras
 	lorasChan common.Channel[loraUsage]
-	// nRunningReqs is the number of inference requests that are currently being processed
-	nRunningReqs int64
+	// nRunningReqs is the number of inference requests that are currently being processed.
+	// Written only by runningRequestsUpdater, but read concurrently by worker goroutines
+	// (via SimContext.simulateTTFT/simulateInterTokenLatency) for load-dependent latency, so
+	// it needs atomic access.
+	nRunningReqs atomic.Int64
 	// runReqChan is a channel to update nRunningReqs
 	runReqChan common.Channel[common.MetricInfo]
 	// requestSuccessChan is a channel to update requestSuccessReqs
@@ -461,7 +465,7 @@ func (s *SimContext) reportLoras() {
 func (s *SimContext) reportRunningRequests() {
 	if s.metrics.runningRequests != nil {
 		s.metrics.runningRequests.WithLabelValues(
-			s.Config().DisplayModelName).Set(float64(s.metrics.nRunningReqs))
+			s.Config().DisplayModelName).Set(float64(s.metrics.nRunningReqs.Load()))
 	}
 }
 
@@ -526,9 +530,9 @@ func (s *SimContext) runningRequestsUpdater(ctx context.Context) {
 			}
 
 			if upd.IsFake {
-				s.metrics.nRunningReqs = int64(upd.Value)
+				s.metrics.nRunningReqs.Store(int64(upd.Value))
 			} else {
-				s.metrics.nRunningReqs += int64(upd.Value)
+				s.metrics.nRunningReqs.Add(int64(upd.Value))
 			}
 
 			s.reportRunningRequests()

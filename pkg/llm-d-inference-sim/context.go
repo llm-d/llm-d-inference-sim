@@ -259,7 +259,7 @@ func (s *SimContext) simulateTTFT(respCtx ResponseContext) {
 		PromptTokens:       respCtx.UsageData().PromptTokens,
 		CachedPromptTokens: respCtx.NumberCachedPromptTokens(),
 		DoRemotePrefill:    respCtx.doRemotePrefill(),
-		RunningReqs:        s.metrics.nRunningReqs,
+		RunningReqs:        s.metrics.nRunningReqs.Load(),
 	}
 	ttft := s.latencyCalc().GetTimeToFirstToken(&params)
 	time.Sleep(ttft)
@@ -277,7 +277,7 @@ func (s *SimContext) simulateImageGenerationLatency() {
 
 func (s *SimContext) simulateInterTokenLatency() {
 	perTokenLatency := s.latencyCalc().GetInterTokenLatency(&InterTokenParams{
-		RunningReqs: s.metrics.nRunningReqs})
+		RunningReqs: s.metrics.nRunningReqs.Load()})
 	time.Sleep(perTokenLatency)
 
 	// report tpot in seconds
