@@ -34,6 +34,10 @@ const (
 	toolChoiceRequired = "required"
 )
 
+// paramTypeNull is the JSON Schema type keyword for a property whose only
+// permitted value is null.
+const paramTypeNull = "null"
+
 var fakeStringArguments = []string{
 	`testing`,
 	`hello`,
@@ -271,9 +275,29 @@ func getRequiredAsMap(property map[string]any) map[string]struct{} {
 	return required
 }
 
+// resolveParamType normalizes the JSON Schema type keyword, which may be a single
+// string, a union of strings, or absent, into the one type the generator handles.
+// A union resolves to its first non-null member, matching the value a model would
+// most likely produce for an optional field.
+func resolveParamType(paramType any) any {
+	switch typeValue := paramType.(type) {
+	case nil:
+		return "string"
+	case []any:
+		for _, member := range typeValue {
+			if name, ok := member.(string); ok && name != paramTypeNull {
+				return name
+			}
+		}
+		return paramTypeNull
+	default:
+		return paramType
+	}
+}
+
 func createArgument(property any, config *common.Configuration, random *common.Random) (any, error) {
 	propertyMap, _ := property.(map[string]any)
-	paramType := propertyMap["type"]
+	paramType := resolveParamType(propertyMap["type"])
 
 	// If there is an enum, choose from it
 	enum, ok := propertyMap["enum"]
@@ -294,6 +318,8 @@ func createArgument(property any, config *common.Configuration, random *common.R
 		return random.RandomFloat(config.MinToolCallNumberParam, config.MaxToolCallNumberParam), nil
 	case "boolean":
 		return random.FlipCoin(), nil
+	case paramTypeNull:
+		return nil, nil
 	case "array":
 		items := propertyMap["items"]
 		itemsMap := items.(map[string]any)
