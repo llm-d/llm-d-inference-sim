@@ -30,11 +30,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log"
 )
 
+const maxModelLength = 10000
+
 func createDataset() *DefaultDataset {
 	ds := DefaultDataset{}
 	ctx := context.Background()
 	logger := log.FromContext(ctx)
-	err := ds.Init(context.Background(), logger, common.NewRandom(time.Now().UnixNano(), 8080), 1024, tokenizerMngr.TestTokenizer())
+	err := ds.Init(context.Background(), logger, common.NewRandom(time.Now().UnixNano(), 8080), maxModelLength, tokenizerMngr.TestTokenizer())
 	Expect(err).ShouldNot(HaveOccurred())
 
 	return &ds
@@ -69,6 +71,7 @@ var _ = Describe("Default Dataset", Ordered, func() {
 			req := &api.ChatCompletionsRequest{
 				MaxCompletionTokens: &maxCompletionTokens,
 			}
+			req.SetTokenizedPrompt(&api.Tokenized{})
 			tokens, finishReason, err := dataset.GetResponseTokens(req)
 			Expect(err).ShouldNot(HaveOccurred())
 			tokensCnt := int64(tokens.Length())
@@ -86,6 +89,7 @@ var _ = Describe("Default Dataset", Ordered, func() {
 			req := &api.ChatCompletionsRequest{
 				MaxTokens: &maxCompletionTokens,
 			}
+			req.SetTokenizedPrompt(&api.Tokenized{})
 			tokens, finishReason, err := dataset.GetResponseTokens(req)
 			Expect(err).ShouldNot(HaveOccurred())
 			tokensCnt := int64(tokens.Length())
@@ -107,6 +111,7 @@ var _ = Describe("Default Dataset", Ordered, func() {
 					MaxTokens: &n,
 				}
 				req.SetIgnoreEOS(true)
+				req.SetTokenizedPrompt(&api.Tokenized{})
 				tokens, finishReason, err := dataset.GetResponseTokens(req)
 				Expect(err).ShouldNot(HaveOccurred())
 				nGenTokens := int64(tokens.Length())
@@ -119,8 +124,21 @@ var _ = Describe("Default Dataset", Ordered, func() {
 			Entry("1", 1),
 			Entry("42", 42),
 			Entry("99", 99),
-			Entry("10000", 10000),
+			Entry("10000", maxModelLength),
 		)
+
+		It("should clamp response length to the remaining context window when max-tokens exceeds it", func() {
+			maxCompletionTokens := int64(maxModelLength + 5)
+			req := &api.ChatCompletionsRequest{
+				MaxTokens: &maxCompletionTokens,
+			}
+			req.SetIgnoreEOS(true)
+			req.SetTokenizedPrompt(&api.Tokenized{})
+			tokens, finishReason, err := dataset.GetResponseTokens(req)
+			Expect(err).ShouldNot(HaveOccurred())
+			Expect(tokens.Length()).Should(Equal(maxModelLength))
+			Expect(finishReason).To(Equal(common.LengthFinishReason))
+		})
 	})
 
 	Context("GetRandomTokens", func() {

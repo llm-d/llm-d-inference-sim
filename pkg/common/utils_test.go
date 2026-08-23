@@ -23,46 +23,40 @@ import (
 
 var _ = Describe("Utils", Ordered, func() {
 	Context("validateContextWindow", func() {
-		It("should pass when total tokens are within limit", func() {
-			promptTokens := 100
-			maxCompletionTokens := int64(50)
-			maxModelLen := 200
+		Context("random mode", func() {
+			It("should pass when prompt leaves room for at least one response token", func() {
+				Expect(ValidateContextWindow(198, 200, ModeRandom)).Should(BeTrue())
+			})
 
-			isValid, actualCompletionTokens, totalTokens := ValidateContextWindow(promptTokens, &maxCompletionTokens, maxModelLen)
-			Expect(isValid).Should(BeTrue())
-			Expect(actualCompletionTokens).Should(Equal(int64(50)))
-			Expect(totalTokens).Should(Equal(int64(150)))
+			It("should pass at the boundary, when the prompt plus one response token exactly fills the window", func() {
+				Expect(ValidateContextWindow(199, 200, ModeRandom)).Should(BeTrue())
+			})
+
+			It("should fail when prompt alone fills or exceeds the context window", func() {
+				Expect(ValidateContextWindow(200, 200, ModeRandom)).Should(BeFalse())
+				Expect(ValidateContextWindow(201, 200, ModeRandom)).Should(BeFalse())
+			})
+
+			It("should ignore max-tokens entirely", func() {
+				// even though this would previously fail on prompt+maxTokens > maxModelLen,
+				// random mode no longer considers max-tokens at all
+				Expect(ValidateContextWindow(100, 200, ModeRandom)).Should(BeTrue())
+			})
 		})
 
-		It("should fail when total tokens exceed limit", func() {
-			promptTokens := 150
-			maxCompletionTokens := int64(100)
-			maxModelLen := 200
+		Context("echo mode", func() {
+			It("should pass when the prompt echoed back still fits within the window", func() {
+				Expect(ValidateContextWindow(99, 200, ModeEcho)).Should(BeTrue())
+			})
 
-			isValid, actualCompletionTokens, totalTokens := ValidateContextWindow(promptTokens, &maxCompletionTokens, maxModelLen)
-			Expect(isValid).Should(BeFalse())
-			Expect(actualCompletionTokens).Should(Equal(int64(100)))
-			Expect(totalTokens).Should(Equal(int64(250)))
-		})
+			It("should pass at the boundary, when the prompt echoed back exactly fills the window", func() {
+				Expect(ValidateContextWindow(100, 200, ModeEcho)).Should(BeTrue())
+			})
 
-		It("should handle nil max completion tokens", func() {
-			promptTokens := 100
-			maxModelLen := 200
-
-			isValid, actualCompletionTokens, totalTokens := ValidateContextWindow(promptTokens, nil, maxModelLen)
-			Expect(isValid).Should(BeTrue())
-			Expect(actualCompletionTokens).Should(Equal(int64(1)))
-			Expect(totalTokens).Should(Equal(int64(101)))
-		})
-
-		It("should fail when only prompt tokens exceed limit", func() {
-			promptTokens := 250
-			maxModelLen := 200
-
-			isValid, actualCompletionTokens, totalTokens := ValidateContextWindow(promptTokens, nil, maxModelLen)
-			Expect(isValid).Should(BeFalse())
-			Expect(actualCompletionTokens).Should(Equal(int64(1)))
-			Expect(totalTokens).Should(Equal(int64(251)))
+			It("should fail when the prompt echoed back would not fit within the window", func() {
+				Expect(ValidateContextWindow(101, 200, ModeEcho)).Should(BeFalse())
+				Expect(ValidateContextWindow(150, 200, ModeEcho)).Should(BeFalse())
+			})
 		})
 	})
 

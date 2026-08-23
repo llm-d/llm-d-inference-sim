@@ -756,6 +756,14 @@ func getChatPromptTokensCountForTestModel(message string) int64 {
 	return int64(len(tokens))
 }
 
+// renders the given plain-text prompt using the test model
+func getTextPromptTokensCountForTestModel(prompt string) int64 {
+	tokens, _, err := tokenizerMngr.TestTokenizer().RenderText(prompt)
+	gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
+
+	return int64(len(tokens))
+}
+
 // writeTestConfig writes a test configuration file
 func writeTestConfig(path string, content string) error {
 	return os.WriteFile(path, []byte(content), 0644)

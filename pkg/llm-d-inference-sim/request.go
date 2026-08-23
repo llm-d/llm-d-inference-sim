@@ -151,17 +151,33 @@ func (b *baseRequestContext) tokenize() *api.Error {
 	return nil
 }
 
-// validate context window constraints
-func (b *baseRequestContext) validateContextWindow() (string, int) {
+// validate context window and other token-count-dependent request constraints,
+// which can only be checked once the prompt is tokenized
+func (b *baseRequestContext) validateTokenizedRequest() (string, int) {
 	promptTokens := getNumberOfPromptTokens(b.request())
-	completionTokens := b.request().GetMaxCompletionTokens()
-	isValid, actualCompletionTokens, totalTokens := common.ValidateContextWindow(promptTokens, completionTokens,
-		b.sim.Config().MaxModelLen)
-	if !isValid {
-		message := fmt.Sprintf("This model's maximum context length is %d tokens. However, you requested %d tokens (%d in the messages, %d in the completion). Please reduce the length of the messages or completion",
-			b.sim.Config().MaxModelLen, totalTokens, promptTokens, actualCompletionTokens)
+	maxModelLen := b.sim.Config().MaxModelLen
+	mode := b.sim.Config().Mode
+
+	if !common.ValidateContextWindow(promptTokens, maxModelLen, mode) {
+		var message string
+		if mode == common.ModeEcho {
+			message = fmt.Sprintf("This model's maximum context length is %d tokens. However, the prompt has %d tokens, and in echo mode the prompt is echoed back as the response, requiring %d tokens in total. Please reduce the length of the messages",
+				maxModelLen, promptTokens, promptTokens*2)
+		} else {
+			message = fmt.Sprintf("This model's maximum context length is %d tokens. However, you requested %d tokens in the messages. Please reduce the length of the messages",
+				maxModelLen, promptTokens)
+		}
 		return message, fasthttp.StatusBadRequest
 	}
+
+	if mode == common.ModeEcho {
+		if maxTokens := b.request().GetMaxCompletionTokens(); maxTokens != nil && int64(promptTokens) > *maxTokens {
+			message := fmt.Sprintf("In echo mode the full prompt is returned as the response, so max_tokens must be at least the prompt length. max_tokens is %d, but the prompt has %d tokens. Please increase max_tokens or reduce the length of the messages",
+				*maxTokens, promptTokens)
+			return message, fasthttp.StatusBadRequest
+		}
+	}
+
 	return "", fasthttp.StatusOK
 }
 
@@ -184,7 +200,7 @@ func (reqCtx *baseRequestContext) handleRequest() (ResponseContext, *api.Error) 
 		return nil, err
 	}
 
-	if errMsg, errCode := reqCtx.validateContextWindow(); errMsg != "" {
+	if errMsg, errCode := reqCtx.validateTokenizedRequest(); errMsg != "" {
 		oaiServerError := api.NewError(errMsg, errCode, nil)
 		return nil, &oaiServerError
 	}

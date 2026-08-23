@@ -288,7 +288,7 @@ var _ = Describe("Latency admin config", func() {
 			params := openai.ChatCompletionNewParams{
 				Messages:  []openai.ChatCompletionMessageParamUnion{openai.UserMessage(testUserMessage)},
 				Model:     common.TestModelName,
-				MaxTokens: param.NewOpt(int64(5)),
+				MaxTokens: param.NewOpt(int64(20)),
 			}
 
 			// Without X-Send-Image: no image delay, should complete quickly.
@@ -330,7 +330,7 @@ var _ = Describe("Latency admin config", func() {
 			params := openai.ChatCompletionNewParams{
 				Messages:  []openai.ChatCompletionMessageParamUnion{openai.UserMessage(testUserMessage)},
 				Model:     common.TestModelName,
-				MaxTokens: param.NewOpt(int64(5)),
+				MaxTokens: param.NewOpt(int64(20)),
 			}
 
 			// Before: time-to-generate-image=0ms, should complete quickly.

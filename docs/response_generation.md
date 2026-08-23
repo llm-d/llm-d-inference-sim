@@ -4,16 +4,20 @@ The simulator determines the content and length of its responses based on the co
 
 ## Echo Mode
 In this mode, the simulator acts as a loopback mechanism.
-- **Response Content:** Mirrors the input request.
+- **Response Content:** Mirrors the input request, unmodified — the prompt is never trimmed to fit `max_tokens`.
   - For `/v1/completions`: Returns the `prompt` field.
   - For `/v1/chat/completions`: Returns the content of the last message in the `messages` list.
-- **Ignored Parameters:** `max_tokens`, `max_completion_tokens`, and `ignore_eos` have no effect.
+- **Ignored Parameters:** `ignore_eos` has no effect.
+- **`max_tokens` / `max_completion_tokens`:** Not ignored — the request is rejected with `400 Bad Request` if the prompt's token count exceeds `max_tokens`, since echo mode cannot truncate the response to fit. They otherwise have no effect on response content.
+- **Context window:** Because the prompt is echoed back as the response, both count against `max-model-len` — the request is rejected with `400 Bad Request` unless `2 * <input_length> <= max-model-len`.
 
 ## Random Mode
 In this mode, the simulator generates synthetic responses. The length and content depend on the request parameters.
 
+**Context window:** Unlike echo mode, `max_tokens` is not considered when validating the request against `max-model-len` — only the prompt itself needs to leave room for at least one response token (`<input_length> + 1 <= max-model-len`). The response length is still bounded by the remaining context window; see below.
+
 ### Response Length Calculation
-If `max_tokens` or `max_completion_tokens` is specified, the response length is sampled from a custom histogram with **six buckets**.
+If `max_tokens` or `max_completion_tokens` is specified, the response length is sampled from a custom histogram with **six buckets**. If the specified value exceeds the room remaining in the context window (`<model_context_limit> - <input_length>`), that remaining room is used as the cap instead — the response never overflows `max-model-len`.
 
 **Probability Distribution:**
 | Bucket | Probability |

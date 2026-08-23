@@ -82,7 +82,7 @@ var _ = Describe("gRPC", func() {
 			return fmt.Sprintf("max tokens: %d, ttft: %s, intertoken latency: %s", maxTokens, ttft, itl)
 		},
 		Entry(nil, uint32(128), common.StopFinishReason, "0ms", "0ms", time.Duration(0)),
-		Entry(nil, uint32(3), common.LengthFinishReason, "0ms", "0ms", time.Duration(0)),
+		Entry(nil, uint32(4), common.LengthFinishReason, "0ms", "0ms", time.Duration(0)),
 		Entry(nil, uint32(128), common.StopFinishReason, "500ms", "200ms", time.Second),
 	)
 
@@ -137,7 +137,7 @@ var _ = Describe("gRPC", func() {
 			return fmt.Sprintf("max tokens: %d, ttft: %s, intertoken latency: %s", maxTokens, ttft, itl)
 		},
 		Entry(nil, uint32(128), common.StopFinishReason, "0ms", "0ms", time.Duration(0), time.Duration(0)),
-		Entry(nil, uint32(3), common.LengthFinishReason, "0ms", "0ms", time.Duration(0), time.Duration(0)),
+		Entry(nil, uint32(4), common.LengthFinishReason, "0ms", "0ms", time.Duration(0), time.Duration(0)),
 		Entry(nil, uint32(128), common.StopFinishReason, "500ms", "300ms", 500*time.Millisecond, 1400*time.Millisecond),
 	)
 

@@ -134,6 +134,21 @@ var _ = Describe("Simulator", func() {
 				numTokens = maxTokens
 			}
 			resp, err := openaiclient.Completions.New(ctx, params)
+
+			// echo mode returns the full prompt as the response, so it rejects any
+			// max_tokens smaller than the prompt's token count - expect that error
+			// rather than a successful response.
+			if mode == common.ModeEcho && numTokens > 0 && int64(numTokens) < userMsgTokens {
+				Expect(err).To(HaveOccurred())
+				var openaiError *openai.Error
+				Expect(errors.As(err, &openaiError)).To(BeTrue())
+				Expect(openaiError.StatusCode).To(Equal(400))
+				errMsg, readErr := io.ReadAll(openaiError.Response.Body)
+				Expect(readErr).NotTo(HaveOccurred())
+				Expect(string(errMsg)).To(ContainSubstring("max_tokens must be at least the prompt length"))
+				return
+			}
+
 			if err != nil {
 				var openaiError *openai.Error
 				if errors.As(err, &openaiError) {

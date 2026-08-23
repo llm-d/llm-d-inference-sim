@@ -48,18 +48,15 @@ type MetricInfo struct {
 	IsFake bool
 }
 
-// ValidateContextWindow checks if the request fits within the model's context window
-// Returns validation result, actual completion tokens, and total tokens
-func ValidateContextWindow(promptTokens int, maxCompletionTokens *int64, maxModelLen int) (bool, int64, int64) {
-	completionTokens := int64(1)
-	if maxCompletionTokens != nil {
-		completionTokens = *maxCompletionTokens
+// ValidateContextWindow checks if the request fits within the model's context window.
+// In random mode, max-tokens is not considered - the prompt just needs room for at
+// least one response token. In echo mode, the prompt is echoed back as the response,
+// so it must fit twice within the context window.
+func ValidateContextWindow(promptTokens int, maxModelLen int, mode string) bool {
+	if mode == ModeEcho {
+		return promptTokens*2 <= maxModelLen
 	}
-
-	totalTokens := int64(promptTokens) + completionTokens
-	isValid := totalTokens <= int64(maxModelLen)
-
-	return isValid, completionTokens, totalTokens
+	return promptTokens+1 <= maxModelLen
 }
 
 type Random struct {
