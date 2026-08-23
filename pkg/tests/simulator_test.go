@@ -422,7 +422,7 @@ var _ = Describe("Simulator", func() {
 			promptChatTokens := getChatPromptTokensCountForTestModel(prompt)
 
 			// leave room for at least one response token
-			maxModelLen := promptChatTokens + 2
+			maxModelLen := promptChatTokens + 1
 			args := []string{"cmd", "--model", model, "--mode", common.ModeRandom, "--max-model-len", strconv.FormatInt(maxModelLen, 10)}
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
@@ -1112,11 +1112,11 @@ var _ = Describe("Simulator", func() {
 
 		It("Should not drop tokens across many concurrent requests (echo mode)", func() {
 			ctx := context.TODO()
-			// echo mode requires max-model-len > 2*prompt tokens (the prompt is echoed
+			// echo mode requires max-model-len >= 2*prompt tokens (the prompt is echoed
 			// back as the response), so max-model-len is set just above 2*15 to stay
 			// as tight as that constraint allows.
 			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho,
-				"--max-num-seqs", "100", "--max-model-len", "31", "--max-waiting-queue-length", "1"}
+				"--max-num-seqs", "100", "--max-model-len", "30", "--max-waiting-queue-length", "1"}
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -1145,11 +1145,11 @@ var _ = Describe("Simulator", func() {
 
 		It("Should not drop tokens across multiple prompts each with n>1 choices (echo mode)", func() {
 			ctx := context.TODO()
-			// echo mode requires max-model-len > 2*prompt tokens (the prompt is echoed
+			// echo mode requires max-model-len >= 2*prompt tokens (the prompt is echoed
 			// back as the response), so max-model-len is set just above 2*15 to stay
 			// as tight as that constraint allows.
 			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho,
-				"--max-num-seqs", "100", "--max-model-len", "31", "--max-waiting-queue-length", "1"}
+				"--max-num-seqs", "100", "--max-model-len", "30", "--max-waiting-queue-length", "1"}
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
