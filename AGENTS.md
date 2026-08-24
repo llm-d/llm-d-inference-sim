@@ -30,7 +30,7 @@ llm-d-inference-sim. Go service that simulates vLLM's HTTP and gRPC surface — 
 - The PR addresses that issue and nothing else: no renames, reformatting, refactors, new abstractions, or pattern changes beyond what the issue requires.
 - Unrelated improvements belong in their own issue and PR, not folded into this PR. If you spot dead code or unrelated bugs in passing, mention them; don't fix them.
 - Self-check on the way out: if the change grew larger than expected or the fix feels hacky, rewrite the clean version before opening the PR.
-- Verify the code passs `make presubmit` locally before submitting a PR.
+- Verify the code passes `make presubmit` locally before submitting a PR.
 - Always use the project's `.github/PULL_REQUEST_TEMPLATE.md`.
   - Fill in **What**, **Why**, and **How was this tested?**; tick only checkboxes that reflect what actually ran.
   - Link the driving issue under **Related Issues** (`Fixes #N`).
