@@ -288,13 +288,16 @@ type Configuration struct {
 	// DatasetTableName defines custom SQLite dataset table name
 	DatasetTableName string `yaml:"dataset-table-name" json:"dataset-table-name"`
 
-	// RenderURL is the URL of the tokenizer render service
+	// RenderURL is the URL of the tokenizer render service. When set, the
+	// simulator uses a HuggingFace tokenizer served over HTTP. When empty,
+	// the simulator uses the in-process simulated tokenizer.
 	RenderURL string `yaml:"render-url" json:"render-url"`
 	// RenderTimeout is the timeout for tokenizer render requests
 	RenderTimeout time.Duration `yaml:"render-timeout" json:"render-timeout"`
 	// MMRenderTimeout is the timeout for multi-modal tokenizer render requests
 	MMRenderTimeout time.Duration `yaml:"mm-render-timeout" json:"mm-render-timeout"`
-	// ForceDummyTokenizer forces the use of the dummy tokenizer even if a real model name is provided
+	// ForceDummyTokenizer forces the use of the dummy tokenizer even if a real model name is provided.
+	// This flag is retained for backward compatibility; omit --render-url to use the simulated tokenizer.
 	ForceDummyTokenizer bool `yaml:"force-dummy-tokenizer" json:"force-dummy-tokenizer"`
 
 	// StartupDuration defines how long /health/ready returns 503 to simulate GPU model loading.
@@ -392,7 +395,7 @@ func newConfig() *Configuration {
 		DefaultEmbeddingDimensions:                384,
 		FakeMetricsRefreshInterval:                100 * time.Millisecond,
 		MaxRequestBodySizeMB:                      4,
-		RenderURL:                                 "http://localhost:8082",
+		RenderURL:                                 "",
 		RenderTimeout:                             30 * time.Second,
 		MMRenderTimeout:                           60 * time.Second,
 	}

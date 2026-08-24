@@ -17,12 +17,16 @@ limitations under the License.
 package tokenizer
 
 import (
+	"context"
 	"encoding/base64"
 	"strings"
+	"time"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
+	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"k8s.io/klog/v2"
 )
 
 const (
@@ -215,6 +219,44 @@ var _ = Describe("tokenizer", func() {
 			a := stubMMFeaturesForMessages(msgs, 100)
 			b := stubMMFeaturesForMessages(msgs, 100)
 			Expect(a.KwargsData).To(Equal(b.KwargsData))
+		})
+	})
+
+	Describe("New tokenizer selection", func() {
+		newConfig := func() *common.Configuration {
+			return &common.Configuration{
+				Model:           common.QwenModelName,
+				RenderTimeout:   30 * time.Second,
+				MMRenderTimeout: 60 * time.Second,
+			}
+		}
+
+		It("returns an HF tokenizer when --render-url is set", func() {
+			cfg := newConfig()
+			cfg.RenderURL = "http://localhost:8082"
+
+			tok, err := New(context.Background(), cfg, klog.Background())
+			Expect(err).NotTo(HaveOccurred())
+			Expect(tok).To(BeAssignableToTypeOf(&HFTokenizer{}))
+		})
+
+		It("returns the simulated tokenizer when --render-url is empty", func() {
+			cfg := newConfig()
+			cfg.Model = "my-fake-model"
+
+			tok, err := New(context.Background(), cfg, klog.Background())
+			Expect(err).NotTo(HaveOccurred())
+			Expect(tok).To(BeAssignableToTypeOf(&SimpleTokenizer{}))
+		})
+
+		It("still returns the simulated tokenizer when --force-dummy-tokenizer is set", func() {
+			cfg := newConfig()
+			cfg.RenderURL = "http://localhost:8082"
+			cfg.ForceDummyTokenizer = true
+
+			tok, err := New(context.Background(), cfg, klog.Background())
+			Expect(err).NotTo(HaveOccurred())
+			Expect(tok).To(BeAssignableToTypeOf(&SimpleTokenizer{}))
 		})
 	})
 

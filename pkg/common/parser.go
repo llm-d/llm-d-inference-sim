@@ -168,10 +168,10 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 	f.BoolVar(&config.DatasetInMemory, "dataset-in-memory", config.DatasetInMemory, "Load the entire dataset into memory for faster access")
 	f.StringVar(&config.DatasetTableName, "dataset-table-name", config.DatasetTableName, "Table name for custom dataset, default is 'llmd'")
 
-	f.StringVar(&config.RenderURL, "render-url", config.RenderURL, "URL of the tokenizer render service")
+	f.StringVar(&config.RenderURL, "render-url", config.RenderURL, "URL of the tokenizer render service; when unset the simulated tokenizer is used")
 	f.DurationVar(&config.RenderTimeout, "render-timeout", config.RenderTimeout, "Timeout for tokenizer render requests (e.g. 30s)")
 	f.DurationVar(&config.MMRenderTimeout, "mm-render-timeout", config.MMRenderTimeout, "Timeout for multi-modal tokenizer render requests (e.g. 60s)")
-	f.BoolVar(&config.ForceDummyTokenizer, "force-dummy-tokenizer", config.ForceDummyTokenizer, "Force the use of dummy tokenizer even if a real model name is provided")
+	f.BoolVar(&config.ForceDummyTokenizer, "force-dummy-tokenizer", config.ForceDummyTokenizer, "(deprecated) Force the use of dummy tokenizer even if a real model name is provided; omit --render-url instead")
 
 	f.DurationVar(&config.StartupDuration, "startup-duration", config.StartupDuration,
 		"Duration to return 503 on /health/ready to simulate GPU loading (e.g. 30s). Default is 0 (immediately ready)")

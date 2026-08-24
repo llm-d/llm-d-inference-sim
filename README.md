@@ -149,7 +149,7 @@ To run the vLLM simulator in a standalone test environment with a real model:
    ./bin/llm-d-inference-sim --model Qwen/Qwen2.5-0.5B-Instruct --port 8000 --render-url http://localhost:8082
    ```
 
-**Note:** If the model is not a real HuggingFace model, there is no need to run the vLLM render server.
+**Note:** If you do not pass `--render-url`, the simulator uses the simulated tokenizer and no vLLM render server is required.
 
 ## Testing locally
 ### Prerequisites
@@ -174,6 +174,8 @@ Note:
 
 
 Verify socket accessibility with docker info. Adjust DOCKER_HOST based on your Docker provider.
+
+If your host uses `HF_ENDPOINT`, `HF_TOKEN`, or `HTTP(S)_PROXY`/`NO_PROXY` to reach HuggingFace, those variables are forwarded into the render container. The addresses they resolve to must be reachable from *inside* the container: a proxy bound to host `127.0.0.1` will not work; use `host.docker.internal` or the container-bridge IP instead.
 
 ### Running Tests
 ```bash
