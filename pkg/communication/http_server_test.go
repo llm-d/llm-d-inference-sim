@@ -39,7 +39,7 @@ var _ = Describe("Server", func() {
 			}()
 
 			os.Args = []string{"cmd", "--model", common.TestModelName, "--ssl-certfile", certFile, "--ssl-keyfile", keyFile}
-			config, err := common.ParseCommandParamsAndLoadConfig()
+			config, err := common.ParseCommandParamsAndLoadConfig(common.NewConfiguration())
 			Expect(err).NotTo(HaveOccurred())
 			Expect(config.SSLEnabled()).To(BeTrue())
 			Expect(config.SSLCertFile).To(Equal(certFile))
@@ -53,7 +53,7 @@ var _ = Describe("Server", func() {
 			}()
 
 			os.Args = []string{"cmd", "--model", common.TestModelName, "--self-signed-certs"}
-			config, err := common.ParseCommandParamsAndLoadConfig()
+			config, err := common.ParseCommandParamsAndLoadConfig(common.NewConfiguration())
 			Expect(err).NotTo(HaveOccurred())
 			Expect(config.SSLEnabled()).To(BeTrue())
 			Expect(config.SelfSignedCerts).To(BeTrue())
@@ -78,7 +78,7 @@ var _ = Describe("Server", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			os.Args = []string{"cmd", "--model", common.TestModelName, "--ssl-certfile", certFile}
-			_, err = common.ParseCommandParamsAndLoadConfig()
+			_, err = common.ParseCommandParamsAndLoadConfig(common.NewConfiguration())
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("both ssl-certfile and ssl-keyfile must be provided together"))
 
@@ -86,7 +86,7 @@ var _ = Describe("Server", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			os.Args = []string{"cmd", "--model", common.TestModelName, "--ssl-keyfile", keyFile}
-			_, err = common.ParseCommandParamsAndLoadConfig()
+			_, err = common.ParseCommandParamsAndLoadConfig(common.NewConfiguration())
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("both ssl-certfile and ssl-keyfile must be provided together"))
 		})

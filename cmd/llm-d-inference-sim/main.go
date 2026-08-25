@@ -27,6 +27,7 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 	"github.com/llm-d/llm-d-inference-sim/pkg/communication"
+	"github.com/llm-d/llm-d-inference-sim/pkg/engine"
 	"github.com/llm-d/llm-d-inference-sim/pkg/simulator"
 )
 
@@ -36,10 +37,18 @@ func main() {
 	ctx := klog.NewContext(context.Background(), logger)
 	ctx = signals.SetupSignalHandler(ctx)
 
-	logger.V(logging.INFO).Info("Starting inference simulator")
+	// the engine must be resolved before the rest of the configuration, since it
+	// determines which configuration defaults apply
+	eng, err := engine.Resolve()
+	if err != nil {
+		logger.Error(err, "failed to resolve engine")
+		return
+	}
+
+	logger.V(logging.INFO).Info("Starting inference simulator", "engine", eng.Name())
 
 	// parse command line parameters
-	config, err := common.ParseCommandParamsAndLoadConfig()
+	config, err := common.ParseCommandParamsAndLoadConfig(eng.NewConfiguration())
 	if err != nil {
 		logger.Error(err, "failed to read configuration")
 		return
@@ -49,7 +58,7 @@ func main() {
 		return
 	}
 
-	simulators, err := simulator.Start(ctx, config, logger)
+	simulators, err := simulator.Start(ctx, eng, config, logger)
 	if err != nil {
 		logger.Error(err, "failed to create inference simulator")
 		return
