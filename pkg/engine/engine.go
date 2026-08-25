@@ -42,9 +42,9 @@ type Engine interface {
 	NewConfiguration() *common.Configuration
 }
 
-// Get returns the Engine identified by name, or an error listing the valid values if
-// name is not recognized.
-func Get(name string) (Engine, error) {
+// New creates the Engine identified by name, or returns an error listing the valid
+// values if name is not recognized.
+func New(name string) (Engine, error) {
 	switch name {
 	case VLLM:
 		return vllmEngine{}, nil
@@ -72,5 +72,5 @@ func Resolve() (Engine, error) {
 			name = fileEngine
 		}
 	}
-	return Get(name)
+	return New(name)
 }

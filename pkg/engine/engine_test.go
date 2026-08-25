@@ -31,15 +31,15 @@ func withArgs(args []string, f func()) {
 	f()
 }
 
-var _ = Describe("Get", func() {
+var _ = Describe("New", func() {
 	It("returns the vllm engine", func() {
-		e, err := Get(VLLM)
+		e, err := New(VLLM)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(e.Name()).To(Equal(VLLM))
 	})
 
 	It("errors on an unknown engine", func() {
-		_, err := Get("bogus")
+		_, err := New("bogus")
 		Expect(err).To(HaveOccurred())
 	})
 })

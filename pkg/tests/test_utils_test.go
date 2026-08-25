@@ -229,7 +229,7 @@ func startDataParallelServers(ctx context.Context, args []string, envs ...map[st
 
 	logger := klog.Background()
 
-	eng, err := engine.Get(engine.VLLM)
+	eng, err := engine.New(engine.VLLM)
 	if err != nil {
 		return nil, err
 	}
