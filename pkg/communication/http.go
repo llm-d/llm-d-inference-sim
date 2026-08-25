@@ -18,6 +18,8 @@ package communication
 
 import (
 	"bufio"
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -995,6 +997,28 @@ func truncateBodyForLog(body []byte) string {
 	return string(body[:maxHTTPLogBodyBytes]) + fmt.Sprintf(" ... [truncated, total %d bytes]", len(body))
 }
 
+// bodyForLog gunzips a gzip-encoded body so the log shows the payload rather
+// than compressed bytes. A body that fails to decode is logged as received.
+func bodyForLog(body, encoding []byte) string {
+	if bytes.EqualFold(encoding, []byte("gzip")) {
+		if decoded, err := gunzipForLog(body); err == nil {
+			body = decoded
+		}
+	}
+	return truncateBodyForLog(body)
+}
+
+// gunzipForLog reads at most maxHTTPLogBodyBytes+1 decoded bytes, enough for
+// truncateBodyForLog to keep the cap and mark the truncation.
+func gunzipForLog(body []byte) ([]byte, error) {
+	r, err := gzip.NewReader(bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	defer r.Close() //nolint:errcheck
+	return io.ReadAll(io.LimitReader(r, maxHTTPLogBodyBytes+1))
+}
+
 func (c *Communication) logHTTPMiddleware(next fasthttp.RequestHandler) fasthttp.RequestHandler {
 	return func(ctx *fasthttp.RequestCtx) {
 		c.logHTTPRequest(ctx)
@@ -1009,7 +1033,7 @@ func (c *Communication) logHTTPRequest(ctx *fasthttp.RequestCtx) {
 		"requestURI", string(ctx.RequestURI()),
 		"remoteAddr", ctx.RemoteAddr().String(),
 		"headers", formatRequestHeaders(&ctx.Request.Header),
-		"body", truncateBodyForLog(ctx.Request.Body()),
+		"body", bodyForLog(ctx.Request.Body(), ctx.Request.Header.ContentEncoding()),
 	)
 }
 
@@ -1026,7 +1050,7 @@ func (c *Communication) logHTTPResponse(ctx *fasthttp.RequestCtx) {
 	c.logger.V(logging.INFO).Info("HTTP response",
 		"statusCode", resp.StatusCode(),
 		"headers", formatResponseHeaders(&resp.Header),
-		"body", truncateBodyForLog(resp.Body()),
+		"body", bodyForLog(resp.Body(), resp.Header.ContentEncoding()),
 	)
 }
 
