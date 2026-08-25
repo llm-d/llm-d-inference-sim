@@ -140,7 +140,7 @@ type baseResponseChoice struct {
 }
 
 // v1/chat/completions
-// Message defines vLLM chat completions Message
+// Message defines chat completions Message
 type Message struct {
 	// Role is the message Role, optional values are 'user', 'assistant', 'tool', ...
 	Role string `json:"role,omitempty"`

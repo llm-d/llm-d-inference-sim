@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package llmdinferencesim
+package simulator
 
 import (
 	"fmt"
@@ -22,7 +22,7 @@ import (
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
-	kvcache "github.com/llm-d/llm-d-inference-sim/pkg/kv-cache"
+	"github.com/llm-d/llm-d-inference-sim/pkg/kvcache"
 	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 	"github.com/valyala/fasthttp"
 )

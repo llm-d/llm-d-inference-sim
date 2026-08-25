@@ -28,7 +28,7 @@ import (
 
 var tokenizerMngr *tokenizer.TokenizerManager
 
-func TestVllmSimulator(t *testing.T) {
+func TestSimulator(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "Tests Suite")
 }

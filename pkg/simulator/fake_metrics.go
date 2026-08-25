@@ -16,7 +16,7 @@ limitations under the License.
 
 // Contains functions related to fake prometheus metrics
 
-package llmdinferencesim
+package simulator
 
 import (
 	"math"

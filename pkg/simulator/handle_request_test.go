@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package llmdinferencesim
+package simulator
 
 import (
 	"context"
@@ -29,7 +29,7 @@ import (
 	"k8s.io/klog/v2"
 )
 
-// newHandleRequestTestSim builds a VllmSimulator with a real (echo-mode)
+// newHandleRequestTestSim builds a Simulator with a real (echo-mode)
 // dataset, tokenizer, latency calculator and metrics -- everything
 // HandleRequest/processRequest touch -- via SimContext.initialize, but
 // deliberately skips InitializeSim. InitializeSim also starts the
@@ -39,7 +39,7 @@ import (
 // newRequests by hand here, with nothing consuming it, keeps this test in
 // full control of the channel's occupancy and lets it drive worker-side
 // processing (sim.processRequest) explicitly, one call at a time.
-func newHandleRequestTestSim(ctx context.Context, newRequestsCapacity int, extraArgs ...string) *VllmSimulator {
+func newHandleRequestTestSim(ctx context.Context, newRequestsCapacity int, extraArgs ...string) *Simulator {
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
 	os.Args = append([]string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho}, extraArgs...)

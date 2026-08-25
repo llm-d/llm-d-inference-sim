@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package llmdinferencesim
+package simulator
 
 import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"

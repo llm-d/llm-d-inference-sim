@@ -38,7 +38,7 @@ type ModelsResponseModelInfo struct {
 	Object string `json:"object"`
 	// Created is model creation type - in simulator contains "now" timestamp
 	Created int64 `json:"created"`
-	// OwnedBy is "vllm"
+	// OwnedBy is the inference server name
 	OwnedBy string `json:"owned_by"`
 	// Root is the model path
 	Root string `json:"root"`

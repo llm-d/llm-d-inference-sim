@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// VLLM server simulator
+// Inference server simulator
 package main
 
 import (
@@ -27,7 +27,7 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 	"github.com/llm-d/llm-d-inference-sim/pkg/communication"
-	vllmsim "github.com/llm-d/llm-d-inference-sim/pkg/llm-d-inference-sim"
+	"github.com/llm-d/llm-d-inference-sim/pkg/simulator"
 )
 
 func main() {
@@ -36,7 +36,7 @@ func main() {
 	ctx := klog.NewContext(context.Background(), logger)
 	ctx = signals.SetupSignalHandler(ctx)
 
-	logger.V(logging.INFO).Info("Starting vLLM simulator")
+	logger.V(logging.INFO).Info("Starting inference simulator")
 
 	// parse command line parameters
 	config, err := common.ParseCommandParamsAndLoadConfig()
@@ -49,9 +49,9 @@ func main() {
 		return
 	}
 
-	simulators, err := vllmsim.Start(ctx, config, logger)
+	simulators, err := simulator.Start(ctx, config, logger)
 	if err != nil {
-		logger.Error(err, "failed to create vLLM simulator")
+		logger.Error(err, "failed to create inference simulator")
 		return
 	}
 

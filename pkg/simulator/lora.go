@@ -15,7 +15,7 @@ limitations under the License.
 */
 
 // LoRA related structures and functions
-package llmdinferencesim
+package simulator
 
 import (
 	"encoding/json"

@@ -16,7 +16,7 @@ limitations under the License.
 
 // Contains functions related to prometheus metrics
 
-package llmdinferencesim
+package simulator
 
 import (
 	"context"
@@ -31,7 +31,7 @@ import (
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
-	kvcache "github.com/llm-d/llm-d-inference-sim/pkg/kv-cache"
+	"github.com/llm-d/llm-d-inference-sim/pkg/kvcache"
 )
 
 const (

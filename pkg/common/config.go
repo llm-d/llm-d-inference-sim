@@ -31,9 +31,8 @@ import (
 )
 
 const (
-	vLLMDefaultPort = 8000
-	ModeRandom      = "random"
-	ModeEcho        = "echo"
+	ModeRandom = "random"
+	ModeEcho   = "echo"
 
 	// Failure type constants
 	FailureTypeRateLimit      = "rate_limit"
@@ -260,8 +259,8 @@ type Configuration struct {
 	// DPSize is data parallel size - a number of ranks to run, minimum is 1, maximum is 8, default is 1
 	DPSize int `yaml:"data-parallel-size" json:"data-parallel-size"`
 
-	// Rank is the vLLM parameter used to specify the rank of this instance. Here only
-	// used when running Data Parallel ranks as separate processes. If set, data-parallel-size is ignored
+	// Rank specifies the rank of this instance. Only used when running Data Parallel
+	// ranks as separate processes. If set, data-parallel-size is ignored
 	Rank int `yaml:"data-parallel-rank" json:"data-parallel-rank"`
 
 	// SSLCertFile is the path to the SSL certificate file for HTTPS
@@ -367,7 +366,7 @@ type LoraModule struct {
 func newConfig() *Configuration {
 	return &Configuration{
 		IP:                                  os.Getenv(podIPEnv),
-		Port:                                vLLMDefaultPort,
+		Port:                                8000,
 		MaxLoras:                            1,
 		MaxNumSeqs:                          5,
 		MaxWaitingQueueLength:               1000,

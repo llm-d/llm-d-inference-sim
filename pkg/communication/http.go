@@ -35,7 +35,7 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
-	vllmsim "github.com/llm-d/llm-d-inference-sim/pkg/llm-d-inference-sim"
+	"github.com/llm-d/llm-d-inference-sim/pkg/simulator"
 )
 
 const (
@@ -137,40 +137,40 @@ func (c *Communication) getRequestID(ctx *fasthttp.RequestCtx) string {
 
 // HandleChatCompletions http handler for /v1/chat/completions
 func (c *Communication) HandleChatCompletions(ctx *fasthttp.RequestCtx) {
-	c.handleHTTP(&vllmsim.ChatCompletionsRequest{}, &chatComplHTTPRespBuilder{}, ctx)
+	c.handleHTTP(&simulator.ChatCompletionsRequest{}, &chatComplHTTPRespBuilder{}, ctx)
 }
 
 // HandleTextCompletions http handler for /v1/completions
 func (c *Communication) HandleTextCompletions(ctx *fasthttp.RequestCtx) {
-	c.handleHTTP(&vllmsim.TextCompletionsParsedRequest{}, &textComplHTTPRespBuilder{}, ctx)
+	c.handleHTTP(&simulator.TextCompletionsParsedRequest{}, &textComplHTTPRespBuilder{}, ctx)
 }
 
 // HandleResponses http handler for /v1/responses
 func (c *Communication) HandleResponses(ctx *fasthttp.RequestCtx) {
-	c.handleHTTP(&vllmsim.ResponsesRequest{}, &responsesHTTPRespBuilder{}, ctx)
+	c.handleHTTP(&simulator.ResponsesRequest{}, &responsesHTTPRespBuilder{}, ctx)
 }
 
 // HandleMessages http handler for /v1/messages (Anthropic Messages API)
 func (c *Communication) HandleMessages(ctx *fasthttp.RequestCtx) {
-	c.handleHTTP(&vllmsim.MessagesRequest{}, &messagesHTTPRespBuilder{}, ctx)
+	c.handleHTTP(&simulator.MessagesRequest{}, &messagesHTTPRespBuilder{}, ctx)
 }
 
 // HandleGenerate http handler for /inference/v1/generate
 func (c *Communication) HandleGenerate(ctx *fasthttp.RequestCtx) {
-	c.handleHTTP(&vllmsim.GenerateRequest{}, &generateHTTPRespBuilder{}, ctx)
+	c.handleHTTP(&simulator.GenerateRequest{}, &generateHTTPRespBuilder{}, ctx)
 }
 
 // HandleChatCompletionsRender http handler for /v1/chat/completions/render
 func (c *Communication) HandleChatCompletionsRender(ctx *fasthttp.RequestCtx) {
-	c.handleRender(&vllmsim.ChatCompletionsRequest{}, &chatComplHTTPRespBuilder{}, ctx)
+	c.handleRender(&simulator.ChatCompletionsRequest{}, &chatComplHTTPRespBuilder{}, ctx)
 }
 
 // HandleTextCompletionsRender http handler for /v1/completions/render
 func (c *Communication) HandleTextCompletionsRender(ctx *fasthttp.RequestCtx) {
-	c.handleRender(&vllmsim.TextCompletionsParsedRequest{}, &textComplHTTPRespBuilder{}, ctx)
+	c.handleRender(&simulator.TextCompletionsParsedRequest{}, &textComplHTTPRespBuilder{}, ctx)
 }
 
-func (c *Communication) handleRender(req vllmsim.RenderableRequest, respBuilder responseBuilder, ctx *fasthttp.RequestCtx) {
+func (c *Communication) handleRender(req simulator.RenderableRequest, respBuilder responseBuilder, ctx *fasthttp.RequestCtx) {
 	c.logger.V(logging.TRACE).Info("Render request received", "endpoint", string(ctx.Path()))
 	if err := req.Unmarshal(ctx.Request.Body()); err != nil {
 		c.logger.Error(err, "failed to read and parse render request body")
@@ -220,7 +220,7 @@ func (c *Communication) addResponseHeaders(ctx *fasthttp.RequestCtx, requestID s
 	}
 }
 
-func (c *Communication) handleHTTP(req vllmsim.Request, respBuilder responseBuilder, ctx *fasthttp.RequestCtx) {
+func (c *Communication) handleHTTP(req simulator.Request, respBuilder responseBuilder, ctx *fasthttp.RequestCtx) {
 	if c.stopping.Load() {
 		errToSend := api.NewError("server is shutting down", fasthttp.StatusServiceUnavailable, nil)
 		c.sendError(ctx, &errToSend, false)
@@ -298,7 +298,7 @@ func (c *Communication) handleHTTP(req vllmsim.Request, respBuilder responseBuil
 // that fails before producing any content (e.g. queue full, or a validation
 // error caught only once processing starts) still be reported with its real
 // HTTP status instead of being forced into a 200 SSE error frame.
-func (c *Communication) handleStream(ctx *fasthttp.RequestCtx, channel common.Channel[*vllmsim.ResponseInfo],
+func (c *Communication) handleStream(ctx *fasthttp.RequestCtx, channel common.Channel[*simulator.ResponseInfo],
 	respBuilder responseBuilder, numChoices int) {
 	first := <-channel.Channel
 	if first != nil && first.Err != nil {
@@ -313,7 +313,7 @@ func (c *Communication) handleStream(ctx *fasthttp.RequestCtx, channel common.Ch
 	c.sendStream(ctx, channel, respBuilder, numChoices, first)
 }
 
-func (c *Communication) sendNonStream(ctx *fasthttp.RequestCtx, channel common.Channel[*vllmsim.ResponseInfo],
+func (c *Communication) sendNonStream(ctx *fasthttp.RequestCtx, channel common.Channel[*simulator.ResponseInfo],
 	respBuilder responseBuilder, numChoices int) {
 	tokens := make([]api.Tokenized, numChoices)
 	for i := range tokens {
@@ -322,7 +322,7 @@ func (c *Communication) sendNonStream(ctx *fasthttp.RequestCtx, channel common.C
 			Strings: make([]string, 0),
 		}
 	}
-	respCtxPerChoice := make([]vllmsim.ResponseContext, numChoices)
+	respCtxPerChoice := make([]simulator.ResponseContext, numChoices)
 	for response := range channel.Channel {
 		if response.Err != nil {
 			// Fail-fast: abort the whole request. Drain remaining responses in the
@@ -360,7 +360,7 @@ func (c *Communication) sendNonStream(ctx *fasthttp.RequestCtx, channel common.C
 
 // drainResponseChannel reads and discards responses until the channel closes.
 // Used after a fail-fast abort so in-flight producers can finish cleanly.
-func drainResponseChannel(channel common.Channel[*vllmsim.ResponseInfo]) {
+func drainResponseChannel(channel common.Channel[*simulator.ResponseInfo]) {
 	for range channel.Channel { //nolint:revive
 	}
 }
@@ -383,7 +383,7 @@ type streamState struct {
 	firstTokens      []bool
 	lastToolCall     []*api.ToolCall
 	toolCallIndex    []int
-	respCtxPerChoice []vllmsim.ResponseContext
+	respCtxPerChoice []simulator.ResponseContext
 }
 
 // newStreamState allocates per-choice slices for numChoices choices. The
@@ -399,7 +399,7 @@ func newStreamState(numChoices int) streamState {
 		firstTokens:      firstTokens,
 		lastToolCall:     make([]*api.ToolCall, numChoices),
 		toolCallIndex:    make([]int, numChoices),
-		respCtxPerChoice: make([]vllmsim.ResponseContext, numChoices),
+		respCtxPerChoice: make([]simulator.ResponseContext, numChoices),
 	}
 }
 
@@ -417,13 +417,13 @@ func (c *Communication) sendOrFail(ctx *fasthttp.RequestCtx, w *bufio.Writer, ch
 	return true
 }
 
-func (c *Communication) sendStream(ctx *fasthttp.RequestCtx, channel common.Channel[*vllmsim.ResponseInfo],
-	respBuilder responseBuilder, numChoices int, first *vllmsim.ResponseInfo) {
+func (c *Communication) sendStream(ctx *fasthttp.RequestCtx, channel common.Channel[*simulator.ResponseInfo],
+	respBuilder responseBuilder, numChoices int, first *simulator.ResponseInfo) {
 	pr, pw := io.Pipe()
 
 	go func() {
 		w := bufio.NewWriter(pw)
-		var respCtx vllmsim.ResponseContext
+		var respCtx simulator.ResponseContext
 		state := newStreamState(numChoices)
 
 		defer func() {
@@ -432,7 +432,7 @@ func (c *Communication) sendStream(ctx *fasthttp.RequestCtx, channel common.Chan
 		}()
 
 		for {
-			var response *vllmsim.ResponseInfo
+			var response *simulator.ResponseInfo
 			if first != nil {
 				response, first = first, nil
 			} else {
@@ -465,7 +465,7 @@ func (c *Communication) sendStream(ctx *fasthttp.RequestCtx, channel common.Chan
 			}
 			// Every choice emits a Created status as its first message. Emit the initial
 			// chunk once globally and skip the response — Created has no tokens.
-			if response.Status == vllmsim.ResponseStatusCreated {
+			if response.Status == simulator.ResponseStatusCreated {
 				if !state.initialSent {
 					if !c.sendOrFail(ctx, w, respBuilder.createInitialChunk(respCtx), "Sending first stream chunk failed, ") {
 						return
@@ -475,7 +475,7 @@ func (c *Communication) sendStream(ctx *fasthttp.RequestCtx, channel common.Chan
 				continue
 			}
 
-			ok, stop := c.emitResponseChunks(ctx, w, respBuilder, response, respCtx, &state, response.Status == vllmsim.ResponseEndOfTokens)
+			ok, stop := c.emitResponseChunks(ctx, w, respBuilder, response, respCtx, &state, response.Status == simulator.ResponseEndOfTokens)
 			if !ok {
 				go drainResponseChannel(channel)
 				return
@@ -513,7 +513,7 @@ func (c *Communication) sendStream(ctx *fasthttp.RequestCtx, channel common.Chan
 // already reported via ctx); stop=true means the stream is complete and the main
 // loop should break out to finalize.
 func (c *Communication) emitResponseChunks(ctx *fasthttp.RequestCtx, w *bufio.Writer, respBuilder responseBuilder,
-	response *vllmsim.ResponseInfo, respCtx vllmsim.ResponseContext, state *streamState, lastTokensChunk bool) (ok bool, stop bool) {
+	response *simulator.ResponseInfo, respCtx simulator.ResponseContext, state *streamState, lastTokensChunk bool) (ok bool, stop bool) {
 	choiceIdx := response.ChoiceIdx
 
 	if response.Tokens != nil {
@@ -561,7 +561,7 @@ func (c *Communication) emitResponseChunks(ctx *fasthttp.RequestCtx, w *bufio.Wr
 // finalizeStream emits the post-loop SSE frames: a last chunk per choice (if the
 // builder wants one for the finish reason), the usage chunk, and [DONE].
 func (c *Communication) finalizeStream(ctx *fasthttp.RequestCtx, w *bufio.Writer, respBuilder responseBuilder,
-	state *streamState, respContext vllmsim.ResponseContext) {
+	state *streamState, respContext simulator.ResponseContext) {
 	for i, rc := range state.respCtxPerChoice {
 		if !c.sendOrFail(ctx, w, respBuilder.createLastChunk(respContext, *rc.FinishReason(), i),
 			"Sending last stream chunk failed, ") {
@@ -583,7 +583,7 @@ func (c *Communication) chunkSendFailed(ctx *fasthttp.RequestCtx, msg string, er
 	c.sendError(ctx, &errToSend, false)
 }
 
-func (c *Communication) sendStreamedTools(respCtx vllmsim.ResponseContext, respBuilder responseBuilder,
+func (c *Communication) sendStreamedTools(respCtx simulator.ResponseContext, respBuilder responseBuilder,
 	w *bufio.Writer, tokens []string, tc *api.ToolCall, index int, choiceIdx int) error {
 	tokensStr := strings.Join(tokens, "")
 
@@ -841,7 +841,7 @@ func (c *Communication) HandleModels(ctx *fasthttp.RequestCtx) {
 }
 
 func (c *Communication) HandleError(_ *fasthttp.RequestCtx, err error) {
-	c.logger.Error(err, "vLLM server error")
+	c.logger.Error(err, "simulator server error")
 }
 
 // HandleHealth http handler for /health

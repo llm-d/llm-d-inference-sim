@@ -28,14 +28,14 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 	"github.com/llm-d/llm-d-inference-sim/pkg/communication/grpc/pb"
-	vllmsim "github.com/llm-d/llm-d-inference-sim/pkg/llm-d-inference-sim"
+	"github.com/llm-d/llm-d-inference-sim/pkg/simulator"
 	"github.com/soheilhy/cmux"
 	"google.golang.org/grpc"
 )
 
 type Communication struct {
 	logger    logr.Logger
-	simulator *vllmsim.VllmSimulator
+	simulator *simulator.Simulator
 
 	// set to 1 during graceful shutdown; new requests are rejected while draining
 	stopping atomic.Bool
@@ -56,11 +56,11 @@ type Communication struct {
 	mooncakeEngines     map[string]map[string]string
 }
 
-func New(logger logr.Logger, simulator *vllmsim.VllmSimulator) *Communication {
+func New(logger logr.Logger, simulator *simulator.Simulator) *Communication {
 	return &Communication{logger: logger, simulator: simulator, startTime: time.Now()}
 }
 
-func Start(ctx context.Context, logger logr.Logger, simulator *vllmsim.VllmSimulator) error {
+func Start(ctx context.Context, logger logr.Logger, simulator *simulator.Simulator) error {
 	c := Communication{logger: logger, simulator: simulator, startTime: time.Now()}
 	c.logger.V(logging.INFO).Info("Starting communication layer")
 	return c.start(ctx)

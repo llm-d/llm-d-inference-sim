@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package llmdinferencesim
+package simulator
 
 import (
 	"testing"
@@ -23,7 +23,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-func TestVllmSim(t *testing.T) {
+func TestSim(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "VllmSim Suite")
+	RunSpecs(t, "Simulator Suite")
 }

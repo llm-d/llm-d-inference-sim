@@ -25,7 +25,7 @@ import (
 
 	zmq4 "github.com/go-zeromq/zmq4"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
-	kvcache "github.com/llm-d/llm-d-inference-sim/pkg/kv-cache"
+	"github.com/llm-d/llm-d-inference-sim/pkg/kvcache"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/openai/openai-go/v3"

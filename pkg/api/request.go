@@ -456,7 +456,7 @@ type Tool struct {
 	// Function describes the tool
 	Function function `json:"function"`
 	// Type defines the type of the tool, currently only functions are
-	// supported by vLLM
+	// supported
 	Type string `json:"type"`
 }
 

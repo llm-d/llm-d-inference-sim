@@ -14,8 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package vllmsim implements the vLLM simulator.
-package llmdinferencesim
+package simulator
 
 import (
 	"fmt"
@@ -26,7 +25,7 @@ import (
 )
 
 // isValidModel checks if the given model is the base model or one of "loaded" LoRAs
-func (s *VllmSimulator) isValidModel(model string) bool {
+func (s *Simulator) isValidModel(model string) bool {
 	for _, name := range s.Context.Config().ServedModelNames {
 		if model == name {
 			return true
@@ -44,7 +43,7 @@ func (s *VllmSimulator) isValidModel(model string) bool {
 // ValidateBaseModel checks that model is a known base model. LoRA adapters
 // are rejected because the render endpoints tokenize against the base model
 // and don't go through the LoRA loading path.
-func (s *VllmSimulator) ValidateBaseModel(model string) *api.Error {
+func (s *Simulator) ValidateBaseModel(model string) *api.Error {
 	if !s.isValidModel(model) {
 		serverErr := api.NewError(fmt.Sprintf("The model `%s` does not exist.", model),
 			fasthttp.StatusNotFound, nil)

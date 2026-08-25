@@ -23,7 +23,7 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 	"github.com/llm-d/llm-d-inference-sim/pkg/communication/grpc/pb"
-	vllmsim "github.com/llm-d/llm-d-inference-sim/pkg/llm-d-inference-sim"
+	"github.com/llm-d/llm-d-inference-sim/pkg/simulator"
 	"github.com/valyala/fasthttp"
 
 	"google.golang.org/grpc"
@@ -47,7 +47,7 @@ func (c *Communication) Generate(in *pb.GenerateRequest, out grpc.ServerStreamin
 
 	c.logger.V(logging.DEBUG).Info("Received", "new gRPC", req.AsString())
 
-	var respCtx vllmsim.ResponseContext
+	var respCtx simulator.ResponseContext
 	tokens := api.Tokenized{
 		Tokens:  make([]uint32, 0),
 		Strings: make([]string, 0),
@@ -82,7 +82,7 @@ func (c *Communication) Generate(in *pb.GenerateRequest, out grpc.ServerStreamin
 	if in.Stream {
 		resp = respBuilder.createLastChunk(respCtx)
 	} else {
-		resp = respBuilder.createResponse([]vllmsim.ResponseContext{respCtx}, []api.Tokenized{tokens})
+		resp = respBuilder.createResponse([]simulator.ResponseContext{respCtx}, []api.Tokenized{tokens})
 	}
 	if err := sendResponse(resp, out); err != nil {
 		return err
@@ -132,7 +132,7 @@ func (c *Communication) startGRPC(listener net.Listener) (*grpc.Server, <-chan e
 	return server, errCh
 }
 
-func (c *Communication) pbRequestToRequest(in *pb.GenerateRequest) *vllmsim.GenerationRequest {
+func (c *Communication) pbRequestToRequest(in *pb.GenerateRequest) *simulator.GenerationRequest {
 	var maxTokens *int64
 	if in.GetSamplingParams() != nil && in.GetSamplingParams().MaxTokens != nil {
 		maxTokensValue := int64(*in.GetSamplingParams().MaxTokens)
@@ -149,7 +149,7 @@ func (c *Communication) pbRequestToRequest(in *pb.GenerateRequest) *vllmsim.Gene
 		req.Prompt = in.GetText()
 	}
 
-	return &vllmsim.GenerationRequest{GenerationRequest: *req}
+	return &simulator.GenerationRequest{GenerationRequest: *req}
 }
 
 func sendResponse(response any, out grpc.ServerStreamingServer[pb.GenerateResponse]) error {

@@ -40,7 +40,7 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/communication"
-	vllmsim "github.com/llm-d/llm-d-inference-sim/pkg/llm-d-inference-sim"
+	"github.com/llm-d/llm-d-inference-sim/pkg/simulator"
 	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
@@ -88,12 +88,12 @@ func startServerWithArgsAndEnv(ctx context.Context, mode string, args []string, 
 }
 
 // nolint
-func startServerHandle(ctx context.Context, mode string, args []string, envs map[string]string) (*vllmsim.VllmSimulator,
+func startServerHandle(ctx context.Context, mode string, args []string, envs map[string]string) (*simulator.Simulator,
 	*communication.Communication, *http.Client, error) {
 	return startServerHelper(ctx, mode, args, envs)
 }
 
-func startServerHelper(ctx context.Context, mode string, args []string, envs map[string]string) (*vllmsim.VllmSimulator,
+func startServerHelper(ctx context.Context, mode string, args []string, envs map[string]string) (*simulator.Simulator,
 	*communication.Communication, *http.Client, error) {
 	oldArgs := os.Args
 	defer func() {
@@ -122,7 +122,7 @@ func startServerHelper(ctx context.Context, mode string, args []string, envs map
 
 	logger := klog.Background()
 
-	s, err := vllmsim.New(logger)
+	s, err := simulator.New(logger)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -198,7 +198,7 @@ func startServerHelper(ctx context.Context, mode string, args []string, envs map
 	}, nil
 }
 
-// startDataParallelServers parses the given args, calls vllmsim.Start to obtain
+// startDataParallelServers parses the given args, calls simulator.Start to obtain
 // one simulator per data-parallel rank, and wires each rank to its own
 // in-memory HTTP listener. It returns one *http.Client per rank, each dialling
 // exclusively into its own server. Cleanup (listener + sim shutdown) is
@@ -228,7 +228,7 @@ func startDataParallelServers(ctx context.Context, args []string, envs ...map[st
 
 	logger := klog.Background()
 
-	sims, err := vllmsim.Start(ctx, config, logger)
+	sims, err := simulator.Start(ctx, config, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -475,7 +475,7 @@ func getLastLoraMetrics(metrics []string) ([]string, error) {
 	lastTimestamp := float64(0)
 	var lastMetrics []string
 	for _, metric := range metrics {
-		if strings.HasPrefix(metric, vllmsim.LoRARequestsMetricName) {
+		if strings.HasPrefix(metric, simulator.LoRARequestsMetricName) {
 			timestamp, err := extractTimestamp(metric)
 			if err != nil {
 				return nil, err
@@ -679,17 +679,17 @@ func checkLatencyMetrics(client *http.Client, modelName string, numOfInputTokens
 	prevBoundary := math.Inf(-1)
 
 	for _, bucketBoundary := range common.RequestLatencyBucketsBoundaries {
-		checkBucketBoundary(metrics, modelName, vllmsim.PrefillTimeMetricName, bucketBoundary, prevBoundary, expectedPrefillTimeInSecs)
-		checkBucketBoundary(metrics, modelName, vllmsim.DecodeTimeMetricName, bucketBoundary, prevBoundary, expectedDecodeTimeInSecs)
-		checkBucketBoundary(metrics, modelName, vllmsim.E2EReqLatencyMetricName, bucketBoundary, prevBoundary, expectedE2ELatency)
+		checkBucketBoundary(metrics, modelName, simulator.PrefillTimeMetricName, bucketBoundary, prevBoundary, expectedPrefillTimeInSecs)
+		checkBucketBoundary(metrics, modelName, simulator.DecodeTimeMetricName, bucketBoundary, prevBoundary, expectedDecodeTimeInSecs)
+		checkBucketBoundary(metrics, modelName, simulator.E2EReqLatencyMetricName, bucketBoundary, prevBoundary, expectedE2ELatency)
 
 		prevBoundary = bucketBoundary
 	}
 	// check the last bucket
 	lastBoundary := common.RequestLatencyBucketsBoundaries[len(common.RequestLatencyBucketsBoundaries)-1]
-	checkBucketBoundary(metrics, modelName, vllmsim.PrefillTimeMetricName, math.Inf(1), lastBoundary, expectedPrefillTimeInSecs)
-	checkBucketBoundary(metrics, modelName, vllmsim.DecodeTimeMetricName, math.Inf(1), lastBoundary, expectedDecodeTimeInSecs)
-	checkBucketBoundary(metrics, modelName, vllmsim.E2EReqLatencyMetricName, math.Inf(1), lastBoundary, expectedE2ELatency)
+	checkBucketBoundary(metrics, modelName, simulator.PrefillTimeMetricName, math.Inf(1), lastBoundary, expectedPrefillTimeInSecs)
+	checkBucketBoundary(metrics, modelName, simulator.DecodeTimeMetricName, math.Inf(1), lastBoundary, expectedDecodeTimeInSecs)
+	checkBucketBoundary(metrics, modelName, simulator.E2EReqLatencyMetricName, math.Inf(1), lastBoundary, expectedE2ELatency)
 }
 
 func ptr[T any](v T) *T {

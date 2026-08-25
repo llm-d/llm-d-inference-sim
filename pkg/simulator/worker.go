@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package llmdinferencesim
+package simulator
 
 import (
 	"context"
@@ -57,7 +57,7 @@ type requestProcessor interface {
 	processRequest(reqCtx requestContext)
 }
 
-func (s *VllmSimulator) processRequest(reqCtx requestContext) {
+func (s *Simulator) processRequest(reqCtx requestContext) {
 	defer s.onResponseProcessingFinished(reqCtx)
 
 	startTime := time.Now()
@@ -87,7 +87,7 @@ func (s *VllmSimulator) processRequest(reqCtx requestContext) {
 }
 
 // getFreeWorker returns a free worker or nil if none are available (non-blocking)
-func (s *VllmSimulator) getFreeWorker() *worker {
+func (s *Simulator) getFreeWorker() *worker {
 	select {
 	case w := <-s.freeWorkers:
 		return w

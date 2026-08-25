@@ -14,8 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package vllmsim implements the vLLM simulator.
-package llmdinferencesim
+package simulator
 
 import (
 	"container/list"
@@ -46,8 +45,7 @@ type waitingQueueItem struct {
 	enqueueTime time.Time
 }
 
-// VllmSimulator simulates vLLM server supporting OpenAI API
-type VllmSimulator struct {
+type Simulator struct {
 	Context SimContext
 	// schema validator for tools parameters
 	toolsValidator *toolsValidator
@@ -70,14 +68,14 @@ type VllmSimulator struct {
 	drainCancel context.CancelFunc
 }
 
-// New creates a new VllmSimulator instance with the given logger
-func New(logger logr.Logger) (*VllmSimulator, error) {
+// New creates a new Simulator instance with the given logger
+func New(logger logr.Logger) (*Simulator, error) {
 	toolsValidator, err := createToolsValidator()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create tools validator: %s", err)
 	}
 
-	sim := &VllmSimulator{
+	sim := &Simulator{
 		toolsValidator: toolsValidator,
 		Context: SimContext{
 			logger: logger,
@@ -98,7 +96,7 @@ func New(logger logr.Logger) (*VllmSimulator, error) {
 	return sim, nil
 }
 
-func Start(ctx context.Context, config *common.Configuration, logger logr.Logger) ([]*VllmSimulator, error) {
+func Start(ctx context.Context, config *common.Configuration, logger logr.Logger) ([]*Simulator, error) {
 	if config.MMEncoderOnly && config.Mode == common.ModeEcho {
 		logger.V(logging.WARN).Info("MM encoder-only mode: ignoring echo mode")
 	}
@@ -124,7 +122,7 @@ func Start(ctx context.Context, config *common.Configuration, logger logr.Logger
 		dpSize = 1
 	}
 
-	sims := make([]*VllmSimulator, dpSize)
+	sims := make([]*Simulator, dpSize)
 
 	for dpRank := 0; dpRank < dpSize; dpRank++ {
 		rankConfig, err := config.Copy()
@@ -186,7 +184,7 @@ func Start(ctx context.Context, config *common.Configuration, logger logr.Logger
 	return sims, nil
 }
 
-func (s *VllmSimulator) InitializeSim(ctx context.Context) error {
+func (s *Simulator) InitializeSim(ctx context.Context) error {
 	// drainCtx lives until all open requests finish after ctx is cancelled.
 	// It is passed to all internal goroutines so they keep running through drain.
 	drainCtx, drainCancel := context.WithCancel(context.Background())
@@ -236,11 +234,11 @@ func (s *VllmSimulator) InitializeSim(ctx context.Context) error {
 // Stop cancels the internal drain context, causing all internal goroutines
 // (workers, metrics, kvcache) to stop cleanly. It must be called by the
 // communication layer after all open requests have been drained.
-func (s *VllmSimulator) Stop() {
+func (s *Simulator) Stop() {
 	s.drainCancel()
 }
 
-func (s *VllmSimulator) processing(ctx context.Context) {
+func (s *Simulator) processing(ctx context.Context) {
 	s.Context.logger.V(logging.INFO).Info("Start processing routine")
 
 	for {
@@ -304,7 +302,7 @@ func (s *VllmSimulator) processing(ctx context.Context) {
 	}
 }
 
-func (s *VllmSimulator) findRequestAndSendToProcess(worker *worker) bool {
+func (s *Simulator) findRequestAndSendToProcess(worker *worker) bool {
 	nextReq := s.dequeue()
 	if nextReq != nil {
 		// send this request for processing in this worker
@@ -322,7 +320,7 @@ func (s *VllmSimulator) findRequestAndSendToProcess(worker *worker) bool {
 	return false
 }
 
-func (s *VllmSimulator) addRequestToQueue(reqCtx requestContext) {
+func (s *Simulator) addRequestToQueue(reqCtx requestContext) {
 	if err := s.enqueue(reqCtx); err != nil {
 		s.Context.logger.Error(err, "failed to enqueue request")
 		err := api.NewError("Failed to enqueue request, "+err.Error(),
@@ -348,7 +346,7 @@ func (s *VllmSimulator) addRequestToQueue(reqCtx requestContext) {
 // publish per-choice results on. On failure it returns numChoices = 0 and a
 // non-nil error; errInjected indicates whether the failure came from the
 // failure-injection path so the caller can attribute it correctly.
-func (s *VllmSimulator) HandleRequest(req Request) (numChoices int, isStream bool,
+func (s *Simulator) HandleRequest(req Request) (numChoices int, isStream bool,
 	channel *common.Channel[*ResponseInfo], err *api.Error, errInjected bool) {
 	// Check if we should inject a failure
 	if shouldInjectFailure(s.Context.Config(), s.Context.Random) {
@@ -406,7 +404,7 @@ func (s *VllmSimulator) HandleRequest(req Request) (numChoices int, isStream boo
 	return len(subReqs), req.IsStream(), respChan, nil, false
 }
 
-func (s *VllmSimulator) enqueue(req requestContext) error {
+func (s *Simulator) enqueue(req requestContext) error {
 	s.queueLock.Lock()
 	defer s.queueLock.Unlock()
 
@@ -418,7 +416,7 @@ func (s *VllmSimulator) enqueue(req requestContext) error {
 }
 
 // go though the queue and find the first request that can be executed, while taking into consideration the max lora limitation
-func (s *VllmSimulator) dequeue() requestContext {
+func (s *Simulator) dequeue() requestContext {
 	s.queueLock.Lock()
 	defer s.queueLock.Unlock()
 
@@ -448,7 +446,7 @@ func (s *VllmSimulator) dequeue() requestContext {
 	return nil
 }
 
-func (s *VllmSimulator) simulateResponseProcessing(respCtx ResponseContext) {
+func (s *Simulator) simulateResponseProcessing(respCtx ResponseContext) {
 	reqCtx := respCtx.RequestContext()
 	choiceIdx := reqCtx.choiceIndex()
 	// Skip delays if finish reason is cache_threshold (immediate return)
@@ -529,7 +527,7 @@ func (s *VllmSimulator) simulateResponseProcessing(respCtx ResponseContext) {
 }
 
 // request processing finished
-func (s *VllmSimulator) onResponseProcessingFinished(reqCtx requestContext) {
+func (s *Simulator) onResponseProcessingFinished(reqCtx requestContext) {
 	// decrement running requests count
 	common.WriteToChannel(s.Context.metrics.runReqChan, common.MetricInfo{Value: -1}, s.Context.logger)
 
@@ -546,7 +544,7 @@ func (s *VllmSimulator) onResponseProcessingFinished(reqCtx requestContext) {
 
 // OpenRequests returns the number of requests currently in the system
 // (waiting in queue + being processed by workers).
-func (s *VllmSimulator) OpenRequests() int64 {
+func (s *Simulator) OpenRequests() int64 {
 	s.queueLock.Lock()
 	waiting := s.waitingQueue.Len()
 	s.queueLock.Unlock()
@@ -554,10 +552,10 @@ func (s *VllmSimulator) OpenRequests() int64 {
 	return int64(waiting + running)
 }
 
-func (s *VllmSimulator) DiscardKVCache() {
+func (s *Simulator) DiscardKVCache() {
 	s.Context.kvcacheHelper.Discard()
 }
 
-func (s *VllmSimulator) ActivateKVCache() {
+func (s *Simulator) ActivateKVCache() {
 	s.Context.kvcacheHelper.Activate()
 }

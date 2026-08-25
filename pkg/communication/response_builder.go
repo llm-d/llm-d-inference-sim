@@ -24,7 +24,7 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/communication/grpc/pb"
-	vllmsim "github.com/llm-d/llm-d-inference-sim/pkg/llm-d-inference-sim"
+	"github.com/llm-d/llm-d-inference-sim/pkg/simulator"
 )
 
 // sseChunk knows how to format itself as SSE wire bytes.
@@ -78,13 +78,13 @@ func (*doneMarker) SSEBytes() ([]byte, error) {
 
 // responseBuilder is the HTTP streaming builder interface.
 type responseBuilder interface {
-	createResponse(respCtxPerChoice []vllmsim.ResponseContext, tokens []api.Tokenized) any
-	createUsageChunk(respCtxPerChoice []vllmsim.ResponseContext) sseChunk
-	createChunk(respCtx vllmsim.ResponseContext, tokens *api.Tokenized, tool *api.ToolCall,
+	createResponse(respCtxPerChoice []simulator.ResponseContext, tokens []api.Tokenized) any
+	createUsageChunk(respCtxPerChoice []simulator.ResponseContext) sseChunk
+	createChunk(respCtx simulator.ResponseContext, tokens *api.Tokenized, tool *api.ToolCall,
 		role string, finishReason *string, choiceIdx int) sseChunk
-	createInitialChunk(respCtx vllmsim.ResponseContext) sseChunk
-	createFirstChunk(respCtx vllmsim.ResponseContext, choiceIdx int) sseChunk
-	createLastChunk(respCtx vllmsim.ResponseContext, finishReason string, choiceIdx int) sseChunk
+	createInitialChunk(respCtx simulator.ResponseContext) sseChunk
+	createFirstChunk(respCtx simulator.ResponseContext, choiceIdx int) sseChunk
+	createLastChunk(respCtx simulator.ResponseContext, finishReason string, choiceIdx int) sseChunk
 	createDoneChunk() sseChunk
 	createRenderResponse(tokens [][]uint32, features *api.RenderMMFeatures) any
 	// sendFinishReasonWithTokens returns true if the builder wants the finish
@@ -93,7 +93,7 @@ type responseBuilder interface {
 	// createImageChunk returns a synthetic image SSE frame for the given choice
 	// to be emitted after the token stream, or nil if this builder does not
 	// support image chunks.
-	createImageChunk(respCtx vllmsim.ResponseContext, choiceIdx int) sseChunk
+	createImageChunk(respCtx simulator.ResponseContext, choiceIdx int) sseChunk
 }
 
 // aggregateUsage combines per-choice usages. Completion tokens are always
@@ -105,7 +105,7 @@ type responseBuilder interface {
 // Callers must ensure every slot is populated — by the time we reach here, every
 // non-error response has carried a non-nil RespCtx, so any nil slot is a bug and
 // a nil deref here is the right signal.
-func aggregateUsage(respCtxPerChoice []vllmsim.ResponseContext) *api.Usage {
+func aggregateUsage(respCtxPerChoice []simulator.ResponseContext) *api.Usage {
 	if len(respCtxPerChoice) == 1 {
 		return respCtxPerChoice[0].UsageData()
 	}
@@ -137,18 +137,18 @@ func aggregateUsage(respCtxPerChoice []vllmsim.ResponseContext) *api.Usage {
 // shared boilerplate; override only what differs.
 type baseRespBuilder struct{}
 
-func (*baseRespBuilder) createInitialChunk(_ vllmsim.ResponseContext) sseChunk      { return nil }
-func (*baseRespBuilder) createFirstChunk(_ vllmsim.ResponseContext, _ int) sseChunk { return nil }
-func (*baseRespBuilder) createDoneChunk() sseChunk                                  { return &doneMarker{} }
-func (*baseRespBuilder) sendFinishReasonWithTokens() bool                           { return false }
-func (*baseRespBuilder) createImageChunk(_ vllmsim.ResponseContext, _ int) sseChunk { return nil }
+func (*baseRespBuilder) createInitialChunk(_ simulator.ResponseContext) sseChunk      { return nil }
+func (*baseRespBuilder) createFirstChunk(_ simulator.ResponseContext, _ int) sseChunk { return nil }
+func (*baseRespBuilder) createDoneChunk() sseChunk                                    { return &doneMarker{} }
+func (*baseRespBuilder) sendFinishReasonWithTokens() bool                             { return false }
+func (*baseRespBuilder) createImageChunk(_ simulator.ResponseContext, _ int) sseChunk { return nil }
 func (*baseRespBuilder) createRenderResponse(_ [][]uint32, _ *api.RenderMMFeatures) any {
 	panic("createRenderResponse not supported for this response builder")
 }
 
 type textComplHTTPRespBuilder struct{ baseRespBuilder }
 
-func (respBuilder *textComplHTTPRespBuilder) createResponse(respCtxPerChoice []vllmsim.ResponseContext,
+func (respBuilder *textComplHTTPRespBuilder) createResponse(respCtxPerChoice []simulator.ResponseContext,
 	tokens []api.Tokenized) any {
 	respCtx := respCtxPerChoice[0]
 	baseResp := api.CreateBaseCompletionsResponse(
@@ -181,7 +181,7 @@ func (respBuilder *textComplHTTPRespBuilder) createResponse(respCtxPerChoice []v
 	return api.CreateTextCompletionsResponse(baseResp, choices)
 }
 
-func (respBuilder *textComplHTTPRespBuilder) createUsageChunk(respCtxPerChoice []vllmsim.ResponseContext) sseChunk {
+func (respBuilder *textComplHTTPRespBuilder) createUsageChunk(respCtxPerChoice []simulator.ResponseContext) sseChunk {
 	respCtx := respCtxPerChoice[0]
 	if !respCtx.SendUsageData() {
 		return nil
@@ -194,7 +194,7 @@ func (respBuilder *textComplHTTPRespBuilder) createUsageChunk(respCtxPerChoice [
 
 // createChunk creates and returns a CompletionsRespChunk, a single chunk of streamed completion API response,
 // for text completion.
-func (respBuilder *textComplHTTPRespBuilder) createChunk(respCtx vllmsim.ResponseContext, tokens *api.Tokenized,
+func (respBuilder *textComplHTTPRespBuilder) createChunk(respCtx simulator.ResponseContext, tokens *api.Tokenized,
 	tool *api.ToolCall, role string, finishReason *string, choiceIdx int) sseChunk {
 
 	baseChunk := api.CreateBaseCompletionsResponse(
@@ -220,7 +220,7 @@ func (respBuilder *textComplHTTPRespBuilder) createChunk(respCtx vllmsim.Respons
 	return &jsonDataChunk{data: api.CreateTextCompletionsResponse(baseChunk, []api.TextRespChoice{choice})}
 }
 
-func (respBuilder *textComplHTTPRespBuilder) createLastChunk(respCtx vllmsim.ResponseContext, finishReason string, choiceIdx int) sseChunk {
+func (respBuilder *textComplHTTPRespBuilder) createLastChunk(respCtx simulator.ResponseContext, finishReason string, choiceIdx int) sseChunk {
 	if finishReason == common.CacheThresholdFinishReason {
 		return nil
 	}
@@ -244,7 +244,7 @@ var _ responseBuilder = (*textComplHTTPRespBuilder)(nil)
 
 type chatComplHTTPRespBuilder struct{ baseRespBuilder }
 
-func (respBuilder *chatComplHTTPRespBuilder) createResponse(respCtxPerChoice []vllmsim.ResponseContext,
+func (respBuilder *chatComplHTTPRespBuilder) createResponse(respCtxPerChoice []simulator.ResponseContext,
 	tokens []api.Tokenized) any {
 	respCtx := respCtxPerChoice[0]
 	baseResp := api.CreateBaseCompletionsResponse(
@@ -294,7 +294,7 @@ func (respBuilder *chatComplHTTPRespBuilder) createResponse(respCtxPerChoice []v
 	return resp
 }
 
-func (respBuilder *chatComplHTTPRespBuilder) createUsageChunk(respCtxPerChoice []vllmsim.ResponseContext) sseChunk {
+func (respBuilder *chatComplHTTPRespBuilder) createUsageChunk(respCtxPerChoice []simulator.ResponseContext) sseChunk {
 	respCtx := respCtxPerChoice[0]
 	if !respCtx.SendUsageData() {
 		return nil
@@ -307,7 +307,7 @@ func (respBuilder *chatComplHTTPRespBuilder) createUsageChunk(respCtxPerChoice [
 
 // createChunk creates and returns a CompletionsRespChunk, a single chunk of streamed completion
 // API response, for chat completion. It sets either role, or token, or tool call info in the message.
-func (respBuilder *chatComplHTTPRespBuilder) createChunk(respCtx vllmsim.ResponseContext, tokens *api.Tokenized,
+func (respBuilder *chatComplHTTPRespBuilder) createChunk(respCtx simulator.ResponseContext, tokens *api.Tokenized,
 	tool *api.ToolCall, role string, finishReason *string, choiceIdx int) sseChunk {
 	baseChunk := api.CreateBaseCompletionsResponse(
 		respCtx.CreationTime(), respCtx.DisplayModel(), nil, respCtx.RequestID(), false)
@@ -348,18 +348,18 @@ func (respBuilder *chatComplHTTPRespBuilder) createChunk(respCtx vllmsim.Respons
 	return &jsonDataChunk{data: &chunk}
 }
 
-func (respBuilder *chatComplHTTPRespBuilder) createFirstChunk(respCtx vllmsim.ResponseContext, choiceIdx int) sseChunk {
+func (respBuilder *chatComplHTTPRespBuilder) createFirstChunk(respCtx simulator.ResponseContext, choiceIdx int) sseChunk {
 	return respBuilder.createChunk(respCtx, nil, nil, api.RoleAssistant, nil, choiceIdx)
 }
 
-func (respBuilder *chatComplHTTPRespBuilder) createLastChunk(respCtx vllmsim.ResponseContext, finishReason string, choiceIdx int) sseChunk {
+func (respBuilder *chatComplHTTPRespBuilder) createLastChunk(respCtx simulator.ResponseContext, finishReason string, choiceIdx int) sseChunk {
 	if finishReason == common.ToolsFinishReason || finishReason == common.CacheThresholdFinishReason {
 		return nil
 	}
 	return respBuilder.createChunk(respCtx, nil, nil, "", respCtx.FinishReason(), choiceIdx)
 }
 
-func (b *chatComplHTTPRespBuilder) createImageChunk(respCtx vllmsim.ResponseContext, choiceIdx int) sseChunk {
+func (b *chatComplHTTPRespBuilder) createImageChunk(respCtx simulator.ResponseContext, choiceIdx int) sseChunk {
 	if respCtx == nil {
 		return nil
 	}
@@ -381,7 +381,7 @@ var _ responseBuilder = (*chatComplHTTPRespBuilder)(nil)
 
 type generationGRPCRespBuilder struct{}
 
-func (respBuilder *generationGRPCRespBuilder) createResponse(respCtxPerChoice []vllmsim.ResponseContext,
+func (respBuilder *generationGRPCRespBuilder) createResponse(respCtxPerChoice []simulator.ResponseContext,
 	tokens []api.Tokenized) any {
 	respCtx := respCtxPerChoice[0]
 
@@ -405,7 +405,7 @@ func (respBuilder *generationGRPCRespBuilder) createResponse(respCtxPerChoice []
 	}
 }
 
-func (respBuilder *generationGRPCRespBuilder) createChunk(respCtx vllmsim.ResponseContext, tokens *api.Tokenized) any {
+func (respBuilder *generationGRPCRespBuilder) createChunk(respCtx simulator.ResponseContext, tokens *api.Tokenized) any {
 	return &pb.GenerateResponse{
 		Response: &pb.GenerateResponse_Chunk{
 			Chunk: &pb.GenerateStreamChunk{
@@ -418,8 +418,8 @@ func (respBuilder *generationGRPCRespBuilder) createChunk(respCtx vllmsim.Respon
 	}
 }
 
-func (respBuilder *generationGRPCRespBuilder) createLastChunk(respCtx vllmsim.ResponseContext) any {
-	return respBuilder.createResponse([]vllmsim.ResponseContext{respCtx}, nil)
+func (respBuilder *generationGRPCRespBuilder) createLastChunk(respCtx simulator.ResponseContext) any {
+	return respBuilder.createResponse([]simulator.ResponseContext{respCtx}, nil)
 }
 
 type responsesHTTPRespBuilder struct {
@@ -462,7 +462,7 @@ func functionCallOutputItem(tc api.ToolCall, status string) api.FunctionCallOutp
 	}
 }
 
-func (respBuilder *responsesHTTPRespBuilder) createResponse(respCtxPerChoice []vllmsim.ResponseContext,
+func (respBuilder *responsesHTTPRespBuilder) createResponse(respCtxPerChoice []simulator.ResponseContext,
 	tokens []api.Tokenized) any {
 	respCtx := respCtxPerChoice[0]
 	usage := respCtx.UsageData()
@@ -507,7 +507,7 @@ func (respBuilder *responsesHTTPRespBuilder) createResponse(respCtxPerChoice []v
 	)
 }
 
-func (respBuilder *responsesHTTPRespBuilder) createUsageChunk(respCtxPerChoice []vllmsim.ResponseContext) sseChunk {
+func (respBuilder *responsesHTTPRespBuilder) createUsageChunk(respCtxPerChoice []simulator.ResponseContext) sseChunk {
 	respCtx := respCtxPerChoice[0]
 	usage := aggregateUsage(respCtxPerChoice)
 
@@ -562,7 +562,7 @@ func (respBuilder *responsesHTTPRespBuilder) createUsageChunk(respCtxPerChoice [
 		}}}
 }
 
-func (respBuilder *responsesHTTPRespBuilder) createChunk(respCtx vllmsim.ResponseContext,
+func (respBuilder *responsesHTTPRespBuilder) createChunk(respCtx simulator.ResponseContext,
 	tokens *api.Tokenized, tool *api.ToolCall, role string, finishReason *string, choiceIdx int) sseChunk {
 	if tool != nil {
 		return respBuilder.createToolChunk(tool)
@@ -640,7 +640,7 @@ func (respBuilder *responsesHTTPRespBuilder) createToolChunk(tool *api.ToolCall)
 	return &namedEventChunk{names: names, data: data}
 }
 
-func (respBuilder *responsesHTTPRespBuilder) createInitialChunk(respCtx vllmsim.ResponseContext) sseChunk {
+func (respBuilder *responsesHTTPRespBuilder) createInitialChunk(respCtx simulator.ResponseContext) sseChunk {
 	resp := api.CreateResponsesResponse(
 		respCtx.DisplayModel(),
 		respCtx.RequestID(),
@@ -659,7 +659,7 @@ func (respBuilder *responsesHTTPRespBuilder) createInitialChunk(respCtx vllmsim.
 	}
 }
 
-func (respBuilder *responsesHTTPRespBuilder) createFirstChunk(respCtx vllmsim.ResponseContext, choiceIdx int) sseChunk {
+func (respBuilder *responsesHTTPRespBuilder) createFirstChunk(respCtx simulator.ResponseContext, choiceIdx int) sseChunk {
 	respBuilder.inToolMode = len(respCtx.ToolCalls()) > 0
 	if respBuilder.inToolMode {
 		// output_item.added for function_call is emitted in createToolChunk on the first arg token.
@@ -693,7 +693,7 @@ func (respBuilder *responsesHTTPRespBuilder) createFirstChunk(respCtx vllmsim.Re
 	}
 }
 
-func (respBuilder *responsesHTTPRespBuilder) createLastChunk(respCtx vllmsim.ResponseContext, _ string, choiceIdx int) sseChunk {
+func (respBuilder *responsesHTTPRespBuilder) createLastChunk(respCtx simulator.ResponseContext, _ string, choiceIdx int) sseChunk {
 	if respBuilder.inToolMode {
 		args := respBuilder.accumulatedArgs.String()
 		argsDone := api.ResponsesItemEvent{
@@ -767,7 +767,7 @@ var _ responseBuilder = (*responsesHTTPRespBuilder)(nil)
 
 type generateHTTPRespBuilder struct{ baseRespBuilder }
 
-func (respBuilder *generateHTTPRespBuilder) createResponse(respCtxPerChoice []vllmsim.ResponseContext,
+func (respBuilder *generateHTTPRespBuilder) createResponse(respCtxPerChoice []simulator.ResponseContext,
 	tokens []api.Tokenized) any {
 	respCtx := respCtxPerChoice[0]
 	var tokenIDs []uint32
@@ -788,7 +788,7 @@ func (respBuilder *generateHTTPRespBuilder) createResponse(respCtxPerChoice []vl
 	return resp
 }
 
-func (respBuilder *generateHTTPRespBuilder) createUsageChunk(respCtxPerChoice []vllmsim.ResponseContext) sseChunk {
+func (respBuilder *generateHTTPRespBuilder) createUsageChunk(respCtxPerChoice []simulator.ResponseContext) sseChunk {
 	respCtx := respCtxPerChoice[0]
 	if !respCtx.SendUsageData() {
 		return nil
@@ -800,7 +800,7 @@ func (respBuilder *generateHTTPRespBuilder) createUsageChunk(respCtxPerChoice []
 	}}
 }
 
-func (respBuilder *generateHTTPRespBuilder) createChunk(respCtx vllmsim.ResponseContext,
+func (respBuilder *generateHTTPRespBuilder) createChunk(respCtx simulator.ResponseContext,
 	tokens *api.Tokenized, _ *api.ToolCall, _ string, finishReason *string, choiceIdx int) sseChunk {
 	choice := api.GenerateRespChoice{}
 	choice.Index = choiceIdx
@@ -814,7 +814,7 @@ func (respBuilder *generateHTTPRespBuilder) createChunk(respCtx vllmsim.Response
 	}}
 }
 
-func (respBuilder *generateHTTPRespBuilder) createLastChunk(respCtx vllmsim.ResponseContext, finishReason string, choiceIdx int) sseChunk {
+func (respBuilder *generateHTTPRespBuilder) createLastChunk(respCtx simulator.ResponseContext, finishReason string, choiceIdx int) sseChunk {
 	return nil
 }
 
@@ -840,7 +840,7 @@ func (b *messagesHTTPRespBuilder) stopReason(finishReason string) string {
 	}
 }
 
-func (b *messagesHTTPRespBuilder) createResponse(respCtxPerChoice []vllmsim.ResponseContext,
+func (b *messagesHTTPRespBuilder) createResponse(respCtxPerChoice []simulator.ResponseContext,
 	tokens []api.Tokenized) any {
 	respCtx := respCtxPerChoice[0]
 	usage := respCtx.UsageData()
@@ -887,11 +887,11 @@ func (b *messagesHTTPRespBuilder) createResponse(respCtxPerChoice []vllmsim.Resp
 	)
 }
 
-func (b *messagesHTTPRespBuilder) createUsageChunk(_ []vllmsim.ResponseContext) sseChunk {
+func (b *messagesHTTPRespBuilder) createUsageChunk(_ []simulator.ResponseContext) sseChunk {
 	return nil // usage is delivered in the message_delta streaming event
 }
 
-func (b *messagesHTTPRespBuilder) createInitialChunk(respCtx vllmsim.ResponseContext) sseChunk {
+func (b *messagesHTTPRespBuilder) createInitialChunk(respCtx simulator.ResponseContext) sseChunk {
 	msg := api.CreateMessagesStreamStartMessage(
 		respCtx.DisplayModel(),
 		respCtx.RequestID(),
@@ -903,7 +903,7 @@ func (b *messagesHTTPRespBuilder) createInitialChunk(respCtx vllmsim.ResponseCon
 	}
 }
 
-func (b *messagesHTTPRespBuilder) createFirstChunk(respCtx vllmsim.ResponseContext, _ int) sseChunk {
+func (b *messagesHTTPRespBuilder) createFirstChunk(respCtx simulator.ResponseContext, _ int) sseChunk {
 	b.inToolMode = len(respCtx.ToolCalls()) > 0
 	ping := api.MessagesPingEvent{Type: api.MessagesEventPing}
 
@@ -927,7 +927,7 @@ func (b *messagesHTTPRespBuilder) createFirstChunk(respCtx vllmsim.ResponseConte
 	}
 }
 
-func (b *messagesHTTPRespBuilder) createChunk(_ vllmsim.ResponseContext, tokens *api.Tokenized,
+func (b *messagesHTTPRespBuilder) createChunk(_ simulator.ResponseContext, tokens *api.Tokenized,
 	tool *api.ToolCall, _ string, _ *string, _ int) sseChunk {
 
 	if tool != nil {
@@ -988,7 +988,7 @@ func (b *messagesHTTPRespBuilder) createChunk(_ vllmsim.ResponseContext, tokens 
 	}
 }
 
-func (b *messagesHTTPRespBuilder) createLastChunk(respCtx vllmsim.ResponseContext, finishReason string, _ int) sseChunk {
+func (b *messagesHTTPRespBuilder) createLastChunk(respCtx simulator.ResponseContext, finishReason string, _ int) sseChunk {
 	blockIdx := 0
 	if b.inToolMode && b.contentBlockIndex > 0 {
 		blockIdx = b.contentBlockIndex - 1
