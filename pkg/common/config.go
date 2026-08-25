@@ -352,6 +352,10 @@ type Configuration struct {
 	// MaxRequestBodySizeMB sets the maximum allowed request body size in megabytes for the HTTP server.
 	// Default is 4 (matching the fasthttp built-in default). Must be between 1 and 512.
 	MaxRequestBodySizeMB int `yaml:"max-request-body-size-mb" json:"max-request-body-size-mb"`
+
+	// Engine identifies the inference engine being simulated, selected via --engine or
+	// the YAML config file's "engine" key. Currently always "vllm".
+	Engine string `yaml:"engine" json:"engine"`
 }
 
 type LoraModule struct {
@@ -363,7 +367,9 @@ type LoraModule struct {
 	BaseModelName string `json:"base_model_name"`
 }
 
-func newConfig() *Configuration {
+// NewConfiguration returns a Configuration populated with the simulator's built-in
+// defaults, before any engine-specific, YAML, or command-line overrides are applied.
+func NewConfiguration() *Configuration {
 	return &Configuration{
 		IP:                                  os.Getenv(podIPEnv),
 		Port:                                8000,
@@ -416,6 +422,25 @@ func (c *Configuration) load(configFile string) error {
 	}
 
 	return nil
+}
+
+// PeekEngineFromFile reads just the "engine" key out of a YAML configuration file,
+// without requiring the rest of the Configuration schema. Used to resolve which engine
+// to use before its defaults have been constructed. Returns "" if the file has no
+// "engine" key.
+func PeekEngineFromFile(path string) (string, error) {
+	configBytes, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("failed to read configuration file: %s", err)
+	}
+
+	var probe struct {
+		Engine string `yaml:"engine"`
+	}
+	if err := yaml.Unmarshal(configBytes, &probe); err != nil {
+		return "", fmt.Errorf("failed to unmarshal configuration: %s", err)
+	}
+	return probe.Engine, nil
 }
 
 func (c *Configuration) validate() error {

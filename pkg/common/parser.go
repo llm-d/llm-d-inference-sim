@@ -95,20 +95,24 @@ func addToggle(f *pflag.FlagSet, ptr *bool, name, nameUsage, noNameUsage string)
 
 // ParseCommandParamsAndLoadConfig loads configuration, parses command line parameters, merges the values
 // (command line overwrites the config file; see documentation for configuration precedence involving environment variables),
-// and validates the configuration.
-func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
-	config := newConfig()
+// and validates the configuration. config must already carry the engine-specific defaults
+// (see engine.Engine.NewConfiguration) to build on top of.
+func ParseCommandParamsAndLoadConfig(config *Configuration) (*Configuration, error) {
+	// The engine was already resolved (and its defaults applied to config) before this
+	// function runs. A YAML file loaded below could carry its own "engine" key that
+	// disagrees with that resolution; keep the originally-resolved value authoritative.
+	resolvedEngine := config.Engine
 
-	configFileValues := getParamValueFromArgs("config")
+	configFileValues := GetParamValueFromArgs("config")
 	if len(configFileValues) == 1 {
 		if err := config.load(configFileValues[0]); err != nil {
 			return nil, err
 		}
 	}
 
-	servedModelNames := getParamValueFromArgs("served-model-name")
-	loraModuleNames := getParamValueFromArgs("lora-modules")
-	fakeMetrics := getParamValueFromArgs("fake-metrics")
+	servedModelNames := GetParamValueFromArgs("served-model-name")
+	loraModuleNames := GetParamValueFromArgs("lora-modules")
+	fakeMetrics := GetParamValueFromArgs("fake-metrics")
 
 	f := pflag.NewFlagSet("llm-d-inference-sim flags", pflag.ContinueOnError)
 
@@ -182,7 +186,7 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 	f.BoolVar(&config.SkipToolValidation, "skip-tool-validation", config.SkipToolValidation, "Skip the built-in validation of incoming tool schemas, matching real vLLM which forwards them to the model verbatim")
 
 	f.IntVar(&config.FailureInjectionRate, "failure-injection-rate", config.FailureInjectionRate, "Probability (0-100) of injecting failures")
-	failureTypes := getParamValueFromArgs("failure-types")
+	failureTypes := GetParamValueFromArgs("failure-types")
 	var dummyFailureTypes multiString
 	failureTypesDescription := fmt.Sprintf("List of specific failure types to inject (%s, %s, %s, %s, %s, %s)",
 		FailureTypeRateLimit, FailureTypeInvalidAPIKey, FailureTypeContextLength, FailureTypeServerError, FailureTypeInvalidRequest,
@@ -220,9 +224,11 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 		"enable-prefix-caching", "Enable prefix caching, ignored", "Disable prefix caching, ignored")
 	f.IntVar(&config.TPSize, "tensor-parallel-size", config.TPSize, "Number of tensor parallel replicas, ignored")
 
-	// These values were manually parsed above in getParamValueFromArgs, we leave this in order to get these flags in --help
+	// These values were manually parsed above in GetParamValueFromArgs, we leave this in order to get these flags in --help
 	var dummyString string
 	f.StringVar(&dummyString, "config", "", "The path to a yaml configuration file. The command line values overwrite the configuration file values")
+	var dummyEngine string
+	f.StringVar(&dummyEngine, "engine", "", "The inference engine to simulate; determines which configuration defaults apply. Currently the only supported value is 'vllm' (the default). Read before any other flag, so it also accepts the config file's 'engine' key")
 	var dummyMultiString multiString
 	f.Var(&dummyMultiString, "served-model-name", "Model names exposed by the API (a list of space-separated strings)")
 	f.Var(&dummyMultiString, "lora-modules", "List of LoRA adapters (a list of space-separated JSON strings)")
@@ -289,6 +295,8 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 		}
 	}
 
+	config.Engine = resolvedEngine
+
 	if err := config.validate(); err != nil {
 		return nil, err
 	}
@@ -296,7 +304,10 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 	return config, nil
 }
 
-func getParamValueFromArgs(param string) []string {
+// GetParamValueFromArgs hand-reads a flag's value(s) directly from os.Args, ahead of
+// the full pflag.FlagSet, for settings (like --config and --engine) that must be known
+// before the rest of the configuration can be built.
+func GetParamValueFromArgs(param string) []string {
 	var values []string
 	var readValues bool
 	for _, arg := range os.Args[1:] {

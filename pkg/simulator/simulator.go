@@ -32,6 +32,7 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 	"github.com/llm-d/llm-d-inference-sim/pkg/dataset"
+	"github.com/llm-d/llm-d-inference-sim/pkg/engine"
 	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 )
 
@@ -96,7 +97,7 @@ func New(logger logr.Logger) (*Simulator, error) {
 	return sim, nil
 }
 
-func Start(ctx context.Context, config *common.Configuration, logger logr.Logger) ([]*Simulator, error) {
+func Start(ctx context.Context, eng engine.Engine, config *common.Configuration, logger logr.Logger) ([]*Simulator, error) {
 	if config.MMEncoderOnly && config.Mode == common.ModeEcho {
 		logger.V(logging.WARN).Info("MM encoder-only mode: ignoring echo mode")
 	}
@@ -171,6 +172,7 @@ func Start(ctx context.Context, config *common.Configuration, logger logr.Logger
 			return nil, err
 		}
 		sim.Context.SetConfig(rankConfig)
+		sim.Context.engine = eng
 		// use the same tokenizer in all ranks
 		sim.Context.Tokenizer = tokenizer
 		sims[dpRank] = sim

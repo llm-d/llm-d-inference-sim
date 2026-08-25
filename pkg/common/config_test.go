@@ -32,11 +32,11 @@ func createSimConfig(args []string) (*Configuration, error) {
 	}()
 	os.Args = args
 
-	return ParseCommandParamsAndLoadConfig()
+	return ParseCommandParamsAndLoadConfig(NewConfiguration())
 }
 
 func createConfigWithModel(model string, servedModelNames []string) *Configuration {
-	c := newConfig()
+	c := NewConfiguration()
 
 	c.Model = model
 	if len(servedModelNames) > 0 {

@@ -12,6 +12,7 @@ For a setting that can come from a YAML file, an environment variable, and comma
 Some environment variables (for example `POD_NAME`, `POD_NAMESPACE`) are not overrides of a YAML field in this sense; they populate separate runtime fields after parsing.
 
 ## General
+- `engine`: the inference engine to simulate; determines which configuration defaults apply. Currently the only supported value is `vllm` (the default when omitted). Unlike other settings, `engine` is resolved before the rest of the configuration: a command-line `--engine` wins, otherwise the `engine` key of the `--config` file (if any) is used, otherwise the default applies. This still follows the normal [configuration precedence](#configuration-precedence); it is just resolved earlier because it decides which defaults get built in the first place.
 - `config`: the path to a yaml configuration file that can contain the simulator's command line parameters. If a parameter is defined in both the config file and the command line, the command line value overwrites the configuration file value. An example configuration file can be found at [manifests/config.yaml](../manifests/config.yaml)
 - `port`: the port the simulator listens on, default is 8000
 - `max-request-body-size-mb`: maximum allowed size of an HTTP request body in megabytes, optional, default is 4 (matching the fasthttp built-in default). Must be between 1 and 512.

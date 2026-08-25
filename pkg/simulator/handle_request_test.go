@@ -44,7 +44,7 @@ func newHandleRequestTestSim(ctx context.Context, newRequestsCapacity int, extra
 	defer func() { os.Args = oldArgs }()
 	os.Args = append([]string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho}, extraArgs...)
 
-	config, err := common.ParseCommandParamsAndLoadConfig()
+	config, err := common.ParseCommandParamsAndLoadConfig(common.NewConfiguration())
 	Expect(err).NotTo(HaveOccurred())
 
 	sim, err := New(klog.Background())

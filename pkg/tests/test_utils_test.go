@@ -40,6 +40,7 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/communication"
+	"github.com/llm-d/llm-d-inference-sim/pkg/engine"
 	"github.com/llm-d/llm-d-inference-sim/pkg/simulator"
 	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 	"github.com/openai/openai-go/v3"
@@ -126,7 +127,7 @@ func startServerHelper(ctx context.Context, mode string, args []string, envs map
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	config, err := common.ParseCommandParamsAndLoadConfig()
+	config, err := common.ParseCommandParamsAndLoadConfig(common.NewConfiguration())
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -221,14 +222,19 @@ func startDataParallelServers(ctx context.Context, args []string, envs ...map[st
 		}()
 	}
 
-	config, err := common.ParseCommandParamsAndLoadConfig()
+	config, err := common.ParseCommandParamsAndLoadConfig(common.NewConfiguration())
 	if err != nil {
 		return nil, err
 	}
 
 	logger := klog.Background()
 
-	sims, err := simulator.Start(ctx, config, logger)
+	eng, err := engine.Get(engine.VLLM)
+	if err != nil {
+		return nil, err
+	}
+
+	sims, err := simulator.Start(ctx, eng, config, logger)
 	if err != nil {
 		return nil, err
 	}

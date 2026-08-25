@@ -30,6 +30,7 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 	"github.com/llm-d/llm-d-inference-sim/pkg/dataset"
+	"github.com/llm-d/llm-d-inference-sim/pkg/engine"
 	"github.com/llm-d/llm-d-inference-sim/pkg/kvcache"
 	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 )
@@ -55,6 +56,9 @@ type SimContext struct {
 	// config holds the simulator's configuration as an atomic pointer so that
 	// admin updates can swap it under concurrent readers. Access via Config()/SetConfig().
 	config atomic.Pointer[common.Configuration]
+	// engine identifies the inference engine this simulator is simulating. Set once at
+	// startup and never changes at runtime. Access via Engine().
+	engine engine.Engine
 	// adminMu serializes admin-config updates so two concurrent updates can't
 	// each load-then-store with a stale value.
 	adminMu sync.Mutex
@@ -114,6 +118,11 @@ func (s *SimContext) Config() *common.Configuration {
 // SetConfig atomically replaces the configuration pointer.
 func (s *SimContext) SetConfig(c *common.Configuration) {
 	s.config.Store(c)
+}
+
+// Engine returns the inference engine this simulator is simulating.
+func (s *SimContext) Engine() engine.Engine {
+	return s.engine
 }
 
 // ApplyConfigUpdate validates the partial JSON body against the current

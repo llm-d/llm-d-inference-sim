@@ -41,7 +41,7 @@ func newRunningSim(ctx context.Context) *simulator.Simulator {
 	defer func() { os.Args = oldArgs }()
 	os.Args = []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho}
 
-	config, err := common.ParseCommandParamsAndLoadConfig()
+	config, err := common.ParseCommandParamsAndLoadConfig(common.NewConfiguration())
 	Expect(err).NotTo(HaveOccurred())
 
 	sim, err := simulator.New(klog.Background())
