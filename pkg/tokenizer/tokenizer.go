@@ -27,7 +27,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
-	"github.com/valyala/fasthttp"
+	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 )
 
 const (
@@ -51,18 +51,34 @@ type SimpleTokenizer struct {
 	baseTokenizer
 }
 
+// New builds a Tokenizer based on the simulator configuration.
+//
+// Selection rules:
+//   - --force-dummy-tokenizer (deprecated) always yields SimpleTokenizer.
+//   - A non-empty --render-url yields HFTokenizer backed by the render service.
+//   - Otherwise SimpleTokenizer is used. If the model name looks like a
+//     HuggingFace repo id (contains "/"), the fallback is logged at WARN so
+//     restricted-network deployments do not silently serve pseudo-token ids.
 func New(ctx context.Context, config *common.Configuration, logger logr.Logger) (Tokenizer, error) {
 	var err error
 	var tokenizer Tokenizer
 
 	switch {
 	case config.ForceDummyTokenizer:
-		logger.Info("Force dummy tokenizer flag is set, using simulated tokenizer", "model", config.Model)
+		logger.V(logging.WARN).Info("--force-dummy-tokenizer is deprecated; omit --render-url to use the simulated tokenizer",
+			"model", config.Model)
 		tokenizer = NewSimpleTokenizer()
-	case modelExists(config.Model):
+	case config.RenderURL != "":
 		tokenizer, err = NewHFTokenizer(ctx, logger, config.RenderURL, config.Model, config.RenderTimeout, config.MMRenderTimeout)
 	default:
-		logger.Info("Model is not a real HF model, using simulated tokenizer", "model", config.Model)
+		if strings.Contains(config.Model, "/") {
+			logger.V(logging.WARN).Info(
+				"Model name looks like a HuggingFace repo id but --render-url is not set; falling back to the simulated tokenizer. "+
+					"Token ids will be pseudo-hashes and will not match a real vLLM tokenizer, breaking KV-cache block hashing and prefix-cache routing.",
+				"model", config.Model)
+		} else {
+			logger.V(logging.INFO).Info("--render-url not set, using simulated tokenizer", "model", config.Model)
+		}
 		tokenizer = NewSimpleTokenizer()
 	}
 
@@ -197,17 +213,6 @@ func stubMMFeaturesForMessages(messages []api.Message, totalTokens int) *api.Ren
 		MMPlaceholders: mmPlaceholders,
 		KwargsData:     mmKwargsData,
 	}
-}
-
-func modelExists(model string) bool {
-	url := "https://huggingface.co/api/models/" + model
-
-	statusCode, _, err := fasthttp.Get(nil, url)
-	if err != nil {
-		return false
-	}
-
-	return statusCode == fasthttp.StatusOK
 }
 
 func fnv32(s string) uint32 {
