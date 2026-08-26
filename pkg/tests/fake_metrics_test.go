@@ -412,6 +412,23 @@ var _ = Describe("Fake metrics", Ordered, func() {
 		})
 	})
 
+	Context("removed /fake_metrics endpoint", func() {
+		It("Should return 404 for requests to /fake_metrics", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			req, err := http.NewRequest("POST", "http://localhost/fake_metrics", strings.NewReader(`{"running-requests":15}`))
+			Expect(err).NotTo(HaveOccurred())
+			req.Header.Set("Content-Type", "application/json")
+			resp, err := client.Do(req)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.StatusCode).To(Equal(http.StatusNotFound))
+			Expect(resp.Body.Close()).To(Succeed())
+		})
+	})
+
 	Context("update fake metrics", func() {
 		It("Should update fake metrics with functions correctly", func() {
 			ctx := context.TODO()
@@ -454,12 +471,9 @@ var _ = Describe("Fake metrics", Ordered, func() {
             "kv-cache-usage":0.9
         }`
 
-			req, err := http.NewRequest("POST", updateFakeMetricsUrl, strings.NewReader(reqBody))
-			Expect(err).NotTo(HaveOccurred())
-			req.Header.Set("Content-Type", "application/json")
-			resp, err = client.Do(req)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(resp.StatusCode).To(Equal(http.StatusNoContent))
+			resp = postAdminConfig(client, `{"fake-metrics":`+reqBody+`}`)
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			Expect(resp.Body.Close()).To(Succeed())
 
 			time.Sleep(200 * time.Millisecond)
 
@@ -482,12 +496,9 @@ var _ = Describe("Fake metrics", Ordered, func() {
             "kv-cache-usage":"ramp:0:1:150ms"
         }`
 
-			req, err = http.NewRequest("POST", updateFakeMetricsUrl, strings.NewReader(reqBody))
-			Expect(err).NotTo(HaveOccurred())
-			req.Header.Set("Content-Type", "application/json")
-			resp, err = client.Do(req)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(resp.StatusCode).To(Equal(http.StatusNoContent))
+			resp = postAdminConfig(client, `{"fake-metrics":`+reqBody+`}`)
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			Expect(resp.Body.Close()).To(Succeed())
 
 			time.Sleep(400 * time.Millisecond)
 
@@ -597,12 +608,9 @@ var _ = Describe("Fake metrics", Ordered, func() {
 			"tpot-buckets-values":[]
         }`
 
-			req, err := http.NewRequest("POST", updateFakeMetricsUrl, strings.NewReader(reqBody))
-			Expect(err).NotTo(HaveOccurred())
-			req.Header.Set("Content-Type", "application/json")
-			resp, err = client.Do(req)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(resp.StatusCode).To(Equal(http.StatusNoContent))
+			resp = postAdminConfig(client, `{"fake-metrics":`+reqBody+`}`)
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			Expect(resp.Body.Close()).To(Succeed())
 
 			resp, err = client.Get(metricsUrl)
 			Expect(err).NotTo(HaveOccurred())
@@ -691,12 +699,9 @@ var _ = Describe("Fake metrics", Ordered, func() {
 				"request-max-generation-tokens":[1,2,3]
 			}`
 
-			req, err := http.NewRequest("POST", updateFakeMetricsUrl, strings.NewReader(reqBody))
-			Expect(err).NotTo(HaveOccurred())
-			req.Header.Set("Content-Type", "application/json")
-			resp, err = client.Do(req)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(resp.StatusCode).To(Equal(http.StatusNoContent))
+			resp = postAdminConfig(client, `{"fake-metrics":`+reqBody+`}`)
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			Expect(resp.Body.Close()).To(Succeed())
 
 			resp, err = client.Get(metricsUrl)
 			Expect(err).NotTo(HaveOccurred())
@@ -778,12 +783,9 @@ var _ = Describe("Fake metrics", Ordered, func() {
 				"prefix-cache-queries":2000
 			}`
 
-			req, err := http.NewRequest("POST", updateFakeMetricsUrl, strings.NewReader(reqBody))
-			Expect(err).NotTo(HaveOccurred())
-			req.Header.Set("Content-Type", "application/json")
-			resp, err = client.Do(req)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(resp.StatusCode).To(Equal(http.StatusNoContent))
+			resp = postAdminConfig(client, `{"fake-metrics":`+reqBody+`}`)
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			Expect(resp.Body.Close()).To(Succeed())
 
 			resp, err = client.Get(metricsUrl)
 			Expect(err).NotTo(HaveOccurred())
@@ -836,12 +838,9 @@ var _ = Describe("Fake metrics", Ordered, func() {
 				]
 			}`
 
-			req, err := http.NewRequest("POST", updateFakeMetricsUrl, strings.NewReader(reqBody))
-			Expect(err).NotTo(HaveOccurred())
-			req.Header.Set("Content-Type", "application/json")
-			resp, err = client.Do(req)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(resp.StatusCode).To(Equal(http.StatusNoContent))
+			resp = postAdminConfig(client, `{"fake-metrics":`+reqBody+`}`)
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			Expect(resp.Body.Close()).To(Succeed())
 
 			resp, err = client.Get(metricsUrl)
 			Expect(err).NotTo(HaveOccurred())
@@ -862,12 +861,9 @@ var _ = Describe("Fake metrics", Ordered, func() {
 				"loras":[]
 			}`
 
-			req, err = http.NewRequest("POST", updateFakeMetricsUrl, strings.NewReader(reqBody))
-			Expect(err).NotTo(HaveOccurred())
-			req.Header.Set("Content-Type", "application/json")
-			resp, err = client.Do(req)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(resp.StatusCode).To(Equal(http.StatusNoContent))
+			resp = postAdminConfig(client, `{"fake-metrics":`+reqBody+`}`)
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			Expect(resp.Body.Close()).To(Succeed())
 
 			resp, err = client.Get(metricsUrl)
 			Expect(err).NotTo(HaveOccurred())
@@ -892,9 +888,9 @@ var _ = Describe("Fake metrics", Ordered, func() {
 		// Parameters per entry:
 		//   initialMetrics   – JSON for --fake-metrics flag at startup
 		//   initialPrompt/Gen – expected state after startup
-		//   firstUpdate      – JSON body for the first POST to /fake_metrics
+		//   firstUpdate      – JSON body for the first POST to /admin/config
 		//   firstPrompt/Gen  – expected state after first update
-		//   secondUpdate     – JSON body for the second POST
+		//   secondUpdate     – JSON body for the second POST to /admin/config
 		//   secondPrompt/Gen – expected state after second update
 		//
 		// tokenTestPhase.checkBuckets == nil means the histogram metric must be absent.
@@ -923,12 +919,9 @@ var _ = Describe("Fake metrics", Ordered, func() {
 				verifyTokenMetrics(metrics, simulator.GenerationTokensMetricName, simulator.GenerationTokensTotalMetricName, initialGen)
 
 				// First update: POST new fake metrics and verify
-				req, err := http.NewRequest("POST", updateFakeMetricsUrl, strings.NewReader(firstUpdate))
-				Expect(err).NotTo(HaveOccurred())
-				req.Header.Set("Content-Type", "application/json")
-				resp, err = client.Do(req)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(resp.StatusCode).To(Equal(http.StatusNoContent))
+				resp = postAdminConfig(client, `{"fake-metrics":`+firstUpdate+`}`)
+				Expect(resp.StatusCode).To(Equal(http.StatusOK))
+				Expect(resp.Body.Close()).To(Succeed())
 
 				resp, err = client.Get(metricsUrl)
 				Expect(err).NotTo(HaveOccurred())
@@ -942,12 +935,9 @@ var _ = Describe("Fake metrics", Ordered, func() {
 				verifyTokenMetrics(metrics, simulator.GenerationTokensMetricName, simulator.GenerationTokensTotalMetricName, firstGen)
 
 				// Second update: POST new fake metrics and verify
-				req, err = http.NewRequest("POST", updateFakeMetricsUrl, strings.NewReader(secondUpdate))
-				Expect(err).NotTo(HaveOccurred())
-				req.Header.Set("Content-Type", "application/json")
-				resp, err = client.Do(req)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(resp.StatusCode).To(Equal(http.StatusNoContent))
+				resp = postAdminConfig(client, `{"fake-metrics":`+secondUpdate+`}`)
+				Expect(resp.StatusCode).To(Equal(http.StatusOK))
+				Expect(resp.Body.Close()).To(Succeed())
 
 				resp, err = client.Get(metricsUrl)
 				Expect(err).NotTo(HaveOccurred())
