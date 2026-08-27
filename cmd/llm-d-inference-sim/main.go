@@ -58,7 +58,7 @@ func main() {
 		return
 	}
 
-	simulators, err := simulator.Start(ctx, eng, config, logger)
+	simulators, err := simulator.Start(ctx, config, logger)
 	if err != nil {
 		logger.Error(err, "failed to create inference simulator")
 		return
@@ -67,7 +67,7 @@ func main() {
 	g := new(errgroup.Group)
 	for _, sim := range simulators {
 		g.Go(func() error {
-			return communication.Start(ctx, logger, sim)
+			return communication.Start(ctx, logger, sim, eng.Routes, eng.GRPC())
 		})
 	}
 	if err := g.Wait(); err != nil {
