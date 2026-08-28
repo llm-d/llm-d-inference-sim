@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: inference-sim
+spec:
+  replicas: 4
+  selector:
+    matchLabels:
+      app: inference-sim
+  template:
+    metadata:
+      labels:
+        app: inference-sim
+        llm-d.ai/guide: optimized-baseline
+    spec:
+      containers:
+        - name: inference-sim
+          image: ghcr.io/llm-d/llm-d-inference-sim:v0.10.2
+          args:
+            - "--model"
+            - "test-sim-model"
+            - "--port"
+            - "8000"
+            - "--mode"
+            - "echo"
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+          ports:
+            - name: http
+              containerPort: 8000
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "1"
+              memory: "512Mi"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: inference-sim
+spec:
+  selector:
+    app: inference-sim
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
