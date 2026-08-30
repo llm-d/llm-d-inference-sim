@@ -46,10 +46,15 @@ func (vllmEngine) Routes(c *communication.Communication) []communication.Route {
 		{Method: fasthttp.MethodPost, Path: "/v1/chat/completions/render", Handler: c.HandleChatCompletionsRender},
 		{Method: fasthttp.MethodPost, Path: "/v1/completions/render", Handler: c.HandleTextCompletionsRender},
 		{Method: fasthttp.MethodPost, Path: "/v1/responses", Handler: c.HandleResponses},
+		// /v1/messages is Anthropic's API, not vLLM's; vLLM exposes it as a compatibility
+		// surface, which is why it's registered here rather than under its own engine.
 		{Method: fasthttp.MethodPost, Path: "/v1/messages", Handler: c.HandleMessages},
 		{Method: fasthttp.MethodPost, Path: "/inference/v1/generate", Handler: c.HandleGenerate},
 		{Method: fasthttp.MethodPost, Path: "/v1/load_lora_adapter", Handler: c.HandleLoadLora},
 		{Method: fasthttp.MethodPost, Path: "/v1/unload_lora_adapter", Handler: c.HandleUnloadLora},
+		// /query is Mooncake's bootstrap query endpoint, not vLLM's own; vLLM exposes it
+		// for Mooncake-based P/D disaggregation, which is why it's registered here rather
+		// than under its own engine.
 		{Method: fasthttp.MethodGet, Path: "/query", Handler: c.HandleMooncakeQuery},
 		{Method: fasthttp.MethodPost, Path: "/sleep", Handler: c.HandleSleep},
 		{Method: fasthttp.MethodPost, Path: "/wake_up", Handler: c.HandleWakeUp},
