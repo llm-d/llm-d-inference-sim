@@ -54,14 +54,21 @@ type Communication struct {
 	// they stay stable for the simulator's lifetime
 	mooncakeEnginesOnce sync.Once
 	mooncakeEngines     map[string]map[string]string
+
+	// routes returns the engine-specific HTTP routes to bind, supplied by the active engine.
+	routes RouteProvider
+
+	// grpc registers the engine-specific gRPC service, supplied by the active engine. A nil
+	// value means the engine has no gRPC surface, and the gRPC server is not started at all.
+	grpc GRPCRegistrar
 }
 
-func New(logger logr.Logger, simulator *simulator.Simulator) *Communication {
-	return &Communication{logger: logger, simulator: simulator, startTime: time.Now()}
+func New(logger logr.Logger, simulator *simulator.Simulator, routes RouteProvider, grpc GRPCRegistrar) *Communication {
+	return &Communication{logger: logger, simulator: simulator, startTime: time.Now(), routes: routes, grpc: grpc}
 }
 
-func Start(ctx context.Context, logger logr.Logger, simulator *simulator.Simulator) error {
-	c := Communication{logger: logger, simulator: simulator, startTime: time.Now()}
+func Start(ctx context.Context, logger logr.Logger, simulator *simulator.Simulator, routes RouteProvider, grpc GRPCRegistrar) error {
+	c := New(logger, simulator, routes, grpc)
 	c.logger.V(logging.INFO).Info("Starting communication layer")
 	return c.start(ctx)
 }
@@ -80,7 +87,7 @@ func (c *Communication) start(ctx context.Context) error {
 
 	var grpcServer *grpc.Server
 	var grpcErrCh <-chan error
-	if !c.simulator.Context.Config().MMEncoderOnly {
+	if c.grpc != nil && !c.simulator.Context.Config().MMEncoderOnly {
 		// gRPC uses HTTP/2
 		grpcL := m.Match(cmux.HTTP2())
 		grpcServer, grpcErrCh = c.startGRPC(grpcL)

@@ -63,36 +63,30 @@ func (c *Communication) newListener() (net.Listener, error) {
 func (c *Communication) startHTTPServer(ctx context.Context, listener net.Listener) (*fasthttp.Server, <-chan error, error) {
 	r := fasthttprouter.New()
 
-	// support completion APIs
+	// OpenAI-compatible completion APIs, supported by every engine
 	r.POST("/v1/chat/completions", c.HandleChatCompletions)
 	r.POST("/v1/completions", c.HandleTextCompletions)
-	r.POST("/v1/chat/completions/render", c.HandleChatCompletionsRender)
-	r.POST("/v1/completions/render", c.HandleTextCompletionsRender)
-	r.POST("/v1/responses", c.HandleResponses)
-	r.POST("/v1/messages", c.HandleMessages)
-	r.POST("/inference/v1/generate", c.HandleGenerate)
 	if !c.simulator.Context.Config().MMEncoderOnly {
 		r.POST("/v1/embeddings", c.HandleEmbeddings)
 	}
 	// supports /models API
 	r.GET("/v1/models", c.HandleModels)
-	// support load/unload of lora adapter
-	r.POST("/v1/load_lora_adapter", c.HandleLoadLora)
-	r.POST("/v1/unload_lora_adapter", c.HandleUnloadLora)
-	// supports /metrics prometheus API
+	r.POST("/tokenize", c.HandleTokenize)
+
+	// simulator infra, independent of the simulated engine
 	r.GET("/metrics", fasthttpadaptor.NewFastHTTPHandler(promhttp.HandlerFor(c.simulator.Context.MetricsRegistry(), promhttp.HandlerOpts{})))
 	r.POST("/fake_metrics", c.HandleFakeMetrics)
 	// supports standard Kubernetes health and readiness checks
 	r.GET("/health", c.HandleHealth)
 	r.GET("/health/ready", c.HandleHealthReady)
-	// emulates vLLM's Mooncake bootstrap endpoint on the prefill pod; the routing sidecar queries it to resolve remote engine ids
-	r.GET("/query", c.HandleMooncakeQuery)
-	r.POST("/tokenize", c.HandleTokenize)
-	r.POST("/sleep", c.HandleSleep)
-	r.POST("/wake_up", c.HandleWakeUp)
-	r.GET("/is_sleeping", c.HandleIsSleeping)
 	r.GET("/admin/config", c.HandleGetAdminConfig)
 	r.POST("/admin/config", c.HandlePostAdminConfig)
+
+	// engine-specific HTTP surface; the engine decides which endpoints it
+	// supports and which function on c handles each one
+	for _, route := range c.routes(c) {
+		r.Handle(route.Method, route.Path, route.Handler)
+	}
 
 	handler := r.Handler
 	if c.simulator.Context.Config().LogHTTP {

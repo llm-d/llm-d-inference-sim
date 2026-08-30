@@ -172,8 +172,13 @@ func startServerHelper(ctx context.Context, mode string, args []string, envs map
 		return nil, nil, nil, err
 	}
 
+	eng, err := engine.New(engine.VLLM)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
 	listener := fasthttputil.NewInmemoryListener()
-	comm := communication.New(logger, s)
+	comm := communication.New(logger, s, eng.Routes, eng.GRPC())
 
 	ginkgo.DeferCleanup(func() {
 		listener.Close() //nolint:errcheck
@@ -234,7 +239,7 @@ func startDataParallelServers(ctx context.Context, args []string, envs ...map[st
 		return nil, err
 	}
 
-	sims, err := simulator.Start(ctx, eng, config, logger)
+	sims, err := simulator.Start(ctx, config, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -242,7 +247,7 @@ func startDataParallelServers(ctx context.Context, args []string, envs ...map[st
 	clients := make([]*http.Client, len(sims))
 	for rank, sim := range sims {
 		listener := fasthttputil.NewInmemoryListener()
-		comm := communication.New(logger, sim)
+		comm := communication.New(logger, sim, eng.Routes, eng.GRPC())
 
 		ginkgo.DeferCleanup(func() {
 			listener.Close() //nolint:errcheck

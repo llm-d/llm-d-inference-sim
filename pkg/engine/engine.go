@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
+	"github.com/llm-d/llm-d-inference-sim/pkg/communication"
 )
 
 const (
@@ -40,6 +41,12 @@ type Engine interface {
 	// NewConfiguration returns a Configuration populated with this engine's defaults,
 	// before any YAML or command-line overrides are applied.
 	NewConfiguration() *common.Configuration
+	// Routes returns this engine's HTTP-visible API surface: the method and path of
+	// each endpoint, paired with the handler func from c that serves it.
+	Routes(c *communication.Communication) []communication.Route
+	// GRPC returns the registrar for this engine's gRPC service, or nil if the engine
+	// has no gRPC surface, in which case the gRPC server is not started at all.
+	GRPC() communication.GRPCRegistrar
 }
 
 // New creates the Engine identified by name, or returns an error listing the valid

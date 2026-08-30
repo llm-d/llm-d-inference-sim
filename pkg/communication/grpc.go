@@ -118,11 +118,16 @@ func (c *Communication) GetServerInfo(ctx context.Context, in *pb.GetServerInfoR
 	return nil, nil
 }
 
+// GRPCRegistrar registers the engine-specific gRPC service onto server, using c to serve
+// requests. Supplied by the active engine (see pkg/engine); a nil value means the engine
+// has no gRPC surface, and the gRPC server is not started at all.
+type GRPCRegistrar func(server *grpc.Server, c *Communication)
+
 // startGRPC starts the gRPC server and returns the server instance and an error channel.
 // It does not handle shutdown — callers are responsible for calling server.Stop().
 func (c *Communication) startGRPC(listener net.Listener) (*grpc.Server, <-chan error) {
 	server := grpc.NewServer()
-	pb.RegisterVllmEngineServer(server, c)
+	c.grpc(server, c)
 	reflection.Register(server)
 	errCh := make(chan error, 1)
 	go func() {
