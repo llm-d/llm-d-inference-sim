@@ -68,6 +68,7 @@ func (c *Communication) startHTTPServer(ctx context.Context, listener net.Listen
 	// support completion APIs
 	r.POST("/v1/chat/completions", c.HandleChatCompletions)
 	r.POST("/v1/completions", c.HandleTextCompletions)
+	r.POST("/v1/audio/speech", c.HandleSpeech)
 	r.POST("/v1/chat/completions/render", c.HandleChatCompletionsRender)
 	r.POST("/v1/completions/render", c.HandleTextCompletionsRender)
 	r.POST("/v1/responses", c.HandleResponses)

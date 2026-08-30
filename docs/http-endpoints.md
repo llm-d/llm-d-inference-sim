@@ -128,6 +128,24 @@ Structure of requests/responses
           - remote_host
           - remote_port
           - tp_size
+- `/v1/audio/speech`
+    - **request**
+        - input (required)
+        - model
+        - response_format (`wav` (default), `pcm`, `flac`, `mp3`, or `opus`)
+        - speed
+        - stream
+        - stream_format (`sse` or `audio`)
+        - all other fields are accepted and ignored
+    - **response**
+        - non-streaming: deterministic synthetic audio with the requested media type
+        - `stream_format=audio`: two flushed raw WAV or PCM chunks
+        - `stream=true` or `stream_format=sse`: two `speech.audio.delta` events followed by
+          `speech.audio.done` with simulated usage
+        - WAV and PCM payloads are valid audio; compressed formats contain deterministic
+          format markers intended for API and routing tests rather than audio-quality tests
+        - speech requests do not affect the simulator's token-generation queue, cache, or
+          latency metrics
 - `/v1/models`
     - **response**
         - object
