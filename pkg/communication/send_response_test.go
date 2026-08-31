@@ -29,6 +29,7 @@ import (
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
+	"github.com/llm-d/llm-d-inference-sim/pkg/endpoint"
 	"github.com/llm-d/llm-d-inference-sim/pkg/simulator"
 	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 )
@@ -58,7 +59,7 @@ var _ = Describe("sendNonStream missing-choice guard", func() {
 		ctx := context.Background()
 		sim := newRunningSim(ctx)
 
-		req := &simulator.TextCompletionsParsedRequest{}
+		req := &endpoint.TextCompletionsParsedRequest{}
 		req.RequestID = "multi"
 		req.Model = common.TestModelName
 		req.Prompt = []api.PromptInput{{Text: "hi"}}
@@ -73,8 +74,8 @@ var _ = Describe("sendNonStream missing-choice guard", func() {
 		// Relay every real entry for choice 0 into a fresh channel, but drop every
 		// entry for choice 1 -- simulating a choice whose respCtx never arrived --
 		// then close it once the real channel closes (both choices have completed).
-		filtered := common.Channel[*simulator.ResponseInfo]{
-			Channel: make(chan *simulator.ResponseInfo, 100),
+		filtered := common.Channel[*endpoint.ResponseInfo]{
+			Channel: make(chan *endpoint.ResponseInfo, 100),
 			Name:    "filtered",
 		}
 		for response := range respChan.Channel {
@@ -107,7 +108,7 @@ var _ = Describe("sendStream missing-choice guard", func() {
 		ctx := context.Background()
 		sim := newRunningSim(ctx)
 
-		req := &simulator.TextCompletionsParsedRequest{}
+		req := &endpoint.TextCompletionsParsedRequest{}
 		req.RequestID = "multi-stream"
 		req.Model = common.TestModelName
 		req.Prompt = []api.PromptInput{{Text: "hi"}}
@@ -128,8 +129,8 @@ var _ = Describe("sendStream missing-choice guard", func() {
 		Expect(first).NotTo(BeNil())
 		missingChoice := 1 - first.ChoiceIdx
 
-		filtered := common.Channel[*simulator.ResponseInfo]{
-			Channel: make(chan *simulator.ResponseInfo, 100),
+		filtered := common.Channel[*endpoint.ResponseInfo]{
+			Channel: make(chan *endpoint.ResponseInfo, 100),
 			Name:    "filtered",
 		}
 		for response := range respChan.Channel {

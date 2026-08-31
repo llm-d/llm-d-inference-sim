@@ -25,11 +25,13 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/valyala/fasthttp"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 	"github.com/llm-d/llm-d-inference-sim/pkg/dataset"
+	"github.com/llm-d/llm-d-inference-sim/pkg/endpoint"
 	"github.com/llm-d/llm-d-inference-sim/pkg/kvcache"
 	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 )
@@ -252,13 +254,69 @@ func (s *SimContext) getDisplayedModelName(reqModel string) string {
 	return s.Config().ServedModelNames[0]
 }
 
-func (s *SimContext) simulateTTFT(respCtx ResponseContext) {
+// GetRandom returns the simulator's configured random source.
+func (s *SimContext) GetRandom() *common.Random {
+	return s.Random
+}
+
+// GetTokenizer returns the simulator's tokenizer.
+func (s *SimContext) GetTokenizer() tokenizer.Tokenizer {
+	return s.Tokenizer
+}
+
+// Logger returns the simulator's logger.
+func (s *SimContext) Logger() logr.Logger {
+	return s.logger
+}
+
+// RequestStarted records that req has begun processing: increments the
+// running-request metric and, if req targets a LoRA, stamps its LoRA ID and
+// marks the LoRA as running.
+func (s *SimContext) RequestStarted(req api.Request) {
+	common.WriteToChannel(s.metrics.runReqChan, common.MetricInfo{Value: 1}, s.logger)
+
+	dispModel := req.GetDisplayedModel()
+	if s.isLora(dispModel) {
+		req.SetModelLoraID(s.GetLoraID(dispModel))
+		common.WriteToChannel(s.metrics.lorasChan, loraUsage{dispModel, runningUsageState}, s.logger)
+	}
+}
+
+// GetResponseTokens generates response tokens for req from the configured dataset.
+func (s *SimContext) GetResponseTokens(req api.Request) (*api.Tokenized, string, error) {
+	return s.dataset.GetResponseTokens(req)
+}
+
+// KVCacheOnRequestStart records req's arrival in the KV cache, if enabled.
+func (s *SimContext) KVCacheOnRequestStart(req api.Request) (kvcache.PrefixCacheStats, *api.Error) {
+	if !s.Config().EnableKVCache {
+		return kvcache.PrefixCacheStats{}, nil
+	}
+	stat, err := s.kvcacheHelper.OnRequestStart(req)
+	if err != nil {
+		serverError := api.NewError(err.Error(), fasthttp.StatusInternalServerError, nil)
+		return kvcache.PrefixCacheStats{}, &serverError
+	}
+	return stat, nil
+}
+
+// KVCacheOnRequestEnd records the request's completion in the KV cache, if enabled.
+func (s *SimContext) KVCacheOnRequestEnd(requestID string) {
+	if !s.Config().EnableKVCache {
+		return
+	}
+	if err := s.kvcacheHelper.OnRequestEnd(requestID); err != nil {
+		s.logger.Error(err, "kv cache failed to process request end")
+	}
+}
+
+func (s *SimContext) simulateTTFT(respCtx endpoint.ResponseContext) {
 	startPrefill := time.Now()
 	// time to first token delay
 	params := TTFTParams{
 		PromptTokens:       respCtx.UsageData().PromptTokens,
 		CachedPromptTokens: respCtx.NumberCachedPromptTokens(),
-		DoRemotePrefill:    respCtx.doRemotePrefill(),
+		DoRemotePrefill:    respCtx.DoRemotePrefill(),
 		RunningReqs:        s.metrics.nRunningReqs.Load(),
 	}
 	ttft := s.latencyCalc().GetTimeToFirstToken(&params)

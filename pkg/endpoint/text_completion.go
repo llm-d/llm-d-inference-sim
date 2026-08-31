@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package simulator
+package endpoint
 
 import (
 	"encoding/json"
@@ -29,7 +29,7 @@ import (
 // TextCompletionsParsedRequest is the wire form of /completions requests:
 // it is unmarshaled from the HTTP body and immediately split into one or more
 // TextCompletionsRequest values inside HandleRequest. Workers never see this
-// type, so buildRequestContext / createResponseContext are unreachable on it.
+// type, so BuildRequestContext / createResponseContext are unreachable on it.
 type TextCompletionsParsedRequest struct {
 	api.TextCompletionsParsedRequest
 }
@@ -83,7 +83,7 @@ func (t *TextCompletionsParsedRequest) Render(tk tokenizer.Tokenizer) ([][]uint3
 	return result, nil, nil
 }
 
-func (t *TextCompletionsParsedRequest) validate(_ *toolsValidator) *api.Error {
+func (t *TextCompletionsParsedRequest) Validate(_ *ToolsValidator) *api.Error {
 	if err := t.ValidateBody(); err != nil {
 		return err
 	}
@@ -94,11 +94,11 @@ func (t *TextCompletionsParsedRequest) AsString() string {
 	return textCompletionsAsString(t.RequestID)
 }
 
-// split converts the parsed wire form into one or more processing-form
+// Split converts the parsed wire form into one or more processing-form
 // TextCompletionsRequest values. Each sub-request gets the parent envelope and
 // a "<requestID>-<i>" id stamped by api.AsSingle. When n > 1 each
 // prompt produces n sub-requests, so the total is len(Prompt) * n.
-func (t *TextCompletionsParsedRequest) split() []Request {
+func (t *TextCompletionsParsedRequest) Split() []Request {
 	n := t.GetN()
 	out := make([]Request, 0, len(t.Prompt)*n)
 	for i := range t.Prompt {
@@ -109,24 +109,24 @@ func (t *TextCompletionsParsedRequest) split() []Request {
 	return out
 }
 
-// buildRequestContext / createResponseContext are required by the Request
-// interface but are unreachable: HandleRequest always calls split first and
+// BuildRequestContext / createResponseContext are required by the Request
+// interface but are unreachable: HandleRequest always calls Split first and
 // only the resulting TextCompletionsRequest sub-requests reach a worker.
-func (t *TextCompletionsParsedRequest) buildRequestContext(_ *SimContext, _ common.Channel[*ResponseInfo],
-	_ int, _ func()) requestContext {
-	panic("TextCompletionsParsedRequest.buildRequestContext: split must be called first")
+func (t *TextCompletionsParsedRequest) BuildRequestContext(_ Runtime, _ common.Channel[*ResponseInfo],
+	_ int, _ func()) RequestContext {
+	panic("TextCompletionsParsedRequest.BuildRequestContext: Split must be called first")
 }
 
-func (t *TextCompletionsParsedRequest) createResponseContext(_ requestContext, _ string,
+func (t *TextCompletionsParsedRequest) createResponseContext(_ RequestContext, _ string,
 	_ *api.Tokenized, _ *string, _ *api.Usage, _ bool,
 	_ *int, _ []api.ToolCall, _ bool) ResponseContext {
-	panic("TextCompletionsParsedRequest.createResponseContext: split must be called first")
+	panic("TextCompletionsParsedRequest.createResponseContext: Split must be called first")
 }
 
 var _ Request = (*TextCompletionsParsedRequest)(nil)
 
 // TextCompletionsRequest is the processing form: a /completions request that
-// always carries a single prompt. Produced by TextCompletionsParsedRequest.split.
+// always carries a single prompt. Produced by TextCompletionsParsedRequest.Split.
 type TextCompletionsRequest struct {
 	api.TextCompletionsRequest
 }
@@ -135,26 +135,26 @@ func (t *TextCompletionsRequest) Unmarshal(data []byte) error {
 	return json.Unmarshal(data, t)
 }
 
-func (t *TextCompletionsRequest) validate(_ *toolsValidator) *api.Error {
+func (t *TextCompletionsRequest) Validate(_ *ToolsValidator) *api.Error {
 	return validateRequest(t)
 }
 
-func (t *TextCompletionsRequest) buildRequestContext(simCtx *SimContext, channel common.Channel[*ResponseInfo],
-	choiceIdx int, doneFn func()) requestContext {
+func (t *TextCompletionsRequest) BuildRequestContext(runtime Runtime, channel common.Channel[*ResponseInfo],
+	choiceIdx int, doneFn func()) RequestContext {
 	reqCtx := &textCompletionReqCtx{
-		baseRequestContext: newBaseRequestContext(simCtx, channel, choiceIdx, doneFn),
+		baseRequestContext: newBaseRequestContext(runtime, channel, choiceIdx, doneFn),
 		req:                t,
 	}
-	// wire textCompletionReqCtx into embedded requestContext interface
-	reqCtx.requestContext = reqCtx
+	// wire textCompletionReqCtx into embedded RequestContext interface
+	reqCtx.RequestContext = reqCtx
 	return reqCtx
 }
 
-// split is a no-op: TextCompletionsRequest always carries a single prompt.
-// The n parameter is handled by TextCompletionsParsedRequest.split which
+// Split is a no-op: TextCompletionsRequest always carries a single prompt.
+// The n parameter is handled by TextCompletionsParsedRequest.Split which
 // produces the per-choice sub-requests before any TextCompletionsRequest
 // reaches HandleRequest.
-func (t *TextCompletionsRequest) split() []Request {
+func (t *TextCompletionsRequest) Split() []Request {
 	return []Request{t}
 }
 
@@ -162,7 +162,7 @@ func (t *TextCompletionsRequest) AsString() string {
 	return textCompletionsAsString(t.RequestID)
 }
 
-func (t *TextCompletionsRequest) createResponseContext(reqCtx requestContext, displayModel string,
+func (t *TextCompletionsRequest) createResponseContext(reqCtx RequestContext, displayModel string,
 	responseTokens *api.Tokenized, finishReason *string, usageData *api.Usage, sendUsageData bool,
 	logprobs *int, toolCalls []api.ToolCall, _ bool) ResponseContext {
 	base := newBaseResponseContext(reqCtx, displayModel, responseTokens, finishReason, usageData, sendUsageData,
@@ -178,13 +178,13 @@ func textCompletionsAsString(requestID string) string {
 	return "text completion request (req id " + requestID + ")"
 }
 
-// Implementation of requestContext for /completions requests
+// Implementation of RequestContext for /completions requests
 type textCompletionReqCtx struct {
 	baseRequestContext
 	req *TextCompletionsRequest
 }
 
-func (t *textCompletionReqCtx) request() Request {
+func (t *textCompletionReqCtx) Request() Request {
 	return t.req
 }
 
@@ -193,7 +193,7 @@ func (t *textCompletionReqCtx) encode() ([]uint32, []string, *api.RenderMMFeatur
 		return t.req.Prompt.Tokens, nil, nil, nil
 	}
 
-	tokens, strTokens, err := t.sim.Tokenizer.RenderText(t.req.Prompt.Text)
+	tokens, strTokens, err := t.runtime.GetTokenizer().RenderText(t.req.Prompt.Text)
 	return tokens, strTokens, nil, err
 }
 
@@ -219,9 +219,9 @@ func (t *textCompletionReqCtx) tokenizedPromptForEcho() (*api.Tokenized, error) 
 	return t.req.TokenizedPrompt(), nil
 }
 
-var _ requestContext = (*textCompletionReqCtx)(nil)
+var _ RequestContext = (*textCompletionReqCtx)(nil)
 
-// Implementation of responseContext for /completions requests
+// Implementation of ResponseContext for /completions requests
 type textCompletionsResponseCtx struct {
 	baseResponseContext
 }

@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package simulator
+package endpoint
 
 import (
 	"encoding/json"
@@ -69,24 +69,26 @@ func isToolChoiceNone(toolChoice api.ToolChoice) bool {
 	return false
 }
 
-type toolsValidator struct {
+// ToolsValidator validates tool definitions against the tool-schema JSON Schema.
+type ToolsValidator struct {
 	schema *jsonschema.Schema
-	// skip reports whether tool schema validation is currently disabled. It is read on
+	// Skip reports whether tool schema validation is currently disabled. It is read on
 	// every call so that a configuration swapped in at runtime takes effect immediately.
-	// A nil skip means validation is always performed.
-	skip func() bool
+	// A nil Skip means validation is always performed.
+	Skip func() bool
 }
 
-func createToolsValidator() (*toolsValidator, error) {
+// NewToolsValidator compiles the tool-schema JSON Schema and returns a ToolsValidator.
+func NewToolsValidator() (*ToolsValidator, error) {
 	sch, err := jsonschema.CompileString("schema.json", schema)
 	if err != nil {
 		return nil, err
 	}
-	return &toolsValidator{schema: sch}, nil
+	return &ToolsValidator{schema: sch}, nil
 }
 
-func (v *toolsValidator) validateTool(tool []byte) error {
-	if v.skip != nil && v.skip() {
+func (v *ToolsValidator) validateTool(tool []byte) error {
+	if v.Skip != nil && v.Skip() {
 		return nil
 	}
 

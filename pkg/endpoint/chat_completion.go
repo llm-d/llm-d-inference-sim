@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package simulator
+package endpoint
 
 import (
 	"encoding/json"
@@ -63,7 +63,7 @@ func (c *ChatCompletionsRequest) Render(tk tokenizer.Tokenizer) ([][]uint32, *ap
 	return [][]uint32{tokens}, features, nil
 }
 
-func (c *ChatCompletionsRequest) validate(toolsValidator *toolsValidator) *api.Error {
+func (c *ChatCompletionsRequest) Validate(toolsValidator *ToolsValidator) *api.Error {
 	for _, tool := range c.Tools {
 		toolJson, err := json.Marshal(tool.Function)
 		if err != nil {
@@ -82,15 +82,15 @@ func (c *ChatCompletionsRequest) validate(toolsValidator *toolsValidator) *api.E
 	return validateRequest(c)
 }
 
-func (c *ChatCompletionsRequest) buildRequestContext(simCtx *SimContext, channel common.Channel[*ResponseInfo],
-	choiceIdx int, doneFn func()) requestContext {
+func (c *ChatCompletionsRequest) BuildRequestContext(runtime Runtime, channel common.Channel[*ResponseInfo],
+	choiceIdx int, doneFn func()) RequestContext {
 	reqCtx := &chatCompletionReqCtx{
-		baseRequestContext: newBaseRequestContext(simCtx, channel, choiceIdx, doneFn),
+		baseRequestContext: newBaseRequestContext(runtime, channel, choiceIdx, doneFn),
 		req:                c,
 		toolIDPrefix:       common.ChatCmplToolIDPrefix,
 	}
-	// wire chatCompletionReqCtx into embedded requestContext interface
-	reqCtx.requestContext = reqCtx
+	// wire chatCompletionReqCtx into embedded RequestContext interface
+	reqCtx.RequestContext = reqCtx
 	return reqCtx
 }
 
@@ -98,7 +98,7 @@ func (c *ChatCompletionsRequest) AsString() string {
 	return "chat completion request (req id " + c.RequestID + ")"
 }
 
-func (c *ChatCompletionsRequest) createResponseContext(reqCtx requestContext, displayModel string,
+func (c *ChatCompletionsRequest) createResponseContext(reqCtx RequestContext, displayModel string,
 	responseTokens *api.Tokenized, finishReason *string, usageData *api.Usage,
 	sendUsageData bool, logprobs *int, toolCalls []api.ToolCall, mmEncoderOnlyMode bool) ResponseContext {
 	base := newBaseResponseContext(reqCtx, displayModel, responseTokens, finishReason, usageData, sendUsageData,
@@ -124,18 +124,18 @@ func (c *chatCompletionReqCtx) tokenizedPromptForEcho() (*api.Tokenized, error) 
 		// in echo mode return the last message without role
 		lastMsg = c.req.Messages[len(c.req.Messages)-1].PlainText(false)
 	}
-	tokens, strTokens, err := c.sim.Tokenizer.RenderText(lastMsg)
+	tokens, strTokens, err := c.runtime.GetTokenizer().RenderText(lastMsg)
 	if err != nil {
 		return nil, err
 	}
 	return &api.Tokenized{Tokens: tokens, Strings: strTokens}, nil
 }
 
-// split returns n copies of this request, one per completion choice. Each
+// Split returns n copies of this request, one per completion choice. Each
 // sub-request shares the same underlying ChatCompletionsRequest so tokenization
 // and prompt data are computed once and reused. When n==1 (the default) this
 // degenerates to the original single-element slice.
-func (c *ChatCompletionsRequest) split() []Request {
+func (c *ChatCompletionsRequest) Split() []Request {
 	n := c.GetN()
 	out := make([]Request, n)
 	for i := range n {
@@ -147,36 +147,36 @@ func (c *ChatCompletionsRequest) split() []Request {
 
 var _ Request = (*ChatCompletionsRequest)(nil)
 
-// Implementation of requestContext for /chat/completions requests
+// Implementation of RequestContext for /chat/completions requests
 type chatCompletionReqCtx struct {
 	baseRequestContext
 	req          *ChatCompletionsRequest
 	toolIDPrefix string
 }
 
-func (c *chatCompletionReqCtx) request() Request {
+func (c *chatCompletionReqCtx) Request() Request {
 	return c.req
 }
 
 func (c *chatCompletionReqCtx) encode() ([]uint32, []string, *api.RenderMMFeatures, error) {
-	return c.sim.Tokenizer.RenderMessages(c.req.Messages)
+	return c.runtime.GetTokenizer().RenderMessages(c.req.Messages)
 }
 
 func (c *chatCompletionReqCtx) createToolCalls() ([]api.ToolCall, int, string, error) {
-	req := c.request()
+	req := c.Request()
 	if !isToolChoiceNone(req.GetToolChoice()) &&
 		req.GetTools() != nil {
 		toolCalls, completionTokens, err :=
-			createToolCalls(req.GetTools(), req.GetToolChoice(), c.sim.Config(), c.sim.Random, c.sim.Tokenizer, c.toolIDPrefix)
+			createToolCalls(req.GetTools(), req.GetToolChoice(), c.runtime.Config(), c.runtime.GetRandom(), c.runtime.GetTokenizer(), c.toolIDPrefix)
 		finishReason := common.ToolsFinishReason
 		return toolCalls, completionTokens, finishReason, err
 	}
 	return nil, 0, "", nil
 }
 
-var _ requestContext = (*chatCompletionReqCtx)(nil)
+var _ RequestContext = (*chatCompletionReqCtx)(nil)
 
-// Implementation of responseContext for /chat/completions requests
+// Implementation of ResponseContext for /chat/completions requests
 type chatCompletionsResponseCtx struct {
 	baseResponseContext
 	// tool calls to be sent in the response

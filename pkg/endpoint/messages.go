@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package simulator
+package endpoint
 
 import (
 	"encoding/json"
@@ -64,7 +64,7 @@ func (m *MessagesRequest) validateBlocks() *api.Error {
 	return nil
 }
 
-func (m *MessagesRequest) validate(tv *toolsValidator) *api.Error {
+func (m *MessagesRequest) Validate(tv *ToolsValidator) *api.Error {
 	if err := m.validateBlocks(); err != nil {
 		return err
 	}
@@ -76,14 +76,14 @@ func (m *MessagesRequest) validate(tv *toolsValidator) *api.Error {
 		err := api.NewError("max_tokens is required", fasthttp.StatusBadRequest, nil)
 		return &err
 	}
-	return m.ChatCompletionsRequest.validate(tv)
+	return m.ChatCompletionsRequest.Validate(tv)
 }
 
 func (m *MessagesRequest) AsString() string {
 	return "messages request (req id " + m.RequestID + ")"
 }
 
-func (m *MessagesRequest) split() []Request {
+func (m *MessagesRequest) Split() []Request {
 	n := m.GetN()
 	out := make([]Request, n)
 	for i := range n {
@@ -93,14 +93,14 @@ func (m *MessagesRequest) split() []Request {
 	return out
 }
 
-func (m *MessagesRequest) buildRequestContext(simCtx *SimContext, channel common.Channel[*ResponseInfo],
-	choiceIdx int, doneFn func()) requestContext {
+func (m *MessagesRequest) BuildRequestContext(runtime Runtime, channel common.Channel[*ResponseInfo],
+	choiceIdx int, doneFn func()) RequestContext {
 	reqCtx := &chatCompletionReqCtx{
-		baseRequestContext: newBaseRequestContext(simCtx, channel, choiceIdx, doneFn),
+		baseRequestContext: newBaseRequestContext(runtime, channel, choiceIdx, doneFn),
 		req:                &m.ChatCompletionsRequest,
 		toolIDPrefix:       common.MessagesToolIDPrefix,
 	}
-	reqCtx.requestContext = reqCtx
+	reqCtx.RequestContext = reqCtx
 	return reqCtx
 }
 
