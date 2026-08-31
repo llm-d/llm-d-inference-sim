@@ -262,7 +262,7 @@ func (respBuilder *chatComplHTTPRespBuilder) createResponse(respCtxPerChoice []s
 			message.ToolCalls = choiceCtx.ToolCalls()
 			if sendImage {
 				message.Content = api.ChatComplContent{Structured: []api.ChatComplContentBlock{
-					{Type: "image_url", ImageURL: &api.ChatComplImageBlock{Url: "data:image/png;base64," + syntheticImageData}},
+					{Type: "image_url", ImageURL: &api.ChatComplURLBlock{Url: "data:image/png;base64," + syntheticImageData}},
 				}}
 			}
 		} else {
@@ -270,7 +270,7 @@ func (respBuilder *chatComplHTTPRespBuilder) createResponse(respCtxPerChoice []s
 			if sendImage {
 				message.Content = api.ChatComplContent{Structured: []api.ChatComplContentBlock{
 					{Type: "text", Text: respText},
-					{Type: "image_url", ImageURL: &api.ChatComplImageBlock{Url: "data:image/png;base64," + syntheticImageData}},
+					{Type: "image_url", ImageURL: &api.ChatComplURLBlock{Url: "data:image/png;base64," + syntheticImageData}},
 				}}
 			} else {
 				message.Content = api.ChatComplContent{Raw: respText}

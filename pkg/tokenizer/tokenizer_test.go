@@ -81,7 +81,7 @@ var _ = Describe("tokenizer", func() {
 		mmMessages := []api.Message{
 			{Role: api.RoleUser, Content: api.ChatComplContent{
 				Structured: []api.ChatComplContentBlock{
-					{Type: "image_url", ImageURL: &api.ChatComplImageBlock{Url: "http://x/a.jpg"}},
+					{Type: "image_url", ImageURL: &api.ChatComplURLBlock{Url: "http://x/a.jpg"}},
 				},
 			}},
 		}
@@ -111,19 +111,25 @@ var _ = Describe("tokenizer", func() {
 		image := func(url string) api.ChatComplContentBlock {
 			return api.ChatComplContentBlock{
 				Type:     "image_url",
-				ImageURL: &api.ChatComplImageBlock{Url: url},
+				ImageURL: &api.ChatComplURLBlock{Url: url},
 			}
 		}
 		audio := func(data, format string) api.ChatComplContentBlock {
 			return api.ChatComplContentBlock{
 				Type:       "input_audio",
-				InputAudio: &api.ChatComplAudioBlock{Data: data, Format: format},
+				InputAudio: &api.ChatComplInputAudioBlock{Data: data, Format: format},
+			}
+		}
+		audioURL := func(url string) api.ChatComplContentBlock {
+			return api.ChatComplContentBlock{
+				Type:     "audio_url",
+				AudioURL: &api.ChatComplURLBlock{Url: url},
 			}
 		}
 		video := func(url string) api.ChatComplContentBlock {
 			return api.ChatComplContentBlock{
 				Type:     "video_url",
-				VideoURL: &api.ChatComplVideoBlock{Url: url},
+				VideoURL: &api.ChatComplURLBlock{Url: url},
 			}
 		}
 		mkMsg := func(blocks ...api.ChatComplContentBlock) api.Message {
@@ -152,6 +158,15 @@ var _ = Describe("tokenizer", func() {
 			Expect(feats).NotTo(BeNil())
 			Expect(feats.MMHashes).To(HaveKey(mmModalityAudio))
 			Expect(feats.MMHashes[mmModalityAudio][0]).To(HavePrefix("sim_audio_"))
+		})
+
+		It("emits an audio hash for audio_url keyed by audio", func() {
+			feats := stubMMFeaturesForMessages([]api.Message{mkMsg(text("transcribe"), audioURL("http://x/a.flac"))}, 100)
+			Expect(feats).NotTo(BeNil())
+			Expect(feats.MMHashes).To(HaveKey(mmModalityAudio))
+			Expect(feats.MMHashes[mmModalityAudio]).To(HaveLen(1))
+			Expect(feats.MMHashes[mmModalityAudio][0]).To(HavePrefix("sim_audio_"))
+			Expect(feats.MMPlaceholders[mmModalityAudio]).To(HaveLen(1))
 		})
 
 		It("emits a video hash keyed by video", func() {

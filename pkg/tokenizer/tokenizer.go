@@ -141,7 +141,7 @@ func (st *SimpleTokenizer) RenderMessages(messages []api.Message) ([]uint32, []s
 }
 
 // stubMMFeaturesForMessages synthesizes per-modality mm_hashes and placeholders
-// for image_url, input_audio, and video_url blocks; nil if none present.
+// for image_url, input_audio, audio_url, and video_url blocks; nil if none present.
 func stubMMFeaturesForMessages(messages []api.Message, totalTokens int) *api.RenderMMFeatures {
 	type item struct {
 		modality, prefix, identifier string
@@ -164,6 +164,12 @@ func stubMMFeaturesForMessages(messages []api.Message, totalTokens int) *api.Ren
 					continue
 				}
 				items = append(items, item{mmModalityAudio, "audio", block.InputAudio.Data, audIdx})
+				audIdx++
+			case "audio_url":
+				if block.AudioURL == nil || block.AudioURL.Url == "" {
+					continue
+				}
+				items = append(items, item{mmModalityAudio, "audio", block.AudioURL.Url, audIdx})
 				audIdx++
 			case "video_url":
 				if block.VideoURL == nil || block.VideoURL.Url == "" {

@@ -14,9 +14,16 @@ Structure of requests/responses
         - messages
             - role
             - content (string, or array of content blocks)
-              - type (`text` or `image_url`)
+              - type (`text`, `image_url`, `audio_url`, `input_audio`, or `video_url`)
               - text
               - image_url
+                - url
+              - audio_url
+                - url
+              - input_audio
+                - data (base64-encoded audio data)
+                - format (e.g. `wav`, `mp3`)
+              - video_url
                 - url
             - tool_calls
               - function
@@ -207,11 +214,11 @@ Structure of requests/responses
 - `/v1/chat/completions/render`
     - **request** — same shape as `/v1/chat/completions`; only `model` and `messages` are inspected
         - model
-        - messages (same structure as `/v1/chat/completions`, including `image_url` content blocks)
+        - messages (same structure as `/v1/chat/completions`, including `image_url`, `audio_url`, `input_audio`, and `video_url` content blocks)
     - **response** — single JSON object
         - token_ids
-        - features (present only when at least one message contains an `image_url` block)
-            - mm_hashes (map keyed by modality, e.g. `image`, to an array of opaque hash strings)
+        - features (present only when at least one message contains an `image_url`, `audio_url`, `input_audio`, or `video_url` block)
+            - mm_hashes (map keyed by modality — `image`, `audio`, or `video` — to an array of opaque hash strings)
             - mm_placeholders (map keyed by modality to an array of placeholder regions)
                 - offset (token index where the multimodal region begins)
                 - length (number of tokens the region spans)
@@ -457,4 +464,4 @@ Pre-tokenized prompts on `/v1/completions/render` (a token-id array, or an array
 For everything else, behavior depends on the active tokenizer (selected automatically based on `--model`):
 
 - **HuggingFace tokenizer** (real model): each text prompt and chat-completions request is forwarded to the upstream vLLM render service at `--render-url`. For chat requests, `mm_features` returned by the upstream are passed through.
-- **Simulated tokenizer** (dummy model): the simulator tokenizes locally using its regex-based splitter. For chat requests containing `image_url` blocks, synthetic `mm_features` are produced so multimodal-aware downstream code paths can be exercised without a real renderer.
+- **Simulated tokenizer** (dummy model): the simulator tokenizes locally using its regex-based splitter. For chat requests containing `image_url`, `audio_url`, `input_audio`, or `video_url` blocks, synthetic `mm_features` are produced so multimodal-aware downstream code paths can be exercised without a real renderer.

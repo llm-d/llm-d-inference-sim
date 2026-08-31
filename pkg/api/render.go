@@ -79,7 +79,7 @@ type ChatCompletionsRenderRequest struct {
 func (c *ChatCompletionsRenderRequest) IsMultiModal() bool {
 	for _, msg := range c.Messages {
 		for _, block := range msg.Content.Structured {
-			if block.Type == "image_url" {
+			if block.Type == "image_url" || block.Type == "video_url" || block.Type == "audio_url" {
 				return true
 			}
 		}

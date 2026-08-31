@@ -400,6 +400,47 @@ var _ = Describe("Simulator", func() {
 		Expect(msg).To(Equal("Describe this\nimage: https://example.com/img.png"))
 	})
 
+	It("Should accept audio_url content in chat completions request", func() {
+		ctx := context.TODO()
+		args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom}
+		client, err := startServerWithArgs(ctx, args)
+		Expect(err).NotTo(HaveOccurred())
+
+		reqBody := fmt.Sprintf(`{
+			"model": "%s",
+			"messages": [{
+				"role": "user",
+				"content": [
+					{"type": "audio_url", "audio_url": {"url": "https://example.com/sample.flac"}}
+				]
+			}]
+		}`, common.TestModelName)
+
+		resp, err := client.Post("http://localhost/v1/chat/completions", "application/json", strings.NewReader(reqBody))
+		Expect(err).NotTo(HaveOccurred())
+		defer func() {
+			Expect(resp.Body.Close()).To(Succeed())
+		}()
+
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+		body, err := io.ReadAll(resp.Body)
+		Expect(err).NotTo(HaveOccurred())
+
+		var respObj map[string]any
+		Expect(json.Unmarshal(body, &respObj)).To(Succeed())
+
+		choices := respObj["choices"].([]any)
+		Expect(choices).NotTo(BeEmpty())
+		message := choices[0].(map[string]any)["message"].(map[string]any)
+		Expect(message["role"]).To(Equal("assistant"))
+		Expect(message["content"]).NotTo(BeEmpty())
+
+		usage := respObj["usage"].(map[string]any)
+		Expect(usage["prompt_tokens"]).To(BeNumerically(">", 0))
+		Expect(usage["completion_tokens"]).To(BeNumerically(">", 0))
+	})
+
 	DescribeTable("streaming chat completions with logprobs",
 		func(mode string, logprobs bool, topLogprobs int) {
 			ctx := context.TODO()
