@@ -32,6 +32,7 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 	"github.com/llm-d/llm-d-inference-sim/pkg/dataset"
+	"github.com/llm-d/llm-d-inference-sim/pkg/endpoint"
 	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 )
 
@@ -41,14 +42,14 @@ type requestCompleted struct {
 }
 
 type waitingQueueItem struct {
-	reqCtx      requestContext
+	reqCtx      endpoint.RequestContext
 	enqueueTime time.Time
 }
 
 type Simulator struct {
 	Context SimContext
 	// schema validator for tools parameters
-	toolsValidator *toolsValidator
+	toolsValidator *endpoint.ToolsValidator
 	// indication whether the simulator is sleeping
 	IsSleeping bool
 	// a channel for free workers
@@ -57,12 +58,12 @@ type Simulator struct {
 	workerFinished chan *requestCompleted
 	// waiting requests queue mutex
 	queueLock sync.Mutex
-	// bi-directional list of requestContext
+	// bi-directional list of endpoint.RequestContext
 	waitingQueue *list.List
 	// the max capacity of the waiting requests queue
 	queueCapacity int
 	// a channel for incoming requests
-	newRequests common.Channel[requestContext]
+	newRequests common.Channel[endpoint.RequestContext]
 	// drainCancel cancels the internal drain context once all open requests finish,
 	// allowing internal goroutines (workers, metrics, kvcache) to stop cleanly
 	drainCancel context.CancelFunc
@@ -70,7 +71,7 @@ type Simulator struct {
 
 // New creates a new Simulator instance with the given logger
 func New(logger logr.Logger) (*Simulator, error) {
-	toolsValidator, err := createToolsValidator()
+	toolsValidator, err := endpoint.NewToolsValidator()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create tools validator: %s", err)
 	}
@@ -88,7 +89,7 @@ func New(logger logr.Logger) (*Simulator, error) {
 	}
 	// The configuration is set after construction and may be swapped at runtime by admin
 	// updates, so read it per call rather than capturing the flag here.
-	sim.toolsValidator.skip = func() bool {
+	sim.toolsValidator.Skip = func() bool {
 		config := sim.Context.Config()
 		return config != nil && config.SkipToolValidation
 	}
@@ -201,8 +202,8 @@ func (s *Simulator) InitializeSim(ctx context.Context) error {
 	// freeWorkers until the single processing() goroutine catches up, so a finishing batch can
 	// make new requests look momentarily over capacity. They just wait here briefly, not rejected.
 	maxNumberOfRequests := s.Context.Config().MaxNumSeqs*2 + s.Context.Config().MaxWaitingQueueLength
-	s.newRequests = common.Channel[requestContext]{
-		Channel: make(chan requestContext, maxNumberOfRequests),
+	s.newRequests = common.Channel[endpoint.RequestContext]{
+		Channel: make(chan endpoint.RequestContext, maxNumberOfRequests),
 		Name:    "newRequests",
 		Done:    drainCtx.Done(),
 	}
@@ -216,8 +217,8 @@ func (s *Simulator) InitializeSim(ctx context.Context) error {
 			ctx:          drainCtx,
 			logger:       s.Context.logger,
 			finishedChan: s.workerFinished,
-			reqChan: common.Channel[requestContext]{
-				Channel: make(chan requestContext, 1),
+			reqChan: common.Channel[endpoint.RequestContext]{
+				Channel: make(chan endpoint.RequestContext, 1),
 				Name:    "worker's reqChan",
 				Done:    drainCtx.Done(),
 			},
@@ -278,25 +279,25 @@ func (s *Simulator) processing(ctx context.Context) {
 			if worker == nil {
 				// use real model name for the logs
 				s.Context.logger.V(logging.TRACE).Info("No free worker - sending the request to the waiting queue",
-					"model", reqCtx.request().GetModel(), "req id", reqCtx.request().GetRequestID())
+					"model", reqCtx.Request().GetModel(), "req id", reqCtx.Request().GetRequestID())
 				// no free worker, add this request to the waiting queue
 				s.addRequestToQueue(reqCtx)
 				break
 			}
 
 			// check if lora usage allows the request to run
-			if s.Context.isLora(reqCtx.request().GetDisplayedModel()) && !s.Context.loadLora(reqCtx.request().GetDisplayedModel()) {
+			if s.Context.isLora(reqCtx.Request().GetDisplayedModel()) && !s.Context.loadLora(reqCtx.Request().GetDisplayedModel()) {
 				// free the worker
 				s.freeWorkers <- worker
 				s.Context.logger.V(logging.TRACE).Info("LoRA cannot be loaded - sending the request to the waiting queue",
-					"LoRA", reqCtx.request().GetDisplayedModel(), "req id", reqCtx.request().GetRequestID())
+					"LoRA", reqCtx.Request().GetDisplayedModel(), "req id", reqCtx.Request().GetRequestID())
 				// LoRA max reached, try to enqueue
 				s.addRequestToQueue(reqCtx)
 				break
 			}
 
-			s.Context.logger.V(logging.TRACE).Info("Sending the request to the processing channel", "model", reqCtx.request().GetModel(),
-				"req id", reqCtx.request().GetRequestID(), "worker", worker.id)
+			s.Context.logger.V(logging.TRACE).Info("Sending the request to the processing channel", "model", reqCtx.Request().GetModel(),
+				"req id", reqCtx.Request().GetRequestID(), "worker", worker.id)
 			common.WriteToChannel(worker.reqChan, reqCtx, s.Context.logger)
 		}
 	}
@@ -307,8 +308,8 @@ func (s *Simulator) findRequestAndSendToProcess(worker *worker) bool {
 	if nextReq != nil {
 		// send this request for processing in this worker
 		// use model defined in the request for the logs to present real model name in the logs
-		s.Context.logger.V(logging.TRACE).Info("Sending request to processing", "model", nextReq.request().GetModel(),
-			"req", nextReq.request().GetRequestID(), "worker", worker.id)
+		s.Context.logger.V(logging.TRACE).Info("Sending request to processing", "model", nextReq.Request().GetModel(),
+			"req", nextReq.Request().GetRequestID(), "worker", worker.id)
 		common.WriteToChannel(worker.reqChan, nextReq, s.Context.logger)
 		// decrement waiting requests metric
 		common.WriteToChannel(s.Context.metrics.waitingReqChan, common.MetricInfo{Value: -1}, s.Context.logger)
@@ -320,22 +321,22 @@ func (s *Simulator) findRequestAndSendToProcess(worker *worker) bool {
 	return false
 }
 
-func (s *Simulator) addRequestToQueue(reqCtx requestContext) {
+func (s *Simulator) addRequestToQueue(reqCtx endpoint.RequestContext) {
 	if err := s.enqueue(reqCtx); err != nil {
 		s.Context.logger.Error(err, "failed to enqueue request")
 		err := api.NewError("Failed to enqueue request, "+err.Error(),
 			fasthttp.StatusTooManyRequests, nil)
-		common.WriteToChannel(reqCtx.responseChannel(),
-			&ResponseInfo{Err: &err, ChoiceIdx: reqCtx.choiceIndex()},
+		common.WriteToChannel(reqCtx.ResponseChannel(),
+			&endpoint.ResponseInfo{Err: &err, ChoiceIdx: reqCtx.ChoiceIndex()},
 			s.Context.logger)
-		reqCtx.signalDone()
+		reqCtx.SignalDone()
 		return
 	}
 	// increment the waiting requests metric
 	common.WriteToChannel(s.Context.metrics.waitingReqChan, common.MetricInfo{Value: 1}, s.Context.logger)
 	// update loraInfo metrics with the new waiting request
-	if s.Context.isLora(reqCtx.request().GetDisplayedModel()) {
-		common.WriteToChannel(s.Context.metrics.lorasChan, loraUsage{reqCtx.request().GetDisplayedModel(), waitingUsageState},
+	if s.Context.isLora(reqCtx.Request().GetDisplayedModel()) {
+		common.WriteToChannel(s.Context.metrics.lorasChan, loraUsage{reqCtx.Request().GetDisplayedModel(), waitingUsageState},
 			s.Context.logger)
 	}
 }
@@ -346,8 +347,8 @@ func (s *Simulator) addRequestToQueue(reqCtx requestContext) {
 // publish per-choice results on. On failure it returns numChoices = 0 and a
 // non-nil error; errInjected indicates whether the failure came from the
 // failure-injection path so the caller can attribute it correctly.
-func (s *Simulator) HandleRequest(req Request) (numChoices int, isStream bool,
-	channel *common.Channel[*ResponseInfo], err *api.Error, errInjected bool) {
+func (s *Simulator) HandleRequest(req endpoint.Request) (numChoices int, isStream bool,
+	channel *common.Channel[*endpoint.ResponseInfo], err *api.Error, errInjected bool) {
 	// Check if we should inject a failure
 	if shouldInjectFailure(s.Context.Config(), s.Context.Random) {
 		failure := getRandomFailure(s.Context.Config(), s.Context.Random)
@@ -365,7 +366,7 @@ func (s *Simulator) HandleRequest(req Request) (numChoices int, isStream bool,
 	// in this case the first alias is used, in all other cases the model from the request is used as the displayed model
 	req.SetDisplayedModel(s.Context.getDisplayedModelName(req.GetModel()))
 
-	if serverErr := req.validate(s.toolsValidator); serverErr != nil {
+	if serverErr := req.Validate(s.toolsValidator); serverErr != nil {
 		return 0, false, nil, serverErr, false
 	}
 
@@ -377,23 +378,23 @@ func (s *Simulator) HandleRequest(req Request) (numChoices int, isStream bool,
 	// must be sized off len(subReqs) (total sub-requests sharing the channel),
 	// not req.GetN() (choices per prompt) -- those differ once there's more
 	// than one prompt.
-	subReqs := req.split()
-	respChan := &common.Channel[*ResponseInfo]{
-		Channel: make(chan *ResponseInfo, s.Context.Config().MaxModelLen*len(subReqs)),
+	subReqs := req.Split()
+	respChan := &common.Channel[*endpoint.ResponseInfo]{
+		Channel: make(chan *endpoint.ResponseInfo, s.Context.Config().MaxModelLen*len(subReqs)),
 		Name:    "responseInfo-" + req.GetRequestID(),
 	}
 	var wg sync.WaitGroup
 	wg.Add(len(subReqs))
 	for i, subReq := range subReqs {
-		reqCtx := subReq.buildRequestContext(&s.Context, *respChan, i, wg.Done)
+		reqCtx := subReq.BuildRequestContext(&s.Context, *respChan, i, wg.Done)
 		if err := common.WriteToChannelWithError(s.newRequests, reqCtx); err != nil {
 			s.Context.logger.Error(err, "failed to enqueue request")
 			err := api.NewError("Failed to enqueue request, "+err.Error(),
 				fasthttp.StatusTooManyRequests, nil)
-			common.WriteToChannel(reqCtx.responseChannel(),
-				&ResponseInfo{Err: &err, ChoiceIdx: reqCtx.choiceIndex()},
+			common.WriteToChannel(reqCtx.ResponseChannel(),
+				&endpoint.ResponseInfo{Err: &err, ChoiceIdx: reqCtx.ChoiceIndex()},
 				s.Context.logger)
-			reqCtx.signalDone()
+			reqCtx.SignalDone()
 		}
 	}
 	go func() {
@@ -404,7 +405,7 @@ func (s *Simulator) HandleRequest(req Request) (numChoices int, isStream bool,
 	return len(subReqs), req.IsStream(), respChan, nil, false
 }
 
-func (s *Simulator) enqueue(req requestContext) error {
+func (s *Simulator) enqueue(req endpoint.RequestContext) error {
 	s.queueLock.Lock()
 	defer s.queueLock.Unlock()
 
@@ -416,16 +417,16 @@ func (s *Simulator) enqueue(req requestContext) error {
 }
 
 // go though the queue and find the first request that can be executed, while taking into consideration the max lora limitation
-func (s *Simulator) dequeue() requestContext {
+func (s *Simulator) dequeue() endpoint.RequestContext {
 	s.queueLock.Lock()
 	defer s.queueLock.Unlock()
 
 	// Find first request for a loaded LoRA
 	for elem := s.waitingQueue.Front(); elem != nil; elem = elem.Next() {
 		item, ok := elem.Value.(waitingQueueItem)
-		if ok && item.reqCtx != nil && s.Context.loraIsLoaded(item.reqCtx.request().GetDisplayedModel()) {
+		if ok && item.reqCtx != nil && s.Context.loraIsLoaded(item.reqCtx.Request().GetDisplayedModel()) {
 			s.waitingQueue.Remove(elem)
-			s.Context.incrementLora(item.reqCtx.request().GetDisplayedModel())
+			s.Context.incrementLora(item.reqCtx.Request().GetDisplayedModel())
 			common.WriteToChannel(s.Context.metrics.reqQueueTimeChan, time.Since(item.enqueueTime).Seconds(),
 				s.Context.logger)
 			return item.reqCtx
@@ -435,7 +436,7 @@ func (s *Simulator) dequeue() requestContext {
 	// All the requests require a LoRA that is not loaded, check if we can load a LoRA
 	for elem := s.waitingQueue.Front(); elem != nil; elem = elem.Next() {
 		item, ok := elem.Value.(waitingQueueItem)
-		if ok && item.reqCtx != nil && s.Context.loadLora(item.reqCtx.request().GetDisplayedModel()) {
+		if ok && item.reqCtx != nil && s.Context.loadLora(item.reqCtx.Request().GetDisplayedModel()) {
 			s.waitingQueue.Remove(elem)
 			common.WriteToChannel(s.Context.metrics.reqQueueTimeChan, time.Since(item.enqueueTime).Seconds(),
 				s.Context.logger)
@@ -446,29 +447,29 @@ func (s *Simulator) dequeue() requestContext {
 	return nil
 }
 
-func (s *Simulator) simulateResponseProcessing(respCtx ResponseContext) {
+func (s *Simulator) simulateResponseProcessing(respCtx endpoint.ResponseContext) {
 	reqCtx := respCtx.RequestContext()
-	choiceIdx := reqCtx.choiceIndex()
+	choiceIdx := reqCtx.ChoiceIndex()
 	// Skip delays if finish reason is cache_threshold (immediate return)
 	if respCtx.FinishReason() != nil && *respCtx.FinishReason() == common.CacheThresholdFinishReason {
-		common.WriteToChannel(reqCtx.responseChannel(), &ResponseInfo{RespCtx: respCtx, ChoiceIdx: choiceIdx},
+		common.WriteToChannel(reqCtx.ResponseChannel(), &endpoint.ResponseInfo{RespCtx: respCtx, ChoiceIdx: choiceIdx},
 			s.Context.logger)
 	} else {
 		s.Context.simulateTTFT(respCtx)
 
 		// Response started
-		common.WriteToChannel(reqCtx.responseChannel(),
-			&ResponseInfo{RespCtx: respCtx, Status: ResponseStatusCreated, ChoiceIdx: choiceIdx},
+		common.WriteToChannel(reqCtx.ResponseChannel(),
+			&endpoint.ResponseInfo{RespCtx: respCtx, Status: endpoint.ResponseStatusCreated, ChoiceIdx: choiceIdx},
 			s.Context.logger)
 
 		nTokens := 0
 		startDecode := time.Now()
-		if respIsEmpty(respCtx) {
-			common.WriteToChannel(reqCtx.responseChannel(),
-				&ResponseInfo{RespCtx: respCtx, ChoiceIdx: choiceIdx}, s.Context.logger)
+		if endpoint.RespIsEmpty(respCtx) {
+			common.WriteToChannel(reqCtx.ResponseChannel(),
+				&endpoint.ResponseInfo{RespCtx: respCtx, ChoiceIdx: choiceIdx}, s.Context.logger)
 		} else {
-			if respCtx.responseTokens() != nil {
-				for i, token := range respCtx.responseTokens().Tokens {
+			if respCtx.ResponseTokens() != nil {
+				for i, token := range respCtx.ResponseTokens().Tokens {
 					if i != 0 {
 						s.Context.simulateInterTokenLatency()
 						nTokens++
@@ -478,14 +479,14 @@ func (s *Simulator) simulateResponseProcessing(respCtx ResponseContext) {
 						Tokens:  []uint32{token},
 						Strings: []string{},
 					}
-					if len(respCtx.responseTokens().Strings) != 0 {
-						tokens.Strings = append(tokens.Strings, respCtx.responseTokens().Strings[i])
+					if len(respCtx.ResponseTokens().Strings) != 0 {
+						tokens.Strings = append(tokens.Strings, respCtx.ResponseTokens().Strings[i])
 					}
-					respInfo := ResponseInfo{Tokens: tokens, RespCtx: respCtx, ChoiceIdx: choiceIdx}
-					if i == len(respCtx.responseTokens().Tokens)-1 {
-						respInfo.Status = ResponseEndOfTokens
+					respInfo := endpoint.ResponseInfo{Tokens: tokens, RespCtx: respCtx, ChoiceIdx: choiceIdx}
+					if i == len(respCtx.ResponseTokens().Tokens)-1 {
+						respInfo.Status = endpoint.ResponseEndOfTokens
 					}
-					common.WriteToChannel(reqCtx.responseChannel(), &respInfo, s.Context.logger)
+					common.WriteToChannel(reqCtx.ResponseChannel(), &respInfo, s.Context.logger)
 				}
 			} else {
 				toolCalls := respCtx.ToolCalls()
@@ -498,16 +499,16 @@ func (s *Simulator) simulateResponseProcessing(respCtx ResponseContext) {
 							s.Context.simulateInterTokenLatency()
 							nTokens++
 						}
-						respInfo := ResponseInfo{
+						respInfo := endpoint.ResponseInfo{
 							Tokens:    &api.Tokenized{Tokens: []uint32{token}, Strings: []string{args.Strings[i]}},
 							RespCtx:   respCtx,
 							ToolCall:  &toolCalls[tcIdx],
 							ChoiceIdx: choiceIdx,
 						}
 						if tcIdx == len(toolCalls)-1 && i == len(args.Tokens)-1 {
-							respInfo.Status = ResponseEndOfTokens
+							respInfo.Status = endpoint.ResponseEndOfTokens
 						}
-						common.WriteToChannel(reqCtx.responseChannel(), &respInfo, s.Context.logger)
+						common.WriteToChannel(reqCtx.ResponseChannel(), &respInfo, s.Context.logger)
 					}
 				}
 			}
@@ -520,26 +521,26 @@ func (s *Simulator) simulateResponseProcessing(respCtx ResponseContext) {
 		common.WriteToChannel(s.Context.metrics.reqTpotChan, meanTPOT, s.Context.logger)
 		common.WriteToChannel(s.Context.metrics.reqDecodeTimeChan, decodeTime, s.Context.logger)
 
-		if reqCtx.request().SendImage() {
+		if reqCtx.Request().SendImage() {
 			s.Context.simulateImageGenerationLatency()
 		}
 	}
 }
 
 // request processing finished
-func (s *Simulator) onResponseProcessingFinished(reqCtx requestContext) {
+func (s *Simulator) onResponseProcessingFinished(reqCtx endpoint.RequestContext) {
 	// decrement running requests count
 	common.WriteToChannel(s.Context.metrics.runReqChan, common.MetricInfo{Value: -1}, s.Context.logger)
 
-	model := reqCtx.request().GetDisplayedModel()
+	model := reqCtx.Request().GetDisplayedModel()
 	if s.Context.isLora(model) {
 		// update loraInfo metrics to reflect that the request processing has been finished
 		common.WriteToChannel(s.Context.metrics.lorasChan, loraUsage{model, doneUsageState},
 			s.Context.logger)
 	}
 
-	reqCtx.kvCacheOnRequestEnd()
-	reqCtx.signalDone()
+	reqCtx.KVCacheOnRequestEnd()
+	reqCtx.SignalDone()
 }
 
 // OpenRequests returns the number of requests currently in the system

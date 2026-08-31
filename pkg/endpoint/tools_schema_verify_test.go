@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package simulator
+package endpoint
 
 import (
 	"encoding/json"
@@ -26,7 +26,7 @@ import (
 var _ = Describe("tools schema validator", func() {
 	DescribeTable("accepts common JSON schema keywords on parameters",
 		func(toolJSON string) {
-			v, err := createToolsValidator()
+			v, err := NewToolsValidator()
 			Expect(err).NotTo(HaveOccurred())
 
 			var value any

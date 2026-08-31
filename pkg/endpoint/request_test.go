@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package simulator
+package endpoint
 
 import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
@@ -28,7 +28,7 @@ func ptrInt64(v int64) *int64 { return &v }
 func ptrInt(v int) *int       { return &v }
 
 // newTextCompletionsFixture builds a TextCompletionsParsedRequest populated
-// with a cross-section of fields that split must preserve on each sub-request.
+// with a cross-section of fields that Split must preserve on each sub-request.
 // Keep this exhaustive — if you add a field to the parsed type that should
 // survive the copy, add it here too.
 func newTextCompletionsFixture() *TextCompletionsParsedRequest {
@@ -161,11 +161,11 @@ var _ = Describe("convertInputToMessages", func() {
 	})
 })
 
-var _ = Describe("TextCompletionsParsedRequest.split", func() {
+var _ = Describe("TextCompletionsParsedRequest.Split", func() {
 	It("returns one sub-request per array element with suffixed RequestIDs", func() {
 		orig := newTextCompletionsFixture()
 
-		subs := orig.split()
+		subs := orig.Split()
 
 		Expect(subs).To(HaveLen(2))
 		first := subs[0].(*TextCompletionsRequest)
@@ -179,7 +179,7 @@ var _ = Describe("TextCompletionsParsedRequest.split", func() {
 	It("preserves non-prompt fields on each sub-request", func() {
 		orig := newTextCompletionsFixture()
 
-		subs := orig.split()
+		subs := orig.Split()
 		sub := subs[0].(*TextCompletionsRequest)
 
 		Expect(sub.GetModel()).To(Equal(orig.GetModel()))
@@ -192,13 +192,13 @@ var _ = Describe("TextCompletionsParsedRequest.split", func() {
 		Expect(sub.GetCacheHitThreshold()).To(Equal(orig.GetCacheHitThreshold()))
 	})
 
-	It("carries token-id prompts through split and pre-populates TokenizedPrompt", func() {
+	It("carries token-id prompts through Split and pre-populates TokenizedPrompt", func() {
 		orig := &TextCompletionsParsedRequest{}
 		orig.RequestID = "req-xyz"
 		orig.Model = "test-model"
 		orig.Prompt = []api.PromptInput{{Tokens: []uint32{10, 20, 30}}}
 
-		subs := orig.split()
+		subs := orig.Split()
 
 		Expect(subs).To(HaveLen(1))
 		sub := subs[0].(*TextCompletionsRequest)
@@ -213,7 +213,7 @@ var _ = Describe("TextCompletionsParsedRequest.split", func() {
 		origPrompt := append([]api.PromptInput(nil), orig.Prompt...)
 		origID := orig.GetRequestID()
 
-		_ = orig.split()
+		_ = orig.Split()
 
 		Expect(orig.GetRequestID()).To(Equal(origID))
 		Expect(orig.Prompt).To(Equal(origPrompt))
