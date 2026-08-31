@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package simulator
+package endpoint
 
 import (
 	"encoding/json"
@@ -42,7 +42,7 @@ func (g *GenerateRequest) Unmarshal(data []byte) error {
 	return nil
 }
 
-func (g *GenerateRequest) validate(toolsValidator *toolsValidator) *api.Error {
+func (g *GenerateRequest) Validate(toolsValidator *ToolsValidator) *api.Error {
 	if g.TokenIDs == nil {
 		err := api.NewError("Missing input token_ids", fasthttp.StatusBadRequest, nil)
 		return &err
@@ -56,20 +56,20 @@ func (g *GenerateRequest) validate(toolsValidator *toolsValidator) *api.Error {
 	return validateRequest(g)
 }
 
-func (g *GenerateRequest) buildRequestContext(simCtx *SimContext, channel common.Channel[*ResponseInfo],
-	choiceIdx int, doneFn func()) requestContext {
+func (g *GenerateRequest) BuildRequestContext(runtime Runtime, channel common.Channel[*ResponseInfo],
+	choiceIdx int, doneFn func()) RequestContext {
 	reqCtx := &generateReqCtx{
-		baseRequestContext: newBaseRequestContext(simCtx, channel, choiceIdx, doneFn),
+		baseRequestContext: newBaseRequestContext(runtime, channel, choiceIdx, doneFn),
 		req:                g,
 	}
-	// wire generateReqCtx into embedded requestContext interface
-	reqCtx.requestContext = reqCtx
+	// wire generateReqCtx into embedded RequestContext interface
+	reqCtx.RequestContext = reqCtx
 
 	return reqCtx
 }
 
-// split is a no-op: generate requests always carry a single prompt.
-func (g *GenerateRequest) split() []Request {
+// Split is a no-op: generate requests always carry a single prompt.
+func (g *GenerateRequest) Split() []Request {
 	return []Request{g}
 }
 
@@ -77,7 +77,7 @@ func (g *GenerateRequest) AsString() string {
 	return "generate request (req id " + g.RequestID + ")"
 }
 
-func (g *GenerateRequest) createResponseContext(reqCtx requestContext, displayModel string,
+func (g *GenerateRequest) createResponseContext(reqCtx RequestContext, displayModel string,
 	responseTokens *api.Tokenized, finishReason *string, usageData *api.Usage,
 	sendUsageData bool, logprobs *int, toolCalls []api.ToolCall, mmEncoderOnlyMode bool) ResponseContext {
 	base := newBaseResponseContext(reqCtx, displayModel, responseTokens, finishReason, usageData, sendUsageData,
@@ -96,13 +96,13 @@ func (g *GenerateRequest) createResponseContext(reqCtx requestContext, displayMo
 
 var _ Request = (*GenerateRequest)(nil)
 
-// Implementation of requestContext for generation requests
+// Implementation of RequestContext for generation requests
 type generateReqCtx struct {
 	baseRequestContext
 	req *GenerateRequest
 }
 
-func (g *generateReqCtx) request() Request {
+func (g *generateReqCtx) Request() Request {
 	return g.req
 }
 
@@ -118,9 +118,9 @@ func (g *generateReqCtx) createToolCalls() ([]api.ToolCall, int, string, error) 
 	return nil, 0, "", nil
 }
 
-var _ requestContext = (*generateReqCtx)(nil)
+var _ RequestContext = (*generateReqCtx)(nil)
 
-// Implementation of responseContext for generation requests
+// Implementation of ResponseContext for generation requests
 type generateResponseCtx struct {
 	baseResponseContext
 	ecTransferParams map[string]api.ECTransferParams

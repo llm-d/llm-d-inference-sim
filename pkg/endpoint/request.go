@@ -14,12 +14,13 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package simulator
+package endpoint
 
 import (
 	"fmt"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/kvcache"
@@ -29,18 +30,18 @@ import (
 
 type requestBuilder interface {
 	Unmarshal(data []byte) error
-	validate(toolsValidator *toolsValidator) *api.Error
-	buildRequestContext(simCtx *SimContext, channel common.Channel[*ResponseInfo], choiceIdx int, doneFn func()) requestContext
+	Validate(toolsValidator *ToolsValidator) *api.Error
+	BuildRequestContext(runtime Runtime, channel common.Channel[*ResponseInfo], choiceIdx int, doneFn func()) RequestContext
 	AsString() string
-	createResponseContext(reqCtx requestContext, displayModel string, responseTokens *api.Tokenized,
+	createResponseContext(reqCtx RequestContext, displayModel string, responseTokens *api.Tokenized,
 		finishReason *string, usageData *api.Usage, sendUsageData bool, logprobs *int,
 		toolCalls []api.ToolCall, mmEncoderOnlyMode bool) ResponseContext
-	// split returns one or more processing-form Requests, each carrying a single
+	// Split returns one or more processing-form Requests, each carrying a single
 	// prompt with a unique RequestID. For request types whose wire form is always
 	// a single prompt (chat, generation, responses, post-split text completions),
 	// the implementation is trivial: return the receiver wrapped in a one-element
 	// slice. Only TextCompletionsParsedRequest does real work here.
-	split() []Request
+	Split() []Request
 }
 
 // RenderableRequest is implemented by the request types reachable from the
@@ -63,33 +64,36 @@ type Request interface {
 	api.Request
 }
 
-type requestContext interface {
-	request() Request
-	startProcessingTime() time.Time
+// RequestContext is a request as it moves through worker processing.
+type RequestContext interface {
+	Request() Request
+	StartProcessingTime() time.Time
 	tokenize() *api.Error
 	kvCacheOnRequestStart() (stats kvcache.PrefixCacheStats, serverError *api.Error)
-	kvCacheOnRequestEnd()
+	KVCacheOnRequestEnd()
 	createToolCalls() ([]api.ToolCall, int, string, error)
-	handleRequest() (ResponseContext, *api.Error)
-	responseChannel() common.Channel[*ResponseInfo]
+	HandleRequest() (ResponseContext, *api.Error)
+	ResponseChannel() common.Channel[*ResponseInfo]
 	tokenizedPromptForEcho() (*api.Tokenized, error)
 	encode() ([]uint32, []string, *api.RenderMMFeatures, error)
-	choiceIndex() int
-	signalDone()
+	ChoiceIndex() int
+	SignalDone()
 }
 
 type baseRequestContext struct {
-	requestContext
-	sim             *SimContext
+	RequestContext
+	runtime         Runtime
+	logger          logr.Logger
 	startProcessing time.Time
 	respChannel     common.Channel[*ResponseInfo]
 	idx             int
 	doneFn          func()
 }
 
-func newBaseRequestContext(simCtx *SimContext, channel common.Channel[*ResponseInfo], choiceIdx int, doneFn func()) baseRequestContext {
+func newBaseRequestContext(runtime Runtime, channel common.Channel[*ResponseInfo], choiceIdx int, doneFn func()) baseRequestContext {
 	return baseRequestContext{
-		sim:             simCtx,
+		runtime:         runtime,
+		logger:          runtime.Logger(),
 		startProcessing: time.Now(),
 		respChannel:     channel,
 		idx:             choiceIdx,
@@ -97,32 +101,32 @@ func newBaseRequestContext(simCtx *SimContext, channel common.Channel[*ResponseI
 	}
 }
 
-func (b *baseRequestContext) responseChannel() common.Channel[*ResponseInfo] {
+func (b *baseRequestContext) ResponseChannel() common.Channel[*ResponseInfo] {
 	return b.respChannel
 }
 
-func (b *baseRequestContext) choiceIndex() int {
+func (b *baseRequestContext) ChoiceIndex() int {
 	return b.idx
 }
 
-func (b *baseRequestContext) signalDone() {
+func (b *baseRequestContext) SignalDone() {
 	if b.doneFn != nil {
 		b.doneFn()
 	}
 }
 
-func (b *baseRequestContext) startProcessingTime() time.Time {
+func (b *baseRequestContext) StartProcessingTime() time.Time {
 	return b.startProcessing
 }
 
 func (b *baseRequestContext) tokenize() *api.Error {
-	req := b.request()
+	req := b.Request()
 
 	if tokens := req.TokenizedPrompt(); tokens == nil {
 		// the prompt is still not tokenized - tokenize now
 		tokens, textTokens, mmFeatures, err := b.encode()
 		if err != nil {
-			b.sim.logger.Error(err, "failed to tokenize")
+			b.logger.Error(err, "failed to tokenize")
 			serverErr := api.NewError("Failed to tokenize, "+err.Error(), fasthttp.StatusInternalServerError, nil)
 			return &serverErr
 		}
@@ -135,12 +139,12 @@ func (b *baseRequestContext) tokenize() *api.Error {
 		req.SetMMFeatures(mmFeatures)
 	}
 
-	if b.sim.Config().Mode == common.ModeEcho {
+	if b.runtime.Config().Mode == common.ModeEcho {
 		// in echo mode need to calculate which part of input will be sent back,
 		// e.g. in /chat/completions we send back only the last message's content
 		echoTokenized, err := b.tokenizedPromptForEcho()
 		if err != nil {
-			b.sim.logger.Error(err, "failed to tokenize prompt part for echo mode")
+			b.logger.Error(err, "failed to tokenize prompt part for echo mode")
 			serverErr := api.NewError("Failed to tokenize prompt part for echo mode, "+err.Error(), fasthttp.StatusInternalServerError, nil)
 			return &serverErr
 		}
@@ -154,9 +158,9 @@ func (b *baseRequestContext) tokenize() *api.Error {
 // validate context window and other token-count-dependent request constraints,
 // which can only be checked once the prompt is tokenized
 func (b *baseRequestContext) validateTokenizedRequest() (string, int) {
-	promptTokens := getNumberOfPromptTokens(b.request())
-	maxModelLen := b.sim.Config().MaxModelLen
-	mode := b.sim.Config().Mode
+	promptTokens := getNumberOfPromptTokens(b.Request())
+	maxModelLen := b.runtime.Config().MaxModelLen
+	mode := b.runtime.Config().Mode
 
 	if !common.ValidateContextWindow(promptTokens, maxModelLen, mode) {
 		var message string
@@ -171,7 +175,7 @@ func (b *baseRequestContext) validateTokenizedRequest() (string, int) {
 	}
 
 	if mode == common.ModeEcho {
-		if maxTokens := b.request().GetMaxCompletionTokens(); maxTokens != nil && int64(promptTokens) > *maxTokens {
+		if maxTokens := b.Request().GetMaxCompletionTokens(); maxTokens != nil && int64(promptTokens) > *maxTokens {
 			message := fmt.Sprintf("In echo mode the full prompt is returned as the response, so max_tokens must be at least the prompt length. max_tokens is %d, but the prompt has %d tokens. Please increase max_tokens or reduce the length of the messages",
 				*maxTokens, promptTokens)
 			return message, fasthttp.StatusBadRequest
@@ -181,20 +185,11 @@ func (b *baseRequestContext) validateTokenizedRequest() (string, int) {
 	return "", fasthttp.StatusOK
 }
 
-func (reqCtx *baseRequestContext) handleRequest() (ResponseContext, *api.Error) {
-	req := reqCtx.request()
+func (reqCtx *baseRequestContext) HandleRequest() (ResponseContext, *api.Error) {
+	req := reqCtx.Request()
 	dispModel := req.GetDisplayedModel()
 
-	// increment running requests count
-	common.WriteToChannel(reqCtx.sim.metrics.runReqChan, common.MetricInfo{Value: 1}, reqCtx.sim.logger)
-
-	if reqCtx.sim.isLora(dispModel) {
-		// set the lora index now that the lora is confirmed loaded
-		req.SetModelLoraID(reqCtx.sim.GetLoraID(dispModel))
-		// update loraInfo metric to reflect that
-		// the request has changed its status from waiting to running
-		common.WriteToChannel(reqCtx.sim.metrics.lorasChan, loraUsage{dispModel, runningUsageState}, reqCtx.sim.logger)
-	}
+	reqCtx.runtime.RequestStarted(req)
 
 	if err := reqCtx.tokenize(); err != nil {
 		return nil, err
@@ -230,7 +225,7 @@ func (reqCtx *baseRequestContext) handleRequest() (ResponseContext, *api.Error) 
 		}
 		sendUsageData := !req.IsStream() || req.IncludeUsage()
 		respCtx := req.createResponseContext(reqCtx, dispModel, &api.Tokenized{},
-			&finishReason, &usageData, sendUsageData, logprobs, nil, reqCtx.sim.Config().MMEncoderOnly)
+			&finishReason, &usageData, sendUsageData, logprobs, nil, reqCtx.runtime.Config().MMEncoderOnly)
 		return respCtx, nil
 	}
 
@@ -239,12 +234,12 @@ func (reqCtx *baseRequestContext) handleRequest() (ResponseContext, *api.Error) 
 	if toolCalls == nil && err == nil {
 		// Either no tool calls were defined, or we randomly chose not to create tool calls,
 		// so we generate a response text.
-		responseTokens, finishReason, err = reqCtx.sim.dataset.GetResponseTokens(req)
+		responseTokens, finishReason, err = reqCtx.runtime.GetResponseTokens(req)
 		completionTokens += responseTokens.Length()
 	}
 	if err != nil {
 		prefix := "failed to create response for " + req.AsString() + " "
-		reqCtx.sim.logger.Error(err, prefix)
+		reqCtx.logger.Error(err, prefix)
 		oaiServerError := api.NewError(prefix+err.Error(), fasthttp.StatusInternalServerError, nil)
 		return nil, &oaiServerError
 	}
@@ -274,7 +269,7 @@ func (reqCtx *baseRequestContext) handleRequest() (ResponseContext, *api.Error) 
 	}
 
 	respCtx := req.createResponseContext(reqCtx, dispModel, responseTokens, &finishReason,
-		&usageData, sendUsageData, logprobs, toolCalls, reqCtx.sim.Config().MMEncoderOnly)
+		&usageData, sendUsageData, logprobs, toolCalls, reqCtx.runtime.Config().MMEncoderOnly)
 
 	return respCtx, nil
 }
@@ -286,13 +281,13 @@ func (reqCtx *baseRequestContext) shouldReturnCacheThresholdFinishReason(req api
 	}
 	// Check cache hit threshold if specified and KV cache is enabled
 	// First, get cache hit info without modifying cache state
-	if reqCtx.sim.Config().EnableKVCache {
+	if reqCtx.runtime.Config().EnableKVCache {
 		// Get cacheHitThreshold from request first, fall back to global cacheHitThreshold if not set
 		var cacheHitThreshold *float64
 		if reqThreshold := req.GetCacheHitThreshold(); reqThreshold != nil && *reqThreshold >= 0 && *reqThreshold <= 1 {
 			cacheHitThreshold = reqThreshold
-		} else if reqCtx.sim.Config().GlobalCacheHitThreshold > 0 {
-			cacheHitThreshold = &reqCtx.sim.Config().GlobalCacheHitThreshold
+		} else if reqCtx.runtime.Config().GlobalCacheHitThreshold > 0 {
+			cacheHitThreshold = &reqCtx.runtime.Config().GlobalCacheHitThreshold
 		}
 
 		if cacheHitThreshold != nil {
@@ -307,22 +302,9 @@ func (reqCtx *baseRequestContext) shouldReturnCacheThresholdFinishReason(req api
 }
 
 func (reqCtx *baseRequestContext) kvCacheOnRequestStart() (stat kvcache.PrefixCacheStats, oaiServerError *api.Error) {
-	if reqCtx.sim.Config().EnableKVCache {
-		var err error
-		stat, err = reqCtx.sim.kvcacheHelper.OnRequestStart(reqCtx.request())
-		if err != nil {
-			serverError := api.NewError(err.Error(), fasthttp.StatusInternalServerError, nil)
-			return kvcache.PrefixCacheStats{}, &serverError
-		}
-		return stat, nil
-	}
-	return kvcache.PrefixCacheStats{}, nil
+	return reqCtx.runtime.KVCacheOnRequestStart(reqCtx.Request())
 }
 
-func (reqCtx *baseRequestContext) kvCacheOnRequestEnd() {
-	if reqCtx.sim.Config().EnableKVCache {
-		if err := reqCtx.sim.kvcacheHelper.OnRequestEnd(reqCtx.request().GetRequestID()); err != nil {
-			reqCtx.sim.logger.Error(err, "kv cache failed to process request end")
-		}
-	}
+func (reqCtx *baseRequestContext) KVCacheOnRequestEnd() {
+	reqCtx.runtime.KVCacheOnRequestEnd(reqCtx.Request().GetRequestID())
 }

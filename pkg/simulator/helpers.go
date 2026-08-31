@@ -20,7 +20,6 @@ import (
 	"fmt"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
-	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/valyala/fasthttp"
 )
 
@@ -55,50 +54,4 @@ func (s *Simulator) ValidateBaseModel(model string) *api.Error {
 		return &serverErr
 	}
 	return nil
-}
-
-func getNumberOfPromptTokens(req api.Request) int {
-	return req.TokenizedPrompt().Length()
-}
-
-func validateRequest(req api.Request) *api.Error {
-	if n := req.GetRawN(); n != nil && *n <= 0 {
-		err := api.NewError("n must be at least 1", fasthttp.StatusBadRequest, nil)
-		return &err
-	}
-
-	if req.GetMaxCompletionTokens() != nil && *req.GetMaxCompletionTokens() <= 0 {
-		err := api.NewError(common.InvalidMaxTokensErrMsg, fasthttp.StatusBadRequest, nil)
-		return &err
-	}
-
-	if req.IsDoRemoteDecode() && req.IsStream() {
-		err := api.NewError("Prefill does not support streaming", fasthttp.StatusBadRequest, nil)
-		return &err
-	}
-
-	if req.GetIgnoreEOS() && req.GetMaxCompletionTokens() == nil {
-		err := api.NewError("Ignore_eos is true but max_completion_tokens (or max_tokens) is not set",
-			fasthttp.StatusBadRequest, nil)
-		return &err
-	}
-
-	return nil
-}
-
-// buildECTransferParams creates simulated ECTransferParams for each MM hash.
-func buildECTransferParams(mmHashes map[string][]string) map[string]api.ECTransferParams {
-	params := make(map[string]api.ECTransferParams)
-
-	for _, hashes := range mmHashes {
-		for _, hash := range hashes {
-			params[hash] = api.ECTransferParams{
-				PeerHost:      "DUMMY",
-				PeerPort:      1234,
-				SizeBytes:     2359296,
-				NixlAgentData: []byte("NIXL_METADATA_PLACEHOLDER"),
-			}
-		}
-	}
-	return params
 }

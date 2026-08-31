@@ -23,6 +23,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
+	"github.com/llm-d/llm-d-inference-sim/pkg/endpoint"
 )
 
 // worker runs simulators requests
@@ -32,7 +33,7 @@ type worker struct {
 	// worker's id
 	id int
 	// a channel for requests
-	reqChan common.Channel[requestContext]
+	reqChan common.Channel[endpoint.RequestContext]
 	// a channel to indicate that the worker finished processing a request
 	finishedChan chan *requestCompleted
 	// the request processor
@@ -47,25 +48,25 @@ func (w *worker) waitForRequests() {
 			return
 		case reqCtx := <-w.reqChan.Channel:
 			w.processor.processRequest(reqCtx)
-			w.finishedChan <- &requestCompleted{worker: w, model: reqCtx.request().GetDisplayedModel()}
+			w.finishedChan <- &requestCompleted{worker: w, model: reqCtx.Request().GetDisplayedModel()}
 		}
 
 	}
 }
 
 type requestProcessor interface {
-	processRequest(reqCtx requestContext)
+	processRequest(reqCtx endpoint.RequestContext)
 }
 
-func (s *Simulator) processRequest(reqCtx requestContext) {
+func (s *Simulator) processRequest(reqCtx endpoint.RequestContext) {
 	defer s.onResponseProcessingFinished(reqCtx)
 
 	startTime := time.Now()
-	req := reqCtx.request()
-	respCtx, err := reqCtx.handleRequest()
+	req := reqCtx.Request()
+	respCtx, err := reqCtx.HandleRequest()
 	if err != nil {
-		common.WriteToChannel(reqCtx.responseChannel(),
-			&ResponseInfo{RespCtx: respCtx, Err: err, ChoiceIdx: reqCtx.choiceIndex()},
+		common.WriteToChannel(reqCtx.ResponseChannel(),
+			&endpoint.ResponseInfo{RespCtx: respCtx, Err: err, ChoiceIdx: reqCtx.ChoiceIndex()},
 			s.Context.logger)
 		return
 	}
@@ -82,7 +83,7 @@ func (s *Simulator) processRequest(reqCtx requestContext) {
 			finishReason:       *respCtx.FinishReason()},
 		s.Context.logger)
 
-	common.WriteToChannel(s.Context.metrics.e2eReqLatencyChan, time.Since(reqCtx.startProcessingTime()).Seconds(), s.Context.logger)
+	common.WriteToChannel(s.Context.metrics.e2eReqLatencyChan, time.Since(reqCtx.StartProcessingTime()).Seconds(), s.Context.logger)
 	common.WriteToChannel(s.Context.metrics.reqInferenceTimeChan, time.Since(startTime).Seconds(), s.Context.logger)
 }
 

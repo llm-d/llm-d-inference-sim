@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package simulator
+package endpoint
 
 import (
 	"encoding/json"
@@ -56,10 +56,11 @@ func newResponsesToolTestCtx(tools []api.Tool, choice api.ToolChoice, input []ap
 		ToolCallNotRequiredParamProbability:       50,
 		ObjectToolCallNotRequiredParamProbability: 50,
 	}
-	sim := &SimContext{}
-	sim.SetConfig(cfg)
-	sim.Random = common.NewRandom(time.Now().UnixNano(), 8080)
-	sim.Tokenizer = tokenizer.NewSimpleTokenizer()
+	runtime := &fakeRuntime{
+		config:    cfg,
+		random:    common.NewRandom(time.Now().UnixNano(), 8080),
+		tokenizer: tokenizer.NewSimpleTokenizer(),
+	}
 
 	req := &ResponsesRequest{}
 	req.Tools = tools
@@ -68,7 +69,7 @@ func newResponsesToolTestCtx(tools []api.Tool, choice api.ToolChoice, input []ap
 	req.RequestID = "req-test"
 
 	return &responsesReqCtx{
-		baseRequestContext: baseRequestContext{sim: sim},
+		baseRequestContext: baseRequestContext{runtime: runtime},
 		req:                req,
 		toolIDPrefix:       api.ResponsesFunctionCallIDPrefix,
 	}
