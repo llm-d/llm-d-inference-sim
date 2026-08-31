@@ -77,6 +77,55 @@ var _ = Describe("Publisher", func() {
 		Expect(payload).To(Equal(data))
 	})
 
+	It("should publish with passive tcp and receive correct message", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		freePort, err := FreeTCPPort()
+		Expect(err).NotTo(HaveOccurred())
+		endpoint := fmt.Sprintf("tcp://*:%d", freePort)
+
+		pub, err := NewPublisher(ctx, endpoint)
+		Expect(err).NotTo(HaveOccurred())
+
+		time.Sleep(100 * time.Millisecond)
+
+		sub := NewSub(ctx)
+		err = sub.Dial(endpoint)
+		Expect(err).NotTo(HaveOccurred())
+		err = sub.SetOption(zmq4.OptionSubscribe, "")
+		Expect(err).NotTo(HaveOccurred())
+		// nolint
+		defer sub.Close()
+
+		go func() {
+			// Make sure that sub.RecvMessageBytes is called before pub.PublishEvent
+			time.Sleep(time.Second)
+			_, _, err := pub.PublishEvent(ctx, topic, data)
+			Expect(err).NotTo(HaveOccurred())
+		}()
+
+		// The message should be [topic, seq, payload]
+		msg, err := sub.Recv()
+		Expect(err).NotTo(HaveOccurred())
+
+		// message should have 3 frames: topic, sequence, payload
+		Expect(msg.Frames).To(HaveLen(3))
+
+		// check topic
+		Expect(string(msg.Frames[0])).To(Equal(topic))
+
+		// check sequence
+		seq := binary.BigEndian.Uint64(msg.Frames[1])
+		Expect(seq).To(Equal(uint64(1)))
+
+		// check payload
+		var payload string
+		err = msgpack.Unmarshal(msg.Frames[2], &payload)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(payload).To(Equal(data))
+	})
+
 	It("should connect to zmq listener after delay", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
