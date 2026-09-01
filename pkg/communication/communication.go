@@ -28,6 +28,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 	"github.com/llm-d/llm-d-inference-sim/pkg/communication/grpc/pb"
+	"github.com/llm-d/llm-d-inference-sim/pkg/endpoint"
 	"github.com/llm-d/llm-d-inference-sim/pkg/simulator"
 	"github.com/soheilhy/cmux"
 	"google.golang.org/grpc"
@@ -36,12 +37,13 @@ import (
 type Communication struct {
 	logger    logr.Logger
 	simulator *simulator.Simulator
+	// runtime is the seam through which handlers already migrated to
+	// endpoint.Runtime reach the simulator engine; call sites not yet
+	// migrated keep using simulator directly.
+	runtime endpoint.Runtime
 
 	// set to 1 during graceful shutdown; new requests are rejected while draining
 	stopping atomic.Bool
-
-	// a mutex for sleep-wake up
-	sleepMutex sync.RWMutex
 
 	pb.UnimplementedVllmEngineServer
 
@@ -57,11 +59,11 @@ type Communication struct {
 }
 
 func New(logger logr.Logger, simulator *simulator.Simulator) *Communication {
-	return &Communication{logger: logger, simulator: simulator, startTime: time.Now()}
+	return &Communication{logger: logger, simulator: simulator, runtime: &simulator.Context, startTime: time.Now()}
 }
 
 func Start(ctx context.Context, logger logr.Logger, simulator *simulator.Simulator) error {
-	c := Communication{logger: logger, simulator: simulator, startTime: time.Now()}
+	c := Communication{logger: logger, simulator: simulator, runtime: &simulator.Context, startTime: time.Now()}
 	c.logger.V(logging.INFO).Info("Starting communication layer")
 	return c.start(ctx)
 }

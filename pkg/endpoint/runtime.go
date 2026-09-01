@@ -49,4 +49,12 @@ type Runtime interface {
 	KVCacheOnRequestStart(req api.Request) (kvcache.PrefixCacheStats, *api.Error)
 	// KVCacheOnRequestEnd records the request's completion in the KV cache, if enabled.
 	KVCacheOnRequestEnd(requestID string)
+	// Sleep transitions the simulator into sleep mode. Returns whether it
+	// actually slept.
+	Sleep() bool
+	// WakeUp wakes the simulator, activating the KV cache when
+	// activateKVCache is true and KV cache support is enabled.
+	WakeUp(activateKVCache bool)
+	// IsSleeping reports whether the simulator is currently sleeping.
+	IsSleeping() bool
 }

@@ -48,3 +48,6 @@ func (f *fakeRuntime) KVCacheOnRequestStart(req api.Request) (kvcache.PrefixCach
 	return kvcache.PrefixCacheStats{}, nil
 }
 func (f *fakeRuntime) KVCacheOnRequestEnd(requestID string) {}
+func (f *fakeRuntime) Sleep() bool                          { return false }
+func (f *fakeRuntime) WakeUp(activateKVCache bool)          {}
+func (f *fakeRuntime) IsSleeping() bool                     { return false }
