@@ -354,7 +354,7 @@ func (s *Simulator) HandleRequest(req endpoint.Request) (numChoices int, isStrea
 	}
 
 	// the model defined in the request should be checked here
-	if !s.isValidModel(req.GetModel()) {
+	if !s.Context.isValidModel(req.GetModel()) {
 		serverErr := api.NewError(fmt.Sprintf("The model `%s` does not exist.",
 			req.GetModel()), fasthttp.StatusNotFound, nil)
 		return 0, false, nil, &serverErr, false

@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -84,6 +85,10 @@ type SimContext struct {
 	// (/is_sleeping) than it's written.
 	isSleeping bool
 	sleepMutex sync.RWMutex
+	// mooncakeEngines holds the per-rank engine ids served by /query, generated once so
+	// they stay stable for the simulator's lifetime
+	mooncakeEnginesOnce sync.Once
+	mooncakeEngines     map[string]map[string]string
 }
 
 type latencyCalcHolder struct {
@@ -307,6 +312,38 @@ func (s *SimContext) IsSleeping() bool {
 	s.sleepMutex.RLock()
 	defer s.sleepMutex.RUnlock()
 	return s.isSleeping
+}
+
+// ShouldSendImage decides whether an Omni response should include an image.
+// headerOverride, when true, forces an image regardless of the emission
+// rate; otherwise the decision is a random roll gated by
+// Configuration.ImageEmissionRate. Always false outside Omni mode.
+func (s *SimContext) ShouldSendImage(headerOverride bool) bool {
+	cfg := s.Config()
+	if !cfg.Omni {
+		return false
+	}
+	if headerOverride {
+		return true
+	}
+	return cfg.ImageEmissionRate > 0 && s.Random.RandomInt(1, 100) <= cfg.ImageEmissionRate
+}
+
+// MooncakeEngineMap returns the dp_rank -> {engine_id} map served by /query,
+// generating it once so the engine ids stay stable for the simulator's
+// lifetime.
+func (s *SimContext) MooncakeEngineMap() map[string]map[string]string {
+	s.mooncakeEnginesOnce.Do(func() {
+		dpSize := s.Config().DPSize
+		engines := make(map[string]map[string]string, dpSize)
+		for rank := 0; rank < dpSize; rank++ {
+			engines[strconv.Itoa(rank)] = map[string]string{
+				"engine_id": s.Random.GenerateUUIDString(),
+			}
+		}
+		s.mooncakeEngines = engines
+	})
+	return s.mooncakeEngines
 }
 
 // RequestStarted records that req has begun processing: increments the
