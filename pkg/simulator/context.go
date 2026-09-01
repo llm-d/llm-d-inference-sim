@@ -79,6 +79,11 @@ type SimContext struct {
 	latencyCalculator atomic.Pointer[latencyCalcHolder]
 	// Tokenizer used for request tokenization and in /tokenize
 	Tokenizer tokenizer.Tokenizer
+	// isSleeping records whether the simulator is currently sleeping. Guarded
+	// by sleepMutex rather than adminMu since it's read far more often
+	// (/is_sleeping) than it's written.
+	isSleeping bool
+	sleepMutex sync.RWMutex
 }
 
 type latencyCalcHolder struct {
@@ -267,6 +272,41 @@ func (s *SimContext) GetTokenizer() tokenizer.Tokenizer {
 // Logger returns the simulator's logger.
 func (s *SimContext) Logger() logr.Logger {
 	return s.logger
+}
+
+// Sleep transitions the simulator into sleep mode, discarding the KV cache
+// if enabled. It is a no-op, reporting false, unless sleep mode is enabled
+// and the simulator is running in dev mode.
+func (s *SimContext) Sleep() bool {
+	cfg := s.Config()
+	if !cfg.EnableSleepMode || !cfg.VllmDevMode {
+		return false
+	}
+	s.sleepMutex.Lock()
+	defer s.sleepMutex.Unlock()
+	s.isSleeping = true
+	if cfg.EnableKVCache {
+		s.kvcacheHelper.Discard()
+	}
+	return true
+}
+
+// WakeUp wakes the simulator, activating the KV cache when activateKVCache
+// is true and KV cache support is enabled.
+func (s *SimContext) WakeUp(activateKVCache bool) {
+	s.sleepMutex.Lock()
+	defer s.sleepMutex.Unlock()
+	if s.Config().EnableKVCache && activateKVCache {
+		s.kvcacheHelper.Activate()
+	}
+	s.isSleeping = false
+}
+
+// IsSleeping reports whether the simulator is currently sleeping.
+func (s *SimContext) IsSleeping() bool {
+	s.sleepMutex.RLock()
+	defer s.sleepMutex.RUnlock()
+	return s.isSleeping
 }
 
 // RequestStarted records that req has begun processing: increments the

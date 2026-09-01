@@ -905,9 +905,7 @@ func (c *Communication) HandleMooncakeQuery(ctx *fasthttp.RequestCtx) {
 func (c *Communication) HandleIsSleeping(ctx *fasthttp.RequestCtx) {
 	c.logger.V(logging.TRACE).Info("/is_sleeping request received")
 
-	c.sleepMutex.RLock()
-	defer c.sleepMutex.RUnlock()
-	data, err := json.Marshal(map[string]bool{"is_sleeping": c.simulator.IsSleeping})
+	data, err := json.Marshal(map[string]bool{"is_sleeping": c.runtime.IsSleeping()})
 	if err != nil {
 		c.logger.Error(err, "failed to marshal isSleeping response")
 		errToSend := api.NewError("Failed to marshal isSleeping response, "+err.Error(), fasthttp.StatusInternalServerError, nil)
@@ -922,16 +920,8 @@ func (c *Communication) HandleIsSleeping(ctx *fasthttp.RequestCtx) {
 
 // HandleSleep http handler for /sleep
 func (c *Communication) HandleSleep(ctx *fasthttp.RequestCtx) {
-	if c.simulator.Context.Config().EnableSleepMode && c.simulator.Context.Config().VllmDevMode {
-		c.logger.V(logging.INFO).Info("Sleep request received")
-		c.sleepMutex.Lock()
-		defer c.sleepMutex.Unlock()
-
-		c.simulator.IsSleeping = true
-		if c.simulator.Context.Config().EnableKVCache {
-			c.simulator.DiscardKVCache()
-		}
-	} else {
+	c.logger.V(logging.INFO).Info("Sleep request received")
+	if !c.runtime.Sleep() {
 		c.logger.V(logging.INFO).Info("Sleep request received, skipped since simulator not in dev mode or sleep support is not enabled")
 	}
 
@@ -952,15 +942,7 @@ func (c *Communication) HandleWakeUp(ctx *fasthttp.RequestCtx) {
 		wakeUpKVCache = true
 	}
 
-	c.sleepMutex.Lock()
-	defer c.sleepMutex.Unlock()
-
-	// Activate the kv cache if either the tags are "kv_cache" or there are no tags
-	if c.simulator.Context.Config().EnableKVCache && wakeUpKVCache {
-		c.simulator.ActivateKVCache()
-	}
-
-	c.simulator.IsSleeping = false
+	c.runtime.WakeUp(wakeUpKVCache)
 
 	ctx.Response.Header.SetStatusCode(fasthttp.StatusOK)
 }

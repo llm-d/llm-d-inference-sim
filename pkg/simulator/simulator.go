@@ -50,8 +50,6 @@ type Simulator struct {
 	Context SimContext
 	// schema validator for tools parameters
 	toolsValidator *endpoint.ToolsValidator
-	// indication whether the simulator is sleeping
-	IsSleeping bool
 	// a channel for free workers
 	freeWorkers chan *worker
 	// a channel to indicate that a worker finished working on a request
@@ -551,12 +549,4 @@ func (s *Simulator) OpenRequests() int64 {
 	s.queueLock.Unlock()
 	running := cap(s.freeWorkers) - len(s.freeWorkers)
 	return int64(waiting + running)
-}
-
-func (s *Simulator) DiscardKVCache() {
-	s.Context.kvcacheHelper.Discard()
-}
-
-func (s *Simulator) ActivateKVCache() {
-	s.Context.kvcacheHelper.Activate()
 }
