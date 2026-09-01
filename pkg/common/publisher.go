@@ -103,12 +103,6 @@ func NewPublisher(ctx context.Context, endpoint string) (*Publisher, error) {
 			return nil, fmt.Errorf("failed to bind ZMQ publisher: %w", err)
 		}
 		log.FromContext(ctx).Info("ZMQ publisher bound", "endpoint", endpoint)
-
-		// Resolve the wildcard to the actual address
-		addr := socket.Addr()
-		if addr != nil {
-			endpoint = "tcp://" + addr.String()
-		}
 	} else {
 		go func() {
 			log.FromContext(ctx).Info("ZMQ publisher dialing", "endpoint", endpoint)
@@ -154,12 +148,6 @@ func (p *Publisher) PublishEvent(ctx context.Context, topic string, batch interf
 
 	logger.V(logging.TRACE).Info("Published event batch", "topic", topic, "seq", seq)
 	return seq, payload, nil
-}
-
-// GetEndpoint returns the actual endpoint the publisher is bound to or dialing.
-// For wildcard binds (e.g., "tcp://*:0"), this returns the resolved address.
-func (p *Publisher) GetEndpoint() string {
-	return p.endpoint
 }
 
 // Close closes the publisher and cleans up resources.
