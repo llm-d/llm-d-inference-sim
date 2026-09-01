@@ -69,8 +69,8 @@ func EncodeSeq(seq uint64) []byte {
 
 // Publisher sends events to a ZMQ endpoint.
 // Mode is auto-detected from the endpoint string:
-//   - "tcp://*:<port>" → bind (server mode, like vLLM's default)
-//   - "tcp://<ip>:<port>" → dial (client mode)
+//   - "tcp://*:<port>" -> bind (server mode, like vLLM's default)
+//   - "tcp://<ip>:<port>" -> dial (client mode)
 //
 // Heuristic mirrors vLLM's ZmqEventPublisher._socket_setup:
 // https://github.com/vllm-project/vllm/blob/v0.23.0/vllm/distributed/kv_events.py#L385
