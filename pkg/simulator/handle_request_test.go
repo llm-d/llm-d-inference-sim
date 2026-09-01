@@ -22,12 +22,15 @@ import (
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
+	"github.com/llm-d/llm-d-inference-sim/pkg/endpoint"
 	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/valyala/fasthttp"
 	"k8s.io/klog/v2"
 )
+
+func ptrInt(v int) *int { return &v }
 
 // newHandleRequestTestSim builds a Simulator with a real (echo-mode)
 // dataset, tokenizer, latency calculator and metrics -- everything
@@ -54,15 +57,15 @@ func newHandleRequestTestSim(ctx context.Context, newRequestsCapacity int, extra
 
 	Expect(sim.Context.initialize(ctx)).To(Succeed())
 
-	sim.newRequests = common.Channel[requestContext]{
-		Channel: make(chan requestContext, newRequestsCapacity),
+	sim.newRequests = common.Channel[endpoint.RequestContext]{
+		Channel: make(chan endpoint.RequestContext, newRequestsCapacity),
 		Name:    "newRequests",
 	}
 	return sim
 }
 
-func newTextCompletionsRequestWithChoices(id string, n int) *TextCompletionsParsedRequest {
-	req := &TextCompletionsParsedRequest{}
+func newTextCompletionsRequestWithChoices(id string, n int) *endpoint.TextCompletionsParsedRequest {
+	req := &endpoint.TextCompletionsParsedRequest{}
 	req.RequestID = id
 	req.Model = common.TestModelName
 	req.Prompt = []api.PromptInput{{Text: "hi"}}
@@ -89,7 +92,7 @@ var _ = Describe("HandleRequest enqueue failure", func() {
 		Expect(topErr).To(BeNil())
 		Expect(numChoices).To(Equal(1))
 
-		var response *ResponseInfo
+		var response *endpoint.ResponseInfo
 		Expect(overflowChan.Channel).To(Receive(&response))
 		Expect(response.Err).NotTo(BeNil())
 		Expect(response.Err.Code).To(Equal(fasthttp.StatusTooManyRequests))
@@ -133,7 +136,7 @@ var _ = Describe("HandleRequest enqueue failure", func() {
 				sawErr = response.Err
 				continue
 			}
-			if response.Status == ResponseEndOfTokens {
+			if response.Status == endpoint.ResponseEndOfTokens {
 				completedCount++
 			}
 		}

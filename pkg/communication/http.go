@@ -18,6 +18,8 @@ package communication
 
 import (
 	"bufio"
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -35,7 +37,7 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
-	"github.com/llm-d/llm-d-inference-sim/pkg/simulator"
+	"github.com/llm-d/llm-d-inference-sim/pkg/endpoint"
 )
 
 const (
@@ -131,40 +133,40 @@ func (c *Communication) getRequestID(ctx *fasthttp.RequestCtx) string {
 
 // HandleChatCompletions http handler for /v1/chat/completions
 func (c *Communication) HandleChatCompletions(ctx *fasthttp.RequestCtx) {
-	c.handleHTTP(&simulator.ChatCompletionsRequest{}, &chatComplHTTPRespBuilder{}, ctx)
+	c.handleHTTP(&endpoint.ChatCompletionsRequest{}, &chatComplHTTPRespBuilder{}, ctx)
 }
 
 // HandleTextCompletions http handler for /v1/completions
 func (c *Communication) HandleTextCompletions(ctx *fasthttp.RequestCtx) {
-	c.handleHTTP(&simulator.TextCompletionsParsedRequest{}, &textComplHTTPRespBuilder{}, ctx)
+	c.handleHTTP(&endpoint.TextCompletionsParsedRequest{}, &textComplHTTPRespBuilder{}, ctx)
 }
 
 // HandleResponses http handler for /v1/responses
 func (c *Communication) HandleResponses(ctx *fasthttp.RequestCtx) {
-	c.handleHTTP(&simulator.ResponsesRequest{}, &responsesHTTPRespBuilder{}, ctx)
+	c.handleHTTP(&endpoint.ResponsesRequest{}, &responsesHTTPRespBuilder{}, ctx)
 }
 
 // HandleMessages http handler for /v1/messages (Anthropic Messages API)
 func (c *Communication) HandleMessages(ctx *fasthttp.RequestCtx) {
-	c.handleHTTP(&simulator.MessagesRequest{}, &messagesHTTPRespBuilder{}, ctx)
+	c.handleHTTP(&endpoint.MessagesRequest{}, &messagesHTTPRespBuilder{}, ctx)
 }
 
 // HandleGenerate http handler for /inference/v1/generate
 func (c *Communication) HandleGenerate(ctx *fasthttp.RequestCtx) {
-	c.handleHTTP(&simulator.GenerateRequest{}, &generateHTTPRespBuilder{}, ctx)
+	c.handleHTTP(&endpoint.GenerateRequest{}, &generateHTTPRespBuilder{}, ctx)
 }
 
 // HandleChatCompletionsRender http handler for /v1/chat/completions/render
 func (c *Communication) HandleChatCompletionsRender(ctx *fasthttp.RequestCtx) {
-	c.handleRender(&simulator.ChatCompletionsRequest{}, &chatComplHTTPRespBuilder{}, ctx)
+	c.handleRender(&endpoint.ChatCompletionsRequest{}, &chatComplHTTPRespBuilder{}, ctx)
 }
 
 // HandleTextCompletionsRender http handler for /v1/completions/render
 func (c *Communication) HandleTextCompletionsRender(ctx *fasthttp.RequestCtx) {
-	c.handleRender(&simulator.TextCompletionsParsedRequest{}, &textComplHTTPRespBuilder{}, ctx)
+	c.handleRender(&endpoint.TextCompletionsParsedRequest{}, &textComplHTTPRespBuilder{}, ctx)
 }
 
-func (c *Communication) handleRender(req simulator.RenderableRequest, respBuilder responseBuilder, ctx *fasthttp.RequestCtx) {
+func (c *Communication) handleRender(req endpoint.RenderableRequest, respBuilder responseBuilder, ctx *fasthttp.RequestCtx) {
 	c.logger.V(logging.TRACE).Info("Render request received", "endpoint", string(ctx.Path()))
 	if err := req.Unmarshal(ctx.Request.Body()); err != nil {
 		c.logger.Error(err, "failed to read and parse render request body")
@@ -214,7 +216,7 @@ func (c *Communication) addResponseHeaders(ctx *fasthttp.RequestCtx, requestID s
 	}
 }
 
-func (c *Communication) handleHTTP(req simulator.Request, respBuilder responseBuilder, ctx *fasthttp.RequestCtx) {
+func (c *Communication) handleHTTP(req endpoint.Request, respBuilder responseBuilder, ctx *fasthttp.RequestCtx) {
 	if c.stopping.Load() {
 		errToSend := api.NewError("server is shutting down", fasthttp.StatusServiceUnavailable, nil)
 		c.sendError(ctx, &errToSend, false)
@@ -292,7 +294,7 @@ func (c *Communication) handleHTTP(req simulator.Request, respBuilder responseBu
 // that fails before producing any content (e.g. queue full, or a validation
 // error caught only once processing starts) still be reported with its real
 // HTTP status instead of being forced into a 200 SSE error frame.
-func (c *Communication) handleStream(ctx *fasthttp.RequestCtx, channel common.Channel[*simulator.ResponseInfo],
+func (c *Communication) handleStream(ctx *fasthttp.RequestCtx, channel common.Channel[*endpoint.ResponseInfo],
 	respBuilder responseBuilder, numChoices int) {
 	first := <-channel.Channel
 	if first != nil && first.Err != nil {
@@ -307,7 +309,7 @@ func (c *Communication) handleStream(ctx *fasthttp.RequestCtx, channel common.Ch
 	c.sendStream(ctx, channel, respBuilder, numChoices, first)
 }
 
-func (c *Communication) sendNonStream(ctx *fasthttp.RequestCtx, channel common.Channel[*simulator.ResponseInfo],
+func (c *Communication) sendNonStream(ctx *fasthttp.RequestCtx, channel common.Channel[*endpoint.ResponseInfo],
 	respBuilder responseBuilder, numChoices int) {
 	tokens := make([]api.Tokenized, numChoices)
 	for i := range tokens {
@@ -316,7 +318,7 @@ func (c *Communication) sendNonStream(ctx *fasthttp.RequestCtx, channel common.C
 			Strings: make([]string, 0),
 		}
 	}
-	respCtxPerChoice := make([]simulator.ResponseContext, numChoices)
+	respCtxPerChoice := make([]endpoint.ResponseContext, numChoices)
 	for response := range channel.Channel {
 		if response.Err != nil {
 			// Fail-fast: abort the whole request. Drain remaining responses in the
@@ -354,7 +356,7 @@ func (c *Communication) sendNonStream(ctx *fasthttp.RequestCtx, channel common.C
 
 // drainResponseChannel reads and discards responses until the channel closes.
 // Used after a fail-fast abort so in-flight producers can finish cleanly.
-func drainResponseChannel(channel common.Channel[*simulator.ResponseInfo]) {
+func drainResponseChannel(channel common.Channel[*endpoint.ResponseInfo]) {
 	for range channel.Channel { //nolint:revive
 	}
 }
@@ -377,7 +379,7 @@ type streamState struct {
 	firstTokens      []bool
 	lastToolCall     []*api.ToolCall
 	toolCallIndex    []int
-	respCtxPerChoice []simulator.ResponseContext
+	respCtxPerChoice []endpoint.ResponseContext
 }
 
 // newStreamState allocates per-choice slices for numChoices choices. The
@@ -393,7 +395,7 @@ func newStreamState(numChoices int) streamState {
 		firstTokens:      firstTokens,
 		lastToolCall:     make([]*api.ToolCall, numChoices),
 		toolCallIndex:    make([]int, numChoices),
-		respCtxPerChoice: make([]simulator.ResponseContext, numChoices),
+		respCtxPerChoice: make([]endpoint.ResponseContext, numChoices),
 	}
 }
 
@@ -411,13 +413,13 @@ func (c *Communication) sendOrFail(ctx *fasthttp.RequestCtx, w *bufio.Writer, ch
 	return true
 }
 
-func (c *Communication) sendStream(ctx *fasthttp.RequestCtx, channel common.Channel[*simulator.ResponseInfo],
-	respBuilder responseBuilder, numChoices int, first *simulator.ResponseInfo) {
+func (c *Communication) sendStream(ctx *fasthttp.RequestCtx, channel common.Channel[*endpoint.ResponseInfo],
+	respBuilder responseBuilder, numChoices int, first *endpoint.ResponseInfo) {
 	pr, pw := io.Pipe()
 
 	go func() {
 		w := bufio.NewWriter(pw)
-		var respCtx simulator.ResponseContext
+		var respCtx endpoint.ResponseContext
 		state := newStreamState(numChoices)
 
 		defer func() {
@@ -426,7 +428,7 @@ func (c *Communication) sendStream(ctx *fasthttp.RequestCtx, channel common.Chan
 		}()
 
 		for {
-			var response *simulator.ResponseInfo
+			var response *endpoint.ResponseInfo
 			if first != nil {
 				response, first = first, nil
 			} else {
@@ -459,7 +461,7 @@ func (c *Communication) sendStream(ctx *fasthttp.RequestCtx, channel common.Chan
 			}
 			// Every choice emits a Created status as its first message. Emit the initial
 			// chunk once globally and skip the response — Created has no tokens.
-			if response.Status == simulator.ResponseStatusCreated {
+			if response.Status == endpoint.ResponseStatusCreated {
 				if !state.initialSent {
 					if !c.sendOrFail(ctx, w, respBuilder.createInitialChunk(respCtx), "Sending first stream chunk failed, ") {
 						return
@@ -469,7 +471,7 @@ func (c *Communication) sendStream(ctx *fasthttp.RequestCtx, channel common.Chan
 				continue
 			}
 
-			ok, stop := c.emitResponseChunks(ctx, w, respBuilder, response, respCtx, &state, response.Status == simulator.ResponseEndOfTokens)
+			ok, stop := c.emitResponseChunks(ctx, w, respBuilder, response, respCtx, &state, response.Status == endpoint.ResponseEndOfTokens)
 			if !ok {
 				go drainResponseChannel(channel)
 				return
@@ -507,7 +509,7 @@ func (c *Communication) sendStream(ctx *fasthttp.RequestCtx, channel common.Chan
 // already reported via ctx); stop=true means the stream is complete and the main
 // loop should break out to finalize.
 func (c *Communication) emitResponseChunks(ctx *fasthttp.RequestCtx, w *bufio.Writer, respBuilder responseBuilder,
-	response *simulator.ResponseInfo, respCtx simulator.ResponseContext, state *streamState, lastTokensChunk bool) (ok bool, stop bool) {
+	response *endpoint.ResponseInfo, respCtx endpoint.ResponseContext, state *streamState, lastTokensChunk bool) (ok bool, stop bool) {
 	choiceIdx := response.ChoiceIdx
 
 	if response.Tokens != nil {
@@ -555,7 +557,7 @@ func (c *Communication) emitResponseChunks(ctx *fasthttp.RequestCtx, w *bufio.Wr
 // finalizeStream emits the post-loop SSE frames: a last chunk per choice (if the
 // builder wants one for the finish reason), the usage chunk, and [DONE].
 func (c *Communication) finalizeStream(ctx *fasthttp.RequestCtx, w *bufio.Writer, respBuilder responseBuilder,
-	state *streamState, respContext simulator.ResponseContext) {
+	state *streamState, respContext endpoint.ResponseContext) {
 	for i, rc := range state.respCtxPerChoice {
 		if !c.sendOrFail(ctx, w, respBuilder.createLastChunk(respContext, *rc.FinishReason(), i),
 			"Sending last stream chunk failed, ") {
@@ -577,7 +579,7 @@ func (c *Communication) chunkSendFailed(ctx *fasthttp.RequestCtx, msg string, er
 	c.sendError(ctx, &errToSend, false)
 }
 
-func (c *Communication) sendStreamedTools(respCtx simulator.ResponseContext, respBuilder responseBuilder,
+func (c *Communication) sendStreamedTools(respCtx endpoint.ResponseContext, respBuilder responseBuilder,
 	w *bufio.Writer, tokens []string, tc *api.ToolCall, index int, choiceIdx int) error {
 	tokensStr := strings.Join(tokens, "")
 
@@ -989,6 +991,28 @@ func truncateBodyForLog(body []byte) string {
 	return string(body[:maxHTTPLogBodyBytes]) + fmt.Sprintf(" ... [truncated, total %d bytes]", len(body))
 }
 
+// bodyForLog gunzips a gzip-encoded body so the log shows the payload rather
+// than compressed bytes. A body that fails to decode is logged as received.
+func bodyForLog(body, encoding []byte) string {
+	if bytes.EqualFold(encoding, []byte("gzip")) {
+		if decoded, err := gunzipForLog(body); err == nil {
+			body = decoded
+		}
+	}
+	return truncateBodyForLog(body)
+}
+
+// gunzipForLog reads at most maxHTTPLogBodyBytes+1 decoded bytes, enough for
+// truncateBodyForLog to keep the cap and mark the truncation.
+func gunzipForLog(body []byte) ([]byte, error) {
+	r, err := gzip.NewReader(bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	defer r.Close() //nolint:errcheck
+	return io.ReadAll(io.LimitReader(r, maxHTTPLogBodyBytes+1))
+}
+
 func (c *Communication) logHTTPMiddleware(next fasthttp.RequestHandler) fasthttp.RequestHandler {
 	return func(ctx *fasthttp.RequestCtx) {
 		c.logHTTPRequest(ctx)
@@ -1003,7 +1027,7 @@ func (c *Communication) logHTTPRequest(ctx *fasthttp.RequestCtx) {
 		"requestURI", string(ctx.RequestURI()),
 		"remoteAddr", ctx.RemoteAddr().String(),
 		"headers", formatRequestHeaders(&ctx.Request.Header),
-		"body", truncateBodyForLog(ctx.Request.Body()),
+		"body", bodyForLog(ctx.Request.Body(), ctx.Request.Header.ContentEncoding()),
 	)
 }
 
@@ -1020,7 +1044,7 @@ func (c *Communication) logHTTPResponse(ctx *fasthttp.RequestCtx) {
 	c.logger.V(logging.INFO).Info("HTTP response",
 		"statusCode", resp.StatusCode(),
 		"headers", formatResponseHeaders(&resp.Header),
-		"body", truncateBodyForLog(resp.Body()),
+		"body", bodyForLog(resp.Body(), resp.Header.ContentEncoding()),
 	)
 }
 

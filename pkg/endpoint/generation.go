@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package simulator
+package endpoint
 
 import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
@@ -30,18 +30,18 @@ func (g *GenerationRequest) Unmarshal(data []byte) error {
 	return nil
 }
 
-func (g *GenerationRequest) validate(toolsValidator *toolsValidator) *api.Error {
+func (g *GenerationRequest) Validate(toolsValidator *ToolsValidator) *api.Error {
 	return validateRequest(g)
 }
 
-func (g *GenerationRequest) buildRequestContext(simCtx *SimContext, channel common.Channel[*ResponseInfo],
-	choiceIdx int, doneFn func()) requestContext {
+func (g *GenerationRequest) BuildRequestContext(runtime Runtime, channel common.Channel[*ResponseInfo],
+	choiceIdx int, doneFn func()) RequestContext {
 	reqCtx := &generationReqCtx{
-		baseRequestContext: newBaseRequestContext(simCtx, channel, choiceIdx, doneFn),
+		baseRequestContext: newBaseRequestContext(runtime, channel, choiceIdx, doneFn),
 		req:                g,
 	}
-	// wire generationReqCtx into embedded requestContext interface
-	reqCtx.requestContext = reqCtx
+	// wire generationReqCtx into embedded RequestContext interface
+	reqCtx.RequestContext = reqCtx
 	return reqCtx
 }
 
@@ -49,7 +49,7 @@ func (g *GenerationRequest) AsString() string {
 	return "generation request (req id " + g.RequestID + ")"
 }
 
-func (g *GenerationRequest) createResponseContext(reqCtx requestContext, displayModel string,
+func (g *GenerationRequest) createResponseContext(reqCtx RequestContext, displayModel string,
 	responseTokens *api.Tokenized, finishReason *string, usageData *api.Usage,
 	sendUsageData bool, logprobs *int, toolCalls []api.ToolCall, _ bool) ResponseContext {
 	base := newBaseResponseContext(reqCtx, displayModel, responseTokens, finishReason, usageData, sendUsageData,
@@ -59,20 +59,20 @@ func (g *GenerationRequest) createResponseContext(reqCtx requestContext, display
 	}
 }
 
-// split is a no-op: generation requests always carry a single prompt.
-func (g *GenerationRequest) split() []Request {
+// Split is a no-op: generation requests always carry a single prompt.
+func (g *GenerationRequest) Split() []Request {
 	return []Request{g}
 }
 
 var _ Request = (*GenerationRequest)(nil)
 
-// Implementation of requestContext for generation requests
+// Implementation of RequestContext for generation requests
 type generationReqCtx struct {
 	baseRequestContext
 	req *GenerationRequest
 }
 
-func (g *generationReqCtx) request() Request {
+func (g *generationReqCtx) Request() Request {
 	return g.req
 }
 
@@ -85,7 +85,7 @@ func (g *generationReqCtx) encode() ([]uint32, []string, *api.RenderMMFeatures, 
 	if tokenizedPrompt != nil {
 		return tokenizedPrompt.Tokens, tokenizedPrompt.Strings, nil, nil
 	}
-	tokens, strTokens, err := g.sim.Tokenizer.RenderText(g.req.Prompt)
+	tokens, strTokens, err := g.runtime.GetTokenizer().RenderText(g.req.Prompt)
 	return tokens, strTokens, nil, err
 }
 
@@ -93,9 +93,9 @@ func (g *generationReqCtx) createToolCalls() ([]api.ToolCall, int, string, error
 	return nil, 0, "", nil
 }
 
-var _ requestContext = (*generationReqCtx)(nil)
+var _ RequestContext = (*generationReqCtx)(nil)
 
-// Implementation of responseContext for generation requests
+// Implementation of ResponseContext for generation requests
 type generationResponseCtx struct {
 	baseResponseContext
 }

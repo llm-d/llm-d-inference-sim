@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package simulator
+package endpoint
 
 import (
 	"sync"
@@ -37,14 +37,14 @@ type ResponseInfo struct {
 }
 
 type ResponseContext interface {
-	RequestContext() requestContext
+	RequestContext() RequestContext
 	RequestID() string
 	UsageData() *api.Usage
 	DisplayModel() string
-	doRemotePrefill() bool
+	DoRemotePrefill() bool
 	DoRemoteDecode() bool
 	NumberCachedPromptTokens() int
-	responseTokens() *api.Tokenized
+	ResponseTokens() *api.Tokenized
 	FinishReason() *string
 	SendUsageData() bool
 	ToolCalls() []api.ToolCall
@@ -60,7 +60,7 @@ type ResponseContext interface {
 
 type baseResponseContext struct {
 	// the corresponding request
-	reqCtx requestContext
+	reqCtx RequestContext
 	// the ID of the request
 	id string
 	// creation time of the response
@@ -88,7 +88,7 @@ type baseResponseContext struct {
 	wg *sync.WaitGroup
 }
 
-func newBaseResponseContext(reqCtx requestContext, displayModel string, responseTokens *api.Tokenized,
+func newBaseResponseContext(reqCtx RequestContext, displayModel string, responseTokens *api.Tokenized,
 	finishReason *string, usageData *api.Usage, sendUsageData bool, logprobs *int, id string,
 	doRemotePrefill bool, doRemoteDecode bool, nCachedPromptTokens int) baseResponseContext {
 	return baseResponseContext{
@@ -106,7 +106,7 @@ func newBaseResponseContext(reqCtx requestContext, displayModel string, response
 	}
 }
 
-func (respCtx *baseResponseContext) RequestContext() requestContext {
+func (respCtx *baseResponseContext) RequestContext() RequestContext {
 	return respCtx.reqCtx
 }
 func (respCtx *baseResponseContext) UsageData() *api.Usage {
@@ -118,7 +118,7 @@ func (respCtx *baseResponseContext) DisplayModel() string {
 func (respCtx *baseResponseContext) RequestID() string {
 	return respCtx.id
 }
-func (respCtx *baseResponseContext) doRemotePrefill() bool {
+func (respCtx *baseResponseContext) DoRemotePrefill() bool {
 	return respCtx.remotePrefill
 }
 func (respCtx *baseResponseContext) DoRemoteDecode() bool {
@@ -127,7 +127,7 @@ func (respCtx *baseResponseContext) DoRemoteDecode() bool {
 func (respCtx *baseResponseContext) NumberCachedPromptTokens() int {
 	return respCtx.nCachedPromptTokens
 }
-func (respCtx *baseResponseContext) responseTokens() *api.Tokenized {
+func (respCtx *baseResponseContext) ResponseTokens() *api.Tokenized {
 	return respCtx.respTokens
 }
 func (respCtx *baseResponseContext) FinishReason() *string {
@@ -161,11 +161,12 @@ func (b *baseResponseContext) setWG(wg *sync.WaitGroup) {
 	b.wg = wg
 }
 func (b *baseResponseContext) SendImage() bool {
-	return b.reqCtx.request().SendImage()
+	return b.reqCtx.Request().SendImage()
 }
 
-func respIsEmpty(respCtx ResponseContext) bool {
-	tokens := respCtx.responseTokens()
+// RespIsEmpty reports whether respCtx carries no tokens and no tool calls.
+func RespIsEmpty(respCtx ResponseContext) bool {
+	tokens := respCtx.ResponseTokens()
 	if tokens == nil {
 		return respCtx.ToolCalls() == nil
 	}

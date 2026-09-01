@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package simulator
+package endpoint
 
 import (
 	"encoding/json"
@@ -36,7 +36,7 @@ func (r *ResponsesRequest) Unmarshal(data []byte) error {
 	return json.Unmarshal(data, r)
 }
 
-func (r *ResponsesRequest) validate(toolsValidator *toolsValidator) *api.Error {
+func (r *ResponsesRequest) Validate(toolsValidator *ToolsValidator) *api.Error {
 	for _, tool := range r.Tools {
 		toolJson, err := json.Marshal(tool.Function)
 		if err != nil {
@@ -54,14 +54,14 @@ func (r *ResponsesRequest) validate(toolsValidator *toolsValidator) *api.Error {
 	return validateRequest(r)
 }
 
-func (r *ResponsesRequest) buildRequestContext(simCtx *SimContext, channel common.Channel[*ResponseInfo],
-	choiceIdx int, doneFn func()) requestContext {
+func (r *ResponsesRequest) BuildRequestContext(runtime Runtime, channel common.Channel[*ResponseInfo],
+	choiceIdx int, doneFn func()) RequestContext {
 	reqCtx := &responsesReqCtx{
-		baseRequestContext: newBaseRequestContext(simCtx, channel, choiceIdx, doneFn),
+		baseRequestContext: newBaseRequestContext(runtime, channel, choiceIdx, doneFn),
 		req:                r,
 		toolIDPrefix:       api.ResponsesFunctionCallIDPrefix,
 	}
-	reqCtx.requestContext = reqCtx
+	reqCtx.RequestContext = reqCtx
 	return reqCtx
 }
 
@@ -69,7 +69,7 @@ func (r *ResponsesRequest) AsString() string {
 	return "responses create request (req id " + r.RequestID + ")"
 }
 
-func (r *ResponsesRequest) createResponseContext(reqCtx requestContext, displayModel string,
+func (r *ResponsesRequest) createResponseContext(reqCtx RequestContext, displayModel string,
 	responseTokens *api.Tokenized, finishReason *string, usageData *api.Usage, sendUsageData bool,
 	logprobs *int, toolCalls []api.ToolCall, _ bool) ResponseContext {
 	base := newBaseResponseContext(reqCtx, displayModel, responseTokens, finishReason, usageData, sendUsageData,
@@ -80,21 +80,21 @@ func (r *ResponsesRequest) createResponseContext(reqCtx requestContext, displayM
 	}
 }
 
-// split is a no-op: responses requests always carry a single prompt.
-func (r *ResponsesRequest) split() []Request {
+// Split is a no-op: responses requests always carry a single prompt.
+func (r *ResponsesRequest) Split() []Request {
 	return []Request{r}
 }
 
 var _ Request = (*ResponsesRequest)(nil)
 
-// Implementation of requestContext for /responses requests
+// Implementation of RequestContext for /responses requests
 type responsesReqCtx struct {
 	baseRequestContext
 	req          *ResponsesRequest
 	toolIDPrefix string
 }
 
-func (r *responsesReqCtx) request() Request {
+func (r *responsesReqCtx) Request() Request {
 	return r.req
 }
 
@@ -126,12 +126,12 @@ func convertInputToMessages(input []api.InputItem) []api.Message {
 					case api.ResponsesInputImage:
 						blocks = append(blocks, api.ChatComplContentBlock{
 							Type:     "image_url",
-							ImageURL: &api.ChatComplImageBlock{Url: content.ImageURL},
+							ImageURL: &api.ChatComplURLBlock{Url: content.ImageURL},
 						})
 					case api.ResponsesInputAudio:
 						blocks = append(blocks, api.ChatComplContentBlock{
 							Type:       "input_audio",
-							InputAudio: &api.ChatComplAudioBlock{Data: content.AudioData, Format: content.AudioFormat},
+							InputAudio: &api.ChatComplInputAudioBlock{Data: content.AudioData, Format: content.AudioFormat},
 						})
 					}
 				}
@@ -169,7 +169,7 @@ func convertInputToMessages(input []api.InputItem) []api.Message {
 
 func (r *responsesReqCtx) encode() ([]uint32, []string, *api.RenderMMFeatures, error) {
 	messages := convertInputToMessages(r.req.Input)
-	return r.sim.Tokenizer.RenderMessages(messages)
+	return r.runtime.GetTokenizer().RenderMessages(messages)
 }
 
 func (r *responsesReqCtx) createToolCalls() ([]api.ToolCall, int, string, error) {
@@ -190,7 +190,7 @@ func (r *responsesReqCtx) createToolCalls() ([]api.ToolCall, int, string, error)
 	}
 
 	toolCalls, completionTokens, err := createSingleToolCall(
-		req.GetTools(), toolChoice, r.sim.Config(), r.sim.Random, r.sim.Tokenizer, r.toolIDPrefix)
+		req.GetTools(), toolChoice, r.runtime.Config(), r.runtime.GetRandom(), r.runtime.GetTokenizer(), r.toolIDPrefix)
 	if err != nil {
 		return nil, 0, "", err
 	}
@@ -225,23 +225,23 @@ func (r *responsesReqCtx) tokenizedPromptForEcho() (*api.Tokenized, error) {
 			lastMsg = last.Name + "(" + last.Arguments + ")"
 		}
 	}
-	tokens, strTokens, err := r.sim.Tokenizer.RenderText(lastMsg)
+	tokens, strTokens, err := r.runtime.GetTokenizer().RenderText(lastMsg)
 	if err != nil {
 		return nil, err
 	}
 	return &api.Tokenized{Tokens: tokens, Strings: strTokens}, nil
 }
 
-var _ requestContext = (*responsesReqCtx)(nil)
+var _ RequestContext = (*responsesReqCtx)(nil)
 
-// Implementation of responseContext for /responses requests
+// Implementation of ResponseContext for /responses requests
 type responsesResponseCtx struct {
 	baseResponseContext
 	toolsCalls []api.ToolCall
 }
 
 func (respCtx *responsesResponseCtx) Instructions() *string {
-	if s := respCtx.reqCtx.request().(*ResponsesRequest).Instructions; s != "" {
+	if s := respCtx.reqCtx.Request().(*ResponsesRequest).Instructions; s != "" {
 		return &s
 	}
 	return nil

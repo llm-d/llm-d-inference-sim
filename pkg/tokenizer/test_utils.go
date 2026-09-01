@@ -19,6 +19,7 @@ package tokenizer
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -29,6 +30,29 @@ import (
 	testcontainers "github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
+
+// hostNetworkEnvKeys are host environment variables forwarded into the render
+// container so HuggingFace mirrors and proxies configured on the host reach
+// the tokenizer download inside the container.
+var hostNetworkEnvKeys = []string{
+	"HF_ENDPOINT",
+	"HF_TOKEN",
+	"HF_HUB_ENDPOINT",
+	"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY",
+	"http_proxy", "https_proxy", "no_proxy",
+}
+
+// collectHostNetworkEnv returns the subset of hostNetworkEnvKeys that are set
+// on the host, suitable for testcontainers.WithEnv.
+func collectHostNetworkEnv() map[string]string {
+	env := map[string]string{}
+	for _, key := range hostNetworkEnvKeys {
+		if v := os.Getenv(key); v != "" {
+			env[key] = v
+		}
+	}
+	return env
+}
 
 type TokenizerManager struct {
 	testTokenizer Tokenizer
@@ -75,14 +99,14 @@ func (tm *TokenizerManager) Init(ctx context.Context, logger logr.Logger) error 
 	// var err error
 	// create tokenizer for Qwen model
 	// Use longer timeout (30s) for render requests as the container may need time to fully initialize
-	tm.qwenTokenizer, err = tm.newTokenizer(ctx, logger, renderURL, common.QwenModelName, 30*time.Second, 60*time.Second)
+	tm.qwenTokenizer, err = tm.newHFTokenizer(ctx, logger, renderURL, common.QwenModelName, 30*time.Second, 60*time.Second)
 	if err != nil {
 		cleanup()
 		return err
 	}
 
 	// create tokenizer for multimodal model
-	tm.mmTokenizer, err = tm.newTokenizer(ctx, logger, renderURL, common.QwenModelName, 30*time.Second, 60*time.Second)
+	tm.mmTokenizer, err = tm.newHFTokenizer(ctx, logger, renderURL, common.QwenModelName, 30*time.Second, 60*time.Second)
 	if err != nil {
 		cleanup()
 		return err
@@ -106,6 +130,7 @@ func (tm *TokenizerManager) startRenderContainer(ctx context.Context, model stri
 		testcontainers.WithEntrypoint("vllm"),
 		testcontainers.WithCmd("launch", "render", model, "--port=8000"),
 		testcontainers.WithTmpfs(map[string]string{"/.cache": "rw"}),
+		testcontainers.WithEnv(collectHostNetworkEnv()),
 		testcontainers.WithWaitStrategy(
 			wait.ForHTTP("/health").
 				WithPort("8000/tcp").
@@ -140,17 +165,6 @@ func (tm *TokenizerManager) startRenderContainer(ctx context.Context, model stri
 	}
 
 	return address, cleanup, nil
-}
-
-func (tm *TokenizerManager) newTokenizer(ctx context.Context, logger logr.Logger, renderURL, model string,
-	timeout, mmTimeout time.Duration) (Tokenizer, error) {
-	if modelExists(model) {
-		// for real model create HF tokenizer
-		return tm.newHFTokenizer(ctx, logger, renderURL, model, timeout, mmTimeout)
-	} else {
-		// for dummy model create simple tokenizer
-		return tm.newSimpleTokenizer(model), nil
-	}
 }
 
 // create Simple Tokenizer

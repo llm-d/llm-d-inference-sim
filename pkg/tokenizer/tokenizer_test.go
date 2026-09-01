@@ -17,12 +17,16 @@ limitations under the License.
 package tokenizer
 
 import (
+	"context"
 	"encoding/base64"
 	"strings"
+	"time"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
+	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"k8s.io/klog/v2"
 )
 
 const (
@@ -77,7 +81,7 @@ var _ = Describe("tokenizer", func() {
 		mmMessages := []api.Message{
 			{Role: api.RoleUser, Content: api.ChatComplContent{
 				Structured: []api.ChatComplContentBlock{
-					{Type: "image_url", ImageURL: &api.ChatComplImageBlock{Url: "http://x/a.jpg"}},
+					{Type: "image_url", ImageURL: &api.ChatComplURLBlock{Url: "http://x/a.jpg"}},
 				},
 			}},
 		}
@@ -107,19 +111,25 @@ var _ = Describe("tokenizer", func() {
 		image := func(url string) api.ChatComplContentBlock {
 			return api.ChatComplContentBlock{
 				Type:     "image_url",
-				ImageURL: &api.ChatComplImageBlock{Url: url},
+				ImageURL: &api.ChatComplURLBlock{Url: url},
 			}
 		}
 		audio := func(data, format string) api.ChatComplContentBlock {
 			return api.ChatComplContentBlock{
 				Type:       "input_audio",
-				InputAudio: &api.ChatComplAudioBlock{Data: data, Format: format},
+				InputAudio: &api.ChatComplInputAudioBlock{Data: data, Format: format},
+			}
+		}
+		audioURL := func(url string) api.ChatComplContentBlock {
+			return api.ChatComplContentBlock{
+				Type:     "audio_url",
+				AudioURL: &api.ChatComplURLBlock{Url: url},
 			}
 		}
 		video := func(url string) api.ChatComplContentBlock {
 			return api.ChatComplContentBlock{
 				Type:     "video_url",
-				VideoURL: &api.ChatComplVideoBlock{Url: url},
+				VideoURL: &api.ChatComplURLBlock{Url: url},
 			}
 		}
 		mkMsg := func(blocks ...api.ChatComplContentBlock) api.Message {
@@ -148,6 +158,15 @@ var _ = Describe("tokenizer", func() {
 			Expect(feats).NotTo(BeNil())
 			Expect(feats.MMHashes).To(HaveKey(mmModalityAudio))
 			Expect(feats.MMHashes[mmModalityAudio][0]).To(HavePrefix("sim_audio_"))
+		})
+
+		It("emits an audio hash for audio_url keyed by audio", func() {
+			feats := stubMMFeaturesForMessages([]api.Message{mkMsg(text("transcribe"), audioURL("http://x/a.flac"))}, 100)
+			Expect(feats).NotTo(BeNil())
+			Expect(feats.MMHashes).To(HaveKey(mmModalityAudio))
+			Expect(feats.MMHashes[mmModalityAudio]).To(HaveLen(1))
+			Expect(feats.MMHashes[mmModalityAudio][0]).To(HavePrefix("sim_audio_"))
+			Expect(feats.MMPlaceholders[mmModalityAudio]).To(HaveLen(1))
 		})
 
 		It("emits a video hash keyed by video", func() {
@@ -215,6 +234,44 @@ var _ = Describe("tokenizer", func() {
 			a := stubMMFeaturesForMessages(msgs, 100)
 			b := stubMMFeaturesForMessages(msgs, 100)
 			Expect(a.KwargsData).To(Equal(b.KwargsData))
+		})
+	})
+
+	Describe("New tokenizer selection", func() {
+		newConfig := func() *common.Configuration {
+			return &common.Configuration{
+				Model:           common.QwenModelName,
+				RenderTimeout:   30 * time.Second,
+				MMRenderTimeout: 60 * time.Second,
+			}
+		}
+
+		It("returns an HF tokenizer when --render-url is set", func() {
+			cfg := newConfig()
+			cfg.RenderURL = "http://localhost:8082"
+
+			tok, err := New(context.Background(), cfg, klog.Background())
+			Expect(err).NotTo(HaveOccurred())
+			Expect(tok).To(BeAssignableToTypeOf(&HFTokenizer{}))
+		})
+
+		It("returns the simulated tokenizer when --render-url is empty", func() {
+			cfg := newConfig()
+			cfg.Model = "my-fake-model"
+
+			tok, err := New(context.Background(), cfg, klog.Background())
+			Expect(err).NotTo(HaveOccurred())
+			Expect(tok).To(BeAssignableToTypeOf(&SimpleTokenizer{}))
+		})
+
+		It("still returns the simulated tokenizer when --force-dummy-tokenizer is set", func() {
+			cfg := newConfig()
+			cfg.RenderURL = "http://localhost:8082"
+			cfg.ForceDummyTokenizer = true
+
+			tok, err := New(context.Background(), cfg, klog.Background())
+			Expect(err).NotTo(HaveOccurred())
+			Expect(tok).To(BeAssignableToTypeOf(&SimpleTokenizer{}))
 		})
 	})
 
