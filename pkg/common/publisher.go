@@ -97,7 +97,8 @@ func NewPublisher(ctx context.Context, endpoint string) (*Publisher, error) {
 	)
 
 	// Bind if wildcard present, otherwise dial (mirrors vLLM)
-	if strings.Contains(endpoint, "*") {
+	if strings.Contains(endpoint, "*") || strings.Contains(endpoint, "::") ||
+		strings.HasPrefix(endpoint, "inproc://") || strings.HasPrefix(endpoint, "ipc://") {
 		log.FromContext(ctx).Info("ZMQ publisher binding", "endpoint", endpoint)
 		if err := socket.Listen(endpoint); err != nil {
 			return nil, fmt.Errorf("failed to bind ZMQ publisher: %w", err)
