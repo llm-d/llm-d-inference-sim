@@ -441,6 +441,27 @@ var _ = Describe("Simulator", func() {
 		Expect(usage["completion_tokens"]).To(BeNumerically(">", 0))
 	})
 
+	It("chat completions with an empty messages array is rejected with 400", func() {
+		ctx := context.TODO()
+		args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho}
+		client, err := startServerWithArgs(ctx, args)
+		Expect(err).NotTo(HaveOccurred())
+
+		reqBody := fmt.Sprintf(`{"model": "%s", "messages": []}`, common.TestModelName)
+
+		resp, err := client.Post("http://localhost/v1/chat/completions", "application/json", strings.NewReader(reqBody))
+		Expect(err).NotTo(HaveOccurred())
+		defer func() {
+			Expect(resp.Body.Close()).To(Succeed())
+		}()
+
+		Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
+
+		body, err := io.ReadAll(resp.Body)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(string(body)).To(ContainSubstring("messages must not be empty"))
+	})
+
 	DescribeTable("streaming chat completions with logprobs",
 		func(mode string, logprobs bool, topLogprobs int) {
 			ctx := context.TODO()
