@@ -452,3 +452,79 @@ func (s *SimContext) CreateModelsResponse() *api.ModelsResponse {
 
 	return &modelsResp
 }
+
+// CreateEmbeddings computes embedding vectors for req: token-id input is
+// used directly, text input is tokenized via the configured tokenizer.
+// Embeddings are stub vectors derived from the resulting tokens, encoded as
+// base64 when req.EncodingFormat is "base64".
+func (s *SimContext) CreateEmbeddings(req *api.EmbeddingRequest) (*api.EmbeddingResponse, *api.Error) {
+	if req.Input.Len() == 0 {
+		err := api.NewError("input is required and must be a non-empty string or array", fasthttp.StatusBadRequest, nil)
+		return nil, &err
+	}
+	model := req.Model
+	if model == "" {
+		model = s.Config().Model
+	}
+	dim := s.Config().DefaultEmbeddingDimensions
+	if req.Dimensions != nil {
+		if *req.Dimensions < 1 {
+			err := api.NewError("dimensions must be at least 1", fasthttp.StatusBadRequest, nil)
+			return nil, &err
+		}
+		dim = *req.Dimensions
+	}
+	useBase64 := req.EncodingFormat == "base64"
+
+	var data []api.EmbeddingDataItem
+	var totalTokens int
+
+	if req.Input.IsTokenInput() {
+		for i, tokIDs := range req.Input.TokenInputs() {
+			tokens := make([]uint32, len(tokIDs))
+			for j, id := range tokIDs {
+				if id < 0 {
+					id = 0
+				}
+				tokens[j] = uint32(id)
+			}
+			totalTokens += len(tokens)
+			data = append(data, newEmbeddingDataItem(i, tokens, dim, useBase64))
+		}
+	} else {
+		for i, text := range req.Input.TextInputs() {
+			if text == "" {
+				err := api.NewError("input cannot be an empty string", fasthttp.StatusBadRequest, nil)
+				return nil, &err
+			}
+			tokens, _, terr := s.Tokenizer.RenderText(text)
+			if terr != nil {
+				err := api.NewError("Failed to tokenize input, "+terr.Error(), fasthttp.StatusInternalServerError, nil)
+				return nil, &err
+			}
+			totalTokens += len(tokens)
+			data = append(data, newEmbeddingDataItem(i, tokens, dim, useBase64))
+		}
+	}
+
+	return &api.EmbeddingResponse{
+		Object: "list",
+		Data:   data,
+		Model:  model,
+		Usage: api.EmbeddingResponseUsage{
+			PromptTokens: totalTokens,
+			TotalTokens:  totalTokens,
+		},
+	}, nil
+}
+
+func newEmbeddingDataItem(index int, tokens []uint32, dim int, useBase64 bool) api.EmbeddingDataItem {
+	embedding := common.BuildStubEmbedding(tokens, dim)
+	item := api.EmbeddingDataItem{Object: "embedding", Index: index}
+	if useBase64 {
+		item.Embedding = api.EncodeEmbeddingBase64(embedding)
+	} else {
+		item.Embedding = embedding
+	}
+	return item
+}

@@ -34,12 +34,12 @@ import (
 )
 
 type Communication struct {
-	logger    logr.Logger
+	logger logr.Logger
+	// simulator is used only for the queue/lifecycle operations that don't
+	// belong on endpoint.Runtime: HandleRequest, OpenRequests, Stop. Every
+	// other access to the simulator engine goes through runtime.
 	simulator *simulator.Simulator
-	// runtime is the seam through which handlers already migrated to
-	// endpoint.Runtime reach the simulator engine; call sites not yet
-	// migrated keep using simulator directly.
-	runtime endpoint.Runtime
+	runtime   endpoint.Runtime
 
 	// set to 1 during graceful shutdown; new requests are rejected while draining
 	stopping atomic.Bool
@@ -76,7 +76,7 @@ func (c *Communication) start(ctx context.Context) error {
 
 	var grpcServer *grpc.Server
 	var grpcErrCh <-chan error
-	if !c.simulator.Context.Config().MMEncoderOnly {
+	if !c.runtime.Config().MMEncoderOnly {
 		// gRPC uses HTTP/2
 		grpcL := m.Match(cmux.HTTP2())
 		grpcServer, grpcErrCh = c.startGRPC(grpcL)

@@ -37,7 +37,7 @@ import (
 
 // Based on: https://github.com/kubernetes-sigs/gateway-api-inference-extension/blob/8d01161ec48d6b49cd371f179551b35da46e6fd6/internal/tls/tls.go
 func (c *Communication) configureSSL(ctx context.Context, server *fasthttp.Server) error {
-	if !c.simulator.Context.Config().SSLEnabled() {
+	if !c.runtime.Config().SSLEnabled() {
 		return nil
 	}
 
@@ -53,7 +53,7 @@ func (c *Communication) configureSSL(ctx context.Context, server *fasthttp.Serve
 		},
 	}
 
-	cfg := c.simulator.Context.Config()
+	cfg := c.runtime.Config()
 
 	if cfg.SSLCertFile != "" && cfg.SSLKeyFile != "" {
 		c.logger.V(logging.INFO).Info("HTTPS server starting with certificate files", "cert", cfg.SSLCertFile, "key", cfg.SSLKeyFile)

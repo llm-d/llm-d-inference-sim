@@ -53,7 +53,7 @@ const (
 )
 
 func (c *Communication) newListener() (net.Listener, error) {
-	listener, err := net.Listen("tcp4", fmt.Sprintf(":%d", c.simulator.Context.Config().Port))
+	listener, err := net.Listen("tcp4", fmt.Sprintf(":%d", c.runtime.Config().Port))
 	if err != nil {
 		return nil, err
 	}
@@ -73,7 +73,7 @@ func (c *Communication) startHTTPServer(ctx context.Context, listener net.Listen
 	r.POST("/v1/responses", c.HandleResponses)
 	r.POST("/v1/messages", c.HandleMessages)
 	r.POST("/inference/v1/generate", c.HandleGenerate)
-	if !c.simulator.Context.Config().MMEncoderOnly {
+	if !c.runtime.Config().MMEncoderOnly {
 		r.POST("/v1/embeddings", c.HandleEmbeddings)
 	}
 	// supports /models API
@@ -82,7 +82,7 @@ func (c *Communication) startHTTPServer(ctx context.Context, listener net.Listen
 	r.POST("/v1/load_lora_adapter", c.HandleLoadLora)
 	r.POST("/v1/unload_lora_adapter", c.HandleUnloadLora)
 	// supports /metrics prometheus API
-	r.GET("/metrics", fasthttpadaptor.NewFastHTTPHandler(promhttp.HandlerFor(c.simulator.Context.MetricsRegistry(), promhttp.HandlerOpts{})))
+	r.GET("/metrics", fasthttpadaptor.NewFastHTTPHandler(promhttp.HandlerFor(c.runtime.MetricsRegistry(), promhttp.HandlerOpts{})))
 	r.POST("/fake_metrics", c.HandleFakeMetrics)
 	// supports standard Kubernetes health and readiness checks
 	r.GET("/health", c.HandleHealth)
@@ -97,7 +97,7 @@ func (c *Communication) startHTTPServer(ctx context.Context, listener net.Listen
 	r.POST("/admin/config", c.HandlePostAdminConfig)
 
 	handler := r.Handler
-	if c.simulator.Context.Config().LogHTTP {
+	if c.runtime.Config().LogHTTP {
 		handler = c.logHTTPMiddleware(handler)
 	}
 
@@ -105,7 +105,7 @@ func (c *Communication) startHTTPServer(ctx context.Context, listener net.Listen
 		ErrorHandler:       c.HandleError,
 		Handler:            handler,
 		Logger:             c,
-		MaxRequestBodySize: c.simulator.Context.Config().MaxRequestBodySizeMB * 1024 * 1024,
+		MaxRequestBodySize: c.runtime.Config().MaxRequestBodySizeMB * 1024 * 1024,
 	}
 
 	if err := c.configureSSL(ctx, server); err != nil {
@@ -114,11 +114,11 @@ func (c *Communication) startHTTPServer(ctx context.Context, listener net.Listen
 
 	errCh := make(chan error, 1)
 	go func() {
-		if c.simulator.Context.Config().SSLEnabled() {
-			c.logger.V(logging.INFO).Info("Server starting", "protocol", "HTTPS", "port", c.simulator.Context.Config().Port)
+		if c.runtime.Config().SSLEnabled() {
+			c.logger.V(logging.INFO).Info("Server starting", "protocol", "HTTPS", "port", c.runtime.Config().Port)
 			errCh <- server.ServeTLS(listener, "", "")
 		} else {
-			c.logger.V(logging.INFO).Info("Server starting", "protocol", "HTTP", "port", c.simulator.Context.Config().Port)
+			c.logger.V(logging.INFO).Info("Server starting", "protocol", "HTTP", "port", c.runtime.Config().Port)
 			errCh <- server.Serve(listener)
 		}
 	}()
@@ -128,13 +128,13 @@ func (c *Communication) startHTTPServer(ctx context.Context, listener net.Listen
 
 // getRequestID retrieves the request ID from the X-Request-Id header or generates a new one if not present
 func (c *Communication) getRequestID(ctx *fasthttp.RequestCtx) string {
-	if c.simulator.Context.Config().EnableRequestIDHeaders {
+	if c.runtime.Config().EnableRequestIDHeaders {
 		requestID := string(ctx.Request.Header.Peek(RequestIDHeader))
 		if requestID != "" {
 			return requestID
 		}
 	}
-	return c.simulator.Context.Random.GenerateUUIDString()
+	return c.runtime.GetRandom().GenerateUUIDString()
 }
 
 // HandleChatCompletions http handler for /v1/chat/completions
@@ -188,7 +188,7 @@ func (c *Communication) handleRender(req endpoint.RenderableRequest, respBuilder
 		c.sendError(ctx, err, false)
 		return
 	}
-	tokens, features, err := req.Render(c.simulator.Context.Tokenizer)
+	tokens, features, err := req.Render(c.runtime.GetTokenizer())
 	if err != nil {
 		c.logger.Error(err, "render failed")
 		errToSend := api.NewError("Render failed, "+err.Error(), fasthttp.StatusInternalServerError, nil)
@@ -210,14 +210,15 @@ func (c *Communication) handleRender(req endpoint.RenderableRequest, respBuilder
 
 // addResponseHeaders adds optional pod/port/namespace/request-id headers to the response for testing/debugging.
 func (c *Communication) addResponseHeaders(ctx *fasthttp.RequestCtx, requestID string) {
-	if c.simulator.Context.Config().PodName != "" {
-		ctx.Response.Header.Add(PodHeader, c.simulator.Context.Config().PodName)
-		ctx.Response.Header.Add(PortHeader, strconv.Itoa(c.simulator.Context.Config().Port))
+	cfg := c.runtime.Config()
+	if cfg.PodName != "" {
+		ctx.Response.Header.Add(PodHeader, cfg.PodName)
+		ctx.Response.Header.Add(PortHeader, strconv.Itoa(cfg.Port))
 	}
-	if c.simulator.Context.Config().PodNameSpace != "" {
-		ctx.Response.Header.Add(NamespaceHeader, c.simulator.Context.Config().PodNameSpace)
+	if cfg.PodNameSpace != "" {
+		ctx.Response.Header.Add(NamespaceHeader, cfg.PodNameSpace)
 	}
-	if c.simulator.Context.Config().EnableRequestIDHeaders {
+	if cfg.EnableRequestIDHeaders {
 		ctx.Response.Header.Add(RequestIDHeader, requestID)
 	}
 }
@@ -657,87 +658,17 @@ func (c *Communication) HandleEmbeddings(ctx *fasthttp.RequestCtx) {
 		c.sendError(ctx, &errToSend, false)
 		return
 	}
-	if req.Input.Len() == 0 {
-		errToSend := api.NewError("input is required and must be a non-empty string or array", fasthttp.StatusBadRequest, nil)
-		c.sendError(ctx, &errToSend, false)
+
+	resp, err := c.runtime.CreateEmbeddings(&req)
+	if err != nil {
+		c.sendError(ctx, err, false)
 		return
 	}
-	model := req.Model
-	if model == "" {
-		model = c.simulator.Context.Config().Model
-	}
-	dim := c.simulator.Context.Config().DefaultEmbeddingDimensions
-	if req.Dimensions != nil {
-		if *req.Dimensions < 1 {
-			errToSend := api.NewError("dimensions must be at least 1", fasthttp.StatusBadRequest, nil)
-			c.sendError(ctx, &errToSend, false)
-			return
-		}
-		dim = *req.Dimensions
-	}
-	useBase64 := req.EncodingFormat == "base64"
 
-	var data []api.EmbeddingDataItem
-	var totalTokens int
-
-	if req.Input.IsTokenInput() {
-		for i, tokIDs := range req.Input.TokenInputs() {
-			tokens := make([]uint32, len(tokIDs))
-			for j, id := range tokIDs {
-				if id < 0 {
-					id = 0
-				}
-				tokens[j] = uint32(id)
-			}
-			totalTokens += len(tokens)
-			embedding := common.BuildStubEmbedding(tokens, dim)
-			item := api.EmbeddingDataItem{Object: "embedding", Index: i}
-			if useBase64 {
-				item.Embedding = api.EncodeEmbeddingBase64(embedding)
-			} else {
-				item.Embedding = embedding
-			}
-			data = append(data, item)
-		}
-	} else {
-		for i, text := range req.Input.TextInputs() {
-			if text == "" {
-				errToSend := api.NewError("input cannot be an empty string", fasthttp.StatusBadRequest, nil)
-				c.sendError(ctx, &errToSend, false)
-				return
-			}
-			tokens, _, err := c.simulator.Context.Tokenizer.RenderText(text)
-			if err != nil {
-				c.logger.Error(err, "failed to tokenize embedding input")
-				errToSend := api.NewError("Failed to tokenize input, "+err.Error(), fasthttp.StatusInternalServerError, nil)
-				c.sendError(ctx, &errToSend, false)
-				return
-			}
-			totalTokens += len(tokens)
-			embedding := common.BuildStubEmbedding(tokens, dim)
-			item := api.EmbeddingDataItem{Object: "embedding", Index: i}
-			if useBase64 {
-				item.Embedding = api.EncodeEmbeddingBase64(embedding)
-			} else {
-				item.Embedding = embedding
-			}
-			data = append(data, item)
-		}
-	}
-
-	resp := api.EmbeddingResponse{
-		Object: "list",
-		Data:   data,
-		Model:  model,
-		Usage: api.EmbeddingResponseUsage{
-			PromptTokens: totalTokens,
-			TotalTokens:  totalTokens,
-		},
-	}
-	out, err := json.Marshal(resp)
-	if err != nil {
-		c.logger.Error(err, "failed to marshal embeddings response")
-		errToSend := api.NewError("Response body creation failed, "+err.Error(), fasthttp.StatusInternalServerError, nil)
+	out, jsonErr := json.Marshal(resp)
+	if jsonErr != nil {
+		c.logger.Error(jsonErr, "failed to marshal embeddings response")
+		errToSend := api.NewError("Response body creation failed, "+jsonErr.Error(), fasthttp.StatusInternalServerError, nil)
 		c.sendError(ctx, &errToSend, false)
 		return
 	}
@@ -770,10 +701,10 @@ func (c *Communication) HandleTokenize(ctx *fasthttp.RequestCtx) {
 	var tokens []uint32
 
 	if req.Prompt != "" {
-		tokens, _, err = c.simulator.Context.Tokenizer.RenderText(req.Prompt)
+		tokens, _, err = c.runtime.GetTokenizer().RenderText(req.Prompt)
 	} else {
 		// has messages
-		tokens, _, _, err = c.simulator.Context.Tokenizer.RenderMessages(req.Messages)
+		tokens, _, _, err = c.runtime.GetTokenizer().RenderMessages(req.Messages)
 	}
 
 	if err != nil {
@@ -786,7 +717,7 @@ func (c *Communication) HandleTokenize(ctx *fasthttp.RequestCtx) {
 	resp := api.TokenizeResponse{
 		Count:       len(tokens),
 		Tokens:      tokens,
-		MaxModelLen: c.simulator.Context.Config().MaxModelLen,
+		MaxModelLen: c.runtime.Config().MaxModelLen,
 	}
 	data, err := json.Marshal(resp)
 	if err != nil {
@@ -801,7 +732,7 @@ func (c *Communication) HandleTokenize(ctx *fasthttp.RequestCtx) {
 
 func (c *Communication) HandleLoadLora(ctx *fasthttp.RequestCtx) {
 	c.logger.V(logging.DEBUG).Info("Load lora request received")
-	if err := c.simulator.Context.LoadLoraAdaptor(ctx.Request.Body()); err != nil {
+	if err := c.runtime.LoadLoraAdaptor(ctx.Request.Body()); err != nil {
 		errToSend := api.NewError(err.Error(), fasthttp.StatusBadRequest, nil)
 		c.sendError(ctx, &errToSend, false)
 	}
@@ -809,7 +740,7 @@ func (c *Communication) HandleLoadLora(ctx *fasthttp.RequestCtx) {
 
 func (c *Communication) HandleUnloadLora(ctx *fasthttp.RequestCtx) {
 	c.logger.V(logging.DEBUG).Info("Unload lora request received")
-	if err := c.simulator.Context.UnloadLoraAdaptor(ctx.Request.Body()); err != nil {
+	if err := c.runtime.UnloadLoraAdaptor(ctx.Request.Body()); err != nil {
 		errToSend := api.NewError(err.Error(), fasthttp.StatusBadRequest, nil)
 		c.sendError(ctx, &errToSend, false)
 	}
@@ -818,7 +749,7 @@ func (c *Communication) HandleUnloadLora(ctx *fasthttp.RequestCtx) {
 // HandleModels handles /v1/models request according the data stored in the simulator
 func (c *Communication) HandleModels(ctx *fasthttp.RequestCtx) {
 	c.logger.V(logging.TRACE).Info("/models request received")
-	modelsResp := c.simulator.Context.CreateModelsResponse()
+	modelsResp := c.runtime.CreateModelsResponse()
 
 	data, err := json.Marshal(modelsResp)
 	if err != nil {
@@ -848,7 +779,7 @@ func (c *Communication) HandleHealth(ctx *fasthttp.RequestCtx) {
 func (c *Communication) HandleHealthReady(ctx *fasthttp.RequestCtx) {
 	c.logger.V(logging.TRACE).Info("Health ready request received")
 	ctx.Response.Header.SetContentType("application/json")
-	if d := c.simulator.Context.Config().StartupDuration; d > 0 && time.Since(c.startTime) < d {
+	if d := c.runtime.Config().StartupDuration; d > 0 && time.Since(c.startTime) < d {
 		ctx.Response.Header.SetStatusCode(fasthttp.StatusServiceUnavailable)
 		return
 	}
@@ -1025,7 +956,7 @@ func (c *Communication) HandleGetAdminConfig(ctx *fasthttp.RequestCtx) {
 func (c *Communication) HandlePostAdminConfig(ctx *fasthttp.RequestCtx) {
 	c.logger.V(logging.INFO).Info("Update admin config request received")
 
-	if err := c.simulator.Context.ApplyConfigUpdate(ctx.Request.Body()); err != nil {
+	if err := c.runtime.ApplyConfigUpdate(ctx.Request.Body()); err != nil {
 		errToSend := api.NewError(err.Error(), fasthttp.StatusBadRequest, nil)
 		c.sendError(ctx, &errToSend, false)
 		return
@@ -1034,7 +965,7 @@ func (c *Communication) HandlePostAdminConfig(ctx *fasthttp.RequestCtx) {
 }
 
 func (c *Communication) writeAdminConfigResponse(ctx *fasthttp.RequestCtx) {
-	data, err := c.simulator.Context.Config().MarshalCleaned()
+	data, err := c.runtime.Config().MarshalCleaned()
 	if err != nil {
 		c.logger.Error(err, "failed to marshal admin config response")
 		errToSend := api.NewError("Failed to marshal admin config response, "+err.Error(), fasthttp.StatusInternalServerError, nil)
@@ -1058,7 +989,7 @@ func (c *Communication) HandleFakeMetrics(ctx *fasthttp.RequestCtx) {
 		c.logger.V(logging.INFO).Info("/fake_metrics endpoint is deprecated and will be removed in release v0.12.0; please use POST /admin/config with a 'fake-metrics' field instead")
 	}
 
-	if err := c.simulator.Context.UpdateFakeMetricsFromBody(ctx.Request.Body()); err != nil {
+	if err := c.runtime.UpdateFakeMetricsFromBody(ctx.Request.Body()); err != nil {
 		errToSend := api.NewError("Failed to update fake metrics: "+err.Error(), fasthttp.StatusInternalServerError, nil)
 		c.sendError(ctx, &errToSend, false)
 		return

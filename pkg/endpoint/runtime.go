@@ -18,6 +18,7 @@ package endpoint
 
 import (
 	"github.com/go-logr/logr"
+	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
@@ -25,10 +26,10 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 )
 
-// Runtime is the seam through which request processing reaches the
-// simulator engine it runs on. It is satisfied implicitly by
-// *simulator.SimContext, which keeps this package free of any dependency on
-// the simulator package.
+// Runtime is the seam through which request-processing code and the
+// transport layer (pkg/communication) reach the simulator engine. It is
+// satisfied implicitly by *simulator.SimContext, which keeps this package
+// free of any dependency on the simulator package.
 type Runtime interface {
 	// Config returns the simulator's current configuration.
 	Config() *common.Configuration
@@ -67,4 +68,18 @@ type Runtime interface {
 	// MooncakeEngineMap returns the dp_rank -> {engine_id} map served by
 	// /query, stable for the simulator's lifetime.
 	MooncakeEngineMap() map[string]map[string]string
+	// CreateEmbeddings computes embedding vectors for req.
+	CreateEmbeddings(req *api.EmbeddingRequest) (*api.EmbeddingResponse, *api.Error)
+	// MetricsRegistry returns the simulator's Prometheus registry.
+	MetricsRegistry() *prometheus.Registry
+	// LoadLoraAdaptor loads a LoRA adapter described by body.
+	LoadLoraAdaptor(body []byte) error
+	// UnloadLoraAdaptor unloads a LoRA adapter described by body.
+	UnloadLoraAdaptor(body []byte) error
+	// CreateModelsResponse lists the base model and any loaded LoRA adapters.
+	CreateModelsResponse() *api.ModelsResponse
+	// ApplyConfigUpdate validates and applies a partial admin-config update.
+	ApplyConfigUpdate(body []byte) error
+	// UpdateFakeMetricsFromBody applies a partial fake-metrics update.
+	UpdateFakeMetricsFromBody(body []byte) error
 }
