@@ -94,6 +94,35 @@ var _ = Describe("tokenizer", func() {
 		Expect(decodeErr).NotTo(HaveOccurred())
 	})
 
+	It("should detokenize previously tokenized text with simple tokenizer", func() {
+		st := NewSimpleTokenizer()
+		tokens, _, err := st.RenderText(input)
+		Expect(err).NotTo(HaveOccurred())
+
+		output, err := st.Detokenize(tokens)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(output).To(Equal(input))
+	})
+
+	It("should render unknown token ids as placeholders with simple tokenizer", func() {
+		st := NewSimpleTokenizer()
+		output, err := st.Detokenize([]uint32{12345})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(output).To(Equal("<unk_12345>"))
+	})
+
+	It("should detokenize with real tokenizer", func() {
+		tokens, _, err := tokenizerMngr.RealTokenizer().RenderText(input)
+		Expect(err).NotTo(HaveOccurred())
+
+		output, err := tokenizerMngr.RealTokenizer().Detokenize(tokens)
+		if err != nil && strings.Contains(err.Error(), "status 404") {
+			Skip("render container does not serve /derender")
+		}
+		Expect(err).NotTo(HaveOccurred())
+		Expect(output).To(Equal(input))
+	})
+
 	It("should return nil kwargs_data for text-only messages via real tokenizer", func() {
 		tokens, _, features, err := tokenizerMngr.RealTokenizer().RenderMessages(messages)
 		Expect(err).NotTo(HaveOccurred())

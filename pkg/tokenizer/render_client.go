@@ -80,6 +80,24 @@ func (rc *renderClient) render(endpoint string, payload []byte, mm bool) ([]uint
 	return tokenIDs, features, nil
 }
 
+// derender posts a single-response completions derender payload to the render
+// service and returns the decoded text of its only choice.
+func (rc *renderClient) derender(payload []byte) (string, error) {
+	respBody, err := rc.postRaw("/v1/completions/derender", payload, rc.timeout)
+	if err != nil {
+		return "", err
+	}
+
+	var resp api.TextCompletionsResponse
+	if err := json.Unmarshal(respBody, &resp); err != nil {
+		return "", fmt.Errorf("unmarshal derender response: %w", err)
+	}
+	if len(resp.Choices) == 0 {
+		return "", errors.New("derender returned no choices")
+	}
+	return resp.Choices[0].Text, nil
+}
+
 // parseRenderResponse handles both array (completions) and object (chat/responses) response shapes.
 func (rc *renderClient) parseRenderResponse(body []byte) ([]uint32, *api.RenderMMFeatures, error) {
 	body = bytes.TrimSpace(body)
