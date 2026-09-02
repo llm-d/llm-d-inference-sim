@@ -28,17 +28,16 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 	"github.com/llm-d/llm-d-inference-sim/pkg/communication/grpc/pb"
 	"github.com/llm-d/llm-d-inference-sim/pkg/endpoint"
-	"github.com/llm-d/llm-d-inference-sim/pkg/simulator"
 	"github.com/soheilhy/cmux"
 	"google.golang.org/grpc"
 )
 
 type Communication struct {
 	logger logr.Logger
-	// simulator is used only for the queue/lifecycle operations that don't
-	// belong on endpoint.Runtime: HandleRequest, OpenRequests, Stop. Every
-	// other access to the simulator engine goes through runtime.
-	simulator *simulator.Simulator
+	// processor submits requests to the simulator's queue and controls its
+	// lifecycle. runtime covers everything else the transport layer needs
+	// from the simulator engine.
+	processor Processor
 	runtime   endpoint.Runtime
 
 	// set to 1 during graceful shutdown; new requests are rejected while draining
@@ -52,12 +51,12 @@ type Communication struct {
 	startTime time.Time
 }
 
-func New(logger logr.Logger, simulator *simulator.Simulator) *Communication {
-	return &Communication{logger: logger, simulator: simulator, runtime: &simulator.Context, startTime: time.Now()}
+func New(logger logr.Logger, processor Processor, runtime endpoint.Runtime) *Communication {
+	return &Communication{logger: logger, processor: processor, runtime: runtime, startTime: time.Now()}
 }
 
-func Start(ctx context.Context, logger logr.Logger, simulator *simulator.Simulator) error {
-	c := Communication{logger: logger, simulator: simulator, runtime: &simulator.Context, startTime: time.Now()}
+func Start(ctx context.Context, logger logr.Logger, processor Processor, runtime endpoint.Runtime) error {
+	c := Communication{logger: logger, processor: processor, runtime: runtime, startTime: time.Now()}
 	c.logger.V(logging.INFO).Info("Starting communication layer")
 	return c.start(ctx)
 }
@@ -125,15 +124,15 @@ func (c *Communication) start(ctx context.Context) error {
 		const drainTimeout = 30 * time.Second
 		drainDeadline := time.Now().Add(drainTimeout)
 		c.logger.V(logging.INFO).Info("Waiting for all in-flight requests to finish")
-		for c.simulator.OpenRequests() > 0 {
+		for c.processor.OpenRequests() > 0 {
 			if time.Now().After(drainDeadline) {
 				c.logger.V(logging.INFO).Info("Drain timed out, proceeding with shutdown",
-					"open_requests", c.simulator.OpenRequests())
+					"open_requests", c.processor.OpenRequests())
 				break
 			}
 			time.Sleep(10 * time.Millisecond)
 		}
-		c.simulator.Stop()
+		c.processor.Stop()
 
 		// Shut down HTTP first: grpcServer.Stop() closes grpcL which causes cmux to stop
 		// routing to httpL, making the HTTP server's Serve() return and set s.ln = nil.

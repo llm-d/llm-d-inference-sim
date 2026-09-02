@@ -85,6 +85,16 @@ func (s *SimContext) UnloadLoraAdaptor(body []byte) error {
 	return nil
 }
 
+// LoadLoraAdaptor loads a LoRA adapter described by body.
+func (s *Simulator) LoadLoraAdaptor(body []byte) error {
+	return s.Context.LoadLoraAdaptor(body)
+}
+
+// UnloadLoraAdaptor unloads a LoRA adapter described by body.
+func (s *Simulator) UnloadLoraAdaptor(body []byte) error {
+	return s.Context.UnloadLoraAdaptor(body)
+}
+
 // Checks if the LoRA adaptor is loaded
 func (s *SimContext) loraIsLoaded(model string) bool {
 	if !s.isLora(model) {

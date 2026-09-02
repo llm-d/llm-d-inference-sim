@@ -173,6 +173,11 @@ func (s *SimContext) MetricsRegistry() *prometheus.Registry {
 	return s.metrics.registry
 }
 
+// MetricsRegistry returns the simulator's Prometheus registry.
+func (s *Simulator) MetricsRegistry() *prometheus.Registry {
+	return s.Context.MetricsRegistry()
+}
+
 // createAndRegisterPrometheus creates and registers prometheus metrics used by vLLM simulator
 func (s *SimContext) createAndRegisterPrometheus(ctx context.Context) error {
 	maxNumberOfRequests := (s.Config().MaxNumSeqs + s.Config().MaxWaitingQueueLength) * 2
