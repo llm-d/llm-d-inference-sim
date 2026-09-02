@@ -24,13 +24,13 @@ import (
 )
 
 // isValidModel checks if the given model is the base model or one of "loaded" LoRAs
-func (s *Simulator) isValidModel(model string) bool {
-	for _, name := range s.Context.Config().ServedModelNames {
+func (s *SimContext) isValidModel(model string) bool {
+	for _, name := range s.Config().ServedModelNames {
 		if model == name {
 			return true
 		}
 	}
-	for _, lora := range s.Context.getLoras() {
+	for _, lora := range s.getLoras() {
 		if model == lora {
 			return true
 		}
@@ -42,13 +42,13 @@ func (s *Simulator) isValidModel(model string) bool {
 // ValidateBaseModel checks that model is a known base model. LoRA adapters
 // are rejected because the render endpoints tokenize against the base model
 // and don't go through the LoRA loading path.
-func (s *Simulator) ValidateBaseModel(model string) *api.Error {
+func (s *SimContext) ValidateBaseModel(model string) *api.Error {
 	if !s.isValidModel(model) {
 		serverErr := api.NewError(fmt.Sprintf("The model `%s` does not exist.", model),
 			fasthttp.StatusNotFound, nil)
 		return &serverErr
 	}
-	if s.Context.isLora(model) {
+	if s.isLora(model) {
 		serverErr := api.NewError(fmt.Sprintf("The model `%s` is a LoRA adapter and is not supported by the render endpoints.",
 			model), fasthttp.StatusBadRequest, nil)
 		return &serverErr

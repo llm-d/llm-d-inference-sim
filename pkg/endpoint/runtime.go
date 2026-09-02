@@ -57,4 +57,14 @@ type Runtime interface {
 	WakeUp(activateKVCache bool)
 	// IsSleeping reports whether the simulator is currently sleeping.
 	IsSleeping() bool
+	// ValidateBaseModel checks that model is a known base model, rejecting
+	// LoRA adapters.
+	ValidateBaseModel(model string) *api.Error
+	// ShouldSendImage decides whether an Omni response should include an
+	// image. headerOverride, when true, forces an image regardless of the
+	// emission rate.
+	ShouldSendImage(headerOverride bool) bool
+	// MooncakeEngineMap returns the dp_rank -> {engine_id} map served by
+	// /query, stable for the simulator's lifetime.
+	MooncakeEngineMap() map[string]map[string]string
 }
