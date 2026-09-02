@@ -18,7 +18,6 @@ package endpoint
 
 import (
 	"github.com/go-logr/logr"
-	"github.com/prometheus/client_golang/prometheus"
 	"k8s.io/klog/v2"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
@@ -58,9 +57,6 @@ func (f *fakeRuntime) MooncakeEngineMap() map[string]map[string]string { return 
 func (f *fakeRuntime) CreateEmbeddings(req *api.EmbeddingRequest) (*api.EmbeddingResponse, *api.Error) {
 	return nil, nil
 }
-func (f *fakeRuntime) MetricsRegistry() *prometheus.Registry       { return nil }
-func (f *fakeRuntime) LoadLoraAdaptor(body []byte) error           { return nil }
-func (f *fakeRuntime) UnloadLoraAdaptor(body []byte) error         { return nil }
 func (f *fakeRuntime) CreateModelsResponse() *api.ModelsResponse   { return nil }
 func (f *fakeRuntime) ApplyConfigUpdate(body []byte) error         { return nil }
 func (f *fakeRuntime) UpdateFakeMetricsFromBody(body []byte) error { return nil }

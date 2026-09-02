@@ -82,7 +82,7 @@ func (c *Communication) startHTTPServer(ctx context.Context, listener net.Listen
 	r.POST("/v1/load_lora_adapter", c.HandleLoadLora)
 	r.POST("/v1/unload_lora_adapter", c.HandleUnloadLora)
 	// supports /metrics prometheus API
-	r.GET("/metrics", fasthttpadaptor.NewFastHTTPHandler(promhttp.HandlerFor(c.runtime.MetricsRegistry(), promhttp.HandlerOpts{})))
+	r.GET("/metrics", fasthttpadaptor.NewFastHTTPHandler(promhttp.HandlerFor(c.simulator.Context.MetricsRegistry(), promhttp.HandlerOpts{})))
 	r.POST("/fake_metrics", c.HandleFakeMetrics)
 	// supports standard Kubernetes health and readiness checks
 	r.GET("/health", c.HandleHealth)
@@ -732,7 +732,7 @@ func (c *Communication) HandleTokenize(ctx *fasthttp.RequestCtx) {
 
 func (c *Communication) HandleLoadLora(ctx *fasthttp.RequestCtx) {
 	c.logger.V(logging.DEBUG).Info("Load lora request received")
-	if err := c.runtime.LoadLoraAdaptor(ctx.Request.Body()); err != nil {
+	if err := c.simulator.Context.LoadLoraAdaptor(ctx.Request.Body()); err != nil {
 		errToSend := api.NewError(err.Error(), fasthttp.StatusBadRequest, nil)
 		c.sendError(ctx, &errToSend, false)
 	}
@@ -740,7 +740,7 @@ func (c *Communication) HandleLoadLora(ctx *fasthttp.RequestCtx) {
 
 func (c *Communication) HandleUnloadLora(ctx *fasthttp.RequestCtx) {
 	c.logger.V(logging.DEBUG).Info("Unload lora request received")
-	if err := c.runtime.UnloadLoraAdaptor(ctx.Request.Body()); err != nil {
+	if err := c.simulator.Context.UnloadLoraAdaptor(ctx.Request.Body()); err != nil {
 		errToSend := api.NewError(err.Error(), fasthttp.StatusBadRequest, nil)
 		c.sendError(ctx, &errToSend, false)
 	}
