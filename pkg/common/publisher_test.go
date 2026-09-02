@@ -21,7 +21,6 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
-	"os"
 
 	"time"
 
@@ -227,9 +226,7 @@ var _ = Describe("Publisher", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		tmpDir, err := os.MkdirTemp("", "zmq")
-		Expect(err).NotTo(HaveOccurred())
-		defer os.RemoveAll(tmpDir)
+		tmpDir := GinkgoT().TempDir()
 		endpoint := "ipc://" + tmpDir + "/foo"
 
 		pub, err := NewPublisher(ctx, endpoint)
