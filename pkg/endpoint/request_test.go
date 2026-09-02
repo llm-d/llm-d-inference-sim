@@ -20,6 +20,7 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/valyala/fasthttp"
 )
 
 // ptrInt64 and ptrInt return pointers to their argument; small helpers for
@@ -158,6 +159,25 @@ var _ = Describe("convertInputToMessages", func() {
 		// Even single image → structured content (multimodal)
 		Expect(messages[0].Content.Structured).To(HaveLen(1))
 		Expect(messages[0].Content.Structured[0].Type).To(Equal("image_url"))
+	})
+})
+
+var _ = Describe("ChatCompletionsRequest.Validate", func() {
+	It("rejects an empty messages array", func() {
+		req := &ChatCompletionsRequest{}
+		req.Messages = []api.Message{}
+
+		err := req.Validate(nil)
+		Expect(err).NotTo(BeNil())
+		Expect(err.Code).To(Equal(fasthttp.StatusBadRequest))
+		Expect(err.Message).To(Equal("messages must not be empty"))
+	})
+
+	It("accepts a request carrying at least one message", func() {
+		req := &ChatCompletionsRequest{}
+		req.Messages = []api.Message{{Role: api.RoleUser}}
+
+		Expect(req.Validate(nil)).To(BeNil())
 	})
 })
 

@@ -40,10 +40,10 @@ func (c *ChatCompletionsRequest) Unmarshal(data []byte) error {
 	return json.Unmarshal(data, c)
 }
 
-// ValidateBody checks that a /v1/chat/completions/render body has the required
-// chat shape — at minimum, a non-empty messages array. Catches text-shaped
-// bodies (which JSON-unmarshal cleanly into ChatCompletionsRequest with empty
-// Messages because Go ignores unknown fields by default).
+// ValidateBody checks that a chat body has the required chat shape — at
+// minimum, a non-empty messages array. Catches text-shaped bodies (which
+// JSON-unmarshal cleanly into ChatCompletionsRequest with empty Messages
+// because Go ignores unknown fields by default).
 func (c *ChatCompletionsRequest) ValidateBody() *api.Error {
 	if len(c.Messages) == 0 {
 		serverErr := api.NewError("messages must not be empty", fasthttp.StatusBadRequest, nil)
@@ -64,6 +64,9 @@ func (c *ChatCompletionsRequest) Render(tk tokenizer.Tokenizer) ([][]uint32, *ap
 }
 
 func (c *ChatCompletionsRequest) Validate(toolsValidator *ToolsValidator) *api.Error {
+	if err := c.ValidateBody(); err != nil {
+		return err
+	}
 	for _, tool := range c.Tools {
 		toolJson, err := json.Marshal(tool.Function)
 		if err != nil {
