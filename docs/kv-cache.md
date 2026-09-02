@@ -33,7 +33,7 @@ All KV cache parameters can be set via CLI flags or the equivalent YAML keys (na
 | `kv-cache-size` | int | `1024` | Maximum number of token blocks the cache can hold |
 | `block-size` | int | `16` | Tokens per block; valid values: `8`, `16`, `32`, `64`, `128` |
 | `hash-seed` | string | value of `PYTHONHASHSEED` env var | Seed for block key hash generation; must match the seed used by real vLLM instances to ensure identical block hashes |
-| `zmq-endpoint` | string | `tcp://127.0.0.1:5557` | ZMQ address to publish events (the simulator dials this address) |
+| `zmq-endpoint` | string | `tcp://127.0.0.1:5557` | ZMQ address to publish events. The simulator either dials (active) or listens on (passive) this address. Addresses with "*", "::", "inproc://", and "ipc://" are assumed passive. |
 | `event-batch-size` | int | `16` | Maximum number of events bundled into a single ZMQ message |
 | `use-vllm-map-event-format` | bool | `false` | Encode events as msgpack maps with named fields (vLLM PR #42892 format) instead of positional arrays. Set to `true` when the consumer expects the named-field schema. |
 | `kv-events-replay-endpoint` | string | `""` (disabled) | ZMQ ROUTER address to bind for KV events replay requests. See [KV events replay](#kv-events-replay). |

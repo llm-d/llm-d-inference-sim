@@ -28,7 +28,7 @@ import (
 const (
 	TestModelName    = "testmodel"
 	QwenModelName    = "Qwen/Qwen2-VL-2B-Instruct"
-	wildcardEndpoint = "tcp://*:*"
+	wildcardEndpoint = "tcp://127.0.0.1:*"
 )
 
 // CreateSub creates a ZMQ sub, subscribes to the provided topic, and returns the
