@@ -47,12 +47,10 @@ func (f *fakeRuntime) GetResponseTokens(req api.Request) (*api.Tokenized, string
 func (f *fakeRuntime) KVCacheOnRequestStart(req api.Request) (kvcache.PrefixCacheStats, *api.Error) {
 	return kvcache.PrefixCacheStats{}, nil
 }
-func (f *fakeRuntime) KVCacheOnRequestEnd(requestID string)      {}
-func (f *fakeRuntime) Sleep() bool                               { return false }
-func (f *fakeRuntime) WakeUp(activateKVCache bool)               {}
-func (f *fakeRuntime) IsSleeping() bool                          { return false }
-func (f *fakeRuntime) ValidateBaseModel(model string) *api.Error { return nil }
-func (f *fakeRuntime) ShouldSendImage(headerOverride bool) bool  { return headerOverride }
-func (f *fakeRuntime) MooncakeEngineMap() map[string]map[string]string {
-	return nil
-}
+func (f *fakeRuntime) KVCacheOnRequestEnd(requestID string)            {}
+func (f *fakeRuntime) Sleep() bool                                     { return false }
+func (f *fakeRuntime) WakeUp(activateKVCache bool)                     {}
+func (f *fakeRuntime) IsSleeping() bool                                { return false }
+func (f *fakeRuntime) ValidateBaseModel(model string) *api.Error       { return nil }
+func (f *fakeRuntime) ShouldSendImage(headerOverride bool) bool        { return headerOverride }
+func (f *fakeRuntime) MooncakeEngineMap() map[string]map[string]string { return nil }
