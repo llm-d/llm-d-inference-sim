@@ -58,7 +58,7 @@ func main() {
 	g := new(errgroup.Group)
 	for _, sim := range simulators {
 		g.Go(func() error {
-			return communication.Start(ctx, logger, sim)
+			return communication.Start(ctx, logger, sim, &sim.Context)
 		})
 	}
 	if err := g.Wait(); err != nil {
