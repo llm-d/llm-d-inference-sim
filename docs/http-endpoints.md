@@ -223,6 +223,28 @@ Structure of requests/responses
                 - offset (token index where the multimodal region begins)
                 - length (number of tokens the region spans)
             - kwargs_data (map keyed by modality to an array of strings, one per multimodal item; content is tokenizer-dependent — see [Render endpoints](#render-endpoints))
+- `/v1/completions/derender`
+    - **request**
+        - stream (must be absent or `false`; streaming derender is rejected with `400 Bad Request`)
+        - model (optional; defaults to the served model name)
+        - generate_responses (required, non-empty array, one entry per prompt)
+            - request_id
+            - choices
+                - index
+                - finish_reason
+                - token_ids (required, non-empty)
+            - kv_transfer_params
+        - prompt_tokens (optional array of per-response prompt token counts; when present its length must equal the length of `generate_responses`)
+        - completion_request (the original `/v1/completions` request; accepted and ignored)
+    - **response** — a `/v1/completions` response; `id` is taken verbatim from the first entry's `request_id`, choices carry a flat running `index` across all entries, and `kv_transfer_params` is passed through when all entries agree on it (see [Derender endpoints](#derender-endpoints))
+- `/v1/chat/completions/derender`
+    - **request**
+        - stream (must be absent or `false`; streaming derender is rejected with `400 Bad Request`)
+        - model (optional; defaults to the served model name)
+        - generate_response (required; same entry structure as in `/v1/completions/derender`)
+        - prompt_tokens (optional prompt token count, defaults to 0)
+        - chat_request (the original `/v1/chat/completions` request; accepted and ignored)
+    - **response** — a `/v1/chat/completions` response; `id` is taken verbatim from `request_id` and `kv_transfer_params` is passed through (see [Derender endpoints](#derender-endpoints))
 - `/v1/responses`
     - **request**
         - stream
@@ -465,3 +487,14 @@ For everything else, behavior depends on the active tokenizer (selected automati
 
 - **HuggingFace tokenizer** (real model): each text prompt and chat-completions request is forwarded to the upstream vLLM render service at `--render-url`. For chat requests, `mm_features` returned by the upstream are passed through.
 - **Simulated tokenizer** (dummy model): the simulator tokenizes locally using its regex-based splitter. For chat requests containing `image_url`, `audio_url`, `input_audio`, or `video_url` blocks, synthetic `mm_features` are produced so multimodal-aware downstream code paths can be exercised without a real renderer.
+
+### Derender endpoints
+
+`/v1/completions/derender` and `/v1/chat/completions/derender` mirror vLLM's `/derender` behavior — the inverse of the render endpoints. They accept generation results carrying raw token IDs (the shape produced by `/inference/v1/generate`) and return a client-facing OpenAI response, letting disaggregated flows (`render` → `generate` → `derender`) be exercised end to end.
+
+Both endpoints are synchronous and stateless. `usage` is computed from the request's `prompt_tokens` (0 when omitted) plus the total number of token IDs across all choices. Tool-call and reasoning parsing is not performed; the decoded text is returned as plain `content`. Streaming derender (`stream: true`) is not supported and is rejected with `400 Bad Request`.
+
+Detokenization depends on the active tokenizer (selected automatically based on `--model`):
+
+- **HuggingFace tokenizer** (real model): token IDs are decoded through the upstream vLLM render service's `/v1/completions/derender` endpoint at `--render-url`. The upstream must be a vLLM version that serves the derender endpoints.
+- **Simulated tokenizer** (dummy model): token IDs are pseudo-hashes, so the simulator keeps an in-memory reverse mapping of every ID it has produced (through render, generation, or tokenization) and decodes by lookup. Only IDs produced by the same simulator instance round-trip to their original text; unknown IDs are rendered as `<unk_ID>` placeholders.

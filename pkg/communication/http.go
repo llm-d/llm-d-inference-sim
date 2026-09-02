@@ -22,6 +22,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -70,6 +71,8 @@ func (c *Communication) startHTTPServer(ctx context.Context, listener net.Listen
 	r.POST("/v1/completions", c.HandleTextCompletions)
 	r.POST("/v1/chat/completions/render", c.HandleChatCompletionsRender)
 	r.POST("/v1/completions/render", c.HandleTextCompletionsRender)
+	r.POST("/v1/chat/completions/derender", c.HandleChatCompletionsDerender)
+	r.POST("/v1/completions/derender", c.HandleTextCompletionsDerender)
 	r.POST("/v1/responses", c.HandleResponses)
 	r.POST("/v1/messages", c.HandleMessages)
 	r.POST("/inference/v1/generate", c.HandleGenerate)
@@ -199,6 +202,54 @@ func (c *Communication) handleRender(req endpoint.RenderableRequest, respBuilder
 	if err != nil {
 		c.logger.Error(err, "render response marshal failed")
 		errToSend := api.NewError("Render failed, "+err.Error(), fasthttp.StatusInternalServerError, nil)
+		c.sendError(ctx, &errToSend, false)
+		return
+	}
+	c.addResponseHeaders(ctx, c.getRequestID(ctx))
+	ctx.Response.Header.SetContentType("application/json")
+	ctx.Response.Header.SetStatusCode(fasthttp.StatusOK)
+	ctx.Response.SetBody(respBody)
+}
+
+// HandleChatCompletionsDerender http handler for /v1/chat/completions/derender
+func (c *Communication) HandleChatCompletionsDerender(ctx *fasthttp.RequestCtx) {
+	c.handleDerender(&endpoint.DerenderChatRequest{}, ctx)
+}
+
+// HandleTextCompletionsDerender http handler for /v1/completions/derender
+func (c *Communication) HandleTextCompletionsDerender(ctx *fasthttp.RequestCtx) {
+	c.handleDerender(&endpoint.DerenderCompletionRequest{}, ctx)
+}
+
+func (c *Communication) handleDerender(req endpoint.DerenderableRequest, ctx *fasthttp.RequestCtx) {
+	c.logger.V(logging.TRACE).Info("Derender request received", "endpoint", string(ctx.Path()))
+	if err := req.Unmarshal(ctx.Request.Body()); err != nil {
+		c.logger.Error(err, "failed to read and parse derender request body")
+		errToSend := api.NewError("Failed to read and parse request body, "+err.Error(), fasthttp.StatusBadRequest, nil)
+		c.sendError(ctx, &errToSend, false)
+		return
+	}
+	if err := req.ValidateBody(); err != nil {
+		c.sendError(ctx, err, false)
+		return
+	}
+	// an empty model means the served model, matching vLLM
+	if model := req.GetModel(); model != "" {
+		if err := c.runtime.ValidateBaseModel(model); err != nil {
+			c.sendError(ctx, err, false)
+			return
+		}
+	}
+	resp, apiErr := req.Derender(c.runtime.GetTokenizer(), c.runtime.Config().DisplayModelName, c.logger)
+	if apiErr != nil {
+		c.logger.Error(errors.New(apiErr.Message), "derender failed")
+		c.sendError(ctx, apiErr, false)
+		return
+	}
+	respBody, err := json.Marshal(resp)
+	if err != nil {
+		c.logger.Error(err, "derender response marshal failed")
+		errToSend := api.NewError("Derender failed, "+err.Error(), fasthttp.StatusInternalServerError, nil)
 		c.sendError(ctx, &errToSend, false)
 		return
 	}

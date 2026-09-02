@@ -23,6 +23,7 @@ import (
 	"hash/fnv"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/go-logr/logr"
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
@@ -41,6 +42,8 @@ type Tokenizer interface {
 	RenderText(text string) ([]uint32, []string, error)
 	// RenderMessages renders chat messages and returns token IDs, string tokens, and multimodal features
 	RenderMessages(messages []api.Message) ([]uint32, []string, *api.RenderMMFeatures, error)
+	// Detokenize converts token IDs back to text
+	Detokenize(tokenIDs []uint32) (string, error)
 }
 
 type baseTokenizer struct {
@@ -49,6 +52,11 @@ type baseTokenizer struct {
 
 type SimpleTokenizer struct {
 	baseTokenizer
+
+	// idToString reverses the one-way token-id hashes for Detokenize; it
+	// only contains ids this instance has produced
+	mu         sync.RWMutex
+	idToString map[uint32]string
 }
 
 // New builds a Tokenizer based on the simulator configuration.
@@ -110,7 +118,7 @@ func (bt *baseTokenizer) splitIntoTokens(input string, count int) []string {
 
 // Simple Tokenizer
 func NewSimpleTokenizer() *SimpleTokenizer {
-	return &SimpleTokenizer{baseTokenizer: newBaseTokenizer()}
+	return &SimpleTokenizer{baseTokenizer: newBaseTokenizer(), idToString: map[uint32]string{}}
 }
 
 func (st *baseTokenizer) tokenize(input string) ([]uint32, []string) {
@@ -119,9 +127,38 @@ func (st *baseTokenizer) tokenize(input string) ([]uint32, []string) {
 	return stringsToUint32sHash(strTokens), strTokens
 }
 
+// tokenize records the id-to-string mapping produced by the base tokenizer so
+// Detokenize can reverse the one-way hashes.
+func (st *SimpleTokenizer) tokenize(input string) ([]uint32, []string) {
+	tokens, strTokens := st.baseTokenizer.tokenize(input)
+	st.mu.Lock()
+	for i, id := range tokens {
+		st.idToString[id] = strTokens[i]
+	}
+	st.mu.Unlock()
+	return tokens, strTokens
+}
+
 func (st *SimpleTokenizer) RenderText(text string) ([]uint32, []string, error) {
 	tokens, textTokens := st.tokenize(text)
 	return tokens, textTokens, nil
+}
+
+// Detokenize maps token ids back to the strings recorded during tokenization.
+// String tokens keep their trailing whitespace, so joining reconstructs the
+// original text. Ids this instance has not produced are rendered as "<unk_ID>".
+func (st *SimpleTokenizer) Detokenize(tokenIDs []uint32) (string, error) {
+	var builder strings.Builder
+	st.mu.RLock()
+	defer st.mu.RUnlock()
+	for _, id := range tokenIDs {
+		if s, ok := st.idToString[id]; ok {
+			builder.WriteString(s)
+		} else {
+			fmt.Fprintf(&builder, "<unk_%d>", id)
+		}
+	}
+	return builder.String(), nil
 }
 
 // RenderMessages tokenizes the messages and synthesizes stub mm_features when

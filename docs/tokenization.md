@@ -5,7 +5,7 @@ The simulator offers flexible tokenization to balance **accuracy** vs. **perform
 ## HuggingFace Mode (Real Models)
 This mode is activated when `--render-url` points at a running vLLM render service. Typical usage is a real model such as `meta-llama/Llama-3.1-8B-Instruct` or `Qwen/Qwen2.5-1.5B-Instruct` served by that render service.
 
-* **Behavior:** The simulator does **not** load a tokenizer in-process. Instead, every tokenization call is forwarded over HTTP to an external **vLLM render service** (vLLM running with `vllm launch render`). The simulator POSTs to `<render-url>/render` and consumes the returned token IDs and string tokens.
+* **Behavior:** The simulator does **not** load a tokenizer in-process. Instead, every tokenization call is forwarded over HTTP to an external **vLLM render service** (vLLM running with `vllm launch render`). The simulator POSTs to `<render-url>/render` and consumes the returned token IDs and string tokens. Detokenization (used by the [derender endpoints](http-endpoints.md#derender-endpoints)) is forwarded to the render service's `/v1/completions/derender` endpoint.
 * **Accuracy:** Ensures exact token counts and boundaries — tokenization is performed by a real vLLM/HuggingFace tokenizer in the render service.
 * **Requirements:**
     * **A running vLLM render service** reachable at `--render-url`. See the [README](../README.md#standalone-testing) for instructions on starting the render container, or use the `make run-render` helper.
@@ -14,7 +14,7 @@ This mode is activated when `--render-url` points at a running vLLM render servi
 ## Simulated Mode (Dummy Models)
 This mode is activated when `--render-url` is not set.
 
-* **Behavior:** Uses an in-process regex-based tokenizer to split text and generates token hashes using the FNV-32a algorithm. No external service or network access is needed.
+* **Behavior:** Uses an in-process regex-based tokenizer to split text and generates token hashes using the FNV-32a algorithm. No external service or network access is needed. Because the hashes are one-way, detokenization (used by the [derender endpoints](http-endpoints.md#derender-endpoints)) relies on an in-memory reverse mapping of every token ID the instance has produced; unknown IDs are rendered as `<unk_ID>` placeholders.
 * **Accuracy:** Approximate. Token boundaries will not match real models.
 * **Pros:**
     * **Zero startup overhead:** No render service, no downloads.

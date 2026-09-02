@@ -23,6 +23,8 @@ In addition, a set of the vLLM HTTP endpoints are supported:
 | /tokenize               | Tokenizes input text and returns token information |
 | /v1/completions/render       | Returns the token IDs for a `/v1/completions` request body without generating a response |
 | /v1/chat/completions/render  | Returns the token IDs (and multimodal features when applicable) for a `/v1/chat/completions` request body without generating a response |
+| /v1/completions/derender       | Converts generation results carrying raw token IDs into a `/v1/completions` response (the inverse of `/v1/completions/render`) |
+| /v1/chat/completions/derender  | Converts a generation result carrying raw token IDs into a `/v1/chat/completions` response (the inverse of `/v1/chat/completions/render`) |
 | /sleep                  | Puts the simulator into sleep mode. Requires both the `enable-sleep-mode` flag and the `VLLM_SERVER_DEV_MODE=1` environment variable; otherwise the request is accepted (HTTP 200) but ignored. |
 | /wake_up                | Wakes up the simulator from sleep mode. Accepts an optional `?tags=kv_cache` query parameter; when set (or when no `tags` parameter is provided), the KV cache is re-activated on wake-up. Any other `tags` value wakes up the simulator without re-activating the KV cache. |
 | /is_sleeping            | Checks if the simulator is currently in sleep mode |
