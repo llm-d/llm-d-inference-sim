@@ -65,6 +65,14 @@ func responsesTemperatureTool() responses.ToolUnionParam {
 	return tool
 }
 
+const weatherToolOutput = "sunny, 22C"
+
+func responsesFunctionCallOutput() responses.ResponseInputItemUnionParam {
+	item := responses.ResponseInputItemParamOfFunctionCallOutput(weatherToolOutput)
+	item.OfFunctionCallOutput.CallID = param.NewOpt("call_1")
+	return item
+}
+
 var _ = Describe("Responses API tools", func() {
 	It("emits exactly one function_call when tools are present", func() {
 		ctx := context.TODO()
@@ -106,7 +114,7 @@ var _ = Describe("Responses API tools", func() {
 				OfInputItemList: responses.ResponseInputParam{
 					responses.ResponseInputItemParamOfMessage("What is the weather?", responses.EasyInputMessageRoleUser),
 					responses.ResponseInputItemParamOfFunctionCall(`{"city":"Paris"}`, "call_1", "get_weather"),
-					responses.ResponseInputItemParamOfFunctionCallOutput("call_1", "sunny, 22C"),
+					responsesFunctionCallOutput(),
 				},
 			},
 			Tools: []responses.ToolUnionParam{responsesWeatherTool()},
@@ -288,7 +296,7 @@ var _ = Describe("Responses API tools", func() {
 				OfInputItemList: responses.ResponseInputParam{
 					responses.ResponseInputItemParamOfMessage("What is the weather?", responses.EasyInputMessageRoleUser),
 					responses.ResponseInputItemParamOfFunctionCall(`{"city":"Paris"}`, "call_1", "get_weather"),
-					responses.ResponseInputItemParamOfFunctionCallOutput("call_1", "sunny, 22C"),
+					responsesFunctionCallOutput(),
 				},
 			},
 			Tools: []responses.ToolUnionParam{responsesWeatherTool()},
@@ -382,14 +390,13 @@ var _ = Describe("Responses API tools", func() {
 			option.WithHTTPClient(client),
 			option.WithMaxRetries(0))
 
-		const toolOutput = "sunny, 22C"
 		params := responses.ResponseNewParams{
 			Model: common.TestModelName,
 			Input: responses.ResponseNewParamsInputUnion{
 				OfInputItemList: responses.ResponseInputParam{
 					responses.ResponseInputItemParamOfMessage("What is the weather?", responses.EasyInputMessageRoleUser),
 					responses.ResponseInputItemParamOfFunctionCall(`{"city":"Paris"}`, "call_1", "get_weather"),
-					responses.ResponseInputItemParamOfFunctionCallOutput("call_1", toolOutput),
+					responsesFunctionCallOutput(),
 				},
 			},
 			Tools: []responses.ToolUnionParam{responsesWeatherTool()},
@@ -399,7 +406,7 @@ var _ = Describe("Responses API tools", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(resp.Output).NotTo(BeEmpty())
 		Expect(resp.Output[0].Type).To(Equal("message"))
-		Expect(resp.OutputText()).To(Equal(toolOutput))
+		Expect(resp.OutputText()).To(Equal(weatherToolOutput))
 	})
 
 	It("keeps tools disabled on a later user turn after function_call_output", func() {
@@ -418,7 +425,7 @@ var _ = Describe("Responses API tools", func() {
 				OfInputItemList: responses.ResponseInputParam{
 					responses.ResponseInputItemParamOfMessage("What is the weather?", responses.EasyInputMessageRoleUser),
 					responses.ResponseInputItemParamOfFunctionCall(`{"city":"Paris"}`, "call_1", "get_weather"),
-					responses.ResponseInputItemParamOfFunctionCallOutput("call_1", "sunny, 22C"),
+					responsesFunctionCallOutput(),
 					responses.ResponseInputItemParamOfMessage("What is the stock price of ACME?", responses.EasyInputMessageRoleUser),
 				},
 			},
@@ -461,7 +468,7 @@ var _ = Describe("Responses API tools", func() {
 				OfInputItemList: responses.ResponseInputParam{
 					responses.ResponseInputItemParamOfMessage("What is the weather?", responses.EasyInputMessageRoleUser),
 					responses.ResponseInputItemParamOfFunctionCall(`{"city":"Paris"}`, "call_1", "get_weather"),
-					responses.ResponseInputItemParamOfFunctionCallOutput("call_1", "sunny, 22C"),
+					responsesFunctionCallOutput(),
 				},
 			},
 			Tools: []responses.ToolUnionParam{responsesWeatherTool()},
