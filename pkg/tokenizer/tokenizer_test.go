@@ -264,15 +264,6 @@ var _ = Describe("tokenizer", func() {
 			Expect(tok).To(BeAssignableToTypeOf(&SimpleTokenizer{}))
 		})
 
-		It("still returns the simulated tokenizer when --force-dummy-tokenizer is set", func() {
-			cfg := newConfig()
-			cfg.RenderURL = "http://localhost:8082"
-			cfg.ForceDummyTokenizer = true
-
-			tok, err := New(context.Background(), cfg, klog.Background())
-			Expect(err).NotTo(HaveOccurred())
-			Expect(tok).To(BeAssignableToTypeOf(&SimpleTokenizer{}))
-		})
 	})
 
 	Describe("splitIntoTokens", func() {

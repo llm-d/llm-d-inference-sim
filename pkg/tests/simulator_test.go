@@ -35,7 +35,6 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/communication"
 	"github.com/llm-d/llm-d-inference-sim/pkg/kvcache"
-	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/openai/openai-go/v3"
@@ -1295,65 +1294,6 @@ var _ = Describe("Simulator", func() {
 			Entry("map format (vLLM PR #42892)", "true"),
 		)
 
-		Context("force-dummy-tokenizer flag", func() {
-			It("should use dummy tokenizer when flag is set with real model", func() {
-				ctx := context.TODO()
-				// Use a real model name but force dummy tokenizer
-				args := []string{"cmd", "--model", common.QwenModelName, "--mode", common.ModeRandom, "--force-dummy-tokenizer"}
-				simulator, _, _, err := startServerHandle(ctx, "", args, nil)
-				Expect(err).NotTo(HaveOccurred())
-
-				// Verify that the dummy tokenizer was actually created
-				Expect(simulator.Context.Tokenizer).To(BeAssignableToTypeOf(&tokenizer.SimpleTokenizer{}))
-			})
-
-			It("should work with YAML config file", func() {
-				ctx := context.TODO()
-				// Create a temporary config file with force-dummy-tokenizer set
-				configContent := `model: ` + common.QwenModelName + `
-mode: random
-force-dummy-tokenizer: true
-`
-				configFile := "/tmp/test-tokenizer-config.yaml"
-				err := writeTestConfig(configFile, configContent)
-				Expect(err).NotTo(HaveOccurred())
-				defer func() {
-					err := removeTestConfig(configFile)
-					Expect(err).NotTo(HaveOccurred())
-				}()
-
-				args := []string{"cmd", "--config", configFile}
-				simulator, _, _, err := startServerHandle(ctx, "", args, nil)
-				Expect(err).NotTo(HaveOccurred())
-
-				// Verify that the dummy tokenizer was actually created
-				Expect(simulator.Context.Tokenizer).To(BeAssignableToTypeOf(&tokenizer.SimpleTokenizer{}))
-			})
-
-			It("should override YAML config with command line flag", func() {
-				ctx := context.TODO()
-				// Create a config file with force-dummy-tokenizer set to false
-				configContent := `model: ` + common.QwenModelName + `
-mode: random
-force-dummy-tokenizer: false
-`
-				configFile := "/tmp/test-tokenizer-override-config.yaml"
-				err := writeTestConfig(configFile, configContent)
-				Expect(err).NotTo(HaveOccurred())
-				defer func() {
-					err := removeTestConfig(configFile)
-					Expect(err).NotTo(HaveOccurred())
-				}()
-
-				// Override with command line flag
-				args := []string{"cmd", "--config", configFile, "--force-dummy-tokenizer"}
-				simulator, _, _, err := startServerHandle(ctx, "", args, nil)
-				Expect(err).NotTo(HaveOccurred())
-
-				// Verify that the dummy tokenizer was actually created
-				Expect(simulator.Context.Tokenizer).To(BeAssignableToTypeOf(&tokenizer.SimpleTokenizer{}))
-			})
-		})
 	})
 
 	Context("Mooncake bootstrap query", func() {

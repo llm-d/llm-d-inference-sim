@@ -36,7 +36,6 @@ When `--render-url` is not set but the model name looks like a HuggingFace repo 
 | `--render-url` | URL of the vLLM render service. When set, HuggingFace Mode is used; when unset, Simulated Mode is used. | (empty) |
 | `--render-timeout` | Timeout for tokenizer render requests (Go duration, e.g. `30s`). | `30s` |
 | `--mm-render-timeout` | Timeout for multi-modal tokenizer render requests. | `60s` |
-| `--force-dummy-tokenizer` | (deprecated) Force the simulated tokenizer even when `--render-url` is set. Omit `--render-url` instead. | `false` |
 
 
 ## Examples
@@ -51,4 +50,3 @@ Running with simulated tokenization (no render service required):
 ```bash
 ./bin/llm-d-inference-sim --model test-sim-model
 ```
-
