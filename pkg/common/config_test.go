@@ -818,6 +818,12 @@ var _ = Describe("Simulator configuration", func() {
 			args:          []string{"cmd", "--config", "../../manifests/config.yaml", "--max-request-body-size-mb", "513"},
 			expectedError: "max-request-body-size-mb must be between 1 MB and 512 MB",
 		},
+		{
+			name: "removed force-dummy-tokenizer flag",
+			args: []string{"cmd", "--model", TestModelName, "--mode", ModeRandom,
+				"--force-dummy-tokenizer"},
+			expectedError: "unknown flag: --force-dummy-tokenizer",
+		},
 	}
 
 	for _, test := range invalidTests {
