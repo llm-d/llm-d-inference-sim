@@ -78,6 +78,7 @@ For a detailed explanation of how the simulator models inference time and what e
 ## KV cache
 - `enable-kvcache`: if true, the KV cache support will be enabled in the simulator. In this case, the KV cache will be simulated, and ZMQ events will be published when a KV cache block is added or evicted.
 - `kv-cache-size`: the maximum number of token blocks in kv cache
+- `kv-cache-dtype`: cache dtype reported by the vLLM-compatible `cache_config_info` metric, defaults to `auto`. This metadata setting does not change simulation behavior.
 - `global-cache-hit-threshold`: default cache hit threshold [0, 1] for all requests. If a request specifies cache_hit_threshold, it takes precedence over this global value
 - `block-size`: token block size for contiguous chunks of tokens, possible values: 8,16,32,64,128
 - `hash-seed`: seed for hash generation. If you omit `--hash-seed` on the command line, a non-empty `PYTHONHASHSEED` environment variable can supply the seed; see [Configuration precedence](#configuration-precedence) and [Environment variables](#environment-variables).
