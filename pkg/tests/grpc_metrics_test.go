@@ -286,7 +286,7 @@ var _ = Describe("gRPC Metrics", Ordered, func() {
 	It("should send correct kv cache usage metrics via gRPC", func() {
 		ctx := context.TODO()
 		args := []string{"cmd", "--model", common.QwenModelName, "--mode", common.ModeEcho,
-			"--time-to-first-token", "2s", "--inter-token-latency", "2s",
+			"--time-to-first-token", "500ms", "--inter-token-latency", "250ms",
 			"--max-num-seqs", "3", "--enable-kvcache", "true", "--kv-cache-size", "16", "--block-size", "8"}
 
 		_, comm, httpClient, err := startServerHandle(ctx, common.ModeEcho, args, map[string]string{"POD_IP": "localhost"})
@@ -315,34 +315,29 @@ var _ = Describe("gRPC Metrics", Ordered, func() {
 			}(i)
 		}
 
-		// Wait for requests to start processing and KV cache to be populated
-		time.Sleep(1 * time.Second)
-		// Then wait for requests to be running (after TTFT)
-		time.Sleep(3 * time.Second)
-		metricsResp, err := httpClient.Get(metricsUrl)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
+		checkMetrics := func(g Gomega, running int, kvCacheUsage float64) {
+			metricsResp, err := httpClient.Get(metricsUrl)
+			g.Expect(err).NotTo(HaveOccurred())
+			defer func() { _ = metricsResp.Body.Close() }()
+			g.Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
 
-		data, err := io.ReadAll(metricsResp.Body)
-		Expect(err).NotTo(HaveOccurred())
-		metrics := string(data)
+			data, err := io.ReadAll(metricsResp.Body)
+			g.Expect(err).NotTo(HaveOccurred())
+			metrics := string(data)
+			g.Expect(metrics).To(ContainSubstring(getCountMetricLine(common.QwenModelName, simulator.ReqRunningMetricName, float64(running))))
+			g.Expect(metrics).To(ContainSubstring(getCountMetricLine(common.QwenModelName, simulator.ReqWaitingMetricName, 0)))
+			g.Expect(metrics).To(ContainSubstring(getCountMetricLine(common.QwenModelName, simulator.KVCacheUsageMetricName, kvCacheUsage)))
+		}
+
 		// Expect three running requests and one block in the kv cache (shared by all 3 requests) - usage 1/16=0.0625
-		Expect(metrics).To(ContainSubstring(getCountMetricLine(common.QwenModelName, simulator.ReqRunningMetricName, 3)))
-		Expect(metrics).To(ContainSubstring(getCountMetricLine(common.QwenModelName, simulator.ReqWaitingMetricName, 0)))
-		Expect(metrics).To(ContainSubstring(getCountMetricLine(common.QwenModelName, simulator.KVCacheUsageMetricName, 0.0625)))
+		Eventually(func(g Gomega) {
+			checkMetrics(g, 3, 0.0625)
+		}).WithTimeout(2 * time.Second).WithPolling(25 * time.Millisecond).Should(Succeed())
 
-		time.Sleep(15 * time.Second)
-		metricsResp, err = httpClient.Get(metricsUrl)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
-
-		data, err = io.ReadAll(metricsResp.Body)
-		Expect(err).NotTo(HaveOccurred())
-		metrics = string(data)
 		// The requests finished running, expect 0 usage
-		Expect(metrics).To(ContainSubstring(getCountMetricLine(common.QwenModelName, simulator.ReqRunningMetricName, 0)))
-		Expect(metrics).To(ContainSubstring(getCountMetricLine(common.QwenModelName, simulator.ReqWaitingMetricName, 0)))
-		Expect(metrics).To(ContainSubstring(getCountMetricLine(common.QwenModelName, simulator.KVCacheUsageMetricName, 0)))
+		Eventually(func(g Gomega) {
+			checkMetrics(g, 0, 0)
+		}).WithTimeout(5 * time.Second).WithPolling(25 * time.Millisecond).Should(Succeed())
 	})
 
 	It("should calculate waiting and inference time correctly via gRPC", func() {
