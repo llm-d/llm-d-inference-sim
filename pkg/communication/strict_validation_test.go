@@ -123,6 +123,20 @@ var _ = Describe("strict vLLM request validation", func() {
 			message: "Requested sample logprobs of 21, which is greater than max allowed: 20 (parameter=logprobs, value=21)",
 			param:   ptrTo("logprobs"),
 		}),
+		Entry("prompt logprobs above model limit", invalidCase{
+			body:    `{"prompt_logprobs":21}`,
+			message: "Requested prompt logprobs of 21, which is greater than max allowed: 20 (parameter=prompt_logprobs, value=21)",
+			param:   ptrTo("prompt_logprobs"),
+		}),
+		Entry("empty allowed token ids", invalidCase{
+			body:    `{"allowed_token_ids":[]}`,
+			message: "allowed_token_ids is not None and empty! (parameter=allowed_token_ids, value=[])",
+			param:   ptrTo("allowed_token_ids"),
+		}),
+		Entry("multiple choices with greedy sampling", invalidCase{
+			body:    `{"temperature":0,"n":2,"logprobs":true,"top_logprobs":21}`,
+			message: "n must be 1 when using greedy sampling, got 2.",
+		}),
 		Entry("negative min_tokens", invalidCase{
 			body:    `{"min_tokens":-1}`,
 			message: "min_tokens must be greater than or equal to 0, got -1.",
@@ -139,6 +153,19 @@ var _ = Describe("strict vLLM request validation", func() {
 			body:    `{"stop":["done",""]}`,
 			message: "stop cannot contain an empty string.",
 		}),
+		Entry("sampling checks temperature before max_tokens", invalidCase{
+			body:    `{"temperature":-0.1,"max_tokens":0}`,
+			message: "temperature must be non-negative, got -0.1. (parameter=temperature, value=-0.1)",
+			param:   ptrTo("temperature"),
+		}),
+		Entry("sampling checks presence penalty before top_p", invalidCase{
+			body:    `{"presence_penalty":2.1,"top_p":0}`,
+			message: "presence_penalty must be in [-2, 2], got 2.1.",
+		}),
+		Entry("sampling checks min_tokens before logprobs", invalidCase{
+			body:    `{"min_tokens":2,"max_tokens":1,"logprobs":true,"top_logprobs":21}`,
+			message: "min_tokens must be less than or equal to max_tokens=1, got 2.",
+		}),
 	)
 
 	It("accepts vLLM boundary values", func() {
@@ -153,8 +180,15 @@ var _ = Describe("strict vLLM request validation", func() {
 			"repetition_penalty":0.1,
 			"min_p":0,
 			"min_tokens":1,
+			"prompt_logprobs":20,
+			"allowed_token_ids":[1],
 			"stop":["done"]
 		}`)
+		Expect(validateStrictCompletionBody(body, "/v1/chat/completions")).To(BeNil())
+	})
+
+	It("keeps positive sub-epsilon temperatures in sampling mode", func() {
+		body := []byte(`{"temperature":0.000009,"n":2}`)
 		Expect(validateStrictCompletionBody(body, "/v1/chat/completions")).To(BeNil())
 	})
 
