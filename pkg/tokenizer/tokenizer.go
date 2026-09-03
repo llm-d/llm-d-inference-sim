@@ -54,7 +54,6 @@ type SimpleTokenizer struct {
 // New builds a Tokenizer based on the simulator configuration.
 //
 // Selection rules:
-//   - --force-dummy-tokenizer (deprecated) always yields SimpleTokenizer.
 //   - A non-empty --render-url yields HFTokenizer backed by the render service.
 //   - Otherwise SimpleTokenizer is used. If the model name looks like a
 //     HuggingFace repo id (contains "/"), the fallback is logged at WARN so
@@ -64,10 +63,6 @@ func New(ctx context.Context, config *common.Configuration, logger logr.Logger) 
 	var tokenizer Tokenizer
 
 	switch {
-	case config.ForceDummyTokenizer:
-		logger.V(logging.WARN).Info("--force-dummy-tokenizer is deprecated; omit --render-url to use the simulated tokenizer",
-			"model", config.Model)
-		tokenizer = NewSimpleTokenizer()
 	case config.RenderURL != "":
 		tokenizer, err = NewHFTokenizer(ctx, logger, config.RenderURL, config.Model, config.RenderTimeout, config.MMRenderTimeout)
 	default:
