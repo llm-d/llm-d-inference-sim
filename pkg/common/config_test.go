@@ -86,6 +86,18 @@ var _ = Describe("Simulator configuration", func() {
 	}
 	tests = append(tests, test)
 
+	// Strict vLLM request validation
+	c = createConfigWithModel(TestModelName, nil)
+	c.MaxCPULoras = 1
+	c.Seed = 100
+	c.StrictRequestValidation = true
+	test = testCase{
+		name:           "strict request validation",
+		args:           []string{"cmd", "--model", TestModelName, "--mode", ModeRandom, "--seed", "100", "--strict"},
+		expectedConfig: c,
+	}
+	tests = append(tests, test)
+
 	// Config from config.yaml file
 	c = createDefaultConfig(QwenModelName, []string{"model1", "model2"})
 	c.Port = 8001

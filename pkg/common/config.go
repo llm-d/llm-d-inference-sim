@@ -312,6 +312,8 @@ type Configuration struct {
 
 	// LogHTTP logs full HTTP request and response details (method, URI, headers, bodies where buffered, status) for each request.
 	LogHTTP bool `yaml:"log-http" json:"log-http"`
+	// StrictRequestValidation enables vLLM-compatible validation for OpenAI completion requests.
+	StrictRequestValidation bool `yaml:"strict" json:"strict"`
 
 	// LatencyCalculator is the name of the latency calculator to use in the simulation of the response latencies.
 	// The default calculation is based on the current load of the simulator and on the configured latency
