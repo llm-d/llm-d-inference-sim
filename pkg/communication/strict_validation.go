@@ -54,27 +54,6 @@ func validateStrictCompletionBody(body []byte, path string) *api.Error {
 		return badRequest(fmt.Sprintf("n must be at least 1, got %d.", n), nil)
 	}
 
-	maxTokens, hasMaxTokens := integerField(fields, "max_tokens")
-	maxCompletionTokens, hasMaxCompletionTokens := integerField(fields, "max_completion_tokens")
-	effectiveMaxTokens, hasEffectiveMaxTokens := maxTokens, hasMaxTokens
-	if hasMaxCompletionTokens {
-		effectiveMaxTokens, hasEffectiveMaxTokens = maxCompletionTokens, true
-	}
-	if hasEffectiveMaxTokens && effectiveMaxTokens < 1 {
-		return parameterError("max_tokens", effectiveMaxTokens,
-			fmt.Sprintf("max_tokens must be at least 1, got %d.", effectiveMaxTokens))
-	}
-
-	if value, ok := numberField(fields, "temperature"); ok && value < 0 {
-		formatted := formatFloat(value)
-		return parameterError("temperature", formatted,
-			fmt.Sprintf("temperature must be non-negative, got %s.", formatted))
-	}
-	if value, ok := numberField(fields, "top_p"); ok && (value <= 0 || value > 1) {
-		formatted := formatFloat(value)
-		return parameterError("top_p", formatted,
-			fmt.Sprintf("top_p must be in (0, 1], got %s.", formatted))
-	}
 	if value, ok := numberField(fields, "presence_penalty"); ok && (value < -2 || value > 2) {
 		return badRequest(fmt.Sprintf("presence_penalty must be in [-2, 2], got %s.", formatFloat(value)), nil)
 	}
@@ -84,20 +63,33 @@ func validateStrictCompletionBody(body []byte, path string) *api.Error {
 	if value, ok := numberField(fields, "repetition_penalty"); ok && value <= 0 {
 		return badRequest(fmt.Sprintf("repetition_penalty must be greater than zero, got %s.", formatFloat(value)), nil)
 	}
-	if value, ok := numberField(fields, "min_p"); ok && (value < 0 || value > 1) {
-		return badRequest(fmt.Sprintf("min_p must be in [0, 1], got %s.", formatFloat(value)), nil)
+	temperature, hasTemperature := numberField(fields, "temperature")
+	if hasTemperature && temperature < 0 {
+		formatted := formatFloat(temperature)
+		return parameterError("temperature", formatted,
+			fmt.Sprintf("temperature must be non-negative, got %s.", formatted))
+	}
+	if value, ok := numberField(fields, "top_p"); ok && (value <= 0 || value > 1) {
+		formatted := formatFloat(value)
+		return parameterError("top_p", formatted,
+			fmt.Sprintf("top_p must be in (0, 1], got %s.", formatted))
 	}
 	if value, ok := integerField(fields, "top_k"); ok && value < -1 {
 		return badRequest(fmt.Sprintf("top_k must be 0 (disable), or at least 1, got %d.", value), nil)
 	}
-
-	logprobsField := "top_logprobs"
-	if path == "/v1/completions" {
-		logprobsField = "logprobs"
+	if value, ok := numberField(fields, "min_p"); ok && (value < 0 || value > 1) {
+		return badRequest(fmt.Sprintf("min_p must be in [0, 1], got %s.", formatFloat(value)), nil)
 	}
-	if value, ok := integerField(fields, logprobsField); ok && value > 20 {
-		return parameterError("logprobs", value,
-			fmt.Sprintf("Requested sample logprobs of %d, which is greater than max allowed: 20", value))
+
+	maxTokens, hasMaxTokens := integerField(fields, "max_tokens")
+	maxCompletionTokens, hasMaxCompletionTokens := integerField(fields, "max_completion_tokens")
+	effectiveMaxTokens, hasEffectiveMaxTokens := maxTokens, hasMaxTokens
+	if hasMaxCompletionTokens {
+		effectiveMaxTokens, hasEffectiveMaxTokens = maxCompletionTokens, true
+	}
+	if hasEffectiveMaxTokens && effectiveMaxTokens < 1 {
+		return parameterError("max_tokens", effectiveMaxTokens,
+			fmt.Sprintf("max_tokens must be at least 1, got %d.", effectiveMaxTokens))
 	}
 
 	if minTokens, ok := integerField(fields, "min_tokens"); ok {
@@ -112,6 +104,26 @@ func validateStrictCompletionBody(body []byte, path string) *api.Error {
 
 	if raw, ok := fields["stop"]; ok && containsEmptyStop(raw) {
 		return badRequest("stop cannot contain an empty string.", nil)
+	}
+
+	if n, ok := integerField(fields, "n"); ok && hasTemperature && temperature == 0 && n != 1 {
+		return badRequest(fmt.Sprintf("n must be 1 when using greedy sampling, got %d.", n), nil)
+	}
+
+	logprobsField := "top_logprobs"
+	if path == "/v1/completions" {
+		logprobsField = "logprobs"
+	}
+	if value, ok := integerField(fields, logprobsField); ok && value > 20 {
+		return parameterError("logprobs", value,
+			fmt.Sprintf("Requested sample logprobs of %d, which is greater than max allowed: 20", value))
+	}
+	if value, ok := integerField(fields, "prompt_logprobs"); ok && value > 20 {
+		return parameterError("prompt_logprobs", value,
+			fmt.Sprintf("Requested prompt logprobs of %d, which is greater than max allowed: 20", value))
+	}
+	if emptyArrayField(fields, "allowed_token_ids") {
+		return parameterError("allowed_token_ids", "[]", "allowed_token_ids is not None and empty!")
 	}
 
 	return nil
@@ -151,6 +163,15 @@ func integerField(fields map[string]json.RawMessage, name string) (int64, bool) 
 	}
 	value, err := number.Int64()
 	return value, err == nil
+}
+
+func emptyArrayField(fields map[string]json.RawMessage, name string) bool {
+	raw, ok := fields[name]
+	if !ok || string(raw) == "null" {
+		return false
+	}
+	var values []json.RawMessage
+	return json.Unmarshal(raw, &values) == nil && values != nil && len(values) == 0
 }
 
 func containsEmptyStop(raw json.RawMessage) bool {
