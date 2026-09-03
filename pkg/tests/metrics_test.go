@@ -919,7 +919,8 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 		It("Should send correct kv cache config metrics", func() {
 			ctx := context.TODO()
 			args := []string{"cmd", "--model", common.QwenModelName, "--mode", common.ModeRandom,
-				"--kv-cache-size", "16", "--block-size", "8"}
+				"--kv-cache-size", "1000000000", "--block-size", "8",
+				"--kv-cache-dtype", "turboquant_4bit_nc"}
 
 			client, err := startServerWithArgsAndEnv(ctx, common.ModeRandom, args, map[string]string{"POD_IP": "localhost"})
 			Expect(err).NotTo(HaveOccurred())
@@ -931,7 +932,7 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 			data, err := io.ReadAll(metricsResp.Body)
 			Expect(err).NotTo(HaveOccurred())
 			metrics := string(data)
-			Expect(metrics).To(ContainSubstring("vllm:cache_config_info{block_size=\"8\",num_gpu_blocks=\"16\"} 1"))
+			Expect(metrics).To(ContainSubstring("vllm:cache_config_info{block_size=\"8\",cache_dtype=\"turboquant_4bit_nc\",num_cpu_blocks=\"0\",num_gpu_blocks=\"1000000000\"} 1"))
 		})
 	})
 

@@ -404,7 +404,12 @@ func (s *SimContext) createAndRegisterPrometheus(ctx context.Context) error {
 			Name:      CacheConfigName,
 			Help:      "Information of the LLMEngine CacheConfig.",
 		},
-		[]string{api.PromLabelCacheBlockSize, api.PromLabelCacheNumGPUBlocks},
+		[]string{
+			api.PromLabelCacheBlockSize,
+			api.PromLabelCacheDType,
+			api.PromLabelCacheNumCPUBlocks,
+			api.PromLabelCacheNumGPUBlocks,
+		},
 	)
 	if err := s.metrics.registry.Register(cacheConfig); err != nil {
 		s.logger.Error(err, "prometheus cache config register failed")
@@ -417,7 +422,12 @@ func (s *SimContext) createAndRegisterPrometheus(ctx context.Context) error {
 // setInitialPrometheusMetrics sends the default values to prometheus or
 // the fake metrics if set
 func (s *SimContext) setInitialPrometheusMetrics(cacheConfig *prometheus.GaugeVec) error {
-	cacheConfig.WithLabelValues(strconv.Itoa(s.Config().TokenBlockSize), strconv.Itoa(s.Config().KVCacheSize)).Set(1)
+	cacheConfig.WithLabelValues(
+		strconv.Itoa(s.Config().TokenBlockSize),
+		s.Config().KVCacheDType,
+		"0",
+		strconv.Itoa(s.Config().KVCacheSize),
+	).Set(1)
 
 	if s.Config().FakeMetrics != nil {
 		return s.setInitialFakeMetrics()
