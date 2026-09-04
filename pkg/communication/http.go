@@ -83,7 +83,6 @@ func (c *Communication) startHTTPServer(ctx context.Context, listener net.Listen
 	r.POST("/v1/unload_lora_adapter", c.HandleUnloadLora)
 	// supports /metrics prometheus API
 	r.GET("/metrics", fasthttpadaptor.NewFastHTTPHandler(promhttp.HandlerFor(c.processor.MetricsRegistry(), promhttp.HandlerOpts{})))
-	r.POST("/fake_metrics", c.HandleFakeMetrics)
 	// supports standard Kubernetes health and readiness checks
 	r.GET("/health", c.HandleHealth)
 	r.GET("/health/ready", c.HandleHealthReady)
@@ -949,10 +948,7 @@ func (c *Communication) HandleGetAdminConfig(ctx *fasthttp.RequestCtx) {
 }
 
 // HandlePostAdminConfig http handler for POST /admin/config — updates the
-// admin-configurable subset of fields. A "fake-metrics" key in the body is
-// dispatched (by the simulator context) to ApplyFakeMetricsBody, which has
-// the same partial-update semantics as the (deprecated) /fake_metrics
-// endpoint.
+// admin-configurable subset of fields.
 func (c *Communication) HandlePostAdminConfig(ctx *fasthttp.RequestCtx) {
 	c.logger.V(logging.INFO).Info("Update admin config request received")
 
@@ -975,25 +971,4 @@ func (c *Communication) writeAdminConfigResponse(ctx *fasthttp.RequestCtx) {
 	ctx.Response.Header.SetContentType("application/json")
 	ctx.Response.Header.SetStatusCode(fasthttp.StatusOK)
 	ctx.Response.SetBody(data)
-}
-
-// HandleFakeMetrics HTTP handler for /fake_metrics.
-//
-// Deprecated: superseded by POST /admin/config with a "fake-metrics" field;
-// scheduled for removal in release v0.12.0.
-func (c *Communication) HandleFakeMetrics(ctx *fasthttp.RequestCtx) {
-	c.logger.V(logging.INFO).Info("Fake metrics update received")
-
-	if !c.fakeMetricsDeprecatedLogged {
-		c.fakeMetricsDeprecatedLogged = true
-		c.logger.V(logging.INFO).Info("/fake_metrics endpoint is deprecated and will be removed in release v0.12.0; please use POST /admin/config with a 'fake-metrics' field instead")
-	}
-
-	if err := c.runtime.UpdateFakeMetricsFromBody(ctx.Request.Body()); err != nil {
-		errToSend := api.NewError("Failed to update fake metrics: "+err.Error(), fasthttp.StatusInternalServerError, nil)
-		c.sendError(ctx, &errToSend, false)
-		return
-	}
-
-	ctx.Response.Header.SetStatusCode(fasthttp.StatusNoContent)
 }

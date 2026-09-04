@@ -17,15 +17,52 @@ limitations under the License.
 package communication
 
 import (
+	"context"
+	"net"
+	"net/http"
 	"os"
+	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/valyala/fasthttp/fasthttputil"
+	"k8s.io/klog/v2"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 )
 
 var _ = Describe("Server", func() {
+	It("does not register the removed fake metrics route", func() {
+		ctx := context.Background()
+		sim := newRunningSim(ctx)
+		listener := fasthttputil.NewInmemoryListener()
+		comm := New(klog.Background(), sim, &sim.Context)
+
+		DeferCleanup(func() {
+			Expect(listener.Close()).To(Succeed())
+			sim.Stop()
+		})
+
+		go func() {
+			_ = comm.StartHTTPServer(ctx, listener)
+		}()
+
+		client := &http.Client{Transport: &http.Transport{
+			DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
+				return listener.Dial()
+			},
+		}}
+		DeferCleanup(client.CloseIdleConnections)
+
+		resp, err := client.Post(
+			"http://localhost/fake_metrics",
+			"application/json",
+			strings.NewReader(`{"running-requests":2}`),
+		)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.StatusCode).To(Equal(http.StatusNotFound))
+		Expect(resp.Body.Close()).To(Succeed())
+	})
 
 	Context("SSL/HTTPS Configuration", func() {
 		It("Should parse SSL certificate configuration correctly", func() {

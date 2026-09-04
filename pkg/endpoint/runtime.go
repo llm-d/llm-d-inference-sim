@@ -73,6 +73,4 @@ type Runtime interface {
 	CreateModelsResponse() *api.ModelsResponse
 	// ApplyConfigUpdate validates and applies a partial admin-config update.
 	ApplyConfigUpdate(body []byte) error
-	// UpdateFakeMetricsFromBody applies a partial fake-metrics update.
-	UpdateFakeMetricsFromBody(body []byte) error
 }
