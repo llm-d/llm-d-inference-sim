@@ -1238,6 +1238,44 @@ var _ = Describe("Simulator", func() {
 			Expect(removedCount).To(Equal(0))
 		})
 
+		It("passive", func() {
+			// start the server with passive zmq endpoint
+			freePort, err := common.FreeTCPPort()
+			Expect(err).NotTo(HaveOccurred())
+			zmqEndpoint := fmt.Sprintf("tcp://*:%d", freePort)
+			args := []string{"cmd", "--model", model, "--mode", mode,
+				"--enable-kvcache", "true", "--kv-cache-size", "16", "--block-size", "8",
+				"--event-batch-size", "1", "--zmq-endpoint", zmqEndpoint}
+			client, err := startServerWithArgsAndEnv(ctx, mode, args, map[string]string{"POD_IP": "localhost"})
+			Expect(err).NotTo(HaveOccurred())
+
+			// create kv events listener
+			topic := kvcache.CreateKVEventsTopic("localhost", 8000, model)
+			sub := common.NewSub(ctx)
+			err = sub.Dial(zmqEndpoint)
+			Expect(err).NotTo(HaveOccurred())
+			err = sub.SetOption(zmq4.OptionSubscribe, topic)
+			Expect(err).NotTo(HaveOccurred())
+			//nolint
+			defer sub.Close()
+
+			go func() {
+				time.Sleep(200 * time.Millisecond)
+
+				openaiclient, params := getOpenAIClientAndChatParams(client, model, longPrompt, false)
+				resp, err := openaiclient.Chat.Completions.New(ctx, params)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(resp.Choices).ShouldNot(BeEmpty())
+			}()
+
+			// read one event
+			msg, err := sub.Recv()
+			Expect(err).NotTo(HaveOccurred())
+			storedCount, removedCount, _ := kvcache.CountKVEventBlocks(msg.Frames, topic, 1)
+			Expect(storedCount).To(Equal(5))
+			Expect(removedCount).To(Equal(0))
+		})
+
 		// extendedPrompt shares all blocks of longPrompt and adds enough text to push past the next block boundary.
 		extendedPrompt := longPrompt + " This extra sentence pushes it past the next block boundary for the test."
 
