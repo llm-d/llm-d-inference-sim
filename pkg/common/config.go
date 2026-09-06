@@ -355,6 +355,9 @@ type Configuration struct {
 	// MaxRequestBodySizeMB sets the maximum allowed request body size in megabytes for the HTTP server.
 	// Default is 4 (matching the fasthttp built-in default). Must be between 1 and 512.
 	MaxRequestBodySizeMB int `yaml:"max-request-body-size-mb" json:"max-request-body-size-mb"`
+
+	// EngineName is the inference engine backend being simulated. Currently only "vllm" is supported.
+	EngineName string `yaml:"engine" json:"engine"`
 }
 
 type LoraModule struct {
@@ -366,8 +369,10 @@ type LoraModule struct {
 	BaseModelName string `json:"base_model_name"`
 }
 
-func newConfig() *Configuration {
+// NewConfig returns a Configuration populated with its documented defaults.
+func NewConfig() *Configuration {
 	return &Configuration{
+		EngineName:                          "vllm",
 		IP:                                  os.Getenv(podIPEnv),
 		Port:                                8000,
 		MaxLoras:                            1,
@@ -409,13 +414,6 @@ func (c *Configuration) load(configFile string) error {
 
 	if err := yaml.Unmarshal(configBytes, &c); err != nil {
 		return fmt.Errorf("failed to unmarshal configuration: %s", err)
-	}
-
-	if err := c.unmarshalLoras(); err != nil {
-		return err
-	}
-	if err := c.unmarshalLoraFakeMetrics(); err != nil {
-		return err
 	}
 
 	return nil
@@ -485,41 +483,10 @@ func (c *Configuration) validate() error {
 	// RandomNormDuration to [0.3, 1.7] × mean, so an oversized std-dev cannot produce
 	// nonsensical values.
 
-	if c.KVCacheTransferTimePerToken < 0 {
-		return errors.New("kv-cache transfer time per token cannot be negative")
-	}
-	if c.KVCacheTransferTimeStdDev < 0 {
-		return errors.New("kv-cache transfer time standard deviation cannot be negative")
-	}
-	// No upper-bound check on KVCacheTransferTimeStdDev for the same reason: it is applied
-	// to the total transfer time (n × kv-cache-transfer-time-per-token), which depends on
-	// the prompt length n and is unknown at config time. Runtime clamping in
-	// RandomNormDuration handles oversized std-devs.
-
-	if c.KVCacheTransferLatency < 0 {
-		return errors.New("kv-cache transfer time cannot be negative")
-	}
-	if c.KVCacheTransferLatencyStdDev < 0 {
-		return errors.New("kv-cache transfer time standard deviation cannot be negative")
-	}
-	if float32(c.KVCacheTransferLatencyStdDev) > 0.3*float32(c.KVCacheTransferLatency) {
-		return errors.New("kv-cache transfer standard deviation cannot be more than 30% of kv-cache transfer")
-	}
-
 	if c.TimeFactorUnderLoad < 1.0 {
 		return errors.New("time factor under load cannot be less than 1.0")
 	}
 
-	if c.MaxLoras < 1 {
-		return errors.New("max LoRAs cannot be less than 1")
-	}
-	if c.MaxCPULoras == 0 {
-		// max CPU LoRAs by default is same as max LoRAs
-		c.MaxCPULoras = c.MaxLoras
-	}
-	if c.MaxCPULoras < c.MaxLoras {
-		return errors.New("max CPU LoRAs cannot be less than max LoRAs")
-	}
 	if c.MaxModelLen < 1 {
 		return errors.New("max model len cannot be less than 1")
 	}
@@ -530,15 +497,6 @@ func (c *Configuration) validate() error {
 
 	if c.MaxWaitingQueueLength < 0 {
 		return errors.New("max waiting queue size cannot be less than 0")
-	}
-
-	for _, lora := range c.LoraModules {
-		if lora.Name == "" {
-			return errors.New("empty LoRA name")
-		}
-		if lora.BaseModelName != "" && lora.BaseModelName != c.Model {
-			return fmt.Errorf("unknown base model '%s' for LoRA '%s'", lora.BaseModelName, lora.Name)
-		}
 	}
 
 	if c.MaxToolCallIntegerParam < c.MinToolCallIntegerParam {
@@ -561,22 +519,6 @@ func (c *Configuration) validate() error {
 	}
 	if c.ToolCallExtraCallProbability < 0 || c.ToolCallExtraCallProbability > 100 {
 		return errors.New("ToolCallExtraCallProbability should be between 0 and 100")
-	}
-
-	if c.TokenBlockSize != 8 && c.TokenBlockSize != 16 && c.TokenBlockSize != 32 &&
-		c.TokenBlockSize != 64 && c.TokenBlockSize != 128 {
-		return errors.New("token block size should be one of the following: 8, 16, 32, 64, 128")
-	}
-
-	if c.KVCacheSize < 0 {
-		return errors.New("KV cache size cannot be negative")
-	}
-	if c.EventBatchSize < 1 {
-		return errors.New("event batch size cannot less than 1")
-	}
-
-	if c.KVEventsReplayEndpoint != "" && c.KVEventsReplayQueueSize < 1 {
-		return errors.New("kv-events-replay-queue-size cannot be less than 1")
 	}
 
 	if c.FailureInjectionRate < 0 || c.FailureInjectionRate > 100 {
@@ -603,25 +545,12 @@ func (c *Configuration) validate() error {
 		}
 	}
 
-	if c.FakeMetrics != nil {
-		if err := c.FakeMetrics.validate(); err != nil {
-			return err
-		}
-		if c.FakeMetricsRefreshInterval <= 0 {
-			return errors.New("fake metrics refresh interval must be positive")
-		}
-	}
-
 	if c.DPSize < 1 || c.DPSize > 8 {
 		return errors.New("data parallel size must be between 1 and 8")
 	}
 
 	if c.Rank > 7 {
 		return errors.New("data parallel rank must be between 0 and 7")
-	}
-
-	if err := c.validateEndpointPortsDontCollide(); err != nil {
-		return err
 	}
 
 	if (c.SSLCertFile == "") != (c.SSLKeyFile == "") {
@@ -646,10 +575,6 @@ func (c *Configuration) validate() error {
 			c.LatencyCalculator, ConstantLatencyCalculator, PerPromptTokenLatencyCalculator)
 	}
 
-	if c.GlobalCacheHitThreshold < 0 || c.GlobalCacheHitThreshold > 1 {
-		return errors.New("global cache hit threshold must be between in range [0, 1]")
-	}
-
 	if c.DefaultEmbeddingDimensions < 1 {
 		return errors.New("default embedding dimensions must be at least 1")
 	}
@@ -658,40 +583,10 @@ func (c *Configuration) validate() error {
 		return fmt.Errorf("max-request-body-size-mb must be between 1 MB and 512 MB, got %d", c.MaxRequestBodySizeMB)
 	}
 
-	return nil
-}
-
-// validateEndpointPortsDontCollide ensures the ZMQ publish endpoint and the
-// KV-events-replay endpoint don't end up bound to the same port once each
-// rank's offset is applied.
-//
-// This holds even when data-parallel-rank is set to a single fixed value for
-// this process: the other ranks of the same cluster are still out there,
-// each running with their own fixed rank in 0..data-parallel-size-1 and the
-// same base endpoints, so this rank's ZMQ port can still collide with some
-// other rank's replay port (or vice versa). The check therefore always
-// spans the full 0..DPSize-1 range rather than narrowing to this process's
-// own rank.
-func (c *Configuration) validateEndpointPortsDontCollide() error {
-	if c.ZMQEndpoint == "" || c.KVEventsReplayEndpoint == "" {
-		return nil
+	if c.EngineName != "vllm" {
+		return fmt.Errorf("invalid engine '%s', currently only 'vllm' is supported", c.EngineName)
 	}
 
-	_, zmqPort, ok := ParseEndpointPort(c.ZMQEndpoint)
-	if !ok {
-		return nil
-	}
-	_, replayPort, ok := ParseEndpointPort(c.KVEventsReplayEndpoint)
-	if !ok {
-		return nil
-	}
-
-	// Ports occupied across ranks 0..DPSize-1: [port, port+DPSize-1].
-	maxRank := c.DPSize - 1
-	if zmqPort <= replayPort+maxRank && replayPort <= zmqPort+maxRank {
-		return fmt.Errorf("zmq-endpoint (%s) and kv-events-replay-endpoint (%s) ports collide"+
-			" once offset by data-parallel rank", c.ZMQEndpoint, c.KVEventsReplayEndpoint)
-	}
 	return nil
 }
 
@@ -819,6 +714,7 @@ func (c *Configuration) Update(body []byte) (*Configuration, *Configuration, boo
 	return next, update, latencyChanged, nil
 }
 
+// Copy returns a deep copy of c.
 func (c *Configuration) Copy() (*Configuration, error) {
 	var dst Configuration
 	data, err := json.Marshal(c)

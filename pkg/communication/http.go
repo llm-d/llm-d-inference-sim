@@ -62,7 +62,8 @@ func (c *Communication) newListener() (net.Listener, error) {
 
 // startHTTPServer builds and starts the HTTP server, returning the server instance and an error channel.
 // It does not handle shutdown — callers are responsible for calling server.Shutdown().
-func (c *Communication) startHTTPServer(ctx context.Context, listener net.Listener) (*fasthttp.Server, <-chan error, error) {
+// transport adds the active engine's own routes on top of the common ones registered here.
+func (c *Communication) startHTTPServer(ctx context.Context, listener net.Listener, transport Transport) (*fasthttp.Server, <-chan error, error) {
 	r := fasthttprouter.New()
 
 	// support completion APIs
@@ -72,29 +73,21 @@ func (c *Communication) startHTTPServer(ctx context.Context, listener net.Listen
 	r.POST("/v1/completions/render", c.HandleTextCompletionsRender)
 	r.POST("/v1/responses", c.HandleResponses)
 	r.POST("/v1/messages", c.HandleMessages)
-	r.POST("/inference/v1/generate", c.HandleGenerate)
 	if !c.runtime.Config().MMEncoderOnly {
 		r.POST("/v1/embeddings", c.HandleEmbeddings)
 	}
 	// supports /models API
 	r.GET("/v1/models", c.HandleModels)
-	// support load/unload of lora adapter
-	r.POST("/v1/load_lora_adapter", c.HandleLoadLora)
-	r.POST("/v1/unload_lora_adapter", c.HandleUnloadLora)
 	// supports /metrics prometheus API
 	r.GET("/metrics", fasthttpadaptor.NewFastHTTPHandler(promhttp.HandlerFor(c.processor.MetricsRegistry(), promhttp.HandlerOpts{})))
-	r.POST("/fake_metrics", c.HandleFakeMetrics)
 	// supports standard Kubernetes health and readiness checks
 	r.GET("/health", c.HandleHealth)
 	r.GET("/health/ready", c.HandleHealthReady)
-	// emulates vLLM's Mooncake bootstrap endpoint on the prefill pod; the routing sidecar queries it to resolve remote engine ids
-	r.GET("/query", c.HandleMooncakeQuery)
 	r.POST("/tokenize", c.HandleTokenize)
-	r.POST("/sleep", c.HandleSleep)
-	r.POST("/wake_up", c.HandleWakeUp)
-	r.GET("/is_sleeping", c.HandleIsSleeping)
 	r.GET("/admin/config", c.HandleGetAdminConfig)
 	r.POST("/admin/config", c.HandlePostAdminConfig)
+
+	transport.BindHTTP(r, c)
 
 	handler := r.Handler
 	if c.runtime.Config().LogHTTP {

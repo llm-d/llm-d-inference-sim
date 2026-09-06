@@ -89,6 +89,16 @@ type SimContext struct {
 	// they stay stable for the simulator's lifetime
 	mooncakeEnginesOnce sync.Once
 	mooncakeEngines     map[string]map[string]string
+	// Engine is the active engine, used by admin-config updates
+	// (ApplyConfigUpdate, below) to re-validate its own configuration fields
+	// the same way the initial configuration does. Set once before the
+	// simulator starts serving; nil is treated as "nothing to validate".
+	Engine Engine
+}
+
+// Engine validates the active engine's own configuration fields.
+type Engine interface {
+	ValidateConfig(cfg *common.Configuration) error
 }
 
 type latencyCalcHolder struct {
@@ -143,6 +153,11 @@ func (s *SimContext) ApplyConfigUpdate(body []byte) error {
 	next, update, latencyChanged, err := s.Config().Update(body)
 	if err != nil {
 		return err
+	}
+	if s.Engine != nil {
+		if err := s.Engine.ValidateConfig(next); err != nil {
+			return err
+		}
 	}
 	if update.FakeMetrics != nil {
 		if s.Config().FakeMetrics == nil {

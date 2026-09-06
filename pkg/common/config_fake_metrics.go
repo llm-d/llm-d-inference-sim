@@ -208,30 +208,9 @@ type LorasMetrics struct {
 	Timestamp float64 `json:"timestamp"`
 }
 
-func (c *Configuration) unmarshalFakeMetrics(fakeMetricsString string) error {
-	var metrics *FakeMetrics
-	if err := json.Unmarshal([]byte(fakeMetricsString), &metrics); err != nil {
-		return err
-	}
-	c.FakeMetrics = metrics
-	return nil
-}
-
-func (c *Configuration) unmarshalLoraFakeMetrics() error {
-	if c.FakeMetrics != nil {
-		c.FakeMetrics.LoraMetrics = make([]LorasMetrics, 0)
-		for _, jsonStr := range c.FakeMetrics.LorasString {
-			var lora LorasMetrics
-			if err := json.Unmarshal([]byte(jsonStr), &lora); err != nil {
-				return err
-			}
-			c.FakeMetrics.LoraMetrics = append(c.FakeMetrics.LoraMetrics, lora)
-		}
-	}
-	return nil
-}
-
-func (f *FakeMetrics) validate() error {
+// Validate checks the fake-metrics configuration. Exported for use by the
+// active engine's ValidateConfig (fake metrics are an engine-specific feature).
+func (f *FakeMetrics) Validate() error {
 	if (f.RunningRequests != nil && f.RunningRequests.FixedValue < 0) ||
 		(f.WaitingRequests != nil && f.WaitingRequests.FixedValue < 0) {
 		return errors.New("fake metrics request counters cannot be negative")
