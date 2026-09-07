@@ -71,10 +71,7 @@ type Transport interface {
 // service added via transport.BindGRPC).
 func (c *Communication) Start(ctx context.Context, transport Transport) error {
 	c.logger.V(logging.INFO).Info("Starting communication layer")
-	return c.start(ctx, transport)
-}
 
-func (c *Communication) start(ctx context.Context, transport Transport) error {
 	listener, err := c.newListener()
 	if err != nil {
 		c.logger.Error(err, "failed to create listener")
