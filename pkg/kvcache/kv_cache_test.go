@@ -251,17 +251,19 @@ var _ = Describe("KV cache", Ordered, func() {
 		ctx, cancel := context.WithCancel(context.Background())
 
 		config := &common.Configuration{
-			IP:                    localhost,
-			Port:                  1234,
-			Model:                 "model",
-			KVCacheSize:           test.cacheSize,
-			EventBatchSize:        1,
-			UseVllmMapEventFormat: useMapFormat,
+			IP:    localhost,
+			Port:  1234,
+			Model: "model",
+			KVCache: common.KVCacheConfig{
+				KVCacheSize:           test.cacheSize,
+				EventBatchSize:        1,
+				UseVllmMapEventFormat: useMapFormat,
+			},
 		}
 
 		topic := CreateKVEventsTopic(localhost, config.Port, config.Model)
 		sub, endpoint := common.CreateSub(ctx, topic)
-		config.ZMQEndpoint = endpoint
+		config.KVCache.ZMQEndpoint = endpoint
 		//nolint
 		defer sub.Close()
 
@@ -357,16 +359,18 @@ var _ = Describe("KV cache", Ordered, func() {
 			ctx, cancel := context.WithCancel(context.Background())
 
 			config := &common.Configuration{
-				IP:                    localhost,
-				Port:                  1234,
-				Model:                 "model",
-				KVCacheSize:           4,
-				UseVllmMapEventFormat: useMapFormat,
+				IP:    localhost,
+				Port:  1234,
+				Model: "model",
+				KVCache: common.KVCacheConfig{
+					KVCacheSize:           4,
+					UseVllmMapEventFormat: useMapFormat,
+				},
 			}
 
 			topic := CreateKVEventsTopic(localhost, config.Port, config.Model)
 			sub, endpoint := common.CreateSub(ctx, topic)
-			config.ZMQEndpoint = endpoint
+			config.KVCache.ZMQEndpoint = endpoint
 			//nolint
 			defer sub.Close()
 
@@ -456,17 +460,19 @@ var _ = Describe("KV cache", Ordered, func() {
 			ctx, cancel := context.WithCancel(context.Background())
 
 			config := &common.Configuration{
-				IP:                    localhost,
-				Port:                  1234,
-				Model:                 "model",
-				KVCacheSize:           10,
-				EventBatchSize:        1,
-				UseVllmMapEventFormat: useMapFormat,
+				IP:    localhost,
+				Port:  1234,
+				Model: "model",
+				KVCache: common.KVCacheConfig{
+					KVCacheSize:           10,
+					EventBatchSize:        1,
+					UseVllmMapEventFormat: useMapFormat,
+				},
 			}
 
 			topic := CreateKVEventsTopic(localhost, config.Port, config.Model)
 			sub, endpoint := common.CreateSub(ctx, topic)
-			config.ZMQEndpoint = endpoint
+			config.KVCache.ZMQEndpoint = endpoint
 			//nolint
 			defer sub.Close()
 
@@ -529,10 +535,10 @@ var _ = Describe("KV cache", Ordered, func() {
 			defer cancel()
 
 			config := common.Configuration{
-				IP:          localhost,
-				Port:        1234,
-				Model:       "model",
-				KVCacheSize: testCase.cacheSize,
+				IP:      localhost,
+				Port:    1234,
+				Model:   "model",
+				KVCache: common.KVCacheConfig{KVCacheSize: testCase.cacheSize},
 			}
 			blockCache, err := newBlockCache(ctx, &config, GinkgoLogr, nil)
 			Expect(err).NotTo(HaveOccurred())
@@ -609,10 +615,10 @@ var _ = Describe("KV cache", Ordered, func() {
 			defer cancel()
 
 			config := &common.Configuration{
-				IP:          localhost,
-				Port:        1234,
-				Model:       common.TestModelName,
-				KVCacheSize: 10,
+				IP:      localhost,
+				Port:    1234,
+				Model:   common.TestModelName,
+				KVCache: common.KVCacheConfig{KVCacheSize: 10},
 			}
 
 			blockCache, err := newBlockCache(ctx, config, GinkgoLogr, nil)
@@ -659,10 +665,10 @@ var _ = Describe("KV cache", Ordered, func() {
 			defer cancel()
 
 			config := &common.Configuration{
-				IP:          localhost,
-				Port:        1234,
-				Model:       common.TestModelName,
-				KVCacheSize: 10,
+				IP:      localhost,
+				Port:    1234,
+				Model:   common.TestModelName,
+				KVCache: common.KVCacheConfig{KVCacheSize: 10},
 			}
 
 			blockCache, err := newBlockCache(ctx, config, GinkgoLogr, nil)
@@ -689,10 +695,10 @@ var _ = Describe("KV cache", Ordered, func() {
 			defer cancel()
 
 			config := &common.Configuration{
-				IP:          localhost,
-				Port:        1234,
-				Model:       common.TestModelName,
-				KVCacheSize: 10,
+				IP:      localhost,
+				Port:    1234,
+				Model:   common.TestModelName,
+				KVCache: common.KVCacheConfig{KVCacheSize: 10},
 			}
 
 			blockCache, err := newBlockCache(ctx, config, GinkgoLogr, nil)
@@ -716,10 +722,10 @@ var _ = Describe("KV cache", Ordered, func() {
 			defer cancel()
 
 			config := &common.Configuration{
-				IP:          localhost,
-				Port:        1234,
-				Model:       common.TestModelName,
-				KVCacheSize: 4,
+				IP:      localhost,
+				Port:    1234,
+				Model:   common.TestModelName,
+				KVCache: common.KVCacheConfig{KVCacheSize: 4},
 			}
 
 			bCache, err := newBlockCache(ctx, config, GinkgoLogr, nil)
@@ -759,10 +765,10 @@ var _ = Describe("KV cache", Ordered, func() {
 			defer cancel()
 
 			config := &common.Configuration{
-				IP:          localhost,
-				Port:        1234,
-				Model:       common.TestModelName,
-				KVCacheSize: 3,
+				IP:      localhost,
+				Port:    1234,
+				Model:   common.TestModelName,
+				KVCache: common.KVCacheConfig{KVCacheSize: 3},
 			}
 
 			blockCache, err := newBlockCache(ctx, config, GinkgoLogr, nil)
@@ -798,10 +804,10 @@ var _ = Describe("KV cache", Ordered, func() {
 			defer cancel()
 
 			config := &common.Configuration{
-				IP:          localhost,
-				Port:        1234,
-				Model:       common.TestModelName,
-				KVCacheSize: 4,
+				IP:      localhost,
+				Port:    1234,
+				Model:   common.TestModelName,
+				KVCache: common.KVCacheConfig{KVCacheSize: 4},
 			}
 
 			blockCache, err := newBlockCache(ctx, config, GinkgoLogr, nil)
@@ -845,17 +851,19 @@ var _ = Describe("KV cache", Ordered, func() {
 			ctx, cancel := context.WithCancel(context.Background())
 
 			config := &common.Configuration{
-				IP:                    localhost,
-				Port:                  1234,
-				Model:                 common.TestModelName,
-				KVCacheSize:           10,
-				EventBatchSize:        1,
-				UseVllmMapEventFormat: useMapFormat,
+				IP:    localhost,
+				Port:  1234,
+				Model: common.TestModelName,
+				KVCache: common.KVCacheConfig{
+					KVCacheSize:           10,
+					EventBatchSize:        1,
+					UseVllmMapEventFormat: useMapFormat,
+				},
 			}
 
 			topic := CreateKVEventsTopic(localhost, config.Port, config.Model)
 			sub, endpoint := common.CreateSub(ctx, topic)
-			config.ZMQEndpoint = endpoint
+			config.KVCache.ZMQEndpoint = endpoint
 			//nolint
 			defer sub.Close()
 
@@ -936,17 +944,19 @@ var _ = Describe("KV cache", Ordered, func() {
 			ctx, cancel := context.WithCancel(context.Background())
 
 			config := &common.Configuration{
-				IP:                    localhost,
-				Port:                  1234,
-				Model:                 common.TestModelName,
-				KVCacheSize:           10,
-				EventBatchSize:        1,
-				UseVllmMapEventFormat: useMapFormat,
+				IP:    localhost,
+				Port:  1234,
+				Model: common.TestModelName,
+				KVCache: common.KVCacheConfig{
+					KVCacheSize:           10,
+					EventBatchSize:        1,
+					UseVllmMapEventFormat: useMapFormat,
+				},
 			}
 
 			topic := CreateKVEventsTopic(localhost, config.Port, config.Model)
 			sub, endpoint := common.CreateSub(ctx, topic)
-			config.ZMQEndpoint = endpoint
+			config.KVCache.ZMQEndpoint = endpoint
 			//nolint
 			defer sub.Close()
 

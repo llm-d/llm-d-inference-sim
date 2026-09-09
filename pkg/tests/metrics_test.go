@@ -944,7 +944,7 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 		It("Should send correct kv cache config metrics", func() {
 			ctx := context.TODO()
 			args := []string{"cmd", "--model", common.QwenModelName, "--mode", common.ModeRandom,
-				"--kv-cache-size", "16", "--block-size", "8"}
+				"--kv-cache-size", "16", "--block-size", "8", "--enable-kvcache"}
 
 			client, err := startServerWithArgsAndEnv(ctx, common.ModeRandom, args, map[string]string{"POD_IP": "localhost"})
 			Expect(err).NotTo(HaveOccurred())

@@ -25,7 +25,9 @@ Add `--enable-kvcache true` (CLI) or `enable-kvcache: true` (YAML config):
 
 ## Configuration options
 
-All KV cache parameters can be set via CLI flags or the equivalent YAML keys (names are identical).
+All KV cache parameters can be set via CLI flags or the equivalent YAML keys (names are identical). In a YAML config file, all of these except `global-cache-hit-threshold` may be nested under a top-level `kvcache:` key (see the example below); the old flat top-level keys are still accepted for backward compatibility.
+
+The defaults below apply only once `enable-kvcache` is true. When it is `false` (the default), every other field in this table reports as zero/empty regardless of what was passed on the command line or in the config file, since none of them have any effect while the cache is disabled.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
@@ -44,13 +46,14 @@ All KV cache parameters can be set via CLI flags or the equivalent YAML keys (na
 
 ```yaml
 model: "Qwen/Qwen2.5-1.5B-Instruct"
-enable-kvcache: true
-kv-cache-size: 2048
-block-size: 16
-hash-seed: "42"
-zmq-endpoint: "tcp://127.0.0.1:5557"
-event-batch-size: 32
-use-vllm-map-event-format: true
+kvcache:
+  enable-kvcache: true
+  kv-cache-size: 2048
+  block-size: 16
+  hash-seed: "42"
+  zmq-endpoint: "tcp://127.0.0.1:5557"
+  event-batch-size: 32
+  use-vllm-map-event-format: true
 global-cache-hit-threshold: 0.5
 # latency parameters that interact with the KV cache
 prefill-overhead: 10ms

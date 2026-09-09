@@ -200,7 +200,7 @@ func (s *SimContext) initialize(ctx context.Context) error {
 
 	// KVCache doesn't support images at the moment, so in mm-encoder only mode
 	// we don't start it.
-	if s.Config().EnableKVCache && !s.Config().MMEncoderOnly {
+	if s.Config().KVCache.EnableKVCache && !s.Config().MMEncoderOnly {
 		s.kvcacheHelper, err = kvcache.NewKVCacheHelper(ctx, s.Config(), s.logger,
 			s.metrics.kvCacheUsageChan, s.metrics.prefixCacheStatsChan, s.Tokenizer)
 		if err != nil {
@@ -305,7 +305,7 @@ func (s *SimContext) Sleep() bool {
 	s.sleepMutex.Lock()
 	defer s.sleepMutex.Unlock()
 	s.isSleeping = true
-	if cfg.EnableKVCache {
+	if cfg.KVCache.EnableKVCache {
 		s.kvcacheHelper.Discard()
 	}
 	return true
@@ -316,7 +316,7 @@ func (s *SimContext) Sleep() bool {
 func (s *SimContext) WakeUp(activateKVCache bool) {
 	s.sleepMutex.Lock()
 	defer s.sleepMutex.Unlock()
-	if s.Config().EnableKVCache && activateKVCache {
+	if s.Config().KVCache.EnableKVCache && activateKVCache {
 		s.kvcacheHelper.Activate()
 	}
 	s.isSleeping = false
@@ -381,7 +381,7 @@ func (s *SimContext) GetResponseTokens(req api.Request) (*api.Tokenized, string,
 
 // KVCacheOnRequestStart records req's arrival in the KV cache, if enabled.
 func (s *SimContext) KVCacheOnRequestStart(req api.Request) (kvcache.PrefixCacheStats, *api.Error) {
-	if !s.Config().EnableKVCache {
+	if !s.Config().KVCache.EnableKVCache {
 		return kvcache.PrefixCacheStats{}, nil
 	}
 	stat, err := s.kvcacheHelper.OnRequestStart(req)
@@ -394,7 +394,7 @@ func (s *SimContext) KVCacheOnRequestStart(req api.Request) (kvcache.PrefixCache
 
 // KVCacheOnRequestEnd records the request's completion in the KV cache, if enabled.
 func (s *SimContext) KVCacheOnRequestEnd(requestID string) {
-	if !s.Config().EnableKVCache {
+	if !s.Config().KVCache.EnableKVCache {
 		return
 	}
 	if err := s.kvcacheHelper.OnRequestEnd(requestID); err != nil {

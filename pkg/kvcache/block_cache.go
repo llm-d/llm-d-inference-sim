@@ -72,16 +72,17 @@ func newBlockCache(ctx context.Context, config *common.Configuration, logger log
 	if config.IP == "" {
 		return nil, errors.New("IP should be defined in the environment (POD_IP)")
 	}
+	kvCfg := &config.KVCache
 
 	eChan := common.Channel[EventData]{
-		Channel: make(chan EventData, 10*config.KVCacheSize),
+		Channel: make(chan EventData, 10*kvCfg.KVCacheSize),
 		Name:    "block cache eventChan",
 	}
 
 	var publisher *common.Publisher
 	var err error
-	if config.ZMQEndpoint != "" {
-		publisher, err = common.NewPublisher(ctx, config.ZMQEndpoint)
+	if kvCfg.ZMQEndpoint != "" {
+		publisher, err = common.NewPublisher(ctx, kvCfg.ZMQEndpoint)
 		if err != nil {
 			return nil, err
 		}
@@ -90,12 +91,12 @@ func newBlockCache(ctx context.Context, config *common.Configuration, logger log
 	topic := CreateKVEventsTopic(config.IP, config.Port, config.Model)
 
 	var replayer *kvEventsReplayer
-	if config.KVEventsReplayEndpoint != "" {
-		replayer = newKVEventsReplayer(config.KVEventsReplayEndpoint, topic, config.KVEventsReplayQueueSize, logger)
+	if kvCfg.KVEventsReplayEndpoint != "" {
+		replayer = newKVEventsReplayer(kvCfg.KVEventsReplayEndpoint, topic, kvCfg.KVEventsReplayQueueSize, logger)
 	}
 
 	eventSender := NewKVEventSender(publisher, topic,
-		eChan, config.EventBatchSize, config.TokenBlockSize, delay, config.UseVllmMapEventFormat, config.Rank, logger, replayer)
+		eChan, kvCfg.EventBatchSize, kvCfg.TokenBlockSize, delay, kvCfg.UseVllmMapEventFormat, config.Rank, logger, replayer)
 
 	bCache := blockCache{
 		requestToBlocks: make(map[string][]blockKey),
@@ -103,7 +104,7 @@ func newBlockCache(ctx context.Context, config *common.Configuration, logger log
 		unusedBlocks:    make(map[blockKey]time.Time),
 		blockToTokens:   make(map[blockKey][]uint32),
 		loadedModels:    make(map[string]struct{}),
-		maxBlocks:       config.KVCacheSize,
+		maxBlocks:       kvCfg.KVCacheSize,
 		eventChan:       eChan,
 		usageChan:       usageChan,
 		eventSender:     eventSender,

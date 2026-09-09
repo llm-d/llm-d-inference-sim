@@ -144,11 +144,11 @@ func Start(ctx context.Context, config *common.Configuration, logger logr.Logger
 			effectiveRank = config.Rank
 		}
 		if effectiveRank > 0 {
-			if config.ZMQEndpoint != "" {
-				rankConfig.ZMQEndpoint = common.OffsetEndpointPort(config.ZMQEndpoint, effectiveRank)
+			if config.KVCache.ZMQEndpoint != "" {
+				rankConfig.KVCache.ZMQEndpoint = common.OffsetEndpointPort(config.KVCache.ZMQEndpoint, effectiveRank)
 			}
-			if config.KVEventsReplayEndpoint != "" {
-				rankConfig.KVEventsReplayEndpoint = common.OffsetEndpointPort(config.KVEventsReplayEndpoint, effectiveRank)
+			if config.KVCache.KVEventsReplayEndpoint != "" {
+				rankConfig.KVCache.KVEventsReplayEndpoint = common.OffsetEndpointPort(config.KVCache.KVEventsReplayEndpoint, effectiveRank)
 			}
 		}
 		// Store the effective rank in the per-rank config so downstream

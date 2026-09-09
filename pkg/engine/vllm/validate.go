@@ -68,20 +68,31 @@ func (Engine) ValidateConfig(cfg *common.Configuration) error {
 		}
 	}
 
-	if cfg.TokenBlockSize != 8 && cfg.TokenBlockSize != 16 && cfg.TokenBlockSize != 32 &&
-		cfg.TokenBlockSize != 64 && cfg.TokenBlockSize != 128 {
-		return errors.New("token block size should be one of the following: 8, 16, 32, 64, 128")
-	}
+	if cfg.KVCache.EnableKVCache {
+		if cfg.KVCache.TokenBlockSize != 8 && cfg.KVCache.TokenBlockSize != 16 && cfg.KVCache.TokenBlockSize != 32 &&
+			cfg.KVCache.TokenBlockSize != 64 && cfg.KVCache.TokenBlockSize != 128 {
+			return errors.New("token block size should be one of the following: 8, 16, 32, 64, 128")
+		}
 
-	if cfg.KVCacheSize < 0 {
-		return errors.New("KV cache size cannot be negative")
-	}
-	if cfg.EventBatchSize < 1 {
-		return errors.New("event batch size cannot less than 1")
-	}
+		if cfg.KVCache.KVCacheSize < 0 {
+			return errors.New("KV cache size cannot be negative")
+		}
+		if cfg.KVCache.EventBatchSize < 1 {
+			return errors.New("event batch size cannot less than 1")
+		}
 
-	if cfg.KVEventsReplayEndpoint != "" && cfg.KVEventsReplayQueueSize < 1 {
-		return errors.New("kv-events-replay-queue-size cannot be less than 1")
+		if cfg.KVCache.KVEventsReplayEndpoint != "" && cfg.KVCache.KVEventsReplayQueueSize < 1 {
+			return errors.New("kv-events-replay-queue-size cannot be less than 1")
+		}
+
+		if err := validateEndpointPortsDontCollide(cfg); err != nil {
+			return err
+		}
+	} else {
+		// KV cache is disabled: its sizing/hashing/eventing settings are unused,
+		// so report them as all-zero rather than leaking whatever defaults or
+		// unused flags/YAML values happened to be set.
+		cfg.KVCache = common.KVCacheConfig{}
 	}
 
 	if cfg.FakeMetrics != nil {
@@ -91,10 +102,6 @@ func (Engine) ValidateConfig(cfg *common.Configuration) error {
 		if cfg.FakeMetricsRefreshInterval <= 0 {
 			return errors.New("fake metrics refresh interval must be positive")
 		}
-	}
-
-	if err := validateEndpointPortsDontCollide(cfg); err != nil {
-		return err
 	}
 
 	if cfg.GlobalCacheHitThreshold < 0 || cfg.GlobalCacheHitThreshold > 1 {
@@ -116,15 +123,15 @@ func (Engine) ValidateConfig(cfg *common.Configuration) error {
 // spans the full 0..DPSize-1 range rather than narrowing to this process's
 // own rank.
 func validateEndpointPortsDontCollide(cfg *common.Configuration) error {
-	if cfg.ZMQEndpoint == "" || cfg.KVEventsReplayEndpoint == "" {
+	if cfg.KVCache.ZMQEndpoint == "" || cfg.KVCache.KVEventsReplayEndpoint == "" {
 		return nil
 	}
 
-	_, zmqPort, ok := common.ParseEndpointPort(cfg.ZMQEndpoint)
+	_, zmqPort, ok := common.ParseEndpointPort(cfg.KVCache.ZMQEndpoint)
 	if !ok {
 		return nil
 	}
-	_, replayPort, ok := common.ParseEndpointPort(cfg.KVEventsReplayEndpoint)
+	_, replayPort, ok := common.ParseEndpointPort(cfg.KVCache.KVEventsReplayEndpoint)
 	if !ok {
 		return nil
 	}
@@ -133,7 +140,7 @@ func validateEndpointPortsDontCollide(cfg *common.Configuration) error {
 	maxRank := cfg.DPSize - 1
 	if zmqPort <= replayPort+maxRank && replayPort <= zmqPort+maxRank {
 		return fmt.Errorf("zmq-endpoint (%s) and kv-events-replay-endpoint (%s) ports collide"+
-			" once offset by data-parallel rank", cfg.ZMQEndpoint, cfg.KVEventsReplayEndpoint)
+			" once offset by data-parallel rank", cfg.KVCache.ZMQEndpoint, cfg.KVCache.KVEventsReplayEndpoint)
 	}
 	return nil
 }

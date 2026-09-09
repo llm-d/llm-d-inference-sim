@@ -215,35 +215,13 @@ type Configuration struct {
 	// a value of 100 always produces len(availableTools) calls. Optional, defaults to 45.
 	ToolCallExtraCallProbability int `yaml:"tool-call-extra-call-probability" json:"tool-call-extra-call-probability"`
 
-	// EnableKVCache defines if kv cache feature will be enabled
-	EnableKVCache bool `yaml:"enable-kvcache" json:"enable-kvcache"`
-	//  KVCacheSize is the maximum number of token blocks in kv cache, the default value is 1024
-	KVCacheSize int `yaml:"kv-cache-size" json:"kv-cache-size"`
 	// GlobalCacheHitThreshold is the default cache hit threshold (0-1] for all requests.
 	// If a request specifies cache_hit_threshold, it takes precedence over this global value.
 	GlobalCacheHitThreshold float64 `yaml:"global-cache-hit-threshold" json:"global-cache-hit-threshold"`
 
-	// TokenBlockSize is token block size for contiguous chunks of tokens, possible values: 8,16,32,64,128, defaults to 16
-	TokenBlockSize int `yaml:"block-size" json:"block-size"`
-	// HashSeed is the seed for hash generation. Effective value follows configuration precedence in the docs (command-line --hash-seed, else PYTHONHASHSEED, else YAML, else default).
-	HashSeed string `yaml:"hash-seed" json:"hash-seed"`
-
-	// ZMQEndpoint is the ZMQ address to publish events, the default value is tcp://localhost:5557
-	ZMQEndpoint string `yaml:"zmq-endpoint" json:"zmq-endpoint"`
-
-	// KVEventsReplayEndpoint is the ZMQ ROUTER address to bind for receiving KV events replay requests.
-	// Empty (default) disables the replay listener. Example: "tcp://*:5558"
-	KVEventsReplayEndpoint string `yaml:"kv-events-replay-endpoint" json:"kv-events-replay-endpoint"`
-
-	// KVEventsReplayQueueSize is the max number of event batches held in the replay queue; oldest dropped when full. Defaults to 1024.
-	KVEventsReplayQueueSize int `yaml:"kv-events-replay-queue-size" json:"kv-events-replay-queue-size"`
-
-	// EventBatchSize is the maximum number of kv-cache events to be sent together, defaults to 16
-	EventBatchSize int `yaml:"event-batch-size" json:"event-batch-size"`
-
-	// UseVllmMapEventFormat encodes KV cache events as msgpack maps with named fields (vLLM PR #42892 format)
-	// instead of the legacy positional array format. Default is false (legacy array format).
-	UseVllmMapEventFormat bool `yaml:"use-vllm-map-event-format" json:"use-vllm-map-event-format"`
+	// KVCache groups KV-cache sizing, hashing, and ZMQ event settings. KV-cache
+	// transfer latencies and the global cache-hit threshold are configured separately.
+	KVCache KVCacheConfig `yaml:"kvcache" json:"kvcache"`
 
 	// FakeMetrics is a set of metrics to send to Prometheus instead of the real data
 	FakeMetrics *FakeMetrics `yaml:"fake-metrics" json:"fake-metrics" admin:"configurable"`
@@ -369,6 +347,40 @@ type LoraModule struct {
 	BaseModelName string `json:"base_model_name"`
 }
 
+// KVCacheConfig groups the KV-cache sizing, hashing, and ZMQ event settings.
+// When EnableKVCache is false, every other field is reset to its zero value,
+// since the rest of the struct is unused while the cache is disabled.
+type KVCacheConfig struct {
+	// EnableKVCache defines if kv cache feature will be enabled
+	EnableKVCache bool `yaml:"enable-kvcache" json:"enable-kvcache"`
+
+	//  KVCacheSize is the maximum number of token blocks in kv cache, the default value is 1024
+	KVCacheSize int `yaml:"kv-cache-size" json:"kv-cache-size"`
+
+	// TokenBlockSize is token block size for contiguous chunks of tokens, possible values: 8,16,32,64,128, defaults to 16
+	TokenBlockSize int `yaml:"block-size" json:"block-size"`
+
+	// HashSeed is the seed for hash generation. Effective value follows configuration precedence in the docs (command-line --hash-seed, else PYTHONHASHSEED, else YAML, else default).
+	HashSeed string `yaml:"hash-seed" json:"hash-seed"`
+
+	// ZMQEndpoint is the ZMQ address to publish events, the default value is tcp://localhost:5557
+	ZMQEndpoint string `yaml:"zmq-endpoint" json:"zmq-endpoint"`
+
+	// KVEventsReplayEndpoint is the ZMQ ROUTER address to bind for receiving KV events replay requests.
+	// Empty (default) disables the replay listener. Example: "tcp://*:5558"
+	KVEventsReplayEndpoint string `yaml:"kv-events-replay-endpoint" json:"kv-events-replay-endpoint"`
+
+	// KVEventsReplayQueueSize is the max number of event batches held in the replay queue; oldest dropped when full. Defaults to 1024.
+	KVEventsReplayQueueSize int `yaml:"kv-events-replay-queue-size" json:"kv-events-replay-queue-size"`
+
+	// EventBatchSize is the maximum number of kv-cache events to be sent together, defaults to 16
+	EventBatchSize int `yaml:"event-batch-size" json:"event-batch-size"`
+
+	// UseVllmMapEventFormat encodes KV cache events as msgpack maps with named fields (vLLM PR #42892 format)
+	// instead of the legacy positional array format. Default is false (legacy array format).
+	UseVllmMapEventFormat bool `yaml:"use-vllm-map-event-format" json:"use-vllm-map-event-format"`
+}
+
 // NewConfig returns a Configuration populated with its documented defaults.
 func NewConfig() *Configuration {
 	return &Configuration{
@@ -389,20 +401,22 @@ func NewConfig() *Configuration {
 		ToolCallNotRequiredParamProbability: 50,
 		ObjectToolCallNotRequiredParamProbability: 50,
 		ToolCallExtraCallProbability:              45,
-		KVCacheSize:                               1024,
-		TokenBlockSize:                            16,
-		ZMQEndpoint:                               "tcp://127.0.0.1:5557",
-		KVEventsReplayQueueSize:                   1024,
-		EventBatchSize:                            16,
-		DPSize:                                    1,
-		Rank:                                      -1,
-		DatasetTableName:                          DefaultDSTableName,
-		DefaultEmbeddingDimensions:                384,
-		FakeMetricsRefreshInterval:                100 * time.Millisecond,
-		MaxRequestBodySizeMB:                      4,
-		RenderURL:                                 "",
-		RenderTimeout:                             30 * time.Second,
-		MMRenderTimeout:                           60 * time.Second,
+		KVCache: KVCacheConfig{
+			KVCacheSize:             1024,
+			TokenBlockSize:          16,
+			ZMQEndpoint:             "tcp://127.0.0.1:5557",
+			KVEventsReplayQueueSize: 1024,
+			EventBatchSize:          16,
+		},
+		DPSize:                     1,
+		Rank:                       -1,
+		DatasetTableName:           DefaultDSTableName,
+		DefaultEmbeddingDimensions: 384,
+		FakeMetricsRefreshInterval: 100 * time.Millisecond,
+		MaxRequestBodySizeMB:       4,
+		RenderURL:                  "",
+		RenderTimeout:              30 * time.Second,
+		MMRenderTimeout:            60 * time.Second,
 	}
 }
 
@@ -412,11 +426,45 @@ func (c *Configuration) load(configFile string) error {
 		return fmt.Errorf("failed to read configuration file: %s", err)
 	}
 
-	if err := yaml.Unmarshal(configBytes, &c); err != nil {
+	var raw map[string]any
+	if err := yaml.Unmarshal(configBytes, &raw); err != nil {
+		return fmt.Errorf("failed to unmarshal configuration: %s", err)
+	}
+	foldLegacyKVCacheKeys(raw)
+
+	mergedBytes, err := yaml.Marshal(raw)
+	if err != nil {
+		return fmt.Errorf("failed to re-marshal configuration: %s", err)
+	}
+
+	if err := yaml.Unmarshal(mergedBytes, c); err != nil {
 		return fmt.Errorf("failed to unmarshal configuration: %s", err)
 	}
 
 	return nil
+}
+
+// foldLegacyKVCacheKeys moves top-level kv-cache keys (the flat layout used
+// before kv-cache settings were grouped under "kvcache") into the nested
+// "kvcache" block in place, so config files using either layout load the
+// same way. A key already present in the nested block takes precedence over
+// its flat counterpart.
+func foldLegacyKVCacheKeys(raw map[string]any) {
+	nested, _ := raw["kvcache"].(map[string]any)
+	if nested == nil {
+		nested = map[string]any{}
+	}
+	for _, key := range kvCacheYAMLKeys {
+		if v, ok := raw[key]; ok {
+			if _, exists := nested[key]; !exists {
+				nested[key] = v
+			}
+			delete(raw, key)
+		}
+	}
+	if len(nested) > 0 {
+		raw["kvcache"] = nested
+	}
 }
 
 func (c *Configuration) validate() error {
@@ -598,11 +646,14 @@ func (c *Configuration) SSLEnabled() bool {
 // durationFields holds the JSON key names of all time.Duration fields in Configuration.
 // configurableFields maps each admin-configurable JSON field key to its rebuild tag
 // (value of the rebuild struct tag, e.g. "latency"), or "" for fields with no rebuild tag.
-// Both are populated once at init via reflection so there is no static list to
-// keep in sync with the struct.
+// kvCacheYAMLKeys holds the YAML key names of every KVCacheConfig field, used by
+// load() to fold legacy flat top-level kv-cache keys into the nested "kvcache" block.
+// All three are populated once at init via reflection so there is no static list to
+// keep in sync with the structs.
 var (
 	durationFields     map[string]bool
 	configurableFields map[string]string
+	kvCacheYAMLKeys    []string
 )
 
 func init() {
@@ -622,6 +673,16 @@ func init() {
 		if f.Tag.Get("admin") == "configurable" {
 			configurableFields[jsonKey] = f.Tag.Get("rebuild")
 		}
+	}
+
+	kt := reflect.TypeOf(KVCacheConfig{})
+	for i := range kt.NumField() {
+		f := kt.Field(i)
+		yamlKey := strings.SplitN(f.Tag.Get("yaml"), ",", 2)[0]
+		if yamlKey == "" || yamlKey == "-" {
+			continue
+		}
+		kvCacheYAMLKeys = append(kvCacheYAMLKeys, yamlKey)
 	}
 }
 

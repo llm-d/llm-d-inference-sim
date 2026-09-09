@@ -39,17 +39,17 @@ func (Engine) BindFlags(f *pflag.FlagSet, cfg *common.Configuration) error {
 	f.DurationVar(&cfg.KVCacheTransferLatency, "kv-cache-transfer-latency", cfg.KVCacheTransferLatency, "Time for KV-cache transfer from a remote vLLM, e.g. 100ms")
 	f.DurationVar(&cfg.KVCacheTransferLatencyStdDev, "kv-cache-transfer-latency-std-dev", cfg.KVCacheTransferLatencyStdDev, "Standard deviation for time for KV-cache transfer from a remote vLLM, e.g. 100ms")
 
-	f.BoolVar(&cfg.EnableKVCache, "enable-kvcache", cfg.EnableKVCache, "Defines if KV cache feature is enabled")
-	f.IntVar(&cfg.KVCacheSize, "kv-cache-size", cfg.KVCacheSize, "Maximum number of token blocks in kv cache")
+	f.BoolVar(&cfg.KVCache.EnableKVCache, "enable-kvcache", cfg.KVCache.EnableKVCache, "Defines if KV cache feature is enabled")
+	f.IntVar(&cfg.KVCache.KVCacheSize, "kv-cache-size", cfg.KVCache.KVCacheSize, "Maximum number of token blocks in kv cache")
 	f.Float64Var(&cfg.GlobalCacheHitThreshold, "global-cache-hit-threshold", cfg.GlobalCacheHitThreshold, "Default cache hit threshold [0, 1] for all requests. If a request specifies cache_hit_threshold, it takes precedence")
-	f.IntVar(&cfg.TokenBlockSize, "block-size", cfg.TokenBlockSize, "Token block size for contiguous chunks of tokens, possible values: 8,16,32,64,128")
-	f.StringVar(&cfg.HashSeed, "hash-seed", cfg.HashSeed,
+	f.IntVar(&cfg.KVCache.TokenBlockSize, "block-size", cfg.KVCache.TokenBlockSize, "Token block size for contiguous chunks of tokens, possible values: 8,16,32,64,128")
+	f.StringVar(&cfg.KVCache.HashSeed, "hash-seed", cfg.KVCache.HashSeed,
 		"Seed for hash generation (if omitted on the command line, "+common.PythonHashSeedEnv+" may set it; see docs)")
-	f.StringVar(&cfg.ZMQEndpoint, "zmq-endpoint", cfg.ZMQEndpoint, "ZMQ address to publish events")
-	f.StringVar(&cfg.KVEventsReplayEndpoint, "kv-events-replay-endpoint", cfg.KVEventsReplayEndpoint, "ZMQ ROUTER address to bind for receiving KV events replay requests (empty disables)")
-	f.IntVar(&cfg.KVEventsReplayQueueSize, "kv-events-replay-queue-size", cfg.KVEventsReplayQueueSize, "Max number of event batches held in the replay queue; oldest dropped when full")
-	f.IntVar(&cfg.EventBatchSize, "event-batch-size", cfg.EventBatchSize, "Maximum number of kv-cache events to be sent together")
-	f.BoolVar(&cfg.UseVllmMapEventFormat, "use-vllm-map-event-format", cfg.UseVllmMapEventFormat, "Encode KV cache events as msgpack maps with named fields (vLLM PR #42892 format) instead of positional arrays")
+	f.StringVar(&cfg.KVCache.ZMQEndpoint, "zmq-endpoint", cfg.KVCache.ZMQEndpoint, "ZMQ address to publish events")
+	f.StringVar(&cfg.KVCache.KVEventsReplayEndpoint, "kv-events-replay-endpoint", cfg.KVCache.KVEventsReplayEndpoint, "ZMQ ROUTER address to bind for receiving KV events replay requests (empty disables)")
+	f.IntVar(&cfg.KVCache.KVEventsReplayQueueSize, "kv-events-replay-queue-size", cfg.KVCache.KVEventsReplayQueueSize, "Max number of event batches held in the replay queue; oldest dropped when full")
+	f.IntVar(&cfg.KVCache.EventBatchSize, "event-batch-size", cfg.KVCache.EventBatchSize, "Maximum number of kv-cache events to be sent together")
+	f.BoolVar(&cfg.KVCache.UseVllmMapEventFormat, "use-vllm-map-event-format", cfg.KVCache.UseVllmMapEventFormat, "Encode KV cache events as msgpack maps with named fields (vLLM PR #42892 format) instead of positional arrays")
 
 	common.AddToggle(f, &cfg.EnableSleepMode, "enable-sleep-mode", "Enable sleep mode", "Disable sleep mode")
 

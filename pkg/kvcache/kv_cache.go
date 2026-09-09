@@ -54,9 +54,9 @@ func NewKVCacheHelper(ctx context.Context, config *common.Configuration, logger 
 	}
 
 	tokenProcConfig := kvblock.DefaultTokenProcessorConfig()
-	tokenProcConfig.BlockSizeTokens = config.TokenBlockSize
-	if config.HashSeed != "" {
-		tokenProcConfig.HashSeed = config.HashSeed
+	tokenProcConfig.BlockSizeTokens = config.KVCache.TokenBlockSize
+	if config.KVCache.HashSeed != "" {
+		tokenProcConfig.HashSeed = config.KVCache.HashSeed
 	}
 	tokensProcessor, err := kvblock.NewChunkedTokenDatabase(tokenProcConfig)
 	if err != nil {
@@ -73,7 +73,7 @@ func NewKVCacheHelper(ctx context.Context, config *common.Configuration, logger 
 		tokensProcessor:      tokensProcessor,
 		blockCache:           blockCache,
 		logger:               logger,
-		blockSize:            config.TokenBlockSize,
+		blockSize:            config.KVCache.TokenBlockSize,
 		prefixCacheStatsChan: prefixCacheStatsChan,
 	}, nil
 }

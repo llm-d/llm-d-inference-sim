@@ -76,6 +76,8 @@ For a detailed explanation of how the simulator models inference time and what e
 
 
 ## KV cache
+Command-line flag names are as listed below. In a YAML config file, these settings (all except `global-cache-hit-threshold`, which stays top-level) may be nested under a top-level `kvcache:` key using the same key names; the old flat top-level keys are still accepted for backward compatibility. See [KV Cache Guide](kv-cache.md#configuration-options) for an example.
+
 - `enable-kvcache`: if true, the KV cache support will be enabled in the simulator. In this case, the KV cache will be simulated, and ZMQ events will be published when a KV cache block is added or evicted.
 - `kv-cache-size`: the maximum number of token blocks in kv cache
 - `global-cache-hit-threshold`: default cache hit threshold [0, 1] for all requests. If a request specifies cache_hit_threshold, it takes precedence over this global value

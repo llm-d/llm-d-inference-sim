@@ -270,7 +270,7 @@ func ParseCommandParamsAndLoadConfig(eng Engine) (*Configuration, error) {
 	// precedence is handled here alongside model's, on the same FlagSet.
 	if !f.Changed("hash-seed") {
 		if v := os.Getenv(PythonHashSeedEnv); v != "" {
-			config.HashSeed = v
+			config.KVCache.HashSeed = v
 		}
 	}
 

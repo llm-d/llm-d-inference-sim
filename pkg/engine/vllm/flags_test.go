@@ -39,6 +39,10 @@ func createSimConfig(args []string) (*common.Configuration, error) {
 
 func createConfigWithModel(model string, servedModelNames []string) *common.Configuration {
 	c := common.NewConfig()
+	// KV cache is disabled by default, and a disabled cache reports its
+	// sizing/hashing/eventing fields as all-zero; tests that enable it
+	// restore common.NewConfig().KVCache explicitly.
+	c.KVCache = common.KVCacheConfig{}
 
 	c.Model = model
 	if len(servedModelNames) > 0 {
@@ -112,13 +116,15 @@ var _ = Describe("Simulator configuration", func() {
 		"{\"name\":\"lora3\",\"path\":\"/path/to/lora3\"}",
 		"{\"name\":\"lora4\",\"path\":\"/path/to/lora4\"}",
 	}
-	c.EventBatchSize = 5
+	c.KVCache = common.NewConfig().KVCache
+	c.KVCache.EnableKVCache = true
+	c.KVCache.EventBatchSize = 5
 	test = testCase{
 		name: "config file with command line args",
 		args: []string{"cmd", "--model", common.TestModelName, "--config", "../../../manifests/config.yaml", "--port", "8002",
 			"--served-model-name", "alias1", "alias2", "--seed", "100",
 			"--lora-modules", "{\"name\":\"lora3\",\"path\":\"/path/to/lora3\"}", "{\"name\":\"lora4\",\"path\":\"/path/to/lora4\"}",
-			"--event-batch-size", "5",
+			"--enable-kvcache", "--event-batch-size", "5",
 		},
 		expectedConfig: c,
 	}
@@ -340,10 +346,13 @@ var _ = Describe("Simulator configuration", func() {
 	c = createConfigWithModel(common.TestModelName, nil)
 	c.MaxCPULoras = 1
 	c.Seed = 100
-	c.KVEventsReplayEndpoint = "tcp://*:5558"
+	c.KVCache = common.NewConfig().KVCache
+	c.KVCache.EnableKVCache = true
+	c.KVCache.KVEventsReplayEndpoint = "tcp://*:5558"
 	test = testCase{
-		name:           "kv-events-replay-endpoint via CLI",
-		args:           []string{"cmd", "--model", common.TestModelName, "--seed", "100", "--kv-events-replay-endpoint", "tcp://*:5558"},
+		name: "kv-events-replay-endpoint via CLI",
+		args: []string{"cmd", "--model", common.TestModelName, "--seed", "100", "--enable-kvcache",
+			"--kv-events-replay-endpoint", "tcp://*:5558"},
 		expectedConfig: c,
 	}
 	tests = append(tests, test)
@@ -355,6 +364,20 @@ var _ = Describe("Simulator configuration", func() {
 	test = testCase{
 		name:           "kv-events-replay-endpoint disabled by default",
 		args:           []string{"cmd", "--model", common.TestModelName, "--seed", "100"},
+		expectedConfig: c,
+	}
+	tests = append(tests, test)
+
+	// kv-cache-only flags without --enable-kvcache are inert: the whole
+	// KVCache block reports all-zero rather than the flag values.
+	c = createConfigWithModel(common.TestModelName, nil)
+	c.MaxCPULoras = 1
+	c.Seed = 100
+	test = testCase{
+		name: "kv-cache flags without --enable-kvcache report an all-zero KVCache block",
+		args: []string{"cmd", "--model", common.TestModelName, "--seed", "100",
+			"--kv-cache-size", "2048", "--block-size", "32", "--zmq-endpoint", "tcp://127.0.0.1:5559",
+			"--event-batch-size", "8"},
 		expectedConfig: c,
 	}
 	tests = append(tests, test)
@@ -377,12 +400,14 @@ var _ = Describe("Simulator configuration", func() {
 	c.MaxCPULoras = 1
 	c.Seed = 100
 	c.DPSize = 3
-	c.ZMQEndpoint = "tcp://127.0.0.1:5557"
-	c.KVEventsReplayEndpoint = "tcp://*:5600"
+	c.KVCache = common.NewConfig().KVCache
+	c.KVCache.EnableKVCache = true
+	c.KVCache.ZMQEndpoint = "tcp://127.0.0.1:5557"
+	c.KVCache.KVEventsReplayEndpoint = "tcp://*:5600"
 	test = testCase{
 		name: "zmq-endpoint and kv-events-replay-endpoint ports don't collide with data-parallel-size",
 		args: []string{"cmd", "--model", common.TestModelName, "--seed", "100", "--data-parallel-size", "3",
-			"--zmq-endpoint", "tcp://127.0.0.1:5557", "--kv-events-replay-endpoint", "tcp://*:5600"},
+			"--enable-kvcache", "--zmq-endpoint", "tcp://127.0.0.1:5557", "--kv-events-replay-endpoint", "tcp://*:5600"},
 		expectedConfig: c,
 	}
 	tests = append(tests, test)
@@ -398,12 +423,14 @@ var _ = Describe("Simulator configuration", func() {
 	c.Seed = 100
 	c.DPSize = 3
 	c.Rank = 2
-	c.ZMQEndpoint = "tcp://127.0.0.1:5557"
-	c.KVEventsReplayEndpoint = "tcp://*:5600"
+	c.KVCache = common.NewConfig().KVCache
+	c.KVCache.EnableKVCache = true
+	c.KVCache.ZMQEndpoint = "tcp://127.0.0.1:5557"
+	c.KVCache.KVEventsReplayEndpoint = "tcp://*:5600"
 	test = testCase{
 		name: "zmq-endpoint and kv-events-replay-endpoint ports don't collide when data-parallel-rank is set",
 		args: []string{"cmd", "--model", common.TestModelName, "--seed", "100", "--data-parallel-size", "3",
-			"--data-parallel-rank", "2",
+			"--data-parallel-rank", "2", "--enable-kvcache",
 			"--zmq-endpoint", "tcp://127.0.0.1:5557", "--kv-events-replay-endpoint", "tcp://*:5600"},
 		expectedConfig: c,
 	}
@@ -531,19 +558,19 @@ var _ = Describe("Simulator configuration", func() {
 		},
 		{
 			name: "invalid (negative) kv-cache-size",
-			args: []string{"cmd", "--kv-cache-size", "-35",
+			args: []string{"cmd", "--enable-kvcache", "--kv-cache-size", "-35",
 				"--config", "../../../manifests/config.yaml"},
 			expectedError: "KV cache size cannot be negative",
 		},
 		{
 			name: "invalid block-size",
-			args: []string{"cmd", "--block-size", "35",
+			args: []string{"cmd", "--enable-kvcache", "--block-size", "35",
 				"--config", "../../../manifests/config.yaml"},
 			expectedError: "token block size should be one of the following",
 		},
 		{
 			name: "invalid (negative) event-batch-size",
-			args: []string{"cmd", "--event-batch-size", "-35",
+			args: []string{"cmd", "--enable-kvcache", "--event-batch-size", "-35",
 				"--config", "../../../manifests/config.yaml"},
 			expectedError: "event batch size cannot less than 1",
 		},
@@ -680,14 +707,14 @@ var _ = Describe("Simulator configuration", func() {
 		},
 		{
 			name: "invalid zmq-endpoint and kv-events-replay-endpoint on the same port",
-			args: []string{"cmd", "--zmq-endpoint", "tcp://127.0.0.1:5557",
+			args: []string{"cmd", "--enable-kvcache", "--zmq-endpoint", "tcp://127.0.0.1:5557",
 				"--kv-events-replay-endpoint", "tcp://127.0.0.1:5557",
 				"--config", "../../../manifests/config.yaml"},
 			expectedError: "zmq-endpoint (tcp://127.0.0.1:5557) and kv-events-replay-endpoint (tcp://127.0.0.1:5557) ports collide",
 		},
 		{
 			name: "invalid zmq-endpoint and kv-events-replay-endpoint colliding once offset by data-parallel-size",
-			args: []string{"cmd", "--data-parallel-size", "3",
+			args: []string{"cmd", "--enable-kvcache", "--data-parallel-size", "3",
 				"--zmq-endpoint", "tcp://127.0.0.1:5557",
 				"--kv-events-replay-endpoint", "tcp://127.0.0.1:5558",
 				"--config", "../../../manifests/config.yaml"},
@@ -695,7 +722,7 @@ var _ = Describe("Simulator configuration", func() {
 		},
 		{
 			name: "invalid zmq-endpoint and kv-events-replay-endpoint on the same port with data-parallel-rank set",
-			args: []string{"cmd", "--data-parallel-size", "3", "--data-parallel-rank", "2",
+			args: []string{"cmd", "--enable-kvcache", "--data-parallel-size", "3", "--data-parallel-rank", "2",
 				"--zmq-endpoint", "tcp://127.0.0.1:5557",
 				"--kv-events-replay-endpoint", "tcp://127.0.0.1:5557",
 				"--config", "../../../manifests/config.yaml"},
@@ -708,7 +735,7 @@ var _ = Describe("Simulator configuration", func() {
 			// even though this process's own zmq (5559) and replay (5561) ports don't
 			// collide with each other.
 			name: "invalid zmq-endpoint and kv-events-replay-endpoint colliding with another rank's port when data-parallel-rank is set",
-			args: []string{"cmd", "--data-parallel-size", "3", "--data-parallel-rank", "2",
+			args: []string{"cmd", "--enable-kvcache", "--data-parallel-size", "3", "--data-parallel-rank", "2",
 				"--zmq-endpoint", "tcp://127.0.0.1:5557",
 				"--kv-events-replay-endpoint", "tcp://127.0.0.1:5559",
 				"--config", "../../../manifests/config.yaml"},
@@ -716,7 +743,7 @@ var _ = Describe("Simulator configuration", func() {
 		},
 		{
 			name: "invalid kv-events-replay-queue-size",
-			args: []string{"cmd", "--kv-events-replay-endpoint", "tcp://*:5558",
+			args: []string{"cmd", "--enable-kvcache", "--kv-events-replay-endpoint", "tcp://*:5558",
 				"--kv-events-replay-queue-size", "0",
 				"--config", "../../../manifests/config.yaml"},
 			expectedError: "kv-events-replay-queue-size cannot be less than 1",
@@ -874,15 +901,15 @@ var _ = Describe("PYTHONHASHSEED environment variable", func() {
 
 	It("does not override --hash-seed when the flag is passed", func() {
 		Expect(os.Setenv(common.PythonHashSeedEnv, "from-env")).To(Succeed())
-		config, err := createSimConfig([]string{"cmd", "--model", common.TestModelName, "--hash-seed", "from-flag", "--mode", common.ModeRandom, "--seed", "100"})
+		config, err := createSimConfig([]string{"cmd", "--model", common.TestModelName, "--enable-kvcache", "--hash-seed", "from-flag", "--mode", common.ModeRandom, "--seed", "100"})
 		Expect(err).NotTo(HaveOccurred())
-		Expect(config.HashSeed).To(Equal("from-flag"))
+		Expect(config.KVCache.HashSeed).To(Equal("from-flag"))
 	})
 
 	It("applies when --hash-seed is omitted", func() {
 		Expect(os.Setenv(common.PythonHashSeedEnv, "env-seed")).To(Succeed())
-		config, err := createSimConfig([]string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom, "--seed", "100"})
+		config, err := createSimConfig([]string{"cmd", "--model", common.TestModelName, "--enable-kvcache", "--mode", common.ModeRandom, "--seed", "100"})
 		Expect(err).NotTo(HaveOccurred())
-		Expect(config.HashSeed).To(Equal("env-seed"))
+		Expect(config.KVCache.HashSeed).To(Equal("env-seed"))
 	})
 })
