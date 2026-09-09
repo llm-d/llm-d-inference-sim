@@ -308,25 +308,23 @@ block-size: 32
 		Expect(c.KVCache.TokenBlockSize).To(Equal(32))
 	})
 
-	It("prefers the nested value when a key is set both flat and nested", func() {
+	It("errors when kv-cache settings mix the flat and nested layouts", func() {
 		c := NewConfig()
 		Expect(c.load(writeConfig(`
 model: test-model
 kv-cache-size: 111
 kvcache:
   kv-cache-size: 222
-`))).To(Succeed())
-
-		Expect(c.KVCache.KVCacheSize).To(Equal(222))
+`))).ToNot(Succeed())
 	})
 
-	It("leaves global-cache-hit-threshold untouched by kv-cache folding", func() {
+	It("errors when a flat kv-cache key is set alongside an unrelated nested key", func() {
 		c := NewConfig()
 		Expect(c.load(writeConfig(`
 model: test-model
-global-cache-hit-threshold: 0.5
-`))).To(Succeed())
-
-		Expect(c.GlobalCacheHitThreshold).To(Equal(0.5))
+kv-cache-size: 111
+kvcache:
+  block-size: 32
+`))).ToNot(Succeed())
 	})
 })

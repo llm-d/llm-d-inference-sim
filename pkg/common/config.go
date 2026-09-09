@@ -430,7 +430,9 @@ func (c *Configuration) load(configFile string) error {
 	if err := yaml.Unmarshal(configBytes, &raw); err != nil {
 		return fmt.Errorf("failed to unmarshal configuration: %s", err)
 	}
-	foldLegacyKVCacheKeys(raw)
+	if err := foldLegacyKVCacheKeys(raw); err != nil {
+		return err
+	}
 
 	mergedBytes, err := yaml.Marshal(raw)
 	if err != nil {
@@ -447,24 +449,33 @@ func (c *Configuration) load(configFile string) error {
 // foldLegacyKVCacheKeys moves top-level kv-cache keys (the flat layout used
 // before kv-cache settings were grouped under "kvcache") into the nested
 // "kvcache" block in place, so config files using either layout load the
-// same way. A key already present in the nested block takes precedence over
-// its flat counterpart.
-func foldLegacyKVCacheKeys(raw map[string]any) {
+// same way. It returns an error if a config file mixes the two layouts,
+// i.e. sets any kv-cache key at the top level while the nested "kvcache"
+// block is also present.
+func foldLegacyKVCacheKeys(raw map[string]any) error {
 	nested, _ := raw["kvcache"].(map[string]any)
+
+	var flatKeys []string
+	for _, key := range kvCacheYAMLKeys {
+		if _, ok := raw[key]; ok {
+			flatKeys = append(flatKeys, key)
+		}
+	}
+	if len(flatKeys) > 0 && len(nested) > 0 {
+		return fmt.Errorf("kv-cache settings mix the legacy flat layout (%s) with the nested kvcache block; use only one", strings.Join(flatKeys, ", "))
+	}
+
 	if nested == nil {
 		nested = map[string]any{}
 	}
-	for _, key := range kvCacheYAMLKeys {
-		if v, ok := raw[key]; ok {
-			if _, exists := nested[key]; !exists {
-				nested[key] = v
-			}
-			delete(raw, key)
-		}
+	for _, key := range flatKeys {
+		nested[key] = raw[key]
+		delete(raw, key)
 	}
 	if len(nested) > 0 {
 		raw["kvcache"] = nested
 	}
+	return nil
 }
 
 func (c *Configuration) validate() error {
