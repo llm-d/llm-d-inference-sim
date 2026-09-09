@@ -48,6 +48,10 @@ The simulator exposes `GET` and `POST` on `/admin/config` for runtime configurat
     Absent fields and fields explicitly set to `null` are treated identically — both mean "leave unchanged". To clear a metric whose value is a slice or map (e.g. `ttft-buckets-values`, `request-success-total`), send an empty value: `[]` or `{}`. There is no way to clear a scalar metric (e.g. `running-requests`, `total-prompt-tokens`) via partial update — assign a new value instead.
   - Latency-related fields: `time-to-first-token`, `time-to-first-token-std-dev`, `inter-token-latency`, `inter-token-latency-std-dev`, `kv-cache-transfer-latency`, `kv-cache-transfer-latency-std-dev`, `prefill-overhead`, `prefill-time-per-token`, `prefill-time-std-dev`, `kv-cache-transfer-time-per-token`, `kv-cache-transfer-time-std-dev`, `time-factor-under-load` (float), `latency-calculator` (string; same accepted values as the `--latency-calculator` flag). Duration fields accept a Go duration string (e.g. `"250ms"`, `"1s"`). The same validation rules apply as at startup (no negative values; std-dev ≤ 30 % of base; `time-factor-under-load` ≥ 1.0). Updates take effect on subsequent requests.
 
+    These latency fields may also be sent nested under a top-level `latencies` object instead of at the top level, e.g. `{"latencies": {"time-to-first-token": "500ms"}}`. A field set both at the top level and inside `latencies` in the same request is rejected with `400 Bad Request`. Both `GET` and `POST` responses always return the latency fields nested under `latencies`, matching how `kvcache` fields are already nested.
+
+    > **Deprecated:** sending these latency fields at the top level (rather than nested under `latencies`) is preserved for backward compatibility and will be removed in release v0.13.0; new callers should send them nested under `latencies`.
+
   Bodies containing any other field, or values that fail validation, are rejected with `400 Bad Request` and the configuration is left unchanged. Updates are atomic and serialized: concurrent in-flight requests observe either the previous or the new configuration in full, never a mix.
 
   Examples:

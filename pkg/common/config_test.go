@@ -17,6 +17,7 @@ limitations under the License.
 package common
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -168,6 +169,63 @@ var _ = Describe("ApplyAdminUpdate", func() {
 		_, _, _, err := base.Update([]byte(`not json`))
 		Expect(err).To(HaveOccurred())
 	})
+
+	It("accepts latency fields nested under a top-level latencies object", func() {
+		next, _, latencyChanged, err := base.Update([]byte(
+			`{"latencies": {"time-to-first-token": "500ms", "inter-token-latency": "20ms"}}`))
+		Expect(err).ToNot(HaveOccurred())
+		Expect(latencyChanged).To(BeTrue())
+		Expect(next.TimeToFirstToken).To(Equal(500 * time.Millisecond))
+		Expect(next.InterTokenLatency).To(Equal(20 * time.Millisecond))
+	})
+
+	It("accepts a nested latencies object alongside unrelated flat fields", func() {
+		next, _, latencyChanged, err := base.Update([]byte(
+			`{"failure-injection-rate": 7, "latencies": {"time-to-first-token": "500ms"}}`))
+		Expect(err).ToNot(HaveOccurred())
+		Expect(latencyChanged).To(BeTrue())
+		Expect(next.FailureInjectionRate).To(Equal(7))
+		Expect(next.TimeToFirstToken).To(Equal(500 * time.Millisecond))
+	})
+
+	It("rejects a field set both flat and inside the nested latencies object", func() {
+		_, _, _, err := base.Update([]byte(
+			`{"time-to-first-token": "100ms", "latencies": {"time-to-first-token": "200ms"}}`))
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("time-to-first-token"))
+	})
+
+	It("rejects an unknown field inside the nested latencies object", func() {
+		_, _, _, err := base.Update([]byte(`{"latencies": {"bogus-field": "1s"}}`))
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("not admin-configurable"))
+	})
+
+	It("rejects a non-object nested latencies value", func() {
+		_, _, _, err := base.Update([]byte(`{"latencies": "not-an-object"}`))
+		Expect(err).To(HaveOccurred())
+	})
+})
+
+var _ = Describe("Configuration.MarshalCleaned", func() {
+	It("nests latency fields under a top-level latencies object", func() {
+		c := createDefaultConfig("model", nil)
+		data, err := c.MarshalCleaned()
+		Expect(err).ToNot(HaveOccurred())
+
+		var m map[string]any
+		Expect(json.Unmarshal(data, &m)).To(Succeed())
+
+		Expect(m).To(HaveKey("latencies"))
+		latencies, ok := m["latencies"].(map[string]any)
+		Expect(ok).To(BeTrue())
+		Expect(latencies).To(HaveKeyWithValue("time-to-first-token", "2s"))
+		Expect(latencies).To(HaveKeyWithValue("inter-token-latency", "1s"))
+
+		for _, key := range latenciesYAMLKeys {
+			Expect(m).ToNot(HaveKey(key), "latency field %q must not remain at the top level", key)
+		}
+	})
 })
 
 var _ = Describe("Configuration.Copy", func() {
@@ -231,9 +289,9 @@ var _ = Describe("Configuration.Copy", func() {
 
 var _ = Describe("admin struct tags", func() {
 	It("has no unrecognized tag values", func() {
-		t := reflect.TypeOf(Configuration{})
-		for i := range t.NumField() {
-			f := t.Field(i)
+		// VisibleFields follows Go's field-promotion rules, so it also covers
+		// the Latencies fields promoted through Configuration's anonymous embed.
+		for _, f := range reflect.VisibleFields(reflect.TypeOf(Configuration{})) {
 			Expect(f.Tag.Get("admin")).To(BeElementOf("", "configurable"),
 				"field %s has unexpected admin tag %q", f.Name, f.Tag.Get("admin"))
 			Expect(f.Tag.Get("rebuild")).To(BeElementOf("", "latency"),
@@ -325,6 +383,60 @@ model: test-model
 kv-cache-size: 111
 kvcache:
   block-size: 32
+`))).ToNot(Succeed())
+	})
+})
+
+var _ = Describe("Configuration.load latencies YAML folding", func() {
+	writeConfig := func(contents string) string {
+		dir := GinkgoT().TempDir()
+		path := filepath.Join(dir, "config.yaml")
+		Expect(os.WriteFile(path, []byte(contents), 0o644)).To(Succeed())
+		return path
+	}
+
+	It("populates Latencies from the nested latencies block", func() {
+		c := NewConfig()
+		Expect(c.load(writeConfig(`
+model: test-model
+latencies:
+  time-to-first-token: 250ms
+  inter-token-latency: 10ms
+`))).To(Succeed())
+
+		Expect(c.TimeToFirstToken).To(Equal(250 * time.Millisecond))
+		Expect(c.InterTokenLatency).To(Equal(10 * time.Millisecond))
+	})
+
+	It("populates Latencies from legacy flat top-level keys", func() {
+		c := NewConfig()
+		Expect(c.load(writeConfig(`
+model: test-model
+time-to-first-token: 250ms
+inter-token-latency: 10ms
+`))).To(Succeed())
+
+		Expect(c.TimeToFirstToken).To(Equal(250 * time.Millisecond))
+		Expect(c.InterTokenLatency).To(Equal(10 * time.Millisecond))
+	})
+
+	It("errors when latencies settings mix the flat and nested layouts", func() {
+		c := NewConfig()
+		Expect(c.load(writeConfig(`
+model: test-model
+time-to-first-token: 100ms
+latencies:
+  time-to-first-token: 200ms
+`))).ToNot(Succeed())
+	})
+
+	It("errors when a flat latency key is set alongside an unrelated nested key", func() {
+		c := NewConfig()
+		Expect(c.load(writeConfig(`
+model: test-model
+time-to-first-token: 100ms
+latencies:
+  inter-token-latency: 10ms
 `))).ToNot(Succeed())
 	})
 })

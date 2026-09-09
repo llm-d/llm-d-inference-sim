@@ -203,7 +203,7 @@ func ParseCommandParamsAndLoadConfig(eng Engine) (*Configuration, error) {
 	f.BoolVar(&config.SelfSignedCerts, "self-signed-certs", config.SelfSignedCerts, "Enable automatic generation of self-signed certificates for HTTPS")
 
 	f.StringVar(&config.LatencyCalculator, "latency-calculator", config.LatencyCalculator,
-		`Name of the latency calculator to be used in the response generation (optional). The default calculation is based on the current load of the simulator and on 
+		`Name of the latency calculator to be used in the response generation (optional). The default calculation is based on the current load of the simulator and on
 		the configured latency parameters, e.g., time-to-first-token and prefill-time-per-token`)
 
 	f.IntVar(&config.DefaultEmbeddingDimensions, "default-embedding-dimensions", config.DefaultEmbeddingDimensions,

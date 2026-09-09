@@ -115,14 +115,15 @@ func (s *SimContext) latencyCalc() latencyCalculator {
 // and atomically replaces the existing one. Called both at init and after
 // each successful admin-config update.
 func (s *SimContext) rebuildLatencyCalculator() {
+	cfg := s.Config()
 	var calc latencyCalculator
-	switch s.Config().LatencyCalculator {
+	switch cfg.LatencyCalculator {
 	case common.DefaultLatencyCalculator:
-		calc = newDefaultCalculator(s.Config(), s.Random)
+		calc = newDefaultCalculator(&cfg.Latencies, cfg.MaxNumSeqs, s.Random)
 	case common.ConstantLatencyCalculator:
-		calc = newConstantCalculator(s.Config(), s.Random)
+		calc = newConstantCalculator(&cfg.Latencies, cfg.MaxNumSeqs, s.Random)
 	case common.PerPromptTokenLatencyCalculator:
-		calc = newPerTokenCalculator(s.Config(), s.Random)
+		calc = newPerTokenCalculator(&cfg.Latencies, cfg.MaxNumSeqs, s.Random)
 	}
 	s.latencyCalculator.Store(&latencyCalcHolder{calc: calc})
 }

@@ -120,58 +120,12 @@ type Configuration struct {
 	// Set by env variable VLLM_SERVER_DEV_MODE
 	VllmDevMode bool
 
-	// --- Duration Configuration ---
-	// NOTE: For all duration fields please use duration strings, e.g., "100ms", "1.5s"
-
-	// TimeToFirstToken time before the first token will be returned
-	TimeToFirstToken time.Duration `yaml:"time-to-first-token" json:"time-to-first-token" admin:"configurable" rebuild:"latency"`
-	// TimeToFirstTokenStdDev standard deviation for time before the first token will be returned
-	// optional, default is 0, can't be more than 30% of TimeToFirstToken, will not
-	// cause the actual time to first token to differ by more than 70% from TimeToFirstToken
-	TimeToFirstTokenStdDev time.Duration `yaml:"time-to-first-token-std-dev" json:"time-to-first-token-std-dev" admin:"configurable" rebuild:"latency"`
-
-	// InterTokenLatency time between generated tokens
-	InterTokenLatency time.Duration `yaml:"inter-token-latency" json:"inter-token-latency" admin:"configurable" rebuild:"latency"`
-	// InterTokenLatencyStdDev standard deviation for time between generated tokens
-	// optional, default is 0, can't be more than 30% of InterTokenLatency, will not cause the actual
-	// inter token latency to differ by more than 70% from InterTokenLatency
-	InterTokenLatencyStdDev time.Duration `yaml:"inter-token-latency-std-dev" json:"inter-token-latency-std-dev" admin:"configurable" rebuild:"latency"`
-	// KVCacheTransferLatency time to "transfer" kv-cache from another vLLM instance in case P/D is activated,
-	KVCacheTransferLatency time.Duration `yaml:"kv-cache-transfer-latency" json:"kv-cache-transfer-latency" admin:"configurable" rebuild:"latency"`
-	// KVCacheTransferLatencyStdDev standard deviation for time to "transfer" kv-cache from another
-	// vLLM instance in case P/D is activated, can't be more than 30% of KVCacheTransferLatency, will not
-	// cause the actual latency to differ by more than 70% from KVCacheTransferLatency
-	KVCacheTransferLatencyStdDev time.Duration `yaml:"kv-cache-transfer-latency-std-dev" json:"kv-cache-transfer-latency-std-dev" admin:"configurable" rebuild:"latency"`
-
-	// $Total Prefill Time = PrefillOverhead + n * PrefillTimePerToken$
-	// the assumption is that n is less than k, where k is the number of prallelism units of GPU
-	// PrefillOverhead time taken to prefill the context
-	PrefillOverhead     time.Duration `yaml:"prefill-overhead" json:"prefill-overhead" admin:"configurable" rebuild:"latency"`
-	PrefillTimePerToken time.Duration `yaml:"prefill-time-per-token" json:"prefill-time-per-token" admin:"configurable" rebuild:"latency"`
-	// PrefillOverheadStdDev similar to TimeToFirstTokenStdDev
-	PrefillTimeStdDev time.Duration `yaml:"prefill-time-std-dev" json:"prefill-time-std-dev" admin:"configurable" rebuild:"latency"`
-	// $Total KV Cache Transfer Time = n * KVCacheTransferTimePerToken$
-	// the assumption is that the cache blocks are all missed at the remote pod
-	// KVCacheTransfer overhead time taken to transfer kv-cache from another vLLM instance in case P/D is activated
-	KVCacheTransferTimePerToken time.Duration `yaml:"kv-cache-transfer-time-per-token" json:"kv-cache-transfer-time-per-token" admin:"configurable" rebuild:"latency"`
-	// KVCacheTransferOverheadStdDev similar to TimeToFirstTokenStdDev
-	KVCacheTransferTimeStdDev time.Duration `yaml:"kv-cache-transfer-time-std-dev" json:"kv-cache-transfer-time-std-dev" admin:"configurable" rebuild:"latency"`
-
-	// TimeToGenerateImage is the simulated time to generate an image in omni mode.
-	// When an image is going to be emitted in a chat completion, the simulator
-	// sleeps for this duration before sending the image chunk.
-	TimeToGenerateImage time.Duration `yaml:"time-to-generate-image" json:"time-to-generate-image" admin:"configurable"`
-	// TimeToGenerateImageStdDev standard deviation for time to generate an image.
-	// Optional, default is 0, can't be more than 30% of TimeToGenerateImage.
-	TimeToGenerateImageStdDev time.Duration `yaml:"time-to-generate-image-std-dev" json:"time-to-generate-image-std-dev" admin:"configurable"`
-
-	// TimeFactorUnderLoad is a multiplicative factor that affects the overall time taken for requests when parallel
-	// requests are being processed.
-	// The value of this factor must be >= 1.0, with a default of 1.0.
-	// - If this factor is 1.0, no extra time is added.
-	// - When the factor is x (where x > 1.0) and there are MaxNumSeqs requests, the total time will be multiplied by x.
-	// - The extra time then decreases multiplicatively to 1.0 when the number of requests is less than MaxNumSeqs.
-	TimeFactorUnderLoad float64 `yaml:"time-factor-under-load" json:"time-factor-under-load" admin:"configurable" rebuild:"latency"`
+	// Latencies groups the request-latency simulation parameters. YAML and JSON
+	// both nest it under "latencies"; both a YAML config file (via load's
+	// foldLegacyKeys) and a POST /admin/config body (via Update's
+	// foldFlatLatencies) still accept the legacy flat top-level keys too,
+	// folded into "latencies" before unmarshalling into a Configuration.
+	Latencies `yaml:"latencies" json:"latencies"`
 
 	// Mode defines the simulator response generation mode, valid values: echo, random
 	Mode string `yaml:"mode" json:"mode"`
@@ -291,11 +245,6 @@ type Configuration struct {
 	// LogHTTP logs full HTTP request and response details (method, URI, headers, bodies where buffered, status) for each request.
 	LogHTTP bool `yaml:"log-http" json:"log-http"`
 
-	// LatencyCalculator is the name of the latency calculator to use in the simulation of the response latencies.
-	// The default calculation is based on the current load of the simulator and on the configured latency
-	// parameters, e.g., time-to-first-token and prefill-time-per-token.
-	LatencyCalculator string `yaml:"latency-calculator" json:"latency-calculator" admin:"configurable" rebuild:"latency"`
-
 	// DefaultEmbeddingDimensions is the default size of embedding vectors when the request does not specify dimensions.
 	// Used by the /v1/embeddings endpoint. Default is 384.
 	DefaultEmbeddingDimensions int `yaml:"default-embedding-dimensions" json:"default-embedding-dimensions"`
@@ -381,6 +330,65 @@ type KVCacheConfig struct {
 	UseVllmMapEventFormat bool `yaml:"use-vllm-map-event-format" json:"use-vllm-map-event-format"`
 }
 
+// Latencies groups the request-latency simulation parameters.
+// NOTE: For all duration fields please use duration strings, e.g., "100ms", "1.5s"
+type Latencies struct {
+	// TimeToFirstToken time before the first token will be returned
+	TimeToFirstToken time.Duration `yaml:"time-to-first-token" json:"time-to-first-token" admin:"configurable" rebuild:"latency"`
+	// TimeToFirstTokenStdDev standard deviation for time before the first token will be returned
+	// optional, default is 0, can't be more than 30% of TimeToFirstToken, will not
+	// cause the actual time to first token to differ by more than 70% from TimeToFirstToken
+	TimeToFirstTokenStdDev time.Duration `yaml:"time-to-first-token-std-dev" json:"time-to-first-token-std-dev" admin:"configurable" rebuild:"latency"`
+
+	// InterTokenLatency time between generated tokens
+	InterTokenLatency time.Duration `yaml:"inter-token-latency" json:"inter-token-latency" admin:"configurable" rebuild:"latency"`
+	// InterTokenLatencyStdDev standard deviation for time between generated tokens
+	// optional, default is 0, can't be more than 30% of InterTokenLatency, will not cause the actual
+	// inter token latency to differ by more than 70% from InterTokenLatency
+	InterTokenLatencyStdDev time.Duration `yaml:"inter-token-latency-std-dev" json:"inter-token-latency-std-dev" admin:"configurable" rebuild:"latency"`
+	// KVCacheTransferLatency time to "transfer" kv-cache from another vLLM instance in case P/D is activated,
+	KVCacheTransferLatency time.Duration `yaml:"kv-cache-transfer-latency" json:"kv-cache-transfer-latency" admin:"configurable" rebuild:"latency"`
+	// KVCacheTransferLatencyStdDev standard deviation for time to "transfer" kv-cache from another
+	// vLLM instance in case P/D is activated, can't be more than 30% of KVCacheTransferLatency, will not
+	// cause the actual latency to differ by more than 70% from KVCacheTransferLatency
+	KVCacheTransferLatencyStdDev time.Duration `yaml:"kv-cache-transfer-latency-std-dev" json:"kv-cache-transfer-latency-std-dev" admin:"configurable" rebuild:"latency"`
+
+	// $Total Prefill Time = PrefillOverhead + n * PrefillTimePerToken$
+	// the assumption is that n is less than k, where k is the number of prallelism units of GPU
+	// PrefillOverhead time taken to prefill the context
+	PrefillOverhead     time.Duration `yaml:"prefill-overhead" json:"prefill-overhead" admin:"configurable" rebuild:"latency"`
+	PrefillTimePerToken time.Duration `yaml:"prefill-time-per-token" json:"prefill-time-per-token" admin:"configurable" rebuild:"latency"`
+	// PrefillOverheadStdDev similar to TimeToFirstTokenStdDev
+	PrefillTimeStdDev time.Duration `yaml:"prefill-time-std-dev" json:"prefill-time-std-dev" admin:"configurable" rebuild:"latency"`
+	// $Total KV Cache Transfer Time = n * KVCacheTransferTimePerToken$
+	// the assumption is that the cache blocks are all missed at the remote pod
+	// KVCacheTransfer overhead time taken to transfer kv-cache from another vLLM instance in case P/D is activated
+	KVCacheTransferTimePerToken time.Duration `yaml:"kv-cache-transfer-time-per-token" json:"kv-cache-transfer-time-per-token" admin:"configurable" rebuild:"latency"`
+	// KVCacheTransferOverheadStdDev similar to TimeToFirstTokenStdDev
+	KVCacheTransferTimeStdDev time.Duration `yaml:"kv-cache-transfer-time-std-dev" json:"kv-cache-transfer-time-std-dev" admin:"configurable" rebuild:"latency"`
+
+	// TimeToGenerateImage is the simulated time to generate an image in omni mode.
+	// When an image is going to be emitted in a chat completion, the simulator
+	// sleeps for this duration before sending the image chunk.
+	TimeToGenerateImage time.Duration `yaml:"time-to-generate-image" json:"time-to-generate-image" admin:"configurable"`
+	// TimeToGenerateImageStdDev standard deviation for time to generate an image.
+	// Optional, default is 0, can't be more than 30% of TimeToGenerateImage.
+	TimeToGenerateImageStdDev time.Duration `yaml:"time-to-generate-image-std-dev" json:"time-to-generate-image-std-dev" admin:"configurable"`
+
+	// TimeFactorUnderLoad is a multiplicative factor that affects the overall time taken for requests when parallel
+	// requests are being processed.
+	// The value of this factor must be >= 1.0, with a default of 1.0.
+	// - If this factor is 1.0, no extra time is added.
+	// - When the factor is x (where x > 1.0) and there are MaxNumSeqs requests, the total time will be multiplied by x.
+	// - The extra time then decreases multiplicatively to 1.0 when the number of requests is less than MaxNumSeqs.
+	TimeFactorUnderLoad float64 `yaml:"time-factor-under-load" json:"time-factor-under-load" admin:"configurable" rebuild:"latency"`
+
+	// LatencyCalculator is the name of the latency calculator to use in the simulation of the response latencies.
+	// The default calculation is based on the current load of the simulator and on the configured latency
+	// parameters, e.g., time-to-first-token and prefill-time-per-token.
+	LatencyCalculator string `yaml:"latency-calculator" json:"latency-calculator" admin:"configurable" rebuild:"latency"`
+}
+
 // NewConfig returns a Configuration populated with its documented defaults.
 func NewConfig() *Configuration {
 	return &Configuration{
@@ -393,7 +401,7 @@ func NewConfig() *Configuration {
 		MaxModelLen:                         1024,
 		Mode:                                ModeRandom,
 		Seed:                                time.Now().UnixNano(),
-		TimeFactorUnderLoad:                 1.0,
+		Latencies:                           Latencies{TimeFactorUnderLoad: 1.0},
 		MaxToolCallIntegerParam:             100,
 		MaxToolCallNumberParam:              100,
 		MaxToolCallArrayParamLength:         5,
@@ -430,7 +438,10 @@ func (c *Configuration) load(configFile string) error {
 	if err := yaml.Unmarshal(configBytes, &raw); err != nil {
 		return fmt.Errorf("failed to unmarshal configuration: %s", err)
 	}
-	if err := foldLegacyKVCacheKeys(raw); err != nil {
+	if err := foldLegacyKeys(raw, "kvcache", kvCacheYAMLKeys); err != nil {
+		return err
+	}
+	if err := foldLegacyKeys(raw, "latencies", latenciesYAMLKeys); err != nil {
 		return err
 	}
 
@@ -446,34 +457,34 @@ func (c *Configuration) load(configFile string) error {
 	return nil
 }
 
-// foldLegacyKVCacheKeys moves top-level kv-cache keys (the flat layout used
-// before kv-cache settings were grouped under "kvcache") into the nested
-// "kvcache" block in place, so config files using either layout load the
-// same way. It returns an error if a config file mixes the two layouts,
-// i.e. sets any kv-cache key at the top level while the nested "kvcache"
-// block is also present.
-func foldLegacyKVCacheKeys(raw map[string]any) error {
-	nested, _ := raw["kvcache"].(map[string]any)
+// foldLegacyKeys moves top-level keys in flatKeys (the flat layout used
+// before a group of settings was nested under nestedKey) into the nested
+// block in place, so config files using either layout load the same way. It
+// returns an error if a config file mixes the two layouts, i.e. sets any of
+// flatKeys at the top level while the nested block is also present.
+func foldLegacyKeys(raw map[string]any, nestedKey string, flatKeys []string) error {
+	nested, _ := raw[nestedKey].(map[string]any)
 
-	var flatKeys []string
-	for _, key := range kvCacheYAMLKeys {
+	var setFlatKeys []string
+	for _, key := range flatKeys {
 		if _, ok := raw[key]; ok {
-			flatKeys = append(flatKeys, key)
+			setFlatKeys = append(setFlatKeys, key)
 		}
 	}
-	if len(flatKeys) > 0 && len(nested) > 0 {
-		return fmt.Errorf("kv-cache settings mix the legacy flat layout (%s) with the nested kvcache block; use only one", strings.Join(flatKeys, ", "))
+	if len(setFlatKeys) > 0 && len(nested) > 0 {
+		return fmt.Errorf("%s settings mix the legacy flat layout (%s) with the nested %s block; use only one",
+			nestedKey, strings.Join(setFlatKeys, ", "), nestedKey)
 	}
 
 	if nested == nil {
 		nested = map[string]any{}
 	}
-	for _, key := range flatKeys {
+	for _, key := range setFlatKeys {
 		nested[key] = raw[key]
 		delete(raw, key)
 	}
 	if len(nested) > 0 {
-		raw["kvcache"] = nested
+		raw[nestedKey] = nested
 	}
 	return nil
 }
@@ -654,26 +665,34 @@ func (c *Configuration) SSLEnabled() bool {
 	return (c.SSLCertFile != "" && c.SSLKeyFile != "") || c.SelfSignedCerts
 }
 
-// durationFields holds the JSON key names of all time.Duration fields in Configuration.
+// durationFields holds the JSON key names of all time.Duration fields in Configuration,
+// including ones promoted from the embedded Latencies struct.
 // configurableFields maps each admin-configurable JSON field key to its rebuild tag
 // (value of the rebuild struct tag, e.g. "latency"), or "" for fields with no rebuild tag.
-// kvCacheYAMLKeys holds the YAML key names of every KVCacheConfig field, used by
-// load() to fold legacy flat top-level kv-cache keys into the nested "kvcache" block.
-// All three are populated once at init via reflection so there is no static list to
-// keep in sync with the structs.
+// kvCacheYAMLKeys and latenciesYAMLKeys hold the YAML key names of every KVCacheConfig
+// and Latencies field respectively. Since those names are identical to the fields'
+// JSON key names, load() also reuses them to fold legacy flat top-level YAML keys into
+// the nested "kvcache"/"latencies" blocks, and Update's foldFlatLatencies reuses
+// latenciesYAMLKeys the same way for the legacy flat POST /admin/config body shape.
+// All are populated once at init via reflection so there is no static list to keep in
+// sync with the structs.
 var (
 	durationFields     map[string]bool
 	configurableFields map[string]string
 	kvCacheYAMLKeys    []string
+	latenciesYAMLKeys  []string
 )
 
 func init() {
 	durationFields = make(map[string]bool)
 	configurableFields = make(map[string]string)
 	durationType := reflect.TypeOf(time.Duration(0))
-	t := reflect.TypeOf(Configuration{})
-	for i := range t.NumField() {
-		f := t.Field(i)
+	// VisibleFields follows Go's field-promotion rules, so it surfaces the
+	// Latencies fields promoted through Configuration's anonymous embed (with
+	// their own tags) alongside Configuration's direct fields. Named,
+	// non-anonymous fields like KVCache KVCacheConfig are returned as a
+	// single non-descended entry, same as a direct field walk would produce.
+	for _, f := range reflect.VisibleFields(reflect.TypeOf(Configuration{})) {
 		jsonKey := strings.SplitN(f.Tag.Get("json"), ",", 2)[0]
 		if jsonKey == "" || jsonKey == "-" {
 			continue
@@ -686,15 +705,22 @@ func init() {
 		}
 	}
 
-	kt := reflect.TypeOf(KVCacheConfig{})
-	for i := range kt.NumField() {
-		f := kt.Field(i)
+	kvCacheYAMLKeys = yamlKeysOf(reflect.TypeOf(KVCacheConfig{}))
+	latenciesYAMLKeys = yamlKeysOf(reflect.TypeOf(Latencies{}))
+}
+
+// yamlKeysOf returns the YAML key names of every direct field of t.
+func yamlKeysOf(t reflect.Type) []string {
+	var keys []string
+	for i := range t.NumField() {
+		f := t.Field(i)
 		yamlKey := strings.SplitN(f.Tag.Get("yaml"), ",", 2)[0]
 		if yamlKey == "" || yamlKey == "-" {
 			continue
 		}
-		kvCacheYAMLKeys = append(kvCacheYAMLKeys, yamlKey)
+		keys = append(keys, yamlKey)
 	}
+	return keys
 }
 
 // normalizeDurationStrings converts duration string values (e.g. "1s") in raw
@@ -722,6 +748,65 @@ func normalizeDurationStrings(raw map[string]json.RawMessage) error {
 	return nil
 }
 
+// unfoldNestedLatencies expands an optional top-level "latencies" object in
+// an admin-config JSON body into flat keys in place, so POST /admin/config
+// accepts either shape, matching the flat/nested flexibility YAML config
+// files already have via foldLegacyKeys. It returns an error if a field is
+// set both at the top level and inside the nested "latencies" object.
+func unfoldNestedLatencies(raw map[string]json.RawMessage) error {
+	nestedRaw, ok := raw["latencies"]
+	if !ok {
+		return nil
+	}
+
+	var nested map[string]json.RawMessage
+	if err := json.Unmarshal(nestedRaw, &nested); err != nil {
+		return fmt.Errorf(`field "latencies": %w`, err)
+	}
+
+	var conflicts []string
+	for key := range nested {
+		if _, exists := raw[key]; exists {
+			conflicts = append(conflicts, key)
+		}
+	}
+	if len(conflicts) > 0 {
+		return fmt.Errorf("latencies settings mix the flat layout (%s) with the nested latencies object; use only one",
+			strings.Join(conflicts, ", "))
+	}
+
+	for key, val := range nested {
+		raw[key] = val
+	}
+	delete(raw, "latencies")
+	return nil
+}
+
+// foldFlatLatencies moves the legacy flat top-level latency keys in raw into
+// a nested "latencies" object, the reverse of unfoldNestedLatencies. Update
+// calls this after validating raw's keys against configurableFields (which
+// uses the flat key names), so that the subsequent json.Unmarshal into a
+// Configuration - whose Latencies field is nested under "latencies" -
+// populates correctly regardless of which shape the caller originally sent.
+func foldFlatLatencies(raw map[string]json.RawMessage) error {
+	nested := make(map[string]json.RawMessage)
+	for _, key := range latenciesYAMLKeys {
+		if v, ok := raw[key]; ok {
+			nested[key] = v
+			delete(raw, key)
+		}
+	}
+	if len(nested) == 0 {
+		return nil
+	}
+	data, err := json.Marshal(nested)
+	if err != nil {
+		return fmt.Errorf("failed to marshal latencies: %w", err)
+	}
+	raw["latencies"] = data
+	return nil
+}
+
 // Update validates a partial JSON update and returns:
 //   - next: a deep copy of the receiver with the body's changes applied.
 //     Ready to be atomically swapped in by the caller.
@@ -739,15 +824,13 @@ func (c *Configuration) Update(body []byte) (*Configuration, *Configuration, boo
 		return nil, nil, false, fmt.Errorf("failed to unmarshal payload: %w", err)
 	}
 
+	if err := unfoldNestedLatencies(raw); err != nil {
+		return nil, nil, false, err
+	}
+
 	// convert any duration-string values (e.g. "1s") to nanosecond integers
 	if err := normalizeDurationStrings(raw); err != nil {
 		return nil, nil, false, err
-	}
-	// re-marshal after normalization so subsequent Unmarshal calls get integers
-	var err error
-	body, err = json.Marshal(raw)
-	if err != nil {
-		return nil, nil, false, fmt.Errorf("failed to re-marshal normalized payload: %w", err)
 	}
 
 	latencyChanged := false
@@ -759,6 +842,17 @@ func (c *Configuration) Update(body []byte) (*Configuration, *Configuration, boo
 		if rebuildTag == "latency" {
 			latencyChanged = true
 		}
+	}
+
+	if err := foldFlatLatencies(raw); err != nil {
+		return nil, nil, false, err
+	}
+	// re-marshal after normalization and folding so subsequent Unmarshal calls
+	// get integers and see Latencies nested under "latencies"
+	var err error
+	body, err = json.Marshal(raw)
+	if err != nil {
+		return nil, nil, false, fmt.Errorf("failed to re-marshal normalized payload: %w", err)
 	}
 
 	// update is a fresh struct populated only with the body's fields; the
@@ -799,6 +893,8 @@ func (c *Configuration) Copy() (*Configuration, error) {
 
 // cleanedMap returns the configuration as a JSON-friendly map with internal
 // fields removed/renamed for external display (logs, /admin/config GET).
+// Latencies' json tag already nests the latency fields under "latencies",
+// the same way KVCacheConfig is nested under "kvcache".
 func (c *Configuration) cleanedMap() (map[string]any, error) {
 	cfgJSON, err := json.Marshal(c)
 	if err != nil {
@@ -813,6 +909,19 @@ func (c *Configuration) cleanedMap() (map[string]any, error) {
 		// in DP mode, the per-rank port is not meaningful externally
 		delete(m, "port")
 	}
+	formatDurationFields(m)
+	if latencies, ok := m["latencies"].(map[string]any); ok {
+		formatDurationFields(latencies)
+	}
+	return m, nil
+}
+
+// formatDurationFields rewrites, in place, every key in m that names a
+// time.Duration field of Configuration from the nanosecond count
+// json.Unmarshal produced (as a float64) into a Go duration string (e.g.
+// "250ms"). Used for both the top-level map and the nested "latencies" map,
+// since durationFields holds flat key names shared by both.
+func formatDurationFields(m map[string]any) {
 	for key := range durationFields {
 		if v, ok := m[key]; ok {
 			if ns, ok := v.(float64); ok {
@@ -820,7 +929,6 @@ func (c *Configuration) cleanedMap() (map[string]any, error) {
 			}
 		}
 	}
-	return m, nil
 }
 
 // MarshalCleaned returns the configuration as JSON suitable for external

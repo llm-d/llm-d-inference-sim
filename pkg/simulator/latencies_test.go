@@ -35,10 +35,12 @@ var _ = Describe("Check random latencies", Ordered, func() {
 
 	BeforeAll(func() {
 		config = &common.Configuration{
-			TimeToFirstToken:             milliseconds(2048),
-			TimeToFirstTokenStdDev:       milliseconds(2048),
-			KVCacheTransferLatency:       milliseconds(2048),
-			KVCacheTransferLatencyStdDev: milliseconds(2048),
+			Latencies: common.Latencies{
+				TimeToFirstToken:             milliseconds(2048),
+				TimeToFirstTokenStdDev:       milliseconds(2048),
+				KVCacheTransferLatency:       milliseconds(2048),
+				KVCacheTransferLatencyStdDev: milliseconds(2048),
+			},
 		}
 
 		random = common.NewRandom(time.Now().UnixNano(), 8080)
@@ -48,7 +50,7 @@ var _ = Describe("Check random latencies", Ordered, func() {
 		func(interTokenLatency time.Duration, stddev time.Duration) {
 			config.InterTokenLatency = interTokenLatency
 			config.InterTokenLatencyStdDev = stddev
-			latencyCalculator := newDefaultCalculator(config, random)
+			latencyCalculator := newDefaultCalculator(&config.Latencies, config.MaxNumSeqs, random)
 			interToken := latencyCalculator.GetInterTokenLatency(&InterTokenParams{})
 			Expect(interToken).To(BeNumerically(">=", float32(interTokenLatency)*0.3))
 			Expect(interToken).To(BeNumerically("<=", float32(interTokenLatency)*1.7))
@@ -68,7 +70,7 @@ var _ = Describe("Check random latencies", Ordered, func() {
 			config.InterTokenLatencyStdDev = stddev
 			config.MaxNumSeqs = 1
 			config.TimeFactorUnderLoad = 1.0
-			latencyCalculator := newDefaultCalculator(config, random)
+			latencyCalculator := newDefaultCalculator(&config.Latencies, config.MaxNumSeqs, random)
 
 			var latency time.Duration
 			for range numberOfTokens - 1 {
@@ -95,7 +97,7 @@ var _ = Describe("Check random latencies", Ordered, func() {
 			config.TimeToFirstTokenStdDev = timeToFirstTokenStdDev
 			config.KVCacheTransferLatency = kvCacheLatency
 			config.KVCacheTransferLatencyStdDev = kvCacheLatencyStdDev
-			latencyCalculator := newDefaultCalculator(config, random)
+			latencyCalculator := newDefaultCalculator(&config.Latencies, config.MaxNumSeqs, random)
 			params := TTFTParams{
 				PromptTokens:    1,
 				DoRemotePrefill: doREmotePrefill,
@@ -132,7 +134,7 @@ var _ = Describe("Check random latencies", Ordered, func() {
 		config.PrefillTimePerToken = milliseconds(200)
 		config.PrefillTimeStdDev = milliseconds(80)
 
-		latencyCalculator := newDefaultCalculator(config, random)
+		latencyCalculator := newDefaultCalculator(&config.Latencies, config.MaxNumSeqs, random)
 		params := TTFTParams{
 			PromptTokens: 128,
 		}
@@ -149,7 +151,7 @@ var _ = Describe("Check random latencies", Ordered, func() {
 		config.PrefillTimePerToken = milliseconds(200)
 		config.PrefillTimeStdDev = milliseconds(80)
 
-		latencyCalculator := newDefaultCalculator(config, random)
+		latencyCalculator := newDefaultCalculator(&config.Latencies, config.MaxNumSeqs, random)
 		params := TTFTParams{
 			PromptTokens: 128,
 		}
@@ -164,7 +166,7 @@ var _ = Describe("Check random latencies", Ordered, func() {
 			config.PrefillTimePerToken = prefillTimePerToken
 			config.PrefillTimeStdDev = stdDev
 
-			latencyCalculator := newDefaultCalculator(config, random)
+			latencyCalculator := newDefaultCalculator(&config.Latencies, config.MaxNumSeqs, random)
 			params := TTFTParams{
 				PromptTokens:       nTokens,
 				CachedPromptTokens: nCachedTokens,
@@ -197,7 +199,7 @@ var _ = Describe("Check random latencies", Ordered, func() {
 			config.PrefillTimePerToken = prefillTimePerToken
 			config.PrefillTimeStdDev = 0
 
-			latencyCalculator := newDefaultCalculator(config, random)
+			latencyCalculator := newDefaultCalculator(&config.Latencies, config.MaxNumSeqs, random)
 			params := TTFTParams{
 				PromptTokens:       nTokens,
 				CachedPromptTokens: nCachedTokens,
@@ -226,7 +228,7 @@ var _ = Describe("Check random latencies", Ordered, func() {
 		config.KVCacheTransferTimePerToken = milliseconds(100)
 		config.KVCacheTransferTimeStdDev = 0
 
-		latencyCalculator := newDefaultCalculator(config, random)
+		latencyCalculator := newDefaultCalculator(&config.Latencies, config.MaxNumSeqs, random)
 		params := TTFTParams{
 			PromptTokens:    128,
 			DoRemotePrefill: true,
@@ -242,7 +244,7 @@ var _ = Describe("Check random latencies", Ordered, func() {
 		config.KVCacheTransferTimePerToken = milliseconds(100)
 		config.KVCacheTransferTimeStdDev = 0
 
-		latencyCalculator := newDefaultCalculator(config, random)
+		latencyCalculator := newDefaultCalculator(&config.Latencies, config.MaxNumSeqs, random)
 		params := TTFTParams{
 			PromptTokens:    128,
 			DoRemotePrefill: true,
@@ -258,7 +260,7 @@ var _ = Describe("Check random latencies", Ordered, func() {
 			config.KVCacheTransferTimePerToken = kvCacheTransTPT
 			config.KVCacheTransferTimeStdDev = stddev
 
-			latencyCalculator := newDefaultCalculator(config, random)
+			latencyCalculator := newDefaultCalculator(&config.Latencies, config.MaxNumSeqs, random)
 			params := TTFTParams{
 				PromptTokens:    nTokens,
 				DoRemotePrefill: true,
@@ -286,7 +288,7 @@ var _ = Describe("Check random latencies", Ordered, func() {
 		config.TimeToFirstTokenStdDev = 0
 		config.TimeFactorUnderLoad = 1.0
 
-		latencyCalculator := newDefaultCalculator(config, random)
+		latencyCalculator := newDefaultCalculator(&config.Latencies, config.MaxNumSeqs, random)
 		params := TTFTParams{
 			PromptTokens: 128,
 			RunningReqs:  100,
@@ -300,7 +302,7 @@ var _ = Describe("Check random latencies", Ordered, func() {
 		config.TimeToFirstTokenStdDev = 0
 		config.TimeFactorUnderLoad = 100.0
 		config.MaxNumSeqs = 1
-		latencyCalculator := newDefaultCalculator(config, random)
+		latencyCalculator := newDefaultCalculator(&config.Latencies, config.MaxNumSeqs, random)
 
 		params := TTFTParams{
 			PromptTokens: 128,
@@ -316,7 +318,7 @@ var _ = Describe("Check random latencies", Ordered, func() {
 			config.TimeToFirstTokenStdDev = 0
 			config.TimeFactorUnderLoad = timeFactorUnderLoad
 			config.MaxNumSeqs = maxNumOfReq
-			latencyCalculator := newDefaultCalculator(config, random)
+			latencyCalculator := newDefaultCalculator(&config.Latencies, config.MaxNumSeqs, random)
 
 			params := TTFTParams{
 				PromptTokens: 128,
@@ -343,7 +345,7 @@ var _ = Describe("Check random latencies", Ordered, func() {
 			config.TimeToFirstTokenStdDev = 0
 			config.TimeFactorUnderLoad = timeFactorUnderLoad
 			config.MaxNumSeqs = maxNumOfReq
-			latencyCalculator := newDefaultCalculator(config, random)
+			latencyCalculator := newDefaultCalculator(&config.Latencies, config.MaxNumSeqs, random)
 
 			params := TTFTParams{
 				PromptTokens: 128,
@@ -369,7 +371,7 @@ var _ = Describe("Check random latencies", Ordered, func() {
 	It("when TimeFactorUnderLoad is 1.0, calcLoadFactor should give 1", func() {
 		config.TimeFactorUnderLoad = 1.0
 		config.MaxNumSeqs = 11
-		latencyCalculator := newDefaultCalculator(config, random)
+		latencyCalculator := newDefaultCalculator(&config.Latencies, config.MaxNumSeqs, random)
 
 		factor := latencyCalculator.getCurrLoadFactor(3)
 		Expect(factor).To(BeNumerically("==", 1.0))
@@ -378,7 +380,7 @@ var _ = Describe("Check random latencies", Ordered, func() {
 	It("when TimeFactorUnderLoad is > 1.0, and sim is fully loaded, calcLoadFactor should give TimeFactorUnderLoad", func() {
 		config.TimeFactorUnderLoad = 2.0
 		config.MaxNumSeqs = 11
-		latencyCalculator := newDefaultCalculator(config, random)
+		latencyCalculator := newDefaultCalculator(&config.Latencies, config.MaxNumSeqs, random)
 
 		factor := latencyCalculator.getCurrLoadFactor(11)
 		Expect(factor).To(BeNumerically("==", config.TimeFactorUnderLoad))
@@ -388,7 +390,7 @@ var _ = Describe("Check random latencies", Ordered, func() {
 	It("when TimeFactorUnderLoad is > 1.0, and sim is partially loaded, calcLoadFactor should give a value between 1 and TimeFactorUnderLoad", func() {
 		config.TimeFactorUnderLoad = 2.0
 		config.MaxNumSeqs = 11
-		latencyCalculator := newDefaultCalculator(config, random)
+		latencyCalculator := newDefaultCalculator(&config.Latencies, config.MaxNumSeqs, random)
 
 		factor := latencyCalculator.getCurrLoadFactor(6)
 		Expect(factor).To(BeNumerically(">", 1.0))
