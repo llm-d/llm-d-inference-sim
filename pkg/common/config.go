@@ -125,7 +125,13 @@ type Configuration struct {
 	// foldLegacyKeys) and a POST /admin/config body (via Update's
 	// foldFlatLatencies) still accept the legacy flat top-level keys too,
 	// folded into "latencies" before unmarshalling into a Configuration.
-	Latencies `yaml:"latencies" json:"latencies"`
+	Latencies LatenciesConfig `yaml:"latencies" json:"latencies"`
+
+	// LatencyCalculator is the name of the latency calculator to use in the simulation of the response latencies.
+	// The default calculation is based on the current load of the simulator and on the configured latency
+	// parameters, e.g., time-to-first-token and prefill-time-per-token. It is a top-level flag, not part of
+	// LatenciesConfig, since it selects a calculation strategy rather than a latency value.
+	LatencyCalculator string `yaml:"latency-calculator" json:"latency-calculator" admin:"configurable" rebuild:"latency"`
 
 	// Mode defines the simulator response generation mode, valid values: echo, random
 	Mode string `yaml:"mode" json:"mode"`
@@ -330,9 +336,9 @@ type KVCacheConfig struct {
 	UseVllmMapEventFormat bool `yaml:"use-vllm-map-event-format" json:"use-vllm-map-event-format"`
 }
 
-// Latencies groups the request-latency simulation parameters.
+// LatenciesConfig groups the request-latency simulation parameters.
 // NOTE: For all duration fields please use duration strings, e.g., "100ms", "1.5s"
-type Latencies struct {
+type LatenciesConfig struct {
 	// TimeToFirstToken time before the first token will be returned
 	TimeToFirstToken time.Duration `yaml:"time-to-first-token" json:"time-to-first-token" admin:"configurable" rebuild:"latency"`
 	// TimeToFirstTokenStdDev standard deviation for time before the first token will be returned
@@ -370,10 +376,10 @@ type Latencies struct {
 	// TimeToGenerateImage is the simulated time to generate an image in omni mode.
 	// When an image is going to be emitted in a chat completion, the simulator
 	// sleeps for this duration before sending the image chunk.
-	TimeToGenerateImage time.Duration `yaml:"time-to-generate-image" json:"time-to-generate-image" admin:"configurable"`
+	TimeToGenerateImage time.Duration `yaml:"time-to-generate-image" json:"time-to-generate-image" admin:"configurable" rebuild:"latency"`
 	// TimeToGenerateImageStdDev standard deviation for time to generate an image.
 	// Optional, default is 0, can't be more than 30% of TimeToGenerateImage.
-	TimeToGenerateImageStdDev time.Duration `yaml:"time-to-generate-image-std-dev" json:"time-to-generate-image-std-dev" admin:"configurable"`
+	TimeToGenerateImageStdDev time.Duration `yaml:"time-to-generate-image-std-dev" json:"time-to-generate-image-std-dev" admin:"configurable" rebuild:"latency"`
 
 	// TimeFactorUnderLoad is a multiplicative factor that affects the overall time taken for requests when parallel
 	// requests are being processed.
@@ -382,11 +388,6 @@ type Latencies struct {
 	// - When the factor is x (where x > 1.0) and there are MaxNumSeqs requests, the total time will be multiplied by x.
 	// - The extra time then decreases multiplicatively to 1.0 when the number of requests is less than MaxNumSeqs.
 	TimeFactorUnderLoad float64 `yaml:"time-factor-under-load" json:"time-factor-under-load" admin:"configurable" rebuild:"latency"`
-
-	// LatencyCalculator is the name of the latency calculator to use in the simulation of the response latencies.
-	// The default calculation is based on the current load of the simulator and on the configured latency
-	// parameters, e.g., time-to-first-token and prefill-time-per-token.
-	LatencyCalculator string `yaml:"latency-calculator" json:"latency-calculator" admin:"configurable" rebuild:"latency"`
 }
 
 // NewConfig returns a Configuration populated with its documented defaults.
@@ -401,7 +402,7 @@ func NewConfig() *Configuration {
 		MaxModelLen:                         1024,
 		Mode:                                ModeRandom,
 		Seed:                                time.Now().UnixNano(),
-		Latencies:                           Latencies{TimeFactorUnderLoad: 1.0},
+		Latencies:                           LatenciesConfig{TimeFactorUnderLoad: 1.0},
 		MaxToolCallIntegerParam:             100,
 		MaxToolCallNumberParam:              100,
 		MaxToolCallArrayParamLength:         5,
@@ -509,42 +510,42 @@ func (c *Configuration) validate() error {
 	if c.Port <= 0 {
 		return fmt.Errorf("invalid port '%d'", c.Port)
 	}
-	if c.InterTokenLatency < 0 {
+	if c.Latencies.InterTokenLatency < 0 {
 		return errors.New("inter token latency cannot be negative")
 	}
-	if c.InterTokenLatencyStdDev < 0 {
+	if c.Latencies.InterTokenLatencyStdDev < 0 {
 		return errors.New("inter token latency standard deviation cannot be negative")
 	}
-	if float32(c.InterTokenLatencyStdDev) > 0.3*float32(c.InterTokenLatency) {
+	if float32(c.Latencies.InterTokenLatencyStdDev) > 0.3*float32(c.Latencies.InterTokenLatency) {
 		return errors.New("inter token latency standard deviation cannot be more than 30% of inter token latency")
 	}
-	if c.TimeToFirstToken < 0 {
+	if c.Latencies.TimeToFirstToken < 0 {
 		return errors.New("time to first token cannot be negative")
 	}
-	if c.TimeToFirstTokenStdDev < 0 {
+	if c.Latencies.TimeToFirstTokenStdDev < 0 {
 		return errors.New("time to first token standard deviation cannot be negative")
 	}
-	if float32(c.TimeToFirstTokenStdDev) > 0.3*float32(c.TimeToFirstToken) {
+	if float32(c.Latencies.TimeToFirstTokenStdDev) > 0.3*float32(c.Latencies.TimeToFirstToken) {
 		return errors.New("time to first token standard deviation cannot be more than 30% of time to first token")
 	}
 
-	if c.TimeToGenerateImage < 0 {
+	if c.Latencies.TimeToGenerateImage < 0 {
 		return errors.New("time to generate image cannot be negative")
 	}
-	if c.TimeToGenerateImageStdDev < 0 {
+	if c.Latencies.TimeToGenerateImageStdDev < 0 {
 		return errors.New("time to generate image standard deviation cannot be negative")
 	}
-	if float32(c.TimeToGenerateImageStdDev) > 0.3*float32(c.TimeToGenerateImage) {
+	if float32(c.Latencies.TimeToGenerateImageStdDev) > 0.3*float32(c.Latencies.TimeToGenerateImage) {
 		return errors.New("time to generate image standard deviation cannot be more than 30% of time to generate image")
 	}
 
-	if c.PrefillOverhead < 0 {
+	if c.Latencies.PrefillOverhead < 0 {
 		return errors.New("prefill overhead cannot be negative")
 	}
-	if c.PrefillTimePerToken < 0 {
+	if c.Latencies.PrefillTimePerToken < 0 {
 		return errors.New("prefill time per token cannot be negative")
 	}
-	if c.PrefillTimeStdDev < 0 {
+	if c.Latencies.PrefillTimeStdDev < 0 {
 		return errors.New("prefill time standard deviation cannot be negative")
 	}
 	// No upper-bound check on PrefillTimeStdDev: it is applied to the total prefill time
@@ -553,7 +554,7 @@ func (c *Configuration) validate() error {
 	// RandomNormDuration to [0.3, 1.7] × mean, so an oversized std-dev cannot produce
 	// nonsensical values.
 
-	if c.TimeFactorUnderLoad < 1.0 {
+	if c.Latencies.TimeFactorUnderLoad < 1.0 {
 		return errors.New("time factor under load cannot be less than 1.0")
 	}
 
@@ -665,34 +666,53 @@ func (c *Configuration) SSLEnabled() bool {
 	return (c.SSLCertFile != "" && c.SSLKeyFile != "") || c.SelfSignedCerts
 }
 
-// durationFields holds the JSON key names of all time.Duration fields in Configuration,
-// including ones promoted from the embedded Latencies struct.
+// durationFields holds the JSON key names of all time.Duration fields in
+// Configuration and LatenciesConfig.
 // configurableFields maps each admin-configurable JSON field key to its rebuild tag
 // (value of the rebuild struct tag, e.g. "latency"), or "" for fields with no rebuild tag.
 // kvCacheYAMLKeys and latenciesYAMLKeys hold the YAML key names of every KVCacheConfig
-// and Latencies field respectively. Since those names are identical to the fields'
+// and LatenciesConfig field respectively. Since those names are identical to the fields'
 // JSON key names, load() also reuses them to fold legacy flat top-level YAML keys into
 // the nested "kvcache"/"latencies" blocks, and Update's foldFlatLatencies reuses
 // latenciesYAMLKeys the same way for the legacy flat POST /admin/config body shape.
+// latenciesYAMLKeySet is the same set as latenciesYAMLKeys, for membership checks;
+// unfoldNestedLatencies uses it to reject fields that are admin-configurable but not
+// part of LatenciesConfig (e.g. latency-calculator) inside the nested "latencies" object.
 // All are populated once at init via reflection so there is no static list to keep in
 // sync with the structs.
 var (
-	durationFields     map[string]bool
-	configurableFields map[string]string
-	kvCacheYAMLKeys    []string
-	latenciesYAMLKeys  []string
+	durationFields      map[string]bool
+	configurableFields  map[string]string
+	kvCacheYAMLKeys     []string
+	latenciesYAMLKeys   []string
+	latenciesYAMLKeySet map[string]bool
 )
 
 func init() {
 	durationFields = make(map[string]bool)
 	configurableFields = make(map[string]string)
+	// Configuration's Latencies and KVCache fields are named, non-anonymous
+	// fields, so a field walk over Configuration does not descend into them;
+	// their own admin-configurable and duration fields are collected via a
+	// separate walk over LatenciesConfig.
+	collectFieldMeta(reflect.TypeOf(Configuration{}))
+	collectFieldMeta(reflect.TypeOf(LatenciesConfig{}))
+
+	kvCacheYAMLKeys = yamlKeysOf(reflect.TypeOf(KVCacheConfig{}))
+	latenciesYAMLKeys = yamlKeysOf(reflect.TypeOf(LatenciesConfig{}))
+	latenciesYAMLKeySet = make(map[string]bool, len(latenciesYAMLKeys))
+	for _, key := range latenciesYAMLKeys {
+		latenciesYAMLKeySet[key] = true
+	}
+}
+
+// collectFieldMeta walks t's direct fields, adding each duration field's JSON
+// key to durationFields and each admin-configurable field's JSON key (with
+// its rebuild tag) to configurableFields.
+func collectFieldMeta(t reflect.Type) {
 	durationType := reflect.TypeOf(time.Duration(0))
-	// VisibleFields follows Go's field-promotion rules, so it surfaces the
-	// Latencies fields promoted through Configuration's anonymous embed (with
-	// their own tags) alongside Configuration's direct fields. Named,
-	// non-anonymous fields like KVCache KVCacheConfig are returned as a
-	// single non-descended entry, same as a direct field walk would produce.
-	for _, f := range reflect.VisibleFields(reflect.TypeOf(Configuration{})) {
+	for i := range t.NumField() {
+		f := t.Field(i)
 		jsonKey := strings.SplitN(f.Tag.Get("json"), ",", 2)[0]
 		if jsonKey == "" || jsonKey == "-" {
 			continue
@@ -704,9 +724,6 @@ func init() {
 			configurableFields[jsonKey] = f.Tag.Get("rebuild")
 		}
 	}
-
-	kvCacheYAMLKeys = yamlKeysOf(reflect.TypeOf(KVCacheConfig{}))
-	latenciesYAMLKeys = yamlKeysOf(reflect.TypeOf(Latencies{}))
 }
 
 // yamlKeysOf returns the YAML key names of every direct field of t.
@@ -751,8 +768,12 @@ func normalizeDurationStrings(raw map[string]json.RawMessage) error {
 // unfoldNestedLatencies expands an optional top-level "latencies" object in
 // an admin-config JSON body into flat keys in place, so POST /admin/config
 // accepts either shape, matching the flat/nested flexibility YAML config
-// files already have via foldLegacyKeys. It returns an error if a field is
-// set both at the top level and inside the nested "latencies" object.
+// files already have via foldLegacyKeys. Every key inside the nested object
+// must be one of LatenciesConfig's own fields: latency-calculator is a
+// top-level-only field (see Configuration.LatencyCalculator) and is rejected
+// here even though it is otherwise admin-configurable. It also returns an
+// error if a field is set both at the top level and inside the nested
+// "latencies" object.
 func unfoldNestedLatencies(raw map[string]json.RawMessage) error {
 	nestedRaw, ok := raw["latencies"]
 	if !ok {
@@ -766,6 +787,9 @@ func unfoldNestedLatencies(raw map[string]json.RawMessage) error {
 
 	var conflicts []string
 	for key := range nested {
+		if !latenciesYAMLKeySet[key] {
+			return fmt.Errorf("field '%s' is not a latencies field", key)
+		}
 		if _, exists := raw[key]; exists {
 			conflicts = append(conflicts, key)
 		}

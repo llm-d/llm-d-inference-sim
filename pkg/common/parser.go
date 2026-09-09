@@ -146,17 +146,17 @@ func ParseCommandParamsAndLoadConfig(eng Engine) (*Configuration, error) {
 	f.IntVar(&config.MaxModelLen, "max-model-len", config.MaxModelLen, "Model's context window, maximum number of tokens in a single request including input and output")
 
 	f.StringVar(&config.Mode, "mode", config.Mode, "Simulator mode: echo - returns the same text that was sent in the request, for chat completion returns the last message; random - returns random sentence from a bank of pre-defined sentences")
-	f.DurationVar(&config.InterTokenLatency, "inter-token-latency", config.InterTokenLatency, "Time to generate one token, e.g. 100ms")
-	f.DurationVar(&config.TimeToFirstToken, "time-to-first-token", config.TimeToFirstToken, "Time to first token, e.g. 100ms")
+	f.DurationVar(&config.Latencies.InterTokenLatency, "inter-token-latency", config.Latencies.InterTokenLatency, "Time to generate one token, e.g. 100ms")
+	f.DurationVar(&config.Latencies.TimeToFirstToken, "time-to-first-token", config.Latencies.TimeToFirstToken, "Time to first token, e.g. 100ms")
 
-	f.DurationVar(&config.PrefillOverhead, "prefill-overhead", config.PrefillOverhead, "Time to prefill, e.g. 100ms. This argument is ignored if <time-to-first-token> is not 0.")
-	f.DurationVar(&config.PrefillTimePerToken, "prefill-time-per-token", config.PrefillTimePerToken, "Time to prefill per token, e.g. 100ms")
-	f.DurationVar(&config.PrefillTimeStdDev, "prefill-time-std-dev", config.PrefillTimeStdDev, "Standard deviation for time to prefill, e.g. 100ms")
+	f.DurationVar(&config.Latencies.PrefillOverhead, "prefill-overhead", config.Latencies.PrefillOverhead, "Time to prefill, e.g. 100ms. This argument is ignored if <time-to-first-token> is not 0.")
+	f.DurationVar(&config.Latencies.PrefillTimePerToken, "prefill-time-per-token", config.Latencies.PrefillTimePerToken, "Time to prefill per token, e.g. 100ms")
+	f.DurationVar(&config.Latencies.PrefillTimeStdDev, "prefill-time-std-dev", config.Latencies.PrefillTimeStdDev, "Standard deviation for time to prefill, e.g. 100ms")
 
-	f.DurationVar(&config.InterTokenLatencyStdDev, "inter-token-latency-std-dev", config.InterTokenLatencyStdDev, "Standard deviation for time between generated tokens, e.g. 100ms")
-	f.DurationVar(&config.TimeToFirstTokenStdDev, "time-to-first-token-std-dev", config.TimeToFirstTokenStdDev, "Standard deviation for time before the first token will be returned, e.g. 100ms")
+	f.DurationVar(&config.Latencies.InterTokenLatencyStdDev, "inter-token-latency-std-dev", config.Latencies.InterTokenLatencyStdDev, "Standard deviation for time between generated tokens, e.g. 100ms")
+	f.DurationVar(&config.Latencies.TimeToFirstTokenStdDev, "time-to-first-token-std-dev", config.Latencies.TimeToFirstTokenStdDev, "Standard deviation for time before the first token will be returned, e.g. 100ms")
 	f.Int64Var(&config.Seed, "seed", config.Seed, "Random seed for operations (if not set, current Unix time in nanoseconds is used)")
-	f.Float64Var(&config.TimeFactorUnderLoad, "time-factor-under-load", config.TimeFactorUnderLoad, "Time factor under load (must be >= 1.0)")
+	f.Float64Var(&config.Latencies.TimeFactorUnderLoad, "time-factor-under-load", config.Latencies.TimeFactorUnderLoad, "Time factor under load (must be >= 1.0)")
 
 	f.IntVar(&config.MaxToolCallIntegerParam, "max-tool-call-integer-param", config.MaxToolCallIntegerParam, "Maximum possible value of integer parameters in a tool call")
 	f.IntVar(&config.MinToolCallIntegerParam, "min-tool-call-integer-param", config.MinToolCallIntegerParam, "Minimum possible value of integer parameters in a tool call")
@@ -212,8 +212,8 @@ func ParseCommandParamsAndLoadConfig(eng Engine) (*Configuration, error) {
 	AddToggle(f, &config.Omni,
 		"omni", "Enable omni mode: emit an image chunk when X-Send-Image header is present", "Disable omni mode")
 	f.IntVar(&config.ImageEmissionRate, "image-emission-rate", config.ImageEmissionRate, "Probability (0-100) of emitting a synthetic image chunk per chat completion request in omni mode")
-	f.DurationVar(&config.TimeToGenerateImage, "time-to-generate-image", config.TimeToGenerateImage, "Simulated time to generate an image in omni mode, e.g. 500ms")
-	f.DurationVar(&config.TimeToGenerateImageStdDev, "time-to-generate-image-std-dev", config.TimeToGenerateImageStdDev, "Standard deviation for time to generate an image in omni mode, e.g. 50ms")
+	f.DurationVar(&config.Latencies.TimeToGenerateImage, "time-to-generate-image", config.Latencies.TimeToGenerateImage, "Simulated time to generate an image in omni mode, e.g. 500ms")
+	f.DurationVar(&config.Latencies.TimeToGenerateImageStdDev, "time-to-generate-image-std-dev", config.Latencies.TimeToGenerateImageStdDev, "Standard deviation for time to generate an image in omni mode, e.g. 50ms")
 
 	// These values were manually parsed above in GetParamValueFromArgs, we leave this in order to get these flags in --help
 	var dummyString string

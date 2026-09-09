@@ -34,10 +34,10 @@ func (Engine) BindFlags(f *pflag.FlagSet, cfg *common.Configuration) error {
 	f.IntVar(&cfg.MaxLoras, "max-loras", cfg.MaxLoras, "Maximum number of LoRAs in a single batch")
 	f.IntVar(&cfg.MaxCPULoras, "max-cpu-loras", cfg.MaxCPULoras, "Maximum number of LoRAs to store in CPU memory")
 
-	f.DurationVar(&cfg.KVCacheTransferTimePerToken, "kv-cache-transfer-time-per-token", cfg.KVCacheTransferTimePerToken, "Time for KV-cache transfer per token from a remote vLLM, e.g. 100ms")
-	f.DurationVar(&cfg.KVCacheTransferTimeStdDev, "kv-cache-transfer-time-std-dev", cfg.KVCacheTransferTimeStdDev, "Standard deviation for time for KV-cache transfer per token from a remote vLLM, e.g. 100ms")
-	f.DurationVar(&cfg.KVCacheTransferLatency, "kv-cache-transfer-latency", cfg.KVCacheTransferLatency, "Time for KV-cache transfer from a remote vLLM, e.g. 100ms")
-	f.DurationVar(&cfg.KVCacheTransferLatencyStdDev, "kv-cache-transfer-latency-std-dev", cfg.KVCacheTransferLatencyStdDev, "Standard deviation for time for KV-cache transfer from a remote vLLM, e.g. 100ms")
+	f.DurationVar(&cfg.Latencies.KVCacheTransferTimePerToken, "kv-cache-transfer-time-per-token", cfg.Latencies.KVCacheTransferTimePerToken, "Time for KV-cache transfer per token from a remote vLLM, e.g. 100ms")
+	f.DurationVar(&cfg.Latencies.KVCacheTransferTimeStdDev, "kv-cache-transfer-time-std-dev", cfg.Latencies.KVCacheTransferTimeStdDev, "Standard deviation for time for KV-cache transfer per token from a remote vLLM, e.g. 100ms")
+	f.DurationVar(&cfg.Latencies.KVCacheTransferLatency, "kv-cache-transfer-latency", cfg.Latencies.KVCacheTransferLatency, "Time for KV-cache transfer from a remote vLLM, e.g. 100ms")
+	f.DurationVar(&cfg.Latencies.KVCacheTransferLatencyStdDev, "kv-cache-transfer-latency-std-dev", cfg.Latencies.KVCacheTransferLatencyStdDev, "Standard deviation for time for KV-cache transfer from a remote vLLM, e.g. 100ms")
 
 	f.BoolVar(&cfg.KVCache.EnableKVCache, "enable-kvcache", cfg.KVCache.EnableKVCache, "Defines if KV cache feature is enabled")
 	f.IntVar(&cfg.KVCache.KVCacheSize, "kv-cache-size", cfg.KVCache.KVCacheSize, "Maximum number of token blocks in kv cache")

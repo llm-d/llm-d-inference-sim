@@ -62,9 +62,9 @@ func createDefaultConfig(model string, servedModelNames []string) *common.Config
 	c.MaxNumSeqs = 5
 	c.MaxLoras = 2
 	c.MaxCPULoras = 5
-	c.TimeToFirstToken = 2000 * time.Millisecond
-	c.InterTokenLatency = 1000 * time.Millisecond
-	c.KVCacheTransferLatency = 100 * time.Millisecond
+	c.Latencies.TimeToFirstToken = 2000 * time.Millisecond
+	c.Latencies.InterTokenLatency = 1000 * time.Millisecond
+	c.Latencies.KVCacheTransferLatency = 100 * time.Millisecond
 	c.Seed = 100100100
 	c.LoraModules = []common.LoraModule{}
 	return c
@@ -190,9 +190,9 @@ var _ = Describe("Simulator configuration", func() {
 	c = createDefaultConfig(common.QwenModelName, []string{"model1", "model2"})
 	c.Port = 8001
 	c.LoraModulesString = []string{}
-	c.TimeToFirstToken = 4 * time.Second
-	c.InterTokenLatency = 2 * time.Second
-	c.KVCacheTransferLatency = time.Second
+	c.Latencies.TimeToFirstToken = 4 * time.Second
+	c.Latencies.InterTokenLatency = 2 * time.Second
+	c.Latencies.KVCacheTransferLatency = time.Second
 	test = testCase{
 		name:           "config file with command line args with empty parameter for loras",
 		args:           []string{"cmd", "--config", "../../../manifests/config_with_duration_latency.yaml", "--lora-modules"},
@@ -206,7 +206,7 @@ var _ = Describe("Simulator configuration", func() {
 	// basic config file does not contain properties related to lora
 	c.MaxLoras = 1
 	c.MaxCPULoras = 1
-	c.KVCacheTransferLatency = 50 * time.Millisecond
+	c.Latencies.KVCacheTransferLatency = 50 * time.Millisecond
 	test = testCase{
 		name:           "basic config file with command line args with time to transfer kv-cache",
 		args:           []string{"cmd", "--config", "../../../manifests/basic-config.yaml", "--kv-cache-transfer-latency", "50ms"},
@@ -219,8 +219,8 @@ var _ = Describe("Simulator configuration", func() {
 	c.Port = 8001
 	c.MaxLoras = 1
 	c.MaxCPULoras = 1
-	c.TimeToGenerateImage = 500 * time.Millisecond
-	c.TimeToGenerateImageStdDev = 50 * time.Millisecond
+	c.Latencies.TimeToGenerateImage = 500 * time.Millisecond
+	c.Latencies.TimeToGenerateImageStdDev = 50 * time.Millisecond
 	test = testCase{
 		name: "basic config file with image generation latencies",
 		args: []string{"cmd", "--config", "../../../manifests/basic-config.yaml",

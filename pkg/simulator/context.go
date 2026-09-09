@@ -420,9 +420,8 @@ func (s *SimContext) simulateTTFT(respCtx endpoint.ResponseContext) {
 }
 
 func (s *SimContext) simulateImageGenerationLatency() {
-	cfg := s.Config()
-	if cfg.TimeToGenerateImage > 0 {
-		time.Sleep(s.Random.RandomNormDuration(cfg.TimeToGenerateImage, cfg.TimeToGenerateImageStdDev))
+	if latency := s.latencyCalc().GetImageGenerationLatency(); latency > 0 {
+		time.Sleep(latency)
 	}
 }
 

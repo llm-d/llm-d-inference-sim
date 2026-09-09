@@ -40,20 +40,35 @@ type latencyCalculator interface {
 	// GetInterTokenLatency returns inter-token latency. The simulator will wait
 	// this amount of time before generating each response token (except the first one).
 	GetInterTokenLatency(params *InterTokenParams) time.Duration
+	// GetImageGenerationLatency returns the time to generate a synthetic image in
+	// omni mode. The simulator will wait this amount of time before sending the
+	// image chunk.
+	GetImageGenerationLatency() time.Duration
 }
 
 type baseCalculator struct {
-	interTokenLatency       time.Duration
-	interTokenLatencyStdDev time.Duration
-	timeFactorUnderLoad     float64
-	maxNumSeqs              int
-	random                  *common.Random
+	interTokenLatency         time.Duration
+	interTokenLatencyStdDev   time.Duration
+	timeFactorUnderLoad       float64
+	timeToGenerateImage       time.Duration
+	timeToGenerateImageStdDev time.Duration
+	maxNumSeqs                int
+	random                    *common.Random
 }
 
 // returns inter token latency
 func (b *baseCalculator) GetInterTokenLatency(params *InterTokenParams) time.Duration {
 	latency := time.Duration(float64(b.interTokenLatency) * b.getCurrLoadFactor(params.RunningReqs))
 	return b.random.RandomNormDuration(latency, b.interTokenLatencyStdDev)
+}
+
+// returns time to generate a synthetic image in omni mode; not affected by
+// calculator strategy or load, unlike GetTimeToFirstToken/GetInterTokenLatency.
+func (b *baseCalculator) GetImageGenerationLatency() time.Duration {
+	if b.timeToGenerateImage <= 0 {
+		return 0
+	}
+	return b.random.RandomNormDuration(b.timeToGenerateImage, b.timeToGenerateImageStdDev)
 }
 
 func (b *baseCalculator) getCurrLoadFactor(nRunningReqs int64) float64 {
@@ -79,14 +94,16 @@ type defaultCalculator struct {
 	prefillTimeStdDev            time.Duration
 }
 
-func newDefaultCalculator(latencies *common.Latencies, maxNumSeqs int, random *common.Random) *defaultCalculator {
+func newDefaultCalculator(latencies *common.LatenciesConfig, maxNumSeqs int, random *common.Random) *defaultCalculator {
 	return &defaultCalculator{
 		baseCalculator: baseCalculator{
-			interTokenLatency:       latencies.InterTokenLatency,
-			interTokenLatencyStdDev: latencies.InterTokenLatencyStdDev,
-			timeFactorUnderLoad:     latencies.TimeFactorUnderLoad,
-			maxNumSeqs:              maxNumSeqs,
-			random:                  random,
+			interTokenLatency:         latencies.InterTokenLatency,
+			interTokenLatencyStdDev:   latencies.InterTokenLatencyStdDev,
+			timeFactorUnderLoad:       latencies.TimeFactorUnderLoad,
+			timeToGenerateImage:       latencies.TimeToGenerateImage,
+			timeToGenerateImageStdDev: latencies.TimeToGenerateImageStdDev,
+			maxNumSeqs:                maxNumSeqs,
+			random:                    random,
 		},
 		timeToFirstToken:             latencies.TimeToFirstToken,
 		timeToFirstTokenStdDev:       latencies.TimeToFirstTokenStdDev,
@@ -134,14 +151,16 @@ type constantCalculator struct {
 	kVCacheTransferLatencyStdDev time.Duration
 }
 
-func newConstantCalculator(latencies *common.Latencies, maxNumSeqs int, random *common.Random) *constantCalculator {
+func newConstantCalculator(latencies *common.LatenciesConfig, maxNumSeqs int, random *common.Random) *constantCalculator {
 	return &constantCalculator{
 		baseCalculator: baseCalculator{
-			interTokenLatency:       latencies.InterTokenLatency,
-			interTokenLatencyStdDev: latencies.InterTokenLatencyStdDev,
-			timeFactorUnderLoad:     latencies.TimeFactorUnderLoad,
-			maxNumSeqs:              maxNumSeqs,
-			random:                  random,
+			interTokenLatency:         latencies.InterTokenLatency,
+			interTokenLatencyStdDev:   latencies.InterTokenLatencyStdDev,
+			timeFactorUnderLoad:       latencies.TimeFactorUnderLoad,
+			timeToGenerateImage:       latencies.TimeToGenerateImage,
+			timeToGenerateImageStdDev: latencies.TimeToGenerateImageStdDev,
+			maxNumSeqs:                maxNumSeqs,
+			random:                    random,
 		},
 		timeToFirstToken:             latencies.TimeToFirstToken,
 		timeToFirstTokenStdDev:       latencies.TimeToFirstTokenStdDev,
@@ -171,14 +190,16 @@ type perTokenCalculator struct {
 	prefillTimeStdDev           time.Duration
 }
 
-func newPerTokenCalculator(latencies *common.Latencies, maxNumSeqs int, random *common.Random) *perTokenCalculator {
+func newPerTokenCalculator(latencies *common.LatenciesConfig, maxNumSeqs int, random *common.Random) *perTokenCalculator {
 	return &perTokenCalculator{
 		baseCalculator: baseCalculator{
-			interTokenLatency:       latencies.InterTokenLatency,
-			interTokenLatencyStdDev: latencies.InterTokenLatencyStdDev,
-			timeFactorUnderLoad:     latencies.TimeFactorUnderLoad,
-			maxNumSeqs:              maxNumSeqs,
-			random:                  random,
+			interTokenLatency:         latencies.InterTokenLatency,
+			interTokenLatencyStdDev:   latencies.InterTokenLatencyStdDev,
+			timeFactorUnderLoad:       latencies.TimeFactorUnderLoad,
+			timeToGenerateImage:       latencies.TimeToGenerateImage,
+			timeToGenerateImageStdDev: latencies.TimeToGenerateImageStdDev,
+			maxNumSeqs:                maxNumSeqs,
+			random:                    random,
 		},
 		kVCacheTransferTimePerToken: latencies.KVCacheTransferTimePerToken,
 		kVCacheTransferTimeStdDev:   latencies.KVCacheTransferTimeStdDev,
