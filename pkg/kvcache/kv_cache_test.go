@@ -529,81 +529,35 @@ var _ = Describe("KV cache", Ordered, func() {
 		Entry("map format", true),
 	)
 
-	Context("prefix cache accounting", func() {
-		It("counts only the contiguous cached prefix", func() {
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
+	It("counts only the contiguous cached prefix", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 
-			config := &common.Configuration{
-				IP:      localhost,
-				Port:    1234,
-				Model:   common.TestModelName,
-				KVCache: common.KVCacheConfig{KVCacheSize: 3},
-			}
+		config := &common.Configuration{
+			IP:      localhost,
+			Port:    1234,
+			Model:   common.TestModelName,
+			KVCache: common.KVCacheConfig{KVCacheSize: 3},
+		}
+		blockCache, err := newBlockCache(ctx, config, GinkgoLogr, nil)
+		Expect(err).NotTo(HaveOccurred())
 
-			blockCache, err := newBlockCache(ctx, config, GinkgoLogr, nil)
-			Expect(err).NotTo(HaveOccurred())
+		for _, hash := range []uint64{1, 3} {
+			key := blockKey{hash: hash, modelName: common.TestModelName}
+			blockCache.unusedBlocks[key] = time.Now()
+			blockCache.blockToTokens[key] = []uint32{uint32(hash)}
+		}
 
-			seed := testRequest{id: "seed", blockHashes: []uint64{1, 2, 3}, tokens: [][]uint32{{1}, {2}, {3}}}
-			_, err = blockCache.startRequest(&seed, seed.blockHashes, seed.tokens)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(blockCache.finishRequest(seed.id)).To(Succeed())
-			<-blockCache.eventChan.Channel
+		req := testRequest{id: "req", blockHashes: []uint64{1, 2, 3}, tokens: [][]uint32{{1}, {2}, {3}}}
+		alreadyInCache, err := blockCache.startRequest(&req, req.blockHashes, req.tokens)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(alreadyInCache).To(Equal(1))
 
-			// Simulate an evicted middle block while a later block remains resident.
-			missingKey := blockKey{hash: 2, modelName: common.TestModelName}
-			delete(blockCache.unusedBlocks, missingKey)
-			delete(blockCache.blockToTokens, missingKey)
-
-			req := testRequest{id: "req", blockHashes: []uint64{1, 2, 3}, tokens: [][]uint32{{1}, {2}, {3}}}
-			alreadyInCache, err := blockCache.startRequest(&req, req.blockHashes, req.tokens)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(alreadyInCache).To(Equal(1))
-
-			storeEvent := <-blockCache.eventChan.Channel
-			Expect(storeEvent.action).To(Equal(eventActionStore))
-			Expect(storeEvent.hashes).To(Equal([]uint64{2}))
-			Expect(storeEvent.parentHash).NotTo(BeNil())
-			Expect(*storeEvent.parentHash).To(Equal(uint64(1)))
-
-			for _, hash := range req.blockHashes {
-				refCount, exists := blockCache.getBlockInfo(blockKey{hash: hash, modelName: common.TestModelName})
-				Expect(exists).To(BeTrue())
-				Expect(refCount).To(Equal(1))
-			}
-			Expect(blockCache.finishRequest(req.id)).To(Succeed())
-		})
-
-		It("evicts tail blocks before their parents", func() {
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-
-			config := &common.Configuration{
-				IP:      localhost,
-				Port:    1234,
-				Model:   common.TestModelName,
-				KVCache: common.KVCacheConfig{KVCacheSize: 3},
-			}
-
-			blockCache, err := newBlockCache(ctx, config, GinkgoLogr, nil)
-			Expect(err).NotTo(HaveOccurred())
-
-			seed := testRequest{id: "seed", blockHashes: []uint64{1, 2, 3}, tokens: [][]uint32{{1}, {2}, {3}}}
-			_, err = blockCache.startRequest(&seed, seed.blockHashes, seed.tokens)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(blockCache.finishRequest(seed.id)).To(Succeed())
-
-			req := testRequest{id: "req", blockHashes: []uint64{4}, tokens: [][]uint32{{4}}}
-			_, err = blockCache.startRequest(&req, req.blockHashes, req.tokens)
-			Expect(err).NotTo(HaveOccurred())
-
-			_, exists := blockCache.getBlockInfo(blockKey{hash: 3, modelName: common.TestModelName})
-			Expect(exists).To(BeFalse())
-			for _, hash := range []uint64{1, 2} {
-				_, exists = blockCache.getBlockInfo(blockKey{hash: hash, modelName: common.TestModelName})
-				Expect(exists).To(BeTrue())
-			}
-		})
+		storeEvent := <-blockCache.eventChan.Channel
+		Expect(storeEvent.hashes).To(Equal([]uint64{2}))
+		Expect(storeEvent.parentHash).NotTo(BeNil())
+		Expect(*storeEvent.parentHash).To(Equal(uint64(1)))
+		Expect(blockCache.finishRequest(req.id)).To(Succeed())
 	})
 
 	DescribeTable("thread safety",

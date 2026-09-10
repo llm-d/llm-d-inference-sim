@@ -55,8 +55,7 @@ type blockCache struct {
 	mu              sync.RWMutex
 	requestToBlocks map[string][]blockKey              // request id -> array of it blocks (block hashes)
 	usedBlocks      map[blockKey]int                   // block hash -> reference count
-	unusedBlocks    map[blockKey]uint64                // block hash -> eviction order; lower values are evicted first
-	nextEvictionID  uint64                             // next eviction order assigned when a block becomes unused
+	unusedBlocks    map[blockKey]time.Time             // block hash -> last usage timestamp
 	blockToTokens   map[blockKey][]uint32              // block hash -> block tokens
 	loadedModels    map[string]struct{}                // models currently loaded (base model + loaded loras)
 	maxBlocks       int                                // maximum number of blocks in the cache
@@ -102,7 +101,7 @@ func newBlockCache(ctx context.Context, config *common.Configuration, logger log
 	bCache := blockCache{
 		requestToBlocks: make(map[string][]blockKey),
 		usedBlocks:      make(map[blockKey]int),
-		unusedBlocks:    make(map[blockKey]uint64),
+		unusedBlocks:    make(map[blockKey]time.Time),
 		blockToTokens:   make(map[blockKey][]uint32),
 		loadedModels:    make(map[string]struct{}),
 		maxBlocks:       kvCfg.KVCacheSize,
@@ -140,8 +139,7 @@ func (bc *blockCache) discard() {
 
 	bc.requestToBlocks = make(map[string][]blockKey)
 	bc.usedBlocks = make(map[blockKey]int)
-	bc.unusedBlocks = make(map[blockKey]uint64)
-	bc.nextEvictionID = 0
+	bc.unusedBlocks = make(map[blockKey]time.Time)
 	bc.blockToTokens = make(map[blockKey][]uint32)
 
 	common.WriteToChannel(bc.eventChan,
@@ -198,34 +196,23 @@ func (bc *blockCache) startRequest(req Request, blockHashes []uint64, blockToken
 	// count number of new blocks + number of blocks that are in the unused blocks
 	// don't update the data until we are sure that it's ok
 
-	// lastCachedIdx is the position of the last block in the contiguous cached
-	// prefix. Used below to set parent_block_hash on the store event.
-	lastCachedIdx := -1
 	cachedPrefixBlocks := 0
-	prefixMissed := false
 	for i, blockHash := range blockHashes {
 		bKey := blockKey{hash: blockHash, modelName: req.GetDisplayedModel()}
-		_, unused := bc.unusedBlocks[bKey]
-		_, used := bc.usedBlocks[bKey]
-
-		if !prefixMissed {
-			if unused || used {
-				cachedPrefixBlocks++
-				lastCachedIdx = i
-			} else {
-				prefixMissed = true
-			}
-		}
-
-		switch {
-		case unused:
+		if _, exists := bc.unusedBlocks[bKey]; exists {
 			blockToMoveToUsed = append(blockToMoveToUsed, bKey)
-		case !used:
+			if cachedPrefixBlocks == i {
+				cachedPrefixBlocks++
+			}
+		} else if _, exists := bc.usedBlocks[bKey]; !exists {
 			// new block — record its index so tokens can be written after
 			// the capacity check passes, preventing orphaned entries on error.
 			blocksToAdd = append(blocksToAdd, newBlock{key: bKey, tokenIdx: i})
-		default:
+		} else {
 			blockAlreadyInUse = append(blockAlreadyInUse, bKey)
+			if cachedPrefixBlocks == i {
+				cachedPrefixBlocks++
+			}
 		}
 	}
 
@@ -275,8 +262,8 @@ func (bc *blockCache) startRequest(req Request, blockHashes []uint64, blockToken
 	if len(hashes) > 0 {
 		// parent is the last already-cached block; nil when all blocks are new.
 		var parentHash *uint64
-		if lastCachedIdx >= 0 {
-			ph := blockHashes[lastCachedIdx]
+		if cachedPrefixBlocks > 0 {
+			ph := blockHashes[cachedPrefixBlocks-1]
 			parentHash = &ph
 		}
 		common.WriteToChannel(bc.eventChan,
@@ -323,18 +310,18 @@ func (bc *blockCache) finishRequest(requestID string) error {
 		return nil
 	}
 
+	now := time.Now()
+
 	// Decrease reference count for each block
 	errBlocks := make([]blockKey, 0)
-	for i := len(blockHashes) - 1; i >= 0; i-- {
-		blockHash := blockHashes[i]
+	for _, blockHash := range blockHashes {
 		if refCount, exists := bc.usedBlocks[blockHash]; exists {
 			if refCount > 1 {
 				// this block is in use by another request, just update reference count
 				bc.usedBlocks[blockHash] = refCount - 1
 			} else {
-				// Free in reverse order so tail blocks are evicted before their parents.
-				bc.unusedBlocks[blockHash] = bc.nextEvictionID
-				bc.nextEvictionID++
+				// this was the last block usage - move this block to unused
+				bc.unusedBlocks[blockHash] = now
 				delete(bc.usedBlocks, blockHash)
 			}
 		} else {
@@ -427,27 +414,25 @@ func (bc *blockCache) countCachedBlockPrefix(blockHashes []uint64, modelName str
 // Must be called with bc.mu held.
 func (bc *blockCache) pickBlockToEvict() blockKey {
 	var bestLoadedHash blockKey
-	var bestLoadedOrder uint64
-	hasLoadedCandidate := false
+	bestLoadedTime := time.Now()
 	var bestUnloadedHash blockKey
-	var bestUnloadedOrder uint64
+	bestUnloadedTime := bestLoadedTime
 	hasUnloadedCandidate := false
 
-	for blockKey, order := range bc.unusedBlocks {
+	for blockKey, t := range bc.unusedBlocks {
 		if _, exists := bc.loadedModels[blockKey.modelName]; exists {
 			// this is a block with loaded model,
 			// check if it's the best candidate among loaded models
-			if !hasLoadedCandidate || order < bestLoadedOrder {
+			if t.Before(bestLoadedTime) {
 				bestLoadedHash = blockKey
-				bestLoadedOrder = order
-				hasLoadedCandidate = true
+				bestLoadedTime = t
 			}
 		} else {
 			// this is a block with unloaded model,
 			// check if it's the best candidate among unloaded models
-			if !hasUnloadedCandidate || order < bestUnloadedOrder {
+			if t.Before(bestUnloadedTime) {
 				bestUnloadedHash = blockKey
-				bestUnloadedOrder = order
+				bestUnloadedTime = t
 				hasUnloadedCandidate = true
 			}
 		}
