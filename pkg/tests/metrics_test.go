@@ -873,12 +873,11 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 					metrics := string(data)
 					// Expect four running requests
 					g.Expect(metrics).To(ContainSubstring(getCountMetricLine(common.QwenModelName, simulator.ReqRunningMetricName, 4)))
-					// There should be 2 blocks for the instructions.
-					// The first two requests add 1 block. (The first request is not long enough for two blocks).
-					// The third request adds 1 block, because it has a different parent from the first two requests.
-					// The fourth request adds 1 block.
-					// 5/16 = 0.3125
-					g.Expect(metrics).To(ContainSubstring(getCountMetricLine(common.QwenModelName, simulator.KVCacheUsageMetricName, 0.3125)))
+					// Each rendered prompt fills 3 blocks, including the system instructions and chat delimiters.
+					// The first two requests share 2 prefix blocks and have distinct third blocks (4 total).
+					// The English requests share 2 prefix blocks and have distinct third blocks (4 more).
+					// Different instructions prevent block sharing between the two pairs: 8/16 = 0.5.
+					g.Expect(metrics).To(ContainSubstring(getCountMetricLine(common.QwenModelName, simulator.KVCacheUsageMetricName, 0.5)))
 				}).WithTimeout(2 * time.Second).WithPolling(25 * time.Millisecond).Should(Succeed())
 
 				Eventually(func(g Gomega) {
