@@ -197,22 +197,29 @@ func (bc *blockCache) startRequest(req Request, blockHashes []uint64, blockToken
 	// don't update the data until we are sure that it's ok
 
 	cachedPrefixBlocks := 0
+	prefixMissed := false
 	for i, blockHash := range blockHashes {
 		bKey := blockKey{hash: blockHash, modelName: req.GetDisplayedModel()}
-		if _, exists := bc.unusedBlocks[bKey]; exists {
-			blockToMoveToUsed = append(blockToMoveToUsed, bKey)
-			if cachedPrefixBlocks == i {
+		_, unused := bc.unusedBlocks[bKey]
+		_, used := bc.usedBlocks[bKey]
+
+		if !prefixMissed {
+			if unused || used {
 				cachedPrefixBlocks++
+			} else {
+				prefixMissed = true
 			}
-		} else if _, exists := bc.usedBlocks[bKey]; !exists {
+		}
+
+		switch {
+		case unused:
+			blockToMoveToUsed = append(blockToMoveToUsed, bKey)
+		case !used:
 			// new block — record its index so tokens can be written after
 			// the capacity check passes, preventing orphaned entries on error.
 			blocksToAdd = append(blocksToAdd, newBlock{key: bKey, tokenIdx: i})
-		} else {
+		default:
 			blockAlreadyInUse = append(blockAlreadyInUse, bKey)
-			if cachedPrefixBlocks == i {
-				cachedPrefixBlocks++
-			}
 		}
 	}
 
