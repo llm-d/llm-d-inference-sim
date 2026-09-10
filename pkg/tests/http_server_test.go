@@ -282,6 +282,156 @@ var _ = Describe("Server", func() {
 			}),
 	)
 
+	Describe("derender endpoints", func() {
+		startSim := func(model string) *http.Client {
+			client, err := startServerWithArgs(context.TODO(),
+				[]string{"cmd", "--model", model, "--mode", common.ModeRandom})
+			Expect(err).NotTo(HaveOccurred())
+			return client
+		}
+
+		post := func(client *http.Client, endpoint, reqBody string) (int, []byte) {
+			resp, err := client.Post("http://localhost"+endpoint, "application/json", strings.NewReader(reqBody))
+			Expect(err).NotTo(HaveOccurred())
+			defer func() {
+				Expect(resp.Body.Close()).To(Succeed())
+			}()
+			body, err := io.ReadAll(resp.Body)
+			Expect(err).NotTo(HaveOccurred())
+			return resp.StatusCode, body
+		}
+
+		idsAsJSON := func(ids []uint32) string {
+			data, err := json.Marshal(ids)
+			Expect(err).NotTo(HaveOccurred())
+			return string(data)
+		}
+
+		// skipWithoutUpstreamDerender skips proxy-mode specs when the render
+		// container's vLLM does not serve the derender endpoints.
+		skipWithoutUpstreamDerender := func(status int, body []byte) {
+			if status == http.StatusInternalServerError && strings.Contains(string(body), "status 404") {
+				Skip("render container does not serve /derender")
+			}
+		}
+
+		chatDerenderRoundTrip := func(model string) {
+			client := startSim(model)
+			status, body := post(client, "/v1/chat/completions/render",
+				fmt.Sprintf(`{"model":"%s","messages":[{"role":"user","content":"This is a test"}]}`, model))
+			Expect(status).To(Equal(http.StatusOK))
+			var renderResp api.RenderResponse
+			Expect(json.Unmarshal(body, &renderResp)).To(Succeed())
+			Expect(renderResp.TokenIDs).NotTo(BeEmpty())
+
+			status, body = post(client, "/v1/chat/completions/derender",
+				fmt.Sprintf(`{"model":"%s","prompt_tokens":5,"generate_response":{"request_id":"req-42",`+
+					`"choices":[{"index":0,"finish_reason":"stop","token_ids":%s}]}}`,
+					model, idsAsJSON(renderResp.TokenIDs)))
+			skipWithoutUpstreamDerender(status, body)
+			Expect(status).To(Equal(http.StatusOK))
+
+			var resp api.ChatCompletionsResponse
+			Expect(json.Unmarshal(body, &resp)).To(Succeed())
+			Expect(resp.ID).To(Equal("req-42"))
+			Expect(resp.Model).To(Equal(model))
+			Expect(resp.Object).To(Equal(api.ChatCompletionObject))
+			Expect(resp.Choices).To(HaveLen(1))
+			Expect(resp.Choices[0].Message.Role).To(Equal(api.RoleAssistant))
+			Expect(resp.Choices[0].Message.Content.Raw).To(ContainSubstring("This is a test"))
+			Expect(*resp.Choices[0].FinishReason).To(Equal("stop"))
+			Expect(resp.Usage.PromptTokens).To(Equal(5))
+			Expect(resp.Usage.CompletionTokens).To(Equal(len(renderResp.TokenIDs)))
+			Expect(resp.Usage.TotalTokens).To(Equal(5 + len(renderResp.TokenIDs)))
+		}
+
+		textDerenderRoundTrip := func(model string) {
+			client := startSim(model)
+			status, body := post(client, "/v1/completions/render",
+				fmt.Sprintf(`{"model":"%s","prompt":["hello world","good day"]}`, model))
+			Expect(status).To(Equal(http.StatusOK))
+			var renderResps []api.RenderResponse
+			Expect(json.Unmarshal(body, &renderResps)).To(Succeed())
+			Expect(renderResps).To(HaveLen(2))
+
+			status, body = post(client, "/v1/completions/derender",
+				fmt.Sprintf(`{"model":"%s","prompt_tokens":[3,4],"generate_responses":[`+
+					`{"request_id":"req-1","choices":[{"index":0,"finish_reason":"stop","token_ids":%s}]},`+
+					`{"request_id":"req-2","choices":[{"index":0,"finish_reason":"length","token_ids":%s}]}]}`,
+					model, idsAsJSON(renderResps[0].TokenIDs), idsAsJSON(renderResps[1].TokenIDs)))
+			skipWithoutUpstreamDerender(status, body)
+			Expect(status).To(Equal(http.StatusOK))
+
+			var resp api.TextCompletionsResponse
+			Expect(json.Unmarshal(body, &resp)).To(Succeed())
+			Expect(resp.ID).To(Equal("req-1"))
+			Expect(resp.Model).To(Equal(model))
+			Expect(resp.Object).To(Equal(api.TextCompletionObject))
+			Expect(resp.Choices).To(HaveLen(2))
+			Expect(resp.Choices[0].Index).To(Equal(0))
+			Expect(resp.Choices[0].Text).To(Equal("hello world"))
+			Expect(*resp.Choices[0].FinishReason).To(Equal("stop"))
+			Expect(resp.Choices[1].Index).To(Equal(1))
+			Expect(resp.Choices[1].Text).To(Equal("good day"))
+			Expect(*resp.Choices[1].FinishReason).To(Equal("length"))
+			totalTokens := len(renderResps[0].TokenIDs) + len(renderResps[1].TokenIDs)
+			Expect(resp.Usage.PromptTokens).To(Equal(7))
+			Expect(resp.Usage.CompletionTokens).To(Equal(totalTokens))
+			Expect(resp.Usage.TotalTokens).To(Equal(7 + totalTokens))
+		}
+
+		It("simulate /v1/chat/completions/derender round-trips rendered tokens", func() {
+			chatDerenderRoundTrip(common.TestModelName)
+		})
+
+		It("simulate /v1/completions/derender round-trips rendered tokens", func() {
+			textDerenderRoundTrip(common.TestModelName)
+		})
+
+		It("simulate derender defaults to the served model when model is omitted", func() {
+			client := startSim(common.TestModelName)
+			status, body := post(client, "/v1/chat/completions/derender",
+				`{"generate_response":{"request_id":"r","choices":[{"index":0,"token_ids":[1,2]}]}}`)
+			Expect(status).To(Equal(http.StatusOK))
+			var resp api.ChatCompletionsResponse
+			Expect(json.Unmarshal(body, &resp)).To(Succeed())
+			Expect(resp.Model).To(Equal(common.TestModelName))
+		})
+
+		It("proxy /v1/chat/completions/derender round-trips rendered tokens (HF model)", func() {
+			chatDerenderRoundTrip(common.QwenModelName)
+		})
+
+		It("proxy /v1/completions/derender round-trips rendered tokens (HF model)", func() {
+			textDerenderRoundTrip(common.QwenModelName)
+		})
+
+		DescribeTable("request validation",
+			func(endpoint, reqBody string, expectedStatus int, expectedMsg string) {
+				client := startSim(common.TestModelName)
+				status, body := post(client, endpoint, reqBody)
+				Expect(status).To(Equal(expectedStatus))
+				Expect(string(body)).To(ContainSubstring(expectedMsg))
+			},
+			Entry("rejects streaming", "/v1/chat/completions/derender",
+				`{"stream":true,"generate_response":{"choices":[{"index":0,"token_ids":[1]}]}}`,
+				http.StatusBadRequest, "streaming derender is not supported"),
+			Entry("rejects an unknown model", "/v1/chat/completions/derender",
+				`{"model":"unknown-model","generate_response":{"choices":[{"index":0,"token_ids":[1]}]}}`,
+				http.StatusNotFound, "does not exist"),
+			Entry("rejects a missing generate_response", "/v1/chat/completions/derender",
+				`{}`, http.StatusBadRequest, "generate_response is required"),
+			Entry("rejects empty generate_responses", "/v1/completions/derender",
+				`{"generate_responses":[]}`, http.StatusBadRequest, "generate_responses must not be empty"),
+			Entry("rejects a prompt_tokens length mismatch", "/v1/completions/derender",
+				`{"prompt_tokens":[1,2],"generate_responses":[{"choices":[{"index":0,"token_ids":[1]}]}]}`,
+				http.StatusBadRequest, "prompt_tokens length (2) must equal generate_responses length (1)"),
+			Entry("rejects empty token_ids", "/v1/completions/derender",
+				`{"generate_responses":[{"choices":[{"index":0,"token_ids":[]}]}]}`,
+				http.StatusBadRequest, "has empty or null token_ids"),
+		)
+	})
+
 	Context("SSL/HTTPS Configuration", func() {
 		It("Should start HTTPS server with provided SSL certificates", func(ctx SpecContext) {
 			tempDir := GinkgoT().TempDir()

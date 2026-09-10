@@ -19,6 +19,7 @@ package tokenizer
 import (
 	"context"
 	"encoding/base64"
+	"fmt"
 	"strings"
 	"time"
 
@@ -92,6 +93,72 @@ var _ = Describe("tokenizer", func() {
 		Expect(features.KwargsData[mmModalityImage]).To(HaveLen(1))
 		_, decodeErr := base64.StdEncoding.DecodeString(features.KwargsData[mmModalityImage][0])
 		Expect(decodeErr).NotTo(HaveOccurred())
+	})
+
+	It("should detokenize previously tokenized text with simple tokenizer", func() {
+		st := NewSimpleTokenizer()
+		tokens, _, err := st.RenderText(input)
+		Expect(err).NotTo(HaveOccurred())
+
+		output, err := st.Detokenize(tokens)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(output).To(Equal(input))
+	})
+
+	It("should render unknown token ids as placeholders with simple tokenizer", func() {
+		st := NewSimpleTokenizer()
+		output, err := st.Detokenize([]uint32{12345})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(output).To(Equal("<unk_12345>"))
+	})
+
+	It("should evict the least recently encoded ids when the reverse map is full", func() {
+		st := newSimpleTokenizerWithCapacity(2)
+		oldIDs, _, err := st.RenderText("aaa")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(oldIDs).To(HaveLen(1))
+
+		newIDs, _, err := st.RenderText("bbb ccc")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(newIDs).To(HaveLen(2))
+		Expect(st.evictionOrder.Len()).To(Equal(2))
+
+		output, err := st.Detokenize(oldIDs)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(output).To(Equal(fmt.Sprintf("<unk_%d>", oldIDs[0])))
+
+		output, err = st.Detokenize(newIDs)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(output).To(Equal("bbb ccc"))
+	})
+
+	It("should keep re-encoded ids when the reverse map is full", func() {
+		st := newSimpleTokenizerWithCapacity(2)
+		keptIDs, _, err := st.RenderText("aaa bbb")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(keptIDs).To(HaveLen(2))
+
+		// re-encoding "bbb" (string tokens keep trailing whitespace, so it
+		// must stay last) refreshes it, making "aaa " the eviction victim
+		_, _, err = st.RenderText("ccc bbb")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(st.evictionOrder.Len()).To(Equal(2))
+
+		output, err := st.Detokenize(keptIDs)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(output).To(Equal(fmt.Sprintf("<unk_%d>bbb", keptIDs[0])))
+	})
+
+	It("should detokenize with real tokenizer", func() {
+		tokens, _, err := tokenizerMngr.RealTokenizer().RenderText(input)
+		Expect(err).NotTo(HaveOccurred())
+
+		output, err := tokenizerMngr.RealTokenizer().Detokenize(tokens)
+		if err != nil && strings.Contains(err.Error(), "status 404") {
+			Skip("render container does not serve /derender")
+		}
+		Expect(err).NotTo(HaveOccurred())
+		Expect(output).To(Equal(input))
 	})
 
 	It("should return nil kwargs_data for text-only messages via real tokenizer", func() {

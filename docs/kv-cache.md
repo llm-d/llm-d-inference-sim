@@ -25,7 +25,9 @@ Add `--enable-kvcache true` (CLI) or `enable-kvcache: true` (YAML config):
 
 ## Configuration options
 
-All KV cache parameters can be set via CLI flags or the equivalent YAML keys (names are identical).
+All KV cache parameters can be set via CLI flags or the equivalent YAML keys (names are identical). In a YAML config file, all of these except `global-cache-hit-threshold` may be nested under a top-level `kvcache:` key (see the example below); the old flat top-level keys are still accepted for backward compatibility.
+
+The defaults below apply only once `enable-kvcache` is true. When it is `false` (the default), every other field in this table reports as zero/empty regardless of what was passed on the command line or in the config file, since none of them have any effect while the cache is disabled.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
@@ -33,7 +35,7 @@ All KV cache parameters can be set via CLI flags or the equivalent YAML keys (na
 | `kv-cache-size` | int | `1024` | Maximum number of token blocks the cache can hold |
 | `block-size` | int | `16` | Tokens per block; valid values: `8`, `16`, `32`, `64`, `128` |
 | `hash-seed` | string | value of `PYTHONHASHSEED` env var | Seed for block key hash generation; must match the seed used by real vLLM instances to ensure identical block hashes |
-| `zmq-endpoint` | string | `tcp://127.0.0.1:5557` | ZMQ address to publish events (the simulator dials this address) |
+| `zmq-endpoint` | string | `tcp://127.0.0.1:5557` | ZMQ address to publish events. The simulator either dials (active) or listens on (passive) this address. Addresses with "*", "::", "inproc://", and "ipc://" are assumed passive. |
 | `event-batch-size` | int | `16` | Maximum number of events bundled into a single ZMQ message |
 | `use-vllm-map-event-format` | bool | `false` | Encode events as msgpack maps with named fields (vLLM PR #42892 format) instead of positional arrays. Set to `true` when the consumer expects the named-field schema. |
 | `kv-events-replay-endpoint` | string | `""` (disabled) | ZMQ ROUTER address to bind for KV events replay requests. See [KV events replay](#kv-events-replay). |
@@ -44,13 +46,14 @@ All KV cache parameters can be set via CLI flags or the equivalent YAML keys (na
 
 ```yaml
 model: "Qwen/Qwen2.5-1.5B-Instruct"
-enable-kvcache: true
-kv-cache-size: 2048
-block-size: 16
-hash-seed: "42"
-zmq-endpoint: "tcp://127.0.0.1:5557"
-event-batch-size: 32
-use-vllm-map-event-format: true
+kvcache:
+  enable-kvcache: true
+  kv-cache-size: 2048
+  block-size: 16
+  hash-seed: "42"
+  zmq-endpoint: "tcp://127.0.0.1:5557"
+  event-batch-size: 32
+  use-vllm-map-event-format: true
 global-cache-hit-threshold: 0.5
 # latency parameters that interact with the KV cache
 prefill-overhead: 10ms

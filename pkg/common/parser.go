@@ -17,7 +17,6 @@ limitations under the License.
 package common
 
 import (
-	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -36,6 +35,8 @@ const (
 	ModelEnv = "SIM_MODEL"
 	// PythonHashSeedEnv is read when the --hash-seed flag is not passed; see configuration precedence in the docs.
 	PythonHashSeedEnv = "PYTHONHASHSEED"
+	// EngineEnv is read when the --engine flag is not passed; see configuration precedence in the docs.
+	EngineEnv = "SIM_ENGINE"
 )
 
 // Needed to parse values that contain multiple strings
@@ -56,18 +57,6 @@ func (l *multiString) Type() string {
 	return "strings"
 }
 
-func (c *Configuration) unmarshalLoras() error {
-	c.LoraModules = make([]LoraModule, 0)
-	for _, jsonStr := range c.LoraModulesString {
-		var lora LoraModule
-		if err := json.Unmarshal([]byte(jsonStr), &lora); err != nil {
-			return err
-		}
-		c.LoraModules = append(c.LoraModules, lora)
-	}
-	return nil
-}
-
 // toggle sets a boolean pointer to a specific value when the flag is seen.
 type toggle struct {
 	ptr *bool
@@ -79,8 +68,8 @@ func (t toggle) Set(_ string) error { *t.ptr = t.val; return nil }
 func (t toggle) Type() string       { return "bool" }
 func (t toggle) String() string     { return "" }
 
-// addToggle registers two distinct flags pointing to one variable
-func addToggle(f *pflag.FlagSet, ptr *bool, name, nameUsage, noNameUsage string) {
+// AddToggle registers two distinct flags pointing to one variable
+func AddToggle(f *pflag.FlagSet, ptr *bool, name, nameUsage, noNameUsage string) {
 	// Register Positive Flag
 	f.Var(toggle{ptr, true}, name, nameUsage)
 	f.Lookup(name).NoOptDefVal = "true"
@@ -93,22 +82,58 @@ func addToggle(f *pflag.FlagSet, ptr *bool, name, nameUsage, noNameUsage string)
 	f.Lookup(noName).DefValue = "" // Hides the [=t] in help
 }
 
+// ResolveEngineName determines which engine backend to run, following the same
+// precedence as --model/--hash-seed: command-line flag > SIM_ENGINE env var >
+// YAML config file > default ("vllm"). This must be resolved before
+// ParseCommandParamsAndLoadConfig is called, since the caller uses it to select
+// which engine's BindFlags/ValidateConfig to pass in.
+func ResolveEngineName() (string, error) {
+	if v := GetParamValueFromArgs("engine"); len(v) == 1 {
+		return v[0], nil
+	}
+	if v := os.Getenv(EngineEnv); v != "" {
+		return v, nil
+	}
+	if cf := GetParamValueFromArgs("config"); len(cf) == 1 {
+		scratch := NewConfig()
+		if err := scratch.load(cf[0]); err != nil {
+			return "", err
+		}
+		return scratch.EngineName, nil
+	}
+	return "vllm", nil
+}
+
+// Engine supplies the active engine's own CLI flags and configuration
+// validation, for use by ParseCommandParamsAndLoadConfig.
+type Engine interface {
+	// Name identifies the engine backend, e.g. "vllm".
+	Name() string
+	// BindFlags registers the engine's own CLI flags on f and reconciles any
+	// values that need parsing beyond what pflag can bind directly. Must be
+	// called before f.Parse.
+	BindFlags(f *pflag.FlagSet, cfg *Configuration) error
+	// ValidateConfig checks the engine's own fields of cfg. Called after cfg's
+	// common fields have already been validated.
+	ValidateConfig(cfg *Configuration) error
+}
+
 // ParseCommandParamsAndLoadConfig loads configuration, parses command line parameters, merges the values
 // (command line overwrites the config file; see documentation for configuration precedence involving environment variables),
-// and validates the configuration.
-func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
-	config := newConfig()
+// and validates the configuration. eng is the already-resolved engine (see ResolveEngineName), and
+// registers and validates that engine's own flags and fields.
+func ParseCommandParamsAndLoadConfig(eng Engine) (*Configuration, error) {
+	config := NewConfig()
+	config.EngineName = eng.Name()
 
-	configFileValues := getParamValueFromArgs("config")
+	configFileValues := GetParamValueFromArgs("config")
 	if len(configFileValues) == 1 {
 		if err := config.load(configFileValues[0]); err != nil {
 			return nil, err
 		}
 	}
 
-	servedModelNames := getParamValueFromArgs("served-model-name")
-	loraModuleNames := getParamValueFromArgs("lora-modules")
-	fakeMetrics := getParamValueFromArgs("fake-metrics")
+	servedModelNames := GetParamValueFromArgs("served-model-name")
 
 	f := pflag.NewFlagSet("llm-d-inference-sim flags", pflag.ContinueOnError)
 
@@ -118,26 +143,20 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 		"Currently 'loaded' model (if omitted on the command line, "+ModelEnv+" may set the model; see docs)")
 	f.IntVar(&config.MaxNumSeqs, "max-num-seqs", config.MaxNumSeqs, "Maximum number of inference requests that could be processed at the same time")
 	f.IntVar(&config.MaxWaitingQueueLength, "max-waiting-queue-length", config.MaxWaitingQueueLength, "Maximum length of inference requests waiting queue")
-	f.IntVar(&config.MaxLoras, "max-loras", config.MaxLoras, "Maximum number of LoRAs in a single batch")
-	f.IntVar(&config.MaxCPULoras, "max-cpu-loras", config.MaxCPULoras, "Maximum number of LoRAs to store in CPU memory")
 	f.IntVar(&config.MaxModelLen, "max-model-len", config.MaxModelLen, "Model's context window, maximum number of tokens in a single request including input and output")
 
 	f.StringVar(&config.Mode, "mode", config.Mode, "Simulator mode: echo - returns the same text that was sent in the request, for chat completion returns the last message; random - returns random sentence from a bank of pre-defined sentences")
-	f.DurationVar(&config.InterTokenLatency, "inter-token-latency", config.InterTokenLatency, "Time to generate one token, e.g. 100ms")
-	f.DurationVar(&config.TimeToFirstToken, "time-to-first-token", config.TimeToFirstToken, "Time to first token, e.g. 100ms")
+	f.DurationVar(&config.Latencies.InterTokenLatency, "inter-token-latency", config.Latencies.InterTokenLatency, "Time to generate one token, e.g. 100ms")
+	f.DurationVar(&config.Latencies.TimeToFirstToken, "time-to-first-token", config.Latencies.TimeToFirstToken, "Time to first token, e.g. 100ms")
 
-	f.DurationVar(&config.PrefillOverhead, "prefill-overhead", config.PrefillOverhead, "Time to prefill, e.g. 100ms. This argument is ignored if <time-to-first-token> is not 0.")
-	f.DurationVar(&config.PrefillTimePerToken, "prefill-time-per-token", config.PrefillTimePerToken, "Time to prefill per token, e.g. 100ms")
-	f.DurationVar(&config.PrefillTimeStdDev, "prefill-time-std-dev", config.PrefillTimeStdDev, "Standard deviation for time to prefill, e.g. 100ms")
-	f.DurationVar(&config.KVCacheTransferTimePerToken, "kv-cache-transfer-time-per-token", config.KVCacheTransferTimePerToken, "Time for KV-cache transfer per token from a remote vLLM, e.g. 100ms")
-	f.DurationVar(&config.KVCacheTransferTimeStdDev, "kv-cache-transfer-time-std-dev", config.KVCacheTransferTimeStdDev, "Standard deviation for time for KV-cache transfer per token from a remote vLLM, e.g. 100ms")
+	f.DurationVar(&config.Latencies.PrefillOverhead, "prefill-overhead", config.Latencies.PrefillOverhead, "Time to prefill, e.g. 100ms. This argument is ignored if <time-to-first-token> is not 0.")
+	f.DurationVar(&config.Latencies.PrefillTimePerToken, "prefill-time-per-token", config.Latencies.PrefillTimePerToken, "Time to prefill per token, e.g. 100ms")
+	f.DurationVar(&config.Latencies.PrefillTimeStdDev, "prefill-time-std-dev", config.Latencies.PrefillTimeStdDev, "Standard deviation for time to prefill, e.g. 100ms")
 
-	f.DurationVar(&config.KVCacheTransferLatency, "kv-cache-transfer-latency", config.KVCacheTransferLatency, "Time for KV-cache transfer from a remote vLLM, e.g. 100ms")
-	f.DurationVar(&config.InterTokenLatencyStdDev, "inter-token-latency-std-dev", config.InterTokenLatencyStdDev, "Standard deviation for time between generated tokens, e.g. 100ms")
-	f.DurationVar(&config.TimeToFirstTokenStdDev, "time-to-first-token-std-dev", config.TimeToFirstTokenStdDev, "Standard deviation for time before the first token will be returned, e.g. 100ms")
-	f.DurationVar(&config.KVCacheTransferLatencyStdDev, "kv-cache-transfer-latency-std-dev", config.KVCacheTransferLatencyStdDev, "Standard deviation for time for KV-cache transfer from a remote vLLM, e.g. 100ms")
+	f.DurationVar(&config.Latencies.InterTokenLatencyStdDev, "inter-token-latency-std-dev", config.Latencies.InterTokenLatencyStdDev, "Standard deviation for time between generated tokens, e.g. 100ms")
+	f.DurationVar(&config.Latencies.TimeToFirstTokenStdDev, "time-to-first-token-std-dev", config.Latencies.TimeToFirstTokenStdDev, "Standard deviation for time before the first token will be returned, e.g. 100ms")
 	f.Int64Var(&config.Seed, "seed", config.Seed, "Random seed for operations (if not set, current Unix time in nanoseconds is used)")
-	f.Float64Var(&config.TimeFactorUnderLoad, "time-factor-under-load", config.TimeFactorUnderLoad, "Time factor under load (must be >= 1.0)")
+	f.Float64Var(&config.Latencies.TimeFactorUnderLoad, "time-factor-under-load", config.Latencies.TimeFactorUnderLoad, "Time factor under load (must be >= 1.0)")
 
 	f.IntVar(&config.MaxToolCallIntegerParam, "max-tool-call-integer-param", config.MaxToolCallIntegerParam, "Maximum possible value of integer parameters in a tool call")
 	f.IntVar(&config.MinToolCallIntegerParam, "min-tool-call-integer-param", config.MinToolCallIntegerParam, "Minimum possible value of integer parameters in a tool call")
@@ -149,17 +168,6 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 	f.IntVar(&config.ObjectToolCallNotRequiredParamProbability, "object-tool-call-not-required-field-probability", config.ObjectToolCallNotRequiredParamProbability, "Probability to add a field, that is not required, in an object in a tool call")
 	f.IntVar(&config.ToolCallExtraCallProbability, "tool-call-extra-call-probability", config.ToolCallExtraCallProbability, "Probability (0-100) to make one additional tool call beyond the minimum; rolls repeat until a roll fails or all tools are called")
 
-	f.BoolVar(&config.EnableKVCache, "enable-kvcache", config.EnableKVCache, "Defines if KV cache feature is enabled")
-	f.IntVar(&config.KVCacheSize, "kv-cache-size", config.KVCacheSize, "Maximum number of token blocks in kv cache")
-	f.Float64Var(&config.GlobalCacheHitThreshold, "global-cache-hit-threshold", 0, "Default cache hit threshold [0, 1] for all requests. If a request specifies cache_hit_threshold, it takes precedence")
-	f.IntVar(&config.TokenBlockSize, "block-size", config.TokenBlockSize, "Token block size for contiguous chunks of tokens, possible values: 8,16,32,64,128")
-	f.StringVar(&config.HashSeed, "hash-seed", config.HashSeed,
-		"Seed for hash generation (if omitted on the command line, "+PythonHashSeedEnv+" may set it; see docs)")
-	f.StringVar(&config.ZMQEndpoint, "zmq-endpoint", config.ZMQEndpoint, "ZMQ address to publish events")
-	f.StringVar(&config.KVEventsReplayEndpoint, "kv-events-replay-endpoint", config.KVEventsReplayEndpoint, "ZMQ ROUTER address to bind for receiving KV events replay requests (empty disables)")
-	f.IntVar(&config.KVEventsReplayQueueSize, "kv-events-replay-queue-size", config.KVEventsReplayQueueSize, "Max number of event batches held in the replay queue; oldest dropped when full")
-	f.IntVar(&config.EventBatchSize, "event-batch-size", config.EventBatchSize, "Maximum number of kv-cache events to be sent together")
-	f.BoolVar(&config.UseVllmMapEventFormat, "use-vllm-map-event-format", config.UseVllmMapEventFormat, "Encode KV cache events as msgpack maps with named fields (vLLM PR #42892 format) instead of positional arrays")
 	f.IntVar(&config.DPSize, "data-parallel-size", config.DPSize, "Number of ranks to run")
 	f.IntVar(&config.Rank, "data-parallel-rank", config.Rank, "The rank when running each rank in a process. If set, data-parallel-size is ignored")
 
@@ -175,13 +183,12 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 	f.DurationVar(&config.StartupDuration, "startup-duration", config.StartupDuration,
 		"Duration to return 503 on /health/ready to simulate GPU loading (e.g. 30s). Default is 0 (immediately ready)")
 
-	addToggle(f, &config.EnableSleepMode, "enable-sleep-mode", "Enable sleep mode", "Disable sleep mode")
 	f.BoolVar(&config.EnableRequestIDHeaders, "enable-request-id-headers", config.EnableRequestIDHeaders, "Enable including X-Request-Id header in responses")
 	f.BoolVar(&config.LogHTTP, "log-http", config.LogHTTP, "Log full HTTP request and response (method, URI, headers, bodies when buffered, status); streamed bodies are not logged")
 	f.BoolVar(&config.SkipToolValidation, "skip-tool-validation", config.SkipToolValidation, "Skip the built-in validation of incoming tool schemas, matching real vLLM which forwards them to the model verbatim")
 
 	f.IntVar(&config.FailureInjectionRate, "failure-injection-rate", config.FailureInjectionRate, "Probability (0-100) of injecting failures")
-	failureTypes := getParamValueFromArgs("failure-types")
+	failureTypes := GetParamValueFromArgs("failure-types")
 	var dummyFailureTypes multiString
 	failureTypesDescription := fmt.Sprintf("List of specific failure types to inject (%s, %s, %s, %s, %s, %s)",
 		FailureTypeRateLimit, FailureTypeInvalidAPIKey, FailureTypeContextLength, FailureTypeServerError, FailureTypeInvalidRequest,
@@ -195,44 +202,31 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 	f.BoolVar(&config.SelfSignedCerts, "self-signed-certs", config.SelfSignedCerts, "Enable automatic generation of self-signed certificates for HTTPS")
 
 	f.StringVar(&config.LatencyCalculator, "latency-calculator", config.LatencyCalculator,
-		`Name of the latency calculator to be used in the response generation (optional). The default calculation is based on the current load of the simulator and on 
+		`Name of the latency calculator to be used in the response generation (optional). The default calculation is based on the current load of the simulator and on
 		the configured latency parameters, e.g., time-to-first-token and prefill-time-per-token`)
 
 	f.IntVar(&config.DefaultEmbeddingDimensions, "default-embedding-dimensions", config.DefaultEmbeddingDimensions,
 		"Default size of embedding vectors when the request does not specify dimensions (used by /v1/embeddings)")
 
-	f.DurationVar(&config.FakeMetricsRefreshInterval, "fake-metrics-refresh-interval", config.FakeMetricsRefreshInterval,
-		"Defines how often function-based fake metrics are recalculated, defaults to 100ms")
-
-	addToggle(f, &config.MMEncoderOnly,
-		"mm-encoder-only", "Skip the language component of the model", "Don't skip the language component of the model")
-	addToggle(f, &config.Omni,
+	AddToggle(f, &config.Omni,
 		"omni", "Enable omni mode: emit an image chunk when X-Send-Image header is present", "Disable omni mode")
 	f.IntVar(&config.ImageEmissionRate, "image-emission-rate", config.ImageEmissionRate, "Probability (0-100) of emitting a synthetic image chunk per chat completion request in omni mode")
-	f.DurationVar(&config.TimeToGenerateImage, "time-to-generate-image", config.TimeToGenerateImage, "Simulated time to generate an image in omni mode, e.g. 500ms")
-	f.DurationVar(&config.TimeToGenerateImageStdDev, "time-to-generate-image-std-dev", config.TimeToGenerateImageStdDev, "Standard deviation for time to generate an image in omni mode, e.g. 50ms")
-	f.StringVar(&config.MMProcessorKWArgs, "mm-processor-kwargs", config.MMProcessorKWArgs, "Arguments to be forwarded to the model's processor for multi-modal data, ignored")
-	f.StringVar(&config.ECTransferConfig, "ec-transfer-config", config.ECTransferConfig, "Configuration for distributed EC cache transfer, ignored")
-	addToggle(f, &config.EnforceEager,
-		"enforce-eager", "Always use eager-mode PyTorch, ignored", "Don't always use eager-mode PyTorch, ignored")
-	addToggle(f, &config.EnablePrefixCaching,
-		"enable-prefix-caching", "Enable prefix caching, ignored", "Disable prefix caching, ignored")
-	f.IntVar(&config.TPSize, "tensor-parallel-size", config.TPSize, "Number of tensor parallel replicas, ignored")
+	f.DurationVar(&config.Latencies.TimeToGenerateImage, "time-to-generate-image", config.Latencies.TimeToGenerateImage, "Simulated time to generate an image in omni mode, e.g. 500ms")
+	f.DurationVar(&config.Latencies.TimeToGenerateImageStdDev, "time-to-generate-image-std-dev", config.Latencies.TimeToGenerateImageStdDev, "Standard deviation for time to generate an image in omni mode, e.g. 50ms")
 
-	// These values were manually parsed above in getParamValueFromArgs, we leave this in order to get these flags in --help
+	// These values were manually parsed above in GetParamValueFromArgs, we leave this in order to get these flags in --help
 	var dummyString string
 	f.StringVar(&dummyString, "config", "", "The path to a yaml configuration file. The command line values overwrite the configuration file values")
+	f.StringVar(&dummyString, "engine", "", "The inference engine backend to simulate (currently only 'vllm' is supported)")
 	var dummyMultiString multiString
 	f.Var(&dummyMultiString, "served-model-name", "Model names exposed by the API (a list of space-separated strings)")
-	f.Var(&dummyMultiString, "lora-modules", "List of LoRA adapters (a list of space-separated JSON strings)")
-	f.Var(&dummyMultiString, "fake-metrics", "A set of metrics to report to Prometheus instead of the real metrics")
 	// In order to allow empty arguments, we set a dummy NoOptDefVal for these flags
 	f.Lookup("served-model-name").NoOptDefVal = dummy
 	f.Lookup("served-model-name").DefValue = ""
-	f.Lookup("lora-modules").NoOptDefVal = dummy
-	f.Lookup("lora-modules").DefValue = ""
-	f.Lookup("fake-metrics").NoOptDefVal = dummy
-	f.Lookup("fake-metrics").DefValue = ""
+
+	if err := eng.BindFlags(f, config); err != nil {
+		return nil, err
+	}
 
 	flagSet := flag.NewFlagSet("simFlagSet", flag.ExitOnError)
 	klog.InitFlags(flagSet)
@@ -264,17 +258,6 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 	}
 
 	// Need to read in a variable to avoid merging the values with the config file ones
-	if loraModuleNames != nil {
-		config.LoraModulesString = loraModuleNames
-		if err := config.unmarshalLoras(); err != nil {
-			return nil, err
-		}
-	}
-	if fakeMetrics != nil {
-		if err := config.unmarshalFakeMetrics(fakeMetrics[0]); err != nil {
-			return nil, err
-		}
-	}
 	if servedModelNames != nil {
 		config.ServedModelNames = servedModelNames
 	}
@@ -282,20 +265,28 @@ func ParseCommandParamsAndLoadConfig() (*Configuration, error) {
 		config.FailureTypes = failureTypes
 	}
 
+	// hash-seed is registered by the engine's BindFlags above, but its env-var
+	// precedence is handled here alongside model's, on the same FlagSet.
 	if !f.Changed("hash-seed") {
 		if v := os.Getenv(PythonHashSeedEnv); v != "" {
-			config.HashSeed = v
+			config.KVCache.HashSeed = v
 		}
 	}
 
 	if err := config.validate(); err != nil {
 		return nil, err
 	}
+	if err := eng.ValidateConfig(config); err != nil {
+		return nil, err
+	}
 
 	return config, nil
 }
 
-func getParamValueFromArgs(param string) []string {
+// GetParamValueFromArgs manually scans os.Args for a flag that takes multiple
+// space-separated values (which pflag cannot bind directly to a slice the way
+// this codebase needs), returning the values that followed it, if present.
+func GetParamValueFromArgs(param string) []string {
 	var values []string
 	var readValues bool
 	for _, arg := range os.Args[1:] {

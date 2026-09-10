@@ -58,8 +58,9 @@ type Runtime interface {
 	// IsSleeping reports whether the simulator is currently sleeping.
 	IsSleeping() bool
 	// ValidateBaseModel checks that model is a known base model, rejecting
-	// LoRA adapters.
-	ValidateBaseModel(model string) *api.Error
+	// LoRA adapters. endpointsName is the endpoint family reported in the
+	// rejection message.
+	ValidateBaseModel(model, endpointsName string) *api.Error
 	// ShouldSendImage decides whether an Omni response should include an
 	// image. headerOverride, when true, forces an image regardless of the
 	// emission rate.

@@ -100,16 +100,18 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 			}()
 		}
 
-		time.Sleep(300 * time.Millisecond)
-		metricsResp, err := client.Get(metricsUrl)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
+		Eventually(func(g Gomega) {
+			metricsResp, err := client.Get(metricsUrl)
+			g.Expect(err).NotTo(HaveOccurred())
+			defer func() { _ = metricsResp.Body.Close() }()
+			g.Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
 
-		data, err := io.ReadAll(metricsResp.Body)
-		Expect(err).NotTo(HaveOccurred())
-		metrics := string(data)
-		Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModelName, simulator.ReqRunningMetricName, 2)))
-		Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModelName, simulator.ReqWaitingMetricName, 1)))
+			data, err := io.ReadAll(metricsResp.Body)
+			g.Expect(err).NotTo(HaveOccurred())
+			metrics := string(data)
+			g.Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModelName, simulator.ReqRunningMetricName, 2)))
+			g.Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModelName, simulator.ReqWaitingMetricName, 1)))
+		}).WithTimeout(2 * time.Second).WithPolling(25 * time.Millisecond).Should(Succeed())
 	})
 
 	DescribeTable("should send correct running and waiting requests metrics with failures",
@@ -127,25 +129,28 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 			_, err = openaiclient.Chat.Completions.New(ctx, params)
 			Expect(err).To(HaveOccurred())
 
-			time.Sleep(300 * time.Millisecond)
-			metricsResp, err := client.Get(metricsUrl)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
+			var metricsLines []string
+			Eventually(func(g Gomega) {
+				metricsResp, err := client.Get(metricsUrl)
+				g.Expect(err).NotTo(HaveOccurred())
+				defer func() { _ = metricsResp.Body.Close() }()
+				g.Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
 
-			data, err := io.ReadAll(metricsResp.Body)
-			Expect(err).NotTo(HaveOccurred())
-			metrics := string(data)
+				data, err := io.ReadAll(metricsResp.Body)
+				g.Expect(err).NotTo(HaveOccurred())
+				metrics := string(data)
 
-			// There should be no running or waiting requests
-			Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModelName, simulator.ReqRunningMetricName, 0)))
-			Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModelName, simulator.ReqWaitingMetricName, 0)))
+				// There should be no running or waiting requests
+				g.Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModelName, simulator.ReqRunningMetricName, 0)))
+				g.Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModelName, simulator.ReqWaitingMetricName, 0)))
 
-			// We sent one request (that failed), we expect to see (in this order)
-			// 1. running: lora1, waiting: empty
-			// 2. running: empty, waiting: empty
-			metricsLines := strings.Split(metrics, "\n")
-			Expect(isLoraMetricPresent(metricsLines, lora1Arr, emptyArray)).To(BeTrue())
-			Expect(isLoraMetricPresent(metricsLines, emptyArray, emptyArray)).To(BeTrue())
+				// We sent one request (that failed), we expect to see (in this order)
+				// 1. running: lora1, waiting: empty
+				// 2. running: empty, waiting: empty
+				metricsLines = strings.Split(metrics, "\n")
+				g.Expect(isLoraMetricPresent(metricsLines, lora1Arr, emptyArray)).To(BeTrue())
+				g.Expect(isLoraMetricPresent(metricsLines, emptyArray, emptyArray)).To(BeTrue())
+			}).WithTimeout(2 * time.Second).WithPolling(25 * time.Millisecond).Should(Succeed())
 
 			// Check the order
 			timestamp1 := getLoraValidTimestamp(metricsLines, lora1Arr, emptyArray)
@@ -186,40 +191,41 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 		_, err = openaiclient.Chat.Completions.New(ctx, params)
 		Expect(err).NotTo(HaveOccurred())
 
-		time.Sleep(500 * time.Millisecond)
+		Eventually(func(g Gomega) {
+			metricsResp, err := client.Get(metricsUrl)
+			g.Expect(err).NotTo(HaveOccurred())
+			defer func() { _ = metricsResp.Body.Close() }()
+			g.Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
 
-		metricsResp, err := client.Get(metricsUrl)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
+			data, err := io.ReadAll(metricsResp.Body)
+			g.Expect(err).NotTo(HaveOccurred())
+			metrics := string(data)
+			// request_prompt_tokens_bucket and request_params_max_tokens_bucket
+			buckets := simulator.Build125Buckets(1024)
 
-		data, err := io.ReadAll(metricsResp.Body)
-		Expect(err).NotTo(HaveOccurred())
-		metrics := string(data)
-		// request_prompt_tokens_bucket and request_params_max_tokens_bucket
-		buckets := simulator.Build125Buckets(1024)
-
-		for _, boundary := range buckets {
-			if boundary <= 20 {
-				Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(model, simulator.PromptTokensMetricName, boundary, 0)))
-				Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(model, simulator.ParamMaxTokensMetricName, boundary, 0)))
-			} else {
-				Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(model, simulator.PromptTokensMetricName, boundary, 1)))
-				Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(model, simulator.ParamMaxTokensMetricName, boundary, 1)))
+			for _, boundary := range buckets {
+				if boundary <= 20 {
+					g.Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(model, simulator.PromptTokensMetricName, boundary, 0)))
+					g.Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(model, simulator.ParamMaxTokensMetricName, boundary, 0)))
+				} else {
+					g.Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(model, simulator.PromptTokensMetricName, boundary, 1)))
+					g.Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(model, simulator.ParamMaxTokensMetricName, boundary, 1)))
+				}
 			}
-		}
-		Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(model, simulator.PromptTokensMetricName, math.Inf(1), 1)))
-		Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(model, simulator.ParamMaxTokensMetricName, math.Inf(1), 1)))
+			g.Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(model, simulator.PromptTokensMetricName, math.Inf(1), 1)))
+			g.Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(model, simulator.ParamMaxTokensMetricName, math.Inf(1), 1)))
 
-		Expect(metrics).To(MatchRegexp(fmt.Sprintf(`vllm:prompt_tokens_total{model_name="%s"} %d`, model, expectedPromptTokensCnt)))
+			g.Expect(metrics).To(MatchRegexp(fmt.Sprintf(`vllm:prompt_tokens_total{model_name="%s"} %d`, model, expectedPromptTokensCnt)))
 
-		// request_generation_tokens
-		// We do not verify the distribution of the number of tokens generated per request,
-		// as the number of generated tokens is unpredictable in this test.
-		// Therefore, we only verify the number of requests and the total number of generated tokens,
-		// and skip the bucket distribution.
-		Expect(metrics).To(ContainSubstring(getCountMetricLine(model, simulator.GenerationTokensMetricName+"_count", 1)))
-		// request_success_total
-		Expect(metrics).To(MatchRegexp(fmt.Sprintf(`vllm:request_success_total{finish_reason="(stop|length)",model_name="%s"} 1`, common.TestModelName)))
+			// request_generation_tokens
+			// We do not verify the distribution of the number of tokens generated per request,
+			// as the number of generated tokens is unpredictable in this test.
+			// Therefore, we only verify the number of requests and the total number of generated tokens,
+			// and skip the bucket distribution.
+			g.Expect(metrics).To(ContainSubstring(getCountMetricLine(model, simulator.GenerationTokensMetricName+"_count", 1)))
+			// request_success_total
+			g.Expect(metrics).To(MatchRegexp(fmt.Sprintf(`vllm:request_success_total{finish_reason="(stop|length)",model_name="%s"} 1`, common.TestModelName)))
+		}).WithTimeout(2 * time.Second).WithPolling(25 * time.Millisecond).Should(Succeed())
 	})
 
 	It("Should record correct metrics for text completions with array prompt", func() {
@@ -267,49 +273,52 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 
 		// While the sub-requests are running (TTFT hasn't fired), maxNumSeqs should be in
 		// "running" and the rest in "waiting".
-		time.Sleep(500 * time.Millisecond)
-		metricsResp, err := client.Get(metricsUrl)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
-		data, err := io.ReadAll(metricsResp.Body)
-		Expect(err).NotTo(HaveOccurred())
-		metrics := string(data)
-		Expect(metrics).To(ContainSubstring(
-			getCountMetricLine(common.TestModelName, simulator.ReqRunningMetricName, maxNumSeqs)))
-		Expect(metrics).To(ContainSubstring(
-			getCountMetricLine(common.TestModelName, simulator.ReqWaitingMetricName, numPrompts-maxNumSeqs)))
+		Eventually(func(g Gomega) {
+			metricsResp, err := client.Get(metricsUrl)
+			g.Expect(err).NotTo(HaveOccurred())
+			defer func() { _ = metricsResp.Body.Close() }()
+			g.Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
+			data, err := io.ReadAll(metricsResp.Body)
+			g.Expect(err).NotTo(HaveOccurred())
+			metrics := string(data)
+			g.Expect(metrics).To(ContainSubstring(
+				getCountMetricLine(common.TestModelName, simulator.ReqRunningMetricName, maxNumSeqs)))
+			g.Expect(metrics).To(ContainSubstring(
+				getCountMetricLine(common.TestModelName, simulator.ReqWaitingMetricName, numPrompts-maxNumSeqs)))
+		}).WithTimeout(2 * time.Second).WithPolling(25 * time.Millisecond).Should(Succeed())
 
 		<-done
-		time.Sleep(500 * time.Millisecond)
+		Eventually(func(g Gomega) {
+			metricsResp, err := client.Get(metricsUrl)
+			g.Expect(err).NotTo(HaveOccurred())
+			defer func() { _ = metricsResp.Body.Close() }()
+			g.Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
+			data, err := io.ReadAll(metricsResp.Body)
+			g.Expect(err).NotTo(HaveOccurred())
+			metrics := string(data)
 
-		metricsResp, err = client.Get(metricsUrl)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
-		data, err = io.ReadAll(metricsResp.Body)
-		Expect(err).NotTo(HaveOccurred())
-		metrics = string(data)
+			// No running/waiting after all sub-requests complete.
+			g.Expect(metrics).To(ContainSubstring(
+				getCountMetricLine(common.TestModelName, simulator.ReqRunningMetricName, 0)))
+			g.Expect(metrics).To(ContainSubstring(
+				getCountMetricLine(common.TestModelName, simulator.ReqWaitingMetricName, 0)))
 
-		// No running/waiting after all sub-requests complete.
-		Expect(metrics).To(ContainSubstring(
-			getCountMetricLine(common.TestModelName, simulator.ReqRunningMetricName, 0)))
-		Expect(metrics).To(ContainSubstring(
-			getCountMetricLine(common.TestModelName, simulator.ReqWaitingMetricName, 0)))
-
-		// Each prompt in the array produces its own sub-request, so histograms/counters
-		// should observe numPrompts samples.
-		Expect(metrics).To(ContainSubstring(
-			getCountMetricLine(common.TestModelName, simulator.E2EReqLatencyMetricName+"_count", numPrompts)))
-		Expect(metrics).To(ContainSubstring(
-			getCountMetricLine(common.TestModelName, simulator.MaxNumGenerationTokensMetricName+"_count", numPrompts)))
-		Expect(metrics).To(ContainSubstring(
-			getCountMetricLine(common.TestModelName, simulator.PromptTokensMetricName+"_count", numPrompts)))
-		Expect(metrics).To(ContainSubstring(
-			getCountMetricLine(common.TestModelName, simulator.GenerationTokensMetricName+"_count", numPrompts)))
-		Expect(metrics).To(MatchRegexp(fmt.Sprintf(
-			`vllm:request_success_total{finish_reason="(stop|length)",model_name="%s"} %d`,
-			common.TestModelName, numPrompts)))
-		Expect(metrics).To(ContainSubstring(fmt.Sprintf(
-			`vllm:prompt_tokens_total{model_name="%s"} %d`, common.TestModelName, expectedPromptTokensTotal)))
+			// Each prompt in the array produces its own sub-request, so histograms/counters
+			// should observe numPrompts samples.
+			g.Expect(metrics).To(ContainSubstring(
+				getCountMetricLine(common.TestModelName, simulator.E2EReqLatencyMetricName+"_count", numPrompts)))
+			g.Expect(metrics).To(ContainSubstring(
+				getCountMetricLine(common.TestModelName, simulator.MaxNumGenerationTokensMetricName+"_count", numPrompts)))
+			g.Expect(metrics).To(ContainSubstring(
+				getCountMetricLine(common.TestModelName, simulator.PromptTokensMetricName+"_count", numPrompts)))
+			g.Expect(metrics).To(ContainSubstring(
+				getCountMetricLine(common.TestModelName, simulator.GenerationTokensMetricName+"_count", numPrompts)))
+			g.Expect(metrics).To(MatchRegexp(fmt.Sprintf(
+				`vllm:request_success_total{finish_reason="(stop|length)",model_name="%s"} %d`,
+				common.TestModelName, numPrompts)))
+			g.Expect(metrics).To(ContainSubstring(fmt.Sprintf(
+				`vllm:prompt_tokens_total{model_name="%s"} %d`, common.TestModelName, expectedPromptTokensTotal)))
+		}).WithTimeout(2 * time.Second).WithPolling(25 * time.Millisecond).Should(Succeed())
 	})
 
 	DescribeTable("should send correct lora metrics",
@@ -558,54 +567,56 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 			defer GinkgoRecover()
 
 			reqWg.Wait()
-			time.Sleep(300 * time.Millisecond)
-			metricsResp, err := client.Get(metricsUrl)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
+			Eventually(func(g Gomega) {
+				metricsResp, err := client.Get(metricsUrl)
+				g.Expect(err).NotTo(HaveOccurred())
+				defer func() { _ = metricsResp.Body.Close() }()
+				g.Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
 
-			data, err := io.ReadAll(metricsResp.Body)
-			Expect(err).NotTo(HaveOccurred())
-			metrics := string(data)
-			metricsLines := strings.Split(metrics, "\n")
+				data, err := io.ReadAll(metricsResp.Body)
+				g.Expect(err).NotTo(HaveOccurred())
+				metrics := string(data)
+				metricsLines := strings.Split(metrics, "\n")
 
-			// ttft
-			for _, boundary := range common.TTFTBucketsBoundaries {
-				if boundary <= 0.1 {
-					// buckets up to 0.1 should be empty
-					Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, simulator.TTFTMetricName, boundary, 0)))
-				} else {
-					// buckets higher than 0.1 should contain a single sample
-					Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, simulator.TTFTMetricName, boundary, 1)))
-				}
-			}
-			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, simulator.TTFTMetricName, math.Inf(1), 1)))
-
-			// helper to validate a latency metric (used for both tpot and inter_token_latency)
-			validateLatencyMetric := func(metricName string) {
-				for _, boundary := range common.TPOTBucketsBoundaries {
-					if boundary <= 0.075 {
-						// ensure that values for buckets up to 0.075 have count 0
-						Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, metricName, boundary, 0)))
+				// ttft
+				for _, boundary := range common.TTFTBucketsBoundaries {
+					if boundary <= 0.1 {
+						// buckets up to 0.1 should be empty
+						g.Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, simulator.TTFTMetricName, boundary, 0)))
 					} else {
-						// buckets higher than 0.075 should be greater than 0, we don't know the exact value since it depends on the random response length
-						count := findIntMetric(metricsLines, getFloatBucketMetricPrefix(common.TestModelName, metricName, boundary))
-						Expect(count).ToNot(BeNil())
-						Expect(*count).To(BeNumerically(">", 0))
+						// buckets higher than 0.1 should contain a single sample
+						g.Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, simulator.TTFTMetricName, boundary, 1)))
 					}
 				}
-				count := findIntMetric(metricsLines, getFloatBucketMetricPrefix(common.TestModelName, metricName, math.Inf(1)))
-				Expect(count).ToNot(BeNil())
-				Expect(*count).To(BeNumerically(">", 0))
-			}
+				g.Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, simulator.TTFTMetricName, math.Inf(1), 1)))
 
-			// validate legacy tpot metric
-			validateLatencyMetric(simulator.TPOTMetricName)
+				// helper to validate a latency metric (used for both tpot and inter_token_latency)
+				validateLatencyMetric := func(metricName string) {
+					for _, boundary := range common.TPOTBucketsBoundaries {
+						if boundary <= 0.075 {
+							// ensure that values for buckets up to 0.075 have count 0
+							g.Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, metricName, boundary, 0)))
+						} else {
+							// buckets higher than 0.075 should be greater than 0, we don't know the exact value since it depends on the random response length
+							count := findIntMetric(metricsLines, getFloatBucketMetricPrefix(common.TestModelName, metricName, boundary))
+							g.Expect(count).ToNot(BeNil())
+							g.Expect(*count).To(BeNumerically(">", 0))
+						}
+					}
+					count := findIntMetric(metricsLines, getFloatBucketMetricPrefix(common.TestModelName, metricName, math.Inf(1)))
+					g.Expect(count).ToNot(BeNil())
+					g.Expect(*count).To(BeNumerically(">", 0))
+				}
 
-			// validate new inter_token_latency metric
-			validateLatencyMetric(simulator.InterTokenLatencyMetricName)
+				// validate legacy tpot metric
+				validateLatencyMetric(simulator.TPOTMetricName)
 
-			// validate request tpot metric
-			validateLatencyMetric(simulator.ReqTPOTMetricName)
+				// validate new inter_token_latency metric
+				validateLatencyMetric(simulator.InterTokenLatencyMetricName)
+
+				// validate request tpot metric
+				validateLatencyMetric(simulator.ReqTPOTMetricName)
+			}).WithTimeout(2 * time.Second).WithPolling(25 * time.Millisecond).Should(Succeed())
 		}()
 
 		metricsWg.Wait()
@@ -662,31 +673,35 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 				defer wg.Done()
 				defer GinkgoRecover()
 
-				time.Sleep(4 * time.Second)
-				metricsResp, err := client.Get(metricsUrl)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
+				Eventually(func(g Gomega) {
+					metricsResp, err := client.Get(metricsUrl)
+					g.Expect(err).NotTo(HaveOccurred())
+					defer func() { _ = metricsResp.Body.Close() }()
+					g.Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
 
-				data, err := io.ReadAll(metricsResp.Body)
-				Expect(err).NotTo(HaveOccurred())
-				metrics := string(data)
-				// Expect three running requests and two blocks in the kv cache - usage 2/16=0.125
-				Expect(metrics).To(ContainSubstring(getCountMetricLine(common.QwenModelName, simulator.ReqRunningMetricName, 3)))
-				Expect(metrics).To(ContainSubstring(getCountMetricLine(common.QwenModelName, simulator.ReqWaitingMetricName, 0)))
-				Expect(metrics).To(ContainSubstring(getCountMetricLine(common.QwenModelName, simulator.KVCacheUsageMetricName, 0.125)))
+					data, err := io.ReadAll(metricsResp.Body)
+					g.Expect(err).NotTo(HaveOccurred())
+					metrics := string(data)
+					// Expect three running requests and two blocks in the kv cache - usage 2/16=0.125
+					g.Expect(metrics).To(ContainSubstring(getCountMetricLine(common.QwenModelName, simulator.ReqRunningMetricName, 3)))
+					g.Expect(metrics).To(ContainSubstring(getCountMetricLine(common.QwenModelName, simulator.ReqWaitingMetricName, 0)))
+					g.Expect(metrics).To(ContainSubstring(getCountMetricLine(common.QwenModelName, simulator.KVCacheUsageMetricName, 0.125)))
+				}).WithTimeout(2 * time.Second).WithPolling(25 * time.Millisecond).Should(Succeed())
 
-				time.Sleep(4 * time.Second)
-				metricsResp, err = client.Get(metricsUrl)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
+				Eventually(func(g Gomega) {
+					metricsResp, err := client.Get(metricsUrl)
+					g.Expect(err).NotTo(HaveOccurred())
+					defer func() { _ = metricsResp.Body.Close() }()
+					g.Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
 
-				data, err = io.ReadAll(metricsResp.Body)
-				Expect(err).NotTo(HaveOccurred())
-				metrics = string(data)
-				// The requests finished running, expect 0 usage
-				Expect(metrics).To(ContainSubstring(getCountMetricLine(common.QwenModelName, simulator.ReqRunningMetricName, 0)))
-				Expect(metrics).To(ContainSubstring(getCountMetricLine(common.QwenModelName, simulator.ReqWaitingMetricName, 0)))
-				Expect(metrics).To(ContainSubstring(getCountMetricLine(common.QwenModelName, simulator.KVCacheUsageMetricName, 0)))
+					data, err := io.ReadAll(metricsResp.Body)
+					g.Expect(err).NotTo(HaveOccurred())
+					metrics := string(data)
+					// The requests finished running, expect 0 usage
+					g.Expect(metrics).To(ContainSubstring(getCountMetricLine(common.QwenModelName, simulator.ReqRunningMetricName, 0)))
+					g.Expect(metrics).To(ContainSubstring(getCountMetricLine(common.QwenModelName, simulator.ReqWaitingMetricName, 0)))
+					g.Expect(metrics).To(ContainSubstring(getCountMetricLine(common.QwenModelName, simulator.KVCacheUsageMetricName, 0)))
+				}).WithTimeout(8 * time.Second).WithPolling(25 * time.Millisecond).Should(Succeed())
 			}()
 			wg.Wait()
 		})
@@ -740,20 +755,22 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 				defer wg.Done()
 				defer GinkgoRecover()
 
-				time.Sleep(3 * time.Second)
-				metricsResp, err := client.Get(metricsUrl)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
+				Eventually(func(g Gomega) {
+					metricsResp, err := client.Get(metricsUrl)
+					g.Expect(err).NotTo(HaveOccurred())
+					defer func() { _ = metricsResp.Body.Close() }()
+					g.Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
 
-				data, err := io.ReadAll(metricsResp.Body)
-				Expect(err).NotTo(HaveOccurred())
-				metrics := string(data)
-				// The requests were sent with 500 millisecond intervals, and the first two should be still running.
-				// The third is waiting, and is still not in the kv-cache.
-				// We expect one block in the kv-cache, usage 1/16=0.0625.
-				Expect(metrics).To(ContainSubstring(getCountMetricLine(common.QwenModelName, simulator.ReqRunningMetricName, 2)))
-				Expect(metrics).To(ContainSubstring(getCountMetricLine(common.QwenModelName, simulator.ReqWaitingMetricName, 1)))
-				Expect(metrics).To(ContainSubstring(getCountMetricLine(common.QwenModelName, simulator.KVCacheUsageMetricName, 0.0625)))
+					data, err := io.ReadAll(metricsResp.Body)
+					g.Expect(err).NotTo(HaveOccurred())
+					metrics := string(data)
+					// The requests were sent with 500 millisecond intervals, and the first two should be still running.
+					// The third is waiting, and is still not in the kv-cache.
+					// We expect one block in the kv-cache, usage 1/16=0.0625.
+					g.Expect(metrics).To(ContainSubstring(getCountMetricLine(common.QwenModelName, simulator.ReqRunningMetricName, 2)))
+					g.Expect(metrics).To(ContainSubstring(getCountMetricLine(common.QwenModelName, simulator.ReqWaitingMetricName, 1)))
+					g.Expect(metrics).To(ContainSubstring(getCountMetricLine(common.QwenModelName, simulator.KVCacheUsageMetricName, 0.0625)))
+				}).WithTimeout(3 * time.Second).WithPolling(25 * time.Millisecond).Should(Succeed())
 			}()
 			wg.Wait()
 		})
@@ -786,27 +803,29 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 				Expect(err).NotTo(HaveOccurred())
 			}
 
-			time.Sleep(500 * time.Millisecond)
-			metricsResp, err := client.Get(metricsUrl)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
+			Eventually(func(g Gomega) {
+				metricsResp, err := client.Get(metricsUrl)
+				g.Expect(err).NotTo(HaveOccurred())
+				defer func() { _ = metricsResp.Body.Close() }()
+				g.Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
 
-			data, err := io.ReadAll(metricsResp.Body)
-			Expect(err).NotTo(HaveOccurred())
-			metricsLines := strings.Split(string(data), "\n")
+				data, err := io.ReadAll(metricsResp.Body)
+				g.Expect(err).NotTo(HaveOccurred())
+				metricsLines := strings.Split(string(data), "\n")
 
-			// prefix_cache_queries should reflect total prompt tokens across both requests
-			queries := findIntMetric(metricsLines, getCountMetricPrefix(common.QwenModelName, simulator.PrefixCacheQueriesTotalMetricName))
-			Expect(queries).NotTo(BeNil())
-			Expect(*queries).To(BeNumerically(">", 0))
+				// prefix_cache_queries should reflect total prompt tokens across both requests
+				queries := findIntMetric(metricsLines, getCountMetricPrefix(common.QwenModelName, simulator.PrefixCacheQueriesTotalMetricName))
+				g.Expect(queries).NotTo(BeNil())
+				g.Expect(*queries).To(BeNumerically(">", 0))
 
-			// The second request shares a prefix with the first, so hits should be non-zero
-			hits := findIntMetric(metricsLines, getCountMetricPrefix(common.QwenModelName, simulator.PrefixCacheHitsTotalMetricName))
-			Expect(hits).NotTo(BeNil())
-			Expect(*hits).To(BeNumerically(">", 0))
+				// The second request shares a prefix with the first, so hits should be non-zero
+				hits := findIntMetric(metricsLines, getCountMetricPrefix(common.QwenModelName, simulator.PrefixCacheHitsTotalMetricName))
+				g.Expect(hits).NotTo(BeNil())
+				g.Expect(*hits).To(BeNumerically(">", 0))
 
-			// Hits cannot exceed queries
-			Expect(*hits).To(BeNumerically("<=", *queries))
+				// Hits cannot exceed queries
+				g.Expect(*hits).To(BeNumerically("<=", *queries))
+			}).WithTimeout(2 * time.Second).WithPolling(25 * time.Millisecond).Should(Succeed())
 		})
 
 		It("Should send correct kv cache usage metrics for parallel /responses requests", func() {
@@ -843,34 +862,37 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 			wg.Go(func() {
 				defer GinkgoRecover()
 
-				time.Sleep(time.Second)
-				metricsResp, err := client.Get(metricsUrl)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
+				Eventually(func(g Gomega) {
+					metricsResp, err := client.Get(metricsUrl)
+					g.Expect(err).NotTo(HaveOccurred())
+					defer func() { _ = metricsResp.Body.Close() }()
+					g.Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
 
-				data, err := io.ReadAll(metricsResp.Body)
-				Expect(err).NotTo(HaveOccurred())
-				metrics := string(data)
-				// Expect four running requests
-				Expect(metrics).To(ContainSubstring(getCountMetricLine(common.QwenModelName, simulator.ReqRunningMetricName, 4)))
-				// There should be 2 blocks for the instructions.
-				// The first two requests add 1 block. (The first request is not long enough for two blocks).
-				// The third request adds 1 block, because it has a different parent from the first two requests.
-				// The fourth request adds 1 block.
-				// 5/16 = 0.3125
-				Expect(metrics).To(ContainSubstring(getCountMetricLine(common.QwenModelName, simulator.KVCacheUsageMetricName, 0.3125)))
+					data, err := io.ReadAll(metricsResp.Body)
+					g.Expect(err).NotTo(HaveOccurred())
+					metrics := string(data)
+					// Expect four running requests
+					g.Expect(metrics).To(ContainSubstring(getCountMetricLine(common.QwenModelName, simulator.ReqRunningMetricName, 4)))
+					// Each rendered prompt fills 3 blocks, including the system instructions and chat delimiters.
+					// The first two requests share 2 prefix blocks and have distinct third blocks (4 total).
+					// The English requests share 2 prefix blocks and have distinct third blocks (4 more).
+					// Different instructions prevent block sharing between the two pairs: 8/16 = 0.5.
+					g.Expect(metrics).To(ContainSubstring(getCountMetricLine(common.QwenModelName, simulator.KVCacheUsageMetricName, 0.5)))
+				}).WithTimeout(2 * time.Second).WithPolling(25 * time.Millisecond).Should(Succeed())
 
-				time.Sleep(2 * time.Second)
-				metricsResp, err = client.Get(metricsUrl)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
+				Eventually(func(g Gomega) {
+					metricsResp, err := client.Get(metricsUrl)
+					g.Expect(err).NotTo(HaveOccurred())
+					defer func() { _ = metricsResp.Body.Close() }()
+					g.Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
 
-				data, err = io.ReadAll(metricsResp.Body)
-				Expect(err).NotTo(HaveOccurred())
-				metrics = string(data)
-				// The requests finished running, expect 0 usage
-				Expect(metrics).To(ContainSubstring(getCountMetricLine(common.QwenModelName, simulator.ReqRunningMetricName, 0)))
-				Expect(metrics).To(ContainSubstring(getCountMetricLine(common.QwenModelName, simulator.KVCacheUsageMetricName, 0)))
+					data, err := io.ReadAll(metricsResp.Body)
+					g.Expect(err).NotTo(HaveOccurred())
+					metrics := string(data)
+					// The requests finished running, expect 0 usage
+					g.Expect(metrics).To(ContainSubstring(getCountMetricLine(common.QwenModelName, simulator.ReqRunningMetricName, 0)))
+					g.Expect(metrics).To(ContainSubstring(getCountMetricLine(common.QwenModelName, simulator.KVCacheUsageMetricName, 0)))
+				}).WithTimeout(3 * time.Second).WithPolling(25 * time.Millisecond).Should(Succeed())
 			})
 			wg.Wait()
 		})
@@ -895,31 +917,33 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 				Expect(err).NotTo(HaveOccurred())
 			}
 
-			time.Sleep(500 * time.Millisecond)
-			metricsResp, err := client.Get(metricsUrl)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
+			Eventually(func(g Gomega) {
+				metricsResp, err := client.Get(metricsUrl)
+				g.Expect(err).NotTo(HaveOccurred())
+				defer func() { _ = metricsResp.Body.Close() }()
+				g.Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
 
-			data, err := io.ReadAll(metricsResp.Body)
-			Expect(err).NotTo(HaveOccurred())
-			metricsLines := strings.Split(string(data), "\n")
+				data, err := io.ReadAll(metricsResp.Body)
+				g.Expect(err).NotTo(HaveOccurred())
+				metricsLines := strings.Split(string(data), "\n")
 
-			queries := findIntMetric(metricsLines, getCountMetricPrefix(common.QwenModelName, simulator.PrefixCacheQueriesTotalMetricName))
-			Expect(queries).NotTo(BeNil())
-			Expect(*queries).To(BeNumerically(">", 0))
+				queries := findIntMetric(metricsLines, getCountMetricPrefix(common.QwenModelName, simulator.PrefixCacheQueriesTotalMetricName))
+				g.Expect(queries).NotTo(BeNil())
+				g.Expect(*queries).To(BeNumerically(">", 0))
 
-			// The second request shares a prefix with the first, so hits should be non-zero
-			hits := findIntMetric(metricsLines, getCountMetricPrefix(common.QwenModelName, simulator.PrefixCacheHitsTotalMetricName))
-			Expect(hits).NotTo(BeNil())
-			Expect(*hits).To(BeNumerically(">", 0))
+				// The second request shares a prefix with the first, so hits should be non-zero
+				hits := findIntMetric(metricsLines, getCountMetricPrefix(common.QwenModelName, simulator.PrefixCacheHitsTotalMetricName))
+				g.Expect(hits).NotTo(BeNil())
+				g.Expect(*hits).To(BeNumerically(">", 0))
 
-			Expect(*hits).To(BeNumerically("<=", *queries))
+				g.Expect(*hits).To(BeNumerically("<=", *queries))
+			}).WithTimeout(2 * time.Second).WithPolling(25 * time.Millisecond).Should(Succeed())
 		})
 
 		It("Should send correct kv cache config metrics", func() {
 			ctx := context.TODO()
 			args := []string{"cmd", "--model", common.QwenModelName, "--mode", common.ModeRandom,
-				"--kv-cache-size", "16", "--block-size", "8"}
+				"--kv-cache-size", "16", "--block-size", "8", "--enable-kvcache"}
 
 			client, err := startServerWithArgsAndEnv(ctx, common.ModeRandom, args, map[string]string{"POD_IP": "localhost"})
 			Expect(err).NotTo(HaveOccurred())
@@ -993,26 +1017,28 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 			}
 
 			reqWg.Wait()
-			time.Sleep(300 * time.Millisecond)
-			metricsResp, err := client.Get(metricsUrl)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
+			Eventually(func(g Gomega) {
+				metricsResp, err := client.Get(metricsUrl)
+				g.Expect(err).NotTo(HaveOccurred())
+				defer func() { _ = metricsResp.Body.Close() }()
+				g.Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
 
-			data, err := io.ReadAll(metricsResp.Body)
-			Expect(err).NotTo(HaveOccurred())
-			metrics := string(data)
+				data, err := io.ReadAll(metricsResp.Body)
+				g.Expect(err).NotTo(HaveOccurred())
+				metrics := string(data)
 
-			for _, boundary := range common.RequestLatencyBucketsBoundaries {
-				if boundary < 1.5 {
-					Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, simulator.ReqInferenceTimeMetricName, boundary, 0)))
-					Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, simulator.ReqQueueTimeMetricName, boundary, 0)))
-				} else {
-					Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, simulator.ReqInferenceTimeMetricName, boundary, 2)))
-					Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, simulator.ReqQueueTimeMetricName, boundary, 1)))
+				for _, boundary := range common.RequestLatencyBucketsBoundaries {
+					if boundary < 1.5 {
+						g.Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, simulator.ReqInferenceTimeMetricName, boundary, 0)))
+						g.Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, simulator.ReqQueueTimeMetricName, boundary, 0)))
+					} else {
+						g.Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, simulator.ReqInferenceTimeMetricName, boundary, 2)))
+						g.Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, simulator.ReqQueueTimeMetricName, boundary, 1)))
+					}
 				}
-			}
-			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, simulator.ReqInferenceTimeMetricName, math.Inf(1), 2)))
-			Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, simulator.ReqQueueTimeMetricName, math.Inf(1), 1)))
+				g.Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, simulator.ReqInferenceTimeMetricName, math.Inf(1), 2)))
+				g.Expect(metrics).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, simulator.ReqQueueTimeMetricName, math.Inf(1), 1)))
+			}).WithTimeout(2 * time.Second).WithPolling(25 * time.Millisecond).Should(Succeed())
 		})
 	})
 })

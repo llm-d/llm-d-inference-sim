@@ -23,6 +23,7 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/endpoint"
+	"github.com/llm-d/llm-d-inference-sim/pkg/engine/vllm"
 	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -47,7 +48,7 @@ func newHandleRequestTestSim(ctx context.Context, newRequestsCapacity int, extra
 	defer func() { os.Args = oldArgs }()
 	os.Args = append([]string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho}, extraArgs...)
 
-	config, err := common.ParseCommandParamsAndLoadConfig()
+	config, err := common.ParseCommandParamsAndLoadConfig(vllm.New())
 	Expect(err).NotTo(HaveOccurred())
 
 	sim, err := New(klog.Background())

@@ -169,6 +169,12 @@ func convertInputToMessages(input []api.InputItem) []api.Message {
 
 func (r *responsesReqCtx) encode() ([]uint32, []string, *api.RenderMMFeatures, error) {
 	messages := convertInputToMessages(r.req.Input)
+	if r.req.Instructions != "" {
+		messages = append([]api.Message{{
+			Role:    "system",
+			Content: api.ChatComplContent{Raw: r.req.Instructions},
+		}}, messages...)
+	}
 	return r.runtime.GetTokenizer().RenderMessages(messages)
 }
 

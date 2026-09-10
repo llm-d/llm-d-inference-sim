@@ -19,6 +19,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 
 	"golang.org/x/sync/errgroup"
 	"k8s.io/klog/v2"
@@ -27,8 +28,21 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 	"github.com/llm-d/llm-d-inference-sim/pkg/communication"
+	"github.com/llm-d/llm-d-inference-sim/pkg/engine"
+	"github.com/llm-d/llm-d-inference-sim/pkg/engine/vllm"
 	"github.com/llm-d/llm-d-inference-sim/pkg/simulator"
 )
+
+// selectEngine returns the Engine implementation for the named engine
+// backend. Currently only "vllm" is supported.
+func selectEngine(engineName string) (engine.Engine, error) {
+	switch engineName {
+	case "vllm":
+		return vllm.New(), nil
+	default:
+		return nil, fmt.Errorf("unknown engine '%s'", engineName)
+	}
+}
 
 func main() {
 	// setup logger and context with graceful shutdown
@@ -36,20 +50,34 @@ func main() {
 	ctx := klog.NewContext(context.Background(), logger)
 	ctx = signals.SetupSignalHandler(ctx)
 
-	logger.V(logging.INFO).Info("Starting inference simulator")
+	engineName, err := common.ResolveEngineName()
+	if err != nil {
+		logger.Error(err, "failed to resolve engine")
+		return
+	}
+	eng, err := selectEngine(engineName)
+	if err != nil {
+		logger.Error(err, "failed to select engine")
+		return
+	}
 
 	// parse command line parameters
-	config, err := common.ParseCommandParamsAndLoadConfig()
+	config, err := common.ParseCommandParamsAndLoadConfig(eng)
 	if err != nil {
 		logger.Error(err, "failed to read configuration")
 		return
 	}
+
+	// klog's default verbosity (0) is only raised to INFO by ParseCommandParamsAndLoadConfig
+	// above, so this must run after it to actually be visible at the default verbosity.
+	logger.V(logging.INFO).Info("Starting inference simulator", "engine", eng.Name())
+
 	if err := config.Show(logger); err != nil {
 		logger.Error(err, "failed to show configuration")
 		return
 	}
 
-	simulators, err := simulator.Start(ctx, config, logger)
+	simulators, err := simulator.Start(ctx, config, logger, eng)
 	if err != nil {
 		logger.Error(err, "failed to create inference simulator")
 		return
@@ -57,8 +85,9 @@ func main() {
 
 	g := new(errgroup.Group)
 	for _, sim := range simulators {
+		comm := communication.New(logger, sim, &sim.Context)
 		g.Go(func() error {
-			return communication.Start(ctx, logger, sim, &sim.Context)
+			return comm.Start(ctx, eng)
 		})
 	}
 	if err := g.Wait(); err != nil {
