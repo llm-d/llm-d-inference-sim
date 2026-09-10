@@ -24,6 +24,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/buaazp/fasthttprouter"
 	"github.com/go-logr/logr"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 	"github.com/llm-d/llm-d-inference-sim/pkg/communication/grpc/pb"
@@ -55,13 +56,22 @@ func New(logger logr.Logger, processor Processor, runtime endpoint.Runtime) *Com
 	return &Communication{logger: logger, processor: processor, runtime: runtime, startTime: time.Now()}
 }
 
-func Start(ctx context.Context, logger logr.Logger, processor Processor, runtime endpoint.Runtime) error {
-	c := Communication{logger: logger, processor: processor, runtime: runtime, startTime: time.Now()}
-	c.logger.V(logging.INFO).Info("Starting communication layer")
-	return c.start(ctx)
+// Transport supplies the active engine's HTTP routes and gRPC service.
+type Transport interface {
+	// BindHTTP registers the engine's own HTTP routes on r, on top of the
+	// common routes Communication's own HTTP server already registers.
+	BindHTTP(r *fasthttprouter.Router, comm *Communication)
+	// BindGRPC registers the engine's own gRPC service on server.
+	BindGRPC(server *grpc.Server, comm *Communication) bool
 }
 
-func (c *Communication) start(ctx context.Context) error {
+// Start starts the communication layer: the HTTP server (with the active
+// engine's routes added via transport.BindHTTP) and, unless multi-modal
+// encoder-only mode is enabled, the gRPC server (with the active engine's
+// service added via transport.BindGRPC).
+func (c *Communication) Start(ctx context.Context, transport Transport) error {
+	c.logger.V(logging.INFO).Info("Starting communication layer")
+
 	listener, err := c.newListener()
 	if err != nil {
 		c.logger.Error(err, "failed to create listener")
@@ -78,7 +88,7 @@ func (c *Communication) start(ctx context.Context) error {
 	if !c.runtime.Config().MMEncoderOnly {
 		// gRPC uses HTTP/2
 		grpcL := m.Match(cmux.HTTP2())
-		grpcServer, grpcErrCh = c.startGRPC(grpcL)
+		grpcServer, grpcErrCh = c.startGRPC(grpcL, transport)
 		// Check for an immediate startup error.
 		select {
 		case err := <-grpcErrCh:
@@ -90,7 +100,7 @@ func (c *Communication) start(ctx context.Context) error {
 	}
 
 	httpL := m.Match(cmux.Any())
-	httpServer, httpErrCh, err := c.startHTTPServer(ctx, httpL)
+	httpServer, httpErrCh, err := c.startHTTPServer(ctx, httpL, transport)
 	if err != nil {
 		return err
 	}

@@ -89,6 +89,16 @@ type SimContext struct {
 	// they stay stable for the simulator's lifetime
 	mooncakeEnginesOnce sync.Once
 	mooncakeEngines     map[string]map[string]string
+	// Engine is the active engine, used by admin-config updates
+	// (ApplyConfigUpdate, below) to re-validate its own configuration fields
+	// the same way the initial configuration does. Set once before the
+	// simulator starts serving; nil is treated as "nothing to validate".
+	Engine Engine
+}
+
+// Engine validates the active engine's own configuration fields.
+type Engine interface {
+	ValidateConfig(cfg *common.Configuration) error
 }
 
 type latencyCalcHolder struct {
@@ -105,14 +115,15 @@ func (s *SimContext) latencyCalc() latencyCalculator {
 // and atomically replaces the existing one. Called both at init and after
 // each successful admin-config update.
 func (s *SimContext) rebuildLatencyCalculator() {
+	cfg := s.Config()
 	var calc latencyCalculator
-	switch s.Config().LatencyCalculator {
+	switch cfg.LatencyCalculator {
 	case common.DefaultLatencyCalculator:
-		calc = newDefaultCalculator(s.Config(), s.Random)
+		calc = newDefaultCalculator(&cfg.Latencies, cfg.MaxNumSeqs, s.Random)
 	case common.ConstantLatencyCalculator:
-		calc = newConstantCalculator(s.Config(), s.Random)
+		calc = newConstantCalculator(&cfg.Latencies, cfg.MaxNumSeqs, s.Random)
 	case common.PerPromptTokenLatencyCalculator:
-		calc = newPerTokenCalculator(s.Config(), s.Random)
+		calc = newPerTokenCalculator(&cfg.Latencies, cfg.MaxNumSeqs, s.Random)
 	}
 	s.latencyCalculator.Store(&latencyCalcHolder{calc: calc})
 }
@@ -143,6 +154,11 @@ func (s *SimContext) ApplyConfigUpdate(body []byte) error {
 	next, update, latencyChanged, err := s.Config().Update(body)
 	if err != nil {
 		return err
+	}
+	if s.Engine != nil {
+		if err := s.Engine.ValidateConfig(next); err != nil {
+			return err
+		}
 	}
 	if update.FakeMetrics != nil {
 		if s.Config().FakeMetrics == nil {
@@ -185,7 +201,7 @@ func (s *SimContext) initialize(ctx context.Context) error {
 
 	// KVCache doesn't support images at the moment, so in mm-encoder only mode
 	// we don't start it.
-	if s.Config().EnableKVCache && !s.Config().MMEncoderOnly {
+	if s.Config().KVCache.EnableKVCache && !s.Config().MMEncoderOnly {
 		s.kvcacheHelper, err = kvcache.NewKVCacheHelper(ctx, s.Config(), s.logger,
 			s.metrics.kvCacheUsageChan, s.metrics.prefixCacheStatsChan, s.Tokenizer)
 		if err != nil {
@@ -290,7 +306,7 @@ func (s *SimContext) Sleep() bool {
 	s.sleepMutex.Lock()
 	defer s.sleepMutex.Unlock()
 	s.isSleeping = true
-	if cfg.EnableKVCache {
+	if cfg.KVCache.EnableKVCache {
 		s.kvcacheHelper.Discard()
 	}
 	return true
@@ -301,7 +317,7 @@ func (s *SimContext) Sleep() bool {
 func (s *SimContext) WakeUp(activateKVCache bool) {
 	s.sleepMutex.Lock()
 	defer s.sleepMutex.Unlock()
-	if s.Config().EnableKVCache && activateKVCache {
+	if s.Config().KVCache.EnableKVCache && activateKVCache {
 		s.kvcacheHelper.Activate()
 	}
 	s.isSleeping = false
@@ -366,7 +382,7 @@ func (s *SimContext) GetResponseTokens(req api.Request) (*api.Tokenized, string,
 
 // KVCacheOnRequestStart records req's arrival in the KV cache, if enabled.
 func (s *SimContext) KVCacheOnRequestStart(req api.Request) (kvcache.PrefixCacheStats, *api.Error) {
-	if !s.Config().EnableKVCache {
+	if !s.Config().KVCache.EnableKVCache {
 		return kvcache.PrefixCacheStats{}, nil
 	}
 	stat, err := s.kvcacheHelper.OnRequestStart(req)
@@ -379,7 +395,7 @@ func (s *SimContext) KVCacheOnRequestStart(req api.Request) (kvcache.PrefixCache
 
 // KVCacheOnRequestEnd records the request's completion in the KV cache, if enabled.
 func (s *SimContext) KVCacheOnRequestEnd(requestID string) {
-	if !s.Config().EnableKVCache {
+	if !s.Config().KVCache.EnableKVCache {
 		return
 	}
 	if err := s.kvcacheHelper.OnRequestEnd(requestID); err != nil {
@@ -404,9 +420,8 @@ func (s *SimContext) simulateTTFT(respCtx endpoint.ResponseContext) {
 }
 
 func (s *SimContext) simulateImageGenerationLatency() {
-	cfg := s.Config()
-	if cfg.TimeToGenerateImage > 0 {
-		time.Sleep(s.Random.RandomNormDuration(cfg.TimeToGenerateImage, cfg.TimeToGenerateImageStdDev))
+	if latency := s.latencyCalc().GetImageGenerationLatency(); latency > 0 {
+		time.Sleep(latency)
 	}
 }
 

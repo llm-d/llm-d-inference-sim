@@ -40,6 +40,7 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/communication"
+	"github.com/llm-d/llm-d-inference-sim/pkg/engine/vllm"
 	"github.com/llm-d/llm-d-inference-sim/pkg/simulator"
 	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 	"github.com/openai/openai-go/v3"
@@ -126,11 +127,13 @@ func startServerHelper(ctx context.Context, mode string, args []string, envs map
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	config, err := common.ParseCommandParamsAndLoadConfig()
+	eng := vllm.New()
+	config, err := common.ParseCommandParamsAndLoadConfig(eng)
 	if err != nil {
 		return nil, nil, nil, err
 	}
 	s.Context.SetConfig(config)
+	s.Context.Engine = eng
 
 	// Initialize tokenizer based on configuration
 	if config.ForceDummyTokenizer {
@@ -181,7 +184,7 @@ func startServerHelper(ctx context.Context, mode string, args []string, envs map
 
 	// start the http server
 	go func() {
-		if err := comm.StartHTTPServer(ctx, listener); err != nil {
+		if err := comm.StartHTTPServer(ctx, listener, eng); err != nil {
 			logger.Error(err, "error starting server")
 		}
 	}()
@@ -221,14 +224,15 @@ func startDataParallelServers(ctx context.Context, args []string, envs ...map[st
 		}()
 	}
 
-	config, err := common.ParseCommandParamsAndLoadConfig()
+	eng := vllm.New()
+	config, err := common.ParseCommandParamsAndLoadConfig(eng)
 	if err != nil {
 		return nil, err
 	}
 
 	logger := klog.Background()
 
-	sims, err := simulator.Start(ctx, config, logger)
+	sims, err := simulator.Start(ctx, config, logger, eng)
 	if err != nil {
 		return nil, err
 	}
@@ -244,7 +248,7 @@ func startDataParallelServers(ctx context.Context, args []string, envs ...map[st
 		})
 
 		go func() {
-			if err := comm.StartHTTPServer(ctx, listener); err != nil {
+			if err := comm.StartHTTPServer(ctx, listener, eng); err != nil {
 				logger.Error(err, "error starting server")
 			}
 		}()

@@ -35,10 +35,12 @@ var _ = Describe("Check random latencies", Ordered, func() {
 
 	BeforeAll(func() {
 		config = &common.Configuration{
-			TimeToFirstToken:             milliseconds(2048),
-			TimeToFirstTokenStdDev:       milliseconds(2048),
-			KVCacheTransferLatency:       milliseconds(2048),
-			KVCacheTransferLatencyStdDev: milliseconds(2048),
+			Latencies: common.LatenciesConfig{
+				TimeToFirstToken:             milliseconds(2048),
+				TimeToFirstTokenStdDev:       milliseconds(2048),
+				KVCacheTransferLatency:       milliseconds(2048),
+				KVCacheTransferLatencyStdDev: milliseconds(2048),
+			},
 		}
 
 		random = common.NewRandom(time.Now().UnixNano(), 8080)
@@ -46,9 +48,9 @@ var _ = Describe("Check random latencies", Ordered, func() {
 
 	DescribeTable("should calculate inter token latency correctly",
 		func(interTokenLatency time.Duration, stddev time.Duration) {
-			config.InterTokenLatency = interTokenLatency
-			config.InterTokenLatencyStdDev = stddev
-			latencyCalculator := newDefaultCalculator(config, random)
+			config.Latencies.InterTokenLatency = interTokenLatency
+			config.Latencies.InterTokenLatencyStdDev = stddev
+			latencyCalculator := newDefaultCalculator(&config.Latencies, config.MaxNumSeqs, random)
 			interToken := latencyCalculator.GetInterTokenLatency(&InterTokenParams{})
 			Expect(interToken).To(BeNumerically(">=", float32(interTokenLatency)*0.3))
 			Expect(interToken).To(BeNumerically("<=", float32(interTokenLatency)*1.7))
@@ -64,11 +66,11 @@ var _ = Describe("Check random latencies", Ordered, func() {
 
 	DescribeTable("should calculate total inter token latency correctly",
 		func(interTokenLatency time.Duration, stddev time.Duration, numberOfTokens int) {
-			config.InterTokenLatency = interTokenLatency
-			config.InterTokenLatencyStdDev = stddev
+			config.Latencies.InterTokenLatency = interTokenLatency
+			config.Latencies.InterTokenLatencyStdDev = stddev
 			config.MaxNumSeqs = 1
-			config.TimeFactorUnderLoad = 1.0
-			latencyCalculator := newDefaultCalculator(config, random)
+			config.Latencies.TimeFactorUnderLoad = 1.0
+			latencyCalculator := newDefaultCalculator(&config.Latencies, config.MaxNumSeqs, random)
 
 			var latency time.Duration
 			for range numberOfTokens - 1 {
@@ -91,11 +93,11 @@ var _ = Describe("Check random latencies", Ordered, func() {
 	DescribeTable("should calculate time to first token correctly",
 		func(timeToFirstToken time.Duration, timeToFirstTokenStdDev time.Duration,
 			kvCacheLatency time.Duration, kvCacheLatencyStdDev time.Duration, doREmotePrefill bool) {
-			config.TimeToFirstToken = timeToFirstToken
-			config.TimeToFirstTokenStdDev = timeToFirstTokenStdDev
-			config.KVCacheTransferLatency = kvCacheLatency
-			config.KVCacheTransferLatencyStdDev = kvCacheLatencyStdDev
-			latencyCalculator := newDefaultCalculator(config, random)
+			config.Latencies.TimeToFirstToken = timeToFirstToken
+			config.Latencies.TimeToFirstTokenStdDev = timeToFirstTokenStdDev
+			config.Latencies.KVCacheTransferLatency = kvCacheLatency
+			config.Latencies.KVCacheTransferLatencyStdDev = kvCacheLatencyStdDev
+			latencyCalculator := newDefaultCalculator(&config.Latencies, config.MaxNumSeqs, random)
 			params := TTFTParams{
 				PromptTokens:    1,
 				DoRemotePrefill: doREmotePrefill,
@@ -125,14 +127,14 @@ var _ = Describe("Check random latencies", Ordered, func() {
 
 	It("when <time-to-first-token> is not 0, ignore <prefill-overhead>", func() {
 		timeToFirstToken := milliseconds(1000)
-		config.TimeToFirstToken = timeToFirstToken
-		config.TimeToFirstTokenStdDev = 0
+		config.Latencies.TimeToFirstToken = timeToFirstToken
+		config.Latencies.TimeToFirstTokenStdDev = 0
 
-		config.PrefillOverhead = milliseconds(100)
-		config.PrefillTimePerToken = milliseconds(200)
-		config.PrefillTimeStdDev = milliseconds(80)
+		config.Latencies.PrefillOverhead = milliseconds(100)
+		config.Latencies.PrefillTimePerToken = milliseconds(200)
+		config.Latencies.PrefillTimeStdDev = milliseconds(80)
 
-		latencyCalculator := newDefaultCalculator(config, random)
+		latencyCalculator := newDefaultCalculator(&config.Latencies, config.MaxNumSeqs, random)
 		params := TTFTParams{
 			PromptTokens: 128,
 		}
@@ -142,14 +144,14 @@ var _ = Describe("Check random latencies", Ordered, func() {
 	})
 
 	It("when <time-to-first-token> is 0, and <prefill-overhead> is not 0, use <prefill-overhead>", func() {
-		config.TimeToFirstToken = 0
-		config.TimeToFirstTokenStdDev = 0
+		config.Latencies.TimeToFirstToken = 0
+		config.Latencies.TimeToFirstTokenStdDev = 0
 
-		config.PrefillOverhead = milliseconds(100)
-		config.PrefillTimePerToken = milliseconds(200)
-		config.PrefillTimeStdDev = milliseconds(80)
+		config.Latencies.PrefillOverhead = milliseconds(100)
+		config.Latencies.PrefillTimePerToken = milliseconds(200)
+		config.Latencies.PrefillTimeStdDev = milliseconds(80)
 
-		latencyCalculator := newDefaultCalculator(config, random)
+		latencyCalculator := newDefaultCalculator(&config.Latencies, config.MaxNumSeqs, random)
 		params := TTFTParams{
 			PromptTokens: 128,
 		}
@@ -159,12 +161,12 @@ var _ = Describe("Check random latencies", Ordered, func() {
 
 	DescribeTable("time to first token is against number of prompt tokens with std",
 		func(prefillOverhead time.Duration, prefillTimePerToken time.Duration, stdDev time.Duration, nTokens int, nCachedTokens int) {
-			config.TimeToFirstToken = 0
-			config.PrefillOverhead = prefillOverhead
-			config.PrefillTimePerToken = prefillTimePerToken
-			config.PrefillTimeStdDev = stdDev
+			config.Latencies.TimeToFirstToken = 0
+			config.Latencies.PrefillOverhead = prefillOverhead
+			config.Latencies.PrefillTimePerToken = prefillTimePerToken
+			config.Latencies.PrefillTimeStdDev = stdDev
 
-			latencyCalculator := newDefaultCalculator(config, random)
+			latencyCalculator := newDefaultCalculator(&config.Latencies, config.MaxNumSeqs, random)
 			params := TTFTParams{
 				PromptTokens:       nTokens,
 				CachedPromptTokens: nCachedTokens,
@@ -192,12 +194,12 @@ var _ = Describe("Check random latencies", Ordered, func() {
 
 	DescribeTable("time to first token is against number of prompt tokens",
 		func(prefillOverhead time.Duration, prefillTimePerToken time.Duration, nTokens int, nCachedTokens int) {
-			config.TimeToFirstToken = 0
-			config.PrefillOverhead = prefillOverhead
-			config.PrefillTimePerToken = prefillTimePerToken
-			config.PrefillTimeStdDev = 0
+			config.Latencies.TimeToFirstToken = 0
+			config.Latencies.PrefillOverhead = prefillOverhead
+			config.Latencies.PrefillTimePerToken = prefillTimePerToken
+			config.Latencies.PrefillTimeStdDev = 0
 
-			latencyCalculator := newDefaultCalculator(config, random)
+			latencyCalculator := newDefaultCalculator(&config.Latencies, config.MaxNumSeqs, random)
 			params := TTFTParams{
 				PromptTokens:       nTokens,
 				CachedPromptTokens: nCachedTokens,
@@ -220,13 +222,13 @@ var _ = Describe("Check random latencies", Ordered, func() {
 	)
 
 	It("when <kv-cache-transfer-latency> not 0, ignore <kv-cache-transfer-overhead>", func() {
-		config.KVCacheTransferLatency = milliseconds(200)
-		config.KVCacheTransferLatencyStdDev = 0
+		config.Latencies.KVCacheTransferLatency = milliseconds(200)
+		config.Latencies.KVCacheTransferLatencyStdDev = 0
 
-		config.KVCacheTransferTimePerToken = milliseconds(100)
-		config.KVCacheTransferTimeStdDev = 0
+		config.Latencies.KVCacheTransferTimePerToken = milliseconds(100)
+		config.Latencies.KVCacheTransferTimeStdDev = 0
 
-		latencyCalculator := newDefaultCalculator(config, random)
+		latencyCalculator := newDefaultCalculator(&config.Latencies, config.MaxNumSeqs, random)
 		params := TTFTParams{
 			PromptTokens:    128,
 			DoRemotePrefill: true,
@@ -236,13 +238,13 @@ var _ = Describe("Check random latencies", Ordered, func() {
 	})
 
 	It("when <kv-cache-transfer-latency> is 0, and <kv-cache-transfer-overhead> is not 0, use <kv-cache-transfer-overhead>", func() {
-		config.KVCacheTransferLatency = 0
-		config.KVCacheTransferLatencyStdDev = 0
+		config.Latencies.KVCacheTransferLatency = 0
+		config.Latencies.KVCacheTransferLatencyStdDev = 0
 
-		config.KVCacheTransferTimePerToken = milliseconds(100)
-		config.KVCacheTransferTimeStdDev = 0
+		config.Latencies.KVCacheTransferTimePerToken = milliseconds(100)
+		config.Latencies.KVCacheTransferTimeStdDev = 0
 
-		latencyCalculator := newDefaultCalculator(config, random)
+		latencyCalculator := newDefaultCalculator(&config.Latencies, config.MaxNumSeqs, random)
 		params := TTFTParams{
 			PromptTokens:    128,
 			DoRemotePrefill: true,
@@ -253,12 +255,12 @@ var _ = Describe("Check random latencies", Ordered, func() {
 
 	DescribeTable("kv cache transfer time against number of prompt tokens",
 		func(kvCacheTransTPT time.Duration, stddev time.Duration, nTokens int) {
-			config.TimeToFirstToken = 0
-			config.PrefillOverhead = milliseconds(1)
-			config.KVCacheTransferTimePerToken = kvCacheTransTPT
-			config.KVCacheTransferTimeStdDev = stddev
+			config.Latencies.TimeToFirstToken = 0
+			config.Latencies.PrefillOverhead = milliseconds(1)
+			config.Latencies.KVCacheTransferTimePerToken = kvCacheTransTPT
+			config.Latencies.KVCacheTransferTimeStdDev = stddev
 
-			latencyCalculator := newDefaultCalculator(config, random)
+			latencyCalculator := newDefaultCalculator(&config.Latencies, config.MaxNumSeqs, random)
 			params := TTFTParams{
 				PromptTokens:    nTokens,
 				DoRemotePrefill: true,
@@ -282,11 +284,11 @@ var _ = Describe("Check random latencies", Ordered, func() {
 	)
 
 	It("when time-factor-under-load is 1, the time to first token should be equal to time-to-first-token", func() {
-		config.TimeToFirstToken = milliseconds(42)
-		config.TimeToFirstTokenStdDev = 0
-		config.TimeFactorUnderLoad = 1.0
+		config.Latencies.TimeToFirstToken = milliseconds(42)
+		config.Latencies.TimeToFirstTokenStdDev = 0
+		config.Latencies.TimeFactorUnderLoad = 1.0
 
-		latencyCalculator := newDefaultCalculator(config, random)
+		latencyCalculator := newDefaultCalculator(&config.Latencies, config.MaxNumSeqs, random)
 		params := TTFTParams{
 			PromptTokens: 128,
 			RunningReqs:  100,
@@ -296,11 +298,11 @@ var _ = Describe("Check random latencies", Ordered, func() {
 	})
 
 	It("when time-factor-under-load is > 1, but max-num-seqs is 1, the factor will not take effect", func() {
-		config.TimeToFirstToken = milliseconds(42)
-		config.TimeToFirstTokenStdDev = 0
-		config.TimeFactorUnderLoad = 100.0
+		config.Latencies.TimeToFirstToken = milliseconds(42)
+		config.Latencies.TimeToFirstTokenStdDev = 0
+		config.Latencies.TimeFactorUnderLoad = 100.0
 		config.MaxNumSeqs = 1
-		latencyCalculator := newDefaultCalculator(config, random)
+		latencyCalculator := newDefaultCalculator(&config.Latencies, config.MaxNumSeqs, random)
 
 		params := TTFTParams{
 			PromptTokens: 128,
@@ -312,11 +314,11 @@ var _ = Describe("Check random latencies", Ordered, func() {
 
 	DescribeTable("when time-factor-under-load is > 1, and the sim is fully loaded, the time to first token should be time-factor-under-load * time-to-first-token",
 		func(timeFactorUnderLoad float64, maxNumOfReq int) {
-			config.TimeToFirstToken = milliseconds(42)
-			config.TimeToFirstTokenStdDev = 0
-			config.TimeFactorUnderLoad = timeFactorUnderLoad
+			config.Latencies.TimeToFirstToken = milliseconds(42)
+			config.Latencies.TimeToFirstTokenStdDev = 0
+			config.Latencies.TimeFactorUnderLoad = timeFactorUnderLoad
 			config.MaxNumSeqs = maxNumOfReq
-			latencyCalculator := newDefaultCalculator(config, random)
+			latencyCalculator := newDefaultCalculator(&config.Latencies, config.MaxNumSeqs, random)
 
 			params := TTFTParams{
 				PromptTokens: 128,
@@ -339,11 +341,11 @@ var _ = Describe("Check random latencies", Ordered, func() {
 
 	DescribeTable("when time-factor-under-load is > 1, and the sim is partially loaded, the time to first token should be linear interpolation between time-to-first-token and time-factor-under-load * time-to-first-token",
 		func(timeFactorUnderLoad float64, maxNumOfReq int, nCurrNumOfReq int) {
-			config.TimeToFirstToken = milliseconds(42)
-			config.TimeToFirstTokenStdDev = 0
-			config.TimeFactorUnderLoad = timeFactorUnderLoad
+			config.Latencies.TimeToFirstToken = milliseconds(42)
+			config.Latencies.TimeToFirstTokenStdDev = 0
+			config.Latencies.TimeFactorUnderLoad = timeFactorUnderLoad
 			config.MaxNumSeqs = maxNumOfReq
-			latencyCalculator := newDefaultCalculator(config, random)
+			latencyCalculator := newDefaultCalculator(&config.Latencies, config.MaxNumSeqs, random)
 
 			params := TTFTParams{
 				PromptTokens: 128,
@@ -367,31 +369,49 @@ var _ = Describe("Check random latencies", Ordered, func() {
 	)
 
 	It("when TimeFactorUnderLoad is 1.0, calcLoadFactor should give 1", func() {
-		config.TimeFactorUnderLoad = 1.0
+		config.Latencies.TimeFactorUnderLoad = 1.0
 		config.MaxNumSeqs = 11
-		latencyCalculator := newDefaultCalculator(config, random)
+		latencyCalculator := newDefaultCalculator(&config.Latencies, config.MaxNumSeqs, random)
 
 		factor := latencyCalculator.getCurrLoadFactor(3)
 		Expect(factor).To(BeNumerically("==", 1.0))
 	})
 
 	It("when TimeFactorUnderLoad is > 1.0, and sim is fully loaded, calcLoadFactor should give TimeFactorUnderLoad", func() {
-		config.TimeFactorUnderLoad = 2.0
+		config.Latencies.TimeFactorUnderLoad = 2.0
 		config.MaxNumSeqs = 11
-		latencyCalculator := newDefaultCalculator(config, random)
+		latencyCalculator := newDefaultCalculator(&config.Latencies, config.MaxNumSeqs, random)
 
 		factor := latencyCalculator.getCurrLoadFactor(11)
-		Expect(factor).To(BeNumerically("==", config.TimeFactorUnderLoad))
+		Expect(factor).To(BeNumerically("==", config.Latencies.TimeFactorUnderLoad))
 
 	})
 
 	It("when TimeFactorUnderLoad is > 1.0, and sim is partially loaded, calcLoadFactor should give a value between 1 and TimeFactorUnderLoad", func() {
-		config.TimeFactorUnderLoad = 2.0
+		config.Latencies.TimeFactorUnderLoad = 2.0
 		config.MaxNumSeqs = 11
-		latencyCalculator := newDefaultCalculator(config, random)
+		latencyCalculator := newDefaultCalculator(&config.Latencies, config.MaxNumSeqs, random)
 
 		factor := latencyCalculator.getCurrLoadFactor(6)
 		Expect(factor).To(BeNumerically(">", 1.0))
-		Expect(factor).To(BeNumerically("<", config.TimeFactorUnderLoad))
+		Expect(factor).To(BeNumerically("<", config.Latencies.TimeFactorUnderLoad))
+	})
+
+	It("returns zero image generation latency when time-to-generate-image is unset", func() {
+		config.Latencies.TimeToGenerateImage = 0
+		config.Latencies.TimeToGenerateImageStdDev = 0
+		latencyCalculator := newDefaultCalculator(&config.Latencies, config.MaxNumSeqs, random)
+
+		Expect(latencyCalculator.GetImageGenerationLatency()).To(BeNumerically("==", 0))
+	})
+
+	It("calculates image generation latency within the expected range", func() {
+		config.Latencies.TimeToGenerateImage = milliseconds(500)
+		config.Latencies.TimeToGenerateImageStdDev = milliseconds(100)
+		latencyCalculator := newDefaultCalculator(&config.Latencies, config.MaxNumSeqs, random)
+
+		latency := latencyCalculator.GetImageGenerationLatency()
+		Expect(latency).To(BeNumerically(">=", float32(milliseconds(500))*0.3))
+		Expect(latency).To(BeNumerically("<=", float32(milliseconds(500))*1.7))
 	})
 })

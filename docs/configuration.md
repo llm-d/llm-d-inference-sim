@@ -38,9 +38,14 @@ Some environment variables (for example `POD_NAME`, `POD_NAMESPACE`) are not ove
 ## Latency 
 All latency-related parameters are defined in duration format, e.g., 100ms. Integer format is deprecated.
 
+- `latency-calculator`: specifies the latency calculator for prefill time. Supported values are `constant` and `per-token`; see [Latency Simulation](latency-simulation.md) for details on each. Leaving this field unset (or setting it to `""`) activates a legacy precedence-based mode — retained for backward compatibility, but using `constant` or `per-token` explicitly is recommended. This is a top-level flag; it is not nested under `latencies:`.
+
+Command-line flag names for the remaining latency parameters are as listed below. In a YAML config file, these settings may be nested under a top-level `latencies:` key using the same key names; the old flat top-level keys are still accepted for backward compatibility.
+
+> **Deprecated:** the flat top-level latency keys in a YAML config file are preserved for backward compatibility and will be removed in release v0.13.0; new config files should nest these settings under a top-level `latencies:` key instead.
+
 For a detailed explanation of how the simulator models inference time and what each latency parameter does, see [Latency Simulation](latency-simulation.md). For suggested values for each parameter and ready-to-use YAML profiles, see [Latency Reference Tables and Profiles](latency-profiles.md).
 
-- `latency-calculator`: specifies the latency calculator for prefill time. Supported values are `constant` and `per-token`; see [Latency Simulation](latency-simulation.md) for details on each. Leaving this field unset (or setting it to `""`) activates a legacy precedence-based mode — retained for backward compatibility, but using `constant` or `per-token` explicitly is recommended.
 - `time-to-first-token`: the time to the first token, optional, by default zero
 - `time-to-first-token-std-dev`: standard deviation for time before the first token will be returned, optional, default is zero. Can't be more than 30% of `time-to-first-token`, will not cause the actual time to first token to differ by more than 70% from `time-to-first-token`
 - `inter-token-latency`: the time to 'generate' each additional token, optional, by default zero
@@ -77,6 +82,10 @@ For a detailed explanation of how the simulator models inference time and what e
 
 
 ## KV cache
+Command-line flag names are as listed below. In a YAML config file, these settings (all except `global-cache-hit-threshold`, which stays top-level) may be nested under a top-level `kvcache:` key using the same key names; the old flat top-level keys are still accepted for backward compatibility. See [KV Cache Guide](kv-cache.md#configuration-options) for an example.
+
+> **Deprecated:** the flat top-level KV-cache keys in a YAML config file are preserved for backward compatibility and will be removed in release v0.13.0; new config files should nest these settings under a top-level `kvcache:` key instead.
+
 - `enable-kvcache`: if true, the KV cache support will be enabled in the simulator. In this case, the KV cache will be simulated, and ZMQ events will be published when a KV cache block is added or evicted.
 - `kv-cache-size`: the maximum number of token blocks in kv cache
 - `global-cache-hit-threshold`: default cache hit threshold [0, 1] for all requests. If a request specifies cache_hit_threshold, it takes precedence over this global value

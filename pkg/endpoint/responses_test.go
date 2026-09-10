@@ -308,3 +308,36 @@ var _ = Describe("createSingleToolCall", func() {
 		}
 	})
 })
+
+var _ = Describe("Responses instructions tokenization", func() {
+	DescribeTable("prepends instructions to the input messages",
+		func(instructions string) {
+			req := &ResponsesRequest{}
+			Expect(req.Unmarshal([]byte(`{"input":"Hello world"}`))).To(Succeed())
+			req.Instructions = instructions
+			tk := tokenizer.NewSimpleTokenizer()
+			ctx := &responsesReqCtx{
+				baseRequestContext: baseRequestContext{runtime: &fakeRuntime{tokenizer: tk}},
+				req:                req,
+			}
+			expectedMessages := []api.Message{}
+			if instructions != "" {
+				expectedMessages = append(expectedMessages, api.Message{
+					Role: "system", Content: api.ChatComplContent{Raw: instructions},
+				})
+			}
+			expectedMessages = append(expectedMessages, api.Message{
+				Role: api.RoleUser, Content: api.ChatComplContent{Raw: "Hello world"},
+			})
+			expectedTokens, expectedStrings, _, err := tk.RenderMessages(expectedMessages)
+			Expect(err).NotTo(HaveOccurred())
+			tokens, tokenStrings, _, err := ctx.encode()
+			Expect(err).NotTo(HaveOccurred())
+			Expect(tokenStrings).To(Equal(expectedStrings))
+			Expect(tokens).To(Equal(expectedTokens))
+			Expect(req.Input).To(HaveLen(1))
+		},
+		Entry("with instructions", "Reply in French"),
+		Entry("without instructions", ""),
+	)
+})

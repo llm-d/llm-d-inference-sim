@@ -95,7 +95,8 @@ func New(logger logr.Logger) (*Simulator, error) {
 	return sim, nil
 }
 
-func Start(ctx context.Context, config *common.Configuration, logger logr.Logger) ([]*Simulator, error) {
+func Start(ctx context.Context, config *common.Configuration, logger logr.Logger,
+	eng Engine) ([]*Simulator, error) {
 	if config.MMEncoderOnly && config.Mode == common.ModeEcho {
 		logger.V(logging.WARN).Info("MM encoder-only mode: ignoring echo mode")
 	}
@@ -143,11 +144,11 @@ func Start(ctx context.Context, config *common.Configuration, logger logr.Logger
 			effectiveRank = config.Rank
 		}
 		if effectiveRank > 0 {
-			if config.ZMQEndpoint != "" {
-				rankConfig.ZMQEndpoint = common.OffsetEndpointPort(config.ZMQEndpoint, effectiveRank)
+			if config.KVCache.ZMQEndpoint != "" {
+				rankConfig.KVCache.ZMQEndpoint = common.OffsetEndpointPort(config.KVCache.ZMQEndpoint, effectiveRank)
 			}
-			if config.KVEventsReplayEndpoint != "" {
-				rankConfig.KVEventsReplayEndpoint = common.OffsetEndpointPort(config.KVEventsReplayEndpoint, effectiveRank)
+			if config.KVCache.KVEventsReplayEndpoint != "" {
+				rankConfig.KVCache.KVEventsReplayEndpoint = common.OffsetEndpointPort(config.KVCache.KVEventsReplayEndpoint, effectiveRank)
 			}
 		}
 		// Store the effective rank in the per-rank config so downstream
@@ -170,6 +171,7 @@ func Start(ctx context.Context, config *common.Configuration, logger logr.Logger
 			return nil, err
 		}
 		sim.Context.SetConfig(rankConfig)
+		sim.Context.Engine = eng
 		// use the same tokenizer in all ranks
 		sim.Context.Tokenizer = tokenizer
 		sims[dpRank] = sim

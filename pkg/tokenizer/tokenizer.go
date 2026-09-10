@@ -17,12 +17,14 @@ limitations under the License.
 package tokenizer
 
 import (
+	"container/list"
 	"context"
 	"encoding/base64"
 	"fmt"
 	"hash/fnv"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/go-logr/logr"
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
@@ -41,14 +43,35 @@ type Tokenizer interface {
 	RenderText(text string) ([]uint32, []string, error)
 	// RenderMessages renders chat messages and returns token IDs, string tokens, and multimodal features
 	RenderMessages(messages []api.Message) ([]uint32, []string, *api.RenderMMFeatures, error)
+	// Detokenize converts token IDs back to text
+	Detokenize(tokenIDs []uint32) (string, error)
 }
 
 type baseTokenizer struct {
 	re *regexp.Regexp
 }
 
+// reverseMapCapacity bounds the detokenization reverse map. At roughly a
+// hundred bytes per entry the map stays within tens of MB when full.
+const reverseMapCapacity = 1 << 18
+
+type reverseMapEntry struct {
+	id  uint32
+	str string
+}
+
 type SimpleTokenizer struct {
 	baseTokenizer
+
+	// idToEntry and evictionOrder reverse the one-way token-id hashes for
+	// Detokenize. Only ids this instance has produced are present, at most
+	// capacity of them; when full, the least recently encoded ids are
+	// evicted. Lookups do not refresh recency, so Detokenize only takes the
+	// read lock.
+	mu            sync.RWMutex
+	idToEntry     map[uint32]*list.Element
+	evictionOrder *list.List
+	capacity      int
 }
 
 // New builds a Tokenizer based on the simulator configuration.
@@ -110,7 +133,16 @@ func (bt *baseTokenizer) splitIntoTokens(input string, count int) []string {
 
 // Simple Tokenizer
 func NewSimpleTokenizer() *SimpleTokenizer {
-	return &SimpleTokenizer{baseTokenizer: newBaseTokenizer()}
+	return newSimpleTokenizerWithCapacity(reverseMapCapacity)
+}
+
+func newSimpleTokenizerWithCapacity(capacity int) *SimpleTokenizer {
+	return &SimpleTokenizer{
+		baseTokenizer: newBaseTokenizer(),
+		idToEntry:     map[uint32]*list.Element{},
+		evictionOrder: list.New(),
+		capacity:      capacity,
+	}
 }
 
 func (st *baseTokenizer) tokenize(input string) ([]uint32, []string) {
@@ -119,9 +151,48 @@ func (st *baseTokenizer) tokenize(input string) ([]uint32, []string) {
 	return stringsToUint32sHash(strTokens), strTokens
 }
 
+// tokenize records the id-to-string mapping produced by the base tokenizer so
+// Detokenize can reverse the one-way hashes.
+func (st *SimpleTokenizer) tokenize(input string) ([]uint32, []string) {
+	tokens, strTokens := st.baseTokenizer.tokenize(input)
+	st.mu.Lock()
+	for i, id := range tokens {
+		if elem, ok := st.idToEntry[id]; ok {
+			elem.Value.(*reverseMapEntry).str = strTokens[i]
+			st.evictionOrder.MoveToFront(elem)
+			continue
+		}
+		st.idToEntry[id] = st.evictionOrder.PushFront(&reverseMapEntry{id: id, str: strTokens[i]})
+		if st.evictionOrder.Len() > st.capacity {
+			oldest := st.evictionOrder.Back()
+			st.evictionOrder.Remove(oldest)
+			delete(st.idToEntry, oldest.Value.(*reverseMapEntry).id)
+		}
+	}
+	st.mu.Unlock()
+	return tokens, strTokens
+}
+
 func (st *SimpleTokenizer) RenderText(text string) ([]uint32, []string, error) {
 	tokens, textTokens := st.tokenize(text)
 	return tokens, textTokens, nil
+}
+
+// Detokenize maps token ids back to the strings recorded during tokenization.
+// String tokens keep their trailing whitespace, so joining reconstructs the
+// original text. Ids this instance has not produced are rendered as "<unk_ID>".
+func (st *SimpleTokenizer) Detokenize(tokenIDs []uint32) (string, error) {
+	var builder strings.Builder
+	st.mu.RLock()
+	defer st.mu.RUnlock()
+	for _, id := range tokenIDs {
+		if elem, ok := st.idToEntry[id]; ok {
+			builder.WriteString(elem.Value.(*reverseMapEntry).str)
+		} else {
+			fmt.Fprintf(&builder, "<unk_%d>", id)
+		}
+	}
+	return builder.String(), nil
 }
 
 // RenderMessages tokenizes the messages and synthesizes stub mm_features when

@@ -68,6 +68,16 @@ func (hft *HFTokenizer) RenderMessages(messages []api.Message) ([]uint32, []stri
 	return hft.renderRequest(&req, FlattenMessages(messages))
 }
 
+// Detokenize decodes token ids through the render service's
+// /v1/completions/derender endpoint.
+func (hft *HFTokenizer) Detokenize(tokenIDs []uint32) (string, error) {
+	payload, err := json.Marshal(api.NewDetokenizeDerenderRequest(hft.baseModel, tokenIDs))
+	if err != nil {
+		return "", err
+	}
+	return hft.renderClient.derender(payload)
+}
+
 func (hft *HFTokenizer) renderRequest(req api.RenderRequest, plainText string) ([]uint32, []string, *api.RenderMMFeatures, error) {
 	if req.Endpoint() == "" {
 		return nil, nil, nil, errors.New("renderRequest: render endpoint is empty")

@@ -281,7 +281,7 @@ func (reqCtx *baseRequestContext) shouldReturnCacheThresholdFinishReason(req api
 	}
 	// Check cache hit threshold if specified and KV cache is enabled
 	// First, get cache hit info without modifying cache state
-	if reqCtx.runtime.Config().EnableKVCache {
+	if reqCtx.runtime.Config().KVCache.EnableKVCache {
 		// Get cacheHitThreshold from request first, fall back to global cacheHitThreshold if not set
 		var cacheHitThreshold *float64
 		if reqThreshold := req.GetCacheHitThreshold(); reqThreshold != nil && *reqThreshold >= 0 && *reqThreshold <= 1 {

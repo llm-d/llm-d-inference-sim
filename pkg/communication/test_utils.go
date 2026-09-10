@@ -23,8 +23,9 @@ import (
 
 // StartHTTPServer starts the HTTP server on the given listener and blocks until it exits.
 // Intended for use in tests with a custom listener. Shutdown is driven by closing the listener.
-func (c *Communication) StartHTTPServer(ctx context.Context, listener net.Listener) error {
-	_, errCh, err := c.startHTTPServer(ctx, listener)
+// transport adds the active engine's own routes on top of the common ones.
+func (c *Communication) StartHTTPServer(ctx context.Context, listener net.Listener, transport Transport) error {
+	_, errCh, err := c.startHTTPServer(ctx, listener, transport)
 	if err != nil {
 		return err
 	}

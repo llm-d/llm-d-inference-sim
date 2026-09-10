@@ -20,7 +20,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -36,14 +35,15 @@ import (
 
 // newRunningSim builds and starts a real Simulator (echo mode), so
 // HandleRequest produces genuine ResponseInfo entries -- including real,
-// non-nil RespCtx values -- via the actual worker pool.
+// non-nil RespCtx values -- via the actual worker pool. Built directly via
+// common.NewConfig rather than command-line parsing, since pkg/communication
+// cannot import pkg/engine/vllm (which itself imports pkg/communication).
 func newRunningSim(ctx context.Context) *simulator.Simulator {
-	oldArgs := os.Args
-	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho}
-
-	config, err := common.ParseCommandParamsAndLoadConfig()
-	Expect(err).NotTo(HaveOccurred())
+	config := common.NewConfig()
+	config.Model = common.TestModelName
+	config.Mode = common.ModeEcho
+	config.ServedModelNames = []string{config.Model}
+	config.DisplayModelName = config.Model
 
 	sim, err := simulator.New(klog.Background())
 	Expect(err).NotTo(HaveOccurred())

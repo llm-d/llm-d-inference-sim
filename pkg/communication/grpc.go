@@ -120,9 +120,10 @@ func (c *Communication) GetServerInfo(ctx context.Context, in *pb.GetServerInfoR
 
 // startGRPC starts the gRPC server and returns the server instance and an error channel.
 // It does not handle shutdown — callers are responsible for calling server.Stop().
-func (c *Communication) startGRPC(listener net.Listener) (*grpc.Server, <-chan error) {
+// transport registers the active engine's own gRPC service on server.
+func (c *Communication) startGRPC(listener net.Listener, transport Transport) (*grpc.Server, <-chan error) {
 	server := grpc.NewServer()
-	pb.RegisterVllmEngineServer(server, c)
+	transport.BindGRPC(server, c)
 	reflection.Register(server)
 	errCh := make(chan error, 1)
 	go func() {

@@ -120,58 +120,18 @@ type Configuration struct {
 	// Set by env variable VLLM_SERVER_DEV_MODE
 	VllmDevMode bool
 
-	// --- Duration Configuration ---
-	// NOTE: For all duration fields please use duration strings, e.g., "100ms", "1.5s"
+	// Latencies groups the request-latency simulation parameters. YAML and JSON
+	// both nest it under "latencies"; both a YAML config file (via load's
+	// foldLegacyKeys) and a POST /admin/config body (via Update's
+	// foldFlatLatencies) still accept the legacy flat top-level keys too,
+	// folded into "latencies" before unmarshalling into a Configuration.
+	Latencies LatenciesConfig `yaml:"latencies" json:"latencies"`
 
-	// TimeToFirstToken time before the first token will be returned
-	TimeToFirstToken time.Duration `yaml:"time-to-first-token" json:"time-to-first-token" admin:"configurable" rebuild:"latency"`
-	// TimeToFirstTokenStdDev standard deviation for time before the first token will be returned
-	// optional, default is 0, can't be more than 30% of TimeToFirstToken, will not
-	// cause the actual time to first token to differ by more than 70% from TimeToFirstToken
-	TimeToFirstTokenStdDev time.Duration `yaml:"time-to-first-token-std-dev" json:"time-to-first-token-std-dev" admin:"configurable" rebuild:"latency"`
-
-	// InterTokenLatency time between generated tokens
-	InterTokenLatency time.Duration `yaml:"inter-token-latency" json:"inter-token-latency" admin:"configurable" rebuild:"latency"`
-	// InterTokenLatencyStdDev standard deviation for time between generated tokens
-	// optional, default is 0, can't be more than 30% of InterTokenLatency, will not cause the actual
-	// inter token latency to differ by more than 70% from InterTokenLatency
-	InterTokenLatencyStdDev time.Duration `yaml:"inter-token-latency-std-dev" json:"inter-token-latency-std-dev" admin:"configurable" rebuild:"latency"`
-	// KVCacheTransferLatency time to "transfer" kv-cache from another vLLM instance in case P/D is activated,
-	KVCacheTransferLatency time.Duration `yaml:"kv-cache-transfer-latency" json:"kv-cache-transfer-latency" admin:"configurable" rebuild:"latency"`
-	// KVCacheTransferLatencyStdDev standard deviation for time to "transfer" kv-cache from another
-	// vLLM instance in case P/D is activated, can't be more than 30% of KVCacheTransferLatency, will not
-	// cause the actual latency to differ by more than 70% from KVCacheTransferLatency
-	KVCacheTransferLatencyStdDev time.Duration `yaml:"kv-cache-transfer-latency-std-dev" json:"kv-cache-transfer-latency-std-dev" admin:"configurable" rebuild:"latency"`
-
-	// $Total Prefill Time = PrefillOverhead + n * PrefillTimePerToken$
-	// the assumption is that n is less than k, where k is the number of prallelism units of GPU
-	// PrefillOverhead time taken to prefill the context
-	PrefillOverhead     time.Duration `yaml:"prefill-overhead" json:"prefill-overhead" admin:"configurable" rebuild:"latency"`
-	PrefillTimePerToken time.Duration `yaml:"prefill-time-per-token" json:"prefill-time-per-token" admin:"configurable" rebuild:"latency"`
-	// PrefillOverheadStdDev similar to TimeToFirstTokenStdDev
-	PrefillTimeStdDev time.Duration `yaml:"prefill-time-std-dev" json:"prefill-time-std-dev" admin:"configurable" rebuild:"latency"`
-	// $Total KV Cache Transfer Time = n * KVCacheTransferTimePerToken$
-	// the assumption is that the cache blocks are all missed at the remote pod
-	// KVCacheTransfer overhead time taken to transfer kv-cache from another vLLM instance in case P/D is activated
-	KVCacheTransferTimePerToken time.Duration `yaml:"kv-cache-transfer-time-per-token" json:"kv-cache-transfer-time-per-token" admin:"configurable" rebuild:"latency"`
-	// KVCacheTransferOverheadStdDev similar to TimeToFirstTokenStdDev
-	KVCacheTransferTimeStdDev time.Duration `yaml:"kv-cache-transfer-time-std-dev" json:"kv-cache-transfer-time-std-dev" admin:"configurable" rebuild:"latency"`
-
-	// TimeToGenerateImage is the simulated time to generate an image in omni mode.
-	// When an image is going to be emitted in a chat completion, the simulator
-	// sleeps for this duration before sending the image chunk.
-	TimeToGenerateImage time.Duration `yaml:"time-to-generate-image" json:"time-to-generate-image" admin:"configurable"`
-	// TimeToGenerateImageStdDev standard deviation for time to generate an image.
-	// Optional, default is 0, can't be more than 30% of TimeToGenerateImage.
-	TimeToGenerateImageStdDev time.Duration `yaml:"time-to-generate-image-std-dev" json:"time-to-generate-image-std-dev" admin:"configurable"`
-
-	// TimeFactorUnderLoad is a multiplicative factor that affects the overall time taken for requests when parallel
-	// requests are being processed.
-	// The value of this factor must be >= 1.0, with a default of 1.0.
-	// - If this factor is 1.0, no extra time is added.
-	// - When the factor is x (where x > 1.0) and there are MaxNumSeqs requests, the total time will be multiplied by x.
-	// - The extra time then decreases multiplicatively to 1.0 when the number of requests is less than MaxNumSeqs.
-	TimeFactorUnderLoad float64 `yaml:"time-factor-under-load" json:"time-factor-under-load" admin:"configurable" rebuild:"latency"`
+	// LatencyCalculator is the name of the latency calculator to use in the simulation of the response latencies.
+	// The default calculation is based on the current load of the simulator and on the configured latency
+	// parameters, e.g., time-to-first-token and prefill-time-per-token. It is a top-level flag, not part of
+	// LatenciesConfig, since it selects a calculation strategy rather than a latency value.
+	LatencyCalculator string `yaml:"latency-calculator" json:"latency-calculator" admin:"configurable" rebuild:"latency"`
 
 	// Mode defines the simulator response generation mode, valid values: echo, random
 	Mode string `yaml:"mode" json:"mode"`
@@ -215,35 +175,13 @@ type Configuration struct {
 	// a value of 100 always produces len(availableTools) calls. Optional, defaults to 45.
 	ToolCallExtraCallProbability int `yaml:"tool-call-extra-call-probability" json:"tool-call-extra-call-probability"`
 
-	// EnableKVCache defines if kv cache feature will be enabled
-	EnableKVCache bool `yaml:"enable-kvcache" json:"enable-kvcache"`
-	//  KVCacheSize is the maximum number of token blocks in kv cache, the default value is 1024
-	KVCacheSize int `yaml:"kv-cache-size" json:"kv-cache-size"`
 	// GlobalCacheHitThreshold is the default cache hit threshold (0-1] for all requests.
 	// If a request specifies cache_hit_threshold, it takes precedence over this global value.
 	GlobalCacheHitThreshold float64 `yaml:"global-cache-hit-threshold" json:"global-cache-hit-threshold"`
 
-	// TokenBlockSize is token block size for contiguous chunks of tokens, possible values: 8,16,32,64,128, defaults to 16
-	TokenBlockSize int `yaml:"block-size" json:"block-size"`
-	// HashSeed is the seed for hash generation. Effective value follows configuration precedence in the docs (command-line --hash-seed, else PYTHONHASHSEED, else YAML, else default).
-	HashSeed string `yaml:"hash-seed" json:"hash-seed"`
-
-	// ZMQEndpoint is the ZMQ address to publish events, the default value is tcp://localhost:5557
-	ZMQEndpoint string `yaml:"zmq-endpoint" json:"zmq-endpoint"`
-
-	// KVEventsReplayEndpoint is the ZMQ ROUTER address to bind for receiving KV events replay requests.
-	// Empty (default) disables the replay listener. Example: "tcp://*:5558"
-	KVEventsReplayEndpoint string `yaml:"kv-events-replay-endpoint" json:"kv-events-replay-endpoint"`
-
-	// KVEventsReplayQueueSize is the max number of event batches held in the replay queue; oldest dropped when full. Defaults to 1024.
-	KVEventsReplayQueueSize int `yaml:"kv-events-replay-queue-size" json:"kv-events-replay-queue-size"`
-
-	// EventBatchSize is the maximum number of kv-cache events to be sent together, defaults to 16
-	EventBatchSize int `yaml:"event-batch-size" json:"event-batch-size"`
-
-	// UseVllmMapEventFormat encodes KV cache events as msgpack maps with named fields (vLLM PR #42892 format)
-	// instead of the legacy positional array format. Default is false (legacy array format).
-	UseVllmMapEventFormat bool `yaml:"use-vllm-map-event-format" json:"use-vllm-map-event-format"`
+	// KVCache groups KV-cache sizing, hashing, and ZMQ event settings. KV-cache
+	// transfer latencies and the global cache-hit threshold are configured separately.
+	KVCache KVCacheConfig `yaml:"kvcache" json:"kvcache"`
 
 	// FakeMetrics is a set of metrics to send to Prometheus instead of the real data
 	FakeMetrics *FakeMetrics `yaml:"fake-metrics" json:"fake-metrics" admin:"configurable"`
@@ -315,11 +253,6 @@ type Configuration struct {
 	// StrictRequestValidation enables vLLM-compatible validation for OpenAI completion requests.
 	StrictRequestValidation bool `yaml:"strict" json:"strict"`
 
-	// LatencyCalculator is the name of the latency calculator to use in the simulation of the response latencies.
-	// The default calculation is based on the current load of the simulator and on the configured latency
-	// parameters, e.g., time-to-first-token and prefill-time-per-token.
-	LatencyCalculator string `yaml:"latency-calculator" json:"latency-calculator" admin:"configurable" rebuild:"latency"`
-
 	// DefaultEmbeddingDimensions is the default size of embedding vectors when the request does not specify dimensions.
 	// Used by the /v1/embeddings endpoint. Default is 384.
 	DefaultEmbeddingDimensions int `yaml:"default-embedding-dimensions" json:"default-embedding-dimensions"`
@@ -357,6 +290,9 @@ type Configuration struct {
 	// MaxRequestBodySizeMB sets the maximum allowed request body size in megabytes for the HTTP server.
 	// Default is 4 (matching the fasthttp built-in default). Must be between 1 and 512.
 	MaxRequestBodySizeMB int `yaml:"max-request-body-size-mb" json:"max-request-body-size-mb"`
+
+	// EngineName is the inference engine backend being simulated. Currently only "vllm" is supported.
+	EngineName string `yaml:"engine" json:"engine"`
 }
 
 type LoraModule struct {
@@ -368,8 +304,98 @@ type LoraModule struct {
 	BaseModelName string `json:"base_model_name"`
 }
 
-func newConfig() *Configuration {
+// KVCacheConfig groups the KV-cache sizing, hashing, and ZMQ event settings.
+// When EnableKVCache is false, every other field is reset to its zero value,
+// since the rest of the struct is unused while the cache is disabled.
+type KVCacheConfig struct {
+	// EnableKVCache defines if kv cache feature will be enabled
+	EnableKVCache bool `yaml:"enable-kvcache" json:"enable-kvcache"`
+
+	//  KVCacheSize is the maximum number of token blocks in kv cache, the default value is 1024
+	KVCacheSize int `yaml:"kv-cache-size" json:"kv-cache-size"`
+
+	// TokenBlockSize is token block size for contiguous chunks of tokens, possible values: 8,16,32,64,128, defaults to 16
+	TokenBlockSize int `yaml:"block-size" json:"block-size"`
+
+	// HashSeed is the seed for hash generation. Effective value follows configuration precedence in the docs (command-line --hash-seed, else PYTHONHASHSEED, else YAML, else default).
+	HashSeed string `yaml:"hash-seed" json:"hash-seed"`
+
+	// ZMQEndpoint is the ZMQ address to publish events, the default value is tcp://localhost:5557
+	ZMQEndpoint string `yaml:"zmq-endpoint" json:"zmq-endpoint"`
+
+	// KVEventsReplayEndpoint is the ZMQ ROUTER address to bind for receiving KV events replay requests.
+	// Empty (default) disables the replay listener. Example: "tcp://*:5558"
+	KVEventsReplayEndpoint string `yaml:"kv-events-replay-endpoint" json:"kv-events-replay-endpoint"`
+
+	// KVEventsReplayQueueSize is the max number of event batches held in the replay queue; oldest dropped when full. Defaults to 1024.
+	KVEventsReplayQueueSize int `yaml:"kv-events-replay-queue-size" json:"kv-events-replay-queue-size"`
+
+	// EventBatchSize is the maximum number of kv-cache events to be sent together, defaults to 16
+	EventBatchSize int `yaml:"event-batch-size" json:"event-batch-size"`
+
+	// UseVllmMapEventFormat encodes KV cache events as msgpack maps with named fields (vLLM PR #42892 format)
+	// instead of the legacy positional array format. Default is false (legacy array format).
+	UseVllmMapEventFormat bool `yaml:"use-vllm-map-event-format" json:"use-vllm-map-event-format"`
+}
+
+// LatenciesConfig groups the request-latency simulation parameters.
+// NOTE: For all duration fields please use duration strings, e.g., "100ms", "1.5s"
+type LatenciesConfig struct {
+	// TimeToFirstToken time before the first token will be returned
+	TimeToFirstToken time.Duration `yaml:"time-to-first-token" json:"time-to-first-token" admin:"configurable" rebuild:"latency"`
+	// TimeToFirstTokenStdDev standard deviation for time before the first token will be returned
+	// optional, default is 0, can't be more than 30% of TimeToFirstToken, will not
+	// cause the actual time to first token to differ by more than 70% from TimeToFirstToken
+	TimeToFirstTokenStdDev time.Duration `yaml:"time-to-first-token-std-dev" json:"time-to-first-token-std-dev" admin:"configurable" rebuild:"latency"`
+
+	// InterTokenLatency time between generated tokens
+	InterTokenLatency time.Duration `yaml:"inter-token-latency" json:"inter-token-latency" admin:"configurable" rebuild:"latency"`
+	// InterTokenLatencyStdDev standard deviation for time between generated tokens
+	// optional, default is 0, can't be more than 30% of InterTokenLatency, will not cause the actual
+	// inter token latency to differ by more than 70% from InterTokenLatency
+	InterTokenLatencyStdDev time.Duration `yaml:"inter-token-latency-std-dev" json:"inter-token-latency-std-dev" admin:"configurable" rebuild:"latency"`
+	// KVCacheTransferLatency time to "transfer" kv-cache from another vLLM instance in case P/D is activated,
+	KVCacheTransferLatency time.Duration `yaml:"kv-cache-transfer-latency" json:"kv-cache-transfer-latency" admin:"configurable" rebuild:"latency"`
+	// KVCacheTransferLatencyStdDev standard deviation for time to "transfer" kv-cache from another
+	// vLLM instance in case P/D is activated, can't be more than 30% of KVCacheTransferLatency, will not
+	// cause the actual latency to differ by more than 70% from KVCacheTransferLatency
+	KVCacheTransferLatencyStdDev time.Duration `yaml:"kv-cache-transfer-latency-std-dev" json:"kv-cache-transfer-latency-std-dev" admin:"configurable" rebuild:"latency"`
+
+	// $Total Prefill Time = PrefillOverhead + n * PrefillTimePerToken$
+	// the assumption is that n is less than k, where k is the number of prallelism units of GPU
+	// PrefillOverhead time taken to prefill the context
+	PrefillOverhead     time.Duration `yaml:"prefill-overhead" json:"prefill-overhead" admin:"configurable" rebuild:"latency"`
+	PrefillTimePerToken time.Duration `yaml:"prefill-time-per-token" json:"prefill-time-per-token" admin:"configurable" rebuild:"latency"`
+	// PrefillOverheadStdDev similar to TimeToFirstTokenStdDev
+	PrefillTimeStdDev time.Duration `yaml:"prefill-time-std-dev" json:"prefill-time-std-dev" admin:"configurable" rebuild:"latency"`
+	// $Total KV Cache Transfer Time = n * KVCacheTransferTimePerToken$
+	// the assumption is that the cache blocks are all missed at the remote pod
+	// KVCacheTransfer overhead time taken to transfer kv-cache from another vLLM instance in case P/D is activated
+	KVCacheTransferTimePerToken time.Duration `yaml:"kv-cache-transfer-time-per-token" json:"kv-cache-transfer-time-per-token" admin:"configurable" rebuild:"latency"`
+	// KVCacheTransferOverheadStdDev similar to TimeToFirstTokenStdDev
+	KVCacheTransferTimeStdDev time.Duration `yaml:"kv-cache-transfer-time-std-dev" json:"kv-cache-transfer-time-std-dev" admin:"configurable" rebuild:"latency"`
+
+	// TimeToGenerateImage is the simulated time to generate an image in omni mode.
+	// When an image is going to be emitted in a chat completion, the simulator
+	// sleeps for this duration before sending the image chunk.
+	TimeToGenerateImage time.Duration `yaml:"time-to-generate-image" json:"time-to-generate-image" admin:"configurable" rebuild:"latency"`
+	// TimeToGenerateImageStdDev standard deviation for time to generate an image.
+	// Optional, default is 0, can't be more than 30% of TimeToGenerateImage.
+	TimeToGenerateImageStdDev time.Duration `yaml:"time-to-generate-image-std-dev" json:"time-to-generate-image-std-dev" admin:"configurable" rebuild:"latency"`
+
+	// TimeFactorUnderLoad is a multiplicative factor that affects the overall time taken for requests when parallel
+	// requests are being processed.
+	// The value of this factor must be >= 1.0, with a default of 1.0.
+	// - If this factor is 1.0, no extra time is added.
+	// - When the factor is x (where x > 1.0) and there are MaxNumSeqs requests, the total time will be multiplied by x.
+	// - The extra time then decreases multiplicatively to 1.0 when the number of requests is less than MaxNumSeqs.
+	TimeFactorUnderLoad float64 `yaml:"time-factor-under-load" json:"time-factor-under-load" admin:"configurable" rebuild:"latency"`
+}
+
+// NewConfig returns a Configuration populated with its documented defaults.
+func NewConfig() *Configuration {
 	return &Configuration{
+		EngineName:                          "vllm",
 		IP:                                  os.Getenv(podIPEnv),
 		Port:                                8000,
 		MaxLoras:                            1,
@@ -378,7 +404,7 @@ func newConfig() *Configuration {
 		MaxModelLen:                         1024,
 		Mode:                                ModeRandom,
 		Seed:                                time.Now().UnixNano(),
-		TimeFactorUnderLoad:                 1.0,
+		Latencies:                           LatenciesConfig{TimeFactorUnderLoad: 1.0},
 		MaxToolCallIntegerParam:             100,
 		MaxToolCallNumberParam:              100,
 		MaxToolCallArrayParamLength:         5,
@@ -386,20 +412,22 @@ func newConfig() *Configuration {
 		ToolCallNotRequiredParamProbability: 50,
 		ObjectToolCallNotRequiredParamProbability: 50,
 		ToolCallExtraCallProbability:              45,
-		KVCacheSize:                               1024,
-		TokenBlockSize:                            16,
-		ZMQEndpoint:                               "tcp://127.0.0.1:5557",
-		KVEventsReplayQueueSize:                   1024,
-		EventBatchSize:                            16,
-		DPSize:                                    1,
-		Rank:                                      -1,
-		DatasetTableName:                          DefaultDSTableName,
-		DefaultEmbeddingDimensions:                384,
-		FakeMetricsRefreshInterval:                100 * time.Millisecond,
-		MaxRequestBodySizeMB:                      4,
-		RenderURL:                                 "",
-		RenderTimeout:                             30 * time.Second,
-		MMRenderTimeout:                           60 * time.Second,
+		KVCache: KVCacheConfig{
+			KVCacheSize:             1024,
+			TokenBlockSize:          16,
+			ZMQEndpoint:             "tcp://127.0.0.1:5557",
+			KVEventsReplayQueueSize: 1024,
+			EventBatchSize:          16,
+		},
+		DPSize:                     1,
+		Rank:                       -1,
+		DatasetTableName:           DefaultDSTableName,
+		DefaultEmbeddingDimensions: 384,
+		FakeMetricsRefreshInterval: 100 * time.Millisecond,
+		MaxRequestBodySizeMB:       4,
+		RenderURL:                  "",
+		RenderTimeout:              30 * time.Second,
+		MMRenderTimeout:            60 * time.Second,
 	}
 }
 
@@ -409,17 +437,58 @@ func (c *Configuration) load(configFile string) error {
 		return fmt.Errorf("failed to read configuration file: %s", err)
 	}
 
-	if err := yaml.Unmarshal(configBytes, &c); err != nil {
+	var raw map[string]any
+	if err := yaml.Unmarshal(configBytes, &raw); err != nil {
+		return fmt.Errorf("failed to unmarshal configuration: %s", err)
+	}
+	if err := foldLegacyKeys(raw, "kvcache", kvCacheYAMLKeys); err != nil {
+		return err
+	}
+	if err := foldLegacyKeys(raw, "latencies", latenciesYAMLKeys); err != nil {
+		return err
+	}
+
+	mergedBytes, err := yaml.Marshal(raw)
+	if err != nil {
+		return fmt.Errorf("failed to re-marshal configuration: %s", err)
+	}
+
+	if err := yaml.Unmarshal(mergedBytes, c); err != nil {
 		return fmt.Errorf("failed to unmarshal configuration: %s", err)
 	}
 
-	if err := c.unmarshalLoras(); err != nil {
-		return err
+	return nil
+}
+
+// foldLegacyKeys moves top-level keys in flatKeys (the flat layout used
+// before a group of settings was nested under nestedKey) into the nested
+// block in place, so config files using either layout load the same way. It
+// returns an error if a config file mixes the two layouts, i.e. sets any of
+// flatKeys at the top level while the nested block is also present.
+func foldLegacyKeys(raw map[string]any, nestedKey string, flatKeys []string) error {
+	nested, _ := raw[nestedKey].(map[string]any)
+
+	var setFlatKeys []string
+	for _, key := range flatKeys {
+		if _, ok := raw[key]; ok {
+			setFlatKeys = append(setFlatKeys, key)
+		}
 	}
-	if err := c.unmarshalLoraFakeMetrics(); err != nil {
-		return err
+	if len(setFlatKeys) > 0 && len(nested) > 0 {
+		return fmt.Errorf("%s settings mix the legacy flat layout (%s) with the nested %s block; use only one",
+			nestedKey, strings.Join(setFlatKeys, ", "), nestedKey)
 	}
 
+	if nested == nil {
+		nested = map[string]any{}
+	}
+	for _, key := range setFlatKeys {
+		nested[key] = raw[key]
+		delete(raw, key)
+	}
+	if len(nested) > 0 {
+		raw[nestedKey] = nested
+	}
 	return nil
 }
 
@@ -443,42 +512,42 @@ func (c *Configuration) validate() error {
 	if c.Port <= 0 {
 		return fmt.Errorf("invalid port '%d'", c.Port)
 	}
-	if c.InterTokenLatency < 0 {
+	if c.Latencies.InterTokenLatency < 0 {
 		return errors.New("inter token latency cannot be negative")
 	}
-	if c.InterTokenLatencyStdDev < 0 {
+	if c.Latencies.InterTokenLatencyStdDev < 0 {
 		return errors.New("inter token latency standard deviation cannot be negative")
 	}
-	if float32(c.InterTokenLatencyStdDev) > 0.3*float32(c.InterTokenLatency) {
+	if float32(c.Latencies.InterTokenLatencyStdDev) > 0.3*float32(c.Latencies.InterTokenLatency) {
 		return errors.New("inter token latency standard deviation cannot be more than 30% of inter token latency")
 	}
-	if c.TimeToFirstToken < 0 {
+	if c.Latencies.TimeToFirstToken < 0 {
 		return errors.New("time to first token cannot be negative")
 	}
-	if c.TimeToFirstTokenStdDev < 0 {
+	if c.Latencies.TimeToFirstTokenStdDev < 0 {
 		return errors.New("time to first token standard deviation cannot be negative")
 	}
-	if float32(c.TimeToFirstTokenStdDev) > 0.3*float32(c.TimeToFirstToken) {
+	if float32(c.Latencies.TimeToFirstTokenStdDev) > 0.3*float32(c.Latencies.TimeToFirstToken) {
 		return errors.New("time to first token standard deviation cannot be more than 30% of time to first token")
 	}
 
-	if c.TimeToGenerateImage < 0 {
+	if c.Latencies.TimeToGenerateImage < 0 {
 		return errors.New("time to generate image cannot be negative")
 	}
-	if c.TimeToGenerateImageStdDev < 0 {
+	if c.Latencies.TimeToGenerateImageStdDev < 0 {
 		return errors.New("time to generate image standard deviation cannot be negative")
 	}
-	if float32(c.TimeToGenerateImageStdDev) > 0.3*float32(c.TimeToGenerateImage) {
+	if float32(c.Latencies.TimeToGenerateImageStdDev) > 0.3*float32(c.Latencies.TimeToGenerateImage) {
 		return errors.New("time to generate image standard deviation cannot be more than 30% of time to generate image")
 	}
 
-	if c.PrefillOverhead < 0 {
+	if c.Latencies.PrefillOverhead < 0 {
 		return errors.New("prefill overhead cannot be negative")
 	}
-	if c.PrefillTimePerToken < 0 {
+	if c.Latencies.PrefillTimePerToken < 0 {
 		return errors.New("prefill time per token cannot be negative")
 	}
-	if c.PrefillTimeStdDev < 0 {
+	if c.Latencies.PrefillTimeStdDev < 0 {
 		return errors.New("prefill time standard deviation cannot be negative")
 	}
 	// No upper-bound check on PrefillTimeStdDev: it is applied to the total prefill time
@@ -487,41 +556,10 @@ func (c *Configuration) validate() error {
 	// RandomNormDuration to [0.3, 1.7] × mean, so an oversized std-dev cannot produce
 	// nonsensical values.
 
-	if c.KVCacheTransferTimePerToken < 0 {
-		return errors.New("kv-cache transfer time per token cannot be negative")
-	}
-	if c.KVCacheTransferTimeStdDev < 0 {
-		return errors.New("kv-cache transfer time standard deviation cannot be negative")
-	}
-	// No upper-bound check on KVCacheTransferTimeStdDev for the same reason: it is applied
-	// to the total transfer time (n × kv-cache-transfer-time-per-token), which depends on
-	// the prompt length n and is unknown at config time. Runtime clamping in
-	// RandomNormDuration handles oversized std-devs.
-
-	if c.KVCacheTransferLatency < 0 {
-		return errors.New("kv-cache transfer time cannot be negative")
-	}
-	if c.KVCacheTransferLatencyStdDev < 0 {
-		return errors.New("kv-cache transfer time standard deviation cannot be negative")
-	}
-	if float32(c.KVCacheTransferLatencyStdDev) > 0.3*float32(c.KVCacheTransferLatency) {
-		return errors.New("kv-cache transfer standard deviation cannot be more than 30% of kv-cache transfer")
-	}
-
-	if c.TimeFactorUnderLoad < 1.0 {
+	if c.Latencies.TimeFactorUnderLoad < 1.0 {
 		return errors.New("time factor under load cannot be less than 1.0")
 	}
 
-	if c.MaxLoras < 1 {
-		return errors.New("max LoRAs cannot be less than 1")
-	}
-	if c.MaxCPULoras == 0 {
-		// max CPU LoRAs by default is same as max LoRAs
-		c.MaxCPULoras = c.MaxLoras
-	}
-	if c.MaxCPULoras < c.MaxLoras {
-		return errors.New("max CPU LoRAs cannot be less than max LoRAs")
-	}
 	if c.MaxModelLen < 1 {
 		return errors.New("max model len cannot be less than 1")
 	}
@@ -532,15 +570,6 @@ func (c *Configuration) validate() error {
 
 	if c.MaxWaitingQueueLength < 0 {
 		return errors.New("max waiting queue size cannot be less than 0")
-	}
-
-	for _, lora := range c.LoraModules {
-		if lora.Name == "" {
-			return errors.New("empty LoRA name")
-		}
-		if lora.BaseModelName != "" && lora.BaseModelName != c.Model {
-			return fmt.Errorf("unknown base model '%s' for LoRA '%s'", lora.BaseModelName, lora.Name)
-		}
 	}
 
 	if c.MaxToolCallIntegerParam < c.MinToolCallIntegerParam {
@@ -563,22 +592,6 @@ func (c *Configuration) validate() error {
 	}
 	if c.ToolCallExtraCallProbability < 0 || c.ToolCallExtraCallProbability > 100 {
 		return errors.New("ToolCallExtraCallProbability should be between 0 and 100")
-	}
-
-	if c.TokenBlockSize != 8 && c.TokenBlockSize != 16 && c.TokenBlockSize != 32 &&
-		c.TokenBlockSize != 64 && c.TokenBlockSize != 128 {
-		return errors.New("token block size should be one of the following: 8, 16, 32, 64, 128")
-	}
-
-	if c.KVCacheSize < 0 {
-		return errors.New("KV cache size cannot be negative")
-	}
-	if c.EventBatchSize < 1 {
-		return errors.New("event batch size cannot less than 1")
-	}
-
-	if c.KVEventsReplayEndpoint != "" && c.KVEventsReplayQueueSize < 1 {
-		return errors.New("kv-events-replay-queue-size cannot be less than 1")
 	}
 
 	if c.FailureInjectionRate < 0 || c.FailureInjectionRate > 100 {
@@ -605,25 +618,12 @@ func (c *Configuration) validate() error {
 		}
 	}
 
-	if c.FakeMetrics != nil {
-		if err := c.FakeMetrics.validate(); err != nil {
-			return err
-		}
-		if c.FakeMetricsRefreshInterval <= 0 {
-			return errors.New("fake metrics refresh interval must be positive")
-		}
-	}
-
 	if c.DPSize < 1 || c.DPSize > 8 {
 		return errors.New("data parallel size must be between 1 and 8")
 	}
 
 	if c.Rank > 7 {
 		return errors.New("data parallel rank must be between 0 and 7")
-	}
-
-	if err := c.validateEndpointPortsDontCollide(); err != nil {
-		return err
 	}
 
 	if (c.SSLCertFile == "") != (c.SSLKeyFile == "") {
@@ -648,10 +648,6 @@ func (c *Configuration) validate() error {
 			c.LatencyCalculator, ConstantLatencyCalculator, PerPromptTokenLatencyCalculator)
 	}
 
-	if c.GlobalCacheHitThreshold < 0 || c.GlobalCacheHitThreshold > 1 {
-		return errors.New("global cache hit threshold must be between in range [0, 1]")
-	}
-
 	if c.DefaultEmbeddingDimensions < 1 {
 		return errors.New("default embedding dimensions must be at least 1")
 	}
@@ -660,40 +656,10 @@ func (c *Configuration) validate() error {
 		return fmt.Errorf("max-request-body-size-mb must be between 1 MB and 512 MB, got %d", c.MaxRequestBodySizeMB)
 	}
 
-	return nil
-}
-
-// validateEndpointPortsDontCollide ensures the ZMQ publish endpoint and the
-// KV-events-replay endpoint don't end up bound to the same port once each
-// rank's offset is applied.
-//
-// This holds even when data-parallel-rank is set to a single fixed value for
-// this process: the other ranks of the same cluster are still out there,
-// each running with their own fixed rank in 0..data-parallel-size-1 and the
-// same base endpoints, so this rank's ZMQ port can still collide with some
-// other rank's replay port (or vice versa). The check therefore always
-// spans the full 0..DPSize-1 range rather than narrowing to this process's
-// own rank.
-func (c *Configuration) validateEndpointPortsDontCollide() error {
-	if c.ZMQEndpoint == "" || c.KVEventsReplayEndpoint == "" {
-		return nil
+	if c.EngineName != "vllm" {
+		return fmt.Errorf("invalid engine '%s', currently only 'vllm' is supported", c.EngineName)
 	}
 
-	_, zmqPort, ok := ParseEndpointPort(c.ZMQEndpoint)
-	if !ok {
-		return nil
-	}
-	_, replayPort, ok := ParseEndpointPort(c.KVEventsReplayEndpoint)
-	if !ok {
-		return nil
-	}
-
-	// Ports occupied across ranks 0..DPSize-1: [port, port+DPSize-1].
-	maxRank := c.DPSize - 1
-	if zmqPort <= replayPort+maxRank && replayPort <= zmqPort+maxRank {
-		return fmt.Errorf("zmq-endpoint (%s) and kv-events-replay-endpoint (%s) ports collide"+
-			" once offset by data-parallel rank", c.ZMQEndpoint, c.KVEventsReplayEndpoint)
-	}
 	return nil
 }
 
@@ -702,21 +668,51 @@ func (c *Configuration) SSLEnabled() bool {
 	return (c.SSLCertFile != "" && c.SSLKeyFile != "") || c.SelfSignedCerts
 }
 
-// durationFields holds the JSON key names of all time.Duration fields in Configuration.
+// durationFields holds the JSON key names of all time.Duration fields in
+// Configuration and LatenciesConfig.
 // configurableFields maps each admin-configurable JSON field key to its rebuild tag
 // (value of the rebuild struct tag, e.g. "latency"), or "" for fields with no rebuild tag.
-// Both are populated once at init via reflection so there is no static list to
-// keep in sync with the struct.
+// kvCacheYAMLKeys and latenciesYAMLKeys hold the YAML key names of every KVCacheConfig
+// and LatenciesConfig field respectively. Since those names are identical to the fields'
+// JSON key names, load() also reuses them to fold legacy flat top-level YAML keys into
+// the nested "kvcache"/"latencies" blocks, and Update's foldFlatLatencies reuses
+// latenciesYAMLKeys the same way for the legacy flat POST /admin/config body shape.
+// latenciesYAMLKeySet is the same set as latenciesYAMLKeys, for membership checks;
+// unfoldNestedLatencies uses it to reject fields that are admin-configurable but not
+// part of LatenciesConfig (e.g. latency-calculator) inside the nested "latencies" object.
+// All are populated once at init via reflection so there is no static list to keep in
+// sync with the structs.
 var (
-	durationFields     map[string]bool
-	configurableFields map[string]string
+	durationFields      map[string]bool
+	configurableFields  map[string]string
+	kvCacheYAMLKeys     []string
+	latenciesYAMLKeys   []string
+	latenciesYAMLKeySet map[string]bool
 )
 
 func init() {
 	durationFields = make(map[string]bool)
 	configurableFields = make(map[string]string)
+	// Configuration's Latencies and KVCache fields are named, non-anonymous
+	// fields, so a field walk over Configuration does not descend into them;
+	// their own admin-configurable and duration fields are collected via a
+	// separate walk over LatenciesConfig.
+	collectFieldMeta(reflect.TypeOf(Configuration{}))
+	collectFieldMeta(reflect.TypeOf(LatenciesConfig{}))
+
+	kvCacheYAMLKeys = yamlKeysOf(reflect.TypeOf(KVCacheConfig{}))
+	latenciesYAMLKeys = yamlKeysOf(reflect.TypeOf(LatenciesConfig{}))
+	latenciesYAMLKeySet = make(map[string]bool, len(latenciesYAMLKeys))
+	for _, key := range latenciesYAMLKeys {
+		latenciesYAMLKeySet[key] = true
+	}
+}
+
+// collectFieldMeta walks t's direct fields, adding each duration field's JSON
+// key to durationFields and each admin-configurable field's JSON key (with
+// its rebuild tag) to configurableFields.
+func collectFieldMeta(t reflect.Type) {
 	durationType := reflect.TypeOf(time.Duration(0))
-	t := reflect.TypeOf(Configuration{})
 	for i := range t.NumField() {
 		f := t.Field(i)
 		jsonKey := strings.SplitN(f.Tag.Get("json"), ",", 2)[0]
@@ -730,6 +726,20 @@ func init() {
 			configurableFields[jsonKey] = f.Tag.Get("rebuild")
 		}
 	}
+}
+
+// yamlKeysOf returns the YAML key names of every direct field of t.
+func yamlKeysOf(t reflect.Type) []string {
+	var keys []string
+	for i := range t.NumField() {
+		f := t.Field(i)
+		yamlKey := strings.SplitN(f.Tag.Get("yaml"), ",", 2)[0]
+		if yamlKey == "" || yamlKey == "-" {
+			continue
+		}
+		keys = append(keys, yamlKey)
+	}
+	return keys
 }
 
 // normalizeDurationStrings converts duration string values (e.g. "1s") in raw
@@ -757,6 +767,72 @@ func normalizeDurationStrings(raw map[string]json.RawMessage) error {
 	return nil
 }
 
+// unfoldNestedLatencies expands an optional top-level "latencies" object in
+// an admin-config JSON body into flat keys in place, so POST /admin/config
+// accepts either shape, matching the flat/nested flexibility YAML config
+// files already have via foldLegacyKeys. Every key inside the nested object
+// must be one of LatenciesConfig's own fields: latency-calculator is a
+// top-level-only field (see Configuration.LatencyCalculator) and is rejected
+// here even though it is otherwise admin-configurable. It also returns an
+// error if a field is set both at the top level and inside the nested
+// "latencies" object.
+func unfoldNestedLatencies(raw map[string]json.RawMessage) error {
+	nestedRaw, ok := raw["latencies"]
+	if !ok {
+		return nil
+	}
+
+	var nested map[string]json.RawMessage
+	if err := json.Unmarshal(nestedRaw, &nested); err != nil {
+		return fmt.Errorf(`field "latencies": %w`, err)
+	}
+
+	var conflicts []string
+	for key := range nested {
+		if !latenciesYAMLKeySet[key] {
+			return fmt.Errorf("field '%s' is not a latencies field", key)
+		}
+		if _, exists := raw[key]; exists {
+			conflicts = append(conflicts, key)
+		}
+	}
+	if len(conflicts) > 0 {
+		return fmt.Errorf("latencies settings mix the flat layout (%s) with the nested latencies object; use only one",
+			strings.Join(conflicts, ", "))
+	}
+
+	for key, val := range nested {
+		raw[key] = val
+	}
+	delete(raw, "latencies")
+	return nil
+}
+
+// foldFlatLatencies moves the legacy flat top-level latency keys in raw into
+// a nested "latencies" object, the reverse of unfoldNestedLatencies. Update
+// calls this after validating raw's keys against configurableFields (which
+// uses the flat key names), so that the subsequent json.Unmarshal into a
+// Configuration - whose Latencies field is nested under "latencies" -
+// populates correctly regardless of which shape the caller originally sent.
+func foldFlatLatencies(raw map[string]json.RawMessage) error {
+	nested := make(map[string]json.RawMessage)
+	for _, key := range latenciesYAMLKeys {
+		if v, ok := raw[key]; ok {
+			nested[key] = v
+			delete(raw, key)
+		}
+	}
+	if len(nested) == 0 {
+		return nil
+	}
+	data, err := json.Marshal(nested)
+	if err != nil {
+		return fmt.Errorf("failed to marshal latencies: %w", err)
+	}
+	raw["latencies"] = data
+	return nil
+}
+
 // Update validates a partial JSON update and returns:
 //   - next: a deep copy of the receiver with the body's changes applied.
 //     Ready to be atomically swapped in by the caller.
@@ -774,15 +850,13 @@ func (c *Configuration) Update(body []byte) (*Configuration, *Configuration, boo
 		return nil, nil, false, fmt.Errorf("failed to unmarshal payload: %w", err)
 	}
 
+	if err := unfoldNestedLatencies(raw); err != nil {
+		return nil, nil, false, err
+	}
+
 	// convert any duration-string values (e.g. "1s") to nanosecond integers
 	if err := normalizeDurationStrings(raw); err != nil {
 		return nil, nil, false, err
-	}
-	// re-marshal after normalization so subsequent Unmarshal calls get integers
-	var err error
-	body, err = json.Marshal(raw)
-	if err != nil {
-		return nil, nil, false, fmt.Errorf("failed to re-marshal normalized payload: %w", err)
 	}
 
 	latencyChanged := false
@@ -794,6 +868,17 @@ func (c *Configuration) Update(body []byte) (*Configuration, *Configuration, boo
 		if rebuildTag == "latency" {
 			latencyChanged = true
 		}
+	}
+
+	if err := foldFlatLatencies(raw); err != nil {
+		return nil, nil, false, err
+	}
+	// re-marshal after normalization and folding so subsequent Unmarshal calls
+	// get integers and see Latencies nested under "latencies"
+	var err error
+	body, err = json.Marshal(raw)
+	if err != nil {
+		return nil, nil, false, fmt.Errorf("failed to re-marshal normalized payload: %w", err)
 	}
 
 	// update is a fresh struct populated only with the body's fields; the
@@ -821,6 +906,7 @@ func (c *Configuration) Update(body []byte) (*Configuration, *Configuration, boo
 	return next, update, latencyChanged, nil
 }
 
+// Copy returns a deep copy of c.
 func (c *Configuration) Copy() (*Configuration, error) {
 	var dst Configuration
 	data, err := json.Marshal(c)
@@ -833,6 +919,8 @@ func (c *Configuration) Copy() (*Configuration, error) {
 
 // cleanedMap returns the configuration as a JSON-friendly map with internal
 // fields removed/renamed for external display (logs, /admin/config GET).
+// Latencies' json tag already nests the latency fields under "latencies",
+// the same way KVCacheConfig is nested under "kvcache".
 func (c *Configuration) cleanedMap() (map[string]any, error) {
 	cfgJSON, err := json.Marshal(c)
 	if err != nil {
@@ -847,6 +935,19 @@ func (c *Configuration) cleanedMap() (map[string]any, error) {
 		// in DP mode, the per-rank port is not meaningful externally
 		delete(m, "port")
 	}
+	formatDurationFields(m)
+	if latencies, ok := m["latencies"].(map[string]any); ok {
+		formatDurationFields(latencies)
+	}
+	return m, nil
+}
+
+// formatDurationFields rewrites, in place, every key in m that names a
+// time.Duration field of Configuration from the nanosecond count
+// json.Unmarshal produced (as a float64) into a Go duration string (e.g.
+// "250ms"). Used for both the top-level map and the nested "latencies" map,
+// since durationFields holds flat key names shared by both.
+func formatDurationFields(m map[string]any) {
 	for key := range durationFields {
 		if v, ok := m[key]; ok {
 			if ns, ok := v.(float64); ok {
@@ -854,7 +955,6 @@ func (c *Configuration) cleanedMap() (map[string]any, error) {
 			}
 		}
 	}
-	return m, nil
 }
 
 // MarshalCleaned returns the configuration as JSON suitable for external

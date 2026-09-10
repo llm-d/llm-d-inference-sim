@@ -67,7 +67,7 @@ func (c *DSToolConfiguration) LoadConfig() error {
 	f.StringVar(&c.outputFile, "output-file", "inference-sim-dataset",
 		"Output file name without extension, two files will be created: <output-file>.json and <output-file>.csv")
 	f.StringVar(&c.outputPath, "output-path", "", "Output path")
-	f.StringVar(&c.outputPath, "table-name", common.DefaultDSTableName, "Table name, default is 'llmd'")
+	f.StringVar(&c.tableName, "table-name", common.DefaultDSTableName, "Table name, default is 'llmd'")
 	f.IntVar(&c.maxRecords, "max-records", 10000, "Maximum number of source dataset records to process; if the dataset contains more, the rest are discarded")
 	f.StringVar(&c.renderURL, "render-url", c.renderURL, "URL of the tokenizer render service")
 	f.DurationVar(&c.renderTimeout, "render-timeout", c.renderTimeout, "Timeout for tokenizer render requests")

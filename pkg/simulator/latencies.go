@@ -40,20 +40,35 @@ type latencyCalculator interface {
 	// GetInterTokenLatency returns inter-token latency. The simulator will wait
 	// this amount of time before generating each response token (except the first one).
 	GetInterTokenLatency(params *InterTokenParams) time.Duration
+	// GetImageGenerationLatency returns the time to generate a synthetic image in
+	// omni mode. The simulator will wait this amount of time before sending the
+	// image chunk.
+	GetImageGenerationLatency() time.Duration
 }
 
 type baseCalculator struct {
-	interTokenLatency       time.Duration
-	interTokenLatencyStdDev time.Duration
-	timeFactorUnderLoad     float64
-	maxNumSeqs              int
-	random                  *common.Random
+	interTokenLatency         time.Duration
+	interTokenLatencyStdDev   time.Duration
+	timeFactorUnderLoad       float64
+	timeToGenerateImage       time.Duration
+	timeToGenerateImageStdDev time.Duration
+	maxNumSeqs                int
+	random                    *common.Random
 }
 
 // returns inter token latency
 func (b *baseCalculator) GetInterTokenLatency(params *InterTokenParams) time.Duration {
 	latency := time.Duration(float64(b.interTokenLatency) * b.getCurrLoadFactor(params.RunningReqs))
 	return b.random.RandomNormDuration(latency, b.interTokenLatencyStdDev)
+}
+
+// returns time to generate a synthetic image in omni mode; not affected by
+// calculator strategy or load, unlike GetTimeToFirstToken/GetInterTokenLatency.
+func (b *baseCalculator) GetImageGenerationLatency() time.Duration {
+	if b.timeToGenerateImage <= 0 {
+		return 0
+	}
+	return b.random.RandomNormDuration(b.timeToGenerateImage, b.timeToGenerateImageStdDev)
 }
 
 func (b *baseCalculator) getCurrLoadFactor(nRunningReqs int64) float64 {
@@ -79,24 +94,26 @@ type defaultCalculator struct {
 	prefillTimeStdDev            time.Duration
 }
 
-func newDefaultCalculator(config *common.Configuration, random *common.Random) *defaultCalculator {
+func newDefaultCalculator(latencies *common.LatenciesConfig, maxNumSeqs int, random *common.Random) *defaultCalculator {
 	return &defaultCalculator{
 		baseCalculator: baseCalculator{
-			interTokenLatency:       config.InterTokenLatency,
-			interTokenLatencyStdDev: config.InterTokenLatencyStdDev,
-			timeFactorUnderLoad:     config.TimeFactorUnderLoad,
-			maxNumSeqs:              config.MaxNumSeqs,
-			random:                  random,
+			interTokenLatency:         latencies.InterTokenLatency,
+			interTokenLatencyStdDev:   latencies.InterTokenLatencyStdDev,
+			timeFactorUnderLoad:       latencies.TimeFactorUnderLoad,
+			timeToGenerateImage:       latencies.TimeToGenerateImage,
+			timeToGenerateImageStdDev: latencies.TimeToGenerateImageStdDev,
+			maxNumSeqs:                maxNumSeqs,
+			random:                    random,
 		},
-		timeToFirstToken:             config.TimeToFirstToken,
-		timeToFirstTokenStdDev:       config.TimeToFirstTokenStdDev,
-		kVCacheTransferLatency:       config.KVCacheTransferLatency,
-		kVCacheTransferLatencyStdDev: config.KVCacheTransferLatencyStdDev,
-		kVCacheTransferTimePerToken:  config.KVCacheTransferTimePerToken,
-		kVCacheTransferTimeStdDev:    config.KVCacheTransferTimeStdDev,
-		prefillOverhead:              config.PrefillOverhead,
-		prefillTimePerToken:          config.PrefillTimePerToken,
-		prefillTimeStdDev:            config.PrefillTimeStdDev,
+		timeToFirstToken:             latencies.TimeToFirstToken,
+		timeToFirstTokenStdDev:       latencies.TimeToFirstTokenStdDev,
+		kVCacheTransferLatency:       latencies.KVCacheTransferLatency,
+		kVCacheTransferLatencyStdDev: latencies.KVCacheTransferLatencyStdDev,
+		kVCacheTransferTimePerToken:  latencies.KVCacheTransferTimePerToken,
+		kVCacheTransferTimeStdDev:    latencies.KVCacheTransferTimeStdDev,
+		prefillOverhead:              latencies.PrefillOverhead,
+		prefillTimePerToken:          latencies.PrefillTimePerToken,
+		prefillTimeStdDev:            latencies.PrefillTimeStdDev,
 	}
 }
 
@@ -134,19 +151,21 @@ type constantCalculator struct {
 	kVCacheTransferLatencyStdDev time.Duration
 }
 
-func newConstantCalculator(config *common.Configuration, random *common.Random) *constantCalculator {
+func newConstantCalculator(latencies *common.LatenciesConfig, maxNumSeqs int, random *common.Random) *constantCalculator {
 	return &constantCalculator{
 		baseCalculator: baseCalculator{
-			interTokenLatency:       config.InterTokenLatency,
-			interTokenLatencyStdDev: config.InterTokenLatencyStdDev,
-			timeFactorUnderLoad:     config.TimeFactorUnderLoad,
-			maxNumSeqs:              config.MaxNumSeqs,
-			random:                  random,
+			interTokenLatency:         latencies.InterTokenLatency,
+			interTokenLatencyStdDev:   latencies.InterTokenLatencyStdDev,
+			timeFactorUnderLoad:       latencies.TimeFactorUnderLoad,
+			timeToGenerateImage:       latencies.TimeToGenerateImage,
+			timeToGenerateImageStdDev: latencies.TimeToGenerateImageStdDev,
+			maxNumSeqs:                maxNumSeqs,
+			random:                    random,
 		},
-		timeToFirstToken:             config.TimeToFirstToken,
-		timeToFirstTokenStdDev:       config.TimeToFirstTokenStdDev,
-		kVCacheTransferLatency:       config.KVCacheTransferLatency,
-		kVCacheTransferLatencyStdDev: config.KVCacheTransferLatencyStdDev,
+		timeToFirstToken:             latencies.TimeToFirstToken,
+		timeToFirstTokenStdDev:       latencies.TimeToFirstTokenStdDev,
+		kVCacheTransferLatency:       latencies.KVCacheTransferLatency,
+		kVCacheTransferLatencyStdDev: latencies.KVCacheTransferLatencyStdDev,
 	}
 }
 
@@ -171,20 +190,22 @@ type perTokenCalculator struct {
 	prefillTimeStdDev           time.Duration
 }
 
-func newPerTokenCalculator(config *common.Configuration, random *common.Random) *perTokenCalculator {
+func newPerTokenCalculator(latencies *common.LatenciesConfig, maxNumSeqs int, random *common.Random) *perTokenCalculator {
 	return &perTokenCalculator{
 		baseCalculator: baseCalculator{
-			interTokenLatency:       config.InterTokenLatency,
-			interTokenLatencyStdDev: config.InterTokenLatencyStdDev,
-			timeFactorUnderLoad:     config.TimeFactorUnderLoad,
-			maxNumSeqs:              config.MaxNumSeqs,
-			random:                  random,
+			interTokenLatency:         latencies.InterTokenLatency,
+			interTokenLatencyStdDev:   latencies.InterTokenLatencyStdDev,
+			timeFactorUnderLoad:       latencies.TimeFactorUnderLoad,
+			timeToGenerateImage:       latencies.TimeToGenerateImage,
+			timeToGenerateImageStdDev: latencies.TimeToGenerateImageStdDev,
+			maxNumSeqs:                maxNumSeqs,
+			random:                    random,
 		},
-		kVCacheTransferTimePerToken: config.KVCacheTransferTimePerToken,
-		kVCacheTransferTimeStdDev:   config.KVCacheTransferTimeStdDev,
-		prefillOverhead:             config.PrefillOverhead,
-		prefillTimePerToken:         config.PrefillTimePerToken,
-		prefillTimeStdDev:           config.PrefillTimeStdDev,
+		kVCacheTransferTimePerToken: latencies.KVCacheTransferTimePerToken,
+		kVCacheTransferTimeStdDev:   latencies.KVCacheTransferTimeStdDev,
+		prefillOverhead:             latencies.PrefillOverhead,
+		prefillTimePerToken:         latencies.PrefillTimePerToken,
+		prefillTimeStdDev:           latencies.PrefillTimeStdDev,
 	}
 }
 
