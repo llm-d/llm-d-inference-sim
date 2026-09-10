@@ -196,30 +196,33 @@ func (bc *blockCache) startRequest(req Request, blockHashes []uint64, blockToken
 	// count number of new blocks + number of blocks that are in the unused blocks
 	// don't update the data until we are sure that it's ok
 
+	// lastCachedIdx is the position of the last block in blockHashes that was
+	// already in the cache. Used below to set parent_block_hash on the store event.
+	// Block hashes form a chained prefix sequence, so cached blocks always appear
+	// as a contiguous leading prefix — the parent of the first new block is
+	// always blockHashes[lastCachedIdx].
+	lastCachedIdx := -1
 	cachedPrefixBlocks := 0
 	prefixMissed := false
 	for i, blockHash := range blockHashes {
 		bKey := blockKey{hash: blockHash, modelName: req.GetDisplayedModel()}
-		_, unused := bc.unusedBlocks[bKey]
-		_, used := bc.usedBlocks[bKey]
-
-		if !prefixMissed {
-			if unused || used {
-				cachedPrefixBlocks++
-			} else {
-				prefixMissed = true
-			}
-		}
-
-		switch {
-		case unused:
+		if _, exists := bc.unusedBlocks[bKey]; exists {
 			blockToMoveToUsed = append(blockToMoveToUsed, bKey)
-		case !used:
+			if !prefixMissed {
+				cachedPrefixBlocks++
+				lastCachedIdx = i
+			}
+		} else if _, exists := bc.usedBlocks[bKey]; !exists {
 			// new block — record its index so tokens can be written after
 			// the capacity check passes, preventing orphaned entries on error.
 			blocksToAdd = append(blocksToAdd, newBlock{key: bKey, tokenIdx: i})
-		default:
+			prefixMissed = true
+		} else {
 			blockAlreadyInUse = append(blockAlreadyInUse, bKey)
+			if !prefixMissed {
+				cachedPrefixBlocks++
+				lastCachedIdx = i
+			}
 		}
 	}
 
@@ -269,8 +272,8 @@ func (bc *blockCache) startRequest(req Request, blockHashes []uint64, blockToken
 	if len(hashes) > 0 {
 		// parent is the last already-cached block; nil when all blocks are new.
 		var parentHash *uint64
-		if cachedPrefixBlocks > 0 {
-			ph := blockHashes[cachedPrefixBlocks-1]
+		if lastCachedIdx >= 0 {
+			ph := blockHashes[lastCachedIdx]
 			parentHash = &ph
 		}
 		common.WriteToChannel(bc.eventChan,
