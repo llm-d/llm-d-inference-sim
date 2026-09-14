@@ -41,6 +41,7 @@ func (Engine) BindFlags(f *pflag.FlagSet, cfg *common.Configuration) error {
 
 	f.BoolVar(&cfg.KVCache.EnableKVCache, "enable-kvcache", cfg.KVCache.EnableKVCache, "Defines if KV cache feature is enabled")
 	f.IntVar(&cfg.KVCache.KVCacheSize, "kv-cache-size", cfg.KVCache.KVCacheSize, "Maximum number of token blocks in kv cache")
+	f.StringVar(&cfg.KVCacheDType, "kv-cache-dtype", cfg.KVCacheDType, "KV cache dtype reported in vLLM-compatible metrics")
 	f.Float64Var(&cfg.GlobalCacheHitThreshold, "global-cache-hit-threshold", cfg.GlobalCacheHitThreshold, "Default cache hit threshold [0, 1] for all requests. If a request specifies cache_hit_threshold, it takes precedence")
 	f.IntVar(&cfg.KVCache.TokenBlockSize, "block-size", cfg.KVCache.TokenBlockSize, "Token block size for contiguous chunks of tokens, possible values: 8,16,32,64,128")
 	f.StringVar(&cfg.KVCache.HashSeed, "hash-seed", cfg.KVCache.HashSeed,
