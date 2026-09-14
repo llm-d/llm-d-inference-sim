@@ -47,10 +47,10 @@ The defaults below apply only once `enable-kvcache` is true. When it is `false` 
 
 ```yaml
 model: "Qwen/Qwen2.5-1.5B-Instruct"
-kv-cache-dtype: turboquant_4bit_nc
 kvcache:
   enable-kvcache: true
   kv-cache-size: 2048
+  kv-cache-dtype: turboquant_4bit_nc
   block-size: 16
   hash-seed: "42"
   zmq-endpoint: "tcp://127.0.0.1:5557"

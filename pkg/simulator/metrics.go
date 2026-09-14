@@ -424,7 +424,7 @@ func (s *SimContext) createAndRegisterPrometheus(ctx context.Context) error {
 func (s *SimContext) setInitialPrometheusMetrics(cacheConfig *prometheus.GaugeVec) error {
 	cacheConfig.WithLabelValues(
 		strconv.Itoa(s.Config().KVCache.TokenBlockSize),
-		s.Config().KVCacheDType,
+		s.Config().KVCache.KVCacheDType,
 		"0",
 		strconv.Itoa(s.Config().KVCache.KVCacheSize),
 	).Set(1)

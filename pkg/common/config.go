@@ -175,9 +175,6 @@ type Configuration struct {
 	// a value of 100 always produces len(availableTools) calls. Optional, defaults to 45.
 	ToolCallExtraCallProbability int `yaml:"tool-call-extra-call-probability" json:"tool-call-extra-call-probability"`
 
-	// KVCacheDType is the cache dtype reported in vLLM-compatible cache configuration metrics.
-	KVCacheDType string `yaml:"kv-cache-dtype" json:"kv-cache-dtype"`
-
 	// GlobalCacheHitThreshold is the default cache hit threshold (0-1] for all requests.
 	// If a request specifies cache_hit_threshold, it takes precedence over this global value.
 	GlobalCacheHitThreshold float64 `yaml:"global-cache-hit-threshold" json:"global-cache-hit-threshold"`
@@ -315,6 +312,9 @@ type KVCacheConfig struct {
 	//  KVCacheSize is the maximum number of token blocks in kv cache, the default value is 1024
 	KVCacheSize int `yaml:"kv-cache-size" json:"kv-cache-size"`
 
+	// KVCacheDType is the cache dtype reported in vLLM-compatible cache configuration metrics.
+	KVCacheDType string `yaml:"kv-cache-dtype" json:"kv-cache-dtype"`
+
 	// TokenBlockSize is token block size for contiguous chunks of tokens, possible values: 8,16,32,64,128, defaults to 16
 	TokenBlockSize int `yaml:"block-size" json:"block-size"`
 
@@ -413,9 +413,9 @@ func NewConfig() *Configuration {
 		ToolCallNotRequiredParamProbability: 50,
 		ObjectToolCallNotRequiredParamProbability: 50,
 		ToolCallExtraCallProbability:              45,
-		KVCacheDType:                              "auto",
 		KVCache: KVCacheConfig{
 			KVCacheSize:             1024,
+			KVCacheDType:            "auto",
 			TokenBlockSize:          16,
 			ZMQEndpoint:             "tcp://127.0.0.1:5557",
 			KVEventsReplayQueueSize: 1024,
