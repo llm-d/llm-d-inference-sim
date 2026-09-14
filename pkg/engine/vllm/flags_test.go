@@ -18,12 +18,16 @@ package vllm
 
 import (
 	"os"
+	"path/filepath"
+	"reflect"
+	"strings"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
+	"github.com/llm-d/llm-d-inference-sim/pkg/engine/vllm/fakemetrics"
 )
 
 func createSimConfig(args []string) (*common.Configuration, error) {
@@ -101,10 +105,6 @@ var _ = Describe("Simulator configuration", func() {
 		args:           []string{"cmd", "--config", "../../../manifests/config.yaml"},
 		expectedConfig: c,
 	}
-	c.Lora.LoraModulesString = []string{
-		"{\"name\":\"lora1\",\"path\":\"/path/to/lora1\"}",
-		"{\"name\":\"lora2\",\"path\":\"/path/to/lora2\"}",
-	}
 	tests = append(tests, test)
 
 	// Config from config.yaml file plus command line args
@@ -112,10 +112,6 @@ var _ = Describe("Simulator configuration", func() {
 	c.Port = 8002
 	c.Seed = 100
 	c.Lora.LoraModules = []common.LoraModule{{Name: "lora3", Path: "/path/to/lora3"}, {Name: "lora4", Path: "/path/to/lora4"}}
-	c.Lora.LoraModulesString = []string{
-		"{\"name\":\"lora3\",\"path\":\"/path/to/lora3\"}",
-		"{\"name\":\"lora4\",\"path\":\"/path/to/lora4\"}",
-	}
 	c.KVCache = common.NewConfig().KVCache
 	c.KVCache.EnableKVCache = true
 	c.KVCache.EventBatchSize = 5
@@ -134,9 +130,6 @@ var _ = Describe("Simulator configuration", func() {
 	c = createDefaultConfig(common.TestModelName, nil)
 	c.Port = 8002
 	c.Lora.LoraModules = []common.LoraModule{{Name: "lora3", Path: "/path/to/lora3"}}
-	c.Lora.LoraModulesString = []string{
-		"{\"name\":\"lora3\",\"path\":\"/path/to/lora3\"}",
-	}
 	test = testCase{
 		name: "config file with command line args with different format",
 		args: []string{"cmd", "--model", common.TestModelName, "--config", "../../../manifests/config.yaml", "--port", "8002",
@@ -151,9 +144,6 @@ var _ = Describe("Simulator configuration", func() {
 	c = createDefaultConfig(common.TestModelName, nil)
 	c.Port = 8002
 	c.Lora.LoraModules = []common.LoraModule{{Name: "lora3", Path: "/path/to/lora3"}}
-	c.Lora.LoraModulesString = []string{
-		"{\"name\":\"lora3\",\"path\":\"/path/to/lora3\"}",
-	}
 	test = testCase{
 		name: "config file with command line args with empty string",
 		args: []string{"cmd", "--model", common.TestModelName, "--config", "../../../manifests/config.yaml", "--port", "8002",
@@ -167,7 +157,6 @@ var _ = Describe("Simulator configuration", func() {
 	// Config from config.yaml file plus command line args with empty string for loras
 	c = createDefaultConfig(common.QwenModelName, []string{"model1", "model2"})
 	c.Port = 8001
-	c.Lora.LoraModulesString = []string{}
 	test = testCase{
 		name:           "config file with command line args with empty string for loras",
 		args:           []string{"cmd", "--config", "../../../manifests/config.yaml", "--lora-modules", ""},
@@ -178,7 +167,6 @@ var _ = Describe("Simulator configuration", func() {
 	// Config from config.yaml file plus command line args with empty parameter for loras
 	c = createDefaultConfig(common.QwenModelName, []string{"model1", "model2"})
 	c.Port = 8001
-	c.Lora.LoraModulesString = []string{}
 	test = testCase{
 		name:           "config file with command line args with empty parameter for loras",
 		args:           []string{"cmd", "--config", "../../../manifests/config.yaml", "--lora-modules"},
@@ -189,7 +177,6 @@ var _ = Describe("Simulator configuration", func() {
 	// Config from config_with_duration_latency.yaml file plus command line args with empty parameter for loras
 	c = createDefaultConfig(common.QwenModelName, []string{"model1", "model2"})
 	c.Port = 8001
-	c.Lora.LoraModulesString = []string{}
 	c.Latencies.TimeToFirstToken = 4 * time.Second
 	c.Latencies.InterTokenLatency = 2 * time.Second
 	c.Latencies.KVCacheTransferLatency = time.Second
@@ -233,7 +220,7 @@ var _ = Describe("Simulator configuration", func() {
 
 	// Config from config_with_fake.yaml file
 	c = createDefaultConfig(common.QwenModelName, nil)
-	c.FakeMetrics = &common.FakeMetrics{
+	c.FakeMetrics = &fakemetrics.Config{
 		RunningRequests: &common.FakeMetricWithFunction{FixedValue: 16},
 		WaitingRequests: &common.FakeMetricWithFunction{
 			FixedValue: 0,
@@ -279,7 +266,7 @@ var _ = Describe("Simulator configuration", func() {
 	c = createConfigWithModel(common.TestModelName, nil)
 	c.Lora.MaxCPULoras = 1
 	c.Seed = 100
-	c.FakeMetrics = &common.FakeMetrics{
+	c.FakeMetrics = &fakemetrics.Config{
 		RunningRequests: &common.FakeMetricWithFunction{
 			FixedValue: 0,
 			IsFunction: true,
@@ -310,7 +297,7 @@ var _ = Describe("Simulator configuration", func() {
 
 	// Fake metrics from both the config file and command line
 	c = createDefaultConfig(common.QwenModelName, nil)
-	c.FakeMetrics = &common.FakeMetrics{
+	c.FakeMetrics = &fakemetrics.Config{
 		RunningRequests:        &common.FakeMetricWithFunction{FixedValue: 10},
 		WaitingRequests:        &common.FakeMetricWithFunction{FixedValue: 30},
 		KVCacheUsagePercentage: &common.FakeMetricWithFunction{FixedValue: 0.4},
@@ -382,11 +369,11 @@ var _ = Describe("Simulator configuration", func() {
 	}
 	tests = append(tests, test)
 
-	// tensor-parallel-size is accepted for vLLM command line compatibility and ignored
+	// tensor-parallel-size is accepted for vLLM command line compatibility and ignored:
+	// it has no Configuration field, so the resulting config is unaffected.
 	c = createConfigWithModel(common.TestModelName, nil)
 	c.Lora.MaxCPULoras = 1
 	c.Seed = 100
-	c.TPSize = 2
 	test = testCase{
 		name:           "tensor-parallel-size",
 		args:           []string{"cmd", "--model", common.TestModelName, "--seed", "100", "--tensor-parallel-size", "2"},
@@ -911,5 +898,194 @@ var _ = Describe("PYTHONHASHSEED environment variable", func() {
 		config, err := createSimConfig([]string{"cmd", "--model", common.TestModelName, "--enable-kvcache", "--mode", common.ModeRandom, "--seed", "100"})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(config.KVCache.HashSeed).To(Equal("env-seed"))
+	})
+})
+
+var _ = Describe("lora YAML folding", func() {
+	writeConfig := func(contents string) string {
+		dir := GinkgoT().TempDir()
+		path := filepath.Join(dir, "config.yaml")
+		Expect(os.WriteFile(path, []byte(contents), 0o644)).To(Succeed())
+		return path
+	}
+
+	It("populates Lora from the nested lora block", func() {
+		config, err := createSimConfig([]string{"cmd", "--config", writeConfig(`
+model: test-model
+lora:
+  max-loras: 4
+  max-cpu-loras: 8
+`)})
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(config.Lora.MaxLoras).To(Equal(4))
+		Expect(config.Lora.MaxCPULoras).To(Equal(8))
+	})
+
+	It("populates Lora from legacy flat top-level keys", func() {
+		config, err := createSimConfig([]string{"cmd", "--config", writeConfig(`
+model: test-model
+max-loras: 4
+max-cpu-loras: 8
+`)})
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(config.Lora.MaxLoras).To(Equal(4))
+		Expect(config.Lora.MaxCPULoras).To(Equal(8))
+	})
+
+	It("errors when lora settings mix the flat and nested layouts", func() {
+		_, err := createSimConfig([]string{"cmd", "--config", writeConfig(`
+model: test-model
+max-loras: 4
+lora:
+  max-loras: 8
+`)})
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("lora"))
+	})
+
+	It("errors when a flat lora key is set alongside an unrelated nested key", func() {
+		_, err := createSimConfig([]string{"cmd", "--config", writeConfig(`
+model: test-model
+max-loras: 4
+lora:
+  max-cpu-loras: 8
+`)})
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("lora"))
+	})
+})
+
+var _ = Describe("kv-cache YAML folding", func() {
+	writeConfig := func(contents string) string {
+		dir := GinkgoT().TempDir()
+		path := filepath.Join(dir, "config.yaml")
+		Expect(os.WriteFile(path, []byte(contents), 0o644)).To(Succeed())
+		return path
+	}
+
+	It("populates KVCache from the nested kvcache block", func() {
+		config, err := createSimConfig([]string{"cmd", "--config", writeConfig(`
+model: test-model
+kvcache:
+  enable-kvcache: true
+  kv-cache-size: 2048
+  kv-cache-dtype: turboquant_4bit_nc
+  block-size: 32
+`)})
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(config.KVCache.EnableKVCache).To(BeTrue())
+		Expect(config.KVCache.KVCacheSize).To(Equal(2048))
+		Expect(config.KVCache.KVCacheDType).To(Equal("turboquant_4bit_nc"))
+		Expect(config.KVCache.TokenBlockSize).To(Equal(32))
+		// Settings the block omits keep the defaults NewConfig applied.
+		Expect(config.KVCache.EventBatchSize).To(Equal(16))
+		Expect(config.KVCache.ZMQEndpoint).To(Equal("tcp://127.0.0.1:5557"))
+	})
+
+	It("populates KVCache from legacy flat top-level keys", func() {
+		config, err := createSimConfig([]string{"cmd", "--config", writeConfig(`
+model: test-model
+enable-kvcache: true
+kv-cache-size: 2048
+kv-cache-dtype: turboquant_4bit_nc
+block-size: 32
+`)})
+		Expect(err).NotTo(HaveOccurred())
+
+		Expect(config.KVCache.EnableKVCache).To(BeTrue())
+		Expect(config.KVCache.KVCacheSize).To(Equal(2048))
+		Expect(config.KVCache.KVCacheDType).To(Equal("turboquant_4bit_nc"))
+		Expect(config.KVCache.TokenBlockSize).To(Equal(32))
+	})
+
+	It("errors when kv-cache settings mix the flat and nested layouts", func() {
+		_, err := createSimConfig([]string{"cmd", "--config", writeConfig(`
+model: test-model
+kv-cache-size: 111
+kvcache:
+  kv-cache-size: 222
+`)})
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("kvcache"))
+	})
+
+	It("errors when a flat kv-cache key is set alongside an unrelated nested key", func() {
+		_, err := createSimConfig([]string{"cmd", "--config", writeConfig(`
+model: test-model
+kv-cache-size: 111
+kvcache:
+  block-size: 32
+`)})
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("kvcache"))
+	})
+})
+
+var _ = Describe("legacy flat YAML key lists", func() {
+	// The legacy key lists are what let a config file set these settings at the
+	// top level instead of inside their nested block. Nothing else ties them to
+	// the structs they mirror, so a field added to loraYAML/kvCacheYAML without
+	// a matching list entry would silently stop being accepted at the top
+	// level. Derive the expected lists from the structs' own yaml tags.
+	yamlTagsOf := func(v any) []string {
+		t := reflect.TypeOf(v)
+		keys := make([]string, 0, t.NumField())
+		for i := range t.NumField() {
+			key := strings.SplitN(t.Field(i).Tag.Get("yaml"), ",", 2)[0]
+			if key == "" || key == "-" {
+				continue
+			}
+			keys = append(keys, key)
+		}
+		return keys
+	}
+
+	It("loraLegacyFlatKeys covers every loraYAML field", func() {
+		Expect(loraLegacyFlatKeys).To(ConsistOf(yamlTagsOf(loraYAML{})))
+	})
+
+	It("kvCacheLegacyFlatKeys covers every kvCacheYAML field", func() {
+		Expect(kvCacheLegacyFlatKeys).To(ConsistOf(yamlTagsOf(kvCacheYAML{})))
+	})
+})
+
+var _ = Describe("fake-metrics and lora edge values", func() {
+	writeConfig := func(contents string) string {
+		dir := GinkgoT().TempDir()
+		path := filepath.Join(dir, "config.yaml")
+		Expect(os.WriteFile(path, []byte(contents), 0o644)).To(Succeed())
+		return path
+	}
+
+	It("leaves fake metrics unset when the YAML block is present but empty", func() {
+		// Every setting commented out is a common real-world state. Reporting
+		// fake metrics here would silently freeze the whole metrics surface at
+		// zero, since fake and real metrics never coexist.
+		config, err := createSimConfig([]string{"cmd", "--config", writeConfig(`
+model: test-model
+fake-metrics:
+  # running-requests: 5
+`)})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(config.FakeMetrics).To(BeNil())
+	})
+
+	It("leaves fake metrics unset when the flag value is JSON null", func() {
+		config, err := createSimConfig([]string{"cmd", "--model", common.TestModelName, "--fake-metrics", "null"})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(config.FakeMetrics).To(BeNil())
+	})
+
+	It("rejects an explicit max-loras of 0 from YAML", func() {
+		_, err := createSimConfig([]string{"cmd", "--config", writeConfig(`
+model: test-model
+lora:
+  max-loras: 0
+`)})
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("max LoRAs"))
 	})
 })

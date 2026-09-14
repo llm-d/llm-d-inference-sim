@@ -61,7 +61,7 @@ const (
 )
 
 var (
-	requiredFinishReasons = []string{
+	RequiredFinishReasons = []string{
 		StopFinishReason,
 		LengthFinishReason,
 		ToolsFinishReason,
@@ -69,7 +69,7 @@ var (
 		CacheThresholdFinishReason,
 	}
 
-	validFinishReasons = map[string]struct{}{
+	ValidFinishReasons = map[string]struct{}{
 		StopFinishReason:           {},
 		LengthFinishReason:         {},
 		ToolsFinishReason:          {},
@@ -78,10 +78,30 @@ var (
 	}
 )
 
+// FakeMetrics is implemented by each engine's own fake-metrics configuration,
+// since the set of fields an engine can fake mirrors that engine's own real
+// metrics. Configuration.FakeMetrics holds this interface; the concrete
+// implementations live with their engine (vLLM's is in
+// pkg/engine/vllm/fakemetrics). The engine-neutral value primitives those
+// implementations are built from (FakeMetricWithFunction, FunctionInfo,
+// LorasMetrics) stay in this package.
+type FakeMetrics interface {
+	// Validate checks the fake-metrics configuration. Called by the active
+	// engine's ValidateConfig.
+	Validate() error
+	// New returns a fresh, zero-valued instance of the same concrete type.
+	// encoding/json cannot allocate a concrete type into a bare interface
+	// field on its own, so Configuration.Copy and Configuration.Update use
+	// New to pre-seed the target's FakeMetrics field before unmarshaling.
+	New() FakeMetrics
+}
+
 type Configuration struct {
 	// Model defines the current base model name
 	Model string `yaml:"model" json:"model"`
-	// EngineName is the inference engine backend being simulated. Currently only "vllm" is supported.
+	// EngineName is the inference engine backend being simulated. Resolved and
+	// checked against the set of registered engines before this Configuration
+	// is built (see ResolveEngineName and main's selectEngine).
 	EngineName string `yaml:"engine" json:"engine"`
 	// Mode defines the simulator response generation mode, valid values: echo, random
 	Mode string `yaml:"mode" json:"mode"`
@@ -106,8 +126,12 @@ type Configuration struct {
 	// in a single request including input and output. Default value is 1024.
 	MaxModelLen int `yaml:"max-model-len" json:"max-model-len"`
 
-	// Lora groups the LoRA adapter settings.
-	Lora LoraConfig `yaml:"lora" json:"lora"`
+	// Lora groups the LoRA adapter settings. Constructed entirely by the
+	// active engine (see Engine.BindFlags), since the CLI/YAML wire format
+	// for LoRA adapters is engine-specific; yaml:"-" stops the generic loader
+	// in load() from claiming the "lora" key and descending into a struct
+	// whose fields no longer carry the wire format's yaml tags.
+	Lora LoraConfig `yaml:"-" json:"lora"`
 
 	// PodNameSpace specifies the Kubernetes namespace in which the simulator pod is running.
 	// Useful for multi-namespace deployments and resource scoping.
@@ -145,11 +169,17 @@ type Configuration struct {
 	GlobalCacheHitThreshold float64 `yaml:"global-cache-hit-threshold" json:"global-cache-hit-threshold"`
 
 	// KVCache groups KV-cache sizing, hashing, and ZMQ event settings. KV-cache
-	// transfer latencies and the global cache-hit threshold are configured separately.
-	KVCache KVCacheConfig `yaml:"kvcache" json:"kvcache"`
+	// transfer latencies and the global cache-hit threshold are configured
+	// separately. Constructed entirely by the active engine (see
+	// Engine.BindFlags); yaml:"-" stops the generic loader in load() from
+	// claiming the "kvcache" key and descending into a struct whose fields no
+	// longer carry the wire format's yaml tags.
+	KVCache KVCacheConfig `yaml:"-" json:"kvcache"`
 
-	// FakeMetrics is a set of metrics to send to Prometheus instead of the real data
-	FakeMetrics *FakeMetrics `yaml:"fake-metrics" json:"fake-metrics" admin:"configurable"`
+	// FakeMetrics is a set of metrics to send to Prometheus instead of the real data.
+	// Its wire format is engine-owned (see pkg/engine/vllm), not common's, so it
+	// is excluded from the generic YAML unmarshal in load() (yaml:"-").
+	FakeMetrics FakeMetrics `yaml:"-" json:"fake-metrics" admin:"configurable"`
 	// FakeMetricsRefreshInterval defines how often function-based fake metrics are recalculated, defaults to 100ms
 	FakeMetricsRefreshInterval time.Duration `yaml:"fake-metrics-refresh-interval" json:"fake-metrics-refresh-interval"`
 
@@ -213,22 +243,6 @@ type Configuration struct {
 	// can still trigger emission independently.
 	ImageEmissionRate int `yaml:"image-emission-rate" json:"image-emission-rate" admin:"configurable"`
 
-	// Ignored parameters:
-	// MMProcessorKWArgs defines arguments to be forwarded to the model's processor for multi-modal data.
-	// Ignored in the simulator.
-	MMProcessorKWArgs string `yaml:"mm-processor-kwargs" json:"mm-processor-kwargs"`
-	// ECTransferConfig defines the configurations for distributed EC cache transfer.
-	// Ignored in the simulator.
-	ECTransferConfig string `yaml:"ec-transfer-config" json:"ec-transfer-config"`
-	// EnforceEager defines whether to always use eager-mode PyTorch.
-	// Ignored in the simulator.
-	EnforceEager bool `yaml:"enforce-eager" json:"enforce-eager"`
-	// EnablePrefixCaching defines whether to enable prefix caching.
-	// Ignored in the simulator.
-	EnablePrefixCaching bool `yaml:"enable-prefix-caching" json:"enable-prefix-caching"`
-	// TPSize defines the number of tensor parallel replicas.
-	// Ignored in the simulator.
-	TPSize int `yaml:"tensor-parallel-size" json:"tensor-parallel-size"`
 	// MaxRequestBodySizeMB sets the maximum allowed request body size in megabytes for the HTTP server.
 	// Default is 4 (matching the fasthttp built-in default). Must be between 1 and 512.
 	MaxRequestBodySizeMB int `yaml:"max-request-body-size-mb" json:"max-request-body-size-mb"`
@@ -243,53 +257,56 @@ type LoraModule struct {
 	BaseModelName string `json:"base_model_name"`
 }
 
-// LoraConfig groups the LoRA adapter settings.
+// LoraConfig groups the LoRA adapter settings. Its CLI/YAML wire format is
+// engine-specific (see Engine.BindFlags); only this JSON shape, read by
+// pkg/simulator and exposed via /admin/config, is common across engines.
 type LoraConfig struct {
 	// MaxLoras defines maximum number of loaded LoRAs
-	MaxLoras int `yaml:"max-loras" json:"max-loras"`
+	MaxLoras int `json:"max-loras"`
 	// MaxCPULoras defines maximum number of LoRAs to store in CPU memory
-	MaxCPULoras int `yaml:"max-cpu-loras" json:"max-cpu-loras"`
-	// LoraModulesString is a list of LoRA adapters as strings (YAML parse helper; omitted from external output)
-	LoraModulesString []string `yaml:"lora-modules" json:"-"`
+	MaxCPULoras int `json:"max-cpu-loras"`
 	// LoraModules is a list of LoRA adapters
 	LoraModules []LoraModule `json:"lora-modules"`
 }
 
 // KVCacheConfig groups the KV-cache sizing, hashing, and ZMQ event settings.
-// When EnableKVCache is false, every other field is reset to its zero value,
-// since the rest of the struct is unused while the cache is disabled.
+// Its CLI/YAML wire format is engine-specific (see Engine.BindFlags); only
+// this JSON shape, read by pkg/kvcache and pkg/simulator, is common across
+// engines. When EnableKVCache is false, every other field is reset to its
+// zero value, since the rest of the struct is unused while the cache is
+// disabled.
 type KVCacheConfig struct {
 	// EnableKVCache defines if kv cache feature will be enabled
-	EnableKVCache bool `yaml:"enable-kvcache" json:"enable-kvcache"`
+	EnableKVCache bool `json:"enable-kvcache"`
 
 	//  KVCacheSize is the maximum number of token blocks in kv cache, the default value is 1024
-	KVCacheSize int `yaml:"kv-cache-size" json:"kv-cache-size"`
+	KVCacheSize int `json:"kv-cache-size"`
 
 	// KVCacheDType is the cache dtype reported in vLLM-compatible cache configuration metrics.
-	KVCacheDType string `yaml:"kv-cache-dtype" json:"kv-cache-dtype"`
+	KVCacheDType string `json:"kv-cache-dtype"`
 
 	// TokenBlockSize is token block size for contiguous chunks of tokens, possible values: 8,16,32,64,128, defaults to 16
-	TokenBlockSize int `yaml:"block-size" json:"block-size"`
+	TokenBlockSize int `json:"block-size"`
 
 	// HashSeed is the seed for hash generation. Effective value follows configuration precedence in the docs (command-line --hash-seed, else PYTHONHASHSEED, else YAML, else default).
-	HashSeed string `yaml:"hash-seed" json:"hash-seed"`
+	HashSeed string `json:"hash-seed"`
 
 	// ZMQEndpoint is the ZMQ address to publish events, the default value is tcp://localhost:5557
-	ZMQEndpoint string `yaml:"zmq-endpoint" json:"zmq-endpoint"`
+	ZMQEndpoint string `json:"zmq-endpoint"`
 
 	// KVEventsReplayEndpoint is the ZMQ ROUTER address to bind for receiving KV events replay requests.
 	// Empty (default) disables the replay listener. Example: "tcp://*:5558"
-	KVEventsReplayEndpoint string `yaml:"kv-events-replay-endpoint" json:"kv-events-replay-endpoint"`
+	KVEventsReplayEndpoint string `json:"kv-events-replay-endpoint"`
 
 	// KVEventsReplayQueueSize is the max number of event batches held in the replay queue; oldest dropped when full. Defaults to 1024.
-	KVEventsReplayQueueSize int `yaml:"kv-events-replay-queue-size" json:"kv-events-replay-queue-size"`
+	KVEventsReplayQueueSize int `json:"kv-events-replay-queue-size"`
 
 	// EventBatchSize is the maximum number of kv-cache events to be sent together, defaults to 16
-	EventBatchSize int `yaml:"event-batch-size" json:"event-batch-size"`
+	EventBatchSize int `json:"event-batch-size"`
 
 	// UseVllmMapEventFormat encodes KV cache events as msgpack maps with named fields (vLLM PR #42892 format)
 	// instead of the legacy positional array format. Default is false (legacy array format).
-	UseVllmMapEventFormat bool `yaml:"use-vllm-map-event-format" json:"use-vllm-map-event-format"`
+	UseVllmMapEventFormat bool `json:"use-vllm-map-event-format"`
 }
 
 // ToolCallConfig groups the tool-call generation parameters.
@@ -464,53 +481,55 @@ func NewConfig() *Configuration {
 	}
 }
 
-func (c *Configuration) load(configFile string) error {
+// load reads configFile into c, folding and unmarshaling every group whose
+// wire format is common across engines (latencies, tool-calls, dataset,
+// ssl), plus top-level scalars. It returns the raw parsed YAML tree so the
+// caller can pass it to the active engine's BindFlags, which folds and
+// unmarshals its own engine-specific groups (e.g. lora, kvcache) from the
+// same tree.
+func (c *Configuration) load(configFile string) (map[string]any, error) {
 	configBytes, err := os.ReadFile(configFile)
 	if err != nil {
-		return fmt.Errorf("failed to read configuration file: %s", err)
+		return nil, fmt.Errorf("failed to read configuration file: %s", err)
 	}
 
 	var raw map[string]any
 	if err := yaml.Unmarshal(configBytes, &raw); err != nil {
-		return fmt.Errorf("failed to unmarshal configuration: %s", err)
+		return nil, fmt.Errorf("failed to unmarshal configuration: %s", err)
 	}
-	if err := foldLegacyKeys(raw, "kvcache", kvCacheYAMLKeys); err != nil {
-		return err
+	if err := FoldLegacyKeys(raw, "latencies", latenciesYAMLKeys); err != nil {
+		return nil, err
 	}
-	if err := foldLegacyKeys(raw, "latencies", latenciesYAMLKeys); err != nil {
-		return err
+	if err := FoldLegacyKeys(raw, "tool-calls", toolCallYAMLKeys); err != nil {
+		return nil, err
 	}
-	if err := foldLegacyKeys(raw, "tool-calls", toolCallYAMLKeys); err != nil {
-		return err
+	if err := FoldLegacyKeys(raw, "dataset", datasetYAMLKeys); err != nil {
+		return nil, err
 	}
-	if err := foldLegacyKeys(raw, "dataset", datasetYAMLKeys); err != nil {
-		return err
-	}
-	if err := foldLegacyKeys(raw, "ssl", sslYAMLKeys); err != nil {
-		return err
-	}
-	if err := foldLegacyKeys(raw, "lora", loraYAMLKeys); err != nil {
-		return err
+	if err := FoldLegacyKeys(raw, "ssl", sslYAMLKeys); err != nil {
+		return nil, err
 	}
 
 	mergedBytes, err := yaml.Marshal(raw)
 	if err != nil {
-		return fmt.Errorf("failed to re-marshal configuration: %s", err)
+		return nil, fmt.Errorf("failed to re-marshal configuration: %s", err)
 	}
 
 	if err := yaml.Unmarshal(mergedBytes, c); err != nil {
-		return fmt.Errorf("failed to unmarshal configuration: %s", err)
+		return nil, fmt.Errorf("failed to unmarshal configuration: %s", err)
 	}
 
-	return nil
+	return raw, nil
 }
 
-// foldLegacyKeys moves top-level keys in flatKeys (the flat layout used
+// FoldLegacyKeys moves top-level keys in flatKeys (the flat layout used
 // before a group of settings was nested under nestedKey) into the nested
 // block in place, so config files using either layout load the same way. It
 // returns an error if a config file mixes the two layouts, i.e. sets any of
-// flatKeys at the top level while the nested block is also present.
-func foldLegacyKeys(raw map[string]any, nestedKey string, flatKeys []string) error {
+// flatKeys at the top level while the nested block is also present. Exported
+// so an engine can apply the same folding to its own engine-specific groups
+// (e.g. lora) from the raw YAML tree returned by load().
+func FoldLegacyKeys(raw map[string]any, nestedKey string, flatKeys []string) error {
 	nested, _ := raw[nestedKey].(map[string]any)
 
 	var setFlatKeys []string
@@ -533,6 +552,25 @@ func foldLegacyKeys(raw map[string]any, nestedKey string, flatKeys []string) err
 	}
 	if len(nested) > 0 {
 		raw[nestedKey] = nested
+	}
+	return nil
+}
+
+// UnmarshalYAMLKey re-marshals raw[key] back to YAML and unmarshals it into
+// out, using out's own yaml tags. This lets an engine parse a nested block
+// of the raw YAML tree returned by load() with its own wire format, without
+// common needing to know that engine's tags. A no-op if key is absent.
+func UnmarshalYAMLKey(raw map[string]any, key string, out any) error {
+	v, ok := raw[key]
+	if !ok {
+		return nil
+	}
+	data, err := yaml.Marshal(v)
+	if err != nil {
+		return fmt.Errorf("failed to marshal %q: %w", key, err)
+	}
+	if err := yaml.Unmarshal(data, out); err != nil {
+		return fmt.Errorf("failed to unmarshal %q: %w", key, err)
 	}
 	return nil
 }
@@ -701,10 +739,6 @@ func (c *Configuration) validate() error {
 		return fmt.Errorf("max-request-body-size-mb must be between 1 MB and 512 MB, got %d", c.MaxRequestBodySizeMB)
 	}
 
-	if c.EngineName != "vllm" {
-		return fmt.Errorf("invalid engine '%s', currently only 'vllm' is supported", c.EngineName)
-	}
-
 	return nil
 }
 
@@ -712,13 +746,14 @@ func (c *Configuration) validate() error {
 // Configuration and LatenciesConfig.
 // configurableFields maps each admin-configurable JSON field key to its rebuild tag
 // (value of the rebuild struct tag, e.g. "latency"), or "" for fields with no rebuild tag.
-// kvCacheYAMLKeys, latenciesYAMLKeys, toolCallYAMLKeys, datasetYAMLKeys, sslYAMLKeys, and
-// loraYAMLKeys hold the YAML key names of every field of KVCacheConfig, LatenciesConfig,
-// ToolCallConfig, DatasetConfig, SSLConfig, and LoraConfig respectively. Since those names
-// are identical to the fields' JSON key names, load() also reuses them to fold legacy flat
-// top-level YAML keys into the nested "kvcache"/"latencies"/"tool-calls"/"dataset"/"ssl"/"lora"
-// blocks, and Update's foldFlatLatencies reuses latenciesYAMLKeys the same way for the
-// legacy flat POST /admin/config body shape.
+// latenciesYAMLKeys, toolCallYAMLKeys, datasetYAMLKeys, and sslYAMLKeys hold the YAML
+// key names of every field of LatenciesConfig, ToolCallConfig, DatasetConfig, and
+// SSLConfig respectively. Since those names are identical to the fields' JSON key
+// names, load() also reuses them to fold legacy flat top-level YAML keys into the
+// nested "latencies"/"tool-calls"/"dataset"/"ssl" blocks, and Update's
+// foldFlatLatencies reuses latenciesYAMLKeys the same way for the legacy flat
+// POST /admin/config body shape. LoraConfig and KVCacheConfig have no such list
+// here: their wire format is engine-owned (see pkg/engine/vllm), not common's.
 // latenciesYAMLKeySet is the same set as latenciesYAMLKeys, for membership checks;
 // unfoldNestedLatencies uses it to reject fields that are admin-configurable but not
 // part of LatenciesConfig (e.g. latency-calculator) inside the nested "latencies" object.
@@ -727,13 +762,11 @@ func (c *Configuration) validate() error {
 var (
 	durationFields      map[string]bool
 	configurableFields  map[string]string
-	kvCacheYAMLKeys     []string
 	latenciesYAMLKeys   []string
 	latenciesYAMLKeySet map[string]bool
 	toolCallYAMLKeys    []string
 	datasetYAMLKeys     []string
 	sslYAMLKeys         []string
-	loraYAMLKeys        []string
 )
 
 func init() {
@@ -746,13 +779,11 @@ func init() {
 	collectFieldMeta(reflect.TypeOf(Configuration{}))
 	collectFieldMeta(reflect.TypeOf(LatenciesConfig{}))
 
-	kvCacheYAMLKeys = yamlKeysOf(reflect.TypeOf(KVCacheConfig{}))
 	latenciesYAMLKeys = yamlKeysOf(reflect.TypeOf(LatenciesConfig{}))
 	latenciesYAMLKeySet = make(map[string]bool, len(latenciesYAMLKeys))
 	toolCallYAMLKeys = yamlKeysOf(reflect.TypeOf(ToolCallConfig{}))
 	datasetYAMLKeys = yamlKeysOf(reflect.TypeOf(DatasetConfig{}))
 	sslYAMLKeys = yamlKeysOf(reflect.TypeOf(SSLConfig{}))
-	loraYAMLKeys = yamlKeysOf(reflect.TypeOf(LoraConfig{}))
 	for _, key := range latenciesYAMLKeys {
 		latenciesYAMLKeySet[key] = true
 	}
@@ -920,6 +951,23 @@ func (c *Configuration) Update(body []byte) (*Configuration, *Configuration, boo
 		}
 	}
 
+	// A "fake-metrics" partial only makes sense against an existing
+	// FakeMetrics value: c.FakeMetrics is an engine-owned interface, so
+	// without one already set there is no concrete type to unmarshal the
+	// partial into (encoding/json cannot allocate one on its own), and the
+	// partial would be silently dropped. Checked against raw rather than the
+	// later unmarshaled update/next, which cannot distinguish the interface
+	// staying nil because the body omitted the field from it staying nil
+	// because there was no concrete type to allocate. An explicit null asks
+	// for no change, so it stays a no-op rather than an error.
+	rawFakeMetrics, bodyHasFakeMetrics := raw["fake-metrics"]
+	if bodyHasFakeMetrics && strings.TrimSpace(string(rawFakeMetrics)) == "null" {
+		bodyHasFakeMetrics = false
+	}
+	if bodyHasFakeMetrics && c.FakeMetrics == nil {
+		return nil, nil, false, errors.New("the simulator is reporting real metrics; fake metrics cannot be updated")
+	}
+
 	if err := foldFlatLatencies(raw); err != nil {
 		return nil, nil, false, err
 	}
@@ -933,8 +981,14 @@ func (c *Configuration) Update(body []byte) (*Configuration, *Configuration, boo
 
 	// update is a fresh struct populated only with the body's fields; the
 	// caller reads update.FakeMetrics to decide whether to apply Prometheus
-	// side effects.
+	// side effects. It is pre-seeded from c's concrete type, which
+	// json.Unmarshal cannot allocate into a bare interface field itself, only
+	// when the body actually carries fake metrics -- otherwise update would
+	// report a change the body never asked for.
 	update := &Configuration{}
+	if bodyHasFakeMetrics {
+		update.FakeMetrics = c.FakeMetrics.New()
+	}
 	if err := json.Unmarshal(body, update); err != nil {
 		return nil, nil, false, fmt.Errorf("failed to unmarshal payload: %w", err)
 	}
@@ -959,6 +1013,12 @@ func (c *Configuration) Update(body []byte) (*Configuration, *Configuration, boo
 // Copy returns a deep copy of c.
 func (c *Configuration) Copy() (*Configuration, error) {
 	var dst Configuration
+	// Pre-seed FakeMetrics with a fresh instance of c's concrete type: the
+	// json.Unmarshal below cannot allocate one into a bare interface field
+	// itself.
+	if c.FakeMetrics != nil {
+		dst.FakeMetrics = c.FakeMetrics.New()
+	}
 	data, err := json.Marshal(c)
 	if err != nil {
 		return nil, err

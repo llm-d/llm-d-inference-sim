@@ -1,5 +1,5 @@
 /*
-Copyright 2026 The llm-d-inference-simference-sim Authors.
+Copyright 2026 The llm-d-inference-sim Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -26,6 +26,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
+	"github.com/llm-d/llm-d-inference-sim/pkg/engine/vllm/fakemetrics"
 )
 
 type generator func(params *common.FunctionInfo, t time.Duration) float64
@@ -40,7 +41,14 @@ type generatedFakeMetrics struct {
 func (s *SimContext) setInitialFakeMetrics() error {
 	s.metrics.generatedFakeMetrics = make(map[string]generatedFakeMetrics)
 
-	initial := s.Config().FakeMetrics
+	// FakeMetrics is an engine-owned interface; only vLLM's concrete type is
+	// understood here. A future engine with a different concrete type skips
+	// fake-metrics application, an explicit limitation of the current,
+	// vLLM-specific application logic in this file and metrics.go.
+	initial, ok := s.Config().FakeMetrics.(*fakemetrics.Config)
+	if !ok {
+		return nil
+	}
 
 	// Loras always need processing on initial setup so the default empty
 	// entry (no adapters, current timestamp) gets registered. Parser
@@ -178,7 +186,7 @@ func (s *SimContext) initFakeHistogram(hist *prometheus.HistogramVec, bucketsBou
 // This function does not mutate any shared state — the merged FakeMetrics is
 // produced by Configuration.Update and swapped in by the caller via
 // SetConfig.
-func (s *SimContext) updateFakeMetrics(update *common.FakeMetrics, old *common.FakeMetrics) error {
+func (s *SimContext) updateFakeMetrics(update *fakemetrics.Config, old *fakemetrics.Config) error {
 	var generatedFakeMetricsWasEmpty bool
 	if len(s.metrics.generatedFakeMetrics) == 0 {
 		generatedFakeMetricsWasEmpty = true

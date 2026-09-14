@@ -96,7 +96,7 @@ func ResolveEngineName() (string, error) {
 	}
 	if cf := GetParamValueFromArgs("config"); len(cf) == 1 {
 		scratch := NewConfig()
-		if err := scratch.load(cf[0]); err != nil {
+		if _, err := scratch.load(cf[0]); err != nil {
 			return "", err
 		}
 		return scratch.EngineName, nil
@@ -110,9 +110,11 @@ type Engine interface {
 	// Name identifies the engine backend, e.g. "vllm".
 	Name() string
 	// BindFlags registers the engine's own CLI flags on f and reconciles any
-	// values that need parsing beyond what pflag can bind directly. Must be
-	// called before f.Parse.
-	BindFlags(f *pflag.FlagSet, cfg *Configuration) error
+	// values that need parsing beyond what pflag can bind directly, including
+	// its own engine-specific groups (e.g. lora) from rawYAML, the raw YAML
+	// tree returned by Configuration.load (nil if no --config file was
+	// given). Must be called before f.Parse.
+	BindFlags(f *pflag.FlagSet, cfg *Configuration, rawYAML map[string]any) error
 	// ValidateConfig checks the engine's own fields of cfg. Called after cfg's
 	// common fields have already been validated.
 	ValidateConfig(cfg *Configuration) error
@@ -126,9 +128,12 @@ func ParseCommandParamsAndLoadConfig(eng Engine) (*Configuration, error) {
 	config := NewConfig()
 	config.EngineName = eng.Name()
 
+	var rawYAML map[string]any
 	configFileValues := GetParamValueFromArgs("config")
 	if len(configFileValues) == 1 {
-		if err := config.load(configFileValues[0]); err != nil {
+		var err error
+		rawYAML, err = config.load(configFileValues[0])
+		if err != nil {
 			return nil, err
 		}
 	}
@@ -225,7 +230,7 @@ func ParseCommandParamsAndLoadConfig(eng Engine) (*Configuration, error) {
 	f.Lookup("served-model-name").NoOptDefVal = dummy
 	f.Lookup("served-model-name").DefValue = ""
 
-	if err := eng.BindFlags(f, config); err != nil {
+	if err := eng.BindFlags(f, config, rawYAML); err != nil {
 		return nil, err
 	}
 
