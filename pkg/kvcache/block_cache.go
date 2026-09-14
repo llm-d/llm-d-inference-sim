@@ -383,32 +383,6 @@ func (bc *blockCache) getBlockInfo(blockHash blockKey) (int, bool) {
 	return 0, false
 }
 
-// countCachedBlockPrefix returns the number of continuous blocks from the given list that are already in the cache
-func (bc *blockCache) countCachedBlockPrefix(blockHashes []uint64, modelName string) int {
-	bc.mu.RLock()
-	defer bc.mu.RUnlock()
-
-	if bc.disabled {
-		return 0
-	}
-
-	var count int
-	for _, blockHash := range blockHashes {
-		bKey := blockKey{hash: blockHash, modelName: modelName}
-		// Check if block is in used blocks (currently in use by running requests)
-		if _, exists := bc.usedBlocks[bKey]; exists {
-			count++
-		} else if _, exists := bc.unusedBlocks[bKey]; exists {
-			// Check if block is in unused blocks (was used in past)
-			count++
-		} else {
-			// return count once a block is not found in the cache
-			return count
-		}
-	}
-	return count
-}
-
 // pickBlockToEvict selects the best unused block to evict using priority:
 // 1. oldest unused block of an unloaded model
 // 2. oldest unused block of any model
