@@ -696,6 +696,91 @@ var _ = Describe("KV cache", Ordered, func() {
 		const lora1 = "lora1"
 		const lora2 = "lora2"
 
+		It("evicts the deepest block in a completed prefix chain first", func() {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			config := &common.Configuration{
+				IP:      localhost,
+				Port:    1234,
+				Model:   common.TestModelName,
+				KVCache: common.KVCacheConfig{KVCacheSize: 3},
+			}
+
+			blockCache, err := newBlockCache(ctx, config, GinkgoLogr, nil)
+			Expect(err).NotTo(HaveOccurred())
+
+			seed := testRequest{
+				id:          "seed",
+				blockHashes: []uint64{1, 2, 3},
+				tokens:      [][]uint32{{1}, {2}, {3}},
+			}
+			_, err = blockCache.startRequest(&seed, seed.blockHashes, seed.tokens)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(blockCache.finishRequest(seed.id)).To(Succeed())
+
+			block1Order := blockCache.unusedBlockOrder[blockKey{hash: 1, modelName: common.TestModelName}]
+			block2Order := blockCache.unusedBlockOrder[blockKey{hash: 2, modelName: common.TestModelName}]
+			block3Order := blockCache.unusedBlockOrder[blockKey{hash: 3, modelName: common.TestModelName}]
+			Expect(block1Order).To(BeNumerically(">", block2Order))
+			Expect(block2Order).To(BeNumerically(">", block3Order))
+
+			replacement := testRequest{
+				id:          "replacement",
+				blockHashes: []uint64{4},
+				tokens:      [][]uint32{{4}},
+			}
+			_, err = blockCache.startRequest(&replacement, replacement.blockHashes, replacement.tokens)
+			Expect(err).NotTo(HaveOccurred())
+
+			for _, blockHash := range []uint64{1, 2} {
+				_, exists := blockCache.getBlockInfo(blockKey{hash: blockHash, modelName: common.TestModelName})
+				Expect(exists).To(BeTrue(), "ancestor block %d should remain cached", blockHash)
+			}
+			_, exists := blockCache.getBlockInfo(blockKey{hash: 3, modelName: common.TestModelName})
+			Expect(exists).To(BeFalse(), "deepest block should be evicted first")
+		})
+
+		It("preserves LRU order across completed prefix chains", func() {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			config := &common.Configuration{
+				IP:      localhost,
+				Port:    1234,
+				Model:   common.TestModelName,
+				KVCache: common.KVCacheConfig{KVCacheSize: 4},
+			}
+
+			blockCache, err := newBlockCache(ctx, config, GinkgoLogr, nil)
+			Expect(err).NotTo(HaveOccurred())
+
+			oldRequest := testRequest{id: "old", blockHashes: []uint64{1}, tokens: [][]uint32{{1}}}
+			_, err = blockCache.startRequest(&oldRequest, oldRequest.blockHashes, oldRequest.tokens)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(blockCache.finishRequest(oldRequest.id)).To(Succeed())
+
+			newRequest := testRequest{
+				id:          "new",
+				blockHashes: []uint64{2, 3, 4},
+				tokens:      [][]uint32{{2}, {3}, {4}},
+			}
+			_, err = blockCache.startRequest(&newRequest, newRequest.blockHashes, newRequest.tokens)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(blockCache.finishRequest(newRequest.id)).To(Succeed())
+
+			replacement := testRequest{id: "replacement", blockHashes: []uint64{5}, tokens: [][]uint32{{5}}}
+			_, err = blockCache.startRequest(&replacement, replacement.blockHashes, replacement.tokens)
+			Expect(err).NotTo(HaveOccurred())
+
+			_, exists := blockCache.getBlockInfo(blockKey{hash: 1, modelName: common.TestModelName})
+			Expect(exists).To(BeFalse(), "the least recently used chain should be evicted first")
+			for _, blockHash := range []uint64{2, 3, 4} {
+				_, exists := blockCache.getBlockInfo(blockKey{hash: blockHash, modelName: common.TestModelName})
+				Expect(exists).To(BeTrue(), "newer chain block %d should remain cached", blockHash)
+			}
+		})
+
 		It("should evict unloaded lora blocks before loaded lora blocks", func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
