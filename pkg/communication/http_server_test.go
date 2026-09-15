@@ -52,9 +52,9 @@ var _ = Describe("Server", func() {
 			os.Args = []string{"cmd", "--model", common.TestModelName, "--ssl-certfile", certFile, "--ssl-keyfile", keyFile}
 			config, err := common.ParseCommandParamsAndLoadConfig(noopEngine{})
 			Expect(err).NotTo(HaveOccurred())
-			Expect(config.SSLEnabled()).To(BeTrue())
-			Expect(config.SSLCertFile).To(Equal(certFile))
-			Expect(config.SSLKeyFile).To(Equal(keyFile))
+			Expect(config.SSL.Enabled()).To(BeTrue())
+			Expect(config.SSL.SSLCertFile).To(Equal(certFile))
+			Expect(config.SSL.SSLKeyFile).To(Equal(keyFile))
 		})
 
 		It("Should parse self-signed certificate configuration correctly", func() {
@@ -66,8 +66,8 @@ var _ = Describe("Server", func() {
 			os.Args = []string{"cmd", "--model", common.TestModelName, "--self-signed-certs"}
 			config, err := common.ParseCommandParamsAndLoadConfig(noopEngine{})
 			Expect(err).NotTo(HaveOccurred())
-			Expect(config.SSLEnabled()).To(BeTrue())
-			Expect(config.SelfSignedCerts).To(BeTrue())
+			Expect(config.SSL.Enabled()).To(BeTrue())
+			Expect(config.SSL.SelfSignedCerts).To(BeTrue())
 		})
 
 		It("Should create self-signed TLS certificate successfully", func() {

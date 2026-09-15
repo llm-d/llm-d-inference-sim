@@ -170,7 +170,7 @@ func (c *chatCompletionReqCtx) createToolCalls() ([]api.ToolCall, int, string, e
 	if !isToolChoiceNone(req.GetToolChoice()) &&
 		req.GetTools() != nil {
 		toolCalls, completionTokens, err :=
-			createToolCalls(req.GetTools(), req.GetToolChoice(), c.runtime.Config(), c.runtime.GetRandom(), c.runtime.GetTokenizer(), c.toolIDPrefix)
+			createToolCalls(req.GetTools(), req.GetToolChoice(), &c.runtime.Config().ToolCalls, c.runtime.GetRandom(), c.runtime.GetTokenizer(), c.toolIDPrefix)
 		finishReason := common.ToolsFinishReason
 		return toolCalls, completionTokens, finishReason, err
 	}

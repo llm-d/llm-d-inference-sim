@@ -47,14 +47,16 @@ func mustTool(name string) api.Tool {
 
 func newResponsesToolTestCtx(tools []api.Tool, choice api.ToolChoice, input []api.InputItem) *responsesReqCtx {
 	cfg := &common.Configuration{
-		MaxToolCallIntegerParam:                   100,
-		MinToolCallIntegerParam:                   0,
-		MaxToolCallNumberParam:                    100,
-		MinToolCallNumberParam:                    0,
-		MaxToolCallArrayParamLength:               5,
-		MinToolCallArrayParamLength:               1,
-		ToolCallNotRequiredParamProbability:       50,
-		ObjectToolCallNotRequiredParamProbability: 50,
+		ToolCalls: common.ToolCallConfig{
+			MaxToolCallIntegerParam:                   100,
+			MinToolCallIntegerParam:                   0,
+			MaxToolCallNumberParam:                    100,
+			MinToolCallNumberParam:                    0,
+			MaxToolCallArrayParamLength:               5,
+			MinToolCallArrayParamLength:               1,
+			ToolCallNotRequiredParamProbability:       50,
+			ObjectToolCallNotRequiredParamProbability: 50,
+		},
 	}
 	runtime := &fakeRuntime{
 		config:    cfg,
@@ -281,7 +283,7 @@ var _ = Describe("Responses tokenizedPromptForEcho", func() {
 
 var _ = Describe("createSingleToolCall", func() {
 	It("never returns more than one call", func() {
-		cfg := &common.Configuration{
+		cfg := &common.ToolCallConfig{
 			MaxToolCallIntegerParam:                   100,
 			MinToolCallIntegerParam:                   0,
 			MaxToolCallNumberParam:                    100,

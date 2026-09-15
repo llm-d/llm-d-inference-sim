@@ -940,23 +940,32 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 			}).WithTimeout(2 * time.Second).WithPolling(25 * time.Millisecond).Should(Succeed())
 		})
 
-		It("Should send correct kv cache config metrics", func() {
+		DescribeTable("Should send correct kv cache config metrics", func(cacheDType, expectedDType string) {
 			ctx := context.TODO()
 			args := []string{"cmd", "--model", common.QwenModelName, "--mode", common.ModeRandom,
 				"--kv-cache-size", "16", "--block-size", "8", "--enable-kvcache"}
+			if cacheDType != "" {
+				args = append(args, "--kv-cache-dtype", cacheDType)
+			}
 
 			client, err := startServerWithArgsAndEnv(ctx, common.ModeRandom, args, map[string]string{"POD_IP": "localhost"})
 			Expect(err).NotTo(HaveOccurred())
 
 			metricsResp, err := client.Get(metricsUrl)
 			Expect(err).NotTo(HaveOccurred())
+			defer func() { _ = metricsResp.Body.Close() }()
 			Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
 
 			data, err := io.ReadAll(metricsResp.Body)
 			Expect(err).NotTo(HaveOccurred())
 			metrics := string(data)
-			Expect(metrics).To(ContainSubstring("vllm:cache_config_info{block_size=\"8\",num_gpu_blocks=\"16\"} 1"))
-		})
+			Expect(metrics).To(ContainSubstring(fmt.Sprintf(
+				"vllm:cache_config_info{block_size=\"8\",cache_dtype=%q,num_cpu_blocks=\"0\",num_gpu_blocks=\"16\"} 1", expectedDType)))
+		},
+			Entry("default dtype", "", "auto"),
+			Entry("explicit auto dtype", "auto", "auto"),
+			Entry("TurboQuant dtype", "turboquant_4bit_nc", "turboquant_4bit_nc"),
+		)
 	})
 
 	Context("single request latency metrics", func() {

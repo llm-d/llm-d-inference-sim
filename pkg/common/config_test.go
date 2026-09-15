@@ -46,13 +46,13 @@ func createDefaultConfig(model string, servedModelNames []string) *Configuration
 	c := createConfigWithModel(model, servedModelNames)
 
 	c.MaxNumSeqs = 5
-	c.MaxLoras = 2
-	c.MaxCPULoras = 5
+	c.Lora.MaxLoras = 2
+	c.Lora.MaxCPULoras = 5
 	c.Latencies.TimeToFirstToken = 2000 * time.Millisecond
 	c.Latencies.InterTokenLatency = 1000 * time.Millisecond
 	c.Latencies.KVCacheTransferLatency = 100 * time.Millisecond
 	c.Seed = 100100100
-	c.LoraModules = []LoraModule{}
+	c.Lora.LoraModules = []LoraModule{}
 	return c
 }
 
@@ -235,6 +235,29 @@ var _ = Describe("Configuration.MarshalCleaned", func() {
 		Expect(m).To(HaveKey("latency-calculator"), "latency-calculator is a top-level field, not part of latencies")
 		Expect(latencies).ToNot(HaveKey("latency-calculator"))
 	})
+
+	DescribeTable("nests fields under their own group and none remain at the top level",
+		func(groupKey string, groupYAMLKeys []string) {
+			c := createDefaultConfig("model", nil)
+			data, err := c.MarshalCleaned()
+			Expect(err).ToNot(HaveOccurred())
+
+			var m map[string]any
+			Expect(json.Unmarshal(data, &m)).To(Succeed())
+
+			Expect(m).To(HaveKey(groupKey))
+			_, ok := m[groupKey].(map[string]any)
+			Expect(ok).To(BeTrue())
+
+			for _, key := range groupYAMLKeys {
+				Expect(m).ToNot(HaveKey(key), "field %q must not remain at the top level", key)
+			}
+		},
+		Entry("tool-calls", "tool-calls", toolCallYAMLKeys),
+		Entry("dataset", "dataset", datasetYAMLKeys),
+		Entry("ssl", "ssl", sslYAMLKeys),
+		Entry("lora", "lora", loraYAMLKeys),
+	)
 })
 
 var _ = Describe("Configuration.Copy", func() {
@@ -450,6 +473,222 @@ model: test-model
 time-to-first-token: 100ms
 latencies:
   inter-token-latency: 10ms
+`))).ToNot(Succeed())
+	})
+})
+
+var _ = Describe("Configuration.load tool-calls YAML folding", func() {
+	writeConfig := func(contents string) string {
+		dir := GinkgoT().TempDir()
+		path := filepath.Join(dir, "config.yaml")
+		Expect(os.WriteFile(path, []byte(contents), 0o644)).To(Succeed())
+		return path
+	}
+
+	It("populates ToolCalls from the nested tool-calls block", func() {
+		c := NewConfig()
+		Expect(c.load(writeConfig(`
+model: test-model
+tool-calls:
+  max-tool-call-integer-param: 50
+  skip-tool-validation: true
+`))).To(Succeed())
+
+		Expect(c.ToolCalls.MaxToolCallIntegerParam).To(Equal(50))
+		Expect(c.ToolCalls.SkipToolValidation).To(BeTrue())
+	})
+
+	It("populates ToolCalls from legacy flat top-level keys", func() {
+		c := NewConfig()
+		Expect(c.load(writeConfig(`
+model: test-model
+max-tool-call-integer-param: 50
+skip-tool-validation: true
+`))).To(Succeed())
+
+		Expect(c.ToolCalls.MaxToolCallIntegerParam).To(Equal(50))
+		Expect(c.ToolCalls.SkipToolValidation).To(BeTrue())
+	})
+
+	It("errors when tool-call settings mix the flat and nested layouts", func() {
+		c := NewConfig()
+		Expect(c.load(writeConfig(`
+model: test-model
+max-tool-call-integer-param: 50
+tool-calls:
+  max-tool-call-integer-param: 60
+`))).ToNot(Succeed())
+	})
+
+	It("errors when a flat tool-call key is set alongside an unrelated nested key", func() {
+		c := NewConfig()
+		Expect(c.load(writeConfig(`
+model: test-model
+max-tool-call-integer-param: 50
+tool-calls:
+  skip-tool-validation: true
+`))).ToNot(Succeed())
+	})
+})
+
+var _ = Describe("Configuration.load dataset YAML folding", func() {
+	writeConfig := func(contents string) string {
+		dir := GinkgoT().TempDir()
+		path := filepath.Join(dir, "config.yaml")
+		Expect(os.WriteFile(path, []byte(contents), 0o644)).To(Succeed())
+		return path
+	}
+
+	It("populates Dataset from the nested dataset block", func() {
+		c := NewConfig()
+		Expect(c.load(writeConfig(`
+model: test-model
+dataset:
+  dataset-path: /tmp/data.db
+  dataset-in-memory: true
+`))).To(Succeed())
+
+		Expect(c.Dataset.DatasetPath).To(Equal("/tmp/data.db"))
+		Expect(c.Dataset.DatasetInMemory).To(BeTrue())
+	})
+
+	It("populates Dataset from legacy flat top-level keys", func() {
+		c := NewConfig()
+		Expect(c.load(writeConfig(`
+model: test-model
+dataset-path: /tmp/data.db
+dataset-in-memory: true
+`))).To(Succeed())
+
+		Expect(c.Dataset.DatasetPath).To(Equal("/tmp/data.db"))
+		Expect(c.Dataset.DatasetInMemory).To(BeTrue())
+	})
+
+	It("errors when dataset settings mix the flat and nested layouts", func() {
+		c := NewConfig()
+		Expect(c.load(writeConfig(`
+model: test-model
+dataset-path: /tmp/data.db
+dataset:
+  dataset-path: /tmp/other.db
+`))).ToNot(Succeed())
+	})
+
+	It("errors when a flat dataset key is set alongside an unrelated nested key", func() {
+		c := NewConfig()
+		Expect(c.load(writeConfig(`
+model: test-model
+dataset-path: /tmp/data.db
+dataset:
+  dataset-in-memory: true
+`))).ToNot(Succeed())
+	})
+})
+
+var _ = Describe("Configuration.load ssl YAML folding", func() {
+	writeConfig := func(contents string) string {
+		dir := GinkgoT().TempDir()
+		path := filepath.Join(dir, "config.yaml")
+		Expect(os.WriteFile(path, []byte(contents), 0o644)).To(Succeed())
+		return path
+	}
+
+	It("populates SSL from the nested ssl block", func() {
+		c := NewConfig()
+		Expect(c.load(writeConfig(`
+model: test-model
+ssl:
+  ssl-certfile: /tmp/cert.pem
+  ssl-keyfile: /tmp/key.pem
+`))).To(Succeed())
+
+		Expect(c.SSL.SSLCertFile).To(Equal("/tmp/cert.pem"))
+		Expect(c.SSL.SSLKeyFile).To(Equal("/tmp/key.pem"))
+	})
+
+	It("populates SSL from legacy flat top-level keys", func() {
+		c := NewConfig()
+		Expect(c.load(writeConfig(`
+model: test-model
+ssl-certfile: /tmp/cert.pem
+ssl-keyfile: /tmp/key.pem
+`))).To(Succeed())
+
+		Expect(c.SSL.SSLCertFile).To(Equal("/tmp/cert.pem"))
+		Expect(c.SSL.SSLKeyFile).To(Equal("/tmp/key.pem"))
+	})
+
+	It("errors when ssl settings mix the flat and nested layouts", func() {
+		c := NewConfig()
+		Expect(c.load(writeConfig(`
+model: test-model
+ssl-certfile: /tmp/cert.pem
+ssl:
+  ssl-certfile: /tmp/other.pem
+`))).ToNot(Succeed())
+	})
+
+	It("errors when a flat ssl key is set alongside an unrelated nested key", func() {
+		c := NewConfig()
+		Expect(c.load(writeConfig(`
+model: test-model
+ssl-certfile: /tmp/cert.pem
+ssl:
+  self-signed-certs: true
+`))).ToNot(Succeed())
+	})
+})
+
+var _ = Describe("Configuration.load lora YAML folding", func() {
+	writeConfig := func(contents string) string {
+		dir := GinkgoT().TempDir()
+		path := filepath.Join(dir, "config.yaml")
+		Expect(os.WriteFile(path, []byte(contents), 0o644)).To(Succeed())
+		return path
+	}
+
+	It("populates Lora from the nested lora block", func() {
+		c := NewConfig()
+		Expect(c.load(writeConfig(`
+model: test-model
+lora:
+  max-loras: 4
+  max-cpu-loras: 8
+`))).To(Succeed())
+
+		Expect(c.Lora.MaxLoras).To(Equal(4))
+		Expect(c.Lora.MaxCPULoras).To(Equal(8))
+	})
+
+	It("populates Lora from legacy flat top-level keys", func() {
+		c := NewConfig()
+		Expect(c.load(writeConfig(`
+model: test-model
+max-loras: 4
+max-cpu-loras: 8
+`))).To(Succeed())
+
+		Expect(c.Lora.MaxLoras).To(Equal(4))
+		Expect(c.Lora.MaxCPULoras).To(Equal(8))
+	})
+
+	It("errors when lora settings mix the flat and nested layouts", func() {
+		c := NewConfig()
+		Expect(c.load(writeConfig(`
+model: test-model
+max-loras: 4
+lora:
+  max-loras: 8
+`))).ToNot(Succeed())
+	})
+
+	It("errors when a flat lora key is set alongside an unrelated nested key", func() {
+		c := NewConfig()
+		Expect(c.load(writeConfig(`
+model: test-model
+max-loras: 4
+lora:
+  max-cpu-loras: 8
 `))).ToNot(Succeed())
 	})
 })

@@ -27,6 +27,8 @@ const (
 	PromLabelModelName           = "model_name"
 	PromLabelFinishReason        = "finish_reason"
 	PromLabelCacheBlockSize      = "block_size"
+	PromLabelCacheDType          = "cache_dtype"
+	PromLabelCacheNumCPUBlocks   = "num_cpu_blocks"
 	PromLabelCacheNumGPUBlocks   = "num_gpu_blocks"
 )
 

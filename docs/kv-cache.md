@@ -33,6 +33,7 @@ The defaults below apply only once `enable-kvcache` is true. When it is `false` 
 |-----------|------|---------|-------------|
 | `enable-kvcache` | bool | `false` | Enable KV cache simulation |
 | `kv-cache-size` | int | `1024` | Maximum number of token blocks the cache can hold |
+| `kv-cache-dtype` | string | `auto` | Cache dtype exposed through the vLLM-compatible `cache_config_info` metric; this does not change simulation behavior |
 | `block-size` | int | `16` | Tokens per block; valid values: `8`, `16`, `32`, `64`, `128` |
 | `hash-seed` | string | value of `PYTHONHASHSEED` env var | Seed for block key hash generation; must match the seed used by real vLLM instances to ensure identical block hashes |
 | `zmq-endpoint` | string | `tcp://127.0.0.1:5557` | ZMQ address to publish events. The simulator either dials (active) or listens on (passive) this address. Addresses with "*", "::", "inproc://", and "ipc://" are assumed passive. |
@@ -49,6 +50,7 @@ model: "Qwen/Qwen2.5-1.5B-Instruct"
 kvcache:
   enable-kvcache: true
   kv-cache-size: 2048
+  kv-cache-dtype: turboquant_4bit_nc
   block-size: 16
   hash-seed: "42"
   zmq-endpoint: "tcp://127.0.0.1:5557"

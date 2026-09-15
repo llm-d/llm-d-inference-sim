@@ -128,7 +128,7 @@ func (v *ToolsValidator) validateTool(tool []byte) error {
 func createToolCalls(
 	tools []api.Tool,
 	toolChoice api.ToolChoice,
-	config *common.Configuration,
+	config *common.ToolCallConfig,
 	random *common.Random,
 	tokenizer tokenizer.Tokenizer,
 	idPrefix string,
@@ -230,7 +230,7 @@ func createToolCalls(
 func createSingleToolCall(
 	tools []api.Tool,
 	toolChoice api.ToolChoice,
-	config *common.Configuration,
+	config *common.ToolCallConfig,
 	random *common.Random,
 	tokenizer tokenizer.Tokenizer,
 	idPrefix string,
@@ -243,7 +243,7 @@ func createSingleToolCall(
 	return calls, countTokensForToolCalls(calls), nil
 }
 
-func generateToolArguments(tool api.Tool, config *common.Configuration, random *common.Random) (map[string]any, error) {
+func generateToolArguments(tool api.Tool, config *common.ToolCallConfig, random *common.Random) (map[string]any, error) {
 	arguments := make(map[string]any)
 	properties, _ := tool.Function.Parameters["properties"].(map[string]any)
 
@@ -297,7 +297,7 @@ func resolveParamType(paramType any) any {
 	}
 }
 
-func createArgument(property any, config *common.Configuration, random *common.Random) (any, error) {
+func createArgument(property any, config *common.ToolCallConfig, random *common.Random) (any, error) {
 	propertyMap, _ := property.(map[string]any)
 	paramType := resolveParamType(propertyMap["type"])
 

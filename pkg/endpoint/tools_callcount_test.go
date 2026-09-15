@@ -67,9 +67,7 @@ var _ = Describe("createToolCalls call-count distribution", func() {
 
 	DescribeTable("number of calls follows the ToolCallExtraCallProbability",
 		func(probability, expectedCalls int) {
-			config := &common.Configuration{
-				Model:                        "test",
-				ServedModelNames:             []string{"test"},
+			config := &common.ToolCallConfig{
 				ToolCallExtraCallProbability: probability,
 			}
 
@@ -91,9 +89,7 @@ var _ = Describe("createToolCalls call-count distribution", func() {
 	)
 
 	It("with default probability 45, mostly produces minCalls but can reach maxCalls", func() {
-		config := &common.Configuration{
-			Model:                        "test",
-			ServedModelNames:             []string{"test"},
+		config := &common.ToolCallConfig{
 			ToolCallExtraCallProbability: 45,
 		}
 
@@ -119,9 +115,7 @@ var _ = Describe("createToolCalls call-count distribution", func() {
 
 	It("with tool_choice auto (minCalls=0), p=0 produces no tool calls", func() {
 		autoTC := api.ToolChoice{}
-		config := &common.Configuration{
-			Model:                        "test",
-			ServedModelNames:             []string{"test"},
+		config := &common.ToolCallConfig{
 			ToolCallExtraCallProbability: 0,
 		}
 

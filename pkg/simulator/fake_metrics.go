@@ -28,17 +28,6 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 )
 
-// UpdateFakeMetricsFromBody applies a partial fake-metrics update parsed from
-// the body of the deprecated /fake_metrics endpoint. The body is the partial
-// itself (not wrapped in {"fake-metrics": ...}); we wrap it and dispatch
-// through ApplyConfigUpdate so it goes through the same validation, atomic
-// config swap, and Prometheus side-effect path as /admin/config.
-// Will be removed in v0.12.
-func (s *SimContext) UpdateFakeMetricsFromBody(body []byte) error {
-	wrapped := append(append([]byte(`{"fake-metrics":`), body...), '}')
-	return s.ApplyConfigUpdate(wrapped)
-}
-
 type generator func(params *common.FunctionInfo, t time.Duration) float64
 
 type generatedFakeMetrics struct {
@@ -386,13 +375,13 @@ func (s *SimContext) updateFakeMetrics(update *common.FakeMetrics, old *common.F
 		if len(update.LoraMetrics) != 0 {
 			for _, metrics := range update.LoraMetrics {
 				s.metrics.loraInfo.WithLabelValues(
-					strconv.Itoa(s.Config().MaxLoras),
+					strconv.Itoa(s.Config().Lora.MaxLoras),
 					metrics.RunningLoras,
 					metrics.WaitingLoras).Set(metrics.Timestamp)
 			}
 		} else {
 			s.metrics.loraInfo.WithLabelValues(
-				strconv.Itoa(s.Config().MaxLoras),
+				strconv.Itoa(s.Config().Lora.MaxLoras),
 				"",
 				"").Set(float64(time.Now().Unix()))
 		}
