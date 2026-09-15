@@ -41,7 +41,6 @@ var _ = Describe("Data Parallel", func() {
 			"--model", common.TestModelName,
 			"--mode", common.ModeRandom,
 			"--data-parallel-size", "3",
-			"--force-dummy-tokenizer",
 		})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(clients).To(HaveLen(3))
@@ -100,7 +99,6 @@ var _ = Describe("Data Parallel", func() {
 			"--mode", common.ModeRandom,
 			"--data-parallel-size", "3",
 			"--port", strconv.Itoa(baseServingPort),
-			"--force-dummy-tokenizer",
 			"--enable-kvcache", "true", "--kv-cache-size", "16", "--block-size", "8",
 			"--event-batch-size", "1", "--zmq-endpoint", zmqEndpoint,
 		}, map[string]string{"POD_IP": "localhost"})
