@@ -196,7 +196,7 @@ func (r *responsesReqCtx) createToolCalls() ([]api.ToolCall, int, string, error)
 	}
 
 	toolCalls, completionTokens, err := createSingleToolCall(
-		req.GetTools(), toolChoice, r.runtime.Config(), r.runtime.GetRandom(), r.runtime.GetTokenizer(), r.toolIDPrefix)
+		req.GetTools(), toolChoice, &r.runtime.Config().ToolCalls, r.runtime.GetRandom(), r.runtime.GetTokenizer(), r.toolIDPrefix)
 	if err != nil {
 		return nil, 0, "", err
 	}

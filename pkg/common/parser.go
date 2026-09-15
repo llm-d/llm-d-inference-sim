@@ -158,23 +158,23 @@ func ParseCommandParamsAndLoadConfig(eng Engine) (*Configuration, error) {
 	f.Int64Var(&config.Seed, "seed", config.Seed, "Random seed for operations (if not set, current Unix time in nanoseconds is used)")
 	f.Float64Var(&config.Latencies.TimeFactorUnderLoad, "time-factor-under-load", config.Latencies.TimeFactorUnderLoad, "Time factor under load (must be >= 1.0)")
 
-	f.IntVar(&config.MaxToolCallIntegerParam, "max-tool-call-integer-param", config.MaxToolCallIntegerParam, "Maximum possible value of integer parameters in a tool call")
-	f.IntVar(&config.MinToolCallIntegerParam, "min-tool-call-integer-param", config.MinToolCallIntegerParam, "Minimum possible value of integer parameters in a tool call")
-	f.Float64Var(&config.MaxToolCallNumberParam, "max-tool-call-number-param", config.MaxToolCallNumberParam, "Maximum possible value of number (float) parameters in a tool call")
-	f.Float64Var(&config.MinToolCallNumberParam, "min-tool-call-number-param", config.MinToolCallNumberParam, "Minimum possible value of number (float) parameters in a tool call")
-	f.IntVar(&config.MaxToolCallArrayParamLength, "max-tool-call-array-param-length", config.MaxToolCallArrayParamLength, "Maximum possible length of array parameters in a tool call")
-	f.IntVar(&config.MinToolCallArrayParamLength, "min-tool-call-array-param-length", config.MinToolCallArrayParamLength, "Minimum possible length of array parameters in a tool call")
-	f.IntVar(&config.ToolCallNotRequiredParamProbability, "tool-call-not-required-param-probability", config.ToolCallNotRequiredParamProbability, "Probability to add a parameter, that is not required, in a tool call")
-	f.IntVar(&config.ObjectToolCallNotRequiredParamProbability, "object-tool-call-not-required-field-probability", config.ObjectToolCallNotRequiredParamProbability, "Probability to add a field, that is not required, in an object in a tool call")
-	f.IntVar(&config.ToolCallExtraCallProbability, "tool-call-extra-call-probability", config.ToolCallExtraCallProbability, "Probability (0-100) to make one additional tool call beyond the minimum; rolls repeat until a roll fails or all tools are called")
+	f.IntVar(&config.ToolCalls.MaxToolCallIntegerParam, "max-tool-call-integer-param", config.ToolCalls.MaxToolCallIntegerParam, "Maximum possible value of integer parameters in a tool call")
+	f.IntVar(&config.ToolCalls.MinToolCallIntegerParam, "min-tool-call-integer-param", config.ToolCalls.MinToolCallIntegerParam, "Minimum possible value of integer parameters in a tool call")
+	f.Float64Var(&config.ToolCalls.MaxToolCallNumberParam, "max-tool-call-number-param", config.ToolCalls.MaxToolCallNumberParam, "Maximum possible value of number (float) parameters in a tool call")
+	f.Float64Var(&config.ToolCalls.MinToolCallNumberParam, "min-tool-call-number-param", config.ToolCalls.MinToolCallNumberParam, "Minimum possible value of number (float) parameters in a tool call")
+	f.IntVar(&config.ToolCalls.MaxToolCallArrayParamLength, "max-tool-call-array-param-length", config.ToolCalls.MaxToolCallArrayParamLength, "Maximum possible length of array parameters in a tool call")
+	f.IntVar(&config.ToolCalls.MinToolCallArrayParamLength, "min-tool-call-array-param-length", config.ToolCalls.MinToolCallArrayParamLength, "Minimum possible length of array parameters in a tool call")
+	f.IntVar(&config.ToolCalls.ToolCallNotRequiredParamProbability, "tool-call-not-required-param-probability", config.ToolCalls.ToolCallNotRequiredParamProbability, "Probability to add a parameter, that is not required, in a tool call")
+	f.IntVar(&config.ToolCalls.ObjectToolCallNotRequiredParamProbability, "object-tool-call-not-required-field-probability", config.ToolCalls.ObjectToolCallNotRequiredParamProbability, "Probability to add a field, that is not required, in an object in a tool call")
+	f.IntVar(&config.ToolCalls.ToolCallExtraCallProbability, "tool-call-extra-call-probability", config.ToolCalls.ToolCallExtraCallProbability, "Probability (0-100) to make one additional tool call beyond the minimum; rolls repeat until a roll fails or all tools are called")
 
 	f.IntVar(&config.DPSize, "data-parallel-size", config.DPSize, "Number of ranks to run")
 	f.IntVar(&config.Rank, "data-parallel-rank", config.Rank, "The rank when running each rank in a process. If set, data-parallel-size is ignored")
 
-	f.StringVar(&config.DatasetPath, "dataset-path", config.DatasetPath, "Local path to the sqlite db file for response generation from a dataset")
-	f.StringVar(&config.DatasetURL, "dataset-url", config.DatasetURL, "URL to download the sqlite db file for response generation from a dataset")
-	f.BoolVar(&config.DatasetInMemory, "dataset-in-memory", config.DatasetInMemory, "Load the entire dataset into memory for faster access")
-	f.StringVar(&config.DatasetTableName, "dataset-table-name", config.DatasetTableName, "Table name for custom dataset, default is 'llmd'")
+	f.StringVar(&config.Dataset.DatasetPath, "dataset-path", config.Dataset.DatasetPath, "Local path to the sqlite db file for response generation from a dataset")
+	f.StringVar(&config.Dataset.DatasetURL, "dataset-url", config.Dataset.DatasetURL, "URL to download the sqlite db file for response generation from a dataset")
+	f.BoolVar(&config.Dataset.DatasetInMemory, "dataset-in-memory", config.Dataset.DatasetInMemory, "Load the entire dataset into memory for faster access")
+	f.StringVar(&config.Dataset.DatasetTableName, "dataset-table-name", config.Dataset.DatasetTableName, "Table name for custom dataset, default is 'llmd'")
 
 	f.StringVar(&config.RenderURL, "render-url", config.RenderURL, "URL of the tokenizer render service; when unset the simulated tokenizer is used")
 	f.DurationVar(&config.RenderTimeout, "render-timeout", config.RenderTimeout, "Timeout for tokenizer render requests (e.g. 30s)")
@@ -188,7 +188,7 @@ func ParseCommandParamsAndLoadConfig(eng Engine) (*Configuration, error) {
 	f.BoolVar(&config.LogHTTP, "log-http", config.LogHTTP, "Log full HTTP request and response (method, URI, headers, bodies when buffered, status); streamed bodies are not logged")
 	f.BoolVar(&config.StrictRequestValidation, "strict", config.StrictRequestValidation, "Validate OpenAI completion requests against vLLM-compatible constraints")
 	f.StringVar(&config.StrictOpenAPI, "strict-openapi", config.StrictOpenAPI, "Local vLLM OpenAPI 3.1 document (required with --strict)")
-	f.BoolVar(&config.SkipToolValidation, "skip-tool-validation", config.SkipToolValidation, "Skip the built-in validation of incoming tool schemas, matching real vLLM which forwards them to the model verbatim")
+	f.BoolVar(&config.ToolCalls.SkipToolValidation, "skip-tool-validation", config.ToolCalls.SkipToolValidation, "Skip the built-in validation of incoming tool schemas, matching real vLLM which forwards them to the model verbatim")
 
 	f.IntVar(&config.FailureInjectionRate, "failure-injection-rate", config.FailureInjectionRate, "Probability (0-100) of injecting failures")
 	failureTypes := GetParamValueFromArgs("failure-types")
@@ -200,9 +200,9 @@ func ParseCommandParamsAndLoadConfig(eng Engine) (*Configuration, error) {
 	f.Lookup("failure-types").NoOptDefVal = dummy
 	f.Lookup("failure-types").DefValue = ""
 
-	f.StringVar(&config.SSLCertFile, "ssl-certfile", config.SSLCertFile, "Path to SSL certificate file for HTTPS (optional)")
-	f.StringVar(&config.SSLKeyFile, "ssl-keyfile", config.SSLKeyFile, "Path to SSL private key file for HTTPS (optional)")
-	f.BoolVar(&config.SelfSignedCerts, "self-signed-certs", config.SelfSignedCerts, "Enable automatic generation of self-signed certificates for HTTPS")
+	f.StringVar(&config.SSL.SSLCertFile, "ssl-certfile", config.SSL.SSLCertFile, "Path to SSL certificate file for HTTPS (optional)")
+	f.StringVar(&config.SSL.SSLKeyFile, "ssl-keyfile", config.SSL.SSLKeyFile, "Path to SSL private key file for HTTPS (optional)")
+	f.BoolVar(&config.SSL.SelfSignedCerts, "self-signed-certs", config.SSL.SelfSignedCerts, "Enable automatic generation of self-signed certificates for HTTPS")
 
 	f.StringVar(&config.LatencyCalculator, "latency-calculator", config.LatencyCalculator,
 		`Name of the latency calculator to be used in the response generation (optional). The default calculation is based on the current load of the simulator and on

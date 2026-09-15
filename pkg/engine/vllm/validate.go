@@ -48,18 +48,18 @@ func (Engine) ValidateConfig(cfg *common.Configuration) error {
 		return errors.New("kv-cache transfer standard deviation cannot be more than 30% of kv-cache transfer")
 	}
 
-	if cfg.MaxLoras < 1 {
+	if cfg.Lora.MaxLoras < 1 {
 		return errors.New("max LoRAs cannot be less than 1")
 	}
-	if cfg.MaxCPULoras == 0 {
+	if cfg.Lora.MaxCPULoras == 0 {
 		// max CPU LoRAs by default is same as max LoRAs
-		cfg.MaxCPULoras = cfg.MaxLoras
+		cfg.Lora.MaxCPULoras = cfg.Lora.MaxLoras
 	}
-	if cfg.MaxCPULoras < cfg.MaxLoras {
+	if cfg.Lora.MaxCPULoras < cfg.Lora.MaxLoras {
 		return errors.New("max CPU LoRAs cannot be less than max LoRAs")
 	}
 
-	for _, lora := range cfg.LoraModules {
+	for _, lora := range cfg.Lora.LoraModules {
 		if lora.Name == "" {
 			return errors.New("empty LoRA name")
 		}

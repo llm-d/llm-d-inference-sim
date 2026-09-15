@@ -89,7 +89,7 @@ func New(logger logr.Logger) (*Simulator, error) {
 	// updates, so read it per call rather than capturing the flag here.
 	sim.toolsValidator.Skip = func() bool {
 		config := sim.Context.Config()
-		return config != nil && config.SkipToolValidation
+		return config != nil && config.ToolCalls.SkipToolValidation
 	}
 
 	return sim, nil

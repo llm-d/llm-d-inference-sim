@@ -30,7 +30,6 @@ func (Engine) BindHTTP(r *fasthttprouter.Router, comm *communication.Communicati
 	r.POST("/inference/v1/generate", comm.HandleGenerate)
 	r.POST("/v1/load_lora_adapter", comm.HandleLoadLora)
 	r.POST("/v1/unload_lora_adapter", comm.HandleUnloadLora)
-	r.POST("/fake_metrics", comm.HandleFakeMetrics) //nolint:staticcheck // deprecated endpoint, still served until v0.12.0
 	// emulates vLLM's Mooncake bootstrap endpoint on the prefill pod; the routing sidecar queries it to resolve remote engine ids
 	r.GET("/query", comm.HandleMooncakeQuery)
 	r.POST("/sleep", comm.HandleSleep)

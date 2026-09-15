@@ -182,11 +182,11 @@ func (s *SimContext) initialize(ctx context.Context) error {
 
 	s.rebuildLatencyCalculator()
 
-	for _, lora := range s.Config().LoraModules {
+	for _, lora := range s.Config().Lora.LoraModules {
 		s.loraAdaptors.Store(lora.Name, lora.Path)
 	}
-	s.loras.maxLoras = s.Config().MaxLoras
-	s.loras.loraIDs = make([]string, s.Config().MaxLoras)
+	s.loras.maxLoras = s.Config().Lora.MaxLoras
+	s.loras.loraIDs = make([]string, s.Config().Lora.MaxLoras)
 	s.loras.loraRemovable = common.Channel[int]{
 		Channel: make(chan int, s.Config().MaxNumSeqs),
 		Name:    "loraRemovable",
@@ -234,7 +234,7 @@ func (s *SimContext) initDataset(ctx context.Context) error {
 		return nil
 	}
 
-	if s.Config().DatasetPath == "" && s.Config().DatasetURL == "" {
+	if s.Config().Dataset.DatasetPath == "" && s.Config().Dataset.DatasetURL == "" {
 		// use predefined sentences as responses
 		randDataset := &dataset.DefaultDataset{}
 		err := randDataset.Init(ctx, s.logger, s.Random, s.Config().MaxModelLen, s.Tokenizer)
@@ -248,8 +248,8 @@ func (s *SimContext) initDataset(ctx context.Context) error {
 
 	// use dataset containing responses
 	custDataset := &dataset.CustomDataset{}
-	err := custDataset.Init(ctx, s.logger, s.Random, s.Config().DatasetPath, s.Config().DatasetTableName,
-		s.Config().DatasetInMemory, s.Config().MaxModelLen, s.Tokenizer)
+	err := custDataset.Init(ctx, s.logger, s.Random, s.Config().Dataset.DatasetPath, s.Config().Dataset.DatasetTableName,
+		s.Config().Dataset.DatasetInMemory, s.Config().MaxModelLen, s.Tokenizer)
 
 	if err == nil {
 		s.dataset = custDataset

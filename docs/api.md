@@ -32,13 +32,11 @@ In addition, a set of the vLLM HTTP endpoints are supported:
 | /health                 | Standard health check endpoint |
 | /health/ready           | Ensure the GPU is "actually working" before allowing the system to send it live traffic |
 
-> **Deprecated:** the simulator also provides a `POST /fake_metrics` endpoint that accepts a [fake metric](configuration.md#fake-metrics) partial-update body directly (only available when started with a `--fake-metrics` configuration). The body is a JSON object containing the metrics to update; unspecified metrics are left unchanged. This endpoint is preserved for backward compatibility and will be removed in release v0.12.0; new callers should use `POST /admin/config` with a `fake-metrics` field instead.
-
 ### `/admin/config`
 
 The simulator exposes `GET` and `POST` on `/admin/config` for runtime configuration introspection and partial updates. This endpoint is simulator-specific and is intended for adjusting behavior (currently failure injection, fake metrics, and request latencies) during a test run without restarting the process.
 
-- **`GET /admin/config`** returns the current configuration as JSON. Internal helper fields (`LoraModulesString`, `LorasString`) are stripped, `LoraModules` is exposed as `lora-modules`, and the per-rank `port` is omitted when running with `--data-parallel-size > 1`.
+- **`GET /admin/config`** returns the current configuration as JSON. Internal helper fields (`LoraModulesString`, `LorasString`) are stripped, `LoraModules` is exposed as `lora-modules` nested under `lora`, and the per-rank `port` is omitted when running with `--data-parallel-size > 1`.
 - **`POST /admin/config`** applies a partial JSON update and returns the new configuration. The request body must be a JSON object whose keys are a subset of the admin-configurable fields:
   - `failure-injection-rate` — integer in `[0, 100]`
   - `failure-types` — array of strings from `rate_limit`, `invalid_api_key`, `context_length`, `server_error`, `invalid_request`, `model_not_found`
@@ -101,5 +99,4 @@ It is available on the same port as the HTTP server.
 Only `Generate` and `GetModelInfo` methods are currently implemented. <br>
 The `Generate` submits a generation request. Supports streaming responses and standard sampling parameters.<br>
 The `GetModelInfo` retrieves metadata about the currently loaded model.
-
 

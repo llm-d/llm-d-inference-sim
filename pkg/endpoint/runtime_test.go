@@ -57,6 +57,5 @@ func (f *fakeRuntime) MooncakeEngineMap() map[string]map[string]string { return 
 func (f *fakeRuntime) CreateEmbeddings(req *api.EmbeddingRequest) (*api.EmbeddingResponse, *api.Error) {
 	return nil, nil
 }
-func (f *fakeRuntime) CreateModelsResponse() *api.ModelsResponse   { return nil }
-func (f *fakeRuntime) ApplyConfigUpdate(body []byte) error         { return nil }
-func (f *fakeRuntime) UpdateFakeMetricsFromBody(body []byte) error { return nil }
+func (f *fakeRuntime) CreateModelsResponse() *api.ModelsResponse { return nil }
+func (f *fakeRuntime) ApplyConfigUpdate(body []byte) error       { return nil }

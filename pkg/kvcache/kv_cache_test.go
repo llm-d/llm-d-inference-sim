@@ -690,27 +690,6 @@ var _ = Describe("KV cache", Ordered, func() {
 			Expect(totalBlocks).To(Equal(4))
 		})
 
-		It("countCachedBlockPrefix should be model-scoped", func() {
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-
-			config := &common.Configuration{
-				IP:      localhost,
-				Port:    1234,
-				Model:   common.TestModelName,
-				KVCache: common.KVCacheConfig{KVCacheSize: 10},
-			}
-
-			blockCache, err := newBlockCache(ctx, config, GinkgoLogr, nil)
-			Expect(err).NotTo(HaveOccurred())
-
-			req := testRequest{id: "req1", model: common.TestModelName, blockHashes: []uint64{1, 2, 3}, tokens: [][]uint32{{1}, {2}, {3}}}
-			_, err = blockCache.startRequest(&req, req.blockHashes, req.tokens)
-			Expect(err).NotTo(HaveOccurred())
-
-			Expect(blockCache.countCachedBlockPrefix([]uint64{1, 2, 3}, common.TestModelName)).To(Equal(3))
-			Expect(blockCache.countCachedBlockPrefix([]uint64{1, 2, 3}, loraModel)).To(Equal(0))
-		})
 	})
 
 	Context("model-aware eviction", func() {

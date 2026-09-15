@@ -79,21 +79,24 @@ var (
 )
 
 type Configuration struct {
+	// Model defines the current base model name
+	Model string `yaml:"model" json:"model"`
+	// EngineName is the inference engine backend being simulated. Currently only "vllm" is supported.
+	EngineName string `yaml:"engine" json:"engine"`
+	// Mode defines the simulator response generation mode, valid values: echo, random
+	Mode string `yaml:"mode" json:"mode"`
+
 	// IP defines on which IP the simulator runs, loaded from env
 	IP string
 	// Port defines on which port the simulator runs
 	Port int `yaml:"port" json:"port"`
-	// Model defines the current base model name
-	Model string `yaml:"model" json:"model"`
+
 	// DisplayModelName defines the model name that will be shown in API responses
 	// If ServedModelNames are not set, it defaults to the value of Model
 	DisplayModelName string
 	// ServedModelNames is one or many model names exposed by the API
 	ServedModelNames []string `yaml:"served-model-name" json:"served-model-name"`
-	// MaxLoras defines maximum number of loaded LoRAs
-	MaxLoras int `yaml:"max-loras" json:"max-loras"`
-	// MaxCPULoras defines maximum number of LoRAs to store in CPU memory
-	MaxCPULoras int `yaml:"max-cpu-loras" json:"max-cpu-loras"`
+
 	// MaxNumSeqs is maximum number of sequences per iteration (the maximum
 	// number of inference requests that could be processed at the same time)
 	MaxNumSeqs int `yaml:"max-num-seqs" json:"max-num-seqs"`
@@ -102,10 +105,9 @@ type Configuration struct {
 	// MaxModelLen is the model's context window, the maximum number of tokens
 	// in a single request including input and output. Default value is 1024.
 	MaxModelLen int `yaml:"max-model-len" json:"max-model-len"`
-	// LoraModulesString is a list of LoRA adapters as strings (YAML parse helper; omitted from external output)
-	LoraModulesString []string `yaml:"lora-modules" json:"-"`
-	// LoraModules is a list of LoRA adapters
-	LoraModules []LoraModule `json:"lora-modules"`
+
+	// Lora groups the LoRA adapter settings.
+	Lora LoraConfig `yaml:"lora" json:"lora"`
 
 	// PodNameSpace specifies the Kubernetes namespace in which the simulator pod is running.
 	// Useful for multi-namespace deployments and resource scoping.
@@ -126,54 +128,17 @@ type Configuration struct {
 	// foldFlatLatencies) still accept the legacy flat top-level keys too,
 	// folded into "latencies" before unmarshalling into a Configuration.
 	Latencies LatenciesConfig `yaml:"latencies" json:"latencies"`
-
 	// LatencyCalculator is the name of the latency calculator to use in the simulation of the response latencies.
 	// The default calculation is based on the current load of the simulator and on the configured latency
 	// parameters, e.g., time-to-first-token and prefill-time-per-token. It is a top-level flag, not part of
 	// LatenciesConfig, since it selects a calculation strategy rather than a latency value.
 	LatencyCalculator string `yaml:"latency-calculator" json:"latency-calculator" admin:"configurable" rebuild:"latency"`
 
-	// Mode defines the simulator response generation mode, valid values: echo, random
-	Mode string `yaml:"mode" json:"mode"`
 	// Seed defines random seed for operations
 	Seed int64 `yaml:"seed" json:"seed"`
 
-	// MaxToolCallIntegerParam defines the maximum possible value of integer parameters in a tool call,
-	// optional, defaults to 100
-	MaxToolCallIntegerParam int `yaml:"max-tool-call-integer-param" json:"max-tool-call-integer-param"`
-	// MinToolCallIntegerParam defines the minimum possible value of integer parameters in a tool call,
-	// optional, defaults to 0
-	MinToolCallIntegerParam int `yaml:"min-tool-call-integer-param" json:"min-tool-call-integer-param"`
-	// MaxToolCallNumberParam defines the maximum possible value of number (float) parameters in a tool call,
-	// optional, defaults to 100
-	MaxToolCallNumberParam float64 `yaml:"max-tool-call-number-param" json:"max-tool-call-number-param"`
-	// MinToolCallNumberParam defines the minimum possible value of number (float) parameters in a tool call,
-	// optional, defaults to 0
-	MinToolCallNumberParam float64 `yaml:"min-tool-call-number-param" json:"min-tool-call-number-param"`
-
-	// MaxToolCallArrayParamLength defines the maximum possible length of array parameters in a tool call,
-	// optional, defaults to 5
-	MaxToolCallArrayParamLength int `yaml:"max-tool-call-array-param-length" json:"max-tool-call-array-param-length"`
-	// MinToolCallArrayParamLength defines the minimum possible length of array parameters in a tool call,
-	// optional, defaults to 1
-	MinToolCallArrayParamLength int `yaml:"min-tool-call-array-param-length" json:"min-tool-call-array-param-length"`
-
-	// ToolCallNotRequiredParamProbability is the probability to add a parameter, that is not required,
-	// in a tool call, optional, defaults to 50
-	ToolCallNotRequiredParamProbability int `yaml:"tool-call-not-required-param-probability" json:"tool-call-not-required-param-probability"`
-	// ObjectToolCallNotRequiredParamProbability is the probability to add a field, that is not required,
-	// in an object in a tool call, optional, defaults to 50
-	ObjectToolCallNotRequiredParamProbability int `yaml:"object-tool-call-not-required-field-probability" json:"object-tool-call-not-required-field-probability"`
-	// SkipToolValidation disables the built-in meta-validation of incoming tool schemas.
-	// Real vLLM forwards tool schemas to the model verbatim, so schemas using fields outside
-	// the simulator's whitelist are rejected here but accepted upstream. Optional, defaults to false.
-	SkipToolValidation bool `yaml:"skip-tool-validation" json:"skip-tool-validation"`
-	// ToolCallExtraCallProbability is the probability (0-100) to make one additional tool call beyond the
-	// minimum. Rolls repeat until a roll fails or len(availableTools) is reached, so the number of calls
-	// follows a truncated geometric distribution that almost always equals the minimum but can reach
-	// the total number of available tools. A value of 0 always produces the minimum number of calls;
-	// a value of 100 always produces len(availableTools) calls. Optional, defaults to 45.
-	ToolCallExtraCallProbability int `yaml:"tool-call-extra-call-probability" json:"tool-call-extra-call-probability"`
+	// ToolCalls groups the tool-call generation parameters.
+	ToolCalls ToolCallConfig `yaml:"tool-calls" json:"tool-calls"`
 
 	// GlobalCacheHitThreshold is the default cache hit threshold (0-1] for all requests.
 	// If a request specifies cache_hit_threshold, it takes precedence over this global value.
@@ -185,7 +150,6 @@ type Configuration struct {
 
 	// FakeMetrics is a set of metrics to send to Prometheus instead of the real data
 	FakeMetrics *FakeMetrics `yaml:"fake-metrics" json:"fake-metrics" admin:"configurable"`
-
 	// FakeMetricsRefreshInterval defines how often function-based fake metrics are recalculated, defaults to 100ms
 	FakeMetricsRefreshInterval time.Duration `yaml:"fake-metrics-refresh-interval" json:"fake-metrics-refresh-interval"`
 
@@ -196,35 +160,15 @@ type Configuration struct {
 
 	// DPSize is data parallel size - a number of ranks to run, minimum is 1, maximum is 8, default is 1
 	DPSize int `yaml:"data-parallel-size" json:"data-parallel-size"`
-
 	// Rank specifies the rank of this instance. Only used when running Data Parallel
 	// ranks as separate processes. If set, data-parallel-size is ignored
 	Rank int `yaml:"data-parallel-rank" json:"data-parallel-rank"`
 
-	// SSLCertFile is the path to the SSL certificate file for HTTPS
-	SSLCertFile string `yaml:"ssl-certfile" json:"ssl-certfile"`
-	// SSLKeyFile is the path to the SSL private key file for HTTPS
-	SSLKeyFile string `yaml:"ssl-keyfile" json:"ssl-keyfile"`
-	// SelfSignedCerts enables automatic generation of self-signed certificates for HTTPS
-	SelfSignedCerts bool `yaml:"self-signed-certs" json:"self-signed-certs"`
+	// SSL groups the HTTPS certificate settings.
+	SSL SSLConfig `yaml:"ssl" json:"ssl"`
 
-	// DatasetPath Optional local file path to the SQLite database file used for generating responses from a dataset.
-	//   - If not set, hardcoded preset responses will be used.
-	//   - If set but the file does not exist the `dataset-url` will be used to download the database to the path specified by `dataset-path`.
-	//   - If the file exists but is currently occupied by another process, responses will be randomly generated from preset text (the same behavior as if the path were not set).
-	//   - Responses are retrieved from the dataset by the hash of the conversation history, with a fallback to a random dataset response, constrained by the maximum output tokens and EoS token handling, if no matching history is found.
-	//   - Refer to [llm-d converted ShareGPT](https://huggingface.co/datasets/hf07397/inference-sim-datasets/blob/0b7ac1a4daf0aace1556326964bd75633372299e/README.md) for detailed information on the expected format of the SQLite database file.
-	DatasetPath string `yaml:"dataset-path" json:"dataset-path"`
-	// DatasetURL Optional URL for downloading the SQLite database file used for response generation.
-	//   - This parameter is only used if the `dataset-path` is also set and the file does not exist at that path.
-	//   - If the file needs to be downloaded, it will be saved to the location specified by `dataset-path`.
-	//   - If the file already exists at the `dataset-path`, it will not be downloaded again
-	//   - Example URL `https://huggingface.co/datasets/hf07397/inference-sim-datasets/resolve/91ffa7aafdfd6b3b1af228a517edc1e8f22cd274/huggingface/ShareGPT_Vicuna_unfiltered/conversations.sqlite3`
-	DatasetURL string `yaml:"dataset-url" json:"dataset-url"`
-	// DatasetInMemory defines whether to load the entire dataset into memory for faster access.
-	DatasetInMemory bool `yaml:"dataset-in-memory" json:"dataset-in-memory"`
-	// DatasetTableName defines custom SQLite dataset table name
-	DatasetTableName string `yaml:"dataset-table-name" json:"dataset-table-name"`
+	// Dataset groups the response-dataset source settings.
+	Dataset DatasetConfig `yaml:"dataset" json:"dataset"`
 
 	// RenderURL is the URL of the tokenizer render service. When set, the
 	// simulator uses a HuggingFace tokenizer served over HTTP. When empty,
@@ -292,9 +236,6 @@ type Configuration struct {
 	// MaxRequestBodySizeMB sets the maximum allowed request body size in megabytes for the HTTP server.
 	// Default is 4 (matching the fasthttp built-in default). Must be between 1 and 512.
 	MaxRequestBodySizeMB int `yaml:"max-request-body-size-mb" json:"max-request-body-size-mb"`
-
-	// EngineName is the inference engine backend being simulated. Currently only "vllm" is supported.
-	EngineName string `yaml:"engine" json:"engine"`
 }
 
 type LoraModule struct {
@@ -306,6 +247,18 @@ type LoraModule struct {
 	BaseModelName string `json:"base_model_name"`
 }
 
+// LoraConfig groups the LoRA adapter settings.
+type LoraConfig struct {
+	// MaxLoras defines maximum number of loaded LoRAs
+	MaxLoras int `yaml:"max-loras" json:"max-loras"`
+	// MaxCPULoras defines maximum number of LoRAs to store in CPU memory
+	MaxCPULoras int `yaml:"max-cpu-loras" json:"max-cpu-loras"`
+	// LoraModulesString is a list of LoRA adapters as strings (YAML parse helper; omitted from external output)
+	LoraModulesString []string `yaml:"lora-modules" json:"-"`
+	// LoraModules is a list of LoRA adapters
+	LoraModules []LoraModule `json:"lora-modules"`
+}
+
 // KVCacheConfig groups the KV-cache sizing, hashing, and ZMQ event settings.
 // When EnableKVCache is false, every other field is reset to its zero value,
 // since the rest of the struct is unused while the cache is disabled.
@@ -315,6 +268,9 @@ type KVCacheConfig struct {
 
 	//  KVCacheSize is the maximum number of token blocks in kv cache, the default value is 1024
 	KVCacheSize int `yaml:"kv-cache-size" json:"kv-cache-size"`
+
+	// KVCacheDType is the cache dtype reported in vLLM-compatible cache configuration metrics.
+	KVCacheDType string `yaml:"kv-cache-dtype" json:"kv-cache-dtype"`
 
 	// TokenBlockSize is token block size for contiguous chunks of tokens, possible values: 8,16,32,64,128, defaults to 16
 	TokenBlockSize int `yaml:"block-size" json:"block-size"`
@@ -338,6 +294,82 @@ type KVCacheConfig struct {
 	// UseVllmMapEventFormat encodes KV cache events as msgpack maps with named fields (vLLM PR #42892 format)
 	// instead of the legacy positional array format. Default is false (legacy array format).
 	UseVllmMapEventFormat bool `yaml:"use-vllm-map-event-format" json:"use-vllm-map-event-format"`
+}
+
+// ToolCallConfig groups the tool-call generation parameters.
+type ToolCallConfig struct {
+	// MaxToolCallIntegerParam defines the maximum possible value of integer parameters in a tool call,
+	// optional, defaults to 100
+	MaxToolCallIntegerParam int `yaml:"max-tool-call-integer-param" json:"max-tool-call-integer-param"`
+	// MinToolCallIntegerParam defines the minimum possible value of integer parameters in a tool call,
+	// optional, defaults to 0
+	MinToolCallIntegerParam int `yaml:"min-tool-call-integer-param" json:"min-tool-call-integer-param"`
+	// MaxToolCallNumberParam defines the maximum possible value of number (float) parameters in a tool call,
+	// optional, defaults to 100
+	MaxToolCallNumberParam float64 `yaml:"max-tool-call-number-param" json:"max-tool-call-number-param"`
+	// MinToolCallNumberParam defines the minimum possible value of number (float) parameters in a tool call,
+	// optional, defaults to 0
+	MinToolCallNumberParam float64 `yaml:"min-tool-call-number-param" json:"min-tool-call-number-param"`
+
+	// MaxToolCallArrayParamLength defines the maximum possible length of array parameters in a tool call,
+	// optional, defaults to 5
+	MaxToolCallArrayParamLength int `yaml:"max-tool-call-array-param-length" json:"max-tool-call-array-param-length"`
+	// MinToolCallArrayParamLength defines the minimum possible length of array parameters in a tool call,
+	// optional, defaults to 1
+	MinToolCallArrayParamLength int `yaml:"min-tool-call-array-param-length" json:"min-tool-call-array-param-length"`
+
+	// ToolCallNotRequiredParamProbability is the probability to add a parameter, that is not required,
+	// in a tool call, optional, defaults to 50
+	ToolCallNotRequiredParamProbability int `yaml:"tool-call-not-required-param-probability" json:"tool-call-not-required-param-probability"`
+	// ObjectToolCallNotRequiredParamProbability is the probability to add a field, that is not required,
+	// in an object in a tool call, optional, defaults to 50
+	ObjectToolCallNotRequiredParamProbability int `yaml:"object-tool-call-not-required-field-probability" json:"object-tool-call-not-required-field-probability"`
+	// SkipToolValidation disables the built-in meta-validation of incoming tool schemas.
+	// Real vLLM forwards tool schemas to the model verbatim, so schemas using fields outside
+	// the simulator's whitelist are rejected here but accepted upstream. Optional, defaults to false.
+	SkipToolValidation bool `yaml:"skip-tool-validation" json:"skip-tool-validation"`
+	// ToolCallExtraCallProbability is the probability (0-100) to make one additional tool call beyond the
+	// minimum. Rolls repeat until a roll fails or len(availableTools) is reached, so the number of calls
+	// follows a truncated geometric distribution that almost always equals the minimum but can reach
+	// the total number of available tools. A value of 0 always produces the minimum number of calls;
+	// a value of 100 always produces len(availableTools) calls. Optional, defaults to 45.
+	ToolCallExtraCallProbability int `yaml:"tool-call-extra-call-probability" json:"tool-call-extra-call-probability"`
+}
+
+// SSLConfig groups the HTTPS certificate settings.
+type SSLConfig struct {
+	// SSLCertFile is the path to the SSL certificate file for HTTPS
+	SSLCertFile string `yaml:"ssl-certfile" json:"ssl-certfile"`
+	// SSLKeyFile is the path to the SSL private key file for HTTPS
+	SSLKeyFile string `yaml:"ssl-keyfile" json:"ssl-keyfile"`
+	// SelfSignedCerts enables automatic generation of self-signed certificates for HTTPS
+	SelfSignedCerts bool `yaml:"self-signed-certs" json:"self-signed-certs"`
+}
+
+// Enabled returns true if SSL is enabled either via certificate files or self-signed certificates
+func (s *SSLConfig) Enabled() bool {
+	return (s.SSLCertFile != "" && s.SSLKeyFile != "") || s.SelfSignedCerts
+}
+
+// DatasetConfig groups the response-dataset source settings.
+type DatasetConfig struct {
+	// DatasetPath Optional local file path to the SQLite database file used for generating responses from a dataset.
+	//   - If not set, hardcoded preset responses will be used.
+	//   - If set but the file does not exist the `dataset-url` will be used to download the database to the path specified by `dataset-path`.
+	//   - If the file exists but is currently occupied by another process, responses will be randomly generated from preset text (the same behavior as if the path were not set).
+	//   - Responses are retrieved from the dataset by the hash of the conversation history, with a fallback to a random dataset response, constrained by the maximum output tokens and EoS token handling, if no matching history is found.
+	//   - Refer to [llm-d converted ShareGPT](https://huggingface.co/datasets/hf07397/inference-sim-datasets/blob/0b7ac1a4daf0aace1556326964bd75633372299e/README.md) for detailed information on the expected format of the SQLite database file.
+	DatasetPath string `yaml:"dataset-path" json:"dataset-path"`
+	// DatasetURL Optional URL for downloading the SQLite database file used for response generation.
+	//   - This parameter is only used if the `dataset-path` is also set and the file does not exist at that path.
+	//   - If the file needs to be downloaded, it will be saved to the location specified by `dataset-path`.
+	//   - If the file already exists at the `dataset-path`, it will not be downloaded again
+	//   - Example URL `https://huggingface.co/datasets/hf07397/inference-sim-datasets/resolve/91ffa7aafdfd6b3b1af228a517edc1e8f22cd274/huggingface/ShareGPT_Vicuna_unfiltered/conversations.sqlite3`
+	DatasetURL string `yaml:"dataset-url" json:"dataset-url"`
+	// DatasetInMemory defines whether to load the entire dataset into memory for faster access.
+	DatasetInMemory bool `yaml:"dataset-in-memory" json:"dataset-in-memory"`
+	// DatasetTableName defines custom SQLite dataset table name
+	DatasetTableName string `yaml:"dataset-table-name" json:"dataset-table-name"`
 }
 
 // LatenciesConfig groups the request-latency simulation parameters.
@@ -397,25 +429,28 @@ type LatenciesConfig struct {
 // NewConfig returns a Configuration populated with its documented defaults.
 func NewConfig() *Configuration {
 	return &Configuration{
-		EngineName:                          "vllm",
-		IP:                                  os.Getenv(podIPEnv),
-		Port:                                8000,
-		MaxLoras:                            1,
-		MaxNumSeqs:                          5,
-		MaxWaitingQueueLength:               1000,
-		MaxModelLen:                         1024,
-		Mode:                                ModeRandom,
-		Seed:                                time.Now().UnixNano(),
-		Latencies:                           LatenciesConfig{TimeFactorUnderLoad: 1.0},
-		MaxToolCallIntegerParam:             100,
-		MaxToolCallNumberParam:              100,
-		MaxToolCallArrayParamLength:         5,
-		MinToolCallArrayParamLength:         1,
-		ToolCallNotRequiredParamProbability: 50,
-		ObjectToolCallNotRequiredParamProbability: 50,
-		ToolCallExtraCallProbability:              45,
+		EngineName:            "vllm",
+		IP:                    os.Getenv(podIPEnv),
+		Port:                  8000,
+		Lora:                  LoraConfig{MaxLoras: 1},
+		MaxNumSeqs:            5,
+		MaxWaitingQueueLength: 1000,
+		MaxModelLen:           1024,
+		Mode:                  ModeRandom,
+		Seed:                  time.Now().UnixNano(),
+		Latencies:             LatenciesConfig{TimeFactorUnderLoad: 1.0},
+		ToolCalls: ToolCallConfig{
+			MaxToolCallIntegerParam:                   100,
+			MaxToolCallNumberParam:                    100,
+			MaxToolCallArrayParamLength:               5,
+			MinToolCallArrayParamLength:               1,
+			ToolCallNotRequiredParamProbability:       50,
+			ObjectToolCallNotRequiredParamProbability: 50,
+			ToolCallExtraCallProbability:              45,
+		},
 		KVCache: KVCacheConfig{
 			KVCacheSize:             1024,
+			KVCacheDType:            "auto",
 			TokenBlockSize:          16,
 			ZMQEndpoint:             "tcp://127.0.0.1:5557",
 			KVEventsReplayQueueSize: 1024,
@@ -423,7 +458,7 @@ func NewConfig() *Configuration {
 		},
 		DPSize:                     1,
 		Rank:                       -1,
-		DatasetTableName:           DefaultDSTableName,
+		Dataset:                    DatasetConfig{DatasetTableName: DefaultDSTableName},
 		DefaultEmbeddingDimensions: 384,
 		FakeMetricsRefreshInterval: 100 * time.Millisecond,
 		MaxRequestBodySizeMB:       4,
@@ -447,6 +482,18 @@ func (c *Configuration) load(configFile string) error {
 		return err
 	}
 	if err := foldLegacyKeys(raw, "latencies", latenciesYAMLKeys); err != nil {
+		return err
+	}
+	if err := foldLegacyKeys(raw, "tool-calls", toolCallYAMLKeys); err != nil {
+		return err
+	}
+	if err := foldLegacyKeys(raw, "dataset", datasetYAMLKeys); err != nil {
+		return err
+	}
+	if err := foldLegacyKeys(raw, "ssl", sslYAMLKeys); err != nil {
+		return err
+	}
+	if err := foldLegacyKeys(raw, "lora", loraYAMLKeys); err != nil {
 		return err
 	}
 
@@ -574,25 +621,25 @@ func (c *Configuration) validate() error {
 		return errors.New("max waiting queue size cannot be less than 0")
 	}
 
-	if c.MaxToolCallIntegerParam < c.MinToolCallIntegerParam {
+	if c.ToolCalls.MaxToolCallIntegerParam < c.ToolCalls.MinToolCallIntegerParam {
 		return errors.New("MaxToolCallIntegerParam cannot be less than MinToolCallIntegerParam")
 	}
-	if c.MaxToolCallNumberParam < c.MinToolCallNumberParam {
+	if c.ToolCalls.MaxToolCallNumberParam < c.ToolCalls.MinToolCallNumberParam {
 		return errors.New("MaxToolCallNumberParam cannot be less than MinToolCallNumberParam")
 	}
-	if c.MaxToolCallArrayParamLength < c.MinToolCallArrayParamLength {
+	if c.ToolCalls.MaxToolCallArrayParamLength < c.ToolCalls.MinToolCallArrayParamLength {
 		return errors.New("MaxToolCallArrayParamLength cannot be less than MinToolCallArrayParamLength")
 	}
-	if c.MinToolCallArrayParamLength < 0 {
+	if c.ToolCalls.MinToolCallArrayParamLength < 0 {
 		return errors.New("MinToolCallArrayParamLength cannot be negative")
 	}
-	if c.ToolCallNotRequiredParamProbability < 0 || c.ToolCallNotRequiredParamProbability > 100 {
+	if c.ToolCalls.ToolCallNotRequiredParamProbability < 0 || c.ToolCalls.ToolCallNotRequiredParamProbability > 100 {
 		return errors.New("ToolCallNotRequiredParamProbability should be between 0 and 100")
 	}
-	if c.ObjectToolCallNotRequiredParamProbability < 0 || c.ObjectToolCallNotRequiredParamProbability > 100 {
+	if c.ToolCalls.ObjectToolCallNotRequiredParamProbability < 0 || c.ToolCalls.ObjectToolCallNotRequiredParamProbability > 100 {
 		return errors.New("ObjectToolCallNotRequiredParamProbability should be between 0 and 100")
 	}
-	if c.ToolCallExtraCallProbability < 0 || c.ToolCallExtraCallProbability > 100 {
+	if c.ToolCalls.ToolCallExtraCallProbability < 0 || c.ToolCalls.ToolCallExtraCallProbability > 100 {
 		return errors.New("ToolCallExtraCallProbability should be between 0 and 100")
 	}
 
@@ -628,19 +675,19 @@ func (c *Configuration) validate() error {
 		return errors.New("data parallel rank must be between 0 and 7")
 	}
 
-	if (c.SSLCertFile == "") != (c.SSLKeyFile == "") {
+	if (c.SSL.SSLCertFile == "") != (c.SSL.SSLKeyFile == "") {
 		return errors.New("both ssl-certfile and ssl-keyfile must be provided together")
 	}
 
-	if c.SelfSignedCerts && (c.SSLCertFile != "" || c.SSLKeyFile != "") {
+	if c.SSL.SelfSignedCerts && (c.SSL.SSLCertFile != "" || c.SSL.SSLKeyFile != "") {
 		return errors.New("cannot use both self-signed-certs and explicit ssl-certfile/ssl-keyfile")
 	}
 
-	if c.DatasetPath == "" && c.DatasetURL != "" {
+	if c.Dataset.DatasetPath == "" && c.Dataset.DatasetURL != "" {
 		return errors.New("dataset-path is required when dataset-url is set")
 	}
 
-	if c.Mode == ModeEcho && (c.DatasetPath != "" || c.DatasetURL != "") {
+	if c.Mode == ModeEcho && (c.Dataset.DatasetPath != "" || c.Dataset.DatasetURL != "") {
 		return errors.New("dataset cannot be defined in echo mode")
 	}
 
@@ -665,20 +712,17 @@ func (c *Configuration) validate() error {
 	return nil
 }
 
-// SSLEnabled returns true if SSL is enabled either via certificate files or self-signed certificates
-func (c *Configuration) SSLEnabled() bool {
-	return (c.SSLCertFile != "" && c.SSLKeyFile != "") || c.SelfSignedCerts
-}
-
 // durationFields holds the JSON key names of all time.Duration fields in
 // Configuration and LatenciesConfig.
 // configurableFields maps each admin-configurable JSON field key to its rebuild tag
 // (value of the rebuild struct tag, e.g. "latency"), or "" for fields with no rebuild tag.
-// kvCacheYAMLKeys and latenciesYAMLKeys hold the YAML key names of every KVCacheConfig
-// and LatenciesConfig field respectively. Since those names are identical to the fields'
-// JSON key names, load() also reuses them to fold legacy flat top-level YAML keys into
-// the nested "kvcache"/"latencies" blocks, and Update's foldFlatLatencies reuses
-// latenciesYAMLKeys the same way for the legacy flat POST /admin/config body shape.
+// kvCacheYAMLKeys, latenciesYAMLKeys, toolCallYAMLKeys, datasetYAMLKeys, sslYAMLKeys, and
+// loraYAMLKeys hold the YAML key names of every field of KVCacheConfig, LatenciesConfig,
+// ToolCallConfig, DatasetConfig, SSLConfig, and LoraConfig respectively. Since those names
+// are identical to the fields' JSON key names, load() also reuses them to fold legacy flat
+// top-level YAML keys into the nested "kvcache"/"latencies"/"tool-calls"/"dataset"/"ssl"/"lora"
+// blocks, and Update's foldFlatLatencies reuses latenciesYAMLKeys the same way for the
+// legacy flat POST /admin/config body shape.
 // latenciesYAMLKeySet is the same set as latenciesYAMLKeys, for membership checks;
 // unfoldNestedLatencies uses it to reject fields that are admin-configurable but not
 // part of LatenciesConfig (e.g. latency-calculator) inside the nested "latencies" object.
@@ -690,6 +734,10 @@ var (
 	kvCacheYAMLKeys     []string
 	latenciesYAMLKeys   []string
 	latenciesYAMLKeySet map[string]bool
+	toolCallYAMLKeys    []string
+	datasetYAMLKeys     []string
+	sslYAMLKeys         []string
+	loraYAMLKeys        []string
 )
 
 func init() {
@@ -705,6 +753,10 @@ func init() {
 	kvCacheYAMLKeys = yamlKeysOf(reflect.TypeOf(KVCacheConfig{}))
 	latenciesYAMLKeys = yamlKeysOf(reflect.TypeOf(LatenciesConfig{}))
 	latenciesYAMLKeySet = make(map[string]bool, len(latenciesYAMLKeys))
+	toolCallYAMLKeys = yamlKeysOf(reflect.TypeOf(ToolCallConfig{}))
+	datasetYAMLKeys = yamlKeysOf(reflect.TypeOf(DatasetConfig{}))
+	sslYAMLKeys = yamlKeysOf(reflect.TypeOf(SSLConfig{}))
+	loraYAMLKeys = yamlKeysOf(reflect.TypeOf(LoraConfig{}))
 	for _, key := range latenciesYAMLKeys {
 		latenciesYAMLKeySet[key] = true
 	}

@@ -57,7 +57,7 @@ func newDsDownloader(logger logr.Logger) *customDatasetDownloader {
 }
 
 func Init(ctx context.Context, config *common.Configuration, logger logr.Logger) error {
-	if config.DatasetURL != "" && config.Model != common.ModeEcho {
+	if config.Dataset.DatasetURL != "" && config.Model != common.ModeEcho {
 		if config.MMEncoderOnly {
 			logger.V(logging.WARN).Info("MM encoder-only mode: skipping dataset loading and use")
 			return nil
@@ -65,7 +65,7 @@ func Init(ctx context.Context, config *common.Configuration, logger logr.Logger)
 
 		// if should use remote responses dataset, download it first (it can take time)
 		downloader := newDsDownloader(logger)
-		if err := downloader.downloadDataset(ctx, config.DatasetURL, config.DatasetPath); err != nil {
+		if err := downloader.downloadDataset(ctx, config.Dataset.DatasetURL, config.Dataset.DatasetPath); err != nil {
 			return err
 		}
 	}

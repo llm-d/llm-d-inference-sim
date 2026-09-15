@@ -46,8 +46,6 @@ type Communication struct {
 
 	pb.UnimplementedVllmEngineServer
 
-	fakeMetricsDeprecatedLogged bool
-
 	// startTime records when the server started, used for startup-duration readiness check
 	startTime       time.Time
 	strictValidator *strictRequestValidator
