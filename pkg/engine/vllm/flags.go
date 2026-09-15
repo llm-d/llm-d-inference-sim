@@ -66,70 +66,43 @@ var kvCacheLegacyFlatKeys = []string{
 }
 
 // BindFlags registers the vLLM-specific CLI flags on f and builds the config
-// groups whose wire format this engine owns: it folds and unmarshals rawYAML's
-// "lora", "kvcache", and "fake-metrics" blocks, then reconciles the
-// lora-modules and fake-metrics values from either source into their
-// structured fields. The YAML groups are read before the flags that bind to
-// them are registered, so each flag's pflag default reflects the config file.
-// Must be called before f.Parse.
+// groups whose wire format this engine owns. The YAML is read before the flags
+// that bind to it are registered, so each flag's pflag default reflects the
+// config file and an explicit flag then overrides it. Must be called before
+// f.Parse.
 func (Engine) BindFlags(f *pflag.FlagSet, cfg *common.Configuration, rawYAML map[string]any) error {
+	// lora-modules and fake-metrics take multiple space-separated JSON strings,
+	// which pflag cannot bind directly, so their values are pre-scanned from
+	// os.Args.
 	loraModuleNames := common.GetParamValueFromArgs("lora-modules")
+	fakeMetricsStrings := common.GetParamValueFromArgs("fake-metrics")
 
-	// A YAML config file's "lora" block uses vLLM's own wire format, folded
-	// and unmarshaled here (rather than by common.Configuration.load) since
-	// a different engine could shape LoRA config differently.
-	var yamlLoraModules []string
-	if rawYAML != nil {
-		if err := common.FoldLegacyKeys(rawYAML, "lora", loraLegacyFlatKeys); err != nil {
-			return err
-		}
-		// Seeded from the current values so that keys the block omits keep
-		// their defaults while an explicit zero still comes through (and is
-		// then rejected by ValidateConfig, rather than silently ignored).
-		// loraYAML is not convertible from common.LoraConfig the way
-		// kvCacheYAML is, since LoraModules differs in type.
-		ly := loraYAML{MaxLoras: cfg.Lora.MaxLoras, MaxCPULoras: cfg.Lora.MaxCPULoras}
-		if err := common.UnmarshalYAMLKey(rawYAML, "lora", &ly); err != nil {
-			return err
-		}
-		cfg.Lora.MaxLoras = ly.MaxLoras
-		cfg.Lora.MaxCPULoras = ly.MaxCPULoras
-		yamlLoraModules = ly.LoraModules
+	if err := unmarshalYAMLGroups(cfg, rawYAML); err != nil {
+		return err
 	}
 
-	// A YAML config file's "kvcache" block uses vLLM's own wire format,
-	// folded and unmarshaled here (rather than by common.Configuration.load)
-	// since a different engine could shape KV-cache config differently.
-	if rawYAML != nil {
-		if err := common.FoldLegacyKeys(rawYAML, "kvcache", kvCacheLegacyFlatKeys); err != nil {
-			return err
-		}
-		kv := kvCacheYAML(cfg.KVCache)
-		if err := common.UnmarshalYAMLKey(rawYAML, "kvcache", &kv); err != nil {
-			return err
-		}
-		cfg.KVCache = common.KVCacheConfig(kv)
-	}
+	registerFlags(f, cfg)
 
-	// A YAML config file's "fake-metrics" block is unmarshaled directly into
-	// vLLM's own concrete type here (rather than by common.Configuration.load)
-	// since Configuration.FakeMetrics is an engine-owned interface that
-	// encoding/yaml cannot allocate a concrete value into on its own. There is
-	// no legacy flat layout to fold: fake-metrics has always been nested only.
-	// A present but empty block (every setting commented out) carries a nil
-	// value and must leave fake metrics unset: reporting them suppresses every
-	// real metric, so allocating here would silently freeze the whole metrics
-	// surface at zero.
-	var yamlFakeMetrics *fakemetrics.Config
-	if rawYAML != nil {
-		if v, ok := rawYAML["fake-metrics"]; ok && v != nil {
-			yamlFakeMetrics = &fakemetrics.Config{}
-			if err := common.UnmarshalYAMLKey(rawYAML, "fake-metrics", yamlFakeMetrics); err != nil {
-				return err
-			}
+	if fakeMetricsStrings != nil {
+		// The flag replaces the whole struct (its JSON "loras" key maps straight
+		// onto LoraMetrics), so a YAML-configured value is superseded, not merged.
+		if err := unmarshalFakeMetrics(cfg, fakeMetricsStrings[0]); err != nil {
+			return err
 		}
 	}
 
+	if loraModuleNames != nil {
+		if err := unmarshalLoras(cfg, loraModuleNames); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// registerFlags declares this engine's CLI flags on f, defaulting each to the
+// value cfg already holds so a config file's setting survives an unset flag.
+func registerFlags(f *pflag.FlagSet, cfg *common.Configuration) {
 	f.IntVar(&cfg.Lora.MaxLoras, "max-loras", cfg.Lora.MaxLoras, "Maximum number of LoRAs in a single batch")
 	f.IntVar(&cfg.Lora.MaxCPULoras, "max-cpu-loras", cfg.Lora.MaxCPULoras, "Maximum number of LoRAs to store in CPU memory")
 
@@ -159,27 +132,21 @@ func (Engine) BindFlags(f *pflag.FlagSet, cfg *common.Configuration, rawYAML map
 	common.AddToggle(f, &cfg.MMEncoderOnly,
 		"mm-encoder-only", "Skip the language component of the model", "Don't skip the language component of the model")
 
-	// These vLLM CLI flags are accepted for command-line compatibility and
-	// ignored: nothing in the simulator ever reads them back, so unlike the
-	// rest of this engine's flags they have no Configuration field to bind
-	// to, just a local variable to satisfy pflag's API.
-	var mmProcessorKWArgs, ecTransferConfig string
-	var enforceEager, enablePrefixCaching bool
-	var tpSize int
-	f.StringVar(&mmProcessorKWArgs, "mm-processor-kwargs", "", "Arguments to be forwarded to the model's processor for multi-modal data, ignored")
-	f.StringVar(&ecTransferConfig, "ec-transfer-config", "", "Configuration for distributed EC cache transfer, ignored")
-	common.AddToggle(f, &enforceEager,
+	// Accepted for vLLM command-line compatibility and ignored: nothing in the
+	// simulator reads them back, so they bind to one throwaway sink per type
+	// rather than to a Configuration field.
+	var dummyString string
+	var dummyBool bool
+	var dummyInt int
+	f.StringVar(&dummyString, "mm-processor-kwargs", "", "Arguments to be forwarded to the model's processor for multi-modal data, ignored")
+	f.StringVar(&dummyString, "ec-transfer-config", "", "Configuration for distributed EC cache transfer, ignored")
+	common.AddToggle(f, &dummyBool,
 		"enforce-eager", "Always use eager-mode PyTorch, ignored", "Don't always use eager-mode PyTorch, ignored")
-	common.AddToggle(f, &enablePrefixCaching,
+	common.AddToggle(f, &dummyBool,
 		"enable-prefix-caching", "Enable prefix caching, ignored", "Disable prefix caching, ignored")
-	f.IntVar(&tpSize, "tensor-parallel-size", 0, "Number of tensor parallel replicas, ignored")
+	f.IntVar(&dummyInt, "tensor-parallel-size", 0, "Number of tensor parallel replicas, ignored")
 
-	// lora-modules and fake-metrics take multiple space-separated JSON strings,
-	// which pflag cannot bind directly; pre-scanned from os.Args like
-	// common.GetParamValueFromArgs's other callers, and registered below only
-	// so they show up in --help.
-	fakeMetricsStrings := common.GetParamValueFromArgs("fake-metrics")
-
+	// Declared only so they appear in --help; BindFlags pre-scans their values.
 	var dummyMultiString multiString
 	f.Var(&dummyMultiString, "lora-modules", "List of LoRA adapters (a list of space-separated JSON strings)")
 	f.Lookup("lora-modules").NoOptDefVal = dummy
@@ -187,40 +154,64 @@ func (Engine) BindFlags(f *pflag.FlagSet, cfg *common.Configuration, rawYAML map
 	f.Var(&dummyMultiString, "fake-metrics", "A set of metrics to report to Prometheus instead of the real metrics")
 	f.Lookup("fake-metrics").NoOptDefVal = dummy
 	f.Lookup("fake-metrics").DefValue = ""
+}
 
-	if yamlFakeMetrics != nil {
-		if err := unmarshalLoraFakeMetrics(yamlFakeMetrics); err != nil {
-			return err
-		}
-		cfg.FakeMetrics = yamlFakeMetrics
-	}
-	if fakeMetricsStrings != nil {
-		// A --fake-metrics flag replaces the whole FakeMetrics struct (its JSON
-		// "loras" key maps straight onto LoraMetrics), so any YAML-driven
-		// reconciliation above is superseded, not merged.
-		if err := unmarshalFakeMetrics(cfg, fakeMetricsStrings[0]); err != nil {
-			return err
-		}
+// unmarshalYAMLGroups builds the config groups whose YAML wire format this
+// engine owns (lora, kvcache, fake-metrics) from a config file's raw tree,
+// folding each group's legacy flat layout into its nested block first. rawYAML
+// is nil when no --config file was given.
+func unmarshalYAMLGroups(cfg *common.Configuration, rawYAML map[string]any) error {
+	if rawYAML == nil {
+		return nil
 	}
 
-	if rawYAML != nil {
-		if err := unmarshalLoras(cfg, yamlLoraModules); err != nil {
-			return err
-		}
+	if err := common.FoldLegacyKeys(rawYAML, "lora", loraLegacyFlatKeys); err != nil {
+		return err
 	}
-	if loraModuleNames != nil {
-		if err := unmarshalLoras(cfg, loraModuleNames); err != nil {
+	// Seeded from the current values so keys the block omits keep their
+	// defaults, while an explicit zero still comes through to be rejected by
+	// ValidateConfig rather than silently ignored.
+	ly := loraYAML{MaxLoras: cfg.Lora.MaxLoras, MaxCPULoras: cfg.Lora.MaxCPULoras}
+	if err := common.UnmarshalYAMLKey(rawYAML, "lora", &ly); err != nil {
+		return err
+	}
+	cfg.Lora.MaxLoras = ly.MaxLoras
+	cfg.Lora.MaxCPULoras = ly.MaxCPULoras
+	if err := unmarshalLoras(cfg, ly.LoraModules); err != nil {
+		return err
+	}
+
+	if err := common.FoldLegacyKeys(rawYAML, "kvcache", kvCacheLegacyFlatKeys); err != nil {
+		return err
+	}
+	kv := kvCacheYAML(cfg.KVCache)
+	if err := common.UnmarshalYAMLKey(rawYAML, "kvcache", &kv); err != nil {
+		return err
+	}
+	cfg.KVCache = common.KVCacheConfig(kv)
+
+	// Unmarshaled into vLLM's concrete type here, since encoding/yaml cannot
+	// allocate one into the FakeMetrics interface itself. There is no legacy
+	// flat layout to fold. A present but empty block carries a nil value and
+	// must leave fake metrics unset: reporting fake metrics suppresses every
+	// real metric.
+	if v, ok := rawYAML["fake-metrics"]; ok && v != nil {
+		fm := &fakemetrics.Config{}
+		if err := common.UnmarshalYAMLKey(rawYAML, "fake-metrics", fm); err != nil {
 			return err
 		}
+		if err := unmarshalLoraFakeMetrics(fm); err != nil {
+			return err
+		}
+		cfg.FakeMetrics = fm
 	}
 
 	return nil
 }
 
-// multiString collects the repeated space-separated values of a flag that
-// takes multiple JSON strings. The actual values are pre-scanned from
-// os.Args via common.GetParamValueFromArgs; this only registers the flag so
-// it appears in --help.
+// multiString registers a flag that takes multiple space-separated JSON
+// strings, so it appears in --help; the values themselves are pre-scanned
+// from os.Args via common.GetParamValueFromArgs.
 type multiString struct {
 	values []string
 }
@@ -259,9 +250,8 @@ func unmarshalFakeMetrics(cfg *common.Configuration, fakeMetricsString string) e
 		return err
 	}
 	if metrics == nil {
-		// A JSON null decodes to a nil pointer, which would make the
-		// FakeMetrics interface itself non-nil and every "are fake metrics
-		// configured" check pass while holding nothing to read.
+		// A JSON null decodes to a nil pointer, which would leave the
+		// FakeMetrics interface non-nil while holding nothing to read.
 		return nil
 	}
 	cfg.FakeMetrics = metrics
