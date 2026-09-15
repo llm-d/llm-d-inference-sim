@@ -18,7 +18,6 @@ package simulator
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strconv"
 	"sync"
@@ -33,6 +32,7 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 	"github.com/llm-d/llm-d-inference-sim/pkg/dataset"
 	"github.com/llm-d/llm-d-inference-sim/pkg/endpoint"
+	"github.com/llm-d/llm-d-inference-sim/pkg/engine/vllm/fakemetrics"
 	"github.com/llm-d/llm-d-inference-sim/pkg/kvcache"
 	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 )
@@ -161,11 +161,16 @@ func (s *SimContext) ApplyConfigUpdate(body []byte) error {
 		}
 	}
 	if update.FakeMetrics != nil {
-		if s.Config().FakeMetrics == nil {
-			return errors.New("the simulator is reporting real metrics; fake metrics cannot be updated")
-		}
-		if err := s.updateFakeMetrics(update.FakeMetrics, s.Config().FakeMetrics); err != nil {
-			return fmt.Errorf("failed to update fake metrics: %w", err)
+		// FakeMetrics is an engine-owned interface; only vLLM's concrete type
+		// is understood here. A future engine with a different concrete type
+		// skips fake-metrics application, an explicit limitation of the
+		// current, vLLM-specific application logic in fake_metrics.go.
+		newFM, newOK := update.FakeMetrics.(*fakemetrics.Config)
+		oldFM, oldOK := s.Config().FakeMetrics.(*fakemetrics.Config)
+		if newOK && oldOK {
+			if err := s.updateFakeMetrics(newFM, oldFM); err != nil {
+				return fmt.Errorf("failed to update fake metrics: %w", err)
+			}
 		}
 	}
 	s.SetConfig(next)
