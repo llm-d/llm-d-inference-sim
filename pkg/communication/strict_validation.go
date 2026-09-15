@@ -42,8 +42,7 @@ func validateStrictContentType(contentType string) *api.Error {
 }
 
 // validateStrictCompletionBody mirrors validation performed by vLLM after
-// request-schema decoding. Malformed JSON and field-type errors are left to
-// the endpoint's normal decoder so lenient mode keeps its existing behavior.
+// request-schema decoding in strict mode.
 func validateStrictCompletionBody(body []byte, path string) *api.Error {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(body, &fields); err != nil || fields == nil {
@@ -84,7 +83,7 @@ func validateStrictCompletionBody(body []byte, path string) *api.Error {
 	maxTokens, hasMaxTokens := integerField(fields, "max_tokens")
 	maxCompletionTokens, hasMaxCompletionTokens := integerField(fields, "max_completion_tokens")
 	effectiveMaxTokens, hasEffectiveMaxTokens := maxTokens, hasMaxTokens
-	if hasMaxCompletionTokens {
+	if path == "/v1/chat/completions" && hasMaxCompletionTokens {
 		effectiveMaxTokens, hasEffectiveMaxTokens = maxCompletionTokens, true
 	}
 	if hasEffectiveMaxTokens && effectiveMaxTokens < 1 {

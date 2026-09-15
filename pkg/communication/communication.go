@@ -49,7 +49,8 @@ type Communication struct {
 	fakeMetricsDeprecatedLogged bool
 
 	// startTime records when the server started, used for startup-duration readiness check
-	startTime time.Time
+	startTime       time.Time
+	strictValidator *strictRequestValidator
 }
 
 func New(logger logr.Logger, processor Processor, runtime endpoint.Runtime) *Communication {
@@ -71,6 +72,13 @@ type Transport interface {
 // service added via transport.BindGRPC).
 func (c *Communication) Start(ctx context.Context, transport Transport) error {
 	c.logger.V(logging.INFO).Info("Starting communication layer")
+	if c.runtime.Config().StrictRequestValidation {
+		validator, err := loadStrictRequestValidator(c.runtime.Config().StrictOpenAPI)
+		if err != nil {
+			return fmt.Errorf("strict request validation: %w", err)
+		}
+		c.strictValidator = validator
+	}
 
 	listener, err := c.newListener()
 	if err != nil {
