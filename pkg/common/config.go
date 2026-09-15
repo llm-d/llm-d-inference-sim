@@ -226,8 +226,6 @@ type Configuration struct {
 	LogHTTP bool `yaml:"log-http" json:"log-http"`
 	// StrictRequestValidation enables vLLM-compatible validation for OpenAI completion requests.
 	StrictRequestValidation bool `yaml:"strict" json:"strict"`
-	// StrictOpenAPI is a local OpenAPI 3.1 document exported by the target vLLM.
-	StrictOpenAPI string `yaml:"strict-openapi" json:"strict-openapi"`
 
 	// DefaultEmbeddingDimensions is the default size of embedding vectors when the request does not specify dimensions.
 	// Used by the /v1/embeddings endpoint. Default is 384.

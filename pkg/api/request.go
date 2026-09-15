@@ -157,8 +157,6 @@ type baseRequest struct {
 
 // baseCompletionsRequest contains base completions request related information
 type baseCompletionsRequest struct {
-	strictMinTokens        int64
-	strictDefaultMaxTokens int64
 	baseRequest
 	// StreamOptions defines streaming options in case Stream is set to true
 	StreamOptions *StreamOptions `json:"stream_options,omitempty"`
@@ -172,16 +170,6 @@ type baseCompletionsRequest struct {
 	// N is the number of completion choices to generate for each prompt.
 	// Optional and defaults to 1.
 	N *int `json:"n,omitempty"`
-}
-
-// SetStrictTokenLimits carries validation-only bounds through prompt splitting.
-func (b *baseCompletionsRequest) SetStrictTokenLimits(minimum, defaultMaximum int64) {
-	b.strictMinTokens, b.strictDefaultMaxTokens = minimum, defaultMaximum
-}
-
-// StrictTokenLimits returns the bounds applied after prompt tokenization.
-func (b *baseCompletionsRequest) StrictTokenLimits() (int64, int64) {
-	return b.strictMinTokens, b.strictDefaultMaxTokens
 }
 
 type KVTransferParams struct {

@@ -285,11 +285,7 @@ func (c *Communication) handleHTTP(req endpoint.Request, respBuilder responseBui
 			c.sendError(ctx, badRequest("Strict request schema is not initialized", nil), false)
 			return
 		}
-		if err := c.strictValidator.validate(ctx.Request.Body(), path); err != nil {
-			c.sendError(ctx, err, false)
-			return
-		}
-		if err := validateStrictCompletionBody(ctx.Request.Body(), path); err != nil {
+		if err := c.strictValidator.Validate(ctx.Request.Body(), path); err != nil {
 			c.sendError(ctx, err, false)
 			return
 		}
@@ -303,18 +299,6 @@ func (c *Communication) handleHTTP(req endpoint.Request, respBuilder responseBui
 	}
 
 	requestID := c.getRequestID(ctx)
-	if c.runtime.Config().StrictRequestValidation && c.strictValidator != nil {
-		if target, ok := req.(interface{ SetStrictTokenLimits(int64, int64) }); ok {
-			var fields map[string]json.RawMessage
-			_ = json.Unmarshal(ctx.Request.Body(), &fields)
-			minimum, _ := integerField(fields, "min_tokens")
-			defaultMaximum := int64(0)
-			if _, present := fields["max_tokens"]; !present {
-				defaultMaximum = c.strictValidator.defaultMax[path]
-			}
-			target.SetStrictTokenLimits(minimum, defaultMaximum)
-		}
-	}
 	req.SetRequestID(requestID)
 
 	// Check for X-Return-Error header - deterministic error trigger

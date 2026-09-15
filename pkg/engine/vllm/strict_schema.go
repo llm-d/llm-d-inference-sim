@@ -14,10 +14,11 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package communication
+package vllm
 
 import (
 	"bytes"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -27,6 +28,7 @@ import (
 	"strings"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
+	"github.com/llm-d/llm-d-inference-sim/pkg/communication"
 	"github.com/santhosh-tekuri/jsonschema/v5"
 )
 
@@ -36,14 +38,16 @@ type strictRequestValidator struct {
 	defaultMax map[string]int64
 }
 
-func loadStrictRequestValidator(filename string) (*strictRequestValidator, error) {
-	if filename == "" {
-		return nil, errors.New("--strict requires --strict-openapi with a target vLLM OpenAPI 3.1 document")
-	}
-	document, err := os.ReadFile(filename)
-	if err != nil {
-		return nil, err
-	}
+//go:embed schema/openapi.json
+var strictOpenAPI []byte
+
+// NewRequestValidator loads the schema and rules for the bundled vLLM version.
+func (Engine) NewRequestValidator() (communication.RequestValidator, error) {
+	return loadStrictRequestValidator()
+}
+
+func loadStrictRequestValidator() (*strictRequestValidator, error) {
+	var err error
 	maxN := int64(16384)
 	if value, exists := os.LookupEnv("VLLM_MAX_N_SEQUENCES"); exists {
 		maxN, err = strconv.ParseInt(value, 10, 64)
@@ -51,7 +55,7 @@ func loadStrictRequestValidator(filename string) (*strictRequestValidator, error
 			return nil, errors.New("VLLM_MAX_N_SEQUENCES must be a positive integer")
 		}
 	}
-	return compileStrictRequestValidator(document, maxN)
+	return compileStrictRequestValidator(strictOpenAPI, maxN)
 }
 
 func compileStrictRequestValidator(document []byte, maxN int64) (*strictRequestValidator, error) {
@@ -76,7 +80,7 @@ func compileStrictRequestValidator(document []byte, maxN int64) (*strictRequestV
 	compiler := jsonschema.NewCompiler()
 	compiler.Draft = jsonschema.Draft2020
 	compiler.ExtractAnnotations = true
-	// Resolve only the supplied snapshot, never remote references at runtime.
+	// Resolve only the embedded snapshot, never remote references at runtime.
 	compiler.LoadURL = func(url string) (io.ReadCloser, error) {
 		return nil, fmt.Errorf("external schema reference is not allowed: %s", url)
 	}
@@ -85,7 +89,7 @@ func compileStrictRequestValidator(document []byte, maxN int64) (*strictRequestV
 		return nil, err
 	}
 	validator := &strictRequestValidator{schemas: make(map[string]*jsonschema.Schema), maxN: maxN, defaultMax: make(map[string]int64)}
-	for _, path := range []string{"/v1/chat/completions", "/v1/completions"} {
+	for _, path := range []string{chatCompletionsPath, completionsPath} {
 		if len(spec.Paths[path].Post.RequestBody.Content["application/json"].Schema) == 0 {
 			return nil, fmt.Errorf("missing JSON request schema for %s", path)
 		}
@@ -109,7 +113,7 @@ func compileStrictRequestValidator(document []byte, maxN int64) (*strictRequestV
 	return validator, nil
 }
 
-func (v *strictRequestValidator) validate(body []byte, path string) *api.Error {
+func (v *strictRequestValidator) Validate(body []byte, path string) *api.Error {
 	var value any
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.UseNumber()
@@ -126,17 +130,5 @@ func (v *strictRequestValidator) validate(body []byte, path string) *api.Error {
 	if err := json.Unmarshal(body, &fields); err != nil {
 		return badRequest("Expected a JSON object", nil)
 	}
-	if n, ok := integerField(fields, "n"); ok && n > v.maxN {
-		return badRequest(fmt.Sprintf("n must be at most %d, got %d.", v.maxN, n), nil)
-	}
-	if maximum := v.defaultMax[path]; maximum > 0 {
-		if _, present := fields["max_tokens"]; !present {
-			if _, explicit := integerField(fields, "max_completion_tokens"); path != "/v1/chat/completions" || !explicit {
-				if minTokens, ok := integerField(fields, "min_tokens"); ok && minTokens > maximum {
-					return badRequest(fmt.Sprintf("min_tokens must be less than or equal to max_tokens=%d, got %d.", maximum, minTokens), nil)
-				}
-			}
-		}
-	}
-	return nil
+	return v.validateFields(fields, path)
 }
