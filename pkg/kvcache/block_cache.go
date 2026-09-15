@@ -202,18 +202,27 @@ func (bc *blockCache) startRequest(req Request, blockHashes []uint64, blockToken
 	// as a contiguous leading prefix — the parent of the first new block is
 	// always blockHashes[lastCachedIdx].
 	lastCachedIdx := -1
+	cachedPrefixBlocks := 0
+	prefixMissed := false
 	for i, blockHash := range blockHashes {
 		bKey := blockKey{hash: blockHash, modelName: req.GetDisplayedModel()}
 		if _, exists := bc.unusedBlocks[bKey]; exists {
 			blockToMoveToUsed = append(blockToMoveToUsed, bKey)
-			lastCachedIdx = i
+			if !prefixMissed {
+				cachedPrefixBlocks++
+				lastCachedIdx = i
+			}
 		} else if _, exists := bc.usedBlocks[bKey]; !exists {
 			// new block — record its index so tokens can be written after
 			// the capacity check passes, preventing orphaned entries on error.
 			blocksToAdd = append(blocksToAdd, newBlock{key: bKey, tokenIdx: i})
+			prefixMissed = true
 		} else {
 			blockAlreadyInUse = append(blockAlreadyInUse, bKey)
-			lastCachedIdx = i
+			if !prefixMissed {
+				cachedPrefixBlocks++
+				lastCachedIdx = i
+			}
 		}
 	}
 
@@ -292,7 +301,7 @@ func (bc *blockCache) startRequest(req Request, blockHashes []uint64, blockToken
 		}
 		common.WriteToChannel(*bc.usageChan, usage, bc.logger)
 	}
-	return len(blockAlreadyInUse) + len(blockToMoveToUsed), nil
+	return cachedPrefixBlocks, nil
 }
 
 // finishRequest processes the completion of a request, decreasing reference counts
