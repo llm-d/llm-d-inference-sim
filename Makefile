@@ -102,8 +102,8 @@ vulncheck: check-go ## Run govulncheck
 	$(LOCALBIN)/govulncheck ./...
 
 .PHONY: check-latest-tags
-check-latest-tags: ## Warn on YAML using image :latest tag
-	@./scripts/check-latest-tags.sh
+check-latest-tags: ## Reject YAML using image :latest tags
+	@./scripts/check-latest-tags.sh --strict
 
 LINT_ARGS ?=
 ifeq ($(LINT_NEW_ONLY),true)

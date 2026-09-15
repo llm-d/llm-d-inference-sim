@@ -93,15 +93,50 @@ var _ = Describe("ApplyAdminUpdate", func() {
 	})
 
 	It("returns the parsed fake-metrics partial via update.FakeMetrics", func() {
+		// A fake-metrics partial only makes sense against an already-configured
+		// FakeMetrics value (see Configuration.Update); the base fixture starts
+		// with a nil one.
+		base.FakeMetrics = &stubFakeMetrics{}
+
 		next, update, _, err := base.Update([]byte(
 			`{"failure-injection-rate": 50, "fake-metrics": {"running-requests": 7}}`))
 		Expect(err).ToNot(HaveOccurred())
 		Expect(next.FailureInjectionRate).To(Equal(50))
 		Expect(update.FakeMetrics).ToNot(BeNil())
-		Expect(update.FakeMetrics.RunningRequests).ToNot(BeNil())
-		Expect(update.FakeMetrics.RunningRequests.FixedValue).To(Equal(float64(7)))
+		updateFakeMetrics, ok := update.FakeMetrics.(*stubFakeMetrics)
+		Expect(ok).To(BeTrue())
+		Expect(updateFakeMetrics.RunningRequests).ToNot(BeNil())
+		Expect(updateFakeMetrics.RunningRequests.FixedValue).To(Equal(float64(7)))
 		// Fields not in the body are nil on the fake-metrics partial.
-		Expect(update.FakeMetrics.WaitingRequests).To(BeNil())
+		Expect(updateFakeMetrics.WaitingRequests).To(BeNil())
+	})
+
+	It("rejects a fake-metrics partial when no fake-metrics is configured", func() {
+		// Without a concrete FakeMetrics to unmarshal into, the partial would be
+		// silently dropped, so it is rejected instead.
+		_, _, _, err := base.Update([]byte(`{"fake-metrics": {"running-requests": 7}}`))
+		Expect(err).To(HaveOccurred())
+	})
+
+	It("treats an explicit null fake-metrics as a no-op when none is configured", func() {
+		next, update, _, err := base.Update([]byte(`{"fake-metrics": null}`))
+		Expect(err).ToNot(HaveOccurred())
+		Expect(update.FakeMetrics).To(BeNil())
+		Expect(next.FakeMetrics).To(BeNil())
+	})
+
+	It("leaves update.FakeMetrics nil for a body that does not mention fake metrics", func() {
+		// update reports only what the body asked to change, so the caller can
+		// use it to decide whether to touch Prometheus at all.
+		base.FakeMetrics = &stubFakeMetrics{RunningRequests: &FakeMetricWithFunction{FixedValue: 3}}
+
+		next, update, _, err := base.Update([]byte(`{"failure-injection-rate": 50}`))
+		Expect(err).ToNot(HaveOccurred())
+		Expect(update.FakeMetrics).To(BeNil())
+		// The configured metrics survive untouched on the merged result.
+		nextFakeMetrics, ok := next.FakeMetrics.(*stubFakeMetrics)
+		Expect(ok).To(BeTrue())
+		Expect(nextFakeMetrics.RunningRequests.FixedValue).To(Equal(3.0))
 	})
 
 	DescribeTable("flags latencyChanged according to the body keys",
@@ -256,14 +291,30 @@ var _ = Describe("Configuration.MarshalCleaned", func() {
 		Entry("tool-calls", "tool-calls", toolCallYAMLKeys),
 		Entry("dataset", "dataset", datasetYAMLKeys),
 		Entry("ssl", "ssl", sslYAMLKeys),
-		Entry("lora", "lora", loraYAMLKeys),
+		// LoraConfig's JSON keys, listed literally: its wire format is engine-owned
+		// (see pkg/engine/vllm), so there's no common reflection-derived list for it.
+		Entry("lora", "lora", []string{"max-loras", "max-cpu-loras", "lora-modules"}),
 	)
 })
+
+// stubFakeMetrics is a minimal FakeMetrics implementation, standing in for a
+// real engine's own. The concrete implementations live with their engine (see
+// pkg/engine/vllm/fakemetrics), which this package cannot import, and what
+// Copy/Update need to get right here is generic anyway: pre-seeding the
+// interface field with the source's concrete type so encoding/json has
+// something to unmarshal the partial into.
+type stubFakeMetrics struct {
+	RunningRequests *FakeMetricWithFunction `json:"running-requests,omitempty"`
+	WaitingRequests *FakeMetricWithFunction `json:"waiting-requests,omitempty"`
+}
+
+func (s *stubFakeMetrics) Validate() error  { return nil }
+func (s *stubFakeMetrics) New() FakeMetrics { return &stubFakeMetrics{} }
 
 var _ = Describe("Configuration.Copy", func() {
 	It("should round-trip a non-nil FakeMetrics with a fixed-value metric", func() {
 		c := &Configuration{
-			FakeMetrics: &FakeMetrics{
+			FakeMetrics: &stubFakeMetrics{
 				RunningRequests: &FakeMetricWithFunction{FixedValue: 5},
 			},
 		}
@@ -271,14 +322,16 @@ var _ = Describe("Configuration.Copy", func() {
 		got, err := c.Copy()
 		Expect(err).NotTo(HaveOccurred())
 		Expect(got.FakeMetrics).NotTo(BeNil())
-		Expect(got.FakeMetrics.RunningRequests).NotTo(BeNil())
-		Expect(got.FakeMetrics.RunningRequests.IsFunction).To(BeFalse())
-		Expect(got.FakeMetrics.RunningRequests.FixedValue).To(Equal(5.0))
+		gotFakeMetrics, ok := got.FakeMetrics.(*stubFakeMetrics)
+		Expect(ok).To(BeTrue())
+		Expect(gotFakeMetrics.RunningRequests).NotTo(BeNil())
+		Expect(gotFakeMetrics.RunningRequests.IsFunction).To(BeFalse())
+		Expect(gotFakeMetrics.RunningRequests.FixedValue).To(Equal(5.0))
 	})
 
 	It("should round-trip a non-nil FakeMetrics with a function-valued metric", func() {
 		c := &Configuration{
-			FakeMetrics: &FakeMetrics{
+			FakeMetrics: &stubFakeMetrics{
 				WaitingRequests: &FakeMetricWithFunction{
 					IsFunction: true,
 					Function: &FunctionInfo{
@@ -294,18 +347,20 @@ var _ = Describe("Configuration.Copy", func() {
 		got, err := c.Copy()
 		Expect(err).NotTo(HaveOccurred())
 		Expect(got.FakeMetrics).NotTo(BeNil())
-		Expect(got.FakeMetrics.WaitingRequests).NotTo(BeNil())
-		Expect(got.FakeMetrics.WaitingRequests.IsFunction).To(BeTrue())
-		Expect(got.FakeMetrics.WaitingRequests.Function).NotTo(BeNil())
-		Expect(got.FakeMetrics.WaitingRequests.Function.Name).To(Equal(OscillateFuncName))
-		Expect(got.FakeMetrics.WaitingRequests.Function.Start).To(Equal(0.0))
-		Expect(got.FakeMetrics.WaitingRequests.Function.End).To(Equal(10.0))
-		Expect(got.FakeMetrics.WaitingRequests.Function.Period).To(Equal(5 * time.Second))
+		gotFakeMetrics, ok := got.FakeMetrics.(*stubFakeMetrics)
+		Expect(ok).To(BeTrue())
+		Expect(gotFakeMetrics.WaitingRequests).NotTo(BeNil())
+		Expect(gotFakeMetrics.WaitingRequests.IsFunction).To(BeTrue())
+		Expect(gotFakeMetrics.WaitingRequests.Function).NotTo(BeNil())
+		Expect(gotFakeMetrics.WaitingRequests.Function.Name).To(Equal(OscillateFuncName))
+		Expect(gotFakeMetrics.WaitingRequests.Function.Start).To(Equal(0.0))
+		Expect(gotFakeMetrics.WaitingRequests.Function.End).To(Equal(10.0))
+		Expect(gotFakeMetrics.WaitingRequests.Function.Period).To(Equal(5 * time.Second))
 	})
 
 	It("should round-trip an explicit-zero metric (non-nil pointer to zero-value struct)", func() {
 		c := &Configuration{
-			FakeMetrics: &FakeMetrics{
+			FakeMetrics: &stubFakeMetrics{
 				RunningRequests: &FakeMetricWithFunction{},
 			},
 		}
@@ -313,9 +368,11 @@ var _ = Describe("Configuration.Copy", func() {
 		got, err := c.Copy()
 		Expect(err).NotTo(HaveOccurred())
 		Expect(got.FakeMetrics).NotTo(BeNil())
-		Expect(got.FakeMetrics.RunningRequests).NotTo(BeNil())
-		Expect(got.FakeMetrics.RunningRequests.IsFunction).To(BeFalse())
-		Expect(got.FakeMetrics.RunningRequests.FixedValue).To(Equal(0.0))
+		gotFakeMetrics, ok := got.FakeMetrics.(*stubFakeMetrics)
+		Expect(ok).To(BeTrue())
+		Expect(gotFakeMetrics.RunningRequests).NotTo(BeNil())
+		Expect(gotFakeMetrics.RunningRequests.IsFunction).To(BeFalse())
+		Expect(gotFakeMetrics.RunningRequests.FixedValue).To(Equal(0.0))
 	})
 })
 
@@ -365,64 +422,6 @@ var _ = Describe("admin struct tags", func() {
 
 })
 
-var _ = Describe("Configuration.load kv-cache YAML folding", func() {
-	writeConfig := func(contents string) string {
-		dir := GinkgoT().TempDir()
-		path := filepath.Join(dir, "config.yaml")
-		Expect(os.WriteFile(path, []byte(contents), 0o644)).To(Succeed())
-		return path
-	}
-
-	It("populates KVCache from the nested kvcache block", func() {
-		c := NewConfig()
-		Expect(c.load(writeConfig(`
-model: test-model
-kvcache:
-  enable-kvcache: true
-  kv-cache-size: 2048
-  block-size: 32
-`))).To(Succeed())
-
-		Expect(c.KVCache.EnableKVCache).To(BeTrue())
-		Expect(c.KVCache.KVCacheSize).To(Equal(2048))
-		Expect(c.KVCache.TokenBlockSize).To(Equal(32))
-	})
-
-	It("populates KVCache from legacy flat top-level keys", func() {
-		c := NewConfig()
-		Expect(c.load(writeConfig(`
-model: test-model
-enable-kvcache: true
-kv-cache-size: 2048
-block-size: 32
-`))).To(Succeed())
-
-		Expect(c.KVCache.EnableKVCache).To(BeTrue())
-		Expect(c.KVCache.KVCacheSize).To(Equal(2048))
-		Expect(c.KVCache.TokenBlockSize).To(Equal(32))
-	})
-
-	It("errors when kv-cache settings mix the flat and nested layouts", func() {
-		c := NewConfig()
-		Expect(c.load(writeConfig(`
-model: test-model
-kv-cache-size: 111
-kvcache:
-  kv-cache-size: 222
-`))).ToNot(Succeed())
-	})
-
-	It("errors when a flat kv-cache key is set alongside an unrelated nested key", func() {
-		c := NewConfig()
-		Expect(c.load(writeConfig(`
-model: test-model
-kv-cache-size: 111
-kvcache:
-  block-size: 32
-`))).ToNot(Succeed())
-	})
-})
-
 var _ = Describe("Configuration.load latencies YAML folding", func() {
 	writeConfig := func(contents string) string {
 		dir := GinkgoT().TempDir()
@@ -433,12 +432,13 @@ var _ = Describe("Configuration.load latencies YAML folding", func() {
 
 	It("populates Latencies from the nested latencies block", func() {
 		c := NewConfig()
-		Expect(c.load(writeConfig(`
+		_, err := c.load(writeConfig(`
 model: test-model
 latencies:
   time-to-first-token: 250ms
   inter-token-latency: 10ms
-`))).To(Succeed())
+`))
+		Expect(err).To(Succeed())
 
 		Expect(c.Latencies.TimeToFirstToken).To(Equal(250 * time.Millisecond))
 		Expect(c.Latencies.InterTokenLatency).To(Equal(10 * time.Millisecond))
@@ -446,11 +446,12 @@ latencies:
 
 	It("populates Latencies from legacy flat top-level keys", func() {
 		c := NewConfig()
-		Expect(c.load(writeConfig(`
+		_, err := c.load(writeConfig(`
 model: test-model
 time-to-first-token: 250ms
 inter-token-latency: 10ms
-`))).To(Succeed())
+`))
+		Expect(err).To(Succeed())
 
 		Expect(c.Latencies.TimeToFirstToken).To(Equal(250 * time.Millisecond))
 		Expect(c.Latencies.InterTokenLatency).To(Equal(10 * time.Millisecond))
@@ -458,22 +459,24 @@ inter-token-latency: 10ms
 
 	It("errors when latencies settings mix the flat and nested layouts", func() {
 		c := NewConfig()
-		Expect(c.load(writeConfig(`
+		_, err := c.load(writeConfig(`
 model: test-model
 time-to-first-token: 100ms
 latencies:
   time-to-first-token: 200ms
-`))).ToNot(Succeed())
+`))
+		Expect(err).ToNot(Succeed())
 	})
 
 	It("errors when a flat latency key is set alongside an unrelated nested key", func() {
 		c := NewConfig()
-		Expect(c.load(writeConfig(`
+		_, err := c.load(writeConfig(`
 model: test-model
 time-to-first-token: 100ms
 latencies:
   inter-token-latency: 10ms
-`))).ToNot(Succeed())
+`))
+		Expect(err).ToNot(Succeed())
 	})
 })
 
@@ -487,12 +490,13 @@ var _ = Describe("Configuration.load tool-calls YAML folding", func() {
 
 	It("populates ToolCalls from the nested tool-calls block", func() {
 		c := NewConfig()
-		Expect(c.load(writeConfig(`
+		_, err := c.load(writeConfig(`
 model: test-model
 tool-calls:
   max-tool-call-integer-param: 50
   skip-tool-validation: true
-`))).To(Succeed())
+`))
+		Expect(err).To(Succeed())
 
 		Expect(c.ToolCalls.MaxToolCallIntegerParam).To(Equal(50))
 		Expect(c.ToolCalls.SkipToolValidation).To(BeTrue())
@@ -500,11 +504,12 @@ tool-calls:
 
 	It("populates ToolCalls from legacy flat top-level keys", func() {
 		c := NewConfig()
-		Expect(c.load(writeConfig(`
+		_, err := c.load(writeConfig(`
 model: test-model
 max-tool-call-integer-param: 50
 skip-tool-validation: true
-`))).To(Succeed())
+`))
+		Expect(err).To(Succeed())
 
 		Expect(c.ToolCalls.MaxToolCallIntegerParam).To(Equal(50))
 		Expect(c.ToolCalls.SkipToolValidation).To(BeTrue())
@@ -512,22 +517,24 @@ skip-tool-validation: true
 
 	It("errors when tool-call settings mix the flat and nested layouts", func() {
 		c := NewConfig()
-		Expect(c.load(writeConfig(`
+		_, err := c.load(writeConfig(`
 model: test-model
 max-tool-call-integer-param: 50
 tool-calls:
   max-tool-call-integer-param: 60
-`))).ToNot(Succeed())
+`))
+		Expect(err).ToNot(Succeed())
 	})
 
 	It("errors when a flat tool-call key is set alongside an unrelated nested key", func() {
 		c := NewConfig()
-		Expect(c.load(writeConfig(`
+		_, err := c.load(writeConfig(`
 model: test-model
 max-tool-call-integer-param: 50
 tool-calls:
   skip-tool-validation: true
-`))).ToNot(Succeed())
+`))
+		Expect(err).ToNot(Succeed())
 	})
 })
 
@@ -541,12 +548,13 @@ var _ = Describe("Configuration.load dataset YAML folding", func() {
 
 	It("populates Dataset from the nested dataset block", func() {
 		c := NewConfig()
-		Expect(c.load(writeConfig(`
+		_, err := c.load(writeConfig(`
 model: test-model
 dataset:
   dataset-path: /tmp/data.db
   dataset-in-memory: true
-`))).To(Succeed())
+`))
+		Expect(err).To(Succeed())
 
 		Expect(c.Dataset.DatasetPath).To(Equal("/tmp/data.db"))
 		Expect(c.Dataset.DatasetInMemory).To(BeTrue())
@@ -554,11 +562,12 @@ dataset:
 
 	It("populates Dataset from legacy flat top-level keys", func() {
 		c := NewConfig()
-		Expect(c.load(writeConfig(`
+		_, err := c.load(writeConfig(`
 model: test-model
 dataset-path: /tmp/data.db
 dataset-in-memory: true
-`))).To(Succeed())
+`))
+		Expect(err).To(Succeed())
 
 		Expect(c.Dataset.DatasetPath).To(Equal("/tmp/data.db"))
 		Expect(c.Dataset.DatasetInMemory).To(BeTrue())
@@ -566,22 +575,24 @@ dataset-in-memory: true
 
 	It("errors when dataset settings mix the flat and nested layouts", func() {
 		c := NewConfig()
-		Expect(c.load(writeConfig(`
+		_, err := c.load(writeConfig(`
 model: test-model
 dataset-path: /tmp/data.db
 dataset:
   dataset-path: /tmp/other.db
-`))).ToNot(Succeed())
+`))
+		Expect(err).ToNot(Succeed())
 	})
 
 	It("errors when a flat dataset key is set alongside an unrelated nested key", func() {
 		c := NewConfig()
-		Expect(c.load(writeConfig(`
+		_, err := c.load(writeConfig(`
 model: test-model
 dataset-path: /tmp/data.db
 dataset:
   dataset-in-memory: true
-`))).ToNot(Succeed())
+`))
+		Expect(err).ToNot(Succeed())
 	})
 })
 
@@ -595,12 +606,13 @@ var _ = Describe("Configuration.load ssl YAML folding", func() {
 
 	It("populates SSL from the nested ssl block", func() {
 		c := NewConfig()
-		Expect(c.load(writeConfig(`
+		_, err := c.load(writeConfig(`
 model: test-model
 ssl:
   ssl-certfile: /tmp/cert.pem
   ssl-keyfile: /tmp/key.pem
-`))).To(Succeed())
+`))
+		Expect(err).To(Succeed())
 
 		Expect(c.SSL.SSLCertFile).To(Equal("/tmp/cert.pem"))
 		Expect(c.SSL.SSLKeyFile).To(Equal("/tmp/key.pem"))
@@ -608,11 +620,12 @@ ssl:
 
 	It("populates SSL from legacy flat top-level keys", func() {
 		c := NewConfig()
-		Expect(c.load(writeConfig(`
+		_, err := c.load(writeConfig(`
 model: test-model
 ssl-certfile: /tmp/cert.pem
 ssl-keyfile: /tmp/key.pem
-`))).To(Succeed())
+`))
+		Expect(err).To(Succeed())
 
 		Expect(c.SSL.SSLCertFile).To(Equal("/tmp/cert.pem"))
 		Expect(c.SSL.SSLKeyFile).To(Equal("/tmp/key.pem"))
@@ -620,75 +633,23 @@ ssl-keyfile: /tmp/key.pem
 
 	It("errors when ssl settings mix the flat and nested layouts", func() {
 		c := NewConfig()
-		Expect(c.load(writeConfig(`
+		_, err := c.load(writeConfig(`
 model: test-model
 ssl-certfile: /tmp/cert.pem
 ssl:
   ssl-certfile: /tmp/other.pem
-`))).ToNot(Succeed())
+`))
+		Expect(err).ToNot(Succeed())
 	})
 
 	It("errors when a flat ssl key is set alongside an unrelated nested key", func() {
 		c := NewConfig()
-		Expect(c.load(writeConfig(`
+		_, err := c.load(writeConfig(`
 model: test-model
 ssl-certfile: /tmp/cert.pem
 ssl:
   self-signed-certs: true
-`))).ToNot(Succeed())
-	})
-})
-
-var _ = Describe("Configuration.load lora YAML folding", func() {
-	writeConfig := func(contents string) string {
-		dir := GinkgoT().TempDir()
-		path := filepath.Join(dir, "config.yaml")
-		Expect(os.WriteFile(path, []byte(contents), 0o644)).To(Succeed())
-		return path
-	}
-
-	It("populates Lora from the nested lora block", func() {
-		c := NewConfig()
-		Expect(c.load(writeConfig(`
-model: test-model
-lora:
-  max-loras: 4
-  max-cpu-loras: 8
-`))).To(Succeed())
-
-		Expect(c.Lora.MaxLoras).To(Equal(4))
-		Expect(c.Lora.MaxCPULoras).To(Equal(8))
-	})
-
-	It("populates Lora from legacy flat top-level keys", func() {
-		c := NewConfig()
-		Expect(c.load(writeConfig(`
-model: test-model
-max-loras: 4
-max-cpu-loras: 8
-`))).To(Succeed())
-
-		Expect(c.Lora.MaxLoras).To(Equal(4))
-		Expect(c.Lora.MaxCPULoras).To(Equal(8))
-	})
-
-	It("errors when lora settings mix the flat and nested layouts", func() {
-		c := NewConfig()
-		Expect(c.load(writeConfig(`
-model: test-model
-max-loras: 4
-lora:
-  max-loras: 8
-`))).ToNot(Succeed())
-	})
-
-	It("errors when a flat lora key is set alongside an unrelated nested key", func() {
-		c := NewConfig()
-		Expect(c.load(writeConfig(`
-model: test-model
-max-loras: 4
-lora:
-  max-cpu-loras: 8
-`))).ToNot(Succeed())
+`))
+		Expect(err).ToNot(Succeed())
 	})
 })
