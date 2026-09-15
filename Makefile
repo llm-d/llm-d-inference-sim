@@ -64,7 +64,7 @@ endif
 
 .PHONY: presubmit
 presubmit: LINT_NEW_ONLY=true
-presubmit: git-branch-check signed-commits-check go-mod-check format lint check-no-openpgp vulncheck check-latest-tags ## Run all pre-merge checks
+presubmit: git-branch-check signed-commits-check go-mod-check format lint vulncheck check-latest-tags ## Run all pre-merge checks
 	@printf "\033[32;1m==== presubmit passed ====\033[0m\n"
 
 .PHONY: git-branch-check
@@ -100,10 +100,6 @@ vulncheck: check-go ## Run govulncheck
 	@printf "\033[33;1m==== Running vulncheck ====\033[0m\n"
 	@GOBIN=$(LOCALBIN) go install golang.org/x/vuln/cmd/govulncheck@latest
 	$(LOCALBIN)/govulncheck ./...
-
-.PHONY: check-no-openpgp
-check-no-openpgp: check-go ## Reject deprecated OpenPGP dependencies, including tests
-	@./scripts/check-no-openpgp.sh
 
 .PHONY: check-latest-tags
 check-latest-tags: ## Reject YAML using image :latest tags

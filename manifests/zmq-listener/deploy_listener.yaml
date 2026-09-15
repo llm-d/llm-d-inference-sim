@@ -31,7 +31,7 @@ spec:
     spec:
       containers:
         - name: listener
-          image: quay.io/mayab/zmq-listener@sha256:2427928648d25b1195dc2e226304d3774974058b8f3f6d45099b07d4814430b6
+          image: ghcr.io/llm-d/zmq-listener:v0.11.2
           imagePullPolicy: Always
           env:
           - name: ZMQ_PORT  # Assumed env var in your listener app
