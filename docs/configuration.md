@@ -27,8 +27,7 @@ Some environment variables (for example `POD_NAME`, `POD_NAMESPACE`) are not ove
 - `enable-sleep-mode`, `no-enable-sleep-mode`: Enable or disable sleep mode feature. When enabled, the simulator can be put to sleep via the `/sleep` endpoint and woken up via the `/wake_up` endpoint
 - `enable-request-id-headers`: Enable including X-Request-Id header in responses. When enabled, the simulator will include the request ID in response headers
 - `log-http`: When true, logs each HTTP request and response at INFO (method, URI, remote address, headers, and body when buffered). Gzip-encoded bodies are decoded before logging. Streamed response bodies (for example SSE) are not logged. Use only in trusted environments; may include secrets such as `Authorization` headers.
-- `strict`: Validate `/v1/chat/completions` and `/v1/completions` against a target vLLM request schema, plus sampling and runtime constraints. Requires `strict-openapi`. Optional, default is false.
-- `strict-openapi`: Path to the target vLLM server's exported OpenAPI 3.1 JSON document. Required only with `strict`. The schemas are compiled once at startup; external schema references are rejected.
+- `strict`: Validate `/v1/chat/completions` and `/v1/completions` against the embedded vLLM 0.21.0 request schemas and engine-owned semantic checks. Optional, default is false.
 - `mm-encoder-only`, `no-mm-encoder-only`: Skip  (or don't skip) the language component of the model.
 - `omni`, `no-omni`: Enable or disable omni mode. When enabled, the simulator appends a synthetic image (a 1×1 transparent PNG, `data:image/png;base64,…`) to `/v1/chat/completions` responses in two cases: the `X-Send-Image: true` request header is present, or a random roll succeeds against `--image-emission-rate`. In non-streaming responses the assistant message `content` becomes a structured array — a `text` block carrying the generated tokens followed by an `image_url` block. In streaming responses an extra SSE chunk with `"modality":"image"` is emitted after the token stream, carrying the same image in its delta `content`. When `--omni` is not set (the default), both mechanisms are disabled and the response is a normal text response.
 - `image-emission-rate`: probability (0–100) of emitting a synthetic image chunk per `/v1/chat/completions` request when omni mode is enabled. 0 (the default) means the rate mechanism never fires; 100 means every request gets an image. The `X-Send-Image: true` header triggers emission independently of this rate. Updatable at runtime via `POST /admin/config`.
@@ -232,15 +231,24 @@ Example of definition in yaml:
 
 ### Strict request validation
 
-Export the schema from the vLLM version you want to simulate:
+Enable strict request validation without any additional files:
 
 ```sh
-curl --fail http://localhost:8000/openapi.json -o vllm-openapi.json
-llm-d-inference-sim --strict --strict-openapi vllm-openapi.json
+llm-d-inference-sim --strict
 ```
 
-Keep the snapshot with the target vLLM version and model configuration. Strict mode checks the entire JSON request against that snapshot, including nested structures and extension fields. Unknown-field acceptance follows the supplied schema. Schema defaults are read for validation; they do not modify response generation.
+The vLLM engine compiles its embedded schemas once at startup and validates requests
+when received, before tokenization or generation. The schemas and hand-written rules
+are pinned together to vLLM 0.21.0. Set `VLLM_MAX_N_SEQUENCES` to match the target
+server's sequence limit (default: 16384).
 
-Set `VLLM_MAX_N_SEQUENCES` to match the target server (default: 16384). The effective token maximum uses an explicit request limit or the schema's `max_tokens` default when omitted, capped by the remaining context window after tokenization. Configure `max-model-len` and the tokenizer to match the target model. Explicit `max_tokens: null` uses the remaining context window instead of the omitted-field default.
+Strict validation covers request structure, sampling ranges and cross-field rules.
+Schema defaults are used for validation only. The generic request and context checks
+remain shared with lenient mode. Model-dependent checks such as vocabulary limits,
+logprob capacity and structured-output backend compilation require the actual model
+configuration and are not inferred by strict mode. The full
+[validation audit and snapshot regeneration instructions](../pkg/engine/vllm/schema/README.md)
+describe the covered fields, exact-message scope and tokenization-dependent limits.
 
-Sampling and cross-field checks supplement JSON Schema. Python validators and model-specific constraints that are absent from OpenAPI are not automatically reproduced; schema errors use the simulator's OpenAI error envelope without promising identical Pydantic error text. Strict validation applies only to the two completion endpoints. With `strict` disabled, no schema is loaded and request parsing retains its lenient behavior.
+With `strict` disabled, no schema is loaded and request parsing retains its lenient
+behavior. Strict validation applies only to the two completion endpoints.

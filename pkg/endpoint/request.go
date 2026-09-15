@@ -174,23 +174,6 @@ func (b *baseRequestContext) validateTokenizedRequest() (string, int) {
 		return message, fasthttp.StatusBadRequest
 	}
 
-	if b.runtime.Config().StrictRequestValidation {
-		if request, ok := b.Request().(interface{ StrictTokenLimits() (int64, int64) }); ok {
-			minimum, defaultMaximum := request.StrictTokenLimits()
-			maximum := int64(maxModelLen - promptTokens)
-			if explicit := b.Request().GetMaxCompletionTokens(); explicit != nil {
-				if *explicit < maximum {
-					maximum = *explicit
-				}
-			} else if defaultMaximum > 0 && defaultMaximum < maximum {
-				maximum = defaultMaximum
-			}
-			if minimum > maximum {
-				return fmt.Sprintf("min_tokens must be less than or equal to max_tokens=%d, got %d.", maximum, minimum), fasthttp.StatusBadRequest
-			}
-		}
-	}
-
 	if mode == common.ModeEcho {
 		if maxTokens := b.Request().GetMaxCompletionTokens(); maxTokens != nil && int64(promptTokens) > *maxTokens {
 			message := fmt.Sprintf("In echo mode the full prompt is returned as the response, so max_tokens must be at least the prompt length. max_tokens is %d, but the prompt has %d tokens. Please increase max_tokens or reduce the length of the messages",
