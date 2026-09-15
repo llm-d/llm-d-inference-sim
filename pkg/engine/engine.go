@@ -32,6 +32,8 @@ import (
 type Engine interface {
 	// Name identifies the engine backend, e.g. "vllm".
 	Name() string
+	// NewRequestValidator compiles the backend's strict request validator.
+	NewRequestValidator() (communication.RequestValidator, error)
 	// BindFlags registers the engine's own CLI flags on f and reconciles any
 	// values that need parsing beyond what pflag can bind directly, including
 	// its own engine-specific groups (e.g. lora) from rawYAML, the raw YAML

@@ -96,6 +96,17 @@ var _ = Describe("Simulator configuration", func() {
 	}
 	tests = append(tests, test)
 
+	c = createConfigWithModel(common.TestModelName, nil)
+	c.Lora.MaxCPULoras = 1
+	c.Seed = 100
+	c.StrictRequestValidation = true
+	test = testCase{
+		name:           "strict request validation",
+		args:           []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom, "--seed", "100", "--strict"},
+		expectedConfig: c,
+	}
+	tests = append(tests, test)
+
 	// Config from config.yaml file
 	c = createDefaultConfig(common.QwenModelName, []string{"model1", "model2"})
 	c.Port = 8001
