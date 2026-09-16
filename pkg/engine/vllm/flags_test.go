@@ -41,11 +41,19 @@ func createSimConfig(args []string) (*common.Configuration, error) {
 	return common.ParseCommandParamsAndLoadConfig(eng)
 }
 
-func createConfigWithModel(model string, servedModelNames []string) *common.Configuration {
+// defaultConfig returns a Configuration carrying common's defaults plus this
+// engine's own, the same pairing ParseCommandParamsAndLoadConfig starts from.
+func defaultConfig() *common.Configuration {
 	c := common.NewConfig()
+	New().ApplyDefaults(c)
+	return c
+}
+
+func createConfigWithModel(model string, servedModelNames []string) *common.Configuration {
+	c := defaultConfig()
 	// KV cache is disabled by default, and a disabled cache reports its
 	// sizing/hashing/eventing fields as all-zero; tests that enable it
-	// restore common.NewConfig().KVCache explicitly.
+	// restore defaultConfig().KVCache explicitly.
 	c.KVCache = common.KVCacheConfig{}
 
 	c.Model = model
@@ -112,7 +120,7 @@ var _ = Describe("Simulator configuration", func() {
 	c.Port = 8002
 	c.Seed = 100
 	c.Lora.LoraModules = []common.LoraModule{{Name: "lora3", Path: "/path/to/lora3"}, {Name: "lora4", Path: "/path/to/lora4"}}
-	c.KVCache = common.NewConfig().KVCache
+	c.KVCache = defaultConfig().KVCache
 	c.KVCache.EnableKVCache = true
 	c.KVCache.EventBatchSize = 5
 	test = testCase{
@@ -333,7 +341,7 @@ var _ = Describe("Simulator configuration", func() {
 	c = createConfigWithModel(common.TestModelName, nil)
 	c.Lora.MaxCPULoras = 1
 	c.Seed = 100
-	c.KVCache = common.NewConfig().KVCache
+	c.KVCache = defaultConfig().KVCache
 	c.KVCache.EnableKVCache = true
 	c.KVCache.KVEventsReplayEndpoint = "tcp://*:5558"
 	test = testCase{
@@ -387,7 +395,7 @@ var _ = Describe("Simulator configuration", func() {
 	c.Lora.MaxCPULoras = 1
 	c.Seed = 100
 	c.DPSize = 3
-	c.KVCache = common.NewConfig().KVCache
+	c.KVCache = defaultConfig().KVCache
 	c.KVCache.EnableKVCache = true
 	c.KVCache.ZMQEndpoint = "tcp://127.0.0.1:5557"
 	c.KVCache.KVEventsReplayEndpoint = "tcp://*:5600"
@@ -410,7 +418,7 @@ var _ = Describe("Simulator configuration", func() {
 	c.Seed = 100
 	c.DPSize = 3
 	c.Rank = 2
-	c.KVCache = common.NewConfig().KVCache
+	c.KVCache = defaultConfig().KVCache
 	c.KVCache.EnableKVCache = true
 	c.KVCache.ZMQEndpoint = "tcp://127.0.0.1:5557"
 	c.KVCache.KVEventsReplayEndpoint = "tcp://*:5600"
@@ -980,9 +988,27 @@ kvcache:
 		Expect(config.KVCache.KVCacheSize).To(Equal(2048))
 		Expect(config.KVCache.KVCacheDType).To(Equal("turboquant_4bit_nc"))
 		Expect(config.KVCache.TokenBlockSize).To(Equal(32))
-		// Settings the block omits keep the defaults NewConfig applied.
+		// Settings the block omits keep the defaults ApplyDefaults applied.
 		Expect(config.KVCache.EventBatchSize).To(Equal(16))
 		Expect(config.KVCache.ZMQEndpoint).To(Equal("tcp://127.0.0.1:5557"))
+	})
+
+	It("lets a flag override the kvcache block, which overrides the engine default", func() {
+		config, err := createSimConfig([]string{"cmd", "--config", writeConfig(`
+model: test-model
+kvcache:
+  enable-kvcache: true
+  kv-cache-size: 2048
+  block-size: 32
+`), "--block-size", "64"})
+		Expect(err).NotTo(HaveOccurred())
+
+		// flag wins over the config file
+		Expect(config.KVCache.TokenBlockSize).To(Equal(64))
+		// config file wins over ApplyDefaults' 1024
+		Expect(config.KVCache.KVCacheSize).To(Equal(2048))
+		// ApplyDefaults stands where neither sets a value
+		Expect(config.KVCache.EventBatchSize).To(Equal(16))
 	})
 
 	It("populates KVCache from legacy flat top-level keys", func() {
