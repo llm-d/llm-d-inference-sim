@@ -26,6 +26,7 @@ import (
 
 	"github.com/buaazp/fasthttprouter"
 	"github.com/go-logr/logr"
+	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 	"github.com/llm-d/llm-d-inference-sim/pkg/communication/grpc/pb"
 	"github.com/llm-d/llm-d-inference-sim/pkg/endpoint"
@@ -47,15 +48,23 @@ type Communication struct {
 	pb.UnimplementedVllmEngineServer
 
 	// startTime records when the server started, used for startup-duration readiness check
-	startTime time.Time
+	startTime       time.Time
+	strictValidator RequestValidator
 }
 
 func New(logger logr.Logger, processor Processor, runtime endpoint.Runtime) *Communication {
 	return &Communication{logger: logger, processor: processor, runtime: runtime, startTime: time.Now()}
 }
 
+// RequestValidator checks an engine's request schema and semantic constraints.
+type RequestValidator interface {
+	Validate(body []byte, path string) *api.Error
+}
+
 // Transport supplies the active engine's HTTP routes and gRPC service.
 type Transport interface {
+	// NewRequestValidator prepares the engine's strict validator at startup.
+	NewRequestValidator() (RequestValidator, error)
 	// BindHTTP registers the engine's own HTTP routes on r, on top of the
 	// common routes Communication's own HTTP server already registers.
 	BindHTTP(r *fasthttprouter.Router, comm *Communication)
@@ -69,6 +78,13 @@ type Transport interface {
 // service added via transport.BindGRPC).
 func (c *Communication) Start(ctx context.Context, transport Transport) error {
 	c.logger.V(logging.INFO).Info("Starting communication layer")
+	if c.runtime.Config().StrictRequestValidation {
+		validator, err := transport.NewRequestValidator()
+		if err != nil {
+			return fmt.Errorf("strict request validation: %w", err)
+		}
+		c.strictValidator = validator
+	}
 
 	listener, err := c.newListener()
 	if err != nil {
