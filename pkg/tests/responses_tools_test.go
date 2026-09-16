@@ -240,7 +240,10 @@ var _ = Describe("Responses API tools", func() {
 			case api.ResponsesEventFunctionCallArgumentsDone:
 				done := event.AsResponseFunctionCallArgumentsDone()
 				doneArgs = done.Arguments
-				doneName = done.Name
+				// The SDK does not model "name" on this event, so read it from the raw payload.
+				var rawDone map[string]any
+				Expect(json.Unmarshal([]byte(done.RawJSON()), &rawDone)).To(Succeed())
+				doneName, _ = rawDone["name"].(string)
 				Expect(done.ItemID).To(HavePrefix(api.ResponsesFunctionCallIDPrefix))
 			case api.ResponsesEventCompleted:
 				completed := event.AsResponseCompleted()
