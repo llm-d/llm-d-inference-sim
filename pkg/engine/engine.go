@@ -19,12 +19,16 @@ limitations under the License.
 package engine
 
 import (
+	"fmt"
+	"sort"
+
 	"github.com/buaazp/fasthttprouter"
 	"github.com/spf13/pflag"
 	"google.golang.org/grpc"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/communication"
+	"github.com/llm-d/llm-d-inference-sim/pkg/engine/vllm"
 )
 
 // Engine supplies one backend's own CLI flags, configuration validation, and
@@ -46,4 +50,29 @@ type Engine interface {
 	BindHTTP(r *fasthttprouter.Router, comm *communication.Communication)
 	// BindGRPC registers the engine's own gRPC service on server.
 	BindGRPC(server *grpc.Server, comm *communication.Communication) bool
+}
+
+// registry maps each engine backend's name to its constructor. Adding a
+// backend means adding one entry here.
+var registry = map[string]func() Engine{
+	"vllm": func() Engine { return vllm.New() },
+}
+
+// Select returns the Engine implementation for the named engine backend.
+func Select(name string) (Engine, error) {
+	newEngine, ok := registry[name]
+	if !ok {
+		return nil, fmt.Errorf("unknown engine '%s'", name)
+	}
+	return newEngine(), nil
+}
+
+// Names returns the registered engine backend names, sorted.
+func Names() []string {
+	names := make([]string, 0, len(registry))
+	for name := range registry {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }

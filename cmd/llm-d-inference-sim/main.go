@@ -19,7 +19,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 
 	"golang.org/x/sync/errgroup"
 	"k8s.io/klog/v2"
@@ -29,20 +28,8 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 	"github.com/llm-d/llm-d-inference-sim/pkg/communication"
 	"github.com/llm-d/llm-d-inference-sim/pkg/engine"
-	"github.com/llm-d/llm-d-inference-sim/pkg/engine/vllm"
 	"github.com/llm-d/llm-d-inference-sim/pkg/simulator"
 )
-
-// selectEngine returns the Engine implementation for the named engine
-// backend. Currently only "vllm" is supported.
-func selectEngine(engineName string) (engine.Engine, error) {
-	switch engineName {
-	case "vllm":
-		return vllm.New(), nil
-	default:
-		return nil, fmt.Errorf("unknown engine '%s'", engineName)
-	}
-}
 
 func main() {
 	// setup logger and context with graceful shutdown
@@ -55,7 +42,7 @@ func main() {
 		logger.Error(err, "failed to resolve engine")
 		return
 	}
-	eng, err := selectEngine(engineName)
+	eng, err := engine.Select(engineName)
 	if err != nil {
 		logger.Error(err, "failed to select engine")
 		return

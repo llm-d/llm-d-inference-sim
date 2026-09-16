@@ -40,7 +40,7 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/communication"
-	"github.com/llm-d/llm-d-inference-sim/pkg/engine/vllm"
+	"github.com/llm-d/llm-d-inference-sim/pkg/engine"
 	"github.com/llm-d/llm-d-inference-sim/pkg/simulator"
 	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 	"github.com/openai/openai-go/v3"
@@ -87,6 +87,18 @@ func startServerWithArgsAndEnv(ctx context.Context, mode string, args []string, 
 	return c, err
 }
 
+// resolveEngine picks the engine backend the same way main does, so a test
+// that passes --engine in its args gets that engine rather than the default.
+// Callers must set os.Args first, since that is where the engine name is read
+// from.
+func resolveEngine() (engine.Engine, error) {
+	name, err := common.ResolveEngineName()
+	if err != nil {
+		return nil, err
+	}
+	return engine.Select(name)
+}
+
 // nolint
 func startServerHandle(ctx context.Context, mode string, args []string, envs map[string]string) (*simulator.Simulator,
 	*communication.Communication, *http.Client, error) {
@@ -126,7 +138,10 @@ func startServerHelper(ctx context.Context, mode string, args []string, envs map
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	eng := vllm.New()
+	eng, err := resolveEngine()
+	if err != nil {
+		return nil, nil, nil, err
+	}
 	config, err := common.ParseCommandParamsAndLoadConfig(eng)
 	if err != nil {
 		return nil, nil, nil, err
@@ -223,7 +238,10 @@ func startDataParallelServers(ctx context.Context, args []string, envs ...map[st
 		}()
 	}
 
-	eng := vllm.New()
+	eng, err := resolveEngine()
+	if err != nil {
+		return nil, err
+	}
 	config, err := common.ParseCommandParamsAndLoadConfig(eng)
 	if err != nil {
 		return nil, err
