@@ -101,14 +101,19 @@ func ResolveEngineName() (string, error) {
 		}
 		return scratch.EngineName, nil
 	}
-	return "vllm", nil
+	return DefaultEngineName, nil
 }
 
-// Engine supplies the active engine's own CLI flags and configuration
-// validation, for use by ParseCommandParamsAndLoadConfig.
+// Engine supplies the active engine's own defaults, CLI flags, and
+// configuration validation, for use by ParseCommandParamsAndLoadConfig.
 type Engine interface {
 	// Name identifies the engine backend, e.g. "vllm".
 	Name() string
+	// ApplyDefaults fills in the default values of the configuration groups
+	// the engine owns. Called on a freshly constructed Configuration, before
+	// a config file is loaded and before BindFlags, so that a YAML value
+	// overrides a default and a flag overrides both.
+	ApplyDefaults(cfg *Configuration)
 	// BindFlags registers the engine's own CLI flags on f and reconciles any
 	// values that need parsing beyond what pflag can bind directly, including
 	// its own engine-specific groups (e.g. lora) from rawYAML, the raw YAML
@@ -127,6 +132,7 @@ type Engine interface {
 func ParseCommandParamsAndLoadConfig(eng Engine) (*Configuration, error) {
 	config := NewConfig()
 	config.EngineName = eng.Name()
+	eng.ApplyDefaults(config)
 
 	var rawYAML map[string]any
 	configFileValues := GetParamValueFromArgs("config")

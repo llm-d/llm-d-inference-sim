@@ -32,7 +32,8 @@ import (
 // pkg/communication for its transport methods.
 type noopEngine struct{}
 
-func (noopEngine) Name() string { return "vllm" }
+func (noopEngine) Name() string                        { return "vllm" }
+func (noopEngine) ApplyDefaults(*common.Configuration) {}
 func (noopEngine) BindFlags(*pflag.FlagSet, *common.Configuration, map[string]any) error {
 	return nil
 }

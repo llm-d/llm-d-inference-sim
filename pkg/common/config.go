@@ -58,6 +58,9 @@ const (
 	PerPromptTokenLatencyCalculator = "per-token"
 
 	DefaultDSTableName = "llmd"
+
+	// DefaultEngineName is the engine backend simulated when none is requested.
+	DefaultEngineName = "vllm"
 )
 
 var (
@@ -126,11 +129,12 @@ type Configuration struct {
 	// in a single request including input and output. Default value is 1024.
 	MaxModelLen int `yaml:"max-model-len" json:"max-model-len"`
 
-	// Lora groups the LoRA adapter settings. Constructed entirely by the
-	// active engine (see Engine.BindFlags), since the CLI/YAML wire format
-	// for LoRA adapters is engine-specific; yaml:"-" stops the generic loader
-	// in load() from claiming the "lora" key and descending into a struct
-	// whose fields no longer carry the wire format's yaml tags.
+	// Lora groups the LoRA adapter settings. Constructed entirely by the active
+	// engine (see Engine.ApplyDefaults and Engine.BindFlags), since both the
+	// defaults and the CLI/YAML wire format for LoRA adapters are
+	// engine-specific; yaml:"-" stops the generic loader in load() from
+	// claiming the "lora" key and descending into a struct whose fields no
+	// longer carry the wire format's yaml tags.
 	Lora LoraConfig `yaml:"-" json:"lora"`
 
 	// PodNameSpace specifies the Kubernetes namespace in which the simulator pod is running.
@@ -171,9 +175,9 @@ type Configuration struct {
 	// KVCache groups KV-cache sizing, hashing, and ZMQ event settings. KV-cache
 	// transfer latencies and the global cache-hit threshold are configured
 	// separately. Constructed entirely by the active engine (see
-	// Engine.BindFlags); yaml:"-" stops the generic loader in load() from
-	// claiming the "kvcache" key and descending into a struct whose fields no
-	// longer carry the wire format's yaml tags.
+	// Engine.ApplyDefaults and Engine.BindFlags); yaml:"-" stops the generic
+	// loader in load() from claiming the "kvcache" key and descending into a
+	// struct whose fields no longer carry the wire format's yaml tags.
 	KVCache KVCacheConfig `yaml:"-" json:"kvcache"`
 
 	// FakeMetrics is a set of metrics to send to Prometheus instead of the real data.
@@ -439,13 +443,15 @@ type LatenciesConfig struct {
 	TimeFactorUnderLoad float64 `yaml:"time-factor-under-load" json:"time-factor-under-load" admin:"configurable" rebuild:"latency"`
 }
 
-// NewConfig returns a Configuration populated with its documented defaults.
+// NewConfig returns a Configuration populated with the documented defaults of
+// every field whose value is common across engines. The Lora and KVCache
+// groups are left zero-valued: they are engine-owned, so their defaults come
+// from the active engine's ApplyDefaults.
 func NewConfig() *Configuration {
 	return &Configuration{
-		EngineName:            "vllm",
+		EngineName:            DefaultEngineName,
 		IP:                    os.Getenv(podIPEnv),
 		Port:                  8000,
-		Lora:                  LoraConfig{MaxLoras: 1},
 		MaxNumSeqs:            5,
 		MaxWaitingQueueLength: 1000,
 		MaxModelLen:           1024,
@@ -460,14 +466,6 @@ func NewConfig() *Configuration {
 			ToolCallNotRequiredParamProbability:       50,
 			ObjectToolCallNotRequiredParamProbability: 50,
 			ToolCallExtraCallProbability:              45,
-		},
-		KVCache: KVCacheConfig{
-			KVCacheSize:             1024,
-			KVCacheDType:            "auto",
-			TokenBlockSize:          16,
-			ZMQEndpoint:             "tcp://127.0.0.1:5557",
-			KVEventsReplayQueueSize: 1024,
-			EventBatchSize:          16,
 		},
 		DPSize:                     1,
 		Rank:                       -1,

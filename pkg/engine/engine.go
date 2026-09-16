@@ -27,11 +27,16 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/communication"
 )
 
-// Engine supplies one backend's own CLI flags, configuration validation, and
-// HTTP/gRPC transport surface.
+// Engine supplies one backend's own defaults, CLI flags, configuration
+// validation, and HTTP/gRPC transport surface.
 type Engine interface {
 	// Name identifies the engine backend, e.g. "vllm".
 	Name() string
+	// ApplyDefaults fills in the default values of the configuration groups
+	// the engine owns. Called on a freshly constructed Configuration, before
+	// a config file is loaded and before BindFlags, so that a YAML value
+	// overrides a default and a flag overrides both.
+	ApplyDefaults(cfg *common.Configuration)
 	// BindFlags registers the engine's own CLI flags on f and reconciles any
 	// values that need parsing beyond what pflag can bind directly, including
 	// its own engine-specific groups (e.g. lora) from rawYAML, the raw YAML
