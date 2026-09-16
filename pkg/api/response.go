@@ -139,6 +139,19 @@ type baseResponseChoice struct {
 	FinishReason *string `json:"finish_reason"`
 }
 
+// ChatAudio is the audio output attached to a chat completion message when
+// the client requests audio modality. Matches the OpenAI ChatCompletionAudio shape.
+type ChatAudio struct {
+	// ID is a unique identifier for this audio object.
+	ID string `json:"id"`
+	// Data is the base64-encoded audio payload.
+	Data string `json:"data"`
+	// ExpiresAt is the Unix timestamp after which the audio object expires.
+	ExpiresAt int64 `json:"expires_at"`
+	// Transcript is the text transcript of the audio.
+	Transcript string `json:"transcript,omitempty"`
+}
+
 // v1/chat/completions
 // Message defines chat completions Message
 type Message struct {
@@ -150,6 +163,8 @@ type Message struct {
 	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
 	// ToolCallID is the ID of the tool call this message is responding to (role: "tool" only)
 	ToolCallID string `json:"tool_call_id,omitempty"`
+	// Audio holds the audio output when the client requested the "audio" modality.
+	Audio *ChatAudio `json:"audio,omitempty"`
 }
 
 // MarshalJSON omits the content field entirely when it carries no data
@@ -161,8 +176,9 @@ func (m Message) MarshalJSON() ([]byte, error) {
 		Content    *ChatComplContent `json:"content,omitempty"`
 		ToolCalls  []ToolCall        `json:"tool_calls,omitempty"`
 		ToolCallID string            `json:"tool_call_id,omitempty"`
+		Audio      *ChatAudio        `json:"audio,omitempty"`
 	}
-	a := alias{Role: m.Role, ToolCalls: m.ToolCalls, ToolCallID: m.ToolCallID}
+	a := alias{Role: m.Role, ToolCalls: m.ToolCalls, ToolCallID: m.ToolCallID, Audio: m.Audio}
 	if m.Content.Raw != "" || len(m.Content.Structured) > 0 {
 		a.Content = &m.Content
 	}
