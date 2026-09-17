@@ -177,7 +177,7 @@ var _ = Describe("KV cache", Ordered, func() {
 	req3 := testRequest{id: req3ID, blockHashes: []uint64{5, 6}, tokens: [][]uint32{{5}, {6}}}
 
 	// generalTestEntries builds both list-format and map-format table entries for each test case.
-	// 5 test cases × 2 formats = 10 entries.
+	// 5 test cases x 2 formats = 10 entries.
 	generalTestEntries := make([]any, 0, 10)
 	for _, tc := range []testCase{
 		{
@@ -495,7 +495,7 @@ var _ = Describe("KV cache", Ordered, func() {
 			go func() {
 				time.Sleep(time.Second)
 
-				// req1: blocks 1,2,3 — all new, no cached prefix → parent should be EmptyBlockHash
+				// req1: blocks 1,2,3 all new, no cached prefix -> parent should be EmptyBlockHash
 				req1 := testRequest{id: "req1", blockHashes: []uint64{1, 2, 3}, tokens: [][]uint32{{1}, {2}, {3}}}
 				_, err := blockCache.startRequest(&req1, req1.blockHashes, req1.tokens)
 				Expect(err).NotTo(HaveOccurred())
@@ -503,7 +503,7 @@ var _ = Describe("KV cache", Ordered, func() {
 				Expect(err).NotTo(HaveOccurred())
 
 				// req2: blocks 1,2,3,4 — first 3 are already cached (prefix hit), only block 4 is new
-				// → parent of block 4 is block 3 (blockHashes[2])
+				// -> parent of block 4 is block 3 (blockHashes[2])
 				req2 := testRequest{id: "req2", blockHashes: []uint64{1, 2, 3, 4}, tokens: [][]uint32{{1}, {2}, {3}, {4}}}
 				_, err = blockCache.startRequest(&req2, req2.blockHashes, req2.tokens)
 				Expect(err).NotTo(HaveOccurred())

@@ -41,6 +41,7 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/communication"
 	"github.com/llm-d/llm-d-inference-sim/pkg/engine"
+	"github.com/llm-d/llm-d-inference-sim/pkg/engine/vllm"
 	"github.com/llm-d/llm-d-inference-sim/pkg/simulator"
 	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 	"github.com/openai/openai-go/v3"
@@ -63,6 +64,51 @@ const (
 
 var userMsgTokens int64
 var userMsgChatTokens int64
+
+// scrapeMetrics reads /metrics and returns the body, asserting the call
+// succeeded against the passed-in Gomega so it can be used inside a polling
+// closure.
+func scrapeMetrics(g gomega.Gomega, client *http.Client) string {
+	resp, err := client.Get(metricsUrl)
+	g.Expect(err).NotTo(gomega.HaveOccurred())
+	defer func() { _ = resp.Body.Close() }()
+	g.Expect(resp.StatusCode).To(gomega.Equal(http.StatusOK))
+
+	data, err := io.ReadAll(resp.Body)
+	g.Expect(err).NotTo(gomega.HaveOccurred())
+	return string(data)
+}
+
+// sampleMetrics scrapes /metrics once. For tests that sample a time-varying
+// fake-metrics generator on a fixed schedule, where the sampling cadence is
+// the thing under test and retrying would change what is measured. Everything
+// else wants eventuallyMetrics or consistentlyMetrics.
+func sampleMetrics(client *http.Client) string {
+	return scrapeMetrics(gomega.Default, client)
+}
+
+// eventuallyMetrics scrapes /metrics until check passes, for assertions that
+// metrics converge on a value once asynchronous updates land.
+func eventuallyMetrics(client *http.Client, check func(g gomega.Gomega, metricsData string)) {
+	eventuallyMetricsWithin(client, 2*time.Second, check)
+}
+
+// eventuallyMetricsWithin is eventuallyMetrics with an explicit timeout, for
+// states that take longer to reach than the default allows.
+func eventuallyMetricsWithin(client *http.Client, timeout time.Duration, check func(g gomega.Gomega, metricsData string)) {
+	gomega.Eventually(func(g gomega.Gomega) {
+		check(g, scrapeMetrics(g, client))
+	}).WithTimeout(timeout).WithPolling(25 * time.Millisecond).Should(gomega.Succeed())
+}
+
+// consistentlyMetrics requires check to hold on every scrape for the full
+// duration, for assertions that a value stays within a range or does not
+// change at all. Eventually would retry a violating sample away.
+func consistentlyMetrics(client *http.Client, check func(g gomega.Gomega, metricsData string)) {
+	gomega.Consistently(func(g gomega.Gomega) {
+		check(g, scrapeMetrics(g, client))
+	}).WithTimeout(time.Second).WithPolling(50 * time.Millisecond).Should(gomega.Succeed())
+}
 
 // Starts server in the given mode, no additional arguments or environment variables
 func startServer(ctx context.Context, mode string) (*http.Client, error) {
@@ -492,11 +538,11 @@ func getLoraValidTimestamp(metrics []string, running, waiting []string) float64 
 	return *timestamp
 }
 
-func getLastLoraMetrics(metrics []string) ([]string, error) {
+func getLastLoraMetrics(metricsData []string) ([]string, error) {
 	lastTimestamp := float64(0)
 	var lastMetrics []string
-	for _, metric := range metrics {
-		if strings.HasPrefix(metric, simulator.LoRARequestsMetricName) {
+	for _, metric := range metricsData {
+		if strings.HasPrefix(metric, vllm.VLLMLoRARequestsMetricName) {
 			timestamp, err := extractTimestamp(metric)
 			if err != nil {
 				return nil, err
@@ -641,7 +687,7 @@ func getFloatBucketMetricPrefix(model string, metric string, bucketBoundary floa
 // bucketBoundary the upper boundary of the required bucket
 // prevBoundary the upper boundary of the previous bucket
 // expectedValue expected value in the histogram
-func checkBucketBoundary(metrics string, modelName string, metricName string, bucketBoundary float64,
+func checkBucketBoundary(g gomega.Gomega, metrics string, modelName string, metricName string, bucketBoundary float64,
 	prevBoundary float64, expectedValue float64) {
 	if expectedValue > prevBoundary && bucketBoundary >= expectedValue && (bucketBoundary-expectedValue) < 0.005 {
 		// expected time is too close to the bucket's boundary
@@ -655,7 +701,7 @@ func checkBucketBoundary(metrics string, modelName string, metricName string, bu
 	if bucketBoundary > expectedValue {
 		expectedCount = 1
 	}
-	gomega.Expect(metrics).To(gomega.ContainSubstring(getFloatBucketMetricLine(modelName, metricName, bucketBoundary, expectedCount)))
+	g.Expect(metrics).To(gomega.ContainSubstring(getFloatBucketMetricLine(modelName, metricName, bucketBoundary, expectedCount)))
 }
 
 // checkLatencyMetrics sends /metrics request and checks that latency related values are valid
@@ -667,16 +713,6 @@ func checkBucketBoundary(metrics string, modelName string, metricName string, bu
 // interTokenLatency processing time per output token
 func checkLatencyMetrics(client *http.Client, modelName string, numOfInputTokens int, numOfOutputTokens int, ttft int,
 	prefillTimePerToken int, interTokenLatency int, kvcacheTransferLatency int, kvCacheTransferTimePerToken int, doRemotePrefill bool) {
-	// wait a little bit and check metrics
-	time.Sleep(300 * time.Millisecond)
-	metricsResp, err := client.Get(metricsUrl)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	gomega.Expect(metricsResp.StatusCode).To(gomega.Equal(http.StatusOK))
-
-	data, err := io.ReadAll(metricsResp.Body)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	metrics := string(data)
-
 	expectedPrefillTimeInSecs := 0.0
 	if doRemotePrefill {
 		// when doRemotePrefill is true, this means that this is decode request and prefill was executed on remote vllm
@@ -697,20 +733,22 @@ func checkLatencyMetrics(client *http.Client, modelName string, numOfInputTokens
 	expectedDecodeTimeInSecs := float64(interTokenLatency*(numOfOutputTokens-1)) / 1000
 	expectedE2ELatency := expectedPrefillTimeInSecs + expectedDecodeTimeInSecs
 
-	prevBoundary := math.Inf(-1)
+	eventuallyMetrics(client, func(g gomega.Gomega, metricsData string) {
+		prevBoundary := math.Inf(-1)
 
-	for _, bucketBoundary := range common.RequestLatencyBucketsBoundaries {
-		checkBucketBoundary(metrics, modelName, simulator.PrefillTimeMetricName, bucketBoundary, prevBoundary, expectedPrefillTimeInSecs)
-		checkBucketBoundary(metrics, modelName, simulator.DecodeTimeMetricName, bucketBoundary, prevBoundary, expectedDecodeTimeInSecs)
-		checkBucketBoundary(metrics, modelName, simulator.E2EReqLatencyMetricName, bucketBoundary, prevBoundary, expectedE2ELatency)
+		for _, bucketBoundary := range common.RequestLatencyBucketsBoundaries {
+			checkBucketBoundary(g, metricsData, modelName, vllm.VLLMPrefillTimeMetricName, bucketBoundary, prevBoundary, expectedPrefillTimeInSecs)
+			checkBucketBoundary(g, metricsData, modelName, vllm.VLLMDecodeTimeMetricName, bucketBoundary, prevBoundary, expectedDecodeTimeInSecs)
+			checkBucketBoundary(g, metricsData, modelName, vllm.VLLME2EReqLatencyMetricName, bucketBoundary, prevBoundary, expectedE2ELatency)
 
-		prevBoundary = bucketBoundary
-	}
-	// check the last bucket
-	lastBoundary := common.RequestLatencyBucketsBoundaries[len(common.RequestLatencyBucketsBoundaries)-1]
-	checkBucketBoundary(metrics, modelName, simulator.PrefillTimeMetricName, math.Inf(1), lastBoundary, expectedPrefillTimeInSecs)
-	checkBucketBoundary(metrics, modelName, simulator.DecodeTimeMetricName, math.Inf(1), lastBoundary, expectedDecodeTimeInSecs)
-	checkBucketBoundary(metrics, modelName, simulator.E2EReqLatencyMetricName, math.Inf(1), lastBoundary, expectedE2ELatency)
+			prevBoundary = bucketBoundary
+		}
+		// check the last bucket
+		lastBoundary := common.RequestLatencyBucketsBoundaries[len(common.RequestLatencyBucketsBoundaries)-1]
+		checkBucketBoundary(g, metricsData, modelName, vllm.VLLMPrefillTimeMetricName, math.Inf(1), lastBoundary, expectedPrefillTimeInSecs)
+		checkBucketBoundary(g, metricsData, modelName, vllm.VLLMDecodeTimeMetricName, math.Inf(1), lastBoundary, expectedDecodeTimeInSecs)
+		checkBucketBoundary(g, metricsData, modelName, vllm.VLLME2EReqLatencyMetricName, math.Inf(1), lastBoundary, expectedE2ELatency)
+	})
 }
 
 func ptr[T any](v T) *T {

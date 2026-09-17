@@ -952,8 +952,8 @@ var _ = Describe("Simulator", func() {
 			Expect(ok).To(BeTrue())
 			// Should proceed normally because request threshold (0.0) is used, not global (1.0)
 			// With 0% cache hit rate initially:
-			// - Global threshold 1.0 would fail (0% < 1.0) → cache_threshold
-			// - Request threshold 0.0 passes (0% >= 0.0) → normal finish reason
+			// - Global threshold 1.0 would fail (0% < 1.0) -> cache_threshold
+			// - Request threshold 0.0 passes (0% >= 0.0) -> normal finish reason
 			// This proves request threshold takes precedence over global threshold
 			Expect(finishReason).To(Or(Equal(common.StopFinishReason), Equal(common.LengthFinishReason)))
 			Expect(finishReason).NotTo(Equal(common.CacheThresholdFinishReason))
@@ -1314,7 +1314,7 @@ var _ = Describe("Simulator", func() {
 					Expect(resp2.Choices).ShouldNot(BeEmpty())
 				}()
 
-				// First event: all blocks new → parent must be EmptyBlockHash (0)
+				// First event: all blocks new -> parent must be EmptyBlockHash (0)
 				msg1, err := sub.Recv()
 				Expect(err).NotTo(HaveOccurred())
 				events1, _, _ := kvcache.ParseKVEvent(msg1.Frames, topic, 1)
@@ -1322,7 +1322,7 @@ var _ = Describe("Simulator", func() {
 				Expect(events1[0].ParentHash).To(Equal(uint64(0)))
 				lastHashFromFirst := events1[0].BlockHashes[len(events1[0].BlockHashes)-1]
 
-				// Second event: only the extra block(s) are new → parent == last block of first request
+				// Second event: only the extra block(s) are new -> parent == last block of first request
 				msg2, err := sub.Recv()
 				Expect(err).NotTo(HaveOccurred())
 				events2, _, _ := kvcache.ParseKVEvent(msg2.Frames, topic, 2)

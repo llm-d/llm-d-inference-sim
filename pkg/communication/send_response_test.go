@@ -21,17 +21,54 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/go-logr/logr"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/valyala/fasthttp"
 	"k8s.io/klog/v2"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/endpoint"
+	"github.com/llm-d/llm-d-inference-sim/pkg/metrics"
 	"github.com/llm-d/llm-d-inference-sim/pkg/simulator"
 	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 )
+
+// stubEngine stands in for the real engine, which pkg/communication cannot
+// import (see newRunningSim). Its adapter exposes no collectors: these tests
+// exercise response transport, not the metric surface.
+type stubEngine struct{}
+
+func (stubEngine) ValidateConfig(*common.Configuration) error { return nil }
+
+func (stubEngine) NewMetricsAdapter(context.Context, *prometheus.Registry, logr.Logger,
+	common.Configuration) (metrics.EngineMetricsAdapter, error) {
+	return stubMetricsAdapter{}, nil
+}
+
+type stubMetricsAdapter struct{}
+
+func (stubMetricsAdapter) Start(context.Context) error { return nil }
+func (stubMetricsAdapter) Close() error                { return nil }
+
+func (stubMetricsAdapter) OnRequestReceived(metrics.RequestReceived)         {}
+func (stubMetricsAdapter) OnRequestQueued(metrics.RequestQueued)             {}
+func (stubMetricsAdapter) OnRequestDequeued(metrics.RequestDequeued)         {}
+func (stubMetricsAdapter) OnRequestRunning(metrics.RequestRunning)           {}
+func (stubMetricsAdapter) OnPrefillStarted(metrics.PrefillStarted)           {}
+func (stubMetricsAdapter) OnPrefillEnded(metrics.PrefillEnded)               {}
+func (stubMetricsAdapter) OnDecodeStarted(metrics.DecodeStarted)             {}
+func (stubMetricsAdapter) OnTokenGenerated(metrics.TokenGenerated)           {}
+func (stubMetricsAdapter) OnDecodeEnded(metrics.DecodeEnded)                 {}
+func (stubMetricsAdapter) OnRequestSucceeded(metrics.RequestSucceeded)       {}
+func (stubMetricsAdapter) OnRequestFailed(metrics.RequestFailed)             {}
+func (stubMetricsAdapter) OnRequestRejected(metrics.RequestRejected)         {}
+func (stubMetricsAdapter) OnKVCacheUsageChanged(metrics.KVCacheUsageChanged) {}
+func (stubMetricsAdapter) OnPrefixCacheQueried(metrics.PrefixCacheQueried)   {}
+func (stubMetricsAdapter) OnLoRASetsChanged(metrics.LoRASetsChanged)         {}
+func (stubMetricsAdapter) ApplyFakeMetricsUpdate(common.FakeMetrics)         {}
 
 // newRunningSim builds and starts a real Simulator (echo mode), so
 // HandleRequest produces genuine ResponseInfo entries -- including real,
@@ -49,6 +86,7 @@ func newRunningSim(ctx context.Context) *simulator.Simulator {
 	Expect(err).NotTo(HaveOccurred())
 	sim.Context.SetConfig(config)
 	sim.Context.Tokenizer = tokenizer.NewSimpleTokenizer()
+	sim.Context.Engine = stubEngine{}
 
 	Expect(sim.InitializeSim(ctx)).To(Succeed())
 	return sim

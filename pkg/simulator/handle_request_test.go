@@ -55,6 +55,7 @@ func newHandleRequestTestSim(ctx context.Context, newRequestsCapacity int, extra
 	Expect(err).NotTo(HaveOccurred())
 	sim.Context.SetConfig(config)
 	sim.Context.Tokenizer = tokenizer.NewSimpleTokenizer()
+	sim.Context.Engine = vllm.New()
 
 	Expect(sim.Context.initialize(ctx)).To(Succeed())
 

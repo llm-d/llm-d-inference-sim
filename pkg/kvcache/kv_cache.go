@@ -25,30 +25,22 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
+	"github.com/llm-d/llm-d-inference-sim/pkg/metrics"
 	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 	"github.com/llm-d/llm-d-router/pkg/kvcache/kvblock"
 )
 
-// PrefixCacheStats holds token-level prefix cache statistics for a single request,
-// matching vLLM's PrefixCacheStats semantics where both fields count tokens.
-type PrefixCacheStats struct {
-	// QueriedTokens is the total number of prompt tokens checked against the cache
-	QueriedTokens int
-	// CachedTokens is the number of prompt tokens that were already cached
-	CachedTokens int
-}
-
 type KVCacheHelper struct {
-	tokenizer            tokenizer.Tokenizer
-	tokensProcessor      kvblock.TokenProcessor // turns tokens to kv block keys
-	logger               logr.Logger
-	blockCache           *blockCache
-	blockSize            int
-	prefixCacheStatsChan common.Channel[PrefixCacheStats]
+	tokenizer       tokenizer.Tokenizer
+	tokensProcessor kvblock.TokenProcessor // turns tokens to kv block keys
+	logger          logr.Logger
+	blockCache      *blockCache
+	blockSize       int
+	metrics         *metrics.MetricsBus
 }
 
-func NewKVCacheHelper(ctx context.Context, config *common.Configuration, logger logr.Logger, usageChan common.Channel[common.MetricInfo],
-	prefixCacheStatsChan common.Channel[PrefixCacheStats], tokenizer tokenizer.Tokenizer) (*KVCacheHelper, error) {
+func NewKVCacheHelper(ctx context.Context, config *common.Configuration, logger logr.Logger,
+	tokenizer tokenizer.Tokenizer, metrics *metrics.MetricsBus) (*KVCacheHelper, error) {
 	if config.IP == "" {
 		return nil, errors.New("IP should be defined in the environment (POD_IP) for KV cache to work")
 	}
@@ -63,18 +55,18 @@ func NewKVCacheHelper(ctx context.Context, config *common.Configuration, logger 
 		return nil, fmt.Errorf("failed to create tokens processor: %w", err)
 	}
 
-	blockCache, err := newBlockCache(ctx, config, logger, &usageChan)
+	blockCache, err := newBlockCache(ctx, config, logger, metrics)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create block cache: %w", err)
 	}
 
 	return &KVCacheHelper{
-		tokenizer:            tokenizer,
-		tokensProcessor:      tokensProcessor,
-		blockCache:           blockCache,
-		logger:               logger,
-		blockSize:            config.KVCache.TokenBlockSize,
-		prefixCacheStatsChan: prefixCacheStatsChan,
+		tokenizer:       tokenizer,
+		tokensProcessor: tokensProcessor,
+		blockCache:      blockCache,
+		logger:          logger,
+		blockSize:       config.KVCache.TokenBlockSize,
+		metrics:         metrics,
 	}, nil
 }
 
@@ -102,7 +94,7 @@ func (h *KVCacheHelper) Activate() {
 	h.blockCache.activate()
 }
 
-func (h *KVCacheHelper) OnRequestStart(req api.Request) (PrefixCacheStats, error) {
+func (h *KVCacheHelper) OnRequestStart(req api.Request) (metrics.PrefixCacheQueried, error) {
 	h.logger.V(logging.TRACE).Info("KV cache - process request")
 
 	tokens := req.TokenizedPrompt().Tokens
@@ -120,7 +112,7 @@ func (h *KVCacheHelper) OnRequestStart(req api.Request) (PrefixCacheStats, error
 	// get block keys
 	blockKeys, err := h.tokensProcessor.TokensToKVBlockKeys(kvblock.EmptyBlockHash, tokens, req.GetDisplayedModel(), extraFeatures)
 	if err != nil {
-		return PrefixCacheStats{}, fmt.Errorf("failed to convert tokens to block keys: %w", err)
+		return metrics.PrefixCacheQueried{}, fmt.Errorf("failed to convert tokens to block keys: %w", err)
 	}
 	h.logger.V(logging.TRACE).Info("Found tokens", "tokens", tokens, "block-keys", blockKeys)
 
@@ -133,17 +125,19 @@ func (h *KVCacheHelper) OnRequestStart(req api.Request) (PrefixCacheStats, error
 
 	nBlocksAlreadyInCache, err := h.blockCache.startRequest(req, blockHashes, blockTokens)
 	if err != nil {
-		return PrefixCacheStats{}, err
+		return metrics.PrefixCacheQueried{}, err
 	}
 
 	cachedTokens := nBlocksAlreadyInCache * h.blockSize
 	req.SetNumberOfCachedPromptTokens(cachedTokens)
 
-	stats := PrefixCacheStats{
-		QueriedTokens: len(tokens),
-		CachedTokens:  cachedTokens,
+	stats := metrics.PrefixCacheQueried{
+		QueriedTokens:      len(tokens),
+		CachedPromptTokens: cachedTokens,
 	}
-	common.WriteToChannel(h.prefixCacheStatsChan, stats, h.logger)
+	if h.metrics != nil {
+		common.WriteToChannel(h.metrics.PrefixCacheQuery, stats, h.logger)
+	}
 
 	return stats, nil
 }
