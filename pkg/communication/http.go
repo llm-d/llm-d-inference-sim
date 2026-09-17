@@ -21,6 +21,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -79,6 +80,9 @@ func (c *Communication) startHTTPServer(ctx context.Context, listener net.Listen
 	if !c.runtime.Config().MMEncoderOnly {
 		r.POST("/v1/embeddings", c.HandleEmbeddings)
 	}
+	// multimodal output APIs (vllm-omni compatible)
+	r.POST("/v1/audio/speech", c.HandleAudioSpeech)
+	r.POST("/v1/images/generations", c.HandleImagesGenerations)
 	// supports /models API
 	r.GET("/v1/models", c.HandleModels)
 	// supports /metrics prometheus API
@@ -984,6 +988,113 @@ func (c *Communication) logHTTPResponse(ctx *fasthttp.RequestCtx) {
 		"headers", formatResponseHeaders(&resp.Header),
 		"body", bodyForLog(resp.Body(), resp.Header.ContentEncoding()),
 	)
+}
+
+// HandleAudioSpeech handles POST /v1/audio/speech (OpenAI-compatible TTS).
+// The simulator returns a minimal silent WAV payload; no real synthesis is performed.
+// When stream=true it emits two SSE events: speech.audio.delta then speech.audio.done.
+func (c *Communication) HandleAudioSpeech(ctx *fasthttp.RequestCtx) {
+	c.logger.V(logging.TRACE).Info("Audio speech request received")
+	var req api.AudioSpeechRequest
+	if err := json.Unmarshal(ctx.Request.Body(), &req); err != nil {
+		c.logger.Error(err, "failed to unmarshal audio speech request body")
+		errToSend := api.NewError("Failed to read and parse request body, "+err.Error(), fasthttp.StatusBadRequest, nil)
+		c.sendError(ctx, &errToSend, false)
+		return
+	}
+	if req.Input == "" {
+		errToSend := api.NewError("input is required", fasthttp.StatusBadRequest, nil)
+		c.sendError(ctx, &errToSend, false)
+		return
+	}
+
+	c.addResponseHeaders(ctx, c.getRequestID(ctx))
+
+	if req.Stream {
+		ctx.Response.Header.SetContentType("text/event-stream")
+		ctx.Response.Header.SetStatusCode(fasthttp.StatusOK)
+
+		delta, _ := json.Marshal(api.AudioSpeechStreamDeltaEvent{
+			Type:  "speech.audio.delta",
+			Audio: api.SyntheticWAVData,
+		})
+		done, _ := json.Marshal(api.AudioSpeechStreamDoneEvent{
+			Type: "speech.audio.done",
+			Usage: &api.AudioSpeechUsage{
+				InputTokens:  len([]rune(req.Input)),
+				OutputTokens: 1,
+				TotalTokens:  len([]rune(req.Input)) + 1,
+			},
+		})
+		body := api.SSEDataPrefix + string(delta) + "\n\n" +
+			api.SSEDataPrefix + string(done) + "\n\n" +
+			api.SSEDataPrefix + api.SSEDoneMarker + "\n\n"
+		ctx.Response.SetBodyString(body)
+		return
+	}
+
+	wavBytes, err := base64.StdEncoding.DecodeString(api.SyntheticWAVData)
+	if err != nil {
+		c.logger.Error(err, "failed to decode synthetic WAV data")
+		errToSend := api.NewError("internal error", fasthttp.StatusInternalServerError, nil)
+		c.sendError(ctx, &errToSend, false)
+		return
+	}
+	ctx.Response.Header.SetContentType("audio/wav")
+	ctx.Response.Header.SetStatusCode(fasthttp.StatusOK)
+	ctx.Response.SetBody(wavBytes)
+}
+
+// HandleImagesGenerations handles POST /v1/images/generations (OpenAI DALL-E compatible).
+// The simulator returns the existing 1×1 transparent PNG synthetic image as b64_json.
+func (c *Communication) HandleImagesGenerations(ctx *fasthttp.RequestCtx) {
+	c.logger.V(logging.TRACE).Info("Images generations request received")
+	var req api.ImagesGenerationsRequest
+	if err := json.Unmarshal(ctx.Request.Body(), &req); err != nil {
+		c.logger.Error(err, "failed to unmarshal images generations request body")
+		errToSend := api.NewError("Failed to read and parse request body, "+err.Error(), fasthttp.StatusBadRequest, nil)
+		c.sendError(ctx, &errToSend, false)
+		return
+	}
+	if req.Prompt == "" {
+		errToSend := api.NewError("prompt is required", fasthttp.StatusBadRequest, nil)
+		c.sendError(ctx, &errToSend, false)
+		return
+	}
+
+	n := req.N
+	if n <= 0 {
+		n = 1
+	}
+	data := make([]api.ImageData, n)
+	for i := range data {
+		data[i] = api.ImageData{B64JSON: syntheticImageData}
+	}
+	size := req.Size
+	if size == "" {
+		size = "1x1"
+	}
+	outFmt := req.OutputFormat
+	if outFmt == "" {
+		outFmt = "png"
+	}
+	resp := api.ImagesGenerationsResponse{
+		Created:      ctx.Time().Unix(),
+		Data:         data,
+		OutputFormat: outFmt,
+		Size:         size,
+	}
+	out, err := json.Marshal(resp)
+	if err != nil {
+		c.logger.Error(err, "failed to marshal images generations response")
+		errToSend := api.NewError("Response body creation failed, "+err.Error(), fasthttp.StatusInternalServerError, nil)
+		c.sendError(ctx, &errToSend, false)
+		return
+	}
+	c.addResponseHeaders(ctx, c.getRequestID(ctx))
+	ctx.Response.Header.SetContentType("application/json")
+	ctx.Response.Header.SetStatusCode(fasthttp.StatusOK)
+	ctx.Response.SetBody(out)
 }
 
 // HandleGetAdminConfig http handler for GET /admin/config — returns the full configuration.
