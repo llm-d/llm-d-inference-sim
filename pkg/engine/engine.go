@@ -53,7 +53,9 @@ type Engine interface {
 	// BindHTTP registers the engine's own HTTP routes on r, on top of the
 	// common routes comm's own HTTP server already registers.
 	BindHTTP(r *fasthttprouter.Router, comm *communication.Communication)
-	// BindGRPC registers the engine's own gRPC service on server.
+	// BindGRPC registers the engine's own gRPC service on server and reports
+	// whether the engine has a gRPC surface at all. Communication does not
+	// open a gRPC listener when it returns false.
 	BindGRPC(server *grpc.Server, comm *communication.Communication) bool
 }
 
