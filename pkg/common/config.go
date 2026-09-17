@@ -95,7 +95,7 @@ type FakeMetrics interface {
 	// New returns a fresh, zero-valued instance of the same concrete type.
 	// encoding/json cannot allocate a concrete type into a bare interface
 	// field on its own, so Configuration.Copy and Configuration.Update use
-	// New to pre-seed the target's FakeMetrics field before unmarshaling.
+	// New to pre-seed the target's FakeMetrics field before unmarshalling.
 	New() FakeMetrics
 }
 
@@ -479,7 +479,7 @@ func NewConfig() *Configuration {
 	}
 }
 
-// load reads configFile into c, folding and unmarshaling every group whose
+// load reads configFile into c, folding and unmarshalling every group whose
 // wire format is common across engines (latencies, tool-calls, dataset,
 // ssl), plus top-level scalars. It returns the raw parsed YAML tree so the
 // caller can pass it to the active engine's BindFlags, which folds and
