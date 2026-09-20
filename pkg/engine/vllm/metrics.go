@@ -302,6 +302,169 @@ func (m *VLLMMetricsAdapter) Start(_ context.Context) error {
 	return nil
 }
 
+// -- Event handlers  -------------------
+
+func (m *VLLMMetricsAdapter) OnRequestReceived(_ metrics.RequestReceived) {
+	// State marker; no exposed metric today.
+}
+
+func (m *VLLMMetricsAdapter) OnRequestRejected(_ metrics.RequestRejected) {
+	// State marker; no exposed metric today.
+}
+
+// request queued
+// - update number of waiting requests
+func (m *VLLMMetricsAdapter) OnRequestQueued(ev metrics.RequestQueued) {
+	if m.fake != nil {
+		return
+	}
+	common.WriteToChannel(m.waitingReqChan, gaugeAdd(1), m.logger)
+}
+
+// request dequeued
+// - update number of waiting requests
+// - update queue time histogram
+func (m *VLLMMetricsAdapter) OnRequestDequeued(ev metrics.RequestDequeued) {
+	if m.fake != nil {
+		return
+	}
+	common.WriteToChannel(m.waitingReqChan, gaugeAdd(-1), m.logger)
+	common.WriteToChannel(m.reqQueueTimeChan, observation(ev.QueueTime), m.logger)
+}
+
+// request running
+// - update number of running requests
+func (m *VLLMMetricsAdapter) OnRequestRunning(ev metrics.RequestRunning) {
+	if m.fake != nil {
+		return
+	}
+	common.WriteToChannel(m.runReqChan, gaugeAdd(1), m.logger)
+}
+
+// prefill started
+func (m *VLLMMetricsAdapter) OnPrefillStarted(_ metrics.PrefillStarted) {
+	// State marker.
+}
+
+// prefill step ended
+// - update prefill time histogram
+// - update TTFT histogram
+func (m *VLLMMetricsAdapter) OnPrefillEnded(ev metrics.PrefillEnded) {
+	if m.fake != nil {
+		return
+	}
+	common.WriteToChannel(m.reqPrefillTimeChan, observation(ev.PrefillDuration), m.logger)
+	common.WriteToChannel(m.ttftChan, observation(ev.PrefillDuration), m.logger)
+}
+
+func (m *VLLMMetricsAdapter) OnDecodeStarted(_ metrics.DecodeStarted) {
+	// State marker.
+}
+
+// token generated
+// - update tpot and itl histograms
+func (m *VLLMMetricsAdapter) OnTokenGenerated(ev metrics.TokenGenerated) {
+	if m.fake != nil {
+		return
+	}
+	common.WriteToChannel(m.perTokenLatencyChan, observation(ev.InterTokenLatency), m.logger)
+}
+
+// decode ended
+// - update decode time histogram
+// - update requests tpot histogram
+func (m *VLLMMetricsAdapter) OnDecodeEnded(ev metrics.DecodeEnded) {
+	if m.fake != nil {
+		return
+	}
+	common.WriteToChannel(m.reqDecodeTimeChan, observation(ev.DecodeDuration), m.logger)
+
+	if ev.GenerationTokens > 0 {
+		common.WriteToChannel(m.reqTpotChan, observation(ev.DecodeDuration/float64(ev.GenerationTokens)), m.logger)
+	}
+}
+
+// request processing finished successfully - update all relevant metrics
+func (m *VLLMMetricsAdapter) OnRequestSucceeded(ev metrics.RequestSucceeded) {
+	if m.fake != nil {
+		return
+	}
+
+	// update number of successful requests per finish reason
+	common.WriteToChannel(m.requestSuccessTotalChan, RequestSuccessCounterUpdate{Increment: &ev.FinishReason}, m.logger)
+
+	// request finished successfully, update number of prompt and generated tokens
+	// both total and histogram metrics
+	common.WriteToChannel(m.requestPromptTokensChan, observation(float64(ev.PromptTokens)), m.logger)
+	common.WriteToChannel(m.requestGenerationTokensChan, observation(float64(ev.GenerationTokens)), m.logger)
+	promptTokens := float64(ev.PromptTokens)
+	generationTokens := float64(ev.GenerationTokens)
+	common.WriteToChannel(m.promptTokensTotalChan, CounterUpdate{Add: &promptTokens}, m.logger)
+	common.WriteToChannel(m.generationTokensTotalChan, CounterUpdate{Add: &generationTokens}, m.logger)
+
+	// if max_tokens is set, update the request_params_max_tokens histogram
+	if ev.MaxTokens != nil {
+		common.WriteToChannel(m.requestParamsMaxTokensChan, observation(float64(*ev.MaxTokens)), m.logger)
+	}
+	if maxGenTokens, err := common.MaxIntSlice(ev.GenTokensPerChoice); err == nil {
+		common.WriteToChannel(m.maxNumGenerationTokensChan, observation(float64(maxGenTokens)), m.logger)
+	}
+
+	common.WriteToChannel(m.e2eReqLatencyChan, observation(ev.E2ELatency), m.logger)
+	common.WriteToChannel(m.reqInferenceTimeChan, observation(ev.InferenceTime), m.logger)
+
+	m.finishRunning()
+}
+
+// request processing failed
+// - update all relevant metrics
+func (m *VLLMMetricsAdapter) OnRequestFailed(ev metrics.RequestFailed) {
+	if m.fake != nil {
+		return
+	}
+	common.WriteToChannel(m.e2eReqLatencyChan, observation(ev.E2ELatency), m.logger)
+	common.WriteToChannel(m.reqInferenceTimeChan, observation(ev.InferenceTime), m.logger)
+
+	m.finishRunning()
+}
+
+// change in kv cache utilization
+// - update kv cache usage gauge
+func (m *VLLMMetricsAdapter) OnKVCacheUsageChanged(ev metrics.KVCacheUsageChanged) {
+	if m.fake != nil {
+		return
+	}
+	common.WriteToChannel(m.kvCacheUsageChan, gaugeAdd(ev.KVCacheUsagePerc), m.logger)
+}
+
+// change in prefix cache utilization
+// - update prefix cache hits and queries counters
+func (m *VLLMMetricsAdapter) OnPrefixCacheQueried(ev metrics.PrefixCacheQueried) {
+	if m.fake != nil {
+		return
+	}
+	hit := float64(ev.CachedPromptTokens)
+	queried := float64(ev.QueriedTokens)
+	common.WriteToChannel(m.prefixCacheHitsTotalChan, CounterUpdate{Add: &hit}, m.logger)
+	common.WriteToChannel(m.prefixCacheQueriesTotalChan, CounterUpdate{Add: &queried}, m.logger)
+}
+
+// OnLoRASetsChanged receives the per-LoRA waiting/running snapshot produced
+// by the bus after each LoRAChanged event and forwards it to the LoRA
+// updater goroutine.
+func (m *VLLMMetricsAdapter) OnLoRASetsChanged(ev metrics.LoRASetsChanged) {
+	if m.fake != nil {
+		return
+	}
+	common.WriteToChannel(m.lorasChan, LoRAUpdate{Snapshot: &ev}, m.logger)
+}
+
+// finishRunning decrements the running-request counter for a terminal
+// request. LoRA state transitions are handled separately via LoRAChanged.
+func (m *VLLMMetricsAdapter) finishRunning() {
+	common.WriteToChannel(m.runReqChan, gaugeAdd(-1), m.logger)
+}
+
 func (m *VLLMMetricsAdapter) createAndStartPrometheusChannels(ctx context.Context) {
 	maxNumberOfRunningRequests, maxNumberOfWaitingRequests, maxNumberOfRequests, maxNumberOfTokens := metrics.ChannelCapacities(m.config)
 
@@ -486,174 +649,6 @@ func (m *VLLMMetricsAdapter) updateHistogram(histPP **prometheus.HistogramVec, r
 		metrics.InitFakeHistogram(*histPP, m.config.DisplayModelName, upd.Reset.Buckets, upd.Reset.Samples)
 	}
 }
-
-// -- Event handlers  -------------------
-
-func (m *VLLMMetricsAdapter) OnRequestReceived(_ metrics.RequestReceived) {
-	// State marker; no exposed metric today.
-}
-
-func (m *VLLMMetricsAdapter) OnRequestRejected(_ metrics.RequestRejected) {
-	// State marker; no exposed metric today.
-}
-
-// request queued
-// - update number of waiting requests
-func (m *VLLMMetricsAdapter) OnRequestQueued(ev metrics.RequestQueued) {
-	if m.fake != nil {
-		return
-	}
-	common.WriteToChannel(m.waitingReqChan, gaugeAdd(1), m.logger)
-}
-
-// request dequeued
-// - update number of waiting requests
-// - update queue time histogram
-func (m *VLLMMetricsAdapter) OnRequestDequeued(ev metrics.RequestDequeued) {
-	if m.fake != nil {
-		return
-	}
-	common.WriteToChannel(m.waitingReqChan, gaugeAdd(-1), m.logger)
-
-	common.WriteToChannel(m.reqQueueTimeChan, observation(ev.QueueTime), m.logger)
-}
-
-// request running
-// - update number of running requests
-func (m *VLLMMetricsAdapter) OnRequestRunning(ev metrics.RequestRunning) {
-	if m.fake != nil {
-		return
-	}
-	common.WriteToChannel(m.runReqChan, gaugeAdd(1), m.logger)
-}
-
-// prefill started
-func (m *VLLMMetricsAdapter) OnPrefillStarted(_ metrics.PrefillStarted) {
-	// State marker.
-}
-
-// prefill step ended
-// - update prefill time histogram
-// - update TTFT histogram
-func (m *VLLMMetricsAdapter) OnPrefillEnded(ev metrics.PrefillEnded) {
-	if m.fake != nil {
-		return
-	}
-	common.WriteToChannel(m.reqPrefillTimeChan, observation(ev.PrefillDuration), m.logger)
-	common.WriteToChannel(m.ttftChan, observation(ev.PrefillDuration), m.logger)
-}
-
-func (m *VLLMMetricsAdapter) OnDecodeStarted(_ metrics.DecodeStarted) {
-	// State marker.
-}
-
-// token generated
-// - update tpot and itl latency histograms
-func (m *VLLMMetricsAdapter) OnTokenGenerated(ev metrics.TokenGenerated) {
-	if m.fake != nil {
-		return
-	}
-	common.WriteToChannel(m.perTokenLatencyChan, observation(ev.InterTokenLatency), m.logger)
-}
-
-// decode ended
-// - update decode time histogram
-// - update requests tpot histogram
-func (m *VLLMMetricsAdapter) OnDecodeEnded(ev metrics.DecodeEnded) {
-	if m.fake != nil {
-		return
-	}
-	common.WriteToChannel(m.reqDecodeTimeChan, observation(ev.DecodeDuration), m.logger)
-
-	if ev.GenerationTokens > 0 {
-		common.WriteToChannel(m.reqTpotChan, observation(ev.DecodeDuration/float64(ev.GenerationTokens)), m.logger)
-	}
-}
-
-// request processing finished successfully - update all relevant metrics
-func (m *VLLMMetricsAdapter) OnRequestSucceeded(ev metrics.RequestSucceeded) {
-	if m.fake != nil {
-		return
-	}
-
-	// update number of successful requests per finish reason
-	common.WriteToChannel(m.requestSuccessTotalChan, RequestSuccessCounterUpdate{Increment: &ev.FinishReason}, m.logger)
-
-	// request finished successfully, update number of prompt and generated tokens
-	// both total and histogram metrics
-	common.WriteToChannel(m.requestPromptTokensChan, observation(float64(ev.PromptTokens)), m.logger)
-	common.WriteToChannel(m.requestGenerationTokensChan, observation(float64(ev.GenerationTokens)), m.logger)
-	promptTokens := float64(ev.PromptTokens)
-	generationTokens := float64(ev.GenerationTokens)
-	common.WriteToChannel(m.promptTokensTotalChan, CounterUpdate{Add: &promptTokens}, m.logger)
-	common.WriteToChannel(m.generationTokensTotalChan, CounterUpdate{Add: &generationTokens}, m.logger)
-
-	// if max_tokens is set, update the request_params_max_tokens histogram
-	if ev.MaxTokens != nil {
-		common.WriteToChannel(m.requestParamsMaxTokensChan, observation(float64(*ev.MaxTokens)), m.logger)
-	}
-	if maxGenTokens, err := common.MaxIntSlice(ev.GenTokensPerChoice); err == nil {
-		common.WriteToChannel(m.maxNumGenerationTokensChan, observation(float64(maxGenTokens)), m.logger)
-	}
-
-	common.WriteToChannel(m.e2eReqLatencyChan, observation(ev.E2ELatency), m.logger)
-	common.WriteToChannel(m.reqInferenceTimeChan, observation(ev.InferenceTime), m.logger)
-
-	m.finishRunning()
-}
-
-// request processing failed
-// - update all relevant metrics
-func (m *VLLMMetricsAdapter) OnRequestFailed(ev metrics.RequestFailed) {
-	if m.fake != nil {
-		return
-	}
-	common.WriteToChannel(m.e2eReqLatencyChan, observation(ev.E2ELatency), m.logger)
-	common.WriteToChannel(m.reqInferenceTimeChan, observation(ev.InferenceTime), m.logger)
-
-	m.finishRunning()
-}
-
-// change in kv cache utilization
-// - update kv cache usage gauge
-func (m *VLLMMetricsAdapter) OnKVCacheUsageChanged(ev metrics.KVCacheUsageChanged) {
-	if m.fake != nil {
-		return
-	}
-	common.WriteToChannel(m.kvCacheUsageChan, gaugeAdd(ev.KVCacheUsagePerc), m.logger)
-}
-
-// change in prefix cache utilization
-// - update prefix cache hits and queries counters
-func (m *VLLMMetricsAdapter) OnPrefixCacheQueried(ev metrics.PrefixCacheQueried) {
-	if m.fake != nil {
-		return
-	}
-	hit := float64(ev.CachedPromptTokens)
-	queried := float64(ev.QueriedTokens)
-	common.WriteToChannel(m.prefixCacheHitsTotalChan, CounterUpdate{Add: &hit}, m.logger)
-	common.WriteToChannel(m.prefixCacheQueriesTotalChan, CounterUpdate{Add: &queried}, m.logger)
-}
-
-// OnLoRASetsChanged receives the per-LoRA waiting/running snapshot produced
-// by the bus after each LoRAChanged event and forwards it to the LoRA
-// updater goroutine.
-func (m *VLLMMetricsAdapter) OnLoRASetsChanged(ev metrics.LoRASetsChanged) {
-	if m.fake != nil {
-		return
-	}
-	common.WriteToChannel(m.lorasChan, LoRAUpdate{Snapshot: &ev}, m.logger)
-}
-
-// finishRunning decrements the running-request counter for a terminal
-// request. LoRA state transitions are handled separately via LoRAChanged.
-func (m *VLLMMetricsAdapter) finishRunning() {
-	common.WriteToChannel(m.runReqChan, gaugeAdd(-1), m.logger)
-}
-
-// -- Channel updates  -------------------
-
-// -- Updaters (per-metric channels -> Prometheus) ------------------
 
 func (m *VLLMMetricsAdapter) updateWaitingRequests(upd GaugeUpdate) {
 	switch {
