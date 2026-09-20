@@ -48,13 +48,15 @@ func newHandleRequestTestSim(ctx context.Context, newRequestsCapacity int, extra
 	defer func() { os.Args = oldArgs }()
 	os.Args = append([]string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho}, extraArgs...)
 
-	config, err := common.ParseCommandParamsAndLoadConfig(vllm.New())
+	engine := vllm.New()
+	config, err := common.ParseCommandParamsAndLoadConfig(engine)
 	Expect(err).NotTo(HaveOccurred())
 
 	sim, err := New(klog.Background())
 	Expect(err).NotTo(HaveOccurred())
 	sim.Context.SetConfig(config)
 	sim.Context.Tokenizer = tokenizer.NewSimpleTokenizer()
+	sim.Context.Engine = engine
 
 	Expect(sim.Context.initialize(ctx)).To(Succeed())
 

@@ -29,6 +29,7 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/endpoint"
+	"github.com/llm-d/llm-d-inference-sim/pkg/metrics"
 	"github.com/llm-d/llm-d-inference-sim/pkg/simulator"
 	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 )
@@ -49,6 +50,7 @@ func newRunningSim(ctx context.Context) *simulator.Simulator {
 	Expect(err).NotTo(HaveOccurred())
 	sim.Context.SetConfig(config)
 	sim.Context.Tokenizer = tokenizer.NewSimpleTokenizer()
+	sim.Context.Engine = metrics.StubAdapter{}
 
 	Expect(sim.InitializeSim(ctx)).To(Succeed())
 	return sim

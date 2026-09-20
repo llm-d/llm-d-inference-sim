@@ -18,6 +18,7 @@ package simulator
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"sync"
@@ -25,6 +26,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/valyala/fasthttp"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
@@ -32,8 +34,8 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 	"github.com/llm-d/llm-d-inference-sim/pkg/dataset"
 	"github.com/llm-d/llm-d-inference-sim/pkg/endpoint"
-	"github.com/llm-d/llm-d-inference-sim/pkg/engine/vllm/fakemetrics"
 	"github.com/llm-d/llm-d-inference-sim/pkg/kvcache"
+	"github.com/llm-d/llm-d-inference-sim/pkg/metrics"
 	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 )
 
@@ -53,8 +55,11 @@ type lorasUsageInfo struct {
 type SimContext struct {
 	// logger is used for information and errors logging
 	logger logr.Logger
-	// metrics contains all Prometheus metrics related data
-	metrics metricsData
+	// metricsBus is the event-driven metrics pipeline. Producers emit
+	// BaseEvents onto its channels; the wired EngineMetricsAdapter drains
+	// them and updates prometheusRegistry.
+	metricsBus         *metrics.MetricsBus
+	prometheusRegistry *prometheus.Registry
 	// config holds the simulator's configuration as an atomic pointer so that
 	// admin updates can swap it under concurrent readers. Access via Config()/SetConfig().
 	config atomic.Pointer[common.Configuration]
@@ -89,16 +94,23 @@ type SimContext struct {
 	// they stay stable for the simulator's lifetime
 	mooncakeEnginesOnce sync.Once
 	mooncakeEngines     map[string]map[string]string
-	// Engine is the active engine, used by admin-config updates
-	// (ApplyConfigUpdate, below) to re-validate its own configuration fields
-	// the same way the initial configuration does. Set once before the
-	// simulator starts serving; nil is treated as "nothing to validate".
+	// Engine is the active engine. It supplies the metrics adapter and lets
+	// admin-config updates (ApplyConfigUpdate, below) re-validate the engine's
+	// own configuration fields the same way the initial configuration does.
+	// Required: initialize rejects a nil Engine.
 	Engine Engine
+	// nRunningReqs is the number of inference requests that are currently being processed.
+	nRunningReqs atomic.Int64
 }
 
-// Engine validates the active engine's own configuration fields.
+// Engine validates the active engine's own configuration fields and supplies
+// its metrics adapter. Structurally satisfied by engine.Engine; declared here
+// because pkg/simulator cannot import pkg/engine without closing an import
+// cycle through pkg/communication's tests.
 type Engine interface {
 	ValidateConfig(cfg *common.Configuration) error
+	NewMetricsAdapter(ctx context.Context, registry *prometheus.Registry,
+		logger logr.Logger, config common.Configuration) (metrics.MetricsAdapter, error)
 }
 
 type latencyCalcHolder struct {
@@ -143,10 +155,10 @@ func (s *SimContext) SetConfig(c *common.Configuration) {
 // configuration and atomically swaps in the resulting configuration. Updates
 // are serialized so concurrent callers cannot lose each other's changes.
 //
-// A "fake-metrics" field in the body is applied to Prometheus collectors via
-// updateFakeMetrics; this runs after Configuration.Update has validated the
-// merged result but before the config swap, so a Prometheus side-effect
-// failure aborts the whole update.
+// A "fake-metrics" field in the body is forwarded to the metrics bus'
+// fake-metrics controller after Configuration.Update has validated the merged
+// result. The controller only enqueues the update, so the Prometheus side
+// effect lands after this returns and cannot abort the config swap.
 func (s *SimContext) ApplyConfigUpdate(body []byte) error {
 	s.adminMu.Lock()
 	defer s.adminMu.Unlock()
@@ -161,17 +173,7 @@ func (s *SimContext) ApplyConfigUpdate(body []byte) error {
 		}
 	}
 	if update.FakeMetrics != nil {
-		// FakeMetrics is an engine-owned interface; only vLLM's concrete type
-		// is understood here. A future engine with a different concrete type
-		// skips fake-metrics application, an explicit limitation of the
-		// current, vLLM-specific application logic in fake_metrics.go.
-		newFM, newOK := update.FakeMetrics.(*fakemetrics.Config)
-		oldFM, oldOK := s.Config().FakeMetrics.(*fakemetrics.Config)
-		if newOK && oldOK {
-			if err := s.updateFakeMetrics(newFM, oldFM); err != nil {
-				return fmt.Errorf("failed to update fake metrics: %w", err)
-			}
-		}
+		s.metricsBus.ApplyFakeMetricsUpdate(update.FakeMetrics)
 	}
 	s.SetConfig(next)
 	// The calculator caches latency-related fields at construction time, so
@@ -198,9 +200,19 @@ func (s *SimContext) initialize(ctx context.Context) error {
 		Done:    ctx.Done(),
 	}
 
-	// initialize prometheus metrics
-	err := s.createAndRegisterPrometheus(ctx)
+	s.prometheusRegistry = prometheus.NewRegistry()
+
+	if s.Engine == nil {
+		return errors.New("no engine set on the simulator context")
+	}
+
+	var err error
+	s.metricsBus, err = metrics.NewMetricsBus(ctx, *s.Config(), s.prometheusRegistry, s.logger,
+		s.Engine.NewMetricsAdapter)
 	if err != nil {
+		return err
+	}
+	if err := s.metricsBus.Start(ctx); err != nil {
 		return err
 	}
 
@@ -208,7 +220,7 @@ func (s *SimContext) initialize(ctx context.Context) error {
 	// we don't start it.
 	if s.Config().KVCache.EnableKVCache && !s.Config().MMEncoderOnly {
 		s.kvcacheHelper, err = kvcache.NewKVCacheHelper(ctx, s.Config(), s.logger,
-			s.metrics.kvCacheUsageChan, s.metrics.prefixCacheStatsChan, s.Tokenizer)
+			s.Tokenizer, s.metricsBus)
 		if err != nil {
 			return err
 		}
@@ -371,12 +383,14 @@ func (s *SimContext) MooncakeEngineMap() map[string]map[string]string {
 // running-request metric and, if req targets a LoRA, stamps its LoRA ID and
 // marks the LoRA as running.
 func (s *SimContext) RequestStarted(req api.Request) {
-	common.WriteToChannel(s.metrics.runReqChan, common.MetricInfo{Value: 1}, s.logger)
+	s.nRunningReqs.Add(1)
+	common.WriteToChannel(s.metricsBus.RequestRunning, metrics.RequestRunning{}, s.logger)
 
 	dispModel := req.GetDisplayedModel()
-	if s.isLora(dispModel) {
+	if req.IsModelLoRA() {
 		req.SetModelLoraID(s.GetLoraID(dispModel))
-		common.WriteToChannel(s.metrics.lorasChan, loraUsage{dispModel, runningUsageState}, s.logger)
+		common.WriteToChannel(s.metricsBus.LoRAChanged,
+			metrics.LoRAChanged{Model: dispModel, State: metrics.LoRARunning}, s.logger)
 	}
 }
 
@@ -386,14 +400,14 @@ func (s *SimContext) GetResponseTokens(req api.Request) (*api.Tokenized, string,
 }
 
 // KVCacheOnRequestStart records req's arrival in the KV cache, if enabled.
-func (s *SimContext) KVCacheOnRequestStart(req api.Request) (kvcache.PrefixCacheStats, *api.Error) {
+func (s *SimContext) KVCacheOnRequestStart(req api.Request) (metrics.PrefixCacheQueried, *api.Error) {
 	if !s.Config().KVCache.EnableKVCache {
-		return kvcache.PrefixCacheStats{}, nil
+		return metrics.PrefixCacheQueried{}, nil
 	}
 	stat, err := s.kvcacheHelper.OnRequestStart(req)
 	if err != nil {
 		serverError := api.NewError(err.Error(), fasthttp.StatusInternalServerError, nil)
-		return kvcache.PrefixCacheStats{}, &serverError
+		return metrics.PrefixCacheQueried{}, &serverError
 	}
 	return stat, nil
 }
@@ -409,19 +423,17 @@ func (s *SimContext) KVCacheOnRequestEnd(requestID string) {
 }
 
 func (s *SimContext) simulateTTFT(respCtx endpoint.ResponseContext) {
-	startPrefill := time.Now()
 	// time to first token delay
 	params := TTFTParams{
 		PromptTokens:       respCtx.UsageData().PromptTokens,
 		CachedPromptTokens: respCtx.NumberCachedPromptTokens(),
 		DoRemotePrefill:    respCtx.DoRemotePrefill(),
-		RunningReqs:        s.metrics.nRunningReqs.Load(),
+		RunningReqs:        s.nRunningReqs.Load(),
 	}
 	ttft := s.latencyCalc().GetTimeToFirstToken(&params)
 	time.Sleep(ttft)
-	// report ttft in seconds
-	common.WriteToChannel(s.metrics.ttftChan, ttft.Seconds(), s.logger)
-	common.WriteToChannel(s.metrics.reqPrefillTimeChan, time.Since(startPrefill).Seconds(), s.logger)
+	common.WriteToChannel(s.metricsBus.PrefillEnded,
+		metrics.PrefillEnded{PrefillDuration: ttft.Seconds()}, s.logger)
 }
 
 func (s *SimContext) simulateImageGenerationLatency() {
@@ -432,11 +444,11 @@ func (s *SimContext) simulateImageGenerationLatency() {
 
 func (s *SimContext) simulateInterTokenLatency() {
 	perTokenLatency := s.latencyCalc().GetInterTokenLatency(&InterTokenParams{
-		RunningReqs: s.metrics.nRunningReqs.Load()})
+		RunningReqs: s.nRunningReqs.Load()})
 	time.Sleep(perTokenLatency)
 
-	// report tpot in seconds
-	common.WriteToChannel(s.metrics.tpotChan, perTokenLatency.Seconds(), s.logger)
+	common.WriteToChannel(s.metricsBus.TokenGenerated,
+		metrics.TokenGenerated{InterTokenLatency: perTokenLatency.Seconds()}, s.logger)
 }
 
 // CreateModelsResponse creates and returns ModelResponse for the current state, returned array of models contains the base model + LoRA adapters if exist

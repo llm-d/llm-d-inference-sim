@@ -14,18 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-// Package fakemetrics holds vLLM's fake-metrics configuration: the set of
-// metrics the vLLM backend can report to Prometheus in place of real ones,
-// mirroring vLLM's own metric surface.
-//
-// It is a leaf package, depending only on pkg/common, so that both
-// pkg/engine/vllm (which builds this config from CLI flags and YAML) and
-// pkg/simulator (which applies it to Prometheus collectors) can name the
-// concrete type. pkg/simulator cannot import pkg/engine/vllm itself: that
-// package pulls in pkg/communication for its transport wiring, and
-// pkg/communication's own test suite imports pkg/simulator, which would close
-// an import cycle.
-package fakemetrics
+package vllm
 
 import (
 	"errors"
@@ -34,8 +23,8 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 )
 
-// Config implements common.FakeMetrics for the vLLM backend.
-type Config struct {
+// VLLMFakeMetrics implements common.VLLMFakeMetrics for the vLLM backend.
+type VLLMFakeMetrics struct {
 	// LoraMetrics
 	LoraMetrics []common.LorasMetrics `json:"loras"`
 	LorasString []string              `yaml:"loras" json:"-"`
@@ -109,13 +98,13 @@ type Config struct {
 }
 
 // New returns a fresh, zero-valued *Config.
-func (f *Config) New() common.FakeMetrics {
-	return &Config{}
+func (f *VLLMFakeMetrics) New() common.FakeMetrics {
+	return &VLLMFakeMetrics{}
 }
 
 // Validate checks the fake-metrics configuration. Called by the vLLM engine's
 // ValidateConfig (fake metrics are an engine-specific feature).
-func (f *Config) Validate() error {
+func (f *VLLMFakeMetrics) Validate() error {
 	if (f.RunningRequests != nil && f.RunningRequests.FixedValue < 0) ||
 		(f.WaitingRequests != nil && f.WaitingRequests.FixedValue < 0) {
 		return errors.New("fake metrics request counters cannot be negative")

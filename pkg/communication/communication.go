@@ -59,7 +59,9 @@ type Transport interface {
 	// BindHTTP registers the engine's own HTTP routes on r, on top of the
 	// common routes Communication's own HTTP server already registers.
 	BindHTTP(r *fasthttprouter.Router, comm *Communication)
-	// BindGRPC registers the engine's own gRPC service on server.
+	// BindGRPC registers the engine's own gRPC service on server and reports
+	// whether the engine has a gRPC surface at all. Communication does not
+	// open a gRPC listener when it returns false.
 	BindGRPC(server *grpc.Server, comm *Communication) bool
 }
 
@@ -84,16 +86,19 @@ func (c *Communication) Start(ctx context.Context, transport Transport) error {
 	var grpcServer *grpc.Server
 	var grpcErrCh <-chan error
 	if !c.runtime.Config().MMEncoderOnly {
-		// gRPC uses HTTP/2
-		grpcL := m.Match(cmux.HTTP2())
-		grpcServer, grpcErrCh = c.startGRPC(grpcL, transport)
-		// Check for an immediate startup error.
-		select {
-		case err := <-grpcErrCh:
-			if err != nil {
-				return err
+		if server, ok := c.bindGRPC(transport); ok {
+			grpcServer = server
+			// gRPC uses HTTP/2
+			grpcL := m.Match(cmux.HTTP2())
+			grpcErrCh = c.serveGRPC(grpcServer, grpcL)
+			// Check for an immediate startup error.
+			select {
+			case err := <-grpcErrCh:
+				if err != nil {
+					return err
+				}
+			default:
 			}
-		default:
 		}
 	}
 

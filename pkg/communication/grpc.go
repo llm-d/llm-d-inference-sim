@@ -118,19 +118,27 @@ func (c *Communication) GetServerInfo(ctx context.Context, in *pb.GetServerInfoR
 	return nil, nil
 }
 
-// startGRPC starts the gRPC server and returns the server instance and an error channel.
-// It does not handle shutdown — callers are responsible for calling server.Stop().
-// transport registers the active engine's own gRPC service on server.
-func (c *Communication) startGRPC(listener net.Listener, transport Transport) (*grpc.Server, <-chan error) {
+// bindGRPC creates a gRPC server and lets transport register its service on it.
+// The returned bool reports whether the active engine has a gRPC surface at all;
+// when false, server is nil and the caller must not create a gRPC listener for it.
+func (c *Communication) bindGRPC(transport Transport) (*grpc.Server, bool) {
 	server := grpc.NewServer()
-	transport.BindGRPC(server, c)
+	if !transport.BindGRPC(server, c) {
+		return nil, false
+	}
 	reflection.Register(server)
+	return server, true
+}
+
+// serveGRPC starts server.Serve on listener in a goroutine and returns an error channel.
+// It does not handle shutdown — callers are responsible for calling server.Stop().
+func (c *Communication) serveGRPC(server *grpc.Server, listener net.Listener) <-chan error {
 	errCh := make(chan error, 1)
 	go func() {
 		c.logger.V(logging.INFO).Info("Server starting", "protocol", "gRPC", "port", c.runtime.Config().Port)
 		errCh <- server.Serve(listener)
 	}()
-	return server, errCh
+	return errCh
 }
 
 func (c *Communication) pbRequestToRequest(in *pb.GenerateRequest) *endpoint.GenerationRequest {
