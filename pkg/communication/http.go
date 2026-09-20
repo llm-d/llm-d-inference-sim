@@ -82,7 +82,9 @@ func (c *Communication) startHTTPServer(ctx context.Context, listener net.Listen
 	// supports /models API
 	r.GET("/v1/models", c.HandleModels)
 	// supports /metrics prometheus API
-	r.GET("/metrics", fasthttpadaptor.NewFastHTTPHandler(promhttp.HandlerFor(c.processor.MetricsRegistry(), promhttp.HandlerOpts{})))
+	if promRegistry := c.processor.MetricsRegistry(); promRegistry != nil {
+		r.GET("/metrics", fasthttpadaptor.NewFastHTTPHandler(promhttp.HandlerFor(promRegistry, promhttp.HandlerOpts{})))
+	}
 	// supports standard Kubernetes health and readiness checks
 	r.GET("/health", c.HandleHealth)
 	r.GET("/health/ready", c.HandleHealthReady)

@@ -333,7 +333,7 @@ var _ = Describe("Simulator", func() {
 		Expect(resp.Choices).To(HaveLen(totalChoices))
 
 		// In echo mode, each group of n choices for a prompt should echo that prompt.
-		// Prompt 0 → choices 0..n-1, Prompt 1 → choices n..2n-1.
+		// Prompt 0 -> choices 0..n-1, Prompt 1 -> choices n..2n-1.
 		for i, c := range resp.Choices {
 			Expect(c.Index).To(BeEquivalentTo(i))
 			promptIdx := int(c.Index) / n
@@ -662,8 +662,8 @@ var _ = Describe("Simulator", func() {
 	It("text completions wire form accepts both string and array prompts", func() {
 		// This test sends raw JSON (bypassing the OpenAI SDK's encoding) to pin
 		// down the dual-form contract on the `prompt` field directly:
-		//   - "prompt": "..."  → single-choice response.
-		//   - "prompt": [...]  → one choice per element, in order.
+		//   - "prompt": "..."  -> single-choice response.
+		//   - "prompt": [...]  -> one choice per element, in order.
 		// The X-Request-ID response header echoes the parent request id (the
 		// "-i" suffix is stamped on internal sub-request ids only).
 		ctx := context.TODO()

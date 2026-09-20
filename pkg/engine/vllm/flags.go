@@ -22,7 +22,6 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
-	"github.com/llm-d/llm-d-inference-sim/pkg/engine/vllm/fakemetrics"
 )
 
 const dummy = " "
@@ -196,7 +195,7 @@ func unmarshalYAMLGroups(cfg *common.Configuration, rawYAML map[string]any) erro
 	// must leave fake metrics unset: reporting fake metrics suppresses every
 	// real metric.
 	if v, ok := rawYAML["fake-metrics"]; ok && v != nil {
-		fm := &fakemetrics.Config{}
+		fm := &VLLMFakeMetrics{}
 		if err := common.UnmarshalYAMLKey(rawYAML, "fake-metrics", fm); err != nil {
 			return err
 		}
@@ -245,7 +244,7 @@ func unmarshalLoras(cfg *common.Configuration, loraModuleNames []string) error {
 
 // unmarshalFakeMetrics parses the --fake-metrics flag's JSON string into cfg.FakeMetrics.
 func unmarshalFakeMetrics(cfg *common.Configuration, fakeMetricsString string) error {
-	var metrics *fakemetrics.Config
+	var metrics *VLLMFakeMetrics
 	if err := json.Unmarshal([]byte(fakeMetricsString), &metrics); err != nil {
 		return err
 	}
@@ -260,7 +259,7 @@ func unmarshalFakeMetrics(cfg *common.Configuration, fakeMetricsString string) e
 
 // unmarshalLoraFakeMetrics reconciles fm.LorasString (raw JSON strings, from
 // a YAML config file) into fm.LoraMetrics.
-func unmarshalLoraFakeMetrics(fm *fakemetrics.Config) error {
+func unmarshalLoraFakeMetrics(fm *VLLMFakeMetrics) error {
 	fm.LoraMetrics = make([]common.LorasMetrics, 0)
 	for _, jsonStr := range fm.LorasString {
 		var lora common.LorasMetrics

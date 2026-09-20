@@ -594,8 +594,8 @@ type ResponsesLogprob struct {
 type OutputContent struct {
 	Type string `json:"type"` // output_text
 	Text string `json:"text,omitempty"`
-	// nil ptr → omit (not requested); non-nil ptr to nil slice → null; non-nil ptr to empty slice → [];
-	// non-nil ptr to populated slice → full array
+	// nil ptr -> omit (not requested); non-nil ptr to nil slice -> null; non-nil ptr to empty slice -> [];
+	// non-nil ptr to populated slice -> full array
 	Logprobs *[]ResponsesLogprob `json:"logprobs,omitempty"`
 }
 

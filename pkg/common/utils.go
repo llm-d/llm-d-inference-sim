@@ -17,9 +17,11 @@ limitations under the License.
 package common
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math/rand"
+	"reflect"
 	"sync"
 	"time"
 
@@ -39,14 +41,6 @@ var TPOTBucketsBoundaries = []float64{0.01, 0.025, 0.05, 0.075, 0.1, 0.15, 0.2, 
 
 var RequestLatencyBucketsBoundaries = []float64{0.3, 0.5, 0.8, 1.0, 1.5, 2.0, 2.5, 5.0, 10.0, 15.0,
 	20.0, 30.0, 40.0, 50.0, 60.0, 120.0, 240.0, 480.0, 960.0, 1920.0, 7680.0}
-
-// MetricInfo contains metrics update value to pass through the corresponding channel
-type MetricInfo struct {
-	// Value is the value for metric's update
-	Value float64
-	// IsFake is true if this a fake metric, and false if not
-	IsFake bool
-}
 
 // ValidateContextWindow checks if the request fits within the model's context window.
 // In random mode, max-tokens is not considered - the prompt just needs room for at
@@ -172,6 +166,14 @@ type Channel[T any] struct {
 	Done <-chan struct{}
 }
 
+func NewChannel[T any](prefix string, capacity int, done <-chan struct{}) Channel[T] {
+	return Channel[T]{
+		Channel: make(chan T, capacity),
+		Name:    prefix + "." + reflect.TypeFor[T]().Name(),
+		Done:    done,
+	}
+}
+
 // WriteToChannelWithError attempts a non-blocking write to channel and returns an error
 // if the channel is full, unless channel.Done is closed (shutting down), in which case a
 // full channel is not reported as an error.
@@ -194,6 +196,18 @@ func WriteToChannelWithError[T any](channel Channel[T], object T) error {
 func WriteToChannel[T any](channel Channel[T], object T, logger logr.Logger) {
 	if err := WriteToChannelWithError(channel, object); err != nil {
 		logger.V(logging.WARN).Info("failed to write to", "channel", channel.Name)
+	}
+}
+
+// Subscribe reads events from ch and dispatches them to fn until ctx is done.
+func Subscribe[E any](ctx context.Context, ch Channel[E], fn func(E)) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case event := <-ch.Channel:
+			fn(event)
+		}
 	}
 }
 

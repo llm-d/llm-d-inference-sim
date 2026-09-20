@@ -19,16 +19,20 @@ limitations under the License.
 package engine
 
 import (
+	"context"
 	"fmt"
 	"sort"
 
 	"github.com/buaazp/fasthttprouter"
+	"github.com/go-logr/logr"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/spf13/pflag"
 	"google.golang.org/grpc"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/communication"
 	"github.com/llm-d/llm-d-inference-sim/pkg/engine/vllm"
+	"github.com/llm-d/llm-d-inference-sim/pkg/metrics"
 )
 
 // Engine supplies one backend's own defaults, CLI flags, configuration
@@ -57,6 +61,11 @@ type Engine interface {
 	// whether the engine has a gRPC surface at all. Communication does not
 	// open a gRPC listener when it returns false.
 	BindGRPC(server *grpc.Server, comm *communication.Communication) bool
+	// NewMetricsAdapter builds the engine's own metrics adapter, registering
+	// its collectors on registry. ctx must match the one passed to
+	// metrics.NewMetricsBus.
+	NewMetricsAdapter(ctx context.Context, registry *prometheus.Registry,
+		logger logr.Logger, config common.Configuration) (metrics.MetricsAdapter, error)
 }
 
 // registry maps each engine backend's name to its constructor. Adding a
