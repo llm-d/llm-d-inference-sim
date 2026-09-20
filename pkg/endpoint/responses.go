@@ -24,6 +24,7 @@ import (
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
+	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 )
 
 // Implementation of request for /responses requests
@@ -52,6 +53,35 @@ func (r *ResponsesRequest) Validate(toolsValidator *ToolsValidator) *api.Error {
 		}
 	}
 	return validateRequest(r)
+}
+
+// ValidateBody checks that a responses body has a non-empty input — the
+// minimum shape required for /v1/responses/render. The stateless render
+// boundary rejects previous_response_id, mirroring vLLM: a stateful request
+// must be rehydrated by the caller before it can be rendered.
+func (r *ResponsesRequest) ValidateBody() *api.Error {
+	if r.PreviousResponseID != nil {
+		serverErr := api.NewError("previous_response_id is not supported on /v1/responses/render",
+			fasthttp.StatusBadRequest, nil)
+		return &serverErr
+	}
+	if len(r.Input) == 0 {
+		serverErr := api.NewError("input must not be empty", fasthttp.StatusBadRequest, nil)
+		return &serverErr
+	}
+	return nil
+}
+
+// Render tokenizes the responses request for /v1/responses/render and returns
+// the tokens (wrapped as a single-element slice for shape parity with the
+// other render endpoints) and any mm_features. It renders the prompt the same
+// way the generation path does, via buildResponsesMessages.
+func (r *ResponsesRequest) Render(tk tokenizer.Tokenizer) ([][]uint32, *api.RenderMMFeatures, error) {
+	tokens, _, features, err := tk.RenderMessages(buildResponsesMessages(r.Input, r.Instructions))
+	if err != nil {
+		return nil, nil, err
+	}
+	return [][]uint32{tokens}, features, nil
 }
 
 func (r *ResponsesRequest) BuildRequestContext(runtime Runtime, channel common.Channel[*ResponseInfo],
@@ -167,14 +197,23 @@ func convertInputToMessages(input []api.InputItem) []api.Message {
 	return messages
 }
 
-func (r *responsesReqCtx) encode() ([]uint32, []string, *api.RenderMMFeatures, error) {
-	messages := convertInputToMessages(r.req.Input)
-	if r.req.Instructions != "" {
+// buildResponsesMessages converts the input items to chat messages, prepending
+// the instructions as a system message. Shared by the worker-pipeline tokenize
+// path (encode) and the stateless render path (Render) so both render the
+// prompt identically.
+func buildResponsesMessages(input []api.InputItem, instructions string) []api.Message {
+	messages := convertInputToMessages(input)
+	if instructions != "" {
 		messages = append([]api.Message{{
 			Role:    "system",
-			Content: api.ChatComplContent{Raw: r.req.Instructions},
+			Content: api.ChatComplContent{Raw: instructions},
 		}}, messages...)
 	}
+	return messages
+}
+
+func (r *responsesReqCtx) encode() ([]uint32, []string, *api.RenderMMFeatures, error) {
+	messages := buildResponsesMessages(r.req.Input, r.req.Instructions)
 	return r.runtime.GetTokenizer().RenderMessages(messages)
 }
 

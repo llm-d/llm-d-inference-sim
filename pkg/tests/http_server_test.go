@@ -239,6 +239,46 @@ var _ = Describe("Server", func() {
 				Expect(resp.Features.KwargsData).To(HaveKey("image"))
 				Expect(resp.Features.KwargsData["image"]).To(HaveLen(2))
 			}),
+		Entry("simulate /v1/responses/render with a text input",
+			common.TestModelName, "/v1/responses/render",
+			fmt.Sprintf(`{"model":"%s","input":"This is a test"}`, common.TestModelName),
+			func(body []byte) {
+				var resp api.RenderResponse
+				Expect(json.Unmarshal(body, &resp)).To(Succeed())
+				Expect(resp.TokenIDs).NotTo(BeEmpty())
+				Expect(resp.Features).To(BeNil())
+			}),
+		Entry("simulate /v1/responses/render with a message array and instructions",
+			common.TestModelName, "/v1/responses/render",
+			fmt.Sprintf(`{"model":"%s","instructions":"be terse","input":[`+
+				`{"role":"user","content":[{"type":"input_text","text":"This is a test"}]}`+
+				`]}`, common.TestModelName),
+			func(body []byte) {
+				var resp api.RenderResponse
+				Expect(json.Unmarshal(body, &resp)).To(Succeed())
+				Expect(resp.TokenIDs).NotTo(BeEmpty())
+				Expect(resp.Features).To(BeNil())
+			}),
+		Entry("simulate /v1/responses/render with input_image synthesizes mm features",
+			common.TestModelName, "/v1/responses/render",
+			fmt.Sprintf(`{"model":"%s","input":[`+
+				`{"role":"user","content":[`+
+				`{"type":"input_text","text":"describe this"},`+
+				`{"type":"input_image","image_url":"http://example.com/a.png"},`+
+				`{"type":"input_image","image_url":"http://example.com/b.png"}`+
+				`]}]}`, common.TestModelName),
+			func(body []byte) {
+				var resp api.RenderResponse
+				Expect(json.Unmarshal(body, &resp)).To(Succeed())
+				Expect(resp.TokenIDs).NotTo(BeEmpty())
+				Expect(resp.Features).NotTo(BeNil())
+				Expect(resp.Features.MMHashes).To(HaveKey("image"))
+				Expect(resp.Features.MMHashes["image"]).To(HaveLen(2))
+				Expect(resp.Features.MMPlaceholders).To(HaveKey("image"))
+				Expect(resp.Features.MMPlaceholders["image"]).To(HaveLen(2))
+				Expect(resp.Features.KwargsData).To(HaveKey("image"))
+				Expect(resp.Features.KwargsData["image"]).To(HaveLen(2))
+			}),
 		Entry("proxy /v1/completions/render to the upstream renderer (HF model)",
 			common.QwenModelName, "/v1/completions/render",
 			fmt.Sprintf(`{"model":"%s","prompt":"This is a test"}`, common.QwenModelName),
@@ -280,7 +320,54 @@ var _ = Describe("Server", func() {
 				Expect(resp.Features.KwargsData).To(HaveKey("image"))
 				Expect(resp.Features.KwargsData["image"]).To(HaveLen(2))
 			}),
+		Entry("proxy /v1/responses/render to the upstream renderer (HF model)",
+			common.QwenModelName, "/v1/responses/render",
+			fmt.Sprintf(`{"model":"%s","input":"This is a test"}`, common.QwenModelName),
+			func(body []byte) {
+				var resp api.RenderResponse
+				Expect(json.Unmarshal(body, &resp)).To(Succeed())
+				Expect(resp.TokenIDs).NotTo(BeEmpty())
+				Expect(resp.Features).To(BeNil())
+			}),
 	)
+
+	It("returns 400 for /v1/responses/render with an empty input array", func() {
+		ctx := context.TODO()
+		client, err := startServerWithArgs(ctx, []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom})
+		Expect(err).NotTo(HaveOccurred())
+
+		resp, err := client.Post("http://localhost/v1/responses/render", "application/json",
+			strings.NewReader(fmt.Sprintf(`{"model":"%s","input":[]}`, common.TestModelName)))
+		Expect(err).NotTo(HaveOccurred())
+		defer func() {
+			err := resp.Body.Close()
+			Expect(err).NotTo(HaveOccurred())
+		}()
+
+		Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
+		body, err := io.ReadAll(resp.Body)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(string(body)).To(ContainSubstring("input must not be empty"))
+	})
+
+	It("returns 400 for /v1/responses/render with previous_response_id", func() {
+		ctx := context.TODO()
+		client, err := startServerWithArgs(ctx, []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom})
+		Expect(err).NotTo(HaveOccurred())
+
+		resp, err := client.Post("http://localhost/v1/responses/render", "application/json",
+			strings.NewReader(fmt.Sprintf(`{"model":"%s","previous_response_id":"resp_1","input":"hi"}`, common.TestModelName)))
+		Expect(err).NotTo(HaveOccurred())
+		defer func() {
+			err := resp.Body.Close()
+			Expect(err).NotTo(HaveOccurred())
+		}()
+
+		Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
+		body, err := io.ReadAll(resp.Body)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(string(body)).To(ContainSubstring("previous_response_id"))
+	})
 
 	Describe("derender endpoints", func() {
 		startSim := func(model string) *http.Client {

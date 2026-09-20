@@ -759,9 +759,10 @@ func NewGenerationRequest(requestID string, stream bool, model string, maxTokens
 
 type ResponsesRequest struct {
 	baseRequest
-	Input           []InputItem `json:"input,omitempty"`
-	Instructions    string      `json:"instructions,omitempty"`
-	MaxOutputTokens *int64      `json:"max_output_tokens,omitempty"`
+	Input              []InputItem `json:"input,omitempty"`
+	Instructions       string      `json:"instructions,omitempty"`
+	PreviousResponseID *string     `json:"previous_response_id,omitempty"`
+	MaxOutputTokens    *int64      `json:"max_output_tokens,omitempty"`
 	// Ignored for now, always text
 	Text *TextSettings `json:"text,omitempty"`
 	// Include specifies additional output data to include. Use "message.output_text.logprobs" to include logprobs.
@@ -962,14 +963,15 @@ func (req *ResponsesRequest) UnmarshalJSON(data []byte) error {
 	// Use an alias to unmarshal all fields except Input and tools normally.
 	type alias struct {
 		baseRequest
-		Input           json.RawMessage `json:"input,omitempty"`
-		Instructions    string          `json:"instructions,omitempty"`
-		MaxOutputTokens *int64          `json:"max_output_tokens,omitempty"`
-		Text            *TextSettings   `json:"text,omitempty"`
-		Include         []string        `json:"include,omitempty"`
-		TopLogprobs     *int            `json:"top_logprobs,omitempty"`
-		Tools           json.RawMessage `json:"tools,omitempty"`
-		ToolChoice      ToolChoice      `json:"tool_choice,omitzero"`
+		Input              json.RawMessage `json:"input,omitempty"`
+		Instructions       string          `json:"instructions,omitempty"`
+		PreviousResponseID *string         `json:"previous_response_id,omitempty"`
+		MaxOutputTokens    *int64          `json:"max_output_tokens,omitempty"`
+		Text               *TextSettings   `json:"text,omitempty"`
+		Include            []string        `json:"include,omitempty"`
+		TopLogprobs        *int            `json:"top_logprobs,omitempty"`
+		Tools              json.RawMessage `json:"tools,omitempty"`
+		ToolChoice         ToolChoice      `json:"tool_choice,omitzero"`
 	}
 	var a alias
 	if err := json.Unmarshal(data, &a); err != nil {
@@ -977,6 +979,7 @@ func (req *ResponsesRequest) UnmarshalJSON(data []byte) error {
 	}
 	req.baseRequest = a.baseRequest
 	req.Instructions = a.Instructions
+	req.PreviousResponseID = a.PreviousResponseID
 	req.MaxOutputTokens = a.MaxOutputTokens
 	req.Text = a.Text
 	req.Include = a.Include

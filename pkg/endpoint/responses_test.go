@@ -343,3 +343,99 @@ var _ = Describe("Responses instructions tokenization", func() {
 		Entry("without instructions", ""),
 	)
 })
+
+var _ = Describe("Responses render parity", func() {
+	newRenderParityCtx := func(input []api.InputItem, instructions string) (*ResponsesRequest, *responsesReqCtx) {
+		tk := tokenizer.NewSimpleTokenizer()
+		req := &ResponsesRequest{}
+		req.Input = input
+		req.Instructions = instructions
+		req.RequestID = "req-test"
+		ctx := &responsesReqCtx{
+			baseRequestContext: baseRequestContext{
+				runtime: &fakeRuntime{tokenizer: tk},
+			},
+			req: req,
+		}
+		return req, ctx
+	}
+
+	DescribeTable("Render produces the same tokens as encode",
+		func(input []api.InputItem, instructions string) {
+			req, ctx := newRenderParityCtx(input, instructions)
+			tk := ctx.runtime.GetTokenizer()
+			encoded, _, _, err := ctx.encode()
+			Expect(err).NotTo(HaveOccurred())
+			rendered, features, err := req.Render(tk)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(rendered).To(HaveLen(1))
+			Expect(rendered[0]).To(Equal(encoded))
+			Expect(features).To(BeNil())
+		},
+		Entry("text-only input with instructions",
+			[]api.InputItem{
+				&api.InputMessage{
+					Type:    "message",
+					Role:    api.RoleUser,
+					Content: []api.InputContent{{Type: api.ResponsesInputText, Text: "Hello world"}},
+				},
+			},
+			"You are a helpful assistant"),
+		Entry("text-only input without instructions",
+			[]api.InputItem{
+				&api.InputMessage{
+					Type:    "message",
+					Role:    api.RoleUser,
+					Content: []api.InputContent{{Type: api.ResponsesInputText, Text: "Hello world"}},
+				},
+			},
+			""),
+		Entry("multiple messages",
+			[]api.InputItem{
+				&api.InputMessage{
+					Type:    "message",
+					Role:    "system",
+					Content: []api.InputContent{{Type: api.ResponsesInputText, Text: "You are terse."}},
+				},
+				&api.InputMessage{
+					Type:    "message",
+					Role:    api.RoleUser,
+					Content: []api.InputContent{{Type: api.ResponsesInputText, Text: "What is Go?"}},
+				},
+			},
+			""),
+	)
+})
+
+var _ = Describe("Responses ValidateBody", func() {
+	textInput := []api.InputItem{
+		&api.InputMessage{
+			Type:    "message",
+			Role:    api.RoleUser,
+			Content: []api.InputContent{{Type: api.ResponsesInputText, Text: "hi"}},
+		},
+	}
+
+	It("rejects an empty input", func() {
+		req := &ResponsesRequest{}
+		err := req.ValidateBody()
+		Expect(err).NotTo(BeNil())
+		Expect(err.Message).To(ContainSubstring("input must not be empty"))
+	})
+
+	It("rejects previous_response_id at the stateless boundary", func() {
+		prev := "resp_1"
+		req := &ResponsesRequest{}
+		req.Input = textInput
+		req.PreviousResponseID = &prev
+		err := req.ValidateBody()
+		Expect(err).NotTo(BeNil())
+		Expect(err.Message).To(ContainSubstring("previous_response_id"))
+	})
+
+	It("accepts a plain text input", func() {
+		req := &ResponsesRequest{}
+		req.Input = textInput
+		Expect(req.ValidateBody()).To(BeNil())
+	})
+})
