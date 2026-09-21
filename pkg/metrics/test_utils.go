@@ -55,6 +55,8 @@ func (StubAdapter) OnLoRASetsChanged(LoRASetsChanged)         {}
 
 func (StubAdapter) ApplyFakeMetricsUpdate(common.FakeMetrics) {}
 
+func (StubAdapter) NewFakeMetrics() common.FakeMetrics { return nil }
+
 func (StubAdapter) ValidateConfig(*common.Configuration) error { return nil }
 
 func (StubAdapter) NewMetricsAdapter(context.Context, *prometheus.Registry, logr.Logger,

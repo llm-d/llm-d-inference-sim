@@ -19,6 +19,8 @@ limitations under the License.
 // surface.
 package vllm
 
+import "github.com/llm-d/llm-d-inference-sim/pkg/common"
+
 // Engine implements engine.Engine for the vLLM backend.
 type Engine struct{}
 
@@ -27,3 +29,9 @@ func New() Engine { return Engine{} }
 
 // Name identifies this engine backend.
 func (Engine) Name() string { return "vllm" }
+
+// NewFakeMetrics returns a zero-valued VLLMFakeMetrics for runtime enable via
+// POST /admin/config when the process was started without --fake-metrics.
+func (Engine) NewFakeMetrics() common.FakeMetrics {
+	return &VLLMFakeMetrics{}
+}

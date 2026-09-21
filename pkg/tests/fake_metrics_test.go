@@ -549,6 +549,35 @@ var _ = Describe("Fake metrics", Ordered, func() {
 			Expect(string(data)).To(ContainSubstring(`"failure-injection-rate":42`))
 		})
 
+		It("Should enable fake metrics via POST /admin/config without startup --fake-metrics", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom}
+
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			resp := postAdminConfig(client, `{"fake-metrics":{"running-requests":20,"waiting-requests":10,"kv-cache-usage":0.95}}`)
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			Expect(resp.Body.Close()).To(Succeed())
+
+			eventuallyMetrics(client, func(g Gomega, metricsData string) {
+				g.Expect(metricsData).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllm.VLLMReqRunningMetricName, 20)))
+				g.Expect(metricsData).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllm.VLLMReqWaitingMetricName, 10)))
+				g.Expect(metricsData).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllm.VLLMKVCacheUsageMetricName, 0.95)))
+			})
+
+			// Partial update still works after the cold enable.
+			resp = postAdminConfig(client, `{"fake-metrics":{"kv-cache-usage":0.1}}`)
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			Expect(resp.Body.Close()).To(Succeed())
+
+			eventuallyMetrics(client, func(g Gomega, metricsData string) {
+				g.Expect(metricsData).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllm.VLLMReqRunningMetricName, 20)))
+				g.Expect(metricsData).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllm.VLLMReqWaitingMetricName, 10)))
+				g.Expect(metricsData).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllm.VLLMKVCacheUsageMetricName, 0.1)))
+			})
+		})
+
 		It("Should update fake ttft and tpot metrics correctly", func() {
 			ctx := context.TODO()
 			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,

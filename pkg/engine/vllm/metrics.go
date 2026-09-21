@@ -1174,13 +1174,17 @@ func resolveTokenTotal(buckets []float64, samples []int, explicit *float64) *flo
 
 // ApplyFakeMetricsUpdate narrows the engine-owned fake-metrics configuration
 // to vLLM's concrete type and applies it. A configuration belonging to another
-// engine is logged and dropped.
+// engine is logged and dropped. The first successful call enters fake mode so
+// subsequent Reset updates are accepted and real-path event handlers no-op.
 func (m *VLLMMetricsAdapter) ApplyFakeMetricsUpdate(update common.FakeMetrics) {
 	vllmUpdate, ok := update.(*VLLMFakeMetrics)
 	if !ok || vllmUpdate == nil {
 		m.logger.Error(fmt.Errorf("unexpected fake-metrics configuration type %T", update),
 			"ignoring fake-metrics update")
 		return
+	}
+	if m.fake == nil {
+		m.fake = &VLLMFakeMetrics{}
 	}
 	m.applyFakeMetrics(vllmUpdate)
 }

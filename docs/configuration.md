@@ -182,7 +182,7 @@ Command-line flag names are as listed below. In a YAML config file, these settin
       --fake-metrics '{"running-requests":"oscillate:0:10:5s","waiting-requests":30,"kv-cache-usage":0.4,"loras":[{"running":"lora4,lora2","waiting":"lora3","timestamp":1257894567},{"running":"lora4,lora3","waiting":"","timestamp":1257894569}]}'
 - `fake-metrics-refresh-interval`	- defines how often function-based fake metrics are recalculated, the default value is 100ms.
 
-Fake metric values can also be updated at runtime via [`POST /admin/config`](api.md#adminconfig) with a `fake-metrics` field — the body is a partial update, so only the specified metrics are changed. Absent fields and fields explicitly set to `null` are equivalent and leave the existing value alone; to clear a slice- or map-valued metric send `[]` or `{}` respectively. Scalar metrics cannot be cleared via partial update.
+Fake metric values can also be updated at runtime via [`POST /admin/config`](api.md#adminconfig) with a `fake-metrics` field — the body is a partial update, so only the specified metrics are changed. Absent fields and fields explicitly set to `null` are equivalent and leave the existing value alone; to clear a slice- or map-valued metric send `[]` or `{}` respectively. Scalar metrics cannot be cleared via partial update. If the simulator was started without `--fake-metrics`, the first non-null `fake-metrics` update enables fake mode for that process (useful for per-pod load shaping when replicas share one Deployment).
 
 ## Ignored parameters
 The following command line parameters are ignored by the simulator:
