@@ -1243,7 +1243,7 @@ func (m *VLLMMetricsAdapter) applyFakeMetrics(update *VLLMFakeMetrics) {
 		common.WriteToChannel(m.maxNumGenerationTokensChan, HistogramUpdate{Reset: &HistogramReset{Buckets: tokenBuckets, Samples: update.RequestMaxGenerationTokens}}, m.logger)
 	}
 
-	// update histogram of the propmpt tokens
+	// update histogram of the prompt tokens
 	if update.RequestPromptTokens != nil {
 		common.WriteToChannel(m.requestPromptTokensChan, HistogramUpdate{Reset: &HistogramReset{Buckets: tokenBuckets, Samples: update.RequestPromptTokens}}, m.logger)
 	}
