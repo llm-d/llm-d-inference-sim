@@ -51,6 +51,11 @@ type Engine interface {
 	// tree returned by Configuration.load (nil if no --config file was
 	// given). Must be called before f.Parse.
 	BindFlags(f *pflag.FlagSet, cfg *common.Configuration, rawYAML map[string]any) error
+	// ApplyEnv applies the engine's own environment-variable settings to cfg.
+	// Called after the flags have been parsed and before validation; changed
+	// reports whether a given flag was set on the command line, so that an
+	// env var can act as a fallback rather than an override.
+	ApplyEnv(cfg *common.Configuration, changed func(flag string) bool)
 	// ValidateConfig checks the engine's own fields of cfg. Called after cfg's
 	// common fields have already been validated.
 	ValidateConfig(cfg *common.Configuration) error
