@@ -50,6 +50,7 @@ type kvCacheYAML struct {
 	TokenBlockSize          int    `yaml:"block-size"`
 	HashSeed                string `yaml:"hash-seed"`
 	ZMQEndpoint             string `yaml:"zmq-endpoint"`
+	ZMQTopic                string `yaml:"zmq-topic"`
 	KVEventsReplayEndpoint  string `yaml:"kv-events-replay-endpoint"`
 	KVEventsReplayQueueSize int    `yaml:"kv-events-replay-queue-size"`
 	EventBatchSize          int    `yaml:"event-batch-size"`
@@ -60,7 +61,7 @@ type kvCacheYAML struct {
 // nested "kvcache" block, for backward compatibility.
 var kvCacheLegacyFlatKeys = []string{
 	"enable-kvcache", "kv-cache-size", "kv-cache-dtype", "block-size", "hash-seed",
-	"zmq-endpoint", "kv-events-replay-endpoint", "kv-events-replay-queue-size",
+	"zmq-endpoint", "zmq-topic", "kv-events-replay-endpoint", "kv-events-replay-queue-size",
 	"event-batch-size", "use-vllm-map-event-format",
 }
 
@@ -118,6 +119,7 @@ func registerFlags(f *pflag.FlagSet, cfg *common.Configuration) {
 	f.StringVar(&cfg.KVCache.HashSeed, "hash-seed", cfg.KVCache.HashSeed,
 		"Seed for hash generation (if omitted on the command line, "+pythonHashSeedEnv+" may set it; see docs)")
 	f.StringVar(&cfg.KVCache.ZMQEndpoint, "zmq-endpoint", cfg.KVCache.ZMQEndpoint, "ZMQ address to publish events")
+	f.StringVar(&cfg.KVCache.ZMQTopic, "zmq-topic", cfg.KVCache.ZMQTopic, "ZMQ topic to publish KV-cache events under (empty uses the default kv@<ip>:<port>@<model>)")
 	f.StringVar(&cfg.KVCache.KVEventsReplayEndpoint, "kv-events-replay-endpoint", cfg.KVCache.KVEventsReplayEndpoint, "ZMQ ROUTER address to bind for receiving KV events replay requests (empty disables)")
 	f.IntVar(&cfg.KVCache.KVEventsReplayQueueSize, "kv-events-replay-queue-size", cfg.KVCache.KVEventsReplayQueueSize, "Max number of event batches held in the replay queue; oldest dropped when full")
 	f.IntVar(&cfg.KVCache.EventBatchSize, "event-batch-size", cfg.KVCache.EventBatchSize, "Maximum number of kv-cache events to be sent together")

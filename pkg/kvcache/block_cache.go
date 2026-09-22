@@ -89,7 +89,13 @@ func newBlockCache(ctx context.Context, config *common.Configuration, logger log
 		}
 	}
 
-	topic := CreateKVEventsTopic(config.IP, config.Port, config.Model)
+	// A configured topic replaces the generated one verbatim; the same string
+	// then feeds both the live publisher and the replayer below, so replayed
+	// frames keep matching the live PUB stream.
+	topic := kvCfg.ZMQTopic
+	if topic == "" {
+		topic = CreateKVEventsTopic(config.IP, config.Port, config.Model)
+	}
 
 	var replayer *kvEventsReplayer
 	if kvCfg.KVEventsReplayEndpoint != "" {
@@ -431,7 +437,8 @@ func (bc *blockCache) setModelUnloaded(model string) {
 	delete(bc.loadedModels, model)
 }
 
-// CreateKVEventsTopic builds the ZMQ topic used to publish KV-cache events.
+// CreateKVEventsTopic builds the default ZMQ topic used to publish KV-cache
+// events. KVCacheConfig.ZMQTopic replaces it verbatim when set.
 //
 // The format is: kv@<pod-ip>:<serving-port>@<model-name>
 //
