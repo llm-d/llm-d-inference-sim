@@ -72,7 +72,7 @@ func InitFakeHistogram(hist *prometheus.HistogramVec, modelName string, bucketsB
 			valueToObserve = bucketsBoundaries[numOfBoundaries-1] + 1
 		}
 
-		// hist could be nil for case when only total calculaion is needed, without updating the histogram
+		// hist could be nil for case when only total calculation is needed, without updating the histogram
 		// to keep in-sync values of the histogram, it sum and the total counter
 		if hist != nil {
 			for range bucketSamplesCount {
