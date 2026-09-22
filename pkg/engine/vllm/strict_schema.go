@@ -35,6 +35,7 @@ import (
 type strictRequestValidator struct {
 	schemas    map[string]*jsonschema.Schema
 	maxN       int64
+	maxPrompts int64
 	defaultMax map[string]int64
 }
 
@@ -47,18 +48,31 @@ func (Engine) NewRequestValidator() (communication.RequestValidator, error) {
 }
 
 func loadStrictRequestValidator() (*strictRequestValidator, error) {
-	var err error
-	maxN := int64(16384)
-	if value, exists := os.LookupEnv("VLLM_MAX_N_SEQUENCES"); exists {
-		maxN, err = strconv.ParseInt(value, 10, 64)
-		if err != nil || maxN < 1 {
-			return nil, errors.New("VLLM_MAX_N_SEQUENCES must be a positive integer")
-		}
+	maxN, err := validationLimit("VLLM_MAX_N_SEQUENCES", 16384)
+	if err != nil {
+		return nil, err
 	}
-	return compileStrictRequestValidator(strictOpenAPI, maxN)
+	maxPrompts, err := validationLimit("VLLM_MAX_COMPLETION_PROMPTS", 1024)
+	if err != nil {
+		return nil, err
+	}
+	return compileStrictRequestValidator(strictOpenAPI, maxN, maxPrompts)
 }
 
-func compileStrictRequestValidator(document []byte, maxN int64) (*strictRequestValidator, error) {
+// validationLimit reads a positive integer limit that vLLM applies while validating a request.
+func validationLimit(name string, fallback int64) (int64, error) {
+	value, exists := os.LookupEnv(name)
+	if !exists {
+		return fallback, nil
+	}
+	limit, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || limit < 1 {
+		return 0, fmt.Errorf("%s must be a positive integer", name)
+	}
+	return limit, nil
+}
+
+func compileStrictRequestValidator(document []byte, maxN, maxPrompts int64) (*strictRequestValidator, error) {
 	var spec struct {
 		OpenAPI string `json:"openapi"`
 		Paths   map[string]struct {
@@ -88,7 +102,7 @@ func compileStrictRequestValidator(document []byte, maxN int64) (*strictRequestV
 	if err := compiler.AddResource(source, bytes.NewReader(document)); err != nil {
 		return nil, err
 	}
-	validator := &strictRequestValidator{schemas: make(map[string]*jsonschema.Schema), maxN: maxN, defaultMax: make(map[string]int64)}
+	validator := &strictRequestValidator{schemas: make(map[string]*jsonschema.Schema), maxN: maxN, maxPrompts: maxPrompts, defaultMax: make(map[string]int64)}
 	for _, path := range []string{chatCompletionsPath, completionsPath} {
 		if len(spec.Paths[path].Post.RequestBody.Content["application/json"].Schema) == 0 {
 			return nil, fmt.Errorf("missing JSON request schema for %s", path)

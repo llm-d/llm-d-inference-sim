@@ -198,5 +198,5 @@ func validateSamplingTestBody(body []byte, path string) *api.Error {
 	if path == completionsPath {
 		fields["prompt"] = json.RawMessage(`"hello"`)
 	}
-	return (&strictRequestValidator{maxN: 16384}).validateFields(fields, path)
+	return (&strictRequestValidator{maxN: 16384, maxPrompts: 1024}).validateFields(fields, path)
 }

@@ -277,7 +277,7 @@ func (c *Communication) handleHTTP(req endpoint.Request, respBuilder responseBui
 	path := string(ctx.Path())
 	if c.runtime.Config().StrictRequestValidation &&
 		(path == "/v1/chat/completions" || path == "/v1/completions") {
-		if err := validateStrictContentType(string(ctx.Request.Header.ContentType())); err != nil {
+		if err := validateStrictHeaders(&ctx.Request.Header); err != nil {
 			c.sendError(ctx, err, false)
 			return
 		}

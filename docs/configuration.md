@@ -238,9 +238,9 @@ llm-d-inference-sim --strict
 ```
 
 The vLLM engine compiles its embedded schemas once at startup and validates requests
-when received, before tokenization or generation. The schemas and hand-written rules
-are pinned together to vLLM 0.21.0. Set `VLLM_MAX_N_SEQUENCES` to match the target
-server's sequence limit (default: 16384).
+when received, before tokenization or generation. The embedded schemas are pinned to
+vLLM 0.21.0. Set `VLLM_MAX_N_SEQUENCES` and `VLLM_MAX_COMPLETION_PROMPTS` to match the
+limits of the simulated server (defaults: 16384 sequences and 1024 prompts).
 
 Strict validation covers request structure, sampling ranges and cross-field rules.
 Schema defaults are used for validation only. The generic request and context checks

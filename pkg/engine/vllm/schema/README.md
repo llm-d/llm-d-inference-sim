@@ -49,6 +49,7 @@ additional semantic rules and the limits of the simulator's validation.
 | `continue_final_message`, `add_generation_prompt` | Reject explicit simultaneous true values, matching the request model's before-validator. |
 | `cache_salt` | Reject an explicitly empty string. |
 | `prompt`, `prompt_embeds` | Completion requires a nonempty prompt or embeddings as defined by the request model. Embedding tensor decoding remains outside this validator. |
+| `prompt`, `prompt_embeds` list length > `VLLM_MAX_COMPLETION_PROMPTS` | Engine request-model before-validator; environment default 1024 and the complete vLLM message. A prompt list of token IDs is one prompt. |
 | `repetition_detection` | Pattern-size ordering/nonnegativity and minimum repetition count when enabled. |
 | `use_beam_search` | Model/schema checks still apply; sampling-only rules are skipped because vLLM constructs `BeamSearchParams` instead of `SamplingParams`. The simulator does not perform real beam search. |
 | `echo`, `seed=-1`, `include_stop_str_in_output`, `ignore_eos`, special-token/spacing flags, `length_penalty`, `thinking_token_budget`, `bad_words` | Schema checks; these have no additional model-independent rejection in the audited request/sampling path. Existing simulator generation behavior remains authoritative. |

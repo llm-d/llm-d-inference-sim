@@ -23,7 +23,7 @@ import (
 )
 
 func TestBundledStrictSchema(t *testing.T) {
-	v, err := compileStrictRequestValidator(strictOpenAPI, 16384)
+	v, err := compileStrictRequestValidator(strictOpenAPI, 16384, 1024)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -89,8 +89,42 @@ func TestStrictSchemaStartup(t *testing.T) {
 		}
 	}
 	document := bytes.ReplaceAll(strictOpenAPI, []byte("#/components/schemas/ChatCompletionRequest"), []byte("https://example.invalid/request.json"))
-	if _, err := compileStrictRequestValidator(document, 16384); err == nil {
+	if _, err := compileStrictRequestValidator(document, 16384, 1024); err == nil {
 		t.Fatal("external reference accepted")
+	}
+}
+
+func TestStrictPromptCountLimit(t *testing.T) {
+	t.Setenv("VLLM_MAX_COMPLETION_PROMPTS", "2")
+	v, err := loadStrictRequestValidator()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := v.Validate([]byte(`{"prompt":["a","b","c"]}`), completionsPath); err == nil ||
+		!strings.Contains(err.Message, "prompt list length 3 exceeds the maximum allowed count of 2. "+
+			"To increase this limit, set the VLLM_MAX_COMPLETION_PROMPTS environment variable.") {
+		t.Fatalf("prompt list limit ignored: %v", err)
+	}
+	// A list of token IDs is one tokenized prompt, not a list of prompts.
+	if err := v.Validate([]byte(`{"prompt":[1,2,3]}`), completionsPath); err != nil {
+		t.Fatalf("tokenized prompt rejected: %v", err)
+	}
+	if err := v.Validate([]byte(`{"prompt":"a","prompt_embeds":["e","e","e"]}`), completionsPath); err == nil ||
+		!strings.Contains(err.Message, "prompt_embeds list length 3 exceeds the maximum allowed count of 2.") {
+		t.Fatalf("prompt_embeds limit ignored: %v", err)
+	}
+	if err := v.Validate([]byte(`{"prompt":["a","b"]}`), completionsPath); err != nil {
+		t.Fatalf("request within the limit rejected: %v", err)
+	}
+	chat := `{"messages":[{"role":"user","content":"a"},{"role":"user","content":"b"},{"role":"user","content":"c"}]}`
+	if err := v.Validate([]byte(chat), chatCompletionsPath); err != nil {
+		t.Fatalf("chat request limited by the completion prompt count: %v", err)
+	}
+	for _, value := range []string{"0", "-1", "many", ""} {
+		t.Setenv("VLLM_MAX_COMPLETION_PROMPTS", value)
+		if _, err := loadStrictRequestValidator(); err == nil {
+			t.Fatalf("accepted limit %q", value)
+		}
 	}
 }
 

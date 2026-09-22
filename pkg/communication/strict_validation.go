@@ -23,6 +23,14 @@ import (
 	"github.com/valyala/fasthttp"
 )
 
+// validateStrictHeaders applies the strict validation checks to a request's headers.
+func validateStrictHeaders(header *fasthttp.RequestHeader) *api.Error {
+	if err := validateStrictContentType(string(header.ContentType())); err != nil {
+		return err
+	}
+	return nil
+}
+
 func validateStrictContentType(contentType string) *api.Error {
 	mediaType, _, err := mime.ParseMediaType(contentType)
 	if err == nil && mediaType == "application/json" {

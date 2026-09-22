@@ -36,6 +36,11 @@ const (
 // validateFields applies the bundled vLLM request-model and sampling rules.
 func (v *strictRequestValidator) validateFields(fields map[string]json.RawMessage, path string) *api.Error {
 
+	if path == completionsPath {
+		if err := v.validatePromptCount(fields); err != nil {
+			return err
+		}
+	}
 	if err := validateRequestModel(fields, path); err != nil {
 		return err
 	}
@@ -130,6 +135,38 @@ func (v *strictRequestValidator) validateFields(fields map[string]json.RawMessag
 	return nil
 }
 
+// validatePromptCount applies the prompt count limit of the text completion request model.
+func (v *strictRequestValidator) validatePromptCount(fields map[string]json.RawMessage) *api.Error {
+	var prompts []json.RawMessage
+	if json.Unmarshal(fields["prompt"], &prompts) == nil && len(prompts) > 0 &&
+		!allIntegers(prompts) && int64(len(prompts)) > v.maxPrompts {
+		return v.promptCountError("prompt", len(prompts))
+	}
+	var embeddings []json.RawMessage
+	if json.Unmarshal(fields["prompt_embeds"], &embeddings) == nil && int64(len(embeddings)) > v.maxPrompts {
+		return v.promptCountError("prompt_embeds", len(embeddings))
+	}
+	return nil
+}
+
+func (v *strictRequestValidator) promptCountError(parameter string, count int) *api.Error {
+	message := fmt.Sprintf("%s list length %d exceeds the maximum allowed count of %d. "+
+		"To increase this limit, set the VLLM_MAX_COMPLETION_PROMPTS environment variable.", parameter, count, v.maxPrompts)
+	param := parameter
+	return badRequest(message, &param)
+}
+
+// allIntegers reports whether every element is an integer, which vLLM reads as one
+// tokenized prompt rather than as several prompts.
+func allIntegers(values []json.RawMessage) bool {
+	for _, value := range values {
+		if _, ok := integerValue(value); !ok {
+			return false
+		}
+	}
+	return true
+}
+
 func badRequest(message string, param *string) *api.Error {
 	err := api.NewError(message, fasthttp.StatusBadRequest, param)
 	return &err
@@ -157,8 +194,13 @@ func numberField(fields map[string]json.RawMessage, name string) (float64, bool)
 }
 
 func integerField(fields map[string]json.RawMessage, name string) (*big.Int, bool) {
-	// JSON Schema integers are unbounded and may use decimal or exponent notation.
-	rational, ok := new(big.Rat).SetString(string(fields[name]))
+	return integerValue(fields[name])
+}
+
+// integerValue parses a JSON Schema integer, which is unbounded and may use decimal or
+// exponent notation.
+func integerValue(raw json.RawMessage) (*big.Int, bool) {
+	rational, ok := new(big.Rat).SetString(string(raw))
 	if !ok || !rational.IsInt() {
 		return new(big.Int), false
 	}

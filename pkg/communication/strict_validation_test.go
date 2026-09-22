@@ -36,6 +36,16 @@ const (
 )
 
 var _ = Describe("strict vLLM request validation", func() {
+	Describe("request headers", func() {
+		It("accepts JSON requests and rejects other media types", func() {
+			header := &fasthttp.RequestHeader{}
+			header.SetContentType("application/json")
+			Expect(validateStrictHeaders(header)).To(BeNil())
+			header.SetContentType("text/plain")
+			Expect(validateStrictHeaders(header)).To(Equal(validateStrictContentType("text/plain")))
+		})
+	})
+
 	Describe("content type", func() {
 		It("accepts JSON with parameters", func() {
 			Expect(validateStrictContentType("application/json; charset=utf-8")).To(BeNil())
