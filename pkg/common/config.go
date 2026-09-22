@@ -145,10 +145,11 @@ type Configuration struct {
 	// Used for identification in Kubernetes environments.
 	// Set by env variable POD_NAME
 	PodName string
-	// VllmDevMode enables development mode for the vLLM simulator
-	// Allowing for additional debugging features during local development and testing.
-	// Set by env variable VLLM_SERVER_DEV_MODE
-	VllmDevMode bool
+	// DevMode enables the engine's development-only features, which is what
+	// gates sleep mode. Set by the active engine from its own environment
+	// variable (see Engine.ApplyEnv); an engine whose equivalent endpoints are
+	// always available sets it unconditionally.
+	DevMode bool
 
 	// Latencies groups the request-latency simulation parameters. YAML and JSON
 	// both nest it under "latencies"; both a YAML config file (via load's

@@ -887,24 +887,53 @@ var _ = Describe("Model environment variable", func() {
 
 var _ = Describe("PYTHONHASHSEED environment variable", func() {
 	BeforeEach(func() {
-		Expect(os.Unsetenv(common.PythonHashSeedEnv)).To(Succeed())
+		Expect(os.Unsetenv(pythonHashSeedEnv)).To(Succeed())
 	})
 	AfterEach(func() {
-		Expect(os.Unsetenv(common.PythonHashSeedEnv)).To(Succeed())
+		Expect(os.Unsetenv(pythonHashSeedEnv)).To(Succeed())
 	})
 
 	It("does not override --hash-seed when the flag is passed", func() {
-		Expect(os.Setenv(common.PythonHashSeedEnv, "from-env")).To(Succeed())
+		Expect(os.Setenv(pythonHashSeedEnv, "from-env")).To(Succeed())
 		config, err := createSimConfig([]string{"cmd", "--model", common.TestModelName, "--enable-kvcache", "--hash-seed", "from-flag", "--mode", common.ModeRandom, "--seed", "100"})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(config.KVCache.HashSeed).To(Equal("from-flag"))
 	})
 
 	It("applies when --hash-seed is omitted", func() {
-		Expect(os.Setenv(common.PythonHashSeedEnv, "env-seed")).To(Succeed())
+		Expect(os.Setenv(pythonHashSeedEnv, "env-seed")).To(Succeed())
 		config, err := createSimConfig([]string{"cmd", "--model", common.TestModelName, "--enable-kvcache", "--mode", common.ModeRandom, "--seed", "100"})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(config.KVCache.HashSeed).To(Equal("env-seed"))
+	})
+})
+
+var _ = Describe("VLLM_SERVER_DEV_MODE environment variable", func() {
+	BeforeEach(func() {
+		Expect(os.Unsetenv(devModeEnv)).To(Succeed())
+	})
+	AfterEach(func() {
+		Expect(os.Unsetenv(devModeEnv)).To(Succeed())
+	})
+
+	It("enables dev mode when set to 1", func() {
+		Expect(os.Setenv(devModeEnv, "1")).To(Succeed())
+		config, err := createSimConfig([]string{"cmd", "--model", common.TestModelName})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(config.DevMode).To(BeTrue())
+	})
+
+	It("leaves dev mode off for any other value", func() {
+		Expect(os.Setenv(devModeEnv, "true")).To(Succeed())
+		config, err := createSimConfig([]string{"cmd", "--model", common.TestModelName})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(config.DevMode).To(BeFalse())
+	})
+
+	It("leaves dev mode off when unset", func() {
+		config, err := createSimConfig([]string{"cmd", "--model", common.TestModelName})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(config.DevMode).To(BeFalse())
 	})
 })
 

@@ -37,7 +37,8 @@ func (noopEngine) ApplyDefaults(*common.Configuration) {}
 func (noopEngine) BindFlags(*pflag.FlagSet, *common.Configuration, map[string]any) error {
 	return nil
 }
-func (noopEngine) ValidateConfig(*common.Configuration) error { return nil }
+func (noopEngine) ApplyEnv(*common.Configuration, func(string) bool) {}
+func (noopEngine) ValidateConfig(*common.Configuration) error        { return nil }
 
 var _ = Describe("Server", func() {
 

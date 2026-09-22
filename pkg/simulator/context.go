@@ -317,7 +317,7 @@ func (s *SimContext) Logger() logr.Logger {
 // and the simulator is running in dev mode.
 func (s *SimContext) Sleep() bool {
 	cfg := s.Config()
-	if !cfg.EnableSleepMode || !cfg.VllmDevMode {
+	if !cfg.EnableSleepMode || !cfg.DevMode {
 		return false
 	}
 	s.sleepMutex.Lock()
@@ -461,7 +461,7 @@ func (s *SimContext) CreateModelsResponse() *api.ModelsResponse {
 			ID:          alias,
 			Object:      api.ObjectModel,
 			Created:     time.Now().Unix(),
-			OwnedBy:     "vllm",
+			OwnedBy:     s.Config().EngineName,
 			Root:        s.Config().Model,
 			Parent:      nil,
 			MaxModelLen: s.Config().MaxModelLen,
@@ -475,7 +475,7 @@ func (s *SimContext) CreateModelsResponse() *api.ModelsResponse {
 			ID:          lora,
 			Object:      api.ObjectModel,
 			Created:     time.Now().Unix(),
-			OwnedBy:     "vllm",
+			OwnedBy:     s.Config().EngineName,
 			Root:        s.getLoraPath(lora),
 			Parent:      &parent,
 			MaxModelLen: s.Config().MaxModelLen,
