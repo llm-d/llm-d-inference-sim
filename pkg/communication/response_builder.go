@@ -507,6 +507,14 @@ func (respBuilder *responsesHTTPRespBuilder) createResponse(respCtxPerChoice []e
 	)
 }
 
+// createRenderResponse builds the wire payload for /v1/responses/render: a
+// single RenderResponse object (not an array) carrying the tokens for the
+// rendered prompt and any mm_features produced by the tokenizer.
+func (*responsesHTTPRespBuilder) createRenderResponse(tokens [][]uint32,
+	features *api.RenderMMFeatures) any {
+	return api.RenderResponse{TokenIDs: tokens[0], Features: features}
+}
+
 func (respBuilder *responsesHTTPRespBuilder) createUsageChunk(respCtxPerChoice []endpoint.ResponseContext) sseChunk {
 	respCtx := respCtxPerChoice[0]
 	usage := aggregateUsage(respCtxPerChoice)

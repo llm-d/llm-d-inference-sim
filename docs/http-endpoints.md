@@ -223,6 +223,20 @@ Structure of requests/responses
                 - offset (token index where the multimodal region begins)
                 - length (number of tokens the region spans)
             - kwargs_data (map keyed by modality to an array of strings, one per multimodal item; content is tokenizer-dependent — see [Render endpoints](#render-endpoints))
+- `/v1/responses/render`
+    - **request** — same shape as `/v1/responses`; only `model`, `instructions`, and `input` are inspected
+        - model
+        - instructions (optional; prepended as a system message when rendering)
+        - input (array of input items, same structure as `/v1/responses`, including `input_image` and `input_audio` content blocks)
+        - previous_response_id (rejected with `400 Bad Request` — the render endpoint is stateless)
+    - **response** — single JSON object
+        - token_ids
+        - features (present only when at least one input item contains an `input_image` or `input_audio` block)
+            - mm_hashes (map keyed by modality — `image`, `audio`, or `video` — to an array of opaque hash strings)
+            - mm_placeholders (map keyed by modality to an array of placeholder regions)
+                - offset (token index where the multimodal region begins)
+                - length (number of tokens the region spans)
+            - kwargs_data (map keyed by modality to an array of strings, one per multimodal item; content is tokenizer-dependent — see [Render endpoints](#render-endpoints))
 - `/v1/completions/derender`
     - **request**
         - stream (must be absent or `false`; streaming derender is rejected with `400 Bad Request`)
@@ -479,7 +493,7 @@ For full details on the expected API behavior and specification, please refer to
 
 ### Render endpoints
 
-`/v1/completions/render` and `/v1/chat/completions/render` mirror vLLM's `/render` behavior — they return the tokenized form of a request without running generation. They are useful for debugging tokenization, pre-computing prompt token counts, and exercising multimodal feature handling.
+`/v1/completions/render`, `/v1/chat/completions/render`, and `/v1/responses/render` mirror vLLM's `/render` behavior — they return the tokenized form of a request without running generation. They are useful for debugging tokenization, pre-computing prompt token counts, and exercising multimodal feature handling.
 
 Pre-tokenized prompts on `/v1/completions/render` (a token-id array, or an array of token-id arrays) are copied through verbatim — the tokenizer is not invoked for those entries — regardless of which tokenizer is active.
 
@@ -487,6 +501,8 @@ For everything else, behavior depends on the active tokenizer (selected automati
 
 - **HuggingFace tokenizer** (real model): each text prompt and chat-completions request is forwarded to the upstream vLLM render service at `--render-url`. For chat requests, `mm_features` returned by the upstream are passed through.
 - **Simulated tokenizer** (dummy model): the simulator tokenizes locally using its regex-based splitter. For chat requests containing `image_url`, `audio_url`, `input_audio`, or `video_url` blocks, synthetic `mm_features` are produced so multimodal-aware downstream code paths can be exercised without a real renderer.
+
+`/v1/responses/render` reuses the same prompt rendering as `/v1/responses`: `input` items are converted to messages, `instructions` is prepended as a system message, and the result is tokenized. It returns a single `token_ids`/`features` object rather than an array. Being stateless, it rejects `previous_response_id` with `400 Bad Request`.
 
 ### Derender endpoints
 
