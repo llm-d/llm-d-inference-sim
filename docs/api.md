@@ -95,7 +95,7 @@ In addition to standard HTTP headers, the simulator recognizes a few simulator-s
 
 ## gRPC Endpoints
 The simulator implements the `vllm.grpc.engine.VllmEngine` service definition. 
-It is available on the same port as the HTTP server.
+It is served on the same port as the HTTP server, and is not started in two cases: `--mm-encoder-only` mode, and an active engine backend that has no gRPC surface (see [Engine backends](engine-backends.md)). In either case the port still serves HTTP.
 Only `Generate` and `GetModelInfo` methods are currently implemented. <br>
 The `Generate` submits a generation request. Supports streaming responses and standard sampling parameters.<br>
 The `GetModelInfo` retrieves metadata about the currently loaded model.
