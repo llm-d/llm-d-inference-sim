@@ -37,6 +37,7 @@ The defaults below apply only once `enable-kvcache` is true. When it is `false` 
 | `block-size` | int | `16` | Tokens per block; valid values: `8`, `16`, `32`, `64`, `128` |
 | `hash-seed` | string | value of `PYTHONHASHSEED` env var | Seed for block key hash generation; must match the seed used by real vLLM instances to ensure identical block hashes |
 | `zmq-endpoint` | string | `tcp://127.0.0.1:5557` | ZMQ address to publish events. The simulator either dials (active) or listens on (passive) this address. Addresses with "*", "::", "inproc://", and "ipc://" are assumed passive. |
+| `zmq-topic` | string | `""` (generated) | ZMQ topic KV-cache events are published under. Empty uses `kv@<pod-ip>:<serving-port>@<model>`; a non-empty value replaces it verbatim, matching vLLM's static `KVEventsConfig.topic`. Applies to replayed frames as well. All data-parallel ranks share a static topic. |
 | `event-batch-size` | int | `16` | Maximum number of events bundled into a single ZMQ message |
 | `use-vllm-map-event-format` | bool | `false` | Encode events as msgpack maps with named fields (vLLM PR #42892 format) instead of positional arrays. Set to `true` when the consumer expects the named-field schema. |
 | `kv-events-replay-endpoint` | string | `""` (disabled) | ZMQ ROUTER address to bind for KV events replay requests. See [KV events replay](#kv-events-replay). |

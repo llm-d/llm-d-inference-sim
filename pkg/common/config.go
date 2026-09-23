@@ -299,6 +299,13 @@ type KVCacheConfig struct {
 	// ZMQEndpoint is the ZMQ address to publish events, the default value is tcp://localhost:5557
 	ZMQEndpoint string `json:"zmq-endpoint"`
 
+	// ZMQTopic overrides the ZMQ topic KV-cache events are published under.
+	// Empty (default) keeps the llm-d convention built by
+	// kvcache.CreateKVEventsTopic: kv@<ip>:<port>@<model>. When set, the value
+	// replaces that topic verbatim, matching vLLM's static KVEventsConfig.topic
+	// for consumers that subscribe to a fixed name.
+	ZMQTopic string `json:"zmq-topic"`
+
 	// KVEventsReplayEndpoint is the ZMQ ROUTER address to bind for receiving KV events replay requests.
 	// Empty (default) disables the replay listener. Example: "tcp://*:5558"
 	KVEventsReplayEndpoint string `json:"kv-events-replay-endpoint"`

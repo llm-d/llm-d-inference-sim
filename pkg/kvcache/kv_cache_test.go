@@ -168,6 +168,41 @@ var _ = Describe("CreateKVEventsTopic", func() {
 	})
 })
 
+var _ = Describe("configured ZMQ topic", func() {
+	newCacheWithTopic := func(configured string, replayEndpoint string) *blockCache {
+		config := &common.Configuration{
+			IP:    localhost,
+			Port:  1234,
+			Model: "model",
+			KVCache: common.KVCacheConfig{
+				KVCacheSize:            4,
+				EventBatchSize:         1,
+				ZMQTopic:               configured,
+				KVEventsReplayEndpoint: replayEndpoint,
+			},
+		}
+		bc, err := newBlockCache(context.Background(), config, GinkgoLogr, nil)
+		Expect(err).NotTo(HaveOccurred())
+		return bc
+	}
+
+	It("falls back to the generated topic when unset", func() {
+		bc := newCacheWithTopic("", "")
+		Expect(bc.eventSender.topic).To(Equal("kv@127.0.0.1:1234@model"))
+	})
+
+	It("replaces the generated topic verbatim when set", func() {
+		bc := newCacheWithTopic("kv-events", "")
+		Expect(bc.eventSender.topic).To(Equal("kv-events"))
+	})
+
+	It("gives the replayer the same topic as the live stream", func() {
+		bc := newCacheWithTopic("kv-events", "tcp://127.0.0.1:5999")
+		Expect(bc.eventSender.replayer).NotTo(BeNil())
+		Expect(bc.eventSender.replayer.topic).To(Equal(bc.eventSender.topic))
+	})
+})
+
 var _ = Describe("KV cache", Ordered, func() {
 	random := common.NewRandom(time.Now().UnixNano(), 8080)
 

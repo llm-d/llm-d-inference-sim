@@ -1055,6 +1055,32 @@ block-size: 32
 		Expect(config.KVCache.TokenBlockSize).To(Equal(32))
 	})
 
+	It("defaults zmq-topic to empty so the generated topic is used", func() {
+		config, err := createSimConfig([]string{"cmd", "--model", "test-model", "--enable-kvcache"})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(config.KVCache.ZMQTopic).To(BeEmpty())
+	})
+
+	It("populates zmq-topic from the nested kvcache block and lets a flag override it", func() {
+		config, err := createSimConfig([]string{"cmd", "--config", writeConfig(`
+model: test-model
+kvcache:
+  enable-kvcache: true
+  zmq-topic: from-yaml
+`)})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(config.KVCache.ZMQTopic).To(Equal("from-yaml"))
+
+		config, err = createSimConfig([]string{"cmd", "--config", writeConfig(`
+model: test-model
+kvcache:
+  enable-kvcache: true
+  zmq-topic: from-yaml
+`), "--zmq-topic", "from-flag"})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(config.KVCache.ZMQTopic).To(Equal("from-flag"))
+	})
+
 	It("errors when kv-cache settings mix the flat and nested layouts", func() {
 		_, err := createSimConfig([]string{"cmd", "--config", writeConfig(`
 model: test-model
