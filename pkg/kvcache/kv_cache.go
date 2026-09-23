@@ -40,7 +40,7 @@ type KVCacheHelper struct {
 }
 
 func NewKVCacheHelper(ctx context.Context, config *common.Configuration, logger logr.Logger,
-	tokenizer tokenizer.Tokenizer, metrics *metrics.MetricsBus) (*KVCacheHelper, error) {
+	tokenizer tokenizer.Tokenizer, metrics *metrics.MetricsBus, encoder EventEncoder) (*KVCacheHelper, error) {
 	if config.IP == "" {
 		return nil, errors.New("IP should be defined in the environment (POD_IP) for KV cache to work")
 	}
@@ -55,7 +55,7 @@ func NewKVCacheHelper(ctx context.Context, config *common.Configuration, logger 
 		return nil, fmt.Errorf("failed to create tokens processor: %w", err)
 	}
 
-	blockCache, err := newBlockCache(ctx, config, logger, metrics)
+	blockCache, err := newBlockCache(ctx, config, logger, metrics, encoder)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create block cache: %w", err)
 	}

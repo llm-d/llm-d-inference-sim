@@ -110,6 +110,16 @@ func consistentlyMetrics(client *http.Client, check func(g gomega.Gomega, metric
 	}).WithTimeout(time.Second).WithPolling(50 * time.Millisecond).Should(gomega.Succeed())
 }
 
+// eventuallyThenConsistentlyMetrics waits for check to hold and then requires
+// it to keep holding. Use it after a fake-metrics update: POST /admin/config
+// returns once the update is enqueued, and the updater goroutines unregister
+// each collector before recreating it, so a bare consistentlyMetrics can scrape
+// the window where a metric reads as absent or still carries its old value.
+func eventuallyThenConsistentlyMetrics(client *http.Client, check func(g gomega.Gomega, metricsData string)) {
+	eventuallyMetrics(client, check)
+	consistentlyMetrics(client, check)
+}
+
 // Starts server in the given mode, no additional arguments or environment variables
 func startServer(ctx context.Context, mode string) (*http.Client, error) {
 	return startServerWithArgsAndEnv(ctx, mode, nil, nil)

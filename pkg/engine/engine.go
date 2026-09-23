@@ -32,6 +32,7 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/communication"
 	"github.com/llm-d/llm-d-inference-sim/pkg/engine/vllm"
+	"github.com/llm-d/llm-d-inference-sim/pkg/kvcache"
 	"github.com/llm-d/llm-d-inference-sim/pkg/metrics"
 )
 
@@ -71,6 +72,9 @@ type Engine interface {
 	// metrics.NewMetricsBus.
 	NewMetricsAdapter(ctx context.Context, registry *prometheus.Registry,
 		logger logr.Logger, config common.Configuration) (metrics.MetricsAdapter, error)
+	// NewKVEventEncoder builds the encoder that turns the block cache's
+	// engine-independent events into this engine's KV-event wire format.
+	NewKVEventEncoder(config common.Configuration) (kvcache.EventEncoder, error)
 }
 
 // registry maps each engine backend's name to its constructor. Adding a
