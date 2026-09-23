@@ -205,6 +205,30 @@ var _ = Describe("VLLMMetricsAdapter", func() {
 			Eventually(gaugeValue(adapter.kvCacheUsagePercentage)).Should(Equal(kv))
 		})
 
+		It("enters fake mode from a real-metrics adapter on first ApplyUpdate", func() {
+			adapter, _ := newTestAdapter(newTestConfig())
+			Expect(adapter.fake).To(BeNil())
+
+			kv := 0.95
+			upd := &VLLMFakeMetrics{
+				RunningRequests:        &common.FakeMetricWithFunction{FixedValue: 20},
+				WaitingRequests:        &common.FakeMetricWithFunction{FixedValue: 10},
+				KVCacheUsagePercentage: &common.FakeMetricWithFunction{FixedValue: kv},
+			}
+			adapter.ApplyFakeMetricsUpdate(upd)
+
+			Expect(adapter.fake).NotTo(BeNil())
+			Eventually(gaugeValue(adapter.runningRequests)).Should(Equal(float64(20)))
+			Eventually(gaugeValue(adapter.waitingRequests)).Should(Equal(float64(10)))
+			Eventually(gaugeValue(adapter.kvCacheUsagePercentage)).Should(Equal(kv))
+
+			// Real-path events must no-op after entering fake mode.
+			adapter.OnRequestRunning(metrics.RequestRunning{})
+			adapter.OnKVCacheUsageChanged(metrics.KVCacheUsageChanged{KVCacheUsagePerc: 0.1})
+			Consistently(gaugeValue(adapter.runningRequests)).Should(Equal(float64(20)))
+			Consistently(gaugeValue(adapter.kvCacheUsagePercentage)).Should(Equal(kv))
+		})
+
 		It("starts and stops the ticker as generators are enabled and cleared", func() {
 			cfg := newTestConfig()
 			cfg.FakeMetrics = &VLLMFakeMetrics{}

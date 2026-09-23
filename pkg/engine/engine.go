@@ -71,6 +71,10 @@ type Engine interface {
 	// metrics.NewMetricsBus.
 	NewMetricsAdapter(ctx context.Context, registry *prometheus.Registry,
 		logger logr.Logger, config common.Configuration) (metrics.MetricsAdapter, error)
+	// NewFakeMetrics returns a zero-valued FakeMetrics for this engine so
+	// POST /admin/config can enable fake metrics at runtime when the process
+	// was started without --fake-metrics.
+	NewFakeMetrics() common.FakeMetrics
 }
 
 // registry maps each engine backend's name to its constructor. Adding a
