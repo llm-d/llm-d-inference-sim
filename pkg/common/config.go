@@ -104,7 +104,7 @@ type Configuration struct {
 	Model string `yaml:"model" json:"model"`
 	// EngineName is the inference engine backend being simulated. Resolved and
 	// checked against the set of registered engines before this Configuration
-	// is built (see ResolveEngineName and main's selectEngine).
+	// is built (see ResolveEngineName and engine.Select).
 	EngineName string `yaml:"engine" json:"engine"`
 	// Mode defines the simulator response generation mode, valid values: echo, random
 	Mode string `yaml:"mode" json:"mode"`

@@ -15,6 +15,7 @@ Some environment variables (for example `POD_NAME`, `POD_NAMESPACE`) are not ove
 - `config`: the path to a yaml configuration file that can contain the simulator's command line parameters. If a parameter is defined in both the config file and the command line, the command line value overwrites the configuration file value. An example configuration file can be found at [manifests/config.yaml](../manifests/config.yaml)
 - `port`: the port the simulator listens on, default is 8000
 - `max-request-body-size-mb`: maximum allowed size of an HTTP request body in megabytes, optional, default is 4 (matching the fasthttp built-in default). Must be between 1 and 512.
+- `engine`: the inference engine to simulate, optional, default is `vllm` (the only supported value). Determines which flags, environment variables, metric names, and KV-event format the simulator uses; see [Engines](engine-backends.md). If you omit `--engine` on the command line, a non-empty `SIM_ENGINE` environment variable can supply it; see [Configuration precedence](#configuration-precedence) and [Environment variables](#environment-variables).
 - `model`: the currently 'loaded' model, mandatory. If you omit `--model` on the command line, a non-empty `SIM_MODEL` environment variable can supply the model; see [Configuration precedence](#configuration-precedence) and [Environment variables](#environment-variables).
 - `served-model-name`: model names exposed by the API (a list of space-separated strings)
 - `max-model-len`: model's context window, maximum number of tokens in a single request including input and output, optional, default is 1024
@@ -214,6 +215,7 @@ In addition, as we are using klog, the following parameters are available:
 - `vmodule`: comma-separated list of pattern=N settings for file-filtered logging
 
 # Environment variables
+- `SIM_ENGINE`: when non-empty and **`--engine` is not passed on the command line**, selects the engine and overrides the `engine` value from the YAML file (if any) and the default. If you pass `--engine`, it always wins. See [Engines](engine-backends.md).
 - `SIM_MODEL`: when non-empty and **`--model` is not passed on the command line**, sets the model name. In that case it overrides the `model` value from the YAML file (if any) and the default. If you pass `--model`, it always wins. Useful in Kubernetes when the same image arguments are reused and the model name comes from the pod environment.
 - `PYTHONHASHSEED`: when **`--hash-seed` is not passed on the command line**, a non-empty value supplies the hash seed and overrides `hash-seed` from the YAML file (if any) and the default. If you pass `--hash-seed`, it always wins. Matches common Python hash randomization behavior.
 - `VLLM_SERVER_DEV_MODE`: when set to `1`, enables vLLM development mode. Currently used as an additional gate for the `/sleep` endpoint: even with `--enable-sleep-mode`, `/sleep` is a no-op unless `VLLM_SERVER_DEV_MODE=1` is set in the simulator's environment.
