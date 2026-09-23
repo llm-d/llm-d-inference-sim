@@ -29,10 +29,22 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/endpoint"
+	"github.com/llm-d/llm-d-inference-sim/pkg/kvcache"
 	"github.com/llm-d/llm-d-inference-sim/pkg/metrics"
 	"github.com/llm-d/llm-d-inference-sim/pkg/simulator"
 	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 )
+
+// stubEngine is the engine these tests wire into the simulator. The metrics
+// stub covers everything but the KV-event encoder, which pkg/metrics cannot
+// supply without importing pkg/kvcache and closing an import cycle.
+type stubEngine struct {
+	metrics.StubAdapter
+}
+
+func (stubEngine) NewKVEventEncoder(_ common.Configuration) (kvcache.EventEncoder, error) {
+	return kvcache.StubEncoder{}, nil
+}
 
 // newRunningSim builds and starts a real Simulator (echo mode), so
 // HandleRequest produces genuine ResponseInfo entries -- including real,
@@ -50,7 +62,7 @@ func newRunningSim(ctx context.Context) *simulator.Simulator {
 	Expect(err).NotTo(HaveOccurred())
 	sim.Context.SetConfig(config)
 	sim.Context.Tokenizer = tokenizer.NewSimpleTokenizer()
-	sim.Context.Engine = metrics.StubAdapter{}
+	sim.Context.Engine = stubEngine{}
 
 	Expect(sim.InitializeSim(ctx)).To(Succeed())
 	return sim

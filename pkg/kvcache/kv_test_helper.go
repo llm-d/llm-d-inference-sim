@@ -19,6 +19,7 @@ package kvcache
 import (
 	"context"
 	"encoding/binary"
+	"sync"
 
 	zmq4 "github.com/go-zeromq/zmq4"
 	"github.com/llm-d/llm-d-router/pkg/kvevents"
@@ -26,9 +27,21 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"github.com/vmihailenco/msgpack/v5"
+
+	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 )
 
-var vllmAdapter *engineadapter.VLLMAdapter = engineadapter.NewVLLMAdapter()
+// eventAdapter is the router-side decoder for the engine under test, selected
+// the same way the simulator selects its engine, so a suite running a different
+// engine reads that engine's event format. Resolved on first use, since the
+// helpers below only run from tests.
+var eventAdapter = sync.OnceValue(func() kvevents.EngineAdapter {
+	name, err := common.ResolveEngineName()
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	adapter, err := engineadapter.NewAdapter(name)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	return adapter
+})
 
 // StoredEventInfo holds parsed metadata from a single BlockStoredEvent
 type StoredEventInfo struct {
@@ -52,7 +65,7 @@ func parseBatch(parts [][]byte, expectedTopic string, expectedSeq uint64) kveven
 		Payload:  parts[2],
 	}
 
-	_, _, batch, err := vllmAdapter.ParseMessage(&rawMsg)
+	_, _, batch, err := eventAdapter().ParseMessage(&rawMsg)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	return batch

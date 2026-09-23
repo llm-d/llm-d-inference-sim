@@ -111,6 +111,7 @@ type Engine interface {
 	ValidateConfig(cfg *common.Configuration) error
 	NewMetricsAdapter(ctx context.Context, registry *prometheus.Registry,
 		logger logr.Logger, config common.Configuration) (metrics.MetricsAdapter, error)
+	NewKVEventEncoder(config common.Configuration) (kvcache.EventEncoder, error)
 }
 
 type latencyCalcHolder struct {
@@ -219,8 +220,12 @@ func (s *SimContext) initialize(ctx context.Context) error {
 	// KVCache doesn't support images at the moment, so in mm-encoder only mode
 	// we don't start it.
 	if s.Config().KVCache.EnableKVCache && !s.Config().MMEncoderOnly {
+		encoder, err := s.Engine.NewKVEventEncoder(*s.Config())
+		if err != nil {
+			return err
+		}
 		s.kvcacheHelper, err = kvcache.NewKVCacheHelper(ctx, s.Config(), s.logger,
-			s.Tokenizer, s.metricsBus)
+			s.Tokenizer, s.metricsBus, encoder)
 		if err != nil {
 			return err
 		}
