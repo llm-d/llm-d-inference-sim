@@ -27,7 +27,6 @@ import (
 	. "github.com/onsi/gomega"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
-	"github.com/llm-d/llm-d-inference-sim/pkg/engine/vllm/fakemetrics"
 )
 
 func createSimConfig(args []string) (*common.Configuration, error) {
@@ -41,11 +40,19 @@ func createSimConfig(args []string) (*common.Configuration, error) {
 	return common.ParseCommandParamsAndLoadConfig(eng)
 }
 
-func createConfigWithModel(model string, servedModelNames []string) *common.Configuration {
+// defaultConfig returns a Configuration carrying common's defaults plus this
+// engine's own, the same pairing ParseCommandParamsAndLoadConfig starts from.
+func defaultConfig() *common.Configuration {
 	c := common.NewConfig()
+	New().ApplyDefaults(c)
+	return c
+}
+
+func createConfigWithModel(model string, servedModelNames []string) *common.Configuration {
+	c := defaultConfig()
 	// KV cache is disabled by default, and a disabled cache reports its
 	// sizing/hashing/eventing fields as all-zero; tests that enable it
-	// restore common.NewConfig().KVCache explicitly.
+	// restore defaultConfig().KVCache explicitly.
 	c.KVCache = common.KVCacheConfig{}
 
 	c.Model = model
@@ -123,7 +130,7 @@ var _ = Describe("Simulator configuration", func() {
 	c.Port = 8002
 	c.Seed = 100
 	c.Lora.LoraModules = []common.LoraModule{{Name: "lora3", Path: "/path/to/lora3"}, {Name: "lora4", Path: "/path/to/lora4"}}
-	c.KVCache = common.NewConfig().KVCache
+	c.KVCache = defaultConfig().KVCache
 	c.KVCache.EnableKVCache = true
 	c.KVCache.EventBatchSize = 5
 	test = testCase{
@@ -231,7 +238,7 @@ var _ = Describe("Simulator configuration", func() {
 
 	// Config from config_with_fake.yaml file
 	c = createDefaultConfig(common.QwenModelName, nil)
-	c.FakeMetrics = &fakemetrics.Config{
+	c.FakeMetrics = &VLLMFakeMetrics{
 		RunningRequests: &common.FakeMetricWithFunction{FixedValue: 16},
 		WaitingRequests: &common.FakeMetricWithFunction{
 			FixedValue: 0,
@@ -277,7 +284,7 @@ var _ = Describe("Simulator configuration", func() {
 	c = createConfigWithModel(common.TestModelName, nil)
 	c.Lora.MaxCPULoras = 1
 	c.Seed = 100
-	c.FakeMetrics = &fakemetrics.Config{
+	c.FakeMetrics = &VLLMFakeMetrics{
 		RunningRequests: &common.FakeMetricWithFunction{
 			FixedValue: 0,
 			IsFunction: true,
@@ -308,7 +315,7 @@ var _ = Describe("Simulator configuration", func() {
 
 	// Fake metrics from both the config file and command line
 	c = createDefaultConfig(common.QwenModelName, nil)
-	c.FakeMetrics = &fakemetrics.Config{
+	c.FakeMetrics = &VLLMFakeMetrics{
 		RunningRequests:        &common.FakeMetricWithFunction{FixedValue: 10},
 		WaitingRequests:        &common.FakeMetricWithFunction{FixedValue: 30},
 		KVCacheUsagePercentage: &common.FakeMetricWithFunction{FixedValue: 0.4},
@@ -344,7 +351,7 @@ var _ = Describe("Simulator configuration", func() {
 	c = createConfigWithModel(common.TestModelName, nil)
 	c.Lora.MaxCPULoras = 1
 	c.Seed = 100
-	c.KVCache = common.NewConfig().KVCache
+	c.KVCache = defaultConfig().KVCache
 	c.KVCache.EnableKVCache = true
 	c.KVCache.KVEventsReplayEndpoint = "tcp://*:5558"
 	test = testCase{
@@ -398,7 +405,7 @@ var _ = Describe("Simulator configuration", func() {
 	c.Lora.MaxCPULoras = 1
 	c.Seed = 100
 	c.DPSize = 3
-	c.KVCache = common.NewConfig().KVCache
+	c.KVCache = defaultConfig().KVCache
 	c.KVCache.EnableKVCache = true
 	c.KVCache.ZMQEndpoint = "tcp://127.0.0.1:5557"
 	c.KVCache.KVEventsReplayEndpoint = "tcp://*:5600"
@@ -421,7 +428,7 @@ var _ = Describe("Simulator configuration", func() {
 	c.Seed = 100
 	c.DPSize = 3
 	c.Rank = 2
-	c.KVCache = common.NewConfig().KVCache
+	c.KVCache = defaultConfig().KVCache
 	c.KVCache.EnableKVCache = true
 	c.KVCache.ZMQEndpoint = "tcp://127.0.0.1:5557"
 	c.KVCache.KVEventsReplayEndpoint = "tcp://*:5600"
@@ -891,24 +898,53 @@ var _ = Describe("Model environment variable", func() {
 
 var _ = Describe("PYTHONHASHSEED environment variable", func() {
 	BeforeEach(func() {
-		Expect(os.Unsetenv(common.PythonHashSeedEnv)).To(Succeed())
+		Expect(os.Unsetenv(pythonHashSeedEnv)).To(Succeed())
 	})
 	AfterEach(func() {
-		Expect(os.Unsetenv(common.PythonHashSeedEnv)).To(Succeed())
+		Expect(os.Unsetenv(pythonHashSeedEnv)).To(Succeed())
 	})
 
 	It("does not override --hash-seed when the flag is passed", func() {
-		Expect(os.Setenv(common.PythonHashSeedEnv, "from-env")).To(Succeed())
+		Expect(os.Setenv(pythonHashSeedEnv, "from-env")).To(Succeed())
 		config, err := createSimConfig([]string{"cmd", "--model", common.TestModelName, "--enable-kvcache", "--hash-seed", "from-flag", "--mode", common.ModeRandom, "--seed", "100"})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(config.KVCache.HashSeed).To(Equal("from-flag"))
 	})
 
 	It("applies when --hash-seed is omitted", func() {
-		Expect(os.Setenv(common.PythonHashSeedEnv, "env-seed")).To(Succeed())
+		Expect(os.Setenv(pythonHashSeedEnv, "env-seed")).To(Succeed())
 		config, err := createSimConfig([]string{"cmd", "--model", common.TestModelName, "--enable-kvcache", "--mode", common.ModeRandom, "--seed", "100"})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(config.KVCache.HashSeed).To(Equal("env-seed"))
+	})
+})
+
+var _ = Describe("VLLM_SERVER_DEV_MODE environment variable", func() {
+	BeforeEach(func() {
+		Expect(os.Unsetenv(devModeEnv)).To(Succeed())
+	})
+	AfterEach(func() {
+		Expect(os.Unsetenv(devModeEnv)).To(Succeed())
+	})
+
+	It("enables dev mode when set to 1", func() {
+		Expect(os.Setenv(devModeEnv, "1")).To(Succeed())
+		config, err := createSimConfig([]string{"cmd", "--model", common.TestModelName})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(config.DevMode).To(BeTrue())
+	})
+
+	It("leaves dev mode off for any other value", func() {
+		Expect(os.Setenv(devModeEnv, "true")).To(Succeed())
+		config, err := createSimConfig([]string{"cmd", "--model", common.TestModelName})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(config.DevMode).To(BeFalse())
+	})
+
+	It("leaves dev mode off when unset", func() {
+		config, err := createSimConfig([]string{"cmd", "--model", common.TestModelName})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(config.DevMode).To(BeFalse())
 	})
 })
 
@@ -991,9 +1027,27 @@ kvcache:
 		Expect(config.KVCache.KVCacheSize).To(Equal(2048))
 		Expect(config.KVCache.KVCacheDType).To(Equal("turboquant_4bit_nc"))
 		Expect(config.KVCache.TokenBlockSize).To(Equal(32))
-		// Settings the block omits keep the defaults NewConfig applied.
+		// Settings the block omits keep the defaults ApplyDefaults applied.
 		Expect(config.KVCache.EventBatchSize).To(Equal(16))
 		Expect(config.KVCache.ZMQEndpoint).To(Equal("tcp://127.0.0.1:5557"))
+	})
+
+	It("lets a flag override the kvcache block, which overrides the engine default", func() {
+		config, err := createSimConfig([]string{"cmd", "--config", writeConfig(`
+model: test-model
+kvcache:
+  enable-kvcache: true
+  kv-cache-size: 2048
+  block-size: 32
+`), "--block-size", "64"})
+		Expect(err).NotTo(HaveOccurred())
+
+		// flag wins over the config file
+		Expect(config.KVCache.TokenBlockSize).To(Equal(64))
+		// config file wins over ApplyDefaults' 1024
+		Expect(config.KVCache.KVCacheSize).To(Equal(2048))
+		// ApplyDefaults stands where neither sets a value
+		Expect(config.KVCache.EventBatchSize).To(Equal(16))
 	})
 
 	It("populates KVCache from legacy flat top-level keys", func() {
@@ -1010,6 +1064,32 @@ block-size: 32
 		Expect(config.KVCache.KVCacheSize).To(Equal(2048))
 		Expect(config.KVCache.KVCacheDType).To(Equal("turboquant_4bit_nc"))
 		Expect(config.KVCache.TokenBlockSize).To(Equal(32))
+	})
+
+	It("defaults zmq-topic to empty so the generated topic is used", func() {
+		config, err := createSimConfig([]string{"cmd", "--model", "test-model", "--enable-kvcache"})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(config.KVCache.ZMQTopic).To(BeEmpty())
+	})
+
+	It("populates zmq-topic from the nested kvcache block and lets a flag override it", func() {
+		config, err := createSimConfig([]string{"cmd", "--config", writeConfig(`
+model: test-model
+kvcache:
+  enable-kvcache: true
+  zmq-topic: from-yaml
+`)})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(config.KVCache.ZMQTopic).To(Equal("from-yaml"))
+
+		config, err = createSimConfig([]string{"cmd", "--config", writeConfig(`
+model: test-model
+kvcache:
+  enable-kvcache: true
+  zmq-topic: from-yaml
+`), "--zmq-topic", "from-flag"})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(config.KVCache.ZMQTopic).To(Equal("from-flag"))
 	})
 
 	It("errors when kv-cache settings mix the flat and nested layouts", func() {

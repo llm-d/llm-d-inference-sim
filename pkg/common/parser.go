@@ -27,14 +27,11 @@ import (
 )
 
 const (
-	dummy                = " "
-	vllmServerDevModeEnv = "VLLM_SERVER_DEV_MODE"
-	PodNameEnv           = "POD_NAME"
-	PodNsEnv             = "POD_NAMESPACE"
+	dummy      = " "
+	PodNameEnv = "POD_NAME"
+	PodNsEnv   = "POD_NAMESPACE"
 	// ModelEnv is read when the --model flag is not passed; see configuration precedence in the docs.
 	ModelEnv = "SIM_MODEL"
-	// PythonHashSeedEnv is read when the --hash-seed flag is not passed; see configuration precedence in the docs.
-	PythonHashSeedEnv = "PYTHONHASHSEED"
 	// EngineEnv is read when the --engine flag is not passed; see configuration precedence in the docs.
 	EngineEnv = "SIM_ENGINE"
 )
@@ -101,20 +98,30 @@ func ResolveEngineName() (string, error) {
 		}
 		return scratch.EngineName, nil
 	}
-	return "vllm", nil
+	return DefaultEngineName, nil
 }
 
-// Engine supplies the active engine's own CLI flags and configuration
-// validation, for use by ParseCommandParamsAndLoadConfig.
+// Engine supplies the active engine's own defaults, CLI flags, and
+// configuration validation, for use by ParseCommandParamsAndLoadConfig.
 type Engine interface {
 	// Name identifies the engine backend, e.g. "vllm".
 	Name() string
+	// ApplyDefaults fills in the default values of the configuration groups
+	// the engine owns. Called on a freshly constructed Configuration, before
+	// a config file is loaded and before BindFlags, so that a YAML value
+	// overrides a default and a flag overrides both.
+	ApplyDefaults(cfg *Configuration)
 	// BindFlags registers the engine's own CLI flags on f and reconciles any
 	// values that need parsing beyond what pflag can bind directly, including
 	// its own engine-specific groups (e.g. lora) from rawYAML, the raw YAML
 	// tree returned by Configuration.load (nil if no --config file was
 	// given). Must be called before f.Parse.
 	BindFlags(f *pflag.FlagSet, cfg *Configuration, rawYAML map[string]any) error
+	// ApplyEnv applies the engine's own environment-variable settings to cfg.
+	// Called after the flags have been parsed and before validation; changed
+	// reports whether a given flag was set on the command line, so that an
+	// env var can act as a fallback rather than an override.
+	ApplyEnv(cfg *Configuration, changed func(flag string) bool)
 	// ValidateConfig checks the engine's own fields of cfg. Called after cfg's
 	// common fields have already been validated.
 	ValidateConfig(cfg *Configuration) error
@@ -127,6 +134,7 @@ type Engine interface {
 func ParseCommandParamsAndLoadConfig(eng Engine) (*Configuration, error) {
 	config := NewConfig()
 	config.EngineName = eng.Name()
+	eng.ApplyDefaults(config)
 
 	var rawYAML map[string]any
 	configFileValues := GetParamValueFromArgs("config")
@@ -251,12 +259,11 @@ func ParseCommandParamsAndLoadConfig(eng Engine) (*Configuration, error) {
 		return nil, err
 	}
 
-	// Set the values for Pod Name, Pod Namespace and the VLLM Dev mode
+	// Set the values for Pod Name and Pod Namespace
 	config.PodName = os.Getenv(PodNameEnv)
 	config.PodNameSpace = os.Getenv(PodNsEnv)
-	config.VllmDevMode = os.Getenv(vllmServerDevModeEnv) == "1"
 
-	// Precedence for model and hash-seed: command-line flags > these env vars > YAML > defaults.
+	// Precedence for model: command-line flag > this env var > YAML > defaults.
 	if !f.Changed("model") {
 		if v := os.Getenv(ModelEnv); v != "" {
 			config.Model = v
@@ -271,13 +278,7 @@ func ParseCommandParamsAndLoadConfig(eng Engine) (*Configuration, error) {
 		config.FailureTypes = failureTypes
 	}
 
-	// hash-seed is registered by the engine's BindFlags above, but its env-var
-	// precedence is handled here alongside model's, on the same FlagSet.
-	if !f.Changed("hash-seed") {
-		if v := os.Getenv(PythonHashSeedEnv); v != "" {
-			config.KVCache.HashSeed = v
-		}
-	}
+	eng.ApplyEnv(config, f.Changed)
 
 	if err := config.validate(); err != nil {
 		return nil, err

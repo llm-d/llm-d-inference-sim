@@ -22,7 +22,6 @@ import (
 	"github.com/spf13/pflag"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
-	"github.com/llm-d/llm-d-inference-sim/pkg/engine/vllm/fakemetrics"
 )
 
 const dummy = " "
@@ -51,6 +50,7 @@ type kvCacheYAML struct {
 	TokenBlockSize          int    `yaml:"block-size"`
 	HashSeed                string `yaml:"hash-seed"`
 	ZMQEndpoint             string `yaml:"zmq-endpoint"`
+	ZMQTopic                string `yaml:"zmq-topic"`
 	KVEventsReplayEndpoint  string `yaml:"kv-events-replay-endpoint"`
 	KVEventsReplayQueueSize int    `yaml:"kv-events-replay-queue-size"`
 	EventBatchSize          int    `yaml:"event-batch-size"`
@@ -61,7 +61,7 @@ type kvCacheYAML struct {
 // nested "kvcache" block, for backward compatibility.
 var kvCacheLegacyFlatKeys = []string{
 	"enable-kvcache", "kv-cache-size", "kv-cache-dtype", "block-size", "hash-seed",
-	"zmq-endpoint", "kv-events-replay-endpoint", "kv-events-replay-queue-size",
+	"zmq-endpoint", "zmq-topic", "kv-events-replay-endpoint", "kv-events-replay-queue-size",
 	"event-batch-size", "use-vllm-map-event-format",
 }
 
@@ -118,8 +118,9 @@ func registerFlags(f *pflag.FlagSet, cfg *common.Configuration) {
 	f.Float64Var(&cfg.GlobalCacheHitThreshold, "global-cache-hit-threshold", cfg.GlobalCacheHitThreshold, "Default cache hit threshold [0, 1] for all requests. If a request specifies cache_hit_threshold, it takes precedence")
 	f.IntVar(&cfg.KVCache.TokenBlockSize, "block-size", cfg.KVCache.TokenBlockSize, "Token block size for contiguous chunks of tokens, possible values: 8,16,32,64,128")
 	f.StringVar(&cfg.KVCache.HashSeed, "hash-seed", cfg.KVCache.HashSeed,
-		"Seed for hash generation (if omitted on the command line, "+common.PythonHashSeedEnv+" may set it; see docs)")
+		"Seed for hash generation (if omitted on the command line, "+pythonHashSeedEnv+" may set it; see docs)")
 	f.StringVar(&cfg.KVCache.ZMQEndpoint, "zmq-endpoint", cfg.KVCache.ZMQEndpoint, "ZMQ address to publish events")
+	f.StringVar(&cfg.KVCache.ZMQTopic, "zmq-topic", cfg.KVCache.ZMQTopic, "ZMQ topic to publish KV-cache events under (empty uses the default kv@<ip>:<port>@<model>)")
 	f.StringVar(&cfg.KVCache.KVEventsReplayEndpoint, "kv-events-replay-endpoint", cfg.KVCache.KVEventsReplayEndpoint, "ZMQ ROUTER address to bind for receiving KV events replay requests (empty disables)")
 	f.IntVar(&cfg.KVCache.KVEventsReplayQueueSize, "kv-events-replay-queue-size", cfg.KVCache.KVEventsReplayQueueSize, "Max number of event batches held in the replay queue; oldest dropped when full")
 	f.IntVar(&cfg.KVCache.EventBatchSize, "event-batch-size", cfg.KVCache.EventBatchSize, "Maximum number of kv-cache events to be sent together")
@@ -197,7 +198,7 @@ func unmarshalYAMLGroups(cfg *common.Configuration, rawYAML map[string]any) erro
 	// must leave fake metrics unset: reporting fake metrics suppresses every
 	// real metric.
 	if v, ok := rawYAML["fake-metrics"]; ok && v != nil {
-		fm := &fakemetrics.Config{}
+		fm := &VLLMFakeMetrics{}
 		if err := common.UnmarshalYAMLKey(rawYAML, "fake-metrics", fm); err != nil {
 			return err
 		}
@@ -246,7 +247,7 @@ func unmarshalLoras(cfg *common.Configuration, loraModuleNames []string) error {
 
 // unmarshalFakeMetrics parses the --fake-metrics flag's JSON string into cfg.FakeMetrics.
 func unmarshalFakeMetrics(cfg *common.Configuration, fakeMetricsString string) error {
-	var metrics *fakemetrics.Config
+	var metrics *VLLMFakeMetrics
 	if err := json.Unmarshal([]byte(fakeMetricsString), &metrics); err != nil {
 		return err
 	}
@@ -261,7 +262,7 @@ func unmarshalFakeMetrics(cfg *common.Configuration, fakeMetricsString string) e
 
 // unmarshalLoraFakeMetrics reconciles fm.LorasString (raw JSON strings, from
 // a YAML config file) into fm.LoraMetrics.
-func unmarshalLoraFakeMetrics(fm *fakemetrics.Config) error {
+func unmarshalLoraFakeMetrics(fm *VLLMFakeMetrics) error {
 	fm.LoraMetrics = make([]common.LorasMetrics, 0)
 	for _, jsonStr := range fm.LorasString {
 		var lora common.LorasMetrics

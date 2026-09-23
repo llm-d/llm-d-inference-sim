@@ -139,7 +139,7 @@ var _ = Describe("convertInputToMessages", func() {
 		}
 		messages := convertInputToMessages(input)
 		Expect(messages).To(HaveLen(1))
-		// Single text-only input → raw content (not structured)
+		// Single text-only input -> raw content (not structured)
 		Expect(messages[0].Content.Raw).To(Equal("Simple message"))
 		Expect(messages[0].Content.Structured).To(BeNil())
 	})
@@ -156,7 +156,7 @@ var _ = Describe("convertInputToMessages", func() {
 		}
 		messages := convertInputToMessages(input)
 		Expect(messages).To(HaveLen(1))
-		// Even single image → structured content (multimodal)
+		// Even single image -> structured content (multimodal)
 		Expect(messages[0].Content.Structured).To(HaveLen(1))
 		Expect(messages[0].Content.Structured[0].Type).To(Equal("image_url"))
 	})

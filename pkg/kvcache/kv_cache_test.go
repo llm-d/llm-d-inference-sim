@@ -168,6 +168,41 @@ var _ = Describe("CreateKVEventsTopic", func() {
 	})
 })
 
+var _ = Describe("configured ZMQ topic", func() {
+	newCacheWithTopic := func(configured string, replayEndpoint string) *blockCache {
+		config := &common.Configuration{
+			IP:    localhost,
+			Port:  1234,
+			Model: "model",
+			KVCache: common.KVCacheConfig{
+				KVCacheSize:            4,
+				EventBatchSize:         1,
+				ZMQTopic:               configured,
+				KVEventsReplayEndpoint: replayEndpoint,
+			},
+		}
+		bc, err := newBlockCache(context.Background(), config, GinkgoLogr, nil)
+		Expect(err).NotTo(HaveOccurred())
+		return bc
+	}
+
+	It("falls back to the generated topic when unset", func() {
+		bc := newCacheWithTopic("", "")
+		Expect(bc.eventSender.topic).To(Equal("kv@127.0.0.1:1234@model"))
+	})
+
+	It("replaces the generated topic verbatim when set", func() {
+		bc := newCacheWithTopic("kv-events", "")
+		Expect(bc.eventSender.topic).To(Equal("kv-events"))
+	})
+
+	It("gives the replayer the same topic as the live stream", func() {
+		bc := newCacheWithTopic("kv-events", "tcp://127.0.0.1:5999")
+		Expect(bc.eventSender.replayer).NotTo(BeNil())
+		Expect(bc.eventSender.replayer.topic).To(Equal(bc.eventSender.topic))
+	})
+})
+
 var _ = Describe("KV cache", Ordered, func() {
 	random := common.NewRandom(time.Now().UnixNano(), 8080)
 
@@ -177,7 +212,7 @@ var _ = Describe("KV cache", Ordered, func() {
 	req3 := testRequest{id: req3ID, blockHashes: []uint64{5, 6}, tokens: [][]uint32{{5}, {6}}}
 
 	// generalTestEntries builds both list-format and map-format table entries for each test case.
-	// 5 test cases × 2 formats = 10 entries.
+	// 5 test cases x 2 formats = 10 entries.
 	generalTestEntries := make([]any, 0, 10)
 	for _, tc := range []testCase{
 		{
@@ -495,7 +530,7 @@ var _ = Describe("KV cache", Ordered, func() {
 			go func() {
 				time.Sleep(time.Second)
 
-				// req1: blocks 1,2,3 — all new, no cached prefix → parent should be EmptyBlockHash
+				// req1: blocks 1,2,3 all new, no cached prefix -> parent should be EmptyBlockHash
 				req1 := testRequest{id: "req1", blockHashes: []uint64{1, 2, 3}, tokens: [][]uint32{{1}, {2}, {3}}}
 				_, err := blockCache.startRequest(&req1, req1.blockHashes, req1.tokens)
 				Expect(err).NotTo(HaveOccurred())
@@ -503,7 +538,7 @@ var _ = Describe("KV cache", Ordered, func() {
 				Expect(err).NotTo(HaveOccurred())
 
 				// req2: blocks 1,2,3,4 — first 3 are already cached (prefix hit), only block 4 is new
-				// → parent of block 4 is block 3 (blockHashes[2])
+				// -> parent of block 4 is block 3 (blockHashes[2])
 				req2 := testRequest{id: "req2", blockHashes: []uint64{1, 2, 3, 4}, tokens: [][]uint32{{1}, {2}, {3}, {4}}}
 				_, err = blockCache.startRequest(&req2, req2.blockHashes, req2.tokens)
 				Expect(err).NotTo(HaveOccurred())
@@ -695,6 +730,91 @@ var _ = Describe("KV cache", Ordered, func() {
 	Context("model-aware eviction", func() {
 		const lora1 = "lora1"
 		const lora2 = "lora2"
+
+		It("evicts the deepest block in a completed prefix chain first", func() {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			config := &common.Configuration{
+				IP:      localhost,
+				Port:    1234,
+				Model:   common.TestModelName,
+				KVCache: common.KVCacheConfig{KVCacheSize: 3},
+			}
+
+			blockCache, err := newBlockCache(ctx, config, GinkgoLogr, nil)
+			Expect(err).NotTo(HaveOccurred())
+
+			seed := testRequest{
+				id:          "seed",
+				blockHashes: []uint64{1, 2, 3},
+				tokens:      [][]uint32{{1}, {2}, {3}},
+			}
+			_, err = blockCache.startRequest(&seed, seed.blockHashes, seed.tokens)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(blockCache.finishRequest(seed.id)).To(Succeed())
+
+			block1Order := blockCache.unusedBlockOrder[blockKey{hash: 1, modelName: common.TestModelName}]
+			block2Order := blockCache.unusedBlockOrder[blockKey{hash: 2, modelName: common.TestModelName}]
+			block3Order := blockCache.unusedBlockOrder[blockKey{hash: 3, modelName: common.TestModelName}]
+			Expect(block1Order).To(BeNumerically(">", block2Order))
+			Expect(block2Order).To(BeNumerically(">", block3Order))
+
+			replacement := testRequest{
+				id:          "replacement",
+				blockHashes: []uint64{4},
+				tokens:      [][]uint32{{4}},
+			}
+			_, err = blockCache.startRequest(&replacement, replacement.blockHashes, replacement.tokens)
+			Expect(err).NotTo(HaveOccurred())
+
+			for _, blockHash := range []uint64{1, 2} {
+				_, exists := blockCache.getBlockInfo(blockKey{hash: blockHash, modelName: common.TestModelName})
+				Expect(exists).To(BeTrue(), "ancestor block %d should remain cached", blockHash)
+			}
+			_, exists := blockCache.getBlockInfo(blockKey{hash: 3, modelName: common.TestModelName})
+			Expect(exists).To(BeFalse(), "deepest block should be evicted first")
+		})
+
+		It("preserves LRU order across completed prefix chains", func() {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			config := &common.Configuration{
+				IP:      localhost,
+				Port:    1234,
+				Model:   common.TestModelName,
+				KVCache: common.KVCacheConfig{KVCacheSize: 4},
+			}
+
+			blockCache, err := newBlockCache(ctx, config, GinkgoLogr, nil)
+			Expect(err).NotTo(HaveOccurred())
+
+			oldRequest := testRequest{id: "old", blockHashes: []uint64{1}, tokens: [][]uint32{{1}}}
+			_, err = blockCache.startRequest(&oldRequest, oldRequest.blockHashes, oldRequest.tokens)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(blockCache.finishRequest(oldRequest.id)).To(Succeed())
+
+			newRequest := testRequest{
+				id:          "new",
+				blockHashes: []uint64{2, 3, 4},
+				tokens:      [][]uint32{{2}, {3}, {4}},
+			}
+			_, err = blockCache.startRequest(&newRequest, newRequest.blockHashes, newRequest.tokens)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(blockCache.finishRequest(newRequest.id)).To(Succeed())
+
+			replacement := testRequest{id: "replacement", blockHashes: []uint64{5}, tokens: [][]uint32{{5}}}
+			_, err = blockCache.startRequest(&replacement, replacement.blockHashes, replacement.tokens)
+			Expect(err).NotTo(HaveOccurred())
+
+			_, exists := blockCache.getBlockInfo(blockKey{hash: 1, modelName: common.TestModelName})
+			Expect(exists).To(BeFalse(), "the least recently used chain should be evicted first")
+			for _, blockHash := range []uint64{2, 3, 4} {
+				_, exists := blockCache.getBlockInfo(blockKey{hash: blockHash, modelName: common.TestModelName})
+				Expect(exists).To(BeTrue(), "newer chain block %d should remain cached", blockHash)
+			}
+		})
 
 		It("should evict unloaded lora blocks before loaded lora blocks", func() {
 			ctx, cancel := context.WithCancel(context.Background())

@@ -27,6 +27,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
+	"github.com/llm-d/llm-d-inference-sim/pkg/metrics"
 )
 
 const (
@@ -52,23 +53,25 @@ type blockKey struct {
 
 // blockCache represents a thread-safe cache for blocks with eviction policy
 type blockCache struct {
-	mu              sync.RWMutex
-	requestToBlocks map[string][]blockKey              // request id -> array of it blocks (block hashes)
-	usedBlocks      map[blockKey]int                   // block hash -> reference count
-	unusedBlocks    map[blockKey]time.Time             // block hash -> last usage timestamp
-	blockToTokens   map[blockKey][]uint32              // block hash -> block tokens
-	loadedModels    map[string]struct{}                // models currently loaded (base model + loaded loras)
-	maxBlocks       int                                // maximum number of blocks in the cache
-	eventSender     *KVEventSender                     // emits kv events
-	eventChan       common.Channel[EventData]          // channel for asynchronous event processing
-	usageChan       *common.Channel[common.MetricInfo] // channel for usage reporting
-	logger          logr.Logger
-	disabled        bool // indicated whether the cache is disabled
+	mu               sync.RWMutex
+	requestToBlocks  map[string][]blockKey     // request id -> array of it blocks (block hashes)
+	usedBlocks       map[blockKey]int          // block hash -> reference count
+	unusedBlocks     map[blockKey]time.Time    // block hash -> last usage timestamp
+	unusedBlockOrder map[blockKey]uint64       // block hash -> stable eviction tie-breaker
+	evictionOrder    uint64                    // next eviction tie-breaker across requests
+	blockToTokens    map[blockKey][]uint32     // block hash -> block tokens
+	loadedModels     map[string]struct{}       // models currently loaded (base model + loaded loras)
+	maxBlocks        int                       // maximum number of blocks in the cache
+	eventSender      *KVEventSender            // emits kv events
+	eventChan        common.Channel[EventData] // channel for asynchronous event processing
+	metrics          *metrics.MetricsBus       // event-bus emitter for KV-cache-usage / prefix-cache stats
+	logger           logr.Logger
+	disabled         bool // indicated whether the cache is disabled
 }
 
 // newBlockCache creates a new blockCache with the specified maximum number of blocks
 func newBlockCache(ctx context.Context, config *common.Configuration, logger logr.Logger,
-	usageChan *common.Channel[common.MetricInfo]) (*blockCache, error) {
+	metrics *metrics.MetricsBus) (*blockCache, error) {
 	if config.IP == "" {
 		return nil, errors.New("IP should be defined in the environment (POD_IP)")
 	}
@@ -88,7 +91,13 @@ func newBlockCache(ctx context.Context, config *common.Configuration, logger log
 		}
 	}
 
-	topic := CreateKVEventsTopic(config.IP, config.Port, config.Model)
+	// A configured topic replaces the generated one verbatim; the same string
+	// then feeds both the live publisher and the replayer below, so replayed
+	// frames keep matching the live PUB stream.
+	topic := kvCfg.ZMQTopic
+	if topic == "" {
+		topic = CreateKVEventsTopic(config.IP, config.Port, config.Model)
+	}
 
 	var replayer *kvEventsReplayer
 	if kvCfg.KVEventsReplayEndpoint != "" {
@@ -99,16 +108,17 @@ func newBlockCache(ctx context.Context, config *common.Configuration, logger log
 		eChan, kvCfg.EventBatchSize, kvCfg.TokenBlockSize, delay, kvCfg.UseVllmMapEventFormat, config.Rank, logger, replayer)
 
 	bCache := blockCache{
-		requestToBlocks: make(map[string][]blockKey),
-		usedBlocks:      make(map[blockKey]int),
-		unusedBlocks:    make(map[blockKey]time.Time),
-		blockToTokens:   make(map[blockKey][]uint32),
-		loadedModels:    make(map[string]struct{}),
-		maxBlocks:       kvCfg.KVCacheSize,
-		eventChan:       eChan,
-		usageChan:       usageChan,
-		eventSender:     eventSender,
-		logger:          logger,
+		requestToBlocks:  make(map[string][]blockKey),
+		usedBlocks:       make(map[blockKey]int),
+		unusedBlocks:     make(map[blockKey]time.Time),
+		unusedBlockOrder: make(map[blockKey]uint64),
+		blockToTokens:    make(map[blockKey][]uint32),
+		loadedModels:     make(map[string]struct{}),
+		maxBlocks:        kvCfg.KVCacheSize,
+		eventChan:        eChan,
+		metrics:          metrics,
+		eventSender:      eventSender,
+		logger:           logger,
 	}
 
 	// mark the base model and all it aliases as always loaded,
@@ -140,6 +150,8 @@ func (bc *blockCache) discard() {
 	bc.requestToBlocks = make(map[string][]blockKey)
 	bc.usedBlocks = make(map[blockKey]int)
 	bc.unusedBlocks = make(map[blockKey]time.Time)
+	bc.unusedBlockOrder = make(map[blockKey]uint64)
+	bc.evictionOrder = 0
 	bc.blockToTokens = make(map[blockKey][]uint32)
 
 	common.WriteToChannel(bc.eventChan,
@@ -230,6 +242,7 @@ func (bc *blockCache) startRequest(req Request, blockHashes []uint64, blockToken
 	for _, block := range blockToMoveToUsed {
 		bc.usedBlocks[block] = 1
 		delete(bc.unusedBlocks, block)
+		delete(bc.unusedBlockOrder, block)
 	}
 
 	// for new block - add them, if there is no empty slots - evict a block using priority:
@@ -243,6 +256,7 @@ func (bc *blockCache) startRequest(req Request, blockHashes []uint64, blockToken
 			// cache is full but contains unused blocks - evict one block
 			evictHash := bc.pickBlockToEvict()
 			delete(bc.unusedBlocks, evictHash)
+			delete(bc.unusedBlockOrder, evictHash)
 			common.WriteToChannel(bc.eventChan,
 				EventData{action: eventActionRemove, hashes: []uint64{evictHash.hash},
 					tokens: bc.blockToTokens[evictHash]},
@@ -286,11 +300,11 @@ func (bc *blockCache) startRequest(req Request, blockHashes []uint64, blockToken
 		bc.requestToBlocks[req.GetRequestID()][i] = bKey
 	}
 
-	if bc.usageChan != nil {
-		usage := common.MetricInfo{
-			Value: float64(len(bc.usedBlocks)) / float64(bc.maxBlocks),
-		}
-		common.WriteToChannel(*bc.usageChan, usage, bc.logger)
+	if bc.metrics != nil {
+		perc := float64(len(bc.usedBlocks)) / float64(bc.maxBlocks)
+		common.WriteToChannel(bc.metrics.KVCacheUsage, metrics.KVCacheUsageChanged{
+			KVCacheUsagePerc: perc,
+		}, bc.logger)
 	}
 	return len(blockAlreadyInUse) + len(blockToMoveToUsed), nil
 }
@@ -312,10 +326,12 @@ func (bc *blockCache) finishRequest(requestID string) error {
 	}
 
 	now := time.Now()
+	bc.evictionOrder += uint64(len(blockHashes))
+	requestOrder := bc.evictionOrder
 
 	// Decrease reference count for each block
 	errBlocks := make([]blockKey, 0)
-	for _, blockHash := range blockHashes {
+	for i, blockHash := range blockHashes {
 		if refCount, exists := bc.usedBlocks[blockHash]; exists {
 			if refCount > 1 {
 				// this block is in use by another request, just update reference count
@@ -323,6 +339,7 @@ func (bc *blockCache) finishRequest(requestID string) error {
 			} else {
 				// this was the last block usage - move this block to unused
 				bc.unusedBlocks[blockHash] = now
+				bc.unusedBlockOrder[blockHash] = requestOrder - uint64(i)
 				delete(bc.usedBlocks, blockHash)
 			}
 		} else {
@@ -330,11 +347,11 @@ func (bc *blockCache) finishRequest(requestID string) error {
 		}
 	}
 
-	if bc.usageChan != nil {
-		usage := common.MetricInfo{
-			Value: float64(len(bc.usedBlocks)) / float64(bc.maxBlocks),
-		}
-		common.WriteToChannel(*bc.usageChan, usage, bc.logger)
+	if bc.metrics != nil {
+		perc := float64(len(bc.usedBlocks)) / float64(bc.maxBlocks)
+		common.WriteToChannel(bc.metrics.KVCacheUsage, metrics.KVCacheUsageChanged{
+			KVCacheUsagePerc: perc,
+		}, bc.logger)
 	}
 
 	// Remove the request mapping
@@ -389,25 +406,34 @@ func (bc *blockCache) getBlockInfo(blockHash blockKey) (int, bool) {
 // Must be called with bc.mu held.
 func (bc *blockCache) pickBlockToEvict() blockKey {
 	var bestLoadedHash blockKey
-	bestLoadedTime := time.Now()
+	var bestLoadedTime time.Time
+	var bestLoadedOrder uint64
+	hasLoadedCandidate := false
 	var bestUnloadedHash blockKey
-	bestUnloadedTime := bestLoadedTime
+	var bestUnloadedTime time.Time
+	var bestUnloadedOrder uint64
 	hasUnloadedCandidate := false
 
-	for blockKey, t := range bc.unusedBlocks {
+	for blockKey, unusedTime := range bc.unusedBlocks {
+		order := bc.unusedBlockOrder[blockKey]
 		if _, exists := bc.loadedModels[blockKey.modelName]; exists {
 			// this is a block with loaded model,
 			// check if it's the best candidate among loaded models
-			if t.Before(bestLoadedTime) {
+			if !hasLoadedCandidate || unusedTime.Before(bestLoadedTime) ||
+				(unusedTime.Equal(bestLoadedTime) && order < bestLoadedOrder) {
 				bestLoadedHash = blockKey
-				bestLoadedTime = t
+				bestLoadedTime = unusedTime
+				bestLoadedOrder = order
+				hasLoadedCandidate = true
 			}
 		} else {
 			// this is a block with unloaded model,
 			// check if it's the best candidate among unloaded models
-			if t.Before(bestUnloadedTime) {
+			if !hasUnloadedCandidate || unusedTime.Before(bestUnloadedTime) ||
+				(unusedTime.Equal(bestUnloadedTime) && order < bestUnloadedOrder) {
 				bestUnloadedHash = blockKey
-				bestUnloadedTime = t
+				bestUnloadedTime = unusedTime
+				bestUnloadedOrder = order
 				hasUnloadedCandidate = true
 			}
 		}
@@ -430,7 +456,8 @@ func (bc *blockCache) setModelUnloaded(model string) {
 	delete(bc.loadedModels, model)
 }
 
-// CreateKVEventsTopic builds the ZMQ topic used to publish KV-cache events.
+// CreateKVEventsTopic builds the default ZMQ topic used to publish KV-cache
+// events. KVCacheConfig.ZMQTopic replaces it verbatim when set.
 //
 // The format is: kv@<pod-ip>:<serving-port>@<model-name>
 //
