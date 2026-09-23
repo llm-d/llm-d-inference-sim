@@ -171,7 +171,7 @@ var _ = Describe("configured ZMQ topic", func() {
 				KVEventsReplayEndpoint: replayEndpoint,
 			},
 		}
-		bc, err := newBlockCache(context.Background(), config, GinkgoLogr, nil, StubEncoder{})
+		bc, err := newBlockCache(context.Background(), config, GinkgoLogr, nil, stubEncoder{})
 		Expect(err).NotTo(HaveOccurred())
 		return bc
 	}
@@ -292,7 +292,7 @@ var _ = Describe("KV cache", Ordered, func() {
 		wg := sync.WaitGroup{}
 		wg.Add(1)
 
-		blockCache, err := newBlockCache(ctx, config, GinkgoLogr, nil, StubEncoder{})
+		blockCache, err := newBlockCache(ctx, config, GinkgoLogr, nil, stubEncoder{})
 		Expect(err).NotTo(HaveOccurred())
 
 		go func() {
@@ -367,7 +367,7 @@ var _ = Describe("KV cache", Ordered, func() {
 		for i, seq := 0, uint64(1); i < expectedTotal; i, seq = storedCount+removedCount, seq+1 {
 			msg, err := sub.Recv()
 			Expect(err).NotTo(HaveOccurred())
-			stored, removed := CountStubEventBlocks(msg.Frames, topic, seq)
+			stored, removed := countStubEventBlocks(msg.Frames, topic, seq)
 			storedCount += stored
 			removedCount += removed
 		}
@@ -397,7 +397,7 @@ var _ = Describe("KV cache", Ordered, func() {
 		wg := sync.WaitGroup{}
 		wg.Add(1)
 
-		blockCache, err := newBlockCache(ctx, config, GinkgoLogr, nil, StubEncoder{})
+		blockCache, err := newBlockCache(ctx, config, GinkgoLogr, nil, stubEncoder{})
 		Expect(err).NotTo(HaveOccurred())
 
 		go func() {
@@ -457,7 +457,7 @@ var _ = Describe("KV cache", Ordered, func() {
 		for {
 			msg, err := sub.Recv()
 			Expect(err).NotTo(HaveOccurred())
-			for _, e := range DecodeStubEvents(msg.Frames, topic, count) {
+			for _, e := range decodeStubEvents(msg.Frames, topic, count) {
 				switch e.Action {
 				case ActionStore:
 					storedBlocks = append(storedBlocks, e.Hashes...)
@@ -498,7 +498,7 @@ var _ = Describe("KV cache", Ordered, func() {
 		wg := sync.WaitGroup{}
 		wg.Add(1)
 
-		blockCache, err := newBlockCache(ctx, config, GinkgoLogr, nil, StubEncoder{})
+		blockCache, err := newBlockCache(ctx, config, GinkgoLogr, nil, stubEncoder{})
 		Expect(err).NotTo(HaveOccurred())
 
 		go func() {
@@ -531,7 +531,7 @@ var _ = Describe("KV cache", Ordered, func() {
 		// collect req1 store event (3 new blocks, no parent)
 		msg, err := sub.Recv()
 		Expect(err).NotTo(HaveOccurred())
-		events := DecodeStubEvents(msg.Frames, topic, 1)
+		events := decodeStubEvents(msg.Frames, topic, 1)
 		Expect(events).To(HaveLen(1))
 		Expect(events[0].Hashes).To(Equal([]uint64{1, 2, 3}))
 		Expect(events[0].ParentHash).To(BeNil())
@@ -539,7 +539,7 @@ var _ = Describe("KV cache", Ordered, func() {
 		// collect req2 store event (only block 4 is new, parent is block 3)
 		msg, err = sub.Recv()
 		Expect(err).NotTo(HaveOccurred())
-		events = DecodeStubEvents(msg.Frames, topic, 2)
+		events = decodeStubEvents(msg.Frames, topic, 2)
 		Expect(events).To(HaveLen(1))
 		Expect(events[0].Hashes).To(Equal([]uint64{4}))
 		Expect(events[0].ParentHash).To(HaveValue(Equal(uint64(3)))) // hash of last cached block
@@ -556,7 +556,7 @@ var _ = Describe("KV cache", Ordered, func() {
 				Model:   "model",
 				KVCache: common.KVCacheConfig{KVCacheSize: testCase.cacheSize},
 			}
-			blockCache, err := newBlockCache(ctx, &config, GinkgoLogr, nil, StubEncoder{})
+			blockCache, err := newBlockCache(ctx, &config, GinkgoLogr, nil, stubEncoder{})
 			Expect(err).NotTo(HaveOccurred())
 			var wg sync.WaitGroup
 
@@ -637,7 +637,7 @@ var _ = Describe("KV cache", Ordered, func() {
 				KVCache: common.KVCacheConfig{KVCacheSize: 10},
 			}
 
-			blockCache, err := newBlockCache(ctx, config, GinkgoLogr, nil, StubEncoder{})
+			blockCache, err := newBlockCache(ctx, config, GinkgoLogr, nil, stubEncoder{})
 			Expect(err).NotTo(HaveOccurred())
 
 			reqA := testRequest{id: "reqA", model: common.TestModelName, blockHashes: []uint64{1, 2}, tokens: [][]uint32{{1}, {2}}}
@@ -687,7 +687,7 @@ var _ = Describe("KV cache", Ordered, func() {
 				KVCache: common.KVCacheConfig{KVCacheSize: 10},
 			}
 
-			blockCache, err := newBlockCache(ctx, config, GinkgoLogr, nil, StubEncoder{})
+			blockCache, err := newBlockCache(ctx, config, GinkgoLogr, nil, stubEncoder{})
 			Expect(err).NotTo(HaveOccurred())
 
 			reqA := testRequest{id: "reqA", model: common.TestModelName, blockHashes: []uint64{1, 2}, tokens: [][]uint32{{1}, {2}}}
@@ -723,7 +723,7 @@ var _ = Describe("KV cache", Ordered, func() {
 				KVCache: common.KVCacheConfig{KVCacheSize: 4},
 			}
 
-			bCache, err := newBlockCache(ctx, config, GinkgoLogr, nil, StubEncoder{})
+			bCache, err := newBlockCache(ctx, config, GinkgoLogr, nil, stubEncoder{})
 			Expect(err).NotTo(HaveOccurred())
 
 			// lora1 is loaded, lora2 is not
@@ -766,7 +766,7 @@ var _ = Describe("KV cache", Ordered, func() {
 				KVCache: common.KVCacheConfig{KVCacheSize: 3},
 			}
 
-			blockCache, err := newBlockCache(ctx, config, GinkgoLogr, nil, StubEncoder{})
+			blockCache, err := newBlockCache(ctx, config, GinkgoLogr, nil, stubEncoder{})
 			Expect(err).NotTo(HaveOccurred())
 
 			blockCache.setModelLoaded(lora1)
@@ -805,7 +805,7 @@ var _ = Describe("KV cache", Ordered, func() {
 				KVCache: common.KVCacheConfig{KVCacheSize: 4},
 			}
 
-			blockCache, err := newBlockCache(ctx, config, GinkgoLogr, nil, StubEncoder{})
+			blockCache, err := newBlockCache(ctx, config, GinkgoLogr, nil, stubEncoder{})
 			Expect(err).NotTo(HaveOccurred())
 
 			// both loras loaded
@@ -863,7 +863,7 @@ var _ = Describe("KV cache", Ordered, func() {
 		wg := sync.WaitGroup{}
 		wg.Add(1)
 
-		blockCache, err := newBlockCache(ctx, config, GinkgoLogr, nil, StubEncoder{})
+		blockCache, err := newBlockCache(ctx, config, GinkgoLogr, nil, stubEncoder{})
 		Expect(err).NotTo(HaveOccurred())
 
 		go func() {
@@ -911,7 +911,7 @@ var _ = Describe("KV cache", Ordered, func() {
 		for len(storedEvents) < 2 {
 			msg, err := sub.Recv()
 			Expect(err).NotTo(HaveOccurred())
-			storedEvents = append(storedEvents, DecodeStubStoredEvents(msg.Frames, topic, seq)...)
+			storedEvents = append(storedEvents, decodeStubStoredEvents(msg.Frames, topic, seq)...)
 			seq++
 		}
 
@@ -948,7 +948,7 @@ var _ = Describe("KV cache", Ordered, func() {
 		wg := sync.WaitGroup{}
 		wg.Add(1)
 
-		blockCache, err := newBlockCache(ctx, config, GinkgoLogr, nil, StubEncoder{})
+		blockCache, err := newBlockCache(ctx, config, GinkgoLogr, nil, stubEncoder{})
 		Expect(err).NotTo(HaveOccurred())
 
 		go func() {
@@ -996,7 +996,7 @@ var _ = Describe("KV cache", Ordered, func() {
 		for totalStoredHashes < 4 {
 			msg, err := sub.Recv()
 			Expect(err).NotTo(HaveOccurred())
-			events := DecodeStubStoredEvents(msg.Frames, topic, seq)
+			events := decodeStubStoredEvents(msg.Frames, topic, seq)
 			for _, e := range events {
 				totalStoredHashes += len(e.Hashes)
 			}

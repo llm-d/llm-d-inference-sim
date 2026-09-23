@@ -42,8 +42,10 @@ type stubEngine struct {
 	metrics.StubAdapter
 }
 
+// NewKVEventEncoder is never called: these tests leave the KV cache disabled,
+// and the simulator only builds an encoder when it is enabled.
 func (stubEngine) NewKVEventEncoder(_ common.Configuration) (kvcache.EventEncoder, error) {
-	return kvcache.StubEncoder{}, nil
+	return nil, nil
 }
 
 // newRunningSim builds and starts a real Simulator (echo mode), so
