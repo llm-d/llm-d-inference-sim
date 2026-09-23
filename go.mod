@@ -21,7 +21,7 @@ require (
 	github.com/valyala/fasthttp v1.74.0
 	github.com/vmihailenco/msgpack/v5 v5.4.1
 	golang.org/x/sync v0.23.0
-	google.golang.org/grpc v1.84.0
+	google.golang.org/grpc v1.83.2
 	gopkg.in/yaml.v3 v3.0.1
 	k8s.io/klog/v2 v2.140.0
 	sigs.k8s.io/controller-runtime v0.23.3
