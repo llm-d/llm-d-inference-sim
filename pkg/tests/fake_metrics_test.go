@@ -594,7 +594,7 @@ var _ = Describe("Fake metrics", Ordered, func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resp.StatusCode).To(Equal(http.StatusOK))
 
-			consistentlyMetrics(client, func(g Gomega, metricsData string) {
+			eventuallyThenConsistentlyMetrics(client, func(g Gomega, metricsData string) {
 				g.Expect(metricsData).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllm.VLLMTTFTMetricName, 0.001, 1)))
 				g.Expect(metricsData).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllm.VLLMTTFTMetricName, 0.005, 3)))
 				g.Expect(metricsData).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllm.VLLMTTFTMetricName, 0.01, 6)))
@@ -796,7 +796,7 @@ var _ = Describe("Fake metrics", Ordered, func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resp.StatusCode).To(Equal(http.StatusOK))
 
-			consistentlyMetrics(client, func(g Gomega, metricsData string) {
+			eventuallyThenConsistentlyMetrics(client, func(g Gomega, metricsData string) {
 
 				// Old lora entries should be gone, only new one present
 				g.Expect(metricsData).NotTo(ContainSubstring("lora1"))
@@ -814,7 +814,7 @@ var _ = Describe("Fake metrics", Ordered, func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resp.StatusCode).To(Equal(http.StatusOK))
 
-			consistentlyMetrics(client, func(g Gomega, metricsData string) {
+			eventuallyThenConsistentlyMetrics(client, func(g Gomega, metricsData string) {
 
 				// Old lora entries should be gone, only a new empty one present
 				g.Expect(metricsData).NotTo(ContainSubstring("lora4"))
