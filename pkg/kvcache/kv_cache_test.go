@@ -545,6 +545,37 @@ var _ = Describe("KV cache", Ordered, func() {
 		Expect(events[0].ParentHash).To(HaveValue(Equal(uint64(3)))) // hash of last cached block
 	})
 
+	It("counts only the contiguous cached prefix", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		config := &common.Configuration{
+			IP:      localhost,
+			Port:    1234,
+			Model:   common.TestModelName,
+			KVCache: common.KVCacheConfig{KVCacheSize: 3},
+		}
+		blockCache, err := newBlockCache(ctx, config, GinkgoLogr, nil)
+		Expect(err).NotTo(HaveOccurred())
+
+		for _, hash := range []uint64{1, 3} {
+			key := blockKey{hash: hash, modelName: common.TestModelName}
+			blockCache.unusedBlocks[key] = time.Now()
+			blockCache.blockToTokens[key] = []uint32{uint32(hash)}
+		}
+
+		req := testRequest{id: "req", blockHashes: []uint64{1, 2, 3}, tokens: [][]uint32{{1}, {2}, {3}}}
+		alreadyInCache, err := blockCache.startRequest(&req, req.blockHashes, req.tokens)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(alreadyInCache).To(Equal(1))
+
+		storeEvent := <-blockCache.eventChan.Channel
+		Expect(storeEvent.hashes).To(Equal([]uint64{2}))
+		Expect(storeEvent.parentHash).NotTo(BeNil())
+		Expect(*storeEvent.parentHash).To(Equal(uint64(1)))
+		Expect(blockCache.finishRequest(req.id)).To(Succeed())
+	})
+
 	DescribeTable("thread safety",
 		func(testCase threadTestCase) {
 			ctx, cancel := context.WithCancel(context.Background())
