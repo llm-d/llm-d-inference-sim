@@ -229,6 +229,8 @@ type Configuration struct {
 
 	// LogHTTP logs full HTTP request and response details (method, URI, headers, bodies where buffered, status) for each request.
 	LogHTTP bool `yaml:"log-http" json:"log-http"`
+	// StrictRequestValidation enables vLLM-compatible validation for OpenAI completion requests.
+	StrictRequestValidation bool `yaml:"strict" json:"strict"`
 
 	// DefaultEmbeddingDimensions is the default size of embedding vectors when the request does not specify dimensions.
 	// Used by the /v1/embeddings endpoint. Default is 384.

@@ -41,6 +41,8 @@ import (
 type Engine interface {
 	// Name identifies the engine backend, e.g. "vllm".
 	Name() string
+	// NewRequestValidator compiles the backend's strict request validator.
+	NewRequestValidator() (communication.RequestValidator, error)
 	// ApplyDefaults fills in the default values of the configuration groups
 	// the engine owns. Called on a freshly constructed Configuration, before
 	// a config file is loaded and before BindFlags, so that a YAML value
