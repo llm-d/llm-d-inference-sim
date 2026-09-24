@@ -54,6 +54,9 @@ type ResponseContext interface {
 	TopLogprobs() *int
 	ECTransferParams() map[string]api.ECTransferParams
 	SendImage() bool
+	// HasAudioOutput reports whether this response should include audio in
+	// the message (chat completions with modalities containing "audio").
+	HasAudioOutput() bool
 	setWG(*sync.WaitGroup)
 	Done()
 }
@@ -163,6 +166,7 @@ func (b *baseResponseContext) setWG(wg *sync.WaitGroup) {
 func (b *baseResponseContext) SendImage() bool {
 	return b.reqCtx.Request().SendImage()
 }
+func (b *baseResponseContext) HasAudioOutput() bool { return false }
 
 // RespIsEmpty reports whether respCtx carries no tokens and no tool calls.
 func RespIsEmpty(respCtx ResponseContext) bool {
