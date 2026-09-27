@@ -119,6 +119,90 @@ var _ = Describe("Simulator", func() {
 		Expect(finishReason).To(Equal(common.LengthFinishReason))
 	})
 
+	It("honors min_tokens and max_completion_tokens", func() {
+		ctx := context.TODO()
+		client, err := startServer(ctx, common.ModeRandom)
+		Expect(err).NotTo(HaveOccurred())
+
+		reqBody := fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":%q}],"min_tokens":6,"max_tokens":5,"max_completion_tokens":20}`,
+			common.TestModelName, testUserMessage)
+		resp, err := client.Post("http://localhost/v1/chat/completions", "application/json", strings.NewReader(reqBody))
+		Expect(err).NotTo(HaveOccurred())
+		defer func() { Expect(resp.Body.Close()).To(Succeed()) }()
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+		body, err := io.ReadAll(resp.Body)
+		Expect(err).NotTo(HaveOccurred())
+		var response map[string]any
+		Expect(json.Unmarshal(body, &response)).To(Succeed())
+		usage := response["usage"].(map[string]any)
+		Expect(usage["completion_tokens"]).To(BeNumerically(">=", 6))
+		Expect(usage["completion_tokens"]).To(BeNumerically("<=", 20))
+	})
+
+	DescribeTable("rejects invalid min_tokens",
+		func(args []string, minTokens int, maxCompletionTokens int, expectedMessage string) {
+			ctx := context.TODO()
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			reqBody := fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":%q}],"min_tokens":%d,"max_completion_tokens":%d}`,
+				common.TestModelName, testUserMessage, minTokens, maxCompletionTokens)
+			resp, err := client.Post("http://localhost/v1/chat/completions", "application/json", strings.NewReader(reqBody))
+			Expect(err).NotTo(HaveOccurred())
+			defer func() { Expect(resp.Body.Close()).To(Succeed()) }()
+			Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
+
+			body, err := io.ReadAll(resp.Body)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(string(body)).To(ContainSubstring(expectedMessage))
+		},
+		Entry("negative minimum", []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom}, -1, 20,
+			"min_tokens must be greater than or equal to 0"),
+		Entry("minimum above requested maximum", []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom}, 21, 20,
+			"min_tokens must be less than or equal to max_tokens=20"),
+		Entry("minimum above context-clamped maximum", []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom, "--max-model-len", "100"}, 100, 1000,
+			"min_tokens must be less than or equal to max_tokens="),
+	)
+
+	It("does not alter echo responses for a valid min_tokens", func() {
+		ctx := context.TODO()
+		client, err := startServer(ctx, common.ModeEcho)
+		Expect(err).NotTo(HaveOccurred())
+
+		reqBody := fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":%q}],"min_tokens":1}`,
+			common.TestModelName, testUserMessage)
+		resp, err := client.Post("http://localhost/v1/chat/completions", "application/json", strings.NewReader(reqBody))
+		Expect(err).NotTo(HaveOccurred())
+		defer func() { Expect(resp.Body.Close()).To(Succeed()) }()
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+		body, err := io.ReadAll(resp.Body)
+		Expect(err).NotTo(HaveOccurred())
+		var response map[string]any
+		Expect(json.Unmarshal(body, &response)).To(Succeed())
+		choices := response["choices"].([]any)
+		message := choices[0].(map[string]any)["message"].(map[string]any)
+		Expect(message["content"]).To(Equal(testUserMessage))
+	})
+
+	It("rejects min_tokens above the echoed prompt length", func() {
+		ctx := context.TODO()
+		client, err := startServer(ctx, common.ModeEcho)
+		Expect(err).NotTo(HaveOccurred())
+
+		reqBody := fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":%q}],"min_tokens":100}`,
+			common.TestModelName, testUserMessage)
+		resp, err := client.Post("http://localhost/v1/chat/completions", "application/json", strings.NewReader(reqBody))
+		Expect(err).NotTo(HaveOccurred())
+		defer func() { Expect(resp.Body.Close()).To(Succeed()) }()
+		Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
+
+		body, err := io.ReadAll(resp.Body)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(string(body)).To(ContainSubstring("min_tokens must not exceed the prompt length"))
+	})
+
 	DescribeTable("chat completions",
 		func(model string, mode string, maxTokens int, maxCompletionTokens int) {
 			ctx := context.TODO()

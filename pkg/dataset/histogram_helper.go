@@ -56,12 +56,18 @@ func newHistogramHelper(random *common.Random) *histogramHelper {
 // Other values define probabilities for the equally sized buckets.
 // If maxToken is small (smaller than number of buckets) - the response length is randomly selected from the range [1, maxTokens]
 func (hh *histogramHelper) getResponseLengthByHistogram(maxTokens int) int {
-	if maxTokens <= 1 {
+	return hh.getResponseLengthByHistogramInRange(1, maxTokens)
+}
+
+// getResponseLengthByHistogramInRange calculates the number of tokens to be
+// returned in a response within the inclusive range [minTokens, maxTokens].
+func (hh *histogramHelper) getResponseLengthByHistogramInRange(minTokens int, maxTokens int) int {
+	if maxTokens <= minTokens {
 		return maxTokens
 	}
-	// maxTokens is small - no need to use the histogram of probabilities, just select a random value in the range [1, maxTokens]
-	if maxTokens <= len(hh.cumulativeBucketsProbabilities) {
-		res := hh.random.RandomInt(1, maxTokens)
+	// The range is small - no need to use the histogram of probabilities.
+	if maxTokens-minTokens+1 <= len(hh.cumulativeBucketsProbabilities) {
+		res := hh.random.RandomInt(minTokens, maxTokens)
 		return res
 	}
 
@@ -83,7 +89,7 @@ func (hh *histogramHelper) getResponseLengthByHistogram(maxTokens int) int {
 	}
 
 	// calculate the size of all of the buckets (except the special last bucket)
-	start, end := hh.calcBucketBoundaries(maxTokens, bucketIndex)
+	start, end := hh.calcBucketBoundariesInRange(minTokens, maxTokens, bucketIndex)
 
 	// pick uniformly within the bucket’s range
 	return hh.random.RandomInt(start, end)
@@ -100,32 +106,37 @@ func (hh *histogramHelper) getResponseLengthByHistogram(maxTokens int) int {
 // In this case, all buckets except the one at flexBucketIndex index will have size 20 (and the last is with size 1),
 // and the bucket at flexBucketIndex index will 'stretch' to cover the remaining range.
 func (hh *histogramHelper) calcBucketBoundaries(maxTokens int, bucketIndex int) (start int, end int) {
-	maxEquallyBucketsSz := maxFixedBucketSize*(len(hh.cumulativeBucketsProbabilities)-1) + 1
+	return hh.calcBucketBoundariesInRange(1, maxTokens, bucketIndex)
+}
 
-	if maxTokens <= maxEquallyBucketsSz || flexBucketIndex < 0 || flexBucketIndex >= len(hh.cumulativeBucketsProbabilities)-1 {
+func (hh *histogramHelper) calcBucketBoundariesInRange(minTokens int, maxTokens int, bucketIndex int) (start int, end int) {
+	maxEquallyBucketsSz := maxFixedBucketSize*(len(hh.cumulativeBucketsProbabilities)-1) + 1
+	rangeSize := maxTokens - minTokens + 1
+
+	if rangeSize <= maxEquallyBucketsSz || flexBucketIndex < 0 || flexBucketIndex >= len(hh.cumulativeBucketsProbabilities)-1 {
 		// create equally size buckets
 		// calculate the size of all of the buckets (except the special last bucket)
-		bucketSize := float64(maxTokens-1) / float64(len(hh.cumulativeBucketsProbabilities)-1)
-		start = int(bucketSize*float64(bucketIndex)) + 1
-		end = int(bucketSize * float64(bucketIndex+1))
+		bucketSize := float64(maxTokens-minTokens) / float64(len(hh.cumulativeBucketsProbabilities)-1)
+		start = minTokens + int(bucketSize*float64(bucketIndex))
+		end = minTokens + int(bucketSize*float64(bucketIndex+1)) - 1
 	} else {
 		// create non-equally sized buckets and find boundaries of the required bucket
 		if bucketIndex < flexBucketIndex {
 			// the relevant bucket is before the flex bucket, all buckets are of the same size (maxFixedBucketSize)
 			// start is the minimum number in the required bucket
-			start = maxFixedBucketSize*bucketIndex + 1
-			end = maxFixedBucketSize * (bucketIndex + 1)
+			start = minTokens + maxFixedBucketSize*bucketIndex
+			end = minTokens + maxFixedBucketSize*(bucketIndex+1) - 1
 		} else {
-			flexBucketSize := maxTokens - (maxFixedBucketSize * (len(hh.cumulativeBucketsProbabilities) - 2))
+			flexBucketSize := rangeSize - (maxFixedBucketSize * (len(hh.cumulativeBucketsProbabilities) - 2))
 
 			if bucketIndex == flexBucketIndex {
 				// the relevant bucket is the flex bucket
-				start = int(maxFixedBucketSize*float64(bucketIndex)) + 1
-				end = maxFixedBucketSize*bucketIndex + flexBucketSize
+				start = minTokens + maxFixedBucketSize*bucketIndex
+				end = minTokens + maxFixedBucketSize*bucketIndex + flexBucketSize - 1
 			} else {
 				// the relevant bucket is one of buckets after the flex bucket
-				start = int(maxFixedBucketSize*float64(bucketIndex-1)) + flexBucketSize + 1
-				end = maxFixedBucketSize*bucketIndex + flexBucketSize
+				start = minTokens + maxFixedBucketSize*(bucketIndex-1) + flexBucketSize
+				end = minTokens + maxFixedBucketSize*bucketIndex + flexBucketSize - 1
 			}
 		}
 	}
