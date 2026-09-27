@@ -324,6 +324,45 @@ var _ = Describe("CustomDataset", Ordered, func() {
 			Expect(tokens.Length()).To(BeNumerically("<=", smallMaxTokens))
 		})
 
+		It("should pad a matching chat response to min_tokens", func() {
+			minTokens := int64(6)
+			req := api.ChatCompletionsRequest{
+				MaxTokens: &maxTokens,
+				MinTokens: &minTokens,
+				Messages:  validDB[2].messages,
+			}
+			req.SetTokenizedPrompt(&validDB[2].tokenizedInput)
+
+			tokens, finishReason, err := dataset.GetResponseTokens(&req)
+
+			Expect(err).NotTo(HaveOccurred())
+			Expect(tokens.Length()).To(Equal(int(minTokens)))
+			Expect(finishReason).To(Equal(common.StopFinishReason))
+		})
+
+		It("should pad a fallback chat response to min_tokens without exceeding the maximum", func() {
+			minTokens := int64(4)
+			fallbackMaxTokens := int64(5)
+			req := api.ChatCompletionsRequest{
+				MaxTokens: &fallbackMaxTokens,
+				MinTokens: &minTokens,
+				Messages: []api.Message{
+					{Role: api.RoleUser, Content: api.ChatComplContent{Raw: "unmatched prompt for fallback"}},
+				},
+			}
+			req.SetTokenizedPrompt(&api.Tokenized{
+				Tokens:  []uint32{1, 2, 3, 4, 5},
+				Strings: []string{"a", "b", "c", "d", "e"},
+			})
+
+			tokens, finishReason, err := dataset.GetResponseTokens(&req)
+
+			Expect(err).NotTo(HaveOccurred())
+			Expect(tokens.Length()).To(Equal(int(minTokens)))
+			Expect(tokens.Length()).To(BeNumerically("<=", int(fallbackMaxTokens)))
+			Expect(finishReason).To(Equal(common.StopFinishReason))
+		})
+
 		It("should successfully init dataset with in-memory option", func() {
 			req := &api.TextCompletionsRequest{
 				Prompt: api.PromptInput{Text: validDB[1].input},

@@ -152,6 +152,7 @@ func (d *DefaultDataset) Close() error {
 // GetResponseTokens returns response tokens and finishReason for the given request
 func (d *DefaultDataset) GetResponseTokens(req api.Request) (*api.Tokenized, string, error) {
 	maxRespTokens, isMaxTokensInReq := d.calculateResponseMaxLen(req)
+	minRespTokens := d.calculateResponseMinLen(req, maxRespTokens)
 
 	numOfRespTokens := 0
 	finishReason := common.StopFinishReason
@@ -162,10 +163,10 @@ func (d *DefaultDataset) GetResponseTokens(req api.Request) (*api.Tokenized, str
 		numOfRespTokens = maxRespTokens
 	case isMaxTokensInReq:
 		// max tokens is defined in the request - generate number of tokens in the response based on the histogram
-		numOfRespTokens = d.histogramHelper.getResponseLengthByHistogram(maxRespTokens)
+		numOfRespTokens = d.histogramHelper.getResponseLengthByHistogramInRange(minRespTokens, maxRespTokens)
 	default:
 		// no tokens limitation in the request - use gaussian with the mean (currently hard-coded)
-		numOfRespTokens = d.getRandomResponseLen(maxRespTokens)
+		numOfRespTokens = d.getRandomResponseLen(minRespTokens, maxRespTokens)
 	}
 
 	if numOfRespTokens == maxRespTokens {
@@ -199,31 +200,45 @@ func (d *DefaultDataset) calculateResponseMaxLen(req api.Request) (int, bool) {
 	return remaining, false
 }
 
-// getRandomResponseLenByDistribution returns int in range [1, responseLenMax]
+func (d *DefaultDataset) calculateResponseMinLen(req api.Request, maxRespTokens int) int {
+	minRespTokens := 1
+	if minTokens := req.GetMinTokens(); minTokens != nil && *minTokens > 1 {
+		minRespTokens = int(*minTokens)
+	}
+	if minRespTokens > maxRespTokens {
+		return maxRespTokens
+	}
+	return minRespTokens
+}
+
+// getRandomResponseLenByDistribution returns int in range [minLen, maxLen]
 // numbers are chosen according a gaussian distribution with mean responseLenMean, and standard deviation responseLenStddev
 // note: this implementation can be too expensive for small maxLen.
-func (d *DefaultDataset) getRandomResponseLenByGaussian(maxLen int) int {
+func (d *DefaultDataset) getRandomResponseLenByGaussian(minLen int, maxLen int) int {
 	for {
 		val := d.random.RandomNorm(responseLenMean, responseLenStddev)
-		if val >= 1 && val <= float64(maxLen) {
+		if val >= float64(minLen) && val <= float64(maxLen) {
 			return int(math.Round(val))
 		}
 		// else reject and resample
 	}
 }
 
-// getRandomResponseLenByUniform returns int in range [1, responseLenMax]
+// getRandomResponseLenByUniform returns int in range [minLen, maxLen]
 // numbers are chosen uniformly at random.
-func (d *DefaultDataset) getRandomResponseLenByUniform(maxLen int) int {
-	return d.random.RandomInt(1, maxLen)
+func (d *DefaultDataset) getRandomResponseLenByUniform(minLen int, maxLen int) int {
+	return d.random.RandomInt(minLen, maxLen)
 }
 
-func (d *DefaultDataset) getRandomResponseLen(maxLen int) int {
+func (d *DefaultDataset) getRandomResponseLen(minLen int, maxLen int) int {
+	if minLen == maxLen {
+		return maxLen
+	}
 	// for small maxLen, use uniform distribution.
 	if maxLen < responseLenMean-responseLenStddev {
-		return d.getRandomResponseLenByUniform(maxLen)
+		return d.getRandomResponseLenByUniform(minLen, maxLen)
 	}
-	return d.getRandomResponseLenByGaussian(maxLen)
+	return d.getRandomResponseLenByGaussian(minLen, maxLen)
 }
 
 // generatePresetRandomTokens generates random tokens for the required number of tokens,

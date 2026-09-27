@@ -17,6 +17,8 @@ limitations under the License.
 package endpoint
 
 import (
+	"fmt"
+
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/valyala/fasthttp"
@@ -35,6 +37,19 @@ func validateRequest(req api.Request) *api.Error {
 	if req.GetMaxCompletionTokens() != nil && *req.GetMaxCompletionTokens() <= 0 {
 		err := api.NewError(common.InvalidMaxTokensErrMsg, fasthttp.StatusBadRequest, nil)
 		return &err
+	}
+
+	if minTokens := req.GetMinTokens(); minTokens != nil {
+		if *minTokens < 0 {
+			err := api.NewError(fmt.Sprintf("min_tokens must be greater than or equal to 0, got %d.", *minTokens),
+				fasthttp.StatusBadRequest, nil)
+			return &err
+		}
+		if maxTokens := req.GetMaxCompletionTokens(); maxTokens != nil && *minTokens > *maxTokens {
+			err := api.NewError(fmt.Sprintf("min_tokens must be less than or equal to max_tokens=%d, got %d.",
+				*maxTokens, *minTokens), fasthttp.StatusBadRequest, nil)
+			return &err
+		}
 	}
 
 	if req.IsDoRemoteDecode() && req.IsStream() {
