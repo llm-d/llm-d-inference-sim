@@ -49,16 +49,6 @@ func newHistogramHelper(random *common.Random) *histogramHelper {
 	return &h
 }
 
-// getResponseLengthByHistogram calculates the number of tokens to be returned in a response based on the max tokens value and the pre-defined buckets.
-// The response length is distributed according to the probabilities, defined in respLenBucketsProbabilities.
-// The histogram contains equally sized buckets and the last special bucket, which contains only the maxTokens value.
-// The last element of respLenBucketsProbabilities defines the probability of a reposnse with maxToken tokens.
-// Other values define probabilities for the equally sized buckets.
-// If maxToken is small (smaller than number of buckets) - the response length is randomly selected from the range [1, maxTokens]
-func (hh *histogramHelper) getResponseLengthByHistogram(maxTokens int) int {
-	return hh.getResponseLengthByHistogramInRange(1, maxTokens)
-}
-
 // getResponseLengthByHistogramInRange calculates the number of tokens to be
 // returned in a response within the inclusive range [minTokens, maxTokens].
 func (hh *histogramHelper) getResponseLengthByHistogramInRange(minTokens int, maxTokens int) int {
