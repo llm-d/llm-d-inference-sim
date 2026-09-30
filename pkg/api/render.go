@@ -17,6 +17,8 @@ limitations under the License.
 // Contains structures and functions related to requests for all supported APIs
 package api
 
+import "encoding/json"
+
 type RenderRequest interface {
 	Model() string
 	Endpoint() string
@@ -33,13 +35,25 @@ func NewTextCompletionsRenderRequest(model, prompt string) TextCompletionsRender
 	}
 }
 
-func NewChatCompletionsRenderRequest(model string, messages []Message) ChatCompletionsRenderRequest {
+// RenderTools carries a chat request's tools and tool_choice as the client
+// sent them, for the render service. Both stay raw JSON: the chat template
+// renders tool definitions into the prompt, and re-encoding them through the
+// typed Tool would reorder parameter keys and drop fields it does not model.
+// The zero value means the request had neither.
+type RenderTools struct {
+	Tools      json.RawMessage
+	ToolChoice json.RawMessage
+}
+
+func NewChatCompletionsRenderRequest(model string, messages []Message, tools RenderTools) ChatCompletionsRenderRequest {
 	return ChatCompletionsRenderRequest{
 		baseRenderRequest: baseRenderRequest{
 			ModelName: model,
 			endpoint:  "/v1/chat/completions",
 		},
-		Messages: messages,
+		Messages:   messages,
+		Tools:      tools.Tools,
+		ToolChoice: tools.ToolChoice,
 	}
 }
 
@@ -74,6 +88,14 @@ type ChatCompletionsRenderRequest struct {
 
 	// Messages list of request's Messages
 	Messages []Message `json:"messages"`
+
+	// Tools and ToolChoice come from the client's request (see RenderTools).
+	// ToolChoice is forwarded with its original meaning. vLLM validates it
+	// against its tool-calling configuration and treats tools without one as
+	// "auto"; depending on the model's template and the server's options, it
+	// can also change what is rendered.
+	Tools      json.RawMessage `json:"tools,omitempty"`
+	ToolChoice json.RawMessage `json:"tool_choice,omitempty"`
 }
 
 func (c *ChatCompletionsRenderRequest) IsMultiModal() bool {

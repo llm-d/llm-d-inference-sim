@@ -750,7 +750,7 @@ func (c *Communication) HandleTokenize(ctx *fasthttp.RequestCtx) {
 		tokens, _, err = c.runtime.GetTokenizer().RenderText(req.Prompt)
 	} else {
 		// has messages
-		tokens, _, _, err = c.runtime.GetTokenizer().RenderMessages(req.Messages)
+		tokens, _, _, err = c.runtime.GetTokenizer().RenderMessages(req.Messages, api.RenderTools{})
 	}
 
 	if err != nil {

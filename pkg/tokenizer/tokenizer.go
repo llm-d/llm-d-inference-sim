@@ -41,8 +41,9 @@ const (
 type Tokenizer interface {
 	// RenderText renders plain text and returns token IDs and string tokens
 	RenderText(text string) ([]uint32, []string, error)
-	// RenderMessages renders chat messages and returns token IDs, string tokens, and multimodal features
-	RenderMessages(messages []api.Message) ([]uint32, []string, *api.RenderMMFeatures, error)
+	// RenderMessages renders chat messages and returns token IDs, string tokens, and multimodal features.
+	// tools holds the request's tools and tool_choice as the client sent them.
+	RenderMessages(messages []api.Message, tools api.RenderTools) ([]uint32, []string, *api.RenderMMFeatures, error)
 	// Detokenize converts token IDs back to text
 	Detokenize(tokenIDs []uint32) (string, error)
 }
@@ -198,7 +199,7 @@ func (st *SimpleTokenizer) Detokenize(tokenIDs []uint32) (string, error) {
 // RenderMessages tokenizes the messages and synthesizes stub mm_features when
 // any message contains image_url blocks, so downstream MM-aware code paths can
 // be exercised without a real renderer.
-func (st *SimpleTokenizer) RenderMessages(messages []api.Message) ([]uint32, []string, *api.RenderMMFeatures, error) {
+func (st *SimpleTokenizer) RenderMessages(messages []api.Message, _ api.RenderTools) ([]uint32, []string, *api.RenderMMFeatures, error) {
 	var builder strings.Builder
 	for _, msg := range messages {
 		builder.WriteString(api.StartMessageSeparator)

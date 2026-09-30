@@ -53,7 +53,7 @@ var _ = Describe("tokenizer", func() {
 	})
 
 	It("should tokenize chat with simple tokenizer", func() {
-		tokens, strTokens, _, err := tokenizerMngr.TestTokenizer().RenderMessages(messages)
+		tokens, strTokens, _, err := tokenizerMngr.TestTokenizer().RenderMessages(messages, api.RenderTools{})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(tokens).NotTo(BeEmpty())
 		Expect(strTokens).NotTo(BeEmpty())
@@ -73,7 +73,7 @@ var _ = Describe("tokenizer", func() {
 
 	It("should tokenize chat with real tokenizer", func() {
 		// in /chat/completions case the string tokens are not returned
-		tokens, _, _, err := tokenizerMngr.RealTokenizer().RenderMessages(messages)
+		tokens, _, _, err := tokenizerMngr.RealTokenizer().RenderMessages(messages, api.RenderTools{})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(tokens).NotTo(BeEmpty())
 	})
@@ -86,7 +86,7 @@ var _ = Describe("tokenizer", func() {
 				},
 			}},
 		}
-		_, _, features, err := tokenizerMngr.TestTokenizer().RenderMessages(mmMessages)
+		_, _, features, err := tokenizerMngr.TestTokenizer().RenderMessages(mmMessages, api.RenderTools{})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(features).NotTo(BeNil())
 		Expect(features.KwargsData).To(HaveKey(mmModalityImage))
@@ -162,7 +162,7 @@ var _ = Describe("tokenizer", func() {
 	})
 
 	It("should return nil kwargs_data for text-only messages via real tokenizer", func() {
-		tokens, _, features, err := tokenizerMngr.RealTokenizer().RenderMessages(messages)
+		tokens, _, features, err := tokenizerMngr.RealTokenizer().RenderMessages(messages, api.RenderTools{})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(tokens).NotTo(BeEmpty())
 		// text-only messages carry no MM features
