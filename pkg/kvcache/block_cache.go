@@ -44,6 +44,7 @@ type Request interface {
 	GetDisplayedModel() string
 	GetLoraName() *string
 	GetLoraID() *int
+	GetCacheSalt() *string
 }
 
 type blockKey struct {
@@ -281,6 +282,12 @@ func (bc *blockCache) startRequest(req Request, blockHashes []uint64, blockToken
 			ph := blockHashes[lastCachedIdx]
 			parentHash = &ph
 		}
+		// The salt belongs to the request's first block only; a store event that
+		// continues a cached prefix inherits it through the parent hash.
+		var cacheSalt *string
+		if parentHash == nil {
+			cacheSalt = req.GetCacheSalt()
+		}
 		common.WriteToChannel(bc.eventChan,
 			Event{
 				Action:     ActionStore,
@@ -289,6 +296,7 @@ func (bc *blockCache) startRequest(req Request, blockHashes []uint64, blockToken
 				ParentHash: parentHash,
 				LoraName:   req.GetLoraName(),
 				LoraID:     req.GetLoraID(),
+				CacheSalt:  cacheSalt,
 			}, bc.logger)
 	}
 
