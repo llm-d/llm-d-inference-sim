@@ -506,10 +506,6 @@ const schema = `{
           "type": "string"
         }
       },
-      "required": [
-        "type"
-      ],
-      "additionalProperties": false,
       "allOf": [
         {
           "if": {
@@ -619,34 +615,6 @@ const schema = `{
                 "enum"
               ]
             }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "type": {
-                "const": "array"
-              }
-            }
-          },
-          "then": {
-            "required": [
-              "items"
-            ]
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "type": {
-                "const": "object"
-              }
-            }
-          },
-          "then": {
-            "required": [
-              "properties"
-            ]
           }
         }
       ]

@@ -70,5 +70,61 @@ var _ = Describe("tools schema validator", func() {
 				"required": ["count"]
 			}
 		}`),
+		Entry("nested property without type", `{
+			"name": "run_job",
+			"description": "Run a job",
+			"parameters": {
+				"type": "object",
+				"properties": {
+					"job": {
+						"type": "object",
+						"properties": {
+							"sessionKey": {"description": "The session key"}
+						},
+						"required": ["sessionKey"]
+					}
+				},
+				"required": ["job"]
+			}
+		}`),
+		Entry("property with anyOf and const", `{
+			"name": "run_job",
+			"description": "Run a job",
+			"parameters": {
+				"type": "object",
+				"properties": {
+					"job": {
+						"type": "object",
+						"properties": {
+							"trigger": {
+								"anyOf": [
+									{"type": "string", "const": "immediate"},
+									{"type": "null"}
+								]
+							}
+						},
+						"required": ["trigger"]
+					}
+				},
+				"required": ["job"]
+			}
+		}`),
+		Entry("property with patternProperties", `{
+			"name": "set_props",
+			"description": "Set properties",
+			"parameters": {
+				"type": "object",
+				"properties": {
+					"props": {
+						"type": "object",
+						"patternProperties": {
+							"^S_": {"type": "string"},
+							"^I_": {"type": "integer"}
+						}
+					}
+				},
+				"required": ["props"]
+			}
+		}`),
 	)
 })
