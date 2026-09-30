@@ -493,11 +493,10 @@ var _ = Describe("Simulator", func() {
 			Expect(string(body)).To(ContainSubstring("BadRequestError"))
 		})
 
-		It("Should reject echo mode requests whose prompt exceeds max_tokens", func() {
+		It("Should succeed in echo mode even when max_tokens is smaller than the prompt", func() {
 			ctx := context.TODO()
 			model := common.TestModelName
 			prompt := contextWindowTestPrompt
-			promptChatTokens := getChatPromptTokensCountForTestModel(prompt)
 
 			args := []string{"cmd", "--model", model, "--mode", common.ModeEcho, "--max-model-len", "1000"}
 			client, err := startServerWithArgs(ctx, args)
@@ -519,9 +518,8 @@ var _ = Describe("Simulator", func() {
 			body, err := io.ReadAll(resp.Body)
 			Expect(err).NotTo(HaveOccurred())
 
-			Expect(resp.StatusCode).To(Equal(400))
-			Expect(string(body)).To(ContainSubstring(fmt.Sprintf("max_tokens is 1, but the prompt has %d tokens", promptChatTokens)))
-			Expect(string(body)).To(ContainSubstring("BadRequestError"))
+			Expect(resp.StatusCode).To(Equal(200))
+			Expect(string(body)).To(ContainSubstring(prompt))
 		})
 
 		It("Should handle text completion requests exceeding context window", func() {
