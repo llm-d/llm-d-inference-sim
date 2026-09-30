@@ -611,6 +611,28 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 		metricsWg.Wait()
 	})
 
+	It("Should export process_start_time_seconds like vLLM", func() {
+		ctx := context.TODO()
+		args := []string{"cmd", "--model", common.QwenModelName, "--mode", common.ModeRandom}
+		client, err := startServerWithArgs(ctx, args)
+		Expect(err).NotTo(HaveOccurred())
+
+		metricsResp, err := client.Get(metricsUrl)
+		Expect(err).NotTo(HaveOccurred())
+		defer func() { _ = metricsResp.Body.Close() }()
+		data, err := io.ReadAll(metricsResp.Body)
+		Expect(err).NotTo(HaveOccurred())
+
+		var start float64
+		for _, line := range strings.Split(string(data), "\n") {
+			if strings.HasPrefix(line, "process_start_time_seconds ") {
+				start, err = strconv.ParseFloat(strings.TrimPrefix(line, "process_start_time_seconds "), 64)
+				Expect(err).NotTo(HaveOccurred())
+			}
+		}
+		Expect(start).To(BeNumerically(">", 0))
+	})
+
 	Context("kv cache metrics", func() {
 		It("Should send correct kv cache usage metrics", func() {
 			// Three requests, there are should be two blocks in the kv cache, because
@@ -997,6 +1019,7 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 			Entry("explicit auto dtype", "auto", "auto"),
 			Entry("TurboQuant dtype", "turboquant_4bit_nc", "turboquant_4bit_nc"),
 		)
+
 	})
 
 	Context("single request latency metrics", func() {
