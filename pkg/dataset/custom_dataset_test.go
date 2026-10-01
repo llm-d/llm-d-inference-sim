@@ -329,9 +329,10 @@ var _ = Describe("CustomDataset", Ordered, func() {
 			req := api.ChatCompletionsRequest{
 				MaxTokens: &maxTokens,
 				MinTokens: &minTokens,
-				Messages:  validDB[2].messages,
 			}
-			req.SetTokenizedPrompt(&validDB[2].tokenizedInput)
+			req.SetTokenizedPrompt(&validDB[0].tokenizedInput)
+
+			Expect(dataset.getPromptHashHex(dataset.getPromptHash(&req))).To(Equal(validDB[0].hexa))
 
 			tokens, finishReason, err := dataset.GetResponseTokens(&req)
 
