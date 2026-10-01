@@ -11,8 +11,23 @@ For a setting that can come from a YAML file, an environment variable, and comma
 
 Some environment variables (for example `POD_NAME`, `POD_NAMESPACE`) are not overrides of a YAML field in this sense; they populate separate runtime fields after parsing.
 
+### Boolean flags
+
+A boolean flag takes no separate argument. Every one of them has a `--no-` twin that turns the setting off, which is the spelling real vLLM accepts; attaching the value with `=` also works:
+
+```bash
+--enable-kvcache          # on
+--enable-kvcache=true     # on
+--no-enable-kvcache       # off
+--enable-kvcache=false    # off
+```
+
+A value written as a separate argument is refused, whatever the value. `--enable-kvcache false` would otherwise turn the setting **on**, since the flag is set and `false` becomes a stray argument, and real vLLM rejects both `--enable-kvcache false` and `--enable-kvcache true`.
+
+In a configuration file the same settings are plain YAML booleans, written without the `no-` prefix: `enable-kvcache: false`.
+
 ## General
-- `config`: the path to a yaml configuration file that can contain the simulator's command line parameters. If a parameter is defined in both the config file and the command line, the command line value overwrites the configuration file value. An example configuration file can be found at [manifests/config.yaml](../manifests/config.yaml)
+- `config`: the path to a yaml configuration file that can contain the simulator's command line parameters. If a parameter is defined in both the config file and the command line, the command line value overwrites the configuration file value. An example configuration file can be found at [manifests/config.yaml](../manifests/config.yaml). A key the simulator does not recognize is an error, not a no-op: startup fails naming the key. Since some settings are engine-owned, which keys are recognized depends on the selected engine; see [Engines](engine-backends.md).
 - `port`: the port the simulator listens on, default is 8000
 - `max-request-body-size-mb`: maximum allowed size of an HTTP request body in megabytes, optional, default is 4 (matching the fasthttp built-in default). Must be between 1 and 512.
 - `engine`: the inference engine to simulate, optional, default is `vllm` (the only supported value). Determines which flags, environment variables, metric names, and KV-event format the simulator uses; see [Engines](engine-backends.md). If you omit `--engine` on the command line, a non-empty `SIM_ENGINE` environment variable can supply it; see [Configuration precedence](#configuration-precedence) and [Environment variables](#environment-variables).
@@ -25,10 +40,10 @@ Some environment variables (for example `POD_NAME`, `POD_NAMESPACE`) are not ove
     - `echo`: returns the same text that was sent in the request
     - `random`: returns a sentence chosen at random from a set of pre-defined sentences or a given dataset
 - `startup-duration`: duration the simulator returns HTTP 503 on `/health/ready` to simulate GPU model loading time (e.g. `30s`, `2m`). After this duration elapses from startup, `/health/ready` returns 200. Optional, default is 0 (immediately ready).
-- `enable-sleep-mode`, `no-enable-sleep-mode`: Enable or disable sleep mode feature. When enabled, the simulator can be put to sleep via the `/sleep` endpoint and woken up via the `/wake_up` endpoint
+- `enable-sleep-mode`, `no-enable-sleep-mode`: Enable or disable sleep mode feature. When enabled, the simulator can be put to sleep via the `/sleep` endpoint and woken up via the `/wake_up` endpoint. Owned by the `vllm` engine: the flag and the configuration key come from the engine, not the simulator core.
 - `enable-request-id-headers`: Enable including X-Request-Id header in responses. When enabled, the simulator will include the request ID in response headers
 - `log-http`: When true, logs each HTTP request and response at INFO (method, URI, remote address, headers, and body when buffered). Gzip-encoded bodies are decoded before logging. Streamed response bodies (for example SSE) are not logged. Use only in trusted environments; may include secrets such as `Authorization` headers.
-- `mm-encoder-only`, `no-mm-encoder-only`: Skip  (or don't skip) the language component of the model.
+- `mm-encoder-only`, `no-mm-encoder-only`: Skip  (or don't skip) the language component of the model. Owned by the `vllm` engine: the flag and the configuration key come from the engine, not the simulator core.
 - `omni`, `no-omni`: Enable or disable omni mode. When enabled, the simulator appends a synthetic image (a 1×1 transparent PNG, `data:image/png;base64,…`) to `/v1/chat/completions` responses in two cases: the `X-Send-Image: true` request header is present, or a random roll succeeds against `--image-emission-rate`. In non-streaming responses the assistant message `content` becomes a structured array — a `text` block carrying the generated tokens followed by an `image_url` block. In streaming responses an extra SSE chunk with `"modality":"image"` is emitted after the token stream, carrying the same image in its delta `content`. When `--omni` is not set (the default), both mechanisms are disabled and the response is a normal text response.
 - `image-emission-rate`: probability (0–100) of emitting a synthetic image chunk per `/v1/chat/completions` request when omni mode is enabled. 0 (the default) means the rate mechanism never fires; 100 means every request gets an image. The `X-Send-Image: true` header triggers emission independently of this rate. Updatable at runtime via `POST /admin/config`.
 

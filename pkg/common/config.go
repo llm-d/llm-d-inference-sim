@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"sort"
 	"strings"
 	"time"
 
@@ -221,8 +222,11 @@ type Configuration struct {
 	// After this duration from startup, /health/ready returns 200. Default is 0 (immediately ready).
 	StartupDuration time.Duration `yaml:"startup-duration" json:"startup-duration"`
 
-	// EnableSleepMode enables sleep mode
-	EnableSleepMode bool `yaml:"enable-sleep-mode" json:"enable-sleep-mode"`
+	// EnableSleepMode enables sleep mode. Both the flag and the routes it serves
+	// are engine-specific, so the key is engine-owned (yaml:"-") rather than read
+	// by the generic loader in load(): an engine that has no such flag must
+	// report the key instead of applying a setting it cannot act on.
+	EnableSleepMode bool `yaml:"-" json:"enable-sleep-mode"`
 
 	// EnableRequestIDHeaders enables including X-Request-Id header in responses
 	EnableRequestIDHeaders bool `yaml:"enable-request-id-headers" json:"enable-request-id-headers"`
@@ -235,7 +239,10 @@ type Configuration struct {
 	DefaultEmbeddingDimensions int `yaml:"default-embedding-dimensions" json:"default-embedding-dimensions"`
 
 	// MMEncoderOnly defines whether to skip the language component of the model.
-	MMEncoderOnly bool `yaml:"mm-encoder-only" json:"mm-encoder-only"`
+	// Engine-owned (yaml:"-"), like EnableSleepMode: the setting changes the
+	// served endpoints and the response path, so an engine that does not spell it
+	// must report the key rather than honor it.
+	MMEncoderOnly bool `yaml:"-" json:"mm-encoder-only"`
 
 	// Omni enables omni mode: the simulator will emit a synthetic image chunk
 	// after the token stream when the X-Send-Image request header is present,
@@ -581,6 +588,28 @@ func UnmarshalYAMLKey(raw map[string]any, key string, out any) error {
 	return nil
 }
 
+// rejectUnknownYAMLKeys reports the top-level keys of raw that nothing claimed.
+// load() folds this package's legacy flat layouts into their nested blocks and
+// the active engine's BindFlags deletes the groups it unmarshals, so a key
+// still present here belongs to neither: it is either a typo, or a setting of
+// a feature the chosen engine does not implement. Reporting it beats loading
+// it as a silent no-op, which is what the non-strict unmarshal in load() would
+// otherwise do.
+func rejectUnknownYAMLKeys(raw map[string]any, engineName string) error {
+	unknown := make([]string, 0, len(raw))
+	for key := range raw {
+		if !configYAMLKeySet[key] {
+			unknown = append(unknown, key)
+		}
+	}
+	if len(unknown) == 0 {
+		return nil
+	}
+	sort.Strings(unknown)
+	return fmt.Errorf("the '%s' engine does not recognize the following configuration key(s): %s",
+		engineName, strings.Join(unknown, ", "))
+}
+
 func (c *Configuration) validate() error {
 	if c.Model == "" {
 		return errors.New("model parameter is empty")
@@ -773,6 +802,7 @@ var (
 	toolCallYAMLKeys    []string
 	datasetYAMLKeys     []string
 	sslYAMLKeys         []string
+	configYAMLKeySet    map[string]bool
 )
 
 func init() {
@@ -792,6 +822,14 @@ func init() {
 	sslYAMLKeys = yamlKeysOf(reflect.TypeOf(SSLConfig{}))
 	for _, key := range latenciesYAMLKeys {
 		latenciesYAMLKeySet[key] = true
+	}
+
+	// The engine-owned groups are tagged yaml:"-", so they are absent from this
+	// set by construction; the engine claims them by consuming them.
+	configKeys := yamlKeysOf(reflect.TypeOf(Configuration{}))
+	configYAMLKeySet = make(map[string]bool, len(configKeys))
+	for _, key := range configKeys {
+		configYAMLKeySet[key] = true
 	}
 }
 

@@ -707,7 +707,7 @@ var _ = Describe("Simulator", func() {
 			args := []string{"cmd", "--model", model, "--mode", common.ModeEcho}
 
 			if enableKVCache {
-				args = append(args, "--enable-kvcache", "true", "--kv-cache-size", "16", "--block-size", "8")
+				args = append(args, "--enable-kvcache", "--kv-cache-size", "16", "--block-size", "8")
 			}
 			if globalThreshold != nil {
 				args = append(args, "--global-cache-hit-threshold", fmt.Sprintf("%f", *globalThreshold))
@@ -1185,7 +1185,7 @@ var _ = Describe("Simulator", func() {
 
 			// start the server
 			args := []string{"cmd", "--model", model, "--mode", mode,
-				"--enable-kvcache", "true", "--kv-cache-size", "16", "--block-size", "8",
+				"--enable-kvcache", "--kv-cache-size", "16", "--block-size", "8",
 				"--event-batch-size", "1", "--zmq-endpoint", zmqEndpoint}
 			client, err := startServerWithArgsAndEnv(ctx, mode, args, map[string]string{"POD_IP": "localhost"})
 			Expect(err).NotTo(HaveOccurred())
@@ -1216,7 +1216,7 @@ var _ = Describe("Simulator", func() {
 
 			// start the server
 			args := []string{"cmd", "--model", model, "--mode", mode,
-				"--enable-kvcache", "true", "--kv-cache-size", "16", "--block-size", "8",
+				"--enable-kvcache", "--kv-cache-size", "16", "--block-size", "8",
 				"--event-batch-size", "1", "--zmq-endpoint", zmqEndpoint}
 			client, err := startServerWithArgsAndEnv(ctx, mode, args, map[string]string{"POD_IP": "localhost"})
 			Expect(err).NotTo(HaveOccurred())
@@ -1244,7 +1244,7 @@ var _ = Describe("Simulator", func() {
 			Expect(err).NotTo(HaveOccurred())
 			zmqEndpoint := fmt.Sprintf("tcp://*:%d", freePort)
 			args := []string{"cmd", "--model", model, "--mode", mode,
-				"--enable-kvcache", "true", "--kv-cache-size", "16", "--block-size", "8",
+				"--enable-kvcache", "--kv-cache-size", "16", "--block-size", "8",
 				"--event-batch-size", "1", "--zmq-endpoint", zmqEndpoint}
 			client, err := startServerWithArgsAndEnv(ctx, mode, args, map[string]string{"POD_IP": "localhost"})
 			Expect(err).NotTo(HaveOccurred())
@@ -1290,10 +1290,13 @@ var _ = Describe("Simulator", func() {
 				//nolint
 				defer sub.Close()
 
+				// The format flag is written with "=", since pflag takes no value for
+				// a boolean flag: as a separate argument, "false" would be a
+				// positional and the flag would be true in both entries.
 				args := []string{"cmd", "--model", model, "--mode", mode,
-					"--enable-kvcache", "true", "--kv-cache-size", "16", "--block-size", "8",
+					"--enable-kvcache", "--kv-cache-size", "16", "--block-size", "8",
 					"--event-batch-size", "1", "--zmq-endpoint", zmqEndpoint,
-					"--use-vllm-map-event-format", useMapFormat}
+					"--use-vllm-map-event-format=" + useMapFormat}
 
 				client, err := startServerWithArgsAndEnv(ctx, mode, args, map[string]string{"POD_IP": "localhost"})
 				Expect(err).NotTo(HaveOccurred())
@@ -1457,7 +1460,7 @@ force-dummy-tokenizer: false
 			replayEndpoint := fmt.Sprintf("tcp://127.0.0.1:%d", replayPort)
 
 			args := []string{"cmd", "--model", replayModel, "--mode", replayMode,
-				"--enable-kvcache", "true", "--kv-cache-size", "16", "--block-size", "8",
+				"--enable-kvcache", "--kv-cache-size", "16", "--block-size", "8",
 				"--event-batch-size", "1", "--zmq-endpoint", zmqEndpoint,
 				"--kv-events-replay-endpoint", replayEndpoint,
 				"--kv-events-replay-queue-size", "64",

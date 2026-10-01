@@ -60,10 +60,13 @@ The order matters because each step's output is the next step's input. `main` re
    3. A `--config` file is loaded, overwriting defaults and yielding the raw YAML tree.
    4. Common flags are registered, then `BindFlags` registers the engine's. Each flag defaults to the
       value the config already holds, so an unset flag preserves the YAML value and a set flag wins.
-   5. `f.Parse` reads the command line.
-   6. Common environment variables are applied, then `ApplyEnv`. It receives `f.Changed` so an environment
+   5. Any top-level YAML key still unclaimed is reported as unrecognized. The engine claims its own
+      groups by deleting them from the raw tree as it reads them, so an engine that does not implement
+      a feature gets the rejection for free and never names another engine's keys.
+   6. `f.Parse` reads the command line.
+   7. Common environment variables are applied, then `ApplyEnv`. It receives `f.Changed` so an environment
       variable can act as a fallback for an unset flag rather than an override of a set one.
-   7. `Configuration.validate` checks the common fields, then `ValidateConfig` checks the engine's.
+   8. `Configuration.validate` checks the common fields, then `ValidateConfig` checks the engine's.
 2. `simulator.Start` builds each rank's `SimContext`, which calls `NewMetricsAdapter` to wire the metrics
    bus and, when the KV cache is enabled and multi-modal encoder-only mode is not, `NewKVEventEncoder` to
    wire the block cache.

@@ -101,7 +101,7 @@ var _ = Describe("Data Parallel", func() {
 			"--data-parallel-size", "3",
 			"--port", strconv.Itoa(baseServingPort),
 			"--force-dummy-tokenizer",
-			"--enable-kvcache", "true", "--kv-cache-size", "16", "--block-size", "8",
+			"--enable-kvcache", "--kv-cache-size", "16", "--block-size", "8",
 			"--event-batch-size", "1", "--zmq-endpoint", zmqEndpoint,
 		}, map[string]string{"POD_IP": "localhost"})
 		Expect(err).NotTo(HaveOccurred())

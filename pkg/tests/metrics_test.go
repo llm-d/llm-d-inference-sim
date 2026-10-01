@@ -617,7 +617,7 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 			// the first and the second prompt share a block.
 			ctx := context.TODO()
 			args := []string{"cmd", "--model", common.QwenModelName, "--mode", common.ModeRandom,
-				"--enable-kvcache", "true", "--kv-cache-size", "16", "--block-size", "8",
+				"--enable-kvcache", "--kv-cache-size", "16", "--block-size", "8",
 				"--time-to-first-token", "5s"}
 
 			client, err := startServerWithArgsAndEnv(ctx, common.ModeRandom, args, map[string]string{"POD_IP": "localhost"})
@@ -698,7 +698,7 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 		It("Should send correct kv cache usage metrics for sequentual requests", func() {
 			ctx := context.TODO()
 			args := []string{"cmd", "--model", common.QwenModelName, "--mode", common.ModeRandom,
-				"--enable-kvcache", "true", "--kv-cache-size", "16", "--block-size", "8",
+				"--enable-kvcache", "--kv-cache-size", "16", "--block-size", "8",
 				"--time-to-first-token", "5s", "--max-num-seqs", "2"}
 
 			client, err := startServerWithArgsAndEnv(ctx, common.ModeRandom, args, map[string]string{"POD_IP": "localhost"})
@@ -767,7 +767,7 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 		It("Should increment prefix cache counters for requests with shared prefixes", func() {
 			ctx := context.TODO()
 			args := []string{"cmd", "--model", common.QwenModelName, "--mode", common.ModeRandom,
-				"--enable-kvcache", "true", "--kv-cache-size", "64", "--block-size", "8",
+				"--enable-kvcache", "--kv-cache-size", "64", "--block-size", "8",
 				"--time-to-first-token", "100ms"}
 
 			client, err := startServerWithArgsAndEnv(ctx, common.ModeRandom, args, map[string]string{"POD_IP": "localhost"})
@@ -820,7 +820,7 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 		It("Should send correct kv cache usage metrics for parallel /responses requests", func() {
 			ctx := context.TODO()
 			args := []string{"cmd", "--model", common.QwenModelName, "--mode", common.ModeRandom,
-				"--enable-kvcache", "true", "--kv-cache-size", "16", "--block-size", "8",
+				"--enable-kvcache", "--kv-cache-size", "16", "--block-size", "8",
 				"--time-to-first-token", "2s"}
 
 			client, err := startServerWithArgsAndEnv(ctx, common.ModeRandom, args, map[string]string{"POD_IP": "localhost"})
@@ -889,7 +889,7 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 		It("Should increment prefix cache counters for /responses requests with shared prefixes", func() {
 			ctx := context.TODO()
 			args := []string{"cmd", "--model", common.QwenModelName, "--mode", common.ModeRandom,
-				"--enable-kvcache", "true", "--kv-cache-size", "64", "--block-size", "8",
+				"--enable-kvcache", "--kv-cache-size", "64", "--block-size", "8",
 				"--time-to-first-token", "100ms"}
 
 			client, err := startServerWithArgsAndEnv(ctx, common.ModeRandom, args, map[string]string{"POD_IP": "localhost"})
