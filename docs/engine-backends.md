@@ -16,6 +16,27 @@ a YAML value rank against each other.
 engine registers its own flags and validates its own fields as part of that parse. `engine.Select` then
 maps the name to an implementation, rejecting one that is not registered.
 
+## How an error is framed
+
+An error body's shape depends on the route as much as on the engine. The OpenAI-shaped routes carry the
+error object under an `error` key, `/v1/responses` nests it the same way, and `/v1/messages` answers in the
+Anthropic envelope instead, because a client of that route is an SDK whose typed error classes parse
+nothing else. So the route selects the family (`api.ErrorRoute`, derived from the request path) and the
+engine fills it in (`ErrorBody`, `StreamErrorBody`).
+
+| route family | vllm |
+| --- | --- |
+| the OpenAI-shaped routes | `{"error": {message, type, param, code}}` |
+| `/v1/responses` | as above |
+| `/v1/messages` | `{"type": "error", "error": {type, message}}`, keeping the error type it uses elsewhere |
+
+A streaming frame is framed separately, since an engine need not frame one the way it frames a whole body.
+The SSE frame around it belongs to the route: the Messages API names the event (`event: error`) and ends
+the stream with no terminator, where the other routes send a bare `data:` frame followed by `[DONE]`.
+
+What an error body *says* is not engine-specific: the message wording and the `param` field are the
+simulator's own.
+
 ## What an engine owns
 
 | Hook | Owns | vLLM implementation |
@@ -27,6 +48,7 @@ maps the name to an implementation, rejecting one that is not registered.
 | `ValidateConfig` | Validation rules for the engine's own fields | [validate.go](../pkg/engine/vllm/validate.go) |
 | `BindHTTP` | HTTP routes beyond the OpenAI-compatible set | [transport.go](../pkg/engine/vllm/transport.go) |
 | `BindGRPC` | The gRPC service, and whether the engine has one at all | [transport.go](../pkg/engine/vllm/transport.go) |
+| `ErrorBody`, `StreamErrorBody` | How an error object is framed in a response body | [transport.go](../pkg/engine/vllm/transport.go) |
 | `NewMetricsAdapter` | Prometheus metric names, labels, and the fake-metrics schema | [metrics.go](../pkg/engine/vllm/metrics.go), [fakemetrics.go](../pkg/engine/vllm/fakemetrics.go) |
 | `NewKVEventEncoder` | The wire format of a single KV-cache event | [kvevents.go](../pkg/engine/vllm/kvevents.go) |
 

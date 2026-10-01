@@ -102,7 +102,7 @@ var _ = Describe("sendNonStream missing-choice guard", func() {
 		}
 		close(filtered.Channel)
 
-		c := &Communication{logger: klog.Background()}
+		c := &Communication{logger: klog.Background(), transport: fakeTransport{}}
 		httpCtx := &fasthttp.RequestCtx{}
 		c.sendNonStream(httpCtx, filtered, nil, numChoices)
 
@@ -157,7 +157,7 @@ var _ = Describe("sendStream missing-choice guard", func() {
 		}
 		close(filtered.Channel)
 
-		c := &Communication{logger: klog.Background()}
+		c := &Communication{logger: klog.Background(), transport: fakeTransport{}}
 		httpCtx := &fasthttp.RequestCtx{}
 		httpCtx.SetStatusCode(fasthttp.StatusOK)
 		httpCtx.SetContentType("text/event-stream")

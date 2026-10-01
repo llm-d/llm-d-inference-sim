@@ -20,6 +20,7 @@ import (
 	"github.com/buaazp/fasthttprouter"
 	"google.golang.org/grpc"
 
+	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/communication"
 	"github.com/llm-d/llm-d-inference-sim/pkg/communication/grpc/pb"
 )
@@ -41,4 +42,22 @@ func (Engine) BindHTTP(r *fasthttprouter.Router, comm *communication.Communicati
 func (Engine) BindGRPC(server *grpc.Server, comm *communication.Communication) bool {
 	pb.RegisterVllmEngineServer(server, comm)
 	return true
+}
+
+// ErrorBody frames err the way vLLM does: wrapped under an "error" key as the
+// OpenAI API specifies, on every route but the Messages API's. There vLLM
+// translates the same error object into the Anthropic envelope field by field,
+// keeping its own error-type spelling rather than mapping it to Anthropic's
+// vocabulary.
+func (Engine) ErrorBody(err api.Error, route api.ErrorRoute) any {
+	if route == api.ErrorRouteMessages {
+		return api.NewMessagesErrorResponse(err.Type, err.Message)
+	}
+	return api.ErrorResponse{Error: err}
+}
+
+// StreamErrorBody frames a streaming error frame the same way ErrorBody does:
+// vLLM sends one shape in both cases.
+func (e Engine) StreamErrorBody(err api.Error, route api.ErrorRoute) any {
+	return e.ErrorBody(err, route)
 }
