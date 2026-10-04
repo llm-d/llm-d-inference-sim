@@ -1202,7 +1202,7 @@ var _ = Describe("Simulator", func() {
 			// read one event
 			msg, err := sub.Recv()
 			Expect(err).NotTo(HaveOccurred())
-			storedCount, removedCount, _ := kvcache.CountKVEventBlocks(msg.Frames, topic, 1)
+			storedCount, removedCount, _ := kvcache.CountKVEventBlocks(msg.Frames, topic, 0)
 			Expect(storedCount).To(Equal(5))
 			Expect(removedCount).To(Equal(0))
 		})
@@ -1233,7 +1233,7 @@ var _ = Describe("Simulator", func() {
 			// read one event
 			msg, err := sub.Recv()
 			Expect(err).NotTo(HaveOccurred())
-			storedCount, removedCount, _ := kvcache.CountKVEventBlocks(msg.Frames, topic, 1)
+			storedCount, removedCount, _ := kvcache.CountKVEventBlocks(msg.Frames, topic, 0)
 			Expect(storedCount).To(Equal(2))
 			Expect(removedCount).To(Equal(0))
 		})
@@ -1271,7 +1271,7 @@ var _ = Describe("Simulator", func() {
 			// read one event
 			msg, err := sub.Recv()
 			Expect(err).NotTo(HaveOccurred())
-			storedCount, removedCount, _ := kvcache.CountKVEventBlocks(msg.Frames, topic, 1)
+			storedCount, removedCount, _ := kvcache.CountKVEventBlocks(msg.Frames, topic, 0)
 			Expect(storedCount).To(Equal(5))
 			Expect(removedCount).To(Equal(0))
 		})
@@ -1320,7 +1320,7 @@ var _ = Describe("Simulator", func() {
 				// First event: all blocks new -> parent must be EmptyBlockHash (0)
 				msg1, err := sub.Recv()
 				Expect(err).NotTo(HaveOccurred())
-				events1, _, _ := kvcache.ParseKVEvent(msg1.Frames, topic, 1)
+				events1, _, _ := kvcache.ParseKVEvent(msg1.Frames, topic, 0)
 				Expect(events1).NotTo(BeEmpty())
 				Expect(events1[0].ParentHash).To(Equal(uint64(0)))
 				lastHashFromFirst := events1[0].BlockHashes[len(events1[0].BlockHashes)-1]
@@ -1328,7 +1328,7 @@ var _ = Describe("Simulator", func() {
 				// Second event: only the extra block(s) are new -> parent == last block of first request
 				msg2, err := sub.Recv()
 				Expect(err).NotTo(HaveOccurred())
-				events2, _, _ := kvcache.ParseKVEvent(msg2.Frames, topic, 2)
+				events2, _, _ := kvcache.ParseKVEvent(msg2.Frames, topic, 1)
 				Expect(events2).NotTo(BeEmpty())
 				Expect(events2[0].ParentHash).To(Equal(lastHashFromFirst))
 			},
@@ -1544,8 +1544,8 @@ force-dummy-tokenizer: false
 			}
 
 			// Drain all live events; record last seq published
-			_, lastSeq := drainPubUntilQuiet(msgCh, topic, 500*time.Millisecond)
-			Expect(lastSeq).To(BeNumerically(">", 0))
+			storedTotal, lastSeq := drainPubUntilQuiet(msgCh, topic, 500*time.Millisecond)
+			Expect(storedTotal).To(BeNumerically(">", 0))
 
 			// Request replay from the last seq — exactly that one batch should come back
 			replayedTotal, replayedLastSeq := sendReplayRequestAndRecv(ctx, replayEndpoint, lastSeq)
@@ -1553,7 +1553,7 @@ force-dummy-tokenizer: false
 			Expect(replayedLastSeq).To(Equal(lastSeq))
 		})
 
-		It("replays all stored batches when startSeq is 1", func() {
+		It("replays all stored batches when startSeq is 0", func() {
 			ctx := context.TODO()
 			client, sub, topic, replayEndpoint := setupReplayServer(ctx)
 			defer sub.Close() //nolint:errcheck
@@ -1572,8 +1572,8 @@ force-dummy-tokenizer: false
 			origTotal, _ := drainPubUntilQuiet(msgCh, topic, 500*time.Millisecond)
 			Expect(origTotal).To(BeNumerically(">", 0))
 
-			// Replay from seq 1 — all stored batches must be returned
-			replayedTotal, _ := sendReplayRequestAndRecv(ctx, replayEndpoint, 1)
+			// Replay from seq 0 — all stored batches must be returned
+			replayedTotal, _ := sendReplayRequestAndRecv(ctx, replayEndpoint, 0)
 			Expect(replayedTotal).To(Equal(origTotal))
 		})
 

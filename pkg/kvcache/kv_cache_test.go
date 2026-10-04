@@ -364,7 +364,7 @@ var _ = Describe("KV cache", Ordered, func() {
 		removedCount := 0
 		expectedTotal := test.expectedRemovedBlocks + test.expectedStoredBlocks
 
-		for i, seq := 0, uint64(1); i < expectedTotal; i, seq = storedCount+removedCount, seq+1 {
+		for i, seq := 0, uint64(0); i < expectedTotal; i, seq = storedCount+removedCount, seq+1 {
 			msg, err := sub.Recv()
 			Expect(err).NotTo(HaveOccurred())
 			stored, removed := countStubEventBlocks(msg.Frames, topic, seq)
@@ -453,7 +453,7 @@ var _ = Describe("KV cache", Ordered, func() {
 
 		removedBlocks := make([]uint64, 0)
 		storedBlocks := make([]uint64, 0)
-		count := uint64(1)
+		count := uint64(0)
 		for {
 			msg, err := sub.Recv()
 			Expect(err).NotTo(HaveOccurred())
@@ -531,7 +531,7 @@ var _ = Describe("KV cache", Ordered, func() {
 		// collect req1 store event (3 new blocks, no parent)
 		msg, err := sub.Recv()
 		Expect(err).NotTo(HaveOccurred())
-		events := decodeStubEvents(msg.Frames, topic, 1)
+		events := decodeStubEvents(msg.Frames, topic, 0)
 		Expect(events).To(HaveLen(1))
 		Expect(events[0].Hashes).To(Equal([]uint64{1, 2, 3}))
 		Expect(events[0].ParentHash).To(BeNil())
@@ -539,7 +539,7 @@ var _ = Describe("KV cache", Ordered, func() {
 		// collect req2 store event (only block 4 is new, parent is block 3)
 		msg, err = sub.Recv()
 		Expect(err).NotTo(HaveOccurred())
-		events = decodeStubEvents(msg.Frames, topic, 2)
+		events = decodeStubEvents(msg.Frames, topic, 1)
 		Expect(events).To(HaveLen(1))
 		Expect(events[0].Hashes).To(Equal([]uint64{4}))
 		Expect(events[0].ParentHash).To(HaveValue(Equal(uint64(3)))) // hash of last cached block
@@ -992,7 +992,7 @@ var _ = Describe("KV cache", Ordered, func() {
 
 		// collect 2 store events
 		storedEvents := make([]Event, 0)
-		seq := uint64(1)
+		seq := uint64(0)
 		for len(storedEvents) < 2 {
 			msg, err := sub.Recv()
 			Expect(err).NotTo(HaveOccurred())
@@ -1076,7 +1076,7 @@ var _ = Describe("KV cache", Ordered, func() {
 
 		// both requests store new blocks (4 total) since models differ
 		storedEvents := make([]Event, 0)
-		seq := uint64(1)
+		seq := uint64(0)
 		totalStoredHashes := 0
 		for totalStoredHashes < 4 {
 			msg, err := sub.Recv()
