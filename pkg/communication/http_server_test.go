@@ -21,24 +21,9 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
-	"github.com/spf13/pflag"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 )
-
-// noopEngine stands in for an engine's own hooks in tests that only exercise
-// common.Configuration parsing/validation (SSL flags below): pkg/communication
-// cannot import pkg/engine/vllm directly, since vllm itself imports
-// pkg/communication for its transport methods.
-type noopEngine struct{}
-
-func (noopEngine) Name() string                        { return "vllm" }
-func (noopEngine) ApplyDefaults(*common.Configuration) {}
-func (noopEngine) BindFlags(*pflag.FlagSet, *common.Configuration, map[string]any) error {
-	return nil
-}
-func (noopEngine) ApplyEnv(*common.Configuration, func(string) bool) {}
-func (noopEngine) ValidateConfig(*common.Configuration) error        { return nil }
 
 var _ = Describe("Server", func() {
 
@@ -54,7 +39,7 @@ var _ = Describe("Server", func() {
 			}()
 
 			os.Args = []string{"cmd", "--model", common.TestModelName, "--ssl-certfile", certFile, "--ssl-keyfile", keyFile}
-			config, err := common.ParseCommandParamsAndLoadConfig(noopEngine{})
+			config, err := common.ParseCommandParamsAndLoadConfig(common.NoopEngine{})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(config.SSL.Enabled()).To(BeTrue())
 			Expect(config.SSL.SSLCertFile).To(Equal(certFile))
@@ -68,7 +53,7 @@ var _ = Describe("Server", func() {
 			}()
 
 			os.Args = []string{"cmd", "--model", common.TestModelName, "--self-signed-certs"}
-			config, err := common.ParseCommandParamsAndLoadConfig(noopEngine{})
+			config, err := common.ParseCommandParamsAndLoadConfig(common.NoopEngine{})
 			Expect(err).NotTo(HaveOccurred())
 			Expect(config.SSL.Enabled()).To(BeTrue())
 			Expect(config.SSL.SelfSignedCerts).To(BeTrue())
@@ -93,7 +78,7 @@ var _ = Describe("Server", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			os.Args = []string{"cmd", "--model", common.TestModelName, "--ssl-certfile", certFile}
-			_, err = common.ParseCommandParamsAndLoadConfig(noopEngine{})
+			_, err = common.ParseCommandParamsAndLoadConfig(common.NoopEngine{})
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("both ssl-certfile and ssl-keyfile must be provided together"))
 
@@ -101,7 +86,7 @@ var _ = Describe("Server", func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			os.Args = []string{"cmd", "--model", common.TestModelName, "--ssl-keyfile", keyFile}
-			_, err = common.ParseCommandParamsAndLoadConfig(noopEngine{})
+			_, err = common.ParseCommandParamsAndLoadConfig(common.NoopEngine{})
 			Expect(err).To(HaveOccurred())
 			Expect(err.Error()).To(ContainSubstring("both ssl-certfile and ssl-keyfile must be provided together"))
 		})

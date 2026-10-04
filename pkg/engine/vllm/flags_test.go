@@ -1169,3 +1169,126 @@ lora:
 		Expect(err.Error()).To(ContainSubstring("max LoRAs"))
 	})
 })
+
+var _ = Describe("boolean flags", func() {
+	// The mechanism itself (pkg/common's rejectSeparateBoolValue) is exercised
+	// directly in pkg/common/parser_test.go; this confirms it also covers a
+	// flag this engine registers, not just the ones parser.go registers itself.
+	It("should refuse a value written as a separate argument for an engine-registered flag", func() {
+		_, err := createSimConfig([]string{"cmd", "--model", common.TestModelName, "--enable-kvcache", "false"})
+		Expect(err).To(MatchError(ContainSubstring("--enable-kvcache does not take a value")))
+	})
+
+	It("should point at the flag itself when the negative spelling takes a value", func() {
+		_, err := createSimConfig([]string{"cmd", "--model", common.TestModelName, "--no-omni", "false"})
+		Expect(err).To(MatchError(ContainSubstring(`or "--omni" for the opposite setting`)))
+	})
+
+	// The flags taking several space-separated values leave their own values as
+	// positionals, so a boolean flag standing next to one must not be read as
+	// taking the first of them.
+	It("should not mistake a multi-value flag's values for a boolean's value", func() {
+		config, err := createSimConfig([]string{"cmd", "--model", common.TestModelName,
+			"--omni", "--served-model-name", "alias-one", "alias-two"})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(config.Omni).To(BeTrue())
+		Expect(config.ServedModelNames).To(ContainElements("alias-one", "alias-two"))
+	})
+
+	// Every boolean flag has a negative spelling, so "off" is expressible for all
+	// of them in the form real vLLM accepts. A new boolean flag belongs in this
+	// list; if it was registered with pflag's BoolVar instead of AddToggle, the
+	// entry fails as an unknown flag.
+	DescribeTable("should register a negative spelling",
+		func(flag string) {
+			_, err := createSimConfig([]string{"cmd", "--model", common.TestModelName, "--no-" + flag})
+			Expect(err).NotTo(HaveOccurred())
+		},
+		Entry("dataset-in-memory", "dataset-in-memory"),
+		Entry("force-dummy-tokenizer", "force-dummy-tokenizer"),
+		Entry("enable-request-id-headers", "enable-request-id-headers"),
+		Entry("log-http", "log-http"),
+		Entry("skip-tool-validation", "skip-tool-validation"),
+		Entry("self-signed-certs", "self-signed-certs"),
+		Entry("omni", "omni"),
+		Entry("enable-kvcache", "enable-kvcache"),
+		Entry("use-vllm-map-event-format", "use-vllm-map-event-format"),
+		Entry("enable-sleep-mode", "enable-sleep-mode"),
+		Entry("mm-encoder-only", "mm-encoder-only"),
+		Entry("enforce-eager", "enforce-eager"),
+		Entry("enable-prefix-caching", "enable-prefix-caching"),
+	)
+
+	// The check matches the two-argument pattern, not a stray "false": the flags
+	// taking several space-separated values leave their own values as positional
+	// arguments, and one of those may be the word itself.
+	DescribeTable("should leave a non-boolean flag's value alone",
+		func(args ...string) {
+			config, err := createSimConfig(append([]string{"cmd", "--model", common.TestModelName}, args...))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(config.Omni).To(BeFalse())
+		},
+		Entry("served-model-name", "--served-model-name", "false"),
+		Entry("mode", "--mode", common.ModeEcho),
+	)
+})
+
+var _ = Describe("unclaimed YAML keys", func() {
+	// This engine claims the lora, kvcache and fake-metrics groups by deleting
+	// them from the raw tree, in either layout. What is left over is reported,
+	// so a key this engine does read must never end up in that report.
+	DescribeTable("accepts the keys this engine claims",
+		func(body string) {
+			dir := GinkgoT().TempDir()
+			path := filepath.Join(dir, "config.yaml")
+			Expect(os.WriteFile(path, []byte(body), 0o644)).To(Succeed())
+
+			_, err := createSimConfig([]string{"cmd", "--config", path})
+			Expect(err).NotTo(HaveOccurred())
+		},
+		Entry("nested blocks", "model: test-model\nlora:\n  max-loras: 2\nkvcache:\n  block-size: 16\n"),
+		Entry("legacy flat keys", "model: test-model\nmax-loras: 2\nblock-size: 16\n"),
+		Entry("empty fake-metrics block", "model: test-model\nfake-metrics:\n"),
+		Entry("the standalone boolean keys", "model: test-model\nenable-sleep-mode: true\nmm-encoder-only: true\n"),
+	)
+
+	// The two keys with no group of their own are read by this engine, not by the
+	// generic loader, so claiming them must still apply them.
+	DescribeTable("applies the standalone boolean keys it claims",
+		func(body string, sleepMode, encoderOnly bool) {
+			dir := GinkgoT().TempDir()
+			path := filepath.Join(dir, "config.yaml")
+			Expect(os.WriteFile(path, []byte(body), 0o644)).To(Succeed())
+
+			config, err := createSimConfig([]string{"cmd", "--config", path})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(config.EnableSleepMode).To(Equal(sleepMode))
+			Expect(config.MMEncoderOnly).To(Equal(encoderOnly))
+		},
+		Entry("both set", "model: test-model\nenable-sleep-mode: true\nmm-encoder-only: true\n", true, true),
+		Entry("one set", "model: test-model\nenable-sleep-mode: true\n", true, false),
+		Entry("set to false", "model: test-model\nenable-sleep-mode: false\n", false, false),
+		Entry("valueless", "model: test-model\nenable-sleep-mode:\n", false, false),
+		Entry("neither present", "model: test-model\n", false, false),
+	)
+
+	It("lets a flag override the standalone boolean keys", func() {
+		dir := GinkgoT().TempDir()
+		path := filepath.Join(dir, "config.yaml")
+		Expect(os.WriteFile(path, []byte("model: test-model\nenable-sleep-mode: true\n"), 0o644)).To(Succeed())
+
+		config, err := createSimConfig([]string{"cmd", "--config", path, "--no-enable-sleep-mode"})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(config.EnableSleepMode).To(BeFalse())
+	})
+
+	It("rejects a misspelled key", func() {
+		dir := GinkgoT().TempDir()
+		path := filepath.Join(dir, "config.yaml")
+		Expect(os.WriteFile(path, []byte("model: test-model\nmax-num-seq: 4\nprot: 8000\n"), 0o644)).To(Succeed())
+
+		_, err := createSimConfig([]string{"cmd", "--config", path})
+		Expect(err).To(MatchError(ContainSubstring("the 'vllm' engine does not recognize")))
+		Expect(err.Error()).To(ContainSubstring("max-num-seq, prot"))
+	})
+})

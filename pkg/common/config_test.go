@@ -653,3 +653,37 @@ ssl:
 		Expect(err).ToNot(Succeed())
 	})
 })
+
+func parseArgs(args []string) (*Configuration, error) {
+	oldArgs := os.Args
+	defer func() { os.Args = oldArgs }()
+	os.Args = args
+	return ParseCommandParamsAndLoadConfig(NoopEngine{})
+}
+
+var _ = Describe("unexpected positional arguments", func() {
+	// This tool takes no positional arguments: the model is set with --model,
+	// not with a positional the way "vllm serve <model>" takes one.
+	It("rejects a stray argument that is not any flag's value", func() {
+		_, err := parseArgs([]string{"cmd", "--model", TestModelName, "--port", "8001", "garbage"})
+		Expect(err).To(MatchError(ContainSubstring("unrecognized arguments: garbage")))
+	})
+
+	// "--omni=false" is a complete, valid flag on its own, so pflag never
+	// consumes the following argument either; this is the form the
+	// separate-argument check (rejectSeparateBoolValue) does not cover, since
+	// there is no ambiguity about what "=false" means.
+	It("rejects a stray argument left behind by a boolean flag's \"=\" form", func() {
+		_, err := parseArgs([]string{"cmd", "--model", TestModelName, "--omni=false", "true"})
+		Expect(err).To(MatchError(ContainSubstring("unrecognized arguments: true")))
+	})
+
+	// Every value a several-values flag's bare form takes is still accepted,
+	// not mistaken for a stray argument.
+	It("accepts every value a several-values flag's bare form takes", func() {
+		config, err := parseArgs([]string{"cmd", "--model", TestModelName,
+			"--served-model-name", "alias-one", "alias-two"})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(config.ServedModelNames).To(ContainElements("alias-one", "alias-two"))
+	})
+})

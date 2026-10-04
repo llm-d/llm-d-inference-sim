@@ -343,7 +343,7 @@ var _ = Describe("Fake metrics", Ordered, func() {
 		It("Should not update prefix cache counters from real requests when fake metrics are set", func() {
 			ctx := context.TODO()
 			args := []string{"cmd", "--model", common.QwenModelName, "--mode", common.ModeRandom,
-				"--enable-kvcache", "true", "--kv-cache-size", "16", "--block-size", "8",
+				"--enable-kvcache", "--kv-cache-size", "16", "--block-size", "8",
 				"--fake-metrics",
 				`{"prefix-cache-hits":100,"prefix-cache-queries":200}`,
 			}

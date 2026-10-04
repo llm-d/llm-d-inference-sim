@@ -11,10 +11,10 @@ The simulator includes a prefix-cache subsystem that mimics vLLM's KV cache beha
 
 ## Enabling KV cache
 
-Add `--enable-kvcache true` (CLI) or `enable-kvcache: true` (YAML config):
+Add `--enable-kvcache` (CLI) or `enable-kvcache: true` (YAML config):
 
 ```bash
-./bin/llm-d-inference-sim --model Qwen/Qwen2.5-1.5B-Instruct --enable-kvcache true
+./bin/llm-d-inference-sim --model Qwen/Qwen2.5-1.5B-Instruct --enable-kvcache
 ```
 
 **Prerequisites**:

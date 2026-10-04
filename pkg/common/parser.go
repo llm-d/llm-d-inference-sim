@@ -20,6 +20,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/pflag"
@@ -27,9 +28,12 @@ import (
 )
 
 const (
-	dummy      = " "
-	PodNameEnv = "POD_NAME"
-	PodNsEnv   = "POD_NAMESPACE"
+	dummy = " "
+	// boolNoOptDefVal is the NoOptDefVal AddToggle gives both spellings of a
+	// toggle, so a bare "--flag" sets it without consuming a following value.
+	boolNoOptDefVal = "true"
+	PodNameEnv      = "POD_NAME"
+	PodNsEnv        = "POD_NAMESPACE"
 	// ModelEnv is read when the --model flag is not passed; see configuration precedence in the docs.
 	ModelEnv = "SIM_MODEL"
 	// EngineEnv is read when the --engine flag is not passed; see configuration precedence in the docs.
@@ -54,28 +58,126 @@ func (l *multiString) Type() string {
 	return "strings"
 }
 
-// toggle sets a boolean pointer to a specific value when the flag is seen.
+// toggle sets a boolean pointer when the flag is seen. Both spellings of a
+// setting share one variable (see AddToggle); val carries which spelling this
+// flag is, so the negative one stores the negation of what it parses.
 type toggle struct {
 	ptr *bool
 	val bool
 }
 
-// Set ignores the input and just applies the hardcoded boolean
-func (t toggle) Set(_ string) error { *t.ptr = t.val; return nil }
-func (t toggle) Type() string       { return "bool" }
-func (t toggle) String() string     { return "" }
+// Set applies val for the bare "--flag" form, which NoOptDefVal turns into
+// "true". A value given as "--flag=false" is honored rather than discarded, so
+// the two spellings stay each other's negation: --flag=false means --no-flag.
+func (t toggle) Set(s string) error {
+	v, err := strconv.ParseBool(s)
+	if err != nil {
+		return fmt.Errorf("invalid boolean value %q", s)
+	}
+	*t.ptr = t.val == v
+	return nil
+}
+func (t toggle) Type() string   { return "bool" }
+func (t toggle) String() string { return "" }
+
+// rejectSeparateBoolValue refuses "--flag <value>" for a boolean flag. pflag
+// never consumes the following argument for one, since its NoOptDefVal already
+// supplies the value, so the flag is set and the value is left behind as a
+// positional that nothing reads: "--flag false" silently means "--flag".
+//
+// Real vLLM rejects the form too, since the value lands on the positional model
+// argument that "vllm serve <model>" has already filled, so accepting it would
+// diverge even where it happens to be harmless.
+//
+// Any following argument counts, not just a falsehood, because "--flag true" is
+// equally unfaithful and reads as though the value were doing something. Only
+// the argument directly after the flag is examined: the flags taking several
+// space-separated values (e.g. served-model-name, failure-types) leave their own
+// values as positionals, and those follow their own flag rather than a boolean.
+func rejectSeparateBoolValue(f *pflag.FlagSet, args []string) error {
+	for i, arg := range args {
+		if i+1 >= len(args) || strings.HasPrefix(args[i+1], "-") {
+			continue
+		}
+		name, isLong := strings.CutPrefix(arg, "--")
+		if !isLong || strings.Contains(name, "=") {
+			continue
+		}
+		if flag := f.Lookup(name); flag != nil && flag.Value.Type() == "bool" {
+			// The negation of a "--no-" flag is the flag itself, so suggesting
+			// another "--no-" prefix would name a flag that does not exist.
+			opposite := "no-" + name
+			if positive, ok := strings.CutPrefix(name, "no-"); ok {
+				opposite = positive
+			}
+			return fmt.Errorf("--%s does not take a value: write \"--%s\" on its own, "+
+				"or %q for the opposite setting", name, name, "--"+opposite)
+		}
+	}
+	return nil
+}
+
+// rejectUnexpectedArgs refuses any raw argument pflag left unconsumed that is
+// not one of the several space-separated values a flag like served-model-name
+// or lora-modules deliberately leaves behind for GetParamValueFromArgs to
+// collect. This tool takes no positional arguments (model is set with
+// --model, not with a positional the way "vllm serve <model>" takes one), so
+// anything else left over is a mistake: a value stranded next to a flag
+// written as "--flag=value", a typo, or a leftover from editing a command
+// line, rather than something to silently ignore.
+//
+// f.Parse has already succeeded by the time this runs, so every "--name"
+// token here names a registered flag; how many of the following raw
+// arguments it consumes follows from its NoOptDefVal, the same field that
+// drives pflag's own parsing: "true" for a boolean-style flag (none), the
+// dummy sentinel for the several-values flags (every following argument up
+// to the next "--flag"), and anything else for an ordinary flag (exactly
+// one).
+func rejectUnexpectedArgs(f *pflag.FlagSet, args []string) error {
+	var stray []string
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		rest, isLong := strings.CutPrefix(arg, "--")
+		if !isLong {
+			if arg != "" && !strings.HasPrefix(arg, "-") {
+				stray = append(stray, arg)
+			}
+			continue
+		}
+		name, _, hasInlineValue := strings.Cut(rest, "=")
+		flag := f.Lookup(name)
+		if flag == nil || hasInlineValue {
+			continue
+		}
+		switch flag.NoOptDefVal {
+		case boolNoOptDefVal:
+			// boolean-style flag: takes no value
+		case dummy:
+			for i+1 < len(args) && !strings.HasPrefix(args[i+1], "--") {
+				i++
+			}
+		default:
+			// ordinary flag: consumes exactly one following value
+			i++
+		}
+	}
+	if len(stray) == 0 {
+		return nil
+	}
+	return fmt.Errorf("unrecognized arguments: %s", strings.Join(stray, " "))
+}
 
 // AddToggle registers two distinct flags pointing to one variable
 func AddToggle(f *pflag.FlagSet, ptr *bool, name, nameUsage, noNameUsage string) {
 	// Register Positive Flag
 	f.Var(toggle{ptr, true}, name, nameUsage)
-	f.Lookup(name).NoOptDefVal = "true"
+	f.Lookup(name).NoOptDefVal = boolNoOptDefVal
 	f.Lookup(name).DefValue = "" // Hides the [=t] in help
 
 	// Register Negative Flag
 	noName := "no-" + name
 	f.Var(toggle{ptr, false}, noName, noNameUsage)
-	f.Lookup(noName).NoOptDefVal = "true"
+	f.Lookup(noName).NoOptDefVal = boolNoOptDefVal
 	f.Lookup(noName).DefValue = "" // Hides the [=t] in help
 }
 
@@ -115,7 +217,9 @@ type Engine interface {
 	// values that need parsing beyond what pflag can bind directly, including
 	// its own engine-specific groups (e.g. lora) from rawYAML, the raw YAML
 	// tree returned by Configuration.load (nil if no --config file was
-	// given). Must be called before f.Parse.
+	// given). The engine must delete each group it consumes from rawYAML:
+	// whatever is left once this returns is reported as an unrecognized
+	// configuration key. Must be called before f.Parse.
 	BindFlags(f *pflag.FlagSet, cfg *Configuration, rawYAML map[string]any) error
 	// ApplyEnv applies the engine's own environment-variable settings to cfg.
 	// Called after the flags have been parsed and before validation; changed
@@ -133,7 +237,6 @@ type Engine interface {
 // registers and validates that engine's own flags and fields.
 func ParseCommandParamsAndLoadConfig(eng Engine) (*Configuration, error) {
 	config := NewConfig()
-	config.EngineName = eng.Name()
 	eng.ApplyDefaults(config)
 
 	var rawYAML map[string]any
@@ -145,6 +248,10 @@ func ParseCommandParamsAndLoadConfig(eng Engine) (*Configuration, error) {
 			return nil, err
 		}
 	}
+	// Set after the config file is loaded: its "engine" key maps onto
+	// EngineName, but eng was resolved from the full precedence chain, so a flag
+	// or SIM_ENGINE naming a different engine must not be undone here.
+	config.EngineName = eng.Name()
 
 	servedModelNames := GetParamValueFromArgs("served-model-name")
 
@@ -186,20 +293,25 @@ func ParseCommandParamsAndLoadConfig(eng Engine) (*Configuration, error) {
 
 	f.StringVar(&config.Dataset.DatasetPath, "dataset-path", config.Dataset.DatasetPath, "Local path to the sqlite db file for response generation from a dataset")
 	f.StringVar(&config.Dataset.DatasetURL, "dataset-url", config.Dataset.DatasetURL, "URL to download the sqlite db file for response generation from a dataset")
-	f.BoolVar(&config.Dataset.DatasetInMemory, "dataset-in-memory", config.Dataset.DatasetInMemory, "Load the entire dataset into memory for faster access")
+	AddToggle(f, &config.Dataset.DatasetInMemory,
+		"dataset-in-memory", "Load the entire dataset into memory for faster access", "Read the dataset from disk on demand")
 	f.StringVar(&config.Dataset.DatasetTableName, "dataset-table-name", config.Dataset.DatasetTableName, "Table name for custom dataset, default is 'llmd'")
 
 	f.StringVar(&config.RenderURL, "render-url", config.RenderURL, "URL of the tokenizer render service; when unset the simulated tokenizer is used")
 	f.DurationVar(&config.RenderTimeout, "render-timeout", config.RenderTimeout, "Timeout for tokenizer render requests (e.g. 30s)")
 	f.DurationVar(&config.MMRenderTimeout, "mm-render-timeout", config.MMRenderTimeout, "Timeout for multi-modal tokenizer render requests (e.g. 60s)")
-	f.BoolVar(&config.ForceDummyTokenizer, "force-dummy-tokenizer", config.ForceDummyTokenizer, "(deprecated) Force the use of dummy tokenizer even if a real model name is provided; omit --render-url instead")
+	AddToggle(f, &config.ForceDummyTokenizer,
+		"force-dummy-tokenizer", "(deprecated) Force the use of dummy tokenizer even if a real model name is provided; omit --render-url instead", "Use the tokenizer the model name implies")
 
 	f.DurationVar(&config.StartupDuration, "startup-duration", config.StartupDuration,
 		"Duration to return 503 on /health/ready to simulate GPU loading (e.g. 30s). Default is 0 (immediately ready)")
 
-	f.BoolVar(&config.EnableRequestIDHeaders, "enable-request-id-headers", config.EnableRequestIDHeaders, "Enable including X-Request-Id header in responses")
-	f.BoolVar(&config.LogHTTP, "log-http", config.LogHTTP, "Log full HTTP request and response (method, URI, headers, bodies when buffered, status); streamed bodies are not logged")
-	f.BoolVar(&config.ToolCalls.SkipToolValidation, "skip-tool-validation", config.ToolCalls.SkipToolValidation, "Skip the built-in validation of incoming tool schemas, matching real vLLM which forwards them to the model verbatim")
+	AddToggle(f, &config.EnableRequestIDHeaders,
+		"enable-request-id-headers", "Enable including X-Request-Id header in responses", "Omit the X-Request-Id header from responses")
+	AddToggle(f, &config.LogHTTP,
+		"log-http", "Log full HTTP request and response (method, URI, headers, bodies when buffered, status); streamed bodies are not logged", "Do not log full HTTP requests and responses")
+	AddToggle(f, &config.ToolCalls.SkipToolValidation,
+		"skip-tool-validation", "Skip the built-in validation of incoming tool schemas, matching real vLLM which forwards them to the model verbatim", "Validate incoming tool schemas")
 
 	f.IntVar(&config.FailureInjectionRate, "failure-injection-rate", config.FailureInjectionRate, "Probability (0-100) of injecting failures")
 	failureTypes := GetParamValueFromArgs("failure-types")
@@ -213,7 +325,8 @@ func ParseCommandParamsAndLoadConfig(eng Engine) (*Configuration, error) {
 
 	f.StringVar(&config.SSL.SSLCertFile, "ssl-certfile", config.SSL.SSLCertFile, "Path to SSL certificate file for HTTPS (optional)")
 	f.StringVar(&config.SSL.SSLKeyFile, "ssl-keyfile", config.SSL.SSLKeyFile, "Path to SSL private key file for HTTPS (optional)")
-	f.BoolVar(&config.SSL.SelfSignedCerts, "self-signed-certs", config.SSL.SelfSignedCerts, "Enable automatic generation of self-signed certificates for HTTPS")
+	AddToggle(f, &config.SSL.SelfSignedCerts,
+		"self-signed-certs", "Enable automatic generation of self-signed certificates for HTTPS", "Do not generate self-signed certificates")
 
 	f.StringVar(&config.LatencyCalculator, "latency-calculator", config.LatencyCalculator,
 		`Name of the latency calculator to be used in the response generation (optional). The default calculation is based on the current load of the simulator and on
@@ -241,6 +354,11 @@ func ParseCommandParamsAndLoadConfig(eng Engine) (*Configuration, error) {
 	if err := eng.BindFlags(f, config, rawYAML); err != nil {
 		return nil, err
 	}
+	// BindFlags has consumed the engine's own groups, so whatever is left in the
+	// tree is a key no one claimed.
+	if err := rejectUnknownYAMLKeys(rawYAML, config.EngineName); err != nil {
+		return nil, err
+	}
 
 	flagSet := flag.NewFlagSet("simFlagSet", flag.ExitOnError)
 	klog.InitFlags(flagSet)
@@ -256,6 +374,13 @@ func ParseCommandParamsAndLoadConfig(eng Engine) (*Configuration, error) {
 			// --help - exit without printing an error message
 			os.Exit(0)
 		}
+		return nil, err
+	}
+
+	if err := rejectSeparateBoolValue(f, os.Args[1:]); err != nil {
+		return nil, err
+	}
+	if err := rejectUnexpectedArgs(f, os.Args[1:]); err != nil {
 		return nil, err
 	}
 

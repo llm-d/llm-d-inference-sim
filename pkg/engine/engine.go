@@ -51,7 +51,9 @@ type Engine interface {
 	// values that need parsing beyond what pflag can bind directly, including
 	// its own engine-specific groups (e.g. lora) from rawYAML, the raw YAML
 	// tree returned by Configuration.load (nil if no --config file was
-	// given). Must be called before f.Parse.
+	// given). The engine must delete each group it consumes from rawYAML:
+	// whatever is left once this returns is reported as an unrecognized
+	// configuration key. Must be called before f.Parse.
 	BindFlags(f *pflag.FlagSet, cfg *common.Configuration, rawYAML map[string]any) error
 	// ApplyEnv applies the engine's own environment-variable settings to cfg.
 	// Called after the flags have been parsed and before validation; changed
