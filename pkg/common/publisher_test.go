@@ -68,7 +68,7 @@ var _ = Describe("Publisher", func() {
 
 		// check sequence
 		seq := binary.BigEndian.Uint64(msg.Frames[1])
-		Expect(seq).To(Equal(uint64(1)))
+		Expect(seq).To(Equal(uint64(0)))
 
 		// check payload
 		var payload string
@@ -117,7 +117,7 @@ var _ = Describe("Publisher", func() {
 
 		// check sequence
 		seq := binary.BigEndian.Uint64(msg.Frames[1])
-		Expect(seq).To(Equal(uint64(1)))
+		Expect(seq).To(Equal(uint64(0)))
 
 		// check payload
 		var payload string
@@ -166,7 +166,7 @@ var _ = Describe("Publisher", func() {
 
 		// check sequence
 		seq := binary.BigEndian.Uint64(msg.Frames[1])
-		Expect(seq).To(Equal(uint64(1)))
+		Expect(seq).To(Equal(uint64(0)))
 
 		// check payload
 		var payload string
@@ -213,7 +213,7 @@ var _ = Describe("Publisher", func() {
 
 		// check sequence
 		seq := binary.BigEndian.Uint64(msg.Frames[1])
-		Expect(seq).To(Equal(uint64(1)))
+		Expect(seq).To(Equal(uint64(0)))
 
 		// check payload
 		var payload string
@@ -261,7 +261,7 @@ var _ = Describe("Publisher", func() {
 
 		// check sequence
 		seq := binary.BigEndian.Uint64(msg.Frames[1])
-		Expect(seq).To(Equal(uint64(1)))
+		Expect(seq).To(Equal(uint64(0)))
 
 		// check payload
 		var payload string
