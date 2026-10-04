@@ -123,6 +123,9 @@ func NewPublisher(ctx context.Context, endpoint string) (*Publisher, error) {
 	return &Publisher{
 		socket:   socket,
 		endpoint: endpoint,
+		// seqNum starts at -1 (as uint64 max) so the first PublishEvent call
+		// wraps to 0, matching vLLM's 0-based itertools.count() sequence.
+		seqNum: ^uint64(0),
 	}, nil
 }
 
