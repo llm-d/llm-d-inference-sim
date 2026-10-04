@@ -3,8 +3,8 @@
 The simulator separates behavior that every inference engine shares from behavior an engine puts its own
 name on. If a client could tell one engine from another by it, it is engine-specific, everything else is
 the simulator core. That boundary is the `engine.Engine` interface in
-[pkg/engine/engine.go](../pkg/engine/engine.go). `vllm`, in [pkg/engine/vllm/](../pkg/engine/vllm/), is the
-only registered engine.
+[pkg/engine/engine.go](../pkg/engine/engine.go). Two engines are registered: `vllm`, in
+[pkg/engine/vllm/](../pkg/engine/vllm/), and `sglang`, in [pkg/engine/sglang/](../pkg/engine/sglang/).
 
 ## Selecting an engine
 
@@ -16,26 +16,39 @@ a YAML value rank against each other.
 engine registers its own flags and validates its own fields as part of that parse. `engine.Select` then
 maps the name to an implementation, rejecting one that is not registered.
 
+## sglang's scope
+
+`sglang` simulates the engine-neutral surface only: the OpenAI-compatible endpoints, the latency model,
+and dataset-backed response generation, with `owned_by` reported as `sglang`. It has no native HTTP routes,
+no gRPC service, no metrics, no LoRA adapters, and no KV cache. Because the settings behind those features
+are engine-owned, a configuration file asking for one is rejected rather than silently ignored, and the
+corresponding flags do not exist. `/metrics` serves an empty body.
+
+Response bodies carry no sglang-specific fields yet; `matched_stop`, which sglang includes in every
+completion choice, is absent.
+
 ## How an error is framed
 
-An error body's shape depends on the route as much as on the engine. The OpenAI-shaped routes carry the
-error object under an `error` key, `/v1/responses` nests it the same way, and `/v1/messages` answers in the
-Anthropic envelope instead, because a client of that route is an SDK whose typed error classes parse
-nothing else. So the route selects the family (`api.ErrorRoute`, derived from the request path) and the
-engine fills it in (`ErrorBody`, `StreamErrorBody`).
+An error body's shape depends on the route as much as on the engine: both engines answer `/v1/messages` in
+the Anthropic envelope and `/v1/responses` nested under an `error` key, because a client of either route is
+an SDK whose typed error classes parse nothing else. So the route selects the family (`api.ErrorRoute`,
+derived from the request path) and the engine fills it in (`ErrorBody`, `StreamErrorBody`).
 
-| route family | vllm |
-| --- | --- |
-| the OpenAI-shaped routes | `{"error": {message, type, param, code}}` |
-| `/v1/responses` | as above |
-| `/v1/messages` | `{"type": "error", "error": {type, message}}`, keeping the error type it uses elsewhere |
+| route family | vllm | sglang |
+| --- | --- | --- |
+| the OpenAI-shaped routes | `{"error": {message, type, param, code}}` | the same fields at the top level, next to `"object": "error"` |
+| `/v1/responses` | as above | nested, with every error type spelled `invalid_request_error` whatever the status |
+| `/v1/messages` | `{"type": "error", "error": {type, message}}`, keeping the error type it uses elsewhere | the same envelope, with the type mapped to Anthropic's own vocabulary (`invalid_request_error`, `rate_limit_error`, ...) and a 5xx message replaced by `Internal server error` |
 
-A streaming frame is framed separately, since an engine need not frame one the way it frames a whole body.
-The SSE frame around it belongs to the route: the Messages API names the event (`event: error`) and ends
-the stream with no terminator, where the other routes send a bare `data:` frame followed by `[DONE]`.
+A streaming frame is framed separately, since an engine need not frame one the way it frames a whole body:
+sglang wraps the OpenAI-shaped routes' frames under an `error` key, and keeps the error's own type on
+`/v1/responses` where a whole body would not. The SSE frame around it belongs to the route: the Messages API
+names the event (`event: error`) and ends the stream with no terminator, where the other routes send a bare
+`data:` frame followed by `[DONE]`.
 
-What an error body *says* is not engine-specific: the message wording and the `param` field are the
-simulator's own.
+What an error body *says* is not engine-specific. The message wording and the `param` field are the
+simulator's own, so sglang's `The model 'x' does not exist` with `"param": "model"` reads as
+``The model `x` does not exist.`` with a null param.
 
 ## What an engine owns
 

@@ -25,12 +25,15 @@ A boolean flag takes no separate argument. Every one of them has a `--no-` twin 
 A value written as a separate argument is refused, whatever the value. `--enable-kvcache false` would otherwise turn the setting **on**, since the flag is set and `false` becomes a stray argument, and real vLLM rejects both `--enable-kvcache false` and `--enable-kvcache true`.
 
 In a configuration file the same settings are plain YAML booleans, written without the `no-` prefix: `enable-kvcache: false`.
+## Settings every engine supports
 
-## General
+These come from the simulator core, so every engine accepts them and the flag names never change.
+
+### General
 - `config`: the path to a yaml configuration file that can contain the simulator's command line parameters. If a parameter is defined in both the config file and the command line, the command line value overwrites the configuration file value. An example configuration file can be found at [manifests/config.yaml](../manifests/config.yaml). A key the simulator does not recognize is an error, not a no-op: startup fails naming the key. Since some settings are engine-owned, which keys are recognized depends on the selected engine; see [Engines](engine-backends.md).
 - `port`: the port the simulator listens on, default is 8000
 - `max-request-body-size-mb`: maximum allowed size of an HTTP request body in megabytes, optional, default is 4 (matching the fasthttp built-in default). Must be between 1 and 512.
-- `engine`: the inference engine to simulate, optional, default is `vllm` (the only supported value). Determines which flags, environment variables, metric names, and KV-event format the simulator uses; see [Engines](engine-backends.md). If you omit `--engine` on the command line, a non-empty `SIM_ENGINE` environment variable can supply it; see [Configuration precedence](#configuration-precedence) and [Environment variables](#environment-variables).
+- `engine`: the inference engine to simulate, one of `vllm` or `sglang`, optional, default is `vllm`. `sglang` currently covers the OpenAI-compatible endpoints only, and rejects a configuration asking for LoRA adapters, the KV cache, fake metrics, sleep mode, or encoder-only mode. Determines which flags, environment variables, metric names, and KV-event format the simulator uses; see [Engines](engine-backends.md). If you omit `--engine` on the command line, a non-empty `SIM_ENGINE` environment variable can supply it; see [Configuration precedence](#configuration-precedence) and [Environment variables](#environment-variables).
 - `model`: the currently 'loaded' model, mandatory. If you omit `--model` on the command line, a non-empty `SIM_MODEL` environment variable can supply the model; see [Configuration precedence](#configuration-precedence) and [Environment variables](#environment-variables).
 - `served-model-name`: model names exposed by the API (a list of space-separated strings)
 - `max-model-len`: model's context window, maximum number of tokens in a single request including input and output, optional, default is 1024
@@ -40,21 +43,12 @@ In a configuration file the same settings are plain YAML booleans, written witho
     - `echo`: returns the same text that was sent in the request
     - `random`: returns a sentence chosen at random from a set of pre-defined sentences or a given dataset
 - `startup-duration`: duration the simulator returns HTTP 503 on `/health/ready` to simulate GPU model loading time (e.g. `30s`, `2m`). After this duration elapses from startup, `/health/ready` returns 200. Optional, default is 0 (immediately ready).
-- `enable-sleep-mode`, `no-enable-sleep-mode`: Enable or disable sleep mode feature. When enabled, the simulator can be put to sleep via the `/sleep` endpoint and woken up via the `/wake_up` endpoint. Owned by the `vllm` engine: the flag and the configuration key come from the engine, not the simulator core.
 - `enable-request-id-headers`: Enable including X-Request-Id header in responses. When enabled, the simulator will include the request ID in response headers
 - `log-http`: When true, logs each HTTP request and response at INFO (method, URI, remote address, headers, and body when buffered). Gzip-encoded bodies are decoded before logging. Streamed response bodies (for example SSE) are not logged. Use only in trusted environments; may include secrets such as `Authorization` headers.
-- `mm-encoder-only`, `no-mm-encoder-only`: Skip  (or don't skip) the language component of the model. Owned by the `vllm` engine: the flag and the configuration key come from the engine, not the simulator core.
 - `omni`, `no-omni`: Enable or disable omni mode. When enabled, the simulator appends a synthetic image (a 1×1 transparent PNG, `data:image/png;base64,…`) to `/v1/chat/completions` responses in two cases: the `X-Send-Image: true` request header is present, or a random roll succeeds against `--image-emission-rate`. In non-streaming responses the assistant message `content` becomes a structured array — a `text` block carrying the generated tokens followed by an `image_url` block. In streaming responses an extra SSE chunk with `"modality":"image"` is emitted after the token stream, carrying the same image in its delta `content`. When `--omni` is not set (the default), both mechanisms are disabled and the response is a normal text response.
 - `image-emission-rate`: probability (0–100) of emitting a synthetic image chunk per `/v1/chat/completions` request when omni mode is enabled. 0 (the default) means the rate mechanism never fires; 100 means every request gets an image. The `X-Send-Image: true` header triggers emission independently of this rate. Updatable at runtime via `POST /admin/config`.
 
-## LoRA
-Command-line flag names are as listed below. In a YAML config file, these settings may be nested under a top-level `lora:` key using the same key names; the old flat top-level keys are still accepted for backward compatibility.
-
-- `lora-modules`: a list of LoRA adapters (a list of space-separated JSON strings): '{"name": "name", "path": "lora_path", "base_model_name": "id"}', optional, empty by default
-- `max-loras`: maximum number of LoRAs in a single batch, optional, default is one
-- `max-cpu-loras`: maximum number of LoRAs to store in CPU memory, optional, must be >= than max-loras, default is max-loras
-
-## Latency 
+### Latency 
 All latency-related parameters are defined in duration format, e.g., 100ms. Integer format is deprecated.
 
 - `latency-calculator`: specifies the latency calculator for prefill time. Supported values are `constant` and `per-token`; see [Latency Simulation](latency-simulation.md) for details on each. Leaving this field unset (or setting it to `""`) activates a legacy precedence-based mode — retained for backward compatibility, but using `constant` or `per-token` explicitly is recommended. This is a top-level flag; it is not nested under `latencies:`.
@@ -69,8 +63,8 @@ For a detailed explanation of how the simulator models inference time and what e
 - `time-to-first-token-std-dev`: standard deviation for time before the first token will be returned, optional, default is zero. Can't be more than 30% of `time-to-first-token`, will not cause the actual time to first token to differ by more than 70% from `time-to-first-token`
 - `inter-token-latency`: the time to 'generate' each additional token, optional, by default zero
 - `inter-token-latency-std-dev`: standard deviation for time between generated tokens, optional, default is zero. Can't be more than 30% of `inter-token-latency`, will not cause the actual inter token latency to differ by more than 70% from `inter-token-latency`
-- `kv-cache-transfer-latency`: time for KV-cache "transfer" from a remote vLLM, optional, by default zero. Usually much shorter than `time-to-first-token`
-- `kv-cache-transfer-latency-std-dev`: standard deviation for time to "transfer" kv-cache from another vLLM instance in case P/D is activated, optional, default is zero. Can't be more than 30% of `kv-cache-transfer-latency`, will not cause the actual latency to differ by more than 70% from `kv-cache-transfer-latency`
+- `kv-cache-transfer-latency`: time for KV-cache "transfer" from a remote instance, optional, by default zero. Usually much shorter than `time-to-first-token`
+- `kv-cache-transfer-latency-std-dev`: standard deviation for time to "transfer" kv-cache from another instance in case P/D is activated, optional, default is zero. Can't be more than 30% of `kv-cache-transfer-latency`, will not cause the actual latency to differ by more than 70% from `kv-cache-transfer-latency`
 - `time-to-generate-image`: simulated time to generate an image in omni mode. When a chat completion request is going to emit an image chunk, the simulator sleeps for this duration before sending it. Optional, default is zero.
 - `time-to-generate-image-std-dev`: standard deviation for `time-to-generate-image`, optional, default is zero. Can't be more than 30% of `time-to-generate-image`, will not cause the actual image generation time to differ by more than 70% from `time-to-generate-image`.
 - `seed`: random seed for operations (if not set, current Unix time in nanoseconds is used)
@@ -87,7 +81,7 @@ For a detailed explanation of how the simulator models inference time and what e
 
 - `time-factor-under-load`: a multiplicative factor that affects the overall time taken for requests when parallel requests are being processed. The value of this factor must be >= 1.0, with a default of 1.0. If this factor is 1.0, no extra time is added.  When the factor is x (where x > 1.0) and there are `max-num-seqs` requests, the total time will be multiplied by x. The extra time then decreases multiplicatively to 1.0 when the number of requests is less than `max-num-seqs`.
 
-## Tools 
+### Tools 
 Command-line flag names are as listed below. In a YAML config file, these settings may be nested under a top-level `tool-calls:` key using the same key names; the old flat top-level keys are still accepted for backward compatibility.
 
 - `max-tool-call-integer-param`: the maximum possible value of integer parameters in a tool call, optional, defaults to 100
@@ -101,8 +95,88 @@ Command-line flag names are as listed below. In a YAML config file, these settin
 - `skip-tool-validation`: skip the built-in validation of incoming tool schemas, optional, defaults to `false`. The simulator validates every tool's `function.parameters` against a strict schema that whitelists a small subset of JSON Schema fields. Real vLLM does not meta-validate tool schemas, so a schema using fields outside that whitelist is rejected with a 400 by the simulator but accepted upstream. Enable this to match vLLM's behavior. Note that tool call generation still synthesizes arguments from the schema, so unsupported parameter types fail at generation time rather than at validation time
 - `tool-call-extra-call-probability`: the probability (0-100) to make one additional tool call beyond the minimum. The roll repeats until a roll fails or all available tools are called, so the number of calls follows a truncated geometric distribution that almost always equals the minimum but can reach the total number of available tools. `0` always produces the minimum number of calls (1 for `tool_choice: "required"`, 0 for `"auto"`); `100` always calls every available tool. Optional, defaults to 45.
 
+### Failure injection
+- `failure-injection-rate`: probability (0-100) of injecting failures, optional, default is 0
+- `failure-types`: list of specific failure types to inject (rate_limit, invalid_api_key, context_length, server_error, invalid_request, model_not_found), optional, if empty all types are used
 
-## KV cache
+### Data parallel
+- `data-parallel-size`: number of ranks to run in Data Parallel deployment, from 1 to 8, default is 1. Ports are assigned sequentially: rank 0 uses the configured `port`, rank 1 uses `port+1`, etc. When `--zmq-endpoint` is also set, each rank's ZMQ endpoint port is offset by the same amount — rank 0 publishes to the configured endpoint, rank 1 to `endpoint_port+1`, etc. Each rank also embeds its index in the `data_parallel_rank` field of every published event batch.
+- `data-parallel-rank`: the rank of this instance, used only when running Data Parallel ranks as separate processes. If set, `data-parallel-size` is ignored and a single simulator starts with this rank index embedded in its ZMQ event batches.
+
+### Datasets
+Command-line flag names are as listed below. In a YAML config file, these settings may be nested under a top-level `dataset:` key using the same key names; the old flat top-level keys are still accepted for backward compatibility.
+
+- `dataset-path`: Optional local file path to the SQLite database file used for generating responses from a dataset.
+  - If not set, hardcoded preset responses will be used.
+  - If set but the file does not exist the `dataset-url` will be used to download the database to the path specified by `dataset-path`.
+  - Responses are retrieved from the dataset by the hash of the conversation history, with a fallback to a random dataset response, constrained by the maximum output tokens and EoS token handling, if no matching history is found.
+  - Refer to [llm-d converted ShareGPT](https://huggingface.co/datasets/hf07397/inference-sim-datasets/blob/0b60737c2dd2c570f486cef2efa7971b02e3efde/README.md) for detailed information on the expected format of the SQLite database file.
+- `dataset-url`: Optional URL for downloading the SQLite database file used for response generation.
+  - This parameter is only used if the `dataset-path` is also set and the file does not exist at that path.
+  - If the file needs to be downloaded, it will be saved to the location specified by `dataset-path`.
+  - If the file already exists at the `dataset-path`, it will not be downloaded again
+  - Example URL `https://huggingface.co/datasets/hf07397/inference-sim-datasets/resolve/91ffa7aafdfd6b3b1af228a517edc1e8f22cd274/huggingface/ShareGPT_Vicuna_unfiltered/conversations.sqlite3`
+- `dataset-in-memory`: If true, the entire dataset will be loaded into memory for faster access. This may require significant memory depending on the size of the dataset. Default is false.
+- `dataset-table-name`: Table name for custom dataset, optional, default is 'llmd'
+
+### Tokenizer
+- `render-url`: URL of the vLLM render service used for tokenization. Required when the model is a real HuggingFace model; omit for simulated/dummy models. Default is `http://localhost:8082`.
+- `render-timeout`: Timeout for tokenizer render requests (e.g. `30s`). Default is `30s`.
+- `mm-render-timeout`: Timeout for multi-modal tokenizer render requests (e.g. `60s`). Default is `60s`.
+- `force-dummy-tokenizer`: Force the use of dummy tokenizer even if a real model name is provided. When this flag is set, the system bypasses loading the real tokenizer and uses a regex-based dummy tokenizer instead. This is useful for testing scenarios where you want to use a real model name but avoid the overhead of downloading and loading the actual tokenizer. Default is `false`.
+
+### Embeddings
+- `default-embedding-dimensions`: default size of embedding vectors returned by `/v1/embeddings` when the request does not specify a `dimensions` field, optional, defaults to 384.
+
+### SSL
+Command-line flag names are as listed below. In a YAML config file, these settings may be nested under a top-level `ssl:` key using the same key names; the old flat top-level keys are still accepted for backward compatibility.
+
+- `ssl-certfile`: Path to SSL certificate file for HTTPS (optional)
+- `ssl-keyfile`: Path to SSL private key file for HTTPS (optional)
+- `self-signed-certs`: Enable automatic generation of self-signed certificates for HTTPS
+
+### Klog
+In addition, as we are using klog, the following parameters are available:
+- `add_dir_header`: if true, adds the file directory to the header of the log messages
+- `alsologtostderr`: log to standard error as well as files (no effect when -logtostderr=true)
+- `log_backtrace_at`: when logging hits line file:N, emit a stack trace (default :0)
+- `log_dir`: if non-empty, write log files in this directory (no effect when -logtostderr=true)
+- `log_file`: if non-empty, use this log file (no effect when -logtostderr=true)
+- `log_file_max_size`: defines the maximum size a log file can grow to (no effect when -logtostderr=true). Unit is megabytes. If the value is 0, the maximum file size is unlimited. (default 1800)
+- `logtostderr`: log to standard error instead of files (default true)
+- `one_output`: if true, only write logs to their native severity level (vs also writing to each lower severity level; no effect when -logtostderr=true)
+- `skip_headers`: if true, avoid header prefixes in the log messages
+- `skip_log_headers`: if true, avoid headers when opening log files (no effect when -logtostderr=true)
+- `stderrthreshold`: logs at or above this threshold go to stderr when writing to files and stderr (no effect when -logtostderr=true or -alsologtostderr=true) (default 2)
+- `v`: number for the log level verbosity. Supported levels:
+  - Warning (1) - warning messages
+  - Info (2) - general application messages, e.g., loaded configuration content, which responses dataset was loaded, etc.
+  - Debug (4) - debugging messages, e.g. /completions and /chat/completions request received, load/unload lora request processed, etc.
+  - Trace (5) - highest verbosity, e.g. detailed messages on completions request handling and request queue processing, etc.
+- `vmodule`: comma-separated list of pattern=N settings for file-filtered logging
+
+## Engine-owned settings
+
+An engine owns the settings for the features it simulates, so these exist only under the engine that
+owns them: the flag is not registered under any other engine, and a configuration file asking for one
+fails startup naming the key rather than being quietly ignored. See [Engines](engine-backends.md) for
+the hooks behind this.
+
+### vllm
+
+#### Sleep mode and encoder-only mode
+
+- `enable-sleep-mode`, `no-enable-sleep-mode`: Enable or disable sleep mode feature. When enabled, the simulator can be put to sleep via the `/sleep` endpoint and woken up via the `/wake_up` endpoint.
+- `mm-encoder-only`, `no-mm-encoder-only`: Skip  (or don't skip) the language component of the model.
+
+#### LoRA
+Command-line flag names are as listed below. In a YAML config file, these settings may be nested under a top-level `lora:` key using the same key names; the old flat top-level keys are still accepted for backward compatibility.
+
+- `lora-modules`: a list of LoRA adapters (a list of space-separated JSON strings): '{"name": "name", "path": "lora_path", "base_model_name": "id"}', optional, empty by default
+- `max-loras`: maximum number of LoRAs in a single batch, optional, default is one
+- `max-cpu-loras`: maximum number of LoRAs to store in CPU memory, optional, must be >= than max-loras, default is max-loras
+
+#### KV cache
 Command-line flag names are as listed below. In a YAML config file, these settings (all except `global-cache-hit-threshold`, which stays top-level) may be nested under a top-level `kvcache:` key using the same key names; the old flat top-level keys are still accepted for backward compatibility. See [KV Cache Guide](kv-cache.md#configuration-options) for an example.
 
 > **Deprecated:** the flat top-level KV-cache keys in a YAML config file are preserved for backward compatibility and will be removed in release v0.13.0; new config files should nest these settings under a top-level `kvcache:` key instead.
@@ -120,47 +194,7 @@ Command-line flag names are as listed below. In a YAML config file, these settin
 - `kv-events-replay-endpoint`: ZMQ ROUTER address to bind for receiving KV events replay requests. Empty (default) disables the replay listener. Example: `tcp://*:5558`. A client that stops draining its socket without closing the connection stalls replay for every other connected client too, not just its own — see [KV events replay](kv-cache.md#kv-events-replay).
 - `kv-events-replay-queue-size`: the max number of event batches held in the replay queue; oldest dropped when full. Defaults to 1024.
 
-## Failure injection
-- `failure-injection-rate`: probability (0-100) of injecting failures, optional, default is 0
-- `failure-types`: list of specific failure types to inject (rate_limit, invalid_api_key, context_length, server_error, invalid_request, model_not_found), optional, if empty all types are used
-
-## Data parallel
-- `data-parallel-size`: number of ranks to run in Data Parallel deployment, from 1 to 8, default is 1. Ports are assigned sequentially: rank 0 uses the configured `port`, rank 1 uses `port+1`, etc. When `--zmq-endpoint` is also set, each rank's ZMQ endpoint port is offset by the same amount — rank 0 publishes to the configured endpoint, rank 1 to `endpoint_port+1`, etc. Each rank also embeds its index in the `data_parallel_rank` field of every published event batch.
-- `data-parallel-rank`: the rank of this instance, used only when running Data Parallel ranks as separate processes. If set, `data-parallel-size` is ignored and a single simulator starts with this rank index embedded in its ZMQ event batches.
-
-## Datasets
-Command-line flag names are as listed below. In a YAML config file, these settings may be nested under a top-level `dataset:` key using the same key names; the old flat top-level keys are still accepted for backward compatibility.
-
-- `dataset-path`: Optional local file path to the SQLite database file used for generating responses from a dataset.
-  - If not set, hardcoded preset responses will be used.
-  - If set but the file does not exist the `dataset-url` will be used to download the database to the path specified by `dataset-path`.
-  - Responses are retrieved from the dataset by the hash of the conversation history, with a fallback to a random dataset response, constrained by the maximum output tokens and EoS token handling, if no matching history is found.
-  - Refer to [llm-d converted ShareGPT](https://huggingface.co/datasets/hf07397/inference-sim-datasets/blob/0b60737c2dd2c570f486cef2efa7971b02e3efde/README.md) for detailed information on the expected format of the SQLite database file.
-- `dataset-url`: Optional URL for downloading the SQLite database file used for response generation.
-  - This parameter is only used if the `dataset-path` is also set and the file does not exist at that path.
-  - If the file needs to be downloaded, it will be saved to the location specified by `dataset-path`.
-  - If the file already exists at the `dataset-path`, it will not be downloaded again
-  - Example URL `https://huggingface.co/datasets/hf07397/inference-sim-datasets/resolve/91ffa7aafdfd6b3b1af228a517edc1e8f22cd274/huggingface/ShareGPT_Vicuna_unfiltered/conversations.sqlite3`
-- `dataset-in-memory`: If true, the entire dataset will be loaded into memory for faster access. This may require significant memory depending on the size of the dataset. Default is false.
-- `dataset-table-name`: Table name for custom dataset, optional, default is 'llmd'
-
-## Tokenizer
-- `render-url`: URL of the vLLM render service used for tokenization. Required when the model is a real HuggingFace model; omit for simulated/dummy models. Default is `http://localhost:8082`.
-- `render-timeout`: Timeout for tokenizer render requests (e.g. `30s`). Default is `30s`.
-- `mm-render-timeout`: Timeout for multi-modal tokenizer render requests (e.g. `60s`). Default is `60s`.
-- `force-dummy-tokenizer`: Force the use of dummy tokenizer even if a real model name is provided. When this flag is set, the system bypasses loading the real tokenizer and uses a regex-based dummy tokenizer instead. This is useful for testing scenarios where you want to use a real model name but avoid the overhead of downloading and loading the actual tokenizer. Default is `false`.
-
-## Embeddings
-- `default-embedding-dimensions`: default size of embedding vectors returned by `/v1/embeddings` when the request does not specify a `dimensions` field, optional, defaults to 384.
-
-## SSL
-Command-line flag names are as listed below. In a YAML config file, these settings may be nested under a top-level `ssl:` key using the same key names; the old flat top-level keys are still accepted for backward compatibility.
-
-- `ssl-certfile`: Path to SSL certificate file for HTTPS (optional)
-- `ssl-keyfile`: Path to SSL private key file for HTTPS (optional)
-- `self-signed-certs`: Enable automatic generation of self-signed certificates for HTTPS
-
-## Fake metrics
+#### Fake metrics
 - `fake-metrics`: represents a predefined set of metrics to be sent to Prometheus as a substitute for the real metrics. When specified, only these fake metrics will be reported — real metrics and fake metrics will never be reported together. The set may include values for:
     - `running-requests` - can be either a fixed number or a generator function that produces fake metric values over time, using the parameters start, end, and period. Supported functions are:
       - oscillate: Generates a smooth sine-wave between start and end over each period.
@@ -201,7 +235,7 @@ Command-line flag names are as listed below. In a YAML config file, these settin
 
 Fake metric values can also be updated at runtime via [`POST /admin/config`](api.md#adminconfig) with a `fake-metrics` field — the body is a partial update, so only the specified metrics are changed. Absent fields and fields explicitly set to `null` are equivalent and leave the existing value alone; to clear a slice- or map-valued metric send `[]` or `{}` respectively. Scalar metrics cannot be cleared via partial update.
 
-## Ignored parameters
+#### Ignored parameters
 The following command line parameters are ignored by the simulator:
 - `mm-processor-kwargs` - arguments to be forwarded to the model's processor for multi-modal data, ignored
 - `ec-transfer-config` - configuration for distributed EC cache transfer, ignored
@@ -209,31 +243,16 @@ The following command line parameters are ignored by the simulator:
 - `enable-prefix-caching`, `no-enable-prefix-caching` - enable or disable prefix caching, ignored, behaves as enable-prefix-caching=true
 - `tensor-parallel-size` - number of tensor parallel replicas, ignored
 
-## Klog
-In addition, as we are using klog, the following parameters are available:
-- `add_dir_header`: if true, adds the file directory to the header of the log messages
-- `alsologtostderr`: log to standard error as well as files (no effect when -logtostderr=true)
-- `log_backtrace_at`: when logging hits line file:N, emit a stack trace (default :0)
-- `log_dir`: if non-empty, write log files in this directory (no effect when -logtostderr=true)
-- `log_file`: if non-empty, use this log file (no effect when -logtostderr=true)
-- `log_file_max_size`: defines the maximum size a log file can grow to (no effect when -logtostderr=true). Unit is megabytes. If the value is 0, the maximum file size is unlimited. (default 1800)
-- `logtostderr`: log to standard error instead of files (default true)
-- `one_output`: if true, only write logs to their native severity level (vs also writing to each lower severity level; no effect when -logtostderr=true)
-- `skip_headers`: if true, avoid header prefixes in the log messages
-- `skip_log_headers`: if true, avoid headers when opening log files (no effect when -logtostderr=true)
-- `stderrthreshold`: logs at or above this threshold go to stderr when writing to files and stderr (no effect when -logtostderr=true or -alsologtostderr=true) (default 2)
-- `v`: number for the log level verbosity. Supported levels:
-  - Warning (1) - warning messages
-  - Info (2) - general application messages, e.g., loaded configuration content, which responses dataset was loaded, etc.
-  - Debug (4) - debugging messages, e.g. /completions and /chat/completions request received, load/unload lora request processed, etc.
-  - Trace (5) - highest verbosity, e.g. detailed messages on completions request handling and request queue processing, etc.
-- `vmodule`: comma-separated list of pattern=N settings for file-filtered logging
+### sglang
+
+This engine owns no settings yet: it simulates the engine-neutral surface only, so none of the vLLM
+settings above are available under it.
 
 # Environment variables
+
+## Available with every engine
 - `SIM_ENGINE`: when non-empty and **`--engine` is not passed on the command line**, selects the engine and overrides the `engine` value from the YAML file (if any) and the default. If you pass `--engine`, it always wins. See [Engines](engine-backends.md).
 - `SIM_MODEL`: when non-empty and **`--model` is not passed on the command line**, sets the model name. In that case it overrides the `model` value from the YAML file (if any) and the default. If you pass `--model`, it always wins. Useful in Kubernetes when the same image arguments are reused and the model name comes from the pod environment.
-- `PYTHONHASHSEED`: when **`--hash-seed` is not passed on the command line**, a non-empty value supplies the hash seed and overrides `hash-seed` from the YAML file (if any) and the default. If you pass `--hash-seed`, it always wins. Matches common Python hash randomization behavior.
-- `VLLM_SERVER_DEV_MODE`: when set to `1`, enables vLLM development mode. Currently used as an additional gate for the `/sleep` endpoint: even with `--enable-sleep-mode`, `/sleep` is a no-op unless `VLLM_SERVER_DEV_MODE=1` is set in the simulator's environment.
 - `POD_NAME`: the simulator pod name. If defined, the response will contain the HTTP header `x-inference-pod` with this value, and the HTTP header `x-inference-port` with the port that the request was received on 
 - `POD_NAMESPACE`: the simulator pod namespace. If defined, the response will contain the HTTP header `x-inference-namespace` with this value
 - `POD_IP`: the simulator pod IP address. Used together with the serving port (`--port`) to build the kv-events topic `kv@<ip>:<port>@<model>` (see [KV cache](kv-cache.md#topic-format)).
@@ -245,3 +264,10 @@ Example of definition in yaml:
         fieldRef:
           fieldPath: status.podIP
   ```
+
+## Engine-owned
+
+Read only by the `vllm` engine, which owns the settings they supply.
+
+- `PYTHONHASHSEED`: when **`--hash-seed` is not passed on the command line**, a non-empty value supplies the hash seed and overrides `hash-seed` from the YAML file (if any) and the default. If you pass `--hash-seed`, it always wins. Matches common Python hash randomization behavior.
+- `VLLM_SERVER_DEV_MODE`: when set to `1`, enables vLLM development mode. Currently used as an additional gate for the `/sleep` endpoint: even with `--enable-sleep-mode`, `/sleep` is a no-op unless `VLLM_SERVER_DEV_MODE=1` is set in the simulator's environment.

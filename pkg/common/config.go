@@ -649,6 +649,27 @@ func (c *Configuration) validate() error {
 		return errors.New("time to first token standard deviation cannot be more than 30% of time to first token")
 	}
 
+	if c.Latencies.KVCacheTransferLatency < 0 {
+		return errors.New("kv-cache transfer time cannot be negative")
+	}
+	if c.Latencies.KVCacheTransferLatencyStdDev < 0 {
+		return errors.New("kv-cache transfer time standard deviation cannot be negative")
+	}
+	if float32(c.Latencies.KVCacheTransferLatencyStdDev) > 0.3*float32(c.Latencies.KVCacheTransferLatency) {
+		return errors.New("kv-cache transfer standard deviation cannot be more than 30% of kv-cache transfer")
+	}
+	if c.Latencies.KVCacheTransferTimePerToken < 0 {
+		return errors.New("kv-cache transfer time per token cannot be negative")
+	}
+	if c.Latencies.KVCacheTransferTimeStdDev < 0 {
+		return errors.New("kv-cache transfer time standard deviation cannot be negative")
+	}
+	// No upper-bound check on KVCacheTransferTimeStdDev for the same reason as
+	// PrefillTimeStdDev: it is applied to the total transfer time
+	// (n × kv-cache-transfer-time-per-token), which depends on the prompt
+	// length n and is unknown at config time. Runtime clamping in
+	// RandomNormDuration handles oversized std-devs.
+
 	if c.Latencies.TimeToGenerateImage < 0 {
 		return errors.New("time to generate image cannot be negative")
 	}
