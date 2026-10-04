@@ -26,6 +26,7 @@ import (
 
 	"github.com/buaazp/fasthttprouter"
 	"github.com/go-logr/logr"
+	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 	"github.com/llm-d/llm-d-inference-sim/pkg/communication/grpc/pb"
 	"github.com/llm-d/llm-d-inference-sim/pkg/endpoint"
@@ -46,6 +47,10 @@ type Communication struct {
 
 	pb.UnimplementedVllmEngineServer
 
+	// transport is the active engine, set when the HTTP server is built. Error
+	// bodies are built through it, since their wire format is engine-specific.
+	transport Transport
+
 	// startTime records when the server started, used for startup-duration readiness check
 	startTime time.Time
 }
@@ -54,7 +59,8 @@ func New(logger logr.Logger, processor Processor, runtime endpoint.Runtime) *Com
 	return &Communication{logger: logger, processor: processor, runtime: runtime, startTime: time.Now()}
 }
 
-// Transport supplies the active engine's HTTP routes and gRPC service.
+// Transport supplies the active engine's HTTP routes, gRPC service, and error
+// wire format.
 type Transport interface {
 	// BindHTTP registers the engine's own HTTP routes on r, on top of the
 	// common routes Communication's own HTTP server already registers.
@@ -63,6 +69,13 @@ type Transport interface {
 	// whether the engine has a gRPC surface at all. Communication does not
 	// open a gRPC listener when it returns false.
 	BindGRPC(server *grpc.Server, comm *Communication) bool
+	// ErrorBody returns the body of a non-streaming error response to a route of
+	// the given family. Engines disagree on both the envelope and how an error's
+	// type is spelled, so the body is built by the engine rather than here.
+	ErrorBody(err api.Error, route api.ErrorRoute) any
+	// StreamErrorBody returns the body of a single error frame in a streaming
+	// response, which an engine need not frame the way ErrorBody does.
+	StreamErrorBody(err api.Error, route api.ErrorRoute) any
 }
 
 // Start starts the communication layer: the HTTP server (with the active

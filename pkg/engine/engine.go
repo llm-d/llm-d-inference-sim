@@ -29,6 +29,7 @@ import (
 	"github.com/spf13/pflag"
 	"google.golang.org/grpc"
 
+	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/communication"
 	"github.com/llm-d/llm-d-inference-sim/pkg/engine/vllm"
@@ -67,6 +68,12 @@ type Engine interface {
 	// whether the engine has a gRPC surface at all. Communication does not
 	// open a gRPC listener when it returns false.
 	BindGRPC(server *grpc.Server, comm *communication.Communication) bool
+	// ErrorBody returns the body of a non-streaming error response to a route of
+	// the given family, framed the way this engine frames it.
+	ErrorBody(err api.Error, route api.ErrorRoute) any
+	// StreamErrorBody returns the body of a single error frame in a streaming
+	// response, which an engine need not frame the way ErrorBody does.
+	StreamErrorBody(err api.Error, route api.ErrorRoute) any
 	// NewMetricsAdapter builds the engine's own metrics adapter, registering
 	// its collectors on registry. ctx must match the one passed to
 	// metrics.NewMetricsBus.
