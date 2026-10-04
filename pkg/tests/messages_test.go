@@ -259,6 +259,9 @@ var _ = Describe("Simulator for /v1/messages (Anthropic Messages API)", func() {
 			}
 		})
 
+		// The error carries the Messages API's own envelope, not the OpenAI one
+		// the other endpoints use: every engine answers this route the way the
+		// Anthropic SDK expects, so that its typed error classes still parse.
 		It("returns 400 for a request with no messages", func() {
 			client, err := startServer(ctx, common.ModeRandom)
 			Expect(err).NotTo(HaveOccurred())
@@ -268,6 +271,14 @@ var _ = Describe("Simulator for /v1/messages (Anthropic Messages API)", func() {
 			Expect(err).NotTo(HaveOccurred())
 			defer resp.Body.Close() //nolint:errcheck
 			Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
+
+			respBody, err := io.ReadAll(resp.Body)
+			Expect(err).NotTo(HaveOccurred())
+			var errResp api.MessagesErrorResponse
+			Expect(json.Unmarshal(respBody, &errResp)).To(Succeed())
+			Expect(errResp.Type).To(Equal(api.MessagesTypeError))
+			Expect(errResp.Error.Type).To(Equal("BadRequestError"))
+			Expect(errResp.Error.Message).To(ContainSubstring("messages must not be empty"))
 		})
 	})
 

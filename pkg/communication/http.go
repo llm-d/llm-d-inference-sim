@@ -61,10 +61,20 @@ func (c *Communication) newListener() (net.Listener, error) {
 	return listener, nil
 }
 
+// The routes of the two API families that frame an error their own way, rather
+// than the way the engine frames one generally.
+const (
+	messagesRoute  = "/v1/messages"
+	responsesRoute = "/v1/responses"
+)
+
 // startHTTPServer builds and starts the HTTP server, returning the server instance and an error channel.
 // It does not handle shutdown — callers are responsible for calling server.Shutdown().
 // transport adds the active engine's own routes on top of the common ones registered here.
 func (c *Communication) startHTTPServer(ctx context.Context, listener net.Listener, transport Transport) (*fasthttp.Server, <-chan error, error) {
+	// Held for the lifetime of the server: error bodies are framed by the engine.
+	c.transport = transport
+
 	r := fasthttprouter.New()
 
 	// support completion APIs
@@ -74,8 +84,8 @@ func (c *Communication) startHTTPServer(ctx context.Context, listener net.Listen
 	r.POST("/v1/completions/render", c.HandleTextCompletionsRender)
 	r.POST("/v1/chat/completions/derender", c.HandleChatCompletionsDerender)
 	r.POST("/v1/completions/derender", c.HandleTextCompletionsDerender)
-	r.POST("/v1/responses", c.HandleResponses)
-	r.POST("/v1/messages", c.HandleMessages)
+	r.POST(responsesRoute, c.HandleResponses)
+	r.POST(messagesRoute, c.HandleMessages)
 	if !c.runtime.Config().MMEncoderOnly {
 		r.POST("/v1/embeddings", c.HandleEmbeddings)
 	}
@@ -422,13 +432,44 @@ func drainResponseChannel(channel common.Channel[*endpoint.ResponseInfo]) {
 	}
 }
 
-// sendStreamErrorAndDone writes a single error SSE frame followed by the [DONE]
-// marker to the streaming writer. Errors from the write are ignored — the client
-// pipe may already be gone.
-func (c *Communication) sendStreamErrorAndDone(w *bufio.Writer, err *api.Error) {
-	errResp := api.ErrorResponse{Error: *err}
-	_ = c.sendChunk(w, &jsonDataChunk{data: errResp})
-	_ = c.sendChunk(w, &doneMarker{})
+// sendStreamErrorAndDone writes a single error SSE frame followed by the
+// stream's terminator, if it has one, to the streaming writer. Both are framed
+// by respBuilder, since the endpoint decides whether the frame is named and
+// whether the stream ends with a marker at all. Errors from the write are
+// ignored -- the client pipe may already be gone.
+func (c *Communication) sendStreamErrorAndDone(ctx *fasthttp.RequestCtx, w *bufio.Writer,
+	respBuilder responseBuilder, err *api.Error) {
+	_ = c.sendChunk(w, respBuilder.createErrorChunk(c.errorBody(ctx, *err, true)))
+	if done := respBuilder.createDoneChunk(); done != nil {
+		_ = c.sendChunk(w, done)
+	}
+}
+
+// errorBody returns the body of an error response to the request in ctx. The
+// Messages and Responses APIs each frame an error their own way whatever the
+// engine, so the route selects the family and the engine fills it in. streaming
+// selects the frame of one event of a streamed response, which an engine may
+// frame differently from a whole response body.
+func (c *Communication) errorBody(ctx *fasthttp.RequestCtx, err api.Error, streaming bool) any {
+	route := errorRoute(string(ctx.Path()))
+	if streaming {
+		return c.transport.StreamErrorBody(err, route)
+	}
+	return c.transport.ErrorBody(err, route)
+}
+
+// errorRoute reports which family of routes path belongs to, for the purpose of
+// framing an error. Matched by prefix, so the sub-routes of an API family are
+// framed like the family (e.g. /v1/messages/count_tokens).
+func errorRoute(path string) api.ErrorRoute {
+	switch {
+	case strings.HasPrefix(path, messagesRoute):
+		return api.ErrorRouteMessages
+	case strings.HasPrefix(path, responsesRoute):
+		return api.ErrorRouteResponses
+	default:
+		return api.ErrorRouteDefault
+	}
 }
 
 // streamState holds per-choice streaming state, sized once at the start of
@@ -502,8 +543,8 @@ func (c *Communication) sendStream(ctx *fasthttp.RequestCtx, channel common.Chan
 
 			if response.Err != nil {
 				// Fail-fast: previously streamed chunks remain sent; emit a single error
-				// frame followed by [DONE] and stop reading from the other prompts.
-				c.sendStreamErrorAndDone(w, response.Err)
+				// frame, end the stream, and stop reading from the other prompts.
+				c.sendStreamErrorAndDone(ctx, w, respBuilder, response.Err)
 				go drainResponseChannel(channel)
 				return
 			}
@@ -611,7 +652,7 @@ func (c *Communication) emitResponseChunks(ctx *fasthttp.RequestCtx, w *bufio.Wr
 	}
 
 	errToSend := api.NewError("unexpected response part in streaming", fasthttp.StatusInternalServerError, nil)
-	c.sendStreamErrorAndDone(w, &errToSend)
+	c.sendStreamErrorAndDone(ctx, w, respBuilder, &errToSend)
 	return false, false
 }
 
@@ -683,11 +724,7 @@ func (c *Communication) sendError(ctx *fasthttp.RequestCtx, err *api.Error, isIn
 		c.logger.Error(nil, err.Message)
 	}
 
-	errorResp := api.ErrorResponse{
-		Error: *err,
-	}
-
-	data, jsonErr := json.Marshal(errorResp)
+	data, jsonErr := json.Marshal(c.errorBody(ctx, *err, false))
 	if jsonErr != nil {
 		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
 		ctx.SetContentType("application/json")

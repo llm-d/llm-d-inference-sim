@@ -103,7 +103,8 @@ func (Engine) BindFlags(f *pflag.FlagSet, cfg *common.Configuration, rawYAML map
 // registerFlags declares this engine's CLI flags on f, defaulting each to the
 // value cfg already holds so a config file's setting survives an unset flag.
 func registerFlags(f *pflag.FlagSet, cfg *common.Configuration) {
-	f.BoolVar(&cfg.StrictRequestValidation, "strict", cfg.StrictRequestValidation, "Validate OpenAI completion requests against vLLM-compatible constraints")
+	common.AddToggle(f, &cfg.StrictRequestValidation,
+		"strict", "Validate OpenAI completion requests against vLLM-compatible constraints", "Disable strict request validation")
 	f.IntVar(&cfg.Lora.MaxLoras, "max-loras", cfg.Lora.MaxLoras, "Maximum number of LoRAs in a single batch")
 	f.IntVar(&cfg.Lora.MaxCPULoras, "max-cpu-loras", cfg.Lora.MaxCPULoras, "Maximum number of LoRAs to store in CPU memory")
 
@@ -112,7 +113,8 @@ func registerFlags(f *pflag.FlagSet, cfg *common.Configuration) {
 	f.DurationVar(&cfg.Latencies.KVCacheTransferLatency, "kv-cache-transfer-latency", cfg.Latencies.KVCacheTransferLatency, "Time for KV-cache transfer from a remote vLLM, e.g. 100ms")
 	f.DurationVar(&cfg.Latencies.KVCacheTransferLatencyStdDev, "kv-cache-transfer-latency-std-dev", cfg.Latencies.KVCacheTransferLatencyStdDev, "Standard deviation for time for KV-cache transfer from a remote vLLM, e.g. 100ms")
 
-	f.BoolVar(&cfg.KVCache.EnableKVCache, "enable-kvcache", cfg.KVCache.EnableKVCache, "Defines if KV cache feature is enabled")
+	common.AddToggle(f, &cfg.KVCache.EnableKVCache,
+		"enable-kvcache", "Enable KV cache simulation", "Disable KV cache simulation")
 	f.IntVar(&cfg.KVCache.KVCacheSize, "kv-cache-size", cfg.KVCache.KVCacheSize, "Maximum number of token blocks in kv cache")
 	f.StringVar(&cfg.KVCache.KVCacheDType, "kv-cache-dtype", cfg.KVCache.KVCacheDType, "KV cache dtype reported in vLLM-compatible metrics")
 	f.Float64Var(&cfg.GlobalCacheHitThreshold, "global-cache-hit-threshold", cfg.GlobalCacheHitThreshold, "Default cache hit threshold [0, 1] for all requests. If a request specifies cache_hit_threshold, it takes precedence")
@@ -124,7 +126,8 @@ func registerFlags(f *pflag.FlagSet, cfg *common.Configuration) {
 	f.StringVar(&cfg.KVCache.KVEventsReplayEndpoint, "kv-events-replay-endpoint", cfg.KVCache.KVEventsReplayEndpoint, "ZMQ ROUTER address to bind for receiving KV events replay requests (empty disables)")
 	f.IntVar(&cfg.KVCache.KVEventsReplayQueueSize, "kv-events-replay-queue-size", cfg.KVCache.KVEventsReplayQueueSize, "Max number of event batches held in the replay queue; oldest dropped when full")
 	f.IntVar(&cfg.KVCache.EventBatchSize, "event-batch-size", cfg.KVCache.EventBatchSize, "Maximum number of kv-cache events to be sent together")
-	f.BoolVar(&cfg.KVCache.UseVllmMapEventFormat, "use-vllm-map-event-format", cfg.KVCache.UseVllmMapEventFormat, "Encode KV cache events as msgpack maps with named fields (vLLM PR #42892 format) instead of positional arrays")
+	common.AddToggle(f, &cfg.KVCache.UseVllmMapEventFormat,
+		"use-vllm-map-event-format", "Encode KV cache events as msgpack maps with named fields (vLLM PR #42892 format) instead of positional arrays", "Encode KV cache events as positional arrays")
 
 	common.AddToggle(f, &cfg.EnableSleepMode, "enable-sleep-mode", "Enable sleep mode", "Disable sleep mode")
 
@@ -162,6 +165,10 @@ func registerFlags(f *pflag.FlagSet, cfg *common.Configuration) {
 // engine owns (lora, kvcache, fake-metrics) from a config file's raw tree,
 // folding each group's legacy flat layout into its nested block first. rawYAML
 // is nil when no --config file was given.
+//
+// Each group is deleted from rawYAML once read. That is how this engine claims
+// it: the parser rejects every key still in the tree once BindFlags returns,
+// since nothing else will ever look at it.
 func unmarshalYAMLGroups(cfg *common.Configuration, rawYAML map[string]any) error {
 	if rawYAML == nil {
 		return nil
@@ -182,6 +189,7 @@ func unmarshalYAMLGroups(cfg *common.Configuration, rawYAML map[string]any) erro
 	if err := unmarshalLoras(cfg, ly.LoraModules); err != nil {
 		return err
 	}
+	delete(rawYAML, "lora")
 
 	if err := common.FoldLegacyKeys(rawYAML, "kvcache", kvCacheLegacyFlatKeys); err != nil {
 		return err
@@ -191,6 +199,7 @@ func unmarshalYAMLGroups(cfg *common.Configuration, rawYAML map[string]any) erro
 		return err
 	}
 	cfg.KVCache = common.KVCacheConfig(kv)
+	delete(rawYAML, "kvcache")
 
 	// Unmarshaled into vLLM's concrete type here, since encoding/yaml cannot
 	// allocate one into the FakeMetrics interface itself. There is no legacy
@@ -207,7 +216,31 @@ func unmarshalYAMLGroups(cfg *common.Configuration, rawYAML map[string]any) erro
 		}
 		cfg.FakeMetrics = fm
 	}
+	// Deleted outside the branch above: an empty block is a supported way to
+	// leave fake metrics unset, so it is claimed even though nothing was read.
+	delete(rawYAML, "fake-metrics")
 
+	// Two settings with no group of their own, whose flags this engine registers
+	// and whose behavior it implements: sleep mode needs this engine's dev-mode
+	// env var and its /sleep routes, and the encoder-only mode is vLLM's spelling
+	// for skipping the language component.
+	if err := claimBool(rawYAML, "enable-sleep-mode", &cfg.EnableSleepMode); err != nil {
+		return err
+	}
+	if err := claimBool(rawYAML, "mm-encoder-only", &cfg.MMEncoderOnly); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// claimBool reads one top-level boolean key of raw into out and claims it. A
+// key that is absent, or present with no value, leaves out as it was.
+func claimBool(raw map[string]any, key string, out *bool) error {
+	if err := common.UnmarshalYAMLKey(raw, key, out); err != nil {
+		return err
+	}
+	delete(raw, key)
 	return nil
 }
 

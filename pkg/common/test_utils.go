@@ -22,6 +22,7 @@ import (
 
 	zmq4 "github.com/go-zeromq/zmq4"
 	"github.com/onsi/gomega"
+	"github.com/spf13/pflag"
 )
 
 // constants
@@ -30,6 +31,19 @@ const (
 	QwenModelName    = "Qwen/Qwen2-VL-2B-Instruct"
 	wildcardEndpoint = "tcp://127.0.0.1:*"
 )
+
+// NoopEngine stands in for an engine's own hooks in tests that only exercise
+// this package's own flags, parsing and validation: a concrete engine cannot
+// be used instead, since every one of them imports this package back.
+type NoopEngine struct{}
+
+func (NoopEngine) Name() string                 { return "vllm" }
+func (NoopEngine) ApplyDefaults(*Configuration) {}
+func (NoopEngine) BindFlags(*pflag.FlagSet, *Configuration, map[string]any) error {
+	return nil
+}
+func (NoopEngine) ApplyEnv(*Configuration, func(string) bool) {}
+func (NoopEngine) ValidateConfig(*Configuration) error        { return nil }
 
 // CreateSub creates a ZMQ sub, subscribes to the provided topic, and returns the
 // sub and the endpoint to publish events on

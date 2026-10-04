@@ -54,31 +54,31 @@ type blockKey struct {
 // blockCache represents a thread-safe cache for blocks with eviction policy
 type blockCache struct {
 	mu               sync.RWMutex
-	requestToBlocks  map[string][]blockKey     // request id -> array of it blocks (block hashes)
-	usedBlocks       map[blockKey]int          // block hash -> reference count
-	unusedBlocks     map[blockKey]time.Time    // block hash -> last usage timestamp
-	unusedBlockOrder map[blockKey]uint64       // block hash -> stable eviction tie-breaker
-	evictionOrder    uint64                    // next eviction tie-breaker across requests
-	blockToTokens    map[blockKey][]uint32     // block hash -> block tokens
-	loadedModels     map[string]struct{}       // models currently loaded (base model + loaded loras)
-	maxBlocks        int                       // maximum number of blocks in the cache
-	eventSender      *KVEventSender            // emits kv events
-	eventChan        common.Channel[EventData] // channel for asynchronous event processing
-	metrics          *metrics.MetricsBus       // event-bus emitter for KV-cache-usage / prefix-cache stats
+	requestToBlocks  map[string][]blockKey  // request id -> array of it blocks (block hashes)
+	usedBlocks       map[blockKey]int       // block hash -> reference count
+	unusedBlocks     map[blockKey]time.Time // block hash -> last usage timestamp
+	unusedBlockOrder map[blockKey]uint64    // block hash -> stable eviction tie-breaker
+	evictionOrder    uint64                 // next eviction tie-breaker across requests
+	blockToTokens    map[blockKey][]uint32  // block hash -> block tokens
+	loadedModels     map[string]struct{}    // models currently loaded (base model + loaded loras)
+	maxBlocks        int                    // maximum number of blocks in the cache
+	eventSender      *KVEventSender         // emits kv events
+	eventChan        common.Channel[Event]  // channel for asynchronous event processing
+	metrics          *metrics.MetricsBus    // event-bus emitter for KV-cache-usage / prefix-cache stats
 	logger           logr.Logger
 	disabled         bool // indicated whether the cache is disabled
 }
 
 // newBlockCache creates a new blockCache with the specified maximum number of blocks
 func newBlockCache(ctx context.Context, config *common.Configuration, logger logr.Logger,
-	metrics *metrics.MetricsBus) (*blockCache, error) {
+	metrics *metrics.MetricsBus, encoder EventEncoder) (*blockCache, error) {
 	if config.IP == "" {
 		return nil, errors.New("IP should be defined in the environment (POD_IP)")
 	}
 	kvCfg := &config.KVCache
 
-	eChan := common.Channel[EventData]{
-		Channel: make(chan EventData, 10*kvCfg.KVCacheSize),
+	eChan := common.Channel[Event]{
+		Channel: make(chan Event, 10*kvCfg.KVCacheSize),
 		Name:    "block cache eventChan",
 	}
 
@@ -105,7 +105,7 @@ func newBlockCache(ctx context.Context, config *common.Configuration, logger log
 	}
 
 	eventSender := NewKVEventSender(publisher, topic,
-		eChan, kvCfg.EventBatchSize, kvCfg.TokenBlockSize, delay, kvCfg.UseVllmMapEventFormat, config.Rank, logger, replayer)
+		eChan, kvCfg.EventBatchSize, delay, encoder, config.Rank, logger, replayer)
 
 	bCache := blockCache{
 		requestToBlocks:  make(map[string][]blockKey),
@@ -155,7 +155,7 @@ func (bc *blockCache) discard() {
 	bc.blockToTokens = make(map[blockKey][]uint32)
 
 	common.WriteToChannel(bc.eventChan,
-		EventData{action: eventActionAllBlocksCleared},
+		Event{Action: ActionAllBlocksCleared},
 		bc.logger)
 }
 
@@ -258,8 +258,8 @@ func (bc *blockCache) startRequest(req Request, blockHashes []uint64, blockToken
 			delete(bc.unusedBlocks, evictHash)
 			delete(bc.unusedBlockOrder, evictHash)
 			common.WriteToChannel(bc.eventChan,
-				EventData{action: eventActionRemove, hashes: []uint64{evictHash.hash},
-					tokens: bc.blockToTokens[evictHash]},
+				Event{Action: ActionRemove, Hashes: []uint64{evictHash.hash},
+					Tokens: bc.blockToTokens[evictHash]},
 				bc.logger)
 			delete(bc.blockToTokens, evictHash)
 		}
@@ -282,13 +282,13 @@ func (bc *blockCache) startRequest(req Request, blockHashes []uint64, blockToken
 			parentHash = &ph
 		}
 		common.WriteToChannel(bc.eventChan,
-			EventData{
-				action:     eventActionStore,
-				hashes:     hashes,
-				tokens:     tokens,
-				parentHash: parentHash,
-				loraName:   req.GetLoraName(),
-				loraID:     req.GetLoraID(),
+			Event{
+				Action:     ActionStore,
+				Hashes:     hashes,
+				Tokens:     tokens,
+				ParentHash: parentHash,
+				LoraName:   req.GetLoraName(),
+				LoraID:     req.GetLoraID(),
 			}, bc.logger)
 	}
 

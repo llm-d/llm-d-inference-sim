@@ -29,10 +29,24 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/endpoint"
+	"github.com/llm-d/llm-d-inference-sim/pkg/kvcache"
 	"github.com/llm-d/llm-d-inference-sim/pkg/metrics"
 	"github.com/llm-d/llm-d-inference-sim/pkg/simulator"
 	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 )
+
+// stubEngine is the engine these tests wire into the simulator. The metrics
+// stub covers everything but the KV-event encoder, which pkg/metrics cannot
+// supply without importing pkg/kvcache and closing an import cycle.
+type stubEngine struct {
+	metrics.StubAdapter
+}
+
+// NewKVEventEncoder is never called: these tests leave the KV cache disabled,
+// and the simulator only builds an encoder when it is enabled.
+func (stubEngine) NewKVEventEncoder(_ common.Configuration) (kvcache.EventEncoder, error) {
+	return nil, nil
+}
 
 // newRunningSim builds and starts a real Simulator (echo mode), so
 // HandleRequest produces genuine ResponseInfo entries -- including real,
@@ -50,7 +64,7 @@ func newRunningSim(ctx context.Context) *simulator.Simulator {
 	Expect(err).NotTo(HaveOccurred())
 	sim.Context.SetConfig(config)
 	sim.Context.Tokenizer = tokenizer.NewSimpleTokenizer()
-	sim.Context.Engine = metrics.StubAdapter{}
+	sim.Context.Engine = stubEngine{}
 
 	Expect(sim.InitializeSim(ctx)).To(Succeed())
 	return sim
@@ -88,7 +102,7 @@ var _ = Describe("sendNonStream missing-choice guard", func() {
 		}
 		close(filtered.Channel)
 
-		c := &Communication{logger: klog.Background()}
+		c := &Communication{logger: klog.Background(), transport: fakeTransport{}}
 		httpCtx := &fasthttp.RequestCtx{}
 		c.sendNonStream(httpCtx, filtered, nil, numChoices)
 
@@ -143,7 +157,7 @@ var _ = Describe("sendStream missing-choice guard", func() {
 		}
 		close(filtered.Channel)
 
-		c := &Communication{logger: klog.Background()}
+		c := &Communication{logger: klog.Background(), transport: fakeTransport{}}
 		httpCtx := &fasthttp.RequestCtx{}
 		httpCtx.SetStatusCode(fasthttp.StatusOK)
 		httpCtx.SetContentType("text/event-stream")

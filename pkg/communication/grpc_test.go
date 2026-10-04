@@ -21,10 +21,13 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"google.golang.org/grpc"
+
+	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 )
 
-// fakeTransport is a minimal Transport double for testing bindGRPC's gating on
-// the active engine's gRPC support, independent of any real engine.
+// fakeTransport is a minimal Transport double for testing the behaviour this
+// package gates on the active engine -- gRPC support and the error wire format
+// -- independent of any real engine.
 type fakeTransport struct {
 	grpcSupported bool
 }
@@ -35,6 +38,17 @@ func (fakeTransport) BindHTTP(*fasthttprouter.Router, *Communication) {}
 
 func (f fakeTransport) BindGRPC(*grpc.Server, *Communication) bool {
 	return f.grpcSupported
+}
+
+func (fakeTransport) ErrorBody(err api.Error, route api.ErrorRoute) any {
+	if route == api.ErrorRouteMessages {
+		return api.NewMessagesErrorResponse(err.Type, err.Message)
+	}
+	return api.ErrorResponse{Error: err}
+}
+
+func (f fakeTransport) StreamErrorBody(err api.Error, route api.ErrorRoute) any {
+	return f.ErrorBody(err, route)
 }
 
 var _ = Describe("bindGRPC", func() {

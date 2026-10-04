@@ -294,7 +294,7 @@ var _ = Describe("gRPC Metrics", Ordered, func() {
 		ctx := context.TODO()
 		args := []string{"cmd", "--model", common.QwenModelName, "--mode", common.ModeEcho,
 			"--time-to-first-token", "300ms", "--inter-token-latency", "100ms",
-			"--max-num-seqs", "3", "--enable-kvcache", "true", "--kv-cache-size", "16", "--block-size", "8"}
+			"--max-num-seqs", "3", "--enable-kvcache", "--kv-cache-size", "16", "--block-size", "8"}
 
 		_, comm, httpClient, err := startServerHandle(ctx, common.ModeEcho, args, map[string]string{"POD_IP": "localhost"})
 		Expect(err).NotTo(HaveOccurred())

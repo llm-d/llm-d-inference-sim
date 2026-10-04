@@ -29,9 +29,11 @@ import (
 	"github.com/spf13/pflag"
 	"google.golang.org/grpc"
 
+	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/communication"
 	"github.com/llm-d/llm-d-inference-sim/pkg/engine/vllm"
+	"github.com/llm-d/llm-d-inference-sim/pkg/kvcache"
 	"github.com/llm-d/llm-d-inference-sim/pkg/metrics"
 )
 
@@ -51,7 +53,9 @@ type Engine interface {
 	// values that need parsing beyond what pflag can bind directly, including
 	// its own engine-specific groups (e.g. lora) from rawYAML, the raw YAML
 	// tree returned by Configuration.load (nil if no --config file was
-	// given). Must be called before f.Parse.
+	// given). The engine must delete each group it consumes from rawYAML:
+	// whatever is left once this returns is reported as an unrecognized
+	// configuration key. Must be called before f.Parse.
 	BindFlags(f *pflag.FlagSet, cfg *common.Configuration, rawYAML map[string]any) error
 	// ApplyEnv applies the engine's own environment-variable settings to cfg.
 	// Called after the flags have been parsed and before validation; changed
@@ -68,11 +72,20 @@ type Engine interface {
 	// whether the engine has a gRPC surface at all. Communication does not
 	// open a gRPC listener when it returns false.
 	BindGRPC(server *grpc.Server, comm *communication.Communication) bool
+	// ErrorBody returns the body of a non-streaming error response to a route of
+	// the given family, framed the way this engine frames it.
+	ErrorBody(err api.Error, route api.ErrorRoute) any
+	// StreamErrorBody returns the body of a single error frame in a streaming
+	// response, which an engine need not frame the way ErrorBody does.
+	StreamErrorBody(err api.Error, route api.ErrorRoute) any
 	// NewMetricsAdapter builds the engine's own metrics adapter, registering
 	// its collectors on registry. ctx must match the one passed to
 	// metrics.NewMetricsBus.
 	NewMetricsAdapter(ctx context.Context, registry *prometheus.Registry,
 		logger logr.Logger, config common.Configuration) (metrics.MetricsAdapter, error)
+	// NewKVEventEncoder builds the encoder that turns the block cache's
+	// engine-independent events into this engine's KV-event wire format.
+	NewKVEventEncoder(config common.Configuration) (kvcache.EventEncoder, error)
 }
 
 // registry maps each engine backend's name to its constructor. Adding a

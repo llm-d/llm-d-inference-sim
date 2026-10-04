@@ -101,7 +101,7 @@ var _ = Describe("Data Parallel", func() {
 			"--data-parallel-size", "3",
 			"--port", strconv.Itoa(baseServingPort),
 			"--force-dummy-tokenizer",
-			"--enable-kvcache", "true", "--kv-cache-size", "16", "--block-size", "8",
+			"--enable-kvcache", "--kv-cache-size", "16", "--block-size", "8",
 			"--event-batch-size", "1", "--zmq-endpoint", zmqEndpoint,
 		}, map[string]string{"POD_IP": "localhost"})
 		Expect(err).NotTo(HaveOccurred())
@@ -134,7 +134,7 @@ var _ = Describe("Data Parallel", func() {
 		for expectedRank, sub := range []zmq4.Socket{sub0, sub1, sub2} {
 			msg, err := sub.Recv()
 			Expect(err).NotTo(HaveOccurred())
-			storedCount, removedCount, _ := kvcache.CountKVEventBlocks(msg.Frames, rankTopics[expectedRank], 1)
+			storedCount, removedCount, _ := kvcache.CountKVEventBlocks(msg.Frames, rankTopics[expectedRank], 0)
 			Expect(storedCount).To(BeNumerically(">", 0), "expected store events from rank %d", expectedRank)
 			Expect(removedCount).To(Equal(0))
 			Expect(kvcache.ParseKVBatchRank(msg.Frames)).To(Equal(expectedRank),

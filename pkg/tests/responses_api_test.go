@@ -156,6 +156,15 @@ var _ = Describe("Simulator", func() {
 			var openaiError *openai.Error
 			Expect(errors.As(err, &openaiError)).To(BeTrue())
 			Expect(openaiError.StatusCode).To(Equal(fasthttp.StatusNotFound))
+
+			// The Responses API nests its error under an "error" key, which the
+			// route's error family decides rather than the engine.
+			body, err := io.ReadAll(openaiError.Response.Body)
+			Expect(err).NotTo(HaveOccurred())
+			var errResp api.ErrorResponse
+			Expect(json.Unmarshal(body, &errResp)).To(Succeed())
+			Expect(errResp.Error.Code).To(Equal(fasthttp.StatusNotFound))
+			Expect(errResp.Error.Message).To(ContainSubstring("does not exist"))
 		})
 
 		DescribeTable("responses streaming",

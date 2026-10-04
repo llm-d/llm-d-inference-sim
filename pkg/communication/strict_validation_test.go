@@ -88,6 +88,7 @@ func TestStrictValidationAtReceipt(t *testing.T) {
 				cfg.EnableRequestIDHeaders = true
 				validator := &strictTestValidator{}
 				c := New(logr.Discard(), nil, strictTestRuntime{config: cfg})
+				c.transport = fakeTransport{}
 				c.strictValidator = validator
 				ctx := &fasthttp.RequestCtx{}
 				ctx.Request.SetRequestURI(path)
@@ -118,6 +119,7 @@ func TestStrictMediaTypeBeforeEngine(t *testing.T) {
 	cfg.StrictRequestValidation = true
 	validator := &strictTestValidator{}
 	c := New(logr.Discard(), nil, strictTestRuntime{config: cfg})
+	c.transport = fakeTransport{}
 	c.strictValidator = validator
 	ctx := &fasthttp.RequestCtx{}
 	ctx.Request.SetRequestURI(strictChatPath)
