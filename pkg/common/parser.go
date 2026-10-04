@@ -103,12 +103,12 @@ func rejectSeparateBoolValue(f *pflag.FlagSet, args []string) error {
 		if flag := f.Lookup(name); flag != nil && flag.Value.Type() == "bool" {
 			// The negation of a "--no-" flag is the flag itself, so suggesting
 			// another "--no-" prefix would name a flag that does not exist.
-			negation := "--no-" + name
-			if positive, isNegative := strings.CutPrefix(name, "no-"); isNegative {
-				negation = "--" + positive
+			opposite := "no-" + name
+			if positive, ok := strings.CutPrefix(name, "no-"); ok {
+				opposite = positive
 			}
 			return fmt.Errorf("--%s does not take a value: write \"--%s\" on its own, "+
-				"or %q for the opposite setting", name, name, negation)
+				"or %q for the opposite setting", name, name, "--"+opposite)
 		}
 	}
 	return nil

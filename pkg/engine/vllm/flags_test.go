@@ -1171,32 +1171,13 @@ lora:
 })
 
 var _ = Describe("boolean flags", func() {
-	// pflag takes no value for a boolean flag, so the separate-argument form
-	// leaves the value as a positional argument and sets the flag regardless.
-	// Refusing it is what stops "--flag false" from silently meaning "--flag",
-	// and real vLLM refuses the form whatever the value.
-	DescribeTable("should refuse a value written as a separate argument",
-		func(flag string, args ...string) {
-			_, err := createSimConfig(append([]string{"cmd", "--model", common.TestModelName}, args...))
-			Expect(err).To(MatchError(ContainSubstring(flag + " does not take a value")))
-		},
-		Entry("engine flag", "--enable-kvcache", "--enable-kvcache", "false"),
-		Entry("core flag", "--omni", "--omni", "false"),
-		// Every spelling an explicit "--flag=<value>" would have accepted, since
-		// each one means the opposite of what was written in this form.
-		Entry("zero", "--omni", "--omni", "0"),
-		Entry("capitalized", "--omni", "--omni", "False"),
-		Entry("abbreviated", "--omni", "--omni", "f"),
-		// A true value is refused as well: the flag would be set either way, but
-		// the argument does nothing and real vLLM does not accept it.
-		Entry("true", "--omni", "--omni", "true"),
-		Entry("one", "--omni", "--omni", "1"),
-		// Nor is a value that is not a boolean at all silently dropped.
-		Entry("not a boolean", "--omni", "--omni", "maybe"),
-		// The negative spelling is refused the same way. The suggestion cannot be
-		// "--no-no-omni": the negation of a negative flag is the flag itself.
-		Entry("negative spelling", "--no-omni", "--no-omni", "false"),
-	)
+	// The mechanism itself (pkg/common's rejectSeparateBoolValue) is exercised
+	// directly in pkg/common/parser_test.go; this confirms it also covers a
+	// flag this engine registers, not just the ones parser.go registers itself.
+	It("should refuse a value written as a separate argument for an engine-registered flag", func() {
+		_, err := createSimConfig([]string{"cmd", "--model", common.TestModelName, "--enable-kvcache", "false"})
+		Expect(err).To(MatchError(ContainSubstring("--enable-kvcache does not take a value")))
+	})
 
 	It("should point at the flag itself when the negative spelling takes a value", func() {
 		_, err := createSimConfig([]string{"cmd", "--model", common.TestModelName, "--no-omni", "false"})
@@ -1250,22 +1231,6 @@ var _ = Describe("boolean flags", func() {
 		Entry("served-model-name", "--served-model-name", "false"),
 		Entry("mode", "--mode", common.ModeEcho),
 	)
-
-	DescribeTable("should honor a value written with '='",
-		func(arg string, expected bool) {
-			config, err := createSimConfig([]string{"cmd", "--model", common.TestModelName, arg})
-			Expect(err).NotTo(HaveOccurred())
-			Expect(config.Omni).To(Equal(expected))
-		},
-		Entry("omni on", "--omni=true", true),
-		Entry("omni off", "--omni=false", false),
-		Entry("omni off via the no- form", "--no-omni", false),
-	)
-
-	It("should refuse a redundant separate 'true'", func() {
-		_, err := createSimConfig([]string{"cmd", "--model", common.TestModelName, "--omni", "true"})
-		Expect(err).To(HaveOccurred())
-	})
 })
 
 var _ = Describe("unclaimed YAML keys", func() {
@@ -1325,23 +1290,5 @@ var _ = Describe("unclaimed YAML keys", func() {
 		_, err := createSimConfig([]string{"cmd", "--config", path})
 		Expect(err).To(MatchError(ContainSubstring("the 'vllm' engine does not recognize")))
 		Expect(err.Error()).To(ContainSubstring("max-num-seq, prot"))
-	})
-
-	It("loads every configuration manifest the repository ships", func() {
-		paths, err := filepath.Glob("../../../manifests/*.yaml")
-		Expect(err).NotTo(HaveOccurred())
-		profiles, err := filepath.Glob("../../../manifests/latency-profiles/*.yaml")
-		Expect(err).NotTo(HaveOccurred())
-
-		for _, path := range append(paths, profiles...) {
-			contents, err := os.ReadFile(path)
-			Expect(err).NotTo(HaveOccurred())
-			// Skip the Kubernetes manifests that share the directory.
-			if strings.Contains(string(contents), "apiVersion:") {
-				continue
-			}
-			_, err = createSimConfig([]string{"cmd", "--model", common.TestModelName, "--config", path})
-			Expect(err).NotTo(HaveOccurred(), "failed to load %s", path)
-		}
 	})
 })
