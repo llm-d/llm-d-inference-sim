@@ -28,9 +28,12 @@ import (
 )
 
 const (
-	dummy      = " "
-	PodNameEnv = "POD_NAME"
-	PodNsEnv   = "POD_NAMESPACE"
+	dummy = " "
+	// boolNoOptDefVal is the NoOptDefVal AddToggle gives both spellings of a
+	// toggle, so a bare "--flag" sets it without consuming a following value.
+	boolNoOptDefVal = "true"
+	PodNameEnv      = "POD_NAME"
+	PodNsEnv        = "POD_NAMESPACE"
 	// ModelEnv is read when the --model flag is not passed; see configuration precedence in the docs.
 	ModelEnv = "SIM_MODEL"
 	// EngineEnv is read when the --engine flag is not passed; see configuration precedence in the docs.
@@ -114,17 +117,67 @@ func rejectSeparateBoolValue(f *pflag.FlagSet, args []string) error {
 	return nil
 }
 
+// rejectUnexpectedArgs refuses any raw argument pflag left unconsumed that is
+// not one of the several space-separated values a flag like served-model-name
+// or lora-modules deliberately leaves behind for GetParamValueFromArgs to
+// collect. This tool takes no positional arguments (model is set with
+// --model, not with a positional the way "vllm serve <model>" takes one), so
+// anything else left over is a mistake: a value stranded next to a flag
+// written as "--flag=value", a typo, or a leftover from editing a command
+// line, rather than something to silently ignore.
+//
+// f.Parse has already succeeded by the time this runs, so every "--name"
+// token here names a registered flag; how many of the following raw
+// arguments it consumes follows from its NoOptDefVal, the same field that
+// drives pflag's own parsing: "true" for a boolean-style flag (none), the
+// dummy sentinel for the several-values flags (every following argument up
+// to the next "--flag"), and anything else for an ordinary flag (exactly
+// one).
+func rejectUnexpectedArgs(f *pflag.FlagSet, args []string) error {
+	var stray []string
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		rest, isLong := strings.CutPrefix(arg, "--")
+		if !isLong {
+			if arg != "" && !strings.HasPrefix(arg, "-") {
+				stray = append(stray, arg)
+			}
+			continue
+		}
+		name, _, hasInlineValue := strings.Cut(rest, "=")
+		flag := f.Lookup(name)
+		if flag == nil || hasInlineValue {
+			continue
+		}
+		switch flag.NoOptDefVal {
+		case boolNoOptDefVal:
+			// boolean-style flag: takes no value
+		case dummy:
+			for i+1 < len(args) && !strings.HasPrefix(args[i+1], "--") {
+				i++
+			}
+		default:
+			// ordinary flag: consumes exactly one following value
+			i++
+		}
+	}
+	if len(stray) == 0 {
+		return nil
+	}
+	return fmt.Errorf("unrecognized arguments: %s", strings.Join(stray, " "))
+}
+
 // AddToggle registers two distinct flags pointing to one variable
 func AddToggle(f *pflag.FlagSet, ptr *bool, name, nameUsage, noNameUsage string) {
 	// Register Positive Flag
 	f.Var(toggle{ptr, true}, name, nameUsage)
-	f.Lookup(name).NoOptDefVal = "true"
+	f.Lookup(name).NoOptDefVal = boolNoOptDefVal
 	f.Lookup(name).DefValue = "" // Hides the [=t] in help
 
 	// Register Negative Flag
 	noName := "no-" + name
 	f.Var(toggle{ptr, false}, noName, noNameUsage)
-	f.Lookup(noName).NoOptDefVal = "true"
+	f.Lookup(noName).NoOptDefVal = boolNoOptDefVal
 	f.Lookup(noName).DefValue = "" // Hides the [=t] in help
 }
 
@@ -325,6 +378,9 @@ func ParseCommandParamsAndLoadConfig(eng Engine) (*Configuration, error) {
 	}
 
 	if err := rejectSeparateBoolValue(f, os.Args[1:]); err != nil {
+		return nil, err
+	}
+	if err := rejectUnexpectedArgs(f, os.Args[1:]); err != nil {
 		return nil, err
 	}
 

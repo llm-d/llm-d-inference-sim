@@ -326,7 +326,7 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 		func(stream bool) {
 			ctx := context.TODO()
 			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
-				"--time-to-first-token", "3s", "-v", "5",
+				"--time-to-first-token", "3s",
 				"--lora-modules", "{\"name\":\"lora1\",\"path\":\"/path/to/lora1\"}",
 				"{\"name\":\"lora2\",\"path\":\"/path/to/lora2\"}"}
 
