@@ -793,4 +793,174 @@ var _ = Describe("Simulator", func() {
 			Expect(string(body)).To(ContainSubstring("unsupported input content type"))
 		})
 	})
+
+	Context("responses API with disaggregation params", func() {
+		It("Should return kv_transfer_params when do_remote_decode is true", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			reqBody := fmt.Sprintf(`{
+				"model": "%s",
+				"input": "hello",
+				"kv_transfer_params": {"do_remote_decode": true}
+			}`, common.TestModelName)
+
+			resp, err := client.Post("http://localhost/v1/responses", "application/json", strings.NewReader(reqBody))
+			Expect(err).NotTo(HaveOccurred())
+			defer func() {
+				err := resp.Body.Close()
+				Expect(err).NotTo(HaveOccurred())
+			}()
+
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+			body, err := io.ReadAll(resp.Body)
+			Expect(err).NotTo(HaveOccurred())
+
+			var respObj map[string]any
+			Expect(json.Unmarshal(body, &respObj)).To(Succeed())
+			kvParams, ok := respObj["kv_transfer_params"].(map[string]any)
+			Expect(ok).To(BeTrue(), "kv_transfer_params must be present")
+			Expect(kvParams["do_remote_prefill"]).To(BeTrue())
+			Expect(kvParams["do_remote_decode"]).To(BeFalse())
+			Expect(kvParams["remote_host"]).NotTo(BeEmpty())
+			Expect(kvParams["remote_port"]).To(BeNumerically(">", 0))
+			Expect(kvParams["remote_block_ids"]).NotTo(BeEmpty())
+			Expect(kvParams["remote_engine_id"]).NotTo(BeEmpty())
+		})
+
+		It("Should not return kv_transfer_params when do_remote_decode is absent", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			reqBody := fmt.Sprintf(`{"model": "%s", "input": "hello"}`, common.TestModelName)
+
+			resp, err := client.Post("http://localhost/v1/responses", "application/json", strings.NewReader(reqBody))
+			Expect(err).NotTo(HaveOccurred())
+			defer func() {
+				err := resp.Body.Close()
+				Expect(err).NotTo(HaveOccurred())
+			}()
+
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+			body, err := io.ReadAll(resp.Body)
+			Expect(err).NotTo(HaveOccurred())
+
+			var respObj map[string]any
+			Expect(json.Unmarshal(body, &respObj)).To(Succeed())
+			Expect(respObj).NotTo(HaveKey("kv_transfer_params"))
+		})
+
+		It("Should return ec_transfer_params in MMEncoderOnly mode when input contains images", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.TestModelName, "--mm-encoder-only",
+				"--mm-processor-kwargs", "args", "--ec-transfer-config", "cfg",
+				"--enforce-eager", "--no-enable-prefix-caching"}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			reqBody := fmt.Sprintf(`{
+				"model": "%s",
+				"input": [{
+					"role": "user",
+					"content": [
+						{"type": "input_text", "text": "describe"},
+						{"type": "input_image", "image_url": "https://example.com/a.png"},
+						{"type": "input_image", "image_url": "https://example.com/b.png"}
+					]
+				}]
+			}`, common.TestModelName)
+
+			resp, err := client.Post("http://localhost/v1/responses", "application/json", strings.NewReader(reqBody))
+			Expect(err).NotTo(HaveOccurred())
+			defer func() {
+				err := resp.Body.Close()
+				Expect(err).NotTo(HaveOccurred())
+			}()
+
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+			body, err := io.ReadAll(resp.Body)
+			Expect(err).NotTo(HaveOccurred())
+
+			var respObj map[string]any
+			Expect(json.Unmarshal(body, &respObj)).To(Succeed())
+			ecParams, ok := respObj["ec_transfer_params"].(map[string]any)
+			Expect(ok).To(BeTrue(), "ec_transfer_params must be present")
+			Expect(ecParams).To(HaveLen(2))
+			for _, v := range ecParams {
+				params, ok := v.(map[string]any)
+				Expect(ok).To(BeTrue())
+				Expect(params["peer_host"]).NotTo(BeEmpty())
+				Expect(params["peer_port"]).To(BeNumerically(">", 0))
+				Expect(params["size_bytes"]).To(BeNumerically(">", 0))
+				Expect(params["nixl_agent_metadata_b64"]).NotTo(BeEmpty())
+			}
+		})
+
+		It("Should not return ec_transfer_params when no images in input", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.TestModelName, "--mm-encoder-only",
+				"--mm-processor-kwargs", "args", "--ec-transfer-config", "cfg",
+				"--enforce-eager", "--no-enable-prefix-caching"}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			reqBody := fmt.Sprintf(`{"model": "%s", "input": "hello"}`, common.TestModelName)
+
+			resp, err := client.Post("http://localhost/v1/responses", "application/json", strings.NewReader(reqBody))
+			Expect(err).NotTo(HaveOccurred())
+			defer func() {
+				err := resp.Body.Close()
+				Expect(err).NotTo(HaveOccurred())
+			}()
+
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+			body, err := io.ReadAll(resp.Body)
+			Expect(err).NotTo(HaveOccurred())
+
+			var respObj map[string]any
+			Expect(json.Unmarshal(body, &respObj)).To(Succeed())
+			Expect(respObj).NotTo(HaveKey("ec_transfer_params"))
+		})
+
+		It("Should not return ec_transfer_params when MMEncoderOnly mode is disabled", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			reqBody := fmt.Sprintf(`{
+				"model": "%s",
+				"input": [{
+					"role": "user",
+					"content": [
+						{"type": "input_image", "image_url": "https://example.com/a.png"}
+					]
+				}]
+			}`, common.TestModelName)
+
+			resp, err := client.Post("http://localhost/v1/responses", "application/json", strings.NewReader(reqBody))
+			Expect(err).NotTo(HaveOccurred())
+			defer func() {
+				err := resp.Body.Close()
+				Expect(err).NotTo(HaveOccurred())
+			}()
+
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+			body, err := io.ReadAll(resp.Body)
+			Expect(err).NotTo(HaveOccurred())
+
+			var respObj map[string]any
+			Expect(json.Unmarshal(body, &respObj)).To(Succeed())
+			Expect(respObj).NotTo(HaveKey("ec_transfer_params"))
+		})
+	})
 })

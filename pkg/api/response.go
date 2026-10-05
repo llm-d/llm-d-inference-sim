@@ -516,8 +516,8 @@ func CreateGenerationResponse(base baseCompletionsResponse, tokens *Tokenized) *
 }
 
 func CreateResponsesResponse(model string, requestID string, createdAt int64,
-	instructions *string, output []OutputItem, usage *ResponsesUsage) *ResponsesResponse {
-	return &ResponsesResponse{
+	instructions *string, output []OutputItem, usage *ResponsesUsage, doRemoteDecode bool) *ResponsesResponse {
+	resp := &ResponsesResponse{
 		baseResponse: baseResponse{
 			ID:        ResponsesIDPrefix + requestID,
 			Model:     model,
@@ -531,6 +531,10 @@ func CreateResponsesResponse(model string, requestID string, createdAt int64,
 		Output:       output,
 		Usage:        usage,
 	}
+	if doRemoteDecode {
+		resp.KVParams = BuildPrefillKVTransferParams()
+	}
+	return resp
 }
 
 // Responses
@@ -542,14 +546,15 @@ type OutputItem interface {
 
 type ResponsesResponse struct {
 	baseResponse
-	CreatedAt    int64           `json:"created_at,omitempty"`
-	Status       string          `json:"status,omitempty"`
-	Instructions *string         `json:"instructions,omitempty"`
-	Output       []OutputItem    `json:"output,omitempty"`
-	Text         *TextSettings   `json:"text,omitempty"`
-	Usage        *ResponsesUsage `json:"usage,omitempty"`
-	Error        *Error          `json:"error,omitempty"`
-	Store        *bool           `json:"store,omitempty"`
+	CreatedAt        int64                       `json:"created_at,omitempty"`
+	Status           string                      `json:"status,omitempty"`
+	Instructions     *string                     `json:"instructions,omitempty"`
+	Output           []OutputItem                `json:"output,omitempty"`
+	Text             *TextSettings               `json:"text,omitempty"`
+	Usage            *ResponsesUsage             `json:"usage,omitempty"`
+	Error            *Error                      `json:"error,omitempty"`
+	Store            *bool                       `json:"store,omitempty"`
+	ECTransferParams map[string]ECTransferParams `json:"ec_transfer_params,omitempty"`
 }
 
 type MessageOutput struct {

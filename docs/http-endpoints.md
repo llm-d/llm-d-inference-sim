@@ -93,6 +93,11 @@ Structure of requests/responses
           - remote_host
           - remote_port
           - tp_size
+        - ec_transfer_params (map keyed by mm hash)
+            - peer_host
+            - peer_port
+            - size_bytes
+            - nixl_agent_metadata_b64
 - `/v1/completions`
     - **request**
         - stream
@@ -269,6 +274,14 @@ Structure of requests/responses
             - type (`text`, `json_object`, `json_schema`)
         - include (array of strings, e.g. `["message.output_text.logprobs"]`)
         - top_logprobs
+        - kv_transfer_params
+          - do_remote_decode
+          - do_remote_prefill
+          - remote_engine_id
+          - remote_block_ids
+          - remote_host
+          - remote_port
+          - tp_size
     - **response**
         - id
         - model
@@ -297,6 +310,19 @@ Structure of requests/responses
           - input_tokens
           - output_tokens
           - total_tokens
+        - kv_transfer_params (final response/event only; absent from the initial `response.created`/`response.in_progress` events)
+          - do_remote_decode
+          - do_remote_prefill
+          - remote_engine_id
+          - remote_block_ids
+          - remote_host
+          - remote_port
+          - tp_size
+        - ec_transfer_params (map keyed by mm hash; final response/event only)
+            - peer_host
+            - peer_port
+            - size_bytes
+            - nixl_agent_metadata_b64
 
     Tool turns: when `tools` are present and `tool_choice` is not `none`, the simulator emits exactly one `function_call` output item (non-streaming) or the equivalent SSE event sequence (streaming; see below). On the first tool turn, omitted or `auto` `tool_choice` is forced to call a tool 100% of the time (unlike the real Responses API). If `input` already contains any `function_call_output`, tool-calling stays off for the rest of that conversation — including a later, unrelated user turn that still carries prior tool history — and the simulator returns a normal assistant `message` instead. `allowed_tools` / `custom` `tool_choice` values are accepted on the wire but are not enforced (same limitation as chat completions). Parallel / multi tool calls are not supported.
 
@@ -335,7 +361,7 @@ Structure of requests/responses
           - remote_host
           - remote_port
           - tp_size
-        - ec_transfer_params (map keyed by remote engine id)
+        - ec_transfer_params (map keyed by mm hash)
             - peer_host
             - peer_port
             - size_bytes
