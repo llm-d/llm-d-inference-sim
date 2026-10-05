@@ -33,7 +33,7 @@ These come from the simulator core, so every engine accepts them and the flag na
 - `config`: the path to a yaml configuration file that can contain the simulator's command line parameters. If a parameter is defined in both the config file and the command line, the command line value overwrites the configuration file value. An example configuration file can be found at [manifests/config.yaml](../manifests/config.yaml). A key the simulator does not recognize is an error, not a no-op: startup fails naming the key. Since some settings are engine-owned, which keys are recognized depends on the selected engine; see [Engines](engine-backends.md).
 - `port`: the port the simulator listens on, default is 8000
 - `max-request-body-size-mb`: maximum allowed size of an HTTP request body in megabytes, optional, default is 4 (matching the fasthttp built-in default). Must be between 1 and 512.
-- `engine`: the inference engine to simulate, one of `vllm` or `sglang`, optional, default is `vllm`. `sglang` currently covers the OpenAI-compatible endpoints only, and rejects a configuration asking for LoRA adapters, the KV cache, fake metrics, sleep mode, or encoder-only mode. Determines which flags, environment variables, metric names, and KV-event format the simulator uses; see [Engines](engine-backends.md). If you omit `--engine` on the command line, a non-empty `SIM_ENGINE` environment variable can supply it; see [Configuration precedence](#configuration-precedence) and [Environment variables](#environment-variables).
+- `engine`: the inference engine to simulate, one of `vllm` or `sglang`, optional, default is `vllm`. SGLang currently covers the OpenAI-compatible endpoints only, and rejects a configuration asking for LoRA adapters, the KV cache, fake metrics, sleep mode, or encoder-only mode. Determines which flags, environment variables, metric names, and KV-event format the simulator uses; see [Engines](engine-backends.md). If you omit `--engine` on the command line, a non-empty `SIM_ENGINE` environment variable can supply it; see [Configuration precedence](#configuration-precedence) and [Environment variables](#environment-variables).
 - `model`: the currently 'loaded' model, mandatory. If you omit `--model` on the command line, a non-empty `SIM_MODEL` environment variable can supply the model; see [Configuration precedence](#configuration-precedence) and [Environment variables](#environment-variables).
 - `served-model-name`: model names exposed by the API (a list of space-separated strings)
 - `max-model-len`: model's context window, maximum number of tokens in a single request including input and output, optional, default is 1024
@@ -162,7 +162,7 @@ owns them: the flag is not registered under any other engine, and a configuratio
 fails startup naming the key rather than being quietly ignored. See [Engines](engine-backends.md) for
 the hooks behind this.
 
-### vllm
+### vLLM
 
 #### Sleep mode and encoder-only mode
 
@@ -243,7 +243,7 @@ The following command line parameters are ignored by the simulator:
 - `enable-prefix-caching`, `no-enable-prefix-caching` - enable or disable prefix caching, ignored, behaves as enable-prefix-caching=true
 - `tensor-parallel-size` - number of tensor parallel replicas, ignored
 
-### sglang
+### SGLang
 
 This engine owns no settings yet: it simulates the engine-neutral surface only, so none of the vLLM
 settings above are available under it.
@@ -267,7 +267,7 @@ Example of definition in yaml:
 
 ## Engine-owned
 
-Read only by the `vllm` engine, which owns the settings they supply.
+### vLLM
 
 - `PYTHONHASHSEED`: when **`--hash-seed` is not passed on the command line**, a non-empty value supplies the hash seed and overrides `hash-seed` from the YAML file (if any) and the default. If you pass `--hash-seed`, it always wins. Matches common Python hash randomization behavior.
 - `VLLM_SERVER_DEV_MODE`: when set to `1`, enables vLLM development mode. Currently used as an additional gate for the `/sleep` endpoint: even with `--enable-sleep-mode`, `/sleep` is a no-op unless `VLLM_SERVER_DEV_MODE=1` is set in the simulator's environment.

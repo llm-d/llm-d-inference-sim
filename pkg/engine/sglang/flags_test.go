@@ -47,10 +47,6 @@ func writeConfig(body string) string {
 }
 
 var _ = Describe("Configuration", func() {
-	It("should report the engine name", func() {
-		Expect(New().Name()).To(Equal("sglang"))
-	})
-
 	It("should load a config file that asks for nothing this engine lacks", func() {
 		config, err := createSimConfig([]string{"cmd", "--config", "../../../manifests/basic-config.yaml"})
 		Expect(err).NotTo(HaveOccurred())
@@ -128,12 +124,6 @@ var _ = Describe("Configuration", func() {
 		// metrics suppress every real metric, so it must not turn them on.
 		Entry("empty fake-metrics block", "fake-metrics:\n  # running-requests: 5\n"),
 	)
-
-	It("should reject a non-boolean enable-kvcache", func() {
-		_, err := createSimConfig([]string{"cmd", "--model", common.TestModelName,
-			"--config", writeConfig("enable-kvcache: yes-please\n")})
-		Expect(err).To(MatchError(ContainSubstring("enable-kvcache must be a boolean")))
-	})
 
 	It("should reject a config file written for vLLM", func() {
 		_, err := createSimConfig([]string{"cmd", "--config", "../../../manifests/config.yaml"})

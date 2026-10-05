@@ -20,9 +20,6 @@ package engine
 
 import (
 	"context"
-	"fmt"
-	"sort"
-	"strings"
 
 	"github.com/buaazp/fasthttprouter"
 	"github.com/go-logr/logr"
@@ -33,8 +30,6 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/communication"
-	"github.com/llm-d/llm-d-inference-sim/pkg/engine/sglang"
-	"github.com/llm-d/llm-d-inference-sim/pkg/engine/vllm"
 	"github.com/llm-d/llm-d-inference-sim/pkg/kvcache"
 	"github.com/llm-d/llm-d-inference-sim/pkg/metrics"
 )
@@ -86,31 +81,4 @@ type Engine interface {
 	// NewKVEventEncoder builds the encoder that turns the block cache's
 	// engine-independent events into this engine's KV-event wire format.
 	NewKVEventEncoder(config common.Configuration) (kvcache.EventEncoder, error)
-}
-
-// registry maps each engine's name to its constructor. Adding an engine means
-// adding one entry here.
-var registry = map[string]func() Engine{
-	"vllm":   func() Engine { return vllm.New() },
-	"sglang": func() Engine { return sglang.New() },
-}
-
-// Select returns the Engine implementation for the named engine.
-func Select(name string) (Engine, error) {
-	newEngine, ok := registry[name]
-	if !ok {
-		return nil, fmt.Errorf("unknown engine '%s', supported engines are: %s",
-			name, strings.Join(Names(), ", "))
-	}
-	return newEngine(), nil
-}
-
-// Names returns the registered engine names, sorted.
-func Names() []string {
-	names := make([]string, 0, len(registry))
-	for name := range registry {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names
 }
