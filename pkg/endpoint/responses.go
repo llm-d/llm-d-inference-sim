@@ -71,12 +71,21 @@ func (r *ResponsesRequest) AsString() string {
 
 func (r *ResponsesRequest) createResponseContext(reqCtx RequestContext, displayModel string,
 	responseTokens *api.Tokenized, finishReason *string, usageData *api.Usage, sendUsageData bool,
-	logprobs *int, toolCalls []api.ToolCall, _ bool) ResponseContext {
+	logprobs *int, toolCalls []api.ToolCall, mmEncoderOnlyMode bool) ResponseContext {
 	base := newBaseResponseContext(reqCtx, displayModel, responseTokens, finishReason, usageData, sendUsageData,
 		logprobs, r.GetRequestID(), r.IsDoRemotePrefill(), r.IsDoRemoteDecode(), r.GetNumberOfCachedPromptTokens())
+
+	var ecParams map[string]api.ECTransferParams
+	if mmEncoderOnlyMode {
+		if features := r.MMFeatures(); features != nil {
+			ecParams = buildECTransferParams(features.MMHashes)
+		}
+	}
+
 	return &responsesResponseCtx{
 		baseResponseContext: base,
 		toolsCalls:          toolCalls,
+		ecTransferParams:    ecParams,
 	}
 }
 
@@ -243,7 +252,8 @@ var _ RequestContext = (*responsesReqCtx)(nil)
 // Implementation of ResponseContext for /responses requests
 type responsesResponseCtx struct {
 	baseResponseContext
-	toolsCalls []api.ToolCall
+	toolsCalls       []api.ToolCall
+	ecTransferParams map[string]api.ECTransferParams
 }
 
 func (respCtx *responsesResponseCtx) Instructions() *string {
@@ -255,6 +265,10 @@ func (respCtx *responsesResponseCtx) Instructions() *string {
 
 func (respCtx *responsesResponseCtx) ToolCalls() []api.ToolCall {
 	return respCtx.toolsCalls
+}
+
+func (respCtx *responsesResponseCtx) ECTransferParams() map[string]api.ECTransferParams {
+	return respCtx.ecTransferParams
 }
 
 var _ ResponseContext = (*responsesResponseCtx)(nil)

@@ -497,7 +497,7 @@ func (respBuilder *responsesHTTPRespBuilder) createResponse(respCtxPerChoice []e
 		}
 	}
 
-	return api.CreateResponsesResponse(
+	resp := api.CreateResponsesResponse(
 		respCtx.DisplayModel(),
 		respCtx.RequestID(),
 		time.Now().Unix(),
@@ -508,7 +508,10 @@ func (respBuilder *responsesHTTPRespBuilder) createResponse(respCtxPerChoice []e
 			OutputTokens: usage.CompletionTokens,
 			TotalTokens:  usage.TotalTokens,
 		},
+		respCtx.DoRemoteDecode(),
 	)
+	resp.ECTransferParams = respCtx.ECTransferParams()
+	return resp
 }
 
 func (respBuilder *responsesHTTPRespBuilder) createUsageChunk(respCtxPerChoice []endpoint.ResponseContext) sseChunk {
@@ -557,7 +560,9 @@ func (respBuilder *responsesHTTPRespBuilder) createUsageChunk(respCtxPerChoice [
 			OutputTokens: usage.CompletionTokens,
 			TotalTokens:  usage.TotalTokens,
 		},
+		respCtx.DoRemoteDecode(),
 	)
+	resp.ECTransferParams = respCtx.ECTransferParams()
 	return &namedEventChunk{
 		names: []string{api.ResponsesEventCompleted},
 		data: []any{&api.ResponsesResponseEvent{
@@ -652,6 +657,7 @@ func (respBuilder *responsesHTTPRespBuilder) createInitialChunk(respCtx endpoint
 		respCtx.Instructions(),
 		nil,
 		nil,
+		false,
 	)
 	resp.Status = api.ResponsesStatusInProgress
 	created := api.ResponsesResponseEvent{Type: api.ResponsesEventCreated, Response: resp}
