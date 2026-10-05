@@ -817,6 +817,48 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 			}).WithTimeout(2 * time.Second).WithPolling(25 * time.Millisecond).Should(Succeed())
 		})
 
+		It("Should scope prefix cache hits to the request's cache salt", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.QwenModelName, "--mode", common.ModeRandom,
+				"--enable-kvcache", "--kv-cache-size", "64", "--block-size", "8"}
+
+			client, err := startServerWithArgsAndEnv(ctx, common.ModeRandom, args, map[string]string{"POD_IP": "localhost"})
+			Expect(err).NotTo(HaveOccurred())
+
+			openaiclient := openai.NewClient(
+				option.WithBaseURL(baseURL),
+				option.WithHTTPClient(client))
+
+			prefixHits := func() int {
+				metricsResp, err := client.Get(metricsUrl)
+				Expect(err).NotTo(HaveOccurred())
+				defer func() { _ = metricsResp.Body.Close() }()
+				data, err := io.ReadAll(metricsResp.Body)
+				Expect(err).NotTo(HaveOccurred())
+				hits := findIntMetric(strings.Split(string(data), "\n"),
+					getCountMetricPrefix(common.QwenModelName, vllm.VLLMPrefixCacheHitsTotalMetricName))
+				if hits == nil {
+					return 0
+				}
+				return *hits
+			}
+			complete := func(prompt, salt string) {
+				_, err := openaiclient.Completions.New(ctx, openai.CompletionNewParams{
+					Prompt: openai.CompletionNewParamsPromptUnion{OfString: openai.String(prompt)},
+					Model:  openai.CompletionNewParamsModel(common.QwenModelName),
+				}, option.WithJSONSet("cache_salt", salt))
+				Expect(err).NotTo(HaveOccurred())
+			}
+
+			prompt := "What is the weather like in Haifa today?"
+			complete(prompt, "tenant-a")
+			complete(prompt+" Is it cold?", "tenant-b")
+			Consistently(prefixHits).WithTimeout(300 * time.Millisecond).WithPolling(25 * time.Millisecond).Should(BeZero())
+
+			complete(prompt+" Is it cold?", "tenant-a")
+			Eventually(prefixHits).WithTimeout(2 * time.Second).WithPolling(25 * time.Millisecond).Should(BeNumerically(">", 0))
+		})
+
 		It("Should send correct kv cache usage metrics for parallel /responses requests", func() {
 			ctx := context.TODO()
 			args := []string{"cmd", "--model", common.QwenModelName, "--mode", common.ModeRandom,

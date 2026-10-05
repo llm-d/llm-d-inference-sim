@@ -45,6 +45,9 @@ type Event struct {
 	ParentHash *uint64
 	LoraName   *string
 	LoraID     *int
+	// CacheSalt is set only on a store event whose first block is the
+	// request's first block. Only meaningful for ActionStore.
+	CacheSalt *string
 }
 
 // EventEncoder marshals one Event into the wire form of a particular engine.

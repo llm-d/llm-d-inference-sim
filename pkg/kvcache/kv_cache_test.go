@@ -46,6 +46,7 @@ type testRequest struct {
 	model       string
 	loraName    *string
 	loraID      *int
+	cacheSalt   *string
 	blockHashes []uint64
 	tokens      [][]uint32
 }
@@ -70,6 +71,10 @@ func (t *testRequest) GetLoraName() *string {
 
 func (t *testRequest) GetLoraID() *int {
 	return t.loraID
+}
+
+func (t *testRequest) GetCacheSalt() *string {
+	return t.cacheSalt
 }
 
 type expectedBlockInfo struct {
@@ -1100,6 +1105,83 @@ var _ = Describe("KV cache", Ordered, func() {
 		Expect(storedEvents[1].LoraName).To(HaveValue(Equal(loraName)))
 		Expect(storedEvents[1].LoraID).To(HaveValue(Equal(loraID)))
 		Expect(storedEvents[1].Hashes).To(Equal([]uint64{10, 20}))
+	})
+
+	It("cache salt in events / only the store event starting at the request's first block carries the salt", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+
+		config := &common.Configuration{
+			IP:    localhost,
+			Port:  1234,
+			Model: common.TestModelName,
+			KVCache: common.KVCacheConfig{
+				KVCacheSize:    10,
+				EventBatchSize: 1,
+			},
+		}
+
+		topic := CreateKVEventsTopic(localhost, config.Port, config.Model)
+		sub, endpoint := common.CreateSub(ctx, topic)
+		config.KVCache.ZMQEndpoint = endpoint
+		//nolint
+		defer sub.Close()
+
+		wg := sync.WaitGroup{}
+		wg.Add(1)
+
+		blockCache, err := newBlockCache(ctx, config, GinkgoLogr, nil, stubEncoder{})
+		Expect(err).NotTo(HaveOccurred())
+
+		go func() {
+			blockCache.start(ctx)
+			wg.Done()
+		}()
+
+		defer func() {
+			cancel()
+			wg.Wait()
+		}()
+
+		salt := "tenant-a"
+
+		go func() {
+			time.Sleep(time.Second)
+
+			first := testRequest{
+				id:          "first",
+				cacheSalt:   &salt,
+				blockHashes: []uint64{1, 2},
+				tokens:      [][]uint32{{1}, {2}},
+			}
+			_, err := blockCache.startRequest(&first, first.blockHashes, first.tokens)
+			Expect(err).NotTo(HaveOccurred())
+
+			// extends the cached prefix, so its store event starts after block 0
+			continuation := testRequest{
+				id:          "continuation",
+				cacheSalt:   &salt,
+				blockHashes: []uint64{1, 2, 3},
+				tokens:      [][]uint32{{1}, {2}, {3}},
+			}
+			_, err = blockCache.startRequest(&continuation, continuation.blockHashes, continuation.tokens)
+			Expect(err).NotTo(HaveOccurred())
+		}()
+
+		storedEvents := make([]Event, 0)
+		seq := uint64(0)
+		for len(storedEvents) < 2 {
+			msg, err := sub.Recv()
+			Expect(err).NotTo(HaveOccurred())
+			storedEvents = append(storedEvents, decodeStubStoredEvents(msg.Frames, topic, seq)...)
+			seq++
+		}
+
+		Expect(storedEvents[0].Hashes).To(Equal([]uint64{1, 2}))
+		Expect(storedEvents[0].CacheSalt).To(HaveValue(Equal(salt)))
+
+		Expect(storedEvents[1].Hashes).To(Equal([]uint64{3}))
+		Expect(storedEvents[1].ParentHash).To(HaveValue(Equal(uint64(2))))
+		Expect(storedEvents[1].CacheSalt).To(BeNil())
 	})
 })
 
