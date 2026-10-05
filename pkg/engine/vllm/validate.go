@@ -26,28 +26,6 @@ import (
 // ValidateConfig checks the vLLM-specific fields of cfg. Called after
 // cfg's common fields have already been validated.
 func (Engine) ValidateConfig(cfg *common.Configuration) error {
-	if cfg.Latencies.KVCacheTransferTimePerToken < 0 {
-		return errors.New("kv-cache transfer time per token cannot be negative")
-	}
-	if cfg.Latencies.KVCacheTransferTimeStdDev < 0 {
-		return errors.New("kv-cache transfer time standard deviation cannot be negative")
-	}
-	// No upper-bound check on KVCacheTransferTimeStdDev for the same reason as
-	// PrefillTimeStdDev: it is applied to the total transfer time
-	// (n × kv-cache-transfer-time-per-token), which depends on the prompt
-	// length n and is unknown at config time. Runtime clamping in
-	// RandomNormDuration handles oversized std-devs.
-
-	if cfg.Latencies.KVCacheTransferLatency < 0 {
-		return errors.New("kv-cache transfer time cannot be negative")
-	}
-	if cfg.Latencies.KVCacheTransferLatencyStdDev < 0 {
-		return errors.New("kv-cache transfer time standard deviation cannot be negative")
-	}
-	if float32(cfg.Latencies.KVCacheTransferLatencyStdDev) > 0.3*float32(cfg.Latencies.KVCacheTransferLatency) {
-		return errors.New("kv-cache transfer standard deviation cannot be more than 30% of kv-cache transfer")
-	}
-
 	if cfg.Lora.MaxLoras < 1 {
 		return errors.New("max LoRAs cannot be less than 1")
 	}

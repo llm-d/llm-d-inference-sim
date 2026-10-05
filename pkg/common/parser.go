@@ -275,6 +275,14 @@ func ParseCommandParamsAndLoadConfig(eng Engine) (*Configuration, error) {
 
 	f.DurationVar(&config.Latencies.InterTokenLatencyStdDev, "inter-token-latency-std-dev", config.Latencies.InterTokenLatencyStdDev, "Standard deviation for time between generated tokens, e.g. 100ms")
 	f.DurationVar(&config.Latencies.TimeToFirstTokenStdDev, "time-to-first-token-std-dev", config.Latencies.TimeToFirstTokenStdDev, "Standard deviation for time before the first token will be returned, e.g. 100ms")
+
+	// The simulated KV-cache transfer of a disaggregated P/D deployment. Core
+	// rather than engine-owned: the durations live in LatenciesConfig and the
+	// latency model in pkg/simulator applies them whichever engine is running.
+	f.DurationVar(&config.Latencies.KVCacheTransferLatency, "kv-cache-transfer-latency", config.Latencies.KVCacheTransferLatency, "Time for KV-cache transfer from a remote instance, e.g. 100ms")
+	f.DurationVar(&config.Latencies.KVCacheTransferLatencyStdDev, "kv-cache-transfer-latency-std-dev", config.Latencies.KVCacheTransferLatencyStdDev, "Standard deviation for time for KV-cache transfer from a remote instance, e.g. 100ms")
+	f.DurationVar(&config.Latencies.KVCacheTransferTimePerToken, "kv-cache-transfer-time-per-token", config.Latencies.KVCacheTransferTimePerToken, "Time for KV-cache transfer per token from a remote instance, e.g. 100ms")
+	f.DurationVar(&config.Latencies.KVCacheTransferTimeStdDev, "kv-cache-transfer-time-std-dev", config.Latencies.KVCacheTransferTimeStdDev, "Standard deviation for time for KV-cache transfer per token from a remote instance, e.g. 100ms")
 	f.Int64Var(&config.Seed, "seed", config.Seed, "Random seed for operations (if not set, current Unix time in nanoseconds is used)")
 	f.Float64Var(&config.Latencies.TimeFactorUnderLoad, "time-factor-under-load", config.Latencies.TimeFactorUnderLoad, "Time factor under load (must be >= 1.0)")
 
@@ -344,7 +352,7 @@ func ParseCommandParamsAndLoadConfig(eng Engine) (*Configuration, error) {
 	// These values were manually parsed above in GetParamValueFromArgs, we leave this in order to get these flags in --help
 	var dummyString string
 	f.StringVar(&dummyString, "config", "", "The path to a yaml configuration file. The command line values overwrite the configuration file values")
-	f.StringVar(&dummyString, "engine", "", "The inference engine backend to simulate (currently only 'vllm' is supported)")
+	f.StringVar(&dummyString, "engine", "", "The inference engine to simulate: 'vllm' or 'sglang'")
 	var dummyMultiString multiString
 	f.Var(&dummyMultiString, "served-model-name", "Model names exposed by the API (a list of space-separated strings)")
 	// In order to allow empty arguments, we set a dummy NoOptDefVal for these flags
