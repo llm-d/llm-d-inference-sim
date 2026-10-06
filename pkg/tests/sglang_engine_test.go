@@ -133,14 +133,29 @@ var _ = Describe("sglang engine", func() {
 		Expect(errBody).NotTo(HaveKey("error"))
 	})
 
-	It("Should not register the vLLM-only routes", func() {
-		resp, err := client.Post("http://localhost/inference/v1/generate", "application/json", http.NoBody)
-		Expect(err).NotTo(HaveOccurred())
-		defer func() {
-			Expect(resp.Body.Close()).To(Succeed())
-		}()
-		Expect(resp.StatusCode).To(Equal(http.StatusNotFound))
-	})
+	// Every route vLLM's BindHTTP registers, so that a route added there is
+	// either implemented here or reported as absent rather than inherited.
+	DescribeTable("should not register a vLLM-only route",
+		func(method string, route string) {
+			req, err := http.NewRequest(method, "http://localhost"+route, http.NoBody)
+			Expect(err).NotTo(HaveOccurred())
+			req.Header.Set("Content-Type", "application/json")
+
+			resp, err := client.Do(req)
+			Expect(err).NotTo(HaveOccurred())
+			defer func() {
+				Expect(resp.Body.Close()).To(Succeed())
+			}()
+			Expect(resp.StatusCode).To(Equal(http.StatusNotFound))
+		},
+		Entry("generate", http.MethodPost, "/inference/v1/generate"),
+		Entry("load_lora_adapter", http.MethodPost, "/v1/load_lora_adapter"),
+		Entry("unload_lora_adapter", http.MethodPost, "/v1/unload_lora_adapter"),
+		Entry("mooncake query", http.MethodGet, "/query"),
+		Entry("sleep", http.MethodPost, "/sleep"),
+		Entry("wake_up", http.MethodPost, "/wake_up"),
+		Entry("is_sleeping", http.MethodGet, "/is_sleeping"),
+	)
 })
 
 var _ = Describe("sglang engine startup", func() {

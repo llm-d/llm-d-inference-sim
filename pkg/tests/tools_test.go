@@ -369,7 +369,7 @@ var toolWithObjectWithoutRequiredParams = []openai.ChatCompletionToolUnionParam{
 	},
 }
 
-var _ = Describe("Simulator for request with tools", Ordered, func() {
+var _ = Describe("Simulator for request with tools", Ordered, forEachEngine(func() {
 	var (
 		userMsgTokens int64
 		ctx           context.Context
@@ -977,4 +977,4 @@ var _ = Describe("Simulator for request with tools", Ordered, func() {
 		Entry(nil, 100, 3, 5, 150),
 		Entry(nil, 100, 3, 150, 2500),
 	)
-})
+}))
