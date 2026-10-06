@@ -47,7 +47,7 @@ var _ = Describe("render requests", func() {
 				},
 			},
 		}
-		req := NewChatCompletionsRenderRequest(model, messages)
+		req := NewChatCompletionsRenderRequest(model, messages, RenderTools{})
 
 		Expect(req.Model()).To(Equal(model))
 		Expect(req.Messages).To(HaveLen(1))

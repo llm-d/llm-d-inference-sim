@@ -336,7 +336,7 @@ func startServerHelper(ctx context.Context, mode string, args []string, envs map
 	messages := []api.Message{
 		{Role: api.RoleUser,
 			Content: api.ChatComplContent{Raw: testUserMessage}}}
-	tokens, _, _, err = s.Context.Tokenizer.RenderMessages(messages)
+	tokens, _, _, err = s.Context.Tokenizer.RenderMessages(messages, api.RenderTools{})
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -921,7 +921,7 @@ func postAdminConfig(client *http.Client, body string) *http.Response {
 // renders the given messages using the test model
 func getChatPromptTokensCountForTestModel(message string) int64 {
 	messages := []api.Message{{Role: api.RoleUser, Content: api.ChatComplContent{Raw: message}}}
-	tokens, _, _, err := tokenizerMngr.TestTokenizer().RenderMessages(messages)
+	tokens, _, _, err := tokenizerMngr.TestTokenizer().RenderMessages(messages, api.RenderTools{})
 	gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
 
 	return int64(len(tokens))

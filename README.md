@@ -144,6 +144,7 @@ To run the vLLM simulator in a standalone test environment with a real model:
    make run-render MODEL_NAME=Qwen/Qwen2.5-0.5B-Instruct RENDER_PORT=8082
    ```
    Both `MODEL_NAME` and `RENDER_PORT` are optional and default to `TinyLlama/TinyLlama-1.1B-Chat-v1.0` and `8082` respectively.
+   To send requests with `tools`, start the render service with the tool-calling options of the vLLM you are simulating, for example by appending `--enable-auto-tool-choice --tool-call-parser hermes` to the command above, or `RENDER_ARGS="--enable-auto-tool-choice --tool-call-parser hermes"` to `make run-render`. See [tokenization](docs/tokenization.md#huggingface-mode-real-models).
 2. Start the simulator:
    ```bash
    ./bin/llm-d-inference-sim --model Qwen/Qwen2.5-0.5B-Instruct --port 8000 --render-url http://localhost:8082

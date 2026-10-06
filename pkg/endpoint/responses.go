@@ -184,7 +184,7 @@ func (r *responsesReqCtx) encode() ([]uint32, []string, *api.RenderMMFeatures, e
 			Content: api.ChatComplContent{Raw: r.req.Instructions},
 		}}, messages...)
 	}
-	return r.runtime.GetTokenizer().RenderMessages(messages)
+	return r.runtime.GetTokenizer().RenderMessages(messages, api.RenderTools{})
 }
 
 func (r *responsesReqCtx) createToolCalls() ([]api.ToolCall, int, string, error) {

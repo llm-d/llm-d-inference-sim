@@ -10,6 +10,7 @@ This mode is activated when `--render-url` points at a running vLLM render servi
 * **Requirements:**
     * **A running vLLM render service** reachable at `--render-url`. See the [README](../README.md#standalone-testing) for instructions on starting the render container, or use the `make run-render` helper.
 * **Performance:** Each tokenization call is a network round-trip to the render service.
+* **Tools:** A chat request's `tools` and `tool_choice` are forwarded to the render service as the client sent them (fields and key order preserved), because the chat template renders tool definitions into the prompt. Start the render service with the same tool-calling options as the vLLM you are simulating, for example `--enable-auto-tool-choice --tool-call-parser hermes`. Without them, vLLM accepts tools only with `"tool_choice": "none"`, and rejects the rest with 400, just as the real server would.
 
 ## Simulated Mode (Dummy Models)
 This mode is activated when `--render-url` is not set.

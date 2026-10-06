@@ -30,6 +30,9 @@ import (
 type ChatCompletionsRequest struct {
 	api.ChatCompletionsRequest
 	willSendImage bool
+	// renderTools holds the request's tools and tool_choice as received, for
+	// the render service.
+	renderTools api.RenderTools
 }
 
 func (c *ChatCompletionsRequest) SetSendImage(v bool) { c.willSendImage = v }
@@ -37,7 +40,26 @@ func (c *ChatCompletionsRequest) SendImage() bool     { return c.willSendImage }
 
 // reads and parses data from the body of the given request
 func (c *ChatCompletionsRequest) Unmarshal(data []byte) error {
-	return json.Unmarshal(data, c)
+	if err := json.Unmarshal(data, c); err != nil {
+		return err
+	}
+	var raw struct {
+		Tools      json.RawMessage `json:"tools"`
+		ToolChoice json.RawMessage `json:"tool_choice"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	c.renderTools = api.RenderTools{Tools: present(raw.Tools), ToolChoice: present(raw.ToolChoice)}
+	return nil
+}
+
+// present returns v, or nil when the field was absent or JSON null.
+func present(v json.RawMessage) json.RawMessage {
+	if len(v) == 0 || string(v) == "null" {
+		return nil
+	}
+	return v
 }
 
 // ValidateBody checks that a chat body has the required chat shape — at
@@ -56,7 +78,7 @@ func (c *ChatCompletionsRequest) ValidateBody() *api.Error {
 // returns the tokens (wrapped as a single-element slice for shape parity with
 // /v1/completions/render) and any mm_features.
 func (c *ChatCompletionsRequest) Render(tk tokenizer.Tokenizer) ([][]uint32, *api.RenderMMFeatures, error) {
-	tokens, _, features, err := tk.RenderMessages(c.Messages)
+	tokens, _, features, err := tk.RenderMessages(c.Messages, c.renderTools)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -162,7 +184,7 @@ func (c *chatCompletionReqCtx) Request() Request {
 }
 
 func (c *chatCompletionReqCtx) encode() ([]uint32, []string, *api.RenderMMFeatures, error) {
-	return c.runtime.GetTokenizer().RenderMessages(c.req.Messages)
+	return c.runtime.GetTokenizer().RenderMessages(c.req.Messages, c.req.renderTools)
 }
 
 func (c *chatCompletionReqCtx) createToolCalls() ([]api.ToolCall, int, string, error) {
