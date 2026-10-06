@@ -32,7 +32,7 @@ import (
 	"github.com/openai/openai-go/v3/packages/param"
 )
 
-var _ = Describe("Check latency calculator", Ordered, func() {
+var _ = Describe("Check latency calculator", Ordered, forEachEngine(func() {
 	// Check actual latencies for chat completion responses with various options
 	DescribeTable("calculators",
 		func(calculator string, ttft string, interToken string, cacheTransfer string, prefillOverhead string,
@@ -73,9 +73,9 @@ var _ = Describe("Check latency calculator", Ordered, func() {
 		// Per token, remote prefill, should use kv-cache-transfer-time-per-token, which is 0 here
 		Entry(nil, "per-token", "50ms", "50ms", "20ms", "1s", "50ms", true, true, "<", int64(100), int64(300)),
 	)
-})
+}))
 
-var _ = Describe("Latency admin config", func() {
+var _ = Describe("Latency admin config", forEachEngine(func() {
 	var (
 		client *http.Client
 		ctx    context.Context
@@ -381,4 +381,4 @@ var _ = Describe("Latency admin config", func() {
 			Expect(ttft.Milliseconds()).To(BeNumerically(">=", 1000))
 		})
 	})
-})
+}))

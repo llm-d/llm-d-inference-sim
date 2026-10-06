@@ -21,8 +21,10 @@ limitations under the License.
 package vllm
 
 import (
+	"context"
 	"time"
 
+	"github.com/llm-d/llm-d-router/pkg/kvcache/kvblock"
 	"github.com/llm-d/llm-d-router/pkg/kvevents"
 	"github.com/llm-d/llm-d-router/pkg/kvevents/engineadapter"
 	. "github.com/onsi/ginkgo/v2"
@@ -35,7 +37,7 @@ import (
 
 const eventsTestBlockSize = 16
 
-var eventsTestTopic = kvcache.CreateKVEventsTopic("127.0.0.1", 8000, common.TestModelName)
+var eventsTestTopic = kvcache.CreateKVEventsTopic("127.0.0.1", common.DefaultPort, common.TestModelName)
 
 func newEventEncoder(mapFormat bool) kvcache.EventEncoder {
 	cfg := common.Configuration{}
@@ -150,6 +152,34 @@ var _ = Describe("vLLM KV-event encoder", func() {
 		Entry("map format", true),
 	)
 
+	// vLLM folds a request's cache_salt into the extra keys of the request's
+	// first block only; later blocks inherit it through the parent chain.
+	DescribeTable("emits the cache salt as the first block's extra keys",
+		func(mapFormat bool) {
+			salt := "tenant-a"
+			salted := storeEvent
+			salted.CacheSalt = &salt
+
+			batch := parseAs(engineadapter.EngineTypeVLLM, publishEvents(newEventEncoder(mapFormat), salted))
+			stored, ok := batch.Events[0].(*kvevents.BlockStoredEvent)
+			Expect(ok).To(BeTrue())
+			Expect(stored.ExtraKeys).To(Equal([][]any{{salt}, nil}))
+		},
+		Entry("list format", false),
+		Entry("map format", true),
+	)
+
+	DescribeTable("omits extra keys for unsalted requests",
+		func(mapFormat bool) {
+			batch := parseAs(engineadapter.EngineTypeVLLM, publishEvents(newEventEncoder(mapFormat), storeEvent))
+			stored, ok := batch.Events[0].(*kvevents.BlockStoredEvent)
+			Expect(ok).To(BeTrue())
+			Expect(stored.ExtraKeys).To(BeNil())
+		},
+		Entry("list format", false),
+		Entry("map format", true),
+	)
+
 	// A nil ParentHash is the empty block hash on the wire: 0 positionally,
 	// msgpack nil in the map format. The adapter reports 0 for both.
 	DescribeTable("reports no parent as the empty block hash",
@@ -202,3 +232,53 @@ var _ = Describe("vLLM KV-event encoder", func() {
 		Expect(removed.BlockHashes).To(Equal([]uint64{3, 4}))
 	})
 })
+
+var _ = DescribeTable("salted events correlate with router lookup keys",
+	func(mapFormat bool) {
+		ctx := context.Background()
+		idx, err := kvblock.NewInMemoryIndex(kvblock.DefaultInMemoryIndexConfig())
+		Expect(err).NotTo(HaveOccurred())
+		cfg := kvblock.DefaultTokenProcessorConfig()
+		cfg.BlockSizeTokens = eventsTestBlockSize
+		processor, err := kvblock.NewChunkedTokenDatabase(cfg)
+		Expect(err).NotTo(HaveOccurred())
+		adapter, err := engineadapter.NewAdapter(engineadapter.EngineTypeVLLM)
+		Expect(err).NotTo(HaveOccurred())
+		pool := kvevents.NewPool(nil, idx, processor, adapter)
+		pool.Start(ctx)
+		defer pool.Shutdown(ctx)
+
+		tokens := make([]uint32, 2*eventsTestBlockSize)
+		salt := "tenant-a"
+		pool.AddTask(publishEvents(newEventEncoder(mapFormat), kvcache.Event{
+			Action: kvcache.ActionStore, Hashes: []uint64{101, 102}, Tokens: tokens, CacheSalt: &salt,
+		}))
+		requestKeys := func(salt string) []kvblock.BlockHash {
+			extras := make([]*kvblock.BlockExtraFeatures, 2)
+			if salt != "" {
+				extras[0] = &kvblock.BlockExtraFeatures{MMHashes: []kvblock.MMHash{{Hash: salt}}}
+			}
+			keys, err := processor.TokensToKVBlockKeys(kvblock.EmptyBlockHash, tokens, common.TestModelName, extras)
+			Expect(err).NotTo(HaveOccurred())
+			return keys
+		}
+		keys := requestKeys(salt)
+		Eventually(func() bool {
+			hits, err := idx.Lookup(ctx, keys, nil)
+			if err != nil {
+				return false
+			}
+			return len(hits[keys[0]]) == 1 && len(hits[keys[1]]) == 1
+		}).WithTimeout(2 * time.Second).Should(BeTrue())
+		for _, otherSalt := range []string{"tenant-b", ""} {
+			otherKeys := requestKeys(otherSalt)
+			hits, err := idx.Lookup(ctx, otherKeys, nil)
+			Expect(err).NotTo(HaveOccurred())
+			for _, key := range otherKeys {
+				Expect(hits[key]).To(BeEmpty())
+			}
+		}
+	},
+	Entry("array format", false),
+	Entry("map format", true),
+)

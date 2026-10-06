@@ -41,7 +41,7 @@ import (
 const prompt1 = "What is the weather like in New York today?"
 const prompt2 = "I hear it's very cold."
 
-var _ = Describe("Simulator", func() {
+var _ = Describe("Simulator", forEachEngine(func() {
 
 	DescribeTable("text completions streaming",
 		func(model string, mode string) {
@@ -622,14 +622,14 @@ var _ = Describe("Simulator", func() {
 				// var oaiErr *openai.Error
 				// Expect(errors.As(stream.Err(), &oaiErr)).To(BeTrue())
 				// Expect(oaiErr.StatusCode).To(Equal(fasthttp.StatusTooManyRequests))
-				// Expect(oaiErr.Message).To(ContainSubstring("waiting requests queue is full"))
+				// Expect(errorMessage(oaiErr)).To(ContainSubstring("waiting requests queue is full"))
 			} else {
 				_, err := openaiclient.Completions.New(ctx, params)
 				Expect(err).To(HaveOccurred())
 				var oaiErr *openai.Error
 				Expect(errors.As(err, &oaiErr)).To(BeTrue())
 				Expect(oaiErr.StatusCode).To(Equal(fasthttp.StatusTooManyRequests))
-				Expect(oaiErr.Message).To(ContainSubstring("waiting requests queue is full"))
+				Expect(errorMessage(oaiErr)).To(ContainSubstring("waiting requests queue is full"))
 			}
 		},
 		Entry("non-streaming", false),
@@ -748,7 +748,7 @@ var _ = Describe("Simulator", func() {
 		var oaiErr *openai.Error
 		Expect(errors.As(err, &oaiErr)).To(BeTrue())
 		Expect(oaiErr.StatusCode).To(Equal(fasthttp.StatusBadRequest))
-		Expect(oaiErr.Message).To(ContainSubstring("prompt array must contain at least one prompt"))
+		Expect(errorMessage(oaiErr)).To(ContainSubstring("prompt array must contain at least one prompt"))
 
 		// Follow-up single-prompt request must still succeed — proves rejecting the
 		// bad request didn't affect the worker pool or response channel machinery.
@@ -779,7 +779,7 @@ var _ = Describe("Simulator", func() {
 		var oaiErr *openai.Error
 		Expect(errors.As(err, &oaiErr)).To(BeTrue())
 		Expect(oaiErr.StatusCode).To(Equal(fasthttp.StatusBadRequest))
-		Expect(oaiErr.Message).To(ContainSubstring("prompt must not contain an empty string"))
+		Expect(errorMessage(oaiErr)).To(ContainSubstring("prompt must not contain an empty string"))
 	})
 
 	It("text completions array containing an empty token-id array is rejected with 400", func() {
@@ -800,7 +800,7 @@ var _ = Describe("Simulator", func() {
 		var oaiErr *openai.Error
 		Expect(errors.As(err, &oaiErr)).To(BeTrue())
 		Expect(oaiErr.StatusCode).To(Equal(fasthttp.StatusBadRequest))
-		Expect(oaiErr.Message).To(ContainSubstring("prompt must not contain an empty token-id array"))
+		Expect(errorMessage(oaiErr)).To(ContainSubstring("prompt must not contain an empty token-id array"))
 	})
 
 	It("text completions array prompt in random mode yields per-choice content and aggregated usage", func() {
@@ -1055,4 +1055,4 @@ var _ = Describe("Simulator", func() {
 		Entry(nil, common.ModeEcho, 2),   // with logprobs=2
 		Entry(nil, common.ModeEcho, nil), // without logprobs
 	)
-})
+}))

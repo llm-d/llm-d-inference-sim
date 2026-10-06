@@ -21,6 +21,7 @@ package tests
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/json"
@@ -32,6 +33,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -155,6 +157,100 @@ func resolveEngine() (engine.Engine, error) {
 	return engine.Select(name)
 }
 
+// suiteEngine is the engine the suite itself was invoked with, so SIM_ENGINE
+// still selects one for the specs that do not name an engine. Resolved once,
+// before any spec has rewritten os.Args; an unresolvable name is left to fail
+// where a spec starts a server, with the error the server itself reports.
+var suiteEngine = func() string {
+	name, err := common.ResolveEngineName()
+	if err != nil {
+		return common.DefaultEngineName
+	}
+	return name
+}()
+
+// currentEngine is the engine the simulator is started with when a spec's own
+// arguments do not name one. forEachEngine flips it, so a spec covers several
+// engines without threading the name through its arguments.
+var currentEngine = suiteEngine
+
+// forEachEngine wraps a container body so it runs once per registered engine.
+// For specs that exercise only the engine-neutral surface: the
+// OpenAI-compatible endpoints, the latency model, and response generation. A
+// spec asserting on metrics, LoRA adapters, the KV cache, or an engine's native
+// routes must stay outside it, since those are what an engine owns.
+func forEachEngine(body func()) func() {
+	return func() {
+		for _, name := range engine.Names() {
+			ginkgo.Context("engine "+name, func() {
+				ginkgo.BeforeEach(func() {
+					currentEngine = name
+					ginkgo.DeferCleanup(func() { currentEngine = suiteEngine })
+				})
+				body()
+			})
+		}
+	}
+}
+
+// flatError holds the fields an engine may put at the top level of an error
+// body instead of inside an "error" envelope. The OpenAI client fills its own
+// Message and Type from that envelope alone, which sglang does not use for a
+// non-streaming response, so a spec that runs under both engines must read
+// neither field directly.
+type flatError struct {
+	Message string `json:"message"`
+	Type    string `json:"type"`
+}
+
+// readFlatError parses the body of apiErr, restoring it afterwards so that
+// reading one field does not consume the body the next reader needs.
+func readFlatError(apiErr *openai.Error) flatError {
+	var parsed flatError
+	if apiErr.Response == nil || apiErr.Response.Body == nil {
+		return parsed
+	}
+	body, err := io.ReadAll(apiErr.Response.Body)
+	if err != nil {
+		return parsed
+	}
+	apiErr.Response.Body = io.NopCloser(bytes.NewReader(body))
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return flatError{}
+	}
+	return parsed
+}
+
+// errorMessage returns the human-readable message of an API error, whichever
+// error wire format the active engine emitted.
+func errorMessage(apiErr *openai.Error) string {
+	if apiErr.Message != "" {
+		return apiErr.Message
+	}
+	return readFlatError(apiErr).Message
+}
+
+// errorType returns the error type of an API error, whichever error wire format
+// the active engine emitted.
+func errorType(apiErr *openai.Error) string {
+	if apiErr.Type != "" {
+		return apiErr.Type
+	}
+	return readFlatError(apiErr).Type
+}
+
+// apiErrorFromBody parses an error response body, which an engine frames either
+// inside an "error" envelope or with the error's own fields at the top level.
+func apiErrorFromBody(body []byte) api.Error {
+	var envelope api.ErrorResponse
+	if err := json.Unmarshal(body, &envelope); err == nil && envelope.Error.Code != 0 {
+		return envelope.Error
+	}
+	var flat api.Error
+	gomega.Expect(json.Unmarshal(body, &flat)).To(gomega.Succeed(), "body: %s", string(body))
+	return flat
+}
+
 // nolint
 func startServerHandle(ctx context.Context, mode string, args []string, envs map[string]string) (*simulator.Simulator,
 	*communication.Communication, *http.Client, error) {
@@ -172,6 +268,12 @@ func startServerHelper(ctx context.Context, mode string, args []string, envs map
 		os.Args = args
 	} else {
 		os.Args = []string{"cmd", "--model", common.TestModelName, "--mode", mode}
+	}
+	// Appended rather than built into the args above, so a spec keeps its own
+	// --engine when it has one and every other spec follows forEachEngine.
+	// Copied first, since os.Args may alias the caller's own slice.
+	if len(common.GetParamValueFromArgs("engine")) == 0 {
+		os.Args = append(slices.Clone(os.Args), "--engine", currentEngine)
 	}
 
 	if envs != nil {
@@ -234,7 +336,7 @@ func startServerHelper(ctx context.Context, mode string, args []string, envs map
 	messages := []api.Message{
 		{Role: api.RoleUser,
 			Content: api.ChatComplContent{Raw: testUserMessage}}}
-	tokens, _, _, err = s.Context.Tokenizer.RenderMessages(messages)
+	tokens, _, _, err = s.Context.Tokenizer.RenderMessages(messages, api.RenderTools{})
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -819,7 +921,7 @@ func postAdminConfig(client *http.Client, body string) *http.Response {
 // renders the given messages using the test model
 func getChatPromptTokensCountForTestModel(message string) int64 {
 	messages := []api.Message{{Role: api.RoleUser, Content: api.ChatComplContent{Raw: message}}}
-	tokens, _, _, err := tokenizerMngr.TestTokenizer().RenderMessages(messages)
+	tokens, _, _, err := tokenizerMngr.TestTokenizer().RenderMessages(messages, api.RenderTools{})
 	gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
 
 	return int64(len(tokens))

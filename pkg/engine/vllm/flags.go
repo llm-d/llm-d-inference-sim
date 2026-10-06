@@ -108,11 +108,6 @@ func registerFlags(f *pflag.FlagSet, cfg *common.Configuration) {
 	f.IntVar(&cfg.Lora.MaxLoras, "max-loras", cfg.Lora.MaxLoras, "Maximum number of LoRAs in a single batch")
 	f.IntVar(&cfg.Lora.MaxCPULoras, "max-cpu-loras", cfg.Lora.MaxCPULoras, "Maximum number of LoRAs to store in CPU memory")
 
-	f.DurationVar(&cfg.Latencies.KVCacheTransferTimePerToken, "kv-cache-transfer-time-per-token", cfg.Latencies.KVCacheTransferTimePerToken, "Time for KV-cache transfer per token from a remote vLLM, e.g. 100ms")
-	f.DurationVar(&cfg.Latencies.KVCacheTransferTimeStdDev, "kv-cache-transfer-time-std-dev", cfg.Latencies.KVCacheTransferTimeStdDev, "Standard deviation for time for KV-cache transfer per token from a remote vLLM, e.g. 100ms")
-	f.DurationVar(&cfg.Latencies.KVCacheTransferLatency, "kv-cache-transfer-latency", cfg.Latencies.KVCacheTransferLatency, "Time for KV-cache transfer from a remote vLLM, e.g. 100ms")
-	f.DurationVar(&cfg.Latencies.KVCacheTransferLatencyStdDev, "kv-cache-transfer-latency-std-dev", cfg.Latencies.KVCacheTransferLatencyStdDev, "Standard deviation for time for KV-cache transfer from a remote vLLM, e.g. 100ms")
-
 	common.AddToggle(f, &cfg.KVCache.EnableKVCache,
 		"enable-kvcache", "Enable KV cache simulation", "Disable KV cache simulation")
 	f.IntVar(&cfg.KVCache.KVCacheSize, "kv-cache-size", cfg.KVCache.KVCacheSize, "Maximum number of token blocks in kv cache")

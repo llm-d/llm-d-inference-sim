@@ -66,6 +66,8 @@ type Request interface {
 	// GetLoraName returns the LoRA name or nil if model is the base model
 	GetLoraName() *string
 	GetLoraID() *int
+	// GetCacheSalt returns the request's cache salt, or nil when none was sent
+	GetCacheSalt() *string
 	// SetModelLoraID sets the LoRA ID for the request, ID == 0 means the base model
 	SetModelLoraID(id int)
 	// IncludeUsage returns true if usage statistics should be include in the response
@@ -150,6 +152,8 @@ type baseRequest struct {
 	Stream bool `json:"stream"`
 	// KVParams kv transfer related fields
 	KVParams *KVTransferParams `json:"kv_transfer_params,omitempty"`
+	// CacheSalt scopes prefix-cache reuse to requests carrying the same salt, as in vLLM
+	CacheSalt *string `json:"cache_salt,omitempty"`
 	// The number of tokens in the prompt that are in the local KV Cache
 	cachedPromptTokens int
 	// IgnoreEOS is a boolean value, true when the model should ignore end-of-sequence tokens
@@ -291,6 +295,13 @@ func (b *baseRequest) GetLoraID() *int {
 		return &id
 	}
 	return nil
+}
+
+func (b *baseRequest) GetCacheSalt() *string {
+	if b.CacheSalt == nil || *b.CacheSalt == "" {
+		return nil
+	}
+	return b.CacheSalt
 }
 
 func (b *baseRequest) SetModelLoraID(id int) {

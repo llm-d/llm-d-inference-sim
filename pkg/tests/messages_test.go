@@ -130,7 +130,15 @@ var anthropicGetTemperatureTool = map[string]any{
 	},
 }
 
-var _ = Describe("Simulator for /v1/messages (Anthropic Messages API)", func() {
+// messagesBadRequestType is the error type each engine reports for a 400 on
+// /v1/messages. Each engine's full status-to-type mapping is covered in its own
+// package; this is the single value the specs below need.
+var messagesBadRequestType = map[string]string{
+	"vllm":   "BadRequestError",
+	"sglang": "invalid_request_error",
+}
+
+var _ = Describe("Simulator for /v1/messages (Anthropic Messages API)", forEachEngine(func() {
 	var (
 		ctx   context.Context
 		model string
@@ -262,6 +270,9 @@ var _ = Describe("Simulator for /v1/messages (Anthropic Messages API)", func() {
 		// The error carries the Messages API's own envelope, not the OpenAI one
 		// the other endpoints use: every engine answers this route the way the
 		// Anthropic SDK expects, so that its typed error classes still parse.
+		// What differs is the error type inside that envelope, which the engine
+		// owns: vLLM keeps the spelling it uses on every other route, sglang maps
+		// it to Anthropic's own vocabulary.
 		It("returns 400 for a request with no messages", func() {
 			client, err := startServer(ctx, common.ModeRandom)
 			Expect(err).NotTo(HaveOccurred())
@@ -277,7 +288,9 @@ var _ = Describe("Simulator for /v1/messages (Anthropic Messages API)", func() {
 			var errResp api.MessagesErrorResponse
 			Expect(json.Unmarshal(respBody, &errResp)).To(Succeed())
 			Expect(errResp.Type).To(Equal(api.MessagesTypeError))
-			Expect(errResp.Error.Type).To(Equal("BadRequestError"))
+			expectedType, known := messagesBadRequestType[currentEngine]
+			Expect(known).To(BeTrue(), "no expected error type recorded for engine %s", currentEngine)
+			Expect(errResp.Error.Type).To(Equal(expectedType))
 			Expect(errResp.Error.Message).To(ContainSubstring("messages must not be empty"))
 		})
 	})
@@ -388,7 +401,7 @@ var _ = Describe("Simulator for /v1/messages (Anthropic Messages API)", func() {
 			Expect(*msgDelta.Delta.StopReason).To(Equal(api.MessagesStopReasonToolUse))
 		})
 	})
-})
+}))
 
 // findEventIndex returns the index of the first event with the given type.
 func findEventIndex(types []string, eventType string) int {

@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"hash/fnv"
 
 	"github.com/go-logr/logr"
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
@@ -36,6 +37,7 @@ type KVCacheHelper struct {
 	logger          logr.Logger
 	blockCache      *blockCache
 	blockSize       int
+	hashSeed        string
 	metrics         *metrics.MetricsBus
 }
 
@@ -66,6 +68,7 @@ func NewKVCacheHelper(ctx context.Context, config *common.Configuration, logger 
 		blockCache:      blockCache,
 		logger:          logger,
 		blockSize:       config.KVCache.TokenBlockSize,
+		hashSeed:        tokenProcConfig.HashSeed,
 		metrics:         metrics,
 	}, nil
 }
@@ -109,8 +112,13 @@ func (h *KVCacheHelper) OnRequestStart(req api.Request) (metrics.PrefixCacheQuer
 			h.blockSize, len(tokens))
 	}
 
-	// get block keys
-	blockKeys, err := h.tokensProcessor.TokensToKVBlockKeys(kvblock.EmptyBlockHash, tokens, req.GetDisplayedModel(), extraFeatures)
+	// get block keys; a salted request starts its chain from a salt-specific
+	// root, so only requests with the same salt share cached blocks
+	parent := kvblock.EmptyBlockHash
+	if salt := req.GetCacheSalt(); salt != nil {
+		parent = h.saltedRootHash(req.GetDisplayedModel(), *salt)
+	}
+	blockKeys, err := h.tokensProcessor.TokensToKVBlockKeys(parent, tokens, req.GetDisplayedModel(), extraFeatures)
 	if err != nil {
 		return metrics.PrefixCacheQueried{}, fmt.Errorf("failed to convert tokens to block keys: %w", err)
 	}
@@ -144,6 +152,21 @@ func (h *KVCacheHelper) OnRequestStart(req api.Request) (metrics.PrefixCacheQuer
 
 func (h *KVCacheHelper) OnRequestEnd(requestID string) error {
 	return h.blockCache.finishRequest(requestID)
+}
+
+// saltedRootHash is the chain root for a salted request. It covers the model,
+// which the token processor only mixes in for an unsalted (empty) root.
+func (h *KVCacheHelper) saltedRootHash(model, salt string) kvblock.BlockHash {
+	hasher := fnv.New64a()
+	for _, part := range []string{h.hashSeed, model, salt} {
+		_, _ = hasher.Write([]byte(part))
+		_, _ = hasher.Write([]byte{0})
+	}
+	root := hasher.Sum64()
+	if kvblock.BlockHash(root) == kvblock.EmptyBlockHash {
+		root++
+	}
+	return kvblock.BlockHash(root)
 }
 
 // SetModelLoaded marks a model as loaded, affecting block eviction priority

@@ -58,9 +58,8 @@ type blockStoredEvent struct {
 	LoraID          *int     `msgpack:"lora_id,omitempty"`
 	Medium          *string  `msgpack:"medium,omitempty"`
 	LoraName        *string  `msgpack:"lora_name,omitempty"`
-	// The following fields are part of the vLLM BlockStoredEvent schema (vllm-project/vllm#42892)
-	// and are reserved for forward-compatibility. They are never populated by this simulator.
-	ExtraKeys                []any   `msgpack:"extra_keys,omitempty"`
+	ExtraKeys       []any    `msgpack:"extra_keys,omitempty"`
+	// Cache-spec metadata is reserved for forward compatibility.
 	GroupIdx                 *int    `msgpack:"group_idx,omitempty"`
 	KVCacheSpecKind          *string `msgpack:"kv_cache_spec_kind,omitempty"`
 	KVCacheSpecSlidingWindow *int    `msgpack:"kv_cache_spec_sliding_window,omitempty"`
@@ -131,6 +130,7 @@ func (e eventEncoder) EncodeEvent(ev kvcache.Event) ([]byte, error) {
 				LoraID:          ev.LoraID,
 				Medium:          &medium,
 				LoraName:        ev.LoraName,
+				ExtraKeys:       cacheSaltExtraKeys(ev),
 			}
 			break
 		}
@@ -147,6 +147,7 @@ func (e eventEncoder) EncodeEvent(ev kvcache.Event) ([]byte, error) {
 			LoraID:          ev.LoraID,
 			Medium:          &medium,
 			LoraName:        ev.LoraName,
+			ExtraKeys:       cacheSaltExtraKeys(ev),
 		}
 
 	case kvcache.ActionRemove:
@@ -185,6 +186,18 @@ func (e eventEncoder) EncodeEvent(ev kvcache.Event) ([]byte, error) {
 		return nil, fmt.Errorf("failed to marshal event: %w", err)
 	}
 	return encoded, nil
+}
+
+// cacheSaltExtraKeys returns vLLM's per-block extra_keys for a salted store
+// event: the salt on the first block, nil for the rest. It returns nil when
+// the event carries no salt, so the field is omitted.
+func cacheSaltExtraKeys(ev kvcache.Event) []any {
+	if ev.CacheSalt == nil || len(ev.Hashes) == 0 {
+		return nil
+	}
+	extraKeys := make([]any, len(ev.Hashes))
+	extraKeys[0] = []any{*ev.CacheSalt}
+	return extraKeys
 }
 
 func convertUint64ToAnySlice(input []uint64) []any {
