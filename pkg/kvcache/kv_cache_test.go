@@ -143,15 +143,15 @@ type threadTestCase struct {
 
 var _ = Describe("CreateKVEventsTopic", func() {
 	It("embeds the ip, serving port and model in the topic", func() {
-		Expect(CreateKVEventsTopic("10.0.0.1", 8000, "Qwen/Qwen2.5-1.5B-Instruct")).
-			To(Equal("kv@10.0.0.1:8000@Qwen/Qwen2.5-1.5B-Instruct"))
+		Expect(CreateKVEventsTopic("10.0.0.1", common.DefaultPort, "Qwen/Qwen2.5-1.5B-Instruct")).
+			To(Equal(fmt.Sprintf("kv@10.0.0.1:%d@Qwen/Qwen2.5-1.5B-Instruct", common.DefaultPort)))
 	})
 
 	It("uses a distinct topic per data-parallel rank serving port", func() {
 		model := "Qwen/Qwen2.5-1.5B-Instruct"
-		topic0 := CreateKVEventsTopic("10.0.0.1", 8000, model)
-		topic1 := CreateKVEventsTopic("10.0.0.1", 8001, model)
-		topic2 := CreateKVEventsTopic("10.0.0.1", 8002, model)
+		topic0 := CreateKVEventsTopic("10.0.0.1", common.DefaultPort, model)
+		topic1 := CreateKVEventsTopic("10.0.0.1", common.DefaultPort+1, model)
+		topic2 := CreateKVEventsTopic("10.0.0.1", common.DefaultPort+2, model)
 		Expect(topic0).NotTo(Equal(topic1))
 		Expect(topic0).NotTo(Equal(topic2))
 		Expect(topic1).NotTo(Equal(topic2))

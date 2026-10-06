@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -652,12 +653,12 @@ var _ = Describe("Server sleep mode", Ordered, func() {
 	It("Should enter sleep mode and wake up", func() {
 		ctx := context.TODO()
 
-		topic := kvcache.CreateKVEventsTopic("localhost", 8000, common.QwenModelName)
+		topic := kvcache.CreateKVEventsTopic("localhost", common.DefaultPort, common.QwenModelName)
 		sub, endpoint := common.CreateSub(ctx, topic)
 
 		client, err := startServerWithArgsAndEnv(ctx, common.ModeRandom,
 			[]string{"cmd", "--model", common.QwenModelName, "--mode", common.ModeRandom, "--enable-sleep-mode",
-				"--enable-kvcache", "--v", "5", "--port", "8000", "--zmq-endpoint", endpoint},
+				"--enable-kvcache", "--v", "5", "--port", strconv.Itoa(common.DefaultPort), "--zmq-endpoint", endpoint},
 			map[string]string{"VLLM_SERVER_DEV_MODE": "1", "POD_IP": "localhost"})
 		Expect(err).NotTo(HaveOccurred())
 

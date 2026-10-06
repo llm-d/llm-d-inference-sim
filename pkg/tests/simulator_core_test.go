@@ -108,7 +108,7 @@ var _ = Describe("Simulator core", forEachEngine(func() {
 
 			Expect(namespaceHeader).To(Equal(testNamespace), "Expected namespace header to be present")
 			Expect(podHeader).To(Equal(testPod), "Expected pod header to be present")
-			Expect(portHeader).To(Equal("8000"), "Expected port header to be present")
+			Expect(portHeader).To(Equal(strconv.Itoa(common.DefaultPort)), "Expected port header to be present")
 		})
 
 		It("Should include namespace, pod and port headers in chat completion streaming response", func() {
@@ -127,7 +127,7 @@ var _ = Describe("Simulator core", forEachEngine(func() {
 
 			Expect(namespaceHeader).To(Equal(testNamespace), "Expected namespace header to be present")
 			Expect(podHeader).To(Equal(testPod), "Expected pod header to be present")
-			Expect(portHeader).To(Equal("8000"), "Expected port header to be present")
+			Expect(portHeader).To(Equal(strconv.Itoa(common.DefaultPort)), "Expected port header to be present")
 		})
 
 		It("Should not include namespace, pod and port headers in chat completion streaming response when env is not set", func() {
@@ -168,7 +168,7 @@ var _ = Describe("Simulator core", forEachEngine(func() {
 
 			Expect(namespaceHeader).To(Equal(testNamespace), "Expected namespace header to be present")
 			Expect(podHeader).To(Equal(testPod), "Expected pod header to be present")
-			Expect(portHeader).To(Equal("8000"), "Expected port header to be present")
+			Expect(portHeader).To(Equal(strconv.Itoa(common.DefaultPort)), "Expected port header to be present")
 		})
 
 		It("Should include namespace, pod and port headers in completion streaming response", func() {
@@ -196,7 +196,7 @@ var _ = Describe("Simulator core", forEachEngine(func() {
 
 			Expect(namespaceHeader).To(Equal(testNamespace), "Expected namespace header to be present")
 			Expect(podHeader).To(Equal(testPod), "Expected pod header to be present")
-			Expect(portHeader).To(Equal("8000"), "Expected port header to be present")
+			Expect(portHeader).To(Equal(strconv.Itoa(common.DefaultPort)), "Expected port header to be present")
 		})
 
 		It("Should not include namespace, pod and port headers in embeddings response when env is not set", func() {
@@ -226,7 +226,7 @@ var _ = Describe("Simulator core", forEachEngine(func() {
 
 			Expect(namespaceHeader).To(Equal(testNamespace), "Expected namespace header to be present")
 			Expect(podHeader).To(Equal(testPod), "Expected pod header to be present")
-			Expect(portHeader).To(Equal("8000"), "Expected port header to be present")
+			Expect(portHeader).To(Equal(strconv.Itoa(common.DefaultPort)), "Expected port header to be present")
 		})
 	})
 

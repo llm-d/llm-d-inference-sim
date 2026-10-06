@@ -35,7 +35,7 @@ import (
 
 const eventsTestBlockSize = 16
 
-var eventsTestTopic = kvcache.CreateKVEventsTopic("127.0.0.1", 8000, common.TestModelName)
+var eventsTestTopic = kvcache.CreateKVEventsTopic("127.0.0.1", common.DefaultPort, common.TestModelName)
 
 func newEventEncoder(mapFormat bool) kvcache.EventEncoder {
 	cfg := common.Configuration{}

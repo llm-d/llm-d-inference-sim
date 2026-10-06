@@ -73,7 +73,7 @@ var _ = Describe("Data Parallel", func() {
 		// Rank 0's ZMQ PUB endpoint gets a random port; ranks 1 and 2 get port+1
 		// and port+2 respectively (the simulator calls
 		// common.OffsetEndpointPort(base, rank) for ranks > 0).
-		const baseServingPort = 8000
+		const baseServingPort = common.DefaultPort
 		topic0 := kvcache.CreateKVEventsTopic("localhost", baseServingPort, model)
 		sub0, zmqEndpoint := common.CreateSub(ctx, topic0)
 		defer sub0.Close() //nolint:errcheck
