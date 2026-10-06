@@ -82,6 +82,7 @@ func (c *Communication) startHTTPServer(ctx context.Context, listener net.Listen
 	r.POST("/v1/completions", c.HandleTextCompletions)
 	r.POST("/v1/chat/completions/render", c.HandleChatCompletionsRender)
 	r.POST("/v1/completions/render", c.HandleTextCompletionsRender)
+	r.POST("/v1/responses/render", c.HandleResponsesRender)
 	r.POST("/v1/chat/completions/derender", c.HandleChatCompletionsDerender)
 	r.POST("/v1/completions/derender", c.HandleTextCompletionsDerender)
 	r.POST(responsesRoute, c.HandleResponses)
@@ -178,6 +179,11 @@ func (c *Communication) HandleChatCompletionsRender(ctx *fasthttp.RequestCtx) {
 // HandleTextCompletionsRender http handler for /v1/completions/render
 func (c *Communication) HandleTextCompletionsRender(ctx *fasthttp.RequestCtx) {
 	c.handleRender(&endpoint.TextCompletionsParsedRequest{}, &textComplHTTPRespBuilder{}, ctx)
+}
+
+// HandleResponsesRender http handler for /v1/responses/render
+func (c *Communication) HandleResponsesRender(ctx *fasthttp.RequestCtx) {
+	c.handleRender(&endpoint.ResponsesRenderRequest{}, &responsesHTTPRespBuilder{}, ctx)
 }
 
 func (c *Communication) handleRender(req endpoint.RenderableRequest, respBuilder responseBuilder, ctx *fasthttp.RequestCtx) {

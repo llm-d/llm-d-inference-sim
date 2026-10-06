@@ -240,6 +240,47 @@ var _ = Describe("Server", forEachEngine(func() {
 				Expect(resp.Features.KwargsData).To(HaveKey("image"))
 				Expect(resp.Features.KwargsData["image"]).To(HaveLen(2))
 			}),
+		Entry("simulate /v1/responses/render with a string input",
+			common.TestModelName, "/v1/responses/render",
+			fmt.Sprintf(`{"model":"%s","input":"This is a test"}`, common.TestModelName),
+			func(body []byte) {
+				var resp api.RenderResponse
+				Expect(json.Unmarshal(body, &resp)).To(Succeed())
+				Expect(resp.TokenIDs).NotTo(BeEmpty())
+				Expect(resp.Features).To(BeNil())
+			}),
+		Entry("simulate /v1/responses/render with message input and instructions",
+			common.TestModelName, "/v1/responses/render",
+			fmt.Sprintf(`{"model":"%s","instructions":"Reply in French","input":[`+
+				`{"type":"message","role":"user","content":[{"type":"input_text","text":"This is a test"}]},`+
+				`{"type":"function_call","call_id":"call_1","name":"get_weather","arguments":"{\"city\":\"Paris\"}"},`+
+				`{"type":"function_call_output","call_id":"call_1","output":"sunny, 22C"}`+
+				`]}`, common.TestModelName),
+			func(body []byte) {
+				var resp api.RenderResponse
+				Expect(json.Unmarshal(body, &resp)).To(Succeed())
+				Expect(resp.TokenIDs).NotTo(BeEmpty())
+				Expect(resp.Features).To(BeNil())
+			}),
+		Entry("simulate /v1/responses/render with input_image synthesizes mm features",
+			common.TestModelName, "/v1/responses/render",
+			fmt.Sprintf(`{"model":"%s","input":[{"type":"message","role":"user","content":[`+
+				`{"type":"input_text","text":"describe this"},`+
+				`{"type":"input_image","image_url":"http://example.com/a.png"},`+
+				`{"type":"input_image","image_url":"http://example.com/b.png"}`+
+				`]}]}`, common.TestModelName),
+			func(body []byte) {
+				var resp api.RenderResponse
+				Expect(json.Unmarshal(body, &resp)).To(Succeed())
+				Expect(resp.TokenIDs).NotTo(BeEmpty())
+				Expect(resp.Features).NotTo(BeNil())
+				Expect(resp.Features.MMHashes).To(HaveKey("image"))
+				Expect(resp.Features.MMHashes["image"]).To(HaveLen(2))
+				Expect(resp.Features.MMPlaceholders).To(HaveKey("image"))
+				Expect(resp.Features.MMPlaceholders["image"]).To(HaveLen(2))
+				Expect(resp.Features.KwargsData).To(HaveKey("image"))
+				Expect(resp.Features.KwargsData["image"]).To(HaveLen(2))
+			}),
 		Entry("proxy /v1/completions/render to the upstream renderer (HF model)",
 			common.QwenModelName, "/v1/completions/render",
 			fmt.Sprintf(`{"model":"%s","prompt":"This is a test"}`, common.QwenModelName),
@@ -281,6 +322,44 @@ var _ = Describe("Server", forEachEngine(func() {
 				Expect(resp.Features.KwargsData).To(HaveKey("image"))
 				Expect(resp.Features.KwargsData["image"]).To(HaveLen(2))
 			}),
+		Entry("proxy /v1/responses/render to the upstream renderer (HF model)",
+			common.QwenModelName, "/v1/responses/render",
+			fmt.Sprintf(`{"model":"%s","input":"This is a test"}`, common.QwenModelName),
+			func(body []byte) {
+				var resp api.RenderResponse
+				Expect(json.Unmarshal(body, &resp)).To(Succeed())
+				Expect(resp.TokenIDs).NotTo(BeEmpty())
+				Expect(resp.Features).To(BeNil())
+			}),
+	)
+
+	DescribeTable("responses render request validation",
+		func(reqBody string, expectedStatus int, expectedMsg string) {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			resp, err := client.Post("http://localhost/v1/responses/render", "application/json", strings.NewReader(reqBody))
+			Expect(err).NotTo(HaveOccurred())
+			defer func() {
+				Expect(resp.Body.Close()).To(Succeed())
+			}()
+			Expect(resp.StatusCode).To(Equal(expectedStatus))
+
+			body, err := io.ReadAll(resp.Body)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(string(body)).To(ContainSubstring(expectedMsg))
+		},
+		Entry("rejects an empty input",
+			fmt.Sprintf(`{"model":"%s","input":[]}`, common.TestModelName),
+			http.StatusBadRequest, "input must not be empty"),
+		Entry("rejects an empty string input",
+			fmt.Sprintf(`{"model":"%s","input":""}`, common.TestModelName),
+			http.StatusBadRequest, "input must not be empty"),
+		Entry("rejects previous_response_id",
+			fmt.Sprintf(`{"model":"%s","input":"hi","previous_response_id":"resp_1"}`, common.TestModelName),
+			http.StatusBadRequest, "previous_response_id"),
 	)
 
 	Describe("derender endpoints", func() {
