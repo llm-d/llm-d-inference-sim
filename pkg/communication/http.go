@@ -82,7 +82,9 @@ func (c *Communication) startHTTPServer(ctx context.Context, listener net.Listen
 	r.POST("/v1/completions", c.HandleTextCompletions)
 	r.POST("/v1/chat/completions/render", c.HandleChatCompletionsRender)
 	r.POST("/v1/completions/render", c.HandleTextCompletionsRender)
-	r.POST("/v1/responses/render", c.HandleResponsesRender)
+	if !c.runtime.Config().EnableLegacyRender {
+		r.POST("/v1/responses/render", c.HandleResponsesRender)
+	}
 	r.POST("/v1/chat/completions/derender", c.HandleChatCompletionsDerender)
 	r.POST("/v1/completions/derender", c.HandleTextCompletionsDerender)
 	r.POST(responsesRoute, c.HandleResponses)

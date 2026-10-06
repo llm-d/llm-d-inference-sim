@@ -148,6 +148,7 @@ var _ = Describe("Configuration", func() {
 		Entry("time-to-first-token-std-dev", "--time-to-first-token", "100ms", "--time-to-first-token-std-dev", "10ms"),
 		Entry("omni", "--omni", "--image-emission-rate", "100"),
 		Entry("enable-request-id-headers", "--enable-request-id-headers"),
+		Entry("enable-legacy-render", "--enable-legacy-render"),
 	)
 
 	// A flag for a feature this engine is expected to grow is registered and

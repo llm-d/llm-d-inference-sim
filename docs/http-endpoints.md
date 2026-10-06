@@ -229,7 +229,7 @@ Structure of requests/responses
                 - length (number of tokens the region spans)
             - kwargs_data (map keyed by modality to an array of strings, one per multimodal item; content is tokenizer-dependent — see [Render endpoints](#render-endpoints))
 - `/v1/responses/render`
-    - **request** — same shape as `/v1/responses`; only `model`, `instructions`, and `input` are inspected. The endpoint is stateless: `previous_response_id` is rejected with `400 Bad Request` (a caller is expected to rehydrate the chain into `input`).
+    - **request** — same shape as `/v1/responses`; only `model`, `instructions`, and `input` are inspected. The endpoint is stateless: `previous_response_id` is rejected with `400 Bad Request` (a caller is expected to rehydrate the chain into `input`). The route is not registered when `--enable-legacy-render` is set, so requests get `404 Not Found`, matching vLLM versions that predate the endpoint.
         - model
         - instructions
         - input (same structure as `/v1/responses`; a bare string is treated as a single user message)
@@ -521,7 +521,7 @@ For full details on the expected API behavior and specification, please refer to
 
 `/v1/completions/render`, `/v1/chat/completions/render`, and `/v1/responses/render` mirror vLLM's `/render` behavior — they return the tokenized form of a request without running generation. They are useful for debugging tokenization, pre-computing prompt token counts, and exercising multimodal feature handling.
 
-`/v1/responses/render` is stateless: `previous_response_id` is rejected with `400 Bad Request`. The simulator renders a Responses request by converting its `input` items to chat-completions messages — the same conversion the `/v1/responses` generation path uses — and rendering those messages. For a real model this means the upstream render service is asked to render a `/v1/chat/completions` request, so the returned token IDs are those of the chat-rendered prompt and do not necessarily match what a real vLLM `/v1/responses/render` produces for the same body.
+`/v1/responses/render` is stateless: `previous_response_id` is rejected with `400 Bad Request`. The simulator renders a Responses request by converting its `input` items to chat-completions messages — the same conversion the `/v1/responses` generation path uses — and rendering those messages. For a real model this means the upstream render service is asked to render a `/v1/chat/completions` request, so the returned token IDs are those of the chat-rendered prompt and do not necessarily match what a real vLLM `/v1/responses/render` produces for the same body. With `--enable-legacy-render` the route is not registered at all, matching vLLM versions that predate the endpoint.
 
 Pre-tokenized prompts on `/v1/completions/render` (a token-id array, or an array of token-id arrays) are copied through verbatim — the tokenizer is not invoked for those entries — regardless of which tokenizer is active.
 

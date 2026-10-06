@@ -310,6 +310,8 @@ func ParseCommandParamsAndLoadConfig(eng Engine) (*Configuration, error) {
 	f.DurationVar(&config.MMRenderTimeout, "mm-render-timeout", config.MMRenderTimeout, "Timeout for multi-modal tokenizer render requests (e.g. 60s)")
 	AddToggle(f, &config.ForceDummyTokenizer,
 		"force-dummy-tokenizer", "(deprecated) Force the use of dummy tokenizer even if a real model name is provided; omit --render-url instead", "Use the tokenizer the model name implies")
+	AddToggle(f, &config.EnableLegacyRender,
+		"enable-legacy-render", "Disable the /v1/responses/render endpoint, matching vLLM versions that predate it", "Serve the /v1/responses/render endpoint")
 
 	f.DurationVar(&config.StartupDuration, "startup-duration", config.StartupDuration,
 		"Duration to return 503 on /health/ready to simulate GPU loading (e.g. 30s). Default is 0 (immediately ready)")

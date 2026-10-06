@@ -124,6 +124,7 @@ Command-line flag names are as listed below. In a YAML config file, these settin
 - `render-timeout`: Timeout for tokenizer render requests (e.g. `30s`). Default is `30s`.
 - `mm-render-timeout`: Timeout for multi-modal tokenizer render requests (e.g. `60s`). Default is `60s`.
 - `force-dummy-tokenizer`: Force the use of dummy tokenizer even if a real model name is provided. When this flag is set, the system bypasses loading the real tokenizer and uses a regex-based dummy tokenizer instead. This is useful for testing scenarios where you want to use a real model name but avoid the overhead of downloading and loading the actual tokenizer. Default is `false`.
+- `enable-legacy-render`: Disable the `/v1/responses/render` endpoint, matching vLLM versions that predate it. Callers probing the renderer for Responses render support then fall back to the chat-completions render path. Default is `false`.
 
 ### Embeddings
 - `default-embedding-dimensions`: default size of embedding vectors returned by `/v1/embeddings` when the request does not specify a `dimensions` field, optional, defaults to 384.

@@ -1217,6 +1217,7 @@ var _ = Describe("boolean flags", func() {
 		Entry("mm-encoder-only", "mm-encoder-only"),
 		Entry("enforce-eager", "enforce-eager"),
 		Entry("enable-prefix-caching", "enable-prefix-caching"),
+		Entry("enable-legacy-render", "enable-legacy-render"),
 	)
 
 	// The check matches the two-argument pattern, not a stray "false": the flags

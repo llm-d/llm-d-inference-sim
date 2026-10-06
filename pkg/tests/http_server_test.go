@@ -362,6 +362,30 @@ var _ = Describe("Server", forEachEngine(func() {
 			http.StatusBadRequest, "previous_response_id"),
 	)
 
+	It("/v1/responses/render is disabled by --enable-legacy-render", func() {
+		ctx := context.TODO()
+		args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
+			"--enable-legacy-render"}
+		client, err := startServerWithArgs(ctx, args)
+		Expect(err).NotTo(HaveOccurred())
+
+		resp, err := client.Post("http://localhost/v1/responses/render", "application/json",
+			strings.NewReader(fmt.Sprintf(`{"model":"%s","input":"hi"}`, common.TestModelName)))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.StatusCode).To(Equal(http.StatusNotFound))
+		Expect(resp.Body.Close()).To(Succeed())
+
+		// only the responses render route is disabled
+		chatResp, err := client.Post("http://localhost/v1/chat/completions/render", "application/json",
+			strings.NewReader(fmt.Sprintf(`{"model":"%s","messages":[{"role":"user","content":"hi"}]}`,
+				common.TestModelName)))
+		Expect(err).NotTo(HaveOccurred())
+		defer func() {
+			Expect(chatResp.Body.Close()).To(Succeed())
+		}()
+		Expect(chatResp.StatusCode).To(Equal(http.StatusOK))
+	})
+
 	Describe("derender endpoints", func() {
 		startSim := func(model string) *http.Client {
 			client, err := startServerWithArgs(context.TODO(),

@@ -221,6 +221,10 @@ type Configuration struct {
 	// This flag is retained for backward compatibility; omit --render-url to use the simulated tokenizer.
 	ForceDummyTokenizer bool `yaml:"force-dummy-tokenizer" json:"force-dummy-tokenizer"`
 
+	// EnableLegacyRender disables the /v1/responses/render endpoint, matching
+	// vLLM versions that predate it.
+	EnableLegacyRender bool `yaml:"enable-legacy-render" json:"enable-legacy-render"`
+
 	// StartupDuration defines how long /health/ready returns 503 to simulate GPU model loading.
 	// After this duration from startup, /health/ready returns 200. Default is 0 (immediately ready).
 	StartupDuration time.Duration `yaml:"startup-duration" json:"startup-duration"`
