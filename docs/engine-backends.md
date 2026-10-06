@@ -125,5 +125,7 @@ simulator's own, so SGLang's `The model 'x' does not exist` with `"param": "mode
    description.
 4. Add a test suite in `pkg/engine/<name>/` for the parts with an external contract: the KV-event encoder
    should be asserted against the matching `engineadapter` parser from `llm-d-router`, which is the
-   consumer these events exist to feed. Integration suites under `pkg/tests` resolve the engine the same
-   way `main` does, so setting `SIM_ENGINE` runs them against a different engine.
+   consumer these events exist to feed. In `pkg/tests`, a spec that exercises only the engine-neutral
+   surface belongs in a container wrapped in `forEachEngine`, which runs it once per registered engine, so
+   a new engine inherits that coverage. Every other spec names its own engine. Suites resolve the engine
+   the same way `main` does, so setting `SIM_ENGINE` selects it for the specs that do not.

@@ -62,6 +62,9 @@ const (
 
 	// DefaultEngineName is the engine backend simulated when none is requested.
 	DefaultEngineName = "vllm"
+
+	// DefaultPort is the port the simulator listens on when none is configured.
+	DefaultPort = 8000
 )
 
 var (
@@ -466,7 +469,7 @@ func NewConfig() *Configuration {
 	return &Configuration{
 		EngineName:            DefaultEngineName,
 		IP:                    os.Getenv(podIPEnv),
-		Port:                  8000,
+		Port:                  DefaultPort,
 		MaxNumSeqs:            5,
 		MaxWaitingQueueLength: 1000,
 		MaxModelLen:           1024,

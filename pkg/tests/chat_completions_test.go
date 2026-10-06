@@ -36,7 +36,7 @@ import (
 	"github.com/openai/openai-go/v3/packages/param"
 )
 
-var _ = Describe("Simulator", func() {
+var _ = Describe("Simulator", forEachEngine(func() {
 
 	DescribeTable("chat completions streaming",
 		func(model string, mode string) {
@@ -785,4 +785,4 @@ var _ = Describe("Simulator", func() {
 			})
 		})
 	})
-})
+}))

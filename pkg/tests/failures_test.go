@@ -30,7 +30,7 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 )
 
-var _ = Describe("Failures", func() {
+var _ = Describe("Failures", forEachEngine(func() {
 	Describe("Simulator with failure injection", func() {
 		var (
 			client *http.Client
@@ -63,8 +63,8 @@ var _ = Describe("Failures", func() {
 				ok := errors.As(err, &openaiError)
 				Expect(ok).To(BeTrue())
 				Expect(openaiError.StatusCode).To(BeNumerically(">=", 400))
-				Expect(openaiError.Type).ToNot(BeEmpty())
-				Expect(openaiError.Message).ToNot(BeEmpty())
+				Expect(errorType(openaiError)).ToNot(BeEmpty())
+				Expect(errorMessage(openaiError)).ToNot(BeEmpty())
 			})
 
 			It("should always return an error response for text completions", func() {
@@ -76,8 +76,8 @@ var _ = Describe("Failures", func() {
 				ok := errors.As(err, &openaiError)
 				Expect(ok).To(BeTrue())
 				Expect(openaiError.StatusCode).To(BeNumerically(">=", 400))
-				Expect(openaiError.Type).ToNot(BeEmpty())
-				Expect(openaiError.Message).ToNot(BeEmpty())
+				Expect(errorType(openaiError)).ToNot(BeEmpty())
+				Expect(errorMessage(openaiError)).ToNot(BeEmpty())
 			})
 		})
 
@@ -102,8 +102,8 @@ var _ = Describe("Failures", func() {
 				ok := errors.As(err, &openaiError)
 				Expect(ok).To(BeTrue())
 				Expect(openaiError.StatusCode).To(Equal(429))
-				Expect(openaiError.Type).To(Equal(api.ErrorCodeToType(429)))
-				Expect(strings.Contains(openaiError.Message, common.TestModelName)).To(BeTrue())
+				Expect(errorType(openaiError)).To(Equal(api.ErrorCodeToType(429)))
+				Expect(strings.Contains(errorMessage(openaiError), common.TestModelName)).To(BeTrue())
 			})
 		})
 
@@ -133,8 +133,8 @@ var _ = Describe("Failures", func() {
 
 					// Should only be one of the specified types
 					Expect(openaiError.StatusCode == 401 || openaiError.StatusCode == 503).To(BeTrue())
-					Expect(openaiError.Type == api.ErrorCodeToType(401) ||
-						openaiError.Type == api.ErrorCodeToType(503)).To(BeTrue())
+					Expect(errorType(openaiError) == api.ErrorCodeToType(401) ||
+						errorType(openaiError) == api.ErrorCodeToType(503)).To(BeTrue())
 				}
 			})
 		})
@@ -224,7 +224,7 @@ var _ = Describe("Failures", func() {
 					ok := errors.As(err, &openaiError)
 					Expect(ok).To(BeTrue())
 					Expect(openaiError.StatusCode).To(Equal(expectedStatusCode))
-					Expect(openaiError.Type).To(Equal(expectedErrorType))
+					Expect(errorType(openaiError)).To(Equal(expectedErrorType))
 					// Note: OpenAI Go client doesn't directly expose the error code field,
 					// but we can verify via status code and type
 				},
@@ -237,4 +237,4 @@ var _ = Describe("Failures", func() {
 			)
 		})
 	})
-})
+}))
