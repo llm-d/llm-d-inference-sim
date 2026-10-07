@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -29,6 +30,7 @@ import (
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
+	"github.com/llm-d/llm-d-inference-sim/pkg/engine/sglang"
 )
 
 var _ = Describe("sglang engine", func() {
@@ -66,10 +68,49 @@ var _ = Describe("sglang engine", func() {
 		Expect(models.Data[0].OwnedBy).To(Equal("sglang"))
 	})
 
-	// No collector is registered for this engine yet, so the route exists and
-	// serves nothing. Real sglang mounts /metrics only under --enable-metrics.
-	It("Should expose no metrics", func() {
-		Expect(sampleMetrics(client)).To(BeEmpty())
+	// The engine reports the sglang:-prefixed subset of sglang's metrics, with
+	// the per-request ones split by request kind, so one non-streaming and one
+	// streaming request are needed to see both halves of the split. Real sglang
+	// mounts /metrics only under --enable-metrics; here the route always exists.
+	It("Should expose the sglang metrics", func() {
+		openaiclient, params := getOpenAIClientAndChatParams(client, common.TestModelName, testUserMessage, false)
+		_, err := openaiclient.Chat.Completions.New(context.TODO(), params)
+		Expect(err).NotTo(HaveOccurred())
+
+		_, streamParams := getOpenAIClientAndChatParams(client, common.TestModelName, testUserMessage, true)
+		stream := openaiclient.Chat.Completions.NewStreaming(context.TODO(), streamParams)
+		for stream.Next() {
+		}
+		Expect(stream.Err()).NotTo(HaveOccurred())
+		Expect(stream.Close()).To(Succeed())
+
+		eventuallyMetrics(client, func(g Gomega, metricsData string) {
+			g.Expect(metricsData).To(ContainSubstring(
+				getCountMetricLine(common.TestModelName, sglang.SGLangRunningReqsMetricName, 0)))
+			g.Expect(metricsData).To(ContainSubstring(
+				getCountMetricLine(common.TestModelName, sglang.SGLangQueueReqsMetricName, 0)))
+
+			// Both requests reached first token, decode, and completion, so each
+			// of the request-kind series carries exactly one of them.
+			for _, isStreaming := range []string{"false", "true"} {
+				g.Expect(metricsData).To(ContainSubstring(fmt.Sprintf(`%s_count{is_streaming="%s",model_name="%s"} 1`,
+					sglang.SGLangTTFTMetricName, isStreaming, common.TestModelName)))
+				g.Expect(metricsData).To(ContainSubstring(fmt.Sprintf(`%s_count{is_streaming="%s",model_name="%s"} 1`,
+					sglang.SGLangE2EReqLatencyMetricName, isStreaming, common.TestModelName)))
+				g.Expect(metricsData).To(MatchRegexp(fmt.Sprintf(`%s{is_streaming="%s",model_name="%s"} [1-9]`,
+					sglang.SGLangPromptTokensTotalMetricName, isStreaming, common.TestModelName)))
+				g.Expect(metricsData).To(MatchRegexp(fmt.Sprintf(`%s{is_streaming="%s",model_name="%s"} [1-9]`,
+					sglang.SGLangGenerationTokensTotalMetricName, isStreaming, common.TestModelName)))
+			}
+
+			g.Expect(metricsData).To(MatchRegexp(fmt.Sprintf(`%s_count{model_name="%s"} [1-9]`,
+				sglang.SGLangInterTokenLatencyMetricName, common.TestModelName)))
+		})
+	})
+
+	// No vLLM metric leaks into this engine's surface.
+	It("Should expose no vllm metrics", func() {
+		Expect(sampleMetrics(client)).NotTo(ContainSubstring("vllm:"))
 	})
 
 	// The Messages API's envelope is the same for every engine; the error type

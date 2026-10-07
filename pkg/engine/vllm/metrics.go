@@ -99,11 +99,20 @@ type LoRAReset struct {
 	Entries  []common.LorasMetrics
 }
 
-// VLLMMetricsAdapter implements metrics.EngineMetricsAdapter and produces the
+// activeGenerator is one fake-metric generator bound to the gauge channel it
+// feeds. The ticker evaluates fn on every refresh and pushes the result.
+type activeGenerator struct {
+	fn         metrics.Generator
+	params     *common.FunctionInfo
+	roundToInt bool
+	updateFunc func(upd metrics.GaugeUpdate)
+}
+
+// vllmMetricsAdapter implements metrics.EngineMetricsAdapter and produces the
 // vLLM Prometheus surface. The bus dispatches drained events to the On<Event>
 // handlers, which fan out to per-metric channels, written to Prometheus by one
 // updater goroutine per metric.
-type VLLMMetricsAdapter struct {
+type vllmMetricsAdapter struct {
 	logger logr.Logger
 	config common.Configuration
 	// fake holds config.FakeMetrics narrowed to vLLM's concrete type. Nil when
@@ -184,11 +193,7 @@ type VLLMMetricsAdapter struct {
 // NewMetricsAdapter returns the vLLM metrics adapter.
 func (Engine) NewMetricsAdapter(ctx context.Context, registry *prometheus.Registry,
 	logger logr.Logger, config common.Configuration) (metrics.MetricsAdapter, error) {
-	m, err := newMetricsAdapter(ctx, registry, logger, config)
-	if err != nil {
-		return nil, err
-	}
-	return m, nil
+	return newMetricsAdapter(ctx, registry, logger, config)
 }
 
 // newMetricsAdapter registers the Prometheus collectors on registry, stamps
@@ -196,8 +201,8 @@ func (Engine) NewMetricsAdapter(ctx context.Context, registry *prometheus.Regist
 // the one passed to metrics.NewMetricsBus. Returns an error if any collector
 // fails to register.
 func newMetricsAdapter(ctx context.Context, registry *prometheus.Registry,
-	logger logr.Logger, config common.Configuration) (*VLLMMetricsAdapter, error) {
-	m := &VLLMMetricsAdapter{
+	logger logr.Logger, config common.Configuration) (*vllmMetricsAdapter, error) {
+	m := &vllmMetricsAdapter{
 		logger:     logger,
 		registry:   registry,
 		config:     config,
@@ -216,7 +221,7 @@ func newMetricsAdapter(ctx context.Context, registry *prometheus.Registry,
 	return m, nil
 }
 
-func (m *VLLMMetricsAdapter) Close() error {
+func (m *vllmMetricsAdapter) Close() error {
 	m.generators.Stop()
 
 	return nil
@@ -225,7 +230,7 @@ func (m *VLLMMetricsAdapter) Close() error {
 // Start applies the initial fake-metrics configuration and starts the
 // generator ticker. The bus has already subscribed the On<Event> handlers to
 // its channels by the time this runs.
-func (m *VLLMMetricsAdapter) Start(_ context.Context) error {
+func (m *vllmMetricsAdapter) Start(_ context.Context) error {
 	if fake := m.fake.Load(); fake != nil {
 		fm := *fake
 		m.applyFakeMetrics(&fm)
@@ -237,17 +242,17 @@ func (m *VLLMMetricsAdapter) Start(_ context.Context) error {
 
 // -- Event handlers  -------------------
 
-func (m *VLLMMetricsAdapter) OnRequestReceived(_ metrics.RequestReceived) {
+func (m *vllmMetricsAdapter) OnRequestReceived(_ metrics.RequestReceived) {
 	// State marker; no exposed metric today.
 }
 
-func (m *VLLMMetricsAdapter) OnRequestRejected(_ metrics.RequestRejected) {
+func (m *vllmMetricsAdapter) OnRequestRejected(_ metrics.RequestRejected) {
 	// State marker; no exposed metric today.
 }
 
 // request queued
 // - update number of waiting requests
-func (m *VLLMMetricsAdapter) OnRequestQueued(ev metrics.RequestQueued) {
+func (m *vllmMetricsAdapter) OnRequestQueued(ev metrics.RequestQueued) {
 	if m.fake.Load() != nil {
 		return
 	}
@@ -257,7 +262,7 @@ func (m *VLLMMetricsAdapter) OnRequestQueued(ev metrics.RequestQueued) {
 // request dequeued
 // - update number of waiting requests
 // - update queue time histogram
-func (m *VLLMMetricsAdapter) OnRequestDequeued(ev metrics.RequestDequeued) {
+func (m *vllmMetricsAdapter) OnRequestDequeued(ev metrics.RequestDequeued) {
 	if m.fake.Load() != nil {
 		return
 	}
@@ -267,7 +272,7 @@ func (m *VLLMMetricsAdapter) OnRequestDequeued(ev metrics.RequestDequeued) {
 
 // request running
 // - update number of running requests
-func (m *VLLMMetricsAdapter) OnRequestRunning(ev metrics.RequestRunning) {
+func (m *vllmMetricsAdapter) OnRequestRunning(ev metrics.RequestRunning) {
 	if m.fake.Load() != nil {
 		return
 	}
@@ -275,14 +280,14 @@ func (m *VLLMMetricsAdapter) OnRequestRunning(ev metrics.RequestRunning) {
 }
 
 // prefill started
-func (m *VLLMMetricsAdapter) OnPrefillStarted(_ metrics.PrefillStarted) {
+func (m *vllmMetricsAdapter) OnPrefillStarted(_ metrics.PrefillStarted) {
 	// State marker.
 }
 
 // prefill step ended
 // - update prefill time histogram
 // - update TTFT histogram
-func (m *VLLMMetricsAdapter) OnPrefillEnded(ev metrics.PrefillEnded) {
+func (m *vllmMetricsAdapter) OnPrefillEnded(ev metrics.PrefillEnded) {
 	if m.fake.Load() != nil {
 		return
 	}
@@ -290,13 +295,13 @@ func (m *VLLMMetricsAdapter) OnPrefillEnded(ev metrics.PrefillEnded) {
 	common.WriteToChannel(m.ttftChan, metrics.Observation(ev.PrefillDuration), m.logger)
 }
 
-func (m *VLLMMetricsAdapter) OnDecodeStarted(_ metrics.DecodeStarted) {
+func (m *vllmMetricsAdapter) OnDecodeStarted(_ metrics.DecodeStarted) {
 	// State marker.
 }
 
 // token generated
 // - update tpot and itl histograms
-func (m *VLLMMetricsAdapter) OnTokenGenerated(ev metrics.TokenGenerated) {
+func (m *vllmMetricsAdapter) OnTokenGenerated(ev metrics.TokenGenerated) {
 	if m.fake.Load() != nil {
 		return
 	}
@@ -306,7 +311,7 @@ func (m *VLLMMetricsAdapter) OnTokenGenerated(ev metrics.TokenGenerated) {
 // decode ended
 // - update decode time histogram
 // - update requests tpot histogram
-func (m *VLLMMetricsAdapter) OnDecodeEnded(ev metrics.DecodeEnded) {
+func (m *vllmMetricsAdapter) OnDecodeEnded(ev metrics.DecodeEnded) {
 	if m.fake.Load() != nil {
 		return
 	}
@@ -318,7 +323,7 @@ func (m *VLLMMetricsAdapter) OnDecodeEnded(ev metrics.DecodeEnded) {
 }
 
 // request processing finished successfully - update all relevant metrics
-func (m *VLLMMetricsAdapter) OnRequestSucceeded(ev metrics.RequestSucceeded) {
+func (m *vllmMetricsAdapter) OnRequestSucceeded(ev metrics.RequestSucceeded) {
 	if m.fake.Load() != nil {
 		return
 	}
@@ -351,7 +356,7 @@ func (m *VLLMMetricsAdapter) OnRequestSucceeded(ev metrics.RequestSucceeded) {
 
 // request processing failed
 // - update all relevant metrics
-func (m *VLLMMetricsAdapter) OnRequestFailed(ev metrics.RequestFailed) {
+func (m *vllmMetricsAdapter) OnRequestFailed(ev metrics.RequestFailed) {
 	if m.fake.Load() != nil {
 		return
 	}
@@ -363,7 +368,7 @@ func (m *VLLMMetricsAdapter) OnRequestFailed(ev metrics.RequestFailed) {
 
 // change in kv cache utilization
 // - update kv cache usage gauge
-func (m *VLLMMetricsAdapter) OnKVCacheUsageChanged(ev metrics.KVCacheUsageChanged) {
+func (m *vllmMetricsAdapter) OnKVCacheUsageChanged(ev metrics.KVCacheUsageChanged) {
 	if m.fake.Load() != nil {
 		return
 	}
@@ -372,7 +377,7 @@ func (m *VLLMMetricsAdapter) OnKVCacheUsageChanged(ev metrics.KVCacheUsageChange
 
 // change in prefix cache utilization
 // - update prefix cache hits and queries counters
-func (m *VLLMMetricsAdapter) OnPrefixCacheQueried(ev metrics.PrefixCacheQueried) {
+func (m *vllmMetricsAdapter) OnPrefixCacheQueried(ev metrics.PrefixCacheQueried) {
 	if m.fake.Load() != nil {
 		return
 	}
@@ -385,7 +390,7 @@ func (m *VLLMMetricsAdapter) OnPrefixCacheQueried(ev metrics.PrefixCacheQueried)
 // OnLoRASetsChanged receives the per-LoRA waiting/running snapshot produced
 // by the bus after each LoRAChanged event and forwards it to the LoRA
 // updater goroutine.
-func (m *VLLMMetricsAdapter) OnLoRASetsChanged(ev metrics.LoRASetsChanged) {
+func (m *vllmMetricsAdapter) OnLoRASetsChanged(ev metrics.LoRASetsChanged) {
 	if m.fake.Load() != nil {
 		return
 	}
@@ -394,11 +399,11 @@ func (m *VLLMMetricsAdapter) OnLoRASetsChanged(ev metrics.LoRASetsChanged) {
 
 // finishRunning decrements the running-request counter for a terminal
 // request. LoRA state transitions are handled separately via LoRAChanged.
-func (m *VLLMMetricsAdapter) finishRunning() {
+func (m *vllmMetricsAdapter) finishRunning() {
 	common.WriteToChannel(m.runReqChan, metrics.GaugeAdd(-1), m.logger)
 }
 
-func (m *VLLMMetricsAdapter) createAndStartPrometheusChannels(ctx context.Context) {
+func (m *vllmMetricsAdapter) createAndStartPrometheusChannels(ctx context.Context) {
 	maxNumberOfRunningRequests, maxNumberOfWaitingRequests, maxNumberOfRequests, maxNumberOfTokens := metrics.ChannelCapacities(m.config)
 
 	m.runReqChan = common.NewChannel[metrics.GaugeUpdate]("vllm", maxNumberOfRunningRequests, ctx.Done())
@@ -467,23 +472,23 @@ func (m *VLLMMetricsAdapter) createAndStartPrometheusChannels(ctx context.Contex
 
 // -- Per-metric updaters --------------------------------------------------
 
-func (m *VLLMMetricsAdapter) updateRequestPromptTokens(upd metrics.HistogramUpdate) {
+func (m *vllmMetricsAdapter) updateRequestPromptTokens(upd metrics.HistogramUpdate) {
 	m.updateHistogram(m.requestPromptTokens, upd)
 }
 
-func (m *VLLMMetricsAdapter) updateRequestGenerationTokens(upd metrics.HistogramUpdate) {
+func (m *vllmMetricsAdapter) updateRequestGenerationTokens(upd metrics.HistogramUpdate) {
 	m.updateHistogram(m.requestGenerationTokens, upd)
 }
 
-func (m *VLLMMetricsAdapter) updateMaxNumGenerationTokens(upd metrics.HistogramUpdate) {
+func (m *vllmMetricsAdapter) updateMaxNumGenerationTokens(upd metrics.HistogramUpdate) {
 	m.updateHistogram(m.maxNumGenerationTokens, upd)
 }
 
-func (m *VLLMMetricsAdapter) updateRequestParamsMaxTokens(upd metrics.HistogramUpdate) {
+func (m *vllmMetricsAdapter) updateRequestParamsMaxTokens(upd metrics.HistogramUpdate) {
 	m.updateHistogram(m.requestParamsMaxTokens, upd)
 }
 
-func (m *VLLMMetricsAdapter) updatePromptTokensTotal(upd metrics.CounterUpdate) {
+func (m *vllmMetricsAdapter) updatePromptTokensTotal(upd metrics.CounterUpdate) {
 	switch {
 	case upd.Add != nil:
 		if m.fake.Load() != nil {
@@ -495,7 +500,7 @@ func (m *VLLMMetricsAdapter) updatePromptTokensTotal(upd metrics.CounterUpdate) 
 	}
 }
 
-func (m *VLLMMetricsAdapter) updateGenerationTokensTotal(upd metrics.CounterUpdate) {
+func (m *vllmMetricsAdapter) updateGenerationTokensTotal(upd metrics.CounterUpdate) {
 	switch {
 	case upd.Add != nil:
 		if m.fake.Load() != nil {
@@ -507,7 +512,7 @@ func (m *VLLMMetricsAdapter) updateGenerationTokensTotal(upd metrics.CounterUpda
 	}
 }
 
-func (m *VLLMMetricsAdapter) updateRequestSuccessTotal(upd RequestSuccessCounterUpdate) {
+func (m *vllmMetricsAdapter) updateRequestSuccessTotal(upd RequestSuccessCounterUpdate) {
 	switch {
 	case upd.Increment != nil:
 		if m.fake.Load() != nil {
@@ -519,7 +524,7 @@ func (m *VLLMMetricsAdapter) updateRequestSuccessTotal(upd RequestSuccessCounter
 	}
 }
 
-func (m *VLLMMetricsAdapter) updatePrefixCacheHitsTotal(upd metrics.CounterUpdate) {
+func (m *vllmMetricsAdapter) updatePrefixCacheHitsTotal(upd metrics.CounterUpdate) {
 	switch {
 	case upd.Add != nil:
 		if m.fake.Load() != nil {
@@ -531,7 +536,7 @@ func (m *VLLMMetricsAdapter) updatePrefixCacheHitsTotal(upd metrics.CounterUpdat
 	}
 }
 
-func (m *VLLMMetricsAdapter) updatePrefixCacheQueriesTotal(upd metrics.CounterUpdate) {
+func (m *vllmMetricsAdapter) updatePrefixCacheQueriesTotal(upd metrics.CounterUpdate) {
 	switch {
 	case upd.Add != nil:
 		if m.fake.Load() != nil {
@@ -545,7 +550,7 @@ func (m *VLLMMetricsAdapter) updatePrefixCacheQueriesTotal(upd metrics.CounterUp
 
 // updateHistogram records an Observe, or on Reset clears the histogram's
 // series and replays the target bucket state.
-func (m *VLLMMetricsAdapter) updateHistogram(hist *prometheus.HistogramVec, upd metrics.HistogramUpdate) {
+func (m *vllmMetricsAdapter) updateHistogram(hist *prometheus.HistogramVec, upd metrics.HistogramUpdate) {
 	switch {
 	case upd.Observe != nil:
 		if m.fake.Load() != nil {
@@ -558,7 +563,7 @@ func (m *VLLMMetricsAdapter) updateHistogram(hist *prometheus.HistogramVec, upd 
 	}
 }
 
-func (m *VLLMMetricsAdapter) updateWaitingRequests(upd metrics.GaugeUpdate) {
+func (m *vllmMetricsAdapter) updateWaitingRequests(upd metrics.GaugeUpdate) {
 	switch {
 	case upd.Add != nil && m.fake.Load() == nil:
 		m.nWaitingReqs += int64(*upd.Add)
@@ -570,7 +575,7 @@ func (m *VLLMMetricsAdapter) updateWaitingRequests(upd metrics.GaugeUpdate) {
 	m.reportWaitingRequests()
 }
 
-func (m *VLLMMetricsAdapter) updateRunningRequests(upd metrics.GaugeUpdate) {
+func (m *vllmMetricsAdapter) updateRunningRequests(upd metrics.GaugeUpdate) {
 	switch {
 	case upd.Add != nil && m.fake.Load() == nil:
 		m.nRunningReqs += int64(*upd.Add)
@@ -582,7 +587,7 @@ func (m *VLLMMetricsAdapter) updateRunningRequests(upd metrics.GaugeUpdate) {
 	m.reportRunningRequests()
 }
 
-func (m *VLLMMetricsAdapter) updateKVCacheUsage(upd metrics.GaugeUpdate) {
+func (m *vllmMetricsAdapter) updateKVCacheUsage(upd metrics.GaugeUpdate) {
 	switch {
 	case upd.Add != nil && m.fake.Load() == nil:
 		m.reportKVCacheUsage(*upd.Add)
@@ -591,42 +596,42 @@ func (m *VLLMMetricsAdapter) updateKVCacheUsage(upd metrics.GaugeUpdate) {
 	}
 }
 
-func (m *VLLMMetricsAdapter) updateTTFT(upd metrics.HistogramUpdate) {
+func (m *vllmMetricsAdapter) updateTTFT(upd metrics.HistogramUpdate) {
 	m.updateHistogram(m.ttft, upd)
 }
 
-func (m *VLLMMetricsAdapter) updatePerTokenLatency(upd metrics.HistogramUpdate) {
+func (m *vllmMetricsAdapter) updatePerTokenLatency(upd metrics.HistogramUpdate) {
 	m.updateHistogram(m.tpot, upd)
 	m.updateHistogram(m.interTokenLatency, upd)
 }
 
-func (m *VLLMMetricsAdapter) updateE2EReqLatency(upd metrics.HistogramUpdate) {
+func (m *vllmMetricsAdapter) updateE2EReqLatency(upd metrics.HistogramUpdate) {
 	m.updateHistogram(m.e2eReqLatency, upd)
 }
 
-func (m *VLLMMetricsAdapter) updateReqQueueTime(upd metrics.HistogramUpdate) {
+func (m *vllmMetricsAdapter) updateReqQueueTime(upd metrics.HistogramUpdate) {
 	m.updateHistogram(m.reqQueueTime, upd)
 }
 
-func (m *VLLMMetricsAdapter) updateReqInferenceTime(upd metrics.HistogramUpdate) {
+func (m *vllmMetricsAdapter) updateReqInferenceTime(upd metrics.HistogramUpdate) {
 	m.updateHistogram(m.reqInferenceTime, upd)
 }
 
-func (m *VLLMMetricsAdapter) updateReqPrefillTime(upd metrics.HistogramUpdate) {
+func (m *vllmMetricsAdapter) updateReqPrefillTime(upd metrics.HistogramUpdate) {
 	m.updateHistogram(m.reqPrefillTime, upd)
 }
 
-func (m *VLLMMetricsAdapter) updateReqDecodeTime(upd metrics.HistogramUpdate) {
+func (m *vllmMetricsAdapter) updateReqDecodeTime(upd metrics.HistogramUpdate) {
 	m.updateHistogram(m.reqDecodeTime, upd)
 }
 
-func (m *VLLMMetricsAdapter) updateReqTpot(upd metrics.HistogramUpdate) {
+func (m *vllmMetricsAdapter) updateReqTpot(upd metrics.HistogramUpdate) {
 	m.updateHistogram(m.reqTpot, upd)
 }
 
 // lorasUpdater republishes lora_requests_info from Snapshot events, or on
 // Reset clears the gauge's series and stamps the supplied entries.
-func (m *VLLMMetricsAdapter) updateLoRAs(upd LoRAUpdate) {
+func (m *vllmMetricsAdapter) updateLoRAs(upd LoRAUpdate) {
 	switch {
 	case upd.Snapshot != nil:
 		m.reportLoras(*upd.Snapshot)
@@ -638,7 +643,7 @@ func (m *VLLMMetricsAdapter) updateLoRAs(upd LoRAUpdate) {
 // resetCounter clears counter's series and records the target value via a
 // single Add. A nil value leaves the counter with no series stamped, so it
 // reads as absent from /metrics.
-func (m *VLLMMetricsAdapter) resetCounter(counter *prometheus.CounterVec, value *float64) {
+func (m *vllmMetricsAdapter) resetCounter(counter *prometheus.CounterVec, value *float64) {
 	counter.Reset()
 	if value != nil {
 		counter.WithLabelValues(m.config.DisplayModelName).Add(*value)
@@ -648,7 +653,7 @@ func (m *VLLMMetricsAdapter) resetCounter(counter *prometheus.CounterVec, value 
 // resetSuccessTotal clears requestSuccessTotal's series, then Adds each
 // (reason, count) pair. Nil or empty reasons leaves the counter with no
 // series stamped.
-func (m *VLLMMetricsAdapter) resetSuccessTotal(reasons map[string]int64) {
+func (m *vllmMetricsAdapter) resetSuccessTotal(reasons map[string]int64) {
 	m.requestSuccessTotal.Reset()
 	for reason, count := range reasons {
 		m.requestSuccessTotal.WithLabelValues(m.config.DisplayModelName, reason).Add(float64(count))
@@ -657,7 +662,7 @@ func (m *VLLMMetricsAdapter) resetSuccessTotal(reasons map[string]int64) {
 
 // resetLoRA clears loraInfo's series, then stamps one series per entry.
 // Empty entries emits a single zero-adapter row with the current timestamp.
-func (m *VLLMMetricsAdapter) resetLoRA(reset *LoRAReset) {
+func (m *vllmMetricsAdapter) resetLoRA(reset *LoRAReset) {
 	// new value is empty - ensure /metrics does not report it
 	if reset == nil || len(reset.Entries) == 0 {
 		if m.loraInfo != nil {
@@ -685,25 +690,25 @@ func (m *VLLMMetricsAdapter) resetLoRA(reset *LoRAReset) {
 
 // -- Report helpers (Prometheus writes) -------------------------------------
 
-func (m *VLLMMetricsAdapter) reportRunningRequests() {
+func (m *vllmMetricsAdapter) reportRunningRequests() {
 	if m.runningRequests != nil {
 		m.runningRequests.WithLabelValues(m.config.DisplayModelName).Set(float64(m.nRunningReqs))
 	}
 }
 
-func (m *VLLMMetricsAdapter) reportWaitingRequests() {
+func (m *vllmMetricsAdapter) reportWaitingRequests() {
 	if m.waitingRequests != nil {
 		m.waitingRequests.WithLabelValues(m.config.DisplayModelName).Set(float64(m.nWaitingReqs))
 	}
 }
 
-func (m *VLLMMetricsAdapter) reportKVCacheUsage(value float64) {
+func (m *vllmMetricsAdapter) reportKVCacheUsage(value float64) {
 	if m.kvCacheUsagePercentage != nil {
 		m.kvCacheUsagePercentage.WithLabelValues(m.config.DisplayModelName).Set(value)
 	}
 }
 
-func (m *VLLMMetricsAdapter) reportLoras(snap metrics.LoRASetsChanged) {
+func (m *vllmMetricsAdapter) reportLoras(snap metrics.LoRASetsChanged) {
 	if m.fake.Load() != nil {
 		return
 	}
@@ -724,7 +729,7 @@ func (m *VLLMMetricsAdapter) reportLoras(snap metrics.LoRASetsChanged) {
 // -- Prometheus wiring ------------------------------------------------------
 
 // buildMetrics constructs and registers all Prometheus collectors. It is called once during adapter construction.
-func (m *VLLMMetricsAdapter) buildMetrics() error {
+func (m *vllmMetricsAdapter) buildMetrics() error {
 	// vLLM's Prometheus client exports the standard process metrics, and
 	// consumers read process_start_time_seconds to tell engine restarts apart.
 	if err := m.register(collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
@@ -808,7 +813,7 @@ func (m *VLLMMetricsAdapter) buildMetrics() error {
 	return nil
 }
 
-func (m *VLLMMetricsAdapter) createAndRegisterRunningRequestsGauge() error {
+func (m *vllmMetricsAdapter) createAndRegisterRunningRequestsGauge() error {
 	m.runningRequests = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: VLLMReqRunningMetricName,
 		Help: "Number of requests currently running on GPU.",
@@ -816,7 +821,7 @@ func (m *VLLMMetricsAdapter) createAndRegisterRunningRequestsGauge() error {
 	return m.register(m.runningRequests, "prometheus number of running requests gauge register failed")
 }
 
-func (m *VLLMMetricsAdapter) createAndRegisterWaitingRequestsGauge() error {
+func (m *vllmMetricsAdapter) createAndRegisterWaitingRequestsGauge() error {
 	m.waitingRequests = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: VLLMReqWaitingMetricName,
 		Help: "Prometheus metric for the number of queued requests.",
@@ -824,7 +829,7 @@ func (m *VLLMMetricsAdapter) createAndRegisterWaitingRequestsGauge() error {
 	return m.register(m.waitingRequests, "prometheus number of requests in queue gauge register failed")
 }
 
-func (m *VLLMMetricsAdapter) createAndRegisterKVCacheUsageGauge() error {
+func (m *vllmMetricsAdapter) createAndRegisterKVCacheUsageGauge() error {
 	m.kvCacheUsagePercentage = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: VLLMKVCacheUsageMetricName,
 		Help: "Prometheus metric for the fraction of KV-cache blocks currently in use (from 0 to 1).",
@@ -832,7 +837,7 @@ func (m *VLLMMetricsAdapter) createAndRegisterKVCacheUsageGauge() error {
 	return m.register(m.kvCacheUsagePercentage, "prometheus kv cache usage percentage gauge register failed")
 }
 
-func (m *VLLMMetricsAdapter) createAndRegisterLoraInfoGauge() error {
+func (m *vllmMetricsAdapter) createAndRegisterLoraInfoGauge() error {
 	m.loraInfo = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: VLLMLoRARequestsMetricName,
 		Help: "Running stats on lora requests.",
@@ -840,7 +845,7 @@ func (m *VLLMMetricsAdapter) createAndRegisterLoraInfoGauge() error {
 	return m.register(m.loraInfo, "prometheus lora info gauge register failed")
 }
 
-func (m *VLLMMetricsAdapter) createAndRegisterCacheConfigGauge() error {
+func (m *vllmMetricsAdapter) createAndRegisterCacheConfigGauge() error {
 	m.cacheConfig = prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: VLLMCacheConfigName,
 		Help: "Information of the LLMEngine CacheConfig.",
@@ -853,7 +858,7 @@ func (m *VLLMMetricsAdapter) createAndRegisterCacheConfigGauge() error {
 	return m.register(m.cacheConfig, "prometheus cache config register failed")
 }
 
-func (m *VLLMMetricsAdapter) createAndRegisterTTFTHistogram() error {
+func (m *vllmMetricsAdapter) createAndRegisterTTFTHistogram() error {
 	m.ttft = prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Name:    VLLMTTFTMetricName,
 		Help:    "Histogram of time to first token in seconds.",
@@ -862,7 +867,7 @@ func (m *VLLMMetricsAdapter) createAndRegisterTTFTHistogram() error {
 	return m.register(m.ttft, "prometheus time to first token histogram register failed")
 }
 
-func (m *VLLMMetricsAdapter) createAndRegisterTPOTHistogram() error {
+func (m *vllmMetricsAdapter) createAndRegisterTPOTHistogram() error {
 	m.tpot = prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Name:    VLLMTPOTMetricName,
 		Help:    "Histogram of time per output token in seconds.",
@@ -871,7 +876,7 @@ func (m *VLLMMetricsAdapter) createAndRegisterTPOTHistogram() error {
 	return m.register(m.tpot, "prometheus time per output token histogram register failed")
 }
 
-func (m *VLLMMetricsAdapter) createAndRegisterInterTokenLatencyHistogram() error {
+func (m *vllmMetricsAdapter) createAndRegisterInterTokenLatencyHistogram() error {
 	m.interTokenLatency = prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Name:    VLLMInterTokenLatencyMetricName,
 		Help:    "Histogram of inter-token latency in seconds.",
@@ -880,7 +885,7 @@ func (m *VLLMMetricsAdapter) createAndRegisterInterTokenLatencyHistogram() error
 	return m.register(m.interTokenLatency, "prometheus inter-token latency histogram register failed")
 }
 
-func (m *VLLMMetricsAdapter) createAndRegisterReqTpotHistogram() error {
+func (m *vllmMetricsAdapter) createAndRegisterReqTpotHistogram() error {
 	m.reqTpot = prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Name:    VLLMReqTPOTMetricName,
 		Help:    "Histogram of time_per_output_token_seconds per request.",
@@ -889,7 +894,7 @@ func (m *VLLMMetricsAdapter) createAndRegisterReqTpotHistogram() error {
 	return m.register(m.reqTpot, "prometheus time_per_output_token_seconds per request histogram register failed")
 }
 
-func (m *VLLMMetricsAdapter) createAndRegisterE2EReqLatencyHistogram() error {
+func (m *vllmMetricsAdapter) createAndRegisterE2EReqLatencyHistogram() error {
 	m.e2eReqLatency = prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Name:    VLLME2EReqLatencyMetricName,
 		Help:    "Histogram of end to end request latency in seconds.",
@@ -898,7 +903,7 @@ func (m *VLLMMetricsAdapter) createAndRegisterE2EReqLatencyHistogram() error {
 	return m.register(m.e2eReqLatency, "prometheus e2e request latency histogram register failed")
 }
 
-func (m *VLLMMetricsAdapter) createAndRegisterReqQueueTimeHistogram() error {
+func (m *vllmMetricsAdapter) createAndRegisterReqQueueTimeHistogram() error {
 	m.reqQueueTime = prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Name:    VLLMReqQueueTimeMetricName,
 		Help:    "Histogram of time spent in WAITING phase for request.",
@@ -907,7 +912,7 @@ func (m *VLLMMetricsAdapter) createAndRegisterReqQueueTimeHistogram() error {
 	return m.register(m.reqQueueTime, "prometheus request queue time histogram register failed")
 }
 
-func (m *VLLMMetricsAdapter) createAndRegisterReqInferenceTimeHistogram() error {
+func (m *vllmMetricsAdapter) createAndRegisterReqInferenceTimeHistogram() error {
 	m.reqInferenceTime = prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Name:    VLLMReqInferenceTimeMetricName,
 		Help:    "Histogram of time spent in RUNNING phase for request.",
@@ -916,7 +921,7 @@ func (m *VLLMMetricsAdapter) createAndRegisterReqInferenceTimeHistogram() error 
 	return m.register(m.reqInferenceTime, "prometheus request inference time histogram register failed")
 }
 
-func (m *VLLMMetricsAdapter) createAndRegisterReqPrefillTimeHistogram() error {
+func (m *vllmMetricsAdapter) createAndRegisterReqPrefillTimeHistogram() error {
 	m.reqPrefillTime = prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Name:    VLLMPrefillTimeMetricName,
 		Help:    "Histogram of time spent in PREFILL phase for request.",
@@ -925,7 +930,7 @@ func (m *VLLMMetricsAdapter) createAndRegisterReqPrefillTimeHistogram() error {
 	return m.register(m.reqPrefillTime, "prometheus request prefill time histogram register failed")
 }
 
-func (m *VLLMMetricsAdapter) createAndRegisterReqDecodeTimeHistogram() error {
+func (m *vllmMetricsAdapter) createAndRegisterReqDecodeTimeHistogram() error {
 	m.reqDecodeTime = prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Name:    VLLMDecodeTimeMetricName,
 		Help:    "Histogram of time spent in DECODE phase for request.",
@@ -935,7 +940,7 @@ func (m *VLLMMetricsAdapter) createAndRegisterReqDecodeTimeHistogram() error {
 	return m.register(m.reqDecodeTime, "prometheus request decode time histogram register failed")
 }
 
-func (m *VLLMMetricsAdapter) createAndRegisterReqPromptTokensHistogram(tokenBuckets []float64) error {
+func (m *vllmMetricsAdapter) createAndRegisterReqPromptTokensHistogram(tokenBuckets []float64) error {
 	m.requestPromptTokens = prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Name:    VLLMPromptTokensMetricName,
 		Help:    "Number of prefill tokens processed.",
@@ -944,7 +949,7 @@ func (m *VLLMMetricsAdapter) createAndRegisterReqPromptTokensHistogram(tokenBuck
 	return m.register(m.requestPromptTokens, "prometheus request_prompt_tokens histogram register failed")
 }
 
-func (m *VLLMMetricsAdapter) createAndRegisterReqGenerationTokensHistogram(tokenBuckets []float64) error {
+func (m *vllmMetricsAdapter) createAndRegisterReqGenerationTokensHistogram(tokenBuckets []float64) error {
 	m.requestGenerationTokens = prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Name:    VLLMGenerationTokensMetricName,
 		Help:    "Number of generation tokens processed.",
@@ -953,7 +958,7 @@ func (m *VLLMMetricsAdapter) createAndRegisterReqGenerationTokensHistogram(token
 	return m.register(m.requestGenerationTokens, "prometheus request_generation_tokens histogram register failed")
 }
 
-func (m *VLLMMetricsAdapter) createAndRegisterMaxNumGenerationTokensHistogram(tokenBuckets []float64) error {
+func (m *vllmMetricsAdapter) createAndRegisterMaxNumGenerationTokensHistogram(tokenBuckets []float64) error {
 	m.maxNumGenerationTokens = prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Name:    VLLMMaxNumGenerationTokensMetricName,
 		Help:    "Histogram of maximum number of requested generation tokens.",
@@ -962,7 +967,7 @@ func (m *VLLMMetricsAdapter) createAndRegisterMaxNumGenerationTokensHistogram(to
 	return m.register(m.maxNumGenerationTokens, "prometheus max_num_generation_tokens histogram register failed")
 }
 
-func (m *VLLMMetricsAdapter) createAndRegisterReqParamsMaxTokensHistogram(tokenBuckets []float64) error {
+func (m *vllmMetricsAdapter) createAndRegisterReqParamsMaxTokensHistogram(tokenBuckets []float64) error {
 	m.requestParamsMaxTokens = prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Name:    VLLMParamMaxTokensMetricName,
 		Help:    "Histogram of the max_tokens request parameter.",
@@ -971,7 +976,7 @@ func (m *VLLMMetricsAdapter) createAndRegisterReqParamsMaxTokensHistogram(tokenB
 	return m.register(m.requestParamsMaxTokens, "prometheus request_params_max_tokens histogram register failed")
 }
 
-func (m *VLLMMetricsAdapter) createAndRegisterPromptTokensTotalCounter() error {
+func (m *vllmMetricsAdapter) createAndRegisterPromptTokensTotalCounter() error {
 	m.promptTokensTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: VLLMPromptTokensTotalMetricName,
 		Help: "Total number of prompt tokens processed.",
@@ -979,7 +984,7 @@ func (m *VLLMMetricsAdapter) createAndRegisterPromptTokensTotalCounter() error {
 	return m.register(m.promptTokensTotal, "prometheus prompt_tokens_total counter register failed")
 }
 
-func (m *VLLMMetricsAdapter) createAndRegisterGenerationTokensTotalCounter() error {
+func (m *vllmMetricsAdapter) createAndRegisterGenerationTokensTotalCounter() error {
 	m.generationTokensTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: VLLMGenerationTokensTotalMetricName,
 		Help: "Total number of generated tokens.",
@@ -987,7 +992,7 @@ func (m *VLLMMetricsAdapter) createAndRegisterGenerationTokensTotalCounter() err
 	return m.register(m.generationTokensTotal, "prometheus generation_tokens_total counter register failed")
 }
 
-func (m *VLLMMetricsAdapter) createAndRegisterRequestSuccessTotalCounter() error {
+func (m *vllmMetricsAdapter) createAndRegisterRequestSuccessTotalCounter() error {
 	m.requestSuccessTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: VLLMSuccessTotalMetricName,
 		Help: "Count of successfully processed requests.",
@@ -995,7 +1000,7 @@ func (m *VLLMMetricsAdapter) createAndRegisterRequestSuccessTotalCounter() error
 	return m.register(m.requestSuccessTotal, "prometheus request_success_total counter register failed")
 }
 
-func (m *VLLMMetricsAdapter) createAndRegisterPrefixCacheHitsTotalCounter() error {
+func (m *vllmMetricsAdapter) createAndRegisterPrefixCacheHitsTotalCounter() error {
 	m.prefixCacheHitsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: VLLMPrefixCacheHitsTotalMetricName,
 		Help: "Prefix cache hits, in terms of number of cached tokens.",
@@ -1003,7 +1008,7 @@ func (m *VLLMMetricsAdapter) createAndRegisterPrefixCacheHitsTotalCounter() erro
 	return m.register(m.prefixCacheHitsTotal, "prometheus prefix_cache_hits_total counter register failed")
 }
 
-func (m *VLLMMetricsAdapter) createAndRegisterPrefixCacheQueriesTotalCounter() error {
+func (m *vllmMetricsAdapter) createAndRegisterPrefixCacheQueriesTotalCounter() error {
 	m.prefixCacheQueriesTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: VLLMPrefixCacheQueriesTotalMetricName,
 		Help: "Prefix cache queries, in terms of number of queried tokens.",
@@ -1013,7 +1018,7 @@ func (m *VLLMMetricsAdapter) createAndRegisterPrefixCacheQueriesTotalCounter() e
 
 // register registers c with the bus's Prometheus registry, logging errMsg
 // on failure.
-func (m *VLLMMetricsAdapter) register(c prometheus.Collector, errMsg string) error {
+func (m *vllmMetricsAdapter) register(c prometheus.Collector, errMsg string) error {
 	if err := m.registry.Register(c); err != nil {
 		m.logger.Error(err, errMsg)
 		return err
@@ -1025,7 +1030,7 @@ func (m *VLLMMetricsAdapter) register(c prometheus.Collector, errMsg string) err
 // one-shot cache_config_info series so the first scrape has a consistent
 // baseline. lora_requests_info has no baseline: like vLLM, it first appears
 // with the first LoRA event.
-func (m *VLLMMetricsAdapter) setInitialValues() {
+func (m *vllmMetricsAdapter) setInitialValues() {
 	if m.fake.Load() == nil {
 		m.runningRequests.WithLabelValues(m.config.DisplayModelName).Set(0)
 		m.waitingRequests.WithLabelValues(m.config.DisplayModelName).Set(0)
@@ -1056,7 +1061,7 @@ func resolveTokenTotal(buckets []float64, samples []int, explicit *float64) *flo
 // to vLLM's concrete type and applies it. A configuration belonging to another
 // engine is logged and dropped. The first successful call enters fake mode so
 // subsequent Reset updates are accepted and real-path event handlers no-op.
-func (m *VLLMMetricsAdapter) ApplyFakeMetricsUpdate(update common.FakeMetrics) {
+func (m *vllmMetricsAdapter) ApplyFakeMetricsUpdate(update common.FakeMetrics) {
 	vllmUpdate, ok := update.(*VLLMFakeMetrics)
 	if !ok || vllmUpdate == nil {
 		m.logger.Error(fmt.Errorf("unexpected fake-metrics configuration type %T", update),
@@ -1069,7 +1074,7 @@ func (m *VLLMMetricsAdapter) ApplyFakeMetricsUpdate(update common.FakeMetrics) {
 
 // applyFakeMetrics enqueues the update on the per-metric channels and returns.
 // The updater goroutines clear and repopulate each collector's series.
-func (m *VLLMMetricsAdapter) applyFakeMetrics(update *VLLMFakeMetrics) {
+func (m *vllmMetricsAdapter) applyFakeMetrics(update *VLLMFakeMetrics) {
 	m.generators.Apply(func(gens *metrics.GeneratorSet) {
 		if update.RunningRequests != nil {
 			gens.Set(VLLMReqRunningMetricName, update.RunningRequests, func(upd metrics.GaugeUpdate) {
@@ -1155,5 +1160,4 @@ func (m *VLLMMetricsAdapter) applyFakeMetrics(update *VLLMFakeMetrics) {
 	if update.LoraMetrics != nil {
 		common.WriteToChannel(m.lorasChan, LoRAUpdate{Reset: &LoRAReset{MaxLoRAs: m.config.Lora.MaxLoras, Entries: update.LoraMetrics}}, m.logger)
 	}
-
 }

@@ -3,7 +3,9 @@
 The simulator supports a subset of standard vLLM Prometheus metrics.<br>
 These metrics are exposed via the `/metrics` HTTP REST endpoint. 
 
-Metric names are engine-specific (see [Engines](engine-backends.md)); this page describes the vLLM engine. The SGLang engine exposes no metrics, so `/metrics` serves an empty body for it.
+Metric names are engine-specific (see [Engines](engine-backends.md)). The [vLLM engine](#vllm) and the [SGLang engine](#sglang) each expose their own set.
+
+## vLLM
 
 Currently supported are the following metrics:
 | Metric | Description |
@@ -38,3 +40,43 @@ A request is aborted when its response is no longer read: for a streamed HTTP re
 A request aborted before a worker starts it is dropped when a worker picks it up. It never enters `vllm:num_requests_running` or the KV cache; if it was queued, it stays in `vllm:num_requests_waiting` until then and `vllm:request_queue_time_seconds` is its only observation.
 
 Once a running request is aborted, it stops at once, also during its time-to-first-token, inter-token or image wait: it generates no further tokens, leaves `vllm:num_requests_running` and releases its KV cache blocks. It is counted like a failed request: `vllm:e2e_request_latency_seconds`, `vllm:request_inference_time_seconds` and the queue, prefill, time-to-first-token and inter-token latencies recorded before the abort are observed, while `vllm:request_success_total`, `vllm:prompt_tokens_total`, `vllm:generation_tokens_total`, `vllm:request_prompt_tokens`, `vllm:request_generation_tokens`, `vllm:request_params_max_tokens` and `vllm:request_max_num_generation_tokens` are not updated (`vllm:request_decode_time_seconds` and `vllm:request_time_per_output_token_seconds` are observed only when it is aborted during the image wait).
+
+## SGLang
+
+Currently supported are the following metrics:
+| Metric | Description |
+|---|---|
+| sglang:num_running_reqs | The number of running requests |
+| sglang:num_queue_reqs | The number of requests in the waiting queue |
+| sglang:time_to_first_token_seconds | Histogram of time to first token in seconds |
+| sglang:inter_token_latency_seconds | Histogram of inter-token latency in seconds |
+| sglang:e2e_request_latency_seconds | Histogram of end-to-end request latency in seconds |
+| sglang:prompt_tokens_total | Number of prefill tokens processed |
+| sglang:generation_tokens_total | Number of generation tokens processed |
+
+The histogram bucket boundaries are the defaults of SGLang's `--bucket-time-to-first-token`,
+`--bucket-inter-token-latency`, and `--bucket-e2e-request-latency`; the simulator does not accept the
+flags that override them.
+
+Every metric carries a `model_name` label, and the five per-request metrics are additionally split by
+`is_streaming`, as SGLang splits them. `engine_type` and the `tp_rank`/`pp_rank`/`moe_ep_rank` labels real
+SGLang adds are left out: the simulator models neither disaggregation roles nor device topology, so the
+labels would carry one constant value. The vLLM surface above is reduced the same way, dropping real
+vLLM's `engine`.
+
+A request that fails contributes to no metric but `sglang:num_running_reqs`, since SGLang observes a
+request's latency and token counts only once it has finished.
+
+The metrics of a feature this engine does not simulate are absent rather than reported as zero. The
+KV-cache group (`token_usage`, `cache_hit_rate`, `cached_tokens_total`, `num_used_tokens`, `kv_*`,
+`max_total_num_tokens`, `page_size`, `num_pages`) follows the KV-cache simulation, and the LoRA,
+speculative-decoding, grammar, hierarchical-cache, and prefill/decode-disaggregation groups follow
+theirs. `sglang:queue_time_seconds`, `sglang:request_time_per_output_token_seconds`,
+`sglang:num_requests_total`, and the three token-length histograms are feedable from the simulator's
+existing events and are not implemented yet. `sglang:gen_throughput` is a rolling token-rate the
+simulator does not compute, `sglang:num_aborted_requests_total` counts client aborts, which the
+simulator does not distinguish, and `sglang:func_latency_seconds` times the engine's own Python entry
+points.
+
+[Fake metrics](configuration.md) are a vLLM-engine feature; a configuration asking for them under SGLang
+is rejected.
