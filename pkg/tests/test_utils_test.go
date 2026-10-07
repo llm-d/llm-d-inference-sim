@@ -239,37 +239,28 @@ func errorType(apiErr *openai.Error) string {
 	return readFlatError(apiErr).Type
 }
 
-// The three settings each engine names for itself, named here by what they do,
-// so that a spec running under several engines asks for one of them by meaning
-// and gets the flag the engine under test declares for it.
-const (
-	contextWindow    = "context window"
-	concurrencyLimit = "concurrency limit"
-	queueLimit       = "queue limit"
-)
-
-// settingFlags are the flags the registered engines declare for those settings
-// (see each engine's flags.go). A new engine's row belongs here along with it,
-// which is what every spec using settingFlag then runs under.
-var settingFlags = map[string]map[string]string{
+// engineFlags are the flags the registered engines declare for those fields (see
+// each engine's flags.go). A new engine's row belongs here along with it, which
+// is what every spec using fieldFlag then runs under.
+var engineFlags = map[string]map[string]string{
 	"vllm": {
-		contextWindow:    "--max-model-len",
-		concurrencyLimit: "--max-num-seqs",
-		queueLimit:       "--max-waiting-queue-length",
+		common.FieldContextWindow: "--max-model-len",
+		common.FieldConcurrency:   "--max-num-seqs",
+		common.FieldQueueLength:   "--max-waiting-queue-length",
 	},
 	"sglang": {
-		contextWindow:    "--context-length",
-		concurrencyLimit: "--max-running-requests",
-		queueLimit:       "--max-queued-requests",
+		common.FieldContextWindow: "--context-length",
+		common.FieldConcurrency:   "--max-running-requests",
+		common.FieldQueueLength:   "--max-queued-requests",
 	},
 }
 
-// settingFlag returns the flag that sets the given setting under the engine the
-// next server is started with.
-func settingFlag(setting string) string {
-	flag, known := settingFlags[currentEngine][setting]
+// engineFlag returns the flag that sets the given field under the engine the next
+// server is started with.
+func engineFlag(field string) string {
+	flag, known := engineFlags[currentEngine][field]
 	gomega.Expect(known).To(gomega.BeTrue(),
-		"the %s engine declares no %s flag in settingFlags", currentEngine, setting)
+		"the %s engine declares no %s flag in fieldFlags", currentEngine, field)
 	return flag
 }
 

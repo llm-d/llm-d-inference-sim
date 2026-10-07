@@ -92,7 +92,7 @@ var _ = Describe("Server", forEachEngine(func() {
 		It("Should return correct response to /tokenize chat", func() {
 			ctx := context.TODO()
 			args := []string{"cmd", "--model", common.QwenModelName, "--mode", common.ModeRandom,
-				settingFlag(contextWindow), "2048"}
+				engineFlag(common.FieldContextWindow), "2048"}
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -122,7 +122,7 @@ var _ = Describe("Server", forEachEngine(func() {
 		It("Should return correct response to /tokenize text", func() {
 			ctx := context.TODO()
 			args := []string{"cmd", "--model", common.QwenModelName, "--mode", common.ModeRandom,
-				settingFlag(contextWindow), "2048"}
+				engineFlag(common.FieldContextWindow), "2048"}
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 

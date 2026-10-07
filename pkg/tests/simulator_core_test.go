@@ -243,7 +243,7 @@ var _ = Describe("Simulator core", forEachEngine(func() {
 			// leaves room for at least one response token. Size the context window so
 			// the prompt alone fills it, leaving no such room.
 			maxModelLen := promptChatTokens
-			args := []string{"cmd", "--model", model, "--mode", common.ModeRandom, settingFlag(contextWindow), strconv.FormatInt(maxModelLen, 10)}
+			args := []string{"cmd", "--model", model, "--mode", common.ModeRandom, engineFlag(common.FieldContextWindow), strconv.FormatInt(maxModelLen, 10)}
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -289,7 +289,7 @@ var _ = Describe("Simulator core", forEachEngine(func() {
 
 			// leave room for at least one response token
 			maxModelLen := promptChatTokens + 1
-			args := []string{"cmd", "--model", model, "--mode", common.ModeRandom, settingFlag(contextWindow), strconv.FormatInt(maxModelLen, 10)}
+			args := []string{"cmd", "--model", model, "--mode", common.ModeRandom, engineFlag(common.FieldContextWindow), strconv.FormatInt(maxModelLen, 10)}
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -309,7 +309,7 @@ var _ = Describe("Simulator core", forEachEngine(func() {
 			promptChatTokens := getChatPromptTokensCountForTestModel(prompt)
 
 			// Start server with a context window of 50
-			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho, settingFlag(contextWindow), "50"}
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho, engineFlag(common.FieldContextWindow), "50"}
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -334,7 +334,7 @@ var _ = Describe("Simulator core", forEachEngine(func() {
 			// in echo mode the prompt is echoed back as the response, so it must fit
 			// twice within the context window; one below that boundary must be rejected
 			maxModelLen := promptChatTokens*2 - 1
-			args := []string{"cmd", "--model", model, "--mode", common.ModeEcho, settingFlag(contextWindow), strconv.FormatInt(maxModelLen, 10)}
+			args := []string{"cmd", "--model", model, "--mode", common.ModeEcho, engineFlag(common.FieldContextWindow), strconv.FormatInt(maxModelLen, 10)}
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -365,7 +365,7 @@ var _ = Describe("Simulator core", forEachEngine(func() {
 			prompt := contextWindowTestPrompt
 			promptChatTokens := getChatPromptTokensCountForTestModel(prompt)
 
-			args := []string{"cmd", "--model", model, "--mode", common.ModeEcho, settingFlag(contextWindow), "1000"}
+			args := []string{"cmd", "--model", model, "--mode", common.ModeEcho, engineFlag(common.FieldContextWindow), "1000"}
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -397,7 +397,7 @@ var _ = Describe("Simulator core", forEachEngine(func() {
 
 			// random mode: size the context window so the prompt alone fills it
 			maxModelLen := promptTokens
-			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom, settingFlag(contextWindow), strconv.FormatInt(maxModelLen, 10)}
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom, engineFlag(common.FieldContextWindow), strconv.FormatInt(maxModelLen, 10)}
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -603,7 +603,7 @@ var _ = Describe("Simulator core", forEachEngine(func() {
 			ctx := context.TODO()
 			// 1 worker, queue capacity 2, 500ms TTFT so requests stay in-flight long enough to inspect
 			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho,
-				"--time-to-first-token", "500ms", settingFlag(concurrencyLimit), "1", settingFlag(queueLimit), "2"}
+				"--time-to-first-token", "500ms", engineFlag(common.FieldConcurrency), "1", engineFlag(common.FieldQueueLength), "2"}
 			server, _, client, err := startServerHandle(ctx, common.ModeEcho, args, nil)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -653,7 +653,7 @@ var _ = Describe("Simulator core", forEachEngine(func() {
 			// echoed back as the response), so it is set just above 2*15 to stay
 			// as tight as that constraint allows.
 			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho,
-				settingFlag(concurrencyLimit), "100", settingFlag(contextWindow), "30", settingFlag(queueLimit), "1"}
+				engineFlag(common.FieldConcurrency), "100", engineFlag(common.FieldContextWindow), "30", engineFlag(common.FieldQueueLength), "1"}
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -686,7 +686,7 @@ var _ = Describe("Simulator core", forEachEngine(func() {
 			// echoed back as the response), so it is set just above 2*15 to stay
 			// as tight as that constraint allows.
 			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho,
-				settingFlag(concurrencyLimit), "100", settingFlag(contextWindow), "30", settingFlag(queueLimit), "1"}
+				engineFlag(common.FieldConcurrency), "100", engineFlag(common.FieldContextWindow), "30", engineFlag(common.FieldQueueLength), "1"}
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 

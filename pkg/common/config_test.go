@@ -19,7 +19,6 @@ package common
 import (
 	"encoding/json"
 	"os"
-	"path/filepath"
 	"reflect"
 	"time"
 
@@ -27,6 +26,11 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/spf13/pflag"
 )
+
+// writeConfig writes a config file for one spec and returns its path.
+func writeConfig(contents string) string {
+	return WriteConfigFile(GinkgoT().TempDir(), contents)
+}
 
 func createConfigWithModel(model string, servedModelNames []string) *Configuration {
 	c := NewConfig()
@@ -278,7 +282,7 @@ var _ = Describe("Configuration.MarshalCleaned", func() {
 	It("reports an engine-named field under the name it was declared with", func() {
 		c := createConfigWithModel(TestModelName, nil)
 		c.MaxModelLen = 512
-		c.NameSetting(SettingContextWindow, "context-length")
+		c.NameField(FieldContextWindow, "context-length")
 
 		data, err := c.MarshalCleaned()
 		Expect(err).ToNot(HaveOccurred())
@@ -287,9 +291,9 @@ var _ = Describe("Configuration.MarshalCleaned", func() {
 		Expect(json.Unmarshal(data, &m)).To(Succeed())
 
 		Expect(m).To(HaveKeyWithValue("context-length", BeEquivalentTo(512)))
-		Expect(m).ToNot(HaveKey(SettingContextWindow))
-		Expect(m).To(HaveKey(SettingConcurrency))
-		Expect(m).To(HaveKey(SettingQueueLength))
+		Expect(m).ToNot(HaveKey(FieldContextWindow))
+		Expect(m).To(HaveKey(FieldConcurrency))
+		Expect(m).To(HaveKey(FieldQueueLength))
 	})
 
 	DescribeTable("nests fields under their own group and none remain at the top level",
@@ -340,7 +344,7 @@ var _ = Describe("Configuration.Copy", func() {
 	It("should keep the names the engine gave the fields it names", func() {
 		c := createConfigWithModel(TestModelName, nil)
 		c.MaxModelLen = 512
-		c.NameSetting(SettingContextWindow, "context-length")
+		c.NameField(FieldContextWindow, "context-length")
 
 		got, err := c.Copy()
 		Expect(err).NotTo(HaveOccurred())
@@ -350,7 +354,7 @@ var _ = Describe("Configuration.Copy", func() {
 		var m map[string]any
 		Expect(json.Unmarshal(data, &m)).To(Succeed())
 		Expect(m).To(HaveKeyWithValue("context-length", BeEquivalentTo(512)))
-		Expect(m).ToNot(HaveKey(SettingContextWindow))
+		Expect(m).ToNot(HaveKey(FieldContextWindow))
 	})
 
 	It("should round-trip a non-nil FakeMetrics with a fixed-value metric", func() {
@@ -464,13 +468,6 @@ var _ = Describe("admin struct tags", func() {
 })
 
 var _ = Describe("Configuration.load latencies YAML folding", func() {
-	writeConfig := func(contents string) string {
-		dir := GinkgoT().TempDir()
-		path := filepath.Join(dir, "config.yaml")
-		Expect(os.WriteFile(path, []byte(contents), 0o644)).To(Succeed())
-		return path
-	}
-
 	It("populates Latencies from the nested latencies block", func() {
 		c := NewConfig()
 		_, err := c.load(writeConfig(`
@@ -522,13 +519,6 @@ latencies:
 })
 
 var _ = Describe("Configuration.load tool-calls YAML folding", func() {
-	writeConfig := func(contents string) string {
-		dir := GinkgoT().TempDir()
-		path := filepath.Join(dir, "config.yaml")
-		Expect(os.WriteFile(path, []byte(contents), 0o644)).To(Succeed())
-		return path
-	}
-
 	It("populates ToolCalls from the nested tool-calls block", func() {
 		c := NewConfig()
 		_, err := c.load(writeConfig(`
@@ -580,13 +570,6 @@ tool-calls:
 })
 
 var _ = Describe("Configuration.load dataset YAML folding", func() {
-	writeConfig := func(contents string) string {
-		dir := GinkgoT().TempDir()
-		path := filepath.Join(dir, "config.yaml")
-		Expect(os.WriteFile(path, []byte(contents), 0o644)).To(Succeed())
-		return path
-	}
-
 	It("populates Dataset from the nested dataset block", func() {
 		c := NewConfig()
 		_, err := c.load(writeConfig(`
@@ -638,13 +621,6 @@ dataset:
 })
 
 var _ = Describe("Configuration.load ssl YAML folding", func() {
-	writeConfig := func(contents string) string {
-		dir := GinkgoT().TempDir()
-		path := filepath.Join(dir, "config.yaml")
-		Expect(os.WriteFile(path, []byte(contents), 0o644)).To(Succeed())
-		return path
-	}
-
 	It("populates SSL from the nested ssl block", func() {
 		c := NewConfig()
 		_, err := c.load(writeConfig(`
@@ -732,15 +708,9 @@ var _ = Describe("unexpected positional arguments", func() {
 // The core keeps the field, its default and its validation for the three
 // settings the engines disagree on the name of, and registers neither a flag nor
 // a config-file key of its own for any of them: the engine declares all three
-// with DeclareIntSetting, which is what names them. These specs cover the core's
+// with DeclareConfigIntField, which is what names them. These specs cover the core's
 // side of that. What each engine calls them is its own suite's subject.
 var _ = Describe("settings the engine names", func() {
-	writeConfig := func(contents string) string {
-		path := filepath.Join(GinkgoT().TempDir(), "config.yaml")
-		Expect(os.WriteFile(path, []byte(contents), 0o644)).To(Succeed())
-		return path
-	}
-
 	// NoopEngine declares none of them, so nothing registers these flags.
 	DescribeTable("should register no flag of its own for them",
 		func(flag string) {
@@ -750,9 +720,9 @@ var _ = Describe("settings the engine names", func() {
 		Entry("max-model-len", "--max-model-len"),
 		Entry("max-num-seqs", "--max-num-seqs"),
 		Entry("max-waiting-queue-length", "--max-waiting-queue-length"),
-		Entry("the context-window placeholder", "--"+SettingContextWindow),
-		Entry("the concurrency placeholder", "--"+SettingConcurrency),
-		Entry("the queue-length placeholder", "--"+SettingQueueLength),
+		Entry("the context-window placeholder", "--"+FieldContextWindow),
+		Entry("the concurrency placeholder", "--"+FieldConcurrency),
+		Entry("the queue-length placeholder", "--"+FieldQueueLength),
 	)
 
 	It("should report a config key the engine does not claim", func() {
@@ -773,7 +743,7 @@ max-model-len: 512
 	})
 })
 
-var _ = Describe("DeclareIntSetting", func() {
+var _ = Describe("DeclareConfigIntField", func() {
 	var (
 		f   *pflag.FlagSet
 		cfg *Configuration
@@ -787,7 +757,7 @@ var _ = Describe("DeclareIntSetting", func() {
 	})
 
 	declare := func() error {
-		return DeclareIntSetting(f, raw, cfg, SettingContextWindow,
+		return DeclareConfigIntField(f, raw, cfg, FieldContextWindow,
 			&cfg.MaxModelLen, "context-length", "usage")
 	}
 

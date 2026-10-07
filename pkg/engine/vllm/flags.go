@@ -83,7 +83,7 @@ func (Engine) BindFlags(f *pflag.FlagSet, cfg *common.Configuration, rawYAML map
 
 	registerFlags(f, cfg)
 
-	if err := declareSettings(f, cfg, rawYAML); err != nil {
+	if err := declareFields(f, cfg, rawYAML); err != nil {
 		return err
 	}
 
@@ -104,22 +104,22 @@ func (Engine) BindFlags(f *pflag.FlagSet, cfg *common.Configuration, rawYAML map
 	return nil
 }
 
-// declareSettings names the three core fields the engines disagree on the name
+// declareFields names the three core fields the engines disagree on the name
 // of, under vLLM's names: max_model_len and max_num_seqs are EngineArgs fields
 // in vllm/engine/arg_utils.py, while the waiting-queue limit has no vLLM
 // counterpart and carries the simulator's own name.
-func declareSettings(f *pflag.FlagSet, cfg *common.Configuration, rawYAML map[string]any) error {
-	if err := common.DeclareIntSetting(f, rawYAML, cfg, common.SettingContextWindow,
+func declareFields(f *pflag.FlagSet, cfg *common.Configuration, rawYAML map[string]any) error {
+	if err := common.DeclareConfigIntField(f, rawYAML, cfg, common.FieldContextWindow,
 		&cfg.MaxModelLen, "max-model-len",
 		"Model's context window, maximum number of tokens in a single request including input and output"); err != nil {
 		return err
 	}
-	if err := common.DeclareIntSetting(f, rawYAML, cfg, common.SettingConcurrency,
+	if err := common.DeclareConfigIntField(f, rawYAML, cfg, common.FieldConcurrency,
 		&cfg.MaxNumSeqs, "max-num-seqs",
 		"Maximum number of inference requests that could be processed at the same time"); err != nil {
 		return err
 	}
-	return common.DeclareIntSetting(f, rawYAML, cfg, common.SettingQueueLength,
+	return common.DeclareConfigIntField(f, rawYAML, cfg, common.FieldQueueLength,
 		&cfg.MaxWaitingQueueLength, "max-waiting-queue-length",
 		"Maximum length of inference requests waiting queue")
 }

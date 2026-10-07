@@ -57,7 +57,7 @@ flag: the core keeps the field, its default and its validation, and each engine'
 its own flag for the field and claims its own config-file key (`common.ClaimYAMLInt`). Every engine
 declares all three, so neither engine's names are the ones the other deviates from, and a name one engine
 does not declare reaches no field: the flag is unknown, and the config key is unclaimed and reported like
-any other. `common.DeclareIntSetting` does the three jobs one such field needs — claim the key, register
+any other. `common.DeclareConfigIntField` does the three jobs one such field needs — claim the key, register
 the flag, record the name — and the recorded name is what `/admin/config` and the startup log report the
 field as, so no reader is shown a name the running engine does not take.
 

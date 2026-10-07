@@ -45,7 +45,7 @@ func (Engine) BindFlags(f *pflag.FlagSet, cfg *common.Configuration, rawYAML map
 		return err
 	}
 
-	if err := declareSettings(f, cfg, rawYAML); err != nil {
+	if err := declareFields(f, cfg, rawYAML); err != nil {
 		return err
 	}
 
@@ -71,22 +71,22 @@ func (Engine) BindFlags(f *pflag.FlagSet, cfg *common.Configuration, rawYAML map
 	return nil
 }
 
-// declareSettings names the three core fields the engines disagree on the name
+// declareFields names the three core fields the engines disagree on the name
 // of, under sglang's names: the field declarations in sglang's arg_groups/fields
 // are context_length in model.py, and max_running_requests and
 // max_queued_requests in schedule.py.
-func declareSettings(f *pflag.FlagSet, cfg *common.Configuration, rawYAML map[string]any) error {
-	if err := common.DeclareIntSetting(f, rawYAML, cfg, common.SettingContextWindow,
+func declareFields(f *pflag.FlagSet, cfg *common.Configuration, rawYAML map[string]any) error {
+	if err := common.DeclareConfigIntField(f, rawYAML, cfg, common.FieldContextWindow,
 		&cfg.MaxModelLen, "context-length",
 		"Model's context window, maximum number of tokens in a single request including input and output"); err != nil {
 		return err
 	}
-	if err := common.DeclareIntSetting(f, rawYAML, cfg, common.SettingConcurrency,
+	if err := common.DeclareConfigIntField(f, rawYAML, cfg, common.FieldConcurrency,
 		&cfg.MaxNumSeqs, "max-running-requests",
 		"Maximum number of inference requests that could be processed at the same time"); err != nil {
 		return err
 	}
-	return common.DeclareIntSetting(f, rawYAML, cfg, common.SettingQueueLength,
+	return common.DeclareConfigIntField(f, rawYAML, cfg, common.FieldQueueLength,
 		&cfg.MaxWaitingQueueLength, "max-queued-requests",
 		"Maximum length of inference requests waiting queue")
 }

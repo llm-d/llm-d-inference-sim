@@ -22,17 +22,21 @@ import (
 	"strings"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
+	"github.com/llm-d/llm-d-inference-sim/pkg/engine"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"gopkg.in/yaml.v3"
 )
 
-// loadManifestConfig parses path with the engine resolveEngine selects, the
-// same precedence main uses, so this stays engine-agnostic rather than
-// assuming vLLM.
-func loadManifestConfig(path string) (*common.Configuration, error) {
+// loadManifestConfig parses path the way main does, under engineName. The engine
+// is passed on the command line rather than left to resolveEngine's precedence,
+// since SIM_ENGINE outranks the key a manifest declares and would otherwise read
+// one engine's examples as another's.
+func loadManifestConfig(path string, engineName string) (*common.Configuration, error) {
 	oldArgs := os.Args
 	defer func() { os.Args = oldArgs }()
-	os.Args = []string{"cmd", "--model", common.TestModelName, "--config", path}
+	os.Args = []string{"cmd", "--model", common.TestModelName,
+		"--engine", engineName, "--config", path}
 
 	eng, err := resolveEngine()
 	if err != nil {
@@ -41,12 +45,26 @@ func loadManifestConfig(path string) (*common.Configuration, error) {
 	return common.ParseCommandParamsAndLoadConfig(eng)
 }
 
+// manifestEngines reports the engines a manifest is expected to load under: the
+// one it declares, or every registered engine when it names none.
+func manifestEngines(contents []byte) []string {
+	var declared struct {
+		Engine string `yaml:"engine"`
+	}
+	Expect(yaml.Unmarshal(contents, &declared)).To(Succeed())
+	if declared.Engine != "" {
+		return []string{declared.Engine}
+	}
+	return engine.Names()
+}
+
 var _ = Describe("configuration manifests", func() {
-	It("loads every configuration manifest the repository ships", func() {
+	It("loads every configuration manifest the simulator ships", func() {
 		paths, err := filepath.Glob("../../manifests/*.yaml")
 		Expect(err).NotTo(HaveOccurred())
 		profiles, err := filepath.Glob("../../manifests/latency-profiles/*.yaml")
 		Expect(err).NotTo(HaveOccurred())
+		Expect(profiles).NotTo(BeEmpty())
 
 		for _, path := range append(paths, profiles...) {
 			contents, err := os.ReadFile(path)
@@ -55,8 +73,10 @@ var _ = Describe("configuration manifests", func() {
 			if strings.Contains(string(contents), "apiVersion:") {
 				continue
 			}
-			_, err = loadManifestConfig(path)
-			Expect(err).NotTo(HaveOccurred(), "failed to load %s", path)
+			for _, engineName := range manifestEngines(contents) {
+				_, err = loadManifestConfig(path, engineName)
+				Expect(err).NotTo(HaveOccurred(), "failed to load %s under the %s engine", path, engineName)
+			}
 		}
 	})
 })

@@ -141,7 +141,10 @@ scheduling, not bandwidth:
 
 Three ready-to-use profiles. Each is provided as a complete YAML file under
 [`manifests/latency-profiles/`](../manifests/latency-profiles/) - pass it directly with
-`--config`, or copy the latency fields into your existing config.
+`--config`, or copy the latency fields into your existing config. Each sets the concurrency limit the load
+factor is calibrated against, under vLLM's name for it, and so declares `engine: vllm`. To use a profile
+under another engine, copy its latency fields and set that engine's own name for the concurrency limit
+(see [Configuration](configuration.md#settings-each-engine-names-itself)).
 
 Each profile provides two YAML files, one per calculator:
 

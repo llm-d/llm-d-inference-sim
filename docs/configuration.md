@@ -34,7 +34,7 @@ its own flag and config-file key for them. They are listed under
 declares is the only one it answers to, on the command line and in a config file alike.
 
 ### General
-- `config`: the path to a yaml configuration file that can contain the simulator's command line parameters. If a parameter is defined in both the config file and the command line, the command line value overwrites the configuration file value. An example configuration file can be found at [manifests/config.yaml](../manifests/config.yaml). A key the simulator does not recognize is an error, not a no-op: startup fails naming the key. Since some settings are engine-owned, which keys are recognized depends on the selected engine; see [Engines](engine-backends.md).
+- `config`: the path to a yaml configuration file that can contain the simulator's command line parameters. If a parameter is defined in both the config file and the command line, the command line value overwrites the configuration file value. An example that loads under any engine is [manifests/basic-config.yaml](../manifests/basic-config.yaml); [manifests/vllm-config.yaml](../manifests/vllm-config.yaml) and [manifests/sglang-config.yaml](../manifests/sglang-config.yaml) are written for one engine each and name it in their `engine` key. A key the simulator does not recognize is an error, not a no-op: startup fails naming the key. Since some settings are engine-owned, which keys are recognized depends on the selected engine; see [Engines](engine-backends.md).
 - `port`: the port the simulator listens on, default is 8000
 - `max-request-body-size-mb`: maximum allowed size of an HTTP request body in megabytes, optional, default is 4 (matching the fasthttp built-in default). Must be between 1 and 512.
 - `engine`: the inference engine to simulate, one of `vllm` or `sglang`, optional, default is `vllm`. SGLang currently covers the OpenAI-compatible endpoints only, and rejects a configuration asking for LoRA adapters, the KV cache, fake metrics, sleep mode, or encoder-only mode. Determines which flags, environment variables, metric names, and KV-event format the simulator uses; see [Engines](engine-backends.md). If you omit `--engine` on the command line, a non-empty `SIM_ENGINE` environment variable can supply it; see [Configuration precedence](#configuration-precedence) and [Environment variables](#environment-variables).
@@ -54,8 +54,10 @@ declares is the only one it answers to, on the command line and in a config file
 The simulator keeps one field behind each row, with the default listed here, and the engine declares the
 name it answers to. No name in the table works under both engines, and neither engine falls back to a name
 of the simulator's: naming one the way the other engine does fails, as an unknown flag on the command line
-or as an unrecognized key in a config file. The shipped files in [manifests/](../manifests/) use the vLLM
-names.
+or as an unrecognized key in a config file. A config file that names any of them therefore belongs to one
+engine, and the shipped examples that do say which in their `engine` key, so that passing one with
+`--config` alone selects the engine it was written for. [manifests/basic-config.yaml](../manifests/basic-config.yaml)
+names none of these three and declares no engine, so it loads under either.
 
 | setting | under vLLM | under SGLang | default | meaning |
 | --- | --- | --- | --- | --- |

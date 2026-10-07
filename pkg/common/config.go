@@ -128,10 +128,10 @@ type Configuration struct {
 
 	// The three settings below are the ones the engines disagree on the name of.
 	// The core keeps the field, its default and its validation, and the active
-	// engine declares all three (see DeclareIntSetting), which is what names
+	// engine declares all three (see DeclareConfigIntField), which is what names
 	// them: yaml:"-" keeps the generic loader in load() from claiming any one
 	// engine's key, there is no core flag, and the json key is a placeholder
-	// that settingNames replaces with the engine's name for external display.
+	// that fieldNames replaces with the engine's name for external display.
 
 	// MaxNumSeqs is maximum number of sequences per iteration (the maximum
 	// number of inference requests that could be processed at the same time)
@@ -142,12 +142,12 @@ type Configuration struct {
 	// in a single request including input and output. Default value is 1024.
 	MaxModelLen int `yaml:"-" json:"context-window"`
 
-	// settingNames records the name the active engine gave each of the three
+	// fieldNames records the name the active engine gave each of the three
 	// fields above, keyed by the field's json key, so that /admin/config and the
 	// startup log report them the way the running engine names them. Unexported,
-	// so it is neither loaded from a config file nor reported as a setting of
-	// its own; Copy carries it by hand for that reason.
-	settingNames map[string]string
+	// so it is neither loaded from a config file nor reported as a field of its
+	// own; Copy carries it by hand for that reason.
+	fieldNames map[string]string
 
 	// Lora groups the LoRA adapter settings. Constructed entirely by the active
 	// engine (see Engine.ApplyDefaults and Engine.BindFlags), since both the
@@ -630,41 +630,41 @@ func rejectUnknownYAMLKeys(raw map[string]any, engineName string) error {
 }
 
 // Placeholder keys of the three core fields the engines disagree on the name of,
-// matching their json tags. An engine passes one to DeclareIntSetting to say
+// matching their json tags. An engine passes one to DeclareConfigIntField to say
 // which field its flag names; none is a name any engine answers to.
 const (
-	SettingContextWindow = "context-window"
-	SettingConcurrency   = "max-concurrent-requests"
-	SettingQueueLength   = "max-queue-length"
+	FieldContextWindow = "context-window"
+	FieldConcurrency   = "max-concurrent-requests"
+	FieldQueueLength   = "max-queue-length"
 )
 
-// DeclareIntSetting gives one of those fields the name this engine knows it by:
-// it claims that name's config-file key out of raw, registers it as a flag, and
-// records it so external display reports the field under it too. setting is the
-// placeholder key of the field out points to. Claiming before registering is
+// DeclareConfigIntField gives one of those fields the name this engine knows it
+// by: it claims that name's config-file key out of raw, registers it as a flag,
+// and records it so external display reports the field under it too. field is
+// the placeholder key of the field out points to. Claiming before registering is
 // what makes a config file the flag's default, so an unset flag keeps the file's
 // value and an absent key keeps the core default. Must be called from
 // Engine.BindFlags, before f.Parse.
-func DeclareIntSetting(f *pflag.FlagSet, raw map[string]any, cfg *Configuration,
-	setting string, out *int, name string, usage string) error {
+func DeclareConfigIntField(f *pflag.FlagSet, raw map[string]any, cfg *Configuration,
+	field string, out *int, name string, usage string) error {
 	if err := UnmarshalYAMLKey(raw, name, out); err != nil {
 		return err
 	}
 	delete(raw, name)
 
 	f.IntVar(out, name, *out, usage)
-	cfg.NameSetting(setting, name)
+	cfg.NameField(field, name)
 	return nil
 }
 
-// NameSetting records that this configuration calls the given setting name,
-// which is what external display reports it as. DeclareIntSetting calls it, so
-// an engine binding one of those fields some other way can still name it.
-func (c *Configuration) NameSetting(setting string, name string) {
-	if c.settingNames == nil {
-		c.settingNames = make(map[string]string, 3)
+// NameField records the name this configuration calls the given field by, which
+// is what external display reports it as. DeclareConfigIntField calls it, so an
+// engine binding one of those fields some other way can still name it.
+func (c *Configuration) NameField(field string, name string) {
+	if c.fieldNames == nil {
+		c.fieldNames = make(map[string]string)
 	}
-	c.settingNames[setting] = name
+	c.fieldNames[field] = name
 }
 
 func (c *Configuration) validate() error {
@@ -1150,7 +1150,7 @@ func (c *Configuration) Copy() (*Configuration, error) {
 	}
 	// Unexported, so the round trip above drops it. The copy must keep reporting
 	// the engine-named fields under the engine's names.
-	dst.settingNames = maps.Clone(c.settingNames)
+	dst.fieldNames = maps.Clone(c.fieldNames)
 	return &dst, nil
 }
 
@@ -1175,9 +1175,9 @@ func (c *Configuration) cleanedMap() (map[string]any, error) {
 	// The fields the engines disagree on the name of are reported under the
 	// running engine's name for them, the same name their flag and config key
 	// carry. A field no engine declared keeps its placeholder key.
-	for setting, name := range c.settingNames {
-		if value, ok := m[setting]; ok {
-			delete(m, setting)
+	for field, name := range c.fieldNames {
+		if value, ok := m[field]; ok {
+			delete(m, field)
 			m[name] = value
 		}
 	}

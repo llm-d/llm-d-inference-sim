@@ -19,7 +19,6 @@ package sglang
 import (
 	"encoding/json"
 	"os"
-	"path/filepath"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -41,35 +40,34 @@ func createSimConfig(args []string) (*common.Configuration, error) {
 }
 
 // writeConfig writes body to a temporary YAML config file and returns its path.
-func writeConfig(body string) string {
-	path := filepath.Join(GinkgoT().TempDir(), "config.yaml")
-	Expect(os.WriteFile(path, []byte(body), 0o600)).To(Succeed())
-	return path
+// writeConfig writes a config file for one spec and returns its path.
+func writeConfig(contents string) string {
+	return common.WriteConfigFile(GinkgoT().TempDir(), contents)
 }
 
 var _ = Describe("Configuration", func() {
-	// Written inline rather than taken from manifests/: those are spelled the
-	// vLLM way, and the settings this engine renames are not accepted under
-	// their vLLM names.
-	It("should load a config file that asks for nothing this engine lacks", func() {
-		config, err := createSimConfig([]string{"cmd", "--config", writeConfig(`
-port: 8001
-model: "Qwen/Qwen2-VL-2B-Instruct"
-max-running-requests: 5
-mode: "random"
-time-to-first-token: "2000ms"
-inter-token-latency: "1000ms"
-kv-cache-transfer-latency: "100ms"
-seed: 100100100
-`)})
+	It("should load this engine's own shipped config file", func() {
+		config, err := createSimConfig([]string{"cmd", "--config", "../../../manifests/sglang-config.yaml"})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(config.Model).To(Equal("Qwen/Qwen2-VL-2B-Instruct"))
+		Expect(config.MaxModelLen).To(Equal(2048))
 		Expect(config.MaxNumSeqs).To(Equal(5))
+		Expect(config.MaxWaitingQueueLength).To(Equal(1000))
 		// A single LoRA slot is all ApplyDefaults claims; no adapter can occupy it.
 		Expect(config.Lora.MaxLoras).To(Equal(1))
 		Expect(config.Lora.LoraModules).To(BeEmpty())
 		Expect(config.KVCache).To(Equal(common.KVCacheConfig{}))
 		Expect(config.FakeMetrics).To(BeNil())
+	})
+
+	// The shared example names none of the three settings the engines name
+	// themselves, so it must load under this engine as it does under any other.
+	It("should load the engine-independent shipped config file", func() {
+		config, err := createSimConfig([]string{"cmd", "--config", "../../../manifests/basic-config.yaml"})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(config.Port).To(Equal(8001))
+		Expect(config.Model).To(Equal("Qwen/Qwen2-VL-2B-Instruct"))
+		Expect(config.Seed).To(Equal(int64(100100100)))
 	})
 
 	// A key for a feature this engine does not implement and cannot yet spell is
@@ -142,34 +140,11 @@ seed: 100100100
 	// Both the groups this engine does not own and the keys it names its own way
 	// are left unclaimed, so the report covers them together.
 	It("should reject a config file written for vLLM", func() {
-		_, err := createSimConfig([]string{"cmd", "--config", "../../../manifests/config.yaml"})
+		_, err := createSimConfig([]string{"cmd", "--config", "../../../manifests/vllm-config.yaml"})
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("lora-modules, max-cpu-loras, max-loras"))
 		Expect(err.Error()).To(ContainSubstring("max-num-seqs"))
 	})
-
-	// Core flags, which this engine must accept under their core names: it names
-	// only the three in the "Setting names" specs below, and --model is its own
-	// alias of --model-path, --data-parallel-size of --dp-size. The latency and
-	// omni entries are what the cross-engine integration specs in pkg/tests pass,
-	// where a flag that turned out to be engine-owned would fail the whole suite
-	// under this engine rather than just the spec that passes it.
-	DescribeTable("should accept a core flag under its core name",
-		func(args ...string) {
-			config, err := createSimConfig(append([]string{"cmd", "--model", common.TestModelName,
-				"--mode", common.ModeEcho}, args...))
-			Expect(err).NotTo(HaveOccurred())
-			Expect(config.EngineName).To(Equal("sglang"))
-		},
-		Entry("port", "--port", "8001"),
-		Entry("served-model-name", "--served-model-name", "alias"),
-		Entry("data-parallel-size", "--data-parallel-size", "2"),
-		Entry("seed", "--seed", "100"),
-		Entry("time-to-first-token", "--time-to-first-token", "100ms"),
-		Entry("time-to-first-token-std-dev", "--time-to-first-token", "100ms", "--time-to-first-token-std-dev", "10ms"),
-		Entry("omni", "--omni", "--image-emission-rate", "100"),
-		Entry("enable-request-id-headers", "--enable-request-id-headers"),
-	)
 
 	// A flag for a feature this engine is expected to grow is registered and
 	// then refused by name, so the reason reaches the user instead of pflag's

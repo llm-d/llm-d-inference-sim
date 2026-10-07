@@ -95,7 +95,7 @@ var _ = Describe("Simulator for /v1/models", forEachEngine(func() {
 	It("reports the configured context window", func() {
 		client, err := startServerWithArgs(ctx, []string{"cmd",
 			"--model", common.TestModelName, "--mode", common.ModeEcho,
-			settingFlag(contextWindow), "2048"})
+			engineFlag(common.FieldContextWindow), "2048"})
 		Expect(err).NotTo(HaveOccurred())
 
 		models := getModels(client)
