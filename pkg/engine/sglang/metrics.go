@@ -93,8 +93,8 @@ var tpotFinishReasons = map[string]bool{
 	common.ToolsFinishReason:  true,
 }
 
-// streamObservation is a channel payload carrying the observed value together
-// with the kind of request it came from, for a metric labeled by is_streaming.
+// streamObservation is a payload carrying the observed value together with the
+// kind of request it came from, for a metric labeled by is_streaming.
 type streamObservation struct {
 	value       float64
 	isStreaming bool
