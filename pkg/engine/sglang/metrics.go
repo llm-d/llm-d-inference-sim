@@ -31,19 +31,20 @@ import (
 )
 
 const (
-	SGLangRunningReqsMetricName           = "sglang:num_running_reqs"
-	SGLangQueueReqsMetricName             = "sglang:num_queue_reqs"
-	SGLangContextLenMetricName            = "sglang:context_len"
-	SGLangQueueTimeMetricName             = "sglang:queue_time_seconds"
-	SGLangTTFTMetricName                  = "sglang:time_to_first_token_seconds"
-	SGLangInterTokenLatencyMetricName     = "sglang:inter_token_latency_seconds"
-	SGLangReqTPOTMetricName               = "sglang:request_time_per_output_token_seconds"
-	SGLangE2EReqLatencyMetricName         = "sglang:e2e_request_latency_seconds"
-	SGLangPromptTokensTotalMetricName     = "sglang:prompt_tokens_total"
-	SGLangGenerationTokensTotalMetricName = "sglang:generation_tokens_total"
-	SGLangRequestsTotalMetricName         = "sglang:num_requests_total"
-	SGLangPromptTokensHistMetricName      = "sglang:prompt_tokens_histogram"
-	SGLangGenerationTokensHistMetricName  = "sglang:generation_tokens_histogram"
+	SGLangRunningReqsMetricName              = "sglang:num_running_reqs"
+	SGLangQueueReqsMetricName                = "sglang:num_queue_reqs"
+	SGLangContextLenMetricName               = "sglang:context_len"
+	SGLangQueueTimeMetricName                = "sglang:queue_time_seconds"
+	SGLangTTFTMetricName                     = "sglang:time_to_first_token_seconds"
+	SGLangInterTokenLatencyMetricName        = "sglang:inter_token_latency_seconds"
+	SGLangReqTPOTMetricName                  = "sglang:request_time_per_output_token_seconds"
+	SGLangE2EReqLatencyMetricName            = "sglang:e2e_request_latency_seconds"
+	SGLangPromptTokensTotalMetricName        = "sglang:prompt_tokens_total"
+	SGLangGenerationTokensTotalMetricName    = "sglang:generation_tokens_total"
+	SGLangRequestsTotalMetricName            = "sglang:num_requests_total"
+	SGLangPromptTokensHistMetricName         = "sglang:prompt_tokens_histogram"
+	SGLangUncachedPromptTokensHistMetricName = "sglang:uncached_prompt_tokens_histogram"
+	SGLangGenerationTokensHistMetricName     = "sglang:generation_tokens_histogram"
 )
 
 // promLabelIsStreaming splits the metrics sglang reports separately for
@@ -120,13 +121,14 @@ type sglangMetricsAdapter struct {
 	contextLen      *prometheus.GaugeVec
 
 	// histograms
-	queueTime            *prometheus.HistogramVec
-	ttft                 *prometheus.HistogramVec
-	interTokenLatency    *prometheus.HistogramVec
-	reqTpot              *prometheus.HistogramVec
-	e2eReqLatency        *prometheus.HistogramVec
-	promptTokensHist     *prometheus.HistogramVec
-	generationTokensHist *prometheus.HistogramVec
+	queueTime                *prometheus.HistogramVec
+	ttft                     *prometheus.HistogramVec
+	interTokenLatency        *prometheus.HistogramVec
+	reqTpot                  *prometheus.HistogramVec
+	e2eReqLatency            *prometheus.HistogramVec
+	promptTokensHist         *prometheus.HistogramVec
+	uncachedPromptTokensHist *prometheus.HistogramVec
+	generationTokensHist     *prometheus.HistogramVec
 
 	// counters
 	promptTokensTotal     *prometheus.CounterVec
@@ -138,13 +140,14 @@ type sglangMetricsAdapter struct {
 	runReqChan   common.Channel[metrics.GaugeUpdate]
 	queueReqChan common.Channel[metrics.GaugeUpdate]
 
-	queueTimeChan            common.Channel[metrics.HistogramUpdate]
-	ttftChan                 common.Channel[streamObservation]
-	interTokenLatencyChan    common.Channel[metrics.HistogramUpdate]
-	reqTpotChan              common.Channel[streamObservation]
-	e2eReqLatencyChan        common.Channel[streamObservation]
-	promptTokensHistChan     common.Channel[metrics.HistogramUpdate]
-	generationTokensHistChan common.Channel[metrics.HistogramUpdate]
+	queueTimeChan                common.Channel[metrics.HistogramUpdate]
+	ttftChan                     common.Channel[streamObservation]
+	interTokenLatencyChan        common.Channel[metrics.HistogramUpdate]
+	reqTpotChan                  common.Channel[streamObservation]
+	e2eReqLatencyChan            common.Channel[streamObservation]
+	promptTokensHistChan         common.Channel[metrics.HistogramUpdate]
+	uncachedPromptTokensHistChan common.Channel[metrics.HistogramUpdate]
+	generationTokensHistChan     common.Channel[metrics.HistogramUpdate]
 
 	promptTokensTotalChan     common.Channel[streamObservation]
 	generationTokensTotalChan common.Channel[streamObservation]
@@ -269,6 +272,8 @@ func (m *sglangMetricsAdapter) OnRequestSucceeded(ev metrics.RequestSucceeded) {
 		streamObservation{value: 1, isStreaming: ev.IsStreaming}, m.logger)
 
 	common.WriteToChannel(m.promptTokensHistChan, metrics.Observation(float64(ev.PromptTokens)), m.logger)
+	common.WriteToChannel(m.uncachedPromptTokensHistChan,
+		metrics.Observation(float64(ev.PromptTokens-ev.CachedPromptTokens)), m.logger)
 	common.WriteToChannel(m.generationTokensHistChan, metrics.Observation(float64(ev.GenerationTokens)), m.logger)
 
 	m.finishRunning()
@@ -315,6 +320,7 @@ func (m *sglangMetricsAdapter) startPrometheusChannels(ctx context.Context) {
 	go common.Subscribe(ctx, m.generationTokensHistChan, m.updateGenerationTokensHist)
 	go common.Subscribe(ctx, m.promptTokensTotalChan, m.updatePromptTokensTotal)
 	go common.Subscribe(ctx, m.generationTokensTotalChan, m.updateGenerationTokensTotal)
+	go common.Subscribe(ctx, m.uncachedPromptTokensHistChan, m.updateUncachedPromptTokensHist)
 	go common.Subscribe(ctx, m.requestsTotalChan, m.updateRequestsTotal)
 }
 
@@ -329,6 +335,7 @@ func (m *sglangMetricsAdapter) createPrometheusChannels(ctx context.Context) {
 	m.reqTpotChan = common.NewChannel[streamObservation]("sglang", maxNumberOfRunningRequests, ctx.Done())
 	m.e2eReqLatencyChan = common.NewChannel[streamObservation]("sglang", maxNumberOfRunningRequests, ctx.Done())
 	m.promptTokensHistChan = common.NewChannel[metrics.HistogramUpdate]("sglang", maxNumberOfRunningRequests, ctx.Done())
+	m.uncachedPromptTokensHistChan = common.NewChannel[metrics.HistogramUpdate]("sglang", maxNumberOfRunningRequests, ctx.Done())
 	m.generationTokensHistChan = common.NewChannel[metrics.HistogramUpdate]("sglang", maxNumberOfRunningRequests, ctx.Done())
 	m.promptTokensTotalChan = common.NewChannel[streamObservation]("sglang", maxNumberOfRunningRequests, ctx.Done())
 	m.generationTokensTotalChan = common.NewChannel[streamObservation]("sglang", maxNumberOfRunningRequests, ctx.Done())
@@ -389,6 +396,10 @@ func (m *sglangMetricsAdapter) updateGenerationTokensTotal(obs streamObservation
 	m.updateStreamCounter(m.generationTokensTotal, obs)
 }
 
+func (m *sglangMetricsAdapter) updateUncachedPromptTokensHist(upd metrics.HistogramUpdate) {
+	m.updateHistogram(m.uncachedPromptTokensHist, upd)
+}
+
 func (m *sglangMetricsAdapter) updateRequestsTotal(obs streamObservation) {
 	m.updateStreamCounter(m.requestsTotal, obs)
 }
@@ -443,6 +454,9 @@ func (m *sglangMetricsAdapter) buildMetrics() error {
 		return err
 	}
 	if err := m.createAndRegisterPromptTokensHistogram(); err != nil {
+		return err
+	}
+	if err := m.createAndRegisterUncachedPromptTokensHistogram(); err != nil {
 		return err
 	}
 	if err := m.createAndRegisterGenerationTokensHistogram(); err != nil {
@@ -543,6 +557,15 @@ func (m *sglangMetricsAdapter) createAndRegisterPromptTokensHistogram() error {
 		Buckets: tokenBucketsBoundaries,
 	}, modelLabel)
 	return m.register(m.promptTokensHist, "prometheus prompt_tokens_histogram register failed")
+}
+
+func (m *sglangMetricsAdapter) createAndRegisterUncachedPromptTokensHistogram() error {
+	m.uncachedPromptTokensHist = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    SGLangUncachedPromptTokensHistMetricName,
+		Help:    "Histogram of uncached (compute) prompt token length.",
+		Buckets: tokenBucketsBoundaries,
+	}, modelLabel)
+	return m.register(m.uncachedPromptTokensHist, "prometheus uncached_prompt_tokens_histogram register failed")
 }
 
 func (m *sglangMetricsAdapter) createAndRegisterGenerationTokensHistogram() error {

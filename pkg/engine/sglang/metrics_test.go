@@ -224,6 +224,20 @@ var _ = Describe("Metrics adapter", func() {
 			Eventually(histogramCount(registry, SGLangGenerationTokensHistMetricName, "")).Should(Equal(uint64(1)))
 		})
 
+		It("excludes the cached prefix from the uncached prompt token histogram", func() {
+			adapter, registry := newTestAdapter()
+
+			adapter.OnRequestSucceeded(metrics.RequestSucceeded{
+				PromptTokens:       1000,
+				CachedPromptTokens: 400,
+				GenerationTokens:   20,
+				FinishReason:       common.StopFinishReason,
+			})
+
+			Eventually(histogramSum(registry, SGLangPromptTokensHistMetricName, "")).Should(Equal(float64(1000)))
+			Eventually(histogramSum(registry, SGLangUncachedPromptTokensHistMetricName, "")).Should(Equal(float64(600)))
+		})
+
 		It("splits the per-request metrics by request kind", func() {
 			adapter, registry := newTestAdapter()
 

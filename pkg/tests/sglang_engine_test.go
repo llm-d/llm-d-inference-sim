@@ -119,6 +119,7 @@ var _ = Describe("sglang engine", func() {
 			// here. Its observation is covered by the adapter's own suite.
 			for _, metric := range []string{
 				sglang.SGLangPromptTokensHistMetricName,
+				sglang.SGLangUncachedPromptTokensHistMetricName,
 				sglang.SGLangGenerationTokensHistMetricName,
 			} {
 				g.Expect(metricsData).To(ContainSubstring(fmt.Sprintf(`%s_count{model_name="%s"} 2`,
@@ -127,6 +128,15 @@ var _ = Describe("sglang engine", func() {
 
 			g.Expect(metricsData).To(MatchRegexp(fmt.Sprintf(`%s_count{model_name="%s"} [1-9]`,
 				sglang.SGLangInterTokenLatencyMetricName, common.TestModelName)))
+
+			// With no KV cache, no prompt token is cached, so the uncached
+			// histogram's sum matches the prompt histogram's.
+			metricsLines := strings.Split(metricsData, "\n")
+			promptSum := findFloatMetric(metricsLines, sglang.SGLangPromptTokensHistMetricName+"_sum")
+			uncachedSum := findFloatMetric(metricsLines, sglang.SGLangUncachedPromptTokensHistMetricName+"_sum")
+			g.Expect(promptSum).NotTo(BeNil())
+			g.Expect(*promptSum).To(BeNumerically(">", 0))
+			g.Expect(uncachedSum).To(HaveValue(Equal(*promptSum)))
 		})
 	})
 
