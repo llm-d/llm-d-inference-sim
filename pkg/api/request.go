@@ -84,6 +84,7 @@ type Request interface {
 	GetToolChoice() ToolChoice
 	// GetMaxCompletionTokens returns the maximum completion tokens requested
 	GetMaxCompletionTokens() *int64
+	GetMinTokens() *int64
 	// GetIgnoreEOS returns true if the end-of-sequence tokens will be ignored
 	GetIgnoreEOS() bool
 	// IsDoRemoteDecode() returns true if do_remote_decode field is true in the request,
@@ -164,6 +165,10 @@ type baseRequest struct {
 	tokenizedPromptForEcho *Tokenized
 	// mmFeatures holds multimodal metadata produced by the tokenizer, exists only for multimodal requests
 	mmFeatures *RenderMMFeatures
+}
+
+func (b *baseRequest) GetMinTokens() *int64 {
+	return nil
 }
 
 // baseCompletionsRequest contains base completions request related information
@@ -451,6 +456,8 @@ type ChatCompletionsRequest struct {
 	// tokens and reasoning tokens.
 	MaxCompletionTokens *int64 `json:"max_completion_tokens"`
 
+	MinTokens *int64 `json:"min_tokens"`
+
 	// Tools is a list of tools the model may call.
 	Tools []Tool `json:"tools,omitempty"`
 
@@ -499,6 +506,10 @@ func (c *ChatCompletionsRequest) GetMaxCompletionTokens() *int64 {
 		return c.MaxCompletionTokens
 	}
 	return c.MaxTokens
+}
+
+func (c *ChatCompletionsRequest) GetMinTokens() *int64 {
+	return c.MinTokens
 }
 
 // ExtractMaxTokens extracts the max tokens from the request

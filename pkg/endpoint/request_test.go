@@ -18,6 +18,7 @@ package endpoint
 
 import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
+	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/valyala/fasthttp"
@@ -237,5 +238,70 @@ var _ = Describe("TextCompletionsParsedRequest.Split", func() {
 
 		Expect(orig.GetRequestID()).To(Equal(origID))
 		Expect(orig.Prompt).To(Equal(origPrompt))
+	})
+})
+
+var _ = Describe("baseRequestContext.validateTokenizedRequest", func() {
+	It("rejects min_tokens above the context-clamped response maximum in random mode", func() {
+		minTokens := int64(6)
+		maxTokens := int64(20)
+		req := &ChatCompletionsRequest{
+			ChatCompletionsRequest: api.ChatCompletionsRequest{
+				MinTokens:           &minTokens,
+				MaxCompletionTokens: &maxTokens,
+			},
+		}
+		req.SetTokenizedPrompt(&api.Tokenized{Tokens: make([]uint32, 95)})
+
+		runtime := &fakeRuntime{config: &common.Configuration{
+			Mode:        common.ModeRandom,
+			MaxModelLen: 100,
+		}}
+		reqCtx := &chatCompletionReqCtx{
+			baseRequestContext: baseRequestContext{runtime: runtime},
+			req:                req,
+		}
+		reqCtx.RequestContext = reqCtx
+
+		message, statusCode := reqCtx.validateTokenizedRequest()
+
+		Expect(statusCode).To(Equal(400))
+		Expect(message).To(ContainSubstring("min_tokens"))
+	})
+
+	It("rejects min_tokens above the echoed prompt length", func() {
+		minTokens := int64(6)
+		req := &ChatCompletionsRequest{
+			ChatCompletionsRequest: api.ChatCompletionsRequest{MinTokens: &minTokens},
+		}
+		req.SetTokenizedPrompt(&api.Tokenized{Tokens: make([]uint32, 5)})
+
+		runtime := &fakeRuntime{config: &common.Configuration{
+			Mode:        common.ModeEcho,
+			MaxModelLen: 100,
+		}}
+		reqCtx := &chatCompletionReqCtx{
+			baseRequestContext: baseRequestContext{runtime: runtime},
+			req:                req,
+		}
+		reqCtx.RequestContext = reqCtx
+
+		message, statusCode := reqCtx.validateTokenizedRequest()
+
+		Expect(statusCode).To(Equal(400))
+		Expect(message).To(ContainSubstring("min_tokens must not exceed the prompt length"))
+	})
+})
+
+var _ = Describe("validateRequest", func() {
+	It("accepts min_tokens set to zero", func() {
+		minTokens := int64(0)
+		maxTokens := int64(20)
+		req := &api.ChatCompletionsRequest{
+			MinTokens:           &minTokens,
+			MaxCompletionTokens: &maxTokens,
+		}
+
+		Expect(validateRequest(req)).To(BeNil())
 	})
 })
