@@ -17,7 +17,7 @@ limitations under the License.
 package api
 
 // ImagesGenerationsRequest is the request body for POST /v1/images/generations
-// (OpenAI DALL-E compatible, with vllm-omni diffusion extensions).
+// (OpenAI DALL-E compatible).
 type ImagesGenerationsRequest struct {
 	// Prompt is the text description of the desired image (required).
 	Prompt string `json:"prompt"`
@@ -27,23 +27,15 @@ type ImagesGenerationsRequest struct {
 	N int `json:"n,omitempty"`
 	// Size is the output dimensions in WIDTHxHEIGHT format (e.g. "1024x1024").
 	Size string `json:"size,omitempty"`
-	// ResponseFormat selects the image encoding: b64_json (default) or url.
+	// ResponseFormat selects the image encoding. Only b64_json is supported.
 	ResponseFormat string `json:"response_format,omitempty"`
-
-	// vllm-omni / diffusion extensions — accepted and ignored by the simulator.
-	NegativePrompt    string   `json:"negative_prompt,omitempty"`
-	NumInferenceSteps *int     `json:"num_inference_steps,omitempty"`
-	GuidanceScale     *float64 `json:"guidance_scale,omitempty"`
-	Seed              *int64   `json:"seed,omitempty"`
-	OutputFormat      string   `json:"output_format,omitempty"`
-	Layers            *int     `json:"layers,omitempty"`
-	FlowShift         *float64 `json:"flow_shift,omitempty"`
+	// OutputFormat is the vllm-omni diffusion output encoding (e.g. "png").
+	OutputFormat string `json:"output_format,omitempty"`
 }
 
 // ImageData is a single generated image in the response.
 type ImageData struct {
 	B64JSON string `json:"b64_json,omitempty"`
-	URL     string `json:"url,omitempty"`
 }
 
 // ImagesGenerationsResponse is the response for POST /v1/images/generations.

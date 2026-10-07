@@ -97,6 +97,24 @@ var _ = Describe("POST /v1/audio/speech", func() {
 
 		Expect(eventTypes).To(ContainElements("speech.audio.delta", "speech.audio.done"))
 	})
+
+	It("streams raw audio bytes when stream_format is audio", func() {
+		ctx := context.TODO()
+		client, err := startServer(ctx, common.ModeRandom)
+		Expect(err).NotTo(HaveOccurred())
+
+		body := `{"model":"` + common.TestModelName + `","input":"hello","stream_format":"audio"}`
+		resp, err := client.Post("http://localhost/v1/audio/speech", "application/json", strings.NewReader(body))
+		Expect(err).NotTo(HaveOccurred())
+		defer resp.Body.Close() //nolint:errcheck
+
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+		Expect(resp.Header.Get("Content-Type")).To(Equal("audio/wav"))
+
+		data, err := io.ReadAll(resp.Body)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(string(data[:4])).To(Equal("RIFF"))
+	})
 })
 
 var _ = Describe("POST /v1/images/generations", func() {
@@ -147,6 +165,42 @@ var _ = Describe("POST /v1/images/generations", func() {
 		defer resp.Body.Close() //nolint:errcheck
 		Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
 	})
+
+	It("returns 404 when model is unknown", func() {
+		ctx := context.TODO()
+		client, err := startServer(ctx, common.ModeRandom)
+		Expect(err).NotTo(HaveOccurred())
+
+		body := `{"model":"unknown-model","prompt":"a cat"}`
+		resp, err := client.Post("http://localhost/v1/images/generations", "application/json", strings.NewReader(body))
+		Expect(err).NotTo(HaveOccurred())
+		defer resp.Body.Close() //nolint:errcheck
+		Expect(resp.StatusCode).To(Equal(http.StatusNotFound))
+	})
+
+	It("returns 400 for an unsupported response_format", func() {
+		ctx := context.TODO()
+		client, err := startServer(ctx, common.ModeRandom)
+		Expect(err).NotTo(HaveOccurred())
+
+		body := `{"model":"` + common.TestModelName + `","prompt":"a cat","response_format":"url"}`
+		resp, err := client.Post("http://localhost/v1/images/generations", "application/json", strings.NewReader(body))
+		Expect(err).NotTo(HaveOccurred())
+		defer resp.Body.Close() //nolint:errcheck
+		Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
+	})
+
+	It("returns 400 for a malformed size", func() {
+		ctx := context.TODO()
+		client, err := startServer(ctx, common.ModeRandom)
+		Expect(err).NotTo(HaveOccurred())
+
+		body := `{"model":"` + common.TestModelName + `","prompt":"a cat","size":"not-a-size"}`
+		resp, err := client.Post("http://localhost/v1/images/generations", "application/json", strings.NewReader(body))
+		Expect(err).NotTo(HaveOccurred())
+		defer resp.Body.Close() //nolint:errcheck
+		Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
+	})
 })
 
 var _ = Describe("POST /v1/chat/completions audio modality", func() {
@@ -182,6 +236,39 @@ var _ = Describe("POST /v1/chat/completions audio modality", func() {
 		Expect(audio.ID).NotTo(BeEmpty())
 		Expect(audio.Data).NotTo(BeEmpty())
 		Expect(audio.ExpiresAt).To(BeNumerically(">", 0))
+	})
+
+	It("includes message.audio when modalities is audio only", func() {
+		ctx := context.TODO()
+		client, err := startServer(ctx, common.ModeRandom)
+		Expect(err).NotTo(HaveOccurred())
+
+		body := `{
+			"model":"` + common.TestModelName + `",
+			"modalities":["audio"],
+			"messages":[{"role":"user","content":"say hello"}]
+		}`
+		resp, err := client.Post("http://localhost/v1/chat/completions", "application/json", strings.NewReader(body))
+		Expect(err).NotTo(HaveOccurred())
+		defer resp.Body.Close() //nolint:errcheck
+
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+		var result map[string]json.RawMessage
+		Expect(json.NewDecoder(resp.Body).Decode(&result)).To(Succeed())
+
+		var choices []map[string]json.RawMessage
+		Expect(json.Unmarshal(result["choices"], &choices)).To(Succeed())
+		Expect(choices).NotTo(BeEmpty())
+
+		var message map[string]json.RawMessage
+		Expect(json.Unmarshal(choices[0]["message"], &message)).To(Succeed())
+		Expect(message).To(HaveKey("audio"))
+
+		var audio api.ChatAudio
+		Expect(json.Unmarshal(message["audio"], &audio)).To(Succeed())
+		Expect(audio.ID).NotTo(BeEmpty())
+		Expect(audio.Data).NotTo(BeEmpty())
 	})
 
 	It("omits message.audio when modalities does not contain audio", func() {

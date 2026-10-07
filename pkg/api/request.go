@@ -442,15 +442,6 @@ type ChatCompletionsRequest struct {
 	// "text" and "audio". When "audio" is present the response includes message.audio
 	// with base64-encoded audio and a transcript.
 	Modalities []string `json:"modalities,omitempty"`
-
-	// SamplingParamsList holds per-stage sampling parameters for multi-stage omni
-	// models (e.g. Qwen3-Omni thinker/talker/code2wav). The simulator accepts this
-	// field and ignores its contents.
-	SamplingParamsList []json.RawMessage `json:"sampling_params_list,omitempty"`
-
-	// MMProcessorKwargs holds additional keyword arguments for the multimodal
-	// processor. The simulator accepts this field and ignores its contents.
-	MMProcessorKwargs map[string]json.RawMessage `json:"mm_processor_kwargs,omitempty"`
 }
 
 var _ Request = (*ChatCompletionsRequest)(nil)

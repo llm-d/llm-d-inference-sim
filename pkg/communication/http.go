@@ -1010,6 +1010,13 @@ func (c *Communication) HandleAudioSpeech(ctx *fasthttp.RequestCtx) {
 
 	c.addResponseHeaders(ctx, c.getRequestID(ctx))
 
+	// stream_format="audio" streams raw audio bytes instead of SSE events,
+	// regardless of the stream flag.
+	if req.StreamFormat == "audio" {
+		c.sendAudioSpeechBytes(ctx)
+		return
+	}
+
 	if req.Stream {
 		ctx.Response.Header.SetContentType("text/event-stream")
 		ctx.Response.Header.SetStatusCode(fasthttp.StatusOK)
@@ -1033,6 +1040,13 @@ func (c *Communication) HandleAudioSpeech(ctx *fasthttp.RequestCtx) {
 		return
 	}
 
+	c.sendAudioSpeechBytes(ctx)
+}
+
+// sendAudioSpeechBytes writes the synthetic WAV payload as the raw response body.
+// It serves both the non-streaming response and stream_format="audio" raw byte streaming,
+// which carry the same bytes on the wire.
+func (c *Communication) sendAudioSpeechBytes(ctx *fasthttp.RequestCtx) {
 	wavBytes, err := base64.StdEncoding.DecodeString(api.SyntheticWAVData)
 	if err != nil {
 		c.logger.Error(err, "failed to decode synthetic WAV data")
@@ -1043,6 +1057,24 @@ func (c *Communication) HandleAudioSpeech(ctx *fasthttp.RequestCtx) {
 	ctx.Response.Header.SetContentType("audio/wav")
 	ctx.Response.Header.SetStatusCode(fasthttp.StatusOK)
 	ctx.Response.SetBody(wavBytes)
+}
+
+// isValidImageSize reports whether size follows the OpenAI WIDTHxHEIGHT convention
+// (e.g. "1024x1024"), with both dimensions being positive integers.
+func isValidImageSize(size string) bool {
+	width, height, found := strings.Cut(size, "x")
+	if !found {
+		return false
+	}
+	w, err := strconv.Atoi(width)
+	if err != nil || w <= 0 {
+		return false
+	}
+	h, err := strconv.Atoi(height)
+	if err != nil || h <= 0 {
+		return false
+	}
+	return true
 }
 
 // HandleImagesGenerations handles POST /v1/images/generations (OpenAI DALL-E compatible).
@@ -1058,6 +1090,24 @@ func (c *Communication) HandleImagesGenerations(ctx *fasthttp.RequestCtx) {
 	}
 	if req.Prompt == "" {
 		errToSend := api.NewError("prompt is required", fasthttp.StatusBadRequest, nil)
+		c.sendError(ctx, &errToSend, false)
+		return
+	}
+	// an empty model means the served model, matching vLLM
+	if model := req.Model; model != "" {
+		if err := c.runtime.ValidateBaseModel(model, "images generations"); err != nil {
+			c.sendError(ctx, err, false)
+			return
+		}
+	}
+	if req.ResponseFormat != "" && req.ResponseFormat != "b64_json" {
+		errToSend := api.NewError("response_format must be b64_json", fasthttp.StatusBadRequest, nil)
+		c.sendError(ctx, &errToSend, false)
+		return
+	}
+	if req.Size != "" && !isValidImageSize(req.Size) {
+		errToSend := api.NewError("size must be in WIDTHxHEIGHT format, e.g. 1024x1024",
+			fasthttp.StatusBadRequest, nil)
 		c.sendError(ctx, &errToSend, false)
 		return
 	}

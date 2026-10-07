@@ -40,16 +40,6 @@ var _ = Describe("AudioSpeechRequest", func() {
 		Expect(req.Speed).To(Equal(1.5))
 		Expect(req.Stream).To(BeTrue())
 	})
-
-	It("accepts extended vllm-omni fields without error", func() {
-		raw := `{"input":"hi","task_type":"CustomVoice","language":"English","instructions":"speak warmly","seed":42}`
-		var req AudioSpeechRequest
-		Expect(json.Unmarshal([]byte(raw), &req)).To(Succeed())
-		Expect(req.TaskType).To(Equal("CustomVoice"))
-		Expect(req.Language).To(Equal("English"))
-		Expect(req.Instructions).To(Equal("speak warmly"))
-		Expect(*req.Seed).To(Equal(int64(42)))
-	})
 })
 
 var _ = Describe("ImagesGenerationsRequest", func() {
@@ -66,16 +56,6 @@ var _ = Describe("ImagesGenerationsRequest", func() {
 		Expect(req.N).To(Equal(3))
 		Expect(req.Size).To(Equal("512x512"))
 		Expect(req.ResponseFormat).To(Equal("b64_json"))
-	})
-
-	It("accepts diffusion extension fields without error", func() {
-		steps := 20
-		raw := `{"prompt":"p","negative_prompt":"blurry","num_inference_steps":20,"seed":7}`
-		var req ImagesGenerationsRequest
-		Expect(json.Unmarshal([]byte(raw), &req)).To(Succeed())
-		Expect(req.NegativePrompt).To(Equal("blurry"))
-		Expect(*req.NumInferenceSteps).To(Equal(steps))
-		Expect(*req.Seed).To(Equal(int64(7)))
 	})
 })
 
@@ -130,12 +110,5 @@ var _ = Describe("ChatCompletionsRequest modalities", func() {
 		var req ChatCompletionsRequest
 		Expect(json.Unmarshal([]byte(raw), &req)).To(Succeed())
 		Expect(req.Modalities).To(BeNil())
-	})
-
-	It("accepts sampling_params_list without error", func() {
-		raw := `{"model":"m","messages":[],"sampling_params_list":[{"temperature":0.9},{"temperature":0.4}]}`
-		var req ChatCompletionsRequest
-		Expect(json.Unmarshal([]byte(raw), &req)).To(Succeed())
-		Expect(req.SamplingParamsList).To(HaveLen(2))
 	})
 })

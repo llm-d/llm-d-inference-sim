@@ -12,8 +12,6 @@ Structure of requests/responses
         - stream
         - model
         - modalities (array of strings: `"text"`, `"audio"`)
-        - sampling_params_list (array of per-stage sampling params; accepted, ignored)
-        - mm_processor_kwargs (object; accepted, ignored)
         - messages
             - role
             - content (string, or array of content blocks)
@@ -68,7 +66,8 @@ Structure of requests/responses
           - message
             - role
             - content
-            - audio (present when `modalities` contains `"audio"`)
+            - audio (present when `modalities` contains `"audio"`; synthetic and fixed-size,
+              does not count against `max_completion_tokens`, which governs text content only)
               - id
               - data (base64-encoded WAV)
               - expires_at
@@ -151,22 +150,21 @@ Structure of requests/responses
         - response_format (`wav` default, `mp3`, `flac`, `pcm`, `opus`)
         - speed (0.25–4.0, default 1.0)
         - stream (boolean; when true, emits SSE events)
-        - stream_format (`sse` or `audio`)
-        - Extended fields accepted and ignored: `task_type`, `language`, `instructions`, `sample_rate`, `ref_audio`, `ref_text`, `speaker_embedding`, `x_vector_only_mode`, `max_new_tokens`, `seed`
-    - **response (non-streaming)**
+        - stream_format (`sse` default, or `audio`; `audio` streams raw bytes regardless of `stream`)
+    - **response (non-streaming, or stream_format="audio")**
         - Binary audio bytes (`Content-Type: audio/wav`)
-    - **response (streaming)**
+    - **response (streaming, stream_format="sse")**
         - SSE event `speech.audio.delta`: `{type, audio}` (base64-encoded chunk)
         - SSE event `speech.audio.done`: `{type, usage: {input_tokens, output_tokens, total_tokens}}`
         - SSE `[DONE]`
 - `/v1/images/generations`
     - **request**
         - prompt (required)
-        - model
+        - model (must be a known base model if set)
         - n (number of images, default 1)
-        - size (e.g. `1024x1024`)
-        - response_format (`b64_json` default, `url`)
-        - Extended fields accepted and ignored: `negative_prompt`, `num_inference_steps`, `guidance_scale`, `seed`, `output_format`, `layers`, `flow_shift`
+        - size (`WIDTHxHEIGHT`, e.g. `1024x1024`)
+        - response_format (`b64_json` only; `url` is not supported)
+        - output_format (e.g. `png`)
     - **response**
         - created
         - data

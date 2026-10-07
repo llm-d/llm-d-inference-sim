@@ -38,18 +38,6 @@ type AudioSpeechRequest struct {
 	Stream bool `json:"stream,omitempty"`
 	// StreamFormat selects the streaming wire format: "sse" (default) or "audio" (raw bytes).
 	StreamFormat string `json:"stream_format,omitempty"`
-
-	// Qwen3-TTS / vllm-omni extended fields — accepted and ignored by the simulator.
-	TaskType         string      `json:"task_type,omitempty"`
-	Language         string      `json:"language,omitempty"`
-	Instructions     string      `json:"instructions,omitempty"`
-	SampleRate       *int        `json:"sample_rate,omitempty"`
-	RefAudio         interface{} `json:"ref_audio,omitempty"`
-	RefText          string      `json:"ref_text,omitempty"`
-	XVectorOnly      *bool       `json:"x_vector_only_mode,omitempty"`
-	SpeakerEmbedding interface{} `json:"speaker_embedding,omitempty"`
-	MaxNewTokens     *int64      `json:"max_new_tokens,omitempty"`
-	Seed             *int64      `json:"seed,omitempty"`
 }
 
 // AudioSpeechStreamDeltaEvent is the SSE payload for a speech.audio.delta event.

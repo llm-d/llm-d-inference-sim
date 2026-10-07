@@ -280,6 +280,8 @@ func (respBuilder *chatComplHTTPRespBuilder) createResponse(respCtxPerChoice []e
 				message.Content = api.ChatComplContent{Raw: respText}
 			}
 			if choiceCtx.HasAudioOutput() {
+				// The audio payload is synthetic and fixed-size; it does not consume
+				// any of the max_completion_tokens budget, which governs respText only.
 				message.Audio = buildSyntheticAudio(choiceCtx.RequestID(), respText)
 			}
 		}
