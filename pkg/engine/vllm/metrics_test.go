@@ -55,7 +55,7 @@ func newTestConfig() common.Configuration {
 // newTestAdapter builds a VLLMMetricsAdapter with a fresh Prometheus registry
 // and a canceled-on-cleanup context, which stops all updater goroutines and
 // the ticker.
-func newTestAdapter(cfg common.Configuration) (*VLLMMetricsAdapter, *metrics.MetricsBus) {
+func newTestAdapter(cfg common.Configuration) (*vllmMetricsAdapter, *metrics.MetricsBus) {
 	ctx, cancel := context.WithCancel(context.Background())
 	DeferCleanup(cancel)
 
