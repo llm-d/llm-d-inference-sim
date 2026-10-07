@@ -31,16 +31,21 @@ const notYet = " (not simulated by the sglang engine yet)"
 // BindFlags registers this engine's own CLI flags and builds the config groups
 // whose wire format it owns. Must be called before f.Parse.
 //
-// What it registers are the toggles of two features this engine does not
-// simulate yet, bound to the configuration fields they will eventually fill.
-// Asking for one is therefore parsed and then rejected by ValidateConfig, which
-// names the feature, instead of failing as an unknown flag: these are features
-// the engine is expected to grow, not mistakes. Both settings are spelled the
-// same whatever the engine, which is why this engine can name them already.
-// LoRA is not among them: its flags are spelled per engine, so this engine
-// registers none until it has its own.
+// What it registers is this engine's name for each of the three core fields the
+// engines disagree on the name of, plus the toggles of two features this engine
+// does not simulate yet, bound to the configuration fields they will eventually
+// fill. Asking for one of those two is therefore parsed and then rejected by
+// ValidateConfig, which names the feature, instead of failing as an unknown
+// flag: these are features the engine is expected to grow, not mistakes. Both
+// are spelled the same whatever the engine, which is why this engine can name
+// them already. LoRA is not among them: its flags are spelled per engine, so
+// this engine registers none until it has its own.
 func (Engine) BindFlags(f *pflag.FlagSet, cfg *common.Configuration, rawYAML map[string]any) error {
 	if err := claimYAMLKeys(cfg, rawYAML); err != nil {
+		return err
+	}
+
+	if err := declareSettings(f, cfg, rawYAML); err != nil {
 		return err
 	}
 
@@ -66,8 +71,28 @@ func (Engine) BindFlags(f *pflag.FlagSet, cfg *common.Configuration, rawYAML map
 	return nil
 }
 
-// claimYAMLKeys reads the config-file spellings of the same two settings out of
-// a config file's raw tree, so that a file asking for one is refused by
+// declareSettings names the three core fields the engines disagree on the name
+// of, under sglang's names: the field declarations in sglang's arg_groups/fields
+// are context_length in model.py, and max_running_requests and
+// max_queued_requests in schedule.py.
+func declareSettings(f *pflag.FlagSet, cfg *common.Configuration, rawYAML map[string]any) error {
+	if err := common.DeclareIntSetting(f, rawYAML, cfg, common.SettingContextWindow,
+		&cfg.MaxModelLen, "context-length",
+		"Model's context window, maximum number of tokens in a single request including input and output"); err != nil {
+		return err
+	}
+	if err := common.DeclareIntSetting(f, rawYAML, cfg, common.SettingConcurrency,
+		&cfg.MaxNumSeqs, "max-running-requests",
+		"Maximum number of inference requests that could be processed at the same time"); err != nil {
+		return err
+	}
+	return common.DeclareIntSetting(f, rawYAML, cfg, common.SettingQueueLength,
+		&cfg.MaxWaitingQueueLength, "max-queued-requests",
+		"Maximum length of inference requests waiting queue")
+}
+
+// claimYAMLKeys reads the config-file keys of the two unimplemented features out
+// of a config file's raw tree, so that a file asking for one is refused by
 // ValidateConfig naming the feature rather than reported as an unrecognized key.
 // rawYAML is nil when no --config file was given; indexing and deleting a nil
 // map are both no-ops.

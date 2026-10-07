@@ -217,7 +217,7 @@ var _ = Describe("Simulator", forEachEngine(func() {
 	DescribeTable("chat completions with n parameter",
 		func(mode string, n int) {
 			ctx := context.TODO()
-			args := []string{"cmd", "--model", common.TestModelName, "--mode", mode, "--max-num-seqs", "10"}
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", mode, settingFlag(concurrencyLimit), "10"}
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -261,7 +261,7 @@ var _ = Describe("Simulator", forEachEngine(func() {
 	DescribeTable("chat completions streaming with n parameter",
 		func(mode string, n int) {
 			ctx := context.TODO()
-			args := []string{"cmd", "--model", common.TestModelName, "--mode", mode, "--max-num-seqs", "10"}
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", mode, settingFlag(concurrencyLimit), "10"}
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 

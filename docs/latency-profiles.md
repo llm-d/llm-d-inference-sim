@@ -198,7 +198,7 @@ time-factor-under-load: 2.0
 ### Profile 2: 70B model on 8×H100 (TP=8), throughput-optimized
 
 Mirrors a Llama-3-70B deployment using tensor parallelism (TP=8) on H100 nodes,
-running close to `max-num-seqs` saturation. The per-token calculator KV values assume an
+running close to the concurrency limit. The per-token calculator KV values assume an
 InfiniBand interconnect for cross-node disaggregated serving.
 
 Full configs: [constant](../manifests/latency-profiles/70b-h100-tp8-throughput-constant.yaml) |

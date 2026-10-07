@@ -17,6 +17,7 @@ limitations under the License.
 package vllm
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -63,6 +64,12 @@ func createConfigWithModel(model string, servedModelNames []string) *common.Conf
 	}
 
 	c.DisplayModelName = c.ServedModelNames[0]
+
+	// A parsed configuration carries the names this engine gave the fields it
+	// names itself, so an expected one has to state them too.
+	c.NameSetting(common.SettingContextWindow, "max-model-len")
+	c.NameSetting(common.SettingConcurrency, "max-num-seqs")
+	c.NameSetting(common.SettingQueueLength, "max-waiting-queue-length")
 
 	return c
 }
@@ -1282,6 +1289,20 @@ var _ = Describe("unclaimed YAML keys", func() {
 		Expect(config.EnableSleepMode).To(BeFalse())
 	})
 
+	// Another engine's names for the fields each engine names itself are claimed
+	// by neither this engine nor the generic loader, so they reach the same report
+	// a misspelling does.
+	It("rejects a key another engine names the same field by", func() {
+		dir := GinkgoT().TempDir()
+		path := filepath.Join(dir, "config.yaml")
+		Expect(os.WriteFile(path, []byte("model: test-model\ncontext-length: 512\nmax-running-requests: 4\n"), 0o644)).To(Succeed())
+
+		_, err := createSimConfig([]string{"cmd", "--config", path})
+		Expect(err).To(MatchError(ContainSubstring(
+			"the 'vllm' engine does not recognize the following configuration key(s): " +
+				"context-length, max-running-requests")))
+	})
+
 	It("rejects a misspelled key", func() {
 		dir := GinkgoT().TempDir()
 		path := filepath.Join(dir, "config.yaml")
@@ -1290,5 +1311,66 @@ var _ = Describe("unclaimed YAML keys", func() {
 		_, err := createSimConfig([]string{"cmd", "--config", path})
 		Expect(err).To(MatchError(ContainSubstring("the 'vllm' engine does not recognize")))
 		Expect(err.Error()).To(ContainSubstring("max-num-seq, prot"))
+	})
+})
+
+var _ = Describe("Setting names", func() {
+	writeConfig := func(contents string) string {
+		path := filepath.Join(GinkgoT().TempDir(), "config.yaml")
+		Expect(os.WriteFile(path, []byte(contents), 0o644)).To(Succeed())
+		return path
+	}
+
+	// vLLM's own names for the three core fields each engine names for itself.
+	// This engine registers these flags, so a command line written for a
+	// different engine must fail rather than be honored here.
+	DescribeTable("should accept a setting under vLLM's own flag",
+		func(flag string, read func(*common.Configuration) int) {
+			config, err := createSimConfig([]string{"cmd", "--model", common.TestModelName, flag, "4"})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(read(config)).To(Equal(4))
+		},
+		Entry("max-model-len", "--max-model-len",
+			func(c *common.Configuration) int { return c.MaxModelLen }),
+		Entry("max-num-seqs", "--max-num-seqs",
+			func(c *common.Configuration) int { return c.MaxNumSeqs }),
+		Entry("max-waiting-queue-length", "--max-waiting-queue-length",
+			func(c *common.Configuration) int { return c.MaxWaitingQueueLength }),
+	)
+
+	DescribeTable("should not register another engine's name for the setting",
+		func(flag string) {
+			_, err := createSimConfig([]string{"cmd", "--model", common.TestModelName, flag, "4"})
+			Expect(err).To(MatchError(ContainSubstring("unknown flag")))
+		},
+		Entry("context-length", "--context-length"),
+		Entry("max-running-requests", "--max-running-requests"),
+		Entry("max-queued-requests", "--max-queued-requests"),
+	)
+
+	It("should read those settings from a config file under vLLM's keys", func() {
+		config, err := createSimConfig([]string{"cmd", "--config", writeConfig(
+			"model: " + common.TestModelName + "\nmax-model-len: 512\n" +
+				"max-num-seqs: 4\nmax-waiting-queue-length: 2\n")})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(config.MaxModelLen).To(Equal(512))
+		Expect(config.MaxNumSeqs).To(Equal(4))
+		Expect(config.MaxWaitingQueueLength).To(Equal(2))
+	})
+
+	// /admin/config and the startup log report these under the same names, so
+	// what a reader sees is what they would pass back on the command line.
+	It("should report the settings under vLLM's names for external display", func() {
+		config, err := createSimConfig([]string{"cmd", "--model", common.TestModelName,
+			"--max-model-len", "512"})
+		Expect(err).NotTo(HaveOccurred())
+
+		body, err := config.MarshalCleaned()
+		Expect(err).NotTo(HaveOccurred())
+		var shown map[string]any
+		Expect(json.Unmarshal(body, &shown)).To(Succeed())
+
+		Expect(shown).To(HaveKeyWithValue("max-model-len", BeEquivalentTo(512)))
+		Expect(shown).NotTo(HaveKey("context-length"))
 	})
 })

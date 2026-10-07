@@ -230,7 +230,7 @@ var _ = Describe("Simulator core", forEachEngine(func() {
 		})
 	})
 
-	Context("max-model-len context window validation", func() {
+	Context("context window validation", func() {
 		const contextWindowTestPrompt = "This is a test message"
 
 		It("Should reject requests exceeding context window in random mode, regardless of max_tokens", func() {
@@ -240,10 +240,10 @@ var _ = Describe("Simulator core", forEachEngine(func() {
 			promptChatTokens := getChatPromptTokensCountForTestModel(prompt)
 
 			// random mode no longer considers max_tokens - only that the prompt
-			// leaves room for at least one response token. Size max-model-len so
+			// leaves room for at least one response token. Size the context window so
 			// the prompt alone fills it, leaving no such room.
 			maxModelLen := promptChatTokens
-			args := []string{"cmd", "--model", model, "--mode", common.ModeRandom, "--max-model-len", strconv.FormatInt(maxModelLen, 10)}
+			args := []string{"cmd", "--model", model, "--mode", common.ModeRandom, settingFlag(contextWindow), strconv.FormatInt(maxModelLen, 10)}
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -289,12 +289,12 @@ var _ = Describe("Simulator core", forEachEngine(func() {
 
 			// leave room for at least one response token
 			maxModelLen := promptChatTokens + 1
-			args := []string{"cmd", "--model", model, "--mode", common.ModeRandom, "--max-model-len", strconv.FormatInt(maxModelLen, 10)}
+			args := []string{"cmd", "--model", model, "--mode", common.ModeRandom, settingFlag(contextWindow), strconv.FormatInt(maxModelLen, 10)}
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
 			openaiclient, params := getOpenAIClientAndChatParams(client, model, prompt, false)
-			// would have been rejected under the old prompt+max_tokens<=max-model-len check
+			// would have been rejected by a prompt+max_tokens<=context window check
 			params.MaxTokens = openai.Int(1000000)
 
 			resp, err := openaiclient.Chat.Completions.New(ctx, params)
@@ -308,8 +308,8 @@ var _ = Describe("Simulator core", forEachEngine(func() {
 			prompt := "Hello"
 			promptChatTokens := getChatPromptTokensCountForTestModel(prompt)
 
-			// Start server with max-model-len=50
-			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho, "--max-model-len", "50"}
+			// Start server with a context window of 50
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho, settingFlag(contextWindow), "50"}
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -334,7 +334,7 @@ var _ = Describe("Simulator core", forEachEngine(func() {
 			// in echo mode the prompt is echoed back as the response, so it must fit
 			// twice within the context window; one below that boundary must be rejected
 			maxModelLen := promptChatTokens*2 - 1
-			args := []string{"cmd", "--model", model, "--mode", common.ModeEcho, "--max-model-len", strconv.FormatInt(maxModelLen, 10)}
+			args := []string{"cmd", "--model", model, "--mode", common.ModeEcho, settingFlag(contextWindow), strconv.FormatInt(maxModelLen, 10)}
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -365,7 +365,7 @@ var _ = Describe("Simulator core", forEachEngine(func() {
 			prompt := contextWindowTestPrompt
 			promptChatTokens := getChatPromptTokensCountForTestModel(prompt)
 
-			args := []string{"cmd", "--model", model, "--mode", common.ModeEcho, "--max-model-len", "1000"}
+			args := []string{"cmd", "--model", model, "--mode", common.ModeEcho, settingFlag(contextWindow), "1000"}
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -395,9 +395,9 @@ var _ = Describe("Simulator core", forEachEngine(func() {
 			prompt := "This is a long test prompt with many words"
 			promptTokens := getTextPromptTokensCountForTestModel(prompt)
 
-			// random mode: size max-model-len so the prompt alone fills it
+			// random mode: size the context window so the prompt alone fills it
 			maxModelLen := promptTokens
-			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom, "--max-model-len", strconv.FormatInt(maxModelLen, 10)}
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom, settingFlag(contextWindow), strconv.FormatInt(maxModelLen, 10)}
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -603,7 +603,7 @@ var _ = Describe("Simulator core", forEachEngine(func() {
 			ctx := context.TODO()
 			// 1 worker, queue capacity 2, 500ms TTFT so requests stay in-flight long enough to inspect
 			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho,
-				"--time-to-first-token", "500ms", "--max-num-seqs", "1", "--max-waiting-queue-length", "2"}
+				"--time-to-first-token", "500ms", settingFlag(concurrencyLimit), "1", settingFlag(queueLimit), "2"}
 			server, _, client, err := startServerHandle(ctx, common.ModeEcho, args, nil)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -649,11 +649,11 @@ var _ = Describe("Simulator core", forEachEngine(func() {
 
 		It("Should not drop tokens across many concurrent requests (echo mode)", func() {
 			ctx := context.TODO()
-			// echo mode requires max-model-len >= 2*prompt tokens (the prompt is echoed
-			// back as the response), so max-model-len is set just above 2*15 to stay
+			// echo mode requires a context window >= 2*prompt tokens (the prompt is
+			// echoed back as the response), so it is set just above 2*15 to stay
 			// as tight as that constraint allows.
 			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho,
-				"--max-num-seqs", "100", "--max-model-len", "30", "--max-waiting-queue-length", "1"}
+				settingFlag(concurrencyLimit), "100", settingFlag(contextWindow), "30", settingFlag(queueLimit), "1"}
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -682,11 +682,11 @@ var _ = Describe("Simulator core", forEachEngine(func() {
 
 		It("Should not drop tokens across multiple prompts each with n>1 choices (echo mode)", func() {
 			ctx := context.TODO()
-			// echo mode requires max-model-len >= 2*prompt tokens (the prompt is echoed
-			// back as the response), so max-model-len is set just above 2*15 to stay
+			// echo mode requires a context window >= 2*prompt tokens (the prompt is
+			// echoed back as the response), so it is set just above 2*15 to stay
 			// as tight as that constraint allows.
 			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho,
-				"--max-num-seqs", "100", "--max-model-len", "30", "--max-waiting-queue-length", "1"}
+				settingFlag(concurrencyLimit), "100", settingFlag(contextWindow), "30", settingFlag(queueLimit), "1"}
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 

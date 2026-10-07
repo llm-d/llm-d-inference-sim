@@ -172,10 +172,10 @@ Must be `>= 1.0`. **Not** applied to KV-cache transfer parameters, which are net
 
 - `1.0`: no slowdown — useful for unit tests or single-request benchmarks.
 - `1.5–2.0`: realistic for latency-optimized deployments under typical load.
-- `2.5–3.5`: realistic for throughput-optimized deployments near `max-num-seqs`.
+- `2.5–3.5`: realistic for throughput-optimized deployments near the concurrency limit.
 
 The factor scales linearly between 1.0 (one request in flight) and the configured value
-(at `max-num-seqs`). When `max-num-seqs <= 1`, the factor is forced to `1.0`.
+(at the concurrency limit). When that limit is `1` or less, the factor is forced to `1.0`.
 
 ### `time-to-generate-image` / `time-to-generate-image-std-dev`
 

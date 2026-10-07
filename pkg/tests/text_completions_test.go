@@ -204,7 +204,7 @@ var _ = Describe("Simulator", forEachEngine(func() {
 	DescribeTable("text completions with n parameter",
 		func(mode string, n int) {
 			ctx := context.TODO()
-			args := []string{"cmd", "--model", common.TestModelName, "--mode", mode, "--max-num-seqs", "10"}
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", mode, settingFlag(concurrencyLimit), "10"}
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -247,7 +247,7 @@ var _ = Describe("Simulator", forEachEngine(func() {
 	DescribeTable("text completions streaming with n parameter",
 		func(mode string, n int) {
 			ctx := context.TODO()
-			args := []string{"cmd", "--model", common.TestModelName, "--mode", mode, "--max-num-seqs", "10"}
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", mode, settingFlag(concurrencyLimit), "10"}
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -303,7 +303,7 @@ var _ = Describe("Simulator", forEachEngine(func() {
 
 	It("text completions with array prompt and n parameter", func() {
 		ctx := context.TODO()
-		args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho, "--max-num-seqs", "10"}
+		args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho, settingFlag(concurrencyLimit), "10"}
 		client, err := startServerWithArgs(ctx, args)
 		Expect(err).NotTo(HaveOccurred())
 
@@ -586,13 +586,13 @@ var _ = Describe("Simulator", forEachEngine(func() {
 	DescribeTable("text completions with array prompt fail-fast when one sub-request errors",
 		func(streaming bool) {
 			ctx := context.TODO()
-			// max-num-seqs=1 + max-waiting-queue-length=1 means only the first two
+			// A concurrency limit of 1 and a queue limit of 1 mean only the first two
 			// sub-requests fit (1 running + 1 waiting). The third hits the queue-full
 			// error. TTFT is high enough that the queue-full error arrives before any
 			// token chunks would.
 			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
 				"--time-to-first-token", "3s",
-				"--max-num-seqs", "1", "--max-waiting-queue-length", "1"}
+				settingFlag(concurrencyLimit), "1", settingFlag(queueLimit), "1"}
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -806,7 +806,7 @@ var _ = Describe("Simulator", forEachEngine(func() {
 	It("text completions array prompt in random mode yields per-choice content and aggregated usage", func() {
 		ctx := context.TODO()
 		args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
-			"--max-num-seqs", "3"}
+			settingFlag(concurrencyLimit), "3"}
 		client, err := startServerWithArgs(ctx, args)
 		Expect(err).NotTo(HaveOccurred())
 
@@ -854,7 +854,7 @@ var _ = Describe("Simulator", forEachEngine(func() {
 		// that happens to generate an EOS at position 0 — so the assertion tolerates
 		// both, but at least one must be "length").
 		args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
-			"--max-num-seqs", "3"}
+			settingFlag(concurrencyLimit), "3"}
 		client, err := startServerWithArgs(ctx, args)
 		Expect(err).NotTo(HaveOccurred())
 
@@ -934,7 +934,7 @@ var _ = Describe("Simulator", forEachEngine(func() {
 		ctx := context.TODO()
 		args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
 			"--time-to-first-token", "1s",
-			"--max-num-seqs", "1", "--max-waiting-queue-length", "1"}
+			settingFlag(concurrencyLimit), "1", settingFlag(queueLimit), "1"}
 		client, err := startServerWithArgs(ctx, args)
 		Expect(err).NotTo(HaveOccurred())
 

@@ -17,6 +17,7 @@ limitations under the License.
 package sglang
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"time"
@@ -47,10 +48,23 @@ func writeConfig(body string) string {
 }
 
 var _ = Describe("Configuration", func() {
+	// Written inline rather than taken from manifests/: those are spelled the
+	// vLLM way, and the settings this engine renames are not accepted under
+	// their vLLM names.
 	It("should load a config file that asks for nothing this engine lacks", func() {
-		config, err := createSimConfig([]string{"cmd", "--config", "../../../manifests/basic-config.yaml"})
+		config, err := createSimConfig([]string{"cmd", "--config", writeConfig(`
+port: 8001
+model: "Qwen/Qwen2-VL-2B-Instruct"
+max-running-requests: 5
+mode: "random"
+time-to-first-token: "2000ms"
+inter-token-latency: "1000ms"
+kv-cache-transfer-latency: "100ms"
+seed: 100100100
+`)})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(config.Model).To(Equal("Qwen/Qwen2-VL-2B-Instruct"))
+		Expect(config.MaxNumSeqs).To(Equal(5))
 		// A single LoRA slot is all ApplyDefaults claims; no adapter can occupy it.
 		Expect(config.Lora.MaxLoras).To(Equal(1))
 		Expect(config.Lora.LoraModules).To(BeEmpty())
@@ -125,25 +139,32 @@ var _ = Describe("Configuration", func() {
 		Entry("empty fake-metrics block", "fake-metrics:\n  # running-requests: 5\n"),
 	)
 
+	// Both the groups this engine does not own and the keys it names its own way
+	// are left unclaimed, so the report covers them together.
 	It("should reject a config file written for vLLM", func() {
 		_, err := createSimConfig([]string{"cmd", "--config", "../../../manifests/config.yaml"})
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("lora-modules, max-cpu-loras, max-loras"))
+		Expect(err.Error()).To(ContainSubstring("max-num-seqs"))
 	})
 
-	// The cross-engine integration specs in pkg/tests pass these on the command
-	// line. They are core flags, so this engine must accept every one of them;
-	// a flag that turns out to be engine-owned would fail the whole suite under
-	// this engine rather than just the spec that passes it.
-	DescribeTable("should accept the core flags the integration suite passes",
+	// Core flags, which this engine must accept under their core names: it names
+	// only the three in the "Setting names" specs below, and --model is its own
+	// alias of --model-path, --data-parallel-size of --dp-size. The latency and
+	// omni entries are what the cross-engine integration specs in pkg/tests pass,
+	// where a flag that turned out to be engine-owned would fail the whole suite
+	// under this engine rather than just the spec that passes it.
+	DescribeTable("should accept a core flag under its core name",
 		func(args ...string) {
 			config, err := createSimConfig(append([]string{"cmd", "--model", common.TestModelName,
 				"--mode", common.ModeEcho}, args...))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(config.EngineName).To(Equal("sglang"))
 		},
-		Entry("max-num-seqs", "--max-num-seqs", "2"),
-		Entry("max-waiting-queue-length", "--max-waiting-queue-length", "1"),
+		Entry("port", "--port", "8001"),
+		Entry("served-model-name", "--served-model-name", "alias"),
+		Entry("data-parallel-size", "--data-parallel-size", "2"),
+		Entry("seed", "--seed", "100"),
 		Entry("time-to-first-token", "--time-to-first-token", "100ms"),
 		Entry("time-to-first-token-std-dev", "--time-to-first-token", "100ms", "--time-to-first-token-std-dev", "10ms"),
 		Entry("omni", "--omni", "--image-emission-rate", "100"),
@@ -209,5 +230,60 @@ var _ = Describe("Configuration", func() {
 			"--kv-cache-transfer-latency", "70ms", "--kv-cache-transfer-latency-std-dev", "35ms"})
 		Expect(err).To(MatchError(ContainSubstring(
 			"kv-cache transfer standard deviation cannot be more than 30% of kv-cache transfer")))
+	})
+})
+
+var _ = Describe("Setting names", func() {
+	// sglang's own names for the three core fields each engine names for itself.
+	// This engine registers these flags, so a command line written for a
+	// different engine must fail rather than be honored here.
+	DescribeTable("should accept a setting under sglang's own flag",
+		func(flag string, read func(*common.Configuration) int) {
+			config, err := createSimConfig([]string{"cmd", "--model", common.TestModelName, flag, "4"})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(read(config)).To(Equal(4))
+		},
+		Entry("context-length", "--context-length",
+			func(c *common.Configuration) int { return c.MaxModelLen }),
+		Entry("max-running-requests", "--max-running-requests",
+			func(c *common.Configuration) int { return c.MaxNumSeqs }),
+		Entry("max-queued-requests", "--max-queued-requests",
+			func(c *common.Configuration) int { return c.MaxWaitingQueueLength }),
+	)
+
+	DescribeTable("should not register another engine's name for the setting",
+		func(flag string) {
+			_, err := createSimConfig([]string{"cmd", "--model", common.TestModelName, flag, "4"})
+			Expect(err).To(MatchError(ContainSubstring("unknown flag")))
+		},
+		Entry("max-model-len", "--max-model-len"),
+		Entry("max-num-seqs", "--max-num-seqs"),
+		Entry("max-waiting-queue-length", "--max-waiting-queue-length"),
+	)
+
+	It("should read those settings from a config file under sglang's keys", func() {
+		config, err := createSimConfig([]string{"cmd", "--config", writeConfig(
+			"model: " + common.TestModelName + "\ncontext-length: 512\n" +
+				"max-running-requests: 4\nmax-queued-requests: 2\n")})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(config.MaxModelLen).To(Equal(512))
+		Expect(config.MaxNumSeqs).To(Equal(4))
+		Expect(config.MaxWaitingQueueLength).To(Equal(2))
+	})
+
+	// /admin/config and the startup log report these under the same names, so
+	// what a reader sees is what they would pass back on the command line.
+	It("should report the settings under sglang's names for external display", func() {
+		config, err := createSimConfig([]string{"cmd", "--model", common.TestModelName,
+			"--context-length", "512"})
+		Expect(err).NotTo(HaveOccurred())
+
+		body, err := config.MarshalCleaned()
+		Expect(err).NotTo(HaveOccurred())
+		var shown map[string]any
+		Expect(json.Unmarshal(body, &shown)).To(Succeed())
+
+		Expect(shown).To(HaveKeyWithValue("context-length", BeEquivalentTo(512)))
+		Expect(shown).NotTo(HaveKey("max-model-len"))
 	})
 })
