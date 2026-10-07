@@ -31,13 +31,20 @@ import (
 )
 
 const (
-	SGLangRunningReqsMetricName           = "sglang:num_running_reqs"
-	SGLangQueueReqsMetricName             = "sglang:num_queue_reqs"
-	SGLangTTFTMetricName                  = "sglang:time_to_first_token_seconds"
-	SGLangInterTokenLatencyMetricName     = "sglang:inter_token_latency_seconds"
-	SGLangE2EReqLatencyMetricName         = "sglang:e2e_request_latency_seconds"
-	SGLangPromptTokensTotalMetricName     = "sglang:prompt_tokens_total"
-	SGLangGenerationTokensTotalMetricName = "sglang:generation_tokens_total"
+	SGLangRunningReqsMetricName              = "sglang:num_running_reqs"
+	SGLangQueueReqsMetricName                = "sglang:num_queue_reqs"
+	SGLangContextLenMetricName               = "sglang:context_len"
+	SGLangQueueTimeMetricName                = "sglang:queue_time_seconds"
+	SGLangTTFTMetricName                     = "sglang:time_to_first_token_seconds"
+	SGLangInterTokenLatencyMetricName        = "sglang:inter_token_latency_seconds"
+	SGLangReqTPOTMetricName                  = "sglang:request_time_per_output_token_seconds"
+	SGLangE2EReqLatencyMetricName            = "sglang:e2e_request_latency_seconds"
+	SGLangPromptTokensTotalMetricName        = "sglang:prompt_tokens_total"
+	SGLangGenerationTokensTotalMetricName    = "sglang:generation_tokens_total"
+	SGLangRequestsTotalMetricName            = "sglang:num_requests_total"
+	SGLangPromptTokensHistMetricName         = "sglang:prompt_tokens_histogram"
+	SGLangUncachedPromptTokensHistMetricName = "sglang:uncached_prompt_tokens_histogram"
+	SGLangGenerationTokensHistMetricName     = "sglang:generation_tokens_histogram"
 )
 
 // promLabelIsStreaming splits the metrics sglang reports separately for
@@ -63,6 +70,26 @@ var (
 	e2eReqLatencyBucketsBoundaries = []float64{0.1, 0.2, 0.4, 0.6, 0.8, 1, 2, 4, 6, 8, 10, 20, 40, 60, 80,
 		100, 200, 400, 600, 1200, 1800, 2400}
 )
+
+// queueTimeBucketsBoundaries are the boundaries of sglang:queue_time_seconds,
+// which takes no override flag.
+var queueTimeBucketsBoundaries = []float64{0.000, 0.001, 0.005, 0.010, 0.050, 0.100, 0.200, 0.500,
+	1, 2, 3, 4, 5, 10, 15, 20, 30, 40, 50, 60, 70, 80, 90, 100, 200, 300, 400, 500, 600, 700, 800,
+	900, 1000, 1200, 1400, 1600, 1800, 2000, 2500, 3000}
+
+// tokenBucketsBoundaries are the boundaries shared by the three token-length
+// histograms, sglang's defaults for them. They do not scale with
+// --max-model-len the way the vLLM engine's token buckets do.
+var tokenBucketsBoundaries = []float64{100, 300, 500, 700, 1000, 1500, 2000, 80000, 100000, 200000,
+	300000, 400000, 600000, 800000, 1000000, 1100000}
+
+// tpotFinishReasons are the finish reasons sglang records a per-request TPOT
+// for. A request that ended any other way had a truncated decode phase, which
+// would report a time per output token the engine never spent.
+var tpotFinishReasons = map[string]bool{
+	common.StopFinishReason:   true,
+	common.LengthFinishReason: true,
+}
 
 // gaugeDelta is a gauge-channel payload: a delta to apply to the adapter-local
 // counter mirrored onto the gauge.
@@ -95,27 +122,40 @@ type sglangMetricsAdapter struct {
 	// gauges
 	runningRequests *prometheus.GaugeVec
 	queuedRequests  *prometheus.GaugeVec
+	contextLen      *prometheus.GaugeVec
 
 	// histograms
-	ttft              *prometheus.HistogramVec
-	interTokenLatency *prometheus.HistogramVec
-	e2eReqLatency     *prometheus.HistogramVec
+	queueTime                *prometheus.HistogramVec
+	ttft                     *prometheus.HistogramVec
+	interTokenLatency        *prometheus.HistogramVec
+	reqTpot                  *prometheus.HistogramVec
+	e2eReqLatency            *prometheus.HistogramVec
+	promptTokensHist         *prometheus.HistogramVec
+	uncachedPromptTokensHist *prometheus.HistogramVec
+	generationTokensHist     *prometheus.HistogramVec
 
 	// counters
 	promptTokensTotal     *prometheus.CounterVec
 	generationTokensTotal *prometheus.CounterVec
+	requestsTotal         *prometheus.CounterVec
 
 	// Channels: one per Prometheus metric family. Handlers push here; the
 	// updater goroutines drain each and perform the actual Prometheus mutation.
 	runReqChan   common.Channel[gaugeDelta]
 	queueReqChan common.Channel[gaugeDelta]
 
-	ttftChan              common.Channel[streamObservation]
-	interTokenLatencyChan common.Channel[observation]
-	e2eReqLatencyChan     common.Channel[streamObservation]
+	queueTimeChan                common.Channel[observation]
+	ttftChan                     common.Channel[streamObservation]
+	interTokenLatencyChan        common.Channel[observation]
+	reqTpotChan                  common.Channel[streamObservation]
+	e2eReqLatencyChan            common.Channel[streamObservation]
+	promptTokensHistChan         common.Channel[observation]
+	uncachedPromptTokensHistChan common.Channel[observation]
+	generationTokensHistChan     common.Channel[observation]
 
 	promptTokensTotalChan     common.Channel[streamObservation]
 	generationTokensTotalChan common.Channel[streamObservation]
+	requestsTotalChan         common.Channel[streamObservation]
 
 	// nQueuedReqs / nRunningReqs are the adapter-local counters mirrored onto
 	// the num_queue_reqs / num_running_reqs gauges.
@@ -171,8 +211,10 @@ func (m *sglangMetricsAdapter) OnRequestQueued(metrics.RequestQueued) {
 
 // request dequeued
 // - update number of queued requests
-func (m *sglangMetricsAdapter) OnRequestDequeued(metrics.RequestDequeued) {
+// - update queue time histogram
+func (m *sglangMetricsAdapter) OnRequestDequeued(ev metrics.RequestDequeued) {
 	common.WriteToChannel(m.queueReqChan, gaugeDelta(-1), m.logger)
+	common.WriteToChannel(m.queueTimeChan, observation(ev.QueueTime), m.logger)
 }
 
 // request running
@@ -202,8 +244,20 @@ func (m *sglangMetricsAdapter) OnTokenGenerated(ev metrics.TokenGenerated) {
 	common.WriteToChannel(m.interTokenLatencyChan, observation(ev.InterTokenLatency), m.logger)
 }
 
-func (m *sglangMetricsAdapter) OnDecodeEnded(metrics.DecodeEnded) {
-	// State marker; sglang's per-request TPOT metric is not exposed yet.
+// decode ended
+// - update the per-request TPOT histogram
+//
+// A request that generated a single token has no time per output token to
+// report, and one that ended for any other reason stopped mid-decode, so
+// neither contributes, as neither does upstream.
+func (m *sglangMetricsAdapter) OnDecodeEnded(ev metrics.DecodeEnded) {
+	if ev.GenerationTokens <= 0 || !tpotFinishReasons[ev.FinishReason] {
+		return
+	}
+	common.WriteToChannel(m.reqTpotChan, streamObservation{
+		value:       ev.DecodeDuration / float64(ev.GenerationTokens),
+		isStreaming: ev.IsStreaming,
+	}, m.logger)
 }
 
 // request processing finished successfully - update all relevant metrics
@@ -214,6 +268,13 @@ func (m *sglangMetricsAdapter) OnRequestSucceeded(ev metrics.RequestSucceeded) {
 		streamObservation{value: float64(ev.GenerationTokens), isStreaming: ev.IsStreaming}, m.logger)
 	common.WriteToChannel(m.e2eReqLatencyChan,
 		streamObservation{value: ev.E2ELatency, isStreaming: ev.IsStreaming}, m.logger)
+	common.WriteToChannel(m.requestsTotalChan,
+		streamObservation{value: 1, isStreaming: ev.IsStreaming}, m.logger)
+
+	common.WriteToChannel(m.promptTokensHistChan, observation(ev.PromptTokens), m.logger)
+	common.WriteToChannel(m.uncachedPromptTokensHistChan,
+		observation(ev.PromptTokens-ev.CachedPromptTokens), m.logger)
+	common.WriteToChannel(m.generationTokensHistChan, observation(ev.GenerationTokens), m.logger)
 
 	m.finishRunning()
 }
@@ -256,20 +317,38 @@ func (m *sglangMetricsAdapter) createAndStartPrometheusChannels(ctx context.Cont
 	m.queueReqChan = common.NewChannel[gaugeDelta]("sglang", maxNumberOfWaitingRequests, ctx.Done())
 	go common.Subscribe(ctx, m.queueReqChan, m.updateQueuedRequests)
 
+	m.queueTimeChan = common.NewChannel[observation]("sglang", maxNumberOfWaitingRequests, ctx.Done())
+	go common.Subscribe(ctx, m.queueTimeChan, m.updateQueueTime)
+
 	m.ttftChan = common.NewChannel[streamObservation]("sglang", maxNumberOfRunningRequests, ctx.Done())
 	go common.Subscribe(ctx, m.ttftChan, m.updateTTFT)
 
 	m.interTokenLatencyChan = common.NewChannel[observation]("sglang", maxNumberOfTokens, ctx.Done())
 	go common.Subscribe(ctx, m.interTokenLatencyChan, m.updateInterTokenLatency)
 
+	m.reqTpotChan = common.NewChannel[streamObservation]("sglang", maxNumberOfRunningRequests, ctx.Done())
+	go common.Subscribe(ctx, m.reqTpotChan, m.updateReqTpot)
+
 	m.e2eReqLatencyChan = common.NewChannel[streamObservation]("sglang", maxNumberOfRunningRequests, ctx.Done())
 	go common.Subscribe(ctx, m.e2eReqLatencyChan, m.updateE2EReqLatency)
+
+	m.promptTokensHistChan = common.NewChannel[observation]("sglang", maxNumberOfRunningRequests, ctx.Done())
+	go common.Subscribe(ctx, m.promptTokensHistChan, m.updatePromptTokensHist)
+
+	m.uncachedPromptTokensHistChan = common.NewChannel[observation]("sglang", maxNumberOfRunningRequests, ctx.Done())
+	go common.Subscribe(ctx, m.uncachedPromptTokensHistChan, m.updateUncachedPromptTokensHist)
+
+	m.generationTokensHistChan = common.NewChannel[observation]("sglang", maxNumberOfRunningRequests, ctx.Done())
+	go common.Subscribe(ctx, m.generationTokensHistChan, m.updateGenerationTokensHist)
 
 	m.promptTokensTotalChan = common.NewChannel[streamObservation]("sglang", maxNumberOfRunningRequests, ctx.Done())
 	go common.Subscribe(ctx, m.promptTokensTotalChan, m.updatePromptTokensTotal)
 
 	m.generationTokensTotalChan = common.NewChannel[streamObservation]("sglang", maxNumberOfRunningRequests, ctx.Done())
 	go common.Subscribe(ctx, m.generationTokensTotalChan, m.updateGenerationTokensTotal)
+
+	m.requestsTotalChan = common.NewChannel[streamObservation]("sglang", maxNumberOfRunningRequests, ctx.Done())
+	go common.Subscribe(ctx, m.requestsTotalChan, m.updateRequestsTotal)
 }
 
 // -- Per-metric updaters --------------------------------------------------
@@ -284,16 +363,36 @@ func (m *sglangMetricsAdapter) updateQueuedRequests(upd gaugeDelta) {
 	m.queuedRequests.WithLabelValues(m.config.DisplayModelName).Set(float64(m.nQueuedReqs))
 }
 
+func (m *sglangMetricsAdapter) updateQueueTime(upd observation) {
+	m.observe(m.queueTime, upd)
+}
+
 func (m *sglangMetricsAdapter) updateTTFT(upd streamObservation) {
 	m.observeByStream(m.ttft, upd)
 }
 
 func (m *sglangMetricsAdapter) updateInterTokenLatency(upd observation) {
-	m.interTokenLatency.WithLabelValues(m.config.DisplayModelName).Observe(float64(upd))
+	m.observe(m.interTokenLatency, upd)
+}
+
+func (m *sglangMetricsAdapter) updateReqTpot(upd streamObservation) {
+	m.observeByStream(m.reqTpot, upd)
 }
 
 func (m *sglangMetricsAdapter) updateE2EReqLatency(upd streamObservation) {
 	m.observeByStream(m.e2eReqLatency, upd)
+}
+
+func (m *sglangMetricsAdapter) updatePromptTokensHist(upd observation) {
+	m.observe(m.promptTokensHist, upd)
+}
+
+func (m *sglangMetricsAdapter) updateUncachedPromptTokensHist(upd observation) {
+	m.observe(m.uncachedPromptTokensHist, upd)
+}
+
+func (m *sglangMetricsAdapter) updateGenerationTokensHist(upd observation) {
+	m.observe(m.generationTokensHist, upd)
 }
 
 func (m *sglangMetricsAdapter) updatePromptTokensTotal(upd streamObservation) {
@@ -302,6 +401,16 @@ func (m *sglangMetricsAdapter) updatePromptTokensTotal(upd streamObservation) {
 
 func (m *sglangMetricsAdapter) updateGenerationTokensTotal(upd streamObservation) {
 	m.addByStream(m.generationTokensTotal, upd)
+}
+
+func (m *sglangMetricsAdapter) updateRequestsTotal(upd streamObservation) {
+	m.addByStream(m.requestsTotal, upd)
+}
+
+// observe records upd on the single series of a histogram sglang does not
+// split by request kind.
+func (m *sglangMetricsAdapter) observe(hist *prometheus.HistogramVec, upd observation) {
+	hist.WithLabelValues(m.config.DisplayModelName).Observe(float64(upd))
 }
 
 // observeByStream records upd on the series of hist matching the kind of
@@ -326,19 +435,40 @@ func (m *sglangMetricsAdapter) buildMetrics() error {
 	if err := m.createAndRegisterQueuedRequestsGauge(); err != nil {
 		return err
 	}
+	if err := m.createAndRegisterContextLenGauge(); err != nil {
+		return err
+	}
+	if err := m.createAndRegisterQueueTimeHistogram(); err != nil {
+		return err
+	}
 	if err := m.createAndRegisterTTFTHistogram(); err != nil {
 		return err
 	}
 	if err := m.createAndRegisterInterTokenLatencyHistogram(); err != nil {
 		return err
 	}
+	if err := m.createAndRegisterReqTpotHistogram(); err != nil {
+		return err
+	}
 	if err := m.createAndRegisterE2EReqLatencyHistogram(); err != nil {
+		return err
+	}
+	if err := m.createAndRegisterPromptTokensHistogram(); err != nil {
+		return err
+	}
+	if err := m.createAndRegisterUncachedPromptTokensHistogram(); err != nil {
+		return err
+	}
+	if err := m.createAndRegisterGenerationTokensHistogram(); err != nil {
 		return err
 	}
 	if err := m.createAndRegisterPromptTokensTotalCounter(); err != nil {
 		return err
 	}
-	return m.createAndRegisterGenerationTokensTotalCounter()
+	if err := m.createAndRegisterGenerationTokensTotalCounter(); err != nil {
+		return err
+	}
+	return m.createAndRegisterRequestsTotalCounter()
 }
 
 // register registers c with the bus's Prometheus registry, logging errMsg
@@ -367,6 +497,23 @@ func (m *sglangMetricsAdapter) createAndRegisterQueuedRequestsGauge() error {
 	return m.register(m.queuedRequests, "prometheus number of requests in queue gauge register failed")
 }
 
+func (m *sglangMetricsAdapter) createAndRegisterContextLenGauge() error {
+	m.contextLen = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: SGLangContextLenMetricName,
+		Help: "Maximum context length.",
+	}, modelLabel)
+	return m.register(m.contextLen, "prometheus context length gauge register failed")
+}
+
+func (m *sglangMetricsAdapter) createAndRegisterQueueTimeHistogram() error {
+	m.queueTime = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    SGLangQueueTimeMetricName,
+		Help:    "Histogram of queueing time in seconds.",
+		Buckets: queueTimeBucketsBoundaries,
+	}, modelLabel)
+	return m.register(m.queueTime, "prometheus queue time histogram register failed")
+}
+
 func (m *sglangMetricsAdapter) createAndRegisterTTFTHistogram() error {
 	m.ttft = prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Name:    SGLangTTFTMetricName,
@@ -385,6 +532,15 @@ func (m *sglangMetricsAdapter) createAndRegisterInterTokenLatencyHistogram() err
 	return m.register(m.interTokenLatency, "prometheus inter-token latency histogram register failed")
 }
 
+func (m *sglangMetricsAdapter) createAndRegisterReqTpotHistogram() error {
+	m.reqTpot = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    SGLangReqTPOTMetricName,
+		Help:    "Per-request TPOT in seconds: (finished_time - first_token_time) / (completion_tokens - 1).",
+		Buckets: interTokenLatencyBucketsBoundaries,
+	}, streamModelLabel)
+	return m.register(m.reqTpot, "prometheus per-request time per output token histogram register failed")
+}
+
 func (m *sglangMetricsAdapter) createAndRegisterE2EReqLatencyHistogram() error {
 	m.e2eReqLatency = prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Name:    SGLangE2EReqLatencyMetricName,
@@ -392,6 +548,33 @@ func (m *sglangMetricsAdapter) createAndRegisterE2EReqLatencyHistogram() error {
 		Buckets: e2eReqLatencyBucketsBoundaries,
 	}, streamModelLabel)
 	return m.register(m.e2eReqLatency, "prometheus e2e request latency histogram register failed")
+}
+
+func (m *sglangMetricsAdapter) createAndRegisterPromptTokensHistogram() error {
+	m.promptTokensHist = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    SGLangPromptTokensHistMetricName,
+		Help:    "Histogram of prompt token length.",
+		Buckets: tokenBucketsBoundaries,
+	}, modelLabel)
+	return m.register(m.promptTokensHist, "prometheus prompt_tokens_histogram register failed")
+}
+
+func (m *sglangMetricsAdapter) createAndRegisterUncachedPromptTokensHistogram() error {
+	m.uncachedPromptTokensHist = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    SGLangUncachedPromptTokensHistMetricName,
+		Help:    "Histogram of uncached (compute) prompt token length.",
+		Buckets: tokenBucketsBoundaries,
+	}, modelLabel)
+	return m.register(m.uncachedPromptTokensHist, "prometheus uncached_prompt_tokens_histogram register failed")
+}
+
+func (m *sglangMetricsAdapter) createAndRegisterGenerationTokensHistogram() error {
+	m.generationTokensHist = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    SGLangGenerationTokensHistMetricName,
+		Help:    "Histogram of generation token length.",
+		Buckets: tokenBucketsBoundaries,
+	}, modelLabel)
+	return m.register(m.generationTokensHist, "prometheus generation_tokens_histogram register failed")
 }
 
 func (m *sglangMetricsAdapter) createAndRegisterPromptTokensTotalCounter() error {
@@ -410,10 +593,20 @@ func (m *sglangMetricsAdapter) createAndRegisterGenerationTokensTotalCounter() e
 	return m.register(m.generationTokensTotal, "prometheus generation_tokens_total counter register failed")
 }
 
-// setInitialValues zeroes the request gauges so the first scrape has a
-// consistent baseline. The histograms and counters stay unstamped until a
-// request is observed, since their series are per request kind.
+func (m *sglangMetricsAdapter) createAndRegisterRequestsTotalCounter() error {
+	m.requestsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: SGLangRequestsTotalMetricName,
+		Help: "Number of requests processed.",
+	}, streamModelLabel)
+	return m.register(m.requestsTotal, "prometheus num_requests_total counter register failed")
+}
+
+// setInitialValues zeroes the request gauges and stamps the one-shot
+// context_len gauge so the first scrape has a consistent baseline. The
+// histograms and counters stay unstamped until a request is observed, since
+// their series are per request kind.
 func (m *sglangMetricsAdapter) setInitialValues() {
 	m.runningRequests.WithLabelValues(m.config.DisplayModelName).Set(0)
 	m.queuedRequests.WithLabelValues(m.config.DisplayModelName).Set(0)
+	m.contextLen.WithLabelValues(m.config.DisplayModelName).Set(float64(m.config.MaxModelLen))
 }

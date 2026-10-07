@@ -76,32 +76,44 @@ func counterValue(c *prometheus.CounterVec, labelValues ...string) func() float6
 	}
 }
 
-// histogramCount returns the number of observations on the series of the named
-// histogram carrying the given is_streaming value, and zero when no such series
-// exists. An empty stream matches the series of a histogram that is not split
-// by request kind.
-func histogramCount(registry *prometheus.Registry, name string, stream string) func() uint64 {
-	return func() uint64 {
-		gathered, err := registry.Gather()
-		Expect(err).NotTo(HaveOccurred())
+// histogramStats returns the observation count and sum of the series of the
+// named histogram carrying the given is_streaming value, and zeroes when no
+// such series exists. An empty stream matches the series of a histogram that is
+// not split by request kind.
+func histogramStats(registry *prometheus.Registry, name string, stream string) (uint64, float64) {
+	gathered, err := registry.Gather()
+	Expect(err).NotTo(HaveOccurred())
 
-		for _, family := range gathered {
-			if family.GetName() != name {
-				continue
+	for _, family := range gathered {
+		if family.GetName() != name {
+			continue
+		}
+		for _, metric := range family.GetMetric() {
+			value := ""
+			for _, label := range metric.GetLabel() {
+				if label.GetName() == promLabelIsStreaming {
+					value = label.GetValue()
+				}
 			}
-			for _, metric := range family.GetMetric() {
-				value := ""
-				for _, label := range metric.GetLabel() {
-					if label.GetName() == promLabelIsStreaming {
-						value = label.GetValue()
-					}
-				}
-				if value == stream {
-					return metric.GetHistogram().GetSampleCount()
-				}
+			if value == stream {
+				return metric.GetHistogram().GetSampleCount(), metric.GetHistogram().GetSampleSum()
 			}
 		}
-		return 0
+	}
+	return 0, 0
+}
+
+func histogramCount(registry *prometheus.Registry, name string, stream string) func() uint64 {
+	return func() uint64 {
+		count, _ := histogramStats(registry, name, stream)
+		return count
+	}
+}
+
+func histogramSum(registry *prometheus.Registry, name string, stream string) func() float64 {
+	return func() float64 {
+		_, sum := histogramStats(registry, name, stream)
+		return sum
 	}
 }
 
@@ -119,13 +131,21 @@ var _ = Describe("Metrics adapter", func() {
 			for _, family := range gathered {
 				names = append(names, family.GetName())
 			}
-			Expect(names).To(ConsistOf(SGLangQueueReqsMetricName, SGLangRunningReqsMetricName))
+			Expect(names).To(ConsistOf(SGLangQueueReqsMetricName, SGLangRunningReqsMetricName,
+				SGLangContextLenMetricName))
+		})
+
+		It("stamps the context length from the configuration", func() {
+			adapter, _ := newTestAdapter()
+
+			Expect(testutil.ToFloat64(adapter.contextLen.WithLabelValues(common.TestModelName))).
+				To(Equal(float64(newTestConfig().MaxModelLen)))
 		})
 	})
 
 	Describe("event handlers", func() {
-		It("updates the queue gauge on queue/dequeue", func() {
-			adapter, _ := newTestAdapter()
+		It("updates the queue gauge and queue time histogram on queue/dequeue", func() {
+			adapter, registry := newTestAdapter()
 
 			adapter.OnRequestQueued(metrics.RequestQueued{})
 			adapter.OnRequestQueued(metrics.RequestQueued{})
@@ -133,6 +153,7 @@ var _ = Describe("Metrics adapter", func() {
 
 			adapter.OnRequestDequeued(metrics.RequestDequeued{QueueTime: 0.1})
 			Eventually(gaugeValue(adapter.queuedRequests)).Should(Equal(float64(1)))
+			Eventually(histogramCount(registry, SGLangQueueTimeMetricName, "")).Should(Equal(uint64(1)))
 		})
 
 		It("updates the running gauge on OnRequestRunning", func() {
@@ -158,6 +179,37 @@ var _ = Describe("Metrics adapter", func() {
 			Eventually(histogramCount(registry, SGLangInterTokenLatencyMetricName, "")).Should(Equal(uint64(2)))
 		})
 
+		It("observes a per-request time per output token", func() {
+			adapter, registry := newTestAdapter()
+
+			adapter.OnDecodeEnded(metrics.DecodeEnded{
+				GenerationTokens: 4,
+				DecodeDuration:   0.4,
+				FinishReason:     common.StopFinishReason,
+				IsStreaming:      true,
+			})
+			Eventually(histogramCount(registry, SGLangReqTPOTMetricName, streaming)).Should(Equal(uint64(1)))
+			Eventually(histogramSum(registry, SGLangReqTPOTMetricName, streaming)).Should(BeNumerically("~", 0.1, 1e-9))
+		})
+
+		It("skips the per-request time per output token where sglang skips it", func() {
+			adapter, registry := newTestAdapter()
+
+			// A single generated token leaves no gap to measure.
+			adapter.OnDecodeEnded(metrics.DecodeEnded{
+				GenerationTokens: 0, DecodeDuration: 0.4, FinishReason: common.StopFinishReason,
+			})
+			// A truncated decode phase.
+			adapter.OnDecodeEnded(metrics.DecodeEnded{
+				GenerationTokens: 4, DecodeDuration: 0.4, FinishReason: common.ToolsFinishReason,
+			})
+			adapter.OnDecodeEnded(metrics.DecodeEnded{
+				GenerationTokens: 4, DecodeDuration: 0.4, FinishReason: common.RemoteDecodeFinishReason,
+			})
+
+			Consistently(histogramCount(registry, SGLangReqTPOTMetricName, nonStreaming)).Should(BeZero())
+		})
+
 		It("decrements running and records latency and tokens on success", func() {
 			adapter, registry := newTestAdapter()
 
@@ -167,13 +219,30 @@ var _ = Describe("Metrics adapter", func() {
 			adapter.OnRequestSucceeded(metrics.RequestSucceeded{
 				PromptTokens:     10,
 				GenerationTokens: 20,
-				FinishReason:     "stop",
+				FinishReason:     common.StopFinishReason,
 				E2ELatency:       0.5,
 			})
 			Eventually(gaugeValue(adapter.runningRequests)).Should(BeZero())
 			Eventually(counterValue(adapter.promptTokensTotal, common.TestModelName, nonStreaming)).Should(Equal(float64(10)))
 			Eventually(counterValue(adapter.generationTokensTotal, common.TestModelName, nonStreaming)).Should(Equal(float64(20)))
+			Eventually(counterValue(adapter.requestsTotal, common.TestModelName, nonStreaming)).Should(Equal(float64(1)))
 			Eventually(histogramCount(registry, SGLangE2EReqLatencyMetricName, nonStreaming)).Should(Equal(uint64(1)))
+			Eventually(histogramCount(registry, SGLangPromptTokensHistMetricName, "")).Should(Equal(uint64(1)))
+			Eventually(histogramCount(registry, SGLangGenerationTokensHistMetricName, "")).Should(Equal(uint64(1)))
+		})
+
+		It("excludes the cached prefix from the uncached prompt token histogram", func() {
+			adapter, registry := newTestAdapter()
+
+			adapter.OnRequestSucceeded(metrics.RequestSucceeded{
+				PromptTokens:       1000,
+				CachedPromptTokens: 400,
+				GenerationTokens:   20,
+				FinishReason:       common.StopFinishReason,
+			})
+
+			Eventually(histogramSum(registry, SGLangPromptTokensHistMetricName, "")).Should(Equal(float64(1000)))
+			Eventually(histogramSum(registry, SGLangUncachedPromptTokensHistMetricName, "")).Should(Equal(float64(600)))
 		})
 
 		It("splits the per-request metrics by request kind", func() {
@@ -215,7 +284,6 @@ var _ = Describe("Metrics adapter", func() {
 				adapter.OnRequestRejected(metrics.RequestRejected{})
 				adapter.OnPrefillStarted(metrics.PrefillStarted{})
 				adapter.OnDecodeStarted(metrics.DecodeStarted{})
-				adapter.OnDecodeEnded(metrics.DecodeEnded{GenerationTokens: 4, DecodeDuration: 0.4})
 				adapter.OnKVCacheUsageChanged(metrics.KVCacheUsageChanged{KVCacheUsagePerc: 0.5})
 				adapter.OnPrefixCacheQueried(metrics.PrefixCacheQueried{QueriedTokens: 10, CachedPromptTokens: 4})
 				adapter.OnLoRASetsChanged(metrics.LoRASetsChanged{})

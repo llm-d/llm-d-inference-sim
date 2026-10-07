@@ -90,21 +90,53 @@ var _ = Describe("sglang engine", func() {
 			g.Expect(metricsData).To(ContainSubstring(
 				getCountMetricLine(common.TestModelName, sglang.SGLangQueueReqsMetricName, 0)))
 
+			g.Expect(metricsData).To(ContainSubstring(
+				getCountMetricLine(common.TestModelName, sglang.SGLangContextLenMetricName, 1024)))
+
 			// Both requests reached first token, decode, and completion, so each
 			// of the request-kind series carries exactly one of them.
 			for _, isStreaming := range []string{"false", "true"} {
-				g.Expect(metricsData).To(ContainSubstring(fmt.Sprintf(`%s_count{is_streaming="%s",model_name="%s"} 1`,
-					sglang.SGLangTTFTMetricName, isStreaming, common.TestModelName)))
-				g.Expect(metricsData).To(ContainSubstring(fmt.Sprintf(`%s_count{is_streaming="%s",model_name="%s"} 1`,
-					sglang.SGLangE2EReqLatencyMetricName, isStreaming, common.TestModelName)))
+				for _, metric := range []string{
+					sglang.SGLangTTFTMetricName,
+					sglang.SGLangE2EReqLatencyMetricName,
+					sglang.SGLangReqTPOTMetricName,
+				} {
+					g.Expect(metricsData).To(ContainSubstring(fmt.Sprintf(`%s_count{is_streaming="%s",model_name="%s"} 1`,
+						metric, isStreaming, common.TestModelName)))
+				}
+				g.Expect(metricsData).To(ContainSubstring(fmt.Sprintf(`%s{is_streaming="%s",model_name="%s"} 1`,
+					sglang.SGLangRequestsTotalMetricName, isStreaming, common.TestModelName)))
 				g.Expect(metricsData).To(MatchRegexp(fmt.Sprintf(`%s{is_streaming="%s",model_name="%s"} [1-9]`,
 					sglang.SGLangPromptTokensTotalMetricName, isStreaming, common.TestModelName)))
 				g.Expect(metricsData).To(MatchRegexp(fmt.Sprintf(`%s{is_streaming="%s",model_name="%s"} [1-9]`,
 					sglang.SGLangGenerationTokensTotalMetricName, isStreaming, common.TestModelName)))
 			}
 
+			// The token-length histograms record one observation per request, and
+			// the inter-token latency one per generated token beyond the first.
+			// sglang:queue_time_seconds is absent: a free worker takes a request
+			// without it ever entering the waiting queue, so nothing was queued
+			// here. Its observation is covered by the adapter's own suite.
+			for _, metric := range []string{
+				sglang.SGLangPromptTokensHistMetricName,
+				sglang.SGLangUncachedPromptTokensHistMetricName,
+				sglang.SGLangGenerationTokensHistMetricName,
+			} {
+				g.Expect(metricsData).To(ContainSubstring(fmt.Sprintf(`%s_count{model_name="%s"} 2`,
+					metric, common.TestModelName)))
+			}
+
 			g.Expect(metricsData).To(MatchRegexp(fmt.Sprintf(`%s_count{model_name="%s"} [1-9]`,
 				sglang.SGLangInterTokenLatencyMetricName, common.TestModelName)))
+
+			// With no KV cache, no prompt token is cached, so the uncached
+			// histogram's sum matches the prompt histogram's.
+			metricsLines := strings.Split(metricsData, "\n")
+			promptSum := findFloatMetric(metricsLines, sglang.SGLangPromptTokensHistMetricName+"_sum")
+			uncachedSum := findFloatMetric(metricsLines, sglang.SGLangUncachedPromptTokensHistMetricName+"_sum")
+			g.Expect(promptSum).NotTo(BeNil())
+			g.Expect(*promptSum).To(BeNumerically(">", 0))
+			g.Expect(uncachedSum).To(HaveValue(Equal(*promptSum)))
 		})
 	})
 
