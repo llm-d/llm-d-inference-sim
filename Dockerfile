@@ -1,6 +1,6 @@
-# Build Stage: using Go 1.26.6 image
+# Build Stage
 ## Pure Go build, no CGO required
-FROM --platform=$BUILDPLATFORM golang:1.26.6 AS builder
+FROM --platform=$BUILDPLATFORM golang:1.27.1 AS builder
 ARG TARGETOS
 ARG TARGETARCH
 
