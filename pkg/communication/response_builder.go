@@ -69,6 +69,10 @@ func (e *namedEventChunk) SSEBytes() ([]byte, error) {
 // synthetic image payload sent in the image chunk after the token stream.
 const syntheticImageData = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
 
+// syntheticWAVData is re-exported from api.SyntheticWAVData for use inside
+// the communication package without introducing a cross-package import cycle.
+const syntheticWAVData = api.SyntheticWAVData
+
 // doneMarker emits the SSE stream terminator "data: [DONE]\n\n".
 type doneMarker struct{}
 
@@ -279,6 +283,11 @@ func (respBuilder *chatComplHTTPRespBuilder) createResponse(respCtxPerChoice []e
 			} else {
 				message.Content = api.ChatComplContent{Raw: respText}
 			}
+			if choiceCtx.HasAudioOutput() {
+				// The audio payload is synthetic and fixed-size; it does not consume
+				// any of the max_completion_tokens budget, which governs respText only.
+				message.Audio = buildSyntheticAudio(choiceCtx.RequestID(), respText)
+			}
 		}
 
 		choice := api.CreateChatRespChoice(baseChoice, message)
@@ -296,6 +305,17 @@ func (respBuilder *chatComplHTTPRespBuilder) createResponse(respCtxPerChoice []e
 	resp := api.CreateChatCompletionsResponse(baseResp, choices)
 	resp.ECTransferParams = respCtx.ECTransferParams()
 	return resp
+}
+
+// buildSyntheticAudio constructs a ChatAudio value carrying the silent WAV payload.
+// The audio ID is derived from the request ID so it is stable within a request.
+func buildSyntheticAudio(requestID, transcript string) *api.ChatAudio {
+	return &api.ChatAudio{
+		ID:         "audio-" + requestID,
+		Data:       syntheticWAVData,
+		ExpiresAt:  time.Now().Unix() + 86400,
+		Transcript: transcript,
+	}
 }
 
 func (respBuilder *chatComplHTTPRespBuilder) createUsageChunk(respCtxPerChoice []endpoint.ResponseContext) sseChunk {

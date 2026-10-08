@@ -463,6 +463,11 @@ type ChatCompletionsRequest struct {
 
 	// TopLogprobs controls how many alternative tokens to include in the logprobs
 	TopLogprobs *int `json:"top_logprobs,omitempty"`
+
+	// Modalities lists the output modalities the client wants. Supported values are
+	// "text" and "audio". When "audio" is present the response includes message.audio
+	// with base64-encoded audio and a transcript.
+	Modalities []string `json:"modalities,omitempty"`
 }
 
 var _ Request = (*ChatCompletionsRequest)(nil)

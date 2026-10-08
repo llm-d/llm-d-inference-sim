@@ -136,10 +136,19 @@ func (c *ChatCompletionsRequest) createResponseContext(reqCtx RequestContext, di
 		}
 	}
 
+	sendAudio := false
+	for _, m := range c.Modalities {
+		if m == "audio" {
+			sendAudio = true
+			break
+		}
+	}
+
 	return &chatCompletionsResponseCtx{
 		baseResponseContext: base,
 		toolsCalls:          toolCalls,
 		ecTransferParams:    ecParams,
+		sendAudio:           sendAudio,
 	}
 }
 
@@ -208,6 +217,8 @@ type chatCompletionsResponseCtx struct {
 	toolsCalls []api.ToolCall
 	// ecTransferParams holds simulated encoder-cache transfer params per mm hash
 	ecTransferParams map[string]api.ECTransferParams
+	// sendAudio is true when the client requested the "audio" output modality
+	sendAudio bool
 }
 
 func (respCtx *chatCompletionsResponseCtx) ToolCalls() []api.ToolCall {
@@ -216,6 +227,10 @@ func (respCtx *chatCompletionsResponseCtx) ToolCalls() []api.ToolCall {
 
 func (respCtx *chatCompletionsResponseCtx) ECTransferParams() map[string]api.ECTransferParams {
 	return respCtx.ecTransferParams
+}
+
+func (respCtx *chatCompletionsResponseCtx) HasAudioOutput() bool {
+	return respCtx.sendAudio
 }
 
 var _ ResponseContext = (*chatCompletionsResponseCtx)(nil)
