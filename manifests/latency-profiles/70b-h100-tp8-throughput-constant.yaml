@@ -3,6 +3,7 @@
 # kv-cache-transfer-latency assumes RDMA (InfiniBand/RoCE) setup overhead for cross-node P/D.
 # See docs/latency-profiles.md for the full discussion.
 
+engine: vllm
 port: 8000
 model: "meta-llama/Llama-3.1-70B-Instruct"
 max-num-seqs: 64

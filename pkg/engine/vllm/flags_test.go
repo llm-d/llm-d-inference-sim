@@ -17,6 +17,7 @@ limitations under the License.
 package vllm
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -28,6 +29,11 @@ import (
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 )
+
+// writeConfig writes a config file for one spec and returns its path.
+func writeConfig(contents string) string {
+	return common.WriteConfigFile(GinkgoT().TempDir(), contents)
+}
 
 func createSimConfig(args []string) (*common.Configuration, error) {
 	oldArgs := os.Args
@@ -63,6 +69,12 @@ func createConfigWithModel(model string, servedModelNames []string) *common.Conf
 	}
 
 	c.DisplayModelName = c.ServedModelNames[0]
+
+	// A parsed configuration carries the names this engine gave the fields it
+	// names itself, so an expected one has to state them too.
+	c.NameField(common.FieldContextWindow, "max-model-len")
+	c.NameField(common.FieldConcurrency, "max-num-seqs")
+	c.NameField(common.FieldQueueLength, "max-waiting-queue-length")
 
 	return c
 }
@@ -109,7 +121,7 @@ var _ = Describe("Simulator configuration", func() {
 	c.Lora.LoraModules = []common.LoraModule{{Name: "lora1", Path: "/path/to/lora1"}, {Name: "lora2", Path: "/path/to/lora2"}}
 	test = testCase{
 		name:           "config file",
-		args:           []string{"cmd", "--config", "../../../manifests/config.yaml"},
+		args:           []string{"cmd", "--config", "../../../manifests/vllm-config.yaml"},
 		expectedConfig: c,
 	}
 	tests = append(tests, test)
@@ -124,7 +136,7 @@ var _ = Describe("Simulator configuration", func() {
 	c.KVCache.EventBatchSize = 5
 	test = testCase{
 		name: "config file with command line args",
-		args: []string{"cmd", "--model", common.TestModelName, "--config", "../../../manifests/config.yaml", "--port", "8002",
+		args: []string{"cmd", "--model", common.TestModelName, "--config", "../../../manifests/vllm-config.yaml", "--port", "8002",
 			"--served-model-name", "alias1", "alias2", "--seed", "100",
 			"--lora-modules", "{\"name\":\"lora3\",\"path\":\"/path/to/lora3\"}", "{\"name\":\"lora4\",\"path\":\"/path/to/lora4\"}",
 			"--enable-kvcache", "--event-batch-size", "5",
@@ -139,7 +151,7 @@ var _ = Describe("Simulator configuration", func() {
 	c.Lora.LoraModules = []common.LoraModule{{Name: "lora3", Path: "/path/to/lora3"}}
 	test = testCase{
 		name: "config file with command line args with different format",
-		args: []string{"cmd", "--model", common.TestModelName, "--config", "../../../manifests/config.yaml", "--port", "8002",
+		args: []string{"cmd", "--model", common.TestModelName, "--config", "../../../manifests/vllm-config.yaml", "--port", "8002",
 			"--served-model-name",
 			"--lora-modules={\"name\":\"lora3\",\"path\":\"/path/to/lora3\"}",
 		},
@@ -153,7 +165,7 @@ var _ = Describe("Simulator configuration", func() {
 	c.Lora.LoraModules = []common.LoraModule{{Name: "lora3", Path: "/path/to/lora3"}}
 	test = testCase{
 		name: "config file with command line args with empty string",
-		args: []string{"cmd", "--model", common.TestModelName, "--config", "../../../manifests/config.yaml", "--port", "8002",
+		args: []string{"cmd", "--model", common.TestModelName, "--config", "../../../manifests/vllm-config.yaml", "--port", "8002",
 			"--served-model-name", "",
 			"--lora-modules", "{\"name\":\"lora3\",\"path\":\"/path/to/lora3\"}",
 		},
@@ -166,7 +178,7 @@ var _ = Describe("Simulator configuration", func() {
 	c.Port = 8001
 	test = testCase{
 		name:           "config file with command line args with empty string for loras",
-		args:           []string{"cmd", "--config", "../../../manifests/config.yaml", "--lora-modules", ""},
+		args:           []string{"cmd", "--config", "../../../manifests/vllm-config.yaml", "--lora-modules", ""},
 		expectedConfig: c,
 	}
 	tests = append(tests, test)
@@ -176,7 +188,7 @@ var _ = Describe("Simulator configuration", func() {
 	c.Port = 8001
 	test = testCase{
 		name:           "config file with command line args with empty parameter for loras",
-		args:           []string{"cmd", "--config", "../../../manifests/config.yaml", "--lora-modules"},
+		args:           []string{"cmd", "--config", "../../../manifests/vllm-config.yaml", "--lora-modules"},
 		expectedConfig: c,
 	}
 	tests = append(tests, test)
@@ -189,7 +201,7 @@ var _ = Describe("Simulator configuration", func() {
 	c.Latencies.KVCacheTransferLatency = time.Second
 	test = testCase{
 		name:           "config file with command line args with empty parameter for loras",
-		args:           []string{"cmd", "--config", "../../../manifests/config_with_duration_latency.yaml", "--lora-modules"},
+		args:           []string{"cmd", "--config", "../../../manifests/vllm-config-with-duration-latency.yaml", "--lora-modules"},
 		expectedConfig: c,
 	}
 	tests = append(tests, test)
@@ -264,7 +276,7 @@ var _ = Describe("Simulator configuration", func() {
 	}
 	test = testCase{
 		name:           "config with fake metrics file",
-		args:           []string{"cmd", "--config", "../../../manifests/config_with_fake.yaml"},
+		args:           []string{"cmd", "--config", "../../../manifests/vllm-config-with-fake.yaml"},
 		expectedConfig: c,
 	}
 	tests = append(tests, test)
@@ -316,7 +328,7 @@ var _ = Describe("Simulator configuration", func() {
 	}
 	test = testCase{
 		name: "metrics from config file and command line",
-		args: []string{"cmd", "--config", "../../../manifests/config_with_fake.yaml",
+		args: []string{"cmd", "--config", "../../../manifests/vllm-config-with-fake.yaml",
 			"--fake-metrics",
 			"{\"running-requests\":10,\"waiting-requests\":30,\"kv-cache-usage\":0.4,\"loras\":[{\"running\":\"lora4,lora2\",\"waiting\":\"lora3\",\"timestamp\":1257894567},{\"running\":\"lora4,lora3\",\"waiting\":\"\",\"timestamp\":1257894569}]}",
 		},
@@ -444,128 +456,128 @@ var _ = Describe("Simulator configuration", func() {
 	invalidTests := []testCase{
 		{
 			name:          "invalid model",
-			args:          []string{"cmd", "--model", "", "--config", "../../../manifests/config.yaml"},
+			args:          []string{"cmd", "--model", "", "--config", "../../../manifests/vllm-config.yaml"},
 			expectedError: "model parameter is empty",
 		},
 		{
 			name:          "invalid port",
-			args:          []string{"cmd", "--port", "-50", "--config", "../../../manifests/config.yaml"},
+			args:          []string{"cmd", "--port", "-50", "--config", "../../../manifests/vllm-config.yaml"},
 			expectedError: "invalid port",
 		},
 		{
 			name:          "invalid max-loras",
-			args:          []string{"cmd", "--max-loras", "15", "--config", "../../../manifests/config.yaml"},
+			args:          []string{"cmd", "--max-loras", "15", "--config", "../../../manifests/vllm-config.yaml"},
 			expectedError: "max CPU LoRAs cannot be less than max LoRAs",
 		},
 		{
 			name:          "invalid mode",
-			args:          []string{"cmd", "--mode", "hello", "--config", "../../../manifests/config.yaml"},
+			args:          []string{"cmd", "--mode", "hello", "--config", "../../../manifests/vllm-config.yaml"},
 			expectedError: "invalid mode ",
 		},
 		{
 			name: "invalid lora",
-			args: []string{"cmd", "--config", "../../../manifests/config.yaml",
+			args: []string{"cmd", "--config", "../../../manifests/vllm-config.yaml",
 				"--lora-modules", "{\"path\":\"/path/to/lora15\"}"},
 			expectedError: "empty LoRA name",
 		},
 		{
 			name:          "invalid max-model-len",
-			args:          []string{"cmd", "--max-model-len", "0", "--config", "../../../manifests/config.yaml"},
+			args:          []string{"cmd", "--max-model-len", "0", "--config", "../../../manifests/vllm-config.yaml"},
 			expectedError: "max model len cannot be less than 1",
 		},
 		{
 			name:          "invalid tool-call-not-required-param-probability",
-			args:          []string{"cmd", "--tool-call-not-required-param-probability", "-10", "--config", "../../../manifests/config.yaml"},
+			args:          []string{"cmd", "--tool-call-not-required-param-probability", "-10", "--config", "../../../manifests/vllm-config.yaml"},
 			expectedError: "ToolCallNotRequiredParamProbability should be between 0 and 100",
 		},
 		{
 			name: "invalid max-tool-call-number-param",
 			args: []string{"cmd", "--max-tool-call-number-param", "-10", "--min-tool-call-number-param", "0",
-				"--config", "../../../manifests/config.yaml"},
+				"--config", "../../../manifests/vllm-config.yaml"},
 			expectedError: "MaxToolCallNumberParam cannot be less than MinToolCallNumberParam",
 		},
 		{
 			name: "invalid max-tool-call-integer-param",
 			args: []string{"cmd", "--max-tool-call-integer-param", "-10", "--min-tool-call-integer-param", "0",
-				"--config", "../../../manifests/config.yaml"},
+				"--config", "../../../manifests/vllm-config.yaml"},
 			expectedError: "MaxToolCallIntegerParam cannot be less than MinToolCallIntegerParam",
 		},
 		{
 			name: "invalid max-tool-call-array-param-length",
 			args: []string{"cmd", "--max-tool-call-array-param-length", "-10", "--min-tool-call-array-param-length", "0",
-				"--config", "../../../manifests/config.yaml"},
+				"--config", "../../../manifests/vllm-config.yaml"},
 			expectedError: "MaxToolCallArrayParamLength cannot be less than MinToolCallArrayParamLength",
 		},
 		{
 			name: "invalid tool-call-not-required-param-probability",
 			args: []string{"cmd", "--tool-call-not-required-param-probability", "-10",
-				"--config", "../../../manifests/config.yaml"},
+				"--config", "../../../manifests/vllm-config.yaml"},
 			expectedError: "ToolCallNotRequiredParamProbability should be between 0 and 100",
 		},
 		{
 			name: "invalid object-tool-call-not-required-field-probability",
 			args: []string{"cmd", "--object-tool-call-not-required-field-probability", "1210",
-				"--config", "../../../manifests/config.yaml"},
+				"--config", "../../../manifests/vllm-config.yaml"},
 			expectedError: "ObjectToolCallNotRequiredParamProbability should be between 0 and 100",
 		},
 		{
 			name: "invalid tool-call-extra-call-probability",
 			args: []string{"cmd", "--tool-call-extra-call-probability", "-1",
-				"--config", "../../../manifests/config.yaml"},
+				"--config", "../../../manifests/vllm-config.yaml"},
 			expectedError: "ToolCallExtraCallProbability should be between 0 and 100",
 		},
 		{
 			name: "invalid time-to-first-token-std-dev",
 			args: []string{"cmd", "--time-to-first-token-std-dev", "3000ms",
-				"--config", "../../../manifests/config.yaml"},
+				"--config", "../../../manifests/vllm-config.yaml"},
 			expectedError: "time to first token standard deviation cannot be more than 30%",
 		},
 		{
 			name: "invalid (negative) time-to-first-token-std-dev",
 			args: []string{"cmd", "--time-to-first-token-std-dev", "10ms", "--time-to-first-token-std-dev", "-1ms",
-				"--config", "../../../manifests/config.yaml"},
+				"--config", "../../../manifests/vllm-config.yaml"},
 			expectedError: "time to first token standard deviation cannot be negative",
 		},
 		{
 			name: "invalid inter-token-latency-std-dev",
 			args: []string{"cmd", "--inter-token-latency", "1000ms", "--inter-token-latency-std-dev", "301ms",
-				"--config", "../../../manifests/config.yaml"},
+				"--config", "../../../manifests/vllm-config.yaml"},
 			expectedError: "inter token latency standard deviation cannot be more than 30%",
 		},
 		{
 			name: "invalid (negative) inter-token-latency-std-dev",
 			args: []string{"cmd", "--inter-token-latency", "1000ms", "--inter-token-latency-std-dev", "-1s",
-				"--config", "../../../manifests/config.yaml"},
+				"--config", "../../../manifests/vllm-config.yaml"},
 			expectedError: "inter token latency standard deviation cannot be negative",
 		},
 		{
 			name: "invalid kv-cache-transfer-latency-std-dev",
 			args: []string{"cmd", "--kv-cache-transfer-latency", "70ms", "--kv-cache-transfer-latency-std-dev", "35ms",
-				"--config", "../../../manifests/config.yaml"},
+				"--config", "../../../manifests/vllm-config.yaml"},
 			expectedError: "kv-cache transfer standard deviation cannot be more than 30% of kv-cache transfer",
 		},
 		{
 			name: "invalid (negative) kv-cache-transfer-latency-std-dev",
 			args: []string{"cmd", "--kv-cache-transfer-latency-std-dev", "-35ms",
-				"--config", "../../../manifests/config.yaml"},
+				"--config", "../../../manifests/vllm-config.yaml"},
 			expectedError: "kv-cache transfer time standard deviation cannot be negative",
 		},
 		{
 			name: "invalid (negative) kv-cache-size",
 			args: []string{"cmd", "--enable-kvcache", "--kv-cache-size", "-35",
-				"--config", "../../../manifests/config.yaml"},
+				"--config", "../../../manifests/vllm-config.yaml"},
 			expectedError: "KV cache size cannot be negative",
 		},
 		{
 			name: "invalid block-size",
 			args: []string{"cmd", "--enable-kvcache", "--block-size", "35",
-				"--config", "../../../manifests/config.yaml"},
+				"--config", "../../../manifests/vllm-config.yaml"},
 			expectedError: "token block size should be one of the following",
 		},
 		{
 			name: "invalid (negative) event-batch-size",
 			args: []string{"cmd", "--enable-kvcache", "--event-batch-size", "-35",
-				"--config", "../../../manifests/config.yaml"},
+				"--config", "../../../manifests/vllm-config.yaml"},
 			expectedError: "event batch size cannot less than 1",
 		},
 		{
@@ -587,123 +599,123 @@ var _ = Describe("Simulator configuration", func() {
 		{
 			name: "invalid fake metrics: negative running requests",
 			args: []string{"cmd", "--fake-metrics", "{\"running-requests\":-10,\"waiting-requests\":30,\"kv-cache-usage\":0.4}",
-				"--config", "../../../manifests/config.yaml"},
+				"--config", "../../../manifests/vllm-config.yaml"},
 			expectedError: "fake metrics request counters cannot be negative",
 		},
 		{
 			name: "invalid fake metrics: invalid running requests function",
 			args: []string{"cmd", "--fake-metrics", "{\"running-requests\":\"foo:0:8:10s\",\"waiting-requests\":30,\"kv-cache-usage\":0.4}",
-				"--config", "../../../manifests/config.yaml"},
+				"--config", "../../../manifests/vllm-config.yaml"},
 			expectedError: "invalid fake metrics generation function foo",
 		},
 		{
 			name: "invalid fake metrics: invalid function parameter period",
 			args: []string{"cmd", "--fake-metrics", "{\"running-requests\":19,\"waiting-requests\":\"squarewave:0:8:170\",\"kv-cache-usage\":0.4}",
-				"--config", "../../../manifests/config.yaml"},
+				"--config", "../../../manifests/vllm-config.yaml"},
 			expectedError: "unknown format in fake metric generation function: time: missing unit in duration",
 		},
 		{
 			name: "invalid fake metrics: invalid function parameter period, can't be 0",
 			args: []string{"cmd", "--fake-metrics", "{\"running-requests\":19,\"waiting-requests\":\"squarewave:0:8:0s\",\"kv-cache-usage\":0.4}",
-				"--config", "../../../manifests/config.yaml"},
+				"--config", "../../../manifests/vllm-config.yaml"},
 			expectedError: "invalid fake metrics generation parameter: period must be positive",
 		},
 		{
 			name: "invalid fake metrics: incomplete waiting requests function parameters",
 			args: []string{"cmd", "--fake-metrics", "{\"running-requests\":19,\"waiting-requests\":\"rampreset:0:8\",\"kv-cache-usage\":0.4}",
-				"--config", "../../../manifests/config.yaml"},
+				"--config", "../../../manifests/vllm-config.yaml"},
 			expectedError: "need func:start:end:period in fake metric generation function",
 		},
 		{
 			name: "invalid fake metrics: kv cache usage",
 			args: []string{"cmd", "--fake-metrics", "{\"running-requests\":10,\"waiting-requests\":30,\"kv-cache-usage\":40}",
-				"--config", "../../../manifests/config.yaml"},
+				"--config", "../../../manifests/vllm-config.yaml"},
 			expectedError: "fake metrics KV cache usage must be between 0 and 1",
 		},
 		{
 			name: "invalid fake metrics: negative kv cache usage function parameters",
 			args: []string{"cmd", "--fake-metrics", "{\"running-requests\":10,\"waiting-requests\":30,\"kv-cache-usage\":\"ramp:0:-8:10s\"}",
-				"--config", "../../../manifests/config.yaml"},
+				"--config", "../../../manifests/vllm-config.yaml"},
 			expectedError: "invalid fake metrics generation parameter: start and end must not be negative",
 		},
 		{
 			name: "invalid fake metrics: invalid kv cache usage function parameters",
 			args: []string{"cmd", "--fake-metrics", "{\"running-requests\":10,\"waiting-requests\":30,\"kv-cache-usage\":\"ramp:0:5:10s\"}",
-				"--config", "../../../manifests/config.yaml"},
+				"--config", "../../../manifests/vllm-config.yaml"},
 			expectedError: "fake metrics KV cache usage start and end must be between 0 and 1",
 		},
 		{
 			name: "invalid fake metrics refresh period",
 			args: []string{"cmd", "--fake-metrics", "{\"running-requests\":10,\"waiting-requests\":30,\"kv-cache-usage\":\"ramp:0:1:10s\"}",
 				"--fake-metrics-refresh-interval", "-20s",
-				"--config", "../../../manifests/config.yaml"},
+				"--config", "../../../manifests/vllm-config.yaml"},
 			expectedError: "fake metrics refresh interval must be positive",
 		},
 		{
 			name: "invalid (negative) prefill-overhead",
 			args: []string{"cmd", "--prefill-overhead", "-1ms",
-				"--config", "../../../manifests/config.yaml"},
+				"--config", "../../../manifests/vllm-config.yaml"},
 			expectedError: "prefill overhead cannot be negative",
 		},
 		{
 			name: "invalid (negative) prefill-time-per-token",
 			args: []string{"cmd", "--prefill-time-per-token", "-1ms",
-				"--config", "../../../manifests/config.yaml"},
+				"--config", "../../../manifests/vllm-config.yaml"},
 			expectedError: "prefill time per token cannot be negative",
 		},
 		{
 			name: "invalid (negative) prefill-time-std-dev",
 			args: []string{"cmd", "--prefill-time-std-dev", "-1ms",
-				"--config", "../../../manifests/config.yaml"},
+				"--config", "../../../manifests/vllm-config.yaml"},
 			expectedError: "prefill time standard deviation cannot be negative",
 		},
 		{
 			name: "invalid (negative) kv-cache-transfer-time-per-token",
 			args: []string{"cmd", "--kv-cache-transfer-time-per-token", "-1ms",
-				"--config", "../../../manifests/config.yaml"},
+				"--config", "../../../manifests/vllm-config.yaml"},
 			expectedError: "kv-cache transfer time per token cannot be negative",
 		},
 		{
 			name: "invalid (negative) kv-cache-transfer-time-std-dev",
 			args: []string{"cmd", "--kv-cache-transfer-time-std-dev", "-1ms",
-				"--config", "../../../manifests/config.yaml"},
+				"--config", "../../../manifests/vllm-config.yaml"},
 			expectedError: "kv-cache transfer time standard deviation cannot be negative",
 		},
 		{
 			name: "invalid (negative) time-to-generate-image",
 			args: []string{"cmd", "--time-to-generate-image", "-1ms",
-				"--config", "../../../manifests/config.yaml"},
+				"--config", "../../../manifests/vllm-config.yaml"},
 			expectedError: "time to generate image cannot be negative",
 		},
 		{
 			name: "invalid (negative) time-to-generate-image-std-dev",
 			args: []string{"cmd", "--time-to-generate-image-std-dev", "-1ms",
-				"--config", "../../../manifests/config.yaml"},
+				"--config", "../../../manifests/vllm-config.yaml"},
 			expectedError: "time to generate image standard deviation cannot be negative",
 		},
 		{
 			name: "invalid time-to-generate-image-std-dev exceeds 30%",
 			args: []string{"cmd", "--time-to-generate-image", "500ms", "--time-to-generate-image-std-dev", "200ms",
-				"--config", "../../../manifests/config.yaml"},
+				"--config", "../../../manifests/vllm-config.yaml"},
 			expectedError: "time to generate image standard deviation cannot be more than 30% of time to generate image",
 		},
 		{
 			name: "invalid data-parallel-size",
 			args: []string{"cmd", "--data-parallel-size", "15",
-				"--config", "../../../manifests/config.yaml"},
+				"--config", "../../../manifests/vllm-config.yaml"},
 			expectedError: "data parallel size must be between 1 and 8",
 		},
 		{
 			name: "invalid data-parallel-rank",
 			args: []string{"cmd", "--data-parallel-rank", "15",
-				"--config", "../../../manifests/config.yaml"},
+				"--config", "../../../manifests/vllm-config.yaml"},
 			expectedError: "data parallel rank must be between 0 and 7",
 		},
 		{
 			name: "invalid zmq-endpoint and kv-events-replay-endpoint on the same port",
 			args: []string{"cmd", "--enable-kvcache", "--zmq-endpoint", "tcp://127.0.0.1:5557",
 				"--kv-events-replay-endpoint", "tcp://127.0.0.1:5557",
-				"--config", "../../../manifests/config.yaml"},
+				"--config", "../../../manifests/vllm-config.yaml"},
 			expectedError: "zmq-endpoint (tcp://127.0.0.1:5557) and kv-events-replay-endpoint (tcp://127.0.0.1:5557) ports collide",
 		},
 		{
@@ -711,7 +723,7 @@ var _ = Describe("Simulator configuration", func() {
 			args: []string{"cmd", "--enable-kvcache", "--data-parallel-size", "3",
 				"--zmq-endpoint", "tcp://127.0.0.1:5557",
 				"--kv-events-replay-endpoint", "tcp://127.0.0.1:5558",
-				"--config", "../../../manifests/config.yaml"},
+				"--config", "../../../manifests/vllm-config.yaml"},
 			expectedError: "zmq-endpoint (tcp://127.0.0.1:5557) and kv-events-replay-endpoint (tcp://127.0.0.1:5558) ports collide",
 		},
 		{
@@ -719,7 +731,7 @@ var _ = Describe("Simulator configuration", func() {
 			args: []string{"cmd", "--enable-kvcache", "--data-parallel-size", "3", "--data-parallel-rank", "2",
 				"--zmq-endpoint", "tcp://127.0.0.1:5557",
 				"--kv-events-replay-endpoint", "tcp://127.0.0.1:5557",
-				"--config", "../../../manifests/config.yaml"},
+				"--config", "../../../manifests/vllm-config.yaml"},
 			expectedError: "zmq-endpoint (tcp://127.0.0.1:5557) and kv-events-replay-endpoint (tcp://127.0.0.1:5557) ports collide",
 		},
 		{
@@ -732,92 +744,92 @@ var _ = Describe("Simulator configuration", func() {
 			args: []string{"cmd", "--enable-kvcache", "--data-parallel-size", "3", "--data-parallel-rank", "2",
 				"--zmq-endpoint", "tcp://127.0.0.1:5557",
 				"--kv-events-replay-endpoint", "tcp://127.0.0.1:5559",
-				"--config", "../../../manifests/config.yaml"},
+				"--config", "../../../manifests/vllm-config.yaml"},
 			expectedError: "zmq-endpoint (tcp://127.0.0.1:5557) and kv-events-replay-endpoint (tcp://127.0.0.1:5559) ports collide",
 		},
 		{
 			name: "invalid kv-events-replay-queue-size",
 			args: []string{"cmd", "--enable-kvcache", "--kv-events-replay-endpoint", "tcp://*:5558",
 				"--kv-events-replay-queue-size", "0",
-				"--config", "../../../manifests/config.yaml"},
+				"--config", "../../../manifests/vllm-config.yaml"},
 			expectedError: "kv-events-replay-queue-size cannot be less than 1",
 		},
 		{
 			name: "invalid max-num-seqs",
 			args: []string{"cmd", "--max-num-seqs", "0",
-				"--config", "../../../manifests/config.yaml"},
+				"--config", "../../../manifests/vllm-config.yaml"},
 			expectedError: "max num seqs cannot be less than 1",
 		},
 		{
 			name: "invalid max-num-seqs",
 			args: []string{"cmd", "--max-num-seqs", "-1",
-				"--config", "../../../manifests/config.yaml"},
+				"--config", "../../../manifests/vllm-config.yaml"},
 			expectedError: "max num seqs cannot be less than 1",
 		},
 		{
 			name: "invalid max-waiting-queue-length",
 			args: []string{"cmd", "--max-waiting-queue-length", "-1",
-				"--config", "../../../manifests/config.yaml"},
+				"--config", "../../../manifests/vllm-config.yaml"},
 			expectedError: "max waiting queue size cannot be less than 0",
 		},
 		{
 			name: "invalid time-factor-under-load",
 			args: []string{"cmd", "--time-factor-under-load", "0",
-				"--config", "../../../manifests/config.yaml"},
+				"--config", "../../../manifests/vllm-config.yaml"},
 			expectedError: "time factor under load cannot be less than 1.0",
 		},
 		{
 			name: "invalid time-factor-under-load",
 			args: []string{"cmd", "--time-factor-under-load", "-1",
-				"--config", "../../../manifests/config.yaml"},
+				"--config", "../../../manifests/vllm-config.yaml"},
 			expectedError: "time factor under load cannot be less than 1.0",
 		},
 		{
 			name: "invalid ttft",
 			args: []string{"cmd", "--fake-metrics", "{\"ttft-buckets-values\":[1, 2, -10, 1]}",
-				"--config", "../../../manifests/config.yaml"},
+				"--config", "../../../manifests/vllm-config.yaml"},
 			expectedError: "time-to-first-token fake metrics should contain only non-negative values",
 		},
 		{
 			name: "invalid tpot",
 			args: []string{"cmd", "--fake-metrics", "{\"tpot-buckets-values\":[1, 2, -10, 1]}",
-				"--config", "../../../manifests/config.yaml"},
+				"--config", "../../../manifests/vllm-config.yaml"},
 			expectedError: "time-per-output-token fake metrics should contain only non-negative values",
 		},
 		{
 			name: "invalid request-max-generation-tokens",
 			args: []string{"cmd", "--fake-metrics", "{\"request-max-generation-tokens\": [1, -1, 2]}",
-				"--config", "../../../manifests/config.yaml"},
+				"--config", "../../../manifests/vllm-config.yaml"},
 			expectedError: "fake metrics request-max-generation-tokens cannot contain negative values",
 		},
 		{
 			name: "invalid fake metrics: negative prefix-cache-hits",
 			args: []string{"cmd", "--fake-metrics", "{\"prefix-cache-hits\":-5,\"prefix-cache-queries\":10}",
-				"--config", "../../../manifests/config.yaml"},
+				"--config", "../../../manifests/vllm-config.yaml"},
 			expectedError: "fake metrics prefix-cache-hits cannot be negative",
 		},
 		{
 			name: "invalid fake metrics: negative prefix-cache-queries",
 			args: []string{"cmd", "--fake-metrics", "{\"prefix-cache-hits\":0,\"prefix-cache-queries\":-1}",
-				"--config", "../../../manifests/config.yaml"},
+				"--config", "../../../manifests/vllm-config.yaml"},
 			expectedError: "fake metrics prefix-cache-queries cannot be negative",
 		},
 		{
 			name: "invalid fake metrics: prefix-cache-hits without prefix-cache-queries",
 			args: []string{"cmd", "--fake-metrics", "{\"prefix-cache-hits\":100}",
-				"--config", "../../../manifests/config.yaml"},
+				"--config", "../../../manifests/vllm-config.yaml"},
 			expectedError: "fake metrics prefix-cache-hits and prefix-cache-queries must be specified together",
 		},
 		{
 			name: "invalid fake metrics: prefix-cache-queries without prefix-cache-hits",
 			args: []string{"cmd", "--fake-metrics", "{\"prefix-cache-queries\":100}",
-				"--config", "../../../manifests/config.yaml"},
+				"--config", "../../../manifests/vllm-config.yaml"},
 			expectedError: "fake metrics prefix-cache-hits and prefix-cache-queries must be specified together",
 		},
 		{
 			name: "invalid fake metrics: prefix-cache-hits exceeds prefix-cache-queries",
 			args: []string{"cmd", "--fake-metrics", "{\"prefix-cache-hits\":100,\"prefix-cache-queries\":50}",
-				"--config", "../../../manifests/config.yaml"},
+				"--config", "../../../manifests/vllm-config.yaml"},
 			expectedError: "fake metrics prefix-cache-hits cannot exceed prefix-cache-queries",
 		},
 		{
@@ -828,17 +840,17 @@ var _ = Describe("Simulator configuration", func() {
 		},
 		{
 			name:          "invalid latency calculator",
-			args:          []string{"cmd", "--config", "../../../manifests/config.yaml", "--latency-calculator", "hello"},
+			args:          []string{"cmd", "--config", "../../../manifests/vllm-config.yaml", "--latency-calculator", "hello"},
 			expectedError: "unknown latency-calculator",
 		},
 		{
 			name:          "invalid max-request-body-size-mb (too small)",
-			args:          []string{"cmd", "--config", "../../../manifests/config.yaml", "--max-request-body-size-mb", "-1"},
+			args:          []string{"cmd", "--config", "../../../manifests/vllm-config.yaml", "--max-request-body-size-mb", "-1"},
 			expectedError: "max-request-body-size-mb must be between 1 MB and 512 MB",
 		},
 		{
 			name:          "invalid max-request-body-size-mb (too large)",
-			args:          []string{"cmd", "--config", "../../../manifests/config.yaml", "--max-request-body-size-mb", "513"},
+			args:          []string{"cmd", "--config", "../../../manifests/vllm-config.yaml", "--max-request-body-size-mb", "513"},
 			expectedError: "max-request-body-size-mb must be between 1 MB and 512 MB",
 		},
 	}
@@ -873,7 +885,7 @@ var _ = Describe("Model environment variable", func() {
 
 	It("overrides model from config file when --model is omitted", func() {
 		Expect(os.Setenv(common.ModelEnv, "env-override-model")).To(Succeed())
-		config, err := createSimConfig([]string{"cmd", "--config", "../../../manifests/config.yaml"})
+		config, err := createSimConfig([]string{"cmd", "--config", "../../../manifests/vllm-config.yaml"})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(config.Model).To(Equal("env-override-model"))
 	})
@@ -938,13 +950,6 @@ var _ = Describe("VLLM_SERVER_DEV_MODE environment variable", func() {
 })
 
 var _ = Describe("lora YAML folding", func() {
-	writeConfig := func(contents string) string {
-		dir := GinkgoT().TempDir()
-		path := filepath.Join(dir, "config.yaml")
-		Expect(os.WriteFile(path, []byte(contents), 0o644)).To(Succeed())
-		return path
-	}
-
 	It("populates Lora from the nested lora block", func() {
 		config, err := createSimConfig([]string{"cmd", "--config", writeConfig(`
 model: test-model
@@ -994,13 +999,6 @@ lora:
 })
 
 var _ = Describe("kv-cache YAML folding", func() {
-	writeConfig := func(contents string) string {
-		dir := GinkgoT().TempDir()
-		path := filepath.Join(dir, "config.yaml")
-		Expect(os.WriteFile(path, []byte(contents), 0o644)).To(Succeed())
-		return path
-	}
-
 	It("populates KVCache from the nested kvcache block", func() {
 		config, err := createSimConfig([]string{"cmd", "--config", writeConfig(`
 model: test-model
@@ -1133,13 +1131,6 @@ var _ = Describe("legacy flat YAML key lists", func() {
 })
 
 var _ = Describe("fake-metrics and lora edge values", func() {
-	writeConfig := func(contents string) string {
-		dir := GinkgoT().TempDir()
-		path := filepath.Join(dir, "config.yaml")
-		Expect(os.WriteFile(path, []byte(contents), 0o644)).To(Succeed())
-		return path
-	}
-
 	It("leaves fake metrics unset when the YAML block is present but empty", func() {
 		// Every setting commented out is a common real-world state. Reporting
 		// fake metrics here would silently freeze the whole metrics surface at
@@ -1282,6 +1273,20 @@ var _ = Describe("unclaimed YAML keys", func() {
 		Expect(config.EnableSleepMode).To(BeFalse())
 	})
 
+	// Another engine's names for the fields each engine names itself are claimed
+	// by neither this engine nor the generic loader, so they reach the same report
+	// a misspelling does.
+	It("rejects a key another engine names the same field by", func() {
+		dir := GinkgoT().TempDir()
+		path := filepath.Join(dir, "config.yaml")
+		Expect(os.WriteFile(path, []byte("model: test-model\ncontext-length: 512\nmax-running-requests: 4\n"), 0o644)).To(Succeed())
+
+		_, err := createSimConfig([]string{"cmd", "--config", path})
+		Expect(err).To(MatchError(ContainSubstring(
+			"the 'vllm' engine does not recognize the following configuration key(s): " +
+				"context-length, max-running-requests")))
+	})
+
 	It("rejects a misspelled key", func() {
 		dir := GinkgoT().TempDir()
 		path := filepath.Join(dir, "config.yaml")
@@ -1290,5 +1295,60 @@ var _ = Describe("unclaimed YAML keys", func() {
 		_, err := createSimConfig([]string{"cmd", "--config", path})
 		Expect(err).To(MatchError(ContainSubstring("the 'vllm' engine does not recognize")))
 		Expect(err.Error()).To(ContainSubstring("max-num-seq, prot"))
+	})
+})
+
+var _ = Describe("Setting names", func() {
+	// vLLM's own names for the three core fields each engine names for itself.
+	// This engine registers these flags, so a command line written for a
+	// different engine must fail rather than be honored here.
+	DescribeTable("should accept a setting under vLLM's own flag",
+		func(flag string, read func(*common.Configuration) int) {
+			config, err := createSimConfig([]string{"cmd", "--model", common.TestModelName, flag, "4"})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(read(config)).To(Equal(4))
+		},
+		Entry("max-model-len", "--max-model-len",
+			func(c *common.Configuration) int { return c.MaxModelLen }),
+		Entry("max-num-seqs", "--max-num-seqs",
+			func(c *common.Configuration) int { return c.MaxNumSeqs }),
+		Entry("max-waiting-queue-length", "--max-waiting-queue-length",
+			func(c *common.Configuration) int { return c.MaxWaitingQueueLength }),
+	)
+
+	DescribeTable("should not register another engine's name for the setting",
+		func(flag string) {
+			_, err := createSimConfig([]string{"cmd", "--model", common.TestModelName, flag, "4"})
+			Expect(err).To(MatchError(ContainSubstring("unknown flag")))
+		},
+		Entry("context-length", "--context-length"),
+		Entry("max-running-requests", "--max-running-requests"),
+		Entry("max-queued-requests", "--max-queued-requests"),
+	)
+
+	It("should read those settings from a config file under vLLM's keys", func() {
+		config, err := createSimConfig([]string{"cmd", "--config", writeConfig(
+			"model: " + common.TestModelName + "\nmax-model-len: 512\n" +
+				"max-num-seqs: 4\nmax-waiting-queue-length: 2\n")})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(config.MaxModelLen).To(Equal(512))
+		Expect(config.MaxNumSeqs).To(Equal(4))
+		Expect(config.MaxWaitingQueueLength).To(Equal(2))
+	})
+
+	// /admin/config and the startup log report these under the same names, so
+	// what a reader sees is what they would pass back on the command line.
+	It("should report the settings under vLLM's names for external display", func() {
+		config, err := createSimConfig([]string{"cmd", "--model", common.TestModelName,
+			"--max-model-len", "512"})
+		Expect(err).NotTo(HaveOccurred())
+
+		body, err := config.MarshalCleaned()
+		Expect(err).NotTo(HaveOccurred())
+		var shown map[string]any
+		Expect(json.Unmarshal(body, &shown)).To(Succeed())
+
+		Expect(shown).To(HaveKeyWithValue("max-model-len", BeEquivalentTo(512)))
+		Expect(shown).NotTo(HaveKey("context-length"))
 	})
 })

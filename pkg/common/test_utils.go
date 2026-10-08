@@ -19,11 +19,24 @@ package common
 import (
 	"context"
 	"net"
+	"os"
+	"path/filepath"
 
 	zmq4 "github.com/go-zeromq/zmq4"
 	"github.com/onsi/gomega"
 	"github.com/spf13/pflag"
 )
+
+// WriteConfigFile writes contents to a YAML config file under dir and returns
+// its path, for a spec that needs a file to point --config at. dir is normally
+// the spec's own temp directory, which the caller supplies rather than this
+// helper taking it from GinkgoT(), so that this package does not import ginkgo
+// and link it into the binary.
+func WriteConfigFile(dir string, contents string) string {
+	path := filepath.Join(dir, "config.yaml")
+	gomega.Expect(os.WriteFile(path, []byte(contents), 0o644)).To(gomega.Succeed())
+	return path
+}
 
 // constants
 const (

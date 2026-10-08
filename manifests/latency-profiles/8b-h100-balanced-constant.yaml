@@ -2,6 +2,7 @@
 # Mirrors a production Llama-3-8B deployment on a single H100 at moderate concurrency.
 # See docs/latency-profiles.md for the full discussion.
 
+engine: vllm
 port: 8000
 model: "meta-llama/Llama-3.1-8B-Instruct"
 max-num-seqs: 16
