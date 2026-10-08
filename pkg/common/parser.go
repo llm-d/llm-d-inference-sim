@@ -348,7 +348,7 @@ func ParseCommandParamsAndLoadConfig(eng Engine) (*Configuration, error) {
 	// These values were manually parsed above in GetParamValueFromArgs, we leave this in order to get these flags in --help
 	var dummyString string
 	f.StringVar(&dummyString, "config", "", "The path to a yaml configuration file. The command line values overwrite the configuration file values")
-	f.StringVar(&dummyString, "engine", "", "The inference engine to simulate: 'vllm' or 'sglang'")
+	f.StringVar(&dummyString, "engine", "", "The inference engine to simulate: 'vllm' or 'sglang' (SGLang support is experimental)")
 	var dummyMultiString multiString
 	f.Var(&dummyMultiString, "served-model-name", "Model names exposed by the API (a list of space-separated strings)")
 	// In order to allow empty arguments, we set a dummy NoOptDefVal for these flags

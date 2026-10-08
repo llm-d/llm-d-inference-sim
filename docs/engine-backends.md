@@ -4,7 +4,8 @@ The simulator separates behavior that every inference engine shares from behavio
 name on. If a client could tell one engine from another by it, it is engine-specific, everything else is
 the simulator core. That boundary is the `engine.Engine` interface in
 [pkg/engine/engine.go](../pkg/engine/engine.go). Two engines are registered: `vllm`, in
-[pkg/engine/vllm/](../pkg/engine/vllm/), and `sglang`, in [pkg/engine/sglang/](../pkg/engine/sglang/).
+[pkg/engine/vllm/](../pkg/engine/vllm/), and `sglang`, in [pkg/engine/sglang/](../pkg/engine/sglang/), whose
+support is experimental; see [SGLang support (experimental)](#sglang-support-experimental).
 
 ## Selecting an engine
 
@@ -16,14 +17,14 @@ a YAML value rank against each other.
 engine registers its own flags and validates its own fields as part of that parse. `engine.Select` then
 maps the name to an implementation, rejecting one that is not registered.
 
-## SGLang support (work in progress)
+## SGLang support (experimental)
 
-SGLang support is a work in progress. For now it simulates the engine-neutral surface only: the
-OpenAI-compatible endpoints, the latency model, and dataset-backed response generation, with `owned_by`
-reported as `sglang`. It has no native HTTP routes, no gRPC service, no metrics, no LoRA adapters, and no
-KV cache. Because the settings behind those features are engine-owned, a configuration file asking for one
-is rejected rather than silently ignored, and the corresponding flags do not exist. `/metrics` serves an
-empty body.
+SGLang support is experimental and incomplete: it is not ready for production use. For now it simulates
+the engine-neutral surface only: the OpenAI-compatible endpoints, the latency model, and dataset-backed
+response generation, with `owned_by` reported as `sglang`. It has no native HTTP routes, no gRPC service,
+no metrics, no LoRA adapters, and no KV cache. Because the settings behind those features are engine-owned,
+a configuration file asking for one is rejected rather than silently ignored, and the corresponding flags
+do not exist. `/metrics` serves an empty body.
 
 Response bodies carry no SGLang-specific fields yet; `matched_stop`, which SGLang includes in every
 completion choice, is absent. These gaps are expected to close as SGLang support matures, not a permanent
