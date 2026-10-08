@@ -31,3 +31,4 @@ Currently supported are the following metrics:
 | vllm:cache_config_info | Information of the LLMEngine CacheConfig |
 | vllm:prefix_cache_hits_total | Prefix cache hits, in terms of number of cached tokens |
 | vllm:prefix_cache_queries_total | Prefix cache queries, in terms of number of queried tokens |
+| process_* | Standard process metrics such as `process_start_time_seconds`, as vLLM exports them |

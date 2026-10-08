@@ -51,6 +51,16 @@ validation rules all come from the engine, and `pkg/common` holds no defaults fo
 goes further: `Configuration.FakeMetrics` is an interface, so the engine supplies the concrete type as
 well, since the set of fakeable fields mirrors its own real metrics.
 
+A single `Configuration` field can be engine-named the same way, for a setting the engines disagree on the
+name of. `MaxModelLen`, `MaxNumSeqs` and `MaxWaitingQueueLength` are tagged `yaml:"-"` and have no core
+flag: the core keeps the field, its default and its validation, and each engine's `BindFlags` registers
+its own flag for the field and claims its own config-file key (`common.ClaimYAMLInt`). Every engine
+declares all three, so neither engine's names are the ones the other deviates from, and a name one engine
+does not declare reaches no field: the flag is unknown, and the config key is unclaimed and reported like
+any other. `common.DeclareConfigIntField` does the three jobs one such field needs — claim the key, register
+the flag, record the name — and the recorded name is what `/admin/config` and the startup log report the
+field as, so no reader is shown a name the running engine does not take.
+
 ## What stays engine-neutral
 
 An engine inherits these rather than reimplementing them. They are the parts most likely to be mistaken
@@ -73,11 +83,14 @@ The order matters because each step's output is the next step's input. `main` re
    1. `NewConfig` sets the common defaults and leaves the engine-owned groups zero-valued.
    2. `ApplyDefaults` fills those groups in.
    3. A `--config` file is loaded, overwriting defaults and yielding the raw YAML tree.
-   4. Common flags are registered, then `BindFlags` registers the engine's. Each flag defaults to the
-      value the config already holds, so an unset flag preserves the YAML value and a set flag wins.
+   4. Common flags are registered, then `BindFlags` registers the engine's own and claims the keys of the
+      fields it names, the raw tree in hand. Each flag defaults to the value the config already holds, so
+      an unset flag preserves the YAML value and a set flag wins.
    5. Any top-level YAML key still unclaimed is reported as unrecognized. The engine claims its own
       groups by deleting them from the raw tree as it reads them, so an engine that does not implement
-      a feature gets the rejection for free and never names another engine's keys.
+      a feature gets the rejection for free and never names another engine's keys. Another engine's name
+      for an engine-named field is unclaimed too, so a file written for a different engine is reported
+      the same way.
    6. `f.Parse` reads the command line.
    7. Common environment variables are applied, then `ApplyEnv`. It receives `f.Changed` so an environment
       variable can act as a fallback for an unset flag rather than an override of a set one.

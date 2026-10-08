@@ -1,3 +1,4 @@
+engine: vllm
 port: 8001
 model: "Qwen/Qwen2-VL-2B-Instruct"
 served-model-name: 

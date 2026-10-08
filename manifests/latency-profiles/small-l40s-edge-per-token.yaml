@@ -3,6 +3,7 @@
 # length.
 # See docs/latency-profiles.md for the full discussion.
 
+engine: vllm
 port: 8000
 model: "meta-llama/Llama-3.2-3B-Instruct"
 max-num-seqs: 4

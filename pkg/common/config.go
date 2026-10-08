@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"reflect"
 	"sort"
@@ -28,6 +29,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
+	"github.com/spf13/pflag"
 	"gopkg.in/yaml.v3"
 )
 
@@ -124,14 +126,28 @@ type Configuration struct {
 	// ServedModelNames is one or many model names exposed by the API
 	ServedModelNames []string `yaml:"served-model-name" json:"served-model-name"`
 
+	// The three settings below are the ones the engines disagree on the name of.
+	// The core keeps the field, its default and its validation, and the active
+	// engine declares all three (see DeclareConfigIntField), which is what names
+	// them: yaml:"-" keeps the generic loader in load() from claiming any one
+	// engine's key, there is no core flag, and the json key is a placeholder
+	// that fieldNames replaces with the engine's name for external display.
+
 	// MaxNumSeqs is maximum number of sequences per iteration (the maximum
 	// number of inference requests that could be processed at the same time)
-	MaxNumSeqs int `yaml:"max-num-seqs" json:"max-num-seqs"`
+	MaxNumSeqs int `yaml:"-" json:"max-concurrent-requests"`
 	// MaxWaitingQueueLength defines maximum size of waiting requests queue
-	MaxWaitingQueueLength int `yaml:"max-waiting-queue-length" json:"max-waiting-queue-length"`
+	MaxWaitingQueueLength int `yaml:"-" json:"max-queue-length"`
 	// MaxModelLen is the model's context window, the maximum number of tokens
 	// in a single request including input and output. Default value is 1024.
-	MaxModelLen int `yaml:"max-model-len" json:"max-model-len"`
+	MaxModelLen int `yaml:"-" json:"context-window"`
+
+	// fieldNames records the name the active engine gave each of the three
+	// fields above, keyed by the field's json key, so that /admin/config and the
+	// startup log report them the way the running engine names them. Unexported,
+	// so it is neither loaded from a config file nor reported as a field of its
+	// own; Copy carries it by hand for that reason.
+	fieldNames map[string]string
 
 	// Lora groups the LoRA adapter settings. Constructed entirely by the active
 	// engine (see Engine.ApplyDefaults and Engine.BindFlags), since both the
@@ -617,6 +633,44 @@ func rejectUnknownYAMLKeys(raw map[string]any, engineName string) error {
 		engineName, strings.Join(unknown, ", "))
 }
 
+// Placeholder keys of the three core fields the engines disagree on the name of,
+// matching their json tags. An engine passes one to DeclareConfigIntField to say
+// which field its flag names; none is a name any engine answers to.
+const (
+	FieldContextWindow = "context-window"
+	FieldConcurrency   = "max-concurrent-requests"
+	FieldQueueLength   = "max-queue-length"
+)
+
+// DeclareConfigIntField gives one of those fields the name this engine knows it
+// by: it claims that name's config-file key out of raw, registers it as a flag,
+// and records it so external display reports the field under it too. field is
+// the placeholder key of the field out points to. Claiming before registering is
+// what makes a config file the flag's default, so an unset flag keeps the file's
+// value and an absent key keeps the core default. Must be called from
+// Engine.BindFlags, before f.Parse.
+func DeclareConfigIntField(f *pflag.FlagSet, raw map[string]any, cfg *Configuration,
+	field string, out *int, name string, usage string) error {
+	if err := UnmarshalYAMLKey(raw, name, out); err != nil {
+		return err
+	}
+	delete(raw, name)
+
+	f.IntVar(out, name, *out, usage)
+	cfg.NameField(field, name)
+	return nil
+}
+
+// NameField records the name this configuration calls the given field by, which
+// is what external display reports it as. DeclareConfigIntField calls it, so an
+// engine binding one of those fields some other way can still name it.
+func (c *Configuration) NameField(field string, name string) {
+	if c.fieldNames == nil {
+		c.fieldNames = make(map[string]string)
+	}
+	c.fieldNames[field] = name
+}
+
 func (c *Configuration) validate() error {
 	if c.Model == "" {
 		return errors.New("model parameter is empty")
@@ -1095,8 +1149,13 @@ func (c *Configuration) Copy() (*Configuration, error) {
 	if err != nil {
 		return nil, err
 	}
-	err = json.Unmarshal(data, &dst)
-	return &dst, err
+	if err := json.Unmarshal(data, &dst); err != nil {
+		return nil, err
+	}
+	// Unexported, so the round trip above drops it. The copy must keep reporting
+	// the engine-named fields under the engine's names.
+	dst.fieldNames = maps.Clone(c.fieldNames)
+	return &dst, nil
 }
 
 // cleanedMap returns the configuration as a JSON-friendly map with internal
@@ -1116,6 +1175,15 @@ func (c *Configuration) cleanedMap() (map[string]any, error) {
 	if c.DPSize > 1 {
 		// in DP mode, the per-rank port is not meaningful externally
 		delete(m, "port")
+	}
+	// The fields the engines disagree on the name of are reported under the
+	// running engine's name for them, the same name their flag and config key
+	// carry. A field no engine declared keeps its placeholder key.
+	for field, name := range c.fieldNames {
+		if value, ok := m[field]; ok {
+			delete(m, field)
+			m[name] = value
+		}
 	}
 	formatDurationFields(m)
 	if latencies, ok := m["latencies"].(map[string]any); ok {

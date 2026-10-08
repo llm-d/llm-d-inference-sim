@@ -239,6 +239,31 @@ func errorType(apiErr *openai.Error) string {
 	return readFlatError(apiErr).Type
 }
 
+// engineFlags are the flags the registered engines declare for those fields (see
+// each engine's flags.go). A new engine's row belongs here along with it, which
+// is what every spec using fieldFlag then runs under.
+var engineFlags = map[string]map[string]string{
+	"vllm": {
+		common.FieldContextWindow: "--max-model-len",
+		common.FieldConcurrency:   "--max-num-seqs",
+		common.FieldQueueLength:   "--max-waiting-queue-length",
+	},
+	"sglang": {
+		common.FieldContextWindow: "--context-length",
+		common.FieldConcurrency:   "--max-running-requests",
+		common.FieldQueueLength:   "--max-queued-requests",
+	},
+}
+
+// engineFlag returns the flag that sets the given field under the engine the next
+// server is started with.
+func engineFlag(field string) string {
+	flag, known := engineFlags[currentEngine][field]
+	gomega.Expect(known).To(gomega.BeTrue(),
+		"the %s engine declares no %s flag in fieldFlags", currentEngine, field)
+	return flag
+}
+
 // apiErrorFromBody parses an error response body, which an engine frames either
 // inside an "error" envelope or with the error's own fields at the top level.
 func apiErrorFromBody(body []byte) api.Error {

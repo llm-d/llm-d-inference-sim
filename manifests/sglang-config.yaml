@@ -1,7 +1,12 @@
-# Settings every engine accepts, so this file loads whatever --engine selects.
-# The examples that name a setting one engine names itself declare that engine.
+engine: sglang
 port: 8001
 model: "Qwen/Qwen2-VL-2B-Instruct"
+served-model-name:
+- "model1"
+- "model2"
+context-length: 2048
+max-running-requests: 5
+max-queued-requests: 1000
 mode: "random"
 time-to-first-token: "2000ms"
 inter-token-latency: "1000ms"

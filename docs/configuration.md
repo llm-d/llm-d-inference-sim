@@ -27,18 +27,19 @@ A value written as a separate argument is refused, whatever the value. `--enable
 In a configuration file the same settings are plain YAML booleans, written without the `no-` prefix: `enable-kvcache: false`.
 ## Settings every engine supports
 
-These come from the simulator core, so every engine accepts them and the flag names never change.
+These come from the simulator core, so every engine accepts them, under the names listed here. Three are
+the exception: the engines the simulator imitates disagree on what to call them, so each engine declares
+its own flag and config-file key for them. They are listed under
+[Settings each engine names itself](#settings-each-engine-names-itself), and the name the running engine
+declares is the only one it answers to, on the command line and in a config file alike.
 
 ### General
-- `config`: the path to a yaml configuration file that can contain the simulator's command line parameters. If a parameter is defined in both the config file and the command line, the command line value overwrites the configuration file value. An example configuration file can be found at [manifests/config.yaml](../manifests/config.yaml). A key the simulator does not recognize is an error, not a no-op: startup fails naming the key. Since some settings are engine-owned, which keys are recognized depends on the selected engine; see [Engines](engine-backends.md).
+- `config`: the path to a yaml configuration file that can contain the simulator's command line parameters. If a parameter is defined in both the config file and the command line, the command line value overwrites the configuration file value. An example that loads under any engine is [manifests/basic-config.yaml](../manifests/basic-config.yaml); [manifests/vllm-config.yaml](../manifests/vllm-config.yaml) and [manifests/sglang-config.yaml](../manifests/sglang-config.yaml) are written for one engine each and name it in their `engine` key. A key the simulator does not recognize is an error, not a no-op: startup fails naming the key. Since some settings are engine-owned, which keys are recognized depends on the selected engine; see [Engines](engine-backends.md).
 - `port`: the port the simulator listens on, default is 8000
 - `max-request-body-size-mb`: maximum allowed size of an HTTP request body in megabytes, optional, default is 4 (matching the fasthttp built-in default). Must be between 1 and 512.
 - `engine`: the inference engine to simulate, one of `vllm` or `sglang`, optional, default is `vllm`. SGLang currently covers the OpenAI-compatible endpoints only, and rejects a configuration asking for LoRA adapters, the KV cache, fake metrics, sleep mode, or encoder-only mode. Determines which flags, environment variables, metric names, and KV-event format the simulator uses; see [Engines](engine-backends.md). If you omit `--engine` on the command line, a non-empty `SIM_ENGINE` environment variable can supply it; see [Configuration precedence](#configuration-precedence) and [Environment variables](#environment-variables).
 - `model`: the currently 'loaded' model, mandatory. If you omit `--model` on the command line, a non-empty `SIM_MODEL` environment variable can supply the model; see [Configuration precedence](#configuration-precedence) and [Environment variables](#environment-variables).
 - `served-model-name`: model names exposed by the API (a list of space-separated strings)
-- `max-model-len`: model's context window, maximum number of tokens in a single request including input and output, optional, default is 1024
-- `max-num-seqs`: maximum number of sequences per iteration (maximum number of inference requests that could be processed at the same time), default is 5
-- `max-waiting-queue-length`: maximum length of inference requests waiting queue, default is 1000
 - `mode`: the simulator mode, optional, by default `random`
     - `echo`: returns the same text that was sent in the request
     - `random`: returns a sentence chosen at random from a set of pre-defined sentences or a given dataset
@@ -47,6 +48,29 @@ These come from the simulator core, so every engine accepts them and the flag na
 - `log-http`: When true, logs each HTTP request and response at INFO (method, URI, remote address, headers, and body when buffered). Gzip-encoded bodies are decoded before logging. Streamed response bodies (for example SSE) are not logged. Use only in trusted environments; may include secrets such as `Authorization` headers.
 - `omni`, `no-omni`: Enable or disable omni mode. When enabled, the simulator appends a synthetic image (a 1×1 transparent PNG, `data:image/png;base64,…`) to `/v1/chat/completions` responses in two cases: the `X-Send-Image: true` request header is present, or a random roll succeeds against `--image-emission-rate`. In non-streaming responses the assistant message `content` becomes a structured array — a `text` block carrying the generated tokens followed by an `image_url` block. In streaming responses an extra SSE chunk with `"modality":"image"` is emitted after the token stream, carrying the same image in its delta `content`. When `--omni` is not set (the default), both mechanisms are disabled and the response is a normal text response.
 - `image-emission-rate`: probability (0–100) of emitting a synthetic image chunk per `/v1/chat/completions` request when omni mode is enabled. 0 (the default) means the rate mechanism never fires; 100 means every request gets an image. The `X-Send-Image: true` header triggers emission independently of this rate. Updatable at runtime via `POST /admin/config`.
+
+### Settings each engine names itself
+
+The simulator keeps one field behind each row, with the default listed here, and the engine declares the
+name it answers to. No name in the table works under both engines, and neither engine falls back to a name
+of the simulator's: naming one the way the other engine does fails, as an unknown flag on the command line
+or as an unrecognized key in a config file. A config file that names any of them therefore belongs to one
+engine, and the shipped examples that do say which in their `engine` key, so that passing one with
+`--config` alone selects the engine it was written for. [manifests/basic-config.yaml](../manifests/basic-config.yaml)
+names none of these three and declares no engine, so it loads under either.
+
+| setting | under vLLM | under SGLang | default | meaning |
+| --- | --- | --- | --- | --- |
+| context window | `max-model-len` | `context-length` | 1024 | maximum number of tokens in a single request, including input and output |
+| concurrency limit | `max-num-seqs` | `max-running-requests` | 5 | maximum number of inference requests processed at the same time |
+| queue limit | `max-waiting-queue-length` | `max-queued-requests` | 1000 | maximum length of the waiting-request queue |
+
+`max-model-len` and `max-num-seqs` are vLLM's own `EngineArgs` names; `context-length`,
+`max-running-requests` and `max-queued-requests` are SGLang's own. vLLM has no counterpart for the queue
+limit, so under vLLM that one carries the simulator's own name.
+
+`GET /admin/config` and the configuration the simulator logs at startup report these three under the same
+names, so what a reader sees there is what they would pass back on the command line.
 
 ### Latency 
 All latency-related parameters are defined in duration format, e.g., 100ms. Integer format is deprecated.
@@ -246,8 +270,15 @@ The following command line parameters are ignored by the simulator:
 
 ### SGLang
 
-This engine owns no settings yet: it simulates the engine-neutral surface only, so none of the vLLM
-settings above are available under it.
+This engine owns no settings of its own yet: it simulates the engine-neutral surface only, so none of the
+vLLM settings above are available under it.
+
+Its names for the three settings each engine names itself are listed under
+[Settings each engine names itself](#settings-each-engine-names-itself).
+
+Every other setting SGLang spells the way the core does, including `model`, which SGLang accepts as an
+alias of its own `--model-path`, and `data-parallel-size`, an alias of its `--dp-size`. `seed` and
+`max-request-body-size-mb` have no SGLang counterpart and are the simulator's own.
 
 # Environment variables
 

@@ -1,3 +1,4 @@
+engine: vllm
 model: "Qwen/Qwen2-VL-2B-Instruct"
 max-loras: 2
 max-cpu-loras: 5
