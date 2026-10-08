@@ -21,6 +21,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/valyala/fasthttp"
+
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
@@ -342,4 +344,85 @@ var _ = Describe("Responses instructions tokenization", func() {
 		Entry("with instructions", "Reply in French"),
 		Entry("without instructions", ""),
 	)
+})
+
+var _ = Describe("Responses render", func() {
+	Describe("ValidateBody", func() {
+		It("rejects an empty input", func() {
+			req := &ResponsesRenderRequest{}
+			Expect(req.Unmarshal([]byte(`{"input":[]}`))).To(Succeed())
+			err := req.ValidateBody()
+			Expect(err).NotTo(BeNil())
+			Expect(err.Message).To(ContainSubstring("input must not be empty"))
+			Expect(err.Code).To(Equal(fasthttp.StatusBadRequest))
+		})
+
+		It("rejects previous_response_id", func() {
+			req := &ResponsesRenderRequest{}
+			Expect(req.Unmarshal([]byte(`{"input":"hello","previous_response_id":"resp_1"}`))).To(Succeed())
+			err := req.ValidateBody()
+			Expect(err).NotTo(BeNil())
+			Expect(err.Message).To(ContainSubstring("previous_response_id"))
+			Expect(err.Code).To(Equal(fasthttp.StatusBadRequest))
+		})
+
+		It("accepts a request without previous_response_id", func() {
+			req := &ResponsesRenderRequest{}
+			Expect(req.Unmarshal([]byte(`{"input":"hello"}`))).To(Succeed())
+			Expect(req.ValidateBody()).To(BeNil())
+		})
+	})
+
+	It("renders the same prompt as the generation path", func() {
+		tk := tokenizer.NewSimpleTokenizer()
+		renderReq := &ResponsesRenderRequest{}
+		Expect(renderReq.Unmarshal([]byte(`{
+			"input": [
+				{"type": "message", "role": "user",
+				 "content": [{"type": "input_text", "text": "weather?"}]},
+				{"type": "function_call", "call_id": "call_1",
+				 "name": "get_weather", "arguments": "{\"city\":\"Paris\"}"},
+				{"type": "function_call_output", "call_id": "call_1", "output": "sunny, 22C"}
+			],
+			"instructions": "Reply in French"
+		}`))).To(Succeed())
+
+		ctx := &responsesReqCtx{
+			baseRequestContext: baseRequestContext{runtime: &fakeRuntime{tokenizer: tk}},
+			req:                &renderReq.ResponsesRequest,
+		}
+		expectedTokens, _, _, err := ctx.encode()
+		Expect(err).NotTo(HaveOccurred())
+
+		tokens, features, err := renderReq.Render(tk)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(tokens).To(HaveLen(1))
+		Expect(tokens[0]).To(Equal(expectedTokens))
+		Expect(features).To(BeNil())
+	})
+})
+
+var _ = Describe("ResponsesRequest.ValidateBody", func() {
+	It("rejects an empty input", func() {
+		req := &ResponsesRequest{}
+		Expect(req.Unmarshal([]byte(`{"input":[]}`))).To(Succeed())
+		err := req.ValidateBody()
+		Expect(err).NotTo(BeNil())
+		Expect(err.Message).To(ContainSubstring("input must not be empty"))
+	})
+
+	It("rejects an empty input through Validate", func() {
+		req := &ResponsesRequest{}
+		Expect(req.Unmarshal([]byte(`{"input":[]}`))).To(Succeed())
+		err := req.Validate(nil)
+		Expect(err).NotTo(BeNil())
+		Expect(err.Message).To(ContainSubstring("input must not be empty"))
+	})
+
+	It("accepts previous_response_id: the stateless boundary is the render endpoint's", func() {
+		req := &ResponsesRequest{}
+		Expect(req.Unmarshal([]byte(`{"input":"hello","previous_response_id":"resp_1"}`))).To(Succeed())
+		Expect(req.PreviousResponseID).NotTo(BeNil())
+		Expect(req.ValidateBody()).To(BeNil())
+	})
 })

@@ -24,6 +24,7 @@ import (
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
+	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 )
 
 // Implementation of request for /responses requests
@@ -37,6 +38,9 @@ func (r *ResponsesRequest) Unmarshal(data []byte) error {
 }
 
 func (r *ResponsesRequest) Validate(toolsValidator *ToolsValidator) *api.Error {
+	if err := r.ValidateBody(); err != nil {
+		return err
+	}
 	for _, tool := range r.Tools {
 		toolJson, err := json.Marshal(tool.Function)
 		if err != nil {
@@ -94,7 +98,50 @@ func (r *ResponsesRequest) Split() []Request {
 	return []Request{r}
 }
 
+// ValidateBody checks that a responses body has a non-empty input.
+func (r *ResponsesRequest) ValidateBody() *api.Error {
+	if len(r.Input) == 0 {
+		serverErr := api.NewError("input must not be empty", fasthttp.StatusBadRequest, nil)
+		return &serverErr
+	}
+	return nil
+}
+
 var _ Request = (*ResponsesRequest)(nil)
+
+// ResponsesRenderRequest is the request type for /v1/responses/render. It shares
+// the /v1/responses schema; the render endpoint is stateless, so it additionally
+// rejects previous_response_id, which a caller is expected to rehydrate into
+// input before rendering. The stateless-boundary check stays on this type rather
+// than on ResponsesRequest so it cannot leak into /v1/responses.
+type ResponsesRenderRequest struct {
+	ResponsesRequest
+}
+
+// ValidateBody enforces the stateless render boundary on top of the responses
+// body shape check.
+func (r *ResponsesRenderRequest) ValidateBody() *api.Error {
+	if r.PreviousResponseID != nil {
+		serverErr := api.NewError("previous_response_id is not supported on /v1/responses/render",
+			fasthttp.StatusBadRequest, nil)
+		return &serverErr
+	}
+	return r.ResponsesRequest.ValidateBody()
+}
+
+// Render tokenizes the request for /v1/responses/render and returns the tokens
+// (wrapped as a single-element slice for shape parity with the other render
+// endpoints) and any mm_features. The prompt is built the same way as on the
+// generation path, via buildResponsesMessages.
+func (r *ResponsesRenderRequest) Render(tk tokenizer.Tokenizer) ([][]uint32, *api.RenderMMFeatures, error) {
+	tokens, _, features, err := tk.RenderMessages(buildResponsesMessages(r.Input, r.Instructions), api.RenderTools{})
+	if err != nil {
+		return nil, nil, err
+	}
+	return [][]uint32{tokens}, features, nil
+}
+
+var _ RenderableRequest = (*ResponsesRenderRequest)(nil)
 
 // Implementation of RequestContext for /responses requests
 type responsesReqCtx struct {
@@ -176,15 +223,23 @@ func convertInputToMessages(input []api.InputItem) []api.Message {
 	return messages
 }
 
-func (r *responsesReqCtx) encode() ([]uint32, []string, *api.RenderMMFeatures, error) {
-	messages := convertInputToMessages(r.req.Input)
-	if r.req.Instructions != "" {
+// buildResponsesMessages converts the input items to chat messages, prepending
+// the instructions as a system message. Shared by the worker-pipeline
+// tokenization path (encode) and the stateless render path so both render the
+// prompt identically.
+func buildResponsesMessages(input []api.InputItem, instructions string) []api.Message {
+	messages := convertInputToMessages(input)
+	if instructions != "" {
 		messages = append([]api.Message{{
 			Role:    "system",
-			Content: api.ChatComplContent{Raw: r.req.Instructions},
+			Content: api.ChatComplContent{Raw: instructions},
 		}}, messages...)
 	}
-	return r.runtime.GetTokenizer().RenderMessages(messages, api.RenderTools{})
+	return messages
+}
+
+func (r *responsesReqCtx) encode() ([]uint32, []string, *api.RenderMMFeatures, error) {
+	return r.runtime.GetTokenizer().RenderMessages(buildResponsesMessages(r.req.Input, r.req.Instructions), api.RenderTools{})
 }
 
 func (r *responsesReqCtx) createToolCalls() ([]api.ToolCall, int, string, error) {

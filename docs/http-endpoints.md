@@ -215,7 +215,7 @@ Structure of requests/responses
         - prompt (string, array of strings, array of token ids, or array of arrays of token ids — see [`/v1/completions` prompt forms](#v1completions-prompt-forms))
     - **response** — JSON array, one entry per prompt
         - token_ids (array of token ids; for token-id prompts the input ids are returned verbatim)
-        - features (omitted; multimodal features are only produced by the chat render endpoint)
+        - features (omitted; multimodal features are only produced by the chat and responses render endpoints)
 - `/v1/chat/completions/render`
     - **request** — same shape as `/v1/chat/completions`; only `model` and `messages` are inspected
         - model
@@ -224,6 +224,19 @@ Structure of requests/responses
         - token_ids
         - features (present only when at least one message contains an `image_url`, `audio_url`, `input_audio`, or `video_url` block)
             - mm_hashes (map keyed by modality — `image`, `audio`, or `video` — to an array of opaque hash strings)
+            - mm_placeholders (map keyed by modality to an array of placeholder regions)
+                - offset (token index where the multimodal region begins)
+                - length (number of tokens the region spans)
+            - kwargs_data (map keyed by modality to an array of strings, one per multimodal item; content is tokenizer-dependent — see [Render endpoints](#render-endpoints))
+- `/v1/responses/render`
+    - **request** — same shape as `/v1/responses`; only `model`, `instructions`, and `input` are inspected. The endpoint is stateless: `previous_response_id` is rejected with `400 Bad Request` (a caller is expected to rehydrate the chain into `input`). The route is not registered when `--enable-legacy-render` is set, so requests get `404 Not Found`, matching vLLM versions that predate the endpoint.
+        - model
+        - instructions
+        - input (same structure as `/v1/responses`; a bare string is treated as a single user message)
+    - **response** — single JSON object
+        - token_ids
+        - features (present only when `input` contains an `input_image` or `input_audio` content block)
+            - mm_hashes (map keyed by modality — `image` or `audio` — to an array of opaque hash strings)
             - mm_placeholders (map keyed by modality to an array of placeholder regions)
                 - offset (token index where the multimodal region begins)
                 - length (number of tokens the region spans)
@@ -265,6 +278,7 @@ Structure of requests/responses
               - format (for `input_audio` — e.g. `wav`, `mp3`)
             - id, call_id, name, arguments, status — for `function_call`
             - call_id, output — for `function_call_output`
+            - an empty `input` (`[]` or `""`) is rejected with `400 Bad Request`
         - instructions
         - max_output_tokens
         - tools (array of function tools; flat Responses shape: `type`, `name`, `description`, `parameters`)
@@ -505,14 +519,16 @@ For full details on the expected API behavior and specification, please refer to
 
 ### Render endpoints
 
-`/v1/completions/render` and `/v1/chat/completions/render` mirror vLLM's `/render` behavior — they return the tokenized form of a request without running generation. They are useful for debugging tokenization, pre-computing prompt token counts, and exercising multimodal feature handling.
+`/v1/completions/render`, `/v1/chat/completions/render`, and `/v1/responses/render` mirror vLLM's `/render` behavior — they return the tokenized form of a request without running generation. They are useful for debugging tokenization, pre-computing prompt token counts, and exercising multimodal feature handling.
+
+`/v1/responses/render` is stateless: `previous_response_id` is rejected with `400 Bad Request`. The simulator renders a Responses request by converting its `input` items to chat-completions messages — the same conversion the `/v1/responses` generation path uses — and rendering those messages. For a real model this means the upstream render service is asked to render a `/v1/chat/completions` request, so the returned token IDs are those of the chat-rendered prompt and do not necessarily match what a real vLLM `/v1/responses/render` produces for the same body. With `--enable-legacy-render` the route is not registered at all, matching vLLM versions that predate the endpoint.
 
 Pre-tokenized prompts on `/v1/completions/render` (a token-id array, or an array of token-id arrays) are copied through verbatim — the tokenizer is not invoked for those entries — regardless of which tokenizer is active.
 
 For everything else, behavior depends on the active tokenizer (selected automatically based on `--model`):
 
-- **HuggingFace tokenizer** (real model): each text prompt and chat-completions request is forwarded to the upstream vLLM render service at `--render-url`. For chat requests, `mm_features` returned by the upstream are passed through.
-- **Simulated tokenizer** (dummy model): the simulator tokenizes locally using its regex-based splitter. For chat requests containing `image_url`, `audio_url`, `input_audio`, or `video_url` blocks, synthetic `mm_features` are produced so multimodal-aware downstream code paths can be exercised without a real renderer.
+- **HuggingFace tokenizer** (real model): each text prompt, chat-completions request, and responses request (converted to chat messages first, as described above) is forwarded to the upstream vLLM render service at `--render-url`. `mm_features` returned by the upstream are passed through.
+- **Simulated tokenizer** (dummy model): the simulator tokenizes locally using its regex-based splitter. For chat requests and converted responses input containing `image_url`, `audio_url`, `input_audio`, or `video_url` chat content blocks, synthetic `mm_features` are produced so multimodal-aware downstream code paths can be exercised without a real renderer.
 
 ### Derender endpoints
 
