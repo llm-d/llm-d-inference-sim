@@ -95,7 +95,7 @@ func (f *FakeMetricWithFunction) UnmarshalYAML(value *yaml.Node) error {
 	if value.Kind == yaml.ScalarNode {
 		// Try number first
 		if n, err := strconv.ParseFloat(value.Value, 64); err == nil {
-			f.FixedValue = n
+			*f = FakeMetricWithFunction{FixedValue: n}
 			return nil
 		}
 	}
@@ -119,7 +119,7 @@ func (f *FakeMetricWithFunction) UnmarshalJSON(data []byte) error {
 	// Try number first
 	var n float64
 	if err := json.Unmarshal(data, &n); err == nil {
-		f.FixedValue = n
+		*f = FakeMetricWithFunction{FixedValue: n}
 		return nil
 	}
 
