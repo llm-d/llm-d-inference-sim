@@ -1,0 +1,148 @@
+/*
+Copyright 2026 The llm-d-inference-sim Authors.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+    http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+*/
+
+package vllm
+
+import (
+	"bytes"
+	_ "embed"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"strconv"
+	"strings"
+
+	"github.com/llm-d/llm-d-inference-sim/pkg/api"
+	"github.com/llm-d/llm-d-inference-sim/pkg/communication"
+	"github.com/santhosh-tekuri/jsonschema/v5"
+)
+
+type strictRequestValidator struct {
+	schemas    map[string]*jsonschema.Schema
+	maxN       int64
+	maxPrompts int64
+	defaultMax map[string]int64
+}
+
+//go:embed schema/openapi.json
+var strictOpenAPI []byte
+
+// NewRequestValidator loads the schema and rules for the bundled vLLM version.
+func (Engine) NewRequestValidator() (communication.RequestValidator, error) {
+	return loadStrictRequestValidator()
+}
+
+func loadStrictRequestValidator() (*strictRequestValidator, error) {
+	maxN, err := validationLimit("VLLM_MAX_N_SEQUENCES", 16384)
+	if err != nil {
+		return nil, err
+	}
+	maxPrompts, err := validationLimit("VLLM_MAX_COMPLETION_PROMPTS", 1024)
+	if err != nil {
+		return nil, err
+	}
+	return compileStrictRequestValidator(strictOpenAPI, maxN, maxPrompts)
+}
+
+// validationLimit reads a positive integer limit that vLLM applies while validating a request.
+func validationLimit(name string, fallback int64) (int64, error) {
+	value, exists := os.LookupEnv(name)
+	if !exists {
+		return fallback, nil
+	}
+	limit, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || limit < 1 {
+		return 0, fmt.Errorf("%s must be a positive integer", name)
+	}
+	return limit, nil
+}
+
+func compileStrictRequestValidator(document []byte, maxN, maxPrompts int64) (*strictRequestValidator, error) {
+	var spec struct {
+		OpenAPI string `json:"openapi"`
+		Paths   map[string]struct {
+			Post struct {
+				RequestBody struct {
+					Content map[string]struct {
+						Schema json.RawMessage `json:"schema"`
+					} `json:"content"`
+				} `json:"requestBody"`
+			} `json:"post"`
+		} `json:"paths"`
+	}
+	if err := json.Unmarshal(document, &spec); err != nil {
+		return nil, err
+	}
+	if !strings.HasPrefix(spec.OpenAPI, "3.1.") {
+		return nil, errors.New("strict validation requires OpenAPI 3.1 (JSON Schema 2020-12)")
+	}
+	compiler := jsonschema.NewCompiler()
+	compiler.Draft = jsonschema.Draft2020
+	compiler.ExtractAnnotations = true
+	// Resolve only the embedded snapshot, never remote references at runtime.
+	compiler.LoadURL = func(url string) (io.ReadCloser, error) {
+		return nil, fmt.Errorf("external schema reference is not allowed: %s", url)
+	}
+	const source = "https://strict.invalid/openapi.json"
+	if err := compiler.AddResource(source, bytes.NewReader(document)); err != nil {
+		return nil, err
+	}
+	validator := &strictRequestValidator{schemas: make(map[string]*jsonschema.Schema), maxN: maxN, maxPrompts: maxPrompts, defaultMax: make(map[string]int64)}
+	for _, path := range []string{chatCompletionsPath, completionsPath} {
+		if len(spec.Paths[path].Post.RequestBody.Content["application/json"].Schema) == 0 {
+			return nil, fmt.Errorf("missing JSON request schema for %s", path)
+		}
+		pointer := strings.ReplaceAll(path, "/", "~1")
+		schema, err := compiler.Compile(source + "#/paths/" + pointer + "/post/requestBody/content/application~1json/schema")
+		if err != nil {
+			return nil, err
+		}
+		validator.schemas[path] = schema
+		for schema.Ref != nil {
+			schema = schema.Ref
+		}
+		if property := schema.Properties["max_tokens"]; property != nil && property.Default != nil {
+			value, err := strconv.ParseInt(fmt.Sprint(property.Default), 10, 64)
+			if err != nil || value < 1 {
+				return nil, fmt.Errorf("invalid max_tokens default for %s", path)
+			}
+			validator.defaultMax[path] = value
+		}
+	}
+	return validator, nil
+}
+
+func (v *strictRequestValidator) Validate(body []byte, path string) *api.Error {
+	var value any
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.UseNumber()
+	if err := decoder.Decode(&value); err != nil {
+		return badRequest("Invalid JSON request body", nil)
+	}
+	if err := decoder.Decode(new(any)); err != io.EOF {
+		return badRequest("Request body must contain one JSON value", nil)
+	}
+	if err := v.schemas[path].Validate(value); err != nil {
+		return badRequest(fmt.Sprintf("Request schema validation failed: %s", err), nil)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(body, &fields); err != nil {
+		return badRequest("Expected a JSON object", nil)
+	}
+	return v.validateFields(fields, path)
+}

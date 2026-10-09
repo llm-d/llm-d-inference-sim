@@ -115,6 +115,17 @@ var _ = Describe("Simulator configuration", func() {
 	}
 	tests = append(tests, test)
 
+	c = createConfigWithModel(common.TestModelName, nil)
+	c.Lora.MaxCPULoras = 1
+	c.Seed = 100
+	c.StrictRequestValidation = true
+	test = testCase{
+		name:           "strict request validation",
+		args:           []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom, "--seed", "100", "--strict"},
+		expectedConfig: c,
+	}
+	tests = append(tests, test)
+
 	// Config from config.yaml file
 	c = createDefaultConfig(common.QwenModelName, []string{"model1", "model2"})
 	c.Port = 8001
@@ -1199,6 +1210,7 @@ var _ = Describe("boolean flags", func() {
 		Entry("force-dummy-tokenizer", "force-dummy-tokenizer"),
 		Entry("enable-request-id-headers", "enable-request-id-headers"),
 		Entry("log-http", "log-http"),
+		Entry("strict", "strict"),
 		Entry("skip-tool-validation", "skip-tool-validation"),
 		Entry("self-signed-certs", "self-signed-certs"),
 		Entry("omni", "omni"),
@@ -1210,6 +1222,19 @@ var _ = Describe("boolean flags", func() {
 		Entry("enable-prefix-caching", "enable-prefix-caching"),
 		Entry("enable-legacy-render", "enable-legacy-render"),
 	)
+
+	It("lets --no-strict override strict validation enabled in YAML", func() {
+		path := filepath.Join(GinkgoT().TempDir(), "config.yaml")
+		Expect(os.WriteFile(path, []byte("model: test-model\nstrict: true\n"), 0o644)).To(Succeed())
+
+		config, err := createSimConfig([]string{"cmd", "--config", path})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(config.StrictRequestValidation).To(BeTrue())
+
+		config, err = createSimConfig([]string{"cmd", "--config", path, "--no-strict"})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(config.StrictRequestValidation).To(BeFalse())
+	})
 
 	// The check matches the two-argument pattern, not a stray "false": the flags
 	// taking several space-separated values leave their own values as positional

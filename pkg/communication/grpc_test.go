@@ -32,6 +32,8 @@ type fakeTransport struct {
 	grpcSupported bool
 }
 
+func (fakeTransport) NewRequestValidator() (RequestValidator, error) { return nil, nil }
+
 func (fakeTransport) BindHTTP(*fasthttprouter.Router, *Communication) {}
 
 func (f fakeTransport) BindGRPC(*grpc.Server, *Communication) bool {
