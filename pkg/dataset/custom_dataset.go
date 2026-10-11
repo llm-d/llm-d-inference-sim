@@ -94,7 +94,7 @@ func (d *CustomDataset) getRandomResponse(responses []api.Tokenized) api.Tokeniz
 // are randomly selected from the hard-coded collection
 func (d *CustomDataset) GetResponseTokens(req api.Request) (*api.Tokenized, string, error) {
 	maxResponseLen, _ := d.calculateResponseMaxLen(req)
-	minResponseLen := d.calculateResponseMinLen(req, maxResponseLen)
+	minResponseLen := d.calculateResponseMinLen(req)
 	var responseTokens api.Tokenized
 
 	// get all records for the hashes prompt

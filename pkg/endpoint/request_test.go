@@ -291,6 +291,31 @@ var _ = Describe("baseRequestContext.validateTokenizedRequest", func() {
 		Expect(message).To(ContainSubstring("min_tokens"))
 	})
 
+	It("rejects min_tokens above the default max when max_tokens is omitted", func() {
+		minTokens := int64(6)
+		req := &ChatCompletionsRequest{
+			ChatCompletionsRequest: api.ChatCompletionsRequest{
+				MinTokens: &minTokens,
+			},
+		}
+		req.SetTokenizedPrompt(&api.Tokenized{Tokens: make([]uint32, 95)})
+
+		runtime := &fakeRuntime{config: &common.Configuration{
+			Mode:        common.ModeRandom,
+			MaxModelLen: 100,
+		}}
+		reqCtx := &chatCompletionReqCtx{
+			baseRequestContext: baseRequestContext{runtime: runtime},
+			req:                req,
+		}
+		reqCtx.RequestContext = reqCtx
+
+		message, statusCode := reqCtx.validateTokenizedRequest()
+
+		Expect(statusCode).To(Equal(400))
+		Expect(message).To(ContainSubstring("min_tokens must be less than or equal to max_tokens=5"))
+	})
+
 	It("rejects min_tokens above the echoed prompt length", func() {
 		minTokens := int64(6)
 		req := &ChatCompletionsRequest{

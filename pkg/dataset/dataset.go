@@ -152,7 +152,7 @@ func (d *DefaultDataset) Close() error {
 // GetResponseTokens returns response tokens and finishReason for the given request
 func (d *DefaultDataset) GetResponseTokens(req api.Request) (*api.Tokenized, string, error) {
 	maxRespTokens, isMaxTokensInReq := d.calculateResponseMaxLen(req)
-	minRespTokens := d.calculateResponseMinLen(req, maxRespTokens)
+	minRespTokens := d.calculateResponseMinLen(req)
 
 	numOfRespTokens := 0
 	finishReason := common.StopFinishReason
@@ -200,13 +200,10 @@ func (d *DefaultDataset) calculateResponseMaxLen(req api.Request) (int, bool) {
 	return remaining, false
 }
 
-func (d *DefaultDataset) calculateResponseMinLen(req api.Request, maxRespTokens int) int {
+func (d *DefaultDataset) calculateResponseMinLen(req api.Request) int {
 	minRespTokens := 1
 	if minTokens := req.GetMinTokens(); minTokens != nil && *minTokens > 1 {
 		minRespTokens = int(*minTokens)
-	}
-	if minRespTokens > maxRespTokens {
-		return maxRespTokens
 	}
 	return minRespTokens
 }
