@@ -20,6 +20,7 @@ import (
 	"github.com/buaazp/fasthttprouter"
 	"google.golang.org/grpc"
 
+	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/communication"
 	"github.com/llm-d/llm-d-inference-sim/pkg/communication/grpc/pb"
 )
@@ -30,7 +31,6 @@ func (Engine) BindHTTP(r *fasthttprouter.Router, comm *communication.Communicati
 	r.POST("/inference/v1/generate", comm.HandleGenerate)
 	r.POST("/v1/load_lora_adapter", comm.HandleLoadLora)
 	r.POST("/v1/unload_lora_adapter", comm.HandleUnloadLora)
-	r.POST("/fake_metrics", comm.HandleFakeMetrics) //nolint:staticcheck // deprecated endpoint, still served until v0.12.0
 	// emulates vLLM's Mooncake bootstrap endpoint on the prefill pod; the routing sidecar queries it to resolve remote engine ids
 	r.GET("/query", comm.HandleMooncakeQuery)
 	r.POST("/sleep", comm.HandleSleep)
@@ -42,4 +42,22 @@ func (Engine) BindHTTP(r *fasthttprouter.Router, comm *communication.Communicati
 func (Engine) BindGRPC(server *grpc.Server, comm *communication.Communication) bool {
 	pb.RegisterVllmEngineServer(server, comm)
 	return true
+}
+
+// ErrorBody frames err the way vLLM does: wrapped under an "error" key as the
+// OpenAI API specifies, on every route but the Messages API's. There vLLM
+// translates the same error object into the Anthropic envelope field by field,
+// keeping its own error-type spelling rather than mapping it to Anthropic's
+// vocabulary.
+func (Engine) ErrorBody(err api.Error, route api.ErrorRoute) any {
+	if route == api.ErrorRouteMessages {
+		return api.NewMessagesErrorResponse(err.Type, err.Message)
+	}
+	return api.ErrorResponse{Error: err}
+}
+
+// StreamErrorBody frames a streaming error frame the same way ErrorBody does:
+// vLLM sends one shape in both cases.
+func (e Engine) StreamErrorBody(err api.Error, route api.ErrorRoute) any {
+	return e.ErrorBody(err, route)
 }

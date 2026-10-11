@@ -73,7 +73,7 @@ func responsesFunctionCallOutput() responses.ResponseInputItemUnionParam {
 	return item
 }
 
-var _ = Describe("Responses API tools", func() {
+var _ = Describe("Responses API tools", forEachEngine(func() {
 	It("emits exactly one function_call when tools are present", func() {
 		ctx := context.TODO()
 		client, err := startServer(ctx, common.ModeRandom)
@@ -240,7 +240,10 @@ var _ = Describe("Responses API tools", func() {
 			case api.ResponsesEventFunctionCallArgumentsDone:
 				done := event.AsResponseFunctionCallArgumentsDone()
 				doneArgs = done.Arguments
-				doneName = done.Name
+				// The SDK does not model "name" on this event, so read it from the raw payload.
+				var rawDone map[string]any
+				Expect(json.Unmarshal([]byte(done.RawJSON()), &rawDone)).To(Succeed())
+				doneName, _ = rawDone["name"].(string)
 				Expect(done.ItemID).To(HavePrefix(api.ResponsesFunctionCallIDPrefix))
 			case api.ResponsesEventCompleted:
 				completed := event.AsResponseCompleted()
@@ -476,4 +479,4 @@ var _ = Describe("Responses API tools", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(withHistory.Usage.InputTokens).To(BeNumerically(">", msgOnly.Usage.InputTokens))
 	})
-})
+}))

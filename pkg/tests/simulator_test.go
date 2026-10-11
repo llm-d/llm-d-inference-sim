@@ -21,29 +21,27 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	zmq4 "github.com/go-zeromq/zmq4"
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
-	"github.com/llm-d/llm-d-inference-sim/pkg/communication"
 	"github.com/llm-d/llm-d-inference-sim/pkg/kvcache"
-	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
 	"github.com/openai/openai-go/v3/packages/param"
-	"github.com/valyala/fasthttp"
 )
 
+// The features here are vLLM's own: encoder-only mode, the KV cache and its
+// events, and the Mooncake bootstrap query. The simulator behavior that no
+// engine decides lives in simulator_core_test.go, which runs under each
+// registered engine.
 var _ = Describe("Simulator", func() {
 
 	DescribeTable("mm encoder only",
@@ -179,508 +177,6 @@ var _ = Describe("Simulator", func() {
 		Expect(chatResp.ECTransferParams).To(BeNil())
 	})
 
-	It("Should not return ec_transfer_params on chat completions when MMEncoderOnly mode is disabled", func() {
-		ctx := context.TODO()
-		args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom}
-		client, err := startServerWithArgs(ctx, args)
-		Expect(err).NotTo(HaveOccurred())
-
-		reqBody := fmt.Sprintf(`{
-				"model": "%s",
-				"messages": [
-					{"role": "user", "content": [
-						{"type": "image_url", "image_url": {"url": "https://example.com/a.png"}}
-					]}
-				],
-				"max_tokens": 1
-			}`, common.TestModelName)
-
-		resp, err := client.Post("http://localhost/v1/chat/completions", "application/json", strings.NewReader(reqBody))
-		Expect(err).NotTo(HaveOccurred())
-		defer func() {
-			err := resp.Body.Close()
-			Expect(err).NotTo(HaveOccurred())
-		}()
-
-		Expect(resp.StatusCode).To(Equal(http.StatusOK))
-
-		body, err := io.ReadAll(resp.Body)
-		Expect(err).NotTo(HaveOccurred())
-
-		var chatResp api.ChatCompletionsResponse
-		Expect(json.Unmarshal(body, &chatResp)).To(Succeed())
-		Expect(chatResp.ECTransferParams).To(BeNil())
-	})
-
-	Context("namespace and pod headers", func() {
-		It("Should not include namespace, pod and port headers in chat completion response when env is not set", func() {
-			httpResp := sendSimpleChatRequest(nil, false)
-
-			// Check for namespace, pod and port headers
-			namespaceHeader := httpResp.Header.Get(communication.NamespaceHeader)
-			podHeader := httpResp.Header.Get(communication.PodHeader)
-			portHeader := httpResp.Header.Get(communication.PortHeader)
-
-			Expect(namespaceHeader).To(BeEmpty(), "Expected namespace header not to be present")
-			Expect(podHeader).To(BeEmpty(), "Expected pod header not to be present")
-			Expect(portHeader).To(BeEmpty(), "Expected port header not to be present")
-		})
-
-		It("Should include namespace, pod and port headers in chat completion response", func() {
-			testNamespace := "test-namespace"
-			testPod := "test-pod"
-			envs := map[string]string{
-				common.PodNameEnv: testPod,
-				common.PodNsEnv:   testNamespace,
-			}
-			httpResp := sendSimpleChatRequest(envs, false)
-
-			// Check for namespace, pod and port headers
-			namespaceHeader := httpResp.Header.Get(communication.NamespaceHeader)
-			podHeader := httpResp.Header.Get(communication.PodHeader)
-			portHeader := httpResp.Header.Get(communication.PortHeader)
-
-			Expect(namespaceHeader).To(Equal(testNamespace), "Expected namespace header to be present")
-			Expect(podHeader).To(Equal(testPod), "Expected pod header to be present")
-			Expect(portHeader).To(Equal("8000"), "Expected port header to be present")
-		})
-
-		It("Should include namespace, pod and port headers in chat completion streaming response", func() {
-			testNamespace := "stream-test-namespace"
-			testPod := "stream-test-pod"
-			envs := map[string]string{
-				common.PodNameEnv: testPod,
-				common.PodNsEnv:   testNamespace,
-			}
-			httpResp := sendSimpleChatRequest(envs, true)
-
-			// Check for namespace, pod and port headers
-			namespaceHeader := httpResp.Header.Get(communication.NamespaceHeader)
-			podHeader := httpResp.Header.Get(communication.PodHeader)
-			portHeader := httpResp.Header.Get(communication.PortHeader)
-
-			Expect(namespaceHeader).To(Equal(testNamespace), "Expected namespace header to be present")
-			Expect(podHeader).To(Equal(testPod), "Expected pod header to be present")
-			Expect(portHeader).To(Equal("8000"), "Expected port header to be present")
-		})
-
-		It("Should not include namespace, pod and port headers in chat completion streaming response when env is not set", func() {
-			httpResp := sendSimpleChatRequest(nil, true)
-
-			// Check for namespace, pod and port headers
-			namespaceHeader := httpResp.Header.Get(communication.NamespaceHeader)
-			podHeader := httpResp.Header.Get(communication.PodHeader)
-			portHeader := httpResp.Header.Get(communication.PortHeader)
-
-			Expect(namespaceHeader).To(BeEmpty(), "Expected namespace header not to be present")
-			Expect(podHeader).To(BeEmpty(), "Expected pod header not to be present")
-			Expect(portHeader).To(BeEmpty(), "Expected port header not to be present")
-		})
-
-		It("Should include namespace, pod and port headers in completion response", func() {
-			ctx := context.TODO()
-
-			testNamespace := "test-namespace"
-			testPod := "test-pod"
-			envs := map[string]string{
-				common.PodNameEnv: testPod,
-				common.PodNsEnv:   testNamespace,
-			}
-			client, err := startServerWithEnv(ctx, common.ModeRandom, envs)
-			Expect(err).NotTo(HaveOccurred())
-
-			openaiclient, params := getOpenAIClientAndCompletionParams(client, common.TestModelName, testUserMessage, false)
-			var httpResp *http.Response
-			resp, err := openaiclient.Completions.New(ctx, params, option.WithResponseInto(&httpResp))
-			Expect(err).NotTo(HaveOccurred())
-			Expect(resp).NotTo(BeNil())
-
-			// Check for namespace, pod and port headers
-			namespaceHeader := httpResp.Header.Get(communication.NamespaceHeader)
-			podHeader := httpResp.Header.Get(communication.PodHeader)
-			portHeader := httpResp.Header.Get(communication.PortHeader)
-
-			Expect(namespaceHeader).To(Equal(testNamespace), "Expected namespace header to be present")
-			Expect(podHeader).To(Equal(testPod), "Expected pod header to be present")
-			Expect(portHeader).To(Equal("8000"), "Expected port header to be present")
-		})
-
-		It("Should include namespace, pod and port headers in completion streaming response", func() {
-			ctx := context.TODO()
-
-			testNamespace := "stream-test-namespace"
-			testPod := "stream-test-pod"
-			envs := map[string]string{
-				common.PodNameEnv: testPod,
-				common.PodNsEnv:   testNamespace,
-			}
-			client, err := startServerWithEnv(ctx, common.ModeRandom, envs)
-			Expect(err).NotTo(HaveOccurred())
-
-			openaiclient, params := getOpenAIClientAndCompletionParams(client, common.TestModelName, testUserMessage, true)
-			var httpResp *http.Response
-			resp, err := openaiclient.Completions.New(ctx, params, option.WithResponseInto(&httpResp))
-			Expect(err).NotTo(HaveOccurred())
-			Expect(resp).NotTo(BeNil())
-
-			// Check for namespace, pod and port headers
-			namespaceHeader := httpResp.Header.Get(communication.NamespaceHeader)
-			podHeader := httpResp.Header.Get(communication.PodHeader)
-			portHeader := httpResp.Header.Get(communication.PortHeader)
-
-			Expect(namespaceHeader).To(Equal(testNamespace), "Expected namespace header to be present")
-			Expect(podHeader).To(Equal(testPod), "Expected pod header to be present")
-			Expect(portHeader).To(Equal("8000"), "Expected port header to be present")
-		})
-
-		It("Should not include namespace, pod and port headers in embeddings response when env is not set", func() {
-			httpResp := sendSimpleEmbeddingsRequest(nil)
-
-			namespaceHeader := httpResp.Header.Get(communication.NamespaceHeader)
-			podHeader := httpResp.Header.Get(communication.PodHeader)
-			portHeader := httpResp.Header.Get(communication.PortHeader)
-
-			Expect(namespaceHeader).To(BeEmpty(), "Expected namespace header not to be present")
-			Expect(podHeader).To(BeEmpty(), "Expected pod header not to be present")
-			Expect(portHeader).To(BeEmpty(), "Expected port header not to be present")
-		})
-
-		It("Should include namespace, pod and port headers in embeddings response", func() {
-			testNamespace := "emb-test-namespace"
-			testPod := "emb-test-pod"
-			envs := map[string]string{
-				common.PodNameEnv: testPod,
-				common.PodNsEnv:   testNamespace,
-			}
-			httpResp := sendSimpleEmbeddingsRequest(envs)
-
-			namespaceHeader := httpResp.Header.Get(communication.NamespaceHeader)
-			podHeader := httpResp.Header.Get(communication.PodHeader)
-			portHeader := httpResp.Header.Get(communication.PortHeader)
-
-			Expect(namespaceHeader).To(Equal(testNamespace), "Expected namespace header to be present")
-			Expect(podHeader).To(Equal(testPod), "Expected pod header to be present")
-			Expect(portHeader).To(Equal("8000"), "Expected port header to be present")
-		})
-	})
-
-	Context("max-model-len context window validation", func() {
-		const contextWindowTestPrompt = "This is a test message"
-
-		It("Should reject requests exceeding context window in random mode, regardless of max_tokens", func() {
-			ctx := context.TODO()
-			model := common.TestModelName
-			prompt := contextWindowTestPrompt
-			promptChatTokens := getChatPromptTokensCountForTestModel(prompt)
-
-			// random mode no longer considers max_tokens - only that the prompt
-			// leaves room for at least one response token. Size max-model-len so
-			// the prompt alone fills it, leaving no such room.
-			maxModelLen := promptChatTokens
-			args := []string{"cmd", "--model", model, "--mode", common.ModeRandom, "--max-model-len", strconv.FormatInt(maxModelLen, 10)}
-			client, err := startServerWithArgs(ctx, args)
-			Expect(err).NotTo(HaveOccurred())
-
-			// max_tokens is huge to demonstrate it is irrelevant to this check
-			// Test with raw HTTP to verify the error response format
-			reqBody := fmt.Sprintf(`{
-				"messages": [{"role": "user", "content": "%s"}],
-				"model": "%s",
-				"max_tokens": 1000000
-			}`, prompt, model)
-
-			resp, err := client.Post("http://localhost/v1/chat/completions", "application/json", strings.NewReader(reqBody))
-			Expect(err).NotTo(HaveOccurred())
-			defer func() {
-				err := resp.Body.Close()
-				Expect(err).NotTo(HaveOccurred())
-			}()
-
-			body, err := io.ReadAll(resp.Body)
-			Expect(err).NotTo(HaveOccurred())
-
-			Expect(resp.StatusCode).To(Equal(400))
-			Expect(string(body)).To(ContainSubstring(fmt.Sprintf("This model's maximum context length is %d tokens", maxModelLen)))
-			Expect(string(body)).To(ContainSubstring(fmt.Sprintf("you requested %d tokens in the messages", promptChatTokens)))
-			Expect(string(body)).To(ContainSubstring("BadRequestError"))
-
-			// Also test with OpenAI client to ensure it gets an error
-			openaiclient, params := getOpenAIClientAndChatParams(client, model, prompt, false)
-			params.MaxTokens = openai.Int(1000000)
-
-			_, err = openaiclient.Chat.Completions.New(ctx, params)
-			Expect(err).To(HaveOccurred())
-			var apiErr *openai.Error
-			Expect(errors.As(err, &apiErr)).To(BeTrue())
-			Expect(apiErr.StatusCode).To(Equal(400))
-		})
-
-		It("Should accept requests in random mode with a huge max_tokens, as long as the prompt fits", func() {
-			ctx := context.TODO()
-			model := common.TestModelName
-			prompt := contextWindowTestPrompt
-			promptChatTokens := getChatPromptTokensCountForTestModel(prompt)
-
-			// leave room for at least one response token
-			maxModelLen := promptChatTokens + 1
-			args := []string{"cmd", "--model", model, "--mode", common.ModeRandom, "--max-model-len", strconv.FormatInt(maxModelLen, 10)}
-			client, err := startServerWithArgs(ctx, args)
-			Expect(err).NotTo(HaveOccurred())
-
-			openaiclient, params := getOpenAIClientAndChatParams(client, model, prompt, false)
-			// would have been rejected under the old prompt+max_tokens<=max-model-len check
-			params.MaxTokens = openai.Int(1000000)
-
-			resp, err := openaiclient.Chat.Completions.New(ctx, params)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(resp.Choices).To(HaveLen(1))
-			Expect(resp.Model).To(Equal(model))
-		})
-
-		It("Should accept requests within context window in echo mode", func() {
-			ctx := context.TODO()
-			prompt := "Hello"
-			promptChatTokens := getChatPromptTokensCountForTestModel(prompt)
-
-			// Start server with max-model-len=50
-			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho, "--max-model-len", "50"}
-			client, err := startServerWithArgs(ctx, args)
-			Expect(err).NotTo(HaveOccurred())
-
-			openaiclient, params := getOpenAIClientAndChatParams(client, common.TestModelName, prompt, false)
-			// max_tokens must be at least the prompt length in echo mode
-			params.MaxTokens = openai.Int(promptChatTokens)
-
-			// Send a request within the context window
-			resp, err := openaiclient.Chat.Completions.New(ctx, params)
-
-			Expect(err).NotTo(HaveOccurred())
-			Expect(resp.Choices).To(HaveLen(1))
-			Expect(resp.Model).To(Equal(common.TestModelName))
-		})
-
-		It("Should reject echo mode requests exceeding context window", func() {
-			ctx := context.TODO()
-			model := common.TestModelName
-			prompt := contextWindowTestPrompt
-			promptChatTokens := getChatPromptTokensCountForTestModel(prompt)
-
-			// in echo mode the prompt is echoed back as the response, so it must fit
-			// twice within the context window; one below that boundary must be rejected
-			maxModelLen := promptChatTokens*2 - 1
-			args := []string{"cmd", "--model", model, "--mode", common.ModeEcho, "--max-model-len", strconv.FormatInt(maxModelLen, 10)}
-			client, err := startServerWithArgs(ctx, args)
-			Expect(err).NotTo(HaveOccurred())
-
-			reqBody := fmt.Sprintf(`{
-				"messages": [{"role": "user", "content": "%s"}],
-				"model": "%s",
-				"max_tokens": %d
-			}`, prompt, model, promptChatTokens)
-
-			resp, err := client.Post("http://localhost/v1/chat/completions", "application/json", strings.NewReader(reqBody))
-			Expect(err).NotTo(HaveOccurred())
-			defer func() {
-				err := resp.Body.Close()
-				Expect(err).NotTo(HaveOccurred())
-			}()
-
-			body, err := io.ReadAll(resp.Body)
-			Expect(err).NotTo(HaveOccurred())
-
-			Expect(resp.StatusCode).To(Equal(400))
-			Expect(string(body)).To(ContainSubstring(fmt.Sprintf("This model's maximum context length is %d tokens", maxModelLen)))
-			Expect(string(body)).To(ContainSubstring("BadRequestError"))
-		})
-
-		It("Should reject echo mode requests whose prompt exceeds max_tokens", func() {
-			ctx := context.TODO()
-			model := common.TestModelName
-			prompt := contextWindowTestPrompt
-			promptChatTokens := getChatPromptTokensCountForTestModel(prompt)
-
-			args := []string{"cmd", "--model", model, "--mode", common.ModeEcho, "--max-model-len", "1000"}
-			client, err := startServerWithArgs(ctx, args)
-			Expect(err).NotTo(HaveOccurred())
-
-			reqBody := fmt.Sprintf(`{
-				"messages": [{"role": "user", "content": "%s"}],
-				"model": "%s",
-				"max_tokens": 1
-			}`, prompt, model)
-
-			resp, err := client.Post("http://localhost/v1/chat/completions", "application/json", strings.NewReader(reqBody))
-			Expect(err).NotTo(HaveOccurred())
-			defer func() {
-				err := resp.Body.Close()
-				Expect(err).NotTo(HaveOccurred())
-			}()
-
-			body, err := io.ReadAll(resp.Body)
-			Expect(err).NotTo(HaveOccurred())
-
-			Expect(resp.StatusCode).To(Equal(400))
-			Expect(string(body)).To(ContainSubstring(fmt.Sprintf("max_tokens is 1, but the prompt has %d tokens", promptChatTokens)))
-			Expect(string(body)).To(ContainSubstring("BadRequestError"))
-		})
-
-		It("Should handle text completion requests exceeding context window", func() {
-			ctx := context.TODO()
-			prompt := "This is a long test prompt with many words"
-			promptTokens := getTextPromptTokensCountForTestModel(prompt)
-
-			// random mode: size max-model-len so the prompt alone fills it
-			maxModelLen := promptTokens
-			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom, "--max-model-len", strconv.FormatInt(maxModelLen, 10)}
-			client, err := startServerWithArgs(ctx, args)
-			Expect(err).NotTo(HaveOccurred())
-
-			reqBody := fmt.Sprintf(`{
-				"prompt": "%s",
-				"model": "%s",
-				"max_tokens": 5
-			}`, prompt, common.TestModelName)
-
-			resp, err := client.Post("http://localhost/v1/completions", "application/json", strings.NewReader(reqBody))
-			Expect(err).NotTo(HaveOccurred())
-			defer func() {
-				err := resp.Body.Close()
-				Expect(err).NotTo(HaveOccurred())
-			}()
-
-			body, err := io.ReadAll(resp.Body)
-			Expect(err).NotTo(HaveOccurred())
-
-			Expect(resp.StatusCode).To(Equal(400))
-			Expect(string(body)).To(ContainSubstring(fmt.Sprintf("This model's maximum context length is %d tokens", maxModelLen)))
-			Expect(string(body)).To(ContainSubstring("BadRequestError"))
-		})
-	})
-
-	Context("cache threshold finish reason header", func() {
-		testCacheThresholdFinishReasonHeader := func(setHeader bool, expectedFinishReasons []string) {
-			ctx := context.TODO()
-			client, err := startServer(ctx, common.ModeRandom)
-			Expect(err).NotTo(HaveOccurred())
-
-			reqBody := `{
-            "messages": [{"role": "user", "content": "Hello"}],
-            "model": "` + common.TestModelName + `",
-            "max_tokens": 5
-        }`
-
-			req, err := http.NewRequest("POST", "http://localhost/v1/chat/completions", strings.NewReader(reqBody))
-			Expect(err).NotTo(HaveOccurred())
-			req.Header.Set("Content-Type", "application/json")
-			if setHeader {
-				req.Header.Set(communication.CacheThresholdFinishReasonHeader, "true")
-			}
-
-			resp, err := client.Do(req)
-			Expect(err).NotTo(HaveOccurred())
-			defer func() {
-				err := resp.Body.Close()
-				Expect(err).NotTo(HaveOccurred())
-			}()
-
-			Expect(resp.StatusCode).To(Equal(http.StatusOK))
-
-			body, err := io.ReadAll(resp.Body)
-			Expect(err).NotTo(HaveOccurred())
-
-			var chatResp map[string]interface{}
-			err = json.Unmarshal(body, &chatResp)
-			Expect(err).NotTo(HaveOccurred())
-
-			choices := chatResp["choices"].([]interface{})
-			Expect(choices).To(HaveLen(1))
-			firstChoice := choices[0].(map[string]interface{})
-			Expect(firstChoice["finish_reason"]).To(BeElementOf(expectedFinishReasons))
-
-		}
-
-		It("Should return cache_threshold finish reason when header is set", func() {
-			testCacheThresholdFinishReasonHeader(true, []string{common.CacheThresholdFinishReason})
-		})
-
-		It("Should return normal finish reason when header is not set", func() {
-			testCacheThresholdFinishReasonHeader(false, []string{common.StopFinishReason, common.LengthFinishReason})
-		})
-	})
-
-	Context("X-Return-Error header", func() {
-		It("Should return the specified HTTP error code", func() {
-			ctx := context.TODO()
-			client, err := startServer(ctx, common.ModeRandom)
-			Expect(err).NotTo(HaveOccurred())
-
-			reqBody := `{
-				"messages": [{"role": "user", "content": "Hello"}],
-				"model": "` + common.TestModelName + `",
-				"max_tokens": 5
-			}`
-
-			req, err := http.NewRequest("POST", "http://localhost/v1/chat/completions", strings.NewReader(reqBody))
-			Expect(err).NotTo(HaveOccurred())
-			req.Header.Set("Content-Type", "application/json")
-			req.Header.Set(communication.XReturnErrorHeader, "422")
-
-			resp, err := client.Do(req)
-			Expect(err).NotTo(HaveOccurred())
-			defer func() {
-				err := resp.Body.Close()
-				Expect(err).NotTo(HaveOccurred())
-			}()
-
-			Expect(resp.StatusCode).To(Equal(422))
-
-			body, err := io.ReadAll(resp.Body)
-			Expect(err).NotTo(HaveOccurred())
-
-			var errResp api.ErrorResponse
-			err = json.Unmarshal(body, &errResp)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(errResp.Error.Code).To(Equal(422))
-			Expect(errResp.Error.Message).To(ContainSubstring("X-Return-Error"))
-		})
-
-		It("Should return 400 when header value is not a valid integer", func() {
-			ctx := context.TODO()
-			client, err := startServer(ctx, common.ModeRandom)
-			Expect(err).NotTo(HaveOccurred())
-
-			reqBody := `{
-				"messages": [{"role": "user", "content": "Hello"}],
-				"model": "` + common.TestModelName + `",
-				"max_tokens": 5
-			}`
-
-			req, err := http.NewRequest("POST", "http://localhost/v1/chat/completions", strings.NewReader(reqBody))
-			Expect(err).NotTo(HaveOccurred())
-			req.Header.Set("Content-Type", "application/json")
-			req.Header.Set(communication.XReturnErrorHeader, "abc")
-
-			resp, err := client.Do(req)
-			Expect(err).NotTo(HaveOccurred())
-			defer func() {
-				err := resp.Body.Close()
-				Expect(err).NotTo(HaveOccurred())
-			}()
-
-			Expect(resp.StatusCode).To(Equal(400))
-
-			body, err := io.ReadAll(resp.Body)
-			Expect(err).NotTo(HaveOccurred())
-
-			var errResp api.ErrorResponse
-			err = json.Unmarshal(body, &errResp)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(errResp.Error.Code).To(Equal(400))
-			Expect(errResp.Error.Message).To(ContainSubstring("Invalid X-Return-Error"))
-		})
-
-	})
-
 	Context("cache hit threshold", func() {
 		type completionRequestParams struct {
 			Prompt            string   `json:"prompt"`
@@ -707,7 +203,7 @@ var _ = Describe("Simulator", func() {
 			args := []string{"cmd", "--model", model, "--mode", common.ModeEcho}
 
 			if enableKVCache {
-				args = append(args, "--enable-kvcache", "true", "--kv-cache-size", "16", "--block-size", "8")
+				args = append(args, "--enable-kvcache", "--kv-cache-size", "16", "--block-size", "8")
 			}
 			if globalThreshold != nil {
 				args = append(args, "--global-cache-hit-threshold", fmt.Sprintf("%f", *globalThreshold))
@@ -952,8 +448,8 @@ var _ = Describe("Simulator", func() {
 			Expect(ok).To(BeTrue())
 			// Should proceed normally because request threshold (0.0) is used, not global (1.0)
 			// With 0% cache hit rate initially:
-			// - Global threshold 1.0 would fail (0% < 1.0) → cache_threshold
-			// - Request threshold 0.0 passes (0% >= 0.0) → normal finish reason
+			// - Global threshold 1.0 would fail (0% < 1.0) -> cache_threshold
+			// - Request threshold 0.0 passes (0% >= 0.0) -> normal finish reason
 			// This proves request threshold takes precedence over global threshold
 			Expect(finishReason).To(Or(Equal(common.StopFinishReason), Equal(common.LengthFinishReason)))
 			Expect(finishReason).NotTo(Equal(common.CacheThresholdFinishReason))
@@ -1006,170 +502,6 @@ var _ = Describe("Simulator", func() {
 		})
 	})
 
-	Context("errors", func() {
-		It("Should return error for invalid model", func() {
-			ctx := context.TODO()
-			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom}
-			client, err := startServerWithArgs(ctx, args)
-			Expect(err).NotTo(HaveOccurred())
-
-			openaiClient := openai.NewClient(option.WithBaseURL(baseURL), option.WithHTTPClient(client),
-				option.WithMaxRetries(0))
-
-			params := openai.ChatCompletionNewParams{
-				Messages: []openai.ChatCompletionMessageParamUnion{
-					openai.UserMessage(testUserMessage),
-				},
-				Model: "some-other-model",
-			}
-
-			_, err = openaiClient.Chat.Completions.New(ctx, params)
-			Expect(err).To(HaveOccurred())
-			var openaiError *openai.Error
-			ok := errors.As(err, &openaiError)
-			Expect(ok).To(BeTrue())
-			Expect(openaiError.StatusCode).To(BeNumerically("==", fasthttp.StatusNotFound))
-			Expect(openaiError.Type).ToNot(BeEmpty())
-			Expect(openaiError.Message).To(ContainSubstring("The model `some-other-model` does not exist"))
-		})
-
-		It("Should return error for negative MaxCompletionTokens", func() {
-			ctx := context.TODO()
-			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom}
-			client, err := startServerWithArgs(ctx, args)
-			Expect(err).NotTo(HaveOccurred())
-
-			openaiClient := openai.NewClient(option.WithBaseURL(baseURL), option.WithHTTPClient(client),
-				option.WithMaxRetries(0))
-
-			params := openai.ChatCompletionNewParams{
-				Messages: []openai.ChatCompletionMessageParamUnion{
-					openai.UserMessage(testUserMessage),
-				},
-				Model:               common.TestModelName,
-				MaxCompletionTokens: openai.Int(-5),
-			}
-
-			_, err = openaiClient.Chat.Completions.New(ctx, params)
-			Expect(err).To(HaveOccurred())
-			var openaiError *openai.Error
-			ok := errors.As(err, &openaiError)
-			Expect(ok).To(BeTrue())
-			Expect(openaiError.StatusCode).To(BeNumerically("==", fasthttp.StatusBadRequest))
-			Expect(openaiError.Type).ToNot(BeEmpty())
-			Expect(openaiError.Message).To(ContainSubstring("Max completion tokens and max tokens should be positive"))
-		})
-	})
-
-	Context("OpenRequests counter", func() {
-		It("Should reflect in-flight requests and return to zero after completion", func() {
-			ctx := context.TODO()
-			// 1 worker, queue capacity 2, 500ms TTFT so requests stay in-flight long enough to inspect
-			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho,
-				"--time-to-first-token", "500ms", "--max-num-seqs", "1", "--max-waiting-queue-length", "2"}
-			server, _, client, err := startServerHandle(ctx, common.ModeEcho, args, nil)
-			Expect(err).NotTo(HaveOccurred())
-
-			// Before any request the counter must be zero
-			Expect(server.OpenRequests()).To(Equal(int64(0)))
-
-			var wg sync.WaitGroup
-			wg.Add(2)
-
-			// Send two requests concurrently: one will be processed by the single
-			// worker, the other will sit in the waiting queue.
-			for range 2 {
-				go func() {
-					defer GinkgoRecover()
-					defer wg.Done()
-					openaiclient, params := getOpenAIClientAndChatParams(client, common.TestModelName, testUserMessage, false)
-					_, err := openaiclient.Chat.Completions.New(ctx, params)
-					Expect(err).NotTo(HaveOccurred())
-				}()
-			}
-
-			// Give the goroutines time to reach the server and enter the worker / queue
-			time.Sleep(200 * time.Millisecond)
-			Expect(server.OpenRequests()).To(Equal(int64(2)))
-
-			// Wait for both requests to finish — counter must return to zero
-			wg.Wait()
-			time.Sleep(200 * time.Millisecond)
-			Expect(server.OpenRequests()).To(Equal(int64(0)))
-		})
-	})
-
-	Context("Response channel buffer sizing", func() {
-		// buildWordPrompt returns a prompt of n space-separated distinct words, which the
-		// SimpleTokenizer used in tests renders as exactly n tokens.
-		buildWordPrompt := func(n int) string {
-			words := make([]string, n)
-			for i := range words {
-				words[i] = fmt.Sprintf("tok%d", i)
-			}
-			return strings.Join(words, " ")
-		}
-
-		It("Should not drop tokens across many concurrent requests (echo mode)", func() {
-			ctx := context.TODO()
-			// echo mode requires max-model-len >= 2*prompt tokens (the prompt is echoed
-			// back as the response), so max-model-len is set just above 2*15 to stay
-			// as tight as that constraint allows.
-			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho,
-				"--max-num-seqs", "100", "--max-model-len", "30", "--max-waiting-queue-length", "1"}
-			client, err := startServerWithArgs(ctx, args)
-			Expect(err).NotTo(HaveOccurred())
-
-			prompt := buildWordPrompt(15)
-			openaiclient, params := getOpenAIClientAndCompletionParams(client, common.TestModelName, prompt, false)
-			n := 10
-			params.N = param.NewOpt(int64(n))
-
-			var wg sync.WaitGroup
-			numberOfRequests := 10
-			wg.Add(numberOfRequests)
-			for range numberOfRequests {
-				go func() {
-					defer GinkgoRecover()
-					defer wg.Done()
-					resp, err := openaiclient.Completions.New(ctx, params)
-					Expect(err).NotTo(HaveOccurred())
-					Expect(resp.Choices).To(HaveLen(n))
-					for i := range n {
-						Expect(resp.Choices[i].Text).To(Equal(prompt))
-					}
-				}()
-			}
-			wg.Wait()
-		})
-
-		It("Should not drop tokens across multiple prompts each with n>1 choices (echo mode)", func() {
-			ctx := context.TODO()
-			// echo mode requires max-model-len >= 2*prompt tokens (the prompt is echoed
-			// back as the response), so max-model-len is set just above 2*15 to stay
-			// as tight as that constraint allows.
-			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho,
-				"--max-num-seqs", "100", "--max-model-len", "30", "--max-waiting-queue-length", "1"}
-			client, err := startServerWithArgs(ctx, args)
-			Expect(err).NotTo(HaveOccurred())
-
-			prompts := []string{buildWordPrompt(15), buildWordPrompt(14), buildWordPrompt(13)}
-			openaiclient, params := getOpenAIClientAndCompletionParams(client, common.TestModelName, prompts[0], false)
-			params.Prompt = openai.CompletionNewParamsPromptUnion{OfArrayOfStrings: prompts}
-			n := 3
-			params.N = param.NewOpt(int64(n))
-
-			resp, err := openaiclient.Completions.New(ctx, params)
-			Expect(err).NotTo(HaveOccurred())
-			// len(prompts) * n choices, one respCtx per choice, must all have arrived
-			// on the single response channel shared by this request.
-			Expect(resp.Choices).To(HaveLen(len(prompts) * n))
-			for i, choice := range resp.Choices {
-				Expect(choice.Text).To(Equal(prompts[i/n]))
-			}
-		})
-	})
-
 	Context("kv-events for requests", func() {
 		ctx := context.TODO()
 		model := common.QwenModelName
@@ -1178,14 +510,14 @@ var _ = Describe("Simulator", func() {
 
 		It("chat completions", func() {
 			// create kv events listener
-			topic := kvcache.CreateKVEventsTopic("localhost", 8000, model)
+			topic := kvcache.CreateKVEventsTopic("localhost", common.DefaultPort, model)
 			sub, zmqEndpoint := common.CreateSub(ctx, topic)
 			//nolint
 			defer sub.Close()
 
 			// start the server
 			args := []string{"cmd", "--model", model, "--mode", mode,
-				"--enable-kvcache", "true", "--kv-cache-size", "16", "--block-size", "8",
+				"--enable-kvcache", "--kv-cache-size", "16", "--block-size", "8",
 				"--event-batch-size", "1", "--zmq-endpoint", zmqEndpoint}
 			client, err := startServerWithArgsAndEnv(ctx, mode, args, map[string]string{"POD_IP": "localhost"})
 			Expect(err).NotTo(HaveOccurred())
@@ -1202,21 +534,21 @@ var _ = Describe("Simulator", func() {
 			// read one event
 			msg, err := sub.Recv()
 			Expect(err).NotTo(HaveOccurred())
-			storedCount, removedCount, _ := kvcache.CountKVEventBlocks(msg.Frames, topic, 1)
+			storedCount, removedCount, _ := kvcache.CountKVEventBlocks(msg.Frames, topic, 0)
 			Expect(storedCount).To(Equal(5))
 			Expect(removedCount).To(Equal(0))
 		})
 
 		It("completions", func() {
 			// create kv events listener
-			topic := kvcache.CreateKVEventsTopic("localhost", 8000, model)
+			topic := kvcache.CreateKVEventsTopic("localhost", common.DefaultPort, model)
 			sub, zmqEndpoint := common.CreateSub(ctx, topic)
 			//nolint
 			defer sub.Close()
 
 			// start the server
 			args := []string{"cmd", "--model", model, "--mode", mode,
-				"--enable-kvcache", "true", "--kv-cache-size", "16", "--block-size", "8",
+				"--enable-kvcache", "--kv-cache-size", "16", "--block-size", "8",
 				"--event-batch-size", "1", "--zmq-endpoint", zmqEndpoint}
 			client, err := startServerWithArgsAndEnv(ctx, mode, args, map[string]string{"POD_IP": "localhost"})
 			Expect(err).NotTo(HaveOccurred())
@@ -1233,7 +565,7 @@ var _ = Describe("Simulator", func() {
 			// read one event
 			msg, err := sub.Recv()
 			Expect(err).NotTo(HaveOccurred())
-			storedCount, removedCount, _ := kvcache.CountKVEventBlocks(msg.Frames, topic, 1)
+			storedCount, removedCount, _ := kvcache.CountKVEventBlocks(msg.Frames, topic, 0)
 			Expect(storedCount).To(Equal(2))
 			Expect(removedCount).To(Equal(0))
 		})
@@ -1244,13 +576,13 @@ var _ = Describe("Simulator", func() {
 			Expect(err).NotTo(HaveOccurred())
 			zmqEndpoint := fmt.Sprintf("tcp://*:%d", freePort)
 			args := []string{"cmd", "--model", model, "--mode", mode,
-				"--enable-kvcache", "true", "--kv-cache-size", "16", "--block-size", "8",
+				"--enable-kvcache", "--kv-cache-size", "16", "--block-size", "8",
 				"--event-batch-size", "1", "--zmq-endpoint", zmqEndpoint}
 			client, err := startServerWithArgsAndEnv(ctx, mode, args, map[string]string{"POD_IP": "localhost"})
 			Expect(err).NotTo(HaveOccurred())
 
 			// create kv events listener
-			topic := kvcache.CreateKVEventsTopic("localhost", 8000, model)
+			topic := kvcache.CreateKVEventsTopic("localhost", common.DefaultPort, model)
 			sub := common.NewSub(ctx)
 			err = sub.Dial(zmqEndpoint)
 			Expect(err).NotTo(HaveOccurred())
@@ -1271,7 +603,7 @@ var _ = Describe("Simulator", func() {
 			// read one event
 			msg, err := sub.Recv()
 			Expect(err).NotTo(HaveOccurred())
-			storedCount, removedCount, _ := kvcache.CountKVEventBlocks(msg.Frames, topic, 1)
+			storedCount, removedCount, _ := kvcache.CountKVEventBlocks(msg.Frames, topic, 0)
 			Expect(storedCount).To(Equal(5))
 			Expect(removedCount).To(Equal(0))
 		})
@@ -1285,15 +617,18 @@ var _ = Describe("Simulator", func() {
 				// (ParentHash == 0 / EmptyBlockHash). The second extends the prompt by one
 				// extra block; its store event must carry the hash of the last block from
 				// the first request as parent.
-				topic := kvcache.CreateKVEventsTopic("localhost", 8000, model)
+				topic := kvcache.CreateKVEventsTopic("localhost", common.DefaultPort, model)
 				sub, zmqEndpoint := common.CreateSub(ctx, topic)
 				//nolint
 				defer sub.Close()
 
+				// The format flag is written with "=", since pflag takes no value for
+				// a boolean flag: as a separate argument, "false" would be a
+				// positional and the flag would be true in both entries.
 				args := []string{"cmd", "--model", model, "--mode", mode,
-					"--enable-kvcache", "true", "--kv-cache-size", "16", "--block-size", "8",
+					"--enable-kvcache", "--kv-cache-size", "16", "--block-size", "8",
 					"--event-batch-size", "1", "--zmq-endpoint", zmqEndpoint,
-					"--use-vllm-map-event-format", useMapFormat}
+					"--use-vllm-map-event-format=" + useMapFormat}
 
 				client, err := startServerWithArgsAndEnv(ctx, mode, args, map[string]string{"POD_IP": "localhost"})
 				Expect(err).NotTo(HaveOccurred())
@@ -1314,18 +649,18 @@ var _ = Describe("Simulator", func() {
 					Expect(resp2.Choices).ShouldNot(BeEmpty())
 				}()
 
-				// First event: all blocks new → parent must be EmptyBlockHash (0)
+				// First event: all blocks new -> parent must be EmptyBlockHash (0)
 				msg1, err := sub.Recv()
 				Expect(err).NotTo(HaveOccurred())
-				events1, _, _ := kvcache.ParseKVEvent(msg1.Frames, topic, 1)
+				events1, _, _ := kvcache.ParseKVEvent(msg1.Frames, topic, 0)
 				Expect(events1).NotTo(BeEmpty())
 				Expect(events1[0].ParentHash).To(Equal(uint64(0)))
 				lastHashFromFirst := events1[0].BlockHashes[len(events1[0].BlockHashes)-1]
 
-				// Second event: only the extra block(s) are new → parent == last block of first request
+				// Second event: only the extra block(s) are new -> parent == last block of first request
 				msg2, err := sub.Recv()
 				Expect(err).NotTo(HaveOccurred())
-				events2, _, _ := kvcache.ParseKVEvent(msg2.Frames, topic, 2)
+				events2, _, _ := kvcache.ParseKVEvent(msg2.Frames, topic, 1)
 				Expect(events2).NotTo(BeEmpty())
 				Expect(events2[0].ParentHash).To(Equal(lastHashFromFirst))
 			},
@@ -1333,65 +668,6 @@ var _ = Describe("Simulator", func() {
 			Entry("map format (vLLM PR #42892)", "true"),
 		)
 
-		Context("force-dummy-tokenizer flag", func() {
-			It("should use dummy tokenizer when flag is set with real model", func() {
-				ctx := context.TODO()
-				// Use a real model name but force dummy tokenizer
-				args := []string{"cmd", "--model", common.QwenModelName, "--mode", common.ModeRandom, "--force-dummy-tokenizer"}
-				simulator, _, _, err := startServerHandle(ctx, "", args, nil)
-				Expect(err).NotTo(HaveOccurred())
-
-				// Verify that the dummy tokenizer was actually created
-				Expect(simulator.Context.Tokenizer).To(BeAssignableToTypeOf(&tokenizer.SimpleTokenizer{}))
-			})
-
-			It("should work with YAML config file", func() {
-				ctx := context.TODO()
-				// Create a temporary config file with force-dummy-tokenizer set
-				configContent := `model: ` + common.QwenModelName + `
-mode: random
-force-dummy-tokenizer: true
-`
-				configFile := "/tmp/test-tokenizer-config.yaml"
-				err := writeTestConfig(configFile, configContent)
-				Expect(err).NotTo(HaveOccurred())
-				defer func() {
-					err := removeTestConfig(configFile)
-					Expect(err).NotTo(HaveOccurred())
-				}()
-
-				args := []string{"cmd", "--config", configFile}
-				simulator, _, _, err := startServerHandle(ctx, "", args, nil)
-				Expect(err).NotTo(HaveOccurred())
-
-				// Verify that the dummy tokenizer was actually created
-				Expect(simulator.Context.Tokenizer).To(BeAssignableToTypeOf(&tokenizer.SimpleTokenizer{}))
-			})
-
-			It("should override YAML config with command line flag", func() {
-				ctx := context.TODO()
-				// Create a config file with force-dummy-tokenizer set to false
-				configContent := `model: ` + common.QwenModelName + `
-mode: random
-force-dummy-tokenizer: false
-`
-				configFile := "/tmp/test-tokenizer-override-config.yaml"
-				err := writeTestConfig(configFile, configContent)
-				Expect(err).NotTo(HaveOccurred())
-				defer func() {
-					err := removeTestConfig(configFile)
-					Expect(err).NotTo(HaveOccurred())
-				}()
-
-				// Override with command line flag
-				args := []string{"cmd", "--config", configFile, "--force-dummy-tokenizer"}
-				simulator, _, _, err := startServerHandle(ctx, "", args, nil)
-				Expect(err).NotTo(HaveOccurred())
-
-				// Verify that the dummy tokenizer was actually created
-				Expect(simulator.Context.Tokenizer).To(BeAssignableToTypeOf(&tokenizer.SimpleTokenizer{}))
-			})
-		})
 	})
 
 	Context("Mooncake bootstrap query", func() {
@@ -1449,7 +725,7 @@ force-dummy-tokenizer: false
 		// Returns the HTTP client, the PUB subscriber (for watching live events),
 		// the topic, and the replay endpoint the simulator was told to bind.
 		setupReplayServer := func(ctx context.Context) (*http.Client, zmq4.Socket, string, string) {
-			topic := kvcache.CreateKVEventsTopic("localhost", 8000, replayModel)
+			topic := kvcache.CreateKVEventsTopic("localhost", common.DefaultPort, replayModel)
 			sub, zmqEndpoint := common.CreateSub(ctx, topic)
 
 			replayPort, err := common.FreeTCPPort()
@@ -1457,7 +733,7 @@ force-dummy-tokenizer: false
 			replayEndpoint := fmt.Sprintf("tcp://127.0.0.1:%d", replayPort)
 
 			args := []string{"cmd", "--model", replayModel, "--mode", replayMode,
-				"--enable-kvcache", "true", "--kv-cache-size", "16", "--block-size", "8",
+				"--enable-kvcache", "--kv-cache-size", "16", "--block-size", "8",
 				"--event-batch-size", "1", "--zmq-endpoint", zmqEndpoint,
 				"--kv-events-replay-endpoint", replayEndpoint,
 				"--kv-events-replay-queue-size", "64",
@@ -1481,7 +757,7 @@ force-dummy-tokenizer: false
 					break
 				}
 				seq := binary.BigEndian.Uint64(msg.Frames[1])
-				stored, _, _ := kvcache.CountKVEventBlocks(msg.Frames, kvcache.CreateKVEventsTopic("localhost", 8000, replayModel), seq)
+				stored, _, _ := kvcache.CountKVEventBlocks(msg.Frames, kvcache.CreateKVEventsTopic("localhost", common.DefaultPort, replayModel), seq)
 				totalStored += stored
 				lastSeq = seq
 			}
@@ -1541,8 +817,8 @@ force-dummy-tokenizer: false
 			}
 
 			// Drain all live events; record last seq published
-			_, lastSeq := drainPubUntilQuiet(msgCh, topic, 500*time.Millisecond)
-			Expect(lastSeq).To(BeNumerically(">", 0))
+			storedTotal, lastSeq := drainPubUntilQuiet(msgCh, topic, 500*time.Millisecond)
+			Expect(storedTotal).To(BeNumerically(">", 0))
 
 			// Request replay from the last seq — exactly that one batch should come back
 			replayedTotal, replayedLastSeq := sendReplayRequestAndRecv(ctx, replayEndpoint, lastSeq)
@@ -1550,7 +826,7 @@ force-dummy-tokenizer: false
 			Expect(replayedLastSeq).To(Equal(lastSeq))
 		})
 
-		It("replays all stored batches when startSeq is 1", func() {
+		It("replays all stored batches when startSeq is 0", func() {
 			ctx := context.TODO()
 			client, sub, topic, replayEndpoint := setupReplayServer(ctx)
 			defer sub.Close() //nolint:errcheck
@@ -1569,8 +845,8 @@ force-dummy-tokenizer: false
 			origTotal, _ := drainPubUntilQuiet(msgCh, topic, 500*time.Millisecond)
 			Expect(origTotal).To(BeNumerically(">", 0))
 
-			// Replay from seq 1 — all stored batches must be returned
-			replayedTotal, _ := sendReplayRequestAndRecv(ctx, replayEndpoint, 1)
+			// Replay from seq 0 — all stored batches must be returned
+			replayedTotal, _ := sendReplayRequestAndRecv(ctx, replayEndpoint, 0)
 			Expect(replayedTotal).To(Equal(origTotal))
 		})
 

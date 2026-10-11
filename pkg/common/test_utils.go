@@ -19,10 +19,24 @@ package common
 import (
 	"context"
 	"net"
+	"os"
+	"path/filepath"
 
 	zmq4 "github.com/go-zeromq/zmq4"
 	"github.com/onsi/gomega"
+	"github.com/spf13/pflag"
 )
+
+// WriteConfigFile writes contents to a YAML config file under dir and returns
+// its path, for a spec that needs a file to point --config at. dir is normally
+// the spec's own temp directory, which the caller supplies rather than this
+// helper taking it from GinkgoT(), so that this package does not import ginkgo
+// and link it into the binary.
+func WriteConfigFile(dir string, contents string) string {
+	path := filepath.Join(dir, "config.yaml")
+	gomega.Expect(os.WriteFile(path, []byte(contents), 0o644)).To(gomega.Succeed())
+	return path
+}
 
 // constants
 const (
@@ -30,6 +44,19 @@ const (
 	QwenModelName    = "Qwen/Qwen2-VL-2B-Instruct"
 	wildcardEndpoint = "tcp://127.0.0.1:*"
 )
+
+// NoopEngine stands in for an engine's own hooks in tests that only exercise
+// this package's own flags, parsing and validation: a concrete engine cannot
+// be used instead, since every one of them imports this package back.
+type NoopEngine struct{}
+
+func (NoopEngine) Name() string                 { return "vllm" }
+func (NoopEngine) ApplyDefaults(*Configuration) {}
+func (NoopEngine) BindFlags(*pflag.FlagSet, *Configuration, map[string]any) error {
+	return nil
+}
+func (NoopEngine) ApplyEnv(*Configuration, func(string) bool) {}
+func (NoopEngine) ValidateConfig(*Configuration) error        { return nil }
 
 // CreateSub creates a ZMQ sub, subscribes to the provided topic, and returns the
 // sub and the endpoint to publish events on

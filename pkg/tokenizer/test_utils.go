@@ -121,14 +121,20 @@ func (tm *TokenizerManager) Clean() {
 	}
 }
 
+// RenderToolArgs configure the render service for tool calling, as a vLLM
+// that serves tools is. The simulator forwards a request's tools and
+// tool_choice, and vLLM rejects tools without an explicit tool_choice:"none"
+// unless these are set.
+var RenderToolArgs = []string{"--enable-auto-tool-choice", "--tool-call-parser=hermes"}
+
 // starts a docker container which runs cpu vLLM in render mode (vllm serve)
 // returns the HTTP base URL (http://host:port), cleanup function and error
-func (tm *TokenizerManager) startRenderContainer(ctx context.Context, model string) (string, func(), error) {
+func (tm *TokenizerManager) startRenderContainer(ctx context.Context, model string, extraArgs ...string) (string, func(), error) {
 	container, err := testcontainers.Run(ctx,
 		"vllm/vllm-openai-cpu:v0.21.0",
 		testcontainers.WithExposedPorts("8000/tcp"),
 		testcontainers.WithEntrypoint("vllm"),
-		testcontainers.WithCmd("launch", "render", model, "--port=8000"),
+		testcontainers.WithCmd(append([]string{"launch", "render", model, "--port=8000"}, extraArgs...)...),
 		testcontainers.WithTmpfs(map[string]string{"/.cache": "rw"}),
 		testcontainers.WithEnv(collectHostNetworkEnv()),
 		testcontainers.WithWaitStrategy(

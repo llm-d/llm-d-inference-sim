@@ -19,7 +19,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 
 	"golang.org/x/sync/errgroup"
 	"k8s.io/klog/v2"
@@ -29,20 +28,8 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 	"github.com/llm-d/llm-d-inference-sim/pkg/communication"
 	"github.com/llm-d/llm-d-inference-sim/pkg/engine"
-	"github.com/llm-d/llm-d-inference-sim/pkg/engine/vllm"
 	"github.com/llm-d/llm-d-inference-sim/pkg/simulator"
 )
-
-// selectEngine returns the Engine implementation for the named engine
-// backend. Currently only "vllm" is supported.
-func selectEngine(engineName string) (engine.Engine, error) {
-	switch engineName {
-	case "vllm":
-		return vllm.New(), nil
-	default:
-		return nil, fmt.Errorf("unknown engine '%s'", engineName)
-	}
-}
 
 func main() {
 	// setup logger and context with graceful shutdown
@@ -55,7 +42,7 @@ func main() {
 		logger.Error(err, "failed to resolve engine")
 		return
 	}
-	eng, err := selectEngine(engineName)
+	eng, err := engine.Select(engineName)
 	if err != nil {
 		logger.Error(err, "failed to select engine")
 		return
@@ -71,6 +58,12 @@ func main() {
 	// klog's default verbosity (0) is only raised to INFO by ParseCommandParamsAndLoadConfig
 	// above, so this must run after it to actually be visible at the default verbosity.
 	logger.V(logging.INFO).Info("Starting inference simulator", "engine", eng.Name())
+	if eng.Name() == "sglang" {
+		logger.V(logging.WARN).Info("================================================================")
+		logger.V(logging.WARN).Info("WARNING: SGLang engine support is experimental and incomplete.")
+		logger.V(logging.WARN).Info("It is not ready for production use, see docs/engine-backends.md.")
+		logger.V(logging.WARN).Info("================================================================")
+	}
 
 	if err := config.Show(logger); err != nil {
 		logger.Error(err, "failed to show configuration")

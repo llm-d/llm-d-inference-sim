@@ -9,15 +9,15 @@ In this mode, the simulator acts as a loopback mechanism.
   - For `/v1/chat/completions`: Returns the content of the last message in the `messages` list.
 - **Ignored Parameters:** `ignore_eos` has no effect.
 - **`max_tokens` / `max_completion_tokens`:** Not ignored — the request is rejected with `400 Bad Request` if the prompt's token count exceeds `max_tokens`, since echo mode cannot truncate the response to fit. They otherwise have no effect on response content.
-- **Context window:** Because the prompt is echoed back as the response, both count against `max-model-len` — the request is rejected with `400 Bad Request` unless `2 * <input_length> <= max-model-len`.
+- **Context window:** Because the prompt is echoed back as the response, both count against the context window — the request is rejected with `400 Bad Request` unless `2 * <input_length> <= <context_window>`.
 
 ## Random Mode
 In this mode, the simulator generates synthetic responses. The length and content depend on the request parameters.
 
-**Context window:** Unlike echo mode, `max_tokens` is not considered when validating the request against `max-model-len` — only the prompt itself needs to leave room for at least one response token (`<input_length> + 1 <= max-model-len`). The response length is still bounded by the remaining context window; see below.
+**Context window:** Unlike echo mode, `max_tokens` is not considered when validating the request against the context window — only the prompt itself needs to leave room for at least one response token (`<input_length> + 1 <= <context_window>`). The response length is still bounded by the remaining context window; see below.
 
 ### Response Length Calculation
-If `max_tokens` or `max_completion_tokens` is specified, the response length is sampled from a custom histogram with **six buckets**. If the specified value exceeds the room remaining in the context window (`<model_context_limit> - <input_length>`), that remaining room is used as the cap instead — the response never overflows `max-model-len`.
+If `max_tokens` or `max_completion_tokens` is specified, the response length is sampled from a custom histogram with **six buckets**. If the specified value exceeds the room remaining in the context window (`<model_context_limit> - <input_length>`), that remaining room is used as the cap instead — the response never overflows the context window.
 
 **Probability Distribution:**
 | Bucket | Probability |

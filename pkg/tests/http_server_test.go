@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -37,7 +38,7 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/kvcache"
 )
 
-var _ = Describe("Server", func() {
+var _ = Describe("Server", forEachEngine(func() {
 
 	It("Should respond to /health", func() {
 		ctx := context.TODO()
@@ -91,7 +92,7 @@ var _ = Describe("Server", func() {
 		It("Should return correct response to /tokenize chat", func() {
 			ctx := context.TODO()
 			args := []string{"cmd", "--model", common.QwenModelName, "--mode", common.ModeRandom,
-				"--max-model-len", "2048"}
+				engineFlag(common.FieldContextWindow), "2048"}
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -121,7 +122,7 @@ var _ = Describe("Server", func() {
 		It("Should return correct response to /tokenize text", func() {
 			ctx := context.TODO()
 			args := []string{"cmd", "--model", common.QwenModelName, "--mode", common.ModeRandom,
-				"--max-model-len", "2048"}
+				engineFlag(common.FieldContextWindow), "2048"}
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -239,6 +240,47 @@ var _ = Describe("Server", func() {
 				Expect(resp.Features.KwargsData).To(HaveKey("image"))
 				Expect(resp.Features.KwargsData["image"]).To(HaveLen(2))
 			}),
+		Entry("simulate /v1/responses/render with a string input",
+			common.TestModelName, "/v1/responses/render",
+			fmt.Sprintf(`{"model":"%s","input":"This is a test"}`, common.TestModelName),
+			func(body []byte) {
+				var resp api.RenderResponse
+				Expect(json.Unmarshal(body, &resp)).To(Succeed())
+				Expect(resp.TokenIDs).NotTo(BeEmpty())
+				Expect(resp.Features).To(BeNil())
+			}),
+		Entry("simulate /v1/responses/render with message input and instructions",
+			common.TestModelName, "/v1/responses/render",
+			fmt.Sprintf(`{"model":"%s","instructions":"Reply in French","input":[`+
+				`{"type":"message","role":"user","content":[{"type":"input_text","text":"This is a test"}]},`+
+				`{"type":"function_call","call_id":"call_1","name":"get_weather","arguments":"{\"city\":\"Paris\"}"},`+
+				`{"type":"function_call_output","call_id":"call_1","output":"sunny, 22C"}`+
+				`]}`, common.TestModelName),
+			func(body []byte) {
+				var resp api.RenderResponse
+				Expect(json.Unmarshal(body, &resp)).To(Succeed())
+				Expect(resp.TokenIDs).NotTo(BeEmpty())
+				Expect(resp.Features).To(BeNil())
+			}),
+		Entry("simulate /v1/responses/render with input_image synthesizes mm features",
+			common.TestModelName, "/v1/responses/render",
+			fmt.Sprintf(`{"model":"%s","input":[{"type":"message","role":"user","content":[`+
+				`{"type":"input_text","text":"describe this"},`+
+				`{"type":"input_image","image_url":"http://example.com/a.png"},`+
+				`{"type":"input_image","image_url":"http://example.com/b.png"}`+
+				`]}]}`, common.TestModelName),
+			func(body []byte) {
+				var resp api.RenderResponse
+				Expect(json.Unmarshal(body, &resp)).To(Succeed())
+				Expect(resp.TokenIDs).NotTo(BeEmpty())
+				Expect(resp.Features).NotTo(BeNil())
+				Expect(resp.Features.MMHashes).To(HaveKey("image"))
+				Expect(resp.Features.MMHashes["image"]).To(HaveLen(2))
+				Expect(resp.Features.MMPlaceholders).To(HaveKey("image"))
+				Expect(resp.Features.MMPlaceholders["image"]).To(HaveLen(2))
+				Expect(resp.Features.KwargsData).To(HaveKey("image"))
+				Expect(resp.Features.KwargsData["image"]).To(HaveLen(2))
+			}),
 		Entry("proxy /v1/completions/render to the upstream renderer (HF model)",
 			common.QwenModelName, "/v1/completions/render",
 			fmt.Sprintf(`{"model":"%s","prompt":"This is a test"}`, common.QwenModelName),
@@ -280,7 +322,69 @@ var _ = Describe("Server", func() {
 				Expect(resp.Features.KwargsData).To(HaveKey("image"))
 				Expect(resp.Features.KwargsData["image"]).To(HaveLen(2))
 			}),
+		Entry("proxy /v1/responses/render to the upstream renderer (HF model)",
+			common.QwenModelName, "/v1/responses/render",
+			fmt.Sprintf(`{"model":"%s","input":"This is a test"}`, common.QwenModelName),
+			func(body []byte) {
+				var resp api.RenderResponse
+				Expect(json.Unmarshal(body, &resp)).To(Succeed())
+				Expect(resp.TokenIDs).NotTo(BeEmpty())
+				Expect(resp.Features).To(BeNil())
+			}),
 	)
+
+	DescribeTable("responses render request validation",
+		func(reqBody string, expectedStatus int, expectedMsg string) {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			resp, err := client.Post("http://localhost/v1/responses/render", "application/json", strings.NewReader(reqBody))
+			Expect(err).NotTo(HaveOccurred())
+			defer func() {
+				Expect(resp.Body.Close()).To(Succeed())
+			}()
+			Expect(resp.StatusCode).To(Equal(expectedStatus))
+
+			body, err := io.ReadAll(resp.Body)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(string(body)).To(ContainSubstring(expectedMsg))
+		},
+		Entry("rejects an empty input",
+			fmt.Sprintf(`{"model":"%s","input":[]}`, common.TestModelName),
+			http.StatusBadRequest, "input must not be empty"),
+		Entry("rejects an empty string input",
+			fmt.Sprintf(`{"model":"%s","input":""}`, common.TestModelName),
+			http.StatusBadRequest, "input must not be empty"),
+		Entry("rejects previous_response_id",
+			fmt.Sprintf(`{"model":"%s","input":"hi","previous_response_id":"resp_1"}`, common.TestModelName),
+			http.StatusBadRequest, "previous_response_id"),
+	)
+
+	It("/v1/responses/render is disabled by --enable-legacy-render", func() {
+		ctx := context.TODO()
+		args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
+			"--enable-legacy-render"}
+		client, err := startServerWithArgs(ctx, args)
+		Expect(err).NotTo(HaveOccurred())
+
+		resp, err := client.Post("http://localhost/v1/responses/render", "application/json",
+			strings.NewReader(fmt.Sprintf(`{"model":"%s","input":"hi"}`, common.TestModelName)))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.StatusCode).To(Equal(http.StatusNotFound))
+		Expect(resp.Body.Close()).To(Succeed())
+
+		// only the responses render route is disabled
+		chatResp, err := client.Post("http://localhost/v1/chat/completions/render", "application/json",
+			strings.NewReader(fmt.Sprintf(`{"model":"%s","messages":[{"role":"user","content":"hi"}]}`,
+				common.TestModelName)))
+		Expect(err).NotTo(HaveOccurred())
+		defer func() {
+			Expect(chatResp.Body.Close()).To(Succeed())
+		}()
+		Expect(chatResp.StatusCode).To(Equal(http.StatusOK))
+	})
 
 	Describe("derender endpoints", func() {
 		startSim := func(model string) *http.Client {
@@ -611,143 +715,146 @@ var _ = Describe("Server", func() {
 		)
 	})
 
-	Context("sleep mode", Ordered, func() {
-		It("Should respond to /is_sleeping", func() {
-			ctx := context.TODO()
-			client, err := startServer(ctx, common.ModeRandom)
-			Expect(err).NotTo(HaveOccurred())
+}))
 
-			checkSimSleeping(client, false)
-		})
+// Sleep mode is vLLM's own: it owns the /sleep, /wake_up, and /is_sleeping
+// routes, so these specs name no other engine.
+var _ = Describe("Server sleep mode", Ordered, func() {
+	It("Should respond to /is_sleeping", func() {
+		ctx := context.TODO()
+		client, err := startServer(ctx, common.ModeRandom)
+		Expect(err).NotTo(HaveOccurred())
 
-		It("Should not enter sleep mode without the flag", func() {
-			ctx := context.TODO()
-			client, err := startServerWithEnv(ctx, common.ModeRandom, map[string]string{"VLLM_SERVER_DEV_MODE": "1"})
-			Expect(err).NotTo(HaveOccurred())
+		checkSimSleeping(client, false)
+	})
 
+	It("Should not enter sleep mode without the flag", func() {
+		ctx := context.TODO()
+		client, err := startServerWithEnv(ctx, common.ModeRandom, map[string]string{"VLLM_SERVER_DEV_MODE": "1"})
+		Expect(err).NotTo(HaveOccurred())
+
+		resp, err := client.Post("http://localhost/sleep", "", nil)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+		checkSimSleeping(client, false)
+	})
+
+	It("Should not enter sleep mode without the env var", func() {
+		ctx := context.TODO()
+		client, err := startServerWithArgs(ctx,
+			[]string{"cmd", "--model", common.QwenModelName, "--mode", common.ModeRandom, "--enable-sleep-mode"})
+		Expect(err).NotTo(HaveOccurred())
+
+		resp, err := client.Post("http://localhost/sleep", "", nil)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+		checkSimSleeping(client, false)
+	})
+
+	It("Should enter sleep mode and wake up", func() {
+		ctx := context.TODO()
+
+		topic := kvcache.CreateKVEventsTopic("localhost", common.DefaultPort, common.QwenModelName)
+		sub, endpoint := common.CreateSub(ctx, topic)
+
+		client, err := startServerWithArgsAndEnv(ctx, common.ModeRandom,
+			[]string{"cmd", "--model", common.QwenModelName, "--mode", common.ModeRandom, "--enable-sleep-mode",
+				"--enable-kvcache", "--v", "5", "--port", strconv.Itoa(common.DefaultPort), "--zmq-endpoint", endpoint},
+			map[string]string{"VLLM_SERVER_DEV_MODE": "1", "POD_IP": "localhost"})
+		Expect(err).NotTo(HaveOccurred())
+
+		//nolint
+		defer sub.Close()
+
+		// Send a request, check that a kv event BlockStored was sent
+		go func() {
+			time.Sleep(200 * time.Millisecond)
+			sendTextCompletionsRequest(ctx, client)
+		}()
+		msg, err := sub.Recv()
+		Expect(err).NotTo(HaveOccurred())
+		storedCount, _, _ := kvcache.CountKVEventBlocks(msg.Frames, topic, uint64(0))
+		Expect(storedCount).To(Equal(1))
+
+		// Sleep and check that AllBlocksCleared event was sent
+		go func() {
+			time.Sleep(200 * time.Millisecond)
 			resp, err := client.Post("http://localhost/sleep", "", nil)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+		}()
+		msg, err = sub.Recv()
+		Expect(err).NotTo(HaveOccurred())
+		_, _, allCleared := kvcache.CountKVEventBlocks(msg.Frames, topic, uint64(1))
+		Expect(allCleared).To(BeTrue())
 
-			checkSimSleeping(client, false)
-		})
+		checkSimSleeping(client, true)
 
-		It("Should not enter sleep mode without the env var", func() {
-			ctx := context.TODO()
-			client, err := startServerWithArgs(ctx,
-				[]string{"cmd", "--model", common.QwenModelName, "--mode", common.ModeRandom, "--enable-sleep-mode"})
-			Expect(err).NotTo(HaveOccurred())
+		// Send a request
+		go sendTextCompletionsRequest(ctx, client)
 
+		resp, err := client.Post("http://localhost/wake_up", "", nil)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+		checkSimSleeping(client, false)
+
+		// Send a request, check that a kv event BlockStored was sent,
+		// this checks that in sleep mode the kv cache was disabled.
+		// The sequence number of the event is an addition check.
+		go func() {
+			time.Sleep(200 * time.Millisecond)
+			sendTextCompletionsRequest(ctx, client)
+		}()
+		msg, err = sub.Recv()
+		Expect(err).NotTo(HaveOccurred())
+		storedCount, _, _ = kvcache.CountKVEventBlocks(msg.Frames, topic, uint64(2))
+		Expect(storedCount).To(Equal(1))
+
+		// Sleep again and wait for AllBlocksCleared
+		go func() {
+			time.Sleep(200 * time.Millisecond)
 			resp, err := client.Post("http://localhost/sleep", "", nil)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+		}()
 
-			checkSimSleeping(client, false)
-		})
+		msg, err = sub.Recv()
+		Expect(err).NotTo(HaveOccurred())
+		_, _, allCleared = kvcache.CountKVEventBlocks(msg.Frames, topic, uint64(3))
+		Expect(allCleared).To(BeTrue())
 
-		It("Should enter sleep mode and wake up", func() {
-			ctx := context.TODO()
+		checkSimSleeping(client, true)
 
-			topic := kvcache.CreateKVEventsTopic("localhost", 8000, common.QwenModelName)
-			sub, endpoint := common.CreateSub(ctx, topic)
+		// Wake up the weights only, kv cache shouldn't wake up yet
+		resp, err = client.Post("http://localhost/wake_up?tags=weights", "", nil)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
 
-			client, err := startServerWithArgsAndEnv(ctx, common.ModeRandom,
-				[]string{"cmd", "--model", common.QwenModelName, "--mode", common.ModeRandom, "--enable-sleep-mode",
-					"--enable-kvcache", "--v", "5", "--port", "8000", "--zmq-endpoint", endpoint},
-				map[string]string{"VLLM_SERVER_DEV_MODE": "1", "POD_IP": "localhost"})
-			Expect(err).NotTo(HaveOccurred())
+		checkSimSleeping(client, false)
 
-			//nolint
-			defer sub.Close()
+		// Send a request
+		go sendTextCompletionsRequest(ctx, client)
 
-			// Send a request, check that a kv event BlockStored was sent
-			go func() {
-				time.Sleep(200 * time.Millisecond)
-				sendTextCompletionsRequest(ctx, client)
-			}()
-			msg, err := sub.Recv()
-			Expect(err).NotTo(HaveOccurred())
-			storedCount, _, _ := kvcache.CountKVEventBlocks(msg.Frames, topic, uint64(1))
-			Expect(storedCount).To(Equal(1))
+		// Now wake up the cache
+		resp, err = client.Post("http://localhost/wake_up?tags=kv_cache", "", nil)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
 
-			// Sleep and check that AllBlocksCleared event was sent
-			go func() {
-				time.Sleep(200 * time.Millisecond)
-				resp, err := client.Post("http://localhost/sleep", "", nil)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(resp.StatusCode).To(Equal(http.StatusOK))
-			}()
-			msg, err = sub.Recv()
-			Expect(err).NotTo(HaveOccurred())
-			_, _, allCleared := kvcache.CountKVEventBlocks(msg.Frames, topic, uint64(2))
-			Expect(allCleared).To(BeTrue())
+		checkSimSleeping(client, false)
 
-			checkSimSleeping(client, true)
-
-			// Send a request
-			go sendTextCompletionsRequest(ctx, client)
-
-			resp, err := client.Post("http://localhost/wake_up", "", nil)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(resp.StatusCode).To(Equal(http.StatusOK))
-
-			checkSimSleeping(client, false)
-
-			// Send a request, check that a kv event BlockStored was sent,
-			// this checks that in sleep mode the kv cache was disabled.
-			// The sequence number of the event is an addition check.
-			go func() {
-				time.Sleep(200 * time.Millisecond)
-				sendTextCompletionsRequest(ctx, client)
-			}()
-			msg, err = sub.Recv()
-			Expect(err).NotTo(HaveOccurred())
-			storedCount, _, _ = kvcache.CountKVEventBlocks(msg.Frames, topic, uint64(3))
-			Expect(storedCount).To(Equal(1))
-
-			// Sleep again and wait for AllBlocksCleared
-			go func() {
-				time.Sleep(200 * time.Millisecond)
-				resp, err := client.Post("http://localhost/sleep", "", nil)
-				Expect(err).NotTo(HaveOccurred())
-				Expect(resp.StatusCode).To(Equal(http.StatusOK))
-			}()
-
-			msg, err = sub.Recv()
-			Expect(err).NotTo(HaveOccurred())
-			_, _, allCleared = kvcache.CountKVEventBlocks(msg.Frames, topic, uint64(4))
-			Expect(allCleared).To(BeTrue())
-
-			checkSimSleeping(client, true)
-
-			// Wake up the weights only, kv cache shouldn't wake up yet
-			resp, err = client.Post("http://localhost/wake_up?tags=weights", "", nil)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(resp.StatusCode).To(Equal(http.StatusOK))
-
-			checkSimSleeping(client, false)
-
-			// Send a request
-			go sendTextCompletionsRequest(ctx, client)
-
-			// Now wake up the cache
-			resp, err = client.Post("http://localhost/wake_up?tags=kv_cache", "", nil)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(resp.StatusCode).To(Equal(http.StatusOK))
-
-			checkSimSleeping(client, false)
-
-			// Send a request, check that a kv event BlockStored was sent,
-			// this checks that the kv cache was disabled after waking up with weights.
-			// The sequence number of the event is an addition check.
-			go func() {
-				time.Sleep(200 * time.Millisecond)
-				sendTextCompletionsRequest(ctx, client)
-			}()
-			msg, err = sub.Recv()
-			Expect(err).NotTo(HaveOccurred())
-			storedCount, _, _ = kvcache.CountKVEventBlocks(msg.Frames, topic, uint64(5))
-			Expect(storedCount).To(Equal(1))
-		})
+		// Send a request, check that a kv event BlockStored was sent,
+		// this checks that the kv cache was disabled after waking up with weights.
+		// The sequence number of the event is an addition check.
+		go func() {
+			time.Sleep(200 * time.Millisecond)
+			sendTextCompletionsRequest(ctx, client)
+		}()
+		msg, err = sub.Recv()
+		Expect(err).NotTo(HaveOccurred())
+		storedCount, _, _ = kvcache.CountKVEventBlocks(msg.Frames, topic, uint64(4))
+		Expect(storedCount).To(Equal(1))
 	})
 })

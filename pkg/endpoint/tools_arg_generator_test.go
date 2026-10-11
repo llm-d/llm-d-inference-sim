@@ -27,14 +27,12 @@ import (
 
 var _ = Describe("createArgument with under-specified schemas", func() {
 	var (
-		config *common.Configuration
+		config *common.ToolCallConfig
 		random *common.Random
 	)
 
 	BeforeEach(func() {
-		config = &common.Configuration{
-			Model:                                     "test",
-			ServedModelNames:                          []string{"test"},
+		config = &common.ToolCallConfig{
 			MinToolCallArrayParamLength:               1,
 			MaxToolCallArrayParamLength:               5,
 			MinToolCallIntegerParam:                   0,

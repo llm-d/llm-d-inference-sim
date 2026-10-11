@@ -20,21 +20,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
-	"net/http"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
+	"github.com/llm-d/llm-d-inference-sim/pkg/engine/vllm"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
 	"github.com/valyala/fasthttp"
-
-	"github.com/llm-d/llm-d-inference-sim/pkg/simulator"
 )
 
 var _ = Describe("Simulator requests scheduling", Ordered, func() {
@@ -293,45 +290,38 @@ var _ = Describe("Simulator requests scheduling", Ordered, func() {
 				}()
 			}
 
-			time.Sleep(2000 * time.Millisecond)
-			metricsResp, err := client.Get(metricsUrl)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
+			eventuallyMetricsWithin(client, 5*time.Second, func(g Gomega, metricsData string) {
+				// max-num-seqs is 12, so number of running requests should be 12
+				// and the number of waiting requests 1000-12=988
+				g.Expect(metricsData).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllm.VLLMReqRunningMetricName, 12)))
+				g.Expect(metricsData).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllm.VLLMReqWaitingMetricName, 988)))
 
-			data, err := io.ReadAll(metricsResp.Body)
-			Expect(err).NotTo(HaveOccurred())
-			metrics := string(data)
+				// max-loras is 2, so the last lora metric should be:
+				// running: two loras (doesn't matter which two)
+				// waiting: all the five loras
+				// (there can be more than one metric with the same timestamp, therefore we check all of them)
+				lastLoraMetrics, err := getLastLoraMetrics(strings.Split(metricsData, "\n"))
+				g.Expect(err).NotTo(HaveOccurred())
 
-			// max-num-seqs is 12, so number of running requests should be 12
-			// and the number of waiting requests 1000-12=988
-			Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModelName, simulator.ReqRunningMetricName, 12)))
-			Expect(metrics).To(ContainSubstring(getCountMetricLine(common.TestModelName, simulator.ReqWaitingMetricName, 988)))
-
-			// max-loras is 2, so the last lora metric should be:
-			// running: two loras (doesn't matter which two)
-			// waiting: all the five loras
-			// (there can be more than one metric with the same timestamp, therefore we check all of them)
-			lastLoraMetrics, err := getLastLoraMetrics(strings.Split(string(data), "\n"))
-			Expect(err).NotTo(HaveOccurred())
-
-			allLoras := []string{"lora1", "lora2", "lora3", "lora4", "lora0"}
-			Expect(
-				isLoraMetricPresent(lastLoraMetrics, []string{"lora1", "lora2"}, allLoras) ||
-					isLoraMetricPresent(lastLoraMetrics, []string{"lora1", "lora3"}, allLoras) ||
-					isLoraMetricPresent(lastLoraMetrics, []string{"lora1", "lora4"}, allLoras) ||
-					isLoraMetricPresent(lastLoraMetrics, []string{"lora1", "lora0"}, allLoras) ||
-					isLoraMetricPresent(lastLoraMetrics, []string{"lora3", "lora2"}, allLoras) ||
-					isLoraMetricPresent(lastLoraMetrics, []string{"lora4", "lora2"}, allLoras) ||
-					isLoraMetricPresent(lastLoraMetrics, []string{"lora0", "lora2"}, allLoras) ||
-					isLoraMetricPresent(lastLoraMetrics, []string{"lora3", "lora4"}, allLoras) ||
-					isLoraMetricPresent(lastLoraMetrics, []string{"lora3", "lora0"}, allLoras) ||
-					isLoraMetricPresent(lastLoraMetrics, []string{"lora4", "lora0"}, allLoras)).
-				To(BeTrue())
+				allLoras := []string{"lora1", "lora2", "lora3", "lora4", "lora0"}
+				g.Expect(
+					isLoraMetricPresent(lastLoraMetrics, []string{"lora1", "lora2"}, allLoras) ||
+						isLoraMetricPresent(lastLoraMetrics, []string{"lora1", "lora3"}, allLoras) ||
+						isLoraMetricPresent(lastLoraMetrics, []string{"lora1", "lora4"}, allLoras) ||
+						isLoraMetricPresent(lastLoraMetrics, []string{"lora1", "lora0"}, allLoras) ||
+						isLoraMetricPresent(lastLoraMetrics, []string{"lora3", "lora2"}, allLoras) ||
+						isLoraMetricPresent(lastLoraMetrics, []string{"lora4", "lora2"}, allLoras) ||
+						isLoraMetricPresent(lastLoraMetrics, []string{"lora0", "lora2"}, allLoras) ||
+						isLoraMetricPresent(lastLoraMetrics, []string{"lora3", "lora4"}, allLoras) ||
+						isLoraMetricPresent(lastLoraMetrics, []string{"lora3", "lora0"}, allLoras) ||
+						isLoraMetricPresent(lastLoraMetrics, []string{"lora4", "lora0"}, allLoras)).
+					To(BeTrue())
+			})
 		})
 
 		It("Should work correctly with many simultaneous requests with many workers", func() {
-			runningMetric := getCountMetricPrefix(common.TestModelName, simulator.ReqRunningMetricName)
-			waitingMetric := getCountMetricPrefix(common.TestModelName, simulator.ReqWaitingMetricName)
+			runningMetric := getCountMetricPrefix(common.TestModelName, vllm.VLLMReqRunningMetricName)
+			waitingMetric := getCountMetricPrefix(common.TestModelName, vllm.VLLMReqWaitingMetricName)
 			ctx := context.TODO()
 			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
 				"--time-to-first-token", "2s", "--time-to-first-token-std-dev", "600ms",
@@ -369,26 +359,21 @@ var _ = Describe("Simulator requests scheduling", Ordered, func() {
 				}()
 			}
 
-			time.Sleep(400 * time.Millisecond)
-			metricsResp, err := client.Get(metricsUrl)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
-
-			data, err := io.ReadAll(metricsResp.Body)
-			Expect(err).NotTo(HaveOccurred())
-			metrics := strings.Split(string(data), "\n")
-
 			// max-num-seqs is 1000, so number of running requests should be 1000
 			// and the number of waiting requests 2000-1000=2000
-			runningStr := findMetric(metrics, runningMetric)
-			Expect(runningStr).NotTo(Equal(""))
-			running, err := strconv.Atoi(runningStr)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(running).To(Equal(1000))
-			waitingStr := findMetric(metrics, waitingMetric)
-			waiting, err := strconv.Atoi(waitingStr)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(waiting).To(Equal(1000))
+			eventuallyMetrics(client, func(g Gomega, metricsData string) {
+				metricsLines := strings.Split(metricsData, "\n")
+
+				runningStr := findMetric(metricsLines, runningMetric)
+				g.Expect(runningStr).NotTo(Equal(""))
+				running, err := strconv.Atoi(runningStr)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(running).To(Equal(1000))
+				waitingStr := findMetric(metricsLines, waitingMetric)
+				waiting, err := strconv.Atoi(waitingStr)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(waiting).To(Equal(1000))
+			})
 
 			time.Sleep(1500 * time.Millisecond)
 
@@ -410,39 +395,32 @@ var _ = Describe("Simulator requests scheduling", Ordered, func() {
 					Expect(err).NotTo(HaveOccurred())
 				}()
 			}
-			time.Sleep(400 * time.Millisecond)
-			metricsResp, err = client.Get(metricsUrl)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
-
-			data, err = io.ReadAll(metricsResp.Body)
-			Expect(err).NotTo(HaveOccurred())
-			metrics = strings.Split(string(data), "\n")
 
 			// We sent 2500 requests, after about 2.5 seconds
 			// number of running requests should be about 1000
 			// and the number of waiting requests should be less than 1000.
-			waitingStr = findMetric(metrics, waitingMetric)
-			waiting, err = strconv.Atoi(waitingStr)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(waiting).To(BeNumerically("<", 1000))
+			var waiting int
+			eventuallyMetrics(client, func(g Gomega, metricsData string) {
+				waitingStr := findMetric(strings.Split(metricsData, "\n"), waitingMetric)
+				parsed, err := strconv.Atoi(waitingStr)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(parsed).To(BeNumerically("<", 1000))
+				waiting = parsed
+			})
 
-			// Wait another second
-			time.Sleep(1000 * time.Millisecond)
-			metricsResp, err = client.Get(metricsUrl)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
-			data, err = io.ReadAll(metricsResp.Body)
-			Expect(err).NotTo(HaveOccurred())
-			metrics = strings.Split(string(data), "\n")
+			// Wait another second, so the comparison below sees a drained queue
+			// rather than the sample just taken.
+			time.Sleep(time.Second)
 
 			// The number of running requests should be about 1000
 			// and the number of waiting requests should be less than the
 			// previous number of waiting requests.
-			waitingStr = findMetric(metrics, waitingMetric)
-			newWaiting, err := strconv.Atoi(waitingStr)
-			Expect(err).NotTo(HaveOccurred())
-			Expect(newWaiting).To(BeNumerically("<=", waiting))
+			eventuallyMetrics(client, func(g Gomega, metricsData string) {
+				waitingStr := findMetric(strings.Split(metricsData, "\n"), waitingMetric)
+				newWaiting, err := strconv.Atoi(waitingStr)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(newWaiting).To(BeNumerically("<=", waiting))
+			})
 
 			wg.Wait()
 		})

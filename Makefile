@@ -41,6 +41,8 @@ BUILDER := $(shell command -v buildah >/dev/null 2>&1 && echo buildah || echo $(
 
 VLLM_RENDER_IMAGE ?= vllm/vllm-openai-cpu:v0.21.0
 RENDER_PORT ?= 8082
+# Extra `vllm launch render` options, e.g. tool calling: --enable-auto-tool-choice --tool-call-parser hermes
+RENDER_ARGS ?=
 
 .PHONY: help
 help: ## Print help
@@ -102,8 +104,8 @@ vulncheck: check-go ## Run govulncheck
 	$(LOCALBIN)/govulncheck ./...
 
 .PHONY: check-latest-tags
-check-latest-tags: ## Warn on YAML using image :latest tag
-	@./scripts/check-latest-tags.sh
+check-latest-tags: ## Reject YAML using image :latest tags
+	@./scripts/check-latest-tags.sh --strict
 
 LINT_ARGS ?=
 ifeq ($(LINT_NEW_ONLY),true)
@@ -175,7 +177,7 @@ check-builder:
 .PHONY: run-render
 run-render: ## Run vLLM renderer using $(CONTAINER_TOOL)
 	@echo "INFO: run vLLM render"
-	$(CONTAINER_TOOL) run --rm  -p $(RENDER_PORT):$(RENDER_PORT) --entrypoint vllm $(VLLM_RENDER_IMAGE) launch render $(MODEL_NAME) --port=$(RENDER_PORT)
+	$(CONTAINER_TOOL) run --rm  -p $(RENDER_PORT):$(RENDER_PORT) --entrypoint vllm $(VLLM_RENDER_IMAGE) launch render $(MODEL_NAME) --port=$(RENDER_PORT) $(RENDER_ARGS)
 
 
 .PHONY: check-alias

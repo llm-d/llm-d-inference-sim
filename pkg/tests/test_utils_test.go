@@ -21,6 +21,7 @@ package tests
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/json"
@@ -32,6 +33,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -40,6 +42,7 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/communication"
+	"github.com/llm-d/llm-d-inference-sim/pkg/engine"
 	"github.com/llm-d/llm-d-inference-sim/pkg/engine/vllm"
 	"github.com/llm-d/llm-d-inference-sim/pkg/simulator"
 	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
@@ -55,15 +58,69 @@ import (
 )
 
 const (
-	baseURL              = "http://localhost/v1"
-	testUserMessage      = "This is a test."
-	metricsUrl           = "http://localhost/metrics"
-	updateFakeMetricsUrl = "http://localhost/fake_metrics"
-	adminConfigURL       = "http://localhost/admin/config"
+	baseURL         = "http://localhost/v1"
+	testUserMessage = "This is a test."
+	metricsUrl      = "http://localhost/metrics"
+	adminConfigURL  = "http://localhost/admin/config"
 )
 
 var userMsgTokens int64
 var userMsgChatTokens int64
+
+// scrapeMetrics reads /metrics and returns the body, asserting the call
+// succeeded against the passed-in Gomega so it can be used inside a polling
+// closure.
+func scrapeMetrics(g gomega.Gomega, client *http.Client) string {
+	resp, err := client.Get(metricsUrl)
+	g.Expect(err).NotTo(gomega.HaveOccurred())
+	defer func() { _ = resp.Body.Close() }()
+	g.Expect(resp.StatusCode).To(gomega.Equal(http.StatusOK))
+
+	data, err := io.ReadAll(resp.Body)
+	g.Expect(err).NotTo(gomega.HaveOccurred())
+	return string(data)
+}
+
+// sampleMetrics scrapes /metrics once. For tests that sample a time-varying
+// fake-metrics generator on a fixed schedule, where the sampling cadence is
+// the thing under test and retrying would change what is measured. Everything
+// else wants eventuallyMetrics or consistentlyMetrics.
+func sampleMetrics(client *http.Client) string {
+	return scrapeMetrics(gomega.Default, client)
+}
+
+// eventuallyMetrics scrapes /metrics until check passes, for assertions that
+// metrics converge on a value once asynchronous updates land.
+func eventuallyMetrics(client *http.Client, check func(g gomega.Gomega, metricsData string)) {
+	eventuallyMetricsWithin(client, 2*time.Second, check)
+}
+
+// eventuallyMetricsWithin is eventuallyMetrics with an explicit timeout, for
+// states that take longer to reach than the default allows.
+func eventuallyMetricsWithin(client *http.Client, timeout time.Duration, check func(g gomega.Gomega, metricsData string)) {
+	gomega.Eventually(func(g gomega.Gomega) {
+		check(g, scrapeMetrics(g, client))
+	}).WithTimeout(timeout).WithPolling(25 * time.Millisecond).Should(gomega.Succeed())
+}
+
+// consistentlyMetrics requires check to hold on every scrape for the full
+// duration, for assertions that a value stays within a range or does not
+// change at all. Eventually would retry a violating sample away.
+func consistentlyMetrics(client *http.Client, check func(g gomega.Gomega, metricsData string)) {
+	gomega.Consistently(func(g gomega.Gomega) {
+		check(g, scrapeMetrics(g, client))
+	}).WithTimeout(time.Second).WithPolling(50 * time.Millisecond).Should(gomega.Succeed())
+}
+
+// eventuallyThenConsistentlyMetrics waits for check to hold and then requires
+// it to keep holding. Use it after a fake-metrics update: POST /admin/config
+// returns once the update is enqueued, and the updater goroutines unregister
+// each collector before recreating it, so a bare consistentlyMetrics can scrape
+// the window where a metric reads as absent or still carries its old value.
+func eventuallyThenConsistentlyMetrics(client *http.Client, check func(g gomega.Gomega, metricsData string)) {
+	eventuallyMetrics(client, check)
+	consistentlyMetrics(client, check)
+}
 
 // Starts server in the given mode, no additional arguments or environment variables
 func startServer(ctx context.Context, mode string) (*http.Client, error) {
@@ -88,6 +145,137 @@ func startServerWithArgsAndEnv(ctx context.Context, mode string, args []string, 
 	return c, err
 }
 
+// resolveEngine picks the engine backend the same way main does, so a test
+// that passes --engine in its args gets that engine rather than the default.
+// Callers must set os.Args first, since that is where the engine name is read
+// from.
+func resolveEngine() (engine.Engine, error) {
+	name, err := common.ResolveEngineName()
+	if err != nil {
+		return nil, err
+	}
+	return engine.Select(name)
+}
+
+// suiteEngine is the engine the suite itself was invoked with, so SIM_ENGINE
+// still selects one for the specs that do not name an engine. Resolved once,
+// before any spec has rewritten os.Args; an unresolvable name is left to fail
+// where a spec starts a server, with the error the server itself reports.
+var suiteEngine = func() string {
+	name, err := common.ResolveEngineName()
+	if err != nil {
+		return common.DefaultEngineName
+	}
+	return name
+}()
+
+// currentEngine is the engine the simulator is started with when a spec's own
+// arguments do not name one. forEachEngine flips it, so a spec covers several
+// engines without threading the name through its arguments.
+var currentEngine = suiteEngine
+
+// forEachEngine wraps a container body so it runs once per registered engine.
+// For specs that exercise only the engine-neutral surface: the
+// OpenAI-compatible endpoints, the latency model, and response generation. A
+// spec asserting on metrics, LoRA adapters, the KV cache, or an engine's native
+// routes must stay outside it, since those are what an engine owns.
+func forEachEngine(body func()) func() {
+	return func() {
+		for _, name := range engine.Names() {
+			ginkgo.Context("engine "+name, func() {
+				ginkgo.BeforeEach(func() {
+					currentEngine = name
+					ginkgo.DeferCleanup(func() { currentEngine = suiteEngine })
+				})
+				body()
+			})
+		}
+	}
+}
+
+// flatError holds the fields an engine may put at the top level of an error
+// body instead of inside an "error" envelope. The OpenAI client fills its own
+// Message and Type from that envelope alone, which sglang does not use for a
+// non-streaming response, so a spec that runs under both engines must read
+// neither field directly.
+type flatError struct {
+	Message string `json:"message"`
+	Type    string `json:"type"`
+}
+
+// readFlatError parses the body of apiErr, restoring it afterwards so that
+// reading one field does not consume the body the next reader needs.
+func readFlatError(apiErr *openai.Error) flatError {
+	var parsed flatError
+	if apiErr.Response == nil || apiErr.Response.Body == nil {
+		return parsed
+	}
+	body, err := io.ReadAll(apiErr.Response.Body)
+	if err != nil {
+		return parsed
+	}
+	apiErr.Response.Body = io.NopCloser(bytes.NewReader(body))
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return flatError{}
+	}
+	return parsed
+}
+
+// errorMessage returns the human-readable message of an API error, whichever
+// error wire format the active engine emitted.
+func errorMessage(apiErr *openai.Error) string {
+	if apiErr.Message != "" {
+		return apiErr.Message
+	}
+	return readFlatError(apiErr).Message
+}
+
+// errorType returns the error type of an API error, whichever error wire format
+// the active engine emitted.
+func errorType(apiErr *openai.Error) string {
+	if apiErr.Type != "" {
+		return apiErr.Type
+	}
+	return readFlatError(apiErr).Type
+}
+
+// engineFlags are the flags the registered engines declare for those fields (see
+// each engine's flags.go). A new engine's row belongs here along with it, which
+// is what every spec using fieldFlag then runs under.
+var engineFlags = map[string]map[string]string{
+	"vllm": {
+		common.FieldContextWindow: "--max-model-len",
+		common.FieldConcurrency:   "--max-num-seqs",
+		common.FieldQueueLength:   "--max-waiting-queue-length",
+	},
+	"sglang": {
+		common.FieldContextWindow: "--context-length",
+		common.FieldConcurrency:   "--max-running-requests",
+		common.FieldQueueLength:   "--max-queued-requests",
+	},
+}
+
+// engineFlag returns the flag that sets the given field under the engine the next
+// server is started with.
+func engineFlag(field string) string {
+	flag, known := engineFlags[currentEngine][field]
+	gomega.Expect(known).To(gomega.BeTrue(),
+		"the %s engine declares no %s flag in fieldFlags", currentEngine, field)
+	return flag
+}
+
+// apiErrorFromBody parses an error response body, which an engine frames either
+// inside an "error" envelope or with the error's own fields at the top level.
+func apiErrorFromBody(body []byte) api.Error {
+	var envelope api.ErrorResponse
+	if err := json.Unmarshal(body, &envelope); err == nil && envelope.Error.Code != 0 {
+		return envelope.Error
+	}
+	var flat api.Error
+	gomega.Expect(json.Unmarshal(body, &flat)).To(gomega.Succeed(), "body: %s", string(body))
+	return flat
+}
+
 // nolint
 func startServerHandle(ctx context.Context, mode string, args []string, envs map[string]string) (*simulator.Simulator,
 	*communication.Communication, *http.Client, error) {
@@ -105,6 +293,12 @@ func startServerHelper(ctx context.Context, mode string, args []string, envs map
 		os.Args = args
 	} else {
 		os.Args = []string{"cmd", "--model", common.TestModelName, "--mode", mode}
+	}
+	// Appended rather than built into the args above, so a spec keeps its own
+	// --engine when it has one and every other spec follows forEachEngine.
+	// Copied first, since os.Args may alias the caller's own slice.
+	if len(common.GetParamValueFromArgs("engine")) == 0 {
+		os.Args = append(slices.Clone(os.Args), "--engine", currentEngine)
 	}
 
 	if envs != nil {
@@ -127,7 +321,10 @@ func startServerHelper(ctx context.Context, mode string, args []string, envs map
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	eng := vllm.New()
+	eng, err := resolveEngine()
+	if err != nil {
+		return nil, nil, nil, err
+	}
 	config, err := common.ParseCommandParamsAndLoadConfig(eng)
 	if err != nil {
 		return nil, nil, nil, err
@@ -135,23 +332,13 @@ func startServerHelper(ctx context.Context, mode string, args []string, envs map
 	s.Context.SetConfig(config)
 	s.Context.Engine = eng
 
-	// Initialize tokenizer based on configuration
-	if config.ForceDummyTokenizer {
-		// When force-dummy-tokenizer is set, create the tokenizer using tokenizer.New()
-		// which will respect the flag and create a SimpleTokenizer
-		s.Context.Tokenizer, err = tokenizer.New(ctx, config, logger)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-	} else {
-		// Use test tokenizers for normal test cases
-		gomega.Expect(config.Model).To(gomega.BeElementOf(common.TestModelName, common.QwenModelName))
-		switch config.Model {
-		case common.TestModelName:
-			s.Context.Tokenizer = tokenizerMngr.TestTokenizer()
-		case common.QwenModelName:
-			s.Context.Tokenizer = tokenizerMngr.RealTokenizer()
-		}
+	// Use test tokenizers for normal test cases.
+	gomega.Expect(config.Model).To(gomega.BeElementOf(common.TestModelName, common.QwenModelName))
+	switch config.Model {
+	case common.TestModelName:
+		s.Context.Tokenizer = tokenizerMngr.TestTokenizer()
+	case common.QwenModelName:
+		s.Context.Tokenizer = tokenizerMngr.RealTokenizer()
 	}
 
 	// calculate number of tokens for user message,
@@ -164,7 +351,7 @@ func startServerHelper(ctx context.Context, mode string, args []string, envs map
 	messages := []api.Message{
 		{Role: api.RoleUser,
 			Content: api.ChatComplContent{Raw: testUserMessage}}}
-	tokens, _, _, err = s.Context.Tokenizer.RenderMessages(messages)
+	tokens, _, _, err = s.Context.Tokenizer.RenderMessages(messages, api.RenderTools{})
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -224,7 +411,10 @@ func startDataParallelServers(ctx context.Context, args []string, envs ...map[st
 		}()
 	}
 
-	eng := vllm.New()
+	eng, err := resolveEngine()
+	if err != nil {
+		return nil, err
+	}
 	config, err := common.ParseCommandParamsAndLoadConfig(eng)
 	if err != nil {
 		return nil, err
@@ -475,11 +665,11 @@ func getLoraValidTimestamp(metrics []string, running, waiting []string) float64 
 	return *timestamp
 }
 
-func getLastLoraMetrics(metrics []string) ([]string, error) {
+func getLastLoraMetrics(metricsData []string) ([]string, error) {
 	lastTimestamp := float64(0)
 	var lastMetrics []string
-	for _, metric := range metrics {
-		if strings.HasPrefix(metric, simulator.LoRARequestsMetricName) {
+	for _, metric := range metricsData {
+		if strings.HasPrefix(metric, vllm.VLLMLoRARequestsMetricName) {
 			timestamp, err := extractTimestamp(metric)
 			if err != nil {
 				return nil, err
@@ -624,7 +814,7 @@ func getFloatBucketMetricPrefix(model string, metric string, bucketBoundary floa
 // bucketBoundary the upper boundary of the required bucket
 // prevBoundary the upper boundary of the previous bucket
 // expectedValue expected value in the histogram
-func checkBucketBoundary(metrics string, modelName string, metricName string, bucketBoundary float64,
+func checkBucketBoundary(g gomega.Gomega, metrics string, modelName string, metricName string, bucketBoundary float64,
 	prevBoundary float64, expectedValue float64) {
 	if expectedValue > prevBoundary && bucketBoundary >= expectedValue && (bucketBoundary-expectedValue) < 0.005 {
 		// expected time is too close to the bucket's boundary
@@ -638,7 +828,7 @@ func checkBucketBoundary(metrics string, modelName string, metricName string, bu
 	if bucketBoundary > expectedValue {
 		expectedCount = 1
 	}
-	gomega.Expect(metrics).To(gomega.ContainSubstring(getFloatBucketMetricLine(modelName, metricName, bucketBoundary, expectedCount)))
+	g.Expect(metrics).To(gomega.ContainSubstring(getFloatBucketMetricLine(modelName, metricName, bucketBoundary, expectedCount)))
 }
 
 // checkLatencyMetrics sends /metrics request and checks that latency related values are valid
@@ -650,16 +840,6 @@ func checkBucketBoundary(metrics string, modelName string, metricName string, bu
 // interTokenLatency processing time per output token
 func checkLatencyMetrics(client *http.Client, modelName string, numOfInputTokens int, numOfOutputTokens int, ttft int,
 	prefillTimePerToken int, interTokenLatency int, kvcacheTransferLatency int, kvCacheTransferTimePerToken int, doRemotePrefill bool) {
-	// wait a little bit and check metrics
-	time.Sleep(300 * time.Millisecond)
-	metricsResp, err := client.Get(metricsUrl)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	gomega.Expect(metricsResp.StatusCode).To(gomega.Equal(http.StatusOK))
-
-	data, err := io.ReadAll(metricsResp.Body)
-	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-	metrics := string(data)
-
 	expectedPrefillTimeInSecs := 0.0
 	if doRemotePrefill {
 		// when doRemotePrefill is true, this means that this is decode request and prefill was executed on remote vllm
@@ -680,20 +860,22 @@ func checkLatencyMetrics(client *http.Client, modelName string, numOfInputTokens
 	expectedDecodeTimeInSecs := float64(interTokenLatency*(numOfOutputTokens-1)) / 1000
 	expectedE2ELatency := expectedPrefillTimeInSecs + expectedDecodeTimeInSecs
 
-	prevBoundary := math.Inf(-1)
+	eventuallyMetrics(client, func(g gomega.Gomega, metricsData string) {
+		prevBoundary := math.Inf(-1)
 
-	for _, bucketBoundary := range common.RequestLatencyBucketsBoundaries {
-		checkBucketBoundary(metrics, modelName, simulator.PrefillTimeMetricName, bucketBoundary, prevBoundary, expectedPrefillTimeInSecs)
-		checkBucketBoundary(metrics, modelName, simulator.DecodeTimeMetricName, bucketBoundary, prevBoundary, expectedDecodeTimeInSecs)
-		checkBucketBoundary(metrics, modelName, simulator.E2EReqLatencyMetricName, bucketBoundary, prevBoundary, expectedE2ELatency)
+		for _, bucketBoundary := range common.RequestLatencyBucketsBoundaries {
+			checkBucketBoundary(g, metricsData, modelName, vllm.VLLMPrefillTimeMetricName, bucketBoundary, prevBoundary, expectedPrefillTimeInSecs)
+			checkBucketBoundary(g, metricsData, modelName, vllm.VLLMDecodeTimeMetricName, bucketBoundary, prevBoundary, expectedDecodeTimeInSecs)
+			checkBucketBoundary(g, metricsData, modelName, vllm.VLLME2EReqLatencyMetricName, bucketBoundary, prevBoundary, expectedE2ELatency)
 
-		prevBoundary = bucketBoundary
-	}
-	// check the last bucket
-	lastBoundary := common.RequestLatencyBucketsBoundaries[len(common.RequestLatencyBucketsBoundaries)-1]
-	checkBucketBoundary(metrics, modelName, simulator.PrefillTimeMetricName, math.Inf(1), lastBoundary, expectedPrefillTimeInSecs)
-	checkBucketBoundary(metrics, modelName, simulator.DecodeTimeMetricName, math.Inf(1), lastBoundary, expectedDecodeTimeInSecs)
-	checkBucketBoundary(metrics, modelName, simulator.E2EReqLatencyMetricName, math.Inf(1), lastBoundary, expectedE2ELatency)
+			prevBoundary = bucketBoundary
+		}
+		// check the last bucket
+		lastBoundary := common.RequestLatencyBucketsBoundaries[len(common.RequestLatencyBucketsBoundaries)-1]
+		checkBucketBoundary(g, metricsData, modelName, vllm.VLLMPrefillTimeMetricName, math.Inf(1), lastBoundary, expectedPrefillTimeInSecs)
+		checkBucketBoundary(g, metricsData, modelName, vllm.VLLMDecodeTimeMetricName, math.Inf(1), lastBoundary, expectedDecodeTimeInSecs)
+		checkBucketBoundary(g, metricsData, modelName, vllm.VLLME2EReqLatencyMetricName, math.Inf(1), lastBoundary, expectedE2ELatency)
+	})
 }
 
 func ptr[T any](v T) *T {
@@ -754,7 +936,7 @@ func postAdminConfig(client *http.Client, body string) *http.Response {
 // renders the given messages using the test model
 func getChatPromptTokensCountForTestModel(message string) int64 {
 	messages := []api.Message{{Role: api.RoleUser, Content: api.ChatComplContent{Raw: message}}}
-	tokens, _, _, err := tokenizerMngr.TestTokenizer().RenderMessages(messages)
+	tokens, _, _, err := tokenizerMngr.TestTokenizer().RenderMessages(messages, api.RenderTools{})
 	gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
 
 	return int64(len(tokens))
@@ -766,14 +948,4 @@ func getTextPromptTokensCountForTestModel(prompt string) int64 {
 	gomega.Expect(err).ShouldNot(gomega.HaveOccurred())
 
 	return int64(len(tokens))
-}
-
-// writeTestConfig writes a test configuration file
-func writeTestConfig(path string, content string) error {
-	return os.WriteFile(path, []byte(content), 0644)
-}
-
-// removeTestConfig removes a test configuration file
-func removeTestConfig(path string) error {
-	return os.Remove(path)
 }

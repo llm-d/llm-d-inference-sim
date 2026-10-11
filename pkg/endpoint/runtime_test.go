@@ -22,7 +22,7 @@ import (
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
-	"github.com/llm-d/llm-d-inference-sim/pkg/kvcache"
+	"github.com/llm-d/llm-d-inference-sim/pkg/metrics"
 	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 )
 
@@ -44,8 +44,8 @@ func (f *fakeRuntime) RequestStarted(req api.Request)    {}
 func (f *fakeRuntime) GetResponseTokens(req api.Request) (*api.Tokenized, string, error) {
 	return nil, "", nil
 }
-func (f *fakeRuntime) KVCacheOnRequestStart(req api.Request) (kvcache.PrefixCacheStats, *api.Error) {
-	return kvcache.PrefixCacheStats{}, nil
+func (f *fakeRuntime) KVCacheOnRequestStart(req api.Request) (metrics.PrefixCacheQueried, *api.Error) {
+	return metrics.PrefixCacheQueried{}, nil
 }
 func (f *fakeRuntime) KVCacheOnRequestEnd(requestID string)            {}
 func (f *fakeRuntime) Sleep() bool                                     { return false }
@@ -57,6 +57,5 @@ func (f *fakeRuntime) MooncakeEngineMap() map[string]map[string]string { return 
 func (f *fakeRuntime) CreateEmbeddings(req *api.EmbeddingRequest) (*api.EmbeddingResponse, *api.Error) {
 	return nil, nil
 }
-func (f *fakeRuntime) CreateModelsResponse() *api.ModelsResponse   { return nil }
-func (f *fakeRuntime) ApplyConfigUpdate(body []byte) error         { return nil }
-func (f *fakeRuntime) UpdateFakeMetricsFromBody(body []byte) error { return nil }
+func (f *fakeRuntime) CreateModelsResponse() *api.ModelsResponse { return nil }
+func (f *fakeRuntime) ApplyConfigUpdate(body []byte) error       { return nil }

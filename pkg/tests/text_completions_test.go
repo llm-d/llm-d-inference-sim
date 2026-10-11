@@ -41,7 +41,7 @@ import (
 const prompt1 = "What is the weather like in New York today?"
 const prompt2 = "I hear it's very cold."
 
-var _ = Describe("Simulator", func() {
+var _ = Describe("Simulator", forEachEngine(func() {
 
 	DescribeTable("text completions streaming",
 		func(model string, mode string) {
@@ -204,7 +204,7 @@ var _ = Describe("Simulator", func() {
 	DescribeTable("text completions with n parameter",
 		func(mode string, n int) {
 			ctx := context.TODO()
-			args := []string{"cmd", "--model", common.TestModelName, "--mode", mode, "--max-num-seqs", "10"}
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", mode, engineFlag(common.FieldConcurrency), "10"}
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -247,7 +247,7 @@ var _ = Describe("Simulator", func() {
 	DescribeTable("text completions streaming with n parameter",
 		func(mode string, n int) {
 			ctx := context.TODO()
-			args := []string{"cmd", "--model", common.TestModelName, "--mode", mode, "--max-num-seqs", "10"}
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", mode, engineFlag(common.FieldConcurrency), "10"}
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -303,7 +303,7 @@ var _ = Describe("Simulator", func() {
 
 	It("text completions with array prompt and n parameter", func() {
 		ctx := context.TODO()
-		args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho, "--max-num-seqs", "10"}
+		args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho, engineFlag(common.FieldConcurrency), "10"}
 		client, err := startServerWithArgs(ctx, args)
 		Expect(err).NotTo(HaveOccurred())
 
@@ -333,7 +333,7 @@ var _ = Describe("Simulator", func() {
 		Expect(resp.Choices).To(HaveLen(totalChoices))
 
 		// In echo mode, each group of n choices for a prompt should echo that prompt.
-		// Prompt 0 → choices 0..n-1, Prompt 1 → choices n..2n-1.
+		// Prompt 0 -> choices 0..n-1, Prompt 1 -> choices n..2n-1.
 		for i, c := range resp.Choices {
 			Expect(c.Index).To(BeEquivalentTo(i))
 			promptIdx := int(c.Index) / n
@@ -586,13 +586,13 @@ var _ = Describe("Simulator", func() {
 	DescribeTable("text completions with array prompt fail-fast when one sub-request errors",
 		func(streaming bool) {
 			ctx := context.TODO()
-			// max-num-seqs=1 + max-waiting-queue-length=1 means only the first two
+			// A concurrency limit of 1 and a queue limit of 1 mean only the first two
 			// sub-requests fit (1 running + 1 waiting). The third hits the queue-full
 			// error. TTFT is high enough that the queue-full error arrives before any
 			// token chunks would.
 			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
 				"--time-to-first-token", "3s",
-				"--max-num-seqs", "1", "--max-waiting-queue-length", "1"}
+				engineFlag(common.FieldConcurrency), "1", engineFlag(common.FieldQueueLength), "1"}
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -622,14 +622,14 @@ var _ = Describe("Simulator", func() {
 				// var oaiErr *openai.Error
 				// Expect(errors.As(stream.Err(), &oaiErr)).To(BeTrue())
 				// Expect(oaiErr.StatusCode).To(Equal(fasthttp.StatusTooManyRequests))
-				// Expect(oaiErr.Message).To(ContainSubstring("waiting requests queue is full"))
+				// Expect(errorMessage(oaiErr)).To(ContainSubstring("waiting requests queue is full"))
 			} else {
 				_, err := openaiclient.Completions.New(ctx, params)
 				Expect(err).To(HaveOccurred())
 				var oaiErr *openai.Error
 				Expect(errors.As(err, &oaiErr)).To(BeTrue())
 				Expect(oaiErr.StatusCode).To(Equal(fasthttp.StatusTooManyRequests))
-				Expect(oaiErr.Message).To(ContainSubstring("waiting requests queue is full"))
+				Expect(errorMessage(oaiErr)).To(ContainSubstring("waiting requests queue is full"))
 			}
 		},
 		Entry("non-streaming", false),
@@ -662,8 +662,8 @@ var _ = Describe("Simulator", func() {
 	It("text completions wire form accepts both string and array prompts", func() {
 		// This test sends raw JSON (bypassing the OpenAI SDK's encoding) to pin
 		// down the dual-form contract on the `prompt` field directly:
-		//   - "prompt": "..."  → single-choice response.
-		//   - "prompt": [...]  → one choice per element, in order.
+		//   - "prompt": "..."  -> single-choice response.
+		//   - "prompt": [...]  -> one choice per element, in order.
 		// The X-Request-ID response header echoes the parent request id (the
 		// "-i" suffix is stamped on internal sub-request ids only).
 		ctx := context.TODO()
@@ -748,7 +748,7 @@ var _ = Describe("Simulator", func() {
 		var oaiErr *openai.Error
 		Expect(errors.As(err, &oaiErr)).To(BeTrue())
 		Expect(oaiErr.StatusCode).To(Equal(fasthttp.StatusBadRequest))
-		Expect(oaiErr.Message).To(ContainSubstring("prompt array must contain at least one prompt"))
+		Expect(errorMessage(oaiErr)).To(ContainSubstring("prompt array must contain at least one prompt"))
 
 		// Follow-up single-prompt request must still succeed — proves rejecting the
 		// bad request didn't affect the worker pool or response channel machinery.
@@ -779,7 +779,7 @@ var _ = Describe("Simulator", func() {
 		var oaiErr *openai.Error
 		Expect(errors.As(err, &oaiErr)).To(BeTrue())
 		Expect(oaiErr.StatusCode).To(Equal(fasthttp.StatusBadRequest))
-		Expect(oaiErr.Message).To(ContainSubstring("prompt must not contain an empty string"))
+		Expect(errorMessage(oaiErr)).To(ContainSubstring("prompt must not contain an empty string"))
 	})
 
 	It("text completions array containing an empty token-id array is rejected with 400", func() {
@@ -800,13 +800,13 @@ var _ = Describe("Simulator", func() {
 		var oaiErr *openai.Error
 		Expect(errors.As(err, &oaiErr)).To(BeTrue())
 		Expect(oaiErr.StatusCode).To(Equal(fasthttp.StatusBadRequest))
-		Expect(oaiErr.Message).To(ContainSubstring("prompt must not contain an empty token-id array"))
+		Expect(errorMessage(oaiErr)).To(ContainSubstring("prompt must not contain an empty token-id array"))
 	})
 
 	It("text completions array prompt in random mode yields per-choice content and aggregated usage", func() {
 		ctx := context.TODO()
 		args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
-			"--max-num-seqs", "3"}
+			engineFlag(common.FieldConcurrency), "3"}
 		client, err := startServerWithArgs(ctx, args)
 		Expect(err).NotTo(HaveOccurred())
 
@@ -854,7 +854,7 @@ var _ = Describe("Simulator", func() {
 		// that happens to generate an EOS at position 0 — so the assertion tolerates
 		// both, but at least one must be "length").
 		args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
-			"--max-num-seqs", "3"}
+			engineFlag(common.FieldConcurrency), "3"}
 		client, err := startServerWithArgs(ctx, args)
 		Expect(err).NotTo(HaveOccurred())
 
@@ -934,7 +934,7 @@ var _ = Describe("Simulator", func() {
 		ctx := context.TODO()
 		args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
 			"--time-to-first-token", "1s",
-			"--max-num-seqs", "1", "--max-waiting-queue-length", "1"}
+			engineFlag(common.FieldConcurrency), "1", engineFlag(common.FieldQueueLength), "1"}
 		client, err := startServerWithArgs(ctx, args)
 		Expect(err).NotTo(HaveOccurred())
 
@@ -1055,4 +1055,4 @@ var _ = Describe("Simulator", func() {
 		Entry(nil, common.ModeEcho, 2),   // with logprobs=2
 		Entry(nil, common.ModeEcho, nil), // without logprobs
 	)
-})
+}))

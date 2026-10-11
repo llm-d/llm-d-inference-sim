@@ -21,7 +21,7 @@ import (
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
-	"github.com/llm-d/llm-d-inference-sim/pkg/kvcache"
+	"github.com/llm-d/llm-d-inference-sim/pkg/metrics"
 	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 )
 
@@ -46,7 +46,7 @@ type Runtime interface {
 	// simulator's configured dataset.
 	GetResponseTokens(req api.Request) (*api.Tokenized, string, error)
 	// KVCacheOnRequestStart records req's arrival in the KV cache, if enabled.
-	KVCacheOnRequestStart(req api.Request) (kvcache.PrefixCacheStats, *api.Error)
+	KVCacheOnRequestStart(req api.Request) (metrics.PrefixCacheQueried, *api.Error)
 	// KVCacheOnRequestEnd records the request's completion in the KV cache, if enabled.
 	KVCacheOnRequestEnd(requestID string)
 	// Sleep transitions the simulator into sleep mode. Returns whether it
@@ -74,6 +74,4 @@ type Runtime interface {
 	CreateModelsResponse() *api.ModelsResponse
 	// ApplyConfigUpdate validates and applies a partial admin-config update.
 	ApplyConfigUpdate(body []byte) error
-	// UpdateFakeMetricsFromBody applies a partial fake-metrics update.
-	UpdateFakeMetricsFromBody(body []byte) error
 }

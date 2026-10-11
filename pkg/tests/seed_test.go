@@ -26,7 +26,7 @@ import (
 	"github.com/openai/openai-go/v3"
 )
 
-var _ = Describe("Simulator with seed", func() {
+var _ = Describe("Simulator with seed", forEachEngine(func() {
 	firstText := ""
 	DescribeTable("text completions with the same seed",
 		// use a function so that httpClient is captured when running
@@ -90,7 +90,7 @@ var _ = Describe("Simulator with seed", func() {
 		Entry("seventh time text completion without seed", false),
 		Entry("eighth time text completion without seed", true),
 	)
-})
+}))
 
 func hasAtLeastTwoDifferentTexts(texts []string) bool {
 	unique := make(map[string]struct{})

@@ -21,6 +21,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/valyala/fasthttp"
+
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
@@ -47,14 +49,16 @@ func mustTool(name string) api.Tool {
 
 func newResponsesToolTestCtx(tools []api.Tool, choice api.ToolChoice, input []api.InputItem) *responsesReqCtx {
 	cfg := &common.Configuration{
-		MaxToolCallIntegerParam:                   100,
-		MinToolCallIntegerParam:                   0,
-		MaxToolCallNumberParam:                    100,
-		MinToolCallNumberParam:                    0,
-		MaxToolCallArrayParamLength:               5,
-		MinToolCallArrayParamLength:               1,
-		ToolCallNotRequiredParamProbability:       50,
-		ObjectToolCallNotRequiredParamProbability: 50,
+		ToolCalls: common.ToolCallConfig{
+			MaxToolCallIntegerParam:                   100,
+			MinToolCallIntegerParam:                   0,
+			MaxToolCallNumberParam:                    100,
+			MinToolCallNumberParam:                    0,
+			MaxToolCallArrayParamLength:               5,
+			MinToolCallArrayParamLength:               1,
+			ToolCallNotRequiredParamProbability:       50,
+			ObjectToolCallNotRequiredParamProbability: 50,
+		},
 	}
 	runtime := &fakeRuntime{
 		config:    cfg,
@@ -233,9 +237,9 @@ var _ = Describe("Responses convertInputToMessages", func() {
 		Expect(withTools[2].Role).To(Equal("tool"))
 		Expect(withTools[2].Content.Raw).To(Equal("sunny, 22C"))
 
-		tokensOnly, _, _, err := tok.RenderMessages(msgOnly)
+		tokensOnly, _, _, err := tok.RenderMessages(msgOnly, api.RenderTools{})
 		Expect(err).NotTo(HaveOccurred())
-		tokensWith, _, _, err := tok.RenderMessages(withTools)
+		tokensWith, _, _, err := tok.RenderMessages(withTools, api.RenderTools{})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(len(tokensWith)).To(BeNumerically(">", len(tokensOnly)))
 	})
@@ -281,7 +285,7 @@ var _ = Describe("Responses tokenizedPromptForEcho", func() {
 
 var _ = Describe("createSingleToolCall", func() {
 	It("never returns more than one call", func() {
-		cfg := &common.Configuration{
+		cfg := &common.ToolCallConfig{
 			MaxToolCallIntegerParam:                   100,
 			MinToolCallIntegerParam:                   0,
 			MaxToolCallNumberParam:                    100,
@@ -329,7 +333,7 @@ var _ = Describe("Responses instructions tokenization", func() {
 			expectedMessages = append(expectedMessages, api.Message{
 				Role: api.RoleUser, Content: api.ChatComplContent{Raw: "Hello world"},
 			})
-			expectedTokens, expectedStrings, _, err := tk.RenderMessages(expectedMessages)
+			expectedTokens, expectedStrings, _, err := tk.RenderMessages(expectedMessages, api.RenderTools{})
 			Expect(err).NotTo(HaveOccurred())
 			tokens, tokenStrings, _, err := ctx.encode()
 			Expect(err).NotTo(HaveOccurred())
@@ -340,4 +344,85 @@ var _ = Describe("Responses instructions tokenization", func() {
 		Entry("with instructions", "Reply in French"),
 		Entry("without instructions", ""),
 	)
+})
+
+var _ = Describe("Responses render", func() {
+	Describe("ValidateBody", func() {
+		It("rejects an empty input", func() {
+			req := &ResponsesRenderRequest{}
+			Expect(req.Unmarshal([]byte(`{"input":[]}`))).To(Succeed())
+			err := req.ValidateBody()
+			Expect(err).NotTo(BeNil())
+			Expect(err.Message).To(ContainSubstring("input must not be empty"))
+			Expect(err.Code).To(Equal(fasthttp.StatusBadRequest))
+		})
+
+		It("rejects previous_response_id", func() {
+			req := &ResponsesRenderRequest{}
+			Expect(req.Unmarshal([]byte(`{"input":"hello","previous_response_id":"resp_1"}`))).To(Succeed())
+			err := req.ValidateBody()
+			Expect(err).NotTo(BeNil())
+			Expect(err.Message).To(ContainSubstring("previous_response_id"))
+			Expect(err.Code).To(Equal(fasthttp.StatusBadRequest))
+		})
+
+		It("accepts a request without previous_response_id", func() {
+			req := &ResponsesRenderRequest{}
+			Expect(req.Unmarshal([]byte(`{"input":"hello"}`))).To(Succeed())
+			Expect(req.ValidateBody()).To(BeNil())
+		})
+	})
+
+	It("renders the same prompt as the generation path", func() {
+		tk := tokenizer.NewSimpleTokenizer()
+		renderReq := &ResponsesRenderRequest{}
+		Expect(renderReq.Unmarshal([]byte(`{
+			"input": [
+				{"type": "message", "role": "user",
+				 "content": [{"type": "input_text", "text": "weather?"}]},
+				{"type": "function_call", "call_id": "call_1",
+				 "name": "get_weather", "arguments": "{\"city\":\"Paris\"}"},
+				{"type": "function_call_output", "call_id": "call_1", "output": "sunny, 22C"}
+			],
+			"instructions": "Reply in French"
+		}`))).To(Succeed())
+
+		ctx := &responsesReqCtx{
+			baseRequestContext: baseRequestContext{runtime: &fakeRuntime{tokenizer: tk}},
+			req:                &renderReq.ResponsesRequest,
+		}
+		expectedTokens, _, _, err := ctx.encode()
+		Expect(err).NotTo(HaveOccurred())
+
+		tokens, features, err := renderReq.Render(tk)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(tokens).To(HaveLen(1))
+		Expect(tokens[0]).To(Equal(expectedTokens))
+		Expect(features).To(BeNil())
+	})
+})
+
+var _ = Describe("ResponsesRequest.ValidateBody", func() {
+	It("rejects an empty input", func() {
+		req := &ResponsesRequest{}
+		Expect(req.Unmarshal([]byte(`{"input":[]}`))).To(Succeed())
+		err := req.ValidateBody()
+		Expect(err).NotTo(BeNil())
+		Expect(err.Message).To(ContainSubstring("input must not be empty"))
+	})
+
+	It("rejects an empty input through Validate", func() {
+		req := &ResponsesRequest{}
+		Expect(req.Unmarshal([]byte(`{"input":[]}`))).To(Succeed())
+		err := req.Validate(nil)
+		Expect(err).NotTo(BeNil())
+		Expect(err.Message).To(ContainSubstring("input must not be empty"))
+	})
+
+	It("accepts previous_response_id: the stateless boundary is the render endpoint's", func() {
+		req := &ResponsesRequest{}
+		Expect(req.Unmarshal([]byte(`{"input":"hello","previous_response_id":"resp_1"}`))).To(Succeed())
+		Expect(req.PreviousResponseID).NotTo(BeNil())
+		Expect(req.ValidateBody()).To(BeNil())
+	})
 })

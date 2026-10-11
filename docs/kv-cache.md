@@ -11,10 +11,10 @@ The simulator includes a prefix-cache subsystem that mimics vLLM's KV cache beha
 
 ## Enabling KV cache
 
-Add `--enable-kvcache true` (CLI) or `enable-kvcache: true` (YAML config):
+Add `--enable-kvcache` (CLI) or `enable-kvcache: true` (YAML config):
 
 ```bash
-./bin/llm-d-inference-sim --model Qwen/Qwen2.5-1.5B-Instruct --enable-kvcache true
+./bin/llm-d-inference-sim --model Qwen/Qwen2.5-1.5B-Instruct --enable-kvcache
 ```
 
 **Prerequisites**:
@@ -33,9 +33,11 @@ The defaults below apply only once `enable-kvcache` is true. When it is `false` 
 |-----------|------|---------|-------------|
 | `enable-kvcache` | bool | `false` | Enable KV cache simulation |
 | `kv-cache-size` | int | `1024` | Maximum number of token blocks the cache can hold |
+| `kv-cache-dtype` | string | `auto` | Cache dtype exposed through the vLLM-compatible `cache_config_info` metric; this does not change simulation behavior |
 | `block-size` | int | `16` | Tokens per block; valid values: `8`, `16`, `32`, `64`, `128` |
 | `hash-seed` | string | value of `PYTHONHASHSEED` env var | Seed for block key hash generation; must match the seed used by real vLLM instances to ensure identical block hashes |
 | `zmq-endpoint` | string | `tcp://127.0.0.1:5557` | ZMQ address to publish events. The simulator either dials (active) or listens on (passive) this address. Addresses with "*", "::", "inproc://", and "ipc://" are assumed passive. |
+| `zmq-topic` | string | `""` (generated) | ZMQ topic KV-cache events are published under. Empty uses `kv@<pod-ip>:<serving-port>@<model>`; a non-empty value replaces it verbatim, matching vLLM's static `KVEventsConfig.topic`. Applies to replayed frames as well. All data-parallel ranks share a static topic. |
 | `event-batch-size` | int | `16` | Maximum number of events bundled into a single ZMQ message |
 | `use-vllm-map-event-format` | bool | `false` | Encode events as msgpack maps with named fields (vLLM PR #42892 format) instead of positional arrays. Set to `true` when the consumer expects the named-field schema. |
 | `kv-events-replay-endpoint` | string | `""` (disabled) | ZMQ ROUTER address to bind for KV events replay requests. See [KV events replay](#kv-events-replay). |
@@ -49,6 +51,7 @@ model: "Qwen/Qwen2.5-1.5B-Instruct"
 kvcache:
   enable-kvcache: true
   kv-cache-size: 2048
+  kv-cache-dtype: turboquant_4bit_nc
   block-size: 16
   hash-seed: "42"
   zmq-endpoint: "tcp://127.0.0.1:5557"
@@ -146,9 +149,10 @@ Emitted when new blocks are allocated for a request:
 | `parent_block_hash` | uint64 (or `null` in map format) | hash of the last already-cached block before these new blocks; `0` (legacy) or `null` (map format) when the request has no cached prefix |
 | `token_ids` | array of uint32 | tokens contained in these blocks |
 | `block_size` | int | tokens per block (mirrors `--block-size`) |
-| `lora_id` | int (optional) | LoRA adapter ID, omitted for base model requests |
+| `lora_id` | int (optional) | LoRA adapter ID, unset for base model requests |
 | `medium` | string (optional) | always `"GPU"` |
-| `lora_name` | string (optional) | LoRA adapter name, omitted for base model requests |
+| `lora_name` | string (optional) | LoRA adapter name, unset for base model requests |
+| `extra_keys` | array (optional) | one entry per stored block; for a salted text request, the first block carries `[cache_salt]` and subsequent entries are `nil`. Events extending a cached prefix inherit the salt through the parent hash |
 
 #### BlockRemoved
 
@@ -170,9 +174,9 @@ Emitted when the cache is fully discarded (see [Sleep mode](#sleep-mode-integrat
 
 #### Encoding formats
 
-**Legacy format** (default, `use-vllm-map-event-format: false`): each event is a msgpack **array**. The `tag` field is at position 0; all other fields follow in the order listed above. `parent_block_hash` is a `uint64` and is `0` when the request has no cached prefix.
+**Legacy format** (default, `use-vllm-map-event-format: false`): each event is a msgpack **array**. The `tag` field is at position 0; all other fields follow in the order listed above, so BlockStored is always 9 elements and BlockRemoved always 3. An array carries every field: the ones marked optional above are present as `null` rather than omitted. `parent_block_hash` is a `uint64` and is `0` when the request has no cached prefix.
 
-**Map format** (`use-vllm-map-event-format: true`): each event is a msgpack **map** with named string keys, matching the schema introduced in vLLM PR #42892 and consumed by `VLLMAdapter`. The `tag` field is keyed `"type"`. `parent_block_hash` is `null` (not `0`) when the request has no cached prefix; `VLLMAdapter` normalises `null` to `0` on the consumer side.
+**Map format** (`use-vllm-map-event-format: true`): each event is a msgpack **map** with named string keys, matching the schema introduced in vLLM PR #42892 and consumed by `VLLMAdapter`. The `tag` field is keyed `"type"`. Optional fields are omitted when unset, so an unsalted base-model BlockStored carries no `lora_id`, `lora_name`, or `extra_keys` key at all. `parent_block_hash` is `null` (not `0`) when the request has no cached prefix; `VLLMAdapter` normalises `null` to `0` on the consumer side.
 
 ### Event batching
 
@@ -302,3 +306,9 @@ env:
 ```
 
 Without `POD_IP`, the simulator will fail to start when `enable-kvcache: true`.
+
+### Cache salt
+
+The request field `cache_salt` scopes prefix-cache reuse: identical prompts with different non-empty salts occupy separate cache entries, while requests with the same salt can reuse their common prefix. An omitted, null, or empty salt uses the unsalted cache. Salted hashes also retain model separation.
+
+The salt is included in the first block's `extra_keys` in both vLLM event formats. A store event for a cached-prefix continuation does not repeat it. Engine block hashes are simulator-specific; consumers should use the event tokens and extra keys to compute their own lookup keys.

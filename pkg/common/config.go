@@ -20,13 +20,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"reflect"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
+	"github.com/spf13/pflag"
 	"gopkg.in/yaml.v3"
 )
 
@@ -58,10 +61,16 @@ const (
 	PerPromptTokenLatencyCalculator = "per-token"
 
 	DefaultDSTableName = "llmd"
+
+	// DefaultEngineName is the engine backend simulated when none is requested.
+	DefaultEngineName = "vllm"
+
+	// DefaultPort is the port the simulator listens on when none is configured.
+	DefaultPort = 8000
 )
 
 var (
-	requiredFinishReasons = []string{
+	RequiredFinishReasons = []string{
 		StopFinishReason,
 		LengthFinishReason,
 		ToolsFinishReason,
@@ -69,7 +78,7 @@ var (
 		CacheThresholdFinishReason,
 	}
 
-	validFinishReasons = map[string]struct{}{
+	ValidFinishReasons = map[string]struct{}{
 		StopFinishReason:           {},
 		LengthFinishReason:         {},
 		ToolsFinishReason:          {},
@@ -78,34 +87,75 @@ var (
 	}
 )
 
+// FakeMetrics is implemented by each engine's own fake-metrics configuration,
+// since the set of fields an engine can fake mirrors that engine's own real
+// metrics. Configuration.FakeMetrics holds this interface; the concrete
+// implementations live with their engine (vLLM's is in
+// pkg/engine/vllm/fakemetrics). The engine-neutral value primitives those
+// implementations are built from (FakeMetricWithFunction, FunctionInfo,
+// LorasMetrics) stay in this package.
+type FakeMetrics interface {
+	// Validate checks the fake-metrics configuration. Called by the active
+	// engine's ValidateConfig.
+	Validate() error
+	// New returns a fresh, zero-valued instance of the same concrete type.
+	// encoding/json cannot allocate a concrete type into a bare interface
+	// field on its own, so Configuration.Copy and Configuration.Update use
+	// New to pre-seed the target's FakeMetrics field before unmarshaling.
+	New() FakeMetrics
+}
+
 type Configuration struct {
+	// Model defines the current base model name
+	Model string `yaml:"model" json:"model"`
+	// EngineName is the inference engine backend being simulated. Resolved and
+	// checked against the set of registered engines before this Configuration
+	// is built (see ResolveEngineName and engine.Select).
+	EngineName string `yaml:"engine" json:"engine"`
+	// Mode defines the simulator response generation mode, valid values: echo, random
+	Mode string `yaml:"mode" json:"mode"`
+
 	// IP defines on which IP the simulator runs, loaded from env
 	IP string
 	// Port defines on which port the simulator runs
 	Port int `yaml:"port" json:"port"`
-	// Model defines the current base model name
-	Model string `yaml:"model" json:"model"`
+
 	// DisplayModelName defines the model name that will be shown in API responses
 	// If ServedModelNames are not set, it defaults to the value of Model
 	DisplayModelName string
 	// ServedModelNames is one or many model names exposed by the API
 	ServedModelNames []string `yaml:"served-model-name" json:"served-model-name"`
-	// MaxLoras defines maximum number of loaded LoRAs
-	MaxLoras int `yaml:"max-loras" json:"max-loras"`
-	// MaxCPULoras defines maximum number of LoRAs to store in CPU memory
-	MaxCPULoras int `yaml:"max-cpu-loras" json:"max-cpu-loras"`
+
+	// The three settings below are the ones the engines disagree on the name of.
+	// The core keeps the field, its default and its validation, and the active
+	// engine declares all three (see DeclareConfigIntField), which is what names
+	// them: yaml:"-" keeps the generic loader in load() from claiming any one
+	// engine's key, there is no core flag, and the json key is a placeholder
+	// that fieldNames replaces with the engine's name for external display.
+
 	// MaxNumSeqs is maximum number of sequences per iteration (the maximum
 	// number of inference requests that could be processed at the same time)
-	MaxNumSeqs int `yaml:"max-num-seqs" json:"max-num-seqs"`
+	MaxNumSeqs int `yaml:"-" json:"max-concurrent-requests"`
 	// MaxWaitingQueueLength defines maximum size of waiting requests queue
-	MaxWaitingQueueLength int `yaml:"max-waiting-queue-length" json:"max-waiting-queue-length"`
+	MaxWaitingQueueLength int `yaml:"-" json:"max-queue-length"`
 	// MaxModelLen is the model's context window, the maximum number of tokens
 	// in a single request including input and output. Default value is 1024.
-	MaxModelLen int `yaml:"max-model-len" json:"max-model-len"`
-	// LoraModulesString is a list of LoRA adapters as strings (YAML parse helper; omitted from external output)
-	LoraModulesString []string `yaml:"lora-modules" json:"-"`
-	// LoraModules is a list of LoRA adapters
-	LoraModules []LoraModule `json:"lora-modules"`
+	MaxModelLen int `yaml:"-" json:"context-window"`
+
+	// fieldNames records the name the active engine gave each of the three
+	// fields above, keyed by the field's json key, so that /admin/config and the
+	// startup log report them the way the running engine names them. Unexported,
+	// so it is neither loaded from a config file nor reported as a field of its
+	// own; Copy carries it by hand for that reason.
+	fieldNames map[string]string
+
+	// Lora groups the LoRA adapter settings. Constructed entirely by the active
+	// engine (see Engine.ApplyDefaults and Engine.BindFlags), since both the
+	// defaults and the CLI/YAML wire format for LoRA adapters are
+	// engine-specific; yaml:"-" stops the generic loader in load() from
+	// claiming the "lora" key and descending into a struct whose fields no
+	// longer carry the wire format's yaml tags.
+	Lora LoraConfig `yaml:"-" json:"lora"`
 
 	// PodNameSpace specifies the Kubernetes namespace in which the simulator pod is running.
 	// Useful for multi-namespace deployments and resource scoping.
@@ -115,10 +165,11 @@ type Configuration struct {
 	// Used for identification in Kubernetes environments.
 	// Set by env variable POD_NAME
 	PodName string
-	// VllmDevMode enables development mode for the vLLM simulator
-	// Allowing for additional debugging features during local development and testing.
-	// Set by env variable VLLM_SERVER_DEV_MODE
-	VllmDevMode bool
+	// DevMode enables the engine's development-only features, which is what
+	// gates sleep mode. Set by the active engine from its own environment
+	// variable (see Engine.ApplyEnv); an engine whose equivalent endpoints are
+	// always available sets it unconditionally.
+	DevMode bool
 
 	// Latencies groups the request-latency simulation parameters. YAML and JSON
 	// both nest it under "latencies"; both a YAML config file (via load's
@@ -126,18 +177,179 @@ type Configuration struct {
 	// foldFlatLatencies) still accept the legacy flat top-level keys too,
 	// folded into "latencies" before unmarshalling into a Configuration.
 	Latencies LatenciesConfig `yaml:"latencies" json:"latencies"`
-
 	// LatencyCalculator is the name of the latency calculator to use in the simulation of the response latencies.
 	// The default calculation is based on the current load of the simulator and on the configured latency
 	// parameters, e.g., time-to-first-token and prefill-time-per-token. It is a top-level flag, not part of
 	// LatenciesConfig, since it selects a calculation strategy rather than a latency value.
 	LatencyCalculator string `yaml:"latency-calculator" json:"latency-calculator" admin:"configurable" rebuild:"latency"`
 
-	// Mode defines the simulator response generation mode, valid values: echo, random
-	Mode string `yaml:"mode" json:"mode"`
 	// Seed defines random seed for operations
 	Seed int64 `yaml:"seed" json:"seed"`
 
+	// ToolCalls groups the tool-call generation parameters.
+	ToolCalls ToolCallConfig `yaml:"tool-calls" json:"tool-calls"`
+
+	// GlobalCacheHitThreshold is the default cache hit threshold (0-1] for all requests.
+	// If a request specifies cache_hit_threshold, it takes precedence over this global value.
+	GlobalCacheHitThreshold float64 `yaml:"global-cache-hit-threshold" json:"global-cache-hit-threshold"`
+
+	// KVCache groups KV-cache sizing, hashing, and ZMQ event settings. KV-cache
+	// transfer latencies and the global cache-hit threshold are configured
+	// separately. Constructed entirely by the active engine (see
+	// Engine.ApplyDefaults and Engine.BindFlags); yaml:"-" stops the generic
+	// loader in load() from claiming the "kvcache" key and descending into a
+	// struct whose fields no longer carry the wire format's yaml tags.
+	KVCache KVCacheConfig `yaml:"-" json:"kvcache"`
+
+	// FakeMetrics is a set of metrics to send to Prometheus instead of the real data.
+	// Its wire format is engine-owned (see pkg/engine/vllm), not common's, so it
+	// is excluded from the generic YAML unmarshal in load() (yaml:"-").
+	FakeMetrics FakeMetrics `yaml:"-" json:"fake-metrics" admin:"configurable"`
+	// FakeMetricsRefreshInterval defines how often function-based fake metrics are recalculated, defaults to 100ms
+	FakeMetricsRefreshInterval time.Duration `yaml:"fake-metrics-refresh-interval" json:"fake-metrics-refresh-interval"`
+
+	// FailureInjectionRate is the probability (0-100) of injecting failures
+	FailureInjectionRate int `yaml:"failure-injection-rate" json:"failure-injection-rate" admin:"configurable"`
+	// FailureTypes is a list of specific failure types to inject (empty means all types)
+	FailureTypes []string `yaml:"failure-types" json:"failure-types" admin:"configurable"`
+
+	// DPSize is data parallel size - a number of ranks to run, minimum is 1, maximum is 8, default is 1
+	DPSize int `yaml:"data-parallel-size" json:"data-parallel-size"`
+	// Rank specifies the rank of this instance. Only used when running Data Parallel
+	// ranks as separate processes. If set, data-parallel-size is ignored
+	Rank int `yaml:"data-parallel-rank" json:"data-parallel-rank"`
+
+	// SSL groups the HTTPS certificate settings.
+	SSL SSLConfig `yaml:"ssl" json:"ssl"`
+
+	// Dataset groups the response-dataset source settings.
+	Dataset DatasetConfig `yaml:"dataset" json:"dataset"`
+
+	// RenderURL is the URL of the tokenizer render service. When set, the
+	// simulator uses a HuggingFace tokenizer served over HTTP. When empty,
+	// the simulator uses the in-process simulated tokenizer.
+	RenderURL string `yaml:"render-url" json:"render-url"`
+	// RenderTimeout is the timeout for tokenizer render requests
+	RenderTimeout time.Duration `yaml:"render-timeout" json:"render-timeout"`
+	// MMRenderTimeout is the timeout for multi-modal tokenizer render requests
+	MMRenderTimeout time.Duration `yaml:"mm-render-timeout" json:"mm-render-timeout"`
+
+	// EnableLegacyRender disables the /v1/responses/render endpoint, matching
+	// vLLM versions that predate it.
+	EnableLegacyRender bool `yaml:"enable-legacy-render" json:"enable-legacy-render"`
+
+	// StartupDuration defines how long /health/ready returns 503 to simulate GPU model loading.
+	// After this duration from startup, /health/ready returns 200. Default is 0 (immediately ready).
+	StartupDuration time.Duration `yaml:"startup-duration" json:"startup-duration"`
+
+	// EnableSleepMode enables sleep mode. Both the flag and the routes it serves
+	// are engine-specific, so the key is engine-owned (yaml:"-") rather than read
+	// by the generic loader in load(): an engine that has no such flag must
+	// report the key instead of applying a setting it cannot act on.
+	EnableSleepMode bool `yaml:"-" json:"enable-sleep-mode"`
+
+	// EnableRequestIDHeaders enables including X-Request-Id header in responses
+	EnableRequestIDHeaders bool `yaml:"enable-request-id-headers" json:"enable-request-id-headers"`
+
+	// LogHTTP logs full HTTP request and response details (method, URI, headers, bodies where buffered, status) for each request.
+	LogHTTP bool `yaml:"log-http" json:"log-http"`
+
+	// DefaultEmbeddingDimensions is the default size of embedding vectors when the request does not specify dimensions.
+	// Used by the /v1/embeddings endpoint. Default is 384.
+	DefaultEmbeddingDimensions int `yaml:"default-embedding-dimensions" json:"default-embedding-dimensions"`
+
+	// MMEncoderOnly defines whether to skip the language component of the model.
+	// Engine-owned (yaml:"-"), like EnableSleepMode: the setting changes the
+	// served endpoints and the response path, so an engine that does not spell it
+	// must report the key rather than honor it.
+	MMEncoderOnly bool `yaml:"-" json:"mm-encoder-only"`
+
+	// Omni enables omni mode: the simulator will emit a synthetic image chunk
+	// after the token stream when the X-Send-Image request header is present,
+	// or randomly based on ImageEmissionRate.
+	Omni bool `yaml:"omni" json:"omni"`
+
+	// ImageEmissionRate is the probability (0-100) of emitting a synthetic image
+	// chunk per chat completion request when omni mode is enabled. 0 means never
+	// emit via the rate mechanism, 100 means always emit. The X-Send-Image header
+	// can still trigger emission independently.
+	ImageEmissionRate int `yaml:"image-emission-rate" json:"image-emission-rate" admin:"configurable"`
+
+	// MaxRequestBodySizeMB sets the maximum allowed request body size in megabytes for the HTTP server.
+	// Default is 4 (matching the fasthttp built-in default). Must be between 1 and 512.
+	MaxRequestBodySizeMB int `yaml:"max-request-body-size-mb" json:"max-request-body-size-mb"`
+}
+
+type LoraModule struct {
+	// Name is the LoRA's name
+	Name string `json:"name"`
+	// Path is the LoRA's path
+	Path string `json:"path"`
+	// BaseModelName is the LoRA's base model
+	BaseModelName string `json:"base_model_name"`
+}
+
+// LoraConfig groups the LoRA adapter settings. Its CLI/YAML wire format is
+// engine-specific (see Engine.BindFlags); only this JSON shape, read by
+// pkg/simulator and exposed via /admin/config, is common across engines.
+type LoraConfig struct {
+	// MaxLoras defines maximum number of loaded LoRAs
+	MaxLoras int `json:"max-loras"`
+	// MaxCPULoras defines maximum number of LoRAs to store in CPU memory
+	MaxCPULoras int `json:"max-cpu-loras"`
+	// LoraModules is a list of LoRA adapters
+	LoraModules []LoraModule `json:"lora-modules"`
+}
+
+// KVCacheConfig groups the KV-cache sizing, hashing, and ZMQ event settings.
+// Its CLI/YAML wire format is engine-specific (see Engine.BindFlags); only
+// this JSON shape, read by pkg/kvcache and pkg/simulator, is common across
+// engines. When EnableKVCache is false, every other field is reset to its
+// zero value, since the rest of the struct is unused while the cache is
+// disabled.
+type KVCacheConfig struct {
+	// EnableKVCache defines if kv cache feature will be enabled
+	EnableKVCache bool `json:"enable-kvcache"`
+
+	//  KVCacheSize is the maximum number of token blocks in kv cache, the default value is 1024
+	KVCacheSize int `json:"kv-cache-size"`
+
+	// KVCacheDType is the cache dtype reported in vLLM-compatible cache configuration metrics.
+	KVCacheDType string `json:"kv-cache-dtype"`
+
+	// TokenBlockSize is token block size for contiguous chunks of tokens, possible values: 8,16,32,64,128, defaults to 16
+	TokenBlockSize int `json:"block-size"`
+
+	// HashSeed is the seed for hash generation. Effective value follows configuration precedence in the docs (command-line --hash-seed, else PYTHONHASHSEED, else YAML, else default).
+	HashSeed string `json:"hash-seed"`
+
+	// ZMQEndpoint is the ZMQ address to publish events, the default value is tcp://localhost:5557
+	ZMQEndpoint string `json:"zmq-endpoint"`
+
+	// ZMQTopic overrides the ZMQ topic KV-cache events are published under.
+	// Empty (default) keeps the llm-d convention built by
+	// kvcache.CreateKVEventsTopic: kv@<ip>:<port>@<model>. When set, the value
+	// replaces that topic verbatim, matching vLLM's static KVEventsConfig.topic
+	// for consumers that subscribe to a fixed name.
+	ZMQTopic string `json:"zmq-topic"`
+
+	// KVEventsReplayEndpoint is the ZMQ ROUTER address to bind for receiving KV events replay requests.
+	// Empty (default) disables the replay listener. Example: "tcp://*:5558"
+	KVEventsReplayEndpoint string `json:"kv-events-replay-endpoint"`
+
+	// KVEventsReplayQueueSize is the max number of event batches held in the replay queue; oldest dropped when full. Defaults to 1024.
+	KVEventsReplayQueueSize int `json:"kv-events-replay-queue-size"`
+
+	// EventBatchSize is the maximum number of kv-cache events to be sent together, defaults to 16
+	EventBatchSize int `json:"event-batch-size"`
+
+	// UseVllmMapEventFormat encodes KV cache events as msgpack maps with named fields (vLLM PR #42892 format)
+	// instead of the legacy positional array format. Default is false (legacy array format).
+	UseVllmMapEventFormat bool `json:"use-vllm-map-event-format"`
+}
+
+// ToolCallConfig groups the tool-call generation parameters.
+type ToolCallConfig struct {
 	// MaxToolCallIntegerParam defines the maximum possible value of integer parameters in a tool call,
 	// optional, defaults to 100
 	MaxToolCallIntegerParam int `yaml:"max-tool-call-integer-param" json:"max-tool-call-integer-param"`
@@ -174,40 +386,25 @@ type Configuration struct {
 	// the total number of available tools. A value of 0 always produces the minimum number of calls;
 	// a value of 100 always produces len(availableTools) calls. Optional, defaults to 45.
 	ToolCallExtraCallProbability int `yaml:"tool-call-extra-call-probability" json:"tool-call-extra-call-probability"`
+}
 
-	// GlobalCacheHitThreshold is the default cache hit threshold (0-1] for all requests.
-	// If a request specifies cache_hit_threshold, it takes precedence over this global value.
-	GlobalCacheHitThreshold float64 `yaml:"global-cache-hit-threshold" json:"global-cache-hit-threshold"`
-
-	// KVCache groups KV-cache sizing, hashing, and ZMQ event settings. KV-cache
-	// transfer latencies and the global cache-hit threshold are configured separately.
-	KVCache KVCacheConfig `yaml:"kvcache" json:"kvcache"`
-
-	// FakeMetrics is a set of metrics to send to Prometheus instead of the real data
-	FakeMetrics *FakeMetrics `yaml:"fake-metrics" json:"fake-metrics" admin:"configurable"`
-
-	// FakeMetricsRefreshInterval defines how often function-based fake metrics are recalculated, defaults to 100ms
-	FakeMetricsRefreshInterval time.Duration `yaml:"fake-metrics-refresh-interval" json:"fake-metrics-refresh-interval"`
-
-	// FailureInjectionRate is the probability (0-100) of injecting failures
-	FailureInjectionRate int `yaml:"failure-injection-rate" json:"failure-injection-rate" admin:"configurable"`
-	// FailureTypes is a list of specific failure types to inject (empty means all types)
-	FailureTypes []string `yaml:"failure-types" json:"failure-types" admin:"configurable"`
-
-	// DPSize is data parallel size - a number of ranks to run, minimum is 1, maximum is 8, default is 1
-	DPSize int `yaml:"data-parallel-size" json:"data-parallel-size"`
-
-	// Rank specifies the rank of this instance. Only used when running Data Parallel
-	// ranks as separate processes. If set, data-parallel-size is ignored
-	Rank int `yaml:"data-parallel-rank" json:"data-parallel-rank"`
-
+// SSLConfig groups the HTTPS certificate settings.
+type SSLConfig struct {
 	// SSLCertFile is the path to the SSL certificate file for HTTPS
 	SSLCertFile string `yaml:"ssl-certfile" json:"ssl-certfile"`
 	// SSLKeyFile is the path to the SSL private key file for HTTPS
 	SSLKeyFile string `yaml:"ssl-keyfile" json:"ssl-keyfile"`
 	// SelfSignedCerts enables automatic generation of self-signed certificates for HTTPS
 	SelfSignedCerts bool `yaml:"self-signed-certs" json:"self-signed-certs"`
+}
 
+// Enabled returns true if SSL is enabled either via certificate files or self-signed certificates
+func (s *SSLConfig) Enabled() bool {
+	return (s.SSLCertFile != "" && s.SSLKeyFile != "") || s.SelfSignedCerts
+}
+
+// DatasetConfig groups the response-dataset source settings.
+type DatasetConfig struct {
 	// DatasetPath Optional local file path to the SQLite database file used for generating responses from a dataset.
 	//   - If not set, hardcoded preset responses will be used.
 	//   - If set but the file does not exist the `dataset-url` will be used to download the database to the path specified by `dataset-path`.
@@ -225,112 +422,6 @@ type Configuration struct {
 	DatasetInMemory bool `yaml:"dataset-in-memory" json:"dataset-in-memory"`
 	// DatasetTableName defines custom SQLite dataset table name
 	DatasetTableName string `yaml:"dataset-table-name" json:"dataset-table-name"`
-
-	// RenderURL is the URL of the tokenizer render service. When set, the
-	// simulator uses a HuggingFace tokenizer served over HTTP. When empty,
-	// the simulator uses the in-process simulated tokenizer.
-	RenderURL string `yaml:"render-url" json:"render-url"`
-	// RenderTimeout is the timeout for tokenizer render requests
-	RenderTimeout time.Duration `yaml:"render-timeout" json:"render-timeout"`
-	// MMRenderTimeout is the timeout for multi-modal tokenizer render requests
-	MMRenderTimeout time.Duration `yaml:"mm-render-timeout" json:"mm-render-timeout"`
-
-	// StartupDuration defines how long /health/ready returns 503 to simulate GPU model loading.
-	// After this duration from startup, /health/ready returns 200. Default is 0 (immediately ready).
-	StartupDuration time.Duration `yaml:"startup-duration" json:"startup-duration"`
-
-	// EnableSleepMode enables sleep mode
-	EnableSleepMode bool `yaml:"enable-sleep-mode" json:"enable-sleep-mode"`
-
-	// EnableRequestIDHeaders enables including X-Request-Id header in responses
-	EnableRequestIDHeaders bool `yaml:"enable-request-id-headers" json:"enable-request-id-headers"`
-
-	// LogHTTP logs full HTTP request and response details (method, URI, headers, bodies where buffered, status) for each request.
-	LogHTTP bool `yaml:"log-http" json:"log-http"`
-
-	// DefaultEmbeddingDimensions is the default size of embedding vectors when the request does not specify dimensions.
-	// Used by the /v1/embeddings endpoint. Default is 384.
-	DefaultEmbeddingDimensions int `yaml:"default-embedding-dimensions" json:"default-embedding-dimensions"`
-
-	// MMEncoderOnly defines whether to skip the language component of the model.
-	MMEncoderOnly bool `yaml:"mm-encoder-only" json:"mm-encoder-only"`
-
-	// Omni enables omni mode: the simulator will emit a synthetic image chunk
-	// after the token stream when the X-Send-Image request header is present,
-	// or randomly based on ImageEmissionRate.
-	Omni bool `yaml:"omni" json:"omni"`
-
-	// ImageEmissionRate is the probability (0-100) of emitting a synthetic image
-	// chunk per chat completion request when omni mode is enabled. 0 means never
-	// emit via the rate mechanism, 100 means always emit. The X-Send-Image header
-	// can still trigger emission independently.
-	ImageEmissionRate int `yaml:"image-emission-rate" json:"image-emission-rate" admin:"configurable"`
-
-	// Ignored parameters:
-	// MMProcessorKWArgs defines arguments to be forwarded to the model's processor for multi-modal data.
-	// Ignored in the simulator.
-	MMProcessorKWArgs string `yaml:"mm-processor-kwargs" json:"mm-processor-kwargs"`
-	// ECTransferConfig defines the configurations for distributed EC cache transfer.
-	// Ignored in the simulator.
-	ECTransferConfig string `yaml:"ec-transfer-config" json:"ec-transfer-config"`
-	// EnforceEager defines whether to always use eager-mode PyTorch.
-	// Ignored in the simulator.
-	EnforceEager bool `yaml:"enforce-eager" json:"enforce-eager"`
-	// EnablePrefixCaching defines whether to enable prefix caching.
-	// Ignored in the simulator.
-	EnablePrefixCaching bool `yaml:"enable-prefix-caching" json:"enable-prefix-caching"`
-	// TPSize defines the number of tensor parallel replicas.
-	// Ignored in the simulator.
-	TPSize int `yaml:"tensor-parallel-size" json:"tensor-parallel-size"`
-	// MaxRequestBodySizeMB sets the maximum allowed request body size in megabytes for the HTTP server.
-	// Default is 4 (matching the fasthttp built-in default). Must be between 1 and 512.
-	MaxRequestBodySizeMB int `yaml:"max-request-body-size-mb" json:"max-request-body-size-mb"`
-
-	// EngineName is the inference engine backend being simulated. Currently only "vllm" is supported.
-	EngineName string `yaml:"engine" json:"engine"`
-}
-
-type LoraModule struct {
-	// Name is the LoRA's name
-	Name string `json:"name"`
-	// Path is the LoRA's path
-	Path string `json:"path"`
-	// BaseModelName is the LoRA's base model
-	BaseModelName string `json:"base_model_name"`
-}
-
-// KVCacheConfig groups the KV-cache sizing, hashing, and ZMQ event settings.
-// When EnableKVCache is false, every other field is reset to its zero value,
-// since the rest of the struct is unused while the cache is disabled.
-type KVCacheConfig struct {
-	// EnableKVCache defines if kv cache feature will be enabled
-	EnableKVCache bool `yaml:"enable-kvcache" json:"enable-kvcache"`
-
-	//  KVCacheSize is the maximum number of token blocks in kv cache, the default value is 1024
-	KVCacheSize int `yaml:"kv-cache-size" json:"kv-cache-size"`
-
-	// TokenBlockSize is token block size for contiguous chunks of tokens, possible values: 8,16,32,64,128, defaults to 16
-	TokenBlockSize int `yaml:"block-size" json:"block-size"`
-
-	// HashSeed is the seed for hash generation. Effective value follows configuration precedence in the docs (command-line --hash-seed, else PYTHONHASHSEED, else YAML, else default).
-	HashSeed string `yaml:"hash-seed" json:"hash-seed"`
-
-	// ZMQEndpoint is the ZMQ address to publish events, the default value is tcp://localhost:5557
-	ZMQEndpoint string `yaml:"zmq-endpoint" json:"zmq-endpoint"`
-
-	// KVEventsReplayEndpoint is the ZMQ ROUTER address to bind for receiving KV events replay requests.
-	// Empty (default) disables the replay listener. Example: "tcp://*:5558"
-	KVEventsReplayEndpoint string `yaml:"kv-events-replay-endpoint" json:"kv-events-replay-endpoint"`
-
-	// KVEventsReplayQueueSize is the max number of event batches held in the replay queue; oldest dropped when full. Defaults to 1024.
-	KVEventsReplayQueueSize int `yaml:"kv-events-replay-queue-size" json:"kv-events-replay-queue-size"`
-
-	// EventBatchSize is the maximum number of kv-cache events to be sent together, defaults to 16
-	EventBatchSize int `yaml:"event-batch-size" json:"event-batch-size"`
-
-	// UseVllmMapEventFormat encodes KV cache events as msgpack maps with named fields (vLLM PR #42892 format)
-	// instead of the legacy positional array format. Default is false (legacy array format).
-	UseVllmMapEventFormat bool `yaml:"use-vllm-map-event-format" json:"use-vllm-map-event-format"`
 }
 
 // LatenciesConfig groups the request-latency simulation parameters.
@@ -387,36 +478,33 @@ type LatenciesConfig struct {
 	TimeFactorUnderLoad float64 `yaml:"time-factor-under-load" json:"time-factor-under-load" admin:"configurable" rebuild:"latency"`
 }
 
-// NewConfig returns a Configuration populated with its documented defaults.
+// NewConfig returns a Configuration populated with the documented defaults of
+// every field whose value is common across engines. The Lora and KVCache
+// groups are left zero-valued: they are engine-owned, so their defaults come
+// from the active engine's ApplyDefaults.
 func NewConfig() *Configuration {
 	return &Configuration{
-		EngineName:                          "vllm",
-		IP:                                  os.Getenv(podIPEnv),
-		Port:                                8000,
-		MaxLoras:                            1,
-		MaxNumSeqs:                          5,
-		MaxWaitingQueueLength:               1000,
-		MaxModelLen:                         1024,
-		Mode:                                ModeRandom,
-		Seed:                                time.Now().UnixNano(),
-		Latencies:                           LatenciesConfig{TimeFactorUnderLoad: 1.0},
-		MaxToolCallIntegerParam:             100,
-		MaxToolCallNumberParam:              100,
-		MaxToolCallArrayParamLength:         5,
-		MinToolCallArrayParamLength:         1,
-		ToolCallNotRequiredParamProbability: 50,
-		ObjectToolCallNotRequiredParamProbability: 50,
-		ToolCallExtraCallProbability:              45,
-		KVCache: KVCacheConfig{
-			KVCacheSize:             1024,
-			TokenBlockSize:          16,
-			ZMQEndpoint:             "tcp://127.0.0.1:5557",
-			KVEventsReplayQueueSize: 1024,
-			EventBatchSize:          16,
+		EngineName:            DefaultEngineName,
+		IP:                    os.Getenv(podIPEnv),
+		Port:                  DefaultPort,
+		MaxNumSeqs:            5,
+		MaxWaitingQueueLength: 1000,
+		MaxModelLen:           1024,
+		Mode:                  ModeRandom,
+		Seed:                  time.Now().UnixNano(),
+		Latencies:             LatenciesConfig{TimeFactorUnderLoad: 1.0},
+		ToolCalls: ToolCallConfig{
+			MaxToolCallIntegerParam:                   100,
+			MaxToolCallNumberParam:                    100,
+			MaxToolCallArrayParamLength:               5,
+			MinToolCallArrayParamLength:               1,
+			ToolCallNotRequiredParamProbability:       50,
+			ObjectToolCallNotRequiredParamProbability: 50,
+			ToolCallExtraCallProbability:              45,
 		},
 		DPSize:                     1,
 		Rank:                       -1,
-		DatasetTableName:           DefaultDSTableName,
+		Dataset:                    DatasetConfig{DatasetTableName: DefaultDSTableName},
 		DefaultEmbeddingDimensions: 384,
 		FakeMetricsRefreshInterval: 100 * time.Millisecond,
 		MaxRequestBodySizeMB:       4,
@@ -426,41 +514,55 @@ func NewConfig() *Configuration {
 	}
 }
 
-func (c *Configuration) load(configFile string) error {
+// load reads configFile into c, folding and unmarshaling every group whose
+// wire format is common across engines (latencies, tool-calls, dataset,
+// ssl), plus top-level scalars. It returns the raw parsed YAML tree so the
+// caller can pass it to the active engine's BindFlags, which folds and
+// unmarshals its own engine-specific groups (e.g. lora, kvcache) from the
+// same tree.
+func (c *Configuration) load(configFile string) (map[string]any, error) {
 	configBytes, err := os.ReadFile(configFile)
 	if err != nil {
-		return fmt.Errorf("failed to read configuration file: %s", err)
+		return nil, fmt.Errorf("failed to read configuration file: %s", err)
 	}
 
 	var raw map[string]any
 	if err := yaml.Unmarshal(configBytes, &raw); err != nil {
-		return fmt.Errorf("failed to unmarshal configuration: %s", err)
+		return nil, fmt.Errorf("failed to unmarshal configuration: %s", err)
 	}
-	if err := foldLegacyKeys(raw, "kvcache", kvCacheYAMLKeys); err != nil {
-		return err
+	if err := FoldLegacyKeys(raw, "latencies", latenciesYAMLKeys); err != nil {
+		return nil, err
 	}
-	if err := foldLegacyKeys(raw, "latencies", latenciesYAMLKeys); err != nil {
-		return err
+	if err := FoldLegacyKeys(raw, "tool-calls", toolCallYAMLKeys); err != nil {
+		return nil, err
+	}
+	if err := FoldLegacyKeys(raw, "dataset", datasetYAMLKeys); err != nil {
+		return nil, err
+	}
+	if err := FoldLegacyKeys(raw, "ssl", sslYAMLKeys); err != nil {
+		return nil, err
 	}
 
 	mergedBytes, err := yaml.Marshal(raw)
 	if err != nil {
-		return fmt.Errorf("failed to re-marshal configuration: %s", err)
+		return nil, fmt.Errorf("failed to re-marshal configuration: %s", err)
 	}
 
 	if err := yaml.Unmarshal(mergedBytes, c); err != nil {
-		return fmt.Errorf("failed to unmarshal configuration: %s", err)
+		return nil, fmt.Errorf("failed to unmarshal configuration: %s", err)
 	}
 
-	return nil
+	return raw, nil
 }
 
-// foldLegacyKeys moves top-level keys in flatKeys (the flat layout used
+// FoldLegacyKeys moves top-level keys in flatKeys (the flat layout used
 // before a group of settings was nested under nestedKey) into the nested
 // block in place, so config files using either layout load the same way. It
 // returns an error if a config file mixes the two layouts, i.e. sets any of
-// flatKeys at the top level while the nested block is also present.
-func foldLegacyKeys(raw map[string]any, nestedKey string, flatKeys []string) error {
+// flatKeys at the top level while the nested block is also present. Exported
+// so an engine can apply the same folding to its own engine-specific groups
+// (e.g. lora) from the raw YAML tree returned by load().
+func FoldLegacyKeys(raw map[string]any, nestedKey string, flatKeys []string) error {
 	nested, _ := raw[nestedKey].(map[string]any)
 
 	var setFlatKeys []string
@@ -485,6 +587,85 @@ func foldLegacyKeys(raw map[string]any, nestedKey string, flatKeys []string) err
 		raw[nestedKey] = nested
 	}
 	return nil
+}
+
+// UnmarshalYAMLKey re-marshals raw[key] back to YAML and unmarshals it into
+// out, using out's own yaml tags. This lets an engine parse a nested block
+// of the raw YAML tree returned by load() with its own wire format, without
+// common needing to know that engine's tags. A no-op if key is absent.
+func UnmarshalYAMLKey(raw map[string]any, key string, out any) error {
+	v, ok := raw[key]
+	if !ok {
+		return nil
+	}
+	data, err := yaml.Marshal(v)
+	if err != nil {
+		return fmt.Errorf("failed to marshal %q: %w", key, err)
+	}
+	if err := yaml.Unmarshal(data, out); err != nil {
+		return fmt.Errorf("failed to unmarshal %q: %w", key, err)
+	}
+	return nil
+}
+
+// rejectUnknownYAMLKeys reports the top-level keys of raw that nothing claimed.
+// load() folds this package's legacy flat layouts into their nested blocks and
+// the active engine's BindFlags deletes the groups it unmarshals, so a key
+// still present here belongs to neither: it is either a typo, or a setting of
+// a feature the chosen engine does not implement. Reporting it beats loading
+// it as a silent no-op, which is what the non-strict unmarshal in load() would
+// otherwise do.
+func rejectUnknownYAMLKeys(raw map[string]any, engineName string) error {
+	unknown := make([]string, 0, len(raw))
+	for key := range raw {
+		if !configYAMLKeySet[key] {
+			unknown = append(unknown, key)
+		}
+	}
+	if len(unknown) == 0 {
+		return nil
+	}
+	sort.Strings(unknown)
+	return fmt.Errorf("the '%s' engine does not recognize the following configuration key(s): %s",
+		engineName, strings.Join(unknown, ", "))
+}
+
+// Placeholder keys of the three core fields the engines disagree on the name of,
+// matching their json tags. An engine passes one to DeclareConfigIntField to say
+// which field its flag names; none is a name any engine answers to.
+const (
+	FieldContextWindow = "context-window"
+	FieldConcurrency   = "max-concurrent-requests"
+	FieldQueueLength   = "max-queue-length"
+)
+
+// DeclareConfigIntField gives one of those fields the name this engine knows it
+// by: it claims that name's config-file key out of raw, registers it as a flag,
+// and records it so external display reports the field under it too. field is
+// the placeholder key of the field out points to. Claiming before registering is
+// what makes a config file the flag's default, so an unset flag keeps the file's
+// value and an absent key keeps the core default. Must be called from
+// Engine.BindFlags, before f.Parse.
+func DeclareConfigIntField(f *pflag.FlagSet, raw map[string]any, cfg *Configuration,
+	field string, out *int, name string, usage string) error {
+	if err := UnmarshalYAMLKey(raw, name, out); err != nil {
+		return err
+	}
+	delete(raw, name)
+
+	f.IntVar(out, name, *out, usage)
+	cfg.NameField(field, name)
+	return nil
+}
+
+// NameField records the name this configuration calls the given field by, which
+// is what external display reports it as. DeclareConfigIntField calls it, so an
+// engine binding one of those fields some other way can still name it.
+func (c *Configuration) NameField(field string, name string) {
+	if c.fieldNames == nil {
+		c.fieldNames = make(map[string]string)
+	}
+	c.fieldNames[field] = name
 }
 
 func (c *Configuration) validate() error {
@@ -525,6 +706,27 @@ func (c *Configuration) validate() error {
 	if float32(c.Latencies.TimeToFirstTokenStdDev) > 0.3*float32(c.Latencies.TimeToFirstToken) {
 		return errors.New("time to first token standard deviation cannot be more than 30% of time to first token")
 	}
+
+	if c.Latencies.KVCacheTransferLatency < 0 {
+		return errors.New("kv-cache transfer time cannot be negative")
+	}
+	if c.Latencies.KVCacheTransferLatencyStdDev < 0 {
+		return errors.New("kv-cache transfer time standard deviation cannot be negative")
+	}
+	if float32(c.Latencies.KVCacheTransferLatencyStdDev) > 0.3*float32(c.Latencies.KVCacheTransferLatency) {
+		return errors.New("kv-cache transfer standard deviation cannot be more than 30% of kv-cache transfer")
+	}
+	if c.Latencies.KVCacheTransferTimePerToken < 0 {
+		return errors.New("kv-cache transfer time per token cannot be negative")
+	}
+	if c.Latencies.KVCacheTransferTimeStdDev < 0 {
+		return errors.New("kv-cache transfer time standard deviation cannot be negative")
+	}
+	// No upper-bound check on KVCacheTransferTimeStdDev for the same reason as
+	// PrefillTimeStdDev: it is applied to the total transfer time
+	// (n × kv-cache-transfer-time-per-token), which depends on the prompt
+	// length n and is unknown at config time. Runtime clamping in
+	// RandomNormDuration handles oversized std-devs.
 
 	if c.Latencies.TimeToGenerateImage < 0 {
 		return errors.New("time to generate image cannot be negative")
@@ -567,25 +769,25 @@ func (c *Configuration) validate() error {
 		return errors.New("max waiting queue size cannot be less than 0")
 	}
 
-	if c.MaxToolCallIntegerParam < c.MinToolCallIntegerParam {
+	if c.ToolCalls.MaxToolCallIntegerParam < c.ToolCalls.MinToolCallIntegerParam {
 		return errors.New("MaxToolCallIntegerParam cannot be less than MinToolCallIntegerParam")
 	}
-	if c.MaxToolCallNumberParam < c.MinToolCallNumberParam {
+	if c.ToolCalls.MaxToolCallNumberParam < c.ToolCalls.MinToolCallNumberParam {
 		return errors.New("MaxToolCallNumberParam cannot be less than MinToolCallNumberParam")
 	}
-	if c.MaxToolCallArrayParamLength < c.MinToolCallArrayParamLength {
+	if c.ToolCalls.MaxToolCallArrayParamLength < c.ToolCalls.MinToolCallArrayParamLength {
 		return errors.New("MaxToolCallArrayParamLength cannot be less than MinToolCallArrayParamLength")
 	}
-	if c.MinToolCallArrayParamLength < 0 {
+	if c.ToolCalls.MinToolCallArrayParamLength < 0 {
 		return errors.New("MinToolCallArrayParamLength cannot be negative")
 	}
-	if c.ToolCallNotRequiredParamProbability < 0 || c.ToolCallNotRequiredParamProbability > 100 {
+	if c.ToolCalls.ToolCallNotRequiredParamProbability < 0 || c.ToolCalls.ToolCallNotRequiredParamProbability > 100 {
 		return errors.New("ToolCallNotRequiredParamProbability should be between 0 and 100")
 	}
-	if c.ObjectToolCallNotRequiredParamProbability < 0 || c.ObjectToolCallNotRequiredParamProbability > 100 {
+	if c.ToolCalls.ObjectToolCallNotRequiredParamProbability < 0 || c.ToolCalls.ObjectToolCallNotRequiredParamProbability > 100 {
 		return errors.New("ObjectToolCallNotRequiredParamProbability should be between 0 and 100")
 	}
-	if c.ToolCallExtraCallProbability < 0 || c.ToolCallExtraCallProbability > 100 {
+	if c.ToolCalls.ToolCallExtraCallProbability < 0 || c.ToolCalls.ToolCallExtraCallProbability > 100 {
 		return errors.New("ToolCallExtraCallProbability should be between 0 and 100")
 	}
 
@@ -621,19 +823,19 @@ func (c *Configuration) validate() error {
 		return errors.New("data parallel rank must be between 0 and 7")
 	}
 
-	if (c.SSLCertFile == "") != (c.SSLKeyFile == "") {
+	if (c.SSL.SSLCertFile == "") != (c.SSL.SSLKeyFile == "") {
 		return errors.New("both ssl-certfile and ssl-keyfile must be provided together")
 	}
 
-	if c.SelfSignedCerts && (c.SSLCertFile != "" || c.SSLKeyFile != "") {
+	if c.SSL.SelfSignedCerts && (c.SSL.SSLCertFile != "" || c.SSL.SSLKeyFile != "") {
 		return errors.New("cannot use both self-signed-certs and explicit ssl-certfile/ssl-keyfile")
 	}
 
-	if c.DatasetPath == "" && c.DatasetURL != "" {
+	if c.Dataset.DatasetPath == "" && c.Dataset.DatasetURL != "" {
 		return errors.New("dataset-path is required when dataset-url is set")
 	}
 
-	if c.Mode == ModeEcho && (c.DatasetPath != "" || c.DatasetURL != "") {
+	if c.Mode == ModeEcho && (c.Dataset.DatasetPath != "" || c.Dataset.DatasetURL != "") {
 		return errors.New("dataset cannot be defined in echo mode")
 	}
 
@@ -651,27 +853,21 @@ func (c *Configuration) validate() error {
 		return fmt.Errorf("max-request-body-size-mb must be between 1 MB and 512 MB, got %d", c.MaxRequestBodySizeMB)
 	}
 
-	if c.EngineName != "vllm" {
-		return fmt.Errorf("invalid engine '%s', currently only 'vllm' is supported", c.EngineName)
-	}
-
 	return nil
-}
-
-// SSLEnabled returns true if SSL is enabled either via certificate files or self-signed certificates
-func (c *Configuration) SSLEnabled() bool {
-	return (c.SSLCertFile != "" && c.SSLKeyFile != "") || c.SelfSignedCerts
 }
 
 // durationFields holds the JSON key names of all time.Duration fields in
 // Configuration and LatenciesConfig.
 // configurableFields maps each admin-configurable JSON field key to its rebuild tag
 // (value of the rebuild struct tag, e.g. "latency"), or "" for fields with no rebuild tag.
-// kvCacheYAMLKeys and latenciesYAMLKeys hold the YAML key names of every KVCacheConfig
-// and LatenciesConfig field respectively. Since those names are identical to the fields'
-// JSON key names, load() also reuses them to fold legacy flat top-level YAML keys into
-// the nested "kvcache"/"latencies" blocks, and Update's foldFlatLatencies reuses
-// latenciesYAMLKeys the same way for the legacy flat POST /admin/config body shape.
+// latenciesYAMLKeys, toolCallYAMLKeys, datasetYAMLKeys, and sslYAMLKeys hold the YAML
+// key names of every field of LatenciesConfig, ToolCallConfig, DatasetConfig, and
+// SSLConfig respectively. Since those names are identical to the fields' JSON key
+// names, load() also reuses them to fold legacy flat top-level YAML keys into the
+// nested "latencies"/"tool-calls"/"dataset"/"ssl" blocks, and Update's
+// foldFlatLatencies reuses latenciesYAMLKeys the same way for the legacy flat
+// POST /admin/config body shape. LoraConfig and KVCacheConfig have no such list
+// here: their wire format is engine-owned (see pkg/engine/vllm), not common's.
 // latenciesYAMLKeySet is the same set as latenciesYAMLKeys, for membership checks;
 // unfoldNestedLatencies uses it to reject fields that are admin-configurable but not
 // part of LatenciesConfig (e.g. latency-calculator) inside the nested "latencies" object.
@@ -680,9 +876,12 @@ func (c *Configuration) SSLEnabled() bool {
 var (
 	durationFields      map[string]bool
 	configurableFields  map[string]string
-	kvCacheYAMLKeys     []string
 	latenciesYAMLKeys   []string
 	latenciesYAMLKeySet map[string]bool
+	toolCallYAMLKeys    []string
+	datasetYAMLKeys     []string
+	sslYAMLKeys         []string
+	configYAMLKeySet    map[string]bool
 )
 
 func init() {
@@ -695,11 +894,21 @@ func init() {
 	collectFieldMeta(reflect.TypeOf(Configuration{}))
 	collectFieldMeta(reflect.TypeOf(LatenciesConfig{}))
 
-	kvCacheYAMLKeys = yamlKeysOf(reflect.TypeOf(KVCacheConfig{}))
 	latenciesYAMLKeys = yamlKeysOf(reflect.TypeOf(LatenciesConfig{}))
 	latenciesYAMLKeySet = make(map[string]bool, len(latenciesYAMLKeys))
+	toolCallYAMLKeys = yamlKeysOf(reflect.TypeOf(ToolCallConfig{}))
+	datasetYAMLKeys = yamlKeysOf(reflect.TypeOf(DatasetConfig{}))
+	sslYAMLKeys = yamlKeysOf(reflect.TypeOf(SSLConfig{}))
 	for _, key := range latenciesYAMLKeys {
 		latenciesYAMLKeySet[key] = true
+	}
+
+	// The engine-owned groups are tagged yaml:"-", so they are absent from this
+	// set by construction; the engine claims them by consuming them.
+	configKeys := yamlKeysOf(reflect.TypeOf(Configuration{}))
+	configYAMLKeySet = make(map[string]bool, len(configKeys))
+	for _, key := range configKeys {
+		configYAMLKeySet[key] = true
 	}
 }
 
@@ -865,6 +1074,23 @@ func (c *Configuration) Update(body []byte) (*Configuration, *Configuration, boo
 		}
 	}
 
+	// A "fake-metrics" partial only makes sense against an existing
+	// FakeMetrics value: c.FakeMetrics is an engine-owned interface, so
+	// without one already set there is no concrete type to unmarshal the
+	// partial into (encoding/json cannot allocate one on its own), and the
+	// partial would be silently dropped. Checked against raw rather than the
+	// later unmarshaled update/next, which cannot distinguish the interface
+	// staying nil because the body omitted the field from it staying nil
+	// because there was no concrete type to allocate. An explicit null asks
+	// for no change, so it stays a no-op rather than an error.
+	rawFakeMetrics, bodyHasFakeMetrics := raw["fake-metrics"]
+	if bodyHasFakeMetrics && strings.TrimSpace(string(rawFakeMetrics)) == "null" {
+		bodyHasFakeMetrics = false
+	}
+	if bodyHasFakeMetrics && c.FakeMetrics == nil {
+		return nil, nil, false, errors.New("the simulator is reporting real metrics; fake metrics cannot be updated")
+	}
+
 	if err := foldFlatLatencies(raw); err != nil {
 		return nil, nil, false, err
 	}
@@ -878,8 +1104,14 @@ func (c *Configuration) Update(body []byte) (*Configuration, *Configuration, boo
 
 	// update is a fresh struct populated only with the body's fields; the
 	// caller reads update.FakeMetrics to decide whether to apply Prometheus
-	// side effects.
+	// side effects. It is pre-seeded from c's concrete type, which
+	// json.Unmarshal cannot allocate into a bare interface field itself, only
+	// when the body actually carries fake metrics -- otherwise update would
+	// report a change the body never asked for.
 	update := &Configuration{}
+	if bodyHasFakeMetrics {
+		update.FakeMetrics = c.FakeMetrics.New()
+	}
 	if err := json.Unmarshal(body, update); err != nil {
 		return nil, nil, false, fmt.Errorf("failed to unmarshal payload: %w", err)
 	}
@@ -904,12 +1136,23 @@ func (c *Configuration) Update(body []byte) (*Configuration, *Configuration, boo
 // Copy returns a deep copy of c.
 func (c *Configuration) Copy() (*Configuration, error) {
 	var dst Configuration
+	// Pre-seed FakeMetrics with a fresh instance of c's concrete type: the
+	// json.Unmarshal below cannot allocate one into a bare interface field
+	// itself.
+	if c.FakeMetrics != nil {
+		dst.FakeMetrics = c.FakeMetrics.New()
+	}
 	data, err := json.Marshal(c)
 	if err != nil {
 		return nil, err
 	}
-	err = json.Unmarshal(data, &dst)
-	return &dst, err
+	if err := json.Unmarshal(data, &dst); err != nil {
+		return nil, err
+	}
+	// Unexported, so the round trip above drops it. The copy must keep reporting
+	// the engine-named fields under the engine's names.
+	dst.fieldNames = maps.Clone(c.fieldNames)
+	return &dst, nil
 }
 
 // cleanedMap returns the configuration as a JSON-friendly map with internal
@@ -929,6 +1172,15 @@ func (c *Configuration) cleanedMap() (map[string]any, error) {
 	if c.DPSize > 1 {
 		// in DP mode, the per-rank port is not meaningful externally
 		delete(m, "port")
+	}
+	// The fields the engines disagree on the name of are reported under the
+	// running engine's name for them, the same name their flag and config key
+	// carry. A field no engine declared keeps its placeholder key.
+	for field, name := range c.fieldNames {
+		if value, ok := m[field]; ok {
+			delete(m, field)
+			m[name] = value
+		}
 	}
 	formatDurationFields(m)
 	if latencies, ok := m["latencies"].(map[string]any); ok {

@@ -23,7 +23,7 @@ import (
 	"github.com/go-logr/logr"
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
-	"github.com/llm-d/llm-d-inference-sim/pkg/kvcache"
+	"github.com/llm-d/llm-d-inference-sim/pkg/metrics"
 	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 	"github.com/valyala/fasthttp"
 )
@@ -45,8 +45,9 @@ type requestBuilder interface {
 }
 
 // RenderableRequest is implemented by the request types reachable from the
-// /v1/{chat/,}completions/render endpoints (ChatCompletionsRequest and
-// TextCompletionsParsedRequest). It lets the HTTP layer parse + render
+// /v1/{chat/,}completions/render and /v1/responses/render endpoints
+// (ChatCompletionsRequest, TextCompletionsParsedRequest, and
+// ResponsesRenderRequest). It lets the HTTP layer parse + render
 // without going through the worker pipeline.
 type RenderableRequest interface {
 	Request
@@ -69,7 +70,7 @@ type RequestContext interface {
 	Request() Request
 	StartProcessingTime() time.Time
 	tokenize() *api.Error
-	kvCacheOnRequestStart() (stats kvcache.PrefixCacheStats, serverError *api.Error)
+	kvCacheOnRequestStart() (stats metrics.PrefixCacheQueried, serverError *api.Error)
 	KVCacheOnRequestEnd()
 	createToolCalls() ([]api.ToolCall, int, string, error)
 	HandleRequest() (ResponseContext, *api.Error)
@@ -206,7 +207,7 @@ func (reqCtx *baseRequestContext) HandleRequest() (ResponseContext, *api.Error) 
 	}
 	hitRate := float64(0)
 	if prefixCacheStats.QueriedTokens > 0 {
-		hitRate = float64(prefixCacheStats.CachedTokens) / float64(prefixCacheStats.QueriedTokens)
+		hitRate = float64(prefixCacheStats.CachedPromptTokens) / float64(prefixCacheStats.QueriedTokens)
 	}
 
 	var finishReason string
@@ -250,7 +251,7 @@ func (reqCtx *baseRequestContext) HandleRequest() (ResponseContext, *api.Error) 
 		CompletionTokens: completionTokens,
 		TotalTokens:      numOfInputTokens + completionTokens,
 		PromptTokensDetails: &api.PromptTokensDetails{
-			CachedTokens: prefixCacheStats.CachedTokens,
+			CachedTokens: prefixCacheStats.CachedPromptTokens,
 		},
 	}
 
@@ -301,7 +302,7 @@ func (reqCtx *baseRequestContext) shouldReturnCacheThresholdFinishReason(req api
 	return false
 }
 
-func (reqCtx *baseRequestContext) kvCacheOnRequestStart() (stat kvcache.PrefixCacheStats, oaiServerError *api.Error) {
+func (reqCtx *baseRequestContext) kvCacheOnRequestStart() (stat metrics.PrefixCacheQueried, oaiServerError *api.Error) {
 	return reqCtx.runtime.KVCacheOnRequestStart(reqCtx.Request())
 }
 

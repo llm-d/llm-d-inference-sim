@@ -62,8 +62,8 @@ func (hft *HFTokenizer) RenderText(text string) ([]uint32, []string, error) {
 	return tokens, strTokens, err
 }
 
-func (hft *HFTokenizer) RenderMessages(messages []api.Message) ([]uint32, []string, *api.RenderMMFeatures, error) {
-	req := api.NewChatCompletionsRenderRequest(hft.baseModel, messages)
+func (hft *HFTokenizer) RenderMessages(messages []api.Message, tools api.RenderTools) ([]uint32, []string, *api.RenderMMFeatures, error) {
+	req := api.NewChatCompletionsRenderRequest(hft.baseModel, messages, tools)
 
 	return hft.renderRequest(&req, FlattenMessages(messages))
 }

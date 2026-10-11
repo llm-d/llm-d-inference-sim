@@ -27,14 +27,12 @@ import (
 
 var _ = Describe("createArgument type normalization", func() {
 	var (
-		config *common.Configuration
+		config *common.ToolCallConfig
 		random *common.Random
 	)
 
 	BeforeEach(func() {
-		config = &common.Configuration{
-			Model:                                     "test",
-			ServedModelNames:                          []string{"test"},
+		config = &common.ToolCallConfig{
 			MinToolCallArrayParamLength:               1,
 			MaxToolCallArrayParamLength:               3,
 			MinToolCallIntegerParam:                   0,

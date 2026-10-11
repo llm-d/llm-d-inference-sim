@@ -3,6 +3,7 @@
 # length. Use this when you care about routing/scheduling experiments.
 # See docs/latency-profiles.md for the full discussion.
 
+engine: vllm
 port: 8000
 model: "meta-llama/Llama-3.1-8B-Instruct"
 max-num-seqs: 16

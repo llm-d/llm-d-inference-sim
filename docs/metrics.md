@@ -3,6 +3,8 @@
 The simulator supports a subset of standard vLLM Prometheus metrics.<br>
 These metrics are exposed via the `/metrics` HTTP REST endpoint. 
 
+Metric names are engine-specific (see [Engines](engine-backends.md)); this page describes the vLLM engine. The SGLang engine exposes no metrics, so `/metrics` serves an empty body for it.
+
 Currently supported are the following metrics:
 | Metric | Description |
 |---|---|
@@ -29,3 +31,4 @@ Currently supported are the following metrics:
 | vllm:cache_config_info | Information of the LLMEngine CacheConfig |
 | vllm:prefix_cache_hits_total | Prefix cache hits, in terms of number of cached tokens |
 | vllm:prefix_cache_queries_total | Prefix cache queries, in terms of number of queried tokens |
+| process_* | Standard process metrics such as `process_start_time_seconds`, as vLLM exports them |

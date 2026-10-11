@@ -386,6 +386,23 @@ type ErrorResponse struct {
 	Error Error `json:"error"`
 }
 
+// ErrorRoute identifies the family of routes an error answers. Both engines
+// frame an error differently depending on which API family the route belongs to,
+// so the route is what selects the envelope and the engine fills it in.
+type ErrorRoute int
+
+const (
+	// ErrorRouteDefault is every route framed the way the engine frames errors
+	// generally: the completions, embeddings, models and tokenizer routes.
+	ErrorRouteDefault ErrorRoute = iota
+	// ErrorRouteMessages is the Anthropic Messages API, whose errors carry its
+	// own envelope (see MessagesErrorResponse) whatever the engine.
+	ErrorRouteMessages
+	// ErrorRouteResponses is the OpenAI Responses API, whose errors are nested
+	// under an "error" key whatever the engine.
+	ErrorRouteResponses
+)
+
 // ErrorCodeToType maps error code to error type according to https://www.npmjs.com/package/openai
 func ErrorCodeToType(code int) string {
 	errorType := ""
@@ -499,8 +516,8 @@ func CreateGenerationResponse(base baseCompletionsResponse, tokens *Tokenized) *
 }
 
 func CreateResponsesResponse(model string, requestID string, createdAt int64,
-	instructions *string, output []OutputItem, usage *ResponsesUsage) *ResponsesResponse {
-	return &ResponsesResponse{
+	instructions *string, output []OutputItem, usage *ResponsesUsage, doRemoteDecode bool) *ResponsesResponse {
+	resp := &ResponsesResponse{
 		baseResponse: baseResponse{
 			ID:        ResponsesIDPrefix + requestID,
 			Model:     model,
@@ -514,6 +531,10 @@ func CreateResponsesResponse(model string, requestID string, createdAt int64,
 		Output:       output,
 		Usage:        usage,
 	}
+	if doRemoteDecode {
+		resp.KVParams = BuildPrefillKVTransferParams()
+	}
+	return resp
 }
 
 // Responses
@@ -525,14 +546,15 @@ type OutputItem interface {
 
 type ResponsesResponse struct {
 	baseResponse
-	CreatedAt    int64           `json:"created_at,omitempty"`
-	Status       string          `json:"status,omitempty"`
-	Instructions *string         `json:"instructions,omitempty"`
-	Output       []OutputItem    `json:"output,omitempty"`
-	Text         *TextSettings   `json:"text,omitempty"`
-	Usage        *ResponsesUsage `json:"usage,omitempty"`
-	Error        *Error          `json:"error,omitempty"`
-	Store        *bool           `json:"store,omitempty"`
+	CreatedAt        int64                       `json:"created_at,omitempty"`
+	Status           string                      `json:"status,omitempty"`
+	Instructions     *string                     `json:"instructions,omitempty"`
+	Output           []OutputItem                `json:"output,omitempty"`
+	Text             *TextSettings               `json:"text,omitempty"`
+	Usage            *ResponsesUsage             `json:"usage,omitempty"`
+	Error            *Error                      `json:"error,omitempty"`
+	Store            *bool                       `json:"store,omitempty"`
+	ECTransferParams map[string]ECTransferParams `json:"ec_transfer_params,omitempty"`
 }
 
 type MessageOutput struct {
@@ -594,8 +616,8 @@ type ResponsesLogprob struct {
 type OutputContent struct {
 	Type string `json:"type"` // output_text
 	Text string `json:"text,omitempty"`
-	// nil ptr → omit (not requested); non-nil ptr to nil slice → null; non-nil ptr to empty slice → [];
-	// non-nil ptr to populated slice → full array
+	// nil ptr -> omit (not requested); non-nil ptr to nil slice -> null; non-nil ptr to empty slice -> [];
+	// non-nil ptr to populated slice -> full array
 	Logprobs *[]ResponsesLogprob `json:"logprobs,omitempty"`
 }
 
@@ -698,9 +720,40 @@ const (
 	MessagesEventContentBlockStop  = "content_block_stop"
 	MessagesEventMessageDelta      = "message_delta"
 	MessagesEventMessageStop       = "message_stop"
+	MessagesEventError             = "error"
+
+	// MessagesTypeError is the "type" of an error body, where a successful
+	// response carries MessagesType.
+	MessagesTypeError = "error"
 
 	ContentTypeText = "text"
 )
+
+// MessagesError is the error object of an Anthropic error body. It carries the
+// error's type and message alone: the Messages API has no field for the
+// parameter or the status code.
+type MessagesError struct {
+	Type    string `json:"type"`
+	Message string `json:"message"`
+}
+
+// MessagesErrorResponse is an error of the Anthropic Messages API, whose
+// envelope both engines use for /v1/messages whatever they do elsewhere. The
+// error's type is spelled per engine, so it is passed in rather than derived
+// here.
+type MessagesErrorResponse struct {
+	Type  string        `json:"type"`
+	Error MessagesError `json:"error"`
+}
+
+// NewMessagesErrorResponse builds an Anthropic error body of the given error
+// type and message.
+func NewMessagesErrorResponse(errorType, message string) MessagesErrorResponse {
+	return MessagesErrorResponse{
+		Type:  MessagesTypeError,
+		Error: MessagesError{Type: errorType, Message: message},
+	}
+}
 
 // MessagesUsage contains token usage for the Anthropic Messages API.
 type MessagesUsage struct {

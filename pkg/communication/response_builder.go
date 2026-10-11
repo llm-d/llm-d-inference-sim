@@ -86,6 +86,9 @@ type responseBuilder interface {
 	createFirstChunk(respCtx endpoint.ResponseContext, choiceIdx int) sseChunk
 	createLastChunk(respCtx endpoint.ResponseContext, finishReason string, choiceIdx int) sseChunk
 	createDoneChunk() sseChunk
+	// createErrorChunk frames body as the stream's error event. The body itself
+	// is built from the active engine's error format, not here.
+	createErrorChunk(body any) sseChunk
 	createRenderResponse(tokens [][]uint32, features *api.RenderMMFeatures) any
 	// sendFinishReasonWithTokens returns true if the builder wants the finish
 	// reason included in the last tokens chunk rather than a separate empty chunk.
@@ -140,6 +143,7 @@ type baseRespBuilder struct{}
 func (*baseRespBuilder) createInitialChunk(_ endpoint.ResponseContext) sseChunk      { return nil }
 func (*baseRespBuilder) createFirstChunk(_ endpoint.ResponseContext, _ int) sseChunk { return nil }
 func (*baseRespBuilder) createDoneChunk() sseChunk                                   { return &doneMarker{} }
+func (*baseRespBuilder) createErrorChunk(body any) sseChunk                          { return &jsonDataChunk{data: body} }
 func (*baseRespBuilder) sendFinishReasonWithTokens() bool                            { return false }
 func (*baseRespBuilder) createImageChunk(_ endpoint.ResponseContext, _ int) sseChunk { return nil }
 func (*baseRespBuilder) createRenderResponse(_ [][]uint32, _ *api.RenderMMFeatures) any {
@@ -493,7 +497,7 @@ func (respBuilder *responsesHTTPRespBuilder) createResponse(respCtxPerChoice []e
 		}
 	}
 
-	return api.CreateResponsesResponse(
+	resp := api.CreateResponsesResponse(
 		respCtx.DisplayModel(),
 		respCtx.RequestID(),
 		time.Now().Unix(),
@@ -504,7 +508,18 @@ func (respBuilder *responsesHTTPRespBuilder) createResponse(respCtxPerChoice []e
 			OutputTokens: usage.CompletionTokens,
 			TotalTokens:  usage.TotalTokens,
 		},
+		respCtx.DoRemoteDecode(),
 	)
+	resp.ECTransferParams = respCtx.ECTransferParams()
+	return resp
+}
+
+// createRenderResponse builds the wire payload for /v1/responses/render: a
+// single RenderResponse object (not an array) carrying the tokens for the
+// rendered prompt and any mm_features produced by the tokenizer.
+func (*responsesHTTPRespBuilder) createRenderResponse(tokens [][]uint32,
+	features *api.RenderMMFeatures) any {
+	return api.RenderResponse{TokenIDs: tokens[0], Features: features}
 }
 
 func (respBuilder *responsesHTTPRespBuilder) createUsageChunk(respCtxPerChoice []endpoint.ResponseContext) sseChunk {
@@ -553,7 +568,9 @@ func (respBuilder *responsesHTTPRespBuilder) createUsageChunk(respCtxPerChoice [
 			OutputTokens: usage.CompletionTokens,
 			TotalTokens:  usage.TotalTokens,
 		},
+		respCtx.DoRemoteDecode(),
 	)
+	resp.ECTransferParams = respCtx.ECTransferParams()
 	return &namedEventChunk{
 		names: []string{api.ResponsesEventCompleted},
 		data: []any{&api.ResponsesResponseEvent{
@@ -648,6 +665,7 @@ func (respBuilder *responsesHTTPRespBuilder) createInitialChunk(respCtx endpoint
 		respCtx.Instructions(),
 		nil,
 		nil,
+		false,
 	)
 	resp.Status = api.ResponsesStatusInProgress
 	created := api.ResponsesResponseEvent{Type: api.ResponsesEventCreated, Response: resp}
@@ -1013,5 +1031,11 @@ func (b *messagesHTTPRespBuilder) createLastChunk(respCtx endpoint.ResponseConte
 }
 
 func (*messagesHTTPRespBuilder) createDoneChunk() sseChunk { return nil }
+
+// createErrorChunk names the frame, as the Messages API names every event of a
+// stream. There is no terminator frame to follow it: createDoneChunk returns nil.
+func (*messagesHTTPRespBuilder) createErrorChunk(body any) sseChunk {
+	return &namedEventChunk{names: []string{api.MessagesEventError}, data: []any{body}}
+}
 
 var _ responseBuilder = (*messagesHTTPRespBuilder)(nil)

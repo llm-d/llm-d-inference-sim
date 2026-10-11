@@ -19,6 +19,7 @@ package kvcache
 import (
 	"context"
 	"encoding/binary"
+	"sync"
 
 	zmq4 "github.com/go-zeromq/zmq4"
 	"github.com/llm-d/llm-d-router/pkg/kvevents"
@@ -26,9 +27,21 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	"github.com/vmihailenco/msgpack/v5"
+
+	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 )
 
-var vllmAdapter *engineadapter.VLLMAdapter = engineadapter.NewVLLMAdapter()
+// eventAdapter is the router-side decoder for the engine under test, selected
+// the same way the simulator selects its engine, so a suite running a different
+// engine reads that engine's event format. Resolved on first use, since the
+// helpers below only run from tests.
+var eventAdapter = sync.OnceValue(func() kvevents.EngineAdapter {
+	name, err := common.ResolveEngineName()
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	adapter, err := engineadapter.NewAdapter(name)
+	gomega.Expect(err).NotTo(gomega.HaveOccurred())
+	return adapter
+})
 
 // StoredEventInfo holds parsed metadata from a single BlockStoredEvent
 type StoredEventInfo struct {
@@ -38,21 +51,25 @@ type StoredEventInfo struct {
 	LoraID      *int
 }
 
-func parseBatch(parts [][]byte, expectedTopic string, expectedSeq uint64) kvevents.EventBatch {
-	// The message should be [topic, seq, payload]
+// payloadFrame asserts a published message's [topic, seq, payload] framing and
+// returns its payload frame.
+func payloadFrame(parts [][]byte, expectedTopic string, expectedSeq uint64) []byte {
 	gomega.Expect(parts).To(gomega.HaveLen(3))
 	gomega.Expect(string(parts[0])).To(gomega.Equal(expectedTopic))
+	gomega.Expect(binary.BigEndian.Uint64(parts[1])).To(gomega.Equal(expectedSeq))
+	return parts[2]
+}
 
-	seq := binary.BigEndian.Uint64(parts[1])
-	gomega.Expect(seq).To(gomega.Equal(expectedSeq))
-
+// parseBatch decodes a published message with the engine adapter, yielding the
+// events as the router sees them.
+func parseBatch(parts [][]byte, expectedTopic string, expectedSeq uint64) kvevents.EventBatch {
 	rawMsg := kvevents.RawMessage{
-		Topic:    string(parts[0]),
-		Sequence: seq,
-		Payload:  parts[2],
+		Topic:    expectedTopic,
+		Sequence: expectedSeq,
+		Payload:  payloadFrame(parts, expectedTopic, expectedSeq),
 	}
 
-	_, _, batch, err := vllmAdapter.ParseMessage(&rawMsg)
+	_, _, batch, err := eventAdapter().ParseMessage(&rawMsg)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
 	return batch
@@ -125,6 +142,58 @@ func CountKVEventBlocks(parts [][]byte, expectedTopic string, expectedSeq uint64
 	return storedCount, removedCount, allCleared
 }
 
+// stubEncoder encodes each Event as itself, so this package's own tests can
+// exercise what it owns -- event generation, batching, topic and sequence
+// handling -- without depending on any engine's wire format. Engine formats are
+// asserted where they are implemented (see pkg/engine/vllm).
+type stubEncoder struct{}
+
+// EncodeEvent marshals ev directly, keyed by its Go field names.
+func (stubEncoder) EncodeEvent(ev Event) ([]byte, error) {
+	return msgpack.Marshal(ev)
+}
+
+// decodeStubEvents returns the events carried by one message published by a
+// cache wired to stubEncoder.
+func decodeStubEvents(parts [][]byte, expectedTopic string, expectedSeq uint64) []Event {
+	var batch msgpackEventBatch
+	gomega.Expect(msgpack.Unmarshal(payloadFrame(parts, expectedTopic, expectedSeq), &batch)).To(gomega.Succeed())
+
+	events := make([]Event, 0, len(batch.Events))
+	for _, raw := range batch.Events {
+		var ev Event
+		gomega.Expect(msgpack.Unmarshal(raw, &ev)).To(gomega.Succeed())
+		events = append(events, ev)
+	}
+	return events
+}
+
+// decodeStubStoredEvents is decodeStubEvents restricted to store events.
+func decodeStubStoredEvents(parts [][]byte, expectedTopic string, expectedSeq uint64) []Event {
+	stored := make([]Event, 0, 1)
+	for _, ev := range decodeStubEvents(parts, expectedTopic, expectedSeq) {
+		if ev.Action == ActionStore {
+			stored = append(stored, ev)
+		}
+	}
+	return stored
+}
+
+// countStubEventBlocks returns the number of stored and removed block hashes
+// carried by one message published by a cache wired to stubEncoder.
+func countStubEventBlocks(parts [][]byte, expectedTopic string, expectedSeq uint64) (stored int, removed int) {
+	for _, ev := range decodeStubEvents(parts, expectedTopic, expectedSeq) {
+		switch ev.Action {
+		case ActionStore:
+			stored += len(ev.Hashes)
+		case ActionRemove:
+			removed += len(ev.Hashes)
+		case ActionAllBlocksCleared:
+		}
+	}
+	return stored, removed
+}
+
 // SendReplayRequestAndRecv connects a REQ socket to a KV events replay ROUTER
 // endpoint, sends startSeq as an 8-byte big-endian frame, and returns all
 // reply messages up to and including the end-of-replay sentinel. The REQ
@@ -155,15 +224,9 @@ func SendReplayRequestAndRecv(ctx context.Context, endpoint string, startSeq uin
 }
 
 // ParseKVBatchRank decodes the DataParallelRank field from a raw ZMQ message.
-// The payload (frames[2]) is a positional msgpack array [TS, Events, DataParallelRank].
 func ParseKVBatchRank(frames [][]byte) int {
 	gomega.Expect(frames).To(gomega.HaveLen(3))
-	var batch struct {
-		_msgpack         struct{} `msgpack:",as_array"` //nolint:unused
-		TS               float64
-		Events           []msgpack.RawMessage
-		DataParallelRank *int `msgpack:",omitempty"`
-	}
+	var batch msgpackEventBatch
 	gomega.Expect(msgpack.Unmarshal(frames[2], &batch)).To(gomega.Succeed())
 	gomega.Expect(batch.DataParallelRank).NotTo(gomega.BeNil())
 	return *batch.DataParallelRank

@@ -24,6 +24,7 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 	"github.com/llm-d/llm-d-inference-sim/pkg/endpoint"
+	"github.com/llm-d/llm-d-inference-sim/pkg/metrics"
 )
 
 // worker runs simulators requests
@@ -68,23 +69,28 @@ func (s *Simulator) processRequest(reqCtx endpoint.RequestContext) {
 		common.WriteToChannel(reqCtx.ResponseChannel(),
 			&endpoint.ResponseInfo{RespCtx: respCtx, Err: err, ChoiceIdx: reqCtx.ChoiceIndex()},
 			s.Context.logger)
+		// api.Error is a struct wire type (not error interface); drop it here
+		common.WriteToChannel(s.Context.metricsBus.RequestFailed,
+			metrics.RequestFailed{
+				E2ELatency:    time.Since(reqCtx.StartProcessingTime()).Seconds(),
+				InferenceTime: time.Since(startTime).Seconds(),
+			}, s.Context.logger)
 		return
 	}
 
 	s.simulateResponseProcessing(respCtx)
 	s.Context.logger.V(logging.DEBUG).Info("Finished processing request", "id", req.GetRequestID())
 
-	common.WriteToChannel(s.Context.metrics.requestSuccessChan,
-		requestSuccessEvent{
-			promptTokens:       respCtx.UsageData().PromptTokens,
-			generationTokens:   respCtx.UsageData().CompletionTokens,
-			genTokensPerChoice: []int{respCtx.UsageData().CompletionTokens},
-			maxTokens:          req.GetMaxCompletionTokens(),
-			finishReason:       *respCtx.FinishReason()},
-		s.Context.logger)
-
-	common.WriteToChannel(s.Context.metrics.e2eReqLatencyChan, time.Since(reqCtx.StartProcessingTime()).Seconds(), s.Context.logger)
-	common.WriteToChannel(s.Context.metrics.reqInferenceTimeChan, time.Since(startTime).Seconds(), s.Context.logger)
+	common.WriteToChannel(s.Context.metricsBus.RequestSucceeded,
+		metrics.RequestSucceeded{
+			PromptTokens:       respCtx.UsageData().PromptTokens,
+			GenerationTokens:   respCtx.UsageData().CompletionTokens,
+			GenTokensPerChoice: []int{respCtx.UsageData().CompletionTokens},
+			MaxTokens:          req.GetMaxCompletionTokens(),
+			FinishReason:       *respCtx.FinishReason(),
+			E2ELatency:         time.Since(reqCtx.StartProcessingTime()).Seconds(),
+			InferenceTime:      time.Since(startTime).Seconds(),
+		}, s.Context.logger)
 }
 
 // getFreeWorker returns a free worker or nil if none are available (non-blocking)

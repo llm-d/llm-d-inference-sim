@@ -58,9 +58,16 @@ type Request interface {
 	GetDisplayedModel() string
 	// SetDisplayedModel sets the displayed model name for the request
 	SetDisplayedModel(model string)
+	// IsModelLoRA returns whether the displayed model is a LoRA adapter, as determined
+	// once at admission time
+	IsModelLoRA() bool
+	// SetIsModelLoRA records whether the displayed model is a LoRA adapter
+	SetIsModelLoRA(isModelLoRA bool)
 	// GetLoraName returns the LoRA name or nil if model is the base model
 	GetLoraName() *string
 	GetLoraID() *int
+	// GetCacheSalt returns the request's cache salt, or nil when none was sent
+	GetCacheSalt() *string
 	// SetModelLoraID sets the LoRA ID for the request, ID == 0 means the base model
 	SetModelLoraID(id int)
 	// IncludeUsage returns true if usage statistics should be include in the response
@@ -137,12 +144,16 @@ type baseRequest struct {
 	// in case served model names were defined on the simulator load, and this request contains one of aliases of the base model - the first alias is used as the DisplayedModel name
 	// in all other cases - the Model name is used as is from the request
 	DisplayedModel string
+	// isModelLoRA records whether DisplayedModel was a LoRA adapter at admission time
+	isModelLoRA bool
 	// ID of the LoRA adapter if the model is a LoRA, 0 if the model is the base model
 	loraID int
 	// Stream is a boolean value, defines whether response should be sent as a Stream
 	Stream bool `json:"stream"`
 	// KVParams kv transfer related fields
 	KVParams *KVTransferParams `json:"kv_transfer_params,omitempty"`
+	// CacheSalt scopes prefix-cache reuse to requests carrying the same salt, as in vLLM
+	CacheSalt *string `json:"cache_salt,omitempty"`
 	// The number of tokens in the prompt that are in the local KV Cache
 	cachedPromptTokens int
 	// IgnoreEOS is a boolean value, true when the model should ignore end-of-sequence tokens
@@ -262,6 +273,14 @@ func (b *baseRequest) SetDisplayedModel(model string) {
 	b.DisplayedModel = model
 }
 
+func (b *baseRequest) IsModelLoRA() bool {
+	return b.isModelLoRA
+}
+
+func (b *baseRequest) SetIsModelLoRA(isModelLoRA bool) {
+	b.isModelLoRA = isModelLoRA
+}
+
 func (b *baseRequest) GetLoraName() *string {
 	if b.loraID > 0 {
 		name := b.Model
@@ -276,6 +295,13 @@ func (b *baseRequest) GetLoraID() *int {
 		return &id
 	}
 	return nil
+}
+
+func (b *baseRequest) GetCacheSalt() *string {
+	if b.CacheSalt == nil || *b.CacheSalt == "" {
+		return nil
+	}
+	return b.CacheSalt
 }
 
 func (b *baseRequest) SetModelLoraID(id int) {
@@ -522,7 +548,7 @@ type baseTextCompletionsRequest struct {
 
 // TextCompletionsParsedRequest is the wire form of a /completions request.
 // On the wire `prompt` may be a single string or an array of strings; the
-// custom UnmarshalJSON below normalizes both forms into Prompt — a plain
+// custom UnmarshalJSON below normalizes both forms into Prompt, a plain
 // string becomes a one-element slice. Used only between JSON unmarshalling
 // and the simulator's split step; workers never see this type.
 type TextCompletionsParsedRequest struct {
@@ -540,8 +566,8 @@ type TextCompletionsRequest struct {
 }
 
 // UnmarshalJSON accepts any of the four wire forms allowed for the `prompt`
-// field — a string, an array of strings, an array of token ids, or an array
-// of token-id arrays — and normalizes them into a []PromptInput.
+// field: a string, an array of strings, an array of token ids, or an array
+// of token-id arrays, and normalizes them into a []PromptInput.
 func (t *TextCompletionsParsedRequest) UnmarshalJSON(data []byte) error {
 	type alias struct {
 		baseTextCompletionsRequest
@@ -614,7 +640,7 @@ func (t *TextCompletionsParsedRequest) MarshalJSON() ([]byte, error) {
 			a.Prompt = t.Prompt[0].Text
 		}
 	default:
-		// vLLM only accepts homogeneous prompt arrays — all strings or all
+		// vLLM only accepts homogeneous prompt arrays: all strings or all
 		// token-id arrays. Reject mixed inputs rather than silently dropping
 		// the minority shape.
 		firstIsTokens := t.Prompt[0].IsTokens()
@@ -641,11 +667,11 @@ func (t *TextCompletionsParsedRequest) MarshalJSON() ([]byte, error) {
 }
 
 // AsSingle returns a single-prompt TextCompletionsRequest for t.Prompt[index],
-// sharing this request's envelope (model, lora, max_tokens, KV params, …). The
+// sharing this request's envelope (model, lora, max_tokens, KV params, ...). The
 // sub-request's RequestID is stamped as "<requestID>-<index>" so each sub
 // carries a unique, deterministic id derived from the parent.
 //
-// This helper exists so the splitting logic — which lives in another package —
+// This helper exists so the splitting logic, which lives in another package,
 // can produce sub-requests without needing access to the unexported
 // baseTextCompletionsRequest field.
 func (t *TextCompletionsParsedRequest) AsSingle(index int) TextCompletionsRequest {
@@ -744,9 +770,10 @@ func NewGenerationRequest(requestID string, stream bool, model string, maxTokens
 
 type ResponsesRequest struct {
 	baseRequest
-	Input           []InputItem `json:"input,omitempty"`
-	Instructions    string      `json:"instructions,omitempty"`
-	MaxOutputTokens *int64      `json:"max_output_tokens,omitempty"`
+	Input              []InputItem `json:"input,omitempty"`
+	Instructions       string      `json:"instructions,omitempty"`
+	PreviousResponseID *string     `json:"previous_response_id,omitempty"`
+	MaxOutputTokens    *int64      `json:"max_output_tokens,omitempty"`
 	// Ignored for now, always text
 	Text *TextSettings `json:"text,omitempty"`
 	// Include specifies additional output data to include. Use "message.output_text.logprobs" to include logprobs.
@@ -947,14 +974,15 @@ func (req *ResponsesRequest) UnmarshalJSON(data []byte) error {
 	// Use an alias to unmarshal all fields except Input and tools normally.
 	type alias struct {
 		baseRequest
-		Input           json.RawMessage `json:"input,omitempty"`
-		Instructions    string          `json:"instructions,omitempty"`
-		MaxOutputTokens *int64          `json:"max_output_tokens,omitempty"`
-		Text            *TextSettings   `json:"text,omitempty"`
-		Include         []string        `json:"include,omitempty"`
-		TopLogprobs     *int            `json:"top_logprobs,omitempty"`
-		Tools           json.RawMessage `json:"tools,omitempty"`
-		ToolChoice      ToolChoice      `json:"tool_choice,omitzero"`
+		Input              json.RawMessage `json:"input,omitempty"`
+		Instructions       string          `json:"instructions,omitempty"`
+		PreviousResponseID *string         `json:"previous_response_id,omitempty"`
+		MaxOutputTokens    *int64          `json:"max_output_tokens,omitempty"`
+		Text               *TextSettings   `json:"text,omitempty"`
+		Include            []string        `json:"include,omitempty"`
+		TopLogprobs        *int            `json:"top_logprobs,omitempty"`
+		Tools              json.RawMessage `json:"tools,omitempty"`
+		ToolChoice         ToolChoice      `json:"tool_choice,omitzero"`
 	}
 	var a alias
 	if err := json.Unmarshal(data, &a); err != nil {
@@ -962,6 +990,7 @@ func (req *ResponsesRequest) UnmarshalJSON(data []byte) error {
 	}
 	req.baseRequest = a.baseRequest
 	req.Instructions = a.Instructions
+	req.PreviousResponseID = a.PreviousResponseID
 	req.MaxOutputTokens = a.MaxOutputTokens
 	req.Text = a.Text
 	req.Include = a.Include
@@ -983,6 +1012,9 @@ func (req *ResponsesRequest) UnmarshalJSON(data []byte) error {
 	// string input: wrap as a single user message
 	var str string
 	if err := json.Unmarshal(a.Input, &str); err == nil {
+		if str == "" {
+			return errors.New("input must not be empty")
+		}
 		req.Input = []InputItem{&InputMessage{
 			Type:    inputItemMessage,
 			Role:    RoleUser,
@@ -1350,12 +1382,12 @@ func (m *MessagesRequest) GetLogprobs() *int {
 // equivalent ChatCompletionsRequest for processing by the existing pipeline.
 //
 // Mapping rules:
-//   - system prompt → leading Message{Role: "system"}
-//   - "text" block  → ChatComplContentBlock{Type: "text"}
-//   - "image" block → ChatComplContentBlock{Type: "image_url"} (base64 sources become data URLs)
-//   - "tool_use" block (assistant) → Message.ToolCalls entry
-//   - "tool_result" block (user) → separate Message{Role: "tool", ToolCallID: …}
-//   - AnthropicTool → Tool with function.parameters = input_schema
+//   - system prompt -> leading Message{Role: "system"}
+//   - "text" block  -> ChatComplContentBlock{Type: "text"}
+//   - "image" block -> ChatComplContentBlock{Type: "image_url"} (base64 sources become data URLs)
+//   - "tool_use" block (assistant) -> Message.ToolCalls entry
+//   - "tool_result" block (user) -> separate Message{Role: "tool", ToolCallID: ...}
+//   - AnthropicTool -> Tool with function.parameters = input_schema
 func (m *MessagesRequest) ToChatCompletionsRequest() *ChatCompletionsRequest {
 	msgs := make([]Message, 0, len(m.Messages)+1)
 	if m.System != "" {
@@ -1447,7 +1479,7 @@ func (m *MessagesRequest) ToChatCompletionsRequest() *ChatCompletionsRequest {
 		}
 	}
 
-	// Convert Anthropic tools to OpenAI format (input_schema → parameters).
+	// Convert Anthropic tools to OpenAI format (input_schema -> parameters).
 	var tools []Tool
 	if len(m.Tools) > 0 {
 		tools = make([]Tool, 0, len(m.Tools))

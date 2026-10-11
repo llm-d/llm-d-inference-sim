@@ -41,7 +41,6 @@ var _ = Describe("Data Parallel", func() {
 			"--model", common.TestModelName,
 			"--mode", common.ModeRandom,
 			"--data-parallel-size", "3",
-			"--force-dummy-tokenizer",
 		})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(clients).To(HaveLen(3))
@@ -64,7 +63,7 @@ var _ = Describe("Data Parallel", func() {
 
 	It("ZMQ kv-events are published for every rank with data-parallel-size=3", func() {
 		ctx := context.TODO()
-		model := common.QwenModelName
+		model := common.TestModelName
 		longPrompt := "This is a test message for kv cache events, has to be long enough to be tokenized into multiple blocks."
 
 		// Each data-parallel rank serves on its own port (baseServingPort + rank)
@@ -73,7 +72,7 @@ var _ = Describe("Data Parallel", func() {
 		// Rank 0's ZMQ PUB endpoint gets a random port; ranks 1 and 2 get port+1
 		// and port+2 respectively (the simulator calls
 		// common.OffsetEndpointPort(base, rank) for ranks > 0).
-		const baseServingPort = 8000
+		const baseServingPort = common.DefaultPort
 		topic0 := kvcache.CreateKVEventsTopic("localhost", baseServingPort, model)
 		sub0, zmqEndpoint := common.CreateSub(ctx, topic0)
 		defer sub0.Close() //nolint:errcheck
@@ -100,8 +99,7 @@ var _ = Describe("Data Parallel", func() {
 			"--mode", common.ModeRandom,
 			"--data-parallel-size", "3",
 			"--port", strconv.Itoa(baseServingPort),
-			"--force-dummy-tokenizer",
-			"--enable-kvcache", "true", "--kv-cache-size", "16", "--block-size", "8",
+			"--enable-kvcache", "--kv-cache-size", "16", "--block-size", "8",
 			"--event-batch-size", "1", "--zmq-endpoint", zmqEndpoint,
 		}, map[string]string{"POD_IP": "localhost"})
 		Expect(err).NotTo(HaveOccurred())
@@ -134,7 +132,7 @@ var _ = Describe("Data Parallel", func() {
 		for expectedRank, sub := range []zmq4.Socket{sub0, sub1, sub2} {
 			msg, err := sub.Recv()
 			Expect(err).NotTo(HaveOccurred())
-			storedCount, removedCount, _ := kvcache.CountKVEventBlocks(msg.Frames, rankTopics[expectedRank], 1)
+			storedCount, removedCount, _ := kvcache.CountKVEventBlocks(msg.Frames, rankTopics[expectedRank], 0)
 			Expect(storedCount).To(BeNumerically(">", 0), "expected store events from rank %d", expectedRank)
 			Expect(removedCount).To(Equal(0))
 			Expect(kvcache.ParseKVBatchRank(msg.Frames)).To(Equal(expectedRank),

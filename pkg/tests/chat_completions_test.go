@@ -36,7 +36,7 @@ import (
 	"github.com/openai/openai-go/v3/packages/param"
 )
 
-var _ = Describe("Simulator", func() {
+var _ = Describe("Simulator", forEachEngine(func() {
 
 	DescribeTable("chat completions streaming",
 		func(model string, mode string) {
@@ -217,7 +217,7 @@ var _ = Describe("Simulator", func() {
 	DescribeTable("chat completions with n parameter",
 		func(mode string, n int) {
 			ctx := context.TODO()
-			args := []string{"cmd", "--model", common.TestModelName, "--mode", mode, "--max-num-seqs", "10"}
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", mode, engineFlag(common.FieldConcurrency), "10"}
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -261,7 +261,7 @@ var _ = Describe("Simulator", func() {
 	DescribeTable("chat completions streaming with n parameter",
 		func(mode string, n int) {
 			ctx := context.TODO()
-			args := []string{"cmd", "--model", common.TestModelName, "--mode", mode, "--max-num-seqs", "10"}
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", mode, engineFlag(common.FieldConcurrency), "10"}
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -785,4 +785,4 @@ var _ = Describe("Simulator", func() {
 			})
 		})
 	})
-})
+}))
