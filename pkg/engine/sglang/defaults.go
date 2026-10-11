@@ -21,9 +21,6 @@ import "github.com/llm-d/llm-d-inference-sim/pkg/common"
 // ApplyDefaults fills in the default values of the configuration groups this
 // engine owns. Called before a config file is loaded and before BindFlags, so
 // that a YAML value overrides a default and a flag overrides both.
-//
-// The KV-cache group is left zero-valued: this engine simulates no KV cache,
-// and a configuration that asks for one is rejected.
 func (Engine) ApplyDefaults(cfg *common.Configuration) {
 	// Metrics are opt-in, matching sglang's own --enable-metrics default.
 	cfg.EnableMetrics = false
@@ -32,4 +29,14 @@ func (Engine) ApplyDefaults(cfg *common.Configuration) {
 	// index. No adapter can occupy it: this engine registers no LoRA flags and
 	// claims no LoRA configuration keys.
 	cfg.Lora = common.LoraConfig{MaxLoras: 1}
+
+	// The cache's geometry, which the metrics describing it report whether or
+	// not it is simulated, so that a scrape names a real block size and block
+	// count rather than two zeroes. Simulation stays off: EnableKVCache is left
+	// false and ValidateConfig rejects a configuration turning it on. The rest
+	// of the group, which only a running cache reads, is left zero-valued.
+	cfg.KVCache = common.KVCacheConfig{
+		KVCacheSize:    1024,
+		TokenBlockSize: 16,
+	}
 }
