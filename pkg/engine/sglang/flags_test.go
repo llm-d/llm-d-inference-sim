@@ -56,7 +56,10 @@ var _ = Describe("Configuration", func() {
 		// A single LoRA slot is all ApplyDefaults claims; no adapter can occupy it.
 		Expect(config.Lora.MaxLoras).To(Equal(1))
 		Expect(config.Lora.LoraModules).To(BeEmpty())
-		Expect(config.KVCache).To(Equal(common.KVCacheConfig{}))
+		// Only the cache geometry the metrics describing it report; simulation
+		// itself stays off.
+		Expect(config.KVCache).To(Equal(common.KVCacheConfig{KVCacheSize: 1024, TokenBlockSize: 16}))
+		Expect(config.KVCache.EnableKVCache).To(BeFalse())
 		Expect(config.FakeMetrics).To(BeNil())
 	})
 

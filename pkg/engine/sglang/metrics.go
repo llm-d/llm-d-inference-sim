@@ -45,6 +45,32 @@ const (
 	SGLangPromptTokensHistMetricName         = "sglang:prompt_tokens_histogram"
 	SGLangUncachedPromptTokensHistMetricName = "sglang:uncached_prompt_tokens_histogram"
 	SGLangGenerationTokensHistMetricName     = "sglang:generation_tokens_histogram"
+	SGLangTokenUsageMetricName               = "sglang:token_usage"
+	SGLangUsedTokensMetricName               = "sglang:num_used_tokens"
+	SGLangKVUsedTokensMetricName             = "sglang:kv_used_tokens"
+	SGLangKVAvailableTokensMetricName        = "sglang:kv_available_tokens"
+	SGLangMaxTotalNumTokensMetricName        = "sglang:max_total_num_tokens"
+	SGLangPageSizeMetricName                 = "sglang:page_size"
+	SGLangNumPagesMetricName                 = "sglang:num_pages"
+	SGLangCacheHitRateMetricName             = "sglang:cache_hit_rate"
+	SGLangCachedTokensTotalMetricName        = "sglang:cached_tokens_total"
+	SGLangCacheConfigMetricName              = "sglang:cache_config_info"
+)
+
+// promLabelCacheSource names the tier a cached prompt token came from.
+const promLabelCacheSource = "cache_source"
+
+// cacheSourceTotal is the cache_source value sglang falls back to when it has
+// no per-tier breakdown, which is the only shape the simulator can report: its
+// block cache has a single tier.
+const cacheSourceTotal = "total"
+
+// Labels of sglang:cache_config_info. The names are the ones llm-d-router
+// reads out of this metric, since the router's SGLang configuration names it
+// as the source of the block size and block count.
+const (
+	promLabelCachePageSize = "page_size"
+	promLabelCacheNumPages = "num_pages"
 )
 
 // promLabelIsStreaming splits the metrics sglang reports separately for
@@ -116,9 +142,18 @@ type sglangMetricsAdapter struct {
 	registry *prometheus.Registry
 
 	// gauges
-	runningRequests *prometheus.GaugeVec
-	queuedRequests  *prometheus.GaugeVec
-	contextLen      *prometheus.GaugeVec
+	runningRequests   *prometheus.GaugeVec
+	queuedRequests    *prometheus.GaugeVec
+	contextLen        *prometheus.GaugeVec
+	tokenUsage        *prometheus.GaugeVec
+	usedTokens        *prometheus.GaugeVec
+	kvUsedTokens      *prometheus.GaugeVec
+	kvAvailableTokens *prometheus.GaugeVec
+	maxTotalNumTokens *prometheus.GaugeVec
+	pageSize          *prometheus.GaugeVec
+	numPages          *prometheus.GaugeVec
+	cacheHitRate      *prometheus.GaugeVec
+	cacheConfig       *prometheus.GaugeVec
 
 	// histograms
 	queueTime                *prometheus.HistogramVec
@@ -134,6 +169,7 @@ type sglangMetricsAdapter struct {
 	promptTokensTotal     *prometheus.CounterVec
 	generationTokensTotal *prometheus.CounterVec
 	requestsTotal         *prometheus.CounterVec
+	cachedTokensTotal     *prometheus.CounterVec
 
 	// Channels: one per Prometheus metric family. Handlers push here; the
 	// updater goroutines drain each and perform the actual Prometheus mutation.
@@ -153,10 +189,29 @@ type sglangMetricsAdapter struct {
 	generationTokensTotalChan common.Channel[streamObservation]
 	requestsTotalChan         common.Channel[streamObservation]
 
+	kvUsageChan     common.Channel[metrics.GaugeUpdate]
+	prefixCacheChan common.Channel[prefixCacheQuery]
+
 	// nQueuedReqs / nRunningReqs are the adapter-local counters mirrored onto
 	// the num_queue_reqs / num_running_reqs gauges.
 	nQueuedReqs  int64
 	nRunningReqs int64
+
+	// Cumulative prefix-cache tallies behind cache_hit_rate, mutated only by
+	// the prefix-cache updater goroutine.
+	nCachedTokens  int64
+	nQueriedTokens int64
+
+	// kvCapacityTokens is the KV cache's capacity in tokens, the denominator of
+	// the token-usage gauges.
+	kvCapacityTokens int
+}
+
+// prefixCacheQuery is the prefix-cache channel payload: the token counts of one
+// cache lookup.
+type prefixCacheQuery struct {
+	cached  int
+	queried int
 }
 
 // NewMetricsAdapter returns this engine's metrics adapter.
@@ -172,9 +227,10 @@ func (Engine) NewMetricsAdapter(ctx context.Context, registry *prometheus.Regist
 func newMetricsAdapter(ctx context.Context, registry *prometheus.Registry,
 	logger logr.Logger, config common.Configuration) (*sglangMetricsAdapter, error) {
 	m := &sglangMetricsAdapter{
-		logger:   logger,
-		registry: registry,
-		config:   config,
+		logger:           logger,
+		registry:         registry,
+		config:           config,
+		kvCapacityTokens: config.KVCache.KVCacheSize * config.KVCache.TokenBlockSize,
 	}
 
 	if err := m.buildMetrics(); err != nil {
@@ -288,12 +344,22 @@ func (m *sglangMetricsAdapter) OnRequestFailed(metrics.RequestFailed) {
 	m.finishRunning()
 }
 
-func (m *sglangMetricsAdapter) OnKVCacheUsageChanged(metrics.KVCacheUsageChanged) {
-	// Not reached: ValidateConfig rejects an enabled KV cache.
+// change in kv cache utilization
+// - update the token-usage gauges
+//
+// Not reached while ValidateConfig rejects an enabled KV cache, which leaves
+// the gauges reporting the empty cache they are stamped with.
+func (m *sglangMetricsAdapter) OnKVCacheUsageChanged(ev metrics.KVCacheUsageChanged) {
+	common.WriteToChannel(m.kvUsageChan, metrics.GaugeAdd(ev.KVCacheUsagePerc), m.logger)
 }
 
-func (m *sglangMetricsAdapter) OnPrefixCacheQueried(metrics.PrefixCacheQueried) {
-	// Not reached: ValidateConfig rejects an enabled KV cache.
+// prefix cache lookup
+// - update the cached-token counter and the cumulative hit rate
+//
+// Not reached while ValidateConfig rejects an enabled KV cache.
+func (m *sglangMetricsAdapter) OnPrefixCacheQueried(ev metrics.PrefixCacheQueried) {
+	common.WriteToChannel(m.prefixCacheChan,
+		prefixCacheQuery{cached: ev.CachedPromptTokens, queried: ev.QueriedTokens}, m.logger)
 }
 
 func (m *sglangMetricsAdapter) OnLoRASetsChanged(metrics.LoRASetsChanged) {
@@ -322,6 +388,8 @@ func (m *sglangMetricsAdapter) startPrometheusChannels(ctx context.Context) {
 	go common.Subscribe(ctx, m.generationTokensTotalChan, m.updateGenerationTokensTotal)
 	go common.Subscribe(ctx, m.uncachedPromptTokensHistChan, m.updateUncachedPromptTokensHist)
 	go common.Subscribe(ctx, m.requestsTotalChan, m.updateRequestsTotal)
+	go common.Subscribe(ctx, m.kvUsageChan, m.updateKVCacheUsage)
+	go common.Subscribe(ctx, m.prefixCacheChan, m.updatePrefixCache)
 }
 
 func (m *sglangMetricsAdapter) createPrometheusChannels(ctx context.Context) {
@@ -340,6 +408,8 @@ func (m *sglangMetricsAdapter) createPrometheusChannels(ctx context.Context) {
 	m.promptTokensTotalChan = common.NewChannel[streamObservation]("sglang", maxNumberOfRunningRequests, ctx.Done())
 	m.generationTokensTotalChan = common.NewChannel[streamObservation]("sglang", maxNumberOfRunningRequests, ctx.Done())
 	m.requestsTotalChan = common.NewChannel[streamObservation]("sglang", maxNumberOfRunningRequests, ctx.Done())
+	m.kvUsageChan = common.NewChannel[metrics.GaugeUpdate]("sglang", maxNumberOfRunningRequests, ctx.Done())
+	m.prefixCacheChan = common.NewChannel[prefixCacheQuery]("sglang", maxNumberOfRunningRequests, ctx.Done())
 }
 
 // -- Per-metric updaters --------------------------------------------------
@@ -413,6 +483,35 @@ func (m *sglangMetricsAdapter) updateHistogram(hist *prometheus.HistogramVec, up
 	hist.WithLabelValues(m.config.DisplayModelName).Observe(*upd.Observe)
 }
 
+// updateKVCacheUsage mirrors the utilization fraction onto token_usage and
+// derives the token counts beside it from the cache's capacity.
+func (m *sglangMetricsAdapter) updateKVCacheUsage(upd metrics.GaugeUpdate) {
+	usage := float64(*upd.Add)
+	used := usage * float64(m.kvCapacityTokens)
+
+	model := m.config.DisplayModelName
+	m.tokenUsage.WithLabelValues(model).Set(usage)
+	m.usedTokens.WithLabelValues(model).Set(used)
+	m.kvUsedTokens.WithLabelValues(model).Set(used)
+	m.kvAvailableTokens.WithLabelValues(model).Set(float64(m.kvCapacityTokens) - used)
+}
+
+// updatePrefixCache accumulates the cached-token counter and republishes the
+// cumulative hit rate, which sglang reports over the whole run rather than per
+// query.
+func (m *sglangMetricsAdapter) updatePrefixCache(upd prefixCacheQuery) {
+	model := m.config.DisplayModelName
+	if upd.cached > 0 {
+		m.cachedTokensTotal.WithLabelValues(model, cacheSourceTotal).Add(float64(upd.cached))
+	}
+
+	m.nCachedTokens += int64(upd.cached)
+	m.nQueriedTokens += int64(upd.queried)
+	if m.nQueriedTokens > 0 {
+		m.cacheHitRate.WithLabelValues(model).Set(float64(m.nCachedTokens) / float64(m.nQueriedTokens))
+	}
+}
+
 // updateStreamHistogram records an observation on the series matching the kind
 // of request it came from.
 func (m *sglangMetricsAdapter) updateStreamHistogram(hist *prometheus.HistogramVec, obs streamObservation) {
@@ -436,6 +535,36 @@ func (m *sglangMetricsAdapter) buildMetrics() error {
 		return err
 	}
 	if err := m.createAndRegisterContextLenGauge(); err != nil {
+		return err
+	}
+	if err := m.createAndRegisterTokenUsageGauge(); err != nil {
+		return err
+	}
+	if err := m.createAndRegisterUsedTokensGauge(); err != nil {
+		return err
+	}
+	if err := m.createAndRegisterKVUsedTokensGauge(); err != nil {
+		return err
+	}
+	if err := m.createAndRegisterKVAvailableTokensGauge(); err != nil {
+		return err
+	}
+	if err := m.createAndRegisterMaxTotalNumTokensGauge(); err != nil {
+		return err
+	}
+	if err := m.createAndRegisterPageSizeGauge(); err != nil {
+		return err
+	}
+	if err := m.createAndRegisterNumPagesGauge(); err != nil {
+		return err
+	}
+	if err := m.createAndRegisterCacheHitRateGauge(); err != nil {
+		return err
+	}
+	if err := m.createAndRegisterCacheConfigGauge(); err != nil {
+		return err
+	}
+	if err := m.createAndRegisterCachedTokensTotalCounter(); err != nil {
 		return err
 	}
 	if err := m.createAndRegisterQueueTimeHistogram(); err != nil {
@@ -503,6 +632,86 @@ func (m *sglangMetricsAdapter) createAndRegisterContextLenGauge() error {
 		Help: "Maximum context length.",
 	}, modelLabel)
 	return m.register(m.contextLen, "prometheus context length gauge register failed")
+}
+
+func (m *sglangMetricsAdapter) createAndRegisterTokenUsageGauge() error {
+	m.tokenUsage = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: SGLangTokenUsageMetricName,
+		Help: "The token usage.",
+	}, modelLabel)
+	return m.register(m.tokenUsage, "prometheus token usage gauge register failed")
+}
+
+func (m *sglangMetricsAdapter) createAndRegisterUsedTokensGauge() error {
+	m.usedTokens = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: SGLangUsedTokensMetricName,
+		Help: "The number of used tokens.",
+	}, modelLabel)
+	return m.register(m.usedTokens, "prometheus number of used tokens gauge register failed")
+}
+
+func (m *sglangMetricsAdapter) createAndRegisterKVUsedTokensGauge() error {
+	m.kvUsedTokens = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: SGLangKVUsedTokensMetricName,
+		Help: "Number of actively used token slots in the KV cache pool.",
+	}, modelLabel)
+	return m.register(m.kvUsedTokens, "prometheus kv used tokens gauge register failed")
+}
+
+func (m *sglangMetricsAdapter) createAndRegisterKVAvailableTokensGauge() error {
+	m.kvAvailableTokens = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: SGLangKVAvailableTokensMetricName,
+		Help: "Number of free token slots in the KV cache pool.",
+	}, modelLabel)
+	return m.register(m.kvAvailableTokens, "prometheus kv available tokens gauge register failed")
+}
+
+func (m *sglangMetricsAdapter) createAndRegisterMaxTotalNumTokensGauge() error {
+	m.maxTotalNumTokens = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: SGLangMaxTotalNumTokensMetricName,
+		Help: "Maximum total number of tokens in the KV cache pool.",
+	}, modelLabel)
+	return m.register(m.maxTotalNumTokens, "prometheus max total number of tokens gauge register failed")
+}
+
+func (m *sglangMetricsAdapter) createAndRegisterPageSizeGauge() error {
+	m.pageSize = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: SGLangPageSizeMetricName,
+		Help: "KV cache page size in tokens.",
+	}, modelLabel)
+	return m.register(m.pageSize, "prometheus page size gauge register failed")
+}
+
+func (m *sglangMetricsAdapter) createAndRegisterNumPagesGauge() error {
+	m.numPages = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: SGLangNumPagesMetricName,
+		Help: "Number of KV cache pages.",
+	}, modelLabel)
+	return m.register(m.numPages, "prometheus number of pages gauge register failed")
+}
+
+func (m *sglangMetricsAdapter) createAndRegisterCacheHitRateGauge() error {
+	m.cacheHitRate = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: SGLangCacheHitRateMetricName,
+		Help: "The prefix cache hit rate.",
+	}, modelLabel)
+	return m.register(m.cacheHitRate, "prometheus cache hit rate gauge register failed")
+}
+
+// createAndRegisterCacheConfigGauge registers sglang:cache_config_info, which
+// carries the cache's block size and block count as labels on a constant 1.
+//
+// sglang itself has no such metric: it reports the two as the plain
+// sglang:page_size and sglang:num_pages gauges registered above, which this
+// engine reports too. This one exists because llm-d-router's SGLang
+// configuration names it as where it reads them from, and a scrape missing it
+// leaves the router with no block size or block count at all.
+func (m *sglangMetricsAdapter) createAndRegisterCacheConfigGauge() error {
+	m.cacheConfig = prometheus.NewGaugeVec(prometheus.GaugeOpts{
+		Name: SGLangCacheConfigMetricName,
+		Help: "Information of the KV cache configuration.",
+	}, []string{promLabelCachePageSize, promLabelCacheNumPages})
+	return m.register(m.cacheConfig, "prometheus cache config register failed")
 }
 
 func (m *sglangMetricsAdapter) createAndRegisterQueueTimeHistogram() error {
@@ -601,14 +810,38 @@ func (m *sglangMetricsAdapter) createAndRegisterRequestsTotalCounter() error {
 	return m.register(m.requestsTotal, "prometheus num_requests_total counter register failed")
 }
 
-// setInitialValues zeroes the request gauges and stamps the context length, so
-// the first scrape has a consistent baseline. The histograms and the
-// per-request counters stay unstamped until a request is observed, since their
-// series are per request kind.
+func (m *sglangMetricsAdapter) createAndRegisterCachedTokensTotalCounter() error {
+	m.cachedTokensTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: SGLangCachedTokensTotalMetricName,
+		Help: "Number of cached prompt tokens by source (device/host/storage).",
+	}, []string{api.PromLabelModelName, promLabelCacheSource})
+	return m.register(m.cachedTokensTotal, "prometheus cached_tokens_total counter register failed")
+}
+
+// setInitialValues zeroes the request and utilization gauges and stamps the
+// ones describing the configuration, so the first scrape has a consistent
+// baseline. The histograms and the per-request counters stay unstamped until a
+// request is observed, since their series are per request kind.
 func (m *sglangMetricsAdapter) setInitialValues() {
 	model := m.config.DisplayModelName
 
 	m.runningRequests.WithLabelValues(model).Set(0)
 	m.queuedRequests.WithLabelValues(model).Set(0)
 	m.contextLen.WithLabelValues(model).Set(float64(m.config.MaxModelLen))
+
+	// An empty cache, which is also what these keep reporting while the engine
+	// simulates no KV cache at all.
+	m.tokenUsage.WithLabelValues(model).Set(0)
+	m.usedTokens.WithLabelValues(model).Set(0)
+	m.kvUsedTokens.WithLabelValues(model).Set(0)
+	m.kvAvailableTokens.WithLabelValues(model).Set(float64(m.kvCapacityTokens))
+	m.cacheHitRate.WithLabelValues(model).Set(0)
+
+	m.maxTotalNumTokens.WithLabelValues(model).Set(float64(m.kvCapacityTokens))
+	m.pageSize.WithLabelValues(model).Set(float64(m.config.KVCache.TokenBlockSize))
+	m.numPages.WithLabelValues(model).Set(float64(m.config.KVCache.KVCacheSize))
+	m.cacheConfig.WithLabelValues(
+		strconv.Itoa(m.config.KVCache.TokenBlockSize),
+		strconv.Itoa(m.config.KVCache.KVCacheSize),
+	).Set(1)
 }
