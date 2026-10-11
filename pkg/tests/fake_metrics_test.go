@@ -480,7 +480,7 @@ var _ = Describe("Fake metrics", Ordered, func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resp.StatusCode).To(Equal(http.StatusOK))
 
-			eventuallyMetrics(client, func(g Gomega, metricsData string) {
+			eventuallyThenConsistentlyMetrics(client, func(g Gomega, metricsData string) {
 
 				g.Expect(metricsData).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllm.VLLMReqRunningMetricName, 15)))
 				g.Expect(metricsData).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllm.VLLMReqWaitingMetricName, 0)))
