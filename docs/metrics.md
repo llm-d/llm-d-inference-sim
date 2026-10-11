@@ -60,6 +60,16 @@ Currently supported are the following metrics:
 | sglang:prompt_tokens_histogram | Histogram of prompt token length |
 | sglang:uncached_prompt_tokens_histogram | Histogram of uncached (compute) prompt token length |
 | sglang:generation_tokens_histogram | Histogram of generation token length |
+| sglang:token_usage | The token usage |
+| sglang:num_used_tokens | The number of used tokens |
+| sglang:kv_used_tokens | Number of actively used token slots in the KV cache pool |
+| sglang:kv_available_tokens | Number of free token slots in the KV cache pool |
+| sglang:max_total_num_tokens | Maximum total number of tokens in the KV cache pool |
+| sglang:page_size | KV cache page size in tokens |
+| sglang:num_pages | Number of KV cache pages |
+| sglang:cache_hit_rate | The prefix cache hit rate |
+| sglang:cached_tokens_total | Number of cached prompt tokens, labeled by `cache_source` |
+| sglang:cache_config_info | Information of the KV cache configuration, in labels `page_size` and `num_pages` |
 
 The bucket boundaries of the three request-latency histograms are the defaults of SGLang's
 `--bucket-time-to-first-token`, `--bucket-inter-token-latency`, and `--bucket-e2e-request-latency`; the
@@ -83,11 +93,35 @@ simulated, since no prompt token can be served from a prefix cache.
 `sglang:queue_time_seconds` is observed when a request leaves the waiting queue, so it stays absent
 while a free worker is always available to take a request immediately.
 
+### The KV-cache metrics
+
+This engine simulates no KV cache, so the metrics measuring one report an empty cache of the configured
+geometry: `token_usage`, `num_used_tokens`, `kv_used_tokens`, and `cache_hit_rate` read zero,
+`kv_available_tokens` reads the full capacity, and `cached_tokens_total` stays absent. The ones describing
+the cache rather than measuring it carry real values: `max_total_num_tokens` is `kv-cache-size` x
+`block-size`, `page_size` is `block-size`, and `num_pages` is `kv-cache-size`. The handlers behind the
+measurements are wired, so they begin reporting as soon as the engine gains a KV cache, without a change
+here. `cached_tokens_total` is labeled `cache_source="total"`, SGLang's own fallback label when it has no
+per-tier breakdown to report, which the simulator's single-tier block cache never will.
+
+`sglang:cache_config_info` does not exist in SGLang, which reports the block size and block count as the
+plain `sglang:page_size` and `sglang:num_pages` gauges; the simulator reports those too. It exists here
+because llm-d-router's SGLang configuration names it as where it reads the two from, so a scrape without
+it leaves the router with no block size or block count at all.
+
+### What llm-d-router reads
+
+The router reads five metrics per engine. All of SGLang's are exposed: `sglang:num_queue_reqs`,
+`sglang:num_running_reqs`, `sglang:token_usage`, and `sglang:cache_config_info` (labels `page_size` and
+`num_pages`). Its LoRA spec for this engine is empty, since LoRA routing is disabled for SGLang, so there
+is no fifth metric to report. `token_usage` resolves but reads zero until the engine simulates a KV cache,
+the same as the vLLM engine's `vllm:kv_cache_usage_perc` with its cache disabled.
+
 The metrics of a feature this engine does not simulate are absent rather than reported as zero. The
-KV-cache group (`token_usage`, `cache_hit_rate`, `cached_tokens_total`, `num_used_tokens`, `kv_*`,
-`max_total_num_tokens`, `page_size`, `num_pages`, `swa_*`, `mamba_*`, `hicache_*`) follows the KV-cache
-simulation, and the LoRA, speculative-decoding, grammar, hierarchical-cache, encoder-cache, MoE, and
-prefill/decode-disaggregation groups follow theirs. `sglang:gen_throughput` is a rolling token-rate the
+LoRA, speculative-decoding, grammar, hierarchical-cache (`hicache_*`), encoder-cache, MoE, and
+prefill/decode-disaggregation groups follow theirs, as do the hybrid-attention pools (`swa_*`,
+`mamba_*`) and `kv_evictable_tokens`, which reports a block-cache internal the simulator's own cache
+does not expose. `sglang:gen_throughput` is a rolling token-rate the
 simulator does not compute, `sglang:num_aborted_requests_total` counts client aborts, which the
 simulator does not distinguish, and `sglang:func_latency_seconds` times the engine's own Python entry
 points. The scheduler's own instrumentation (`per_stage_req_latency_seconds`, `utilization`,

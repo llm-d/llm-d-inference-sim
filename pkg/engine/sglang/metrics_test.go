@@ -45,8 +45,13 @@ func newTestConfig() common.Configuration {
 		MaxNumSeqs:            4,
 		MaxWaitingQueueLength: 8,
 		MaxModelLen:           1024,
+		KVCache:               common.KVCacheConfig{KVCacheSize: 128, TokenBlockSize: 16},
 	}
 }
+
+// kvCapacityTokens is the token capacity newTestConfig's cache geometry adds up
+// to.
+const kvCapacityTokens = 128 * 16
 
 // newTestAdapter builds a metricsAdapter with a fresh Prometheus registry and a
 // canceled-on-cleanup context, which stops all updater goroutines.
@@ -132,7 +137,10 @@ var _ = Describe("Metrics adapter", func() {
 				names = append(names, family.GetName())
 			}
 			Expect(names).To(ConsistOf(SGLangQueueReqsMetricName, SGLangRunningReqsMetricName,
-				SGLangContextLenMetricName))
+				SGLangContextLenMetricName, SGLangTokenUsageMetricName, SGLangUsedTokensMetricName,
+				SGLangKVUsedTokensMetricName, SGLangKVAvailableTokensMetricName,
+				SGLangMaxTotalNumTokensMetricName, SGLangPageSizeMetricName, SGLangNumPagesMetricName,
+				SGLangCacheHitRateMetricName, SGLangCacheConfigMetricName))
 		})
 
 		It("stamps the context length from the configuration", func() {
@@ -140,6 +148,27 @@ var _ = Describe("Metrics adapter", func() {
 
 			Expect(testutil.ToFloat64(adapter.contextLen.WithLabelValues(common.TestModelName))).
 				To(Equal(float64(newTestConfig().MaxModelLen)))
+		})
+
+		It("describes an empty cache of the configured geometry", func() {
+			adapter, _ := newTestAdapter()
+
+			Expect(gaugeValue(adapter.tokenUsage)()).To(BeZero())
+			Expect(gaugeValue(adapter.usedTokens)()).To(BeZero())
+			Expect(gaugeValue(adapter.kvUsedTokens)()).To(BeZero())
+			Expect(gaugeValue(adapter.cacheHitRate)()).To(BeZero())
+			Expect(gaugeValue(adapter.kvAvailableTokens)()).To(Equal(float64(kvCapacityTokens)))
+			Expect(gaugeValue(adapter.maxTotalNumTokens)()).To(Equal(float64(kvCapacityTokens)))
+			Expect(gaugeValue(adapter.pageSize)()).To(Equal(float64(16)))
+			Expect(gaugeValue(adapter.numPages)()).To(Equal(float64(128)))
+		})
+
+		// llm-d-router reads the block size and block count out of this metric's
+		// labels, so their spelling is a contract with it.
+		It("stamps the cache config the router reads", func() {
+			adapter, _ := newTestAdapter()
+
+			Expect(testutil.ToFloat64(adapter.cacheConfig.WithLabelValues("16", "128"))).To(Equal(float64(1)))
 		})
 	})
 
@@ -273,6 +302,30 @@ var _ = Describe("Metrics adapter", func() {
 			Consistently(histogramCount(registry, SGLangE2EReqLatencyMetricName, nonStreaming)).Should(BeZero())
 			Consistently(counterValue(adapter.promptTokensTotal, common.TestModelName, nonStreaming)).Should(BeZero())
 		})
+
+		// Not reachable while the engine rejects an enabled KV cache, so these
+		// cover the handlers against the day it does not.
+		It("mirrors the cache utilization onto the token gauges", func() {
+			adapter, _ := newTestAdapter()
+
+			adapter.OnKVCacheUsageChanged(metrics.KVCacheUsageChanged{KVCacheUsagePerc: 0.25})
+
+			Eventually(gaugeValue(adapter.tokenUsage)).Should(Equal(0.25))
+			Eventually(gaugeValue(adapter.usedTokens)).Should(Equal(float64(kvCapacityTokens) * 0.25))
+			Eventually(gaugeValue(adapter.kvUsedTokens)).Should(Equal(float64(kvCapacityTokens) * 0.25))
+			Eventually(gaugeValue(adapter.kvAvailableTokens)).Should(Equal(float64(kvCapacityTokens) * 0.75))
+		})
+
+		It("accumulates cached tokens and a cumulative hit rate", func() {
+			adapter, _ := newTestAdapter()
+
+			adapter.OnPrefixCacheQueried(metrics.PrefixCacheQueried{QueriedTokens: 100, CachedPromptTokens: 40})
+			adapter.OnPrefixCacheQueried(metrics.PrefixCacheQueried{QueriedTokens: 100, CachedPromptTokens: 10})
+
+			Eventually(counterValue(adapter.cachedTokensTotal, common.TestModelName, cacheSourceTotal)).
+				Should(Equal(float64(50)))
+			Eventually(gaugeValue(adapter.cacheHitRate)).Should(Equal(0.25))
+		})
 	})
 
 	Describe("rejected features", func() {
@@ -284,8 +337,6 @@ var _ = Describe("Metrics adapter", func() {
 				adapter.OnRequestRejected(metrics.RequestRejected{})
 				adapter.OnPrefillStarted(metrics.PrefillStarted{})
 				adapter.OnDecodeStarted(metrics.DecodeStarted{})
-				adapter.OnKVCacheUsageChanged(metrics.KVCacheUsageChanged{KVCacheUsagePerc: 0.5})
-				adapter.OnPrefixCacheQueried(metrics.PrefixCacheQueried{QueriedTokens: 10, CachedPromptTokens: 4})
 				adapter.OnLoRASetsChanged(metrics.LoRASetsChanged{})
 				adapter.ApplyFakeMetricsUpdate(fakeMetrics{})
 			}).NotTo(Panic())
