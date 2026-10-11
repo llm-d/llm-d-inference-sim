@@ -49,6 +49,14 @@ func (f fakeTransport) StreamErrorBody(err api.Error, route api.ErrorRoute) any 
 	return f.ErrorBody(err, route)
 }
 
+func (fakeTransport) DecorateChatChoice(choice api.ChatRespChoice) api.ChatRespChoice { return choice }
+
+func (fakeTransport) DecorateChatChunkChoice(choice api.ChatRespChunkChoice) api.ChatRespChunkChoice {
+	return choice
+}
+
+func (fakeTransport) DecorateTextChoice(choice api.TextRespChoice) api.TextRespChoice { return choice }
+
 var _ = Describe("bindGRPC", func() {
 	var comm *Communication
 

@@ -93,3 +93,23 @@ var _ = Describe("error bodies", func() {
 		Entry("unnamed status", 418, "teapot", "api_error", "teapot"),
 	)
 })
+
+// sglang reports matched_stop as null on every completion choice: no request
+// can match a stop condition today, since stop-sequence matching is not
+// simulated.
+var _ = Describe("choice decoration", func() {
+	It("should set matched_stop to null on a chat choice", func() {
+		choice := api.CreateChatRespChoice(api.CreateBaseResponseChoice(0, nil), api.Message{Role: api.RoleAssistant})
+		Expect(New().DecorateChatChoice(choice).MatchedStop).To(MatchJSON("null"))
+	})
+
+	It("should set matched_stop to null on a chat chunk choice", func() {
+		choice := api.CreateChatRespChunkChoice(api.CreateBaseResponseChoice(0, nil), api.Message{})
+		Expect(New().DecorateChatChunkChoice(choice).MatchedStop).To(MatchJSON("null"))
+	})
+
+	It("should set matched_stop to null on a text choice", func() {
+		choice := api.CreateTextRespChoice(api.CreateBaseResponseChoice(0, nil), "hello")
+		Expect(New().DecorateTextChoice(choice).MatchedStop).To(MatchJSON("null"))
+	})
+})

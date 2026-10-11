@@ -239,6 +239,20 @@ func errorType(apiErr *openai.Error) string {
 	return readFlatError(apiErr).Type
 }
 
+// expectMatchedStop asserts sglang's matched_stop convention on a raw JSON
+// completion choice: present and null under sglang, absent under every other
+// engine. A real (non-null) value needs stop-sequence matching, which no
+// engine simulates yet.
+func expectMatchedStop(choice map[string]any) {
+	matchedStop, hasMatchedStop := choice["matched_stop"]
+	if currentEngine == "sglang" {
+		gomega.Expect(hasMatchedStop).To(gomega.BeTrue())
+		gomega.Expect(matchedStop).To(gomega.BeNil())
+	} else {
+		gomega.Expect(hasMatchedStop).To(gomega.BeFalse())
+	}
+}
+
 // engineFlags are the flags the registered engines declare for those fields (see
 // each engine's flags.go). A new engine's row belongs here along with it, which
 // is what every spec using fieldFlag then runs under.

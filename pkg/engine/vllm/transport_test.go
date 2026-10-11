@@ -58,3 +58,22 @@ var _ = Describe("error bodies", func() {
 		Entry("the Messages API", api.ErrorRouteMessages, anthropicBody),
 	)
 })
+
+// vLLM has no equivalent of sglang's matched_stop: every Decorate* hook
+// returns its choice unchanged.
+var _ = Describe("choice decoration", func() {
+	It("should leave a chat choice unchanged", func() {
+		choice := api.CreateChatRespChoice(api.CreateBaseResponseChoice(0, nil), api.Message{Role: api.RoleAssistant})
+		Expect(New().DecorateChatChoice(choice)).To(Equal(choice))
+	})
+
+	It("should leave a chat chunk choice unchanged", func() {
+		choice := api.CreateChatRespChunkChoice(api.CreateBaseResponseChoice(0, nil), api.Message{})
+		Expect(New().DecorateChatChunkChoice(choice)).To(Equal(choice))
+	})
+
+	It("should leave a text choice unchanged", func() {
+		choice := api.CreateTextRespChoice(api.CreateBaseResponseChoice(0, nil), "hello")
+		Expect(New().DecorateTextChoice(choice)).To(Equal(choice))
+	})
+})

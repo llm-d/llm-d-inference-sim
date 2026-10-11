@@ -150,7 +150,10 @@ func (*baseRespBuilder) createRenderResponse(_ [][]uint32, _ *api.RenderMMFeatur
 	panic("createRenderResponse not supported for this response builder")
 }
 
-type textComplHTTPRespBuilder struct{ baseRespBuilder }
+type textComplHTTPRespBuilder struct {
+	baseRespBuilder
+	transport Transport
+}
 
 func (respBuilder *textComplHTTPRespBuilder) createResponse(respCtxPerChoice []endpoint.ResponseContext,
 	tokens []api.Tokenized) any {
@@ -163,7 +166,7 @@ func (respBuilder *textComplHTTPRespBuilder) createResponse(respCtxPerChoice []e
 		choiceCtx := respCtxPerChoice[i]
 		baseChoice := api.CreateBaseResponseChoice(i, choiceCtx.FinishReason())
 		respText := strings.Join(t.Strings, "")
-		choice := api.CreateTextRespChoice(baseChoice, respText)
+		choice := respBuilder.transport.DecorateTextChoice(api.CreateTextRespChoice(baseChoice, respText))
 
 		// Generate logprobs if requested for text completion
 		if choiceCtx.TopLogprobs() != nil && *choiceCtx.TopLogprobs() > 0 {
@@ -209,7 +212,8 @@ func (respBuilder *textComplHTTPRespBuilder) createChunk(respCtx endpoint.Respon
 	if tokens != nil {
 		tokensStr = strings.Join(tokens.Strings, "")
 	}
-	choice := api.CreateTextRespChoice(api.CreateBaseResponseChoice(choiceIdx, finishReason), tokensStr)
+	choice := respBuilder.transport.DecorateTextChoice(
+		api.CreateTextRespChoice(api.CreateBaseResponseChoice(choiceIdx, finishReason), tokensStr))
 
 	// Generate logprobs if requested and tokens is not empty
 	if respCtx.TopLogprobs() != nil && tokens != nil && len(tokens.Strings) > 0 && *respCtx.TopLogprobs() > 0 {
@@ -246,7 +250,10 @@ func (*textComplHTTPRespBuilder) createRenderResponse(tokens [][]uint32,
 
 var _ responseBuilder = (*textComplHTTPRespBuilder)(nil)
 
-type chatComplHTTPRespBuilder struct{ baseRespBuilder }
+type chatComplHTTPRespBuilder struct {
+	baseRespBuilder
+	transport Transport
+}
 
 func (respBuilder *chatComplHTTPRespBuilder) createResponse(respCtxPerChoice []endpoint.ResponseContext,
 	tokens []api.Tokenized) any {
@@ -281,7 +288,7 @@ func (respBuilder *chatComplHTTPRespBuilder) createResponse(respCtxPerChoice []e
 			}
 		}
 
-		choice := api.CreateChatRespChoice(baseChoice, message)
+		choice := respBuilder.transport.DecorateChatChoice(api.CreateChatRespChoice(baseChoice, message))
 
 		// Generate logprobs if requested
 		if choiceCtx.TopLogprobs() != nil && choiceCtx.ToolCalls() == nil {
@@ -318,8 +325,8 @@ func (respBuilder *chatComplHTTPRespBuilder) createChunk(respCtx endpoint.Respon
 	baseChunk.Object = api.ChatCompletionChunkObject
 	chunk := api.CreateChatCompletionsRespChunk(baseChunk,
 		[]api.ChatRespChunkChoice{
-			api.CreateChatRespChunkChoice(
-				api.CreateBaseResponseChoice(choiceIdx, finishReason), api.Message{})})
+			respBuilder.transport.DecorateChatChunkChoice(api.CreateChatRespChunkChoice(
+				api.CreateBaseResponseChoice(choiceIdx, finishReason), api.Message{}))})
 
 	if len(role) > 0 {
 		chunk.Choices[0].Delta.Role = role

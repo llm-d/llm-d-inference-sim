@@ -62,6 +62,7 @@ Structure of requests/responses
         - choices
           - index
           - finish_reason
+          - matched_stop (sglang only, always null)
           - message
             - role
             - content
@@ -124,6 +125,7 @@ Structure of requests/responses
         - choices
           - index
           - finish_reason
+          - matched_stop (sglang only, always null)
           - text
           - logprobs
             - tokens

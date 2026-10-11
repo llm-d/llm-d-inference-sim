@@ -150,12 +150,12 @@ func (c *Communication) getRequestID(ctx *fasthttp.RequestCtx) string {
 
 // HandleChatCompletions http handler for /v1/chat/completions
 func (c *Communication) HandleChatCompletions(ctx *fasthttp.RequestCtx) {
-	c.handleHTTP(&endpoint.ChatCompletionsRequest{}, &chatComplHTTPRespBuilder{}, ctx)
+	c.handleHTTP(&endpoint.ChatCompletionsRequest{}, &chatComplHTTPRespBuilder{transport: c.transport}, ctx)
 }
 
 // HandleTextCompletions http handler for /v1/completions
 func (c *Communication) HandleTextCompletions(ctx *fasthttp.RequestCtx) {
-	c.handleHTTP(&endpoint.TextCompletionsParsedRequest{}, &textComplHTTPRespBuilder{}, ctx)
+	c.handleHTTP(&endpoint.TextCompletionsParsedRequest{}, &textComplHTTPRespBuilder{transport: c.transport}, ctx)
 }
 
 // HandleResponses http handler for /v1/responses

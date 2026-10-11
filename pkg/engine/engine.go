@@ -73,6 +73,16 @@ type Engine interface {
 	// StreamErrorBody returns the body of a single error frame in a streaming
 	// response, which an engine need not frame the way ErrorBody does.
 	StreamErrorBody(err api.Error, route api.ErrorRoute) any
+	// DecorateChatChoice adds any fields this engine puts on a chat-completion
+	// choice beyond the OpenAI-compatible core, called once per choice -- for
+	// the full response and for each streamed chunk alike. vLLM returns choice
+	// unchanged.
+	DecorateChatChoice(choice api.ChatRespChoice) api.ChatRespChoice
+	// DecorateChatChunkChoice is DecorateChatChoice's streaming-chunk counterpart.
+	DecorateChatChunkChoice(choice api.ChatRespChunkChoice) api.ChatRespChunkChoice
+	// DecorateTextChoice adds any fields this engine puts on a text-completion
+	// choice; both the full response and streamed chunks reuse this one type.
+	DecorateTextChoice(choice api.TextRespChoice) api.TextRespChoice
 	// NewMetricsAdapter builds the engine's own metrics adapter, registering
 	// its collectors on registry. ctx must match the one passed to
 	// metrics.NewMetricsBus.

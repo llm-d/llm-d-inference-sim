@@ -61,3 +61,17 @@ func (Engine) ErrorBody(err api.Error, route api.ErrorRoute) any {
 func (e Engine) StreamErrorBody(err api.Error, route api.ErrorRoute) any {
 	return e.ErrorBody(err, route)
 }
+
+// DecorateChatChoice adds no fields: vLLM has no equivalent of sglang's
+// matched_stop.
+func (Engine) DecorateChatChoice(choice api.ChatRespChoice) api.ChatRespChoice { return choice }
+
+// DecorateChatChunkChoice adds no fields: vLLM has no equivalent of sglang's
+// matched_stop.
+func (Engine) DecorateChatChunkChoice(choice api.ChatRespChunkChoice) api.ChatRespChunkChoice {
+	return choice
+}
+
+// DecorateTextChoice adds no fields: vLLM has no equivalent of sglang's
+// matched_stop.
+func (Engine) DecorateTextChoice(choice api.TextRespChoice) api.TextRespChoice { return choice }

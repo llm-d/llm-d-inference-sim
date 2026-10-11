@@ -137,6 +137,11 @@ type baseResponseChoice struct {
 	Index int `json:"index"`
 	// FinishReason defines finish reason for response or for chunks, for not last chunks is defined as null
 	FinishReason *string `json:"finish_reason"`
+	// MatchedStop is sglang's field naming which stop string or token ID ended
+	// generation, or JSON null if some other condition did. The zero value
+	// (nil) omits the field entirely, which is how vLLM's choices stay
+	// without it.
+	MatchedStop json.RawMessage `json:"matched_stop,omitempty"`
 }
 
 // v1/chat/completions

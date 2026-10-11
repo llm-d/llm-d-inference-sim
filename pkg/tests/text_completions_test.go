@@ -70,6 +70,12 @@ var _ = Describe("Simulator", forEachEngine(func() {
 					numberOfChunksWithUsage++
 				}
 				Expect(string(chunk.Object)).To(Equal(api.TextCompletionObject))
+
+				var rawChunk map[string]any
+				Expect(json.Unmarshal([]byte(chunk.RawJSON()), &rawChunk)).To(Succeed())
+				if choices, ok := rawChunk["choices"].([]any); ok && len(choices) > 0 {
+					expectMatchedStop(choices[0].(map[string]any))
+				}
 			}
 			Expect(numberOfChunksWithUsage).To(Equal(1))
 			Expect(chunk.Usage.PromptTokens).To(Equal(userMsgTokens))
@@ -164,6 +170,10 @@ var _ = Describe("Simulator", forEachEngine(func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resp.Choices).ShouldNot(BeEmpty())
 			Expect(string(resp.Object)).To(Equal(api.TextCompletionObject))
+
+			var rawResp map[string]any
+			Expect(json.Unmarshal([]byte(resp.RawJSON()), &rawResp)).To(Succeed())
+			expectMatchedStop(rawResp["choices"].([]any)[0].(map[string]any))
 
 			Expect(resp.Usage.PromptTokens).To(Equal(userMsgTokens))
 			Expect(resp.Usage.CompletionTokens).To(BeNumerically(">", 0))

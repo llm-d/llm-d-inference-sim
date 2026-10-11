@@ -17,6 +17,8 @@ limitations under the License.
 package sglang
 
 import (
+	"encoding/json"
+
 	"github.com/buaazp/fasthttprouter"
 	"github.com/valyala/fasthttp"
 	"google.golang.org/grpc"
@@ -24,6 +26,11 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/communication"
 )
+
+// matchedStopNull is the literal JSON null sglang reports in matched_stop
+// until stop-sequence matching is simulated: no request can match a stop
+// condition today, since none is implemented.
+var matchedStopNull = json.RawMessage("null")
 
 // objectError is the value of the "object" field of an sglang error body.
 const objectError = "error"
@@ -113,6 +120,27 @@ const messagesAPIError = "api_error"
 // messagesServerErrorMessage replaces the message of a server error, which
 // sglang never lets through on this route.
 const messagesServerErrorMessage = "Internal server error"
+
+// DecorateChatChoice sets matched_stop to null: sglang reports it on every
+// chat-completion choice, but no request can match a stop condition today,
+// since stop-sequence matching is not simulated.
+func (Engine) DecorateChatChoice(choice api.ChatRespChoice) api.ChatRespChoice {
+	choice.MatchedStop = matchedStopNull
+	return choice
+}
+
+// DecorateChatChunkChoice is DecorateChatChoice's streaming-chunk counterpart.
+func (Engine) DecorateChatChunkChoice(choice api.ChatRespChunkChoice) api.ChatRespChunkChoice {
+	choice.MatchedStop = matchedStopNull
+	return choice
+}
+
+// DecorateTextChoice sets matched_stop to null, the same way DecorateChatChoice
+// does for chat completions.
+func (Engine) DecorateTextChoice(choice api.TextRespChoice) api.TextRespChoice {
+	choice.MatchedStop = matchedStopNull
+	return choice
+}
 
 // messagesErrorBody puts the error in the Anthropic envelope, with the type
 // mapped to Anthropic's vocabulary and a server error's message replaced.
