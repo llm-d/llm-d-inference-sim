@@ -58,6 +58,12 @@ func main() {
 	// klog's default verbosity (0) is only raised to INFO by ParseCommandParamsAndLoadConfig
 	// above, so this must run after it to actually be visible at the default verbosity.
 	logger.V(logging.INFO).Info("Starting inference simulator", "engine", eng.Name())
+	if eng.Name() == "sglang" {
+		logger.V(logging.WARN).Info("================================================================")
+		logger.V(logging.WARN).Info("WARNING: SGLang engine support is experimental and incomplete.")
+		logger.V(logging.WARN).Info("It is not ready for production use, see docs/engine-backends.md.")
+		logger.V(logging.WARN).Info("================================================================")
+	}
 
 	if err := config.Show(logger); err != nil {
 		logger.Error(err, "failed to show configuration")

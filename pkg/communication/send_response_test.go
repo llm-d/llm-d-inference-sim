@@ -162,7 +162,7 @@ var _ = Describe("sendStream missing-choice guard", func() {
 		httpCtx.SetStatusCode(fasthttp.StatusOK)
 		httpCtx.SetContentType("text/event-stream")
 
-		c.sendStream(httpCtx, filtered, &textComplHTTPRespBuilder{}, numChoices, first)
+		c.sendStream(httpCtx, filtered, &textComplHTTPRespBuilder{transport: c.transport}, numChoices, first)
 
 		// sendStream's own goroutine runs concurrently with this one. Hitting the
 		// nil-check calls sendError, whose SetBody closes the response's body

@@ -19,13 +19,18 @@ package common
 import (
 	"encoding/json"
 	"os"
-	"path/filepath"
 	"reflect"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/spf13/pflag"
 )
+
+// writeConfig writes a config file for one spec and returns its path.
+func writeConfig(contents string) string {
+	return WriteConfigFile(GinkgoT().TempDir(), contents)
+}
 
 func createConfigWithModel(model string, servedModelNames []string) *Configuration {
 	c := NewConfig()
@@ -110,6 +115,31 @@ var _ = Describe("ApplyAdminUpdate", func() {
 		// Fields not in the body are nil on the fake-metrics partial.
 		Expect(updateFakeMetrics.WaitingRequests).To(BeNil())
 	})
+
+	DescribeTable("replaces generator metrics with fixed values",
+		func(body, expected string) {
+			var metric FakeMetricWithFunction
+			Expect(json.Unmarshal([]byte(`"ramp:0:10:5s"`), &metric)).To(Succeed())
+			base.FakeMetrics = &stubFakeMetrics{
+				RunningRequests: &metric,
+				WaitingRequests: &FakeMetricWithFunction{FixedValue: 30},
+			}
+
+			next, _, _, err := base.Update([]byte(body))
+			Expect(err).ToNot(HaveOccurred())
+			data, err := next.MarshalCleaned()
+			Expect(err).ToNot(HaveOccurred())
+			var fields map[string]json.RawMessage
+			Expect(json.Unmarshal(data, &fields)).To(Succeed())
+			Expect(fields["fake-metrics"]).To(MatchJSON(expected))
+
+			original, err := json.Marshal(base.FakeMetrics)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(original).To(MatchJSON(`{"running-requests":"ramp:0:10:5s","waiting-requests":30}`))
+		},
+		Entry("nonzero", `{"fake-metrics":{"running-requests":7}}`, `{"running-requests":7,"waiting-requests":30}`),
+		Entry("zero", `{"fake-metrics":{"running-requests":0}}`, `{"running-requests":0,"waiting-requests":30}`),
+	)
 
 	It("rejects a fake-metrics partial when no fake-metrics is configured", func() {
 		// Without a concrete FakeMetrics to unmarshal into, the partial would be
@@ -271,6 +301,26 @@ var _ = Describe("Configuration.MarshalCleaned", func() {
 		Expect(latencies).ToNot(HaveKey("latency-calculator"))
 	})
 
+	// The three fields an engine names itself are reported under the name that
+	// engine gave them, so a reader sees the name they would pass back on the
+	// command line; a field no engine declared keeps its placeholder key.
+	It("reports an engine-named field under the name it was declared with", func() {
+		c := createConfigWithModel(TestModelName, nil)
+		c.MaxModelLen = 512
+		c.NameField(FieldContextWindow, "context-length")
+
+		data, err := c.MarshalCleaned()
+		Expect(err).ToNot(HaveOccurred())
+
+		var m map[string]any
+		Expect(json.Unmarshal(data, &m)).To(Succeed())
+
+		Expect(m).To(HaveKeyWithValue("context-length", BeEquivalentTo(512)))
+		Expect(m).ToNot(HaveKey(FieldContextWindow))
+		Expect(m).To(HaveKey(FieldConcurrency))
+		Expect(m).To(HaveKey(FieldQueueLength))
+	})
+
 	DescribeTable("nests fields under their own group and none remain at the top level",
 		func(groupKey string, groupYAMLKeys []string) {
 			c := createDefaultConfig("model", nil)
@@ -312,6 +362,26 @@ func (s *stubFakeMetrics) Validate() error  { return nil }
 func (s *stubFakeMetrics) New() FakeMetrics { return &stubFakeMetrics{} }
 
 var _ = Describe("Configuration.Copy", func() {
+	// The record of the names an engine gave the fields it names itself is
+	// unexported, so the JSON round trip inside Copy drops it. A copy that lost
+	// it would report those fields under their placeholder keys instead, which
+	// is what a POST /admin/config update would leave behind.
+	It("should keep the names the engine gave the fields it names", func() {
+		c := createConfigWithModel(TestModelName, nil)
+		c.MaxModelLen = 512
+		c.NameField(FieldContextWindow, "context-length")
+
+		got, err := c.Copy()
+		Expect(err).NotTo(HaveOccurred())
+
+		data, err := got.MarshalCleaned()
+		Expect(err).NotTo(HaveOccurred())
+		var m map[string]any
+		Expect(json.Unmarshal(data, &m)).To(Succeed())
+		Expect(m).To(HaveKeyWithValue("context-length", BeEquivalentTo(512)))
+		Expect(m).ToNot(HaveKey(FieldContextWindow))
+	})
+
 	It("should round-trip a non-nil FakeMetrics with a fixed-value metric", func() {
 		c := &Configuration{
 			FakeMetrics: &stubFakeMetrics{
@@ -423,13 +493,6 @@ var _ = Describe("admin struct tags", func() {
 })
 
 var _ = Describe("Configuration.load latencies YAML folding", func() {
-	writeConfig := func(contents string) string {
-		dir := GinkgoT().TempDir()
-		path := filepath.Join(dir, "config.yaml")
-		Expect(os.WriteFile(path, []byte(contents), 0o644)).To(Succeed())
-		return path
-	}
-
 	It("populates Latencies from the nested latencies block", func() {
 		c := NewConfig()
 		_, err := c.load(writeConfig(`
@@ -481,13 +544,6 @@ latencies:
 })
 
 var _ = Describe("Configuration.load tool-calls YAML folding", func() {
-	writeConfig := func(contents string) string {
-		dir := GinkgoT().TempDir()
-		path := filepath.Join(dir, "config.yaml")
-		Expect(os.WriteFile(path, []byte(contents), 0o644)).To(Succeed())
-		return path
-	}
-
 	It("populates ToolCalls from the nested tool-calls block", func() {
 		c := NewConfig()
 		_, err := c.load(writeConfig(`
@@ -539,13 +595,6 @@ tool-calls:
 })
 
 var _ = Describe("Configuration.load dataset YAML folding", func() {
-	writeConfig := func(contents string) string {
-		dir := GinkgoT().TempDir()
-		path := filepath.Join(dir, "config.yaml")
-		Expect(os.WriteFile(path, []byte(contents), 0o644)).To(Succeed())
-		return path
-	}
-
 	It("populates Dataset from the nested dataset block", func() {
 		c := NewConfig()
 		_, err := c.load(writeConfig(`
@@ -597,13 +646,6 @@ dataset:
 })
 
 var _ = Describe("Configuration.load ssl YAML folding", func() {
-	writeConfig := func(contents string) string {
-		dir := GinkgoT().TempDir()
-		path := filepath.Join(dir, "config.yaml")
-		Expect(os.WriteFile(path, []byte(contents), 0o644)).To(Succeed())
-		return path
-	}
-
 	It("populates SSL from the nested ssl block", func() {
 		c := NewConfig()
 		_, err := c.load(writeConfig(`
@@ -685,5 +727,88 @@ var _ = Describe("unexpected positional arguments", func() {
 			"--served-model-name", "alias-one", "alias-two"})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(config.ServedModelNames).To(ContainElements("alias-one", "alias-two"))
+	})
+})
+
+// The core keeps the field, its default and its validation for the three
+// settings the engines disagree on the name of, and registers neither a flag nor
+// a config-file key of its own for any of them: the engine declares all three
+// with DeclareConfigIntField, which is what names them. These specs cover the core's
+// side of that. What each engine calls them is its own suite's subject.
+var _ = Describe("settings the engine names", func() {
+	// NoopEngine declares none of them, so nothing registers these flags.
+	DescribeTable("should register no flag of its own for them",
+		func(flag string) {
+			_, err := parseArgs([]string{"cmd", "--model", TestModelName, flag, "4"})
+			Expect(err).To(MatchError(ContainSubstring("unknown flag")))
+		},
+		Entry("max-model-len", "--max-model-len"),
+		Entry("max-num-seqs", "--max-num-seqs"),
+		Entry("max-waiting-queue-length", "--max-waiting-queue-length"),
+		Entry("the context-window placeholder", "--"+FieldContextWindow),
+		Entry("the concurrency placeholder", "--"+FieldConcurrency),
+		Entry("the queue-length placeholder", "--"+FieldQueueLength),
+	)
+
+	It("should report a config key the engine does not claim", func() {
+		_, err := parseArgs([]string{"cmd", "--config", writeConfig(`
+model: test-model
+max-model-len: 512
+`)})
+		Expect(err).To(MatchError(ContainSubstring(
+			"does not recognize the following configuration key(s): max-model-len")))
+	})
+
+	It("should keep the core default of a field the engine leaves undeclared", func() {
+		config, err := parseArgs([]string{"cmd", "--model", TestModelName})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(config.MaxModelLen).To(Equal(1024))
+		Expect(config.MaxNumSeqs).To(Equal(5))
+		Expect(config.MaxWaitingQueueLength).To(Equal(1000))
+	})
+})
+
+var _ = Describe("DeclareConfigIntField", func() {
+	var (
+		f   *pflag.FlagSet
+		cfg *Configuration
+		raw map[string]any
+	)
+
+	BeforeEach(func() {
+		f = pflag.NewFlagSet("test", pflag.ContinueOnError)
+		cfg = NewConfig()
+		raw = map[string]any{"context-length": 512, "unrelated": 1}
+	})
+
+	declare := func() error {
+		return DeclareConfigIntField(f, raw, cfg, FieldContextWindow,
+			&cfg.MaxModelLen, "context-length", "usage")
+	}
+
+	It("should read the field from the key and claim it", func() {
+		Expect(declare()).To(Succeed())
+		Expect(cfg.MaxModelLen).To(Equal(512))
+		Expect(raw).NotTo(HaveKey("context-length"))
+		Expect(raw).To(HaveKey("unrelated"))
+	})
+
+	// Claiming before registering is what makes the file the flag's default.
+	It("should register the flag with the claimed value as its default", func() {
+		Expect(declare()).To(Succeed())
+		Expect(f.Lookup("context-length").DefValue).To(Equal("512"))
+		Expect(f.Parse([]string{"--context-length", "256"})).To(Succeed())
+		Expect(cfg.MaxModelLen).To(Equal(256))
+	})
+
+	It("should leave the field as it was when the key is absent", func() {
+		delete(raw, "context-length")
+		Expect(declare()).To(Succeed())
+		Expect(cfg.MaxModelLen).To(Equal(1024))
+	})
+
+	It("should reject a key whose value is not an integer", func() {
+		raw["context-length"] = "wide"
+		Expect(declare()).NotTo(Succeed())
 	})
 })

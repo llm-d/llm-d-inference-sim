@@ -41,7 +41,6 @@ var _ = Describe("Data Parallel", func() {
 			"--model", common.TestModelName,
 			"--mode", common.ModeRandom,
 			"--data-parallel-size", "3",
-			"--force-dummy-tokenizer",
 		})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(clients).To(HaveLen(3))
@@ -64,7 +63,7 @@ var _ = Describe("Data Parallel", func() {
 
 	It("ZMQ kv-events are published for every rank with data-parallel-size=3", func() {
 		ctx := context.TODO()
-		model := common.QwenModelName
+		model := common.TestModelName
 		longPrompt := "This is a test message for kv cache events, has to be long enough to be tokenized into multiple blocks."
 
 		// Each data-parallel rank serves on its own port (baseServingPort + rank)
@@ -100,7 +99,6 @@ var _ = Describe("Data Parallel", func() {
 			"--mode", common.ModeRandom,
 			"--data-parallel-size", "3",
 			"--port", strconv.Itoa(baseServingPort),
-			"--force-dummy-tokenizer",
 			"--enable-kvcache", "--kv-cache-size", "16", "--block-size", "8",
 			"--event-batch-size", "1", "--zmq-endpoint", zmqEndpoint,
 		}, map[string]string{"POD_IP": "localhost"})

@@ -141,7 +141,10 @@ scheduling, not bandwidth:
 
 Three ready-to-use profiles. Each is provided as a complete YAML file under
 [`manifests/latency-profiles/`](../manifests/latency-profiles/) - pass it directly with
-`--config`, or copy the latency fields into your existing config.
+`--config`, or copy the latency fields into your existing config. Each sets the concurrency limit the load
+factor is calibrated against, under vLLM's name for it, and so declares `engine: vllm`. To use a profile
+under another engine, copy its latency fields and set that engine's own name for the concurrency limit
+(see [Configuration](configuration.md#settings-each-engine-names-itself)).
 
 Each profile provides two YAML files, one per calculator:
 
@@ -198,7 +201,7 @@ time-factor-under-load: 2.0
 ### Profile 2: 70B model on 8×H100 (TP=8), throughput-optimized
 
 Mirrors a Llama-3-70B deployment using tensor parallelism (TP=8) on H100 nodes,
-running close to `max-num-seqs` saturation. The per-token calculator KV values assume an
+running close to the concurrency limit. The per-token calculator KV values assume an
 InfiniBand interconnect for cross-node disaggregated serving.
 
 Full configs: [constant](../manifests/latency-profiles/70b-h100-tp8-throughput-constant.yaml) |

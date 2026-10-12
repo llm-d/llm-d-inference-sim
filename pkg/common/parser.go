@@ -261,10 +261,6 @@ func ParseCommandParamsAndLoadConfig(eng Engine) (*Configuration, error) {
 	f.IntVar(&config.MaxRequestBodySizeMB, "max-request-body-size-mb", config.MaxRequestBodySizeMB, "Maximum allowed size of an HTTP request body in megabytes, must be between 1 and 512, default is 4 (matching the fasthttp built-in default)")
 	f.StringVar(&config.Model, "model", config.Model,
 		"Currently 'loaded' model (if omitted on the command line, "+ModelEnv+" may set the model; see docs)")
-	f.IntVar(&config.MaxNumSeqs, "max-num-seqs", config.MaxNumSeqs, "Maximum number of inference requests that could be processed at the same time")
-	f.IntVar(&config.MaxWaitingQueueLength, "max-waiting-queue-length", config.MaxWaitingQueueLength, "Maximum length of inference requests waiting queue")
-	f.IntVar(&config.MaxModelLen, "max-model-len", config.MaxModelLen, "Model's context window, maximum number of tokens in a single request including input and output")
-
 	f.StringVar(&config.Mode, "mode", config.Mode, "Simulator mode: echo - returns the same text that was sent in the request, for chat completion returns the last message; random - returns random sentence from a bank of pre-defined sentences")
 	f.DurationVar(&config.Latencies.InterTokenLatency, "inter-token-latency", config.Latencies.InterTokenLatency, "Time to generate one token, e.g. 100ms")
 	f.DurationVar(&config.Latencies.TimeToFirstToken, "time-to-first-token", config.Latencies.TimeToFirstToken, "Time to first token, e.g. 100ms")
@@ -308,8 +304,8 @@ func ParseCommandParamsAndLoadConfig(eng Engine) (*Configuration, error) {
 	f.StringVar(&config.RenderURL, "render-url", config.RenderURL, "URL of the tokenizer render service; when unset the simulated tokenizer is used")
 	f.DurationVar(&config.RenderTimeout, "render-timeout", config.RenderTimeout, "Timeout for tokenizer render requests (e.g. 30s)")
 	f.DurationVar(&config.MMRenderTimeout, "mm-render-timeout", config.MMRenderTimeout, "Timeout for multi-modal tokenizer render requests (e.g. 60s)")
-	AddToggle(f, &config.ForceDummyTokenizer,
-		"force-dummy-tokenizer", "(deprecated) Force the use of dummy tokenizer even if a real model name is provided; omit --render-url instead", "Use the tokenizer the model name implies")
+	AddToggle(f, &config.EnableLegacyRender,
+		"enable-legacy-render", "Disable the /v1/responses/render endpoint, matching vLLM versions that predate it", "Serve the /v1/responses/render endpoint")
 
 	f.DurationVar(&config.StartupDuration, "startup-duration", config.StartupDuration,
 		"Duration to return 503 on /health/ready to simulate GPU loading (e.g. 30s). Default is 0 (immediately ready)")
@@ -352,7 +348,7 @@ func ParseCommandParamsAndLoadConfig(eng Engine) (*Configuration, error) {
 	// These values were manually parsed above in GetParamValueFromArgs, we leave this in order to get these flags in --help
 	var dummyString string
 	f.StringVar(&dummyString, "config", "", "The path to a yaml configuration file. The command line values overwrite the configuration file values")
-	f.StringVar(&dummyString, "engine", "", "The inference engine to simulate: 'vllm' or 'sglang'")
+	f.StringVar(&dummyString, "engine", "", "The inference engine to simulate: 'vllm' or 'sglang' (SGLang support is experimental)")
 	var dummyMultiString multiString
 	f.Var(&dummyMultiString, "served-model-name", "Model names exposed by the API (a list of space-separated strings)")
 	// In order to allow empty arguments, we set a dummy NoOptDefVal for these flags

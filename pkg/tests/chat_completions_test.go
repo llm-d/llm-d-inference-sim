@@ -68,6 +68,12 @@ var _ = Describe("Simulator", forEachEngine(func() {
 					numberOfChunksWithUsage++
 				}
 				Expect(string(chunk.Object)).To(Equal(api.ChatCompletionChunkObject))
+
+				var rawChunk map[string]any
+				Expect(json.Unmarshal([]byte(chunk.RawJSON()), &rawChunk)).To(Succeed())
+				if choices, ok := rawChunk["choices"].([]any); ok && len(choices) > 0 {
+					expectMatchedStop(choices[0].(map[string]any))
+				}
 			}
 
 			Expect(numberOfChunksWithUsage).To(Equal(1))
@@ -170,6 +176,10 @@ var _ = Describe("Simulator", forEachEngine(func() {
 			Expect(resp.Choices).ShouldNot(BeEmpty())
 			Expect(string(resp.Object)).To(Equal(api.ChatCompletionObject))
 
+			var rawResp map[string]any
+			Expect(json.Unmarshal([]byte(resp.RawJSON()), &rawResp)).To(Succeed())
+			expectMatchedStop(rawResp["choices"].([]any)[0].(map[string]any))
+
 			Expect(resp.Usage.PromptTokens).To(Equal(userMsgChatTokens))
 			Expect(resp.Usage.CompletionTokens).To(BeNumerically(">", 0))
 			Expect(resp.Usage.TotalTokens).To(Equal(resp.Usage.PromptTokens + resp.Usage.CompletionTokens))
@@ -217,7 +227,7 @@ var _ = Describe("Simulator", forEachEngine(func() {
 	DescribeTable("chat completions with n parameter",
 		func(mode string, n int) {
 			ctx := context.TODO()
-			args := []string{"cmd", "--model", common.TestModelName, "--mode", mode, "--max-num-seqs", "10"}
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", mode, engineFlag(common.FieldConcurrency), "10"}
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -261,7 +271,7 @@ var _ = Describe("Simulator", forEachEngine(func() {
 	DescribeTable("chat completions streaming with n parameter",
 		func(mode string, n int) {
 			ctx := context.TODO()
-			args := []string{"cmd", "--model", common.TestModelName, "--mode", mode, "--max-num-seqs", "10"}
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", mode, engineFlag(common.FieldConcurrency), "10"}
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 

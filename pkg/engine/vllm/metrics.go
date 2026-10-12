@@ -30,6 +30,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
@@ -826,6 +827,12 @@ func (m *VLLMMetricsAdapter) reportLoras(snap metrics.LoRASetsChanged) {
 
 // buildMetrics constructs and registers all Prometheus collectors. It is called once during adapter construction.
 func (m *VLLMMetricsAdapter) buildMetrics() error {
+	// vLLM's Prometheus client exports the standard process metrics, and
+	// consumers read process_start_time_seconds to tell engine restarts apart.
+	if err := m.register(collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
+		"prometheus process collector register failed"); err != nil {
+		return err
+	}
 	if err := m.createAndRegisterRunningRequestsGauge(); err != nil {
 		return err
 	}

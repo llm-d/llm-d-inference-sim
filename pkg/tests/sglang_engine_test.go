@@ -167,7 +167,7 @@ var _ = Describe("sglang engine startup", func() {
 
 	It("Should refuse a config file written for vLLM", func() {
 		_, err := startServerWithArgs(context.TODO(),
-			[]string{"cmd", "--engine", "sglang", "--config", "../../manifests/config.yaml"})
+			[]string{"cmd", "--engine", "sglang", "--config", "../../manifests/vllm-config.yaml"})
 		Expect(err).To(MatchError(ContainSubstring("does not recognize the following configuration key(s)")))
 	})
 })

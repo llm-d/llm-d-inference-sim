@@ -244,7 +244,8 @@ var _ = DescribeTable("salted events correlate with router lookup keys",
 		Expect(err).NotTo(HaveOccurred())
 		adapter, err := engineadapter.NewAdapter(engineadapter.EngineTypeVLLM)
 		Expect(err).NotTo(HaveOccurred())
-		pool := kvevents.NewPool(nil, idx, processor, adapter)
+		pool, err := kvevents.NewPool(nil, idx, processor, adapter)
+		Expect(err).NotTo(HaveOccurred())
 		pool.Start(ctx)
 		defer pool.Shutdown(ctx)
 

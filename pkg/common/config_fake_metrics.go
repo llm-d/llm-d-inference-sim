@@ -85,8 +85,7 @@ func (f *FakeMetricWithFunction) parseFunction(s string) error {
 	if config, err := parseFunc(parts); err != nil {
 		return fmt.Errorf("unknown format in fake metric generation function: %s", err.Error())
 	} else {
-		f.Function = config
-		f.IsFunction = true
+		*f = FakeMetricWithFunction{Function: config, IsFunction: true}
 		return nil
 	}
 }
@@ -95,7 +94,7 @@ func (f *FakeMetricWithFunction) UnmarshalYAML(value *yaml.Node) error {
 	if value.Kind == yaml.ScalarNode {
 		// Try number first
 		if n, err := strconv.ParseFloat(value.Value, 64); err == nil {
-			f.FixedValue = n
+			*f = FakeMetricWithFunction{FixedValue: n}
 			return nil
 		}
 	}
@@ -119,7 +118,7 @@ func (f *FakeMetricWithFunction) UnmarshalJSON(data []byte) error {
 	// Try number first
 	var n float64
 	if err := json.Unmarshal(data, &n); err == nil {
-		f.FixedValue = n
+		*f = FakeMetricWithFunction{FixedValue: n}
 		return nil
 	}
 

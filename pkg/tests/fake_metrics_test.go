@@ -479,8 +479,18 @@ var _ = Describe("Fake metrics", Ordered, func() {
 			resp, err := postFakeMetricsUpdate(client, reqBody)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			Expect(resp.Body.Close()).To(Succeed())
 
-			eventuallyMetrics(client, func(g Gomega, metricsData string) {
+			resp, err = client.Get(adminConfigURL)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			data, err := io.ReadAll(resp.Body)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.Body.Close()).To(Succeed())
+			Expect(string(data)).To(ContainSubstring(`"running-requests":15`))
+			Expect(string(data)).NotTo(ContainSubstring("oscillate"))
+
+			eventuallyThenConsistentlyMetrics(client, func(g Gomega, metricsData string) {
 
 				g.Expect(metricsData).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllm.VLLMReqRunningMetricName, 15)))
 				g.Expect(metricsData).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllm.VLLMReqWaitingMetricName, 0)))
@@ -497,6 +507,16 @@ var _ = Describe("Fake metrics", Ordered, func() {
 			resp, err = postFakeMetricsUpdate(client, reqBody)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			Expect(resp.Body.Close()).To(Succeed())
+
+			resp, err = client.Get(adminConfigURL)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			data, err = io.ReadAll(resp.Body)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.Body.Close()).To(Succeed())
+			Expect(string(data)).To(ContainSubstring(`"running-requests":"oscillate:10:50:1s"`))
+			Expect(string(data)).To(ContainSubstring(`"waiting-requests":30`))
 
 			// kv-cache-usage ramps to 1 over 150ms, so wait for it to top out first
 			eventuallyMetrics(client, func(g Gomega, metricsData string) {
