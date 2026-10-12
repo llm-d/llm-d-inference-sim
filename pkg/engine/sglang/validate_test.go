@@ -55,3 +55,11 @@ var _ = Describe("KV events", func() {
 		Expect(encoder).To(BeNil())
 	})
 })
+
+var _ = Describe("strict request validation", func() {
+	It("should leave strict validation disabled for the experimental engine", func() {
+		validator, err := New().NewRequestValidator()
+		Expect(err).NotTo(HaveOccurred())
+		Expect(validator).To(BeNil())
+	})
+})

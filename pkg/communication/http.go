@@ -287,14 +287,10 @@ func (c *Communication) handleHTTP(req endpoint.Request, respBuilder responseBui
 	}
 
 	path := string(ctx.Path())
-	if c.runtime.Config().StrictRequestValidation &&
+	if c.runtime.Config().StrictRequestValidation && c.strictValidator != nil &&
 		(path == "/v1/chat/completions" || path == "/v1/completions") {
 		if err := validateStrictHeaders(&ctx.Request.Header); err != nil {
 			c.sendError(ctx, err, false)
-			return
-		}
-		if c.strictValidator == nil {
-			c.sendError(ctx, badRequest("Strict request schema is not initialized", nil), false)
 			return
 		}
 		if err := c.strictValidator.Validate(ctx.Request.Body(), path); err != nil {

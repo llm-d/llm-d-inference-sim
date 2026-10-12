@@ -130,3 +130,31 @@ func TestStrictMediaTypeBeforeEngine(t *testing.T) {
 		t.Fatalf("calls=%d response=%s", validator.calls, &ctx.Response)
 	}
 }
+
+func TestStrictValidationWithoutEngineValidator(t *testing.T) {
+	for _, path := range []string{strictChatPath, strictCompletionPath} {
+		for _, contentType := range []string{"application/json", "text/plain"} {
+			t.Run(path+"/"+contentType, func(t *testing.T) {
+				cfg := common.NewConfig()
+				cfg.StrictRequestValidation = true
+				cfg.EnableRequestIDHeaders = true
+				c := New(logr.Discard(), nil, strictTestRuntime{config: cfg})
+				c.transport = fakeTransport{}
+				ctx := &fasthttp.RequestCtx{}
+				ctx.Request.SetRequestURI(path)
+				ctx.Request.Header.SetContentType(contentType)
+				ctx.Request.Header.Set(XReturnErrorHeader, "418")
+				ctx.Request.Header.Set(RequestIDHeader, "strict-disabled-test")
+				ctx.Request.SetBodyString(`{"model":"m","messages":[{"role":"user","content":"hi"}],"prompt":"hi"}`)
+				if path == strictChatPath {
+					c.HandleChatCompletions(ctx)
+				} else {
+					c.HandleTextCompletions(ctx)
+				}
+				if ctx.Response.StatusCode() != 418 {
+					t.Fatalf("response=%s", &ctx.Response)
+				}
+			})
+		}
+	}
+}

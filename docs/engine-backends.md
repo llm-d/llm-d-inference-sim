@@ -25,6 +25,10 @@ KV cache. Because the settings behind those features are engine-owned, a configu
 is rejected rather than silently ignored, and the corresponding flags do not exist. `/metrics` serves an
 empty body.
 
+The experimental SGLang backend does not apply strict request validation. Its
+`NewRequestValidator` hook returns no validator, so the completion endpoints retain their
+ordinary request checks even when `strict` is enabled in the configuration.
+
 Response bodies carry no SGLang-specific fields yet; `matched_stop`, which SGLang includes in every
 completion choice, is absent. These gaps are expected to close as SGLang support matures, not a permanent
 design boundary the way the vLLM/SGLang split in [What an engine owns](#what-an-engine-owns) is.
