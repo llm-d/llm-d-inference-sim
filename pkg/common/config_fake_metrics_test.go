@@ -38,3 +38,19 @@ var _ = DescribeTable("FakeMetricWithFunction numeric decoding",
 	Entry("YAML nonzero", yaml.Unmarshal, "7"),
 	Entry("YAML zero", yaml.Unmarshal, "0"),
 )
+
+var _ = DescribeTable("FakeMetricWithFunction function decoding",
+	func(decode func([]byte, any) error) {
+		metric := FakeMetricWithFunction{FixedValue: 7}
+		Expect(decode([]byte(`"ramp:0:10:5s"`), &metric)).To(Succeed())
+		Expect(metric.IsFunction).To(BeTrue())
+		Expect(metric.Function).NotTo(BeNil())
+		Expect(metric.FixedValue).To(Equal(float64(0)))
+
+		data, err := json.Marshal(&metric)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(data).To(MatchJSON(`"ramp:0:10:5s"`))
+	},
+	Entry("JSON", json.Unmarshal),
+	Entry("YAML", yaml.Unmarshal),
+)

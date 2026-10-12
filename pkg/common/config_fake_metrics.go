@@ -85,8 +85,7 @@ func (f *FakeMetricWithFunction) parseFunction(s string) error {
 	if config, err := parseFunc(parts); err != nil {
 		return fmt.Errorf("unknown format in fake metric generation function: %s", err.Error())
 	} else {
-		f.Function = config
-		f.IsFunction = true
+		*f = FakeMetricWithFunction{Function: config, IsFunction: true}
 		return nil
 	}
 }
