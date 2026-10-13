@@ -26,15 +26,22 @@ import (
 // common fields have already been validated, and again on every admin-config
 // update.
 //
-// These are the features BindFlags accepts a toggle for but this engine cannot
-// honor yet. The wording says so rather than calling the setting invalid,
-// because the setting is one the engine is expected to grow.
+// The KV cache is the feature BindFlags accepts a toggle for but this engine
+// cannot honor yet. The wording says so rather than calling the setting
+// invalid, because the setting is one the engine is expected to grow.
 func (Engine) ValidateConfig(cfg *common.Configuration) error {
 	if cfg.KVCache.EnableKVCache {
 		return errors.New("KV-cache simulation is not implemented by the sglang engine yet")
 	}
+
 	if cfg.FakeMetrics != nil {
-		return errors.New("fake metrics are not implemented by the sglang engine yet")
+		if err := cfg.FakeMetrics.Validate(); err != nil {
+			return err
+		}
+		if cfg.FakeMetricsRefreshInterval <= 0 {
+			return errors.New("fake metrics refresh interval must be positive")
+		}
 	}
+
 	return nil
 }

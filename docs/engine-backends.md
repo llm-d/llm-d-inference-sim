@@ -58,7 +58,7 @@ close as SGLang support matures, not a permanent design boundary the way the vLL
 | `ErrorBody`, `StreamErrorBody` | How an error object is framed in a response body | [transport.go](../pkg/engine/vllm/transport.go) |
 | `DecorateChatChoice`, `DecorateChatChunkChoice`, `DecorateTextChoice` | Fields a completion choice carries beyond the OpenAI-compatible core | [transport.go](../pkg/engine/vllm/transport.go) |
 | `DecorateMessagesCountTokens` | Fields a `/v1/messages/count_tokens` response carries beyond `input_tokens` (vLLM adds `context_management`; SGLang adds none) | [transport.go](../pkg/engine/vllm/transport.go) |
-| `NewMetricsAdapter` | Prometheus metric names, labels, and the fake-metrics schema | [metrics.go](../pkg/engine/vllm/metrics.go), [fakemetrics.go](../pkg/engine/vllm/fakemetrics.go) |
+| `NewMetricsAdapter` | Prometheus metric names, labels, and the fake-metrics schema | [metrics.go](../pkg/engine/vllm/metrics.go), [fakemetrics.go](../pkg/engine/vllm/fakemetrics.go), [sglang/fakemetrics.go](../pkg/engine/sglang/fakemetrics.go) |
 | `NewKVEventEncoder` | The wire format of a single KV-cache event | [kvevents.go](../pkg/engine/vllm/kvevents.go) |
 
 A `Configuration` group can be engine-owned even though the struct lives in `pkg/common`: `lora` and

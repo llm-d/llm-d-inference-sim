@@ -20,6 +20,8 @@ package sglang
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strconv"
 
 	"github.com/go-logr/logr"
@@ -127,6 +129,78 @@ type streamObservation struct {
 	isStreaming bool
 }
 
+// streamHistogramUpdate is a histogram-channel payload for a histogram labeled
+// by is_streaming: one observation from a real request, or a reset to the bucket
+// state of both series. Exactly one is non-nil.
+type streamHistogramUpdate struct {
+	observe *streamObservation
+	reset   *streamHistogramReset
+}
+
+// streamHistogramReset is the absolute target bucket state of a stream-split
+// histogram. A nil series leaves that series as it was, since a partial
+// fake-metrics update may name one of the two without the other.
+type streamHistogramReset struct {
+	buckets      []float64
+	streaming    []int
+	nonStreaming []int
+}
+
+// merge folds upd's named series into s, leaving a series upd does not name at
+// its current value. The boundaries are the metric's own, so they always arrive
+// unchanged.
+func (s *streamHistogramReset) merge(upd streamHistogramReset) {
+	s.buckets = upd.buckets
+	if upd.streaming != nil {
+		s.streaming = upd.streaming
+	}
+	if upd.nonStreaming != nil {
+		s.nonStreaming = upd.nonStreaming
+	}
+}
+
+// streamCounterUpdate is a counter-channel payload for a counter labeled by
+// is_streaming: an event's addition to one series, or a reset to the absolute
+// values of both. Exactly one is non-nil.
+type streamCounterUpdate struct {
+	add   *streamObservation
+	reset *streamCounterReset
+}
+
+// streamCounterReset is the absolute target state of a stream-split counter. A
+// nil series leaves that series as it was, since a partial fake-metrics update
+// may name one of the two without the other.
+type streamCounterReset struct {
+	streaming    *float64
+	nonStreaming *float64
+}
+
+// merge folds upd's named series into s, leaving a series upd does not name at
+// its current value.
+func (s *streamCounterReset) merge(upd streamCounterReset) {
+	if upd.streaming != nil {
+		s.streaming = upd.streaming
+	}
+	if upd.nonStreaming != nil {
+		s.nonStreaming = upd.nonStreaming
+	}
+}
+
+// prefixCacheUpdate is the prefix-cache channel payload: the token counts of one
+// cache lookup, or a reset to absolute cumulative tallies.
+type prefixCacheUpdate struct {
+	query *prefixCacheQuery
+	reset *prefixCacheReset
+}
+
+// prefixCacheReset is the absolute target state of the prefix cache's tallies. A
+// nil tally is left as it was, for the same reason streamCounterReset's series
+// are: a partial update may name one of the pair without the other.
+type prefixCacheReset struct {
+	cached  *int64
+	queried *int64
+}
+
 // sglangMetricsAdapter implements metrics.MetricsAdapter and produces the sglang
 // Prometheus surface. The bus dispatches drained events to the On<Event>
 // handlers, which fan out to per-metric channels, written to Prometheus by one
@@ -138,8 +212,15 @@ type streamObservation struct {
 type sglangMetricsAdapter struct {
 	logger logr.Logger
 	config common.Configuration
+	// fake is config.FakeMetrics narrowed to this engine's concrete type, nil
+	// when fake metrics are off or another engine owns the configuration.
+	fake *SGLangFakeMetrics
 
 	registry *prometheus.Registry
+
+	// generators holds the fake-metric generators this adapter has registered
+	// and the ticker that re-evaluates them.
+	generators *metrics.FakeGenerators
 
 	// gauges
 	runningRequests   *prometheus.GaugeVec
@@ -177,20 +258,20 @@ type sglangMetricsAdapter struct {
 	queueReqChan common.Channel[metrics.GaugeUpdate]
 
 	queueTimeChan                common.Channel[metrics.HistogramUpdate]
-	ttftChan                     common.Channel[streamObservation]
+	ttftChan                     common.Channel[streamHistogramUpdate]
 	interTokenLatencyChan        common.Channel[metrics.HistogramUpdate]
-	reqTpotChan                  common.Channel[streamObservation]
-	e2eReqLatencyChan            common.Channel[streamObservation]
+	reqTpotChan                  common.Channel[streamHistogramUpdate]
+	e2eReqLatencyChan            common.Channel[streamHistogramUpdate]
 	promptTokensHistChan         common.Channel[metrics.HistogramUpdate]
 	uncachedPromptTokensHistChan common.Channel[metrics.HistogramUpdate]
 	generationTokensHistChan     common.Channel[metrics.HistogramUpdate]
 
-	promptTokensTotalChan     common.Channel[streamObservation]
-	generationTokensTotalChan common.Channel[streamObservation]
-	requestsTotalChan         common.Channel[streamObservation]
+	promptTokensTotalChan     common.Channel[streamCounterUpdate]
+	generationTokensTotalChan common.Channel[streamCounterUpdate]
+	requestsTotalChan         common.Channel[streamCounterUpdate]
 
 	kvUsageChan     common.Channel[metrics.GaugeUpdate]
-	prefixCacheChan common.Channel[prefixCacheQuery]
+	prefixCacheChan common.Channel[prefixCacheUpdate]
 
 	// nQueuedReqs / nRunningReqs are the adapter-local counters mirrored onto
 	// the num_queue_reqs / num_running_reqs gauges.
@@ -201,6 +282,20 @@ type sglangMetricsAdapter struct {
 	// the prefix-cache updater goroutine.
 	nCachedTokens  int64
 	nQueriedTokens int64
+
+	// Series a fake-metrics configuration last set on each is_streaming-labeled
+	// counter, each mutated only by that counter's own updater goroutine.
+	// Applying a reset recreates the collector, which discards every series it
+	// does not then stamp, so an update naming one series restamps the other
+	// from here.
+	fakePromptTokens     streamCounterReset
+	fakeGenerationTokens streamCounterReset
+	fakeRequestsTotal    streamCounterReset
+
+	// The same, for each is_streaming-labeled histogram.
+	fakeTTFT          streamHistogramReset
+	fakeReqTpot       streamHistogramReset
+	fakeE2EReqLatency streamHistogramReset
 
 	// kvCapacityTokens is the KV cache's capacity in tokens, the denominator of
 	// the token-usage gauges.
@@ -230,7 +325,11 @@ func newMetricsAdapter(ctx context.Context, registry *prometheus.Registry,
 		logger:           logger,
 		registry:         registry,
 		config:           config,
+		generators:       metrics.NewFakeGenerators(ctx, config.FakeMetricsRefreshInterval),
 		kvCapacityTokens: config.KVCache.KVCacheSize * config.KVCache.TokenBlockSize,
+	}
+	if fake, ok := config.FakeMetrics.(*SGLangFakeMetrics); ok {
+		m.fake = fake
 	}
 
 	if err := m.buildMetrics(); err != nil {
@@ -242,12 +341,25 @@ func newMetricsAdapter(ctx context.Context, registry *prometheus.Registry,
 	return m, nil
 }
 
-func (m *sglangMetricsAdapter) Start(ctx context.Context) error {
+// Start applies the initial fake-metrics configuration and starts the generator
+// ticker. The bus has already subscribed the On<Event> handlers to its channels
+// by the time this runs.
+func (m *sglangMetricsAdapter) Start(context.Context) error {
 	m.startPrometheusChannels(ctx)
+
+	if m.fake != nil {
+		m.applyFakeMetrics(m.fake)
+	}
+	m.generators.Start()
+
 	return nil
 }
 
-func (m *sglangMetricsAdapter) Close() error { return nil }
+func (m *sglangMetricsAdapter) Close() error {
+	m.generators.Stop()
+
+	return nil
+}
 
 // -- Event handlers  -------------------
 
@@ -262,6 +374,9 @@ func (m *sglangMetricsAdapter) OnRequestRejected(metrics.RequestRejected) {
 // request queued
 // - update number of queued requests
 func (m *sglangMetricsAdapter) OnRequestQueued(metrics.RequestQueued) {
+	if m.fake != nil {
+		return
+	}
 	common.WriteToChannel(m.queueReqChan, metrics.GaugeAdd(1), m.logger)
 }
 
@@ -269,6 +384,9 @@ func (m *sglangMetricsAdapter) OnRequestQueued(metrics.RequestQueued) {
 // - update number of queued requests
 // - update queue time histogram
 func (m *sglangMetricsAdapter) OnRequestDequeued(ev metrics.RequestDequeued) {
+	if m.fake != nil {
+		return
+	}
 	common.WriteToChannel(m.queueReqChan, metrics.GaugeAdd(-1), m.logger)
 	common.WriteToChannel(m.queueTimeChan, metrics.Observation(ev.QueueTime), m.logger)
 }
@@ -276,6 +394,9 @@ func (m *sglangMetricsAdapter) OnRequestDequeued(ev metrics.RequestDequeued) {
 // request running
 // - update number of running requests
 func (m *sglangMetricsAdapter) OnRequestRunning(metrics.RequestRunning) {
+	if m.fake != nil {
+		return
+	}
 	common.WriteToChannel(m.runReqChan, metrics.GaugeAdd(1), m.logger)
 }
 
@@ -286,8 +407,11 @@ func (m *sglangMetricsAdapter) OnPrefillStarted(metrics.PrefillStarted) {
 // prefill step ended
 // - update TTFT histogram
 func (m *sglangMetricsAdapter) OnPrefillEnded(ev metrics.PrefillEnded) {
+	if m.fake != nil {
+		return
+	}
 	common.WriteToChannel(m.ttftChan,
-		streamObservation{value: ev.PrefillDuration, isStreaming: ev.IsStreaming}, m.logger)
+		histObserve(ev.PrefillDuration, ev.IsStreaming), m.logger)
 }
 
 func (m *sglangMetricsAdapter) OnDecodeStarted(metrics.DecodeStarted) {
@@ -297,6 +421,9 @@ func (m *sglangMetricsAdapter) OnDecodeStarted(metrics.DecodeStarted) {
 // token generated
 // - update inter-token latency histogram
 func (m *sglangMetricsAdapter) OnTokenGenerated(ev metrics.TokenGenerated) {
+	if m.fake != nil {
+		return
+	}
 	common.WriteToChannel(m.interTokenLatencyChan, metrics.Observation(ev.InterTokenLatency), m.logger)
 }
 
@@ -307,25 +434,28 @@ func (m *sglangMetricsAdapter) OnTokenGenerated(ev metrics.TokenGenerated) {
 // report, and one that ended for any other reason stopped mid-decode, so
 // neither contributes, as neither does upstream.
 func (m *sglangMetricsAdapter) OnDecodeEnded(ev metrics.DecodeEnded) {
+	if m.fake != nil {
+		return
+	}
 	if ev.GenerationTokens <= 0 || !tpotFinishReasons[ev.FinishReason] {
 		return
 	}
-	common.WriteToChannel(m.reqTpotChan, streamObservation{
-		value:       ev.DecodeDuration / float64(ev.GenerationTokens),
-		isStreaming: ev.IsStreaming,
-	}, m.logger)
+	common.WriteToChannel(m.reqTpotChan,
+		histObserve(ev.DecodeDuration/float64(ev.GenerationTokens), ev.IsStreaming), m.logger)
 }
 
 // request processing finished successfully - update all relevant metrics
 func (m *sglangMetricsAdapter) OnRequestSucceeded(ev metrics.RequestSucceeded) {
+	if m.fake != nil {
+		return
+	}
 	common.WriteToChannel(m.promptTokensTotalChan,
-		streamObservation{value: float64(ev.PromptTokens), isStreaming: ev.IsStreaming}, m.logger)
+		counterAdd(float64(ev.PromptTokens), ev.IsStreaming), m.logger)
 	common.WriteToChannel(m.generationTokensTotalChan,
-		streamObservation{value: float64(ev.GenerationTokens), isStreaming: ev.IsStreaming}, m.logger)
+		counterAdd(float64(ev.GenerationTokens), ev.IsStreaming), m.logger)
 	common.WriteToChannel(m.e2eReqLatencyChan,
-		streamObservation{value: ev.E2ELatency, isStreaming: ev.IsStreaming}, m.logger)
-	common.WriteToChannel(m.requestsTotalChan,
-		streamObservation{value: 1, isStreaming: ev.IsStreaming}, m.logger)
+		histObserve(ev.E2ELatency, ev.IsStreaming), m.logger)
+	common.WriteToChannel(m.requestsTotalChan, counterAdd(1, ev.IsStreaming), m.logger)
 
 	common.WriteToChannel(m.promptTokensHistChan, metrics.Observation(float64(ev.PromptTokens)), m.logger)
 	common.WriteToChannel(m.uncachedPromptTokensHistChan,
@@ -341,6 +471,10 @@ func (m *sglangMetricsAdapter) OnRequestSucceeded(ev metrics.RequestSucceeded) {
 // latency and token counts when it finishes, so a request that never did
 // contributes to neither.
 func (m *sglangMetricsAdapter) OnRequestFailed(metrics.RequestFailed) {
+	if m.fake != nil {
+		return
+	}
+	// Do not send update to e2eReqLatencyChan because sglang does not report a latency for failed requests
 	m.finishRunning()
 }
 
@@ -350,6 +484,9 @@ func (m *sglangMetricsAdapter) OnRequestFailed(metrics.RequestFailed) {
 // Not reached while ValidateConfig rejects an enabled KV cache, which leaves
 // the gauges reporting the empty cache they are stamped with.
 func (m *sglangMetricsAdapter) OnKVCacheUsageChanged(ev metrics.KVCacheUsageChanged) {
+	if m.fake != nil {
+		return
+	}
 	common.WriteToChannel(m.kvUsageChan, metrics.GaugeAdd(ev.KVCacheUsagePerc), m.logger)
 }
 
@@ -358,17 +495,17 @@ func (m *sglangMetricsAdapter) OnKVCacheUsageChanged(ev metrics.KVCacheUsageChan
 //
 // Not reached while ValidateConfig rejects an enabled KV cache.
 func (m *sglangMetricsAdapter) OnPrefixCacheQueried(ev metrics.PrefixCacheQueried) {
-	common.WriteToChannel(m.prefixCacheChan,
-		prefixCacheQuery{cached: ev.CachedPromptTokens, queried: ev.QueriedTokens}, m.logger)
+	if m.fake != nil {
+		return
+	}
+	common.WriteToChannel(m.prefixCacheChan, prefixCacheUpdate{
+		query: &prefixCacheQuery{cached: ev.CachedPromptTokens, queried: ev.QueriedTokens},
+	}, m.logger)
 }
 
 func (m *sglangMetricsAdapter) OnLoRASetsChanged(metrics.LoRASetsChanged) {
 	// This engine registers no LoRA flags, so no adapter can be requested.
 }
-
-// ApplyFakeMetricsUpdate is unreachable: ValidateConfig rejects a non-nil
-// FakeMetrics, so no update can be enqueued for this engine.
-func (m *sglangMetricsAdapter) ApplyFakeMetricsUpdate(common.FakeMetrics) {}
 
 func (m *sglangMetricsAdapter) finishRunning() {
 	common.WriteToChannel(m.runReqChan, metrics.GaugeAdd(-1), m.logger)
@@ -415,18 +552,26 @@ func (m *sglangMetricsAdapter) createPrometheusChannels(ctx context.Context) {
 // -- Per-metric updaters --------------------------------------------------
 
 func (m *sglangMetricsAdapter) updateRunningRequests(upd metrics.GaugeUpdate) {
-	if upd.Add == nil {
+	switch {
+	case upd.Add != nil && m.fake == nil:
+		m.nRunningReqs += int64(*upd.Add)
+	case upd.Reset != nil && m.fake != nil:
+		m.nRunningReqs = int64(*upd.Reset)
+	default:
 		return
 	}
-	m.nRunningReqs += int64(*upd.Add)
 	m.runningRequests.WithLabelValues(m.config.DisplayModelName).Set(float64(m.nRunningReqs))
 }
 
 func (m *sglangMetricsAdapter) updateQueuedRequests(upd metrics.GaugeUpdate) {
-	if upd.Add == nil {
+	switch {
+	case upd.Add != nil && m.fake == nil:
+		m.nQueuedReqs += int64(*upd.Add)
+	case upd.Reset != nil && m.fake != nil:
+		m.nQueuedReqs = int64(*upd.Reset)
+	default:
 		return
 	}
-	m.nQueuedReqs += int64(*upd.Add)
 	m.queuedRequests.WithLabelValues(m.config.DisplayModelName).Set(float64(m.nQueuedReqs))
 }
 
@@ -483,10 +628,91 @@ func (m *sglangMetricsAdapter) updateHistogram(hist *prometheus.HistogramVec, up
 	hist.WithLabelValues(m.config.DisplayModelName).Observe(*upd.Observe)
 }
 
-// updateKVCacheUsage mirrors the utilization fraction onto token_usage and
-// derives the token counts beside it from the cache's capacity.
 func (m *sglangMetricsAdapter) updateKVCacheUsage(upd metrics.GaugeUpdate) {
-	usage := float64(*upd.Add)
+	switch {
+	case upd.Add != nil && m.fake == nil:
+		m.reportKVCacheUsage(*upd.Add)
+	case upd.Reset != nil && m.fake != nil:
+		m.reportKVCacheUsage(*upd.Reset)
+	}
+}
+
+// updatePrefixCache accumulates a lookup's token counts, or on a reset replaces
+// the tallies with absolute ones and recreates the cached-token counter. Either
+// way the cumulative hit rate is republished, which sglang reports over the
+// whole run rather than per query.
+func (m *sglangMetricsAdapter) updatePrefixCache(upd prefixCacheUpdate) {
+	model := m.config.DisplayModelName
+
+	switch {
+	case upd.query != nil && m.fake == nil:
+		if upd.query.cached > 0 {
+			m.cachedTokensTotal.WithLabelValues(model, cacheSourceTotal).Add(float64(upd.query.cached))
+		}
+		m.nCachedTokens += int64(upd.query.cached)
+		m.nQueriedTokens += int64(upd.query.queried)
+	case upd.reset != nil && m.fake != nil:
+		// The tallies are the adapter's record of both, so an update naming one
+		// of the pair leaves the other where it was.
+		if upd.reset.cached != nil {
+			m.nCachedTokens = *upd.reset.cached
+		}
+		if upd.reset.queried != nil {
+			m.nQueriedTokens = *upd.reset.queried
+		}
+		m.resetCollector(m.cachedTokensTotal, m.createAndRegisterCachedTokensTotalCounter,
+			"failed to recreate cached_tokens_total counter during fake-metrics reset", func() {
+				m.cachedTokensTotal.WithLabelValues(model, cacheSourceTotal).Add(float64(m.nCachedTokens))
+			})
+	default:
+		return
+	}
+
+	if m.nQueriedTokens > 0 {
+		m.cacheHitRate.WithLabelValues(model).Set(float64(m.nCachedTokens) / float64(m.nQueriedTokens))
+	}
+}
+
+// updateStreamCounter adds an event's value to the series matching the kind of
+// request it came from, or on a reset folds the update into last and recreates
+// the collector, stamping every series set so far. A series no configuration has
+// ever named stays unstamped, so it reads as absent from a scrape rather than as
+// an explicit zero.
+func (m *sglangMetricsAdapter) updateStreamCounter(counterPP **prometheus.CounterVec,
+	last *streamCounterReset, recreate func() error, upd streamCounterUpdate) {
+	switch {
+	case upd.add != nil:
+		if m.fake != nil {
+			return
+		}
+		(*counterPP).WithLabelValues(m.config.DisplayModelName,
+			strconv.FormatBool(upd.add.isStreaming)).Add(upd.add.value)
+	case upd.reset != nil:
+		last.merge(*upd.reset)
+		m.resetCollector(*counterPP, recreate, "failed to recreate counter during fake-metrics reset", func() {
+			for isStreaming, value := range map[bool]*float64{
+				true:  last.streaming,
+				false: last.nonStreaming,
+			} {
+				if value != nil {
+					(*counterPP).WithLabelValues(m.config.DisplayModelName,
+						strconv.FormatBool(isStreaming)).Add(*value)
+				}
+			}
+		})
+	}
+}
+
+// resetCollector binds this adapter's registry and logger to
+// metrics.ResetCollector.
+func (m *sglangMetricsAdapter) resetCollector(current prometheus.Collector, recreate func() error,
+	errMsg string, populate func()) {
+	metrics.ResetCollector(m.registry, m.logger, current, recreate, errMsg, populate)
+}
+
+// reportKVCacheUsage mirrors the utilization fraction onto token_usage and
+// derives the token counts beside it from the cache's capacity.
+func (m *sglangMetricsAdapter) reportKVCacheUsage(usage float64) {
 	used := usage * float64(m.kvCapacityTokens)
 
 	model := m.config.DisplayModelName
@@ -496,32 +722,63 @@ func (m *sglangMetricsAdapter) updateKVCacheUsage(upd metrics.GaugeUpdate) {
 	m.kvAvailableTokens.WithLabelValues(model).Set(float64(m.kvCapacityTokens) - used)
 }
 
-// updatePrefixCache accumulates the cached-token counter and republishes the
-// cumulative hit rate, which sglang reports over the whole run rather than per
-// query.
-func (m *sglangMetricsAdapter) updatePrefixCache(upd prefixCacheQuery) {
-	model := m.config.DisplayModelName
-	if upd.cached > 0 {
-		m.cachedTokensTotal.WithLabelValues(model, cacheSourceTotal).Add(float64(upd.cached))
-	}
-
-	m.nCachedTokens += int64(upd.cached)
-	m.nQueriedTokens += int64(upd.queried)
-	if m.nQueriedTokens > 0 {
-		m.cacheHitRate.WithLabelValues(model).Set(float64(m.nCachedTokens) / float64(m.nQueriedTokens))
+// updateHistogram records an observation on the single series of a histogram
+// sglang does not split by request kind, or on a reset recreates the collector
+// and replays the target bucket state.
+func (m *sglangMetricsAdapter) updateHistogram(histPP **prometheus.HistogramVec,
+	recreate func() error, upd metrics.HistogramUpdate) {
+	switch {
+	case upd.Observe != nil:
+		if m.fake != nil {
+			return
+		}
+		(*histPP).WithLabelValues(m.config.DisplayModelName).Observe(*upd.Observe)
+	case upd.Reset != nil:
+		m.resetCollector(*histPP, recreate, "failed to recreate histogram during fake-metrics reset", func() {
+			metrics.InitFakeHistogram(*histPP, upd.Reset.Buckets, upd.Reset.Samples, m.config.DisplayModelName)
+		})
 	}
 }
 
 // updateStreamHistogram records an observation on the series matching the kind
-// of request it came from.
-func (m *sglangMetricsAdapter) updateStreamHistogram(hist *prometheus.HistogramVec, obs streamObservation) {
-	hist.WithLabelValues(m.config.DisplayModelName, strconv.FormatBool(obs.isStreaming)).Observe(obs.value)
+// of request it came from, or on a reset folds the update into last and
+// recreates the collector, replaying every series set so far. A series no
+// configuration has ever named stays unstamped, so it reads as absent from a
+// scrape rather than as an empty histogram.
+func (m *sglangMetricsAdapter) updateStreamHistogram(histPP **prometheus.HistogramVec,
+	last *streamHistogramReset, recreate func() error, upd streamHistogramUpdate) {
+	switch {
+	case upd.observe != nil:
+		if m.fake != nil {
+			return
+		}
+		(*histPP).WithLabelValues(m.config.DisplayModelName,
+			strconv.FormatBool(upd.observe.isStreaming)).Observe(upd.observe.value)
+	case upd.reset != nil:
+		last.merge(*upd.reset)
+		m.resetCollector(*histPP, recreate, "failed to recreate histogram during fake-metrics reset", func() {
+			for isStreaming, samples := range map[bool][]int{
+				true:  last.streaming,
+				false: last.nonStreaming,
+			} {
+				if samples != nil {
+					metrics.InitFakeHistogram(*histPP, last.buckets, samples,
+						m.config.DisplayModelName, strconv.FormatBool(isStreaming))
+				}
+			}
+		})
+	}
 }
 
-// updateStreamCounter adds an event's value to the series matching the kind of
-// request it came from.
-func (m *sglangMetricsAdapter) updateStreamCounter(counter *prometheus.CounterVec, obs streamObservation) {
-	counter.WithLabelValues(m.config.DisplayModelName, strconv.FormatBool(obs.isStreaming)).Add(obs.value)
+// histObserve wraps a real event's observation for a stream-split histogram.
+func histObserve(value float64, isStreaming bool) streamHistogramUpdate {
+	return streamHistogramUpdate{observe: &streamObservation{value: value, isStreaming: isStreaming}}
+}
+
+// counterAdd wraps a real event's addition to one series of a stream-split
+// counter.
+func counterAdd(value float64, isStreaming bool) streamCounterUpdate {
+	return streamCounterUpdate{add: &streamObservation{value: value, isStreaming: isStreaming}}
 }
 
 // -- Prometheus wiring ------------------------------------------------------
@@ -822,21 +1079,29 @@ func (m *sglangMetricsAdapter) createAndRegisterCachedTokensTotalCounter() error
 // ones describing the configuration, so the first scrape has a consistent
 // baseline. The histograms and the per-request counters stay unstamped until a
 // request is observed, since their series are per request kind.
+//
+// Under fake metrics the load gauges are left out: Start stamps those the
+// configuration names, and one it does not name is absent from a scrape rather
+// than reporting a zero no setting asked for. The gauges describing the
+// configuration are stamped either way, since they report the geometry the
+// simulator was given rather than anything a request changes.
 func (m *sglangMetricsAdapter) setInitialValues() {
 	model := m.config.DisplayModelName
 
-	m.runningRequests.WithLabelValues(model).Set(0)
-	m.queuedRequests.WithLabelValues(model).Set(0)
+	if m.fake == nil {
+		m.runningRequests.WithLabelValues(model).Set(0)
+		m.queuedRequests.WithLabelValues(model).Set(0)
+
+		// An empty cache, which is also what these keep reporting while the
+		// engine simulates no KV cache at all.
+		m.tokenUsage.WithLabelValues(model).Set(0)
+		m.usedTokens.WithLabelValues(model).Set(0)
+		m.kvUsedTokens.WithLabelValues(model).Set(0)
+		m.kvAvailableTokens.WithLabelValues(model).Set(float64(m.kvCapacityTokens))
+		m.cacheHitRate.WithLabelValues(model).Set(0)
+	}
+
 	m.contextLen.WithLabelValues(model).Set(float64(m.config.MaxModelLen))
-
-	// An empty cache, which is also what these keep reporting while the engine
-	// simulates no KV cache at all.
-	m.tokenUsage.WithLabelValues(model).Set(0)
-	m.usedTokens.WithLabelValues(model).Set(0)
-	m.kvUsedTokens.WithLabelValues(model).Set(0)
-	m.kvAvailableTokens.WithLabelValues(model).Set(float64(m.kvCapacityTokens))
-	m.cacheHitRate.WithLabelValues(model).Set(0)
-
 	m.maxTotalNumTokens.WithLabelValues(model).Set(float64(m.kvCapacityTokens))
 	m.pageSize.WithLabelValues(model).Set(float64(m.config.KVCache.TokenBlockSize))
 	m.numPages.WithLabelValues(model).Set(float64(m.config.KVCache.KVCacheSize))
@@ -844,4 +1109,141 @@ func (m *sglangMetricsAdapter) setInitialValues() {
 		strconv.Itoa(m.config.KVCache.TokenBlockSize),
 		strconv.Itoa(m.config.KVCache.KVCacheSize),
 	).Set(1)
+}
+
+// -------- Fake Metrics ------
+
+// ApplyFakeMetricsUpdate narrows the engine-owned fake-metrics configuration to
+// this engine's concrete type and applies it. A configuration belonging to
+// another engine is logged and dropped.
+func (m *sglangMetricsAdapter) ApplyFakeMetricsUpdate(update common.FakeMetrics) {
+	sglangUpdate, ok := update.(*SGLangFakeMetrics)
+	if !ok || sglangUpdate == nil {
+		m.logger.Error(fmt.Errorf("unexpected fake-metrics configuration type %T", update),
+			"ignoring fake-metrics update")
+		return
+	}
+	if m.fake == nil {
+		// There is no state to merge the partial onto, and applying it would
+		// stamp fake values while the event handlers, which gate on fake being
+		// set, keep reporting real ones; the two are never reported together.
+		// Configuration.Update refuses a body carrying fake metrics in this
+		// state, so this is reached only if that gate is bypassed.
+		m.logger.Error(errors.New("the simulator is reporting real metrics"),
+			"ignoring fake-metrics update")
+		return
+	}
+	m.applyFakeMetrics(sglangUpdate)
+}
+
+// applyFakeMetrics enqueues the update on the per-metric channels and returns.
+// The updater goroutines perform the collector unregister/recreate, logging and
+// skipping any metric that fails to re-register.
+//
+// A metric the update does not name is left alone, and for the two that carry
+// state across updates -- the stream-split counters and the prefix-cache
+// tallies -- so is the half of them it does not name. Their updater goroutines
+// hold that state, beside the collector it describes.
+//
+// Only the scalar metrics run inside Apply, since they are the ones that
+// register or clear a generator. The rest only write to a channel.
+func (m *sglangMetricsAdapter) applyFakeMetrics(update *SGLangFakeMetrics) {
+	m.generators.Apply(func(gens *metrics.GeneratorSet) {
+		if update.RunningRequests != nil {
+			gens.Set(SGLangRunningReqsMetricName, update.RunningRequests, func(upd metrics.GaugeUpdate) {
+				common.WriteToChannel(m.runReqChan, upd, m.logger)
+			}, true)
+		}
+		if update.QueuedRequests != nil {
+			gens.Set(SGLangQueueReqsMetricName, update.QueuedRequests, func(upd metrics.GaugeUpdate) {
+				common.WriteToChannel(m.queueReqChan, upd, m.logger)
+			}, true)
+		}
+		if update.TokenUsage != nil {
+			gens.Set(SGLangTokenUsageMetricName, update.TokenUsage, func(upd metrics.GaugeUpdate) {
+				common.WriteToChannel(m.kvUsageChan, upd, m.logger)
+			}, false)
+		}
+	})
+
+	if update.TotalPromptTokens != nil {
+		common.WriteToChannel(m.promptTokensTotalChan,
+			streamCounterUpdate{reset: update.TotalPromptTokens.reset()}, m.logger)
+	}
+	if update.TotalGenerationTokens != nil {
+		common.WriteToChannel(m.generationTokensTotalChan,
+			streamCounterUpdate{reset: update.TotalGenerationTokens.reset()}, m.logger)
+	}
+	if update.NumRequestsTotal != nil {
+		common.WriteToChannel(m.requestsTotalChan,
+			streamCounterUpdate{reset: update.NumRequestsTotal.reset()}, m.logger)
+	}
+
+	if update.CachedTokens != nil || update.QueriedTokens != nil {
+		common.WriteToChannel(m.prefixCacheChan, prefixCacheUpdate{reset: &prefixCacheReset{
+			cached:  update.CachedTokens,
+			queried: update.QueriedTokens,
+		}}, m.logger)
+	}
+
+	if update.TTFTBucketValues != nil {
+		common.WriteToChannel(m.ttftChan,
+			update.TTFTBucketValues.reset(ttftBucketsBoundaries), m.logger)
+	}
+	if update.ReqTPOTBucketValues != nil {
+		common.WriteToChannel(m.reqTpotChan,
+			update.ReqTPOTBucketValues.reset(interTokenLatencyBucketsBoundaries), m.logger)
+	}
+	if update.E2EReqLatencyBucketValues != nil {
+		common.WriteToChannel(m.e2eReqLatencyChan,
+			update.E2EReqLatencyBucketValues.reset(e2eReqLatencyBucketsBoundaries), m.logger)
+	}
+
+	for _, h := range []struct {
+		samples []int
+		buckets []float64
+		channel common.Channel[metrics.HistogramUpdate]
+	}{
+		{update.InterTokenLatencyBucketValues, interTokenLatencyBucketsBoundaries, m.interTokenLatencyChan},
+		{update.QueueTimeBucketValues, queueTimeBucketsBoundaries, m.queueTimeChan},
+		{update.PromptTokensBucketValues, tokenBucketsBoundaries, m.promptTokensHistChan},
+		{update.UncachedPromptTokensBucketValues, tokenBucketsBoundaries, m.uncachedPromptTokensHistChan},
+		{update.GenerationTokensBucketValues, tokenBucketsBoundaries, m.generationTokensHistChan},
+	} {
+		if h.samples != nil {
+			common.WriteToChannel(h.channel, metrics.HistogramUpdate{
+				Reset: &metrics.HistogramReset{Buckets: h.buckets, Samples: h.samples},
+			}, m.logger)
+		}
+	}
+}
+
+// reset turns s into the target bucket state of a stream-split histogram over
+// boundaries, carrying only the series s names.
+func (s *StreamSplitBuckets) reset(boundaries []float64) streamHistogramUpdate {
+	return streamHistogramUpdate{reset: &streamHistogramReset{
+		buckets:      boundaries,
+		streaming:    s.Streaming,
+		nonStreaming: s.NonStreaming,
+	}}
+}
+
+// reset turns s into the target state of a stream-split counter, carrying only
+// the series s names. A nil s names neither, which asks for no change.
+func (s *StreamSplit) reset() *streamCounterReset {
+	if s == nil {
+		return &streamCounterReset{}
+	}
+	return &streamCounterReset{
+		streaming:    int64ToFloat64(s.Streaming),
+		nonStreaming: int64ToFloat64(s.NonStreaming),
+	}
+}
+
+func int64ToFloat64(v *int64) *float64 {
+	if v == nil {
+		return nil
+	}
+	f := float64(*v)
+	return &f
 }

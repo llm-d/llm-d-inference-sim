@@ -17,6 +17,7 @@ limitations under the License.
 package sglang
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/spf13/pflag"
@@ -32,9 +33,9 @@ const notYet = " (not simulated by the sglang engine yet)"
 // whose wire format it owns. Must be called before f.Parse.
 //
 // What it registers is this engine's name for each of the three core fields the
-// engines disagree on the name of, plus the toggles of two features this engine
-// does not simulate yet, bound to the configuration fields they will eventually
-// fill. Asking for one of those two is therefore parsed and then rejected by
+// engines disagree on the name of, plus the toggle of the one feature this
+// engine does not simulate yet, bound to the configuration field it will
+// eventually fill. Asking for it is therefore parsed and then rejected by
 // ValidateConfig, which names the feature, instead of failing as an unknown
 // flag: these are features the engine is expected to grow, not mistakes. Both
 // are spelled the same whatever the engine, which is why this engine can name
@@ -44,6 +45,10 @@ const notYet = " (not simulated by the sglang engine yet)"
 // It also registers the metrics toggle, which sglang spells --enable-metrics
 // and defaults to off.
 func (Engine) BindFlags(f *pflag.FlagSet, cfg *common.Configuration, rawYAML map[string]any) error {
+	// fake-metrics takes multiple space-separated JSON strings, which pflag
+	// cannot bind directly, so its value is pre-scanned from os.Args.
+	fakeMetricsStrings := common.GetParamValueFromArgs("fake-metrics")
+
 	if err := claimYAMLKeys(cfg, rawYAML); err != nil {
 		return err
 	}
@@ -59,20 +64,35 @@ func (Engine) BindFlags(f *pflag.FlagSet, cfg *common.Configuration, rawYAML map
 	common.AddToggle(f, &cfg.EnableMetrics,
 		"enable-metrics", "Enable Prometheus metrics", "Disable Prometheus metrics")
 
-	// fake-metrics takes multiple space-separated JSON strings, which pflag
-	// cannot bind directly, so its presence is read from os.Args instead. The
-	// value is deliberately left unparsed: ValidateConfig rejects the feature
-	// either way, and parsing first would report a malformed value rather than
-	// the reason the setting cannot be honored.
-	if common.GetParamValueFromArgs("fake-metrics") != nil {
-		cfg.FakeMetrics = fakeMetrics{}
+	if fakeMetricsStrings != nil {
+		// The flag replaces the whole struct, so a YAML-configured value is
+		// superseded, not merged.
+		if err := unmarshalFakeMetrics(cfg, fakeMetricsStrings[0]); err != nil {
+			return err
+		}
 	}
 	var fakeMetricsValues []string
 	f.StringArrayVar(&fakeMetricsValues, "fake-metrics", nil,
-		"A set of metrics to report to Prometheus instead of the real metrics"+notYet)
+		"A set of metrics to report to Prometheus instead of the real metrics")
 	f.Lookup("fake-metrics").NoOptDefVal = " "
 	f.Lookup("fake-metrics").DefValue = ""
 
+	return nil
+}
+
+// unmarshalFakeMetrics parses the --fake-metrics flag's JSON string into
+// cfg.FakeMetrics.
+func unmarshalFakeMetrics(cfg *common.Configuration, fakeMetricsString string) error {
+	var metrics *SGLangFakeMetrics
+	if err := json.Unmarshal([]byte(fakeMetricsString), &metrics); err != nil {
+		return err
+	}
+	if metrics == nil {
+		// A JSON null decodes to a nil pointer, which would leave the
+		// FakeMetrics interface non-nil while holding nothing to read.
+		return nil
+	}
+	cfg.FakeMetrics = metrics
 	return nil
 }
 
@@ -130,23 +150,21 @@ func claimYAMLKeys(cfg *common.Configuration, rawYAML map[string]any) error {
 		return err
 	}
 
-	if v, ok := rawYAML["fake-metrics"]; ok {
-		// A present but empty block leaves fake metrics unset, as it does for
-		// every engine: reporting fake metrics suppresses every real metric, so
-		// a block with everything commented out must not turn them on.
-		if v != nil {
-			cfg.FakeMetrics = fakeMetrics{}
+	// Unmarshaled into this engine's concrete type here, since encoding/yaml
+	// cannot allocate one into the FakeMetrics interface itself. A present but
+	// empty block carries a nil value and must leave fake metrics unset:
+	// reporting fake metrics suppresses every real metric, so a block with
+	// everything commented out must not turn them on.
+	if v, ok := rawYAML["fake-metrics"]; ok && v != nil {
+		fm := &SGLangFakeMetrics{}
+		if err := common.UnmarshalYAMLKey(rawYAML, "fake-metrics", fm); err != nil {
+			return err
 		}
-		delete(rawYAML, "fake-metrics")
+		cfg.FakeMetrics = fm
 	}
+	// Deleted outside the branch above: an empty block is a supported way to
+	// leave fake metrics unset, so it is claimed even though nothing was read.
+	delete(rawYAML, "fake-metrics")
 
 	return nil
 }
-
-// fakeMetrics stands in for this engine's fake-metrics configuration. It holds
-// nothing: it exists so that a --fake-metrics request is visible to
-// ValidateConfig, which rejects it.
-type fakeMetrics struct{}
-
-func (fakeMetrics) Validate() error         { return nil }
-func (fakeMetrics) New() common.FakeMetrics { return fakeMetrics{} }
