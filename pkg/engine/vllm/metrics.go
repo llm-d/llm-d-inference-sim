@@ -69,43 +69,34 @@ var modelLabel = []string{api.PromLabelModelName}
 // Reference: https://github.com/vllm-project/vllm/blob/main/vllm/engine/metrics.py#L175
 var TokenBucketMantissas = []int{1, 2, 5}
 
-// SuccessTotalReset is the target state for request_success_total: one
+// successTotalReset is the target state for request_success_total: one
 // Add per (reason, count) pair after clearing the counter's series.
-type SuccessTotalReset struct {
+type successTotalReset struct {
 	Reasons map[string]int64
 }
 
-// RequestSuccessCounterUpdate is a requestSuccessTotalChan payload: an
+// requestSuccessCounterUpdate is a requestSuccessTotalChan payload: an
 // Increment with the finish-reason label, or a Reset to a per-reason target
 // map. Exactly one field is non-nil.
-type RequestSuccessCounterUpdate struct {
+type requestSuccessCounterUpdate struct {
 	Increment *string
-	Reset     *SuccessTotalReset
+	Reset     *successTotalReset
 }
 
-// LoRAUpdate is the discriminated-union payload for lorasChan. Event-side
+// loraUpdate is the discriminated-union payload for lorasChan. Event-side
 // producers set Snapshot with the current per-LoRA counts; the fake-metrics
 // applier sets Reset.
-type LoRAUpdate struct {
+type loraUpdate struct {
 	Snapshot *metrics.LoRASetsChanged
-	Reset    *LoRAReset
+	Reset    *loraReset
 }
 
-// LoRAReset carries the target state for lora_requests_info: clear the
-// gauge's series, then stamp one series per entry (or a single zero-adapter
-// row with the current timestamp when Entries is empty).
-type LoRAReset struct {
+// loraReset carries the target state for lora_requests_info: unregister,
+// recreate, then stamp one series per entry (or a single zero-adapter row
+// with the current timestamp when Entries is empty).
+type loraReset struct {
 	MaxLoRAs int
 	Entries  []common.LorasMetrics
-}
-
-// activeGenerator is one fake-metric generator bound to the gauge channel it
-// feeds. The ticker evaluates fn on every refresh and pushes the result.
-type activeGenerator struct {
-	fn         metrics.Generator
-	params     *common.FunctionInfo
-	roundToInt bool
-	updateFunc func(upd metrics.GaugeUpdate)
 }
 
 // vllmMetricsAdapter implements metrics.EngineMetricsAdapter and produces the
@@ -181,8 +172,8 @@ type vllmMetricsAdapter struct {
 	prefixCacheHitsTotalChan    common.Channel[metrics.CounterUpdate]
 	prefixCacheQueriesTotalChan common.Channel[metrics.CounterUpdate]
 
-	lorasChan               common.Channel[LoRAUpdate]
-	requestSuccessTotalChan common.Channel[RequestSuccessCounterUpdate]
+	lorasChan               common.Channel[loraUpdate]
+	requestSuccessTotalChan common.Channel[requestSuccessCounterUpdate]
 
 	// nWaitingReqs / nRunningReqs are the adapter-local counters mirrored
 	// onto the num_requests_{waiting,running} gauges.
@@ -329,7 +320,7 @@ func (m *vllmMetricsAdapter) OnRequestSucceeded(ev metrics.RequestSucceeded) {
 	}
 
 	// update number of successful requests per finish reason
-	common.WriteToChannel(m.requestSuccessTotalChan, RequestSuccessCounterUpdate{Increment: &ev.FinishReason}, m.logger)
+	common.WriteToChannel(m.requestSuccessTotalChan, requestSuccessCounterUpdate{Increment: &ev.FinishReason}, m.logger)
 
 	// request finished successfully, update number of prompt and generated tokens
 	// both total and histogram metrics
@@ -394,7 +385,7 @@ func (m *vllmMetricsAdapter) OnLoRASetsChanged(ev metrics.LoRASetsChanged) {
 	if m.fake.Load() != nil {
 		return
 	}
-	common.WriteToChannel(m.lorasChan, LoRAUpdate{Snapshot: &ev}, m.logger)
+	common.WriteToChannel(m.lorasChan, loraUpdate{Snapshot: &ev}, m.logger)
 }
 
 // finishRunning decrements the running-request counter for a terminal
@@ -439,7 +430,7 @@ func (m *vllmMetricsAdapter) createAndStartPrometheusChannels(ctx context.Contex
 	m.reqTpotChan = common.NewChannel[metrics.HistogramUpdate]("vllm", maxNumberOfRunningRequests, ctx.Done())
 	go common.Subscribe(ctx, m.reqTpotChan, m.updateReqTpot)
 
-	m.lorasChan = common.NewChannel[LoRAUpdate]("vllm", maxNumberOfRequests, ctx.Done())
+	m.lorasChan = common.NewChannel[loraUpdate]("vllm", maxNumberOfRequests, ctx.Done())
 	go common.Subscribe(ctx, m.lorasChan, m.updateLoRAs)
 
 	m.requestPromptTokensChan = common.NewChannel[metrics.HistogramUpdate]("vllm", maxNumberOfRunningRequests, ctx.Done())
@@ -460,7 +451,7 @@ func (m *vllmMetricsAdapter) createAndStartPrometheusChannels(ctx context.Contex
 	m.generationTokensTotalChan = common.NewChannel[metrics.CounterUpdate]("vllm", maxNumberOfRunningRequests, ctx.Done())
 	go common.Subscribe(ctx, m.generationTokensTotalChan, m.updateGenerationTokensTotal)
 
-	m.requestSuccessTotalChan = common.NewChannel[RequestSuccessCounterUpdate]("vllm", maxNumberOfRunningRequests, ctx.Done())
+	m.requestSuccessTotalChan = common.NewChannel[requestSuccessCounterUpdate]("vllm", maxNumberOfRunningRequests, ctx.Done())
 	go common.Subscribe(ctx, m.requestSuccessTotalChan, m.updateRequestSuccessTotal)
 
 	m.prefixCacheHitsTotalChan = common.NewChannel[metrics.CounterUpdate]("vllm", maxNumberOfRunningRequests, ctx.Done())
@@ -512,7 +503,7 @@ func (m *vllmMetricsAdapter) updateGenerationTokensTotal(upd metrics.CounterUpda
 	}
 }
 
-func (m *vllmMetricsAdapter) updateRequestSuccessTotal(upd RequestSuccessCounterUpdate) {
+func (m *vllmMetricsAdapter) updateRequestSuccessTotal(upd requestSuccessCounterUpdate) {
 	switch {
 	case upd.Increment != nil:
 		if m.fake.Load() != nil {
@@ -631,7 +622,7 @@ func (m *vllmMetricsAdapter) updateReqTpot(upd metrics.HistogramUpdate) {
 
 // lorasUpdater republishes lora_requests_info from Snapshot events, or on
 // Reset clears the gauge's series and stamps the supplied entries.
-func (m *vllmMetricsAdapter) updateLoRAs(upd LoRAUpdate) {
+func (m *vllmMetricsAdapter) updateLoRAs(upd loraUpdate) {
 	switch {
 	case upd.Snapshot != nil:
 		m.reportLoras(*upd.Snapshot)
@@ -662,7 +653,7 @@ func (m *vllmMetricsAdapter) resetSuccessTotal(reasons map[string]int64) {
 
 // resetLoRA clears loraInfo's series, then stamps one series per entry.
 // Empty entries emits a single zero-adapter row with the current timestamp.
-func (m *vllmMetricsAdapter) resetLoRA(reset *LoRAReset) {
+func (m *vllmMetricsAdapter) resetLoRA(reset *loraReset) {
 	// new value is empty - ensure /metrics does not report it
 	if reset == nil || len(reset.Entries) == 0 {
 		if m.loraInfo != nil {
@@ -1154,10 +1145,10 @@ func (m *vllmMetricsAdapter) applyFakeMetrics(update *VLLMFakeMetrics) {
 	}
 
 	if update.RequestSuccessTotal != nil {
-		common.WriteToChannel(m.requestSuccessTotalChan, RequestSuccessCounterUpdate{Reset: &SuccessTotalReset{Reasons: update.RequestSuccessTotal}}, m.logger)
+		common.WriteToChannel(m.requestSuccessTotalChan, requestSuccessCounterUpdate{Reset: &successTotalReset{Reasons: update.RequestSuccessTotal}}, m.logger)
 	}
 
 	if update.LoraMetrics != nil {
-		common.WriteToChannel(m.lorasChan, LoRAUpdate{Reset: &LoRAReset{MaxLoRAs: m.config.Lora.MaxLoras, Entries: update.LoraMetrics}}, m.logger)
+		common.WriteToChannel(m.lorasChan, loraUpdate{Reset: &loraReset{MaxLoRAs: m.config.Lora.MaxLoras, Entries: update.LoraMetrics}}, m.logger)
 	}
 }

@@ -108,9 +108,9 @@ var _ = Describe("Configuration", func() {
 		Entry("mm-encoder-only", "--mm-encoder-only"),
 	)
 
-	// The two settings this engine does claim from a config file, so that a file
-	// gets the same answer the matching flag does rather than being told the key
-	// is unrecognized.
+	// The settings this engine does claim from a config file, so that a file gets
+	// the same answer the matching flag does rather than being told the key is
+	// unrecognized.
 	DescribeTable("should name the feature behind a configuration key it cannot honor",
 		func(body string, expected string) {
 			_, err := createSimConfig([]string{"cmd", "--model", common.TestModelName,
@@ -119,8 +119,6 @@ var _ = Describe("Configuration", func() {
 		},
 		Entry("enable-kvcache", "enable-kvcache: true\n",
 			"KV-cache simulation is not implemented by the sglang engine yet"),
-		Entry("fake-metrics", "fake-metrics:\n  running-requests: 16\n",
-			"fake metrics are not implemented by the sglang engine yet"),
 	)
 
 	DescribeTable("should accept a claimed configuration key that asks for nothing",
@@ -163,9 +161,105 @@ var _ = Describe("Configuration", func() {
 		// after parsing, not by the flag failing to parse.
 		Entry("enable-kvcache with an explicit value",
 			"KV-cache simulation is not implemented by the sglang engine yet", "--enable-kvcache=true"),
-		Entry("fake-metrics", "fake metrics are not implemented by the sglang engine yet",
-			"--fake-metrics", `{"running-requests":16}`),
 	)
+
+	// Metrics are opt-in, matching sglang's own enable_metrics default.
+	DescribeTable("should resolve the metrics toggle",
+		func(enabled bool, args ...string) {
+			config, err := createSimConfig(append([]string{"cmd", "--model", common.TestModelName}, args...))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(config.EnableMetrics).To(Equal(enabled))
+		},
+		Entry("off by default", false),
+		Entry("on by the flag", true, "--enable-metrics"),
+		Entry("on by an explicit value", true, "--enable-metrics=true"),
+		Entry("off by an explicit value", false, "--enable-metrics=false"),
+		Entry("off by the no- form", false, "--no-enable-metrics"),
+	)
+
+	DescribeTable("should resolve the metrics toggle from a config file",
+		func(enabled bool, body string, args ...string) {
+			config, err := createSimConfig(append([]string{"cmd", "--model", common.TestModelName,
+				"--config", writeConfig(body)}, args...))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(config.EnableMetrics).To(Equal(enabled))
+		},
+		Entry("enabled by the file", true, "enable-metrics: true\n"),
+		Entry("disabled by the file", false, "enable-metrics: false\n"),
+		// A valueless key leaves the default, the way unmarshaling a null into a
+		// bool does.
+		Entry("left at the default by a valueless key", false, "enable-metrics:\n"),
+		// The flag is registered after the file has been read, so it overrides.
+		Entry("overridden by the flag", false, "enable-metrics: true\n", "--no-enable-metrics"),
+	)
+
+	It("should reject a non-boolean metrics toggle in a config file", func() {
+		_, err := createSimConfig([]string{"cmd", "--model", common.TestModelName,
+			"--config", writeConfig("enable-metrics: yes please\n")})
+		Expect(err).To(MatchError(ContainSubstring("enable-metrics must be a boolean")))
+	})
+
+	DescribeTable("should parse fake metrics",
+		func(flagValue string, body string) {
+			args := []string{"cmd", "--model", common.TestModelName}
+			if flagValue != "" {
+				args = append(args, "--fake-metrics", flagValue)
+			}
+			if body != "" {
+				args = append(args, "--config", writeConfig(body))
+			}
+
+			config, err := createSimConfig(args)
+			Expect(err).NotTo(HaveOccurred())
+
+			fake, ok := config.FakeMetrics.(*SGLangFakeMetrics)
+			Expect(ok).To(BeTrue())
+			Expect(fake.RunningRequests.FixedValue).To(Equal(float64(16)))
+			Expect(fake.QueuedRequests.IsFunction).To(BeTrue())
+			Expect(fake.QueuedRequests.Function.Name).To(Equal(common.OscillateFuncName))
+			Expect(*fake.NumRequestsTotal.Streaming).To(Equal(int64(412)))
+			Expect(*fake.NumRequestsTotal.NonStreaming).To(Equal(int64(1038)))
+			Expect(fake.QueueTimeBucketValues).To(Equal([]int{0, 2, 3}))
+			Expect(fake.TTFTBucketValues.Streaming).To(Equal([]int{5, 3, 2}))
+			Expect(fake.TTFTBucketValues.NonStreaming).To(Equal([]int{0, 0, 1}))
+		},
+		Entry("from the flag",
+			`{"running-requests":16,"queue-requests":"oscillate:0:10:5s",`+
+				`"num-requests-total":{"streaming":412,"non-streaming":1038},`+
+				`"queue-time-buckets-values":[0,2,3],`+
+				`"ttft-buckets-values":{"streaming":[5,3,2],"non-streaming":[0,0,1]}}`, ""),
+		Entry("from a config file", "",
+			"fake-metrics:\n"+
+				"  running-requests: 16\n"+
+				"  queue-requests: oscillate:0:10:5s\n"+
+				"  num-requests-total:\n"+
+				"    streaming: 412\n"+
+				"    non-streaming: 1038\n"+
+				"  queue-time-buckets-values: [0, 2, 3]\n"+
+				"  ttft-buckets-values:\n"+
+				"    streaming: [5, 3, 2]\n"+
+				"    non-streaming: [0, 0, 1]\n"),
+	)
+
+	// The flag replaces the whole struct rather than merging into a
+	// file-configured one, so the file's own metrics do not survive it.
+	It("should let the fake-metrics flag supersede the config file", func() {
+		config, err := createSimConfig([]string{"cmd", "--model", common.TestModelName,
+			"--config", writeConfig("fake-metrics:\n  queue-requests: 30\n"),
+			"--fake-metrics", `{"running-requests":16}`})
+		Expect(err).NotTo(HaveOccurred())
+
+		fake, ok := config.FakeMetrics.(*SGLangFakeMetrics)
+		Expect(ok).To(BeTrue())
+		Expect(fake.RunningRequests.FixedValue).To(Equal(float64(16)))
+		Expect(fake.QueuedRequests).To(BeNil())
+	})
+
+	It("should reject a malformed fake-metrics flag", func() {
+		_, err := createSimConfig([]string{"cmd", "--model", common.TestModelName,
+			"--fake-metrics", `{"running-requests":`})
+		Expect(err).To(HaveOccurred())
+	})
 
 	DescribeTable("should accept a flag it can honor for a feature it lacks",
 		func(args ...string) {

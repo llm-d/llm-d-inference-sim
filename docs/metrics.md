@@ -43,6 +43,10 @@ Once a running request is aborted, it stops at once, also during its time-to-fir
 
 ## SGLang
 
+Metrics are opt-in under this engine, as they are in SGLang: `/metrics` is served only when
+[`--enable-metrics`](configuration.md#metrics) is given, and a scrape without it gets a 404 rather than
+an empty body.
+
 Currently supported are the following metrics:
 | Metric | Description |
 |---|---|
@@ -128,5 +132,26 @@ points. The scheduler's own instrumentation (`per_stage_req_latency_seconds`, `u
 `fwd_occupancy`, `new_token_ratio`, `is_cuda_graph`, the startup and GPU-memory gauges) measures a
 runtime the simulator has none of.
 
-[Fake metrics](configuration.md) are a vLLM-engine feature; a configuration asking for them under SGLang
-is rejected.
+### Fake metrics
+
+[Fake metrics](configuration.md#fake-metrics-1) replace every load metric of this surface: the request
+gauges, the token-usage gauges, the prefix-cache gauge and counter, the three token and request counters,
+and all eight histograms. The keys are this engine's own, since the fakeable set mirrors its own metrics,
+and the six metrics SGLang labels by `is_streaming` take both series, so a scrape can break down by the
+label the way a real one does.
+
+The gauges describing the configuration are reported from the configuration either way:
+`sglang:context_len`, `sglang:page_size`, `sglang:num_pages`, `sglang:max_total_num_tokens` and
+`sglang:cache_config_info`. Fake metrics do not replace them, since they report the geometry the simulator
+was given rather than anything a request changes. The four metrics llm-d-router reads are therefore all
+present under fake metrics too.
+
+A metric the configuration names nothing for reports nothing: real and fake metrics are never served
+together, so a scrape carries what the configuration sets and the gauges above, and no other series at
+all. For a histogram split by `is_streaming`, that holds per series.
+
+A faked histogram's samples are observed at their bucket's upper boundary, so its `_sum` follows from
+which buckets are filled rather than being configurable on its own. No total is derived from a histogram
+the way the vLLM engine derives its token counters: SGLang splits `sglang:prompt_tokens_total` by
+`is_streaming` but reports `sglang:prompt_tokens_histogram` without the label, so neither carries a
+per-series sum for the other, and the totals are set on their own.

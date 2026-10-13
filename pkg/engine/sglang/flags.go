@@ -17,6 +17,7 @@ limitations under the License.
 package sglang
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/spf13/pflag"
@@ -32,15 +33,19 @@ const notYet = " (not simulated by the sglang engine yet)"
 // whose wire format it owns. Must be called before f.Parse.
 //
 // What it registers is this engine's name for each of the three core fields the
-// engines disagree on the name of, plus the toggles of two features this engine
-// does not simulate yet, bound to the configuration fields they will eventually
-// fill. Asking for one of those two is therefore parsed and then rejected by
+// engines disagree on the name of, plus the toggle of the one feature this
+// engine does not simulate yet, bound to the configuration field it will
+// eventually fill. Asking for it is therefore parsed and then rejected by
 // ValidateConfig, which names the feature, instead of failing as an unknown
-// flag: these are features the engine is expected to grow, not mistakes. Both
-// are spelled the same whatever the engine, which is why this engine can name
-// them already. LoRA is not among them: its flags are spelled per engine, so
-// this engine registers none until it has its own.
+// flag: it is a feature the engine is expected to grow, not a mistake. It is
+// spelled the same whatever the engine, which is why this engine can name it
+// already. LoRA is not among them: its flags are spelled per engine, so this
+// engine registers none until it has its own.
 func (Engine) BindFlags(f *pflag.FlagSet, cfg *common.Configuration, rawYAML map[string]any) error {
+	// fake-metrics takes multiple space-separated JSON strings, which pflag
+	// cannot bind directly, so its value is pre-scanned from os.Args.
+	fakeMetricsStrings := common.GetParamValueFromArgs("fake-metrics")
+
 	if err := claimYAMLKeys(cfg, rawYAML); err != nil {
 		return err
 	}
@@ -49,25 +54,42 @@ func (Engine) BindFlags(f *pflag.FlagSet, cfg *common.Configuration, rawYAML map
 		return err
 	}
 
-	// Registered after the config file has been read, so the flag's default is
+	// Registered after the config file has been read, so each flag's default is
 	// the file's value and an explicit flag still overrides it.
 	common.AddToggle(f, &cfg.KVCache.EnableKVCache,
 		"enable-kvcache", "Enable KV cache simulation"+notYet, "Disable KV cache simulation")
+	common.AddToggle(f, &cfg.EnableMetrics,
+		"enable-metrics", "Enable Prometheus metrics", "Disable Prometheus metrics")
 
-	// fake-metrics takes multiple space-separated JSON strings, which pflag
-	// cannot bind directly, so its presence is read from os.Args instead. The
-	// value is deliberately left unparsed: ValidateConfig rejects the feature
-	// either way, and parsing first would report a malformed value rather than
-	// the reason the setting cannot be honored.
-	if common.GetParamValueFromArgs("fake-metrics") != nil {
-		cfg.FakeMetrics = fakeMetrics{}
+	if fakeMetricsStrings != nil {
+		// The flag replaces the whole struct, so a YAML-configured value is
+		// superseded, not merged.
+		if err := unmarshalFakeMetrics(cfg, fakeMetricsStrings[0]); err != nil {
+			return err
+		}
 	}
 	var fakeMetricsValues []string
 	f.StringArrayVar(&fakeMetricsValues, "fake-metrics", nil,
-		"A set of metrics to report to Prometheus instead of the real metrics"+notYet)
+		"A set of metrics to report to Prometheus instead of the real metrics")
 	f.Lookup("fake-metrics").NoOptDefVal = " "
 	f.Lookup("fake-metrics").DefValue = ""
 
+	return nil
+}
+
+// unmarshalFakeMetrics parses the --fake-metrics flag's JSON string into
+// cfg.FakeMetrics.
+func unmarshalFakeMetrics(cfg *common.Configuration, fakeMetricsString string) error {
+	var metrics *SGLangFakeMetrics
+	if err := json.Unmarshal([]byte(fakeMetricsString), &metrics); err != nil {
+		return err
+	}
+	if metrics == nil {
+		// A JSON null decodes to a nil pointer, which would leave the
+		// FakeMetrics interface non-nil while holding nothing to read.
+		return nil
+	}
+	cfg.FakeMetrics = metrics
 	return nil
 }
 
@@ -91,8 +113,25 @@ func declareFields(f *pflag.FlagSet, cfg *common.Configuration, rawYAML map[stri
 		"Maximum length of inference requests waiting queue")
 }
 
-// claimYAMLKeys reads the config-file keys of the two unimplemented features out
-// of a config file's raw tree, so that a file asking for one is refused by
+// claimBool reads key out of raw into out, leaving out at its current value for
+// a valueless "key:" the way unmarshaling a null into a bool does, and claims
+// the key either way.
+func claimBool(raw map[string]any, key string, out *bool) error {
+	v, ok := raw[key]
+	if ok && v != nil {
+		enabled, isBool := v.(bool)
+		if !isBool {
+			return fmt.Errorf("%s must be a boolean, got '%v'", key, v)
+		}
+		*out = enabled
+	}
+	delete(raw, key)
+	return nil
+}
+
+// claimYAMLKeys reads this engine's own flat config-file keys out of a config
+// file's raw tree: the two toggles whose flags BindFlags registers, and the
+// fake-metrics block. A file asking for the unimplemented one is then refused by
 // ValidateConfig naming the feature rather than reported as an unrecognized key.
 // rawYAML is nil when no --config file was given; indexing and deleting a nil
 // map are both no-ops.
@@ -101,36 +140,28 @@ func declareFields(f *pflag.FlagSet, cfg *common.Configuration, rawYAML map[stri
 // carries the rest of the group, whose names this engine cannot commit to yet,
 // so leaving the block unclaimed reports it, which is the honest outcome.
 func claimYAMLKeys(cfg *common.Configuration, rawYAML map[string]any) error {
-	if v, ok := rawYAML["enable-kvcache"]; ok {
-		// A valueless "enable-kvcache:" leaves the default, the way unmarshaling
-		// a null into a bool does for the engines that read the key that way.
-		if v != nil {
-			enabled, isBool := v.(bool)
-			if !isBool {
-				return fmt.Errorf("enable-kvcache must be a boolean, got '%v'", v)
-			}
-			cfg.KVCache.EnableKVCache = enabled
-		}
-		delete(rawYAML, "enable-kvcache")
+	if err := claimBool(rawYAML, "enable-kvcache", &cfg.KVCache.EnableKVCache); err != nil {
+		return err
+	}
+	if err := claimBool(rawYAML, "enable-metrics", &cfg.EnableMetrics); err != nil {
+		return err
 	}
 
-	if v, ok := rawYAML["fake-metrics"]; ok {
-		// A present but empty block leaves fake metrics unset, as it does for
-		// every engine: reporting fake metrics suppresses every real metric, so
-		// a block with everything commented out must not turn them on.
-		if v != nil {
-			cfg.FakeMetrics = fakeMetrics{}
+	// Unmarshaled into this engine's concrete type here, since encoding/yaml
+	// cannot allocate one into the FakeMetrics interface itself. A present but
+	// empty block carries a nil value and must leave fake metrics unset:
+	// reporting fake metrics suppresses every real metric, so a block with
+	// everything commented out must not turn them on.
+	if v, ok := rawYAML["fake-metrics"]; ok && v != nil {
+		fm := &SGLangFakeMetrics{}
+		if err := common.UnmarshalYAMLKey(rawYAML, "fake-metrics", fm); err != nil {
+			return err
 		}
-		delete(rawYAML, "fake-metrics")
+		cfg.FakeMetrics = fm
 	}
+	// Deleted outside the branch above: an empty block is a supported way to
+	// leave fake metrics unset, so it is claimed even though nothing was read.
+	delete(rawYAML, "fake-metrics")
 
 	return nil
 }
-
-// fakeMetrics stands in for this engine's fake-metrics configuration. It holds
-// nothing: it exists so that a --fake-metrics request is visible to
-// ValidateConfig, which rejects it.
-type fakeMetrics struct{}
-
-func (fakeMetrics) Validate() error         { return nil }
-func (fakeMetrics) New() common.FakeMetrics { return fakeMetrics{} }
