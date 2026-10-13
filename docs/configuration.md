@@ -293,11 +293,6 @@ deliberately absent.
 
 #### Fake metrics
 
-`fake-metrics` and `fake-metrics-refresh-interval` work the way they do under vLLM — only these metrics
-are reported, never alongside the real ones — but the set of fakeable values is this engine's own, since
-it mirrors its own metrics. `fake-metrics-refresh-interval` is engine-neutral and documented
-[above](#fake-metrics).
-
 - `running-requests` - `sglang:num_running_reqs`. A fixed number or a generator function, in the same
   `fun:start:end:period` form the [vLLM section](#fake-metrics) describes.
 - `queue-requests` - `sglang:num_queue_reqs`, same shape.

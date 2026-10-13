@@ -271,6 +271,39 @@ var _ = Describe("Configuration", func() {
 		Entry("with an empty value", "--fake-metrics", ""),
 	)
 
+	DescribeTable("should set the fake-metrics refresh interval",
+		func(expected time.Duration, args ...string) {
+			config, err := createSimConfig(append([]string{"cmd", "--model", common.TestModelName,
+				"--fake-metrics", `{"running-requests":16}`}, args...))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(config.FakeMetricsRefreshInterval).To(Equal(expected))
+		},
+		Entry("from its default", 100*time.Millisecond),
+		Entry("from the flag", 2*time.Second, "--fake-metrics-refresh-interval", "2s"),
+	)
+
+	It("should let the fake-metrics-refresh-interval flag supersede the config file", func() {
+		config, err := createSimConfig([]string{"cmd", "--model", common.TestModelName,
+			"--config", writeConfig("fake-metrics-refresh-interval: 2s\n"),
+			"--fake-metrics", `{"running-requests":16}`,
+			"--fake-metrics-refresh-interval", "500ms"})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(config.FakeMetricsRefreshInterval).To(Equal(500 * time.Millisecond))
+	})
+
+	It("should read the fake-metrics refresh interval from a config file", func() {
+		config, err := createSimConfig([]string{"cmd", "--model", common.TestModelName,
+			"--config", writeConfig("fake-metrics-refresh-interval: 2s\nfake-metrics:\n  running-requests: 16\n")})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(config.FakeMetricsRefreshInterval).To(Equal(2 * time.Second))
+	})
+
+	It("should reject a non-positive fake-metrics refresh interval", func() {
+		_, err := createSimConfig([]string{"cmd", "--model", common.TestModelName,
+			"--fake-metrics", `{"running-requests":16}`, "--fake-metrics-refresh-interval", "-20s"})
+		Expect(err).To(MatchError(ContainSubstring("fake metrics refresh interval must be positive")))
+	})
+
 	DescribeTable("should accept a flag it can honor for a feature it lacks",
 		func(args ...string) {
 			config, err := createSimConfig(append([]string{"cmd", "--model", common.TestModelName}, args...))
