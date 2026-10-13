@@ -36,6 +36,8 @@ type EmbeddingRequest struct {
 	EncodingFormat string `json:"encoding_format,omitempty"`
 	// User: optional end-user identifier for abuse monitoring.
 	User string `json:"user,omitempty"`
+	// LoraPath is sglang's lora_path field, see LoraPath.
+	LoraPath *LoraPath `json:"lora_path,omitempty"`
 }
 
 // EmbeddingInput represents input per OpenAI spec: string, []string, []number (token ids), or [][]number.

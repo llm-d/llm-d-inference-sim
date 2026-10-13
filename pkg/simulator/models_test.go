@@ -22,7 +22,15 @@ import (
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
+	"github.com/llm-d/llm-d-inference-sim/pkg/engine/vllm"
 )
+
+func newModelsContext(config *common.Configuration) *SimContext {
+	s := &SimContext{}
+	s.SetConfig(config)
+	s.loraRegistry = vllm.New().NewLoraRegistry(*config)
+	return s
+}
 
 func findByID(models []api.ModelsResponseModelInfo, id string) *api.ModelsResponseModelInfo {
 	for i := range models {
@@ -35,8 +43,7 @@ func findByID(models []api.ModelsResponseModelInfo, id string) *api.ModelsRespon
 
 var _ = Describe("CreateModelsResponse", func() {
 	It("should set root to actual model path, not alias", func() {
-		s := &SimContext{}
-		s.SetConfig(&common.Configuration{
+		s := newModelsContext(&common.Configuration{
 			Model:            "Qwen/Qwen3-0.6B-Base",
 			ServedModelNames: []string{"alias1", "alias2"},
 			MaxModelLen:      32768,
@@ -47,7 +54,7 @@ var _ = Describe("CreateModelsResponse", func() {
 
 		for _, model := range resp.Data {
 			Expect(model.Root).To(Equal("Qwen/Qwen3-0.6B-Base"))
-			Expect(model.MaxModelLen).To(Equal(32768))
+			Expect(model.MaxModelLen).To(HaveValue(Equal(32768)))
 			Expect(model.Parent).To(BeNil())
 		}
 		Expect(resp.Data[0].ID).To(Equal("alias1"))
@@ -55,20 +62,18 @@ var _ = Describe("CreateModelsResponse", func() {
 	})
 
 	It("should include max_model_len for LoRA adapters", func() {
-		s := &SimContext{}
-		s.SetConfig(&common.Configuration{
+		s := newModelsContext(&common.Configuration{
 			Model:            "Qwen/Qwen3-0.6B-Base",
 			ServedModelNames: []string{"base-model"},
 			MaxModelLen:      4096,
+			Lora:             common.LoraConfig{LoraModules: []common.LoraModule{{Name: "lora1"}, {Name: "lora2"}}},
 		})
-		s.loraAdaptors.Store("lora1", true)
-		s.loraAdaptors.Store("lora2", true)
 
 		resp := s.CreateModelsResponse()
 		Expect(resp.Data).To(HaveLen(3))
 
 		for _, model := range resp.Data {
-			Expect(model.MaxModelLen).To(Equal(4096))
+			Expect(model.MaxModelLen).To(HaveValue(Equal(4096)))
 		}
 
 		base := resp.Data[0]
@@ -83,8 +88,7 @@ var _ = Describe("CreateModelsResponse", func() {
 	})
 
 	It("should use model name as root when no aliases are set", func() {
-		s := &SimContext{}
-		s.SetConfig(&common.Configuration{
+		s := newModelsContext(&common.Configuration{
 			Model:            "meta-llama/Llama-3-8B",
 			ServedModelNames: []string{"meta-llama/Llama-3-8B"},
 			MaxModelLen:      1024,
@@ -93,18 +97,19 @@ var _ = Describe("CreateModelsResponse", func() {
 		Expect(resp.Data).To(HaveLen(1))
 		Expect(resp.Data[0].ID).To(Equal("meta-llama/Llama-3-8B"))
 		Expect(resp.Data[0].Root).To(Equal("meta-llama/Llama-3-8B"))
-		Expect(resp.Data[0].MaxModelLen).To(Equal(1024))
+		Expect(resp.Data[0].MaxModelLen).To(HaveValue(Equal(1024)))
 	})
 
 	It("should set LoRA root to the adapter path when one is recorded", func() {
-		s := &SimContext{}
-		s.SetConfig(&common.Configuration{
+		s := newModelsContext(&common.Configuration{
 			Model:            "Qwen/Qwen3-0.6B-Base",
 			ServedModelNames: []string{"base-model"},
 			MaxModelLen:      4096,
+			Lora: common.LoraConfig{LoraModules: []common.LoraModule{
+				{Name: "lora-with-path", Path: "/lora/path/adapter1"},
+				{Name: "lora-without-path"},
+			}},
 		})
-		s.loraAdaptors.Store("lora-with-path", "/lora/path/adapter1")
-		s.loraAdaptors.Store("lora-without-path", "")
 
 		resp := s.CreateModelsResponse()
 		Expect(resp.Data).To(HaveLen(3))

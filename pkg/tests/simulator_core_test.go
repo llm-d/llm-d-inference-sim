@@ -544,32 +544,6 @@ var _ = Describe("Simulator core", forEachEngine(func() {
 	})
 
 	Context("errors", func() {
-		It("Should return error for invalid model", func() {
-			ctx := context.TODO()
-			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom}
-			client, err := startServerWithArgs(ctx, args)
-			Expect(err).NotTo(HaveOccurred())
-
-			openaiClient := openai.NewClient(option.WithBaseURL(baseURL), option.WithHTTPClient(client),
-				option.WithMaxRetries(0))
-
-			params := openai.ChatCompletionNewParams{
-				Messages: []openai.ChatCompletionMessageParamUnion{
-					openai.UserMessage(testUserMessage),
-				},
-				Model: "some-other-model",
-			}
-
-			_, err = openaiClient.Chat.Completions.New(ctx, params)
-			Expect(err).To(HaveOccurred())
-			var openaiError *openai.Error
-			ok := errors.As(err, &openaiError)
-			Expect(ok).To(BeTrue())
-			Expect(openaiError.StatusCode).To(BeNumerically("==", fasthttp.StatusNotFound))
-			Expect(errorType(openaiError)).ToNot(BeEmpty())
-			Expect(errorMessage(openaiError)).To(ContainSubstring("The model `some-other-model` does not exist"))
-		})
-
 		It("Should return error for negative MaxCompletionTokens", func() {
 			ctx := context.TODO()
 			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom}
@@ -707,3 +681,33 @@ var _ = Describe("Simulator core", forEachEngine(func() {
 		})
 	})
 }))
+
+// Which model names a request may use is the engine's: sglang accepts any, see
+// sglang_engine_test.go.
+var _ = Describe("Model names", func() {
+	It("Should return error for invalid model", func() {
+		ctx := context.TODO()
+		args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom}
+		client, err := startServerWithArgs(ctx, args)
+		Expect(err).NotTo(HaveOccurred())
+
+		openaiClient := openai.NewClient(option.WithBaseURL(baseURL), option.WithHTTPClient(client),
+			option.WithMaxRetries(0))
+
+		params := openai.ChatCompletionNewParams{
+			Messages: []openai.ChatCompletionMessageParamUnion{
+				openai.UserMessage(testUserMessage),
+			},
+			Model: "some-other-model",
+		}
+
+		_, err = openaiClient.Chat.Completions.New(ctx, params)
+		Expect(err).To(HaveOccurred())
+		var openaiError *openai.Error
+		ok := errors.As(err, &openaiError)
+		Expect(ok).To(BeTrue())
+		Expect(openaiError.StatusCode).To(BeNumerically("==", fasthttp.StatusNotFound))
+		Expect(errorType(openaiError)).ToNot(BeEmpty())
+		Expect(errorMessage(openaiError)).To(ContainSubstring("The model `some-other-model` does not exist"))
+	})
+})
