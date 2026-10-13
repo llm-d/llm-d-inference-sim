@@ -659,9 +659,11 @@ func (m *sglangMetricsAdapter) updatePrefixCache(upd prefixCacheUpdate) {
 		return
 	}
 
+	rate := float64(0)
 	if m.nQueriedTokens > 0 {
-		m.cacheHitRate.WithLabelValues(model).Set(float64(m.nCachedTokens) / float64(m.nQueriedTokens))
+		rate = float64(m.nCachedTokens) / float64(m.nQueriedTokens)
 	}
+	m.cacheHitRate.WithLabelValues(model).Set(rate)
 }
 
 // updateStreamCounter adds an event's value to the series matching the kind of

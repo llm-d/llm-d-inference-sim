@@ -78,6 +78,9 @@ func (Engine) BindFlags(f *pflag.FlagSet, cfg *common.Configuration, rawYAML map
 	f.Lookup("fake-metrics").NoOptDefVal = " "
 	f.Lookup("fake-metrics").DefValue = ""
 
+	f.DurationVar(&cfg.FakeMetricsRefreshInterval, "fake-metrics-refresh-interval", cfg.FakeMetricsRefreshInterval,
+		"Defines how often function-based fake metrics are recalculated, defaults to 100ms")
+
 	return nil
 }
 
