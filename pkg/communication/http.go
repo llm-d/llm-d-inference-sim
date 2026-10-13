@@ -637,7 +637,7 @@ func (c *Communication) emitResponseChunks(ctx *fasthttp.RequestCtx, w *bufio.Wr
 				state.toolCallIndex[choiceIdx]++
 			}
 			if err := c.sendStreamedTools(respCtx, respBuilder, w, response.Tokens.Strings, response.ToolCall,
-				state.toolCallIndex[choiceIdx], choiceIdx); err != nil {
+				state.toolCallIndex[choiceIdx], choiceIdx, lastTokensChunk); err != nil {
 				c.chunkSendFailed(ctx, "Sending tools chunk failed, ", err)
 				return false, false
 			}
@@ -690,7 +690,7 @@ func (c *Communication) chunkSendFailed(ctx *fasthttp.RequestCtx, msg string, er
 }
 
 func (c *Communication) sendStreamedTools(respCtx endpoint.ResponseContext, respBuilder responseBuilder,
-	w *bufio.Writer, tokens []string, tc *api.ToolCall, index int, choiceIdx int) error {
+	w *bufio.Writer, tokens []string, tc *api.ToolCall, index int, choiceIdx int, lastTokensChunk bool) error {
 	tokensStr := strings.Join(tokens, "")
 
 	toolChunkInsert := &api.ToolCall{
@@ -706,7 +706,7 @@ func (c *Communication) sendStreamedTools(respCtx endpoint.ResponseContext, resp
 	}
 
 	var finishReasonToSend *string
-	if index == tc.Function.TokenizedArguments().Length()-1 && (*respCtx.FinishReason() == common.LengthFinishReason ||
+	if lastTokensChunk && (*respCtx.FinishReason() == common.LengthFinishReason ||
 		*respCtx.FinishReason() == common.ToolsFinishReason ||
 		*respCtx.FinishReason() == common.CacheThresholdFinishReason) {
 		finishReasonToSend = respCtx.FinishReason()

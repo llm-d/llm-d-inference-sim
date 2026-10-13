@@ -40,6 +40,7 @@ declares is the only one it answers to, on the command line and in a config file
 - `engine`: the inference engine to simulate, one of `vllm` or `sglang`, optional, default is `vllm`. SGLang support is experimental: it currently covers the OpenAI-compatible endpoints only, and rejects a configuration asking for LoRA adapters, the KV cache, fake metrics, sleep mode, or encoder-only mode; see [SGLang support](engine-backends.md#sglang-support-experimental). Determines which flags, environment variables, metric names, and KV-event format the simulator uses; see [Engines](engine-backends.md). If you omit `--engine` on the command line, a non-empty `SIM_ENGINE` environment variable can supply it; see [Configuration precedence](#configuration-precedence) and [Environment variables](#environment-variables).
 - `model`: the currently 'loaded' model, mandatory. If you omit `--model` on the command line, a non-empty `SIM_MODEL` environment variable can supply the model; see [Configuration precedence](#configuration-precedence) and [Environment variables](#environment-variables).
 - `served-model-name`: model names exposed by the API (a list of space-separated strings)
+- `stream-interval`: number of tokens sent per streamed chunk; the first token is always sent alone. Must be >= 1, default is 1
 - `mode`: the simulator mode, optional, by default `random`
     - `echo`: returns the same text that was sent in the request
     - `random`: returns a sentence chosen at random from a set of pre-defined sentences or a given dataset

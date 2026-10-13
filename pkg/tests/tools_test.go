@@ -382,6 +382,49 @@ var _ = Describe("Simulator for request with tools", Ordered, forEachEngine(func
 		userMsgTokens = getChatPromptTokensCountForTestModel(testUserMessage)
 	})
 
+	DescribeTable("streaming finish reason with several tool calls",
+		func(args []string) {
+			args = append([]string{"cmd", "--model", model, "--mode", common.ModeRandom,
+				"--tool-call-extra-call-probability", "100"}, args...)
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			openaiclient, params := getOpenAIClientAndChatParams(client, model, testUserMessage, true)
+			params.ToolChoice = openai.ChatCompletionToolChoiceOptionUnionParam{OfAuto: param.NewOpt("required")}
+			params.Tools = tools
+
+			stream := openaiclient.Chat.Completions.NewStreaming(ctx, params)
+			defer func() {
+				Expect(stream.Close()).To(Succeed())
+			}()
+			toolArgs := make(map[int64]string)
+			finishReasons := 0
+			lastToolChunkIdx, finishReasonChunkIdx := -1, -1
+			for chunkIdx := 0; stream.Next(); chunkIdx++ {
+				for _, choice := range stream.Current().Choices {
+					for _, tc := range choice.Delta.ToolCalls {
+						toolArgs[tc.Index] += tc.Function.Arguments
+						lastToolChunkIdx = chunkIdx
+					}
+					if choice.FinishReason != "" {
+						Expect(choice.FinishReason).To(Equal(common.ToolsFinishReason))
+						finishReasons++
+						finishReasonChunkIdx = chunkIdx
+					}
+				}
+			}
+			Expect(stream.Err()).NotTo(HaveOccurred())
+			Expect(toolArgs).To(HaveLen(len(tools)))
+			for _, a := range toolArgs {
+				Expect(json.Valid([]byte(a))).To(BeTrue(), a)
+			}
+			Expect(finishReasons).To(Equal(1))
+			Expect(finishReasonChunkIdx).To(Equal(lastToolChunkIdx))
+		},
+		Entry("default interval", []string{}),
+		Entry("interval 3", []string{"--stream-interval", "3"}),
+	)
+
 	DescribeTable("streaming",
 		func(mode string) {
 			client, err := startServer(ctx, mode)

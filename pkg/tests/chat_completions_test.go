@@ -100,6 +100,73 @@ var _ = Describe("Simulator", forEachEngine(func() {
 		Entry(nil, common.QwenModelName, common.ModeEcho),
 	)
 
+	DescribeTable("chat completions streaming with stream-interval",
+		func(args []string, expectedChunks int) {
+			ctx := context.TODO()
+			args = append([]string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom}, args...)
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			openaiclient, params := getOpenAIClientAndChatParams(client, common.TestModelName, testUserMessage, true)
+			params.MaxCompletionTokens = openai.Int(10)
+			stream := openaiclient.Chat.Completions.NewStreaming(ctx, params, option.WithJSONSet("ignore_eos", true))
+			defer func() {
+				Expect(stream.Close()).To(Succeed())
+			}()
+			contentChunks := 0
+			var chunk openai.ChatCompletionChunk
+			for stream.Next() {
+				chunk = stream.Current()
+				for _, choice := range chunk.Choices {
+					if choice.Delta.Content != "" {
+						contentChunks++
+					}
+				}
+			}
+			Expect(stream.Err()).NotTo(HaveOccurred())
+			Expect(chunk.Usage.CompletionTokens).To(Equal(int64(10)))
+			Expect(contentChunks).To(Equal(expectedChunks))
+		},
+		// the first token is sent alone, the remaining 9 are grouped by the interval
+		Entry("default interval", []string{}, 10),
+		Entry("interval 4", []string{"--stream-interval", "4"}, 4),
+		Entry("interval 3", []string{"--stream-interval", "3"}, 4),
+		Entry("interval larger than response", []string{"--stream-interval", "20"}, 2),
+	)
+
+	It("Should send logprobs per token in chat completions streaming with stream-interval", func() {
+		ctx := context.TODO()
+		args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom, "--stream-interval", "4"}
+		client, err := startServerWithArgs(ctx, args)
+		Expect(err).NotTo(HaveOccurred())
+
+		openaiclient, params := getOpenAIClientAndChatParams(client, common.TestModelName, testUserMessage, true)
+		params.MaxCompletionTokens = openai.Int(10)
+		params.Logprobs = openai.Bool(true)
+		params.TopLogprobs = openai.Int(2)
+		stream := openaiclient.Chat.Completions.NewStreaming(ctx, params, option.WithJSONSet("ignore_eos", true))
+		defer func() {
+			Expect(stream.Close()).To(Succeed())
+		}()
+		var lens []int
+		for stream.Next() {
+			for _, choice := range stream.Current().Choices {
+				if choice.Delta.Content == "" {
+					continue
+				}
+				var joined strings.Builder
+				for _, lp := range choice.Logprobs.Content {
+					joined.WriteString(lp.Token)
+					Expect(lp.TopLogprobs).To(HaveLen(2))
+				}
+				Expect(joined.String()).To(Equal(choice.Delta.Content))
+				lens = append(lens, len(choice.Logprobs.Content))
+			}
+		}
+		Expect(stream.Err()).NotTo(HaveOccurred())
+		Expect(lens).To(Equal([]int{1, 4, 4, 1}))
+	})
+
 	It("Should send length finish_reason chunk in chat completions streaming", func() {
 		ctx := context.TODO()
 		client, err := startServer(ctx, common.ModeRandom)
