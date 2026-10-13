@@ -41,7 +41,8 @@ import (
 
 type requestCompleted struct {
 	worker *worker
-	model  string
+	// adapter is the LoRA adapter the request ran on, "" for the base model
+	adapter string
 }
 
 type waitingQueueItem struct {
@@ -264,7 +265,7 @@ func (s *Simulator) processing(ctx context.Context) {
 		case completedReq := <-s.workerFinished:
 			worker := completedReq.worker
 			s.Context.logger.V(logging.TRACE).Info("Worker finished", "worker", worker.id)
-			s.Context.decrementLora(completedReq.model)
+			s.Context.decrementLora(completedReq.adapter)
 			// there is a free worker - find a request for it and send this request for
 			// processing with this worker
 			s.findRequestAndSendToProcess(worker)
@@ -300,11 +301,11 @@ func (s *Simulator) processing(ctx context.Context) {
 			}
 
 			// check if lora usage allows the request to run
-			if s.Context.isLora(reqCtx.Request().GetDisplayedModel()) && !s.Context.loadLora(reqCtx.Request().GetDisplayedModel()) {
+			if !s.Context.loadLora(reqCtx.Request().GetLoraAdapter()) {
 				// free the worker
 				s.freeWorkers <- worker
 				s.Context.logger.V(logging.TRACE).Info("LoRA cannot be loaded - sending the request to the waiting queue",
-					"LoRA", reqCtx.Request().GetDisplayedModel(), "req id", reqCtx.Request().GetRequestID())
+					"LoRA", reqCtx.Request().GetLoraAdapter(), "req id", reqCtx.Request().GetRequestID())
 				// LoRA max reached, try to enqueue
 				s.addRequestToQueue(reqCtx)
 				break
@@ -345,13 +346,12 @@ func (s *Simulator) addRequestToQueue(reqCtx endpoint.RequestContext) {
 		reqCtx.SignalDone()
 		return
 	}
-	dispModel := reqCtx.Request().GetDisplayedModel()
 	common.WriteToChannel(s.Context.metricsBus.RequestQueued,
 		metrics.RequestQueued{},
 		s.Context.logger)
-	if reqCtx.Request().IsModelLoRA() {
+	if adapter := reqCtx.Request().GetLoraAdapter(); adapter != "" {
 		common.WriteToChannel(s.Context.metricsBus.LoRAChanged,
-			metrics.LoRAChanged{Model: dispModel, State: metrics.LoRAWaiting},
+			metrics.LoRAChanged{Model: adapter, State: metrics.LoRAWaiting},
 			s.Context.logger)
 	}
 }
@@ -362,7 +362,7 @@ func (s *Simulator) addRequestToQueue(reqCtx endpoint.RequestContext) {
 // publish per-choice results on. On failure it returns numChoices = 0 and a
 // non-nil error; errInjected indicates whether the failure came from the
 // failure-injection path so the caller can attribute it correctly.
-func (s *Simulator) HandleRequest(req endpoint.Request) (numChoices int, isStream bool,
+func (s *Simulator) HandleRequest(req endpoint.Request, route api.ErrorRoute) (numChoices int, isStream bool,
 	channel *common.Channel[*endpoint.ResponseInfo], err *api.Error, errInjected bool) {
 	// Check if we should inject a failure
 	if shouldInjectFailure(s.Context.Config(), s.Context.Random) {
@@ -370,18 +370,11 @@ func (s *Simulator) HandleRequest(req endpoint.Request) (numChoices int, isStrea
 		return 0, false, nil, &failure, true
 	}
 
-	// the model defined in the request should be checked here
-	if !s.Context.isValidModel(req.GetModel()) {
-		serverErr := api.NewError(fmt.Sprintf("The model `%s` does not exist.",
-			req.GetModel()), fasthttp.StatusNotFound, nil)
-		return 0, false, nil, &serverErr, false
+	displayedModel, serverErr := s.Context.loraRegistry.ResolveModel(route, req.GetModelField())
+	if serverErr != nil {
+		return 0, false, nil, serverErr, false
 	}
-
-	// the model is valid, update the displayed model which will be different from the model mentioned in the request only in case of base model aliases
-	// in this case the first alias is used, in all other cases the model from the request is used as the displayed model
-	req.SetDisplayedModel(s.Context.getDisplayedModelName(req.GetModel()))
-	// fixed once here so every later metrics touchpoint agrees, even if the LoRA is unloaded mid-flight
-	req.SetIsModelLoRA(s.Context.isLora(req.GetDisplayedModel()))
+	req.SetDisplayedModel(displayedModel)
 
 	if serverErr := req.Validate(s.toolsValidator); serverErr != nil {
 		return 0, false, nil, serverErr, false
@@ -396,6 +389,21 @@ func (s *Simulator) HandleRequest(req endpoint.Request) (numChoices int, isStrea
 	// not req.GetN() (choices per prompt) -- those differ once there's more
 	// than one prompt.
 	subReqs := req.Split()
+	// Each sub-request carries its own lora_path entry, so each runs on its own
+	// adapter, fixed once here so every later touchpoint agrees even if the
+	// adapter is unloaded mid-flight.
+	loraPaths := make([]*api.LoraPath, len(subReqs))
+	for i, subReq := range subReqs {
+		loraPaths[i] = subReq.GetLoraPath()
+	}
+	adapters, serverErr := s.Context.loraRegistry.Acquire(route, req.GetModel(), loraPaths)
+	if serverErr != nil {
+		return 0, false, nil, serverErr, false
+	}
+	for i, subReq := range subReqs {
+		subReq.SetLoraAdapter(adapters[i])
+	}
+
 	respChan := &common.Channel[*endpoint.ResponseInfo]{
 		Channel: make(chan *endpoint.ResponseInfo, s.Context.Config().MaxModelLen*len(subReqs)),
 		Name:    "responseInfo-" + req.GetRequestID(),
@@ -403,7 +411,12 @@ func (s *Simulator) HandleRequest(req endpoint.Request) (numChoices int, isStrea
 	var wg sync.WaitGroup
 	wg.Add(len(subReqs))
 	for i, subReq := range subReqs {
-		reqCtx := subReq.BuildRequestContext(&s.Context, *respChan, i, wg.Done)
+		adapter := subReq.GetLoraAdapter()
+		done := func() {
+			s.Context.loraRegistry.Release(adapter)
+			wg.Done()
+		}
+		reqCtx := subReq.BuildRequestContext(&s.Context, *respChan, i, done)
 		if err := common.WriteToChannelWithError(s.newRequests, reqCtx); err != nil {
 			s.Context.logger.Error(err, "failed to enqueue request")
 			err := api.NewError("Failed to enqueue request, "+err.Error(),
@@ -441,9 +454,9 @@ func (s *Simulator) dequeue() endpoint.RequestContext {
 	// Find first request for a loaded LoRA
 	for elem := s.waitingQueue.Front(); elem != nil; elem = elem.Next() {
 		item, ok := elem.Value.(waitingQueueItem)
-		if ok && item.reqCtx != nil && s.Context.loraIsLoaded(item.reqCtx.Request().GetDisplayedModel()) {
+		if ok && item.reqCtx != nil && s.Context.loraIsLoaded(item.reqCtx.Request().GetLoraAdapter()) {
 			s.waitingQueue.Remove(elem)
-			s.Context.incrementLora(item.reqCtx.Request().GetDisplayedModel())
+			s.Context.incrementLora(item.reqCtx.Request().GetLoraAdapter())
 			common.WriteToChannel(s.Context.metricsBus.RequestDequeued,
 				metrics.RequestDequeued{
 					QueueTime: time.Since(item.enqueueTime).Seconds(),
@@ -455,7 +468,7 @@ func (s *Simulator) dequeue() endpoint.RequestContext {
 	// All the requests require a LoRA that is not loaded, check if we can load a LoRA
 	for elem := s.waitingQueue.Front(); elem != nil; elem = elem.Next() {
 		item, ok := elem.Value.(waitingQueueItem)
-		if ok && item.reqCtx != nil && s.Context.loadLora(item.reqCtx.Request().GetDisplayedModel()) {
+		if ok && item.reqCtx != nil && s.Context.loadLora(item.reqCtx.Request().GetLoraAdapter()) {
 			s.waitingQueue.Remove(elem)
 			common.WriteToChannel(s.Context.metricsBus.RequestDequeued,
 				metrics.RequestDequeued{
@@ -549,9 +562,9 @@ func (s *Simulator) onResponseProcessingFinished(reqCtx endpoint.RequestContext)
 	// decrement running requests count
 	s.Context.nRunningReqs.Add(-1)
 
-	if reqCtx.Request().IsModelLoRA() {
+	if adapter := reqCtx.Request().GetLoraAdapter(); adapter != "" {
 		common.WriteToChannel(s.Context.metricsBus.LoRAChanged,
-			metrics.LoRAChanged{Model: reqCtx.Request().GetDisplayedModel(), State: metrics.LoRADone},
+			metrics.LoRAChanged{Model: adapter, State: metrics.LoRADone},
 			s.Context.logger)
 	}
 

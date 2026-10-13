@@ -71,7 +71,7 @@ var _ = Describe("Simulator for /v1/models", forEachEngine(func() {
 		// Null for a base model, and set only for a LoRA adapter.
 		Expect(model.Parent).To(BeNil())
 		Expect(model.Created).To(BeNumerically(">", 0))
-		Expect(model.MaxModelLen).To(BeNumerically(">", 0))
+		Expect(model.MaxModelLen).To(HaveValue(BeNumerically(">", 0)))
 	})
 
 	It("advertises every served model name, each rooted at the real model", func() {
@@ -101,6 +101,6 @@ var _ = Describe("Simulator for /v1/models", forEachEngine(func() {
 		models := getModels(client)
 
 		Expect(models.Data).To(HaveLen(1))
-		Expect(models.Data[0].MaxModelLen).To(Equal(2048))
+		Expect(models.Data[0].MaxModelLen).To(HaveValue(Equal(2048)))
 	})
 }))

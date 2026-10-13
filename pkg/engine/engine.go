@@ -31,6 +31,7 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/communication"
 	"github.com/llm-d/llm-d-inference-sim/pkg/kvcache"
+	"github.com/llm-d/llm-d-inference-sim/pkg/lora"
 	"github.com/llm-d/llm-d-inference-sim/pkg/metrics"
 )
 
@@ -91,4 +92,7 @@ type Engine interface {
 	// NewKVEventEncoder builds the encoder that turns the block cache's
 	// engine-independent events into this engine's KV-event wire format.
 	NewKVEventEncoder(config common.Configuration) (kvcache.EventEncoder, error)
+	// NewLoraRegistry builds the registry of LoRA adapters for one rank,
+	// seeded with the adapters config preloads.
+	NewLoraRegistry(config common.Configuration) lora.Registry
 }

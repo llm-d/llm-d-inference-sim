@@ -51,6 +51,10 @@ type Request interface {
 	IsStream() bool
 	// GetModel returns model name as defined in the request
 	GetModel() string
+	// GetModelField returns the request's model field, or nil when the request
+	// is known to leave it unset (absent or null). Only a Responses API request
+	// records that; every other request returns its model.
+	GetModelField() *string
 	// GetDisplayedModel returns model name to be used in the processing
 	// in case served model names were defined on the simulator load, and this request
 	// contains one of aliases of the base model - the first alias is used as the model name
@@ -58,11 +62,16 @@ type Request interface {
 	GetDisplayedModel() string
 	// SetDisplayedModel sets the displayed model name for the request
 	SetDisplayedModel(model string)
-	// IsModelLoRA returns whether the displayed model is a LoRA adapter, as determined
+	// IsModelLoRA returns whether the request runs on a LoRA adapter, as determined
 	// once at admission time
 	IsModelLoRA() bool
-	// SetIsModelLoRA records whether the displayed model is a LoRA adapter
-	SetIsModelLoRA(isModelLoRA bool)
+	// GetLoraAdapter returns the LoRA adapter the request runs on, "" for the base model
+	GetLoraAdapter() string
+	// SetLoraAdapter records the LoRA adapter the request runs on, "" for the base model
+	SetLoraAdapter(adapter string)
+	// GetLoraPath returns the request's lora_path field, nil when the request
+	// has none
+	GetLoraPath() *LoraPath
 	// GetLoraName returns the LoRA name or nil if model is the base model
 	GetLoraName() *string
 	GetLoraID() *int
@@ -144,8 +153,10 @@ type baseRequest struct {
 	// in case served model names were defined on the simulator load, and this request contains one of aliases of the base model - the first alias is used as the DisplayedModel name
 	// in all other cases - the Model name is used as is from the request
 	DisplayedModel string
-	// isModelLoRA records whether DisplayedModel was a LoRA adapter at admission time
-	isModelLoRA bool
+	// modelUnset records that the body left model absent or null, see GetModelField
+	modelUnset bool
+	// loraAdapter is the LoRA adapter the request runs on, "" for the base model
+	loraAdapter string
 	// ID of the LoRA adapter if the model is a LoRA, 0 if the model is the base model
 	loraID int
 	// Stream is a boolean value, defines whether response should be sent as a Stream
@@ -181,6 +192,79 @@ type baseCompletionsRequest struct {
 	// N is the number of completion choices to generate for each prompt.
 	// Optional and defaults to 1.
 	N *int `json:"n,omitempty"`
+	// LoraPath is sglang's lora_path field, see LoraPath
+	LoraPath *LoraPath `json:"lora_path,omitempty"`
+}
+
+// LoraPath is sglang's lora_path request field. Despite its name it holds
+// adapter names, not paths: either one name for every prompt of the request,
+// or a list naming one per prompt, where null means the base model.
+//
+// A value of neither form is kept rather than rejected, since whether it is
+// an error is the engine's to decide: vLLM has no such field and ignores it.
+type LoraPath struct {
+	names []*string
+	list  bool
+	// invalid is the raw value when it is of neither form
+	invalid json.RawMessage
+}
+
+func (l *LoraPath) UnmarshalJSON(data []byte) error {
+	var name string
+	if err := json.Unmarshal(data, &name); err == nil {
+		*l = LoraPath{names: []*string{&name}}
+		return nil
+	}
+	var names []*string
+	if err := json.Unmarshal(data, &names); err != nil {
+		*l = LoraPath{invalid: append(json.RawMessage(nil), data...)}
+		return nil
+	}
+	*l = LoraPath{names: names, list: true}
+	return nil
+}
+
+func (l LoraPath) MarshalJSON() ([]byte, error) {
+	switch {
+	case l.invalid != nil:
+		return l.invalid, nil
+	case l.list:
+		return json.Marshal(l.names)
+	}
+	return json.Marshal(l.names[0])
+}
+
+// Invalid returns the raw value of a lora_path of neither form, nil otherwise.
+func (l *LoraPath) Invalid() json.RawMessage {
+	if l == nil {
+		return nil
+	}
+	return l.invalid
+}
+
+// Narrow returns the lora_path of the prompt at index alone, keeping an
+// invalid value as it is.
+func (l *LoraPath) Narrow(index int) *LoraPath {
+	if l == nil || l.invalid != nil {
+		return l
+	}
+	return &LoraPath{names: []*string{l.ForPrompt(index)}}
+}
+
+// ForPrompt returns the adapter named for the prompt at index, or nil for the
+// base model.
+func (l *LoraPath) ForPrompt(index int) *string {
+	if l == nil || index >= len(l.names) {
+		return nil
+	}
+	if !l.list {
+		return l.names[0]
+	}
+	return l.names[index]
+}
+
+func (b *baseCompletionsRequest) GetLoraPath() *LoraPath {
+	return b.LoraPath
 }
 
 type KVTransferParams struct {
@@ -265,6 +349,13 @@ func (b *baseRequest) GetModel() string {
 	return b.Model
 }
 
+func (b *baseRequest) GetModelField() *string {
+	if b.modelUnset {
+		return nil
+	}
+	return &b.Model
+}
+
 func (b *baseRequest) GetDisplayedModel() string {
 	return b.DisplayedModel
 }
@@ -274,16 +365,25 @@ func (b *baseRequest) SetDisplayedModel(model string) {
 }
 
 func (b *baseRequest) IsModelLoRA() bool {
-	return b.isModelLoRA
+	return b.loraAdapter != ""
 }
 
-func (b *baseRequest) SetIsModelLoRA(isModelLoRA bool) {
-	b.isModelLoRA = isModelLoRA
+func (b *baseRequest) GetLoraAdapter() string {
+	return b.loraAdapter
+}
+
+func (b *baseRequest) SetLoraAdapter(adapter string) {
+	b.loraAdapter = adapter
+}
+
+// GetLoraPath returns nil: only the completions requests carry lora_path.
+func (b *baseRequest) GetLoraPath() *LoraPath {
+	return nil
 }
 
 func (b *baseRequest) GetLoraName() *string {
 	if b.loraID > 0 {
-		name := b.Model
+		name := b.loraAdapter
 		return &name
 	}
 	return nil
@@ -680,6 +780,7 @@ func (t *TextCompletionsParsedRequest) AsSingle(index int) TextCompletionsReques
 		Prompt:                     t.Prompt[index],
 	}
 	sub.RequestID = fmt.Sprintf("%s-%d", t.RequestID, index)
+	sub.LoraPath = t.LoraPath.Narrow(index)
 	if sub.Prompt.IsTokens() {
 		// prompt arrived already tokenized; pre-populate TokenizedPrompt so the
 		// worker can skip the encode() round-trip. Strings is left nil and
@@ -988,7 +1089,15 @@ func (req *ResponsesRequest) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &a); err != nil {
 		return err
 	}
+	// model is optional here, and an unset model differs from an empty one.
+	var modelProbe struct {
+		Model json.RawMessage `json:"model"`
+	}
+	if err := json.Unmarshal(data, &modelProbe); err != nil {
+		return err
+	}
 	req.baseRequest = a.baseRequest
+	req.modelUnset = len(modelProbe.Model) == 0 || string(modelProbe.Model) == nullString
 	req.Instructions = a.Instructions
 	req.PreviousResponseID = a.PreviousResponseID
 	req.MaxOutputTokens = a.MaxOutputTokens

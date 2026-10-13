@@ -20,11 +20,43 @@ maps the name to an implementation, rejecting one that is not registered.
 ## SGLang support (experimental)
 
 SGLang support is experimental and incomplete: it is not ready for production use. For now it simulates
-the engine-neutral surface only: the OpenAI-compatible endpoints, the latency model, and dataset-backed
-response generation, with `owned_by` reported as `sglang`. It has no native HTTP routes, no gRPC service,
-no metrics, no LoRA adapters, and no KV cache. Because the settings behind those features are engine-owned,
-a configuration file asking for one is rejected rather than silently ignored, and the corresponding flags
-do not exist. `/metrics` serves an empty body.
+the engine-neutral surface: the OpenAI-compatible endpoints, the latency model, and dataset-backed
+response generation, with `owned_by` reported as `sglang`, plus LoRA adapters (below). It has no other
+native HTTP routes, no gRPC service, no metrics, and no KV cache. Because the settings behind those
+features are engine-owned, a configuration file asking for one is rejected rather than silently ignored,
+and the corresponding flags do not exist. `/metrics` serves an empty body.
+
+### LoRA adapters
+
+LoRA adapters follow SGLang's tokenizer manager and LoRA registry, under SGLang's flag names (see
+[Configuration](configuration.md#sglang)):
+
+- A request runs on an adapter named as `base:adapter` in its `model` field (split on the first colon), or
+  else in its `lora_path` field, a string or one entry per prompt (or per embeddings input); a `lora_path`
+  of neither form is answered with 400. vLLM has no `lora_path` field and ignores it, whatever its
+  value. A bare adapter name in `model` runs the
+  base model. The `model` field is checked only on `/v1/responses`, and only when set (an empty string
+  counts as set, an absent or null one does not), against the served model names and the
+  loaded adapters, by the whole name or its base part; elsewhere any model is accepted. A response reports
+  `model` as the request sent it. `/v1/responses` runs every request on the base model.
+- A request naming an adapter while LoRA is disabled, or naming one never loaded, is answered with 400.
+  An adapter that was loaded once and since unloaded or evicted is loaded again for the request naming it.
+- `/load_lora_adapter` and `/unload_lora_adapter` answer with SGLang's `LoRAUpdateOutput` body
+  (`success`, `error_message`, `loaded_adapters`), with status 200 on success and 400 on failure. A body
+  that fails validation is answered with 400 and type `Bad Request`, as SGLang's validation error handler
+  answers it; the message lists pydantic's errors, without the endpoint's source location that SGLang
+  appends. Loading a name already loaded, or unloading one
+  that is not, fails. An unload stops new requests from using the adapter at once, then waits for the
+  requests holding it to complete.
+- With `max-loaded-loras` set, each load past the limit evicts the least recently used unpinned adapter,
+  where each request naming an adapter counts as a use. At most `max-loras-per-batch - 1` adapters can be
+  pinned.
+- `/v1/models` lists the loaded adapters least recently used first, with a null `max_model_len`, and none
+  while LoRA is disabled.
+
+Which requests run together is not SGLang's: the batch slots adapters occupy are the core's (see
+[What stays engine-neutral](#what-stays-engine-neutral)), so a request on an adapter not in the running
+batch waits the way it does under vLLM.
 
 Every completion choice carries SGLang's `matched_stop` field, naming which `stop` string or
 `stop_token_ids` entry ended generation. It is always `null` today: matching a stop condition requires
@@ -48,6 +80,7 @@ close as SGLang support matures, not a permanent design boundary the way the vLL
 | `DecorateChatChoice`, `DecorateChatChunkChoice`, `DecorateTextChoice` | Fields a completion choice carries beyond the OpenAI-compatible core | [transport.go](../pkg/engine/vllm/transport.go) |
 | `NewMetricsAdapter` | Prometheus metric names, labels, and the fake-metrics schema | [metrics.go](../pkg/engine/vllm/metrics.go), [fakemetrics.go](../pkg/engine/vllm/fakemetrics.go) |
 | `NewKVEventEncoder` | The wire format of a single KV-cache event | [kvevents.go](../pkg/engine/vllm/kvevents.go) |
+| `NewLoraRegistry` | How a request names its model and adapter, the load and unload endpoints' bodies, and when an adapter stops being available | [lora.go](../pkg/engine/vllm/lora.go) |
 
 A `Configuration` group can be engine-owned even though the struct lives in `pkg/common`: `lora` and
 `kvcache` are declared there so the core can read them, but their defaults, flag names, YAML keys, and
@@ -77,6 +110,9 @@ for engine-specific:
   sits at the individual event, which is why `EventEncoder` encodes one event rather than a whole batch.
   See [KV cache](kv-cache.md).
 - Block-cache accounting: eviction order, reference counting, and per-model block keys.
+- The batch slots LoRA adapters occupy (`max-loras` under vLLM, `max-loras-per-batch` under SGLang), and
+  the scheduling that runs a waiting request on an adapter already in the batch ahead of one on an adapter
+  that is not.
 
 
 ## Startup order
@@ -99,8 +135,8 @@ The order matters because each step's output is the next step's input. `main` re
    7. Common environment variables are applied, then `ApplyEnv`. It receives `f.Changed` so an environment
       variable can act as a fallback for an unset flag rather than an override of a set one.
    8. `Configuration.validate` checks the common fields, then `ValidateConfig` checks the engine's.
-2. `simulator.Start` builds each rank's `SimContext`, which calls `NewMetricsAdapter` to wire the metrics
-   bus and, when the KV cache is enabled and multi-modal encoder-only mode is not, `NewKVEventEncoder` to
+2. `simulator.Start` builds each rank's `SimContext`, which calls `NewLoraRegistry` to hold the rank's
+   LoRA adapters, `NewMetricsAdapter` to wire the metrics bus and, when the KV cache is enabled and multi-modal encoder-only mode is not, `NewKVEventEncoder` to
    wire the block cache.
 3. `Communication.Start` consults `BindGRPC` first, unless multi-modal encoder-only mode is enabled, and
    opens a gRPC listener only if it returns true. It then calls `BindHTTP` while building the HTTP router.
@@ -125,9 +161,10 @@ SGLang wraps the OpenAI-shaped routes' frames under an `error` key, and keeps th
 names the event (`event: error`) and ends the stream with no terminator, where the other routes send a bare
 `data:` frame followed by `[DONE]`.
 
-What an error body *says* is not engine-specific. The message wording and the `param` field are the
-simulator's own, so SGLang's `The model 'x' does not exist` with `"param": "model"` reads as
-``The model `x` does not exist.`` with a null param.
+What an error body *says* is not engine-specific, except for a LoRA error, which the engine's
+`NewLoraRegistry` words. Otherwise the message wording and the `param` field are the simulator's own, so
+SGLang's `The model 'x' does not exist` with `"param": "model"` reads as ``The model `x` does not exist.``
+with a null param.
 
 
 ## Adding an engine

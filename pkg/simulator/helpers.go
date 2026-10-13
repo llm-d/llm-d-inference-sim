@@ -30,13 +30,7 @@ func (s *SimContext) isValidModel(model string) bool {
 			return true
 		}
 	}
-	for _, lora := range s.getLoras() {
-		if model == lora {
-			return true
-		}
-	}
-
-	return false
+	return s.loraRegistry.IsAdapter(model)
 }
 
 // ValidateBaseModel checks that model is a known base model. LoRA adapters
@@ -49,7 +43,7 @@ func (s *SimContext) ValidateBaseModel(model, endpointsName string) *api.Error {
 			fasthttp.StatusNotFound, nil)
 		return &serverErr
 	}
-	if s.isLora(model) {
+	if s.loraRegistry.IsAdapter(model) {
 		serverErr := api.NewError(fmt.Sprintf("The model `%s` is a LoRA adapter and is not supported by the %s endpoints.",
 			model, endpointsName), fasthttp.StatusBadRequest, nil)
 		return &serverErr

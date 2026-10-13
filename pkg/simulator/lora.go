@@ -18,99 +18,38 @@ limitations under the License.
 package simulator
 
 import (
-	"encoding/json"
 	"fmt"
 
+	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
-	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 )
 
-type loadLoraRequest struct {
-	LoraName string `json:"lora_name"`
-	LoraPath string `json:"lora_path"`
-}
-
-type unloadLoraRequest struct {
-	LoraName string `json:"lora_name"`
-}
-
-func (s *SimContext) getLoras() []string {
-	loras := make([]string, 0)
-
-	s.loraAdaptors.Range(func(key, _ any) bool {
-		if lora, ok := key.(string); ok {
-			loras = append(loras, lora)
-		} else {
-			s.logger.V(logging.WARN).Info("Stored LoRA is not a string", "value", key)
-		}
-		return true
-	})
-
-	return loras
-}
-
-// getLoraPath returns the filesystem path recorded for the given LoRA name.
-// Falls back to the name when no path was supplied (dynamic load without
-// lora_path, or the non-string sentinel values stored by some tests).
-func (s *SimContext) getLoraPath(name string) string {
-	raw, ok := s.loraAdaptors.Load(name)
-	if !ok {
-		return name
-	}
-	if path, ok := raw.(string); ok && path != "" {
-		return path
-	}
-	return name
-}
-
-func (s *SimContext) LoadLoraAdaptor(body []byte) error {
-	var req loadLoraRequest
-	if err := json.Unmarshal(body, &req); err != nil {
-		s.logger.Error(err, "failed to read and parse load lora request body")
-		return fmt.Errorf("failed to read and parse load lora request body, %w", err)
-	}
-
-	s.loraAdaptors.Store(req.LoraName, req.LoraPath)
-	return nil
-}
-
-func (s *SimContext) UnloadLoraAdaptor(body []byte) error {
-	var req unloadLoraRequest
-	if err := json.Unmarshal(body, &req); err != nil {
-		s.logger.Error(err, "failed to read and parse unload lora request body")
-		return fmt.Errorf("failed to read and parse unload lora request body, %w", err)
-	}
-
-	s.loraAdaptors.Delete(req.LoraName)
-	return nil
-}
-
 // LoadLoraAdaptor loads a LoRA adapter described by body.
-func (s *Simulator) LoadLoraAdaptor(body []byte) error {
-	return s.Context.LoadLoraAdaptor(body)
+func (s *Simulator) LoadLoraAdaptor(body []byte) (int, any, *api.Error) {
+	return s.Context.loraRegistry.Load(body)
 }
 
 // UnloadLoraAdaptor unloads a LoRA adapter described by body.
-func (s *Simulator) UnloadLoraAdaptor(body []byte) error {
-	return s.Context.UnloadLoraAdaptor(body)
+func (s *Simulator) UnloadLoraAdaptor(body []byte) (int, any, *api.Error) {
+	return s.Context.loraRegistry.Unload(body)
 }
 
 // Checks if the LoRA adaptor is loaded
-func (s *SimContext) loraIsLoaded(model string) bool {
-	if !s.isLora(model) {
+func (s *SimContext) loraIsLoaded(adapter string) bool {
+	if adapter == "" {
 		return true
 	}
 
 	s.loras.mux.RLock()
 	defer s.loras.mux.RUnlock()
 
-	_, ok := s.loras.loadedLoras[model]
+	_, ok := s.loras.loadedLoras[adapter]
 	return ok
 }
 
 // Load the LoRA adaptor if possible. Return false if not.
-func (s *SimContext) loadLora(model string) bool {
-	if !s.isLora(model) {
+func (s *SimContext) loadLora(adapter string) bool {
+	if adapter == "" {
 		return true
 	}
 
@@ -118,7 +57,7 @@ func (s *SimContext) loadLora(model string) bool {
 	defer s.loras.mux.Unlock()
 
 	// check if this LoRA is already loaded or within maxLoras slots
-	_, ok := s.loras.loadedLoras[model]
+	_, ok := s.loras.loadedLoras[adapter]
 	ok = ok || len(s.loras.loadedLoras) < s.loras.maxLoras
 	if !ok {
 		// if this LoRA is not loaded, and the number of loaded LoRAs reached
@@ -136,40 +75,40 @@ func (s *SimContext) loadLora(model string) bool {
 		}
 	}
 	if ok {
-		s.loras.loadedLoras[model]++
-		s.assignLoraID(model)
+		s.loras.loadedLoras[adapter]++
+		s.assignLoraID(adapter)
 		if s.kvcacheHelper != nil {
-			s.kvcacheHelper.SetModelLoaded(model)
+			s.kvcacheHelper.SetModelLoaded(adapter)
 		}
 	}
 	return ok
 }
 
-// incrementLora increments the count of running requests using the model
-// (if the model is a LoRA). Can be called only for loaded LoRAs (that are
-// already in loras.loadedLoras)
-func (s *SimContext) incrementLora(model string) {
-	if !s.isLora(model) {
+// incrementLora increments the count of running requests using the adapter.
+// Can be called only for loaded LoRAs (that are already in loras.loadedLoras)
+func (s *SimContext) incrementLora(adapter string) {
+	if adapter == "" {
 		return
 	}
 
 	s.loras.mux.Lock()
 	defer s.loras.mux.Unlock()
-	s.loras.loadedLoras[model]++
+	s.loras.loadedLoras[adapter]++
 }
 
-// decrementLora decrements the count of running requests using the model
-// (if the model is a LoRA)
-func (s *SimContext) decrementLora(model string) {
-	if model == "" || !s.isLora(model) {
+// decrementLora decrements the count of running requests using the adapter.
+// It goes by the adapter the request ran on rather than the registry, which
+// may have unloaded the adapter while the request was running.
+func (s *SimContext) decrementLora(adapter string) {
+	if adapter == "" {
 		return
 	}
 
 	s.loras.mux.Lock()
 	defer s.loras.mux.Unlock()
 
-	s.loras.loadedLoras[model]--
-	if s.loras.loadedLoras[model] <= 0 {
+	s.loras.loadedLoras[adapter]--
+	if s.loras.loadedLoras[adapter] <= 0 {
 		// last usage of this LoRA
 		common.WriteToChannel(s.loras.loraRemovable, 1, s.logger)
 	}

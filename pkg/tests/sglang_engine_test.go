@@ -20,11 +20,15 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/option"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
@@ -113,6 +117,15 @@ var _ = Describe("sglang engine", func() {
 		Expect(errResp.Error.Message).To(ContainSubstring("does not exist"))
 	})
 
+	// The Responses API checks a model only when the request sets one.
+	It("Should check an empty Responses API model but not an absent one", func() {
+		status, body := postJSON(client, "/v1/responses", `{"model":"","input":"hello"}`)
+		Expect(status).To(Equal(http.StatusNotFound), string(body))
+
+		status, body = postJSON(client, "/v1/responses", `{"input":"hello"}`)
+		Expect(status).To(Equal(http.StatusOK), string(body))
+	})
+
 	// sglang puts the error's own fields at the top level, where vLLM wraps them
 	// under an "error" key.
 	It("Should report an error in sglang's format", func() {
@@ -156,6 +169,207 @@ var _ = Describe("sglang engine", func() {
 		Entry("wake_up", http.MethodPost, "/wake_up"),
 		Entry("is_sleeping", http.MethodGet, "/is_sleeping"),
 	)
+})
+
+// postJSON posts body to route and returns the response's status and body.
+func postJSON(client *http.Client, route string, body string) (int, []byte) {
+	resp, err := client.Post("http://localhost"+route, "application/json", bytes.NewBufferString(body))
+	Expect(err).NotTo(HaveOccurred())
+	defer func() {
+		Expect(resp.Body.Close()).To(Succeed())
+	}()
+	respBody, err := io.ReadAll(resp.Body)
+	Expect(err).NotTo(HaveOccurred())
+	return resp.StatusCode, respBody
+}
+
+func expectOpenAIStatus(err error, status int) {
+	var openaiError *openai.Error
+	Expect(errors.As(err, &openaiError)).To(BeTrue(), "error %v is not an API error", err)
+	Expect(openaiError.StatusCode).To(Equal(status))
+}
+
+var _ = Describe("sglang engine LoRA", func() {
+	var (
+		ctx          context.Context
+		client       *http.Client
+		openaiclient openai.Client
+		params       openai.ChatCompletionNewParams
+	)
+
+	BeforeEach(func() {
+		ctx = context.TODO()
+		var err error
+		client, err = startServerWithArgs(ctx,
+			[]string{"cmd", "--engine", "sglang", "--model", common.TestModelName, "--mode", common.ModeEcho,
+				"--max-loras-per-batch", "1", "--time-to-first-token", "500ms",
+				"--lora-paths", "lora3=/path/to/lora3", "/path/to/lora4"})
+		Expect(err).NotTo(HaveOccurred())
+		openaiclient, params = getOpenAIClientAndChatParams(client, common.TestModelName+":lora3", testUserMessage, false)
+	})
+
+	It("Should run a request on the adapter its model names, reporting the model as sent", func() {
+		resp, err := openaiclient.Chat.Completions.New(ctx, params)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.Model).To(Equal(common.TestModelName + ":lora3"))
+		Expect(resp.Choices[0].Message.Content).To(Equal(testUserMessage))
+	})
+
+	It("Should run a request on the adapter its lora_path names", func() {
+		status, body := postJSON(client, "/v1/completions", `{"model":"`+common.TestModelName+
+			`","prompt":"hi","lora_path":"lora3"}`)
+		Expect(status).To(Equal(http.StatusOK), string(body))
+	})
+
+	It("Should resolve the adapter of each embeddings input", func() {
+		status, body := postJSON(client, "/v1/embeddings", `{"model":"`+common.TestModelName+
+			`","input":["a","b"],"lora_path":["lora3",null]}`)
+		Expect(status).To(Equal(http.StatusOK), string(body))
+
+		status, body = postJSON(client, "/v1/embeddings", `{"model":"`+common.TestModelName+
+			`","input":["a","b"],"lora_path":[null,"lora1"]}`)
+		Expect(status).To(Equal(http.StatusBadRequest), string(body))
+		Expect(string(body)).To(ContainSubstring("Got LoRA adapter that has never been loaded: lora1"))
+	})
+
+	It("Should refuse a lora_path of neither form", func() {
+		status, body := postJSON(client, "/v1/completions", `{"model":"`+common.TestModelName+
+			`","prompt":"hi","lora_path":5}`)
+		Expect(status).To(Equal(http.StatusBadRequest))
+		var errBody map[string]any
+		Expect(json.Unmarshal(body, &errBody)).To(Succeed())
+		Expect(errBody).To(HaveKeyWithValue("type", "Bad Request"))
+		Expect(errBody).To(HaveKeyWithValue("message", HavePrefix("2 validation errors:")))
+	})
+
+	// sglang checks the model only on the Responses API.
+	It("Should accept any model, reporting it as sent", func() {
+		params.Model = "no-such-model"
+		resp, err := openaiclient.Chat.Completions.New(ctx, params)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.Model).To(Equal("no-such-model"))
+	})
+
+	It("Should refuse a request naming an adapter never loaded", func() {
+		params.Model = common.TestModelName + ":lora1"
+		_, err := openaiclient.Chat.Completions.New(ctx, params)
+		expectOpenAIStatus(err, http.StatusBadRequest)
+	})
+
+	It("Should answer load and unload with sglang's LoRAUpdateOutput", func() {
+		status, body := postJSON(client, "/load_lora_adapter", `{"lora_name":"lora1","lora_path":"/path/to/lora1"}`)
+		Expect(status).To(Equal(http.StatusOK))
+		Expect(body).To(MatchJSON(`{"rid":null,"http_worker_ipc":null,"success":true,"error_message":"",` +
+			`"loaded_adapters":{"lora1":"/path/to/lora1","lora3":"/path/to/lora3","/path/to/lora4":"/path/to/lora4"}}`))
+
+		status, body = postJSON(client, "/load_lora_adapter", `{"lora_name":"lora1","lora_path":"/path/to/lora1"}`)
+		Expect(status).To(Equal(http.StatusBadRequest))
+		Expect(body).To(MatchJSON(`{"rid":null,"http_worker_ipc":null,"success":false,` +
+			`"error_message":"Failed to load LoRA adapter lora1 because it is already loaded",` +
+			`"loaded_adapters":{"lora1":"/path/to/lora1","lora3":"/path/to/lora3","/path/to/lora4":"/path/to/lora4"}}`))
+
+		status, body = postJSON(client, "/unload_lora_adapter", `{"lora_name":"lora2"}`)
+		Expect(status).To(Equal(http.StatusBadRequest))
+		Expect(body).To(MatchJSON(`{"rid":null,"http_worker_ipc":null,"success":false,` +
+			`"error_message":"LoRA with name lora2 does not exist. ` +
+			`Loaded LoRAs: odict_keys(['lora3', '/path/to/lora4', 'lora1'])","loaded_adapters":null}`))
+
+		status, body = postJSON(client, "/unload_lora_adapter", `{}`)
+		Expect(status).To(Equal(http.StatusBadRequest))
+		missing := `{'type': 'missing', 'loc': ('body', 'lora_name'), 'msg': 'Field required', 'input': {}}`
+		Expect(body).To(MatchJSON(`{"object":"error","message":"1 validation error:\n  ` + missing +
+			` [` + missing + `]","type":"Bad Request","param":null,"code":400}`))
+	})
+
+	It("Should list the adapters with no max_model_len of their own", func() {
+		resp, err := client.Get(baseURL + "/models")
+		Expect(err).NotTo(HaveOccurred())
+		defer func() {
+			Expect(resp.Body.Close()).To(Succeed())
+		}()
+		body, err := io.ReadAll(resp.Body)
+		Expect(err).NotTo(HaveOccurred())
+
+		var models struct {
+			Data []map[string]any `json:"data"`
+		}
+		Expect(json.Unmarshal(body, &models)).To(Succeed())
+		Expect(models.Data).To(HaveLen(3))
+		Expect(models.Data[0]).To(HaveKeyWithValue("max_model_len", Not(BeNil())))
+		for _, adapter := range models.Data[1:] {
+			Expect(adapter).To(HaveKeyWithValue("max_model_len", BeNil()))
+			Expect(adapter).To(HaveKeyWithValue("parent", common.TestModelName))
+		}
+		Expect(models.Data[1]).To(HaveKeyWithValue("id", "lora3"))
+		Expect(models.Data[1]).To(HaveKeyWithValue("root", "/path/to/lora3"))
+		Expect(models.Data[2]).To(HaveKeyWithValue("id", "/path/to/lora4"))
+	})
+
+	It("Should load an unloaded adapter again for a request naming it", func() {
+		status, _ := postJSON(client, "/unload_lora_adapter", `{"lora_name":"lora3"}`)
+		Expect(status).To(Equal(http.StatusOK))
+
+		_, err := openaiclient.Chat.Completions.New(ctx, params)
+		Expect(err).NotTo(HaveOccurred())
+	})
+
+	// The unload waits for the request, and the request's batch slot is freed
+	// even though its adapter is gone when it completes: with a single slot, a
+	// request on another adapter could never run otherwise.
+	It("Should unload an adapter once its requests complete, freeing their batch slot", func() {
+		start := time.Now()
+		done := make(chan error, 1)
+		go func() {
+			_, err := openaiclient.Chat.Completions.New(ctx, params)
+			done <- err
+		}()
+		time.Sleep(200 * time.Millisecond)
+
+		status, _ := postJSON(client, "/unload_lora_adapter", `{"lora_name":"lora3"}`)
+		Expect(status).To(Equal(http.StatusOK))
+		Expect(time.Since(start)).To(BeNumerically(">=", 450*time.Millisecond))
+		Eventually(done, 5*time.Second).Should(Receive(BeNil()))
+
+		params.Model = common.TestModelName + ":/path/to/lora4"
+		_, err := openaiclient.Chat.Completions.New(ctx, params, option.WithRequestTimeout(5*time.Second))
+		Expect(err).NotTo(HaveOccurred())
+	})
+
+	It("Should check the model on the Responses API, against the adapters too", func() {
+		responsesClient, responsesParams := getOpenAIClientAndResponsesParams(client, "lora3", testUserMessage)
+		_, err := responsesClient.Responses.New(ctx, responsesParams)
+		Expect(err).NotTo(HaveOccurred())
+
+		responsesParams.Model = "lora1"
+		_, err = responsesClient.Responses.New(ctx, responsesParams)
+		expectOpenAIStatus(err, http.StatusNotFound)
+	})
+})
+
+var _ = Describe("sglang engine without LoRA", func() {
+	var client *http.Client
+
+	BeforeEach(func() {
+		var err error
+		client, err = startServerWithArgs(context.TODO(),
+			[]string{"cmd", "--engine", "sglang", "--model", common.TestModelName, "--mode", common.ModeEcho})
+		Expect(err).NotTo(HaveOccurred())
+	})
+
+	It("Should refuse a request naming an adapter", func() {
+		openaiclient, params := getOpenAIClientAndChatParams(client, common.TestModelName+":lora1",
+			testUserMessage, false)
+		_, err := openaiclient.Chat.Completions.New(context.TODO(), params)
+		expectOpenAIStatus(err, http.StatusBadRequest)
+	})
+
+	It("Should refuse to load an adapter", func() {
+		status, body := postJSON(client, "/load_lora_adapter", `{"lora_name":"lora1","lora_path":"/path/to/lora1"}`)
+		Expect(status).To(Equal(http.StatusBadRequest))
+		Expect(body).To(MatchJSON(`{"rid":null,"http_worker_ipc":null,"success":false,` +
+			"\"error_message\":\"LoRA is not enabled. Please set `--enable-lora` to enable LoRA.\"," +
+			`"loaded_adapters":null}`))
+	})
 })
 
 var _ = Describe("sglang engine startup", func() {

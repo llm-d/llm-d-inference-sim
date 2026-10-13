@@ -53,8 +53,8 @@ var _ = Describe("Configuration", func() {
 		Expect(config.MaxModelLen).To(Equal(2048))
 		Expect(config.MaxNumSeqs).To(Equal(5))
 		Expect(config.MaxWaitingQueueLength).To(Equal(1000))
-		// A single LoRA slot is all ApplyDefaults claims; no adapter can occupy it.
-		Expect(config.Lora.MaxLoras).To(Equal(1))
+		Expect(config.Lora.MaxLoras).To(Equal(8))
+		Expect(config.Lora.MaxCPULoras).To(Equal(0))
 		Expect(config.Lora.LoraModules).To(BeEmpty())
 		Expect(config.KVCache).To(Equal(common.KVCacheConfig{}))
 		Expect(config.FakeMetrics).To(BeNil())
@@ -81,7 +81,6 @@ var _ = Describe("Configuration", func() {
 				Expect(err.Error()).To(ContainSubstring(key))
 			}
 		},
-		Entry("nested lora block", "lora:\n  max-loras: 2\n", "lora"),
 		Entry("nested kvcache block", "kvcache:\n  enable-kvcache: true\n", "kvcache"),
 		Entry("deeper flat kv-cache key", "block-size: 16\n", "block-size"),
 		Entry("flat lora keys", "max-loras: 2\nlora-modules:\n- '{\"name\":\"lora1\",\"path\":\"/p\"}'\n",
@@ -179,12 +178,17 @@ var _ = Describe("Configuration", func() {
 		Entry("no flag at all"),
 	)
 
-	// LoRA is spelled differently by every engine, so this one registers no LoRA
-	// flag rather than borrowing vLLM's names to reject them.
-	It("should not register a LoRA flag", func() {
-		_, err := createSimConfig([]string{"cmd", "--model", common.TestModelName, "--max-loras", "2"})
-		Expect(err).To(MatchError(ContainSubstring("unknown flag")))
-	})
+	// LoRA is spelled differently by every engine, so a command line written for
+	// vLLM must fail rather than be honored here.
+	DescribeTable("should not register vLLM's LoRA flags",
+		func(args ...string) {
+			_, err := createSimConfig(append([]string{"cmd", "--model", common.TestModelName}, args...))
+			Expect(err).To(MatchError(ContainSubstring("unknown flag")))
+		},
+		Entry("max-loras", "--max-loras", "2"),
+		Entry("max-cpu-loras", "--max-cpu-loras", "2"),
+		Entry("lora-modules", "--lora-modules", `{"name":"lora1","path":"/p"}`),
+	)
 
 	// The KV-cache transfer durations of a disaggregated P/D deployment are core:
 	// the latency model applies them whichever engine runs, so the flags exist
@@ -205,6 +209,106 @@ var _ = Describe("Configuration", func() {
 			"--kv-cache-transfer-latency", "70ms", "--kv-cache-transfer-latency-std-dev", "35ms"})
 		Expect(err).To(MatchError(ContainSubstring(
 			"kv-cache transfer standard deviation cannot be more than 30% of kv-cache transfer")))
+	})
+})
+
+var _ = Describe("LoRA configuration", func() {
+	DescribeTable("should parse --lora-paths in each of sglang's item forms",
+		func(item string, expected common.LoraModule) {
+			config, err := createSimConfig([]string{"cmd", "--model", common.TestModelName,
+				"--lora-paths", item})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(config.Lora.LoraModules).To(Equal([]common.LoraModule{expected}))
+		},
+		Entry("a bare path, which also serves as the name", "/path/to/lora1",
+			common.LoraModule{Name: "/path/to/lora1", Path: "/path/to/lora1"}),
+		Entry("name=path, split on the first '='", "lora1=/path/a=b",
+			common.LoraModule{Name: "lora1", Path: "/path/a=b"}),
+		Entry("JSON, with pinned accepted", `{"lora_name":"lora1","lora_path":"/path/to/lora1","pinned":true}`,
+			common.LoraModule{Name: "lora1", Path: "/path/to/lora1", Pinned: true}),
+	)
+
+	It("should read several space-separated --lora-paths items", func() {
+		config, err := createSimConfig([]string{"cmd", "--model", common.TestModelName,
+			"--lora-paths", "lora1=/path/to/lora1", "/path/to/lora2", "--max-loras-per-batch", "2"})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(config.Lora.LoraModules).To(Equal([]common.LoraModule{
+			{Name: "lora1", Path: "/path/to/lora1"},
+			{Name: "/path/to/lora2", Path: "/path/to/lora2"},
+		}))
+		Expect(config.Lora.MaxLoras).To(Equal(2))
+	})
+
+	It("should reject a JSON item missing lora_name or lora_path", func() {
+		_, err := createSimConfig([]string{"cmd", "--model", common.TestModelName,
+			"--lora-paths", `{"lora_name":"lora1"}`})
+		Expect(err).To(MatchError(ContainSubstring("does not contain 'lora_name' and 'lora_path' keys")))
+	})
+
+	It("should read the LoRA settings sglang derives the memory pool from", func() {
+		config, err := createSimConfig([]string{"cmd", "--model", common.TestModelName,
+			"--enable-lora", "--max-lora-rank", "64", "--lora-target-modules", "q_proj", "v_proj"})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(config.Lora.EnableLora).To(HaveValue(BeTrue()))
+		Expect(config.Lora.MaxLoraRank).To(Equal(64))
+		Expect(config.Lora.TargetModules).To(Equal([]string{"q_proj", "v_proj"}))
+		Expect(config.Lora.LoraModules).To(BeEmpty())
+	})
+
+	DescribeTable("should resolve enable-lora as sglang does",
+		func(expected bool, modules int, args ...string) {
+			config, err := createSimConfig(append([]string{"cmd", "--model", common.TestModelName}, args...))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(config.Lora.EnableLora).To(HaveValue(Equal(expected)))
+			Expect(config.Lora.LoraModules).To(HaveLen(modules))
+		},
+		Entry("off by default", false, 0),
+		Entry("implied by lora-paths", true, 1, "--lora-paths", "lora1=/p1"),
+		Entry("explicitly off, dropping lora-paths", false, 0, "--no-enable-lora", "--lora-paths", "lora1=/p1"),
+		Entry("explicitly off with a value", false, 0, "--enable-lora=false", "--lora-paths", "lora1=/p1"),
+	)
+
+	It("should accept the LoRA flags it ignores", func() {
+		_, err := createSimConfig([]string{"cmd", "--model", common.TestModelName, "--lora-paths", "lora1=/p1",
+			"--lora-backend", "triton", "--max-lora-chunk-size", "32", "--lora-eviction-policy", "fifo",
+			"--lora-drain-wait-threshold", "0.5", "--enable-lora-overlap-loading", "--lora-strict-loading",
+			"--no-experts-shared-outer-loras", "--lora-use-virtual-experts"})
+		Expect(err).NotTo(HaveOccurred())
+	})
+
+	DescribeTable("should refuse a value outside sglang's choices for an ignored flag",
+		func(flag, value string) {
+			_, err := createSimConfig([]string{"cmd", "--model", common.TestModelName, flag, value})
+			Expect(err).To(MatchError(ContainSubstring("invalid choice: '" + value + "'")))
+		},
+		Entry("lora-backend", "--lora-backend", "cuda"),
+		Entry("max-lora-chunk-size", "--max-lora-chunk-size", "48"),
+		Entry("lora-eviction-policy", "--lora-eviction-policy", "random"),
+	)
+
+	It("should read the lora block of a config file under sglang's keys", func() {
+		config, err := createSimConfig([]string{"cmd", "--model", common.TestModelName,
+			"--config", writeConfig("lora:\n  enable-lora: true\n  max-loras-per-batch: 2\n" +
+				"  max-loaded-loras: 4\n  lora-paths:\n  - lora1=/path/to/lora1\n")})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(config.Lora.MaxLoras).To(Equal(2))
+		Expect(config.Lora.MaxCPULoras).To(Equal(4))
+		Expect(config.Lora.LoraModules).To(Equal([]common.LoraModule{{Name: "lora1", Path: "/path/to/lora1"}}))
+	})
+
+	It("should let the command line override the config file's LoRA settings", func() {
+		config, err := createSimConfig([]string{"cmd", "--model", common.TestModelName,
+			"--config", writeConfig("lora:\n  max-loras-per-batch: 2\n  lora-paths:\n  - lora1=/path/to/lora1\n"),
+			"--max-loras-per-batch", "3", "--lora-paths", "lora2=/path/to/lora2"})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(config.Lora.MaxLoras).To(Equal(3))
+		Expect(config.Lora.LoraModules).To(Equal([]common.LoraModule{{Name: "lora2", Path: "/path/to/lora2"}}))
+	})
+
+	It("should reject vLLM's keys inside the lora block", func() {
+		_, err := createSimConfig([]string{"cmd", "--model", common.TestModelName,
+			"--config", writeConfig("lora:\n  max-loras: 2\n")})
+		Expect(err).To(MatchError(ContainSubstring("max-loras")))
 	})
 })
 

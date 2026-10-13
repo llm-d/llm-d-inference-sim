@@ -376,6 +376,20 @@ var _ = Describe("InputMessage PlainText with content types", func() {
 	})
 })
 
+var _ = Describe("ResponsesRequest model field", func() {
+	DescribeTable("should tell an unset model from an empty one",
+		func(body string, expected *string) {
+			var req ResponsesRequest
+			Expect(json.Unmarshal([]byte(body), &req)).To(Succeed())
+			Expect(req.GetModelField()).To(Equal(expected))
+		},
+		Entry("absent", `{"input":"hi"}`, nil),
+		Entry("null", `{"model":null,"input":"hi"}`, nil),
+		Entry("empty", `{"model":"","input":"hi"}`, new("")),
+		Entry("named", `{"model":"m","input":"hi"}`, new("m")),
+	)
+})
+
 var _ = Describe("ResponsesRequest tools and function call input", func() {
 	It("unmarshals flat function tools and tool_choice", func() {
 		jsonData := []byte(`{
