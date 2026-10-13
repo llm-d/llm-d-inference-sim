@@ -56,7 +56,6 @@ const (
 	SGLangNumPagesMetricName                 = "sglang:num_pages"
 	SGLangCacheHitRateMetricName             = "sglang:cache_hit_rate"
 	SGLangCachedTokensTotalMetricName        = "sglang:cached_tokens_total"
-	SGLangCacheConfigMetricName              = "sglang:cache_config_info"
 )
 
 // promLabelCacheSource names the tier a cached prompt token came from.
@@ -66,14 +65,6 @@ const promLabelCacheSource = "cache_source"
 // no per-tier breakdown, which is the only shape the simulator can report: its
 // block cache has a single tier.
 const cacheSourceTotal = "total"
-
-// Labels of sglang:cache_config_info. The names are the ones llm-d-router
-// reads out of this metric, since the router's SGLang configuration names it
-// as the source of the block size and block count.
-const (
-	promLabelCachePageSize = "page_size"
-	promLabelCacheNumPages = "num_pages"
-)
 
 // promLabelIsStreaming splits the metrics sglang reports separately for
 // streaming and non-streaming requests.
@@ -231,7 +222,6 @@ type sglangMetricsAdapter struct {
 	pageSize          *prometheus.GaugeVec
 	numPages          *prometheus.GaugeVec
 	cacheHitRate      *prometheus.GaugeVec
-	cacheConfig       *prometheus.GaugeVec
 
 	// histograms
 	queueTime                *prometheus.HistogramVec
@@ -819,9 +809,6 @@ func (m *sglangMetricsAdapter) buildMetrics() error {
 	if err := m.createAndRegisterCacheHitRateGauge(); err != nil {
 		return err
 	}
-	if err := m.createAndRegisterCacheConfigGauge(); err != nil {
-		return err
-	}
 	if err := m.createAndRegisterCachedTokensTotalCounter(); err != nil {
 		return err
 	}
@@ -954,22 +941,6 @@ func (m *sglangMetricsAdapter) createAndRegisterCacheHitRateGauge() error {
 		Help: "The prefix cache hit rate.",
 	}, modelLabel)
 	return m.register(m.cacheHitRate, "prometheus cache hit rate gauge register failed")
-}
-
-// createAndRegisterCacheConfigGauge registers sglang:cache_config_info, which
-// carries the cache's block size and block count as labels on a constant 1.
-//
-// sglang itself has no such metric: it reports the two as the plain
-// sglang:page_size and sglang:num_pages gauges registered above, which this
-// engine reports too. This one exists because llm-d-router's SGLang
-// configuration names it as where it reads them from, and a scrape missing it
-// leaves the router with no block size or block count at all.
-func (m *sglangMetricsAdapter) createAndRegisterCacheConfigGauge() error {
-	m.cacheConfig = prometheus.NewGaugeVec(prometheus.GaugeOpts{
-		Name: SGLangCacheConfigMetricName,
-		Help: "Information of the KV cache configuration.",
-	}, []string{promLabelCachePageSize, promLabelCacheNumPages})
-	return m.register(m.cacheConfig, "prometheus cache config register failed")
 }
 
 func (m *sglangMetricsAdapter) createAndRegisterQueueTimeHistogram() error {
@@ -1106,10 +1077,6 @@ func (m *sglangMetricsAdapter) setInitialValues() {
 	m.maxTotalNumTokens.WithLabelValues(model).Set(float64(m.kvCapacityTokens))
 	m.pageSize.WithLabelValues(model).Set(float64(m.config.KVCache.TokenBlockSize))
 	m.numPages.WithLabelValues(model).Set(float64(m.config.KVCache.KVCacheSize))
-	m.cacheConfig.WithLabelValues(
-		strconv.Itoa(m.config.KVCache.TokenBlockSize),
-		strconv.Itoa(m.config.KVCache.KVCacheSize),
-	).Set(1)
 }
 
 // -------- Fake Metrics ------

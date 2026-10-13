@@ -73,7 +73,6 @@ Currently supported are the following metrics:
 | sglang:num_pages | Number of KV cache pages |
 | sglang:cache_hit_rate | The prefix cache hit rate |
 | sglang:cached_tokens_total | Number of cached prompt tokens, labeled by `cache_source` |
-| sglang:cache_config_info | Information of the KV cache configuration, in labels `page_size` and `num_pages` |
 
 The bucket boundaries of the three request-latency histograms are the defaults of SGLang's
 `--bucket-time-to-first-token`, `--bucket-inter-token-latency`, and `--bucket-e2e-request-latency`; the
@@ -108,30 +107,6 @@ measurements are wired, so they begin reporting as soon as the engine gains a KV
 here. `cached_tokens_total` is labeled `cache_source="total"`, SGLang's own fallback label when it has no
 per-tier breakdown to report, which the simulator's single-tier block cache never will.
 
-`sglang:cache_config_info` does not exist in SGLang, which reports the block size and block count as the
-plain `sglang:page_size` and `sglang:num_pages` gauges; the simulator reports those too. It exists here
-because llm-d-router's SGLang configuration names it as where it reads the two from, so a scrape without
-it leaves the router with no block size or block count at all.
-
-### What llm-d-router reads
-
-The router reads five metrics per engine. All of SGLang's are exposed: `sglang:num_queue_reqs`,
-`sglang:num_running_reqs`, `sglang:token_usage`, and `sglang:cache_config_info` (labels `page_size` and
-`num_pages`). Its LoRA spec for this engine is empty, since LoRA routing is disabled for SGLang, so there
-is no fifth metric to report. `token_usage` resolves but reads zero until the engine simulates a KV cache,
-the same as the vLLM engine's `vllm:kv_cache_usage_perc` with its cache disabled.
-
-The metrics of a feature this engine does not simulate are absent rather than reported as zero. The
-LoRA, speculative-decoding, grammar, hierarchical-cache (`hicache_*`), encoder-cache, MoE, and
-prefill/decode-disaggregation groups follow theirs, as do the hybrid-attention pools (`swa_*`,
-`mamba_*`) and `kv_evictable_tokens`, which reports a block-cache internal the simulator's own cache
-does not expose. `sglang:gen_throughput` is a rolling token-rate the
-simulator does not compute, `sglang:num_aborted_requests_total` counts client aborts, which the
-simulator does not distinguish, and `sglang:func_latency_seconds` times the engine's own Python entry
-points. The scheduler's own instrumentation (`per_stage_req_latency_seconds`, `utilization`,
-`fwd_occupancy`, `new_token_ratio`, `is_cuda_graph`, the startup and GPU-memory gauges) measures a
-runtime the simulator has none of.
-
 ### Fake metrics
 
 [Fake metrics](configuration.md#fake-metrics-1) replace every load metric of this surface: the request
@@ -141,10 +116,9 @@ and the six metrics SGLang labels by `is_streaming` take both series, so a scrap
 label the way a real one does.
 
 The gauges describing the configuration are reported from the configuration either way:
-`sglang:context_len`, `sglang:page_size`, `sglang:num_pages`, `sglang:max_total_num_tokens` and
-`sglang:cache_config_info`. Fake metrics do not replace them, since they report the geometry the simulator
-was given rather than anything a request changes. The four metrics llm-d-router reads are therefore all
-present under fake metrics too.
+`sglang:context_len`, `sglang:page_size`, `sglang:num_pages` and `sglang:max_total_num_tokens`. Fake
+metrics do not replace them, since they report the geometry the simulator was given rather than anything a
+request changes.
 
 A metric the configuration names nothing for reports nothing: real and fake metrics are never served
 together, so a scrape carries what the configuration sets and the gauges above, and no other series at

@@ -195,7 +195,7 @@ var _ = Describe("Metrics adapter", func() {
 				SGLangContextLenMetricName, SGLangTokenUsageMetricName, SGLangUsedTokensMetricName,
 				SGLangKVUsedTokensMetricName, SGLangKVAvailableTokensMetricName,
 				SGLangMaxTotalNumTokensMetricName, SGLangPageSizeMetricName, SGLangNumPagesMetricName,
-				SGLangCacheHitRateMetricName, SGLangCacheConfigMetricName))
+				SGLangCacheHitRateMetricName))
 		})
 
 		It("stamps the context length from the configuration", func() {
@@ -216,14 +216,6 @@ var _ = Describe("Metrics adapter", func() {
 			Expect(gaugeValue(adapter.maxTotalNumTokens)()).To(Equal(float64(kvCapacityTokens)))
 			Expect(gaugeValue(adapter.pageSize)()).To(Equal(float64(16)))
 			Expect(gaugeValue(adapter.numPages)()).To(Equal(float64(128)))
-		})
-
-		// llm-d-router reads the block size and block count out of this metric's
-		// labels, so their spelling is a contract with it.
-		It("stamps the cache config the router reads", func() {
-			adapter, _ := newTestAdapter()
-
-			Expect(testutil.ToFloat64(adapter.cacheConfig.WithLabelValues("16", "128"))).To(Equal(float64(1)))
 		})
 	})
 
@@ -416,7 +408,6 @@ var _ = Describe("Metrics adapter", func() {
 			Expect(gaugeValue(adapter.maxTotalNumTokens)()).To(Equal(float64(kvCapacityTokens)))
 			Expect(gaugeValue(adapter.pageSize)()).To(Equal(float64(16)))
 			Expect(gaugeValue(adapter.numPages)()).To(Equal(float64(128)))
-			Expect(testutil.ToFloat64(adapter.cacheConfig.WithLabelValues("16", "128"))).To(Equal(float64(1)))
 		})
 
 		It("recalculates a generator-valued metric over time", func() {

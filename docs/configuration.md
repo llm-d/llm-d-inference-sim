@@ -333,7 +333,7 @@ derived from a histogram: SGLang splits `prompt_tokens_total` by `is_streaming` 
 `prompt_tokens_histogram` without the label, so the totals are set on their own.
 
 The gauges describing the configuration are not fakeable and keep their real values: `sglang:context_len`,
-`sglang:page_size`, `sglang:num_pages`, `sglang:max_total_num_tokens` and `sglang:cache_config_info`.
+`sglang:page_size`, `sglang:num_pages` and `sglang:max_total_num_tokens`.
 
 **Example:**<br>
 ```

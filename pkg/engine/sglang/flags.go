@@ -18,6 +18,7 @@ package sglang
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/spf13/pflag"
@@ -62,6 +63,9 @@ func (Engine) BindFlags(f *pflag.FlagSet, cfg *common.Configuration, rawYAML map
 		"enable-metrics", "Enable Prometheus metrics", "Disable Prometheus metrics")
 
 	if fakeMetricsStrings != nil {
+		if len(fakeMetricsStrings) == 0 {
+			return errors.New("--fake-metrics requires a JSON value")
+		}
 		// The flag replaces the whole struct, so a YAML-configured value is
 		// superseded, not merged.
 		if err := unmarshalFakeMetrics(cfg, fakeMetricsStrings[0]); err != nil {
