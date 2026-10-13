@@ -84,12 +84,14 @@ func (s *Simulator) processRequest(reqCtx endpoint.RequestContext) {
 	common.WriteToChannel(s.Context.metricsBus.RequestSucceeded,
 		metrics.RequestSucceeded{
 			PromptTokens:       respCtx.UsageData().PromptTokens,
+			CachedPromptTokens: respCtx.NumberCachedPromptTokens(),
 			GenerationTokens:   respCtx.UsageData().CompletionTokens,
 			GenTokensPerChoice: []int{respCtx.UsageData().CompletionTokens},
 			MaxTokens:          req.GetMaxCompletionTokens(),
 			FinishReason:       *respCtx.FinishReason(),
 			E2ELatency:         time.Since(reqCtx.StartProcessingTime()).Seconds(),
 			InferenceTime:      time.Since(startTime).Seconds(),
+			IsStreaming:        req.IsStream(),
 		}, s.Context.logger)
 }
 

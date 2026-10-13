@@ -139,6 +139,63 @@ type LorasMetrics struct {
 	Timestamp float64 `json:"timestamp"`
 }
 
+// ValidateFakeCount checks a faked count: non-negative at every value it can
+// take, and a valid generator when it is one. name identifies the metric in an
+// error, which is the engine's own key for it.
+func ValidateFakeCount(name string, m *FakeMetricWithFunction) error {
+	if m == nil {
+		return nil
+	}
+	if err := m.Function.Validate(); err != nil {
+		return err
+	}
+	if !m.IsFunction && m.FixedValue < 0 {
+		return fmt.Errorf("fake metrics %s cannot be negative", name)
+	}
+	return nil
+}
+
+// ValidateFakeFraction checks a faked metric reporting a fraction: within
+// [0, 1] at every value it can take.
+func ValidateFakeFraction(name string, m *FakeMetricWithFunction) error {
+	if m == nil {
+		return nil
+	}
+	if err := m.Function.Validate(); err != nil {
+		return err
+	}
+	if m.IsFunction {
+		if m.Function.Start < 0 || m.Function.Start > 1 ||
+			m.Function.End < 0 || m.Function.End > 1 {
+			return fmt.Errorf("fake metrics %s start and end must be between 0 and 1", name)
+		}
+		return nil
+	}
+	if m.FixedValue < 0 || m.FixedValue > 1 {
+		return fmt.Errorf("fake metrics %s must be between 0 and 1", name)
+	}
+	return nil
+}
+
+// ValidateFakeBuckets checks one series of a faked histogram: no more samples
+// than the histogram has buckets, which is one more than its boundaries, and no
+// negative counts. A nil samples names no series and is accepted.
+func ValidateFakeBuckets(name string, boundaries []float64, samples []int) error {
+	if samples == nil {
+		return nil
+	}
+	if len(samples) > len(boundaries)+1 {
+		return fmt.Errorf("fake metrics %s is too long, the histogram has %d buckets",
+			name, len(boundaries)+1)
+	}
+	for _, v := range samples {
+		if v < 0 {
+			return fmt.Errorf("fake metrics %s cannot contain negative values", name)
+		}
+	}
+	return nil
+}
+
 // Validate checks the generator function's name and parameters. Exported for
 // use by an engine's own FakeMetrics.Validate, which owns the metrics these
 // functions are attached to.

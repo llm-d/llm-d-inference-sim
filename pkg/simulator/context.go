@@ -438,7 +438,10 @@ func (s *SimContext) simulateTTFT(respCtx endpoint.ResponseContext) {
 	ttft := s.latencyCalc().GetTimeToFirstToken(&params)
 	time.Sleep(ttft)
 	common.WriteToChannel(s.metricsBus.PrefillEnded,
-		metrics.PrefillEnded{PrefillDuration: ttft.Seconds()}, s.logger)
+		metrics.PrefillEnded{
+			PrefillDuration: ttft.Seconds(),
+			IsStreaming:     respCtx.RequestContext().Request().IsStream(),
+		}, s.logger)
 }
 
 func (s *SimContext) simulateImageGenerationLatency() {

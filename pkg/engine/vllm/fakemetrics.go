@@ -21,6 +21,7 @@ import (
 	"fmt"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
+	"github.com/llm-d/llm-d-inference-sim/pkg/metrics"
 )
 
 // VLLMFakeMetrics implements common.VLLMFakeMetrics for the vLLM backend.
@@ -105,56 +106,38 @@ func (f *VLLMFakeMetrics) New() common.FakeMetrics {
 // Validate checks the fake-metrics configuration. Called by the vLLM engine's
 // ValidateConfig (fake metrics are an engine-specific feature).
 func (f *VLLMFakeMetrics) Validate() error {
-	if (f.RunningRequests != nil && f.RunningRequests.FixedValue < 0) ||
-		(f.WaitingRequests != nil && f.WaitingRequests.FixedValue < 0) {
-		return errors.New("fake metrics request counters cannot be negative")
+	if err := common.ValidateFakeCount("running-requests", f.RunningRequests); err != nil {
+		return err
 	}
-	if f.KVCacheUsagePercentage != nil &&
-		(f.KVCacheUsagePercentage.FixedValue < 0 || f.KVCacheUsagePercentage.FixedValue > 1) {
-		return errors.New("fake metrics KV cache usage must be between 0 and 1")
+	if err := common.ValidateFakeCount("waiting-requests", f.WaitingRequests); err != nil {
+		return err
 	}
-	if f.RunningRequests != nil {
-		if err := f.RunningRequests.Function.Validate(); err != nil {
+	if err := common.ValidateFakeFraction("kv-cache-usage", f.KVCacheUsagePercentage); err != nil {
+		return err
+	}
+
+	// The token-length histograms are missing here: their boundaries scale with
+	// the model's context window, which this method does not have. The engine's
+	// ValidateConfig checks them through ValidateTokenBuckets.
+	for _, h := range []struct {
+		name    string
+		buckets []float64
+		samples []int
+	}{
+		{"ttft-buckets-values", common.TTFTBucketsBoundaries, f.TTFTBucketValues},
+		{"tpot-buckets-values", common.TPOTBucketsBoundaries, f.TPOTBucketValues},
+		{"request-tpot-buckets-values", common.TPOTBucketsBoundaries, f.ReqTPOTBucketValues},
+		{"e2erl-buckets-values", common.RequestLatencyBucketsBoundaries, f.E2ERequestLatencyBucketValues},
+		{"queue-time-buckets-values", common.RequestLatencyBucketsBoundaries, f.ReqQueueTimeBucketValues},
+		{"inf-time-buckets-values", common.RequestLatencyBucketsBoundaries, f.ReqInfTimeBucketValues},
+		{"prefill-time-buckets-values", common.RequestLatencyBucketsBoundaries, f.ReqPrefillTimeBucketValues},
+		{"decode-time-buckets-values", common.RequestLatencyBucketsBoundaries, f.ReqDecodeTimeBucketValues},
+	} {
+		if err := common.ValidateFakeBuckets(h.name, h.buckets, h.samples); err != nil {
 			return err
-		}
-	}
-	if f.WaitingRequests != nil {
-		if err := f.WaitingRequests.Function.Validate(); err != nil {
-			return err
-		}
-	}
-	if f.KVCacheUsagePercentage != nil {
-		if err := f.KVCacheUsagePercentage.Function.Validate(); err != nil {
-			return err
-		}
-		if f.KVCacheUsagePercentage.IsFunction {
-			if f.KVCacheUsagePercentage.Function.Start < 0 || f.KVCacheUsagePercentage.Function.Start > 1 ||
-				f.KVCacheUsagePercentage.Function.End < 0 || f.KVCacheUsagePercentage.Function.End > 1 {
-				return errors.New("fake metrics KV cache usage start and end must be between 0 and 1")
-			}
 		}
 	}
 
-	if f.TTFTBucketValues != nil {
-		if len(f.TTFTBucketValues) > len(common.TTFTBucketsBoundaries)+1 {
-			return errors.New("fake time-to-first-token array is too long")
-		}
-		for _, v := range f.TTFTBucketValues {
-			if v < 0 {
-				return errors.New("time-to-first-token fake metrics should contain only non-negative values")
-			}
-		}
-	}
-	if f.TPOTBucketValues != nil {
-		if len(f.TPOTBucketValues) > len(common.TPOTBucketsBoundaries)+1 {
-			return errors.New("fake time-per-output-token array is too long")
-		}
-		for _, v := range f.TPOTBucketValues {
-			if v < 0 {
-				return errors.New("time-per-output-token fake metrics should contain only non-negative values")
-			}
-		}
-	}
 	if f.RequestSuccessTotal != nil {
 		for reason, count := range f.RequestSuccessTotal {
 			if count < 0 {
@@ -172,57 +155,7 @@ func (f *VLLMFakeMetrics) Validate() error {
 			}
 		}
 	}
-	for _, v := range f.RequestPromptTokens {
-		if v < 0 {
-			return errors.New("fake metrics request-prompt-tokens cannot contain negative values")
-		}
-	}
-	for _, v := range f.RequestGenerationTokens {
-		if v < 0 {
-			return errors.New("fake metrics request-generation-tokens cannot contain negative values")
-		}
-	}
-	for _, v := range f.RequestParamsMaxTokens {
-		if v < 0 {
-			return errors.New("fake metrics request-params-max-tokens cannot contain negative values")
-		}
-	}
-	for _, v := range f.RequestMaxGenerationTokens {
-		if v < 0 {
-			return errors.New("fake metrics request-max-generation-tokens cannot contain negative values")
-		}
-	}
 
-	for _, v := range f.E2ERequestLatencyBucketValues {
-		if v < 0 {
-			return errors.New("fake metrics e2erl-buckets-values cannot contain negative values")
-		}
-	}
-	for _, v := range f.ReqQueueTimeBucketValues {
-		if v < 0 {
-			return errors.New("fake metrics queue-time-buckets-values cannot contain negative values")
-		}
-	}
-	for _, v := range f.ReqInfTimeBucketValues {
-		if v < 0 {
-			return errors.New("fake metrics inf-time-buckets-values cannot contain negative values")
-		}
-	}
-	for _, v := range f.ReqPrefillTimeBucketValues {
-		if v < 0 {
-			return errors.New("fake metrics prefill-time-buckets-values cannot contain negative values")
-		}
-	}
-	for _, v := range f.ReqDecodeTimeBucketValues {
-		if v < 0 {
-			return errors.New("fake metrics decode-time-buckets-values cannot contain negative values")
-		}
-	}
-	for _, v := range f.ReqTPOTBucketValues {
-		if v < 0 {
-			return errors.New("fake metrics request-tpot-buckets-values cannot contain negative values")
-		}
-	}
 	if f.PrefixCacheHits != nil && *f.PrefixCacheHits < 0 {
 		return errors.New("fake metrics prefix-cache-hits cannot be negative")
 	}
@@ -237,5 +170,28 @@ func (f *VLLMFakeMetrics) Validate() error {
 		return errors.New("fake metrics prefix-cache-hits cannot exceed prefix-cache-queries")
 	}
 
+	return nil
+}
+
+// ValidateTokenBuckets checks the token-length histogram arrays against the
+// buckets maxModelLen builds, which is why it is not part of Validate: the
+// boundaries are not a property of the fake-metrics configuration alone. Called
+// by this engine's ValidateConfig, which has the configuration.
+func (f *VLLMFakeMetrics) ValidateTokenBuckets(maxModelLen int) error {
+	buckets := metrics.BuildBuckets(maxModelLen, TokenBucketMantissas)
+
+	for _, h := range []struct {
+		name    string
+		samples []int
+	}{
+		{"request-prompt-tokens", f.RequestPromptTokens},
+		{"request-generation-tokens", f.RequestGenerationTokens},
+		{"request-params-max-tokens", f.RequestParamsMaxTokens},
+		{"request-max-generation-tokens", f.RequestMaxGenerationTokens},
+	} {
+		if err := common.ValidateFakeBuckets(h.name, buckets, h.samples); err != nil {
+			return err
+		}
+	}
 	return nil
 }

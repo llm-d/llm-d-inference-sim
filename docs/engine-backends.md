@@ -21,10 +21,10 @@ maps the name to an implementation, rejecting one that is not registered.
 
 SGLang support is experimental and incomplete: it is not ready for production use. For now it simulates
 the engine-neutral surface only: the OpenAI-compatible endpoints, the latency model, and dataset-backed
-response generation, with `owned_by` reported as `sglang`. It has no native HTTP routes, no gRPC service,
-no metrics, no LoRA adapters, and no KV cache. Because the settings behind those features are engine-owned,
-a configuration file asking for one is rejected rather than silently ignored, and the corresponding flags
-do not exist. `/metrics` serves an empty body.
+response generation, with `owned_by` reported as `sglang`, plus the `sglang:`-prefixed metrics described
+in [Metrics](metrics.md#sglang), which `--enable-metrics` turns on. It has no native HTTP routes, no gRPC
+service, no LoRA adapters, and no KV cache. Because the settings behind those features are engine-owned, a configuration file asking for one
+is rejected rather than silently ignored, and the corresponding flags do not exist.
 
 The experimental SGLang backend does not apply strict request validation. Its
 `NewRequestValidator` hook returns no validator, so the completion endpoints retain their
@@ -51,7 +51,7 @@ close as SGLang support matures, not a permanent design boundary the way the vLL
 | `BindGRPC` | The gRPC service, and whether the engine has one at all | [transport.go](../pkg/engine/vllm/transport.go) |
 | `ErrorBody`, `StreamErrorBody` | How an error object is framed in a response body | [transport.go](../pkg/engine/vllm/transport.go) |
 | `DecorateChatChoice`, `DecorateChatChunkChoice`, `DecorateTextChoice` | Fields a completion choice carries beyond the OpenAI-compatible core | [transport.go](../pkg/engine/vllm/transport.go) |
-| `NewMetricsAdapter` | Prometheus metric names, labels, and the fake-metrics schema | [metrics.go](../pkg/engine/vllm/metrics.go), [fakemetrics.go](../pkg/engine/vllm/fakemetrics.go) |
+| `NewMetricsAdapter` | Prometheus metric names, labels, and the fake-metrics schema | [metrics.go](../pkg/engine/vllm/metrics.go), [fakemetrics.go](../pkg/engine/vllm/fakemetrics.go), [sglang/fakemetrics.go](../pkg/engine/sglang/fakemetrics.go) |
 | `NewKVEventEncoder` | The wire format of a single KV-cache event | [kvevents.go](../pkg/engine/vllm/kvevents.go) |
 
 A `Configuration` group can be engine-owned even though the struct lives in `pkg/common`: `lora` and
@@ -59,6 +59,12 @@ A `Configuration` group can be engine-owned even though the struct lives in `pkg
 validation rules all come from the engine, and `pkg/common` holds no defaults for them. `fake-metrics`
 goes further: `Configuration.FakeMetrics` is an interface, so the engine supplies the concrete type as
 well, since the set of fakeable fields mirrors its own real metrics.
+
+What an adapter does *not* own is the plumbing between its event handlers and its Prometheus
+collectors: the channel payload shapes, the generator ticker behind function-valued fake metrics, and
+the unregister-recreate-restamp a reset performs are the same for every engine and live in
+[pkg/metrics](../pkg/metrics). A payload whose variants carry engine-specific labels stays with its
+engine, which is why vLLM keeps its LoRA and finish-reason payloads and SGLang its `is_streaming` ones.
 
 A single `Configuration` field can be engine-named the same way, for a setting the engines disagree on the
 name of. `MaxModelLen`, `MaxNumSeqs` and `MaxWaitingQueueLength` are tagged `yaml:"-"` and have no core
@@ -147,8 +153,7 @@ simulator's own, so SGLang's `The model 'x' does not exist` with `"param": "mode
    [configuration.md](configuration.md) and [metrics.md](metrics.md), and extend the `engine` flag's
    description.
 4. Add a test suite in `pkg/engine/<name>/` for the parts with an external contract: the KV-event encoder
-   should be asserted against the matching `engineadapter` parser from `llm-d-router`, which is the
-   consumer these events exist to feed. In `pkg/tests`, a spec that exercises only the engine-neutral
-   surface belongs in a container wrapped in `forEachEngine`, which runs it once per registered engine, so
-   a new engine inherits that coverage. Every other spec names its own engine. Suites resolve the engine
+   should be asserted against the wire format its consumers parse. In `pkg/tests`, a spec that exercises
+   only the engine-neutral surface belongs in a container wrapped in `forEachEngine`, which runs it once
+   per registered engine, so a new engine inherits that coverage. Every other spec names its own engine. Suites resolve the engine
    the same way `main` does, so setting `SIM_ENGINE` selects it for the specs that do not.

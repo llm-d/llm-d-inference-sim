@@ -1133,7 +1133,7 @@ var _ = Describe("total tokens", func() {
 					Buckets: test.buckets,
 				}, []string{api.PromLabelModelName},
 			)
-			result := metrics.InitFakeHistogram(hist, s.Config().DisplayModelName, test.buckets, test.counts)
+			result := metrics.InitFakeHistogram(hist, test.buckets, test.counts, s.Config().DisplayModelName)
 			if test.shouldBeNil {
 				Expect(result).To(BeNil())
 			} else {
