@@ -261,6 +261,16 @@ var _ = Describe("Configuration", func() {
 		Expect(err).To(HaveOccurred())
 	})
 
+	DescribeTable("should reject a valueless fake-metrics flag",
+		func(args ...string) {
+			_, err := createSimConfig(append([]string{"cmd", "--model", common.TestModelName}, args...))
+			Expect(err).To(MatchError(ContainSubstring("--fake-metrics requires a JSON value")))
+		},
+		Entry("on its own", "--fake-metrics"),
+		Entry("followed by another flag", "--fake-metrics", "--enable-metrics"),
+		Entry("with an empty value", "--fake-metrics", ""),
+	)
+
 	DescribeTable("should accept a flag it can honor for a feature it lacks",
 		func(args ...string) {
 			config, err := createSimConfig(append([]string{"cmd", "--model", common.TestModelName}, args...))
