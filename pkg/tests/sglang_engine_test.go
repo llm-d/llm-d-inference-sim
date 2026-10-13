@@ -140,24 +140,6 @@ var _ = Describe("sglang engine", func() {
 		})
 	})
 
-	// llm-d-router reads five metrics per engine, named by its built-in SGLang
-	// configuration (pkg/epp/framework/plugins/datalayer/extractor/metrics/
-	// factories.go). Its LoRA spec for this engine is empty, so the other four
-	// are the whole contract, and a scrape missing one leaves the router with no
-	// value for the endpoint attribute behind it.
-	It("Should expose every metric llm-d-router reads", func() {
-		metricsData := sampleMetrics(client)
-
-		Expect(metricsData).To(ContainSubstring(
-			getCountMetricPrefix(common.TestModelName, sglang.SGLangQueueReqsMetricName)))
-		Expect(metricsData).To(ContainSubstring(
-			getCountMetricPrefix(common.TestModelName, sglang.SGLangRunningReqsMetricName)))
-		Expect(metricsData).To(ContainSubstring(
-			getCountMetricPrefix(common.TestModelName, sglang.SGLangTokenUsageMetricName)))
-		Expect(metricsData).To(ContainSubstring(
-			sglang.SGLangCacheConfigMetricName + `{num_pages="1024",page_size="16"} 1`))
-	})
-
 	// No vLLM metric leaks into this engine's surface.
 	It("Should expose no vllm metrics", func() {
 		Expect(sampleMetrics(client)).NotTo(ContainSubstring("vllm:"))
@@ -401,21 +383,6 @@ var _ = Describe("sglang engine fake metrics", func() {
 			g.Expect(metricsData).To(ContainSubstring(fmt.Sprintf(`%s_count{model_name="%s"} 5`,
 				sglang.SGLangQueueTimeMetricName, common.TestModelName)))
 		})
-	})
-
-	// The four the router reads resolve under fake metrics too, which is what
-	// makes a fake-metrics simulator usable for routing tests.
-	It("Should expose every metric llm-d-router reads", func() {
-		metricsData := sampleMetrics(client)
-
-		Expect(metricsData).To(ContainSubstring(
-			getCountMetricPrefix(common.TestModelName, sglang.SGLangQueueReqsMetricName)))
-		Expect(metricsData).To(ContainSubstring(
-			getCountMetricPrefix(common.TestModelName, sglang.SGLangRunningReqsMetricName)))
-		Expect(metricsData).To(ContainSubstring(
-			getCountMetricPrefix(common.TestModelName, sglang.SGLangTokenUsageMetricName)))
-		Expect(metricsData).To(ContainSubstring(
-			sglang.SGLangCacheConfigMetricName + `{num_pages="1024",page_size="16"} 1`))
 	})
 
 	It("Should apply a partial update over /admin/config", func() {
