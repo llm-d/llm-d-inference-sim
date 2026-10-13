@@ -17,6 +17,9 @@ limitations under the License.
 // Generator functions for fake metrics. Each generator maps elapsed time to a
 // value in [Start, End] according to a specific shape. Dispatch resolves the
 // function name from common.FunctionInfo to its implementation.
+//
+// FakeGenerators owns the set an adapter has registered and the ticker that
+// re-evaluates them, which is the same bookkeeping for every engine.
 
 package metrics
 

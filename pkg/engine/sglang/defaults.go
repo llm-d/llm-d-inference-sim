@@ -22,7 +22,9 @@ import "github.com/llm-d/llm-d-inference-sim/pkg/common"
 // engine owns. Called before a config file is loaded and before BindFlags, so
 // that a YAML value overrides a default and a flag overrides both.
 func (Engine) ApplyDefaults(cfg *common.Configuration) {
-	// Metrics are opt-in, matching sglang's own --enable-metrics default.
+	// Metrics are opt-in, as they are in sglang: its own enable_metrics defaults
+	// to false and nothing is served at /metrics until --enable-metrics is
+	// given.
 	cfg.EnableMetrics = false
 
 	// One LoRA slot, so the simulator's adapter bookkeeping has a table to
