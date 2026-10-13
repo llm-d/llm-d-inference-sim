@@ -17,7 +17,10 @@ limitations under the License.
 package endpoint
 
 import (
+	"errors"
+
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
+	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/valyala/fasthttp"
@@ -237,5 +240,25 @@ var _ = Describe("TextCompletionsParsedRequest.Split", func() {
 
 		Expect(orig.GetRequestID()).To(Equal(origID))
 		Expect(orig.Prompt).To(Equal(origPrompt))
+	})
+})
+
+var _ = Describe("HandleRequest", func() {
+	It("returns a server error when response tokens cannot be generated", func() {
+		runtime := &fakeRuntime{
+			config:            &common.Configuration{MaxModelLen: 1024, Mode: common.ModeRandom},
+			responseTokensErr: errors.New("invalid gen_tokens"),
+		}
+		req := &TextCompletionsRequest{}
+		req.RequestID = "req-err"
+		req.Prompt = api.PromptInput{Tokens: []uint32{1, 2, 3}}
+		reqCtx := req.BuildRequestContext(runtime, common.Channel[*ResponseInfo]{}, 0, func() {})
+
+		respCtx, err := reqCtx.HandleRequest()
+
+		Expect(respCtx).To(BeNil())
+		Expect(err).NotTo(BeNil())
+		Expect(err.Code).To(Equal(fasthttp.StatusInternalServerError))
+		Expect(err.Message).To(ContainSubstring("invalid gen_tokens"))
 	})
 })

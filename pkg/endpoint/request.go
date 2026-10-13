@@ -236,7 +236,9 @@ func (reqCtx *baseRequestContext) HandleRequest() (ResponseContext, *api.Error) 
 		// Either no tool calls were defined, or we randomly chose not to create tool calls,
 		// so we generate a response text.
 		responseTokens, finishReason, err = reqCtx.runtime.GetResponseTokens(req)
-		completionTokens += responseTokens.Length()
+		if err == nil {
+			completionTokens += responseTokens.Length()
+		}
 	}
 	if err != nil {
 		prefix := "failed to create response for " + req.AsString() + " "
