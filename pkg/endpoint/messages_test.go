@@ -82,7 +82,7 @@ var _ = Describe("Messages render tools", func() {
 		func(choice string, expected string) {
 			got := render(`{"model":"m",` + messages + `,"tools":` + tools + `,"tool_choice":` + choice + `}`)
 			Expect(string(got.Tools)).To(Equal(chatTools))
-			Expect(string(got.ToolChoice)).To(Equal(expected))
+			Expect(got.ToolChoice).To(MatchJSON(expected))
 		},
 		Entry("auto", `{"type":"auto"}`, `"auto"`),
 		Entry("any", `{"type":"any"}`, `"required"`),

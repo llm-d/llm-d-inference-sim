@@ -93,24 +93,21 @@ func messagesRenderTools(data []byte, toolChoice *api.AnthropicToolChoice) (api.
 	}
 
 	if toolChoice != nil {
-		var choice any
+		var choice api.ToolChoice
+		known := true
 		switch toolChoice.Type {
 		case "auto":
-			choice = "auto"
+			choice = api.NewToolChoiceAuto()
 		case "any":
-			choice = "required"
+			choice = api.NewToolChoiceRequired()
 		case "none":
-			choice = "none"
+			choice = api.NewToolChoiceNone()
 		case "tool":
-			type namedFunction struct {
-				Name string `json:"name"`
-			}
-			choice = struct {
-				Type     string        `json:"type"`
-				Function namedFunction `json:"function"`
-			}{Type: "function", Function: namedFunction{Name: toolChoice.Name}}
+			choice = api.NewToolChoiceFunction(toolChoice.Name)
+		default:
+			known = false
 		}
-		if choice != nil {
+		if known {
 			b, err := json.Marshal(choice)
 			if err != nil {
 				return api.RenderTools{}, err
