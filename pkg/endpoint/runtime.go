@@ -57,6 +57,9 @@ type Runtime interface {
 	WakeUp(activateKVCache bool)
 	// IsSleeping reports whether the simulator is currently sleeping.
 	IsSleeping() bool
+	// ValidateModel checks that model is a known base model or a loaded LoRA
+	// adapter.
+	ValidateModel(model string) *api.Error
 	// ValidateBaseModel checks that model is a known base model, rejecting
 	// LoRA adapters. endpointsName is the endpoint family reported in the
 	// rejection message.

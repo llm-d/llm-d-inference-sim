@@ -85,6 +85,9 @@ type Engine interface {
 	// DecorateTextChoice adds any fields this engine puts on a text-completion
 	// choice; both the full response and streamed chunks reuse this one type.
 	DecorateTextChoice(choice api.TextRespChoice) api.TextRespChoice
+	// DecorateMessagesCountTokens adds any fields this engine puts on a
+	// /v1/messages/count_tokens response beyond input_tokens.
+	DecorateMessagesCountTokens(resp api.MessagesCountTokensResponse) api.MessagesCountTokensResponse
 	// NewMetricsAdapter builds the engine's own metrics adapter, registering
 	// its collectors on registry. ctx must match the one passed to
 	// metrics.NewMetricsBus.

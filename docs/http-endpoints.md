@@ -231,6 +231,14 @@ Structure of requests/responses
         - tool_choice
           - type (`auto`, `any`, `tool`, `none`)
           - name (when type is `tool`)
+        - kv_transfer_params
+          - do_remote_decode
+          - do_remote_prefill
+          - remote_engine_id
+          - remote_block_ids
+          - remote_host
+          - remote_port
+          - tp_size
     - **response**
         - id
         - type
@@ -247,6 +255,30 @@ Structure of requests/responses
           - cache_creation_input_tokens
           - cache_read_input_tokens
           - output_tokens
+        - kv_transfer_params (non-streaming response only)
+          - do_remote_decode
+          - do_remote_prefill
+          - remote_engine_id
+          - remote_block_ids
+          - remote_host
+          - remote_port
+          - tp_size
+        - ec_transfer_params (map keyed by mm hash; non-streaming response only)
+            - peer_host
+            - peer_port
+            - size_bytes
+            - nixl_agent_metadata_b64
+- `/v1/messages/render`
+    - **request**: same shape as `/v1/messages`, including the required positive `max_tokens`. `model` may name a loaded LoRA adapter, as in vLLM; the other render endpoints accept base models only. Only `model`, `system`, `messages`, `tools`, and `tool_choice` are inspected. Errors are framed like the other render endpoints, not in the Messages API envelope. The route is not registered when `--enable-legacy-render` is set, so requests get `404 Not Found`, matching vLLM versions that predate the endpoint.
+    - **response**: single JSON object, same shape as the `/v1/chat/completions/render` response
+        - token_ids
+        - features (present only when `messages` contain an `image` content block)
+- `/v1/messages/count_tokens`
+    - **request**: same shape as `/v1/messages`; `max_tokens` is not required. `model` may name a loaded LoRA adapter. Only `model`, `system`, `messages`, `tools`, and `tool_choice` are inspected.
+    - **response**
+        - input_tokens (number of tokens in the rendered prompt)
+        - context_management (vLLM only; see [Engine backends](engine-backends.md#what-an-engine-owns))
+          - original_input_tokens (equal to input_tokens)
 - `/v1/completions/render`
     - **request** — same shape as `/v1/completions`; only `model` and `prompt` are inspected
         - model
@@ -557,7 +589,9 @@ For full details on the expected API behavior and specification, please refer to
 
 ### Render endpoints
 
-`/v1/completions/render`, `/v1/chat/completions/render`, and `/v1/responses/render` mirror vLLM's `/render` behavior — they return the tokenized form of a request without running generation. They are useful for debugging tokenization, pre-computing prompt token counts, and exercising multimodal feature handling.
+`/v1/completions/render`, `/v1/chat/completions/render`, `/v1/responses/render`, and `/v1/messages/render` mirror vLLM's `/render` behavior; they return the tokenized form of a request without running generation. They are useful for debugging tokenization, pre-computing prompt token counts, and exercising multimodal feature handling. The render and derender endpoints are served by the vLLM engine only; the SGLang engine does not have them. `/v1/messages/count_tokens` is served by both.
+
+`/v1/messages/render` and `/v1/messages/count_tokens` convert the request to chat-completions messages, the same conversion the `/v1/messages` generation path uses, and render those messages, as vLLM does. `tools` are forwarded to the render service in chat-completions form (`input_schema` becomes `parameters`, with its key order preserved and `"type":"object"` added when the schema has no `type`), and `tool_choice` is mapped as vLLM maps it: `auto` to `"auto"`, `any` to `"required"`, `none` to `"none"`, and `tool` to a named function. With `--enable-legacy-render` the `/v1/messages/render` route is not registered at all, matching vLLM versions that predate the endpoint.
 
 `/v1/responses/render` is stateless: `previous_response_id` is rejected with `400 Bad Request`. The simulator renders a Responses request by converting its `input` items to chat-completions messages — the same conversion the `/v1/responses` generation path uses — and rendering those messages. For a real model this means the upstream render service is asked to render a `/v1/chat/completions` request, so the returned token IDs are those of the chat-rendered prompt and do not necessarily match what a real vLLM `/v1/responses/render` produces for the same body. With `--enable-legacy-render` the route is not registered at all, matching vLLM versions that predate the endpoint.
 

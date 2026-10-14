@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -155,7 +156,26 @@ var _ = Describe("sglang engine", func() {
 		Entry("sleep", http.MethodPost, "/sleep"),
 		Entry("wake_up", http.MethodPost, "/wake_up"),
 		Entry("is_sleeping", http.MethodGet, "/is_sleeping"),
+		Entry("completions render", http.MethodPost, "/v1/completions/render"),
+		Entry("chat completions render", http.MethodPost, "/v1/chat/completions/render"),
+		Entry("responses render", http.MethodPost, "/v1/responses/render"),
+		Entry("messages render", http.MethodPost, "/v1/messages/render"),
+		Entry("chat completions derender", http.MethodPost, "/v1/chat/completions/derender"),
+		Entry("completions derender", http.MethodPost, "/v1/completions/derender"),
 	)
+
+	It("Should serve the routes sglang has: /tokenize and /v1/messages/count_tokens", func() {
+		for path, body := range map[string]string{
+			"/tokenize": `{"model":"` + common.TestModelName + `","prompt":"hi"}`,
+			"/v1/messages/count_tokens": `{"model":"` + common.TestModelName +
+				`","messages":[{"role":"user","content":"hi"}]}`,
+		} {
+			resp, err := client.Post("http://localhost"+path, "application/json", strings.NewReader(body))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.Body.Close()).To(Succeed())
+			Expect(resp.StatusCode).To(Equal(http.StatusOK), "path %s", path)
+		}
+	})
 })
 
 var _ = Describe("sglang engine startup", func() {

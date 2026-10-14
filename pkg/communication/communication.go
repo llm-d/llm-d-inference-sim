@@ -27,6 +27,7 @@ import (
 	"github.com/buaazp/fasthttprouter"
 	"github.com/go-logr/logr"
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
+	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 	"github.com/llm-d/llm-d-inference-sim/pkg/communication/grpc/pb"
 	"github.com/llm-d/llm-d-inference-sim/pkg/endpoint"
@@ -58,6 +59,12 @@ type Communication struct {
 
 func New(logger logr.Logger, processor Processor, runtime endpoint.Runtime) *Communication {
 	return &Communication{logger: logger, processor: processor, runtime: runtime, startTime: time.Now()}
+}
+
+// Config returns the simulator's configuration, for an engine that decides from
+// it which of its own routes to bind.
+func (c *Communication) Config() *common.Configuration {
+	return c.runtime.Config()
 }
 
 // RequestValidator checks an engine's request schema and semantic constraints.
@@ -94,6 +101,9 @@ type Transport interface {
 	// DecorateTextChoice adds any fields this engine puts on a text-completion
 	// choice; both the full response and streamed chunks reuse this one type.
 	DecorateTextChoice(choice api.TextRespChoice) api.TextRespChoice
+	// DecorateMessagesCountTokens adds any fields this engine puts on a
+	// /v1/messages/count_tokens response beyond input_tokens.
+	DecorateMessagesCountTokens(resp api.MessagesCountTokensResponse) api.MessagesCountTokensResponse
 }
 
 // Start starts the communication layer: the HTTP server (with the active

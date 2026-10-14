@@ -149,7 +149,7 @@ Command-line flag names are as listed below. In a YAML config file, these settin
 - `render-url`: URL of the vLLM render service used for tokenization. Required when the model is a real HuggingFace model; omit for simulated/dummy models. Default is `http://localhost:8082`.
 - `render-timeout`: Timeout for tokenizer render requests (e.g. `30s`). Default is `30s`.
 - `mm-render-timeout`: Timeout for multi-modal tokenizer render requests (e.g. `60s`). Default is `60s`.
-- `enable-legacy-render`: Disable the `/v1/responses/render` endpoint, matching vLLM versions that predate it. Callers probing the renderer for Responses render support then fall back to the chat-completions render path. Default is `false`.
+- `enable-legacy-render`: Disable the `/v1/responses/render` and `/v1/messages/render` endpoints, matching vLLM versions that predate them. Callers probing the renderer for Responses or Messages render support then fall back to the chat-completions render path. Applies to the vLLM engine, which is the only one serving the render endpoints. Default is `false`.
 
 ### Embeddings
 - `default-embedding-dimensions`: default size of embedding vectors returned by `/v1/embeddings` when the request does not specify a `dimensions` field, optional, defaults to 384.

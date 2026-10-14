@@ -809,19 +809,22 @@ type MessagesResponse struct {
 	StopReason   *string                `json:"stop_reason"`
 	StopSequence *string                `json:"stop_sequence"`
 	Usage        MessagesUsage          `json:"usage"`
-	RequestID    string                 `json:"-"`
+	// KVParams and ECTransferParams are vLLM extensions to the Anthropic schema.
+	KVParams         *KVTransferParams           `json:"kv_transfer_params,omitempty"`
+	ECTransferParams map[string]ECTransferParams `json:"ec_transfer_params,omitempty"`
+	RequestID        string                      `json:"-"`
 }
 
 func (r *MessagesResponse) GetRequestID() string { return r.RequestID }
 
 // CreateMessagesResponse builds a complete non-streaming Messages API response.
 func CreateMessagesResponse(model, requestID, stopReason string,
-	content []MessagesContentBlock, usage MessagesUsage) *MessagesResponse {
+	content []MessagesContentBlock, usage MessagesUsage, doRemoteDecode bool) *MessagesResponse {
 	sr := stopReason
 	if content == nil {
 		content = []MessagesContentBlock{}
 	}
-	return &MessagesResponse{
+	resp := &MessagesResponse{
 		ID:           MessagesIDPrefix + requestID,
 		Type:         MessagesType,
 		Role:         RoleAssistant,
@@ -832,6 +835,22 @@ func CreateMessagesResponse(model, requestID, stopReason string,
 		Usage:        usage,
 		RequestID:    requestID,
 	}
+	if doRemoteDecode {
+		resp.KVParams = BuildPrefillKVTransferParams()
+	}
+	return resp
+}
+
+// MessagesContextManagement is the context_management object of a
+// /v1/messages/count_tokens response.
+type MessagesContextManagement struct {
+	OriginalInputTokens int `json:"original_input_tokens"`
+}
+
+// MessagesCountTokensResponse is the /v1/messages/count_tokens response.
+type MessagesCountTokensResponse struct {
+	InputTokens       int                        `json:"input_tokens"`
+	ContextManagement *MessagesContextManagement `json:"context_management,omitempty"`
 }
 
 // CreateMessagesStreamStartMessage builds the initial message object for the

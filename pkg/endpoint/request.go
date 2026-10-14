@@ -45,9 +45,10 @@ type requestBuilder interface {
 }
 
 // RenderableRequest is implemented by the request types reachable from the
-// /v1/{chat/,}completions/render and /v1/responses/render endpoints
-// (ChatCompletionsRequest, TextCompletionsParsedRequest, and
-// ResponsesRenderRequest). It lets the HTTP layer parse + render
+// /v1/{chat/,}completions/render, /v1/responses/render, /v1/messages/render,
+// and /v1/messages/count_tokens endpoints (ChatCompletionsRequest,
+// TextCompletionsParsedRequest, ResponsesRenderRequest, and MessagesRequest).
+// It lets the HTTP layer parse + render
 // without going through the worker pipeline.
 type RenderableRequest interface {
 	Request

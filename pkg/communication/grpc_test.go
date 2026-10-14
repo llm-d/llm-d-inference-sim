@@ -59,6 +59,10 @@ func (fakeTransport) DecorateChatChunkChoice(choice api.ChatRespChunkChoice) api
 
 func (fakeTransport) DecorateTextChoice(choice api.TextRespChoice) api.TextRespChoice { return choice }
 
+func (fakeTransport) DecorateMessagesCountTokens(resp api.MessagesCountTokensResponse) api.MessagesCountTokensResponse {
+	return resp
+}
+
 var _ = Describe("bindGRPC", func() {
 	var comm *Communication
 

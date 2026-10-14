@@ -52,6 +52,7 @@ func (f *fakeRuntime) KVCacheOnRequestEnd(requestID string)            {}
 func (f *fakeRuntime) Sleep() bool                                     { return false }
 func (f *fakeRuntime) WakeUp(activateKVCache bool)                     {}
 func (f *fakeRuntime) IsSleeping() bool                                { return false }
+func (f *fakeRuntime) ValidateModel(model string) *api.Error           { return nil }
 func (f *fakeRuntime) ValidateBaseModel(model, _ string) *api.Error    { return nil }
 func (f *fakeRuntime) ShouldSendImage(headerOverride bool) bool        { return headerOverride }
 func (f *fakeRuntime) MooncakeEngineMap() map[string]map[string]string { return nil }

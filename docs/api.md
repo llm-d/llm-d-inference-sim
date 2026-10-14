@@ -12,7 +12,7 @@ Currently, the simulator supports a partial OpenAI-compatible API:
 
 For details see the [HTTP Endpoints Guide](http-endpoints.md)
 
-In addition, a set of the vLLM HTTP endpoints are supported:
+In addition, a set of the vLLM HTTP endpoints are supported. The render and derender endpoints are served by the vLLM engine only; the SGLang engine does not serve them:
 
 | Endpoint | Description |
 |---|---|
@@ -24,6 +24,8 @@ In addition, a set of the vLLM HTTP endpoints are supported:
 | /v1/completions/render       | Returns the token IDs for a `/v1/completions` request body without generating a response |
 | /v1/chat/completions/render  | Returns the token IDs (and multimodal features when applicable) for a `/v1/chat/completions` request body without generating a response |
 | /v1/responses/render         | Returns the token IDs (and multimodal features when applicable) for a `/v1/responses` request body without generating a response; stateless — `previous_response_id` is rejected. Disabled by `--enable-legacy-render` |
+| /v1/messages/render          | Returns the token IDs (and multimodal features when applicable) for a `/v1/messages` request body without generating a response. Disabled by `--enable-legacy-render` |
+| /v1/messages/count_tokens    | Returns the number of prompt tokens for a `/v1/messages` request body |
 | /v1/completions/derender       | Converts generation results carrying raw token IDs into a `/v1/completions` response (the inverse of `/v1/completions/render`) |
 | /v1/chat/completions/derender  | Converts a generation result carrying raw token IDs into a `/v1/chat/completions` response (the inverse of `/v1/chat/completions/render`) |
 | /sleep                  | Puts the simulator into sleep mode. Requires both the `enable-sleep-mode` flag and the `VLLM_SERVER_DEV_MODE=1` environment variable; otherwise the request is accepted (HTTP 200) but ignored. |

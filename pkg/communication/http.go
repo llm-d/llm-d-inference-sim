@@ -67,6 +67,8 @@ func (c *Communication) newListener() (net.Listener, error) {
 const (
 	messagesRoute  = "/v1/messages"
 	responsesRoute = "/v1/responses"
+
+	messagesRenderRoute = messagesRoute + "/render"
 )
 
 // startHTTPServer builds and starts the HTTP server, returning the server instance and an error channel.
@@ -81,15 +83,9 @@ func (c *Communication) startHTTPServer(ctx context.Context, listener net.Listen
 	// support completion APIs
 	r.POST("/v1/chat/completions", c.HandleChatCompletions)
 	r.POST("/v1/completions", c.HandleTextCompletions)
-	r.POST("/v1/chat/completions/render", c.HandleChatCompletionsRender)
-	r.POST("/v1/completions/render", c.HandleTextCompletionsRender)
-	if !c.runtime.Config().EnableLegacyRender {
-		r.POST("/v1/responses/render", c.HandleResponsesRender)
-	}
-	r.POST("/v1/chat/completions/derender", c.HandleChatCompletionsDerender)
-	r.POST("/v1/completions/derender", c.HandleTextCompletionsDerender)
 	r.POST(responsesRoute, c.HandleResponses)
 	r.POST(messagesRoute, c.HandleMessages)
+	r.POST(messagesRoute+"/count_tokens", c.HandleMessagesCountTokens)
 	if !c.runtime.Config().MMEncoderOnly {
 		r.POST("/v1/embeddings", c.HandleEmbeddings)
 	}
@@ -179,20 +175,34 @@ func (c *Communication) HandleGenerate(ctx *fasthttp.RequestCtx) {
 
 // HandleChatCompletionsRender http handler for /v1/chat/completions/render
 func (c *Communication) HandleChatCompletionsRender(ctx *fasthttp.RequestCtx) {
-	c.handleRender(&endpoint.ChatCompletionsRequest{}, &chatComplHTTPRespBuilder{}, ctx)
+	c.handleRender(&endpoint.ChatCompletionsRequest{}, &chatComplHTTPRespBuilder{}, false, ctx)
 }
 
 // HandleTextCompletionsRender http handler for /v1/completions/render
 func (c *Communication) HandleTextCompletionsRender(ctx *fasthttp.RequestCtx) {
-	c.handleRender(&endpoint.TextCompletionsParsedRequest{}, &textComplHTTPRespBuilder{}, ctx)
+	c.handleRender(&endpoint.TextCompletionsParsedRequest{}, &textComplHTTPRespBuilder{}, false, ctx)
 }
 
 // HandleResponsesRender http handler for /v1/responses/render
 func (c *Communication) HandleResponsesRender(ctx *fasthttp.RequestCtx) {
-	c.handleRender(&endpoint.ResponsesRenderRequest{}, &responsesHTTPRespBuilder{}, ctx)
+	c.handleRender(&endpoint.ResponsesRenderRequest{}, &responsesHTTPRespBuilder{}, false, ctx)
 }
 
-func (c *Communication) handleRender(req endpoint.RenderableRequest, respBuilder responseBuilder, ctx *fasthttp.RequestCtx) {
+// HandleMessagesRender http handler for /v1/messages/render
+func (c *Communication) HandleMessagesRender(ctx *fasthttp.RequestCtx) {
+	c.handleRender(&endpoint.MessagesRenderRequest{}, &messagesHTTPRespBuilder{}, true, ctx)
+}
+
+// HandleMessagesCountTokens http handler for /v1/messages/count_tokens
+func (c *Communication) HandleMessagesCountTokens(ctx *fasthttp.RequestCtx) {
+	c.handleRender(&endpoint.MessagesRequest{}, &messagesCountTokensHTTPRespBuilder{transport: c.transport}, true, ctx)
+}
+
+// handleRender parses and renders a request without generating a response.
+// acceptLoRA lets the request name a loaded LoRA adapter as its model, as vLLM
+// does on the Messages API; the other render endpoints accept base models only.
+func (c *Communication) handleRender(req endpoint.RenderableRequest, respBuilder responseBuilder,
+	acceptLoRA bool, ctx *fasthttp.RequestCtx) {
 	c.logger.V(logging.TRACE).Info("Render request received", "endpoint", string(ctx.Path()))
 	if err := req.Unmarshal(ctx.Request.Body()); err != nil {
 		c.logger.Error(err, "failed to read and parse render request body")
@@ -204,8 +214,14 @@ func (c *Communication) handleRender(req endpoint.RenderableRequest, respBuilder
 		c.sendError(ctx, err, false)
 		return
 	}
-	if err := c.runtime.ValidateBaseModel(req.GetModel(), "render"); err != nil {
-		c.sendError(ctx, err, false)
+	var modelErr *api.Error
+	if acceptLoRA {
+		modelErr = c.runtime.ValidateModel(req.GetModel())
+	} else {
+		modelErr = c.runtime.ValidateBaseModel(req.GetModel(), "render")
+	}
+	if modelErr != nil {
+		c.sendError(ctx, modelErr, false)
 		return
 	}
 	tokens, features, err := req.Render(c.runtime.GetTokenizer())
@@ -468,9 +484,13 @@ func (c *Communication) errorBody(ctx *fasthttp.RequestCtx, err api.Error, strea
 
 // errorRoute reports which family of routes path belongs to, for the purpose of
 // framing an error. Matched by prefix, so the sub-routes of an API family are
-// framed like the family (e.g. /v1/messages/count_tokens).
+// framed like the family (e.g. /v1/messages/count_tokens), except for
+// /v1/messages/render, which vLLM serves from the render router that frames
+// errors like the other render endpoints.
 func errorRoute(path string) api.ErrorRoute {
 	switch {
+	case path == messagesRenderRoute:
+		return api.ErrorRouteDefault
 	case strings.HasPrefix(path, messagesRoute):
 		return api.ErrorRouteMessages
 	case strings.HasPrefix(path, responsesRoute):

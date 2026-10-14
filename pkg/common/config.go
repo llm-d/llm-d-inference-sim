@@ -234,8 +234,8 @@ type Configuration struct {
 	// MMRenderTimeout is the timeout for multi-modal tokenizer render requests
 	MMRenderTimeout time.Duration `yaml:"mm-render-timeout" json:"mm-render-timeout"`
 
-	// EnableLegacyRender disables the /v1/responses/render endpoint, matching
-	// vLLM versions that predate it.
+	// EnableLegacyRender disables the /v1/responses/render and
+	// /v1/messages/render endpoints, matching vLLM versions that predate them.
 	EnableLegacyRender bool `yaml:"enable-legacy-render" json:"enable-legacy-render"`
 
 	// StartupDuration defines how long /health/ready returns 503 to simulate GPU model loading.

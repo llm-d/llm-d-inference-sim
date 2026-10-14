@@ -149,6 +149,189 @@ var _ = Describe("Server", forEachEngine(func() {
 		})
 	})
 
+	Context("SSL/HTTPS Configuration", func() {
+		It("Should start HTTPS server with provided SSL certificates", func(ctx SpecContext) {
+			tempDir := GinkgoT().TempDir()
+			certFile, keyFile, err := communication.GenerateTempCerts(tempDir)
+			Expect(err).NotTo(HaveOccurred())
+
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
+				"--ssl-certfile", certFile, "--ssl-keyfile", keyFile}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			resp, err := client.Get("https://localhost/health")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+		})
+
+		It("Should start HTTPS server with self-signed certificates", func(ctx SpecContext) {
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom, "--self-signed-certs"}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			resp, err := client.Get("https://localhost/health")
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+		})
+
+		It("Should reload certificates when files are updated on disk", func(ctx SpecContext) {
+			tempDir := GinkgoT().TempDir()
+			certFile := filepath.Join(tempDir, "tls.crt")
+			keyFile := filepath.Join(tempDir, "tls.key")
+
+			certPEM1, keyPEM1, err := communication.CreateSelfSignedTLSCertificatePEM()
+			Expect(err).NotTo(HaveOccurred())
+			Expect(os.WriteFile(certFile, certPEM1, 0644)).To(Succeed())
+			Expect(os.WriteFile(keyFile, keyPEM1, 0600)).To(Succeed())
+
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
+				"--ssl-certfile", certFile, "--ssl-keyfile", keyFile}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			resp, err := client.Get("https://localhost/health")
+			Expect(err).NotTo(HaveOccurred())
+			defer func() { _ = resp.Body.Close() }()
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			Expect(resp.TLS).NotTo(BeNil())
+			oldSerial := resp.TLS.PeerCertificates[0].SerialNumber
+
+			certPEM2, keyPEM2, err := communication.CreateSelfSignedTLSCertificatePEM()
+			Expect(err).NotTo(HaveOccurred())
+
+			// Write to temp files and rename atomically so the watcher never
+			// sees a half-written cert/key pair.
+			tmpCert := certFile + ".tmp"
+			tmpKey := keyFile + ".tmp"
+			Expect(os.WriteFile(tmpCert, certPEM2, 0644)).To(Succeed())
+			Expect(os.WriteFile(tmpKey, keyPEM2, 0600)).To(Succeed())
+			Expect(os.Rename(tmpKey, keyFile)).To(Succeed())
+			Expect(os.Rename(tmpCert, certFile)).To(Succeed())
+
+			// Poll until the reloader picks up the new cert (debounce is 250ms).
+			Eventually(func(g Gomega) {
+				client.CloseIdleConnections()
+				r, err := client.Get("https://localhost/health")
+				g.Expect(err).NotTo(HaveOccurred())
+				defer func() { _ = r.Body.Close() }()
+				g.Expect(r.StatusCode).To(Equal(http.StatusOK))
+				g.Expect(r.TLS).NotTo(BeNil())
+				g.Expect(r.TLS.PeerCertificates[0].SerialNumber).NotTo(Equal(oldSerial))
+			}).WithTimeout(5 * time.Second).WithPolling(250 * time.Millisecond).Should(Succeed())
+		})
+
+	})
+
+	Context("request ID headers", func() {
+		testRequestIDHeader := func(enableRequestID bool, endpoint, reqBody, inputRequestID string, expectRequestID *string, validateBody func([]byte)) {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho}
+			if enableRequestID {
+				args = append(args, "--enable-request-id-headers")
+			}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			req, err := http.NewRequest("POST", "http://localhost"+endpoint, strings.NewReader(reqBody))
+			Expect(err).NotTo(HaveOccurred())
+			req.Header.Set(fasthttp.HeaderContentType, "application/json")
+			if inputRequestID != "" {
+				req.Header.Set(communication.RequestIDHeader, inputRequestID)
+			}
+
+			resp, err := client.Do(req)
+			Expect(err).NotTo(HaveOccurred())
+			defer func() {
+				err := resp.Body.Close()
+				Expect(err).NotTo(HaveOccurred())
+			}()
+
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+			if expectRequestID != nil {
+				actualRequestID := resp.Header.Get(communication.RequestIDHeader)
+				if *expectRequestID != "" {
+					// When a request ID is provided, it should be echoed back
+					Expect(actualRequestID).To(Equal(*expectRequestID))
+				} else {
+					// When no request ID is provided, a UUID should be generated
+					Expect(actualRequestID).NotTo(BeEmpty())
+					Expect(len(actualRequestID)).To(BeNumerically(">", 30))
+				}
+			} else {
+				// When request ID headers are disabled, the header should be empty
+				Expect(resp.Header.Get(communication.RequestIDHeader)).To(BeEmpty())
+			}
+
+			if validateBody != nil {
+				body, err := io.ReadAll(resp.Body)
+				Expect(err).NotTo(HaveOccurred())
+				validateBody(body)
+			}
+		}
+
+		DescribeTable("request ID behavior",
+			testRequestIDHeader,
+			Entry("includes X-Request-Id when enabled",
+				true,
+				"/v1/chat/completions",
+				`{"messages": [{"role": "user", "content": "Hello"}], "model": "`+common.TestModelName+`", "max_tokens": 20}`,
+				"test-request-id-123",
+				ptr("test-request-id-123"),
+				nil,
+			),
+			Entry("excludes X-Request-Id when disabled",
+				false,
+				"/v1/chat/completions",
+				`{"messages": [{"role": "user", "content": "Hello"}], "model": "`+common.TestModelName+`", "max_tokens": 20}`,
+				"test-request-id-456",
+				nil,
+				nil,
+			),
+			Entry("includes X-Request-Id in streaming response",
+				true,
+				"/v1/chat/completions",
+				`{"messages": [{"role": "user", "content": "Hello"}], "model": "`+common.TestModelName+`", "max_tokens": 20, "stream": true}`,
+				"test-streaming-789",
+				ptr("test-streaming-789"),
+				nil,
+			),
+			Entry("works with text completions endpoint",
+				true,
+				"/v1/completions",
+				`{"prompt": "Hello world", "model": "`+common.TestModelName+`", "max_tokens": 5}`,
+				"text-request-111",
+				ptr("text-request-111"),
+				nil,
+			),
+			Entry("generates UUID when no request ID provided",
+				true,
+				"/v1/chat/completions",
+				`{"messages": [{"role": "user", "content": "Hello"}], "model": "`+common.TestModelName+`", "max_tokens": 20}`,
+				"",
+				ptr(""),
+				nil,
+			),
+			Entry("uses request ID in response body ID field",
+				true,
+				"/v1/chat/completions",
+				`{"messages": [{"role": "user", "content": "Hello"}], "model": "`+common.TestModelName+`", "max_tokens": 20}`,
+				"body-test-999",
+				ptr("body-test-999"),
+				func(body []byte) {
+					var resp map[string]any
+					Expect(json.Unmarshal(body, &resp)).To(Succeed())
+					Expect(resp["id"]).To(Equal("chatcmpl-body-test-999"))
+				},
+			),
+		)
+	})
+
+}))
+
+// The render and derender endpoints are vLLM's: sglang serves none of them, so these specs name no other engine.
+var _ = Describe("Server render endpoints", func() {
 	DescribeTable("render endpoints",
 		func(model, endpoint, reqBody string, assert func(body []byte)) {
 			ctx := context.TODO()
@@ -362,28 +545,31 @@ var _ = Describe("Server", forEachEngine(func() {
 			http.StatusBadRequest, "previous_response_id"),
 	)
 
-	It("/v1/responses/render is disabled by --enable-legacy-render", func() {
+	It("/v1/responses/render and /v1/messages/render are disabled by --enable-legacy-render", func() {
 		ctx := context.TODO()
 		args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
 			"--enable-legacy-render"}
 		client, err := startServerWithArgs(ctx, args)
 		Expect(err).NotTo(HaveOccurred())
 
-		resp, err := client.Post("http://localhost/v1/responses/render", "application/json",
-			strings.NewReader(fmt.Sprintf(`{"model":"%s","input":"hi"}`, common.TestModelName)))
-		Expect(err).NotTo(HaveOccurred())
-		Expect(resp.StatusCode).To(Equal(http.StatusNotFound))
-		Expect(resp.Body.Close()).To(Succeed())
-
-		// only the responses render route is disabled
-		chatResp, err := client.Post("http://localhost/v1/chat/completions/render", "application/json",
-			strings.NewReader(fmt.Sprintf(`{"model":"%s","messages":[{"role":"user","content":"hi"}]}`,
-				common.TestModelName)))
-		Expect(err).NotTo(HaveOccurred())
-		defer func() {
-			Expect(chatResp.Body.Close()).To(Succeed())
-		}()
-		Expect(chatResp.StatusCode).To(Equal(http.StatusOK))
+		messagesBody := fmt.Sprintf(`{"model":"%s","messages":[{"role":"user","content":"hi"}]}`,
+			common.TestModelName)
+		for path, body := range map[string]string{
+			"/v1/responses/render":        fmt.Sprintf(`{"model":"%s","input":"hi"}`, common.TestModelName),
+			"/v1/messages/render":         messagesBody,
+			"/v1/chat/completions/render": messagesBody,
+			"/v1/messages/count_tokens":   messagesBody,
+		} {
+			resp, err := client.Post("http://localhost"+path, "application/json", strings.NewReader(body))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.Body.Close()).To(Succeed())
+			// only the responses and messages render routes are disabled
+			expected := http.StatusOK
+			if path == "/v1/responses/render" || path == "/v1/messages/render" {
+				expected = http.StatusNotFound
+			}
+			Expect(resp.StatusCode).To(Equal(expected), "path %s", path)
+		}
 	})
 
 	Describe("derender endpoints", func() {
@@ -535,187 +721,7 @@ var _ = Describe("Server", forEachEngine(func() {
 				http.StatusBadRequest, "has empty or null token_ids"),
 		)
 	})
-
-	Context("SSL/HTTPS Configuration", func() {
-		It("Should start HTTPS server with provided SSL certificates", func(ctx SpecContext) {
-			tempDir := GinkgoT().TempDir()
-			certFile, keyFile, err := communication.GenerateTempCerts(tempDir)
-			Expect(err).NotTo(HaveOccurred())
-
-			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
-				"--ssl-certfile", certFile, "--ssl-keyfile", keyFile}
-			client, err := startServerWithArgs(ctx, args)
-			Expect(err).NotTo(HaveOccurred())
-
-			resp, err := client.Get("https://localhost/health")
-			Expect(err).NotTo(HaveOccurred())
-			Expect(resp.StatusCode).To(Equal(http.StatusOK))
-		})
-
-		It("Should start HTTPS server with self-signed certificates", func(ctx SpecContext) {
-			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom, "--self-signed-certs"}
-			client, err := startServerWithArgs(ctx, args)
-			Expect(err).NotTo(HaveOccurred())
-
-			resp, err := client.Get("https://localhost/health")
-			Expect(err).NotTo(HaveOccurred())
-			Expect(resp.StatusCode).To(Equal(http.StatusOK))
-		})
-
-		It("Should reload certificates when files are updated on disk", func(ctx SpecContext) {
-			tempDir := GinkgoT().TempDir()
-			certFile := filepath.Join(tempDir, "tls.crt")
-			keyFile := filepath.Join(tempDir, "tls.key")
-
-			certPEM1, keyPEM1, err := communication.CreateSelfSignedTLSCertificatePEM()
-			Expect(err).NotTo(HaveOccurred())
-			Expect(os.WriteFile(certFile, certPEM1, 0644)).To(Succeed())
-			Expect(os.WriteFile(keyFile, keyPEM1, 0600)).To(Succeed())
-
-			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
-				"--ssl-certfile", certFile, "--ssl-keyfile", keyFile}
-			client, err := startServerWithArgs(ctx, args)
-			Expect(err).NotTo(HaveOccurred())
-
-			resp, err := client.Get("https://localhost/health")
-			Expect(err).NotTo(HaveOccurred())
-			defer func() { _ = resp.Body.Close() }()
-			Expect(resp.StatusCode).To(Equal(http.StatusOK))
-			Expect(resp.TLS).NotTo(BeNil())
-			oldSerial := resp.TLS.PeerCertificates[0].SerialNumber
-
-			certPEM2, keyPEM2, err := communication.CreateSelfSignedTLSCertificatePEM()
-			Expect(err).NotTo(HaveOccurred())
-
-			// Write to temp files and rename atomically so the watcher never
-			// sees a half-written cert/key pair.
-			tmpCert := certFile + ".tmp"
-			tmpKey := keyFile + ".tmp"
-			Expect(os.WriteFile(tmpCert, certPEM2, 0644)).To(Succeed())
-			Expect(os.WriteFile(tmpKey, keyPEM2, 0600)).To(Succeed())
-			Expect(os.Rename(tmpKey, keyFile)).To(Succeed())
-			Expect(os.Rename(tmpCert, certFile)).To(Succeed())
-
-			// Poll until the reloader picks up the new cert (debounce is 250ms).
-			Eventually(func(g Gomega) {
-				client.CloseIdleConnections()
-				r, err := client.Get("https://localhost/health")
-				g.Expect(err).NotTo(HaveOccurred())
-				defer func() { _ = r.Body.Close() }()
-				g.Expect(r.StatusCode).To(Equal(http.StatusOK))
-				g.Expect(r.TLS).NotTo(BeNil())
-				g.Expect(r.TLS.PeerCertificates[0].SerialNumber).NotTo(Equal(oldSerial))
-			}).WithTimeout(5 * time.Second).WithPolling(250 * time.Millisecond).Should(Succeed())
-		})
-
-	})
-
-	Context("request ID headers", func() {
-		testRequestIDHeader := func(enableRequestID bool, endpoint, reqBody, inputRequestID string, expectRequestID *string, validateBody func([]byte)) {
-			ctx := context.TODO()
-			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho}
-			if enableRequestID {
-				args = append(args, "--enable-request-id-headers")
-			}
-			client, err := startServerWithArgs(ctx, args)
-			Expect(err).NotTo(HaveOccurred())
-
-			req, err := http.NewRequest("POST", "http://localhost"+endpoint, strings.NewReader(reqBody))
-			Expect(err).NotTo(HaveOccurred())
-			req.Header.Set(fasthttp.HeaderContentType, "application/json")
-			if inputRequestID != "" {
-				req.Header.Set(communication.RequestIDHeader, inputRequestID)
-			}
-
-			resp, err := client.Do(req)
-			Expect(err).NotTo(HaveOccurred())
-			defer func() {
-				err := resp.Body.Close()
-				Expect(err).NotTo(HaveOccurred())
-			}()
-
-			Expect(resp.StatusCode).To(Equal(http.StatusOK))
-
-			if expectRequestID != nil {
-				actualRequestID := resp.Header.Get(communication.RequestIDHeader)
-				if *expectRequestID != "" {
-					// When a request ID is provided, it should be echoed back
-					Expect(actualRequestID).To(Equal(*expectRequestID))
-				} else {
-					// When no request ID is provided, a UUID should be generated
-					Expect(actualRequestID).NotTo(BeEmpty())
-					Expect(len(actualRequestID)).To(BeNumerically(">", 30))
-				}
-			} else {
-				// When request ID headers are disabled, the header should be empty
-				Expect(resp.Header.Get(communication.RequestIDHeader)).To(BeEmpty())
-			}
-
-			if validateBody != nil {
-				body, err := io.ReadAll(resp.Body)
-				Expect(err).NotTo(HaveOccurred())
-				validateBody(body)
-			}
-		}
-
-		DescribeTable("request ID behavior",
-			testRequestIDHeader,
-			Entry("includes X-Request-Id when enabled",
-				true,
-				"/v1/chat/completions",
-				`{"messages": [{"role": "user", "content": "Hello"}], "model": "`+common.TestModelName+`", "max_tokens": 20}`,
-				"test-request-id-123",
-				ptr("test-request-id-123"),
-				nil,
-			),
-			Entry("excludes X-Request-Id when disabled",
-				false,
-				"/v1/chat/completions",
-				`{"messages": [{"role": "user", "content": "Hello"}], "model": "`+common.TestModelName+`", "max_tokens": 20}`,
-				"test-request-id-456",
-				nil,
-				nil,
-			),
-			Entry("includes X-Request-Id in streaming response",
-				true,
-				"/v1/chat/completions",
-				`{"messages": [{"role": "user", "content": "Hello"}], "model": "`+common.TestModelName+`", "max_tokens": 20, "stream": true}`,
-				"test-streaming-789",
-				ptr("test-streaming-789"),
-				nil,
-			),
-			Entry("works with text completions endpoint",
-				true,
-				"/v1/completions",
-				`{"prompt": "Hello world", "model": "`+common.TestModelName+`", "max_tokens": 5}`,
-				"text-request-111",
-				ptr("text-request-111"),
-				nil,
-			),
-			Entry("generates UUID when no request ID provided",
-				true,
-				"/v1/chat/completions",
-				`{"messages": [{"role": "user", "content": "Hello"}], "model": "`+common.TestModelName+`", "max_tokens": 20}`,
-				"",
-				ptr(""),
-				nil,
-			),
-			Entry("uses request ID in response body ID field",
-				true,
-				"/v1/chat/completions",
-				`{"messages": [{"role": "user", "content": "Hello"}], "model": "`+common.TestModelName+`", "max_tokens": 20}`,
-				"body-test-999",
-				ptr("body-test-999"),
-				func(body []byte) {
-					var resp map[string]any
-					Expect(json.Unmarshal(body, &resp)).To(Succeed())
-					Expect(resp["id"]).To(Equal("chatcmpl-body-test-999"))
-				},
-			),
-		)
-	})
-
-}))
+})
 
 // Sleep mode is vLLM's own: it owns the /sleep, /wake_up, and /is_sleeping
 // routes, so these specs name no other engine.
