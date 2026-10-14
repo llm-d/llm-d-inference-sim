@@ -368,6 +368,41 @@ var _ = Describe("custom dataset for multiple simulators", Ordered, func() {
 	})
 })
 
+var _ = Describe("in-memory database", func() {
+	const validDBPath = ".llm-d/test.valid.sqlite3"
+	var helper *sqliteHelper
+
+	BeforeEach(func() {
+		helper = newSqliteHelper("llmd", klog.Background())
+		Expect(helper.connectToDB(validDBPath, true)).To(Succeed())
+	})
+
+	AfterEach(func() {
+		helper.closeDB()
+	})
+
+	It("should serve queries on every pooled connection", func() {
+		// holding one connection forces the next query onto another one
+		conn, err := helper.db.Conn(context.Background())
+		Expect(err).NotTo(HaveOccurred())
+		defer conn.Close() //nolint:errcheck
+
+		responses, err := helper.getRandomResponse()
+		Expect(err).NotTo(HaveOccurred())
+		Expect(responses).To(HaveLen(1))
+	})
+
+	It("should keep the data after the pool closes idle connections", func() {
+		helper.db.SetMaxIdleConns(0)
+
+		for range 2 {
+			responses, err := helper.getRandomResponse()
+			Expect(err).NotTo(HaveOccurred())
+			Expect(responses).To(HaveLen(1))
+		}
+	})
+})
+
 var _ = Describe("download custom dataset from HF", Ordered, func() {
 	// currently there is only one dataset which is too large
 	// once we will create a small sample dataset - restore this test
