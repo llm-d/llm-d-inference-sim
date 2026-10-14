@@ -300,7 +300,7 @@ func (s *Simulator) processing(ctx context.Context) {
 			}
 
 			// check if lora usage allows the request to run
-			if s.Context.isLora(reqCtx.Request().GetDisplayedModel()) && !s.Context.loadLora(reqCtx.Request().GetDisplayedModel()) {
+			if !s.Context.loadLora(requestLora(reqCtx.Request())) {
 				// free the worker
 				s.freeWorkers <- worker
 				s.Context.logger.V(logging.TRACE).Info("LoRA cannot be loaded - sending the request to the waiting queue",
@@ -441,9 +441,9 @@ func (s *Simulator) dequeue() endpoint.RequestContext {
 	// Find first request for a loaded LoRA
 	for elem := s.waitingQueue.Front(); elem != nil; elem = elem.Next() {
 		item, ok := elem.Value.(waitingQueueItem)
-		if ok && item.reqCtx != nil && s.Context.loraIsLoaded(item.reqCtx.Request().GetDisplayedModel()) {
+		if ok && item.reqCtx != nil && s.Context.loraIsLoaded(requestLora(item.reqCtx.Request())) {
 			s.waitingQueue.Remove(elem)
-			s.Context.incrementLora(item.reqCtx.Request().GetDisplayedModel())
+			s.Context.incrementLora(requestLora(item.reqCtx.Request()))
 			common.WriteToChannel(s.Context.metricsBus.RequestDequeued,
 				metrics.RequestDequeued{
 					QueueTime: time.Since(item.enqueueTime).Seconds(),
@@ -455,7 +455,7 @@ func (s *Simulator) dequeue() endpoint.RequestContext {
 	// All the requests require a LoRA that is not loaded, check if we can load a LoRA
 	for elem := s.waitingQueue.Front(); elem != nil; elem = elem.Next() {
 		item, ok := elem.Value.(waitingQueueItem)
-		if ok && item.reqCtx != nil && s.Context.loadLora(item.reqCtx.Request().GetDisplayedModel()) {
+		if ok && item.reqCtx != nil && s.Context.loadLora(requestLora(item.reqCtx.Request())) {
 			s.waitingQueue.Remove(elem)
 			common.WriteToChannel(s.Context.metricsBus.RequestDequeued,
 				metrics.RequestDequeued{

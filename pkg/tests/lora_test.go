@@ -21,6 +21,8 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"sync"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -135,4 +137,70 @@ var _ = Describe("LoRAs", func() {
 			Expect(modelsResp.Data).To(HaveLen(3))
 		})
 	})
+
+	Context("LoRA unloaded while in use", func() {
+		var openaiclient openai.Client
+
+		BeforeEach(func() {
+			client, err := startServerWithArgs(context.TODO(),
+				[]string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho,
+					"--time-to-first-token", "500ms", "--max-num-seqs", "2", "--max-loras", "1",
+					"--lora-modules", "{\"name\":\"lora1\",\"path\":\"/path/to/lora1\"}",
+					"{\"name\":\"lora2\",\"path\":\"/path/to/lora2\"}",
+					"{\"name\":\"lora3\",\"path\":\"/path/to/lora3\"}"})
+			Expect(err).NotTo(HaveOccurred())
+			openaiclient = openai.NewClient(option.WithBaseURL(baseURL), option.WithHTTPClient(client))
+		})
+
+		It("Should free the slot of a LoRA unloaded while its request runs", func() {
+			ctx := context.TODO()
+			done := make(chan error, 1)
+			go func() {
+				_, err := openaiclient.Chat.Completions.New(ctx, paramsLora1)
+				done <- err
+			}()
+			time.Sleep(100 * time.Millisecond)
+			unloadLora(ctx, openaiclient, "lora1")
+			Eventually(done, "2s").Should(Receive(BeNil()))
+
+			reqCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+			defer cancel()
+			_, err := openaiclient.Chat.Completions.New(reqCtx, paramsLora2)
+			Expect(err).NotTo(HaveOccurred())
+		})
+
+		It("Should keep max-loras for a queued request whose LoRA was unloaded", func() {
+			ctx := context.TODO()
+			var wg sync.WaitGroup
+			var finishedLora1, finishedLora2, finishedLora3 time.Time
+			send := func(params openai.ChatCompletionNewParams, finished *time.Time) {
+				defer GinkgoRecover()
+				defer wg.Done()
+				_, err := openaiclient.Chat.Completions.New(ctx, params)
+				Expect(err).NotTo(HaveOccurred())
+				*finished = time.Now()
+			}
+
+			// the lora1 request holds the only slot, so the lora2 and lora3 requests wait
+			wg.Add(3)
+			go send(paramsLora1, &finishedLora1)
+			time.Sleep(100 * time.Millisecond)
+			go send(paramsLora2, &finishedLora2)
+			time.Sleep(100 * time.Millisecond)
+			unloadLora(ctx, openaiclient, "lora2")
+			go send(paramsLora3, &finishedLora3)
+			wg.Wait()
+
+			// the lora3 request can start only after the lora2 request releases the slot
+			Expect(finishedLora3.Sub(finishedLora2)).To(BeNumerically(">=", 400*time.Millisecond))
+		})
+	})
 })
+
+func unloadLora(ctx context.Context, openaiclient openai.Client, name string) {
+	body, err := json.Marshal(map[string]string{"lora_name": name})
+	Expect(err).ToNot(HaveOccurred())
+	err = openaiclient.Post(ctx, "/unload_lora_adapter", body, nil,
+		option.WithHeader("Content-Type", "application/json"))
+	Expect(err).ToNot(HaveOccurred())
+}

@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 )
@@ -95,9 +96,19 @@ func (s *Simulator) UnloadLoraAdaptor(body []byte) error {
 	return s.Context.UnloadLoraAdaptor(body)
 }
 
+// requestLora returns the LoRA whose slot the request uses, or "" for the base
+// model. It goes by the admission-time decision rather than the registry, so a
+// LoRA unloaded mid-flight still has its slot taken and released consistently.
+func requestLora(req api.Request) string {
+	if req.IsModelLoRA() {
+		return req.GetDisplayedModel()
+	}
+	return ""
+}
+
 // Checks if the LoRA adaptor is loaded
 func (s *SimContext) loraIsLoaded(model string) bool {
-	if !s.isLora(model) {
+	if model == "" {
 		return true
 	}
 
@@ -110,7 +121,7 @@ func (s *SimContext) loraIsLoaded(model string) bool {
 
 // Load the LoRA adaptor if possible. Return false if not.
 func (s *SimContext) loadLora(model string) bool {
-	if !s.isLora(model) {
+	if model == "" {
 		return true
 	}
 
@@ -149,7 +160,7 @@ func (s *SimContext) loadLora(model string) bool {
 // (if the model is a LoRA). Can be called only for loaded LoRAs (that are
 // already in loras.loadedLoras)
 func (s *SimContext) incrementLora(model string) {
-	if !s.isLora(model) {
+	if model == "" {
 		return
 	}
 
@@ -161,7 +172,7 @@ func (s *SimContext) incrementLora(model string) {
 // decrementLora decrements the count of running requests using the model
 // (if the model is a LoRA)
 func (s *SimContext) decrementLora(model string) {
-	if model == "" || !s.isLora(model) {
+	if model == "" {
 		return
 	}
 
