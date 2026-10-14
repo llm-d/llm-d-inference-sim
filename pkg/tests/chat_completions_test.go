@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
@@ -147,8 +148,12 @@ var _ = Describe("Simulator", forEachEngine(func() {
 	})
 
 	DescribeTable("rejects invalid min_tokens",
-		func(args []string, minTokens int, maxCompletionTokens int, expectedMessage string) {
+		func(minTokens int, maxCompletionTokens int, contextWindow int, expectedMessage string) {
 			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom}
+			if contextWindow > 0 {
+				args = append(args, engineFlag(common.FieldContextWindow), strconv.Itoa(contextWindow))
+			}
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
@@ -163,12 +168,9 @@ var _ = Describe("Simulator", forEachEngine(func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(string(body)).To(ContainSubstring(expectedMessage))
 		},
-		Entry("negative minimum", []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom}, -1, 20,
-			"min_tokens must be greater than or equal to 0"),
-		Entry("minimum above requested maximum", []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom}, 21, 20,
-			"min_tokens must be less than or equal to max_tokens=20"),
-		Entry("minimum above context-clamped maximum", []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom, "--max-model-len", "100"}, 100, 1000,
-			"min_tokens must be less than or equal to max_tokens="),
+		Entry("negative minimum", -1, 20, 0, "min_tokens must be greater than or equal to 0"),
+		Entry("minimum above requested maximum", 21, 20, 0, "min_tokens must be less than or equal to max_tokens=20"),
+		Entry("minimum above context-clamped maximum", 100, 1000, 100, "min_tokens must be less than or equal to max_tokens="),
 	)
 
 	It("does not alter echo responses for a valid min_tokens", func() {
