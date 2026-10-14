@@ -236,7 +236,7 @@ var _ = Describe("Echo Dataset", Ordered, func() {
 			Expect(tokens.Strings).Should(Equal(theTextStrTokens))
 			Expect(finishReason).Should(Equal(common.StopFinishReason))
 		})
-		It("should return the same text, finish reason is length", func() {
+		It("should truncate to max tokens and set finish reason to length", func() {
 			maxTokens := int64(2)
 			req := &api.TextCompletionsRequest{Prompt: api.PromptInput{Text: theText}}
 			req.MaxTokens = &maxTokens
@@ -246,7 +246,8 @@ var _ = Describe("Echo Dataset", Ordered, func() {
 
 			tokens, finishReason, err := dataset.GetResponseTokens(req)
 			Expect(err).ShouldNot(HaveOccurred())
-			Expect(tokens.Strings).Should(Equal(theTextStrTokens))
+			Expect(tokens.Tokens).Should(Equal(theTextTokens[:2]))
+			Expect(tokens.Strings).Should(Equal(theTextStrTokens[:2]))
 			Expect(finishReason).Should(Equal(common.LengthFinishReason))
 		})
 		It("should return the last message in chat completion", func() {
@@ -293,7 +294,11 @@ var _ = Describe("Echo Dataset", Ordered, func() {
 			tokens, finishReason, err := dataset.GetResponseTokens(req)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(finishReason).To(Equal(expectedFinishReason))
-			Expect(tokens.Strings).To(Equal(promptStrTokens))
+			expectedStrings := promptStrTokens
+			if maxTokens != nil && int(*maxTokens) < len(promptTokens) {
+				expectedStrings = promptStrTokens[:int(*maxTokens)]
+			}
+			Expect(tokens.Strings).To(Equal(expectedStrings))
 		},
 		func(maxTokens *int64, ignoreEos bool, isChat bool, expectedFinishReason string) string {
 			return fmt.Sprintf("maxTokens: %s, ignoreEos: %t, isChat: %t, expectedFinishReason: %s", maxTokensToStr(maxTokens), ignoreEos, isChat, expectedFinishReason)

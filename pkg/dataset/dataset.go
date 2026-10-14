@@ -54,11 +54,18 @@ type EchoDataset struct{}
 // GetResponseTokens returns response tokens when simulator is in echo mode
 // for /completion request the prompt is returned
 // for /chat/completion request the last user message is returned (if there is no user messages, last message is used)
-// if max-tokens is defined in the request and response's length is >= it value, finish reason is set to LENGTH,
-// otherwise finish reason is STOP
+// the response is truncated to the first max_tokens tokens if the request defines
+// max_tokens and the echo is longer than it
+// if the response is truncated, finish reason is set to LENGTH, otherwise finish reason is STOP
 func (ed *EchoDataset) GetResponseTokens(req api.Request) (*api.Tokenized, string, error) {
 	tokens := req.TokenizedPromptForEcho()
 	maxTokens := req.GetMaxCompletionTokens()
+
+	if maxTokens != nil && int(*maxTokens) < tokens.Length() {
+		n := int(*maxTokens)
+		tokens = &api.Tokenized{Tokens: tokens.Tokens[:n], Strings: tokens.Strings[:n]}
+	}
+
 	return tokens, common.FinishReason(maxTokens, tokens.Length()), nil
 }
 

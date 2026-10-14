@@ -174,8 +174,15 @@ var _ = Describe("Simulator", forEachEngine(func() {
 			Expect(msg).ShouldNot(BeEmpty())
 
 			if mode == common.ModeEcho {
-				// in case of echo mode check that the text is returned as-is
-				Expect(msg).Should(Equal(testUserMessage))
+				if numTokens > 0 && int64(numTokens) < userMsgChatTokens {
+					// the echo is longer than max_tokens, so it is truncated to it
+					Expect(resp.Usage.CompletionTokens).To(Equal(int64(numTokens)))
+					Expect(msg).ShouldNot(Equal(testUserMessage))
+					Expect(rawResp["choices"].([]any)[0].(map[string]any)["finish_reason"]).To(Equal(common.LengthFinishReason))
+				} else {
+					// in case of echo mode check that the text is returned as-is
+					Expect(msg).Should(Equal(testUserMessage))
+				}
 			} else {
 				if numTokens > 0 {
 					_, tokens, err := server.Context.Tokenizer.RenderText(msg)

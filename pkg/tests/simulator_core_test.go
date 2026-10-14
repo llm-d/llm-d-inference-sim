@@ -359,7 +359,7 @@ var _ = Describe("Simulator core", forEachEngine(func() {
 			Expect(string(body)).To(ContainSubstring("BadRequestError"))
 		})
 
-		It("Should succeed in echo mode even when max_tokens is smaller than the prompt", func() {
+		It("Should truncate the echo response to max_tokens when the prompt is longer", func() {
 			ctx := context.TODO()
 			model := common.TestModelName
 			prompt := contextWindowTestPrompt
@@ -385,7 +385,13 @@ var _ = Describe("Simulator core", forEachEngine(func() {
 			Expect(err).NotTo(HaveOccurred())
 
 			Expect(resp.StatusCode).To(Equal(200))
-			Expect(string(body)).To(ContainSubstring(prompt))
+
+			var chatResp api.ChatCompletionsResponse
+			Expect(json.Unmarshal(body, &chatResp)).To(Succeed())
+			Expect(chatResp.Choices).To(HaveLen(1))
+			Expect(*chatResp.Choices[0].FinishReason).To(Equal(common.LengthFinishReason))
+			Expect(chatResp.Usage.CompletionTokens).To(Equal(1))
+			Expect(string(body)).NotTo(ContainSubstring(prompt))
 		})
 
 		It("Should handle text completion requests exceeding context window", func() {
