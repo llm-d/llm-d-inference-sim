@@ -176,8 +176,40 @@ func (s *sqliteHelper) copyIntoMemory(path string) error {
 		return fmt.Errorf("failed to copy data: %w", err)
 	}
 
+	if err := s.copyIndexes(ctx, conn); err != nil {
+		s.logger.Error(err, "failed to copy indexes, in-memory lookups will scan the whole table")
+	}
+
 	if _, err := conn.ExecContext(ctx, "DETACH DATABASE source"); err != nil {
 		s.logger.Error(err, "failed to detach source database")
+	}
+	return nil
+}
+
+// copyIndexes recreates the indexes of the attached source table in the in-memory database,
+// since INSERT ... SELECT copies only the rows
+func (s *sqliteHelper) copyIndexes(ctx context.Context, conn *sql.Conn) error {
+	rows, err := conn.QueryContext(ctx,
+		"SELECT sql FROM source.sqlite_master WHERE type = 'index' AND tbl_name = ? AND sql IS NOT NULL", s.tableName)
+	if err != nil {
+		return fmt.Errorf("failed to read source indexes: %w", err)
+	}
+	var statements []string
+	for rows.Next() {
+		var statement string
+		if err := rows.Scan(&statement); err != nil {
+			return errors.Join(fmt.Errorf("failed to read source index: %w", err), rows.Close())
+		}
+		statements = append(statements, statement)
+	}
+	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+		return fmt.Errorf("failed to read source indexes: %w", err)
+	}
+
+	for _, statement := range statements {
+		if _, err := conn.ExecContext(ctx, statement); err != nil {
+			return fmt.Errorf("failed to create index (%s): %w", statement, err)
+		}
 	}
 	return nil
 }
