@@ -104,6 +104,77 @@ var _ = Describe("Default Dataset", Ordered, func() {
 			}
 		})
 
+		It("should return text within min_tokens and max_completion_tokens", func() {
+			minTokens := int64(6)
+			maxCompletionTokens := int64(20)
+			req := &api.ChatCompletionsRequest{
+				MinTokens:           &minTokens,
+				MaxCompletionTokens: &maxCompletionTokens,
+			}
+			req.SetTokenizedPrompt(&api.Tokenized{})
+
+			tokens, finishReason, err := dataset.GetResponseTokens(req)
+
+			Expect(err).NotTo(HaveOccurred())
+			Expect(tokens.Length()).To(BeNumerically(">=", minTokens))
+			Expect(tokens.Length()).To(BeNumerically("<=", maxCompletionTokens))
+			if tokens.Length() == int(maxCompletionTokens) {
+				Expect(finishReason).To(Equal(common.LengthFinishReason))
+			} else {
+				Expect(finishReason).To(Equal(common.StopFinishReason))
+			}
+		})
+
+		It("should treat min_tokens 0 as the default one-token lower bound", func() {
+			minTokens := int64(0)
+			maxCompletionTokens := int64(5)
+			req := &api.ChatCompletionsRequest{
+				MinTokens:           &minTokens,
+				MaxCompletionTokens: &maxCompletionTokens,
+			}
+			req.SetTokenizedPrompt(&api.Tokenized{})
+
+			tokens, finishReason, err := dataset.GetResponseTokens(req)
+
+			Expect(err).NotTo(HaveOccurred())
+			Expect(tokens.Length()).To(BeNumerically(">=", 1))
+			Expect(tokens.Length()).To(BeNumerically("<=", maxCompletionTokens))
+			if tokens.Length() == int(maxCompletionTokens) {
+				Expect(finishReason).To(Equal(common.LengthFinishReason))
+			} else {
+				Expect(finishReason).To(Equal(common.StopFinishReason))
+			}
+		})
+
+		It("should use length finish reason when min_tokens equals the maximum", func() {
+			minTokens := int64(8)
+			maxCompletionTokens := int64(8)
+			req := &api.ChatCompletionsRequest{
+				MinTokens:           &minTokens,
+				MaxCompletionTokens: &maxCompletionTokens,
+			}
+			req.SetTokenizedPrompt(&api.Tokenized{})
+
+			tokens, finishReason, err := dataset.GetResponseTokens(req)
+
+			Expect(err).NotTo(HaveOccurred())
+			Expect(tokens.Length()).To(Equal(int(minTokens)))
+			Expect(finishReason).To(Equal(common.LengthFinishReason))
+		})
+
+		It("should return text of at least min_tokens far above the default mean when max tokens is not set", func(ctx SpecContext) {
+			minTokens := int64(200)
+			req := &api.ChatCompletionsRequest{MinTokens: &minTokens}
+			req.SetTokenizedPrompt(&api.Tokenized{})
+
+			for range 100 {
+				tokens, _, err := dataset.GetResponseTokens(req)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(tokens.Length()).To(BeNumerically(">=", minTokens))
+				Expect(tokens.Length()).To(BeNumerically("<=", maxModelLength))
+			}
+		}, SpecTimeout(10*time.Second))
+
 		DescribeTable("should return exact num of tokens",
 			func(maxCompletionTokens int) {
 				n := int64(maxCompletionTokens)
@@ -197,10 +268,12 @@ var _ = Describe("Echo Dataset", Ordered, func() {
 	BeforeAll(func() {
 		testPrompt = "Hello world!"
 		dataset = EchoDataset{}
+		err := dataset.Init(context.Background(), log.FromContext(context.Background()),
+			common.NewRandom(time.Now().UnixNano(), 8080), maxModelLength, tokenizerMngr.TestTokenizer())
+		Expect(err).NotTo(HaveOccurred())
 		maxTokens = int64(20)
 		smallMaxTokens = int64(2)
 
-		var err error
 		promptTokens, promptStrTokens, err = tokenizerMngr.TestTokenizer().RenderText(testPrompt)
 		Expect(err).NotTo(HaveOccurred())
 
@@ -236,7 +309,7 @@ var _ = Describe("Echo Dataset", Ordered, func() {
 			Expect(tokens.Strings).Should(Equal(theTextStrTokens))
 			Expect(finishReason).Should(Equal(common.StopFinishReason))
 		})
-		It("should return the same text, finish reason is length", func() {
+		It("should truncate to max tokens and set finish reason to length", func() {
 			maxTokens := int64(2)
 			req := &api.TextCompletionsRequest{Prompt: api.PromptInput{Text: theText}}
 			req.MaxTokens = &maxTokens
@@ -246,7 +319,8 @@ var _ = Describe("Echo Dataset", Ordered, func() {
 
 			tokens, finishReason, err := dataset.GetResponseTokens(req)
 			Expect(err).ShouldNot(HaveOccurred())
-			Expect(tokens.Strings).Should(Equal(theTextStrTokens))
+			Expect(tokens.Tokens).Should(Equal(theTextTokens[:2]))
+			Expect(tokens.Strings).Should(Equal(theTextStrTokens[:2]))
 			Expect(finishReason).Should(Equal(common.LengthFinishReason))
 		})
 		It("should return the last message in chat completion", func() {
@@ -269,6 +343,65 @@ var _ = Describe("Echo Dataset", Ordered, func() {
 			Expect(err).ShouldNot(HaveOccurred())
 
 			Expect(tokens.Strings).Should(Equal(resptStrTokens))
+		})
+		It("should pad the last message to min tokens in chat completion", func() {
+			minTokens := int64(20)
+			req := &api.ChatCompletionsRequest{
+				Messages:  []api.Message{{Role: api.RoleUser, Content: api.ChatComplContent{Raw: testPrompt}}},
+				MinTokens: &minTokens,
+			}
+			req.SetTokenizedPrompt(&api.Tokenized{Tokens: promptTokens, Strings: promptStrTokens})
+			req.SetTokenizedPromptForEcho(&api.Tokenized{Tokens: promptTokens, Strings: promptStrTokens})
+
+			tokens, finishReason, err := dataset.GetResponseTokens(req)
+			Expect(err).ShouldNot(HaveOccurred())
+			Expect(finishReason).Should(Equal(common.StopFinishReason))
+			Expect(tokens.Tokens).To(HaveLen(int(minTokens)))
+			Expect(tokens.Strings).To(HaveLen(int(minTokens)))
+			Expect(tokens.Strings[:len(promptStrTokens)]).To(Equal(promptStrTokens))
+			Expect(IsValidText(strings.Join(tokens.Strings[len(promptStrTokens):], ""))).To(BeTrue())
+		})
+		DescribeTable("should truncate to the room left in the context window and set finish reason to length",
+			func(maxTokens *int64) {
+				remaining := 3
+				smallDataset := EchoDataset{}
+				err := smallDataset.Init(context.Background(), log.FromContext(context.Background()),
+					common.NewRandom(time.Now().UnixNano(), 8080), len(theTextTokens)+remaining, tokenizerMngr.TestTokenizer())
+				Expect(err).NotTo(HaveOccurred())
+
+				req := &api.TextCompletionsRequest{Prompt: api.PromptInput{Text: theText}}
+				req.MaxTokens = maxTokens
+				promptTokenized := api.Tokenized{Tokens: theTextTokens, Strings: theTextStrTokens}
+				req.SetTokenizedPrompt(&promptTokenized)
+				req.SetTokenizedPromptForEcho(&promptTokenized)
+
+				tokens, finishReason, err := smallDataset.GetResponseTokens(req)
+				Expect(err).ShouldNot(HaveOccurred())
+				Expect(tokens.Tokens).Should(Equal(theTextTokens[:remaining]))
+				Expect(tokens.Strings).Should(Equal(theTextStrTokens[:remaining]))
+				Expect(finishReason).Should(Equal(common.LengthFinishReason))
+			},
+			Entry("max tokens is not defined", nil),
+			Entry("max tokens is higher than the room left", new(int64(1000))),
+		)
+		It("should pad to the room left in the context window with ignore_eos and max tokens higher than it", func() {
+			remaining := len(promptTokens) + 5
+			smallDataset := EchoDataset{}
+			err := smallDataset.Init(context.Background(), log.FromContext(context.Background()),
+				common.NewRandom(time.Now().UnixNano(), 8080), len(promptTokens)+remaining, tokenizerMngr.TestTokenizer())
+			Expect(err).NotTo(HaveOccurred())
+
+			req := &api.TextCompletionsRequest{Prompt: api.PromptInput{Text: testPrompt}}
+			req.MaxTokens = new(int64(1000))
+			req.IgnoreEOS = true
+			req.SetTokenizedPrompt(&api.Tokenized{Tokens: promptTokens, Strings: promptStrTokens})
+			req.SetTokenizedPromptForEcho(&api.Tokenized{Tokens: promptTokens, Strings: promptStrTokens})
+
+			tokens, finishReason, err := smallDataset.GetResponseTokens(req)
+			Expect(err).ShouldNot(HaveOccurred())
+			Expect(tokens.Tokens).To(HaveLen(remaining))
+			Expect(tokens.Strings[:len(promptStrTokens)]).To(Equal(promptStrTokens))
+			Expect(finishReason).Should(Equal(common.LengthFinishReason))
 		})
 	})
 
@@ -293,18 +426,30 @@ var _ = Describe("Echo Dataset", Ordered, func() {
 			tokens, finishReason, err := dataset.GetResponseTokens(req)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(finishReason).To(Equal(expectedFinishReason))
-			Expect(tokens.Strings).To(Equal(promptStrTokens))
+			switch {
+			case maxTokens != nil && int(*maxTokens) < len(promptTokens):
+				Expect(tokens.Strings).To(Equal(promptStrTokens[:int(*maxTokens)]))
+			case maxTokens != nil && ignoreEos:
+				Expect(tokens.Tokens).To(HaveLen(int(*maxTokens)))
+				Expect(tokens.Strings).To(HaveLen(int(*maxTokens)))
+				Expect(tokens.Strings[:len(promptStrTokens)]).To(Equal(promptStrTokens))
+				padding := strings.Join(tokens.Strings[len(promptStrTokens):], "")
+				Expect(IsValidText(padding)).To(BeTrue())
+			default:
+				Expect(tokens.Strings).To(Equal(promptStrTokens))
+			}
 		},
 		func(maxTokens *int64, ignoreEos bool, isChat bool, expectedFinishReason string) string {
 			return fmt.Sprintf("maxTokens: %s, ignoreEos: %t, isChat: %t, expectedFinishReason: %s", maxTokensToStr(maxTokens), ignoreEos, isChat, expectedFinishReason)
 		},
 		Entry(nil, nil, false, false, common.StopFinishReason),
 		Entry(nil, &maxTokens, false, false, common.StopFinishReason),
-		Entry(nil, &maxTokens, true, false, common.StopFinishReason),
+		Entry(nil, &maxTokens, true, false, common.LengthFinishReason),
 		Entry(nil, nil, false, true, common.StopFinishReason),
 		Entry(nil, &maxTokens, false, true, common.StopFinishReason),
-		Entry(nil, &maxTokens, true, true, common.StopFinishReason),
+		Entry(nil, &maxTokens, true, true, common.LengthFinishReason),
 		Entry(nil, &smallMaxTokens, false, false, common.LengthFinishReason),
+		Entry(nil, &smallMaxTokens, true, false, common.LengthFinishReason),
 	)
 
 })
@@ -346,4 +491,22 @@ var _ = Describe("cumulativeBucketsProbabilities", Ordered, func() {
 		Entry(nil, 47, []bucketBoundaries{{1, 9}, {10, 18}, {19, 27}, {28, 36}, {37, 46}}),
 		Entry(nil, 50, []bucketBoundaries{{1, 9}, {10, 19}, {20, 29}, {30, 39}, {40, 49}}),
 	)
+
+	It("samples histogram response lengths within the requested bounds", func() {
+		for range 100 {
+			responseLen := dataset.histogramHelper.getResponseLengthByHistogramInRange(6, 20)
+			Expect(responseLen).To(BeNumerically(">=", 6))
+			Expect(responseLen).To(BeNumerically("<=", 20))
+		}
+	})
+
+	It("builds buckets within the requested bounds", func() {
+		expectedBuckets := []bucketBoundaries{{6, 7}, {8, 10}, {11, 13}, {14, 16}, {17, 19}}
+
+		for i := range expectedBuckets {
+			start, end := dataset.histogramHelper.calcBucketBoundariesInRange(6, 20, i)
+			Expect(start).To(Equal(expectedBuckets[i].start))
+			Expect(end).To(Equal(expectedBuckets[i].end))
+		}
+	})
 })

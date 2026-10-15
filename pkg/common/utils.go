@@ -42,15 +42,25 @@ var TPOTBucketsBoundaries = []float64{0.01, 0.025, 0.05, 0.075, 0.1, 0.15, 0.2, 
 var RequestLatencyBucketsBoundaries = []float64{0.3, 0.5, 0.8, 1.0, 1.5, 2.0, 2.5, 5.0, 10.0, 15.0,
 	20.0, 30.0, 40.0, 50.0, 60.0, 120.0, 240.0, 480.0, 960.0, 1920.0, 7680.0}
 
-// ValidateContextWindow checks if the request fits within the model's context window.
-// In random mode, max-tokens is not considered - the prompt just needs room for at
-// least one response token. In echo mode, the prompt is echoed back as the response,
-// so it must fit twice within the context window.
-func ValidateContextWindow(promptTokens int, maxModelLen int, mode string) bool {
-	if mode == ModeEcho {
-		return promptTokens*2 <= maxModelLen
-	}
+// ValidateContextWindow checks if the prompt leaves room for at least one response token within
+// the model's context window. max-tokens is not considered, the response is limited to the remaining room.
+func ValidateContextWindow(promptTokens int, maxModelLen int) bool {
 	return promptTokens+1 <= maxModelLen
+}
+
+// EchoResponseLen returns the number of tokens in an echo mode response for an echoed text of echoLen tokens.
+// maxLen is max tokens capped by the room left in the context window.
+// The echoed text is truncated to maxLen if it is longer, padded up to maxLen if it is shorter
+// and padToMax is set, and padded up to min tokens if it is still shorter.
+func EchoResponseLen(echoLen int, minTokens *int64, maxLen int, padToMax bool) int {
+	respLen := echoLen
+	if maxLen < echoLen || padToMax {
+		respLen = maxLen
+	}
+	if minTokens != nil && int(*minTokens) > respLen {
+		respLen = int(*minTokens)
+	}
+	return respLen
 }
 
 type Random struct {

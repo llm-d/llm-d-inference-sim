@@ -262,3 +262,113 @@ var _ = Describe("HandleRequest", func() {
 		Expect(err.Message).To(ContainSubstring("invalid gen_tokens"))
 	})
 })
+
+var _ = Describe("baseRequestContext.validateTokenizedRequest", func() {
+	It("rejects min_tokens above the context-clamped response maximum in random mode", func() {
+		minTokens := int64(6)
+		maxTokens := int64(20)
+		req := &ChatCompletionsRequest{
+			ChatCompletionsRequest: api.ChatCompletionsRequest{
+				MinTokens:           &minTokens,
+				MaxCompletionTokens: &maxTokens,
+			},
+		}
+		req.SetTokenizedPrompt(&api.Tokenized{Tokens: make([]uint32, 95)})
+
+		runtime := &fakeRuntime{config: &common.Configuration{
+			Mode:        common.ModeRandom,
+			MaxModelLen: 100,
+		}}
+		reqCtx := &chatCompletionReqCtx{
+			baseRequestContext: baseRequestContext{runtime: runtime},
+			req:                req,
+		}
+		reqCtx.RequestContext = reqCtx
+
+		message, statusCode := reqCtx.validateTokenizedRequest()
+
+		Expect(statusCode).To(Equal(400))
+		Expect(message).To(ContainSubstring("min_tokens"))
+	})
+
+	It("rejects min_tokens above the default max when max_tokens is omitted", func() {
+		minTokens := int64(6)
+		req := &ChatCompletionsRequest{
+			ChatCompletionsRequest: api.ChatCompletionsRequest{
+				MinTokens: &minTokens,
+			},
+		}
+		req.SetTokenizedPrompt(&api.Tokenized{Tokens: make([]uint32, 95)})
+
+		runtime := &fakeRuntime{config: &common.Configuration{
+			Mode:        common.ModeRandom,
+			MaxModelLen: 100,
+		}}
+		reqCtx := &chatCompletionReqCtx{
+			baseRequestContext: baseRequestContext{runtime: runtime},
+			req:                req,
+		}
+		reqCtx.RequestContext = reqCtx
+
+		message, statusCode := reqCtx.validateTokenizedRequest()
+
+		Expect(statusCode).To(Equal(400))
+		Expect(message).To(ContainSubstring("min_tokens must be less than or equal to max_tokens=5"))
+	})
+
+	DescribeTable("in echo mode",
+		func(promptLen int, echoLen int, minTokens *int64, maxTokens *int64, ignoreEOS bool, maxModelLen int,
+			expectedMessage string) {
+			req := &ChatCompletionsRequest{
+				ChatCompletionsRequest: api.ChatCompletionsRequest{MinTokens: minTokens, MaxTokens: maxTokens},
+			}
+			req.IgnoreEOS = ignoreEOS
+			req.SetTokenizedPrompt(&api.Tokenized{Tokens: make([]uint32, promptLen)})
+			req.SetTokenizedPromptForEcho(&api.Tokenized{Tokens: make([]uint32, echoLen)})
+
+			runtime := &fakeRuntime{config: &common.Configuration{
+				Mode:        common.ModeEcho,
+				MaxModelLen: maxModelLen,
+			}}
+			reqCtx := &chatCompletionReqCtx{
+				baseRequestContext: baseRequestContext{runtime: runtime},
+				req:                req,
+			}
+			reqCtx.RequestContext = reqCtx
+
+			message, statusCode := reqCtx.validateTokenizedRequest()
+
+			if expectedMessage == "" {
+				Expect(statusCode).To(Equal(200))
+				Expect(message).To(BeEmpty())
+			} else {
+				Expect(statusCode).To(Equal(400))
+				Expect(message).To(ContainSubstring(expectedMessage))
+			}
+		},
+		Entry("accepts min_tokens within the echo length", 50, 10, new(int64(10)), nil, false, 100, ""),
+		Entry("accepts min_tokens above the echo length", 5, 5, new(int64(20)), nil, false, 100, ""),
+		Entry("rejects min_tokens above max_tokens", 50, 10, new(int64(5)), new(int64(4)), false, 100,
+			"min_tokens must be less than or equal to max_tokens=4, got 5."),
+		Entry("rejects min_tokens above the room left in the context window", 50, 10, new(int64(60)), nil, false, 100,
+			"min_tokens must be less than or equal to max_tokens=50, got 60."),
+		Entry("accepts min_tokens above the echo length when the echo is padded to max_tokens", 50, 3, new(int64(10)), new(int64(20)), true, 100, ""),
+		Entry("accepts an echo response that does not fit in the context window", 50, 50, nil, nil, false, 51, ""),
+		Entry("accepts an echo padded to max_tokens that does not fit in the context window", 50, 10, nil, new(int64(20)), true, 60, ""),
+		Entry("rejects a prompt that fills the context window", 50, 10, nil, nil, false, 50,
+			"This model's maximum context length is 50 tokens. However, you requested 50 tokens in the messages."),
+	)
+})
+
+var _ = Describe("validateRequest", func() {
+	It("accepts min_tokens set to zero", func() {
+		minTokens := int64(0)
+		maxTokens := int64(20)
+		req := &api.ChatCompletionsRequest{
+			MinTokens:           &minTokens,
+			MaxCompletionTokens: &maxTokens,
+		}
+
+		Expect(validateRequest(req)).To(BeNil())
+	})
+})

@@ -17,17 +17,22 @@ limitations under the License.
 package dataset
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-logr/logr"
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
+	"github.com/ncruces/go-sqlite3/vfs/memdb"
 )
 
 // use constants for expected column names and types
@@ -42,10 +47,15 @@ const (
 	nGenTokensColType = "INTEGER"
 )
 
+// memDBSeq makes the name of each in-memory database unique within the process
+var memDBSeq atomic.Uint64
+
 type sqliteHelper struct {
 	logger    logr.Logger
 	db        *sql.DB
 	tableName string
+	// memDBName is the memdb database holding the in-memory copy, empty for a file-based database
+	memDBName string
 }
 
 func newSqliteHelper(tableName string, logger logr.Logger) *sqliteHelper {
@@ -56,13 +66,7 @@ func newSqliteHelper(tableName string, logger logr.Logger) *sqliteHelper {
 }
 
 func (s *sqliteHelper) connectToDB(path string, useInMemory bool) error {
-	if s.db != nil {
-		err := s.db.Close()
-		if err != nil {
-			s.logger.Error(err, "failed to close existing database connection")
-		}
-		s.db = nil
-	}
+	s.closeDB()
 	// check if file exists
 	_, err := os.Stat(path)
 	if err != nil {
@@ -94,12 +98,14 @@ func (s *sqliteHelper) connectToDB(path string, useInMemory bool) error {
 
 	err = s.verifyDB()
 	if err != nil {
+		s.closeDB()
 		return fmt.Errorf("failed to verify database: %w", err)
 	}
 
 	count, err := s.getRecordsCount()
 	if err != nil {
 		s.logger.Error(err, "failed to get records count")
+		s.closeDB()
 		return fmt.Errorf("failed to query database: %w", err)
 	}
 
@@ -115,53 +121,79 @@ func (s *sqliteHelper) loadDatabaseInMemory(path string) error {
 	s.logger.V(logging.INFO).Info("Loading database into memory...")
 	start := time.Now()
 
-	// Create in-memory database
-	var err error
-	s.db, err = sql.Open("sqlite3", ":memory:")
+	absPath, err := filepath.Abs(path)
 	if err != nil {
+		return fmt.Errorf("failed to resolve database path: %w", err)
+	}
+
+	// Every pooled connection that opens ":memory:" gets its own empty database,
+	// while a memdb database named "/<name>" is shared by all of them. memdb also
+	// keeps the data outside SQLite's per-connection memory limit (256 MB).
+	// memdb.Create holds a reference, so the data survives the pool closing idle connections.
+	s.memDBName = fmt.Sprintf("llmd-dataset-%d", memDBSeq.Add(1))
+	memdb.Create(s.memDBName, nil)
+	s.db, err = sql.Open("sqlite3", "file:/"+s.memDBName+"?vfs=memdb")
+	if err != nil {
+		s.closeDB()
 		return fmt.Errorf("failed to create in-memory database: %w", err)
 	}
 
-	// Use ATTACH to copy the database
-	attachSQL := fmt.Sprintf("ATTACH DATABASE '%s' AS source", path)
-	_, err = s.db.Exec(attachSQL)
-	if err != nil {
-		if closeErr := s.db.Close(); closeErr != nil {
-			s.logger.Error(closeErr, "failed to close in-memory database after attach failure")
-		}
-		s.db = nil
-		return fmt.Errorf("failed to attach source database: %w", err)
-	}
-
-	// Copy the table structure first
-	_, err = s.db.Exec(s.getCreateTableQuery())
-	if err != nil {
-		if closeErr := s.db.Close(); closeErr != nil {
-			s.logger.Error(closeErr, "failed to close in-memory database after create table failure")
-		}
-		s.db = nil
-		return fmt.Errorf("failed to create table: %w", err)
-	}
-
-	// Copy the data
-	_, err = s.db.Exec("INSERT INTO " + s.tableName + " SELECT * FROM source." + s.tableName)
-	if err != nil {
-		if closeErr := s.db.Close(); closeErr != nil {
-			s.logger.Error(closeErr, "failed to close in-memory database after copy failure")
-		}
-		s.db = nil
-		return fmt.Errorf("failed to copy data: %w", err)
-	}
-
-	// Detach the source database
-	_, err = s.db.Exec("DETACH DATABASE source")
-	if err != nil {
-		s.logger.Error(err, "failed to detach source database")
+	if err := s.copyIntoMemory(absPath); err != nil {
+		s.closeDB()
+		return err
 	}
 
 	loadTime := time.Since(start)
 	s.logger.V(logging.INFO).Info("Database loaded into memory", "load_time", loadTime.String())
 	return nil
+}
+
+// copyIntoMemory copies the dataset table from the file at path into the in-memory database.
+// ATTACH applies only to the connection that runs it, so the copy runs on a single connection.
+func (s *sqliteHelper) copyIntoMemory(path string) error {
+	ctx := context.Background()
+	conn, err := s.db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get in-memory database connection: %w", err)
+	}
+	defer func() {
+		if cerr := conn.Close(); cerr != nil {
+			s.logger.Error(cerr, "failed to release in-memory database connection")
+		}
+	}()
+
+	// vfs=os reads the file from disk; without it the name resolves through memdb to a new, empty database
+	source := "file:" + (&url.URL{Path: path}).EscapedPath() + "?vfs=os&mode=ro"
+	if _, err := conn.ExecContext(ctx, "ATTACH DATABASE ? AS source", source); err != nil {
+		return fmt.Errorf("failed to attach source database: %w", err)
+	}
+
+	if _, err := conn.ExecContext(ctx, s.getCreateTableQuery()); err != nil {
+		return fmt.Errorf("failed to create table: %w", err)
+	}
+
+	if _, err := conn.ExecContext(ctx, "INSERT INTO "+s.tableName+" SELECT * FROM source."+s.tableName); err != nil {
+		return fmt.Errorf("failed to copy data: %w", err)
+	}
+
+	if _, err := conn.ExecContext(ctx, "DETACH DATABASE source"); err != nil {
+		s.logger.Error(err, "failed to detach source database")
+	}
+	return nil
+}
+
+// closeDB closes the database and releases its in-memory copy, if any
+func (s *sqliteHelper) closeDB() {
+	if s.db != nil {
+		if err := s.db.Close(); err != nil {
+			s.logger.Error(err, "failed to close database")
+		}
+		s.db = nil
+	}
+	if s.memDBName != "" {
+		memdb.Delete(s.memDBName)
+		s.memDBName = ""
+	}
 }
 
 func (s *sqliteHelper) verifyDB() error {

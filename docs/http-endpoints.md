@@ -35,6 +35,7 @@ Structure of requests/responses
               - index
         - max_tokens
         - max_completion_tokens
+        - min_tokens
         - tools 
           - type
           - function
