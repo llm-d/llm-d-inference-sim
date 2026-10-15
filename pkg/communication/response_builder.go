@@ -517,6 +517,7 @@ func (respBuilder *responsesHTTPRespBuilder) createResponse(respCtxPerChoice []e
 		output = []api.OutputItem{
 			api.MessageOutput{
 				Type:    api.ResponsesOutputMessage,
+				ID:      api.ResponsesMessageIDPrefix + respCtx.RequestID(),
 				Role:    api.RoleAssistant,
 				Status:  api.ResponsesStatusCompleted,
 				Content: []api.OutputContent{outputContent},
