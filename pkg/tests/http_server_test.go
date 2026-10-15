@@ -40,7 +40,6 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/communication"
-	"github.com/llm-d/llm-d-inference-sim/pkg/endpoint"
 	"github.com/llm-d/llm-d-inference-sim/pkg/engine"
 	"github.com/llm-d/llm-d-inference-sim/pkg/kvcache"
 	"github.com/llm-d/llm-d-inference-sim/pkg/simulator"
@@ -1058,12 +1057,14 @@ func TestDecisionAPI(t *testing.T) {
 		sim, client := startDecisionTestServer(t, "vllm", "--enable-kvcache", "--block-size", "8", "--zmq-endpoint", "")
 		body := `{"model":"` + common.TestModelName + `","input":"` + strings.Repeat("word ", 32) + `","questions":[
 			{"type":"predicate","instructions":"first question"},{"type":"predicate","instructions":"second question"}]}`
-		parsed := &endpoint.DecisionRequest{Protocol: endpoint.DecisionsProtocol}
-		g.Expect(parsed.Unmarshal([]byte(body))).To(Succeed())
-		g.Expect(parsed.Validate(nil)).To(BeNil())
+		var parsed struct {
+			Input     string            `json:"input"`
+			Questions []json.RawMessage `json:"questions"`
+		}
+		g.Expect(json.Unmarshal([]byte(body), &parsed)).To(Succeed())
 		expected := 0
-		for _, part := range parsed.Split() {
-			tokens, _, err := sim.Context.Tokenizer.RenderText(part.(*endpoint.DecisionRequest).Prompt.Text)
+		for _, question := range parsed.Questions {
+			tokens, _, err := sim.Context.Tokenizer.RenderText(parsed.Input + "\n" + string(question))
 			g.Expect(err).NotTo(HaveOccurred())
 			expected += len(tokens) / 8 * 8
 		}
@@ -1106,6 +1107,41 @@ func TestDecisionAPI(t *testing.T) {
 		resp, _, _ := postDecisionRequest(t, client, "/v1/systemone", systemOneBody, nil)
 		g.Expect(resp.StatusCode).To(Equal(http.StatusTooManyRequests))
 		g.Eventually(sim.OpenRequests).WithTimeout(time.Second).Should(BeZero())
+	})
+
+	t.Run("large shared inputs reach queue admission without expansion limits", func(t *testing.T) {
+		g := NewWithT(t)
+		sim, client := startDecisionTestServer(t, "vllm", "--max-waiting-queue-length", "0")
+		for _, tc := range []struct {
+			path, inputField, question string
+			count                      int
+		}{
+			{"/v1/systemone", "state", `{"type":"noul"}`, 64},
+			{"/v1/decisions", "input", `{"type":"predicate","instructions":"q"}`, 200},
+		} {
+			questions := make([]json.RawMessage, tc.count)
+			for i := range questions {
+				questions[i] = json.RawMessage(tc.question)
+			}
+			body := map[string]any{
+				"model":       common.TestModelName,
+				tc.inputField: strings.Repeat("x", 3*1024*1024),
+				"questions":   questions,
+			}
+			if tc.path == "/v1/systemone" {
+				keyed := make(map[string]json.RawMessage, tc.count)
+				for i, question := range questions {
+					keyed[strconv.Itoa(i)] = question
+				}
+				body["questions"] = keyed
+			}
+			raw, err := json.Marshal(body)
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(len(raw)).To(BeNumerically("<", 4*1024*1024))
+			resp, _, result := postDecisionRequest(t, client, tc.path, string(raw), nil)
+			g.Expect(resp.StatusCode).To(Equal(http.StatusTooManyRequests), "%s: %v", tc.path, result)
+			g.Eventually(sim.OpenRequests).WithTimeout(3 * time.Second).Should(BeZero())
+		}
 	})
 }
 
