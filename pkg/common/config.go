@@ -119,6 +119,8 @@ type Configuration struct {
 	IP string
 	// Port defines on which port the simulator runs
 	Port int `yaml:"port" json:"port"`
+	// StreamInterval is the number of tokens sent per streamed chunk after the first token
+	StreamInterval int `yaml:"stream-interval" json:"stream-interval"`
 
 	// DisplayModelName defines the model name that will be shown in API responses
 	// If ServedModelNames are not set, it defaults to the value of Model
@@ -490,6 +492,7 @@ func NewConfig() *Configuration {
 		IP:                    os.Getenv(podIPEnv),
 		Port:                  DefaultPort,
 		MaxNumSeqs:            5,
+		StreamInterval:        1,
 		MaxWaitingQueueLength: 1000,
 		MaxModelLen:           1024,
 		Mode:                  ModeRandom,
@@ -765,6 +768,10 @@ func (c *Configuration) validate() error {
 
 	if c.MaxNumSeqs < 1 {
 		return errors.New("max num seqs cannot be less than 1")
+	}
+
+	if c.StreamInterval < 1 {
+		return errors.New("stream interval cannot be less than 1")
 	}
 
 	if c.MaxWaitingQueueLength < 0 {
