@@ -452,6 +452,23 @@ Structure of requests/responses
             - size_bytes
             - nixl_agent_metadata_b64
 
+- `/v1/systemone`
+    - **request**
+        - model (optional)
+        - state (required)
+        - questions (1 to 64 keyed `choice`, `noul`, or `score` objects)
+    - **response**
+        - answers (object keyed by question ID, in request order)
+        - usage
+- `/v1/decisions`
+    - **request**
+        - model (required)
+        - input (required text or user messages)
+        - questions (1 to 200 `predicate`, `choice`, or `score` objects)
+    - **response**
+        - answers (array in question order)
+        - usage
+
 ### `/v1/responses` examples
 
 #### Text-only request
@@ -613,3 +630,34 @@ Detokenization depends on the active tokenizer (selected automatically based on 
 
 - **HuggingFace tokenizer** (real model): token IDs are decoded through the upstream vLLM render service's `/v1/completions/derender` endpoint at `--render-url`. The upstream must be a vLLM version that serves the derender endpoints.
 - **Simulated tokenizer** (dummy model): token IDs are pseudo-hashes, so the simulator keeps a bounded in-memory reverse mapping of the IDs it has produced (through render, generation, or tokenization) and decodes by lookup; when full, the least recently encoded IDs are evicted. Only IDs produced by the same simulator instance round-trip to their original text; unknown or evicted IDs are rendered as `<unk_ID>` placeholders.
+
+## Decision APIs
+
+Requires `--engine vllm`. See the [vLLM Decision API documentation](https://docs.vllm.ai/en/latest/models/structured_decisions_models/#online-serving).
+
+- Text-only, non-streaming; thinking and prompt token IDs are unsupported. `priority` is validated but does not affect scheduling.
+- Probabilities normalize weights `n, ..., 1`; scores use probability-weighted, zero-based indices. Confidence uses label mass `1`; predicates omit confidence. These are simulated results, not model predictions.
+- Questions queue separately with standard prefill latency and failure injection. Usage aggregates input tokens and one synthetic output token per question, without decode delay; response datasets are ignored.
+
+```bash
+curl http://localhost:8000/v1/systemone \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "state": "Billing",
+    "questions": {
+      "team": {"type": "choice", "criteria": {"billing": null, "shipping": null}}
+    }
+  }'
+```
+
+```bash
+curl http://localhost:8000/v1/decisions \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "model": "test-model",
+    "input": "Billing",
+    "questions": [
+      {"type": "predicate", "instructions": "Urgent?"}
+    ]
+  }'
+```

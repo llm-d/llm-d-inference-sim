@@ -17,25 +17,34 @@ limitations under the License.
 package tests
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"testing"
 	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/valyala/fasthttp"
+	"github.com/valyala/fasthttp/fasthttputil"
+	"k8s.io/klog/v2"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/communication"
+	"github.com/llm-d/llm-d-inference-sim/pkg/endpoint"
+	"github.com/llm-d/llm-d-inference-sim/pkg/engine"
 	"github.com/llm-d/llm-d-inference-sim/pkg/kvcache"
+	"github.com/llm-d/llm-d-inference-sim/pkg/simulator"
+	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 )
 
 var _ = Describe("Server", forEachEngine(func() {
@@ -864,3 +873,298 @@ var _ = Describe("Server sleep mode", Ordered, func() {
 		Expect(storedCount).To(Equal(1))
 	})
 })
+
+// This entry point exercises decision routing without the suite's HF renderer.
+func TestDecisionAPI(t *testing.T) {
+	systemOneBody := `{"model":"` + common.TestModelName + `","state":{"ticket":"billing"},"questions":{
+		"team":{"type":"choice","criteria":{"billing":null,"shipping":null}},
+		"urgent":{"type":"noul","instructions":"Is it urgent?"},
+		"tone":{"type":"score","criteria":["calm","annoyed","furious"]}}}`
+	decisionsBody := `{"model":"` + common.TestModelName + `","input":"ticket","questions":[
+		{"name":"team","type":"choice","instructions":"Team?","choices":[{"value":false},{"value":"false"},{"value":"shipping"}]},
+		{"type":"predicate","instructions":"Is it urgent?"},
+		{"name":"tone","type":"score","instructions":"Tone?","levels":[{"label":"calm"},{"label":"annoyed"},{"label":"furious"}]}]}`
+	for _, tc := range []struct {
+		path, body, inputField string
+	}{
+		{"/v1/systemone", systemOneBody, "state"},
+		{"/v1/decisions", decisionsBody, "input"},
+	} {
+		t.Run("vllm"+tc.path, func(t *testing.T) {
+			g := NewWithT(t)
+			sim, client := startDecisionTestServer(t, "vllm")
+			post := func(body string) (*http.Response, []byte, map[string]any) {
+				t.Helper()
+				return postDecisionRequest(t, client, tc.path, body, nil)
+			}
+
+			start := time.Now()
+			response, raw, body := postDecisionRequest(t, client, tc.path, tc.body,
+				map[string]string{communication.RequestIDHeader: "decision-http-test"})
+			g.Expect(response.StatusCode).To(Equal(http.StatusOK), "body: %v", body)
+			g.Expect(response.Header.Get(communication.RequestIDHeader)).To(Equal("decision-http-test"))
+			g.Expect(response.Header.Get("Content-Type")).To(Equal("application/json"))
+			g.Expect(time.Since(start)).To(BeNumerically(">=", 60*time.Millisecond))
+			g.Expect(body["model"]).To(Equal(common.TestModelName))
+			usage := body["usage"].(map[string]any)
+			g.Expect(usage["input_tokens"]).To(BeNumerically(">", 0))
+			g.Expect(usage["output_tokens"]).To(Equal(float64(3)))
+			if tc.path == "/v1/systemone" {
+				g.Expect(body["id"]).To(Equal("decision-decision-http-test"))
+				g.Expect(body["object"]).To(Equal("structured_decision"))
+				g.Expect(body["created"]).To(BeNumerically(">", 0))
+				g.Expect(body["diagnostics"]).To(HaveLen(3))
+				g.Expect(body["diagnostics"]).To(HaveKeyWithValue("urgent", map[string]any{"label_mass": float64(1), "argmax_is_label": true}))
+				g.Expect(body["answers"].(map[string]any)["urgent"]).To(HaveKeyWithValue("noul", 2.0/3.0))
+				var envelope map[string]json.RawMessage
+				g.Expect(json.Unmarshal(raw, &envelope)).To(Succeed())
+				decoder := json.NewDecoder(bytes.NewReader(envelope["answers"]))
+				token, err := decoder.Token()
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(token).To(Equal(json.Delim('{')))
+				var keys []string
+				for decoder.More() {
+					key, err := decoder.Token()
+					g.Expect(err).NotTo(HaveOccurred())
+					keys = append(keys, key.(string))
+					var answer json.RawMessage
+					g.Expect(decoder.Decode(&answer)).To(Succeed())
+				}
+				g.Expect(keys).To(Equal([]string{"team", "urgent", "tone"}))
+			} else {
+				answers := body["answers"].([]any)
+				g.Expect(answers).To(HaveLen(3))
+				g.Expect(answers[0]).To(HaveKeyWithValue("choice", false))
+				g.Expect(answers[1]).To(Equal(map[string]any{"type": "predicate", "name": nil, "probability": 1.0 / 3.0}))
+				g.Expect(answers[2]).To(HaveKeyWithValue("type", "score"))
+				g.Expect(answers[2]).To(HaveKeyWithValue("score", 2.0/3.0))
+				g.Expect(answers[2]).To(HaveKeyWithValue("confidence", 0.5))
+				g.Expect(usage["input_tokens_details"]).To(Equal(map[string]any{"cached_tokens": float64(0), "cache_write_tokens": float64(0)}))
+				g.Expect(usage["output_tokens_details"]).To(Equal(map[string]any{"reasoning_tokens": float64(0)}))
+				g.Expect(usage["total_tokens"]).To(Equal(usage["input_tokens"].(float64) + float64(3)))
+			}
+			repeatedResponse, _, repeated := post(tc.body)
+			g.Expect(repeatedResponse.StatusCode).To(Equal(http.StatusOK))
+			g.Expect(repeated["answers"]).To(Equal(body["answers"]))
+			g.Expect(repeated["usage"]).To(Equal(usage))
+			g.Eventually(sim.OpenRequests).WithTimeout(time.Second).Should(BeZero())
+
+			response, _, _ = post(strings.Replace(tc.body, `"`+tc.inputField+`"`, `"`+strings.ToUpper(tc.inputField)+`"`, 1))
+			g.Expect(response.StatusCode).To(Equal(http.StatusBadRequest))
+			response, _, _ = post(strings.Replace(tc.body, common.TestModelName, "unknown-model", 1))
+			g.Expect(response.StatusCode).To(Equal(http.StatusNotFound))
+			response, _, invalid := post(`{}`)
+			g.Expect(response.StatusCode).To(Equal(http.StatusBadRequest))
+			g.Expect(invalid["error"].(map[string]any)["message"]).NotTo(BeEmpty())
+			response, _, _ = postDecisionRequest(t, client, tc.path, tc.body, map[string]string{communication.XReturnErrorHeader: "503"})
+			g.Expect(response.StatusCode).To(Equal(http.StatusServiceUnavailable))
+			g.Expect(sim.OpenRequests()).To(BeZero())
+		})
+	}
+
+	t.Run("request compatibility", func(t *testing.T) {
+		sim, client := startDecisionTestServer(t, "vllm")
+		for _, tc := range []struct {
+			name, path, field, value string
+			status                   int
+		}{
+			{"body ID", "/v1/systemone", "request_id", `"client-id"`, http.StatusOK},
+			{"empty body ID", "/v1/systemone", "request_id", `""`, http.StatusOK},
+			{"control character body ID", "/v1/systemone", "request_id", `"client\u0000id"`, http.StatusOK},
+			{"null body ID", "/v1/systemone", "request_id", `null`, http.StatusBadRequest},
+			{"number body ID", "/v1/systemone", "request_id", `42`, http.StatusBadRequest},
+			{"null priority", "/v1/systemone", "priority", `null`, http.StatusBadRequest},
+			{"invalid priority", "/v1/systemone", "priority", `"bad"`, http.StatusBadRequest},
+			{"maximum priority", "/v1/systemone", "priority", `9223372036854775807`, http.StatusOK},
+			{"minimum priority", "/v1/systemone", "priority", `-9223372036854775808`, http.StatusOK},
+			{"priority above maximum", "/v1/systemone", "priority", `9223372036854775808`, http.StatusBadRequest},
+			{"priority below minimum", "/v1/systemone", "priority", `-9223372036854775809`, http.StatusBadRequest},
+			{"boolean priority", "/v1/systemone", "priority", `true`, http.StatusOK},
+			{"integer float priority", "/v1/systemone", "priority", `1.0`, http.StatusOK},
+			{"fractional priority", "/v1/systemone", "priority", `1.5`, http.StatusBadRequest},
+			{"overflow float priority", "/v1/systemone", "priority", `9223372036854775807.0`, http.StatusBadRequest},
+			{"string float priority", "/v1/systemone", "priority", `"1.0"`, http.StatusOK},
+			{"string separators priority", "/v1/systemone", "priority", `"1_000"`, http.StatusOK},
+			{"string maximum priority", "/v1/systemone", "priority", `"9223372036854775807.0"`, http.StatusOK},
+			{"string overflow priority", "/v1/systemone", "priority", `"9223372036854775808"`, http.StatusBadRequest},
+			{"string exponent priority", "/v1/systemone", "priority", `"1e2"`, http.StatusBadRequest},
+			{"null enable thinking", "/v1/systemone", "chat_template_kwargs", `{"enable_thinking":null}`, http.StatusOK},
+			{"zero enable thinking", "/v1/systemone", "chat_template_kwargs", `{"enable_thinking":0}`, http.StatusBadRequest},
+			{"empty thinking object", "/v1/systemone", "chat_template_kwargs", `{"thinking":{}}`, http.StatusOK},
+			{"zero thinking", "/v1/systemone", "chat_template_kwargs", `{"thinking":0}`, http.StatusOK},
+			{"empty System One model", "/v1/systemone", "model", `""`, http.StatusOK},
+			{"null System One model", "/v1/systemone", "model", `null`, http.StatusOK},
+			{"empty Decisions model", "/v1/decisions", "model", `""`, http.StatusOK},
+			{"null Decisions model", "/v1/decisions", "model", `null`, http.StatusBadRequest},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				g := NewWithT(t)
+				body := decisionsBody
+				if tc.path == "/v1/systemone" {
+					body = systemOneBody
+				}
+				var request map[string]json.RawMessage
+				g.Expect(json.Unmarshal([]byte(body), &request)).To(Succeed())
+				request[tc.field] = json.RawMessage(tc.value)
+				raw, err := json.Marshal(request)
+				g.Expect(err).NotTo(HaveOccurred())
+				resp, _, result := postDecisionRequest(t, client, tc.path, string(raw), nil)
+				g.Expect(resp.StatusCode).To(Equal(tc.status), "body: %v", result)
+				if tc.status == http.StatusOK {
+					g.Expect(result["model"]).To(Equal(common.TestModelName))
+					if tc.field == "request_id" {
+						var id string
+						g.Expect(json.Unmarshal([]byte(tc.value), &id)).To(Succeed())
+						g.Expect(result["id"]).To(Equal("decision-" + id))
+						g.Expect(resp.Header.Get(communication.RequestIDHeader)).NotTo(BeEmpty())
+						g.Expect(resp.Header.Get(communication.RequestIDHeader)).NotTo(Equal(id))
+					}
+				}
+				g.Eventually(sim.OpenRequests).WithTimeout(time.Second).Should(BeZero())
+			})
+		}
+	})
+
+	t.Run("System One request ID precedence", func(t *testing.T) {
+		_, client := startDecisionTestServer(t, "vllm", "--enable-request-id-headers=false")
+		for _, header := range []string{"header-id", ""} {
+			t.Run("header="+header, func(t *testing.T) {
+				g := NewWithT(t)
+				body := `{"request_id":"body-id","state":"x","questions":{"q":{"type":"noul"}}}`
+				resp, _, result := postDecisionRequest(t, client, "/v1/systemone", body,
+					map[string]string{communication.RequestIDHeader: header})
+				g.Expect(resp.StatusCode).To(Equal(http.StatusOK))
+				g.Expect(result["id"]).To(Equal("decision-" + header))
+				g.Expect(resp.Header).NotTo(HaveKey(communication.RequestIDHeader))
+			})
+		}
+	})
+
+	t.Run("decision routes are vLLM-only", func(t *testing.T) {
+		g := NewWithT(t)
+		sim, client := startDecisionTestServer(t, "sglang")
+		for _, path := range []string{"/v1/systemone", "/v1/decisions"} {
+			resp, err := client.Post("http://localhost"+path, "application/json", strings.NewReader(`{}`))
+			g.Expect(err).NotTo(HaveOccurred())
+			g.Expect(resp.Body.Close()).To(Succeed())
+			g.Expect(resp.StatusCode).To(Equal(http.StatusNotFound))
+		}
+		g.Expect(sim.OpenRequests()).To(BeZero())
+	})
+
+	t.Run("sums cached tokens across warmed questions", func(t *testing.T) {
+		g := NewWithT(t)
+		t.Setenv("POD_IP", "127.0.0.1")
+		sim, client := startDecisionTestServer(t, "vllm", "--enable-kvcache", "--block-size", "8", "--zmq-endpoint", "")
+		body := `{"model":"` + common.TestModelName + `","input":"` + strings.Repeat("word ", 32) + `","questions":[
+			{"type":"predicate","instructions":"first question"},{"type":"predicate","instructions":"second question"}]}`
+		parsed := &endpoint.DecisionRequest{Protocol: endpoint.DecisionsProtocol}
+		g.Expect(parsed.Unmarshal([]byte(body))).To(Succeed())
+		g.Expect(parsed.Validate(nil)).To(BeNil())
+		expected := 0
+		for _, part := range parsed.Split() {
+			tokens, _, err := sim.Context.Tokenizer.RenderText(part.(*endpoint.DecisionRequest).Prompt.Text)
+			g.Expect(err).NotTo(HaveOccurred())
+			expected += len(tokens) / 8 * 8
+		}
+		g.Expect(expected).To(BeNumerically(">", 0))
+		for i := range 3 {
+			resp, raw, _ := postDecisionRequest(t, client, "/v1/decisions", body, nil)
+			var response api.DecisionsResponse
+			g.Expect(json.Unmarshal(raw, &response)).To(Succeed())
+			g.Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			if i > 0 {
+				g.Expect(response.Usage.InputTokensDetails.CachedTokens).To(Equal(expected))
+			}
+			g.Expect(response.Usage.OutputTokens).To(Equal(2))
+			g.Expect(response.Usage.TotalTokens).To(Equal(response.Usage.InputTokens + 2))
+			g.Eventually(sim.OpenRequests).WithTimeout(time.Second).Should(BeZero())
+		}
+	})
+
+	t.Run("queue and running counts", func(t *testing.T) {
+		g := NewWithT(t)
+		sim, client := startDecisionTestServer(t, "vllm")
+		g.Expect(sim.Context.ApplyConfigUpdate([]byte(`{"time-to-first-token":"100ms"}`))).To(Succeed())
+		finished := make(chan error, 1)
+		go func() {
+			resp, err := client.Post("http://localhost/v1/systemone", "application/json", strings.NewReader(systemOneBody))
+			if err == nil {
+				_, err = io.Copy(io.Discard, resp.Body)
+				_ = resp.Body.Close()
+			}
+			finished <- err
+		}()
+		g.Eventually(sim.OpenRequests).WithTimeout(time.Second).WithPolling(time.Millisecond).Should(Equal(int64(3)))
+		g.Eventually(finished).WithTimeout(3 * time.Second).Should(Receive(BeNil()))
+		g.Eventually(sim.OpenRequests).WithTimeout(time.Second).Should(BeZero())
+	})
+
+	t.Run("queue rejection drains sibling questions", func(t *testing.T) {
+		g := NewWithT(t)
+		sim, client := startDecisionTestServer(t, "vllm", "--max-waiting-queue-length", "0")
+		resp, _, _ := postDecisionRequest(t, client, "/v1/systemone", systemOneBody, nil)
+		g.Expect(resp.StatusCode).To(Equal(http.StatusTooManyRequests))
+		g.Eventually(sim.OpenRequests).WithTimeout(time.Second).Should(BeZero())
+	})
+}
+
+func postDecisionRequest(t *testing.T, client *http.Client, path, body string, headers map[string]string) (*http.Response, []byte, map[string]any) {
+	t.Helper()
+	g := NewWithT(t)
+	req, err := http.NewRequest(http.MethodPost, "http://localhost"+path, strings.NewReader(body))
+	g.Expect(err).NotTo(HaveOccurred())
+	req.Header.Set("Content-Type", "application/json")
+	for key, value := range headers {
+		req.Header.Set(key, value)
+	}
+	resp, err := client.Do(req)
+	g.Expect(err).NotTo(HaveOccurred())
+	defer func() { g.Expect(resp.Body.Close()).To(Succeed()) }()
+	raw, err := io.ReadAll(resp.Body)
+	g.Expect(err).NotTo(HaveOccurred())
+	var result map[string]any
+	g.Expect(json.Unmarshal(raw, &result)).To(Succeed(), "body: %s", raw)
+	return resp, raw, result
+}
+
+func startDecisionTestServer(t *testing.T, engineName string, extraArgs ...string) (*simulator.Simulator, *http.Client) {
+	t.Helper()
+	g := NewWithT(t)
+	eng, err := engine.Select(engineName)
+	g.Expect(err).NotTo(HaveOccurred())
+	args := os.Args
+	os.Args = append([]string{"cmd", "--engine", engineName, "--model", common.TestModelName, "--mode", common.ModeEcho,
+		"--enable-request-id-headers"}, extraArgs...)
+	cfg, err := common.ParseCommandParamsAndLoadConfig(eng)
+	os.Args = args
+	g.Expect(err).NotTo(HaveOccurred())
+	cfg.MaxNumSeqs = 1
+	cfg.Latencies.TimeToFirstToken = 20 * time.Millisecond
+	ctx, cancel := context.WithCancel(context.Background())
+	sim, err := simulator.New(klog.Background())
+	g.Expect(err).NotTo(HaveOccurred())
+	sim.Context.SetConfig(cfg)
+	sim.Context.Engine = eng
+	sim.Context.Tokenizer = tokenizer.NewSimpleTokenizer()
+	g.Expect(sim.InitializeSim(ctx)).To(Succeed())
+	listener := fasthttputil.NewInmemoryListener()
+	comm := communication.New(klog.Background(), sim, &sim.Context)
+	serverDone := make(chan error, 1)
+	go func() { serverDone <- comm.StartHTTPServer(ctx, listener, eng) }()
+	client := &http.Client{
+		Timeout: 3 * time.Second,
+		Transport: &http.Transport{DialContext: func(context.Context, string, string) (net.Conn, error) {
+			return listener.Dial()
+		}},
+	}
+	t.Cleanup(func() {
+		client.CloseIdleConnections()
+		g.Expect(listener.Close()).To(Succeed())
+		g.Eventually(serverDone).WithTimeout(time.Second).Should(Receive(BeNil()))
+		g.Eventually(sim.OpenRequests).WithTimeout(3 * time.Second).Should(BeZero())
+		sim.Stop()
+		cancel()
+	})
+	return sim, client
+}
