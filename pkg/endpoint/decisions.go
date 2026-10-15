@@ -28,6 +28,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/google/uuid"
 	"github.com/valyala/fasthttp"
 	kjson "sigs.k8s.io/json"
 
@@ -115,11 +116,11 @@ func (d *DecisionRequest) Validate(_ *ToolsValidator) *api.Error {
 
 func (d *DecisionRequest) Split() []Request {
 	out := make([]Request, len(d.questions))
-	for i, q := range d.questions {
+	requestID := uuid.NewString()
+	for i := range d.questions {
 		cp := *d
-		cp.SetRequestID(fmt.Sprintf("%s-%d", d.GetRequestID(), i))
-		cp.Prompt = api.PromptInput{Text: d.input + "\n" + q.prompt}
-		cp.questions = []decisionQuestion{q}
+		cp.SetRequestID(fmt.Sprintf("%s-%d", requestID, i))
+		cp.questions = d.questions[i : i+1]
 		out[i] = &cp
 	}
 	return out
@@ -149,8 +150,9 @@ type decisionReqCtx struct {
 func (r *decisionReqCtx) Request() Request { return r.req }
 
 func (r *decisionReqCtx) encode() ([]uint32, []string, *api.RenderMMFeatures, error) {
-	tokens, strs, err := r.runtime.GetTokenizer().RenderText(r.req.Prompt.Text)
-	return tokens, strs, nil, err
+	tokens, _, err := r.runtime.GetTokenizer().RenderText(r.req.input + "\n" + r.req.questions[0].prompt)
+	// Decision responses need token IDs for usage and cache lookups, not prompt text.
+	return tokens, nil, nil, err
 }
 
 func (r *decisionReqCtx) tokenizedPromptForEcho() (*api.Tokenized, error) {

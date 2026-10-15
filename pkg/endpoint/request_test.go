@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strconv"
+	"strings"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
@@ -479,6 +480,29 @@ var _ = Describe("Decision API", func() {
 		Entry("Decisions levels", DecisionsProtocol, "score", 2, 10),
 	)
 
+	DescribeTable("shares input without expanding prompts or client request IDs",
+		func(protocol DecisionProtocol, body string) {
+			req := &DecisionRequest{Protocol: protocol}
+			Expect(req.Unmarshal([]byte(body))).To(Succeed())
+			req.input = strings.Repeat("x", 3*1024*1024)
+			req.SetRequestID(req.input)
+			Expect(req.Validate(nil)).To(BeNil())
+			parts := req.Split()
+			Expect(parts).To(HaveLen(2))
+			for _, part := range parts {
+				sub := part.(*DecisionRequest)
+				Expect(sub.Prompt.Text).To(BeEmpty())
+				Expect(sub.input).To(Equal(req.input))
+				Expect(sub.questions).To(HaveLen(1))
+				Expect(sub.GetRequestID()).To(HaveLen(38))
+			}
+			Expect(parts[0].GetRequestID()).NotTo(Equal(parts[1].GetRequestID()))
+			Expect(req.GetRequestID()).To(Equal(req.input))
+		},
+		Entry("System One", SystemOneProtocol, `{"state":"x","questions":{"q":{"type":"noul"},"r":{"type":"noul"}}}`),
+		Entry("Decisions", DecisionsProtocol, `{"model":"test","input":"x","questions":[{"type":"predicate","instructions":"q"},{"type":"predicate","instructions":"r"}]}`),
+	)
+
 	// Answer vectors from vLLM 429a3da6654facfa792995bbbc75ee64cf83be56:
 	// tests/entrypoints/generate/structured_decisions/test_{question_types,decisions}.py.
 	// These are supplied probabilities, not model outputs or simulator defaults.
@@ -584,8 +608,8 @@ var _ = Describe("Decision API", func() {
 			}
 			parts := req.Split()
 			Expect(parts).To(HaveLen(len(req.questions)))
-			for i, part := range parts {
-				Expect(part.GetRequestID()).To(Equal("decision-counts-" + strconv.Itoa(i)))
+			for _, part := range parts {
+				Expect(part.GetRequestID()).NotTo(Equal(req.GetRequestID()))
 				Expect(part.GetDisplayedModel()).To(Equal("alias"))
 			}
 			part := parts[0]
@@ -596,6 +620,7 @@ var _ = Describe("Decision API", func() {
 			Expect(resp.UsageData().TotalTokens).To(Equal(resp.UsageData().PromptTokens + 1))
 			Expect(resp.ResponseTokens().Length()).To(Equal(1))
 			Expect(resp.DisplayModel()).To(Equal("alias"))
+			Expect(part.TokenizedPrompt().Strings).To(BeEmpty())
 			runtime.config.MaxModelLen = 1
 			_, err = part.BuildRequestContext(runtime, common.Channel[*ResponseInfo]{}, 0, nil).HandleRequest()
 			Expect(err).NotTo(BeNil())
