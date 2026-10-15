@@ -35,6 +35,7 @@ import (
 
 const (
 	tokenizerTmpDir = "./test_tokenizers"
+	validDBPath     = ".llm-d/test.valid.sqlite3"
 )
 
 type validDBElement struct {
@@ -51,7 +52,6 @@ var _ = Describe("CustomDataset", Ordered, func() {
 		dsDownloader          *customDatasetDownloader
 		file_folder           string
 		path                  string
-		validDBPath           string
 		tableName             string
 		pathToInvalidDB       string
 		pathNotExist          string
@@ -68,7 +68,6 @@ var _ = Describe("CustomDataset", Ordered, func() {
 		path = file_folder + "/test.sqlite3"
 		err := os.MkdirAll(file_folder, os.ModePerm)
 		Expect(err).NotTo(HaveOccurred())
-		validDBPath = file_folder + "/test.valid.sqlite3"
 		tableName = "llmd"
 		pathNotExist = file_folder + "/test.notexist.sqlite3"
 		pathToInvalidDB = file_folder + "/test.invalid.sqlite3"
@@ -392,8 +391,6 @@ var _ = Describe("CustomDataset", Ordered, func() {
 
 var _ = Describe("custom dataset for multiple simulators", Ordered, func() {
 	It("should not fail on custom datasets initialization", func() {
-		file_folder := ".llm-d"
-		validDBPath := file_folder + "/test.valid.sqlite3"
 		tableName := "llmd"
 
 		random1 := common.NewRandom(time.Now().UnixNano(), 8081)
@@ -409,7 +406,6 @@ var _ = Describe("custom dataset for multiple simulators", Ordered, func() {
 })
 
 var _ = Describe("in-memory database", func() {
-	const validDBPath = ".llm-d/test.valid.sqlite3"
 	var helper *sqliteHelper
 
 	BeforeEach(func() {

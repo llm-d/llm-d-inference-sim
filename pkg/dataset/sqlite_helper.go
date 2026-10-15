@@ -98,12 +98,14 @@ func (s *sqliteHelper) connectToDB(path string, useInMemory bool) error {
 
 	err = s.verifyDB()
 	if err != nil {
+		s.closeDB()
 		return fmt.Errorf("failed to verify database: %w", err)
 	}
 
 	count, err := s.getRecordsCount()
 	if err != nil {
 		s.logger.Error(err, "failed to get records count")
+		s.closeDB()
 		return fmt.Errorf("failed to query database: %w", err)
 	}
 
