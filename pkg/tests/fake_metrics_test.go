@@ -783,6 +783,45 @@ var _ = Describe("Fake metrics", Ordered, func() {
 			})
 		})
 
+		It("Should expose lora_requests_info in fake metrics only when loras are provided", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
+				"--lora-modules", "{\"name\":\"lora1\",\"path\":\"/path/to/lora1\"}",
+				"--fake-metrics", `{"running-requests":10}`,
+			}
+
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			eventuallyMetrics(client, func(g Gomega, metricsData string) {
+				g.Expect(metricsData).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllm.VLLMReqRunningMetricName, 10)))
+			})
+			consistentlyMetrics(client, func(g Gomega, metricsData string) {
+				g.Expect(metricsData).NotTo(ContainSubstring(vllm.VLLMLoRARequestsMetricName))
+			})
+
+			// An update without loras leaves them absent
+			resp, err := postFakeMetricsUpdate(client, `{"running-requests":5}`)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+			eventuallyMetrics(client, func(g Gomega, metricsData string) {
+				g.Expect(metricsData).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllm.VLLMReqRunningMetricName, 5)))
+			})
+			consistentlyMetrics(client, func(g Gomega, metricsData string) {
+				g.Expect(metricsData).NotTo(ContainSubstring(vllm.VLLMLoRARequestsMetricName))
+			})
+
+			// An update with loras exposes them
+			resp, err = postFakeMetricsUpdate(client, `{"loras":[{"running":"lora1","waiting":"","timestamp":1000000001}]}`)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+			eventuallyThenConsistentlyMetrics(client, func(g Gomega, metricsData string) {
+				g.Expect(metricsData).To(ContainSubstring(`vllm:lora_requests_info{max_lora="1",running_lora_adapters="lora1",waiting_lora_adapters=""} 1.000000001e+09`))
+			})
+		})
+
 		It("Should update fake lora metrics correctly", func() {
 			ctx := context.TODO()
 			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,

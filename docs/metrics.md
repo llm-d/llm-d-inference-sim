@@ -26,7 +26,7 @@ Currently supported are the following metrics:
 | vllm:time_to_first_token_seconds | Histogram of time to first token in seconds |
 | vllm:time_per_output_token_seconds | Histogram of time per output token in seconds |
 | vllm:inter_token_latency_seconds | Histogram of inter-token latency in seconds |
-| vllm:lora_requests_info | Running stats on LoRA requests |
+| vllm:lora_requests_info | Running stats on LoRA requests. Exposed only when LoRA modules are configured, and only after the first LoRA request |
 | vllm:kv_cache_usage_perc | The fraction of KV-cache blocks currently in use (from 0 to 1) |
 | vllm:cache_config_info | Information of the LLMEngine CacheConfig |
 | vllm:prefix_cache_hits_total | Prefix cache hits, in terms of number of cached tokens |

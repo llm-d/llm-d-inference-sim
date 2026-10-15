@@ -287,9 +287,6 @@ func (m *VLLMMetricsAdapter) Close() error {
 func (m *VLLMMetricsAdapter) Start(_ context.Context) error {
 	if m.fake != nil {
 		fm := *m.fake
-		if fm.LoraMetrics == nil {
-			fm.LoraMetrics = []common.LorasMetrics{}
-		}
 		m.applyFakeMetrics(&fm)
 	}
 
@@ -728,11 +725,13 @@ func (m *VLLMMetricsAdapter) updateLoRAs(upd LoRAUpdate) {
 	}
 }
 
-// resetCollector unregisters current, recreates it via recreate, then calls
+// resetCollector unregisters current (if non-nil), recreates it via recreate, then calls
 // populate to stamp the recreated collector's series. Called only from
 // updater goroutines.
 func (m *VLLMMetricsAdapter) resetCollector(current prometheus.Collector, recreate func() error, errMsg string, populate func()) {
-	m.registry.Unregister(current)
+	if current != nil {
+		m.registry.Unregister(current)
+	}
 	if err := recreate(); err != nil {
 		m.logger.Error(err, errMsg)
 		return
@@ -763,10 +762,15 @@ func (m *VLLMMetricsAdapter) resetSuccessTotal(reasons map[string]int64) {
 }
 
 // resetLoRA resets loraInfo, then stamps one series per entry. Empty
-// entries emits a single zero-adapter row with the current timestamp
-// (matching the fake-metrics default).
+// entries emits a single zero-adapter row with the current timestamp.
 func (m *VLLMMetricsAdapter) resetLoRA(reset *LoRAReset) {
-	m.resetCollector(m.loraInfo, m.createAndRegisterLoraInfoGauge, "failed to recreate lora_requests_info gauge during fake-metrics reset", func() {
+	// loraInfo is nil when no LoRA modules are configured; a typed-nil pointer
+	// must not reach the registry as a non-nil Collector.
+	var current prometheus.Collector
+	if m.loraInfo != nil {
+		current = m.loraInfo
+	}
+	m.resetCollector(current, m.createAndRegisterLoraInfoGauge, "failed to recreate lora_requests_info gauge during fake-metrics reset", func() {
 		if len(reset.Entries) == 0 {
 			m.loraInfo.WithLabelValues(
 				strconv.Itoa(reset.MaxLoRAs),
@@ -842,8 +846,11 @@ func (m *VLLMMetricsAdapter) buildMetrics() error {
 	if err := m.createAndRegisterKVCacheUsageGauge(); err != nil {
 		return err
 	}
-	if err := m.createAndRegisterLoraInfoGauge(); err != nil {
-		return err
+	// vLLM creates this gauge only when LoRA is enabled.
+	if len(m.config.Lora.LoraModules) > 0 {
+		if err := m.createAndRegisterLoraInfoGauge(); err != nil {
+			return err
+		}
 	}
 	if err := m.createAndRegisterCacheConfigGauge(); err != nil {
 		return err
@@ -1118,8 +1125,9 @@ func (m *VLLMMetricsAdapter) createAndRegisterPrefixCacheQueriesTotalCounter() e
 }
 
 // setInitialValues zeroes the request/kv-cache gauges and stamps the
-// one-shot cache_config_info and lora_requests_info series so the first
-// scrape has a consistent baseline.
+// one-shot cache_config_info series so the first scrape has a consistent
+// baseline. lora_requests_info has no baseline: like vLLM, it first appears
+// with the first LoRA event.
 func (m *VLLMMetricsAdapter) setInitialValues() {
 	if m.fake == nil {
 		m.runningRequests.WithLabelValues(m.config.DisplayModelName).Set(0)
@@ -1132,11 +1140,6 @@ func (m *VLLMMetricsAdapter) setInitialValues() {
 		"0",
 		strconv.Itoa(m.config.KVCache.KVCacheSize),
 	).Set(1)
-	m.loraInfo.WithLabelValues(
-		strconv.Itoa(m.config.Lora.MaxLoras),
-		"",
-		"",
-	).Set(float64(time.Now().Unix()))
 }
 
 // -------- Fake Metrics ------

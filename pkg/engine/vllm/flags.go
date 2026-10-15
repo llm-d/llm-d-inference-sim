@@ -315,6 +315,9 @@ func unmarshalFakeMetrics(cfg *common.Configuration, fakeMetricsString string) e
 // unmarshalLoraFakeMetrics reconciles fm.LorasString (raw JSON strings, from
 // a YAML config file) into fm.LoraMetrics.
 func unmarshalLoraFakeMetrics(fm *VLLMFakeMetrics) error {
+	if fm.LorasString == nil {
+		return nil
+	}
 	fm.LoraMetrics = make([]common.LorasMetrics, 0)
 	for _, jsonStr := range fm.LorasString {
 		var lora common.LorasMetrics
