@@ -173,6 +173,19 @@ func (c *Communication) HandleGenerate(ctx *fasthttp.RequestCtx) {
 	c.handleHTTP(&endpoint.GenerateRequest{}, &generateHTTPRespBuilder{}, ctx)
 }
 
+func (c *Communication) HandleSystemOne(ctx *fasthttp.RequestCtx) {
+	c.handleDecision(ctx, endpoint.SystemOneProtocol)
+}
+
+func (c *Communication) HandleDecisions(ctx *fasthttp.RequestCtx) {
+	c.handleDecision(ctx, endpoint.DecisionsProtocol)
+}
+
+func (c *Communication) handleDecision(ctx *fasthttp.RequestCtx, protocol endpoint.DecisionProtocol) {
+	req := &endpoint.DecisionRequest{Protocol: protocol, DefaultModel: c.runtime.Config().DisplayModelName}
+	c.handleHTTP(req, &decisionHTTPRespBuilder{request: req}, ctx)
+}
+
 // HandleChatCompletionsRender http handler for /v1/chat/completions/render
 func (c *Communication) HandleChatCompletionsRender(ctx *fasthttp.RequestCtx) {
 	c.handleRender(&endpoint.ChatCompletionsRequest{}, &chatComplHTTPRespBuilder{}, false, ctx)
@@ -335,6 +348,18 @@ func (c *Communication) handleHTTP(req endpoint.Request, respBuilder responseBui
 	}
 
 	requestID := c.getRequestID(ctx)
+	responseRequestID := requestID
+	if decision, ok := req.(*endpoint.DecisionRequest); ok && decision.Protocol == endpoint.SystemOneProtocol {
+		// Body IDs may contain control characters, so keep them out of HTTP headers.
+		if decision.ClientRequestID != nil {
+			requestID = *decision.ClientRequestID
+		}
+		// vLLM uses the header even when response ID headers are disabled.
+		if header := ctx.Request.Header.Peek(RequestIDHeader); header != nil {
+			requestID = string(header)
+			responseRequestID = requestID
+		}
+	}
 	req.SetRequestID(requestID)
 
 	// Check for X-Return-Error header - deterministic error trigger
@@ -371,7 +396,7 @@ func (c *Communication) handleHTTP(req endpoint.Request, respBuilder responseBui
 
 	c.logger.V(logging.DEBUG).Info("Received", "new HTTP", req.AsString())
 
-	c.addResponseHeaders(ctx, req.GetRequestID())
+	c.addResponseHeaders(ctx, responseRequestID)
 
 	if isStream {
 		c.handleStream(ctx, *channel, respBuilder, numChoices)

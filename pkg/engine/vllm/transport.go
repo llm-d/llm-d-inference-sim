@@ -28,6 +28,8 @@ import (
 // BindHTTP registers the vLLM-specific HTTP routes on r, on top of the
 // common routes comm's own HTTP server already registers.
 func (Engine) BindHTTP(r *fasthttprouter.Router, comm *communication.Communication) {
+	r.POST("/v1/systemone", comm.HandleSystemOne)
+	r.POST("/v1/decisions", comm.HandleDecisions)
 	r.POST("/inference/v1/generate", comm.HandleGenerate)
 	r.POST("/v1/chat/completions/render", comm.HandleChatCompletionsRender)
 	r.POST("/v1/completions/render", comm.HandleTextCompletionsRender)
