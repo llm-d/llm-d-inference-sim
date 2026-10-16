@@ -21,7 +21,9 @@ import (
 	"encoding/base64"
 	"fmt"
 	"strings"
+	"testing"
 	"time"
+	"unsafe"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
@@ -33,6 +35,18 @@ import (
 const (
 	input = "The purple giraffe sang opera while riding a bicycle through the crowded market."
 )
+
+func TestSimpleTokenizerOwnsCachedStrings(t *testing.T) {
+	st := NewSimpleTokenizer()
+	ids, texts, err := st.RenderText(strings.Repeat(" ", 1024*1024) + "token")
+	if err != nil || len(ids) != 1 {
+		t.Fatalf("expected one token, got %v, %v", ids, err)
+	}
+	cached := st.idToEntry[ids[0]].Value.(*reverseMapEntry).str
+	if cached != texts[0] || unsafe.StringData(cached) == unsafe.StringData(texts[0]) {
+		t.Fatal("cached token must own its text without retaining the source prompt")
+	}
+}
 
 var _ = Describe("tokenizer", func() {
 	messages := []api.Message{
