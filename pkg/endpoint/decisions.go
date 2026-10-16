@@ -658,41 +658,66 @@ func decisionPythonString(raw json.RawMessage) (string, error) {
 	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.UseNumber()
-	return decisionPythonRepr(decoder)
-}
-
-func decisionPythonRepr(decoder *json.Decoder) (string, error) {
-	token, err := decoder.Token()
+	value, err := decisionPythonRepr(decoder)
 	if err != nil {
 		return "", err
 	}
+	var result strings.Builder
+	result.Grow(len(raw))
+	value.writeTo(&result)
+	return result.String(), nil
+}
+
+// Keep nested values separate until duplicate keys are resolved, then write once.
+type decisionPythonValue struct {
+	text  string
+	parts []decisionPythonValue
+	end   string
+}
+
+func (v decisionPythonValue) writeTo(result *strings.Builder) {
+	result.WriteString(v.text)
+	for i, part := range v.parts {
+		if i > 0 {
+			result.WriteString(", ")
+		}
+		part.writeTo(result)
+	}
+	result.WriteString(v.end)
+}
+
+func decisionPythonRepr(decoder *json.Decoder) (decisionPythonValue, error) {
+	token, err := decoder.Token()
+	if err != nil {
+		return decisionPythonValue{}, err
+	}
 	switch value := token.(type) {
 	case nil:
-		return "None", nil
+		return decisionPythonValue{text: "None"}, nil
 	case bool:
 		if value {
-			return "True", nil
+			return decisionPythonValue{text: "True"}, nil
 		}
-		return "False", nil
+		return decisionPythonValue{text: "False"}, nil
 	case string:
-		return decisionPythonQuote(value), nil
+		return decisionPythonValue{text: decisionPythonQuote(value)}, nil
 	case json.Number:
 		text := value.String()
 		if !strings.ContainsAny(text, ".eE") {
 			if text == "-0" {
 				text = "0"
 			}
-			return text, nil
+			return decisionPythonValue{text: text}, nil
 		}
 		number, err := value.Float64()
 		if err != nil && !errors.Is(err, strconv.ErrRange) {
-			return "", err
+			return decisionPythonValue{}, err
 		}
 		if math.IsInf(number, 0) {
 			if number < 0 {
-				return "-inf", nil
+				return decisionPythonValue{text: "-inf"}, nil
 			}
-			return "inf", nil
+			return decisionPythonValue{text: "inf"}, nil
 		}
 		format := byte('f')
 		if number != 0 && (math.Abs(number) < 1e-4 || math.Abs(number) >= 1e16) {
@@ -702,25 +727,25 @@ func decisionPythonRepr(decoder *json.Decoder) (string, error) {
 		if !strings.ContainsAny(text, ".e") {
 			text += ".0"
 		}
-		return text, nil
+		return decisionPythonValue{text: text}, nil
 	case json.Delim:
-		var parts []string
+		var parts []decisionPythonValue
 		keys := map[string]int{}
 		for decoder.More() {
 			key := ""
 			if value == '{' {
 				token, err := decoder.Token()
 				if err != nil {
-					return "", err
+					return decisionPythonValue{}, err
 				}
 				key = token.(string)
 			}
 			part, err := decisionPythonRepr(decoder)
 			if err != nil {
-				return "", err
+				return decisionPythonValue{}, err
 			}
 			if value == '{' {
-				part = decisionPythonQuote(key) + ": " + part
+				part.text = decisionPythonQuote(key) + ": " + part.text
 				if index, ok := keys[key]; ok {
 					parts[index] = part
 					continue
@@ -730,14 +755,14 @@ func decisionPythonRepr(decoder *json.Decoder) (string, error) {
 			parts = append(parts, part)
 		}
 		if _, err := decoder.Token(); err != nil {
-			return "", err
+			return decisionPythonValue{}, err
 		}
 		if value == '{' {
-			return "{" + strings.Join(parts, ", ") + "}", nil
+			return decisionPythonValue{text: "{", parts: parts, end: "}"}, nil
 		}
-		return "[" + strings.Join(parts, ", ") + "]", nil
+		return decisionPythonValue{text: "[", parts: parts, end: "]"}, nil
 	default:
-		return "", errors.New("invalid score level")
+		return decisionPythonValue{}, errors.New("invalid score level")
 	}
 }
 

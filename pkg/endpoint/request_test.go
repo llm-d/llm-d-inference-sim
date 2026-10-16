@@ -21,6 +21,7 @@ import (
 	"errors"
 	"strconv"
 	"strings"
+	"testing"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
@@ -480,6 +481,32 @@ var _ = Describe("Decision API", func() {
 		Entry("Decisions levels", DecisionsProtocol, "score", 2, 10),
 	)
 
+	DescribeTable("converts nested score levels without per-level copies",
+		func(prefix, suffix, expectedPrefix string) {
+			const depth = 1024
+			text := strings.Repeat("x", 64*1024)
+			level := strings.Repeat(prefix, depth) + strconv.Quote(text) + strings.Repeat(suffix, depth)
+			body := []byte(`{"state":"x","questions":{"q":{"type":"score","criteria":[` + level + `,"high"]}}}`)
+			var req *DecisionRequest
+			result := testing.Benchmark(func(b *testing.B) {
+				for range b.N {
+					req = &DecisionRequest{Protocol: SystemOneProtocol}
+					if err := req.Unmarshal(body); err != nil {
+						b.Fatal(err)
+					}
+				}
+			})
+			// Allow decoder overhead, but not a full string copy at each nesting level.
+			Expect(result.AllocedBytesPerOp()).To(BeNumerically("<", 128*len(body)))
+			Expect(req.Validate(nil)).To(BeNil())
+			var label string
+			Expect(json.Unmarshal(req.questions[0].legend[0], &label)).To(Succeed())
+			Expect(label).To(Equal(strings.Repeat(expectedPrefix, depth) + "'" + text + "'" + strings.Repeat(suffix, depth)))
+		},
+		Entry("arrays", "[", "]", "["),
+		Entry("objects", `{"x":`, "}", "{'x': "),
+	)
+
 	DescribeTable("shares input without expanding prompts or client request IDs",
 		func(protocol DecisionProtocol, body string) {
 			req := &DecisionRequest{Protocol: protocol}
@@ -590,7 +617,7 @@ var _ = Describe("Decision API", func() {
 			`{"type":"score","instructions":"q","levels":[{"label":"low"},{"label":"high"}]}`, []float64{1, 0}, 0.5,
 			`{"type":"score","name":null,"score":0,"probabilities":[{"value":0,"label":"low","probability":1},{"value":1,"label":"high","probability":0}],"confidence":0.5}`),
 		Entry("System One score legends use Python strings", SystemOneProtocol,
-			`{"type":"score","criteria":[null,true,1.0,{"z":null,"a":[true,false,"low"]}]}`, []float64{0.5, 0.25, 0.125, 0.125}, 1.0,
+			`{"type":"score","criteria":[null,true,1.0,{"z":"discarded","a":[true,false,"low"],"z":null}]}`, []float64{0.5, 0.25, 0.125, 0.125}, 1.0,
 			`{"type":"score","score":0.875,"legend":{"0":"None","1":"True","2":"1.0","3":"{'z': None, 'a': [True, False, 'low']}"},"probabilities":{"0":0.5,"1":0.25,"2":0.125,"3":0.125},"confidence":0.5}`),
 	)
 
