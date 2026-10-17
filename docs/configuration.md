@@ -141,6 +141,7 @@ Command-line flag names are as listed below. In a YAML config file, these settin
   - This parameter is only used if the `dataset-path` is also set and the file does not exist at that path.
   - If the file needs to be downloaded, it will be saved to the location specified by `dataset-path`.
   - If the file already exists at the `dataset-path`, it will not be downloaded again
+  - A request error or non-200 HTTP response leaves the destination absent, so startup can retry the download.
   - Example URL `https://huggingface.co/datasets/hf07397/inference-sim-datasets/resolve/91ffa7aafdfd6b3b1af228a517edc1e8f22cd274/huggingface/ShareGPT_Vicuna_unfiltered/conversations.sqlite3`
 - `dataset-in-memory`: If true, the entire dataset will be loaded into memory for faster access. This may require significant memory depending on the size of the dataset. Default is false.
 - `dataset-table-name`: Table name for custom dataset, optional, default is 'llmd'

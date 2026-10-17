@@ -86,18 +86,6 @@ func (d *customDatasetDownloader) downloadDataset(ctx context.Context, url strin
 		return nil
 	}
 
-	out, err := os.Create(path)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		cerr := out.Close()
-		if cerr != nil {
-			d.logger.Error(cerr, "failed to close file after download")
-			err = errors.Join(err, cerr)
-		}
-	}()
-
 	d.logger.V(logging.INFO).Info("Using dataset-url", "dataset-url", url)
 	resp, err := http.Get(url)
 	if err != nil {
@@ -114,6 +102,18 @@ func (d *customDatasetDownloader) downloadDataset(ctx context.Context, url strin
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("dataset download bad status: %s", resp.Status)
 	}
+
+	out, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		cerr := out.Close()
+		if cerr != nil {
+			d.logger.Error(cerr, "failed to close file after download")
+			err = errors.Join(err, cerr)
+		}
+	}()
 
 	// Progress reader with context
 	pr := &progressReader{
