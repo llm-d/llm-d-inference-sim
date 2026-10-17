@@ -20,7 +20,10 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
+	"sync"
 
+	"github.com/go-logr/logr/funcr"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/valyala/fasthttp"
@@ -111,16 +114,12 @@ var _ = Describe("sendNonStream missing-choice guard", func() {
 	})
 })
 
-// The comment on handleStream notes that once ctx.Response.SetBodyStream is called,
-// a real client has already received the 200/SSE status line, so a real caller
-// never sees the finalizeStream nil-check's error response. But sendError mutates
-// ctx.Response's status/body fields directly, separately from the piped body
-// stream, so this white-box test can still observe it -- and, more importantly,
-// this also confirms the streaming goroutine returns via that check instead of
-// calling rc.FinishReason() on a nil ResponseContext, which would panic it (and,
-// since nothing recovers a goroutine panic, crash the whole process).
+// The missing-choice guard ends the stream with an error frame, confirming the
+// streaming goroutine returns via that check instead of calling
+// rc.FinishReason() on a nil ResponseContext, which would panic it (and, since
+// nothing recovers a goroutine panic, crash the whole process).
 var _ = Describe("sendStream missing-choice guard", func() {
-	It("reports a 500 instead of panicking when a choice never receives any entry", func() {
+	It("streams an error instead of panicking when a choice never receives any entry", func() {
 		ctx := context.Background()
 		sim := newRunningSim(ctx)
 
@@ -164,23 +163,76 @@ var _ = Describe("sendStream missing-choice guard", func() {
 
 		c.sendStream(httpCtx, filtered, &textComplHTTPRespBuilder{transport: c.transport}, numChoices, first)
 
-		// sendStream's own goroutine runs concurrently with this one. Hitting the
-		// nil-check calls sendError, whose SetBody closes the response's body
-		// stream as a side effect of abandoning it in favor of a plain error body
-		// -- which unblocks a pending Read on that stream with exactly this error.
-		// Waiting for it both confirms the nil-check (not a panic) is what ended
-		// the stream, and -- since closing happens right after sendError sets the
-		// status/body -- gives a happens-before edge making it safe to read those
-		// fields afterward without racing the goroutine that set them.
-		_, err := io.ReadAll(httpCtx.Response.BodyStream())
-		Expect(err).To(MatchError(io.ErrClosedPipe))
+		body, err := io.ReadAll(httpCtx.Response.BodyStream())
+		Expect(err).NotTo(HaveOccurred())
+		Expect(string(body)).To(ContainSubstring(fmt.Sprintf("no tokens for choice index: %d", missingChoice)))
+		Expect(string(body)).To(ContainSubstring("[DONE]"))
+		Expect(httpCtx.Response.StatusCode()).To(Equal(fasthttp.StatusOK))
+	})
+})
 
-		Expect(httpCtx.Response.StatusCode()).To(Equal(fasthttp.StatusInternalServerError))
-		// SetBody writes the actual error bytes right after the Close() call that
-		// unblocked the ReadAll above, so there's a brief window where the body
-		// isn't visible yet; Eventually absorbs it.
+// When the client disconnects, fasthttp closes the body stream and recycles ctx
+// for another request, so the stream goroutine must not touch ctx after a
+// failed write.
+var _ = Describe("sendStream client disconnect", func() {
+	It("leaves ctx untouched when writing to the stream fails", func() {
+		ctx := context.Background()
+		sim := newRunningSim(ctx)
+
+		req := &endpoint.TextCompletionsParsedRequest{}
+		req.RequestID = "disconnect-stream"
+		req.Model = common.TestModelName
+		req.Prompt = []api.PromptInput{{Text: "hi"}}
+		req.Stream = true
+
+		numChoices, isStream, respChan, topErr, _ := sim.HandleRequest(req)
+		Expect(topErr).To(BeNil())
+		Expect(isStream).To(BeTrue())
+
+		first := <-respChan.Channel
+		Expect(first).NotTo(BeNil())
+		// Buffer the remaining entries so the simulator never blocks on a stream
+		// that stops reading.
+		buffered := common.Channel[*endpoint.ResponseInfo]{
+			Channel: make(chan *endpoint.ResponseInfo, 100),
+			Name:    "buffered",
+		}
+		for response := range respChan.Channel {
+			buffered.Channel <- response
+		}
+		close(buffered.Channel)
+
+		var logMu sync.Mutex
+		var logs strings.Builder
+		logger := funcr.New(func(_, args string) {
+			logMu.Lock()
+			defer logMu.Unlock()
+			logs.WriteString(args + "\n")
+		}, funcr.Options{})
+
+		c := &Communication{logger: logger, transport: fakeTransport{}}
+		httpCtx := &fasthttp.RequestCtx{}
+		httpCtx.SetStatusCode(fasthttp.StatusOK)
+		httpCtx.SetContentType("text/event-stream")
+
+		c.sendStream(httpCtx, buffered, &textComplHTTPRespBuilder{transport: c.transport}, numChoices, first)
+
+		// The goroutine is blocked writing the first chunk into the pipe, since
+		// nothing reads it. Closing the read end fails that write, as a client
+		// disconnect does.
+		bodyStream, ok := httpCtx.Response.BodyStream().(io.Closer)
+		Expect(ok).To(BeTrue())
+		Expect(bodyStream.Close()).To(Succeed())
+
 		Eventually(func() string {
-			return string(httpCtx.Response.Body())
-		}, "1s").Should(ContainSubstring(fmt.Sprintf("no tokens for choice index: %d", missingChoice)))
+			logMu.Lock()
+			defer logMu.Unlock()
+			return logs.String()
+		}, "1s").Should(ContainSubstring("closed pipe"))
+
+		Consistently(func() int {
+			return httpCtx.Response.StatusCode()
+		}, "200ms").Should(Equal(fasthttp.StatusOK))
+		Expect(string(httpCtx.Response.Header.ContentType())).To(Equal("text/event-stream"))
 	})
 })
