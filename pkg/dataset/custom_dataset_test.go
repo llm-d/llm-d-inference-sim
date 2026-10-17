@@ -20,8 +20,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
+	"testing"
 	"time"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
@@ -463,3 +467,43 @@ var _ = Describe("download custom dataset from HF", Ordered, func() {
 		Expect(err).NotTo(HaveOccurred())
 	})
 })
+
+func TestDatasetDownloadFailure(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/unavailable" {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		_, _ = w.Write([]byte("dataset"))
+	}))
+	defer server.Close()
+
+	for _, tt := range []struct {
+		name string
+		url  string
+	}{
+		{name: "transport error", url: "invalid://dataset"},
+		{name: "bad status", url: server.URL + "/unavailable"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "dataset.sqlite3")
+			downloader := newDsDownloader(klog.Background())
+			if err := downloader.downloadDataset(context.Background(), tt.url, path); err == nil {
+				t.Fatal("expected download to fail")
+			}
+			if _, err := os.Stat(path); !os.IsNotExist(err) {
+				t.Fatalf("destination after failed download: %v; want file not to exist", err)
+			}
+			if err := downloader.downloadDataset(context.Background(), server.URL, path); err != nil {
+				t.Fatal(err)
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(data) != "dataset" {
+				t.Fatalf("retry downloaded %q; want %q", data, "dataset")
+			}
+		})
+	}
+}
