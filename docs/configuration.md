@@ -247,7 +247,7 @@ Command-line flag names are as listed below. In a YAML config file, these settin
     960.0, 1920.0, 7680.0, +Inf.
     - `request-prompt-tokens` - array of values for prompt-length buckets
     - `request-generation-tokens` - array of values for generation-length buckets
-    - `request-max-generation-tokens` - array of values for max_num_generation_tokens buckets
+    - `request-max-generation-tokens` - array of values for request_max_num_generation_tokens buckets
     - `request-params-max-tokens` - array of values for  max_tokens parameter buckets
     - `request-success-total` - number of successful requests per finish reason, key: finish-reason (stop, length, etc.).
     - `total-prompt-tokens` - initial value for the `vllm:prompt_tokens_total` counter (total number of prompt tokens processed).

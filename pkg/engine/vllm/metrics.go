@@ -47,7 +47,7 @@ const (
 	VLLMTPOTMetricName                    = "vllm:time_per_output_token_seconds"
 	VLLMReqTPOTMetricName                 = "vllm:request_time_per_output_token_seconds"
 	VLLMInterTokenLatencyMetricName       = "vllm:inter_token_latency_seconds"
-	VLLMMaxNumGenerationTokensMetricName  = "vllm:max_num_generation_tokens"
+	VLLMMaxNumGenerationTokensMetricName  = "vllm:request_max_num_generation_tokens"
 	VLLMGenerationTokensMetricName        = "vllm:request_generation_tokens"
 	VLLMParamMaxTokensMetricName          = "vllm:request_params_max_tokens"
 	VLLMPromptTokensMetricName            = "vllm:request_prompt_tokens"

@@ -151,6 +151,15 @@ var _ = Describe("VLLMMetricsAdapter", func() {
 			Eventually(counterValue(adapter.requestSuccessTotal, common.TestModelName, "stop")).Should(Equal(float64(1)))
 		})
 
+		It("exports the max generation tokens histogram under vLLM's name", func() {
+			adapter, _ := newTestAdapter(newTestConfig())
+
+			adapter.OnRequestSucceeded(metrics.RequestSucceeded{GenTokensPerChoice: []int{3}, FinishReason: "stop"})
+			Eventually(func() (int, error) {
+				return testutil.GatherAndCount(adapter.registry, "vllm:request_max_num_generation_tokens")
+			}).Should(Equal(1))
+		})
+
 		It("updates the KV-cache usage gauge", func() {
 			adapter, _ := newTestAdapter(newTestConfig())
 
