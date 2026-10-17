@@ -301,10 +301,23 @@ func (reqCtx *baseRequestContext) shouldReturnCacheThresholdFinishReason(req api
 	return false
 }
 
+// kvCacheRequest keys a sub-request in the KV cache by its choice: the n
+// choices of one request share its request ID but hold their blocks separately.
+type kvCacheRequest struct {
+	api.Request
+	id string
+}
+
+func (r kvCacheRequest) GetRequestID() string { return r.id }
+
+func (reqCtx *baseRequestContext) kvCacheID() string {
+	return fmt.Sprintf("%s-%d", reqCtx.Request().GetRequestID(), reqCtx.idx)
+}
+
 func (reqCtx *baseRequestContext) kvCacheOnRequestStart() (stat metrics.PrefixCacheQueried, oaiServerError *api.Error) {
-	return reqCtx.runtime.KVCacheOnRequestStart(reqCtx.Request())
+	return reqCtx.runtime.KVCacheOnRequestStart(kvCacheRequest{Request: reqCtx.Request(), id: reqCtx.kvCacheID()})
 }
 
 func (reqCtx *baseRequestContext) KVCacheOnRequestEnd() {
-	reqCtx.runtime.KVCacheOnRequestEnd(reqCtx.Request().GetRequestID())
+	reqCtx.runtime.KVCacheOnRequestEnd(reqCtx.kvCacheID())
 }

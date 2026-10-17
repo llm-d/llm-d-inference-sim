@@ -153,3 +153,24 @@ var _ = Describe("HandleRequest enqueue failure", func() {
 		Expect(completedCount).To(Equal(2))
 	})
 })
+
+var _ = Describe("HandleRequest with n > 1 and the KV cache enabled", func() {
+	It("lets the choices of one request hold KV-cache blocks at the same time", func() {
+		GinkgoT().Setenv("POD_IP", "localhost")
+		sim := newHandleRequestTestSim(context.Background(), 2,
+			"--enable-kvcache", "--kv-cache-size", "16", "--block-size", "8")
+
+		_, _, _, topErr, _ := sim.HandleRequest(newTextCompletionsRequestWithChoices("kv", 2))
+		Expect(topErr).To(BeNil())
+		reqCtx1 := <-sim.newRequests.Channel
+		reqCtx2 := <-sim.newRequests.Channel
+
+		// Both choices run concurrently: each starts before either ends.
+		_, err := reqCtx1.HandleRequest()
+		Expect(err).To(BeNil())
+		_, err = reqCtx2.HandleRequest()
+		Expect(err).To(BeNil())
+		reqCtx1.KVCacheOnRequestEnd()
+		reqCtx2.KVCacheOnRequestEnd()
+	})
+})
