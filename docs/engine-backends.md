@@ -56,7 +56,12 @@ LoRA adapters follow SGLang's tokenizer manager and LoRA registry, under SGLang'
 
 Which requests run together is not SGLang's: the batch slots adapters occupy are the core's (see
 [What stays engine-neutral](#what-stays-engine-neutral)), so a request on an adapter not in the running
-batch waits the way it does under vLLM.
+batch waits the way it does under vLLM. Two SGLang scheduling rules are therefore not modeled: SGLang
+counts base-model requests against `max-loras-per-batch`, and it keeps slots free for pinned adapters
+when admitting a batch. Here base-model requests take no slot and a pinned adapter is evicted from its slot
+like any other idle adapter, so more adapters can run together than under SGLang. Pinning only limits how
+many adapters can be loaded as pinned (`max-loras-per-batch - 1`) and exempts them from `max-loaded-loras`
+eviction.
 
 It does not serve the render endpoints (`/v1/completions/render`, `/v1/chat/completions/render`,
 `/v1/responses/render`, `/v1/messages/render`) or the derender endpoints (`/v1/completions/derender`,
