@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
@@ -125,6 +126,101 @@ var _ = Describe("Simulator", forEachEngine(func() {
 		Expect(finishReason).To(Equal(common.LengthFinishReason))
 	})
 
+	It("honors min_tokens and max_completion_tokens", func() {
+		ctx := context.TODO()
+		client, err := startServer(ctx, common.ModeRandom)
+		Expect(err).NotTo(HaveOccurred())
+
+		reqBody := fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":%q}],"min_tokens":6,"max_tokens":5,"max_completion_tokens":20}`,
+			common.TestModelName, testUserMessage)
+		resp, err := client.Post("http://localhost/v1/chat/completions", "application/json", strings.NewReader(reqBody))
+		Expect(err).NotTo(HaveOccurred())
+		defer func() { Expect(resp.Body.Close()).To(Succeed()) }()
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+		body, err := io.ReadAll(resp.Body)
+		Expect(err).NotTo(HaveOccurred())
+		var response map[string]any
+		Expect(json.Unmarshal(body, &response)).To(Succeed())
+		usage := response["usage"].(map[string]any)
+		Expect(usage["completion_tokens"]).To(BeNumerically(">=", 6))
+		Expect(usage["completion_tokens"]).To(BeNumerically("<=", 20))
+	})
+
+	DescribeTable("rejects invalid min_tokens",
+		func(minTokens int, maxCompletionTokens int, contextWindow int, expectedMessage string) {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom}
+			if contextWindow > 0 {
+				args = append(args, engineFlag(common.FieldContextWindow), strconv.Itoa(contextWindow))
+			}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			reqBody := fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":%q}],"min_tokens":%d,"max_completion_tokens":%d}`,
+				common.TestModelName, testUserMessage, minTokens, maxCompletionTokens)
+			resp, err := client.Post("http://localhost/v1/chat/completions", "application/json", strings.NewReader(reqBody))
+			Expect(err).NotTo(HaveOccurred())
+			defer func() { Expect(resp.Body.Close()).To(Succeed()) }()
+			Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
+
+			body, err := io.ReadAll(resp.Body)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(string(body)).To(ContainSubstring(expectedMessage))
+		},
+		Entry("negative minimum", -1, 20, 0, "min_tokens must be greater than or equal to 0"),
+		Entry("minimum above requested maximum", 21, 20, 0, "min_tokens must be less than or equal to max_tokens=20"),
+		Entry("minimum above context-clamped maximum", 100, 1000, 100, "min_tokens must be less than or equal to max_tokens="),
+	)
+
+	It("does not alter echo responses for a valid min_tokens", func() {
+		ctx := context.TODO()
+		client, err := startServer(ctx, common.ModeEcho)
+		Expect(err).NotTo(HaveOccurred())
+
+		reqBody := fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":%q}],"min_tokens":1}`,
+			common.TestModelName, testUserMessage)
+		resp, err := client.Post("http://localhost/v1/chat/completions", "application/json", strings.NewReader(reqBody))
+		Expect(err).NotTo(HaveOccurred())
+		defer func() { Expect(resp.Body.Close()).To(Succeed()) }()
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+		body, err := io.ReadAll(resp.Body)
+		Expect(err).NotTo(HaveOccurred())
+		var response map[string]any
+		Expect(json.Unmarshal(body, &response)).To(Succeed())
+		choices := response["choices"].([]any)
+		message := choices[0].(map[string]any)["message"].(map[string]any)
+		Expect(message["content"]).To(Equal(testUserMessage))
+	})
+
+	It("pads the echoed last message to min_tokens when the full prompt is longer", func() {
+		ctx := context.TODO()
+		client, err := startServer(ctx, common.ModeEcho)
+		Expect(err).NotTo(HaveOccurred())
+
+		systemMessage := strings.Repeat("system message ", 20)
+		minTokens := getTextPromptTokensCountForTestModel(testUserMessage) + 5
+		reqBody := fmt.Sprintf(`{"model":%q,"messages":[{"role":"system","content":%q},{"role":"user","content":%q}],"min_tokens":%d}`,
+			common.TestModelName, systemMessage, testUserMessage, minTokens)
+		resp, err := client.Post("http://localhost/v1/chat/completions", "application/json", strings.NewReader(reqBody))
+		Expect(err).NotTo(HaveOccurred())
+		defer func() { Expect(resp.Body.Close()).To(Succeed()) }()
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+		body, err := io.ReadAll(resp.Body)
+		Expect(err).NotTo(HaveOccurred())
+		var response map[string]any
+		Expect(json.Unmarshal(body, &response)).To(Succeed())
+		usage := response["usage"].(map[string]any)
+		Expect(usage["completion_tokens"]).To(BeNumerically("==", minTokens))
+		choices := response["choices"].([]any)
+		Expect(choices[0].(map[string]any)["finish_reason"]).To(Equal(common.StopFinishReason))
+		content := choices[0].(map[string]any)["message"].(map[string]any)["content"].(string)
+		Expect(content).To(HavePrefix(testUserMessage))
+		Expect(dataset.IsValidText(strings.TrimPrefix(content, testUserMessage))).To(BeTrue())
+	})
+
 	DescribeTable("chat completions",
 		func(model string, mode string, maxTokens int, maxCompletionTokens int) {
 			ctx := context.TODO()
@@ -145,20 +241,6 @@ var _ = Describe("Simulator", forEachEngine(func() {
 				numTokens = maxCompletionTokens
 			}
 			resp, err := openaiclient.Chat.Completions.New(ctx, params)
-
-			// echo mode returns the full prompt as the response, so it rejects any
-			// max_tokens smaller than the prompt's token count - expect that error
-			// rather than a successful response.
-			if mode == common.ModeEcho && numTokens > 0 && int64(numTokens) < userMsgChatTokens {
-				Expect(err).To(HaveOccurred())
-				var openaiError *openai.Error
-				Expect(errors.As(err, &openaiError)).To(BeTrue())
-				Expect(openaiError.StatusCode).To(Equal(400))
-				errMsg, readErr := io.ReadAll(openaiError.Response.Body)
-				Expect(readErr).NotTo(HaveOccurred())
-				Expect(string(errMsg)).To(ContainSubstring("max_tokens must be at least the prompt length"))
-				return
-			}
 
 			if err != nil {
 				var openaiError *openai.Error
@@ -188,8 +270,15 @@ var _ = Describe("Simulator", forEachEngine(func() {
 			Expect(msg).ShouldNot(BeEmpty())
 
 			if mode == common.ModeEcho {
-				// in case of echo mode check that the text is returned as-is
-				Expect(msg).Should(Equal(testUserMessage))
+				if numTokens > 0 && int64(numTokens) < userMsgChatTokens {
+					// the echo is longer than max_tokens, so it is truncated to it
+					Expect(resp.Usage.CompletionTokens).To(Equal(int64(numTokens)))
+					Expect(msg).ShouldNot(Equal(testUserMessage))
+					Expect(rawResp["choices"].([]any)[0].(map[string]any)["finish_reason"]).To(Equal(common.LengthFinishReason))
+				} else {
+					// in case of echo mode check that the text is returned as-is
+					Expect(msg).Should(Equal(testUserMessage))
+				}
 			} else {
 				if numTokens > 0 {
 					_, tokens, err := server.Context.Tokenizer.RenderText(msg)

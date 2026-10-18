@@ -58,6 +58,15 @@ Which requests run together is not SGLang's: the batch slots adapters occupy are
 [What stays engine-neutral](#what-stays-engine-neutral)), so a request on an adapter not in the running
 batch waits the way it does under vLLM.
 
+It does not serve the render endpoints (`/v1/completions/render`, `/v1/chat/completions/render`,
+`/v1/responses/render`, `/v1/messages/render`) or the derender endpoints (`/v1/completions/derender`,
+`/v1/chat/completions/derender`), which SGLang does not have. `/tokenize` and `/v1/messages/count_tokens`
+are served.
+
+The experimental SGLang backend does not apply strict request validation. Its
+`NewRequestValidator` hook returns no validator, so the completion endpoints retain their
+ordinary request checks even when `strict` is enabled in the configuration.
+
 Every completion choice carries SGLang's `matched_stop` field, naming which `stop` string or
 `stop_token_ids` entry ended generation. It is always `null` today: matching a stop condition requires
 `stop`/`stop_token_ids` request handling, which neither engine implements yet. This gap is expected to
@@ -74,10 +83,12 @@ close as SGLang support matures, not a permanent design boundary the way the vLL
 | `BindFlags` | The engine's CLI flags, and unmarshaling its own YAML blocks out of the raw config tree | [flags.go](../pkg/engine/vllm/flags.go) |
 | `ApplyEnv` | The engine's environment variables | [env.go](../pkg/engine/vllm/env.go) |
 | `ValidateConfig` | Validation rules for the engine's own fields | [validate.go](../pkg/engine/vllm/validate.go) |
-| `BindHTTP` | HTTP routes beyond the OpenAI-compatible set | [transport.go](../pkg/engine/vllm/transport.go) |
+| `NewRequestValidator` | Strict request schemas and semantic validation rules | [strict_schema.go](../pkg/engine/vllm/strict_schema.go), [strict_validation.go](../pkg/engine/vllm/strict_validation.go) |
+| `BindHTTP` | HTTP routes beyond the OpenAI-compatible set, including the render and derender endpoints | [transport.go](../pkg/engine/vllm/transport.go) |
 | `BindGRPC` | The gRPC service, and whether the engine has one at all | [transport.go](../pkg/engine/vllm/transport.go) |
 | `ErrorBody`, `StreamErrorBody` | How an error object is framed in a response body | [transport.go](../pkg/engine/vllm/transport.go) |
 | `DecorateChatChoice`, `DecorateChatChunkChoice`, `DecorateTextChoice` | Fields a completion choice carries beyond the OpenAI-compatible core | [transport.go](../pkg/engine/vllm/transport.go) |
+| `DecorateMessagesCountTokens` | Fields a `/v1/messages/count_tokens` response carries beyond `input_tokens` (vLLM adds `context_management`; SGLang adds none) | [transport.go](../pkg/engine/vllm/transport.go) |
 | `NewMetricsAdapter` | Prometheus metric names, labels, and the fake-metrics schema | [metrics.go](../pkg/engine/vllm/metrics.go), [fakemetrics.go](../pkg/engine/vllm/fakemetrics.go) |
 | `NewKVEventEncoder` | The wire format of a single KV-cache event | [kvevents.go](../pkg/engine/vllm/kvevents.go) |
 | `NewLoraRegistry` | How a request names its model and adapter, the load and unload endpoints' bodies, and when an adapter stops being available | [lora.go](../pkg/engine/vllm/lora.go) |
@@ -138,8 +149,9 @@ The order matters because each step's output is the next step's input. `main` re
 2. `simulator.Start` builds each rank's `SimContext`, which calls `NewLoraRegistry` to hold the rank's
    LoRA adapters, `NewMetricsAdapter` to wire the metrics bus and, when the KV cache is enabled and multi-modal encoder-only mode is not, `NewKVEventEncoder` to
    wire the block cache.
-3. `Communication.Start` consults `BindGRPC` first, unless multi-modal encoder-only mode is enabled, and
-   opens a gRPC listener only if it returns true. It then calls `BindHTTP` while building the HTTP router.
+3. `Communication.Start` calls `NewRequestValidator` when strict validation is enabled. It consults
+   `BindGRPC`, unless multi-modal encoder-only mode is enabled, and opens a gRPC listener only if it
+   returns true. It then calls `BindHTTP` while building the HTTP router.
 
 
 ## How an error is framed

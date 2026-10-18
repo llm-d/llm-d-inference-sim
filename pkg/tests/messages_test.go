@@ -401,7 +401,291 @@ var _ = Describe("Simulator for /v1/messages (Anthropic Messages API)", forEachE
 			Expect(*msgDelta.Delta.StopReason).To(Equal(api.MessagesStopReasonToolUse))
 		})
 	})
+
+	Describe("disaggregation params", func() {
+		It("returns kv_transfer_params when do_remote_decode is true", func() {
+			client, err := startServer(ctx, common.ModeRandom)
+			Expect(err).NotTo(HaveOccurred())
+
+			body := `{"model":"` + model + `","max_tokens":100,` +
+				`"messages":[{"role":"user","content":"hello"}],` +
+				`"kv_transfer_params":{"do_remote_decode":true}}`
+			status, respBody := postMessagesRoute(client, "/v1/messages", body)
+			Expect(status).To(Equal(http.StatusOK), "response body: %s", string(respBody))
+
+			var respObj map[string]any
+			Expect(json.Unmarshal(respBody, &respObj)).To(Succeed())
+			kvParams, ok := respObj["kv_transfer_params"].(map[string]any)
+			Expect(ok).To(BeTrue(), "kv_transfer_params must be present")
+			Expect(kvParams["do_remote_prefill"]).To(BeTrue())
+			Expect(kvParams["do_remote_decode"]).To(BeFalse())
+			Expect(kvParams["remote_host"]).NotTo(BeEmpty())
+			Expect(kvParams["remote_port"]).To(BeNumerically(">", 0))
+			Expect(kvParams["remote_block_ids"]).NotTo(BeEmpty())
+			Expect(kvParams["remote_engine_id"]).NotTo(BeEmpty())
+		})
+
+		It("does not return kv_transfer_params when do_remote_decode is absent", func() {
+			client, err := startServer(ctx, common.ModeRandom)
+			Expect(err).NotTo(HaveOccurred())
+
+			body := buildMessagesBody(model, false, []map[string]any{
+				{"role": "user", "content": testUserMessage},
+			}, "", nil, nil)
+			status, respBody := postMessagesRoute(client, "/v1/messages", body)
+			Expect(status).To(Equal(http.StatusOK), "response body: %s", string(respBody))
+
+			var respObj map[string]any
+			Expect(json.Unmarshal(respBody, &respObj)).To(Succeed())
+			Expect(respObj).NotTo(HaveKey("kv_transfer_params"))
+		})
+	})
+
+	Describe("count_tokens", func() {
+		It("counts the tokens of the prompt, without requiring max_tokens", func() {
+			client, err := startServer(ctx, common.ModeRandom)
+			Expect(err).NotTo(HaveOccurred())
+
+			body := `{"model":"` + model + `","system":"You are a helpful assistant.",` +
+				`"messages":[{"role":"user","content":"` + testUserMessage + `"}]}`
+			status, respBody := postMessagesRoute(client, "/v1/messages/count_tokens", body)
+			Expect(status).To(Equal(http.StatusOK), "response body: %s", string(respBody))
+			var resp api.MessagesCountTokensResponse
+			Expect(json.Unmarshal(respBody, &resp)).To(Succeed())
+			Expect(resp.InputTokens).To(BeNumerically(">", 0))
+			// context_management is vLLM's extension; sglang answers input_tokens alone
+			if currentEngine == "sglang" {
+				Expect(resp.ContextManagement).To(BeNil())
+			} else {
+				Expect(resp.ContextManagement).NotTo(BeNil())
+				Expect(resp.ContextManagement.OriginalInputTokens).To(Equal(resp.InputTokens))
+			}
+		})
+	})
+
+	// count_tokens answers in the Messages API's error envelope. render answers
+	// as the other render endpoints do: vLLM serves it from the render router,
+	// which frames errors in the OpenAI shape.
+	DescribeTable("count_tokens request validation",
+		func(reqBody string, expectedMsg string) {
+			client, err := startServer(ctx, common.ModeRandom)
+			Expect(err).NotTo(HaveOccurred())
+
+			status, respBody := postMessagesRoute(client, "/v1/messages/count_tokens", reqBody)
+			Expect(status).To(Equal(http.StatusBadRequest))
+
+			var errResp api.MessagesErrorResponse
+			Expect(json.Unmarshal(respBody, &errResp)).To(Succeed())
+			Expect(errResp.Type).To(Equal(api.MessagesTypeError))
+			Expect(errResp.Error.Message).To(ContainSubstring(expectedMsg))
+		},
+		Entry("rejects empty messages",
+			`{"model":"`+common.TestModelName+`","messages":[]}`, "messages must not be empty"),
+		Entry("rejects an image block without a source",
+			`{"model":"`+common.TestModelName+`","messages":[{"role":"user","content":[{"type":"image"}]}]}`,
+			"missing required 'source' field"),
+	)
 }))
+
+// The render endpoints are vLLM's: sglang serves none of them, so these specs
+// name no other engine. Errors on /v1/messages/render are framed like the other
+// render endpoints, which vLLM serves from its render router.
+var _ = Describe("Messages API render", func() {
+	var (
+		ctx    = context.TODO()
+		model  = common.TestModelName
+		client *http.Client
+	)
+
+	BeforeEach(func() {
+		var err error
+		client, err = startServer(ctx, common.ModeRandom)
+		Expect(err).NotTo(HaveOccurred())
+	})
+
+	It("returns the token ids of the prompt", func() {
+		body := buildMessagesBody(model, false, []map[string]any{
+			{"role": "user", "content": testUserMessage},
+		}, "You are a helpful assistant.", nil, nil)
+		status, respBody := postMessagesRoute(client, "/v1/messages/render", body)
+		Expect(status).To(Equal(http.StatusOK), "response body: %s", string(respBody))
+
+		var resp api.RenderResponse
+		Expect(json.Unmarshal(respBody, &resp)).To(Succeed())
+		Expect(resp.TokenIDs).NotTo(BeEmpty())
+		Expect(resp.Features).To(BeNil())
+	})
+
+	It("synthesizes mm features for image blocks", func() {
+		body := `{"model":"` + model + `","max_tokens":100,"messages":[{"role":"user","content":[` +
+			`{"type":"text","text":"describe"},` +
+			`{"type":"image","source":{"type":"url","url":"https://example.com/a.png"}},` +
+			`{"type":"image","source":{"type":"url","url":"https://example.com/b.png"}}` +
+			`]}]}`
+		status, respBody := postMessagesRoute(client, "/v1/messages/render", body)
+		Expect(status).To(Equal(http.StatusOK), "response body: %s", string(respBody))
+
+		var resp api.RenderResponse
+		Expect(json.Unmarshal(respBody, &resp)).To(Succeed())
+		Expect(resp.TokenIDs).NotTo(BeEmpty())
+		Expect(resp.Features).NotTo(BeNil())
+		Expect(resp.Features.MMHashes).To(HaveKey("image"))
+		Expect(resp.Features.MMHashes["image"]).To(HaveLen(2))
+	})
+
+	It("matches the count_tokens count", func() {
+		prompt := `"model":"` + model + `","system":"You are a helpful assistant.",` +
+			`"messages":[{"role":"user","content":"` + testUserMessage + `"}]`
+
+		status, renderBody := postMessagesRoute(client, "/v1/messages/render", `{`+prompt+`,"max_tokens":100}`)
+		Expect(status).To(Equal(http.StatusOK), "response body: %s", string(renderBody))
+		var rendered api.RenderResponse
+		Expect(json.Unmarshal(renderBody, &rendered)).To(Succeed())
+
+		status, countBody := postMessagesRoute(client, "/v1/messages/count_tokens", `{`+prompt+`}`)
+		Expect(status).To(Equal(http.StatusOK), "response body: %s", string(countBody))
+		var counted api.MessagesCountTokensResponse
+		Expect(json.Unmarshal(countBody, &counted)).To(Succeed())
+		Expect(counted.InputTokens).To(Equal(len(rendered.TokenIDs)))
+	})
+
+	DescribeTable("render request validation",
+		func(reqBody string, expectedMsg string) {
+			status, respBody := postMessagesRoute(client, "/v1/messages/render", reqBody)
+			Expect(status).To(Equal(http.StatusBadRequest))
+			Expect(string(respBody)).To(ContainSubstring(expectedMsg))
+
+			// not the Anthropic envelope {"type":"error","error":{...}}
+			var errResp api.MessagesErrorResponse
+			Expect(json.Unmarshal(respBody, &errResp)).To(Succeed())
+			Expect(errResp.Type).NotTo(Equal(api.MessagesTypeError))
+			var openAIErr api.ErrorResponse
+			Expect(json.Unmarshal(respBody, &openAIErr)).To(Succeed())
+			Expect(openAIErr.Error.Message).To(ContainSubstring(expectedMsg))
+		},
+		Entry("rejects empty messages",
+			`{"model":"`+common.TestModelName+`","max_tokens":100,"messages":[]}`, "messages must not be empty"),
+		Entry("rejects an image block without a source",
+			`{"model":"`+common.TestModelName+`","max_tokens":100,"messages":[{"role":"user","content":[{"type":"image"}]}]}`,
+			"missing required 'source' field"),
+		Entry("rejects a missing max_tokens",
+			`{"model":"`+common.TestModelName+`","messages":[{"role":"user","content":"hi"}]}`,
+			"max_tokens is required"),
+		Entry("rejects a non-positive max_tokens",
+			`{"model":"`+common.TestModelName+`","max_tokens":0,"messages":[{"role":"user","content":"hi"}]}`,
+			common.InvalidMaxTokensErrMsg),
+	)
+})
+
+// Encoder-only mode is vLLM's own, so the Messages API specs that turn it on
+// name no other engine.
+var _ = Describe("Messages API in encoder-only mode", func() {
+	var client *http.Client
+
+	BeforeEach(func() {
+		var err error
+		client, err = startServerWithArgs(context.TODO(), []string{"cmd", "--model", common.TestModelName,
+			"--mm-encoder-only", "--mm-processor-kwargs", "args", "--ec-transfer-config", "cfg",
+			"--enforce-eager", "--no-enable-prefix-caching"})
+		Expect(err).NotTo(HaveOccurred())
+	})
+
+	It("returns ec_transfer_params when messages contain images", func() {
+		body := `{"model":"` + common.TestModelName + `","max_tokens":100,"messages":[{"role":"user","content":[` +
+			`{"type":"text","text":"describe"},` +
+			`{"type":"image","source":{"type":"url","url":"https://example.com/a.png"}},` +
+			`{"type":"image","source":{"type":"url","url":"https://example.com/b.png"}}` +
+			`]}]}`
+		status, respBody := postMessagesRoute(client, "/v1/messages", body)
+		Expect(status).To(Equal(http.StatusOK), "response body: %s", string(respBody))
+
+		var respObj map[string]any
+		Expect(json.Unmarshal(respBody, &respObj)).To(Succeed())
+		ecParams, ok := respObj["ec_transfer_params"].(map[string]any)
+		Expect(ok).To(BeTrue(), "ec_transfer_params must be present")
+		Expect(ecParams).To(HaveLen(2))
+		for _, v := range ecParams {
+			params, ok := v.(map[string]any)
+			Expect(ok).To(BeTrue())
+			Expect(params["peer_host"]).NotTo(BeEmpty())
+			Expect(params["peer_port"]).To(BeNumerically(">", 0))
+			Expect(params["size_bytes"]).To(BeNumerically(">", 0))
+			Expect(params["nixl_agent_metadata_b64"]).NotTo(BeEmpty())
+		}
+	})
+
+	It("does not return ec_transfer_params when messages contain no images", func() {
+		body := buildMessagesBody(common.TestModelName, false, []map[string]any{
+			{"role": "user", "content": testUserMessage},
+		}, "", nil, nil)
+		status, respBody := postMessagesRoute(client, "/v1/messages", body)
+		Expect(status).To(Equal(http.StatusOK), "response body: %s", string(respBody))
+
+		var respObj map[string]any
+		Expect(json.Unmarshal(respBody, &respObj)).To(Succeed())
+		Expect(respObj).NotTo(HaveKey("ec_transfer_params"))
+	})
+})
+
+// LoRA adapters are vLLM's own, so the Messages API specs that load one name no
+// other engine. vLLM validates the model of /v1/messages/render and
+// /v1/messages/count_tokens against the base model and the loaded adapters.
+var _ = Describe("Messages API with LoRA adapters", func() {
+	const loraName = "lora3"
+
+	var client *http.Client
+
+	BeforeEach(func() {
+		var err error
+		client, err = startServerWithArgs(context.TODO(), []string{"cmd", "--model", common.TestModelName,
+			"--mode", common.ModeEcho, "--lora-modules", `{"name":"` + loraName + `","path":"/path/to/lora3"}`})
+		Expect(err).NotTo(HaveOccurred())
+	})
+
+	body := func(model string) string {
+		return buildMessagesBody(model, false, []map[string]any{
+			{"role": "user", "content": testUserMessage},
+		}, "", nil, nil)
+	}
+
+	DescribeTable("accepts a loaded adapter as the model",
+		func(path string) {
+			status, respBody := postMessagesRoute(client, path, body(loraName))
+			Expect(status).To(Equal(http.StatusOK), "response body: %s", string(respBody))
+		},
+		Entry("render", "/v1/messages/render"),
+		Entry("count_tokens", "/v1/messages/count_tokens"),
+	)
+
+	DescribeTable("rejects an unknown model",
+		func(path string) {
+			status, respBody := postMessagesRoute(client, path, body("lora1"))
+			Expect(status).To(Equal(http.StatusNotFound))
+			Expect(string(respBody)).To(ContainSubstring("does not exist"))
+		},
+		Entry("render", "/v1/messages/render"),
+		Entry("count_tokens", "/v1/messages/count_tokens"),
+	)
+
+	It("leaves the other render endpoints rejecting an adapter", func() {
+		status, respBody := postMessagesRoute(client, "/v1/chat/completions/render",
+			`{"model":"`+loraName+`","messages":[{"role":"user","content":"hi"}]}`)
+		Expect(status).To(Equal(http.StatusBadRequest))
+		Expect(string(respBody)).To(ContainSubstring("is a LoRA adapter"))
+	})
+})
+
+// postMessagesRoute sends body to the given /v1/messages route and returns the
+// status code and response body.
+func postMessagesRoute(client *http.Client, path string, body string) (int, []byte) {
+	resp, err := client.Post("http://localhost"+path, "application/json", strings.NewReader(body))
+	Expect(err).NotTo(HaveOccurred())
+	defer resp.Body.Close() //nolint:errcheck
+
+	data, err := io.ReadAll(resp.Body)
+	Expect(err).NotTo(HaveOccurred())
+	return resp.StatusCode, data
+}
 
 // findEventIndex returns the index of the first event with the given type.
 func findEventIndex(types []string, eventType string) int {

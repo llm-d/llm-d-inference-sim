@@ -113,3 +113,11 @@ var _ = Describe("choice decoration", func() {
 		Expect(New().DecorateTextChoice(choice).MatchedStop).To(MatchJSON("null"))
 	})
 })
+
+// sglang's count_tokens response carries input_tokens alone.
+var _ = Describe("messages count_tokens decoration", func() {
+	It("should leave the response unchanged", func() {
+		resp := api.MessagesCountTokensResponse{InputTokens: 7}
+		Expect(New().DecorateMessagesCountTokens(resp)).To(Equal(resp))
+	})
+})

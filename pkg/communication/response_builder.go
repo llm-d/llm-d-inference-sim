@@ -69,6 +69,10 @@ func (e *namedEventChunk) SSEBytes() ([]byte, error) {
 // synthetic image payload sent in the image chunk after the token stream.
 const syntheticImageData = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
 
+// syntheticWAVData is re-exported from api.SyntheticWAVData for use inside
+// the communication package without introducing a cross-package import cycle.
+const syntheticWAVData = api.SyntheticWAVData
+
 // doneMarker emits the SSE stream terminator "data: [DONE]\n\n".
 type doneMarker struct{}
 
@@ -286,6 +290,11 @@ func (respBuilder *chatComplHTTPRespBuilder) createResponse(respCtxPerChoice []e
 			} else {
 				message.Content = api.ChatComplContent{Raw: respText}
 			}
+			if choiceCtx.HasAudioOutput() {
+				// The audio payload is synthetic and fixed-size; it does not consume
+				// any of the max_completion_tokens budget, which governs respText only.
+				message.Audio = buildSyntheticAudio(choiceCtx.RequestID(), respText)
+			}
 		}
 
 		choice := respBuilder.transport.DecorateChatChoice(api.CreateChatRespChoice(baseChoice, message))
@@ -303,6 +312,17 @@ func (respBuilder *chatComplHTTPRespBuilder) createResponse(respCtxPerChoice []e
 	resp := api.CreateChatCompletionsResponse(baseResp, choices)
 	resp.ECTransferParams = respCtx.ECTransferParams()
 	return resp
+}
+
+// buildSyntheticAudio constructs a ChatAudio value carrying the silent WAV payload.
+// The audio ID is derived from the request ID so it is stable within a request.
+func buildSyntheticAudio(requestID, transcript string) *api.ChatAudio {
+	return &api.ChatAudio{
+		ID:         "audio-" + requestID,
+		Data:       syntheticWAVData,
+		ExpiresAt:  time.Now().Unix() + 86400,
+		Transcript: transcript,
+	}
 }
 
 func (respBuilder *chatComplHTTPRespBuilder) createUsageChunk(respCtxPerChoice []endpoint.ResponseContext) sseChunk {
@@ -497,6 +517,7 @@ func (respBuilder *responsesHTTPRespBuilder) createResponse(respCtxPerChoice []e
 		output = []api.OutputItem{
 			api.MessageOutput{
 				Type:    api.ResponsesOutputMessage,
+				ID:      api.ResponsesMessageIDPrefix + respCtx.RequestID(),
 				Role:    api.RoleAssistant,
 				Status:  api.ResponsesStatusCompleted,
 				Content: []api.OutputContent{outputContent},
@@ -900,7 +921,7 @@ func (b *messagesHTTPRespBuilder) createResponse(respCtxPerChoice []endpoint.Res
 		content = []api.MessagesContentBlock{{Type: "text", Text: text}}
 	}
 
-	return api.CreateMessagesResponse(
+	resp := api.CreateMessagesResponse(
 		respCtx.DisplayModel(),
 		respCtx.RequestID(),
 		b.stopReason(finishReason),
@@ -909,7 +930,18 @@ func (b *messagesHTTPRespBuilder) createResponse(respCtxPerChoice []endpoint.Res
 			InputTokens:  usage.PromptTokens,
 			OutputTokens: usage.CompletionTokens,
 		},
+		respCtx.DoRemoteDecode(),
 	)
+	resp.ECTransferParams = respCtx.ECTransferParams()
+	return resp
+}
+
+// createRenderResponse builds the wire payload for /v1/messages/render: a
+// single RenderResponse object (not an array) carrying the tokens for the
+// rendered prompt and any mm_features produced by the tokenizer.
+func (*messagesHTTPRespBuilder) createRenderResponse(tokens [][]uint32,
+	features *api.RenderMMFeatures) any {
+	return api.RenderResponse{TokenIDs: tokens[0], Features: features}
 }
 
 func (b *messagesHTTPRespBuilder) createUsageChunk(_ []endpoint.ResponseContext) sseChunk {
@@ -1046,3 +1078,17 @@ func (*messagesHTTPRespBuilder) createErrorChunk(body any) sseChunk {
 }
 
 var _ responseBuilder = (*messagesHTTPRespBuilder)(nil)
+
+// messagesCountTokensHTTPRespBuilder serves /v1/messages/count_tokens through
+// the render path, as vLLM counts the tokens of the rendered prompt.
+type messagesCountTokensHTTPRespBuilder struct {
+	messagesHTTPRespBuilder
+	transport Transport
+}
+
+func (b *messagesCountTokensHTTPRespBuilder) createRenderResponse(tokens [][]uint32,
+	_ *api.RenderMMFeatures) any {
+	return b.transport.DecorateMessagesCountTokens(api.MessagesCountTokensResponse{InputTokens: len(tokens[0])})
+}
+
+var _ responseBuilder = (*messagesCountTokensHTTPRespBuilder)(nil)

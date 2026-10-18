@@ -32,6 +32,8 @@ type fakeTransport struct {
 	grpcSupported bool
 }
 
+func (fakeTransport) NewRequestValidator() (RequestValidator, error) { return nil, nil }
+
 func (fakeTransport) BindHTTP(*fasthttprouter.Router, *Communication) {}
 
 func (f fakeTransport) BindGRPC(*grpc.Server, *Communication) bool {
@@ -56,6 +58,10 @@ func (fakeTransport) DecorateChatChunkChoice(choice api.ChatRespChunkChoice) api
 }
 
 func (fakeTransport) DecorateTextChoice(choice api.TextRespChoice) api.TextRespChoice { return choice }
+
+func (fakeTransport) DecorateMessagesCountTokens(resp api.MessagesCountTokensResponse) api.MessagesCountTokensResponse {
+	return resp
+}
 
 var _ = Describe("bindGRPC", func() {
 	var comm *Communication

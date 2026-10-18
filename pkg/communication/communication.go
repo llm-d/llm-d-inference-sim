@@ -27,6 +27,7 @@ import (
 	"github.com/buaazp/fasthttprouter"
 	"github.com/go-logr/logr"
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
+	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 	"github.com/llm-d/llm-d-inference-sim/pkg/communication/grpc/pb"
 	"github.com/llm-d/llm-d-inference-sim/pkg/endpoint"
@@ -52,16 +53,30 @@ type Communication struct {
 	transport Transport
 
 	// startTime records when the server started, used for startup-duration readiness check
-	startTime time.Time
+	startTime       time.Time
+	strictValidator RequestValidator
 }
 
 func New(logger logr.Logger, processor Processor, runtime endpoint.Runtime) *Communication {
 	return &Communication{logger: logger, processor: processor, runtime: runtime, startTime: time.Now()}
 }
 
+// Config returns the simulator's configuration, for an engine that decides from
+// it which of its own routes to bind.
+func (c *Communication) Config() *common.Configuration {
+	return c.runtime.Config()
+}
+
+// RequestValidator checks an engine's request schema and semantic constraints.
+type RequestValidator interface {
+	Validate(body []byte, path string) *api.Error
+}
+
 // Transport supplies the active engine's HTTP routes, gRPC service, and error
 // wire format.
 type Transport interface {
+	// NewRequestValidator prepares the engine's strict validator at startup.
+	NewRequestValidator() (RequestValidator, error)
 	// BindHTTP registers the engine's own HTTP routes on r, on top of the
 	// common routes Communication's own HTTP server already registers.
 	BindHTTP(r *fasthttprouter.Router, comm *Communication)
@@ -86,6 +101,9 @@ type Transport interface {
 	// DecorateTextChoice adds any fields this engine puts on a text-completion
 	// choice; both the full response and streamed chunks reuse this one type.
 	DecorateTextChoice(choice api.TextRespChoice) api.TextRespChoice
+	// DecorateMessagesCountTokens adds any fields this engine puts on a
+	// /v1/messages/count_tokens response beyond input_tokens.
+	DecorateMessagesCountTokens(resp api.MessagesCountTokensResponse) api.MessagesCountTokensResponse
 }
 
 // Start starts the communication layer: the HTTP server (with the active
@@ -94,6 +112,13 @@ type Transport interface {
 // service added via transport.BindGRPC).
 func (c *Communication) Start(ctx context.Context, transport Transport) error {
 	c.logger.V(logging.INFO).Info("Starting communication layer")
+	if c.runtime.Config().StrictRequestValidation {
+		validator, err := transport.NewRequestValidator()
+		if err != nil {
+			return fmt.Errorf("strict request validation: %w", err)
+		}
+		c.strictValidator = validator
+	}
 
 	listener, err := c.newListener()
 	if err != nil {

@@ -46,6 +46,8 @@ declares is the only one it answers to, on the command line and in a config file
 - `startup-duration`: duration the simulator returns HTTP 503 on `/health/ready` to simulate GPU model loading time (e.g. `30s`, `2m`). After this duration elapses from startup, `/health/ready` returns 200. Optional, default is 0 (immediately ready).
 - `enable-request-id-headers`: Enable including X-Request-Id header in responses. When enabled, the simulator will include the request ID in response headers
 - `log-http`: When true, logs each HTTP request and response at INFO (method, URI, remote address, headers, and body when buffered). Gzip-encoded bodies are decoded before logging. Streamed response bodies (for example SSE) are not logged. Use only in trusted environments; may include secrets such as `Authorization` headers.
+- `strict`, `no-strict`: Enable or disable validation of `/v1/chat/completions` and `/v1/completions` against the embedded vLLM 0.21.0 request schemas and engine-owned semantic checks. Optional, default is false.
+- `mm-encoder-only`, `no-mm-encoder-only`: Skip  (or don't skip) the language component of the model. Owned by the `vllm` engine: the flag and the configuration key come from the engine, not the simulator core.
 - `omni`, `no-omni`: Enable or disable omni mode. When enabled, the simulator appends a synthetic image (a 1×1 transparent PNG, `data:image/png;base64,…`) to `/v1/chat/completions` responses in two cases: the `X-Send-Image: true` request header is present, or a random roll succeeds against `--image-emission-rate`. In non-streaming responses the assistant message `content` becomes a structured array — a `text` block carrying the generated tokens followed by an `image_url` block. In streaming responses an extra SSE chunk with `"modality":"image"` is emitted after the token stream, carrying the same image in its delta `content`. When `--omni` is not set (the default), both mechanisms are disabled and the response is a normal text response.
 - `image-emission-rate`: probability (0–100) of emitting a synthetic image chunk per `/v1/chat/completions` request when omni mode is enabled. 0 (the default) means the rate mechanism never fires; 100 means every request gets an image. The `X-Send-Image: true` header triggers emission independently of this rate. Updatable at runtime via `POST /admin/config`.
 
@@ -147,7 +149,7 @@ Command-line flag names are as listed below. In a YAML config file, these settin
 - `render-url`: URL of the vLLM render service used for tokenization. Required when the model is a real HuggingFace model; omit for simulated/dummy models. Default is `http://localhost:8082`.
 - `render-timeout`: Timeout for tokenizer render requests (e.g. `30s`). Default is `30s`.
 - `mm-render-timeout`: Timeout for multi-modal tokenizer render requests (e.g. `60s`). Default is `60s`.
-- `enable-legacy-render`: Disable the `/v1/responses/render` endpoint, matching vLLM versions that predate it. Callers probing the renderer for Responses render support then fall back to the chat-completions render path. Default is `false`.
+- `enable-legacy-render`: Disable the `/v1/responses/render` and `/v1/messages/render` endpoints, matching vLLM versions that predate them. Callers probing the renderer for Responses or Messages render support then fall back to the chat-completions render path. Applies to the vLLM engine, which is the only one serving the render endpoints. Default is `false`.
 
 ### Embeddings
 - `default-embedding-dimensions`: default size of embedding vectors returned by `/v1/embeddings` when the request does not specify a `dimensions` field, optional, defaults to 384.
@@ -230,7 +232,7 @@ Command-line flag names are as listed below. In a YAML config file, these settin
 
     - `waiting-requests` - similar to `running-requests`.
     - `kv-cache-usage` - similar to `running-requests`.
-    - `loras` - an array containing LoRA information objects, each with the fields: `running` (a comma-separated list of LoRAs in use by running requests), `waiting` (a comma-separated list of LoRAs to be used by waiting requests), and `timestamp` (seconds since Jan 1 1970, the timestamp of this metric). 
+    - `loras` - an array containing LoRA information objects, each with the fields: `running` (a comma-separated list of LoRAs in use by running requests), `waiting` (a comma-separated list of LoRAs to be used by waiting requests), and `timestamp` (seconds since Jan 1 1970, the timestamp of this metric). If `loras` is omitted, `vllm:lora_requests_info` is not exposed.
     - `ttft-buckets-values` - array of values for time-to-first-token buckets, each value in this array is a value for the corresponding bucket. Array may contain less values than number of buckets, all trailing missing values assumed as 0. Buckets upper boundaries are: 0.001, 0.005, 0.01, 0.02, 0.04, 0.06, 0.08, 0.1, 0.25, 0.5, 0.75, 1.0, 2.5, 5.0, 7.5, 10.0, 20.0, 40.0, 80.0, 160.0, 640.0, 2560.0, +Inf.
     - `tpot-buckets-values` - array of values for time-per-output-token buckets, each value in this array is a value for the corresponding bucket. Array may contain less values than number of buckets, all trailing missing values assumed as 0. Buckets upper boundaries are: 0.01, 0.025, 0.05, 0.075, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5, 0.75, 1.0, 2.5, 5.0, 7.5, 10.0, 20.0, 40.0, 80.0, +Inf.
     - `e2erl-buckets-values` - array of values for e2e request latency buckets, each value in this array is a value for the corresponding bucket. Array may contain less values than number of buckets, all trailing missing values assumed as 0. Buckets upper boundaries are: 0.3, 0.5, 0.8, 1.0, 1.5, 2.0, 2.5, 5.0, 10.0, 15.0, 20.0, 30.0, 40.0, 50.0, 60.0, 120.0, 240.0, 480.0, 
@@ -257,7 +259,7 @@ Command-line flag names are as listed below. In a YAML config file, these settin
       --fake-metrics '{"running-requests":"oscillate:0:10:5s","waiting-requests":30,"kv-cache-usage":0.4,"loras":[{"running":"lora4,lora2","waiting":"lora3","timestamp":1257894567},{"running":"lora4,lora3","waiting":"","timestamp":1257894569}]}'
 - `fake-metrics-refresh-interval`	- defines how often function-based fake metrics are recalculated, the default value is 100ms.
 
-Fake metric values can also be updated at runtime via [`POST /admin/config`](api.md#adminconfig) with a `fake-metrics` field — the body is a partial update, so only the specified metrics are changed. Absent fields and fields explicitly set to `null` are equivalent and leave the existing value alone; to clear a slice- or map-valued metric send `[]` or `{}` respectively. Scalar metrics cannot be cleared via partial update.
+Fake metric values can also be updated at runtime via [`POST /admin/config`](api.md#adminconfig) with a `fake-metrics` field — the body is a partial update, so only the specified metrics are changed. Absent fields and fields explicitly set to `null` are equivalent and leave the existing value alone; to clear a slice- or map-valued metric send `[]` or `{}` respectively. Scalar metrics cannot be cleared via partial update. A fixed numeric update replaces a generator function for the specified scalar metric.
 
 #### Ignored parameters
 The following command line parameters are ignored by the simulator:
@@ -312,6 +314,29 @@ Example of definition in yaml:
           fieldPath: status.podIP
   ```
 
+### Strict request validation
+
+Enable strict request validation without any additional files:
+
+```sh
+llm-d-inference-sim --strict
+```
+
+The vLLM engine compiles its embedded schemas once at startup and validates requests
+when received, before tokenization or generation. The embedded schemas are pinned to
+vLLM 0.21.0. Set `VLLM_MAX_N_SEQUENCES` and `VLLM_MAX_COMPLETION_PROMPTS` to match the
+limits of the simulated server (defaults: 16384 sequences and 1024 prompts).
+
+Strict validation covers request structure, sampling ranges and cross-field rules.
+Schema defaults are used for validation only. The generic request and context checks
+remain shared with lenient mode. Model-dependent checks such as vocabulary limits,
+logprob capacity and structured-output backend compilation require the actual model
+configuration and are not inferred by strict mode. The full
+[validation audit and snapshot regeneration instructions](../pkg/engine/vllm/schema/README.md)
+describe the covered fields, exact-message scope and tokenization-dependent limits.
+
+With `strict` disabled, no schema is loaded and request parsing retains its lenient
+behavior. Strict validation applies only to the two completion endpoints.
 ## Engine-owned
 
 ### vLLM

@@ -234,8 +234,8 @@ type Configuration struct {
 	// MMRenderTimeout is the timeout for multi-modal tokenizer render requests
 	MMRenderTimeout time.Duration `yaml:"mm-render-timeout" json:"mm-render-timeout"`
 
-	// EnableLegacyRender disables the /v1/responses/render endpoint, matching
-	// vLLM versions that predate it.
+	// EnableLegacyRender disables the /v1/responses/render and
+	// /v1/messages/render endpoints, matching vLLM versions that predate them.
 	EnableLegacyRender bool `yaml:"enable-legacy-render" json:"enable-legacy-render"`
 
 	// StartupDuration defines how long /health/ready returns 503 to simulate GPU model loading.
@@ -253,6 +253,8 @@ type Configuration struct {
 
 	// LogHTTP logs full HTTP request and response details (method, URI, headers, bodies where buffered, status) for each request.
 	LogHTTP bool `yaml:"log-http" json:"log-http"`
+	// StrictRequestValidation enables vLLM-compatible validation for OpenAI completion requests.
+	StrictRequestValidation bool `yaml:"strict" json:"strict"`
 
 	// DefaultEmbeddingDimensions is the default size of embedding vectors when the request does not specify dimensions.
 	// Used by the /v1/embeddings endpoint. Default is 384.

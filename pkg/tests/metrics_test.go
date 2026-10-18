@@ -115,6 +115,45 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 		}).WithTimeout(2 * time.Second).WithPolling(25 * time.Millisecond).Should(Succeed())
 	})
 
+	It("should not expose lora_requests_info when no LoRA modules are configured", func() {
+		ctx := context.TODO()
+		args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom}
+
+		client, err := startServerWithArgs(ctx, args)
+		Expect(err).NotTo(HaveOccurred())
+
+		openaiclient, params := getOpenAIClientAndChatParams(client, common.TestModelName, testUserMessage, false)
+		_, err = openaiclient.Chat.Completions.New(ctx, params)
+		Expect(err).NotTo(HaveOccurred())
+
+		consistentlyMetrics(client, func(g Gomega, metricsData string) {
+			g.Expect(metricsData).NotTo(ContainSubstring(vllm.VLLMLoRARequestsMetricName))
+		})
+	})
+
+	It("should not expose a lora_requests_info sample before the first LoRA request", func() {
+		ctx := context.TODO()
+		args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
+			"--lora-modules", "{\"name\":\"lora1\",\"path\":\"/path/to/lora1\"}"}
+
+		client, err := startServerWithArgs(ctx, args)
+		Expect(err).NotTo(HaveOccurred())
+
+		consistentlyMetrics(client, func(g Gomega, metricsData string) {
+			for _, line := range strings.Split(metricsData, "\n") {
+				g.Expect(line).NotTo(HavePrefix(vllm.VLLMLoRARequestsMetricName + "{"))
+			}
+		})
+
+		openaiclient, params := getOpenAIClientAndChatParams(client, "lora1", testUserMessage, false)
+		_, err = openaiclient.Chat.Completions.New(ctx, params)
+		Expect(err).NotTo(HaveOccurred())
+
+		eventuallyMetrics(client, func(g Gomega, metricsData string) {
+			g.Expect(isLoraMetricPresent(strings.Split(metricsData, "\n"), lora1Arr, emptyArray)).To(BeTrue())
+		})
+	})
+
 	DescribeTable("should send correct running and waiting requests metrics with failures",
 		func(stream bool) {
 			ctx := context.TODO()

@@ -144,6 +144,19 @@ type baseResponseChoice struct {
 	MatchedStop json.RawMessage `json:"matched_stop,omitempty"`
 }
 
+// ChatAudio is the audio output attached to a chat completion message when
+// the client requests audio modality. Matches the OpenAI ChatCompletionAudio shape.
+type ChatAudio struct {
+	// ID is a unique identifier for this audio object.
+	ID string `json:"id"`
+	// Data is the base64-encoded audio payload.
+	Data string `json:"data"`
+	// ExpiresAt is the Unix timestamp after which the audio object expires.
+	ExpiresAt int64 `json:"expires_at"`
+	// Transcript is the text transcript of the audio.
+	Transcript string `json:"transcript,omitempty"`
+}
+
 // v1/chat/completions
 // Message defines chat completions Message
 type Message struct {
@@ -155,6 +168,8 @@ type Message struct {
 	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
 	// ToolCallID is the ID of the tool call this message is responding to (role: "tool" only)
 	ToolCallID string `json:"tool_call_id,omitempty"`
+	// Audio holds the audio output when the client requested the "audio" modality.
+	Audio *ChatAudio `json:"audio,omitempty"`
 }
 
 // MarshalJSON omits the content field entirely when it carries no data
@@ -166,8 +181,9 @@ func (m Message) MarshalJSON() ([]byte, error) {
 		Content    *ChatComplContent `json:"content,omitempty"`
 		ToolCalls  []ToolCall        `json:"tool_calls,omitempty"`
 		ToolCallID string            `json:"tool_call_id,omitempty"`
+		Audio      *ChatAudio        `json:"audio,omitempty"`
 	}
-	a := alias{Role: m.Role, ToolCalls: m.ToolCalls, ToolCallID: m.ToolCallID}
+	a := alias{Role: m.Role, ToolCalls: m.ToolCalls, ToolCallID: m.ToolCallID, Audio: m.Audio}
 	if m.Content.Raw != "" || len(m.Content.Structured) > 0 {
 		a.Content = &m.Content
 	}
@@ -794,19 +810,22 @@ type MessagesResponse struct {
 	StopReason   *string                `json:"stop_reason"`
 	StopSequence *string                `json:"stop_sequence"`
 	Usage        MessagesUsage          `json:"usage"`
-	RequestID    string                 `json:"-"`
+	// KVParams and ECTransferParams are vLLM extensions to the Anthropic schema.
+	KVParams         *KVTransferParams           `json:"kv_transfer_params,omitempty"`
+	ECTransferParams map[string]ECTransferParams `json:"ec_transfer_params,omitempty"`
+	RequestID        string                      `json:"-"`
 }
 
 func (r *MessagesResponse) GetRequestID() string { return r.RequestID }
 
 // CreateMessagesResponse builds a complete non-streaming Messages API response.
 func CreateMessagesResponse(model, requestID, stopReason string,
-	content []MessagesContentBlock, usage MessagesUsage) *MessagesResponse {
+	content []MessagesContentBlock, usage MessagesUsage, doRemoteDecode bool) *MessagesResponse {
 	sr := stopReason
 	if content == nil {
 		content = []MessagesContentBlock{}
 	}
-	return &MessagesResponse{
+	resp := &MessagesResponse{
 		ID:           MessagesIDPrefix + requestID,
 		Type:         MessagesType,
 		Role:         RoleAssistant,
@@ -817,6 +836,22 @@ func CreateMessagesResponse(model, requestID, stopReason string,
 		Usage:        usage,
 		RequestID:    requestID,
 	}
+	if doRemoteDecode {
+		resp.KVParams = BuildPrefillKVTransferParams()
+	}
+	return resp
+}
+
+// MessagesContextManagement is the context_management object of a
+// /v1/messages/count_tokens response.
+type MessagesContextManagement struct {
+	OriginalInputTokens int `json:"original_input_tokens"`
+}
+
+// MessagesCountTokensResponse is the /v1/messages/count_tokens response.
+type MessagesCountTokensResponse struct {
+	InputTokens       int                        `json:"input_tokens"`
+	ContextManagement *MessagesContextManagement `json:"context_management,omitempty"`
 }
 
 // CreateMessagesStreamStartMessage builds the initial message object for the

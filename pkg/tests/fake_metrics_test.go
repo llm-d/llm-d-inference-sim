@@ -479,8 +479,18 @@ var _ = Describe("Fake metrics", Ordered, func() {
 			resp, err := postFakeMetricsUpdate(client, reqBody)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			Expect(resp.Body.Close()).To(Succeed())
 
-			eventuallyMetrics(client, func(g Gomega, metricsData string) {
+			resp, err = client.Get(adminConfigURL)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			data, err := io.ReadAll(resp.Body)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.Body.Close()).To(Succeed())
+			Expect(string(data)).To(ContainSubstring(`"running-requests":15`))
+			Expect(string(data)).NotTo(ContainSubstring("oscillate"))
+
+			eventuallyThenConsistentlyMetrics(client, func(g Gomega, metricsData string) {
 
 				g.Expect(metricsData).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllm.VLLMReqRunningMetricName, 15)))
 				g.Expect(metricsData).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllm.VLLMReqWaitingMetricName, 0)))
@@ -497,6 +507,16 @@ var _ = Describe("Fake metrics", Ordered, func() {
 			resp, err = postFakeMetricsUpdate(client, reqBody)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			Expect(resp.Body.Close()).To(Succeed())
+
+			resp, err = client.Get(adminConfigURL)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			data, err = io.ReadAll(resp.Body)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.Body.Close()).To(Succeed())
+			Expect(string(data)).To(ContainSubstring(`"running-requests":"oscillate:10:50:1s"`))
+			Expect(string(data)).To(ContainSubstring(`"waiting-requests":30`))
 
 			// kv-cache-usage ramps to 1 over 150ms, so wait for it to top out first
 			eventuallyMetrics(client, func(g Gomega, metricsData string) {
@@ -760,6 +780,45 @@ var _ = Describe("Fake metrics", Ordered, func() {
 				g.Expect(metricsData).To(ContainSubstring(fmt.Sprintf(`vllm:request_success_total{finish_reason="remote_decode",model_name="%s"} 5`, common.TestModelName)))
 				g.Expect(metricsData).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllm.VLLMPrefixCacheHitsTotalMetricName, 750)))
 				g.Expect(metricsData).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllm.VLLMPrefixCacheQueriesTotalMetricName, 2000)))
+			})
+		})
+
+		It("Should expose lora_requests_info in fake metrics only when loras are provided", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
+				"--lora-modules", "{\"name\":\"lora1\",\"path\":\"/path/to/lora1\"}",
+				"--fake-metrics", `{"running-requests":10}`,
+			}
+
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			eventuallyMetrics(client, func(g Gomega, metricsData string) {
+				g.Expect(metricsData).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllm.VLLMReqRunningMetricName, 10)))
+			})
+			consistentlyMetrics(client, func(g Gomega, metricsData string) {
+				g.Expect(metricsData).NotTo(ContainSubstring(vllm.VLLMLoRARequestsMetricName))
+			})
+
+			// An update without loras leaves them absent
+			resp, err := postFakeMetricsUpdate(client, `{"running-requests":5}`)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+			eventuallyMetrics(client, func(g Gomega, metricsData string) {
+				g.Expect(metricsData).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllm.VLLMReqRunningMetricName, 5)))
+			})
+			consistentlyMetrics(client, func(g Gomega, metricsData string) {
+				g.Expect(metricsData).NotTo(ContainSubstring(vllm.VLLMLoRARequestsMetricName))
+			})
+
+			// An update with loras exposes them
+			resp, err = postFakeMetricsUpdate(client, `{"loras":[{"running":"lora1","waiting":"","timestamp":1000000001}]}`)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+			eventuallyThenConsistentlyMetrics(client, func(g Gomega, metricsData string) {
+				g.Expect(metricsData).To(ContainSubstring(`vllm:lora_requests_info{max_lora="1",running_lora_adapters="lora1",waiting_lora_adapters=""} 1.000000001e+09`))
 			})
 		})
 

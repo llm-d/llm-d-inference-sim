@@ -116,6 +116,31 @@ var _ = Describe("ApplyAdminUpdate", func() {
 		Expect(updateFakeMetrics.WaitingRequests).To(BeNil())
 	})
 
+	DescribeTable("replaces generator metrics with fixed values",
+		func(body, expected string) {
+			var metric FakeMetricWithFunction
+			Expect(json.Unmarshal([]byte(`"ramp:0:10:5s"`), &metric)).To(Succeed())
+			base.FakeMetrics = &stubFakeMetrics{
+				RunningRequests: &metric,
+				WaitingRequests: &FakeMetricWithFunction{FixedValue: 30},
+			}
+
+			next, _, _, err := base.Update([]byte(body))
+			Expect(err).ToNot(HaveOccurred())
+			data, err := next.MarshalCleaned()
+			Expect(err).ToNot(HaveOccurred())
+			var fields map[string]json.RawMessage
+			Expect(json.Unmarshal(data, &fields)).To(Succeed())
+			Expect(fields["fake-metrics"]).To(MatchJSON(expected))
+
+			original, err := json.Marshal(base.FakeMetrics)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(original).To(MatchJSON(`{"running-requests":"ramp:0:10:5s","waiting-requests":30}`))
+		},
+		Entry("nonzero", `{"fake-metrics":{"running-requests":7}}`, `{"running-requests":7,"waiting-requests":30}`),
+		Entry("zero", `{"fake-metrics":{"running-requests":0}}`, `{"running-requests":0,"waiting-requests":30}`),
+	)
+
 	It("rejects a fake-metrics partial when no fake-metrics is configured", func() {
 		// Without a concrete FakeMetrics to unmarshal into, the partial would be
 		// silently dropped, so it is rejected instead.

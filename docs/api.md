@@ -21,11 +21,7 @@ Served by every engine:
 |---|---|
 | /v1/messages            | Anthropic Messages API, converted to the chat completions format internally |
 | /tokenize               | Tokenizes input text and returns token information |
-| /v1/completions/render       | Returns the token IDs for a `/v1/completions` request body without generating a response |
-| /v1/chat/completions/render  | Returns the token IDs (and multimodal features when applicable) for a `/v1/chat/completions` request body without generating a response |
-| /v1/responses/render         | Returns the token IDs (and multimodal features when applicable) for a `/v1/responses` request body without generating a response; stateless — `previous_response_id` is rejected. Disabled by `--enable-legacy-render` |
-| /v1/completions/derender       | Converts generation results carrying raw token IDs into a `/v1/completions` response (the inverse of `/v1/completions/render`) |
-| /v1/chat/completions/derender  | Converts a generation result carrying raw token IDs into a `/v1/chat/completions` response (the inverse of `/v1/chat/completions/render`) |
+| /v1/messages/count_tokens    | Returns the number of prompt tokens for a `/v1/messages` request body |
 | /metrics                | Exposes Prometheus metrics (see [Metrics Guide](metrics.md)) |
 | /health                 | Standard health check endpoint |
 | /health/ready           | Ensure the GPU is "actually working" before allowing the system to send it live traffic |
@@ -35,6 +31,12 @@ vLLM only:
 | Endpoint | Description |
 |---|---|
 | /inference/v1/generate  | vLLM-specific generation endpoint |
+| /v1/completions/render       | Returns the token IDs for a `/v1/completions` request body without generating a response |
+| /v1/chat/completions/render  | Returns the token IDs (and multimodal features when applicable) for a `/v1/chat/completions` request body without generating a response |
+| /v1/responses/render         | Returns the token IDs (and multimodal features when applicable) for a `/v1/responses` request body without generating a response; stateless — `previous_response_id` is rejected. Disabled by `--enable-legacy-render` |
+| /v1/messages/render          | Returns the token IDs (and multimodal features when applicable) for a `/v1/messages` request body without generating a response. Disabled by `--enable-legacy-render` |
+| /v1/completions/derender       | Converts generation results carrying raw token IDs into a `/v1/completions` response (the inverse of `/v1/completions/render`) |
+| /v1/chat/completions/derender  | Converts a generation result carrying raw token IDs into a `/v1/chat/completions` response (the inverse of `/v1/chat/completions/render`) |
 | /v1/load_lora_adapter   | Simulates the dynamic registration of a LoRA adapter |
 | /v1/unload_lora_adapter | Simulates the dynamic unloading and unregistration of a LoRA adapter |
 | /sleep                  | Puts the simulator into sleep mode. Requires both the `enable-sleep-mode` flag and the `VLLM_SERVER_DEV_MODE=1` environment variable; otherwise the request is accepted (HTTP 200) but ignored. |

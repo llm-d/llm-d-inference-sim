@@ -29,9 +29,10 @@ import (
 // fakeRuntime is a minimal Runtime double for tests that exercise request-context
 // behavior (tool-call creation, echo tokenization) without a real simulator engine.
 type fakeRuntime struct {
-	config    *common.Configuration
-	random    *common.Random
-	tokenizer tokenizer.Tokenizer
+	config            *common.Configuration
+	random            *common.Random
+	tokenizer         tokenizer.Tokenizer
+	responseTokensErr error
 }
 
 var _ Runtime = (*fakeRuntime)(nil)
@@ -42,7 +43,7 @@ func (f *fakeRuntime) GetTokenizer() tokenizer.Tokenizer { return f.tokenizer }
 func (f *fakeRuntime) Logger() logr.Logger               { return klog.Background() }
 func (f *fakeRuntime) RequestStarted(req api.Request)    {}
 func (f *fakeRuntime) GetResponseTokens(req api.Request) (*api.Tokenized, string, error) {
-	return nil, "", nil
+	return nil, "", f.responseTokensErr
 }
 func (f *fakeRuntime) KVCacheOnRequestStart(req api.Request) (metrics.PrefixCacheQueried, *api.Error) {
 	return metrics.PrefixCacheQueried{}, nil
@@ -51,6 +52,7 @@ func (f *fakeRuntime) KVCacheOnRequestEnd(requestID string)            {}
 func (f *fakeRuntime) Sleep() bool                                     { return false }
 func (f *fakeRuntime) WakeUp(activateKVCache bool)                     {}
 func (f *fakeRuntime) IsSleeping() bool                                { return false }
+func (f *fakeRuntime) ValidateModel(model string) *api.Error           { return nil }
 func (f *fakeRuntime) ValidateBaseModel(model, _ string) *api.Error    { return nil }
 func (f *fakeRuntime) ShouldSendImage(headerOverride bool) bool        { return headerOverride }
 func (f *fakeRuntime) MooncakeEngineMap() map[string]map[string]string { return nil }

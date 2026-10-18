@@ -127,6 +127,8 @@ func declareFields(f *pflag.FlagSet, cfg *common.Configuration, rawYAML map[stri
 // registerFlags declares this engine's CLI flags on f, defaulting each to the
 // value cfg already holds so a config file's setting survives an unset flag.
 func registerFlags(f *pflag.FlagSet, cfg *common.Configuration) {
+	common.AddToggle(f, &cfg.StrictRequestValidation,
+		"strict", "Validate OpenAI completion requests against vLLM-compatible constraints", "Disable strict request validation")
 	f.IntVar(&cfg.Lora.MaxLoras, "max-loras", cfg.Lora.MaxLoras, "Maximum number of LoRAs in a single batch")
 	f.IntVar(&cfg.Lora.MaxCPULoras, "max-cpu-loras", cfg.Lora.MaxCPULoras, "Maximum number of LoRAs to store in CPU memory")
 
@@ -313,6 +315,9 @@ func unmarshalFakeMetrics(cfg *common.Configuration, fakeMetricsString string) e
 // unmarshalLoraFakeMetrics reconciles fm.LorasString (raw JSON strings, from
 // a YAML config file) into fm.LoraMetrics.
 func unmarshalLoraFakeMetrics(fm *VLLMFakeMetrics) error {
+	if fm.LorasString == nil {
+		return nil
+	}
 	fm.LoraMetrics = make([]common.LorasMetrics, 0)
 	for _, jsonStr := range fm.LorasString {
 		var lora common.LorasMetrics
