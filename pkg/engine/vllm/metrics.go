@@ -70,7 +70,7 @@ var modelLabel = []string{api.PromLabelModelName}
 var TokenBucketMantissas = []int{1, 2, 5}
 
 // successTotalReset is the target state for request_success_total: one
-// Add per (reason, count) pair after recreate.
+// Add per (reason, count) pair after clearing the counter's series.
 type successTotalReset struct {
 	Reasons map[string]int64
 }
@@ -91,9 +91,9 @@ type loraUpdate struct {
 	Reset    *loraReset
 }
 
-// loraReset carries the target state for lora_requests_info: unregister,
-// recreate, then stamp one series per entry (or a single zero-adapter row
-// with the current timestamp when Entries is empty).
+// loraReset carries the target state for lora_requests_info: clear the
+// gauge's series, then stamp one series per entry (or a single zero-adapter
+// row with the current timestamp when Entries is empty).
 type loraReset struct {
 	MaxLoRAs int
 	Entries  []common.LorasMetrics

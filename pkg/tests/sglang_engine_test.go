@@ -402,9 +402,7 @@ var _ = Describe("sglang engine fake metrics", func() {
 		})
 	})
 
-	// Applying a counter's update recreates its collector, so the series the
-	// update leaves alone has to be restamped from the merged state.
-	It("Should keep the other series of a stream-split counter", func() {
+	It("Should drop the other series of a stream-split counter", func() {
 		resp, err := postFakeMetricsUpdate(client, `{"num-requests-total":{"streaming":500}}`)
 		Expect(err).NotTo(HaveOccurred())
 		defer func() {
@@ -415,8 +413,7 @@ var _ = Describe("sglang engine fake metrics", func() {
 		eventuallyThenConsistentlyMetrics(client, func(g Gomega, metricsData string) {
 			g.Expect(metricsData).To(ContainSubstring(fmt.Sprintf(`%s{is_streaming="true",model_name="%s"} 500`,
 				sglang.SGLangRequestsTotalMetricName, common.TestModelName)))
-			g.Expect(metricsData).To(ContainSubstring(fmt.Sprintf(`%s{is_streaming="false",model_name="%s"} 1038`,
-				sglang.SGLangRequestsTotalMetricName, common.TestModelName)))
+			g.Expect(metricsData).NotTo(ContainSubstring(sglang.SGLangRequestsTotalMetricName + `{is_streaming="false"`))
 		})
 	})
 })
