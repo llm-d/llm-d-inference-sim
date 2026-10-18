@@ -126,25 +126,11 @@ type streamHistogramUpdate struct {
 }
 
 // streamHistogramReset is the absolute target bucket state of a stream-split
-// histogram. A nil series leaves that series as it was, since a partial
-// fake-metrics update may name one of the two without the other.
+// histogram. A nil series is absent after the reset.
 type streamHistogramReset struct {
 	buckets      []float64
 	streaming    []int
 	nonStreaming []int
-}
-
-// merge folds upd's named series into s, leaving a series upd does not name at
-// its current value. The boundaries are the metric's own, so they always arrive
-// unchanged.
-func (s *streamHistogramReset) merge(upd streamHistogramReset) {
-	s.buckets = upd.buckets
-	if upd.streaming != nil {
-		s.streaming = upd.streaming
-	}
-	if upd.nonStreaming != nil {
-		s.nonStreaming = upd.nonStreaming
-	}
 }
 
 // streamCounterUpdate is a counter-channel payload for a counter labeled by
@@ -156,22 +142,10 @@ type streamCounterUpdate struct {
 }
 
 // streamCounterReset is the absolute target state of a stream-split counter. A
-// nil series leaves that series as it was, since a partial fake-metrics update
-// may name one of the two without the other.
+// nil series is absent after the reset.
 type streamCounterReset struct {
 	streaming    *float64
 	nonStreaming *float64
-}
-
-// merge folds upd's named series into s, leaving a series upd does not name at
-// its current value.
-func (s *streamCounterReset) merge(upd streamCounterReset) {
-	if upd.streaming != nil {
-		s.streaming = upd.streaming
-	}
-	if upd.nonStreaming != nil {
-		s.nonStreaming = upd.nonStreaming
-	}
 }
 
 // prefixCacheUpdate is the prefix-cache channel payload: the token counts of one
@@ -182,8 +156,8 @@ type prefixCacheUpdate struct {
 }
 
 // prefixCacheReset is the absolute target state of the prefix cache's tallies. A
-// nil tally is left as it was, for the same reason streamCounterReset's series
-// are: a partial update may name one of the pair without the other.
+// nil tally is left as it was, since a partial update may name one of the pair
+// without the other.
 type prefixCacheReset struct {
 	cached  *int64
 	queried *int64
@@ -269,20 +243,6 @@ type sglangMetricsAdapter struct {
 	// the prefix-cache updater goroutine.
 	nCachedTokens  int64
 	nQueriedTokens int64
-
-	// Series a fake-metrics configuration last set on each is_streaming-labeled
-	// counter, each mutated only by that counter's own updater goroutine.
-	// Applying a reset recreates the collector, which discards every series it
-	// does not then stamp, so an update naming one series restamps the other
-	// from here.
-	fakePromptTokens     streamCounterReset
-	fakeGenerationTokens streamCounterReset
-	fakeRequestsTotal    streamCounterReset
-
-	// The same, for each is_streaming-labeled histogram.
-	fakeTTFT          streamHistogramReset
-	fakeReqTpot       streamHistogramReset
-	fakeE2EReqLatency streamHistogramReset
 
 	// kvCapacityTokens is the KV cache's capacity in tokens, the denominator of
 	// the token-usage gauges.
@@ -572,51 +532,47 @@ func (m *sglangMetricsAdapter) updateQueuedRequests(upd metrics.GaugeUpdate) {
 }
 
 func (m *sglangMetricsAdapter) updateQueueTime(upd metrics.HistogramUpdate) {
-	m.updateHistogram(&m.queueTime, m.createAndRegisterQueueTimeHistogram, upd)
+	m.updateHistogram(m.queueTime, upd)
 }
 
 func (m *sglangMetricsAdapter) updateTTFT(upd streamHistogramUpdate) {
-	m.updateStreamHistogram(&m.ttft, &m.fakeTTFT, m.createAndRegisterTTFTHistogram, upd)
+	m.updateStreamHistogram(m.ttft, upd)
 }
 
 func (m *sglangMetricsAdapter) updateInterTokenLatency(upd metrics.HistogramUpdate) {
-	m.updateHistogram(&m.interTokenLatency, m.createAndRegisterInterTokenLatencyHistogram, upd)
+	m.updateHistogram(m.interTokenLatency, upd)
 }
 
 func (m *sglangMetricsAdapter) updateReqTpot(upd streamHistogramUpdate) {
-	m.updateStreamHistogram(&m.reqTpot, &m.fakeReqTpot, m.createAndRegisterReqTpotHistogram, upd)
+	m.updateStreamHistogram(m.reqTpot, upd)
 }
 
 func (m *sglangMetricsAdapter) updateE2EReqLatency(upd streamHistogramUpdate) {
-	m.updateStreamHistogram(&m.e2eReqLatency, &m.fakeE2EReqLatency,
-		m.createAndRegisterE2EReqLatencyHistogram, upd)
+	m.updateStreamHistogram(m.e2eReqLatency, upd)
 }
 
 func (m *sglangMetricsAdapter) updatePromptTokensHist(upd metrics.HistogramUpdate) {
-	m.updateHistogram(&m.promptTokensHist, m.createAndRegisterPromptTokensHistogram, upd)
+	m.updateHistogram(m.promptTokensHist, upd)
 }
 
 func (m *sglangMetricsAdapter) updateUncachedPromptTokensHist(upd metrics.HistogramUpdate) {
-	m.updateHistogram(&m.uncachedPromptTokensHist, m.createAndRegisterUncachedPromptTokensHistogram, upd)
+	m.updateHistogram(m.uncachedPromptTokensHist, upd)
 }
 
 func (m *sglangMetricsAdapter) updateGenerationTokensHist(upd metrics.HistogramUpdate) {
-	m.updateHistogram(&m.generationTokensHist, m.createAndRegisterGenerationTokensHistogram, upd)
+	m.updateHistogram(m.generationTokensHist, upd)
 }
 
 func (m *sglangMetricsAdapter) updatePromptTokensTotal(upd streamCounterUpdate) {
-	m.updateStreamCounter(&m.promptTokensTotal, &m.fakePromptTokens,
-		m.createAndRegisterPromptTokensTotalCounter, upd)
+	m.updateStreamCounter(m.promptTokensTotal, upd)
 }
 
 func (m *sglangMetricsAdapter) updateGenerationTokensTotal(upd streamCounterUpdate) {
-	m.updateStreamCounter(&m.generationTokensTotal, &m.fakeGenerationTokens,
-		m.createAndRegisterGenerationTokensTotalCounter, upd)
+	m.updateStreamCounter(m.generationTokensTotal, upd)
 }
 
 func (m *sglangMetricsAdapter) updateRequestsTotal(upd streamCounterUpdate) {
-	m.updateStreamCounter(&m.requestsTotal, &m.fakeRequestsTotal,
-		m.createAndRegisterRequestsTotalCounter, upd)
+	m.updateStreamCounter(m.requestsTotal, upd)
 }
 
 func (m *sglangMetricsAdapter) updateKVCacheUsage(upd metrics.GaugeUpdate) {
@@ -629,7 +585,7 @@ func (m *sglangMetricsAdapter) updateKVCacheUsage(upd metrics.GaugeUpdate) {
 }
 
 // updatePrefixCache accumulates a lookup's token counts, or on a reset replaces
-// the tallies with absolute ones and recreates the cached-token counter. Either
+// the tallies with absolute ones and restamps the cached-token counter. Either
 // way the cumulative hit rate is republished, which sglang reports over the
 // whole run rather than per query.
 func (m *sglangMetricsAdapter) updatePrefixCache(upd prefixCacheUpdate) {
@@ -651,10 +607,8 @@ func (m *sglangMetricsAdapter) updatePrefixCache(upd prefixCacheUpdate) {
 		if upd.reset.queried != nil {
 			m.nQueriedTokens = *upd.reset.queried
 		}
-		m.resetCollector(m.cachedTokensTotal, m.createAndRegisterCachedTokensTotalCounter,
-			"failed to recreate cached_tokens_total counter during fake-metrics reset", func() {
-				m.cachedTokensTotal.WithLabelValues(model, cacheSourceTotal).Add(float64(m.nCachedTokens))
-			})
+		m.cachedTokensTotal.Reset()
+		m.cachedTokensTotal.WithLabelValues(model, cacheSourceTotal).Add(float64(m.nCachedTokens))
 	default:
 		return
 	}
@@ -667,40 +621,30 @@ func (m *sglangMetricsAdapter) updatePrefixCache(upd prefixCacheUpdate) {
 }
 
 // updateStreamCounter adds an event's value to the series matching the kind of
-// request it came from, or on a reset folds the update into last and recreates
-// the collector, stamping every series set so far. A series no configuration has
-// ever named stays unstamped, so it reads as absent from a scrape rather than as
-// an explicit zero.
-func (m *sglangMetricsAdapter) updateStreamCounter(counterPP **prometheus.CounterVec,
-	last *streamCounterReset, recreate func() error, upd streamCounterUpdate) {
+// request it came from, or on a reset clears the counter's series and stamps
+// the ones the update names. A series the update does not name stays
+// unstamped, so it reads as absent from a scrape rather than as an explicit
+// zero.
+func (m *sglangMetricsAdapter) updateStreamCounter(counter *prometheus.CounterVec, upd streamCounterUpdate) {
 	switch {
 	case upd.add != nil:
 		if m.fake != nil {
 			return
 		}
-		(*counterPP).WithLabelValues(m.config.DisplayModelName,
+		counter.WithLabelValues(m.config.DisplayModelName,
 			strconv.FormatBool(upd.add.isStreaming)).Add(upd.add.value)
 	case upd.reset != nil:
-		last.merge(*upd.reset)
-		m.resetCollector(*counterPP, recreate, "failed to recreate counter during fake-metrics reset", func() {
-			for isStreaming, value := range map[bool]*float64{
-				true:  last.streaming,
-				false: last.nonStreaming,
-			} {
-				if value != nil {
-					(*counterPP).WithLabelValues(m.config.DisplayModelName,
-						strconv.FormatBool(isStreaming)).Add(*value)
-				}
+		counter.Reset()
+		for isStreaming, value := range map[bool]*float64{
+			true:  upd.reset.streaming,
+			false: upd.reset.nonStreaming,
+		} {
+			if value != nil {
+				counter.WithLabelValues(m.config.DisplayModelName,
+					strconv.FormatBool(isStreaming)).Add(*value)
 			}
-		})
+		}
 	}
-}
-
-// resetCollector binds this adapter's registry and logger to
-// metrics.ResetCollector.
-func (m *sglangMetricsAdapter) resetCollector(current prometheus.Collector, recreate func() error,
-	errMsg string, populate func()) {
-	metrics.ResetCollector(m.registry, m.logger, current, recreate, errMsg, populate)
 }
 
 // reportKVCacheUsage mirrors the utilization fraction onto token_usage and
@@ -716,50 +660,45 @@ func (m *sglangMetricsAdapter) reportKVCacheUsage(usage float64) {
 }
 
 // updateHistogram records an observation on the single series of a histogram
-// sglang does not split by request kind, or on a reset recreates the collector
-// and replays the target bucket state.
-func (m *sglangMetricsAdapter) updateHistogram(histPP **prometheus.HistogramVec,
-	recreate func() error, upd metrics.HistogramUpdate) {
+// sglang does not split by request kind, or on a reset clears the histogram's
+// series and replays the target bucket state.
+func (m *sglangMetricsAdapter) updateHistogram(hist *prometheus.HistogramVec, upd metrics.HistogramUpdate) {
 	switch {
 	case upd.Observe != nil:
 		if m.fake != nil {
 			return
 		}
-		(*histPP).WithLabelValues(m.config.DisplayModelName).Observe(*upd.Observe)
+		hist.WithLabelValues(m.config.DisplayModelName).Observe(*upd.Observe)
 	case upd.Reset != nil:
-		m.resetCollector(*histPP, recreate, "failed to recreate histogram during fake-metrics reset", func() {
-			metrics.InitFakeHistogram(*histPP, upd.Reset.Buckets, upd.Reset.Samples, m.config.DisplayModelName)
-		})
+		hist.Reset()
+		metrics.InitFakeHistogram(hist, upd.Reset.Buckets, upd.Reset.Samples, m.config.DisplayModelName)
 	}
 }
 
 // updateStreamHistogram records an observation on the series matching the kind
-// of request it came from, or on a reset folds the update into last and
-// recreates the collector, replaying every series set so far. A series no
-// configuration has ever named stays unstamped, so it reads as absent from a
-// scrape rather than as an empty histogram.
-func (m *sglangMetricsAdapter) updateStreamHistogram(histPP **prometheus.HistogramVec,
-	last *streamHistogramReset, recreate func() error, upd streamHistogramUpdate) {
+// of request it came from, or on a reset clears the histogram's series and
+// replays the ones the update names. A series the update does not name stays
+// unstamped, so it reads as absent from a scrape rather than as an empty
+// histogram.
+func (m *sglangMetricsAdapter) updateStreamHistogram(hist *prometheus.HistogramVec, upd streamHistogramUpdate) {
 	switch {
 	case upd.observe != nil:
 		if m.fake != nil {
 			return
 		}
-		(*histPP).WithLabelValues(m.config.DisplayModelName,
+		hist.WithLabelValues(m.config.DisplayModelName,
 			strconv.FormatBool(upd.observe.isStreaming)).Observe(upd.observe.value)
 	case upd.reset != nil:
-		last.merge(*upd.reset)
-		m.resetCollector(*histPP, recreate, "failed to recreate histogram during fake-metrics reset", func() {
-			for isStreaming, samples := range map[bool][]int{
-				true:  last.streaming,
-				false: last.nonStreaming,
-			} {
-				if samples != nil {
-					metrics.InitFakeHistogram(*histPP, last.buckets, samples,
-						m.config.DisplayModelName, strconv.FormatBool(isStreaming))
-				}
+		hist.Reset()
+		for isStreaming, samples := range map[bool][]int{
+			true:  upd.reset.streaming,
+			false: upd.reset.nonStreaming,
+		} {
+			if samples != nil {
+				metrics.InitFakeHistogram(hist, upd.reset.buckets, samples,
+					m.config.DisplayModelName, strconv.FormatBool(isStreaming))
 			}
-		})
+		}
 	}
 }
 
@@ -1107,13 +1046,12 @@ func (m *sglangMetricsAdapter) ApplyFakeMetricsUpdate(update common.FakeMetrics)
 }
 
 // applyFakeMetrics enqueues the update on the per-metric channels and returns.
-// The updater goroutines perform the collector unregister/recreate, logging and
-// skipping any metric that fails to re-register.
+// The updater goroutines clear and repopulate each collector's series.
 //
-// A metric the update does not name is left alone, and for the two that carry
-// state across updates -- the stream-split counters and the prefix-cache
-// tallies -- so is the half of them it does not name. Their updater goroutines
-// hold that state, beside the collector it describes.
+// A metric the update does not name is left alone. A stream-split metric the
+// update names is replaced as a whole, so a series it leaves out is absent
+// afterwards. The prefix-cache tallies are the exception: the tally the update
+// does not name keeps its value, which the updater goroutine holds.
 //
 // Only the scalar metrics run inside Apply, since they are the ones that
 // register or clear a generator. The rest only write to a channel.
@@ -1199,7 +1137,7 @@ func (s *StreamSplitBuckets) reset(boundaries []float64) streamHistogramUpdate {
 }
 
 // reset turns s into the target state of a stream-split counter, carrying only
-// the series s names. A nil s names neither, which asks for no change.
+// the series s names. A nil s names neither.
 func (s *StreamSplit) reset() *streamCounterReset {
 	if s == nil {
 		return &streamCounterReset{}

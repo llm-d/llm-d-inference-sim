@@ -569,9 +569,7 @@ var _ = Describe("Metrics adapter", func() {
 				Consistently(gaugeValue(adapter.runningRequests)).Should(Equal(float64(5)))
 			})
 
-			// Applying a counter's update recreates its collector, so the series
-			// the update leaves alone has to be restamped from the merged state.
-			It("keeps the other series of a stream-split counter", func() {
+			It("drops the other series of a stream-split counter", func() {
 				adapter, registry := newTestAdapterWith(&SGLangFakeMetrics{
 					NumRequestsTotal: &StreamSplit{
 						Streaming:    int64Ptr(412),
@@ -586,7 +584,7 @@ var _ = Describe("Metrics adapter", func() {
 				})
 
 				Eventually(counterSeries(registry, SGLangRequestsTotalMetricName)).Should(Equal(
-					map[string]float64{streaming: 500, nonStreaming: 1038}))
+					map[string]float64{streaming: 500}))
 			})
 
 			It("replaces the prefix cache tallies rather than accumulating them", func() {
@@ -622,9 +620,7 @@ var _ = Describe("Metrics adapter", func() {
 					Should(Equal(float64(4000)))
 			})
 
-			// A histogram's reset recreates its collector too, so the series the
-			// update leaves alone is restamped from the updater's own record.
-			It("keeps the other series of a stream-split histogram", func() {
+			It("drops the other series of a stream-split histogram", func() {
 				adapter, registry := newTestAdapterWith(&SGLangFakeMetrics{
 					TTFTBucketValues: &StreamSplitBuckets{
 						Streaming:    []int{5},
@@ -638,7 +634,46 @@ var _ = Describe("Metrics adapter", func() {
 				})
 
 				Eventually(histogramCount(registry, SGLangTTFTMetricName, streaming)).Should(Equal(uint64(2)))
-				Eventually(histogramCount(registry, SGLangTTFTMetricName, nonStreaming)).Should(Equal(uint64(3)))
+				Eventually(histogramCount(registry, SGLangTTFTMetricName, nonStreaming)).Should(BeZero())
+			})
+
+			It("resets collectors in place", func() {
+				adapter, registry := newTestAdapterWith(&SGLangFakeMetrics{
+					QueueTimeBucketValues: []int{1, 2},
+					TTFTBucketValues:      &StreamSplitBuckets{Streaming: []int{5}},
+					NumRequestsTotal:      &StreamSplit{Streaming: int64Ptr(10)},
+					CachedTokens:          int64Ptr(2000),
+					QueriedTokens:         int64Ptr(8000),
+				})
+				Eventually(histogramCount(registry, SGLangQueueTimeMetricName, "")).Should(Equal(uint64(3)))
+				Eventually(histogramCount(registry, SGLangTTFTMetricName, streaming)).Should(Equal(uint64(5)))
+				Eventually(counterSeries(registry, SGLangRequestsTotalMetricName)).Should(Equal(
+					map[string]float64{streaming: 10}))
+				Eventually(gaugeValue(adapter.cacheHitRate)).Should(Equal(0.25))
+
+				queueTime := adapter.queueTime
+				ttft := adapter.ttft
+				requestsTotal := adapter.requestsTotal
+				cachedTokensTotal := adapter.cachedTokensTotal
+
+				adapter.ApplyFakeMetricsUpdate(&SGLangFakeMetrics{
+					QueueTimeBucketValues: []int{0, 1},
+					TTFTBucketValues:      &StreamSplitBuckets{Streaming: []int{2}},
+					NumRequestsTotal:      &StreamSplit{Streaming: int64Ptr(4)},
+					CachedTokens:          int64Ptr(3000),
+					QueriedTokens:         int64Ptr(6000),
+				})
+				Eventually(histogramCount(registry, SGLangQueueTimeMetricName, "")).Should(Equal(uint64(1)))
+				Eventually(histogramCount(registry, SGLangTTFTMetricName, streaming)).Should(Equal(uint64(2)))
+				Eventually(counterSeries(registry, SGLangRequestsTotalMetricName)).Should(Equal(
+					map[string]float64{streaming: 4}))
+				Eventually(gaugeValue(adapter.cacheHitRate)).Should(Equal(0.5))
+
+				Expect(adapter.queueTime).To(BeIdenticalTo(queueTime))
+				Expect(adapter.ttft).To(BeIdenticalTo(ttft))
+				Expect(adapter.requestsTotal).To(BeIdenticalTo(requestsTotal))
+				Expect(adapter.cachedTokensTotal).To(BeIdenticalTo(cachedTokensTotal))
+				Expect(testutil.GatherAndCount(registry, SGLangCachedTokensTotalMetricName)).To(Equal(1))
 			})
 
 			It("stops the ticker once no generator is left", func() {

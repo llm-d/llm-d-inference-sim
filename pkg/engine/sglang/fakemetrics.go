@@ -99,16 +99,15 @@ type SGLangFakeMetrics struct {
 
 // StreamSplitBuckets holds the bucket samples of both series of a histogram
 // sglang labels by is_streaming. A nil series is one the configuration does not
-// name, which leaves that series as it was.
+// name, which leaves that series absent from a scrape.
 type StreamSplitBuckets struct {
 	Streaming    []int `yaml:"streaming" json:"streaming,omitempty"`
 	NonStreaming []int `yaml:"non-streaming" json:"non-streaming,omitempty"`
 }
 
 // StreamSplit holds both series of a metric sglang labels by is_streaming. Each
-// series is a pointer, so a partial update can set one and leave the other
-// alone, and a series never set stays absent from a scrape rather than
-// reporting an explicit zero.
+// series is a pointer, so a series the configuration does not name is absent
+// from a scrape rather than reporting an explicit zero.
 type StreamSplit struct {
 	Streaming    *int64 `yaml:"streaming" json:"streaming,omitempty"`
 	NonStreaming *int64 `yaml:"non-streaming" json:"non-streaming,omitempty"`

@@ -91,9 +91,9 @@ type loraUpdate struct {
 	Reset    *loraReset
 }
 
-// loraReset carries the target state for lora_requests_info: unregister,
-// recreate, then stamp one series per entry (or a single zero-adapter row
-// with the current timestamp when Entries is empty).
+// loraReset carries the target state for lora_requests_info: clear the
+// gauge's series, then stamp one series per entry (or a single zero-adapter
+// row with the current timestamp when Entries is empty).
 type loraReset struct {
 	MaxLoRAs int
 	Entries  []common.LorasMetrics
