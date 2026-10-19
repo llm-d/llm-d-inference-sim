@@ -346,6 +346,12 @@ type LoRASetsChanged struct {
 	Waiting map[string]int
 }
 
+// NewDisabledMetricsBus returns a bus with no adapter, channels or goroutines;
+// every write to it is discarded.
+func NewDisabledMetricsBus() *MetricsBus {
+	return &MetricsBus{}
+}
+
 // ChannelCapacities returns the buffered-channel sizes derived from config,
 // shared by the bus and every EngineMetricsAdapter so buffer sizing stays
 // consistent across both.
