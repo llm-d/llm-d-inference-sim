@@ -99,8 +99,9 @@ var queueTimeBucketsBoundaries = []float64{0.000, 0.001, 0.005, 0.010, 0.050, 0.
 // tokenBucketsBoundaries are the boundaries shared by the three token-length
 // histograms, sglang's defaults for them. They do not scale with
 // --max-model-len the way the vLLM engine's token buckets do.
-var tokenBucketsBoundaries = []float64{100, 300, 500, 700, 1000, 1500, 2000, 80000, 100000, 200000,
-	300000, 400000, 600000, 800000, 1000000, 1100000}
+var tokenBucketsBoundaries = []float64{100, 300, 500, 700, 1000, 1500, 2000, 3000, 4000, 5000, 6000,
+	7000, 8000, 9000, 10000, 12500, 15000, 17500, 20000, 22500, 25000, 27500, 30000, 35000, 40000,
+	60000, 80000, 100000, 200000, 300000, 400000, 600000, 800000, 1000000, 1100000}
 
 // tpotFinishReasons are the finish reasons sglang records a per-request TPOT
 // for. A request that ended any other way had a truncated decode phase, which
