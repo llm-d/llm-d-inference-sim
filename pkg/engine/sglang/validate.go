@@ -35,6 +35,9 @@ func (Engine) ValidateConfig(cfg *common.Configuration) error {
 	}
 
 	if cfg.FakeMetrics != nil {
+		if !cfg.EnableMetrics {
+			return errors.New("fake metrics require metrics to be enabled")
+		}
 		if err := cfg.FakeMetrics.Validate(); err != nil {
 			return err
 		}

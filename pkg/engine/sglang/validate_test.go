@@ -31,6 +31,7 @@ var _ = Describe("ValidateConfig", func() {
 	BeforeEach(func() {
 		config = common.NewConfig()
 		New().ApplyDefaults(config)
+		config.EnableMetrics = true
 	})
 
 	It("should accept this engine's own defaults", func() {
@@ -48,6 +49,15 @@ var _ = Describe("ValidateConfig", func() {
 			RunningRequests: &common.FakeMetricWithFunction{FixedValue: 5},
 		}
 		Expect(New().ValidateConfig(config)).To(Succeed())
+	})
+
+	It("should reject fake metrics when metrics are disabled", func() {
+		config.EnableMetrics = false
+		config.FakeMetrics = &SGLangFakeMetrics{
+			RunningRequests: &common.FakeMetricWithFunction{FixedValue: 5},
+		}
+		Expect(New().ValidateConfig(config)).To(
+			MatchError(ContainSubstring("fake metrics require metrics to be enabled")))
 	})
 
 	It("should reject fake metrics with a non-positive refresh interval", func() {
