@@ -277,13 +277,19 @@ var _ = Describe("Metrics adapter", func() {
 			})
 			// A truncated decode phase.
 			adapter.OnDecodeEnded(metrics.DecodeEnded{
-				GenerationTokens: 4, DecodeDuration: 0.4, FinishReason: common.ToolsFinishReason,
-			})
-			adapter.OnDecodeEnded(metrics.DecodeEnded{
 				GenerationTokens: 4, DecodeDuration: 0.4, FinishReason: common.RemoteDecodeFinishReason,
 			})
 
 			Consistently(histogramCount(registry, SGLangReqTPOTMetricName, nonStreaming)).Should(BeZero())
+		})
+
+		It("observes a per-request time per output token for a tool-call finish", func() {
+			adapter, registry := newTestAdapter()
+
+			adapter.OnDecodeEnded(metrics.DecodeEnded{
+				GenerationTokens: 4, DecodeDuration: 0.4, FinishReason: common.ToolsFinishReason,
+			})
+			Eventually(histogramCount(registry, SGLangReqTPOTMetricName, nonStreaming)).Should(Equal(uint64(1)))
 		})
 
 		It("decrements running and records latency and tokens on success", func() {

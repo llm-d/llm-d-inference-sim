@@ -247,8 +247,8 @@ func (g *FakeGenerators) runTicker(ctx context.Context, start time.Time) {
 	}
 }
 
-// tick snapshots the set under the lock and evaluates each generator outside it,
-// so a push onto a full channel cannot block an admin-driven update.
+// tick evaluates and pushes every generator with the lock held, so a concurrent
+// Apply cannot be overwritten by a value from a generator it has just removed.
 func (g *FakeGenerators) tick(t time.Duration) {
 	g.mu.Lock()
 	defer g.mu.Unlock()

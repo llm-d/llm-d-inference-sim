@@ -105,10 +105,12 @@ var tokenBucketsBoundaries = []float64{100, 300, 500, 700, 1000, 1500, 2000, 300
 
 // tpotFinishReasons are the finish reasons sglang records a per-request TPOT
 // for. A request that ended any other way had a truncated decode phase, which
-// would report a time per output token the engine never spent.
+// would report a time per output token the engine never spent. sglang's engine
+// finishes a tool-calling request with stop; tool_calls is set only above it.
 var tpotFinishReasons = map[string]bool{
 	common.StopFinishReason:   true,
 	common.LengthFinishReason: true,
+	common.ToolsFinishReason:  true,
 }
 
 // streamObservation is a payload carrying the observed value together with the
@@ -1144,15 +1146,7 @@ func (s *StreamSplit) reset() *streamCounterReset {
 		return &streamCounterReset{}
 	}
 	return &streamCounterReset{
-		streaming:    int64ToFloat64(s.Streaming),
-		nonStreaming: int64ToFloat64(s.NonStreaming),
+		streaming:    metrics.Int64ToFloat64(s.Streaming),
+		nonStreaming: metrics.Int64ToFloat64(s.NonStreaming),
 	}
-}
-
-func int64ToFloat64(v *int64) *float64 {
-	if v == nil {
-		return nil
-	}
-	f := float64(*v)
-	return &f
 }
