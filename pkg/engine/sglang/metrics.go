@@ -1137,15 +1137,7 @@ func (s *StreamSplit) reset() *streamCounterReset {
 		return &streamCounterReset{}
 	}
 	return &streamCounterReset{
-		streaming:    int64ToFloat64(s.Streaming),
-		nonStreaming: int64ToFloat64(s.NonStreaming),
+		streaming:    metrics.Int64ToFloat64(s.Streaming),
+		nonStreaming: metrics.Int64ToFloat64(s.NonStreaming),
 	}
-}
-
-func int64ToFloat64(v *int64) *float64 {
-	if v == nil {
-		return nil
-	}
-	f := float64(*v)
-	return &f
 }

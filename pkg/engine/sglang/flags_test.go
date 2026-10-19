@@ -201,7 +201,7 @@ var _ = Describe("Configuration", func() {
 
 	DescribeTable("should parse fake metrics",
 		func(flagValue string, body string) {
-			args := []string{"cmd", "--model", common.TestModelName}
+			args := []string{"cmd", "--model", common.TestModelName, "--enable-metrics"}
 			if flagValue != "" {
 				args = append(args, "--fake-metrics", flagValue)
 			}
@@ -244,7 +244,7 @@ var _ = Describe("Configuration", func() {
 	// The flag replaces the whole struct rather than merging into a
 	// file-configured one, so the file's own metrics do not survive it.
 	It("should let the fake-metrics flag supersede the config file", func() {
-		config, err := createSimConfig([]string{"cmd", "--model", common.TestModelName,
+		config, err := createSimConfig([]string{"cmd", "--model", common.TestModelName, "--enable-metrics",
 			"--config", writeConfig("fake-metrics:\n  queue-requests: 30\n"),
 			"--fake-metrics", `{"running-requests":16}`})
 		Expect(err).NotTo(HaveOccurred())
@@ -273,7 +273,7 @@ var _ = Describe("Configuration", func() {
 
 	DescribeTable("should set the fake-metrics refresh interval",
 		func(expected time.Duration, args ...string) {
-			config, err := createSimConfig(append([]string{"cmd", "--model", common.TestModelName,
+			config, err := createSimConfig(append([]string{"cmd", "--model", common.TestModelName, "--enable-metrics",
 				"--fake-metrics", `{"running-requests":16}`}, args...))
 			Expect(err).NotTo(HaveOccurred())
 			Expect(config.FakeMetricsRefreshInterval).To(Equal(expected))
@@ -283,7 +283,7 @@ var _ = Describe("Configuration", func() {
 	)
 
 	It("should let the fake-metrics-refresh-interval flag supersede the config file", func() {
-		config, err := createSimConfig([]string{"cmd", "--model", common.TestModelName,
+		config, err := createSimConfig([]string{"cmd", "--model", common.TestModelName, "--enable-metrics",
 			"--config", writeConfig("fake-metrics-refresh-interval: 2s\n"),
 			"--fake-metrics", `{"running-requests":16}`,
 			"--fake-metrics-refresh-interval", "500ms"})
@@ -292,14 +292,14 @@ var _ = Describe("Configuration", func() {
 	})
 
 	It("should read the fake-metrics refresh interval from a config file", func() {
-		config, err := createSimConfig([]string{"cmd", "--model", common.TestModelName,
+		config, err := createSimConfig([]string{"cmd", "--model", common.TestModelName, "--enable-metrics",
 			"--config", writeConfig("fake-metrics-refresh-interval: 2s\nfake-metrics:\n  running-requests: 16\n")})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(config.FakeMetricsRefreshInterval).To(Equal(2 * time.Second))
 	})
 
 	It("should reject a non-positive fake-metrics refresh interval", func() {
-		_, err := createSimConfig([]string{"cmd", "--model", common.TestModelName,
+		_, err := createSimConfig([]string{"cmd", "--model", common.TestModelName, "--enable-metrics",
 			"--fake-metrics", `{"running-requests":16}`, "--fake-metrics-refresh-interval", "-20s"})
 		Expect(err).To(MatchError(ContainSubstring("fake metrics refresh interval must be positive")))
 	})
