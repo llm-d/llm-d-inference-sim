@@ -49,7 +49,7 @@ func (w *worker) waitForRequests() {
 			return
 		case reqCtx := <-w.reqChan.Channel:
 			w.processor.processRequest(reqCtx)
-			w.finishedChan <- &requestCompleted{worker: w, model: reqCtx.Request().GetDisplayedModel()}
+			w.finishedChan <- &requestCompleted{worker: w, model: requestLora(reqCtx.Request())}
 		}
 
 	}

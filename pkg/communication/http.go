@@ -67,6 +67,8 @@ func (c *Communication) newListener() (net.Listener, error) {
 const (
 	messagesRoute  = "/v1/messages"
 	responsesRoute = "/v1/responses"
+
+	messagesRenderRoute = messagesRoute + "/render"
 )
 
 // startHTTPServer builds and starts the HTTP server, returning the server instance and an error channel.
@@ -81,15 +83,9 @@ func (c *Communication) startHTTPServer(ctx context.Context, listener net.Listen
 	// support completion APIs
 	r.POST("/v1/chat/completions", c.HandleChatCompletions)
 	r.POST("/v1/completions", c.HandleTextCompletions)
-	r.POST("/v1/chat/completions/render", c.HandleChatCompletionsRender)
-	r.POST("/v1/completions/render", c.HandleTextCompletionsRender)
-	if !c.runtime.Config().EnableLegacyRender {
-		r.POST("/v1/responses/render", c.HandleResponsesRender)
-	}
-	r.POST("/v1/chat/completions/derender", c.HandleChatCompletionsDerender)
-	r.POST("/v1/completions/derender", c.HandleTextCompletionsDerender)
 	r.POST(responsesRoute, c.HandleResponses)
 	r.POST(messagesRoute, c.HandleMessages)
+	r.POST(messagesRoute+"/count_tokens", c.HandleMessagesCountTokens)
 	if !c.runtime.Config().MMEncoderOnly {
 		r.POST("/v1/embeddings", c.HandleEmbeddings)
 	}
@@ -179,20 +175,34 @@ func (c *Communication) HandleGenerate(ctx *fasthttp.RequestCtx) {
 
 // HandleChatCompletionsRender http handler for /v1/chat/completions/render
 func (c *Communication) HandleChatCompletionsRender(ctx *fasthttp.RequestCtx) {
-	c.handleRender(&endpoint.ChatCompletionsRequest{}, &chatComplHTTPRespBuilder{}, ctx)
+	c.handleRender(&endpoint.ChatCompletionsRequest{}, &chatComplHTTPRespBuilder{}, false, ctx)
 }
 
 // HandleTextCompletionsRender http handler for /v1/completions/render
 func (c *Communication) HandleTextCompletionsRender(ctx *fasthttp.RequestCtx) {
-	c.handleRender(&endpoint.TextCompletionsParsedRequest{}, &textComplHTTPRespBuilder{}, ctx)
+	c.handleRender(&endpoint.TextCompletionsParsedRequest{}, &textComplHTTPRespBuilder{}, false, ctx)
 }
 
 // HandleResponsesRender http handler for /v1/responses/render
 func (c *Communication) HandleResponsesRender(ctx *fasthttp.RequestCtx) {
-	c.handleRender(&endpoint.ResponsesRenderRequest{}, &responsesHTTPRespBuilder{}, ctx)
+	c.handleRender(&endpoint.ResponsesRenderRequest{}, &responsesHTTPRespBuilder{}, false, ctx)
 }
 
-func (c *Communication) handleRender(req endpoint.RenderableRequest, respBuilder responseBuilder, ctx *fasthttp.RequestCtx) {
+// HandleMessagesRender http handler for /v1/messages/render
+func (c *Communication) HandleMessagesRender(ctx *fasthttp.RequestCtx) {
+	c.handleRender(&endpoint.MessagesRenderRequest{}, &messagesHTTPRespBuilder{}, true, ctx)
+}
+
+// HandleMessagesCountTokens http handler for /v1/messages/count_tokens
+func (c *Communication) HandleMessagesCountTokens(ctx *fasthttp.RequestCtx) {
+	c.handleRender(&endpoint.MessagesRequest{}, &messagesCountTokensHTTPRespBuilder{transport: c.transport}, true, ctx)
+}
+
+// handleRender parses and renders a request without generating a response.
+// acceptLoRA lets the request name a loaded LoRA adapter as its model, as vLLM
+// does on the Messages API; the other render endpoints accept base models only.
+func (c *Communication) handleRender(req endpoint.RenderableRequest, respBuilder responseBuilder,
+	acceptLoRA bool, ctx *fasthttp.RequestCtx) {
 	c.logger.V(logging.TRACE).Info("Render request received", "endpoint", string(ctx.Path()))
 	if err := req.Unmarshal(ctx.Request.Body()); err != nil {
 		c.logger.Error(err, "failed to read and parse render request body")
@@ -204,8 +214,14 @@ func (c *Communication) handleRender(req endpoint.RenderableRequest, respBuilder
 		c.sendError(ctx, err, false)
 		return
 	}
-	if err := c.runtime.ValidateBaseModel(req.GetModel(), "render"); err != nil {
-		c.sendError(ctx, err, false)
+	var modelErr *api.Error
+	if acceptLoRA {
+		modelErr = c.runtime.ValidateModel(req.GetModel())
+	} else {
+		modelErr = c.runtime.ValidateBaseModel(req.GetModel(), "render")
+	}
+	if modelErr != nil {
+		c.sendError(ctx, modelErr, false)
 		return
 	}
 	tokens, features, err := req.Render(c.runtime.GetTokenizer())
@@ -445,9 +461,9 @@ func drainResponseChannel(channel common.Channel[*endpoint.ResponseInfo]) {
 // by respBuilder, since the endpoint decides whether the frame is named and
 // whether the stream ends with a marker at all. Errors from the write are
 // ignored -- the client pipe may already be gone.
-func (c *Communication) sendStreamErrorAndDone(ctx *fasthttp.RequestCtx, w *bufio.Writer,
+func (c *Communication) sendStreamErrorAndDone(route api.ErrorRoute, w *bufio.Writer,
 	respBuilder responseBuilder, err *api.Error) {
-	_ = c.sendChunk(w, respBuilder.createErrorChunk(c.errorBody(ctx, *err, true)))
+	_ = c.sendChunk(w, respBuilder.createErrorChunk(c.transport.StreamErrorBody(*err, route)))
 	if done := respBuilder.createDoneChunk(); done != nil {
 		_ = c.sendChunk(w, done)
 	}
@@ -455,22 +471,20 @@ func (c *Communication) sendStreamErrorAndDone(ctx *fasthttp.RequestCtx, w *bufi
 
 // errorBody returns the body of an error response to the request in ctx. The
 // Messages and Responses APIs each frame an error their own way whatever the
-// engine, so the route selects the family and the engine fills it in. streaming
-// selects the frame of one event of a streamed response, which an engine may
-// frame differently from a whole response body.
-func (c *Communication) errorBody(ctx *fasthttp.RequestCtx, err api.Error, streaming bool) any {
-	route := errorRoute(string(ctx.Path()))
-	if streaming {
-		return c.transport.StreamErrorBody(err, route)
-	}
-	return c.transport.ErrorBody(err, route)
+// engine, so the route selects the family and the engine fills it in.
+func (c *Communication) errorBody(ctx *fasthttp.RequestCtx, err api.Error) any {
+	return c.transport.ErrorBody(err, errorRoute(string(ctx.Path())))
 }
 
 // errorRoute reports which family of routes path belongs to, for the purpose of
 // framing an error. Matched by prefix, so the sub-routes of an API family are
-// framed like the family (e.g. /v1/messages/count_tokens).
+// framed like the family (e.g. /v1/messages/count_tokens), except for
+// /v1/messages/render, which vLLM serves from the render router that frames
+// errors like the other render endpoints.
 func errorRoute(path string) api.ErrorRoute {
 	switch {
+	case path == messagesRenderRoute:
+		return api.ErrorRouteDefault
 	case strings.HasPrefix(path, messagesRoute):
 		return api.ErrorRouteMessages
 	case strings.HasPrefix(path, responsesRoute):
@@ -509,23 +523,27 @@ func newStreamState(numChoices int) streamState {
 	}
 }
 
-// sendOrFail writes chunk to w, reporting a chunk-send failure on err. A nil
+// sendOrFail writes chunk to w, logging a chunk-send failure on err. A nil
 // chunk is a no-op. Returns true on success; the caller should return when it
-// sees false (the failure has already been reported on ctx).
-func (c *Communication) sendOrFail(ctx *fasthttp.RequestCtx, w *bufio.Writer, chunk sseChunk, failMsg string) bool {
+// sees false.
+func (c *Communication) sendOrFail(w *bufio.Writer, chunk sseChunk, failMsg string) bool {
 	if chunk == nil {
 		return true
 	}
 	if err := c.sendChunk(w, chunk); err != nil {
-		c.chunkSendFailed(ctx, failMsg, err)
+		c.chunkSendFailed(failMsg, err)
 		return false
 	}
 	return true
 }
 
+// sendStream writes the response from a goroutine that outlives the handler.
+// Once the handler returns, fasthttp owns ctx and may recycle it for another
+// request, so the goroutine must not use ctx.
 func (c *Communication) sendStream(ctx *fasthttp.RequestCtx, channel common.Channel[*endpoint.ResponseInfo],
 	respBuilder responseBuilder, numChoices int, first *endpoint.ResponseInfo) {
 	pr, pw := io.Pipe()
+	route := errorRoute(string(ctx.Path()))
 
 	go func() {
 		w := bufio.NewWriter(pw)
@@ -552,7 +570,7 @@ func (c *Communication) sendStream(ctx *fasthttp.RequestCtx, channel common.Chan
 			if response.Err != nil {
 				// Fail-fast: previously streamed chunks remain sent; emit a single error
 				// frame, end the stream, and stop reading from the other prompts.
-				c.sendStreamErrorAndDone(ctx, w, respBuilder, response.Err)
+				c.sendStreamErrorAndDone(route, w, respBuilder, response.Err)
 				go drainResponseChannel(channel)
 				return
 			}
@@ -573,7 +591,7 @@ func (c *Communication) sendStream(ctx *fasthttp.RequestCtx, channel common.Chan
 			// chunk once globally and skip the response — Created has no tokens.
 			if response.Status == endpoint.ResponseStatusCreated {
 				if !state.initialSent {
-					if !c.sendOrFail(ctx, w, respBuilder.createInitialChunk(respCtx), "Sending first stream chunk failed, ") {
+					if !c.sendOrFail(w, respBuilder.createInitialChunk(respCtx), "Sending first stream chunk failed") {
 						return
 					}
 					state.initialSent = true
@@ -581,7 +599,7 @@ func (c *Communication) sendStream(ctx *fasthttp.RequestCtx, channel common.Chan
 				continue
 			}
 
-			ok, stop := c.emitResponseChunks(ctx, w, respBuilder, response, respCtx, &state, response.Status == endpoint.ResponseEndOfTokens)
+			ok, stop := c.emitResponseChunks(route, w, respBuilder, response, respCtx, &state, response.Status == endpoint.ResponseEndOfTokens)
 			if !ok {
 				go drainResponseChannel(channel)
 				return
@@ -595,20 +613,21 @@ func (c *Communication) sendStream(ctx *fasthttp.RequestCtx, channel common.Chan
 			if rc == nil {
 				err := api.NewError(fmt.Sprintf("Response body creation failed: no tokens for choice index: %d", choiceIdx),
 					fasthttp.StatusInternalServerError, nil)
-				c.sendError(ctx, &err, false)
+				c.logger.Error(nil, err.Message)
+				c.sendStreamErrorAndDone(route, w, respBuilder, &err)
 				return
 			}
 		}
 
 		if respCtx.SendImage() {
 			for i := range state.respCtxPerChoice {
-				if !c.sendOrFail(ctx, w, respBuilder.createImageChunk(respCtx, i), "Sending image chunk failed, ") {
+				if !c.sendOrFail(w, respBuilder.createImageChunk(respCtx, i), "Sending image chunk failed") {
 					return
 				}
 			}
 		}
 
-		c.finalizeStream(ctx, w, respBuilder, &state, respCtx)
+		c.finalizeStream(w, respBuilder, &state, respCtx)
 	}()
 
 	ctx.Response.SetBodyStream(pr, -1)
@@ -616,16 +635,16 @@ func (c *Communication) sendStream(ctx *fasthttp.RequestCtx, channel common.Chan
 
 // emitResponseChunks handles a single non-error, non-Created response. Returns
 // (ok, stop): ok=false means the caller should return (a send failed and was
-// already reported via ctx); stop=true means the stream is complete and the main
+// already logged); stop=true means the stream is complete and the main
 // loop should break out to finalize.
-func (c *Communication) emitResponseChunks(ctx *fasthttp.RequestCtx, w *bufio.Writer, respBuilder responseBuilder,
+func (c *Communication) emitResponseChunks(route api.ErrorRoute, w *bufio.Writer, respBuilder responseBuilder,
 	response *endpoint.ResponseInfo, respCtx endpoint.ResponseContext, state *streamState, lastTokensChunk bool) (ok bool, stop bool) {
 	choiceIdx := response.ChoiceIdx
 
 	if response.Tokens != nil {
 		// In chat completion the first chunk contains the role.
 		if state.firstTokens[choiceIdx] {
-			if !c.sendOrFail(ctx, w, respBuilder.createFirstChunk(respCtx, choiceIdx), "Sending first stream chunk failed, ") {
+			if !c.sendOrFail(w, respBuilder.createFirstChunk(respCtx, choiceIdx), "Sending first stream chunk failed") {
 				return false, false
 			}
 			state.firstTokens[choiceIdx] = false
@@ -649,44 +668,41 @@ func (c *Communication) emitResponseChunks(ctx *fasthttp.RequestCtx, w *bufio.Wr
 		if lastTokensChunk && respBuilder.sendFinishReasonWithTokens() {
 			finishReason = respCtx.FinishReason()
 		}
-		return c.sendOrFail(ctx, w, respBuilder.createChunk(respCtx, response.Tokens, nil, "", finishReason, choiceIdx),
-			"Sending stream chunk failed, "), false
+		return c.sendOrFail(w, respBuilder.createChunk(respCtx, response.Tokens, nil, "", finishReason, choiceIdx),
+			"Sending stream chunk failed"), false
 	}
 
 	if respCtx.FinishReason() != nil && *respCtx.FinishReason() == common.CacheThresholdFinishReason {
 		// No tokens to stream but we still need to emit a finish chunk for cache_threshold.
-		return c.sendOrFail(ctx, w, respBuilder.createChunk(respCtx, nil, nil, "", respCtx.FinishReason(), choiceIdx),
-			"Sending finish chunk failed, "), true
+		return c.sendOrFail(w, respBuilder.createChunk(respCtx, nil, nil, "", respCtx.FinishReason(), choiceIdx),
+			"Sending finish chunk failed"), true
 	}
 
 	errToSend := api.NewError("unexpected response part in streaming", fasthttp.StatusInternalServerError, nil)
-	c.sendStreamErrorAndDone(ctx, w, respBuilder, &errToSend)
+	c.sendStreamErrorAndDone(route, w, respBuilder, &errToSend)
 	return false, false
 }
 
 // finalizeStream emits the post-loop SSE frames: a last chunk per choice (if the
 // builder wants one for the finish reason), the usage chunk, and [DONE].
-func (c *Communication) finalizeStream(ctx *fasthttp.RequestCtx, w *bufio.Writer, respBuilder responseBuilder,
+func (c *Communication) finalizeStream(w *bufio.Writer, respBuilder responseBuilder,
 	state *streamState, respContext endpoint.ResponseContext) {
 	for i, rc := range state.respCtxPerChoice {
-		if !c.sendOrFail(ctx, w, respBuilder.createLastChunk(respContext, *rc.FinishReason(), i),
-			"Sending last stream chunk failed, ") {
+		if !c.sendOrFail(w, respBuilder.createLastChunk(respContext, *rc.FinishReason(), i),
+			"Sending last stream chunk failed") {
 			return
 		}
 	}
-	if !c.sendOrFail(ctx, w, respBuilder.createUsageChunk(state.respCtxPerChoice), "Sending usage chunk failed, ") {
+	if !c.sendOrFail(w, respBuilder.createUsageChunk(state.respCtxPerChoice), "Sending usage chunk failed") {
 		return
 	}
-	c.sendOrFail(ctx, w, respBuilder.createDoneChunk(), "Sending [DONE] chunk failed, ")
+	c.sendOrFail(w, respBuilder.createDoneChunk(), "Sending [DONE] chunk failed")
 }
 
-func (c *Communication) chunkSendFailed(ctx *fasthttp.RequestCtx, msg string, err error) {
-	message := msg
-	if err != nil {
-		message += err.Error()
-	}
-	errToSend := api.NewError(message, fasthttp.StatusInternalServerError, nil)
-	c.sendError(ctx, &errToSend, false)
+// chunkSendFailed logs a failed write to the stream. The client has already
+// received the status line, so nothing more can be reported to it.
+func (c *Communication) chunkSendFailed(msg string, err error) {
+	c.logger.Error(err, msg)
 }
 
 func (c *Communication) sendStreamedTools(respCtx endpoint.ResponseContext, respBuilder responseBuilder,
@@ -732,7 +748,7 @@ func (c *Communication) sendError(ctx *fasthttp.RequestCtx, err *api.Error, isIn
 		c.logger.Error(nil, err.Message)
 	}
 
-	data, jsonErr := json.Marshal(c.errorBody(ctx, *err, false))
+	data, jsonErr := json.Marshal(c.errorBody(ctx, *err))
 	if jsonErr != nil {
 		ctx.SetStatusCode(fasthttp.StatusInternalServerError)
 		ctx.SetContentType("application/json")

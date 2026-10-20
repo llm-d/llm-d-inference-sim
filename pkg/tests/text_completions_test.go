@@ -141,20 +141,6 @@ var _ = Describe("Simulator", forEachEngine(func() {
 			}
 			resp, err := openaiclient.Completions.New(ctx, params)
 
-			// echo mode returns the full prompt as the response, so it rejects any
-			// max_tokens smaller than the prompt's token count - expect that error
-			// rather than a successful response.
-			if mode == common.ModeEcho && numTokens > 0 && int64(numTokens) < userMsgTokens {
-				Expect(err).To(HaveOccurred())
-				var openaiError *openai.Error
-				Expect(errors.As(err, &openaiError)).To(BeTrue())
-				Expect(openaiError.StatusCode).To(Equal(400))
-				errMsg, readErr := io.ReadAll(openaiError.Response.Body)
-				Expect(readErr).NotTo(HaveOccurred())
-				Expect(string(errMsg)).To(ContainSubstring("max_tokens must be at least the prompt length"))
-				return
-			}
-
 			if err != nil {
 				var openaiError *openai.Error
 				if errors.As(err, &openaiError) {
@@ -183,8 +169,15 @@ var _ = Describe("Simulator", forEachEngine(func() {
 			Expect(text).ShouldNot(BeEmpty())
 
 			if mode == common.ModeEcho {
-				// in case of echo mode check that the text is returned as-is
-				Expect(text).Should(Equal(testUserMessage))
+				if numTokens > 0 && int64(numTokens) < userMsgTokens {
+					// the echo is longer than max_tokens, so it is truncated to it
+					Expect(resp.Usage.CompletionTokens).To(Equal(int64(numTokens)))
+					Expect(text).ShouldNot(Equal(testUserMessage))
+					Expect(rawResp["choices"].([]any)[0].(map[string]any)["finish_reason"]).To(Equal(common.LengthFinishReason))
+				} else {
+					// in case of echo mode check that the text is returned as-is
+					Expect(text).Should(Equal(testUserMessage))
+				}
 			} else {
 				if numTokens != 0 {
 					_, tokens, err := server.Context.Tokenizer.RenderText(text)

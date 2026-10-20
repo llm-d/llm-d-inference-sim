@@ -39,6 +39,16 @@ ZMQ_IMG ?= $(IMAGE_REGISTRY)/$(ZMQ_IMAGE_NAME):$(ZMQ_IMAGE_TAG)
 CONTAINER_TOOL := $(shell { command -v docker >/dev/null 2>&1 && echo docker; } || { command -v podman >/dev/null 2>&1 && echo podman; } || echo "")
 BUILDER := $(shell command -v buildah >/dev/null 2>&1 && echo buildah || echo $(CONTAINER_TOOL))
 
+# testcontainers-go ignores docker contexts, so when DOCKER_HOST is unset point it at the
+# active context's socket (e.g. Colima). The Ryuk reaper mounts the socket from inside the
+# daemon's VM, where it is at the default path.
+ifeq ($(origin DOCKER_HOST),undefined)
+ifeq ($(CONTAINER_TOOL),docker)
+TEST_DOCKER_HOST := $(filter-out unix:///var/run/docker.sock,$(filter unix://%,$(shell docker context inspect --format '{{.Endpoints.docker.Host}}' 2>/dev/null)))
+endif
+endif
+TEST_ENV := CGO_ENABLED=0 $(if $(TEST_DOCKER_HOST),DOCKER_HOST=$(TEST_DOCKER_HOST) TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=$(or $(TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE),/var/run/docker.sock))
+
 VLLM_RENDER_IMAGE ?= vllm/vllm-openai-cpu:v0.21.0
 RENDER_PORT ?= 8082
 # Extra `vllm launch render` options, e.g. tool calling: --enable-auto-tool-choice --tool-call-parser hermes
@@ -58,9 +68,9 @@ clean: ## Clean artifacts and caches
 test: $(GINKGO) ## Run tests
 	@printf "\033[33;1m==== Running tests ====\033[0m\n"
 ifdef GINKGO_FOCUS
-	CGO_ENABLED=0 $(GINKGO) -v -r -- -ginkgo.v -ginkgo.focus="$(GINKGO_FOCUS)"
+	$(TEST_ENV) $(GINKGO) -v -r -- -ginkgo.v -ginkgo.focus="$(GINKGO_FOCUS)"
 else
-	CGO_ENABLED=0 $(GINKGO) -v -r $(TEST_PKG)
+	$(TEST_ENV) $(GINKGO) -v -r $(TEST_PKG)
 endif
 
 

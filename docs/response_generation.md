@@ -4,20 +4,26 @@ The simulator determines the content and length of its responses based on the co
 
 ## Echo Mode
 In this mode, the simulator acts as a loopback mechanism.
-- **Response Content:** Mirrors the input request, unmodified — the prompt is never trimmed to fit `max_tokens`.
-  - For `/v1/completions`: Returns the `prompt` field.
-  - For `/v1/chat/completions`: Returns the content of the last message in the `messages` list.
-- **Ignored Parameters:** `ignore_eos` has no effect.
-- **`max_tokens` / `max_completion_tokens`:** Not ignored — the request is rejected with `400 Bad Request` if the prompt's token count exceeds `max_tokens`, since echo mode cannot truncate the response to fit. They otherwise have no effect on response content.
-- **Context window:** Because the prompt is echoed back as the response, both count against the context window — the request is rejected with `400 Bad Request` unless `2 * <input_length> <= <context_window>`.
+- **Response Content:** Mirrors the echoed text of the input request.
+  - For `/v1/completions`: The echoed text is the `prompt` field.
+  - For `/v1/chat/completions`: The echoed text is the content of the last message in the `messages` list.
+- **Maximum length:** `max_tokens` / `max_completion_tokens` capped by `<context_window> - <input_length>`, or `<context_window> - <input_length>` if neither is set, where `<input_length>` is the token count of the full input (for chat, all messages).
+- **Truncation:** If the echoed text is longer than the maximum length, the response is truncated to the first maximum length tokens.
+- **`ignore_eos`:** If `true`, `max_tokens` is set, and the maximum length is longer than the echoed text, the echoed text is padded up to the maximum length with predefined text (see [Predefined Text](#predefined-text-default)). Otherwise it has no effect.
+- **`min_tokens`:** If the response is still shorter than `min_tokens`, it is padded up to `min_tokens` with predefined text. Negative values and a value above the maximum length return `400 Bad Request`.
+- **Response length:** The echoed text's token count, after truncation or padding as described above.
+- **Finish reason:** `LENGTH` if the response length reaches the maximum length, otherwise `STOP`.
+- **Context window:** The request is rejected with `400 Bad Request` if `<input_length> >= <context_window>`. The response length is still bounded by the remaining context window.
 
 ## Random Mode
 In this mode, the simulator generates synthetic responses. The length and content depend on the request parameters.
 
-**Context window:** Unlike echo mode, `max_tokens` is not considered when validating the request against the context window — only the prompt itself needs to leave room for at least one response token (`<input_length> + 1 <= <context_window>`). The response length is still bounded by the remaining context window; see below.
+**Context window:** The request is rejected with `400 Bad Request` if `<input_length> >= <context_window>`. The response length is still bounded by the remaining context window; see below.
 
 ### Response Length Calculation
-If `max_tokens` or `max_completion_tokens` is specified, the response length is sampled from a custom histogram with **six buckets**. If the specified value exceeds the room remaining in the context window (`<model_context_limit> - <input_length>`), that remaining room is used as the cap instead — the response never overflows the context window.
+`min_tokens` sets the lower bound for generated chat-completion response length. A value of zero is valid and preserves the default lower bound of one token. Negative values, a minimum greater than the requested maximum, and a minimum greater than the context-clamped maximum return `400 Bad Request`.
+
+If `max_tokens` or `max_completion_tokens` is specified, the response length is sampled from a custom histogram with **six buckets** between the minimum and the effective maximum. If the specified value exceeds the room remaining in the context window (`<model_context_limit> - <input_length>`), that remaining room is used as the cap instead — the response never overflows the context window.
 
 **Probability Distribution:**
 | Bucket | Probability |
@@ -59,7 +65,7 @@ If `max_tokens` or `max_completion_tokens` is specified, the response length is 
 |6|20|181-200|
 
 **Default Length:**
-If no maximum length is specified, the length defaults to `<model_context_limit> - <input_length>`. In this specific case, unless the calculated maximum length is smaller than 20, the length is sampled from a Gaussian distribution (Mean=40, SD=20). Otherwise, the length is chosen uniformly at random.
+If no maximum length is specified, the length defaults to `<model_context_limit> - <input_length>`. In this specific case, unless the calculated maximum length is smaller than 20, the length is sampled from a Gaussian distribution (Mean=40, SD=20) within the range of the minimum and the maximum. If `min_tokens` is greater than 60 (Mean + SD), the mean is `40 + min_tokens`. If the calculated maximum length is smaller than 20, the length is chosen uniformly at random.
 
 ### Content Generation Source
 
@@ -76,6 +82,7 @@ If a valid SQLite dataset is provided, the simulator attempts to find a matching
   - If matches are found: A random match longer than the target length is selected and trimmed.
   - If `ignore_eos=true` and no match is long enough: The response is padded with random predefined text.
 - Fallback: if the hash is not found, a random response from the dataset is selected (constrained by length).
+- Responses shorter than `min_tokens` are padded with predefined text.
 
 ### Stop Logic
 - `finish_reason`: Set to `LENGTH` if the response reaches the maximum allowed tokens; otherwise set to `STOP`.

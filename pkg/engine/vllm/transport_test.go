@@ -77,3 +77,11 @@ var _ = Describe("choice decoration", func() {
 		Expect(New().DecorateTextChoice(choice)).To(Equal(choice))
 	})
 })
+
+var _ = Describe("messages count_tokens decoration", func() {
+	It("should add context_management with the original input tokens", func() {
+		resp := New().DecorateMessagesCountTokens(api.MessagesCountTokensResponse{InputTokens: 7})
+		Expect(resp.InputTokens).To(Equal(7))
+		Expect(resp.ContextManagement).To(Equal(&api.MessagesContextManagement{OriginalInputTokens: 7}))
+	})
+})

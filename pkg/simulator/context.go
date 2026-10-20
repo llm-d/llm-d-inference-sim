@@ -252,7 +252,11 @@ func (s *SimContext) initDataset(ctx context.Context) error {
 	}
 
 	if s.Config().Mode == common.ModeEcho {
-		s.dataset = &dataset.EchoDataset{}
+		echoDataset := &dataset.EchoDataset{}
+		if err := echoDataset.Init(ctx, s.logger, s.Random, s.Config().MaxModelLen, s.Tokenizer); err != nil {
+			return fmt.Errorf("failed to initialize echo dataset: %w", err)
+		}
+		s.dataset = echoDataset
 		return nil
 	}
 

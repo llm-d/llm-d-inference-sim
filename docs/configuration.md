@@ -142,6 +142,7 @@ Command-line flag names are as listed below. In a YAML config file, these settin
   - This parameter is only used if the `dataset-path` is also set and the file does not exist at that path.
   - If the file needs to be downloaded, it will be saved to the location specified by `dataset-path`.
   - If the file already exists at the `dataset-path`, it will not be downloaded again
+  - A request error or non-200 HTTP response leaves the destination absent, so startup can retry the download.
   - Example URL `https://huggingface.co/datasets/hf07397/inference-sim-datasets/resolve/91ffa7aafdfd6b3b1af228a517edc1e8f22cd274/huggingface/ShareGPT_Vicuna_unfiltered/conversations.sqlite3`
 - `dataset-in-memory`: If true, the entire dataset will be loaded into memory for faster access. This may require significant memory depending on the size of the dataset. Default is false.
 - `dataset-table-name`: Table name for custom dataset, optional, default is 'llmd'
@@ -150,7 +151,7 @@ Command-line flag names are as listed below. In a YAML config file, these settin
 - `render-url`: URL of the vLLM render service used for tokenization. Required when the model is a real HuggingFace model; omit for simulated/dummy models. Default is `http://localhost:8082`.
 - `render-timeout`: Timeout for tokenizer render requests (e.g. `30s`). Default is `30s`.
 - `mm-render-timeout`: Timeout for multi-modal tokenizer render requests (e.g. `60s`). Default is `60s`.
-- `enable-legacy-render`: Disable the `/v1/responses/render` endpoint, matching vLLM versions that predate it. Callers probing the renderer for Responses render support then fall back to the chat-completions render path. Default is `false`.
+- `enable-legacy-render`: Disable the `/v1/responses/render` and `/v1/messages/render` endpoints, matching vLLM versions that predate them. Callers probing the renderer for Responses or Messages render support then fall back to the chat-completions render path. Applies to the vLLM engine, which is the only one serving the render endpoints. Default is `false`.
 
 ### Embeddings
 - `default-embedding-dimensions`: default size of embedding vectors returned by `/v1/embeddings` when the request does not specify a `dimensions` field, optional, defaults to 384.
@@ -233,7 +234,7 @@ Command-line flag names are as listed below. In a YAML config file, these settin
 
     - `waiting-requests` - similar to `running-requests`.
     - `kv-cache-usage` - similar to `running-requests`.
-    - `loras` - an array containing LoRA information objects, each with the fields: `running` (a comma-separated list of LoRAs in use by running requests), `waiting` (a comma-separated list of LoRAs to be used by waiting requests), and `timestamp` (seconds since Jan 1 1970, the timestamp of this metric). 
+    - `loras` - an array containing LoRA information objects, each with the fields: `running` (a comma-separated list of LoRAs in use by running requests), `waiting` (a comma-separated list of LoRAs to be used by waiting requests), and `timestamp` (seconds since Jan 1 1970, the timestamp of this metric). If `loras` is omitted, `vllm:lora_requests_info` is not exposed.
     - `ttft-buckets-values` - array of values for time-to-first-token buckets, each value in this array is a value for the corresponding bucket. Array may contain less values than number of buckets, all trailing missing values assumed as 0. Buckets upper boundaries are: 0.001, 0.005, 0.01, 0.02, 0.04, 0.06, 0.08, 0.1, 0.25, 0.5, 0.75, 1.0, 2.5, 5.0, 7.5, 10.0, 20.0, 40.0, 80.0, 160.0, 640.0, 2560.0, +Inf.
     - `tpot-buckets-values` - array of values for time-per-output-token buckets, each value in this array is a value for the corresponding bucket. Array may contain less values than number of buckets, all trailing missing values assumed as 0. Buckets upper boundaries are: 0.01, 0.025, 0.05, 0.075, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5, 0.75, 1.0, 2.5, 5.0, 7.5, 10.0, 20.0, 40.0, 80.0, +Inf.
     - `e2erl-buckets-values` - array of values for e2e request latency buckets, each value in this array is a value for the corresponding bucket. Array may contain less values than number of buckets, all trailing missing values assumed as 0. Buckets upper boundaries are: 0.3, 0.5, 0.8, 1.0, 1.5, 2.0, 2.5, 5.0, 10.0, 15.0, 20.0, 30.0, 40.0, 50.0, 60.0, 120.0, 240.0, 480.0, 
@@ -248,7 +249,7 @@ Command-line flag names are as listed below. In a YAML config file, these settin
     960.0, 1920.0, 7680.0, +Inf.
     - `request-prompt-tokens` - array of values for prompt-length buckets
     - `request-generation-tokens` - array of values for generation-length buckets
-    - `request-max-generation-tokens` - array of values for max_num_generation_tokens buckets
+    - `request-max-generation-tokens` - array of values for request_max_num_generation_tokens buckets
     - `request-params-max-tokens` - array of values for  max_tokens parameter buckets
     - `request-success-total` - number of successful requests per finish reason, key: finish-reason (stop, length, etc.).
     - `total-prompt-tokens` - initial value for the `vllm:prompt_tokens_total` counter (total number of prompt tokens processed).
@@ -260,7 +261,7 @@ Command-line flag names are as listed below. In a YAML config file, these settin
       --fake-metrics '{"running-requests":"oscillate:0:10:5s","waiting-requests":30,"kv-cache-usage":0.4,"loras":[{"running":"lora4,lora2","waiting":"lora3","timestamp":1257894567},{"running":"lora4,lora3","waiting":"","timestamp":1257894569}]}'
 - `fake-metrics-refresh-interval`	- defines how often function-based fake metrics are recalculated, the default value is 100ms.
 
-Fake metric values can also be updated at runtime via [`POST /admin/config`](api.md#adminconfig) with a `fake-metrics` field — the body is a partial update, so only the specified metrics are changed. Absent fields and fields explicitly set to `null` are equivalent and leave the existing value alone; to clear a slice- or map-valued metric send `[]` or `{}` respectively. Scalar metrics cannot be cleared via partial update. A fixed numeric update replaces a generator function for the specified scalar metric.
+Fake metric values can also be updated at runtime via [`POST /admin/config`](api.md#adminconfig) with a `fake-metrics` field — the body is a partial update, so only the specified metrics are changed. Absent fields and fields explicitly set to `null` are equivalent and leave the existing value alone; to clear a slice- or map-valued metric send `[]` or `{}` respectively. For a labeled metric that is specified in the update, such as `request-success-total` or `loras`, label values not included in the new value are removed from `/metrics`. Scalar metrics cannot be cleared via partial update. A fixed numeric update replaces a generator function for the specified scalar metric.
 
 #### Ignored parameters
 The following command line parameters are ignored by the simulator:

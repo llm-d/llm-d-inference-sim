@@ -154,11 +154,15 @@ func (st *SimpleTokenizer) tokenize(input string) ([]uint32, []string) {
 	st.mu.Lock()
 	for i, id := range tokens {
 		if elem, ok := st.idToEntry[id]; ok {
-			elem.Value.(*reverseMapEntry).str = strTokens[i]
+			entry := elem.Value.(*reverseMapEntry)
+			if entry.str != strTokens[i] {
+				entry.str = strings.Clone(strTokens[i])
+			}
 			st.evictionOrder.MoveToFront(elem)
 			continue
 		}
-		st.idToEntry[id] = st.evictionOrder.PushFront(&reverseMapEntry{id: id, str: strTokens[i]})
+		// Cached substrings must not retain the entire source prompt.
+		st.idToEntry[id] = st.evictionOrder.PushFront(&reverseMapEntry{id: id, str: strings.Clone(strTokens[i])})
 		if st.evictionOrder.Len() > st.capacity {
 			oldest := st.evictionOrder.Back()
 			st.evictionOrder.Remove(oldest)

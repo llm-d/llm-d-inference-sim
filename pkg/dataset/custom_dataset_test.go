@@ -20,7 +20,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
+	"path/filepath"
+	"strings"
+	"testing"
 	"time"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
@@ -35,6 +40,7 @@ import (
 
 const (
 	tokenizerTmpDir = "./test_tokenizers"
+	validDBPath     = ".llm-d/test.valid.sqlite3"
 )
 
 type validDBElement struct {
@@ -51,7 +57,6 @@ var _ = Describe("CustomDataset", Ordered, func() {
 		dsDownloader          *customDatasetDownloader
 		file_folder           string
 		path                  string
-		validDBPath           string
 		tableName             string
 		pathToInvalidDB       string
 		pathNotExist          string
@@ -68,7 +73,6 @@ var _ = Describe("CustomDataset", Ordered, func() {
 		path = file_folder + "/test.sqlite3"
 		err := os.MkdirAll(file_folder, os.ModePerm)
 		Expect(err).NotTo(HaveOccurred())
-		validDBPath = file_folder + "/test.valid.sqlite3"
 		tableName = "llmd"
 		pathNotExist = file_folder + "/test.notexist.sqlite3"
 		pathToInvalidDB = file_folder + "/test.invalid.sqlite3"
@@ -324,6 +328,50 @@ var _ = Describe("CustomDataset", Ordered, func() {
 			Expect(tokens.Length()).To(BeNumerically("<=", smallMaxTokens))
 		})
 
+		It("should pad a matching chat response to min_tokens", func() {
+			minTokens := int64(6)
+			req := api.ChatCompletionsRequest{
+				MaxTokens: &maxTokens,
+				MinTokens: &minTokens,
+			}
+			req.SetTokenizedPrompt(&validDB[0].tokenizedInput)
+
+			Expect(dataset.getPromptHashHex(dataset.getPromptHash(&req))).To(Equal(validDB[0].hexa))
+
+			tokens, finishReason, err := dataset.GetResponseTokens(&req)
+
+			Expect(err).NotTo(HaveOccurred())
+			Expect(tokens.Length()).To(Equal(int(minTokens)))
+			Expect(tokens.Tokens).To(HaveLen(int(minTokens)))
+			respLen := validDB[0].respTokens.Length()
+			Expect(tokens.Strings[:respLen]).To(Equal(validDB[0].respTokens.Strings))
+			Expect(IsValidText(strings.Join(tokens.Strings[respLen:], ""))).To(BeTrue())
+			Expect(finishReason).To(Equal(common.StopFinishReason))
+		})
+
+		It("should pad a fallback chat response to min_tokens without exceeding the maximum", func() {
+			minTokens := int64(4)
+			fallbackMaxTokens := int64(5)
+			req := api.ChatCompletionsRequest{
+				MaxTokens: &fallbackMaxTokens,
+				MinTokens: &minTokens,
+				Messages: []api.Message{
+					{Role: api.RoleUser, Content: api.ChatComplContent{Raw: "unmatched prompt for fallback"}},
+				},
+			}
+			req.SetTokenizedPrompt(&api.Tokenized{
+				Tokens:  []uint32{1, 2, 3, 4, 5},
+				Strings: []string{"a", "b", "c", "d", "e"},
+			})
+
+			tokens, finishReason, err := dataset.GetResponseTokens(&req)
+
+			Expect(err).NotTo(HaveOccurred())
+			Expect(tokens.Length()).To(Equal(int(minTokens)))
+			Expect(tokens.Length()).To(BeNumerically("<=", int(fallbackMaxTokens)))
+			Expect(finishReason).To(Equal(common.StopFinishReason))
+		})
+
 		It("should successfully init dataset with in-memory option", func() {
 			req := &api.TextCompletionsRequest{
 				Prompt: api.PromptInput{Text: validDB[1].input},
@@ -352,8 +400,6 @@ var _ = Describe("CustomDataset", Ordered, func() {
 
 var _ = Describe("custom dataset for multiple simulators", Ordered, func() {
 	It("should not fail on custom datasets initialization", func() {
-		file_folder := ".llm-d"
-		validDBPath := file_folder + "/test.valid.sqlite3"
 		tableName := "llmd"
 
 		random1 := common.NewRandom(time.Now().UnixNano(), 8081)
@@ -365,6 +411,40 @@ var _ = Describe("custom dataset for multiple simulators", Ordered, func() {
 		dataset2 := &CustomDataset{}
 		err = dataset2.Init(context.Background(), klog.Background(), random2, validDBPath, tableName, false, 1024, tokenizerMngr.TestTokenizer())
 		Expect(err).NotTo(HaveOccurred())
+	})
+})
+
+var _ = Describe("in-memory database", func() {
+	var helper *sqliteHelper
+
+	BeforeEach(func() {
+		helper = newSqliteHelper("llmd", klog.Background())
+		Expect(helper.connectToDB(validDBPath, true)).To(Succeed())
+	})
+
+	AfterEach(func() {
+		helper.closeDB()
+	})
+
+	It("should serve queries on every pooled connection", func() {
+		// holding one connection forces the next query onto another one
+		conn, err := helper.db.Conn(context.Background())
+		Expect(err).NotTo(HaveOccurred())
+		defer conn.Close() //nolint:errcheck
+
+		responses, err := helper.getRandomResponse()
+		Expect(err).NotTo(HaveOccurred())
+		Expect(responses).To(HaveLen(1))
+	})
+
+	It("should keep the data after the pool closes idle connections", func() {
+		helper.db.SetMaxIdleConns(0)
+
+		for range 2 {
+			responses, err := helper.getRandomResponse()
+			Expect(err).NotTo(HaveOccurred())
+			Expect(responses).To(HaveLen(1))
+		}
 	})
 })
 
@@ -387,3 +467,43 @@ var _ = Describe("download custom dataset from HF", Ordered, func() {
 		Expect(err).NotTo(HaveOccurred())
 	})
 })
+
+func TestDatasetDownloadFailure(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/unavailable" {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		_, _ = w.Write([]byte("dataset"))
+	}))
+	defer server.Close()
+
+	for _, tt := range []struct {
+		name string
+		url  string
+	}{
+		{name: "transport error", url: "invalid://dataset"},
+		{name: "bad status", url: server.URL + "/unavailable"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "dataset.sqlite3")
+			downloader := newDsDownloader(klog.Background())
+			if err := downloader.downloadDataset(context.Background(), tt.url, path); err == nil {
+				t.Fatal("expected download to fail")
+			}
+			if _, err := os.Stat(path); !os.IsNotExist(err) {
+				t.Fatalf("destination after failed download: %v; want file not to exist", err)
+			}
+			if err := downloader.downloadDataset(context.Background(), server.URL, path); err != nil {
+				t.Fatal(err)
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(data) != "dataset" {
+				t.Fatalf("retry downloaded %q; want %q", data, "dataset")
+			}
+		})
+	}
+}

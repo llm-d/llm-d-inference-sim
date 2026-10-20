@@ -47,7 +47,7 @@ const (
 	VLLMTPOTMetricName                    = "vllm:time_per_output_token_seconds"
 	VLLMReqTPOTMetricName                 = "vllm:request_time_per_output_token_seconds"
 	VLLMInterTokenLatencyMetricName       = "vllm:inter_token_latency_seconds"
-	VLLMMaxNumGenerationTokensMetricName  = "vllm:max_num_generation_tokens"
+	VLLMMaxNumGenerationTokensMetricName  = "vllm:request_max_num_generation_tokens"
 	VLLMGenerationTokensMetricName        = "vllm:request_generation_tokens"
 	VLLMParamMaxTokensMetricName          = "vllm:request_params_max_tokens"
 	VLLMPromptTokensMetricName            = "vllm:request_prompt_tokens"
@@ -86,8 +86,8 @@ type HistogramUpdate struct {
 }
 
 // HistogramReset carries the target state for a reset-shaped histogram
-// update: unregister the current collector, recreate it, then Observe once
-// per bucket according to Samples over the Buckets boundaries.
+// update: clear the histogram's series, then Observe once per bucket
+// according to Samples over the Buckets boundaries.
 type HistogramReset struct {
 	Buckets []float64
 	Samples []int
@@ -101,15 +101,15 @@ type CounterUpdate struct {
 }
 
 // CounterReset carries the target state for a reset-shaped counter update:
-// unregister the current collector, recreate it, then Add Value. A nil
-// Value leaves the recreated counter with no series stamped, so it is
-// absent from /metrics rather than reporting an explicit zero.
+// clear the counter's series, then Add Value. A nil Value leaves the
+// counter with no series stamped, so it is absent from /metrics rather
+// than reporting an explicit zero.
 type CounterReset struct {
 	Value *float64
 }
 
 // SuccessTotalReset is the target state for request_success_total: one
-// Add per (reason, count) pair after recreate.
+// Add per (reason, count) pair after clearing the counter's series.
 type SuccessTotalReset struct {
 	Reasons map[string]int64
 }
@@ -130,9 +130,9 @@ type LoRAUpdate struct {
 	Reset    *LoRAReset
 }
 
-// LoRAReset carries the target state for lora_requests_info: unregister,
-// recreate, then stamp one series per entry (or a single zero-adapter row
-// with the current timestamp when Entries is empty).
+// LoRAReset carries the target state for lora_requests_info: clear the
+// gauge's series, then stamp one series per entry (or a single zero-adapter
+// row with the current timestamp when Entries is empty).
 type LoRAReset struct {
 	MaxLoRAs int
 	Entries  []common.LorasMetrics
@@ -287,9 +287,6 @@ func (m *VLLMMetricsAdapter) Close() error {
 func (m *VLLMMetricsAdapter) Start(_ context.Context) error {
 	if m.fake != nil {
 		fm := *m.fake
-		if fm.LoraMetrics == nil {
-			fm.LoraMetrics = []common.LorasMetrics{}
-		}
 		m.applyFakeMetrics(&fm)
 	}
 
@@ -536,19 +533,19 @@ func (m *VLLMMetricsAdapter) createAndStartPrometheusChannels(ctx context.Contex
 // -- Per-metric updaters --------------------------------------------------
 
 func (m *VLLMMetricsAdapter) updateRequestPromptTokens(upd HistogramUpdate) {
-	m.updateHistogram(&m.requestPromptTokens, m.createAndRegisterReqPromptTokensHistogram, upd)
+	m.updateHistogram(m.requestPromptTokens, upd)
 }
 
 func (m *VLLMMetricsAdapter) updateRequestGenerationTokens(upd HistogramUpdate) {
-	m.updateHistogram(&m.requestGenerationTokens, m.createAndRegisterReqGenerationTokensHistogram, upd)
+	m.updateHistogram(m.requestGenerationTokens, upd)
 }
 
 func (m *VLLMMetricsAdapter) updateMaxNumGenerationTokens(upd HistogramUpdate) {
-	m.updateHistogram(&m.maxNumGenerationTokens, m.createAndRegisterMaxNumGenerationTokensHistogram, upd)
+	m.updateHistogram(m.maxNumGenerationTokens, upd)
 }
 
 func (m *VLLMMetricsAdapter) updateRequestParamsMaxTokens(upd HistogramUpdate) {
-	m.updateHistogram(&m.requestParamsMaxTokens, m.createAndRegisterReqParamsMaxTokensHistogram, upd)
+	m.updateHistogram(m.requestParamsMaxTokens, upd)
 }
 
 func (m *VLLMMetricsAdapter) updatePromptTokensTotal(upd CounterUpdate) {
@@ -559,8 +556,7 @@ func (m *VLLMMetricsAdapter) updatePromptTokensTotal(upd CounterUpdate) {
 		}
 		m.promptTokensTotal.WithLabelValues(m.config.DisplayModelName).Add(*upd.Add)
 	case upd.Reset != nil:
-		m.resetCounter(&m.promptTokensTotal, m.createAndRegisterPromptTokensTotalCounter,
-			m.config.DisplayModelName, upd.Reset.Value)
+		m.resetCounter(m.promptTokensTotal, upd.Reset.Value)
 	}
 }
 
@@ -572,8 +568,7 @@ func (m *VLLMMetricsAdapter) updateGenerationTokensTotal(upd CounterUpdate) {
 		}
 		m.generationTokensTotal.WithLabelValues(m.config.DisplayModelName).Add(*upd.Add)
 	case upd.Reset != nil:
-		m.resetCounter(&m.generationTokensTotal, m.createAndRegisterGenerationTokensTotalCounter,
-			m.config.DisplayModelName, upd.Reset.Value)
+		m.resetCounter(m.generationTokensTotal, upd.Reset.Value)
 	}
 }
 
@@ -597,8 +592,7 @@ func (m *VLLMMetricsAdapter) updatePrefixCacheHitsTotal(upd CounterUpdate) {
 		}
 		m.prefixCacheHitsTotal.WithLabelValues(m.config.DisplayModelName).Add(*upd.Add)
 	case upd.Reset != nil:
-		m.resetCounter(&m.prefixCacheHitsTotal, m.createAndRegisterPrefixCacheHitsTotalCounter,
-			m.config.DisplayModelName, upd.Reset.Value)
+		m.resetCounter(m.prefixCacheHitsTotal, upd.Reset.Value)
 	}
 }
 
@@ -610,8 +604,7 @@ func (m *VLLMMetricsAdapter) updatePrefixCacheQueriesTotal(upd CounterUpdate) {
 		}
 		m.prefixCacheQueriesTotal.WithLabelValues(m.config.DisplayModelName).Add(*upd.Add)
 	case upd.Reset != nil:
-		m.resetCounter(&m.prefixCacheQueriesTotal, m.createAndRegisterPrefixCacheQueriesTotalCounter,
-			m.config.DisplayModelName, upd.Reset.Value)
+		m.resetCounter(m.prefixCacheQueriesTotal, upd.Reset.Value)
 	}
 }
 
@@ -630,24 +623,18 @@ func gaugeReset(v float64) GaugeUpdate {
 	return GaugeUpdate{Reset: &v}
 }
 
-// updateHistogram records an Observe, or on Reset unregisters the
-// collector, recreates it, and replays the target bucket state.
-func (m *VLLMMetricsAdapter) updateHistogram(histPP **prometheus.HistogramVec, recreate func() error, upd HistogramUpdate) {
+// updateHistogram records an Observe, or on Reset clears the histogram's
+// series and replays the target bucket state.
+func (m *VLLMMetricsAdapter) updateHistogram(hist *prometheus.HistogramVec, upd HistogramUpdate) {
 	switch {
 	case upd.Observe != nil:
 		if m.fake != nil {
 			return
 		}
-		if *histPP != nil {
-			(*histPP).WithLabelValues(m.config.DisplayModelName).Observe(*upd.Observe)
-		}
+		hist.WithLabelValues(m.config.DisplayModelName).Observe(*upd.Observe)
 	case upd.Reset != nil:
-		m.registry.Unregister(*histPP)
-		if err := recreate(); err != nil {
-			m.logger.Error(err, "failed to recreate histogram during fake-metrics reset")
-			return
-		}
-		metrics.InitFakeHistogram(*histPP, m.config.DisplayModelName, upd.Reset.Buckets, upd.Reset.Samples)
+		hist.Reset()
+		metrics.InitFakeHistogram(hist, m.config.DisplayModelName, upd.Reset.Buckets, upd.Reset.Samples)
 	}
 }
 
@@ -685,40 +672,40 @@ func (m *VLLMMetricsAdapter) updateKVCacheUsage(upd GaugeUpdate) {
 }
 
 func (m *VLLMMetricsAdapter) updateTTFT(upd HistogramUpdate) {
-	m.updateHistogram(&m.ttft, m.createAndRegisterTTFTHistogram, upd)
+	m.updateHistogram(m.ttft, upd)
 }
 
 func (m *VLLMMetricsAdapter) updatePerTokenLatency(upd HistogramUpdate) {
-	m.updateHistogram(&m.tpot, m.createAndRegisterTPOTHistogram, upd)
-	m.updateHistogram(&m.interTokenLatency, m.createAndRegisterInterTokenLatencyHistogram, upd)
+	m.updateHistogram(m.tpot, upd)
+	m.updateHistogram(m.interTokenLatency, upd)
 }
 
 func (m *VLLMMetricsAdapter) updateE2EReqLatency(upd HistogramUpdate) {
-	m.updateHistogram(&m.e2eReqLatency, m.createAndRegisterE2EReqLatencyHistogram, upd)
+	m.updateHistogram(m.e2eReqLatency, upd)
 }
 
 func (m *VLLMMetricsAdapter) updateReqQueueTime(upd HistogramUpdate) {
-	m.updateHistogram(&m.reqQueueTime, m.createAndRegisterReqQueueTimeHistogram, upd)
+	m.updateHistogram(m.reqQueueTime, upd)
 }
 
 func (m *VLLMMetricsAdapter) updateReqInferenceTime(upd HistogramUpdate) {
-	m.updateHistogram(&m.reqInferenceTime, m.createAndRegisterReqInferenceTimeHistogram, upd)
+	m.updateHistogram(m.reqInferenceTime, upd)
 }
 
 func (m *VLLMMetricsAdapter) updateReqPrefillTime(upd HistogramUpdate) {
-	m.updateHistogram(&m.reqPrefillTime, m.createAndRegisterReqPrefillTimeHistogram, upd)
+	m.updateHistogram(m.reqPrefillTime, upd)
 }
 
 func (m *VLLMMetricsAdapter) updateReqDecodeTime(upd HistogramUpdate) {
-	m.updateHistogram(&m.reqDecodeTime, m.createAndRegisterReqDecodeTimeHistogram, upd)
+	m.updateHistogram(m.reqDecodeTime, upd)
 }
 
 func (m *VLLMMetricsAdapter) updateReqTpot(upd HistogramUpdate) {
-	m.updateHistogram(&m.reqTpot, m.createAndRegisterReqTpotHistogram, upd)
+	m.updateHistogram(m.reqTpot, upd)
 }
 
 // lorasUpdater republishes lora_requests_info from Snapshot events, or on
-// Reset recreates the collector and stamps the supplied entries.
+// Reset clears the gauge's series and stamps the supplied entries.
 func (m *VLLMMetricsAdapter) updateLoRAs(upd LoRAUpdate) {
 	switch {
 	case upd.Snapshot != nil:
@@ -728,52 +715,43 @@ func (m *VLLMMetricsAdapter) updateLoRAs(upd LoRAUpdate) {
 	}
 }
 
-// resetCollector unregisters current, recreates it via recreate, then calls
-// populate to stamp the recreated collector's series. Called only from
-// updater goroutines.
-func (m *VLLMMetricsAdapter) resetCollector(current prometheus.Collector, recreate func() error, errMsg string, populate func()) {
-	m.registry.Unregister(current)
-	if err := recreate(); err != nil {
-		m.logger.Error(err, errMsg)
-		return
+// resetCounter clears counter's series and records the target value via a
+// single Add. A nil value leaves the counter with no series stamped, so it
+// reads as absent from /metrics.
+func (m *VLLMMetricsAdapter) resetCounter(counter *prometheus.CounterVec, value *float64) {
+	counter.Reset()
+	if value != nil {
+		counter.WithLabelValues(m.config.DisplayModelName).Add(*value)
 	}
-	populate()
 }
 
-// resetCounter resets *counterPP and records the target value via a
-// single Add. A nil value leaves the recreated counter with no series
-// stamped, so it reads as absent from /metrics.
-func (m *VLLMMetricsAdapter) resetCounter(counterPP **prometheus.CounterVec, recreate func() error, modelName string, value *float64) {
-	m.resetCollector(*counterPP, recreate, "failed to recreate counter during fake-metrics reset", func() {
-		if value != nil {
-			(*counterPP).WithLabelValues(modelName).Add(*value)
-		}
-	})
-}
-
-// resetSuccessTotal resets requestSuccessTotal, then Adds each
-// (reason, count) pair. Nil or empty reasons leaves the recreated counter
-// with no series stamped.
+// resetSuccessTotal clears requestSuccessTotal's series, then Adds each
+// (reason, count) pair. Nil or empty reasons leaves the counter with no
+// series stamped.
 func (m *VLLMMetricsAdapter) resetSuccessTotal(reasons map[string]int64) {
-	m.resetCollector(m.requestSuccessTotal, m.createAndRegisterRequestSuccessTotalCounter, "failed to recreate request_success_total counter during fake-metrics reset", func() {
-		for reason, count := range reasons {
-			m.requestSuccessTotal.WithLabelValues(m.config.DisplayModelName, reason).Add(float64(count))
-		}
-	})
+	m.requestSuccessTotal.Reset()
+	for reason, count := range reasons {
+		m.requestSuccessTotal.WithLabelValues(m.config.DisplayModelName, reason).Add(float64(count))
+	}
 }
 
-// resetLoRA resets loraInfo, then stamps one series per entry. Empty
-// entries emits a single zero-adapter row with the current timestamp
-// (matching the fake-metrics default).
+// resetLoRA clears loraInfo's series, then stamps one series per entry.
+// Empty entries emits a single zero-adapter row with the current timestamp.
 func (m *VLLMMetricsAdapter) resetLoRA(reset *LoRAReset) {
-	m.resetCollector(m.loraInfo, m.createAndRegisterLoraInfoGauge, "failed to recreate lora_requests_info gauge during fake-metrics reset", func() {
-		if len(reset.Entries) == 0 {
-			m.loraInfo.WithLabelValues(
-				strconv.Itoa(reset.MaxLoRAs),
-				"",
-				"",
-			).Set(float64(time.Now().Unix()))
-			return
+	// new value is empty - ensure /metrics does not report it
+	if reset == nil || len(reset.Entries) == 0 {
+		if m.loraInfo != nil {
+			m.registry.Unregister(m.loraInfo)
+			m.loraInfo = nil
+		}
+	} else {
+		// new value is non-empty - reset or create the gauge and stamp the entries
+		if m.loraInfo == nil {
+			if err := m.createAndRegisterLoraInfoGauge(); err != nil {
+				return
+			}
+		} else {
+			m.loraInfo.Reset()
 		}
 		for _, entry := range reset.Entries {
 			m.loraInfo.WithLabelValues(
@@ -782,7 +760,7 @@ func (m *VLLMMetricsAdapter) resetLoRA(reset *LoRAReset) {
 				entry.WaitingLoras,
 			).Set(entry.Timestamp)
 		}
-	})
+	}
 }
 
 // -- Report helpers (Prometheus writes) -------------------------------------
@@ -833,6 +811,8 @@ func (m *VLLMMetricsAdapter) buildMetrics() error {
 		"prometheus process collector register failed"); err != nil {
 		return err
 	}
+	tokenBuckets := metrics.BuildBuckets(m.config.MaxModelLen, TokenBucketMantissas)
+
 	if err := m.createAndRegisterRunningRequestsGauge(); err != nil {
 		return err
 	}
@@ -842,8 +822,11 @@ func (m *VLLMMetricsAdapter) buildMetrics() error {
 	if err := m.createAndRegisterKVCacheUsageGauge(); err != nil {
 		return err
 	}
-	if err := m.createAndRegisterLoraInfoGauge(); err != nil {
-		return err
+	// vLLM creates this gauge only when LoRA is enabled.
+	if len(m.config.Lora.LoraModules) > 0 {
+		if err := m.createAndRegisterLoraInfoGauge(); err != nil {
+			return err
+		}
 	}
 	if err := m.createAndRegisterCacheConfigGauge(); err != nil {
 		return err
@@ -875,16 +858,16 @@ func (m *VLLMMetricsAdapter) buildMetrics() error {
 	if err := m.createAndRegisterReqDecodeTimeHistogram(); err != nil {
 		return err
 	}
-	if err := m.createAndRegisterReqPromptTokensHistogram(); err != nil {
+	if err := m.createAndRegisterReqPromptTokensHistogram(tokenBuckets); err != nil {
 		return err
 	}
-	if err := m.createAndRegisterReqGenerationTokensHistogram(); err != nil {
+	if err := m.createAndRegisterReqGenerationTokensHistogram(tokenBuckets); err != nil {
 		return err
 	}
-	if err := m.createAndRegisterMaxNumGenerationTokensHistogram(); err != nil {
+	if err := m.createAndRegisterMaxNumGenerationTokensHistogram(tokenBuckets); err != nil {
 		return err
 	}
-	if err := m.createAndRegisterReqParamsMaxTokensHistogram(); err != nil {
+	if err := m.createAndRegisterReqParamsMaxTokensHistogram(tokenBuckets); err != nil {
 		return err
 	}
 	if err := m.createAndRegisterPromptTokensTotalCounter(); err != nil {
@@ -900,16 +883,6 @@ func (m *VLLMMetricsAdapter) buildMetrics() error {
 		return err
 	}
 	if err := m.createAndRegisterPrefixCacheQueriesTotalCounter(); err != nil {
-		return err
-	}
-	return nil
-}
-
-// register registers c with the bus's Prometheus registry, logging errMsg
-// on failure.
-func (m *VLLMMetricsAdapter) register(c prometheus.Collector, errMsg string) error {
-	if err := m.registry.Register(c); err != nil {
-		m.logger.Error(err, errMsg)
 		return err
 	}
 	return nil
@@ -1038,41 +1011,42 @@ func (m *VLLMMetricsAdapter) createAndRegisterReqDecodeTimeHistogram() error {
 		Help:    "Histogram of time spent in DECODE phase for request.",
 		Buckets: common.RequestLatencyBucketsBoundaries,
 	}, modelLabel)
+
 	return m.register(m.reqDecodeTime, "prometheus request decode time histogram register failed")
 }
 
-func (m *VLLMMetricsAdapter) createAndRegisterReqPromptTokensHistogram() error {
+func (m *VLLMMetricsAdapter) createAndRegisterReqPromptTokensHistogram(tokenBuckets []float64) error {
 	m.requestPromptTokens = prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Name:    VLLMPromptTokensMetricName,
 		Help:    "Number of prefill tokens processed.",
-		Buckets: metrics.BuildBuckets(m.config.MaxModelLen, TokenBucketMantissas),
+		Buckets: tokenBuckets,
 	}, modelLabel)
 	return m.register(m.requestPromptTokens, "prometheus request_prompt_tokens histogram register failed")
 }
 
-func (m *VLLMMetricsAdapter) createAndRegisterReqGenerationTokensHistogram() error {
+func (m *VLLMMetricsAdapter) createAndRegisterReqGenerationTokensHistogram(tokenBuckets []float64) error {
 	m.requestGenerationTokens = prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Name:    VLLMGenerationTokensMetricName,
 		Help:    "Number of generation tokens processed.",
-		Buckets: metrics.BuildBuckets(m.config.MaxModelLen, TokenBucketMantissas),
+		Buckets: tokenBuckets,
 	}, modelLabel)
 	return m.register(m.requestGenerationTokens, "prometheus request_generation_tokens histogram register failed")
 }
 
-func (m *VLLMMetricsAdapter) createAndRegisterMaxNumGenerationTokensHistogram() error {
+func (m *VLLMMetricsAdapter) createAndRegisterMaxNumGenerationTokensHistogram(tokenBuckets []float64) error {
 	m.maxNumGenerationTokens = prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Name:    VLLMMaxNumGenerationTokensMetricName,
 		Help:    "Histogram of maximum number of requested generation tokens.",
-		Buckets: metrics.BuildBuckets(m.config.MaxModelLen, TokenBucketMantissas),
+		Buckets: tokenBuckets,
 	}, modelLabel)
 	return m.register(m.maxNumGenerationTokens, "prometheus max_num_generation_tokens histogram register failed")
 }
 
-func (m *VLLMMetricsAdapter) createAndRegisterReqParamsMaxTokensHistogram() error {
+func (m *VLLMMetricsAdapter) createAndRegisterReqParamsMaxTokensHistogram(tokenBuckets []float64) error {
 	m.requestParamsMaxTokens = prometheus.NewHistogramVec(prometheus.HistogramOpts{
 		Name:    VLLMParamMaxTokensMetricName,
 		Help:    "Histogram of the max_tokens request parameter.",
-		Buckets: metrics.BuildBuckets(m.config.MaxModelLen, TokenBucketMantissas),
+		Buckets: tokenBuckets,
 	}, modelLabel)
 	return m.register(m.requestParamsMaxTokens, "prometheus request_params_max_tokens histogram register failed")
 }
@@ -1117,9 +1091,20 @@ func (m *VLLMMetricsAdapter) createAndRegisterPrefixCacheQueriesTotalCounter() e
 	return m.register(m.prefixCacheQueriesTotal, "prometheus prefix_cache_queries_total counter register failed")
 }
 
+// register registers c with the bus's Prometheus registry, logging errMsg
+// on failure.
+func (m *VLLMMetricsAdapter) register(c prometheus.Collector, errMsg string) error {
+	if err := m.registry.Register(c); err != nil {
+		m.logger.Error(err, errMsg)
+		return err
+	}
+	return nil
+}
+
 // setInitialValues zeroes the request/kv-cache gauges and stamps the
-// one-shot cache_config_info and lora_requests_info series so the first
-// scrape has a consistent baseline.
+// one-shot cache_config_info series so the first scrape has a consistent
+// baseline. lora_requests_info has no baseline: like vLLM, it first appears
+// with the first LoRA event.
 func (m *VLLMMetricsAdapter) setInitialValues() {
 	if m.fake == nil {
 		m.runningRequests.WithLabelValues(m.config.DisplayModelName).Set(0)
@@ -1132,11 +1117,6 @@ func (m *VLLMMetricsAdapter) setInitialValues() {
 		"0",
 		strconv.Itoa(m.config.KVCache.KVCacheSize),
 	).Set(1)
-	m.loraInfo.WithLabelValues(
-		strconv.Itoa(m.config.Lora.MaxLoras),
-		"",
-		"",
-	).Set(float64(time.Now().Unix()))
 }
 
 // -------- Fake Metrics ------
@@ -1193,8 +1173,7 @@ func (m *VLLMMetricsAdapter) ApplyFakeMetricsUpdate(update common.FakeMetrics) {
 }
 
 // applyFakeMetrics enqueues the update on the per-metric channels and returns.
-// The updater goroutines perform the collector unregister/recreate, logging and
-// skipping any metric that fails to re-register.
+// The updater goroutines clear and repopulate each collector's series.
 func (m *VLLMMetricsAdapter) applyFakeMetrics(update *VLLMFakeMetrics) {
 	m.genMu.Lock()
 	defer m.genMu.Unlock()

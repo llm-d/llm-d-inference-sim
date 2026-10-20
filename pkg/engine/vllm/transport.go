@@ -29,6 +29,15 @@ import (
 // common routes comm's own HTTP server already registers.
 func (Engine) BindHTTP(r *fasthttprouter.Router, comm *communication.Communication) {
 	r.POST("/inference/v1/generate", comm.HandleGenerate)
+	r.POST("/v1/chat/completions/render", comm.HandleChatCompletionsRender)
+	r.POST("/v1/completions/render", comm.HandleTextCompletionsRender)
+	// vLLM versions that predate the Responses and Messages render endpoints do not serve them
+	if !comm.Config().EnableLegacyRender {
+		r.POST("/v1/responses/render", comm.HandleResponsesRender)
+		r.POST("/v1/messages/render", comm.HandleMessagesRender)
+	}
+	r.POST("/v1/chat/completions/derender", comm.HandleChatCompletionsDerender)
+	r.POST("/v1/completions/derender", comm.HandleTextCompletionsDerender)
 	r.POST("/v1/load_lora_adapter", comm.HandleLoadLora)
 	r.POST("/v1/unload_lora_adapter", comm.HandleUnloadLora)
 	// emulates vLLM's Mooncake bootstrap endpoint on the prefill pod; the routing sidecar queries it to resolve remote engine ids
@@ -75,3 +84,10 @@ func (Engine) DecorateChatChunkChoice(choice api.ChatRespChunkChoice) api.ChatRe
 // DecorateTextChoice adds no fields: vLLM has no equivalent of sglang's
 // matched_stop.
 func (Engine) DecorateTextChoice(choice api.TextRespChoice) api.TextRespChoice { return choice }
+
+// DecorateMessagesCountTokens adds context_management, which vLLM reports with
+// the same count as input_tokens.
+func (Engine) DecorateMessagesCountTokens(resp api.MessagesCountTokensResponse) api.MessagesCountTokensResponse {
+	resp.ContextManagement = &api.MessagesContextManagement{OriginalInputTokens: resp.InputTokens}
+	return resp
+}

@@ -142,6 +142,11 @@ func (Engine) DecorateTextChoice(choice api.TextRespChoice) api.TextRespChoice {
 	return choice
 }
 
+// DecorateMessagesCountTokens adds no fields: sglang answers input_tokens alone.
+func (Engine) DecorateMessagesCountTokens(resp api.MessagesCountTokensResponse) api.MessagesCountTokensResponse {
+	return resp
+}
+
 // messagesErrorBody puts the error in the Anthropic envelope, with the type
 // mapped to Anthropic's vocabulary and a server error's message replaced.
 func messagesErrorBody(err api.Error) any {

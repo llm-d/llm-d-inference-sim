@@ -51,7 +51,6 @@ spec:
         - --port
         - "8000"
         - --enable-kvcache
-        - "true"
         - --v=5
         - --render-url
         - http://localhost:8082

@@ -151,6 +151,15 @@ var _ = Describe("VLLMMetricsAdapter", func() {
 			Eventually(counterValue(adapter.requestSuccessTotal, common.TestModelName, "stop")).Should(Equal(float64(1)))
 		})
 
+		It("exports the max generation tokens histogram under vLLM's name", func() {
+			adapter, _ := newTestAdapter(newTestConfig())
+
+			adapter.OnRequestSucceeded(metrics.RequestSucceeded{GenTokensPerChoice: []int{3}, FinishReason: "stop"})
+			Eventually(func() (int, error) {
+				return testutil.GatherAndCount(adapter.registry, "vllm:request_max_num_generation_tokens")
+			}).Should(Equal(1))
+		})
+
 		It("updates the KV-cache usage gauge", func() {
 			adapter, _ := newTestAdapter(newTestConfig())
 
@@ -277,6 +286,39 @@ var _ = Describe("VLLMMetricsAdapter", func() {
 			adapter.genMu.Unlock()
 			Expect(running).To(BeFalse(), "expected ticker stopped after Close")
 			Expect(started).To(BeFalse(), "expected started=false after Close")
+		})
+
+		It("resets collectors in place and drops stale series", func() {
+			cfg := newTestConfig()
+			cfg.FakeMetrics = &VLLMFakeMetrics{}
+			adapter, _ := newTestAdapter(cfg)
+
+			ttft := adapter.ttft
+			promptTokensTotal := adapter.promptTokensTotal
+			requestSuccessTotal := adapter.requestSuccessTotal
+
+			firstTotal, secondTotal := int64(10), int64(4)
+			adapter.ApplyFakeMetricsUpdate(&VLLMFakeMetrics{
+				TTFTBucketValues:    []int{1, 2},
+				TotalPromptTokens:   &firstTotal,
+				RequestSuccessTotal: map[string]int64{"stop": 3, "length": 2},
+			})
+			Eventually(counterValue(adapter.promptTokensTotal, common.TestModelName)).Should(Equal(float64(firstTotal)))
+			Eventually(func() int { return testutil.CollectAndCount(adapter.requestSuccessTotal) }).Should(Equal(2))
+
+			adapter.ApplyFakeMetricsUpdate(&VLLMFakeMetrics{
+				TTFTBucketValues:    []int{0, 1},
+				TotalPromptTokens:   &secondTotal,
+				RequestSuccessTotal: map[string]int64{"stop": 1},
+			})
+			Eventually(counterValue(adapter.promptTokensTotal, common.TestModelName)).Should(Equal(float64(secondTotal)))
+			Eventually(func() int { return testutil.CollectAndCount(adapter.requestSuccessTotal) }).Should(Equal(1))
+			Expect(counterValue(adapter.requestSuccessTotal, common.TestModelName, "stop")()).To(Equal(float64(1)))
+
+			Expect(adapter.ttft).To(BeIdenticalTo(ttft))
+			Expect(adapter.promptTokensTotal).To(BeIdenticalTo(promptTokensTotal))
+			Expect(adapter.requestSuccessTotal).To(BeIdenticalTo(requestSuccessTotal))
+			Expect(testutil.GatherAndCount(adapter.registry, VLLMTTFTMetricName)).To(Equal(1))
 		})
 	})
 
