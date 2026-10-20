@@ -82,6 +82,54 @@ var _ = Describe("gRPC Metrics", Ordered, func() {
 		}).WithTimeout(2 * time.Second).WithPolling(25 * time.Millisecond).Should(Succeed())
 	})
 
+	It("should stop running a streamed gRPC request once the client goes away", func() {
+		ctx := context.TODO()
+		args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho,
+			"--inter-token-latency", "50ms"}
+
+		_, comm, httpClient, err := startServerHandle(ctx, common.ModeEcho, args, nil)
+		Expect(err).NotTo(HaveOccurred())
+
+		// Echoing all 200 prompt tokens takes 10s, far longer than eventuallyMetrics waits.
+		inputIDs := make([]uint32, 200)
+		for i := range inputIDs {
+			inputIDs[i] = uint32(i + 1)
+		}
+		maxTokens := uint32(len(inputIDs))
+		req := pb.GenerateRequest{
+			RequestId: "grpc-disconnect-test",
+			Input: &pb.GenerateRequest_Tokenized{
+				Tokenized: &pb.TokenizedInput{
+					InputIds: inputIDs,
+				},
+			},
+			SamplingParams: &pb.SamplingParams{
+				MaxTokens: &maxTokens,
+			},
+			Stream: true,
+		}
+
+		streamCtx, cancel := context.WithCancel(context.Background())
+		DeferCleanup(cancel)
+		generateDone := make(chan struct{})
+		go func() {
+			defer close(generateDone)
+			out := mockGenerateServer{start: time.Now(), ctx: streamCtx}
+			_ = comm.Generate(&req, &out)
+		}()
+
+		eventuallyMetrics(httpClient, func(g Gomega, metricsData string) {
+			g.Expect(metricsData).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllm.VLLMReqRunningMetricName, 1)))
+		})
+
+		cancel()
+
+		eventuallyMetrics(httpClient, func(g Gomega, metricsData string) {
+			g.Expect(metricsData).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllm.VLLMReqRunningMetricName, 0)))
+		})
+		Eventually(generateDone).Should(BeClosed())
+	})
+
 	It("should send correct token metrics via gRPC", func() {
 		ctx := context.TODO()
 		args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho}

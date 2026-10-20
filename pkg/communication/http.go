@@ -376,8 +376,12 @@ func (c *Communication) handleHTTP(req endpoint.Request, respBuilder responseBui
 	headerOverride, _ := strconv.ParseBool(string(ctx.Request.Header.Peek(XSendImageHeader)))
 	req.SetSendImage(c.runtime.ShouldSendImage(headerOverride))
 
-	numChoices, isStream, channel, err, errInjected := c.processor.HandleRequest(req)
+	// fasthttp's RequestCtx is done only at shutdown and is recycled when the
+	// handler returns, so abort is owned by whichever path stops reading the response.
+	abortCtx, abort := context.WithCancel(context.Background())
+	numChoices, isStream, channel, err, errInjected := c.processor.HandleRequest(abortCtx, req)
 	if err != nil {
+		abort()
 		c.sendError(ctx, err, errInjected)
 		return
 	}
@@ -387,8 +391,9 @@ func (c *Communication) handleHTTP(req endpoint.Request, respBuilder responseBui
 	c.addResponseHeaders(ctx, req.GetRequestID())
 
 	if isStream {
-		c.handleStream(ctx, *channel, respBuilder, numChoices)
+		c.handleStream(ctx, *channel, respBuilder, numChoices, abort)
 	} else {
+		defer abort()
 		ctx.SetStatusCode(fasthttp.StatusOK)
 		ctx.SetContentType("application/json")
 		c.sendNonStream(ctx, *channel, respBuilder, numChoices)
@@ -403,9 +408,10 @@ func (c *Communication) handleHTTP(req endpoint.Request, respBuilder responseBui
 // error caught only once processing starts) still be reported with its real
 // HTTP status instead of being forced into a 200 SSE error frame.
 func (c *Communication) handleStream(ctx *fasthttp.RequestCtx, channel common.Channel[*endpoint.ResponseInfo],
-	respBuilder responseBuilder, numChoices int) {
+	respBuilder responseBuilder, numChoices int, abort context.CancelFunc) {
 	first := <-channel.Channel
 	if first != nil && first.Err != nil {
+		abort()
 		go drainResponseChannel(channel)
 		c.sendError(ctx, first.Err, false)
 		return
@@ -414,7 +420,7 @@ func (c *Communication) handleStream(ctx *fasthttp.RequestCtx, channel common.Ch
 	ctx.SetStatusCode(fasthttp.StatusOK)
 	ctx.SetContentType("text/event-stream")
 
-	c.sendStream(ctx, channel, respBuilder, numChoices, first)
+	c.sendStream(ctx, channel, respBuilder, numChoices, first, abort)
 }
 
 func (c *Communication) sendNonStream(ctx *fasthttp.RequestCtx, channel common.Channel[*endpoint.ResponseInfo],
@@ -430,7 +436,7 @@ func (c *Communication) sendNonStream(ctx *fasthttp.RequestCtx, channel common.C
 	for response := range channel.Channel {
 		if response.Err != nil {
 			// Fail-fast: abort the whole request. Drain remaining responses in the
-			// background so producers don't fill the buffer and drop messages.
+			// background until the producers stop.
 			go drainResponseChannel(channel)
 			c.sendError(ctx, response.Err, false)
 			return
@@ -463,7 +469,7 @@ func (c *Communication) sendNonStream(ctx *fasthttp.RequestCtx, channel common.C
 }
 
 // drainResponseChannel reads and discards responses until the channel closes.
-// Used after a fail-fast abort so in-flight producers can finish cleanly.
+// Used after a fail-fast abort, until the aborted producers stop.
 func drainResponseChannel(channel common.Channel[*endpoint.ResponseInfo]) {
 	for range channel.Channel { //nolint:revive
 	}
@@ -552,9 +558,10 @@ func (c *Communication) sendOrFail(w *bufio.Writer, chunk sseChunk, failMsg stri
 
 // sendStream writes the response from a goroutine that outlives the handler.
 // Once the handler returns, fasthttp owns ctx and may recycle it for another
-// request, so the goroutine must not use ctx.
+// request, so the goroutine must not use ctx. The goroutine calls abort once it
+// stops writing.
 func (c *Communication) sendStream(ctx *fasthttp.RequestCtx, channel common.Channel[*endpoint.ResponseInfo],
-	respBuilder responseBuilder, numChoices int, first *endpoint.ResponseInfo) {
+	respBuilder responseBuilder, numChoices int, first *endpoint.ResponseInfo, abort context.CancelFunc) {
 	pr, pw := io.Pipe()
 	route := errorRoute(string(ctx.Path()))
 
@@ -564,6 +571,7 @@ func (c *Communication) sendStream(ctx *fasthttp.RequestCtx, channel common.Chan
 		state := newStreamState(numChoices)
 
 		defer func() {
+			abort()
 			w.Flush()  //nolint:errcheck
 			pw.Close() //nolint:errcheck
 		}()

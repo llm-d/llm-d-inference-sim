@@ -85,7 +85,7 @@ var _ = Describe("sendNonStream missing-choice guard", func() {
 		n := 2
 		req.N = &n
 
-		numChoices, isStream, respChan, topErr, _ := sim.HandleRequest(req)
+		numChoices, isStream, respChan, topErr, _ := sim.HandleRequest(ctx, req)
 		Expect(topErr).To(BeNil())
 		Expect(numChoices).To(Equal(2))
 		Expect(isStream).To(BeFalse())
@@ -131,7 +131,7 @@ var _ = Describe("sendStream missing-choice guard", func() {
 		n := 2
 		req.N = &n
 
-		numChoices, isStream, respChan, topErr, _ := sim.HandleRequest(req)
+		numChoices, isStream, respChan, topErr, _ := sim.HandleRequest(ctx, req)
 		Expect(topErr).To(BeNil())
 		Expect(numChoices).To(Equal(2))
 		Expect(isStream).To(BeTrue())
@@ -161,7 +161,7 @@ var _ = Describe("sendStream missing-choice guard", func() {
 		httpCtx.SetStatusCode(fasthttp.StatusOK)
 		httpCtx.SetContentType("text/event-stream")
 
-		c.sendStream(httpCtx, filtered, &textComplHTTPRespBuilder{transport: c.transport}, numChoices, first)
+		c.sendStream(httpCtx, filtered, &textComplHTTPRespBuilder{transport: c.transport}, numChoices, first, func() {})
 
 		body, err := io.ReadAll(httpCtx.Response.BodyStream())
 		Expect(err).NotTo(HaveOccurred())
@@ -175,7 +175,7 @@ var _ = Describe("sendStream missing-choice guard", func() {
 // for another request, so the stream goroutine must not touch ctx after a
 // failed write.
 var _ = Describe("sendStream client disconnect", func() {
-	It("leaves ctx untouched when writing to the stream fails", func() {
+	It("leaves ctx untouched and calls abort when writing to the stream fails", func() {
 		ctx := context.Background()
 		sim := newRunningSim(ctx)
 
@@ -185,7 +185,7 @@ var _ = Describe("sendStream client disconnect", func() {
 		req.Prompt = []api.PromptInput{{Text: "hi"}}
 		req.Stream = true
 
-		numChoices, isStream, respChan, topErr, _ := sim.HandleRequest(req)
+		numChoices, isStream, respChan, topErr, _ := sim.HandleRequest(ctx, req)
 		Expect(topErr).To(BeNil())
 		Expect(isStream).To(BeTrue())
 
@@ -215,7 +215,9 @@ var _ = Describe("sendStream client disconnect", func() {
 		httpCtx.SetStatusCode(fasthttp.StatusOK)
 		httpCtx.SetContentType("text/event-stream")
 
-		c.sendStream(httpCtx, buffered, &textComplHTTPRespBuilder{transport: c.transport}, numChoices, first)
+		aborted := make(chan struct{})
+		c.sendStream(httpCtx, buffered, &textComplHTTPRespBuilder{transport: c.transport}, numChoices, first,
+			func() { close(aborted) })
 
 		// The goroutine is blocked writing the first chunk into the pipe, since
 		// nothing reads it. Closing the read end fails that write, as a client
@@ -229,6 +231,7 @@ var _ = Describe("sendStream client disconnect", func() {
 			defer logMu.Unlock()
 			return logs.String()
 		}, "1s").Should(ContainSubstring("closed pipe"))
+		Eventually(aborted).Should(BeClosed())
 
 		Consistently(func() int {
 			return httpCtx.Response.StatusCode()

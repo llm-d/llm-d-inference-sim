@@ -362,7 +362,7 @@ func (s *Simulator) addRequestToQueue(reqCtx endpoint.RequestContext) {
 // publish per-choice results on. On failure it returns numChoices = 0 and a
 // non-nil error; errInjected indicates whether the failure came from the
 // failure-injection path so the caller can attribute it correctly.
-func (s *Simulator) HandleRequest(req endpoint.Request) (numChoices int, isStream bool,
+func (s *Simulator) HandleRequest(ctx context.Context, req endpoint.Request) (numChoices int, isStream bool,
 	channel *common.Channel[*endpoint.ResponseInfo], err *api.Error, errInjected bool) {
 	// Check if we should inject a failure
 	if shouldInjectFailure(s.Context.Config(), s.Context.Random) {
@@ -399,6 +399,7 @@ func (s *Simulator) HandleRequest(req endpoint.Request) (numChoices int, isStrea
 	respChan := &common.Channel[*endpoint.ResponseInfo]{
 		Channel: make(chan *endpoint.ResponseInfo, s.Context.Config().MaxModelLen*len(subReqs)),
 		Name:    "responseInfo-" + req.GetRequestID(),
+		Done:    ctx.Done(),
 	}
 	var wg sync.WaitGroup
 	wg.Add(len(subReqs))
@@ -468,7 +469,9 @@ func (s *Simulator) dequeue() endpoint.RequestContext {
 	return nil
 }
 
-func (s *Simulator) simulateResponseProcessing(respCtx endpoint.ResponseContext) {
+// simulateResponseProcessing returns false if the response was abandoned before
+// its last token.
+func (s *Simulator) simulateResponseProcessing(respCtx endpoint.ResponseContext) bool {
 	reqCtx := respCtx.RequestContext()
 	choiceIdx := reqCtx.ChoiceIndex()
 	// Skip delays if finish reason is cache_threshold (immediate return)
@@ -491,6 +494,9 @@ func (s *Simulator) simulateResponseProcessing(respCtx endpoint.ResponseContext)
 		} else {
 			if respCtx.ResponseTokens() != nil {
 				for i, token := range respCtx.ResponseTokens().Tokens {
+					if responseAbandoned(reqCtx) {
+						return false
+					}
 					if i != 0 {
 						s.Context.simulateInterTokenLatency()
 						nTokens++
@@ -516,6 +522,9 @@ func (s *Simulator) simulateResponseProcessing(respCtx endpoint.ResponseContext)
 					// have string tokenized arguments
 					args := tc.Function.TokenizedArguments()
 					for i, token := range args.Tokens {
+						if responseAbandoned(reqCtx) {
+							return false
+						}
 						if i != 0 {
 							s.Context.simulateInterTokenLatency()
 							nTokens++
@@ -541,6 +550,17 @@ func (s *Simulator) simulateResponseProcessing(respCtx endpoint.ResponseContext)
 		if reqCtx.Request().SendImage() {
 			s.Context.simulateImageGenerationLatency()
 		}
+	}
+	return true
+}
+
+// responseAbandoned reports whether reqCtx's response channel is done.
+func responseAbandoned(reqCtx endpoint.RequestContext) bool {
+	select {
+	case <-reqCtx.ResponseChannel().Done:
+		return true
+	default:
+		return false
 	}
 }
 

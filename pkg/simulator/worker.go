@@ -78,7 +78,16 @@ func (s *Simulator) processRequest(reqCtx endpoint.RequestContext) {
 		return
 	}
 
-	s.simulateResponseProcessing(respCtx)
+	if !s.simulateResponseProcessing(respCtx) {
+		s.Context.logger.V(logging.DEBUG).Info("Aborted request, its response is no longer read",
+			"id", req.GetRequestID())
+		common.WriteToChannel(s.Context.metricsBus.RequestFailed,
+			metrics.RequestFailed{
+				E2ELatency:    time.Since(reqCtx.StartProcessingTime()).Seconds(),
+				InferenceTime: time.Since(startTime).Seconds(),
+			}, s.Context.logger)
+		return
+	}
 	s.Context.logger.V(logging.DEBUG).Info("Finished processing request", "id", req.GetRequestID())
 
 	common.WriteToChannel(s.Context.metricsBus.RequestSucceeded,
