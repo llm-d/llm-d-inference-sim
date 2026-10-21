@@ -18,9 +18,7 @@ package simulator
 
 import (
 	"context"
-	"encoding/json"
 	"os"
-	"strconv"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
@@ -120,7 +118,6 @@ var _ = Describe("HandleRequest enqueue failure", func() {
 		numChoices, _, respChan, topErr, _ := sim.HandleRequest(newTextCompletionsRequestWithChoices("multi", 3))
 		Expect(topErr).To(BeNil())
 		Expect(numChoices).To(Equal(3))
-		Expect(respChan.Channel).To(HaveCap(sim.Context.Config().MaxModelLen * numChoices))
 		Expect(sim.newRequests.Channel).To(HaveLen(2))
 
 		// Simulate the two surviving sub-requests already having been picked up
@@ -176,88 +173,4 @@ var _ = Describe("HandleRequest with n > 1 and the KV cache enabled", func() {
 		reqCtx1.KVCacheOnRequestEnd()
 		reqCtx2.KVCacheOnRequestEnd()
 	})
-})
-
-var _ = Describe("HandleRequest decision response buffering", func() {
-	DescribeTable("bounds capacity without dropping responses",
-		func(protocol endpoint.DecisionProtocol, questionCount, queueCapacity int) {
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-			sim := newHandleRequestTestSim(ctx, queueCapacity, "--max-model-len", "131072")
-
-			body := map[string]any{"model": common.TestModelName}
-			if protocol == endpoint.SystemOneProtocol {
-				questions := make(map[string]any, questionCount)
-				for i := range questionCount {
-					questions[strconv.Itoa(i)] = map[string]string{"type": "noul"}
-				}
-				body["state"] = "x"
-				body["questions"] = questions
-			} else {
-				questions := make([]any, questionCount)
-				for i := range questionCount {
-					questions[i] = map[string]string{"type": "predicate", "instructions": "q"}
-				}
-				body["input"] = "x"
-				body["questions"] = questions
-			}
-			raw, err := json.Marshal(body)
-			Expect(err).NotTo(HaveOccurred())
-			req := &endpoint.DecisionRequest{Protocol: protocol}
-			Expect(req.Unmarshal(raw)).To(Succeed())
-
-			count, stream, respChan, topErr, injected := sim.HandleRequest(req)
-			Expect(topErr).To(BeNil())
-			Expect(injected).To(BeFalse())
-			Expect(stream).To(BeFalse())
-			Expect(count).To(Equal(questionCount))
-			Expect(sim.newRequests.Channel).To(HaveLen(queueCapacity))
-
-			// Fill the response buffer before reading, including any admission errors.
-			for range queueCapacity {
-				sim.processRequest(<-sim.newRequests.Channel)
-			}
-			Expect(respChan.Channel).To(HaveCap(2 * questionCount))
-			created := make([]int, questionCount)
-			completed := make([]int, questionCount)
-			rejected := make([]int, questionCount)
-			for range questionCount + queueCapacity {
-				var response *endpoint.ResponseInfo
-				Expect(respChan.Channel).To(Receive(&response))
-				Expect(response.ChoiceIdx).To(BeNumerically(">=", 0))
-				Expect(response.ChoiceIdx).To(BeNumerically("<", questionCount))
-				if response.Err != nil {
-					Expect(response.Err.Code).To(Equal(fasthttp.StatusTooManyRequests))
-					rejected[response.ChoiceIdx]++
-				} else {
-					switch response.Status {
-					case endpoint.ResponseStatusCreated:
-						created[response.ChoiceIdx]++
-					case endpoint.ResponseEndOfTokens:
-						completed[response.ChoiceIdx]++
-					default:
-						Fail("unexpected decision response status: " + response.Status)
-					}
-				}
-			}
-			Eventually(respChan.Channel).Should(BeClosed())
-			for i := range questionCount {
-				if i < queueCapacity {
-					Expect(created[i]).To(Equal(1))
-					Expect(completed[i]).To(Equal(1))
-					Expect(rejected[i]).To(BeZero())
-				} else {
-					Expect(created[i]).To(BeZero())
-					Expect(completed[i]).To(BeZero())
-					Expect(rejected[i]).To(Equal(1))
-				}
-			}
-		},
-		Entry("System One accepts all questions", endpoint.SystemOneProtocol, 64, 64),
-		Entry("System One rejects all questions", endpoint.SystemOneProtocol, 64, 0),
-		Entry("System One accepts some questions", endpoint.SystemOneProtocol, 64, 2),
-		Entry("Decisions accepts all questions", endpoint.DecisionsProtocol, 200, 200),
-		Entry("Decisions rejects all questions", endpoint.DecisionsProtocol, 200, 0),
-		Entry("Decisions accepts some questions", endpoint.DecisionsProtocol, 200, 2),
-	)
 })

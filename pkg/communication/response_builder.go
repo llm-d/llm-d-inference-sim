@@ -832,7 +832,7 @@ func (b *decisionHTTPRespBuilder) createResponse(contexts []endpoint.ResponseCon
 	if b.request.Protocol == endpoint.DecisionsProtocol {
 		return api.DecisionsResponse{
 			Model: model, Answers: b.request.DecisionAnswers(),
-			Usage: api.DecisionsUsage{
+			Usage: api.OpenAIDecisionUsage{
 				DecisionUsage:      api.DecisionUsage{InputTokens: usage.PromptTokens, OutputTokens: usage.CompletionTokens},
 				InputTokensDetails: api.DecisionInputTokensDetails{CachedTokens: usage.PromptTokensDetails.CachedTokens},
 				TotalTokens:        usage.TotalTokens,

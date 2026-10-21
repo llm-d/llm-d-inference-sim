@@ -22,11 +22,9 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"regexp"
 	"strconv"
 	"strings"
 	"unicode"
-	"unicode/utf8"
 
 	"github.com/google/uuid"
 	"github.com/valyala/fasthttp"
@@ -43,6 +41,11 @@ const (
 	DecisionsProtocol
 )
 
+const (
+	maxSystemOneQuestions = 64
+	maxDecisionQuestions  = 200
+)
+
 type decisionQuestion struct {
 	id           string
 	name         *string
@@ -51,21 +54,19 @@ type decisionQuestion struct {
 	legend       []json.RawMessage
 	prompt       string
 	instructions *string
-	descriptions []string
 }
 
 // DecisionRequest splits questions into independent worker requests, as batched
 // text completions split prompts. Scores do not depend on the response dataset.
 type DecisionRequest struct {
 	TextCompletionsRequest
-	Protocol        DecisionProtocol
-	DefaultModel    string
-	ClientRequestID *string
-	questions       []decisionQuestion
-	input           string
+	Protocol     DecisionProtocol
+	DefaultModel string
+	questions    []decisionQuestion
+	input        string
 	// Retain wire fields whose presence or value matters after normalization.
 	systemOne           api.SystemOneRequest
-	decisions           api.DecisionsRequest
+	decisions           api.DecisionRequest
 	unsupportedControls bool
 }
 
@@ -82,7 +83,6 @@ func (d *DecisionRequest) Unmarshal(data []byte) error {
 	}
 	d.unsupportedControls = controls.Stream || len(controls.Images)+len(controls.Audio)+len(controls.Videos) != 0 || controls.ReturnPromptTokenIDs
 	d.questions = nil
-	d.ClientRequestID = nil
 	switch d.Protocol {
 	case SystemOneProtocol:
 		return d.parseSystemOne(data)
@@ -199,11 +199,6 @@ func (d *DecisionRequest) parseSystemOne(data []byte) error {
 	if err := kjson.UnmarshalCaseSensitivePreserveInts(data, &wire); err != nil {
 		return err
 	}
-	if wire.RequestID != nil {
-		if err := json.Unmarshal(wire.RequestID, &d.ClientRequestID); err != nil || d.ClientRequestID == nil {
-			return errors.New("request_id must be a string")
-		}
-	}
 	d.systemOne = wire
 	d.setModel(wire.Model)
 	d.CacheSalt = wire.CacheSalt
@@ -259,12 +254,12 @@ func (d *DecisionRequest) parseSystemOne(data []byte) error {
 				var err error
 				criteria, err = parseDecisionObject(spec.Criteria)
 				if err != nil {
-					return errors.New("noul criteria must be an object with true and false")
+					return errors.New("noul criteria must be an object")
 				}
 			}
 			for _, field := range criteria {
 				if field.key != "true" && field.key != "false" {
-					return errors.New("noul criteria must be an object with true and false")
+					return errors.New("noul criteria keys must be 'true' or 'false'")
 				}
 			}
 			q.values = []any{"yes", "no"}
@@ -277,7 +272,7 @@ func (d *DecisionRequest) parseSystemOne(data []byte) error {
 }
 
 func (d *DecisionRequest) parseDecisions(data []byte) error {
-	var wire api.DecisionsRequest
+	var wire api.DecisionRequest
 	if err := decodeDecisionStrict(data, &wire); err != nil {
 		return err
 	}
@@ -327,11 +322,9 @@ func parseDecisionQuestion(raw json.RawMessage) (decisionQuestion, error) {
 			return q, errors.New("choice questions do not accept levels")
 		}
 		for _, option := range choices {
-			description, err := parseDecisionDescription(option.Description)
-			if err != nil {
+			if err := validateDecisionDescription(option.Description); err != nil {
 				return q, err
 			}
-			q.descriptions = append(q.descriptions, description)
 			var value any
 			if err := json.Unmarshal(option.Value, &value); err != nil {
 				return q, err
@@ -354,11 +347,9 @@ func parseDecisionQuestion(raw json.RawMessage) (decisionQuestion, error) {
 			return q, errors.New("score questions do not accept choices")
 		}
 		for i, level := range levels {
-			description, err := parseDecisionDescription(level.Description)
-			if err != nil {
+			if err := validateDecisionDescription(level.Description); err != nil {
 				return q, err
 			}
-			q.descriptions = append(q.descriptions, description)
 			label, err := json.Marshal(level.Label)
 			if err != nil {
 				return q, err
@@ -372,15 +363,15 @@ func parseDecisionQuestion(raw json.RawMessage) (decisionQuestion, error) {
 	return q, nil
 }
 
-func parseDecisionDescription(raw json.RawMessage) (string, error) {
+func validateDecisionDescription(raw json.RawMessage) error {
 	if raw == nil {
-		return "", nil
+		return nil
 	}
 	var text *string
 	if json.Unmarshal(raw, &text) != nil || text == nil {
-		return "", errors.New("description must be a string")
+		return errors.New("description must be a string")
 	}
-	return *text, nil
+	return nil
 }
 
 func parseDecisionInput(raw json.RawMessage) (string, error) {
@@ -389,9 +380,6 @@ func parseDecisionInput(raw json.RawMessage) (string, error) {
 	}
 	var text string
 	if json.Unmarshal(raw, &text) == nil {
-		if utf8.RuneCountInString(text) > 10485760 {
-			return "", errors.New("input text is too long")
-		}
 		return text, nil
 	}
 	var messages []struct {
@@ -401,9 +389,6 @@ func parseDecisionInput(raw json.RawMessage) (string, error) {
 	}
 	if err := decodeDecisionStrict(raw, &messages); err != nil {
 		return "", errors.New("input must be text or user messages")
-	}
-	if len(messages) > 131072 {
-		return "", errors.New("too many input messages")
 	}
 	var parts []string
 	for _, message := range messages {
@@ -425,7 +410,7 @@ func parseDecisionInput(raw json.RawMessage) (string, error) {
 			Type string  `json:"type"`
 			Text *string `json:"text"`
 		}
-		if err := decodeDecisionStrict(message.Content, &content); err != nil || len(content) > 16384 {
+		if err := decodeDecisionStrict(message.Content, &content); err != nil {
 			return "", errors.New("content must be text or input_text parts")
 		}
 		for _, part := range content {
@@ -435,29 +420,18 @@ func parseDecisionInput(raw json.RawMessage) (string, error) {
 			parts = append(parts, *part.Text)
 		}
 	}
-	for _, part := range parts {
-		if utf8.RuneCountInString(part) > 10485760 {
-			return "", errors.New("input text is too long")
-		}
-	}
 	return strings.Join(parts, "\n"), nil
 }
 
 func (d *DecisionRequest) validateSystemOne() error {
-	if len(d.systemOne.State) == 0 {
+	if present(d.systemOne.State) == nil {
 		return errors.New("state is required")
-	}
-	if err := validateDecisionPriority(d.systemOne.Priority); err != nil {
-		return err
 	}
 	if err := validateDecisionChatOptions(d.systemOne.ChatTemplateKwargs); err != nil {
 		return err
 	}
-	if err := validateDecisionCacheSalt(d.CacheSalt); err != nil {
-		return err
-	}
-	if len(d.questions) == 0 || len(d.questions) > 64 {
-		return errors.New("questions must contain 1 to 64 entries")
+	if len(d.questions) == 0 || len(d.questions) > maxSystemOneQuestions {
+		return fmt.Errorf("questions must contain 1 to %d entries", maxSystemOneQuestions)
 	}
 	for _, q := range d.questions {
 		if q.id == "" {
@@ -465,12 +439,12 @@ func (d *DecisionRequest) validateSystemOne() error {
 		}
 		switch q.kind {
 		case "choice":
-			if len(q.values) < 1 || len(q.values) > 26 {
-				return errors.New("choice criteria must have 1 to 26 options")
+			if len(q.values) == 0 {
+				return errors.New("choice criteria must not be empty")
 			}
 		case "score":
-			if len(q.legend) < 2 || len(q.legend) > 10 {
-				return errors.New("score criteria must contain 2 to 10 levels")
+			if len(q.legend) == 0 {
+				return errors.New("score criteria must not be empty")
 			}
 			seen := map[string]bool{}
 			for _, level := range q.legend {
@@ -489,20 +463,11 @@ func (d *DecisionRequest) validateDecisions() error {
 	if d.decisions.Model == nil {
 		return errors.New("model is required")
 	}
-	if utf8.RuneCountInString(d.Model) > 1048576 {
-		return errors.New("model is too long")
-	}
-	if id := d.decisions.SafetyIdentifier; id != nil && utf8.RuneCountInString(*id) > 128 {
-		return errors.New("safety_identifier must not exceed 128 characters")
-	}
-	if err := validateDecisionCacheSalt(d.CacheSalt); err != nil {
-		return err
-	}
 	if present(d.decisions.Input) == nil {
 		return errors.New("input is required")
 	}
-	if len(d.questions) < 1 || len(d.questions) > 200 {
-		return errors.New("questions must contain 1 to 200 entries")
+	if len(d.questions) < 1 || len(d.questions) > maxDecisionQuestions {
+		return fmt.Errorf("questions must contain 1 to %d entries", maxDecisionQuestions)
 	}
 	for _, q := range d.questions {
 		if err := validateDecisionQuestion(q); err != nil {
@@ -513,48 +478,30 @@ func (d *DecisionRequest) validateDecisions() error {
 }
 
 func validateDecisionQuestion(q decisionQuestion) error {
-	if q.instructions == nil || utf8.RuneCountInString(*q.instructions) > 1048576 {
-		return errors.New("instructions is required and must not exceed 1048576 characters")
-	}
-	if q.name != nil && utf8.RuneCountInString(*q.name) > 1048576 {
-		return errors.New("name is too long")
+	if q.instructions == nil {
+		return errors.New("instructions is required")
 	}
 	switch q.kind {
 	case "choice":
-		if len(q.values) < 2 || len(q.values) > 255 {
-			return errors.New("choice questions require 2 to 255 choices")
+		if len(q.values) == 0 {
+			return errors.New("choices must not be empty")
 		}
 		seen := map[any]bool{}
 		for _, value := range q.values {
-			if text, ok := value.(string); ok && utf8.RuneCountInString(text) > 1048576 {
-				return errors.New("choice value is too long")
-			}
 			if seen[value] {
 				return errors.New("choice values must be distinct")
 			}
 			seen[value] = true
 		}
 	case "score":
-		if len(q.legend) < 2 || len(q.legend) > 10 {
-			return errors.New("score questions require 2 to 10 levels")
+		if len(q.legend) == 0 {
+			return errors.New("score levels must not be empty")
 		}
 		for _, level := range q.legend {
-			if string(level) == "null" || utf8.RuneCountInString(decisionText(level)) > 1048576 {
-				return errors.New("score level label is required and must not exceed 1048576 characters")
+			if string(level) == "null" {
+				return errors.New("score level label is required")
 			}
 		}
-	}
-	for _, description := range q.descriptions {
-		if utf8.RuneCountInString(description) > 1048576 {
-			return errors.New("description must be a string of at most 1048576 characters")
-		}
-	}
-	return nil
-}
-
-func validateDecisionCacheSalt(salt *string) error {
-	if salt != nil && (*salt == "" || utf8.RuneCountInString(*salt) > 128 || strings.ContainsAny(*salt, "@/\\\x00")) {
-		return errors.New("cache_salt must contain 1 to 128 characters and must not contain '@', '/', '\\', or NUL")
 	}
 	return nil
 }
@@ -562,38 +509,6 @@ func validateDecisionCacheSalt(salt *string) error {
 func validateDecisionChatOptions(options map[string]json.RawMessage) error {
 	if value := options["enable_thinking"]; value != nil && string(value) != "null" && string(value) != "false" {
 		return errors.New("thinking must be off for decisions")
-	}
-	return nil
-}
-
-var decisionIntegerString = regexp.MustCompile(`^[+-]?[0-9]+(?:_[0-9]+)*(?:\.0+)?$`)
-
-// Match vLLM's Pydantic integer coercion, including booleans and numeric strings.
-func validateDecisionPriority(raw json.RawMessage) error {
-	if raw == nil || string(raw) == "true" || string(raw) == "false" {
-		return nil
-	}
-	invalid := errors.New("priority must be a signed 64-bit integer")
-	var text string
-	if json.Unmarshal(raw, &text) == nil {
-		text = strings.TrimSpace(text)
-		if !decisionIntegerString.MatchString(text) {
-			return invalid
-		}
-		text, _, _ = strings.Cut(text, ".")
-		text = strings.ReplaceAll(text, "_", "")
-	} else {
-		text = string(raw)
-		if strings.ContainsAny(text, ".eE") {
-			value, err := strconv.ParseFloat(text, 64)
-			if err != nil || value < -0x1p63 || value >= 0x1p63 || value != math.Trunc(value) {
-				return invalid
-			}
-			return nil
-		}
-	}
-	if _, err := strconv.ParseInt(text, 10, 64); err != nil {
-		return invalid
 	}
 	return nil
 }

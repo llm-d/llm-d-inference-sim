@@ -392,13 +392,8 @@ func (s *Simulator) HandleRequest(req endpoint.Request) (numChoices int, isStrea
 	// the channel once all sub-requests have signalled completion. Size by the
 	// total sub-request count, including batched prompts and decision questions.
 	subReqs := req.Split()
-	responsesPerRequest := s.Context.Config().MaxModelLen
-	if _, ok := req.(*endpoint.DecisionRequest); ok {
-		// Each question emits a created event and one token, or a single error.
-		responsesPerRequest = 2
-	}
 	respChan := &common.Channel[*endpoint.ResponseInfo]{
-		Channel: make(chan *endpoint.ResponseInfo, responsesPerRequest*len(subReqs)),
+		Channel: make(chan *endpoint.ResponseInfo, s.Context.Config().MaxModelLen*len(subReqs)),
 		Name:    "responseInfo-" + req.GetRequestID(),
 	}
 	var wg sync.WaitGroup

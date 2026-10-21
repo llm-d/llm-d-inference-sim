@@ -380,9 +380,13 @@ var _ = Describe("validateRequest", func() {
 
 var _ = Describe("Decision API", func() {
 	DescribeTable("rejects malformed JSON and field types during decoding",
-		func(protocol DecisionProtocol, body string) {
+		func(protocol DecisionProtocol, body string, expectedMessage ...string) {
 			req := &DecisionRequest{Protocol: protocol}
-			Expect(req.Unmarshal([]byte(body))).NotTo(Succeed())
+			err := req.Unmarshal([]byte(body))
+			Expect(err).NotTo(Succeed())
+			if len(expectedMessage) > 0 {
+				Expect(err).To(MatchError(expectedMessage[0]))
+			}
 		},
 		Entry("malformed JSON", SystemOneProtocol, `{"state":`),
 		Entry("question object required", SystemOneProtocol, `{"state":"x","questions":[]}`),
@@ -390,7 +394,8 @@ var _ = Describe("Decision API", func() {
 		Entry("unsupported choice value type", DecisionsProtocol, `{"model":"test","input":"x","questions":[{"type":"choice","instructions":"q","choices":[{"value":1},{"value":2}]}]}`),
 		Entry("unknown question field", SystemOneProtocol, `{"state":"x","questions":{"q":{"type":"noul","depends_on":["x"]}}}`),
 		Entry("unknown question type", SystemOneProtocol, `{"state":"x","questions":{"q":{"type":"other"}}}`),
-		Entry("bad noul criteria", SystemOneProtocol, `{"state":"x","questions":{"q":{"type":"noul","criteria":["yes","no"]}}}`),
+		Entry("bad noul criteria", SystemOneProtocol, `{"state":"x","questions":{"q":{"type":"noul","criteria":["yes","no"]}}}`, "noul criteria must be an object"),
+		Entry("unknown noul criteria key", SystemOneProtocol, `{"state":"x","questions":{"q":{"type":"noul","criteria":{"yes":"desc"}}}}`, "noul criteria keys must be 'true' or 'false'"),
 		Entry("duplicate criteria", SystemOneProtocol, `{"state":"x","questions":{"q":{"type":"choice","criteria":{"a":null,"a":null}}}}`),
 		Entry("null name", DecisionsProtocol, `{"model":"test","input":"x","questions":[{"type":"predicate","instructions":"q","name":null}]}`),
 		Entry("null description", DecisionsProtocol, `{"model":"test","input":"x","questions":[{"type":"choice","instructions":"q","choices":[{"value":"a","description":null},{"value":"b"}]}]}`),
@@ -407,65 +412,93 @@ var _ = Describe("Decision API", func() {
 		func(protocol DecisionProtocol, body, message string) {
 			req := &DecisionRequest{Protocol: protocol, DefaultModel: common.TestModelName}
 			Expect(req.Unmarshal([]byte(body))).To(Succeed())
-			for range 2 {
-				err := req.Validate(nil)
-				Expect(err).NotTo(BeNil())
-				Expect(err.Code).To(Equal(fasthttp.StatusBadRequest))
-				Expect(err.Message).To(ContainSubstring(message))
-			}
+			err := req.Validate(nil)
+			Expect(err).NotTo(BeNil())
+			Expect(err.Code).To(Equal(fasthttp.StatusBadRequest))
+			Expect(err.Message).To(ContainSubstring(message))
 		},
 		Entry("required state", SystemOneProtocol, `{"questions":{"q":{"type":"noul"}}}`, "state is required"),
+		Entry("null state", SystemOneProtocol, `{"state":null,"questions":{"q":{"type":"noul"}}}`, "state is required"),
 		Entry("required model", DecisionsProtocol, `{"input":"x","questions":[{"type":"predicate","instructions":"q"}]}`, "model is required"),
 		Entry("required input", DecisionsProtocol, `{"model":"test","questions":[{"type":"predicate","instructions":"q"}]}`, "input is required"),
 		Entry("null input", DecisionsProtocol, `{"model":"test","input":null,"questions":[{"type":"predicate","instructions":"q"}]}`, "input is required"),
 		Entry("empty questions", SystemOneProtocol, `{"state":"x","questions":{}}`, "questions must contain"),
 		Entry("empty question id", SystemOneProtocol, `{"state":"x","questions":{"":{"type":"noul"}}}`, "question ids"),
-		Entry("choice count", DecisionsProtocol, `{"model":"test","input":"x","questions":[{"type":"choice","instructions":"q","choices":[{"value":"a"}]}]}`, "2 to 255"),
-		Entry("score count", SystemOneProtocol, `{"state":"x","questions":{"q":{"type":"score","criteria":["low"]}}}`, "2 to 10"),
+		Entry("empty System One choices", SystemOneProtocol, `{"state":"x","questions":{"q":{"type":"choice","criteria":{}}}}`, "choice criteria must not be empty"),
+		Entry("empty Decisions choices", DecisionsProtocol, `{"model":"test","input":"x","questions":[{"type":"choice","instructions":"q","choices":[]}]}`, "choices must not be empty"),
+		Entry("empty System One score levels", SystemOneProtocol, `{"state":"x","questions":{"q":{"type":"score","criteria":[]}}}`, "score criteria must not be empty"),
+		Entry("empty Decisions score levels", DecisionsProtocol, `{"model":"test","input":"x","questions":[{"type":"score","instructions":"q","levels":[]}]}`, "score levels must not be empty"),
 		Entry("duplicate choices", DecisionsProtocol, `{"model":"test","input":"x","questions":[{"type":"choice","instructions":"q","choices":[{"value":true},{"value":true}]}]}`, "distinct"),
 		Entry("converted score labels", SystemOneProtocol, `{"state":"x","questions":{"q":{"type":"score","criteria":[true,"True"]}}}`, "distinct"),
 		Entry("required instructions", DecisionsProtocol, `{"model":"test","input":"x","questions":[{"type":"predicate"}]}`, "instructions is required"),
 		Entry("required score label", DecisionsProtocol, `{"model":"test","input":"x","questions":[{"type":"score","instructions":"q","levels":[{},{"label":"high"}]}]}`, "label is required"),
 		Entry("null score label", DecisionsProtocol, `{"model":"test","input":"x","questions":[{"type":"score","instructions":"q","levels":[{"label":null},{"label":"high"}]}]}`, "label is required"),
-		Entry("cache salt", SystemOneProtocol, `{"state":"x","cache_salt":"a/b","questions":{"q":{"type":"noul"}}}`, "cache_salt"),
-		Entry("empty cache salt", DecisionsProtocol, `{"model":"test","input":"x","cache_salt":"","questions":[{"type":"predicate","instructions":"q"}]}`, "cache_salt"),
 		Entry("thinking", SystemOneProtocol, `{"state":"x","chat_template_kwargs":{"enable_thinking":true},"questions":{"q":{"type":"noul"}}}`, "thinking must be off"),
 		Entry("streaming", SystemOneProtocol, `{"state":"x","stream":true,"questions":{"q":{"type":"noul"}}}`, "does not support streaming"),
 		Entry("media", SystemOneProtocol, `{"state":"x","audio":["url"],"questions":{"q":{"type":"noul"}}}`, "does not support"),
-		Entry("priority validation", SystemOneProtocol, `{"state":"x","priority":null,"questions":{"q":{"type":"noul"}}}`, "priority"),
 	)
 
-	DescribeTable("validates normalized question and option count bounds",
-		func(protocol DecisionProtocol, kind string, minimum, maximum int) {
+	It("accepts long instructions", func() {
+		text := strings.Repeat("x", 2*1024*1024)
+		raw, err := json.Marshal(map[string]any{
+			"model": "test", "input": "x",
+			"questions": []map[string]any{
+				{"type": "predicate", "instructions": text},
+			},
+		})
+		Expect(err).NotTo(HaveOccurred())
+		req := &DecisionRequest{Protocol: DecisionsProtocol}
+		Expect(req.Unmarshal(raw)).To(Succeed())
+		Expect(req.Validate(nil)).To(BeNil())
+		Expect(req.questions[0].instructions).To(Equal(&text))
+	})
+
+	DescribeTable("uses shared cache salt semantics",
+		func(salt string) {
+			for _, protocol := range []DecisionProtocol{SystemOneProtocol, DecisionsProtocol} {
+				body := map[string]any{
+					"model": "test", "cache_salt": salt, "input": "x",
+					"questions": json.RawMessage(`[{"type":"predicate","instructions":"q"}]`),
+				}
+				if protocol == SystemOneProtocol {
+					delete(body, "input")
+					body["state"] = "x"
+					body["questions"] = json.RawMessage(`{"q":{"type":"noul"}}`)
+				}
+				raw, err := json.Marshal(body)
+				Expect(err).NotTo(HaveOccurred())
+				req := &DecisionRequest{Protocol: protocol}
+				Expect(req.Unmarshal(raw)).To(Succeed())
+				Expect(req.Validate(nil)).To(BeNil())
+				if salt == "" {
+					Expect(req.GetCacheSalt()).To(BeNil())
+				} else {
+					Expect(req.GetCacheSalt()).To(Equal(&salt))
+				}
+				Expect(req.Split()[0].GetCacheSalt()).To(Equal(req.GetCacheSalt()))
+			}
+		},
+		Entry("empty", ""),
+		Entry("long with special characters", strings.Repeat("tenant/a@b\\c\x00", 32)),
+	)
+
+	DescribeTable("validates normalized question count bounds",
+		func(protocol DecisionProtocol, maximum int) {
 			body := `{"model":"test","input":"x","questions":[{"type":"predicate","instructions":"q"}]}`
 			if protocol == SystemOneProtocol {
 				body = `{"state":"x","questions":{"q":{"type":"noul"}}}`
 			}
-			for _, size := range []int{minimum - 1, minimum, maximum, maximum + 1} {
+			for _, size := range []int{0, 1, maximum, maximum + 1} {
 				req := &DecisionRequest{Protocol: protocol}
 				Expect(req.Unmarshal([]byte(body))).To(Succeed())
 				q := req.questions[0]
-				if kind == "questions" {
-					req.questions = make([]decisionQuestion, size)
-					for i := range size {
-						q.id = strconv.Itoa(i)
-						req.questions[i] = q
-					}
-				} else {
-					q.kind, q.values = kind, make([]any, size)
-					for i := range size {
-						q.values[i] = strconv.Itoa(i)
-						if kind == "score" {
-							q.legend = append(q.legend, json.RawMessage(strconv.Quote(strconv.Itoa(i))))
-							if protocol == DecisionsProtocol {
-								q.values[i] = i
-							}
-						}
-					}
-					req.questions[0] = q
+				req.questions = make([]decisionQuestion, size)
+				for i := range size {
+					q.id = strconv.Itoa(i)
+					req.questions[i] = q
 				}
 				apiErr := req.Validate(nil)
-				if size >= minimum && size <= maximum {
+				if size > 0 && size <= maximum {
 					Expect(apiErr).To(BeNil())
 				} else {
 					Expect(apiErr).NotTo(BeNil())
@@ -473,12 +506,43 @@ var _ = Describe("Decision API", func() {
 				}
 			}
 		},
-		Entry("System One questions", SystemOneProtocol, "questions", 1, 64),
-		Entry("Decisions questions", DecisionsProtocol, "questions", 1, 200),
-		Entry("System One choices", SystemOneProtocol, "choice", 1, 26),
-		Entry("System One levels", SystemOneProtocol, "score", 2, 10),
-		Entry("Decisions choices", DecisionsProtocol, "choice", 2, 255),
-		Entry("Decisions levels", DecisionsProtocol, "score", 2, 10),
+		Entry("System One questions", SystemOneProtocol, 64),
+		Entry("Decisions questions", DecisionsProtocol, 200),
+	)
+
+	DescribeTable("accepts large option lists",
+		func(protocol DecisionProtocol, kind string) {
+			const size = 300
+			body := `{"model":"test","input":"x","questions":[]}`
+			if protocol == SystemOneProtocol {
+				body = `{"state":"x","questions":{}}`
+			}
+			instructions := "q"
+			req := &DecisionRequest{Protocol: protocol}
+			Expect(req.Unmarshal([]byte(body))).To(Succeed())
+			q := decisionQuestion{id: "q", kind: kind, instructions: &instructions, values: make([]any, size)}
+			for i := range size {
+				q.values[i] = strconv.Itoa(i)
+				if kind == "score" {
+					q.legend = append(q.legend, json.RawMessage(strconv.Quote(strconv.Itoa(i))))
+					if protocol == DecisionsProtocol {
+						q.values[i] = i
+					}
+				}
+			}
+			req.questions = []decisionQuestion{q}
+			Expect(req.Validate(nil)).To(BeNil())
+			if protocol == SystemOneProtocol {
+				answers, _ := req.SystemOneAnswers()
+				Expect(answers[0].Probabilities).To(HaveLen(size))
+			} else {
+				Expect(req.DecisionAnswers()[0].Probabilities).To(HaveLen(size))
+			}
+		},
+		Entry("System One choices", SystemOneProtocol, "choice"),
+		Entry("System One levels", SystemOneProtocol, "score"),
+		Entry("Decisions choices", DecisionsProtocol, "choice"),
+		Entry("Decisions levels", DecisionsProtocol, "score"),
 	)
 
 	DescribeTable("converts nested score levels without per-level copies",
@@ -594,7 +658,25 @@ var _ = Describe("Decision API", func() {
 			`{"type":"score","instructions":"Rate severity.","levels":[{"label":"damage","description":"cosmetic"},{"label":"damage","description":"unusable"}]}`,
 			[]float64{0.1, 0.9}, 0.8,
 			`{"type":"score","name":null,"score":0.9,"probabilities":[{"value":0,"label":"damage","probability":0.1},{"value":1,"label":"damage","probability":0.9}],"confidence":0.72}`),
-		// Additional regressions for zero values and argmax ties.
+		// Additional regressions for criteria, zero values, and argmax ties.
+		Entry("System One noul accepts empty criteria", SystemOneProtocol,
+			`{"type":"noul","criteria":{}}`, []float64{0.8, 0.2}, 0.5,
+			`{"type":"noul","noul":0.8,"probabilities":{"yes":0.8,"no":0.2},"confidence":0.4}`),
+		Entry("System One noul accepts true criteria alone", SystemOneProtocol,
+			`{"type":"noul","criteria":{"true":"desc"}}`, []float64{0.8, 0.2}, 0.5,
+			`{"type":"noul","noul":0.8,"probabilities":{"yes":0.8,"no":0.2},"confidence":0.4}`),
+		Entry("System One noul accepts false criteria alone", SystemOneProtocol,
+			`{"type":"noul","criteria":{"false":"desc"}}`, []float64{0.8, 0.2}, 0.5,
+			`{"type":"noul","noul":0.8,"probabilities":{"yes":0.8,"no":0.2},"confidence":0.4}`),
+		Entry("System One singleton score is zero", SystemOneProtocol,
+			`{"type":"score","criteria":["only"]}`, []float64{1}, 1.0,
+			`{"type":"score","score":0,"legend":{"0":"only"},"probabilities":{"0":1},"confidence":1}`),
+		Entry("Decisions singleton choice has probability one", DecisionsProtocol,
+			`{"type":"choice","instructions":"q","choices":[{"value":"only"}]}`, []float64{1}, 1.0,
+			`{"type":"choice","name":null,"choice":"only","probabilities":[{"value":"only","probability":1}],"confidence":1}`),
+		Entry("Decisions singleton score is zero", DecisionsProtocol,
+			`{"type":"score","instructions":"q","levels":[{"label":"only"}]}`, []float64{1}, 1.0,
+			`{"type":"score","name":null,"score":0,"probabilities":[{"value":0,"label":"only","probability":1}],"confidence":1}`),
 		Entry("System One noul confidence can exceed the yes probability", SystemOneProtocol,
 			`{"type":"noul"}`, []float64{0, 1}, 0.5,
 			`{"type":"noul","noul":0,"probabilities":{"yes":0,"no":1},"confidence":0.5}`),
@@ -655,7 +737,7 @@ var _ = Describe("Decision API", func() {
 		},
 		Entry("vLLM System One", SystemOneProtocol, `{"state":"x","State":0,"Priority":null,"questions":{"z":{"type":"noul"},"a":{"type":"noul"}}}`),
 		Entry("vLLM Decisions", DecisionsProtocol, `{"model":"test","input":"x","questions":[{"type":"predicate","instructions":"q"}]}`),
-		Entry("text messages", DecisionsProtocol, `{"model":"test","input":[{"role":"user","content":[{"type":"input_text","text":"hi"}]}],"questions":[{"type":"predicate","instructions":"q"}]}`),
+		Entry("text messages", DecisionsProtocol, `{"model":"test","input":[{"role":"user","content":"hello"},{"role":"user","content":[{"type":"input_text","text":"hi"},{"type":"input_text","text":"there"}]}],"questions":[{"type":"predicate","instructions":"q"}]}`),
 		Entry("empty score label", DecisionsProtocol, `{"model":"test","input":"x","questions":[{"type":"score","instructions":"q","levels":[{"label":""},{"label":"high"}]}]}`),
 	)
 })

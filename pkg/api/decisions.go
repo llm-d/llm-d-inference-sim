@@ -28,7 +28,6 @@ type SystemOneRequest struct {
 	Instructions       *string                    `json:"instructions"`
 	CacheSalt          *string                    `json:"cache_salt"`
 	ChatTemplateKwargs map[string]json.RawMessage `json:"chat_template_kwargs"`
-	RequestID          json.RawMessage            `json:"request_id"`
 	Priority           json.RawMessage            `json:"priority"`
 }
 
@@ -38,7 +37,7 @@ type SystemOneQuestion struct {
 	Criteria     json.RawMessage `json:"criteria"`
 }
 
-type DecisionsRequest struct {
+type DecisionRequest struct {
 	Model            *string           `json:"model"`
 	Input            json.RawMessage   `json:"input"`
 	Questions        []json.RawMessage `json:"questions"`
@@ -150,7 +149,7 @@ type DecisionOutputTokensDetails struct {
 	ReasoningTokens int `json:"reasoning_tokens"`
 }
 
-type DecisionsUsage struct {
+type OpenAIDecisionUsage struct {
 	DecisionUsage
 	InputTokensDetails  DecisionInputTokensDetails  `json:"input_tokens_details"`
 	OutputTokensDetails DecisionOutputTokensDetails `json:"output_tokens_details"`
@@ -158,7 +157,7 @@ type DecisionsUsage struct {
 }
 
 type DecisionsResponse struct {
-	Model   string           `json:"model"`
-	Answers []DecisionAnswer `json:"answers"`
-	Usage   DecisionsUsage   `json:"usage"`
+	Model   string              `json:"model"`
+	Answers []DecisionAnswer    `json:"answers"`
+	Usage   OpenAIDecisionUsage `json:"usage"`
 }

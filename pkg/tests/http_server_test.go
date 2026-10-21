@@ -967,26 +967,11 @@ func TestDecisionAPI(t *testing.T) {
 			name, path, field, value string
 			status                   int
 		}{
-			{"body ID", "/v1/systemone", "request_id", `"client-id"`, http.StatusOK},
-			{"empty body ID", "/v1/systemone", "request_id", `""`, http.StatusOK},
-			{"control character body ID", "/v1/systemone", "request_id", `"client\u0000id"`, http.StatusOK},
-			{"null body ID", "/v1/systemone", "request_id", `null`, http.StatusBadRequest},
-			{"number body ID", "/v1/systemone", "request_id", `42`, http.StatusBadRequest},
-			{"null priority", "/v1/systemone", "priority", `null`, http.StatusBadRequest},
-			{"invalid priority", "/v1/systemone", "priority", `"bad"`, http.StatusBadRequest},
-			{"maximum priority", "/v1/systemone", "priority", `9223372036854775807`, http.StatusOK},
-			{"minimum priority", "/v1/systemone", "priority", `-9223372036854775808`, http.StatusOK},
-			{"priority above maximum", "/v1/systemone", "priority", `9223372036854775808`, http.StatusBadRequest},
-			{"priority below minimum", "/v1/systemone", "priority", `-9223372036854775809`, http.StatusBadRequest},
-			{"boolean priority", "/v1/systemone", "priority", `true`, http.StatusOK},
-			{"integer float priority", "/v1/systemone", "priority", `1.0`, http.StatusOK},
-			{"fractional priority", "/v1/systemone", "priority", `1.5`, http.StatusBadRequest},
-			{"overflow float priority", "/v1/systemone", "priority", `9223372036854775807.0`, http.StatusBadRequest},
-			{"string float priority", "/v1/systemone", "priority", `"1.0"`, http.StatusOK},
-			{"string separators priority", "/v1/systemone", "priority", `"1_000"`, http.StatusOK},
-			{"string maximum priority", "/v1/systemone", "priority", `"9223372036854775807.0"`, http.StatusOK},
-			{"string overflow priority", "/v1/systemone", "priority", `"9223372036854775808"`, http.StatusBadRequest},
-			{"string exponent priority", "/v1/systemone", "priority", `"1e2"`, http.StatusBadRequest},
+			{"ignored body ID", "/v1/systemone", "request_id", `"client-id"`, http.StatusOK},
+			{"ignored non-string body ID", "/v1/systemone", "request_id", `42`, http.StatusOK},
+			{"ignored null priority", "/v1/systemone", "priority", `null`, http.StatusOK},
+			{"ignored string priority", "/v1/systemone", "priority", `"unused"`, http.StatusOK},
+			{"ignored fractional priority", "/v1/systemone", "priority", `1.5`, http.StatusOK},
 			{"null enable thinking", "/v1/systemone", "chat_template_kwargs", `{"enable_thinking":null}`, http.StatusOK},
 			{"zero enable thinking", "/v1/systemone", "chat_template_kwargs", `{"enable_thinking":0}`, http.StatusBadRequest},
 			{"empty thinking object", "/v1/systemone", "chat_template_kwargs", `{"thinking":{}}`, http.StatusOK},
@@ -1012,11 +997,9 @@ func TestDecisionAPI(t *testing.T) {
 				if tc.status == http.StatusOK {
 					g.Expect(result["model"]).To(Equal(common.TestModelName))
 					if tc.field == "request_id" {
-						var id string
-						g.Expect(json.Unmarshal([]byte(tc.value), &id)).To(Succeed())
+						id := resp.Header.Get(communication.RequestIDHeader)
+						g.Expect(id).NotTo(BeEmpty())
 						g.Expect(result["id"]).To(Equal("decision-" + id))
-						g.Expect(resp.Header.Get(communication.RequestIDHeader)).NotTo(BeEmpty())
-						g.Expect(resp.Header.Get(communication.RequestIDHeader)).NotTo(Equal(id))
 					}
 				}
 				g.Eventually(sim.OpenRequests).WithTimeout(time.Second).Should(BeZero())
@@ -1024,19 +1007,16 @@ func TestDecisionAPI(t *testing.T) {
 		}
 	})
 
-	t.Run("System One request ID precedence", func(t *testing.T) {
+	t.Run("System One uses shared request ID settings", func(t *testing.T) {
+		g := NewWithT(t)
 		_, client := startDecisionTestServer(t, "vllm", "--enable-request-id-headers=false")
-		for _, header := range []string{"header-id", ""} {
-			t.Run("header="+header, func(t *testing.T) {
-				g := NewWithT(t)
-				body := `{"request_id":"body-id","state":"x","questions":{"q":{"type":"noul"}}}`
-				resp, _, result := postDecisionRequest(t, client, "/v1/systemone", body,
-					map[string]string{communication.RequestIDHeader: header})
-				g.Expect(resp.StatusCode).To(Equal(http.StatusOK))
-				g.Expect(result["id"]).To(Equal("decision-" + header))
-				g.Expect(resp.Header).NotTo(HaveKey(communication.RequestIDHeader))
-			})
-		}
+		body := `{"request_id":"body-id","state":"x","questions":{"q":{"type":"noul"}}}`
+		resp, _, result := postDecisionRequest(t, client, "/v1/systemone", body,
+			map[string]string{communication.RequestIDHeader: "header-id"})
+		g.Expect(resp.StatusCode).To(Equal(http.StatusOK))
+		g.Expect(result["id"]).To(HavePrefix("decision-"))
+		g.Expect(result["id"]).NotTo(BeElementOf("decision-", "decision-body-id", "decision-header-id"))
+		g.Expect(resp.Header).NotTo(HaveKey(communication.RequestIDHeader))
 	})
 
 	t.Run("decision routes are vLLM-only", func(t *testing.T) {

@@ -348,18 +348,6 @@ func (c *Communication) handleHTTP(req endpoint.Request, respBuilder responseBui
 	}
 
 	requestID := c.getRequestID(ctx)
-	responseRequestID := requestID
-	if decision, ok := req.(*endpoint.DecisionRequest); ok && decision.Protocol == endpoint.SystemOneProtocol {
-		// Body IDs may contain control characters, so keep them out of HTTP headers.
-		if decision.ClientRequestID != nil {
-			requestID = *decision.ClientRequestID
-		}
-		// vLLM uses the header even when response ID headers are disabled.
-		if header := ctx.Request.Header.Peek(RequestIDHeader); header != nil {
-			requestID = string(header)
-			responseRequestID = requestID
-		}
-	}
 	req.SetRequestID(requestID)
 
 	// Check for X-Return-Error header - deterministic error trigger
@@ -396,7 +384,7 @@ func (c *Communication) handleHTTP(req endpoint.Request, respBuilder responseBui
 
 	c.logger.V(logging.DEBUG).Info("Received", "new HTTP", req.AsString())
 
-	c.addResponseHeaders(ctx, responseRequestID)
+	c.addResponseHeaders(ctx, req.GetRequestID())
 
 	if isStream {
 		c.handleStream(ctx, *channel, respBuilder, numChoices)

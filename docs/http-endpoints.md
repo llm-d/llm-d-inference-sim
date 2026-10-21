@@ -633,9 +633,9 @@ Detokenization depends on the active tokenizer (selected automatically based on 
 
 ## Decision APIs
 
-Requires `--engine vllm`. See the [vLLM Decision API documentation](https://docs.vllm.ai/en/latest/models/structured_decisions_models/#online-serving).
+Requires `--engine vllm`. See [vLLM Decision APIs](https://docs.vllm.ai/en/latest/models/structured_decisions_models/#online-serving).
 
-- Text-only, non-streaming; thinking and prompt token IDs are unsupported. `priority` is validated but does not affect scheduling.
+- Text-only; no streaming, thinking or prompt token IDs. System One ignores `priority` and `request_id`.
 - Probabilities normalize weights `n, ..., 1`; scores use probability-weighted, zero-based indices. Confidence uses label mass `1`; predicates omit confidence. These are simulated results, not model predictions.
 - Questions queue separately with standard prefill latency and failure injection. Usage aggregates input tokens and one synthetic output token per question, without decode delay; response datasets are ignored.
 
