@@ -389,8 +389,12 @@ func (s *Simulator) HandleRequest(req endpoint.Request) (numChoices int, isStrea
 
 	// Single shared channel for all sub-requests; each stamps its ChoiceIdx on
 	// responses and calls signalDone when finished. A watcher goroutine closes
-	// the channel once all sub-requests have signalled completion. Size by the
-	// total sub-request count, including batched prompts and decision questions.
+	// the channel once all sub-requests have signalled completion. For most
+	// request types split returns just the receiver; for example, the parsed text
+	// completions form (which can carry an array of prompts) fans out, so this
+	// must be sized off len(subReqs) (total sub-requests sharing the channel),
+	// not req.GetN() (choices per prompt) -- those differ once there's more
+	// than one prompt.
 	subReqs := req.Split()
 	respChan := &common.Channel[*endpoint.ResponseInfo]{
 		Channel: make(chan *endpoint.ResponseInfo, s.Context.Config().MaxModelLen*len(subReqs)),
