@@ -167,6 +167,20 @@ var _ = Describe("VLLMMetricsAdapter", func() {
 			Eventually(gaugeValue(adapter.kvCacheUsagePercentage)).Should(Equal(0.75))
 		})
 
+		It("stamps each lora_requests_info series later than the one before it", func() {
+			cfg := newTestConfig()
+			cfg.Lora.LoraModules = []common.LoraModule{{Name: "lora1", Path: "/lora1"}}
+			adapter, _ := newTestAdapter(cfg)
+			// label order: max_lora, running_lora_adapters, waiting_lora_adapters
+			waiting := func() float64 { return testutil.ToFloat64(adapter.loraInfo.WithLabelValues("2", "", "lora1")) }
+			running := func() float64 { return testutil.ToFloat64(adapter.loraInfo.WithLabelValues("2", "lora1", "")) }
+
+			adapter.OnLoRASetsChanged(metrics.LoRASetsChanged{Waiting: map[string]int{"lora1": 1}})
+			Eventually(waiting).ShouldNot(BeZero())
+			adapter.OnLoRASetsChanged(metrics.LoRASetsChanged{Running: map[string]int{"lora1": 1}})
+			Eventually(running).Should(BeNumerically(">", waiting()))
+		})
+
 		It("accumulates prefix-cache counters", func() {
 			adapter, _ := newTestAdapter(newTestConfig())
 
