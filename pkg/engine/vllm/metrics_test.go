@@ -216,7 +216,7 @@ var _ = Describe("VLLMMetricsAdapter", func() {
 
 		It("enters fake mode from a real-metrics adapter on first ApplyUpdate", func() {
 			adapter, _ := newTestAdapter(newTestConfig())
-			Expect(adapter.fake).To(BeNil())
+			Expect(adapter.fake.Load()).To(BeNil())
 
 			kv := 0.95
 			upd := &VLLMFakeMetrics{
@@ -226,7 +226,7 @@ var _ = Describe("VLLMMetricsAdapter", func() {
 			}
 			adapter.ApplyFakeMetricsUpdate(upd)
 
-			Expect(adapter.fake).NotTo(BeNil())
+			Expect(adapter.fake.Load()).NotTo(BeNil())
 			Eventually(gaugeValue(adapter.runningRequests)).Should(Equal(float64(20)))
 			Eventually(gaugeValue(adapter.waitingRequests)).Should(Equal(float64(10)))
 			Eventually(gaugeValue(adapter.kvCacheUsagePercentage)).Should(Equal(kv))
@@ -236,6 +236,31 @@ var _ = Describe("VLLMMetricsAdapter", func() {
 			adapter.OnKVCacheUsageChanged(metrics.KVCacheUsageChanged{KVCacheUsagePerc: 0.1})
 			Consistently(gaugeValue(adapter.runningRequests)).Should(Equal(float64(20)))
 			Consistently(gaugeValue(adapter.kvCacheUsagePercentage)).Should(Equal(kv))
+		})
+
+		It("enters fake mode concurrently with real-path event handlers without data races", func() {
+			adapter, _ := newTestAdapter(newTestConfig())
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				for range 2000 {
+					adapter.OnRequestQueued(metrics.RequestQueued{})
+					adapter.OnRequestRunning(metrics.RequestRunning{})
+					adapter.OnKVCacheUsageChanged(metrics.KVCacheUsageChanged{KVCacheUsagePerc: 0.25})
+				}
+			}()
+			for range 50 {
+				adapter.ApplyFakeMetricsUpdate(&VLLMFakeMetrics{
+					RunningRequests:        &common.FakeMetricWithFunction{FixedValue: 9},
+					WaitingRequests:        &common.FakeMetricWithFunction{FixedValue: 3},
+					KVCacheUsagePercentage: &common.FakeMetricWithFunction{FixedValue: 0.8},
+				})
+			}
+			<-done
+			Expect(adapter.fake.Load()).NotTo(BeNil())
+			Eventually(gaugeValue(adapter.runningRequests)).Should(Equal(float64(9)))
+			Eventually(gaugeValue(adapter.waitingRequests)).Should(Equal(float64(3)))
+			Eventually(gaugeValue(adapter.kvCacheUsagePercentage)).Should(Equal(0.8))
 		})
 
 		It("starts and stops the ticker as generators are enabled and cleared", func() {
