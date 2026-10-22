@@ -82,7 +82,7 @@ var _ = Describe("HandleRequest enqueue failure", func() {
 
 		// The first request fills the only slot in newRequests; nothing drains
 		// it, so it stays there.
-		numChoices, _, fillChan, topErr, _ := sim.HandleRequest(newTextCompletionsRequestWithChoices("fill", 1))
+		numChoices, _, fillChan, topErr, _ := sim.HandleRequest(newTextCompletionsRequestWithChoices("fill", 1), api.ErrorRouteDefault)
 		Expect(topErr).To(BeNil())
 		Expect(numChoices).To(Equal(1))
 		Expect(fillChan).NotTo(BeNil())
@@ -91,7 +91,7 @@ var _ = Describe("HandleRequest enqueue failure", func() {
 		// The second request has nowhere to go: its sub-request must come back
 		// as a 429 error on its own response channel instead of being silently
 		// dropped.
-		numChoices, _, overflowChan, topErr, _ := sim.HandleRequest(newTextCompletionsRequestWithChoices("overflow", 1))
+		numChoices, _, overflowChan, topErr, _ := sim.HandleRequest(newTextCompletionsRequestWithChoices("overflow", 1), api.ErrorRouteDefault)
 		Expect(topErr).To(BeNil())
 		Expect(numChoices).To(Equal(1))
 
@@ -115,7 +115,7 @@ var _ = Describe("HandleRequest enqueue failure", func() {
 		// One request, 3 choices, newRequests capacity 2: choices 0 and 1 fit,
 		// choice 2 overflows. Nothing drains newRequests concurrently here (no
 		// processing() goroutine is running), so this split is deterministic.
-		numChoices, _, respChan, topErr, _ := sim.HandleRequest(newTextCompletionsRequestWithChoices("multi", 3))
+		numChoices, _, respChan, topErr, _ := sim.HandleRequest(newTextCompletionsRequestWithChoices("multi", 3), api.ErrorRouteDefault)
 		Expect(topErr).To(BeNil())
 		Expect(numChoices).To(Equal(3))
 		Expect(sim.newRequests.Channel).To(HaveLen(2))

@@ -376,7 +376,7 @@ func (c *Communication) handleHTTP(req endpoint.Request, respBuilder responseBui
 	headerOverride, _ := strconv.ParseBool(string(ctx.Request.Header.Peek(XSendImageHeader)))
 	req.SetSendImage(c.runtime.ShouldSendImage(headerOverride))
 
-	numChoices, isStream, channel, err, errInjected := c.processor.HandleRequest(req)
+	numChoices, isStream, channel, err, errInjected := c.processor.HandleRequest(req, errorRoute(string(ctx.Path())))
 	if err != nil {
 		c.sendError(ctx, err, errInjected)
 		return
@@ -869,18 +869,36 @@ func (c *Communication) HandleTokenize(ctx *fasthttp.RequestCtx) {
 
 func (c *Communication) HandleLoadLora(ctx *fasthttp.RequestCtx) {
 	c.logger.V(logging.DEBUG).Info("Load lora request received")
-	if err := c.processor.LoadLoraAdaptor(ctx.Request.Body()); err != nil {
-		errToSend := api.NewError(err.Error(), fasthttp.StatusBadRequest, nil)
-		c.sendError(ctx, &errToSend, false)
-	}
+	c.sendLoraResponse(ctx, c.processor.LoadLoraAdaptor)
 }
 
 func (c *Communication) HandleUnloadLora(ctx *fasthttp.RequestCtx) {
 	c.logger.V(logging.DEBUG).Info("Unload lora request received")
-	if err := c.processor.UnloadLoraAdaptor(ctx.Request.Body()); err != nil {
-		errToSend := api.NewError(err.Error(), fasthttp.StatusBadRequest, nil)
-		c.sendError(ctx, &errToSend, false)
+	c.sendLoraResponse(ctx, c.processor.UnloadLoraAdaptor)
+}
+
+// sendLoraResponse answers a load or unload request with what handle returns
+// for its body.
+func (c *Communication) sendLoraResponse(ctx *fasthttp.RequestCtx,
+	handle func(body []byte) (int, any, *api.Error)) {
+	status, response, err := handle(ctx.Request.Body())
+	if err != nil {
+		c.sendError(ctx, err, false)
+		return
 	}
+	ctx.Response.Header.SetStatusCode(status)
+	if response == nil {
+		return
+	}
+	data, jsonErr := json.Marshal(response)
+	if jsonErr != nil {
+		c.logger.Error(jsonErr, "failed to marshal LoRA adapter response")
+		errToSend := api.NewError("Response body creation failed, "+jsonErr.Error(), fasthttp.StatusInternalServerError, nil)
+		c.sendError(ctx, &errToSend, false)
+		return
+	}
+	ctx.Response.Header.SetContentType("application/json")
+	ctx.Response.SetBody(data)
 }
 
 // HandleModels handles /v1/models request according the data stored in the simulator

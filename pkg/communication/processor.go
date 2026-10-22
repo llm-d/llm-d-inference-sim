@@ -29,8 +29,8 @@ import (
 // admin/metrics surface. It is satisfied implicitly by *simulator.Simulator,
 // which keeps this package free of any dependency on the simulator package.
 type Processor interface {
-	// HandleRequest submits req to the simulator's worker queue.
-	HandleRequest(req endpoint.Request) (numChoices int, isStream bool,
+	// HandleRequest submits req, received on route, to the simulator's worker queue.
+	HandleRequest(req endpoint.Request, route api.ErrorRoute) (numChoices int, isStream bool,
 		channel *common.Channel[*endpoint.ResponseInfo], err *api.Error, errInjected bool)
 	// OpenRequests reports the number of requests currently in flight.
 	OpenRequests() int64
@@ -38,8 +38,9 @@ type Processor interface {
 	Stop()
 	// MetricsRegistry returns the simulator's Prometheus registry.
 	MetricsRegistry() *prometheus.Registry
-	// LoadLoraAdaptor loads a LoRA adapter described by body.
-	LoadLoraAdaptor(body []byte) error
-	// UnloadLoraAdaptor unloads a LoRA adapter described by body.
-	UnloadLoraAdaptor(body []byte) error
+	// LoadLoraAdaptor loads a LoRA adapter described by body, returning the
+	// response status and body (nil for none), or the error to answer with.
+	LoadLoraAdaptor(body []byte) (status int, response any, err *api.Error)
+	// UnloadLoraAdaptor is LoadLoraAdaptor's counterpart for unloading.
+	UnloadLoraAdaptor(body []byte) (status int, response any, err *api.Error)
 }

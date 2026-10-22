@@ -25,8 +25,7 @@ import "github.com/llm-d/llm-d-inference-sim/pkg/common"
 // The KV-cache group is left zero-valued: this engine simulates no KV cache,
 // and a configuration that asks for one is rejected.
 func (Engine) ApplyDefaults(cfg *common.Configuration) {
-	// One LoRA slot, so the simulator's adapter bookkeeping has a table to
-	// index. No adapter can occupy it: this engine registers no LoRA flags and
-	// claims no LoRA configuration keys.
-	cfg.Lora = common.LoraConfig{MaxLoras: 1}
+	// sglang's max_loras_per_batch default. MaxCPULoras stays 0: sglang's
+	// max_loaded_loras is unset by default, meaning no limit.
+	cfg.Lora = common.LoraConfig{MaxLoras: 8}
 }

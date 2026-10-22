@@ -33,6 +33,7 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/endpoint"
 	"github.com/llm-d/llm-d-inference-sim/pkg/kvcache"
+	"github.com/llm-d/llm-d-inference-sim/pkg/lora"
 	"github.com/llm-d/llm-d-inference-sim/pkg/metrics"
 	"github.com/llm-d/llm-d-inference-sim/pkg/simulator"
 	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
@@ -49,6 +50,10 @@ type stubEngine struct {
 // and the simulator only builds an encoder when it is enabled.
 func (stubEngine) NewKVEventEncoder(_ common.Configuration) (kvcache.EventEncoder, error) {
 	return nil, nil
+}
+
+func (stubEngine) NewLoraRegistry(common.Configuration) lora.Registry {
+	return lora.StubRegistry{}
 }
 
 // newRunningSim builds and starts a real Simulator (echo mode), so
@@ -85,7 +90,7 @@ var _ = Describe("sendNonStream missing-choice guard", func() {
 		n := 2
 		req.N = &n
 
-		numChoices, isStream, respChan, topErr, _ := sim.HandleRequest(req)
+		numChoices, isStream, respChan, topErr, _ := sim.HandleRequest(req, api.ErrorRouteDefault)
 		Expect(topErr).To(BeNil())
 		Expect(numChoices).To(Equal(2))
 		Expect(isStream).To(BeFalse())
@@ -131,7 +136,7 @@ var _ = Describe("sendStream missing-choice guard", func() {
 		n := 2
 		req.N = &n
 
-		numChoices, isStream, respChan, topErr, _ := sim.HandleRequest(req)
+		numChoices, isStream, respChan, topErr, _ := sim.HandleRequest(req, api.ErrorRouteDefault)
 		Expect(topErr).To(BeNil())
 		Expect(numChoices).To(Equal(2))
 		Expect(isStream).To(BeTrue())

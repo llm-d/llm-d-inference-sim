@@ -37,7 +37,7 @@ declares is the only one it answers to, on the command line and in a config file
 - `config`: the path to a yaml configuration file that can contain the simulator's command line parameters. If a parameter is defined in both the config file and the command line, the command line value overwrites the configuration file value. An example that loads under any engine is [manifests/basic-config.yaml](../manifests/basic-config.yaml); [manifests/vllm-config.yaml](../manifests/vllm-config.yaml) and [manifests/sglang-config.yaml](../manifests/sglang-config.yaml) are written for one engine each and name it in their `engine` key. A key the simulator does not recognize is an error, not a no-op: startup fails naming the key. Since some settings are engine-owned, which keys are recognized depends on the selected engine; see [Engines](engine-backends.md).
 - `port`: the port the simulator listens on, default is 8000
 - `max-request-body-size-mb`: maximum allowed size of an HTTP request body in megabytes, optional, default is 4 (matching the fasthttp built-in default). Must be between 1 and 512.
-- `engine`: the inference engine to simulate, one of `vllm` or `sglang`, optional, default is `vllm`. SGLang support is experimental: it currently covers the OpenAI-compatible endpoints only, and rejects a configuration asking for LoRA adapters, the KV cache, fake metrics, sleep mode, or encoder-only mode; see [SGLang support](engine-backends.md#sglang-support-experimental). Determines which flags, environment variables, metric names, and KV-event format the simulator uses; see [Engines](engine-backends.md). If you omit `--engine` on the command line, a non-empty `SIM_ENGINE` environment variable can supply it; see [Configuration precedence](#configuration-precedence) and [Environment variables](#environment-variables).
+- `engine`: the inference engine to simulate, one of `vllm` or `sglang`, optional, default is `vllm`. SGLang support is experimental: it currently covers the OpenAI-compatible endpoints and LoRA adapters only, and rejects a configuration asking for the KV cache, fake metrics, sleep mode, or encoder-only mode; see [SGLang support](engine-backends.md#sglang-support-experimental). Determines which flags, environment variables, metric names, and KV-event format the simulator uses; see [Engines](engine-backends.md). If you omit `--engine` on the command line, a non-empty `SIM_ENGINE` environment variable can supply it; see [Configuration precedence](#configuration-precedence) and [Environment variables](#environment-variables).
 - `model`: the currently 'loaded' model, mandatory. If you omit `--model` on the command line, a non-empty `SIM_MODEL` environment variable can supply the model; see [Configuration precedence](#configuration-precedence) and [Environment variables](#environment-variables).
 - `served-model-name`: model names exposed by the API (a list of space-separated strings)
 - `mode`: the simulator mode, optional, by default `random`
@@ -272,8 +272,24 @@ The following command line parameters are ignored by the simulator:
 
 ### SGLang
 
-This engine owns no settings of its own yet: it simulates the engine-neutral surface only, so none of the
-vLLM settings above are available under it.
+None of the vLLM settings above are available under this engine.
+
+#### LoRA
+Command-line flag names are as listed below. In a YAML config file, these settings are nested under a
+top-level `lora:` key using the same key names; a `lora-paths` entry takes the same item forms as on the
+command line. How a request selects an adapter, and how adapters are loaded, unloaded and evicted, is
+described under [LoRA adapters](engine-backends.md#lora-adapters).
+
+- `enable-lora`, `no-enable-lora`: enable or disable LoRA support, optional. When neither is given, LoRA is enabled exactly when `lora-paths` is given; with `no-enable-lora` (or `enable-lora=false`), `lora-paths` is ignored
+- `lora-paths`: a list of LoRA adapters to load at startup (space-separated), each in one of the forms `<PATH>` (the path is also the name), `<NAME>=<PATH>`, or JSON `{"lora_name": "name", "lora_path": "path", "pinned": false}`, optional, empty by default. Names must be unique
+- `max-loras-per-batch`: maximum number of adapters in a running batch, optional, must be positive, default is 8. At most `max-loras-per-batch - 1` adapters can be pinned
+- `max-loaded-loras`: maximum number of adapters loaded at a time, optional, must be >= `max-loras-per-batch` and >= the number of `lora-paths`, default is no limit
+- `max-lora-rank`, `lora-target-modules`: the shape of the adapters, optional, both required when LoRA is enabled without `lora-paths`. `lora-target-modules` is a space-separated list of SGLang's supported module names (e.g. `q_proj`, `v_proj`), or `all` alone; the names are checked even while LoRA is disabled. Validated, otherwise ignored
+
+The following LoRA command line parameters are accepted and ignored: `lora-backend` (one of `triton`,
+`csgmv`, `ascend`, `torch_native`), `max-lora-chunk-size` (one of 16, 32, 64, 128), `lora-eviction-policy`
+(`lru` or `fifo`), `lora-drain-wait-threshold`, `enable-lora-overlap-loading`, `lora-strict-loading`,
+`experts-shared-outer-loras`, `lora-use-virtual-experts`. A value outside the listed choices is rejected.
 
 Its names for the three settings each engine names itself are listed under
 [Settings each engine names itself](#settings-each-engine-names-itself).

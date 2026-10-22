@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -135,6 +136,49 @@ var _ = Describe("LoRAs", func() {
 			Expect(err).ToNot(HaveOccurred())
 			Expect(modelsResp).NotTo(BeNil())
 			Expect(modelsResp.Data).To(HaveLen(3))
+		})
+
+		// lora_path is sglang's field; vLLM drops it as it does any unknown field.
+		It("Should ignore lora_path, whatever its value", func() {
+			ctx := context.TODO()
+			client, err := startServerWithArgs(ctx,
+				[]string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho})
+			Expect(err).NotTo(HaveOccurred())
+			for _, loraPath := range []string{`"no-such-lora"`, `5`, `[1]`} {
+				resp, err := client.Post(baseURL+"/completions", "application/json", strings.NewReader(
+					`{"model":"`+common.TestModelName+`","prompt":"hi","lora_path":`+loraPath+`}`))
+				Expect(err).NotTo(HaveOccurred())
+				Expect(resp.Body.Close()).To(Succeed())
+				Expect(resp.StatusCode).To(Equal(http.StatusOK), loraPath)
+			}
+		})
+
+		// The batch slot belongs to the adapter the request ran on, whether or
+		// not the adapter is still loaded when the request completes.
+		It("Should free the batch slot of a request whose LoRA was unloaded while it ran", func() {
+			ctx := context.TODO()
+			client, err := startServerWithArgs(ctx,
+				[]string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho,
+					"--max-loras", "1", "--time-to-first-token", "500ms",
+					"--lora-modules", `{"name":"lora3","path":"/path/to/lora3"}`,
+					`{"name":"lora4","path":"/path/to/lora4"}`})
+			Expect(err).NotTo(HaveOccurred())
+			openaiclient, params := getOpenAIClientAndChatParams(client, "lora3", testUserMessage, false)
+
+			done := make(chan error, 1)
+			go func() {
+				_, err := openaiclient.Chat.Completions.New(ctx, params)
+				done <- err
+			}()
+			time.Sleep(200 * time.Millisecond)
+			err = openaiclient.Post(ctx, "/unload_lora_adapter", []byte(`{"lora_name":"lora3"}`), nil,
+				option.WithHeader("Content-Type", "application/json"))
+			Expect(err).NotTo(HaveOccurred())
+			Eventually(done, 5*time.Second).Should(Receive(BeNil()))
+
+			params.Model = "lora4"
+			_, err = openaiclient.Chat.Completions.New(ctx, params, option.WithRequestTimeout(5*time.Second))
+			Expect(err).NotTo(HaveOccurred())
 		})
 	})
 

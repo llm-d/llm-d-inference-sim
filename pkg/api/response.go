@@ -407,9 +407,10 @@ type ErrorResponse struct {
 	Error Error `json:"error"`
 }
 
-// ErrorRoute identifies the family of routes an error answers. Both engines
-// frame an error differently depending on which API family the route belongs to,
-// so the route is what selects the envelope and the engine fills it in.
+// ErrorRoute identifies the family of routes an error answers, or a request
+// arrived on. Both engines frame an error differently depending on which API
+// family the route belongs to, so the route is what selects the envelope and the
+// engine fills it in. An engine may also resolve a request's model per family.
 type ErrorRoute int
 
 const (

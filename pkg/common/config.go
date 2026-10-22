@@ -289,6 +289,8 @@ type LoraModule struct {
 	Path string `json:"path"`
 	// BaseModelName is the LoRA's base model
 	BaseModelName string `json:"base_model_name"`
+	// Pinned keeps the LoRA from being evicted, sglang only
+	Pinned bool `json:"pinned,omitempty"`
 }
 
 // LoraConfig groups the LoRA adapter settings. Its CLI/YAML wire format is
@@ -301,6 +303,12 @@ type LoraConfig struct {
 	MaxCPULoras int `json:"max-cpu-loras"`
 	// LoraModules is a list of LoRA adapters
 	LoraModules []LoraModule `json:"lora-modules"`
+	// EnableLora enables LoRA support, sglang only, where nil means unset
+	EnableLora *bool `json:"enable-lora,omitempty"`
+	// MaxLoraRank is the maximum rank of LoRA adapters, sglang only
+	MaxLoraRank int `json:"max-lora-rank,omitempty"`
+	// TargetModules are the modules LoRA applies to, sglang only
+	TargetModules []string `json:"lora-target-modules,omitempty"`
 }
 
 // KVCacheConfig groups the KV-cache sizing, hashing, and ZMQ event settings.

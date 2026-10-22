@@ -36,12 +36,15 @@ var matchedStopNull = json.RawMessage("null")
 const objectError = "error"
 
 // BindHTTP registers the sglang-specific HTTP routes on r, on top of the common
-// routes comm's own HTTP server already registers. sglang's native routes
-// (/generate, /get_model_info, /get_server_info, /flush_cache, /ready) are not
-// simulated, so only the engine-neutral OpenAI-compatible surface is served.
-// Readiness is therefore probed at the core's /health/ready, not at sglang's
-// /ready.
-func (Engine) BindHTTP(*fasthttprouter.Router, *communication.Communication) {}
+// routes comm's own HTTP server already registers: the LoRA adapter routes,
+// which sglang serves without the /v1 prefix vLLM puts on them. sglang's other
+// native routes (/generate, /get_model_info, /get_server_info, /flush_cache,
+// /ready) are not simulated. Readiness is therefore probed at the core's
+// /health/ready, not at sglang's /ready.
+func (Engine) BindHTTP(r *fasthttprouter.Router, comm *communication.Communication) {
+	r.POST("/load_lora_adapter", comm.HandleLoadLora)
+	r.POST("/unload_lora_adapter", comm.HandleUnloadLora)
+}
 
 // BindGRPC reports that this engine has no gRPC surface: sglang has no
 // equivalent of vLLM's gRPC engine service, so no gRPC listener is opened and

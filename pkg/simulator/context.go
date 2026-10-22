@@ -35,6 +35,7 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/dataset"
 	"github.com/llm-d/llm-d-inference-sim/pkg/endpoint"
 	"github.com/llm-d/llm-d-inference-sim/pkg/kvcache"
+	"github.com/llm-d/llm-d-inference-sim/pkg/lora"
 	"github.com/llm-d/llm-d-inference-sim/pkg/metrics"
 	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 )
@@ -66,8 +67,8 @@ type SimContext struct {
 	// adminMu serializes admin-config updates so two concurrent updates can't
 	// each load-then-store with a stale value.
 	adminMu sync.Mutex
-	// loraAdaptors contains list of LoRA available adaptors
-	loraAdaptors sync.Map
+	// loraRegistry holds the loaded LoRA adapters, managed the active engine's way
+	loraRegistry lora.Registry
 	// loras contains information about which LoRAs are in use
 	loras *lorasUsageInfo
 	// rand with a configurable seed to generate reproducible Random responses
@@ -104,14 +105,15 @@ type SimContext struct {
 }
 
 // Engine validates the active engine's own configuration fields and supplies
-// its metrics adapter. Structurally satisfied by engine.Engine; declared here
-// because pkg/simulator cannot import pkg/engine without closing an import
-// cycle through pkg/communication's tests.
+// its metrics adapter and LoRA registry. Structurally satisfied by
+// engine.Engine; declared here because pkg/simulator cannot import pkg/engine
+// without closing an import cycle through pkg/communication's tests.
 type Engine interface {
 	ValidateConfig(cfg *common.Configuration) error
 	NewMetricsAdapter(ctx context.Context, registry *prometheus.Registry,
 		logger logr.Logger, config common.Configuration) (metrics.MetricsAdapter, error)
 	NewKVEventEncoder(config common.Configuration) (kvcache.EventEncoder, error)
+	NewLoraRegistry(config common.Configuration) lora.Registry
 }
 
 type latencyCalcHolder struct {
@@ -190,9 +192,11 @@ func (s *SimContext) initialize(ctx context.Context) error {
 
 	s.rebuildLatencyCalculator()
 
-	for _, lora := range s.Config().Lora.LoraModules {
-		s.loraAdaptors.Store(lora.Name, lora.Path)
+	if s.Engine == nil {
+		return errors.New("no engine set on the simulator context")
 	}
+
+	s.loraRegistry = s.Engine.NewLoraRegistry(*s.Config())
 	s.loras.maxLoras = s.Config().Lora.MaxLoras
 	s.loras.loraIDs = make([]string, s.Config().Lora.MaxLoras)
 	s.loras.loraRemovable = common.Channel[int]{
@@ -202,10 +206,6 @@ func (s *SimContext) initialize(ctx context.Context) error {
 	}
 
 	s.prometheusRegistry = prometheus.NewRegistry()
-
-	if s.Engine == nil {
-		return errors.New("no engine set on the simulator context")
-	}
 
 	var err error
 	s.metricsBus, err = metrics.NewMetricsBus(ctx, *s.Config(), s.prometheusRegistry, s.logger,
@@ -283,27 +283,6 @@ func (s *SimContext) initDataset(ctx context.Context) error {
 	}
 
 	return err
-}
-
-// isLora returns true if the given model name is one of loaded LoRAs
-func (s *SimContext) isLora(model string) bool {
-	for _, lora := range s.getLoras() {
-		if model == lora {
-			return true
-		}
-	}
-
-	return false
-}
-
-// getDisplayedModelName returns the model name that must appear in API
-// responses.  LoRA adapters keep their explicit name, while all base-model
-// requests are surfaced as the first alias from --served-model-name.
-func (s *SimContext) getDisplayedModelName(reqModel string) string {
-	if s.isLora(reqModel) {
-		return reqModel
-	}
-	return s.Config().ServedModelNames[0]
 }
 
 // GetRandom returns the simulator's configured random source.
@@ -395,11 +374,10 @@ func (s *SimContext) RequestStarted(req api.Request) {
 	s.nRunningReqs.Add(1)
 	common.WriteToChannel(s.metricsBus.RequestRunning, metrics.RequestRunning{}, s.logger)
 
-	dispModel := req.GetDisplayedModel()
-	if req.IsModelLoRA() {
-		req.SetModelLoraID(s.GetLoraID(dispModel))
+	if adapter := req.GetLoraAdapter(); adapter != "" {
+		req.SetModelLoraID(s.GetLoraID(adapter))
 		common.WriteToChannel(s.metricsBus.LoRAChanged,
-			metrics.LoRAChanged{Model: dispModel, State: metrics.LoRARunning}, s.logger)
+			metrics.LoRAChanged{Model: adapter, State: metrics.LoRARunning}, s.logger)
 	}
 }
 
@@ -465,6 +443,7 @@ func (s *SimContext) CreateModelsResponse() *api.ModelsResponse {
 	modelsResp := api.ModelsResponse{Object: "list", Data: []api.ModelsResponseModelInfo{}}
 
 	// Advertise every public model alias
+	maxModelLen := s.Config().MaxModelLen
 	for _, alias := range s.Config().ServedModelNames {
 		modelsResp.Data = append(modelsResp.Data, api.ModelsResponseModelInfo{
 			ID:          alias,
@@ -473,23 +452,11 @@ func (s *SimContext) CreateModelsResponse() *api.ModelsResponse {
 			OwnedBy:     s.Config().EngineName,
 			Root:        s.Config().Model,
 			Parent:      nil,
-			MaxModelLen: s.Config().MaxModelLen,
+			MaxModelLen: &maxModelLen,
 		})
 	}
 
-	// add LoRA adapter's info
-	parent := s.Config().ServedModelNames[0]
-	for _, lora := range s.getLoras() {
-		modelsResp.Data = append(modelsResp.Data, api.ModelsResponseModelInfo{
-			ID:          lora,
-			Object:      api.ObjectModel,
-			Created:     time.Now().Unix(),
-			OwnedBy:     s.Config().EngineName,
-			Root:        s.getLoraPath(lora),
-			Parent:      &parent,
-			MaxModelLen: s.Config().MaxModelLen,
-		})
-	}
+	modelsResp.Data = append(modelsResp.Data, s.loraRegistry.ModelCards(s.Config().ServedModelNames[0])...)
 
 	return &modelsResp
 }
@@ -503,6 +470,19 @@ func (s *SimContext) CreateEmbeddings(req *api.EmbeddingRequest) (*api.Embedding
 		err := api.NewError("input is required and must be a non-empty string or array", fasthttp.StatusBadRequest, nil)
 		return nil, &err
 	}
+	// The adapters only have to be resolvable: a stub embedding does not depend on them.
+	loraPaths := make([]*api.LoraPath, req.Input.Len())
+	for i := range loraPaths {
+		loraPaths[i] = req.LoraPath.Narrow(i)
+	}
+	adapters, loraErr := s.loraRegistry.Acquire(api.ErrorRouteDefault, req.Model, loraPaths)
+	if loraErr != nil {
+		return nil, loraErr
+	}
+	for _, adapter := range adapters {
+		s.loraRegistry.Release(adapter)
+	}
+
 	model := req.Model
 	if model == "" {
 		model = s.Config().Model
