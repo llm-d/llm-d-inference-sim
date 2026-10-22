@@ -70,9 +70,9 @@ type VLLMFakeMetrics struct {
 	RequestSuccessTotal map[string]int64 `yaml:"request-success-total" json:"request-success-total"`
 
 	// TotalPromptTokens is the total number of prompt tokens processed
-	TotalPromptTokens *int64 `json:"total-prompt-tokens,omitempty"`
+	TotalPromptTokens *int64 `yaml:"total-prompt-tokens" json:"total-prompt-tokens,omitempty"`
 	// TotalGenerationTokens is the total number of generated tokens
-	TotalGenerationTokens *int64 `json:"total-generation-tokens,omitempty"`
+	TotalGenerationTokens *int64 `yaml:"total-generation-tokens" json:"total-generation-tokens,omitempty"`
 
 	// Latency histograms - have same buckets upper boundaries in seconds are:
 	// 0.3, 0.5, 0.8, 1.0, 1.5, 2.0, 2.5, 5.0, 10.0, 15.0,

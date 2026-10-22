@@ -1377,3 +1377,20 @@ var _ = Describe("Setting names", func() {
 		Expect(shown).NotTo(HaveKey("context-length"))
 	})
 })
+
+var _ = Describe("fake metrics YAML", func() {
+	It("reads the total token counters from a config file", func() {
+		config, err := createSimConfig([]string{"cmd", "--config", writeConfig(`
+model: test-model
+fake-metrics:
+  total-prompt-tokens: 1234
+  total-generation-tokens: 567
+`)})
+		Expect(err).NotTo(HaveOccurred())
+
+		fakeMetrics, ok := config.FakeMetrics.(*VLLMFakeMetrics)
+		Expect(ok).To(BeTrue())
+		Expect(fakeMetrics.TotalPromptTokens).To(HaveValue(BeEquivalentTo(1234)))
+		Expect(fakeMetrics.TotalGenerationTokens).To(HaveValue(BeEquivalentTo(567)))
+	})
+})
