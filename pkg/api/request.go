@@ -554,12 +554,18 @@ type baseTextCompletionsRequest struct {
 	// model's context length.
 	MaxTokens *int64 `json:"max_tokens"`
 
+	MinTokens *int64 `json:"min_tokens"`
+
 	// Logprobs includes the log probabilities on the logprobs most likely
 	// tokens, as well as the chosen tokens. For example, if logprobs is 5,
 	// the API will return a list of the 5 most likely tokens. The API will
 	// always return the logprob of the sampled token, so there may be up to
 	// logprobs+1 elements in the response.
 	Logprobs *int `json:"logprobs,omitempty"`
+}
+
+func (t *baseTextCompletionsRequest) GetMinTokens() *int64 {
+	return t.MinTokens
 }
 
 // TextCompletionsParsedRequest is the wire form of a /completions request.

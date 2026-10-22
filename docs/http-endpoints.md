@@ -113,6 +113,7 @@ Structure of requests/responses
         - model
         - prompt
         - max_tokens
+        - min_tokens
         - stream_options
           - include_usage
         - ignore_eos
