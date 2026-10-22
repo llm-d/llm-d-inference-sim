@@ -18,6 +18,7 @@ package vllm
 
 import (
 	"encoding/json"
+	"errors"
 
 	"github.com/spf13/pflag"
 
@@ -88,6 +89,9 @@ func (Engine) BindFlags(f *pflag.FlagSet, cfg *common.Configuration, rawYAML map
 	}
 
 	if fakeMetricsStrings != nil {
+		if len(fakeMetricsStrings) == 0 {
+			return errors.New("--fake-metrics requires a JSON value")
+		}
 		// The flag replaces the whole struct (its JSON "loras" key maps straight
 		// onto LoraMetrics), so a YAML-configured value is superseded, not merged.
 		if err := unmarshalFakeMetrics(cfg, fakeMetricsStrings[0]); err != nil {

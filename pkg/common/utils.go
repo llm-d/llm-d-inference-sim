@@ -186,8 +186,11 @@ func NewChannel[T any](prefix string, capacity int, done <-chan struct{}) Channe
 
 // WriteToChannelWithError attempts a non-blocking write to channel and returns an error
 // if the channel is full, unless channel.Done is closed (shutting down), in which case a
-// full channel is not reported as an error.
+// full channel is not reported as an error. A zero-value channel discards the write.
 func WriteToChannelWithError[T any](channel Channel[T], object T) error {
+	if channel.Channel == nil {
+		return nil
+	}
 	select {
 	case channel.Channel <- object:
 		return nil

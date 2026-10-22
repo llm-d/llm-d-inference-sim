@@ -248,8 +248,13 @@ func (s *Simulator) Stop() {
 	}
 }
 
-// MetricsRegistry returns the simulator's Prometheus registry.
+// MetricsRegistry returns the simulator's Prometheus registry, or nil when the
+// active engine's configuration does not export metrics, which leaves the
+// /metrics route unbound. No adapter or bus goroutines exist in that case.
 func (s *Simulator) MetricsRegistry() *prometheus.Registry {
+	if !s.Context.Config().EnableMetrics {
+		return nil
+	}
 	return s.Context.prometheusRegistry
 }
 
@@ -534,8 +539,17 @@ func (s *Simulator) simulateResponseProcessing(respCtx endpoint.ResponseContext)
 				}
 			}
 		}
+		finishReason := ""
+		if respCtx.FinishReason() != nil {
+			finishReason = *respCtx.FinishReason()
+		}
 		common.WriteToChannel(s.Context.metricsBus.DecodeEnded,
-			metrics.DecodeEnded{GenerationTokens: nTokens, DecodeDuration: time.Since(startDecode).Seconds()},
+			metrics.DecodeEnded{
+				GenerationTokens: nTokens,
+				DecodeDuration:   time.Since(startDecode).Seconds(),
+				FinishReason:     finishReason,
+				IsStreaming:      reqCtx.Request().IsStream(),
+			},
 			s.Context.logger)
 
 		if reqCtx.Request().SendImage() {
