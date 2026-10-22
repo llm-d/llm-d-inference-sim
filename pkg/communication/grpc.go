@@ -147,8 +147,9 @@ func (c *Communication) pbRequestToRequest(in *pb.GenerateRequest) *endpoint.Gen
 		maxTokensValue := int64(*in.GetSamplingParams().MaxTokens)
 		maxTokens = &maxTokensValue
 	}
+	// a gRPC request names no model, so it is served by the base model under its served name
 	req := api.NewGenerationRequest(in.GetRequestId(), in.GetStream(),
-		c.runtime.Config().Model, maxTokens)
+		c.runtime.Config().DisplayModelName, maxTokens)
 
 	if in.GetTokenized() != nil {
 		prompt := &api.Tokenized{}
