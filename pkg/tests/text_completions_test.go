@@ -930,10 +930,10 @@ var _ = Describe("Simulator", forEachEngine(func() {
 
 	It("text completions array prompt still serves new requests after a fail-fast abort", func() {
 		// The existing fail-fast test verifies the client sees an error + [DONE].
-		// This test covers the *follow-up*: after fail-fast triggers `drainResponseChannel`
-		// and the original request's remaining sub-requests drain in the background,
-		// the simulator must be ready to serve another request. Regression guard for
-		// wg leaks, dangling worker state, or permanently-stuck waiting queue.
+		// This test covers the *follow-up*: after fail-fast aborts the original
+		// request's remaining sub-requests, the simulator must be ready to serve
+		// another request. Regression guard for wg leaks, dangling worker state, or
+		// permanently-stuck waiting queue.
 		ctx := context.TODO()
 		args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
 			"--time-to-first-token", "1s",
@@ -955,8 +955,7 @@ var _ = Describe("Simulator", forEachEngine(func() {
 		Expect(errors.As(err, &oaiErr)).To(BeTrue())
 		Expect(oaiErr.StatusCode).To(Equal(fasthttp.StatusTooManyRequests))
 
-		// Give the background drain/wg bookkeeping time to complete before we probe.
-		// 2× TTFT covers the worst case where the queued sub-request was already past TTFT.
+		// Give the aborted sub-requests time to finish before we probe.
 		time.Sleep(2500 * time.Millisecond)
 
 		// Follow-up: a single-prompt request must succeed end-to-end.

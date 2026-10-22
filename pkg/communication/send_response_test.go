@@ -239,3 +239,117 @@ var _ = Describe("sendStream client disconnect", func() {
 		Expect(string(httpCtx.Response.Header.ContentType())).To(Equal("text/event-stream"))
 	})
 })
+
+// A sub-request error ends the stream while its siblings may still be
+// producing, so the stream goroutine aborts without waiting for the channel to
+// close.
+var _ = Describe("sendStream sub-request error", func() {
+	It("ends the stream and calls abort while the channel is still open", func() {
+		ctx := context.Background()
+		sim := newRunningSim(ctx)
+
+		req := &endpoint.TextCompletionsParsedRequest{}
+		req.RequestID = "error-stream"
+		req.Model = common.TestModelName
+		req.Prompt = []api.PromptInput{{Text: "hi"}}
+		req.Stream = true
+
+		numChoices, _, respChan, topErr, _ := sim.HandleRequest(ctx, req)
+		Expect(topErr).To(BeNil())
+		first := <-respChan.Channel
+		Expect(first).NotTo(BeNil())
+
+		// Never closed: a sibling sub-request is still running.
+		pending := common.Channel[*endpoint.ResponseInfo]{
+			Channel: make(chan *endpoint.ResponseInfo, 1),
+			Name:    "pending",
+		}
+		subReqErr := api.NewError("sub-request failed", fasthttp.StatusBadRequest, nil)
+		pending.Channel <- &endpoint.ResponseInfo{Err: &subReqErr}
+
+		c := &Communication{logger: klog.Background(), transport: fakeTransport{}}
+		httpCtx := &fasthttp.RequestCtx{}
+		aborted := make(chan struct{})
+		c.sendStream(httpCtx, pending, &textComplHTTPRespBuilder{transport: c.transport}, numChoices, first,
+			func() { close(aborted) })
+
+		body, err := io.ReadAll(httpCtx.Response.BodyStream())
+		Expect(err).NotTo(HaveOccurred())
+		Expect(string(body)).To(ContainSubstring("sub-request failed"))
+		Expect(string(body)).To(ContainSubstring("[DONE]"))
+		Expect(aborted).To(BeClosed())
+	})
+})
+
+// abortRecorder records the context handleHTTP passes to HandleRequest, which
+// is done once the request is aborted.
+type abortRecorder struct {
+	Processor
+	ctx context.Context
+}
+
+func (p *abortRecorder) HandleRequest(ctx context.Context, req endpoint.Request) (int, bool,
+	*common.Channel[*endpoint.ResponseInfo], *api.Error, bool) {
+	p.ctx = ctx
+	return p.Processor.HandleRequest(ctx, req)
+}
+
+func newCompletionsRequestCtx(body string) *fasthttp.RequestCtx {
+	httpCtx := &fasthttp.RequestCtx{}
+	httpCtx.Request.SetRequestURI("/v1/completions")
+	httpCtx.Request.Header.SetContentType("application/json")
+	httpCtx.Request.SetBodyString(body)
+	return httpCtx
+}
+
+var _ = Describe("handleHTTP abort", func() {
+	var (
+		sim      *simulator.Simulator
+		recorder *abortRecorder
+		c        *Communication
+	)
+
+	BeforeEach(func() {
+		sim = newRunningSim(context.Background())
+		recorder = &abortRecorder{Processor: sim}
+		c = New(klog.Background(), recorder, &sim.Context)
+		c.transport = fakeTransport{}
+	})
+
+	// Exceeds the default context window, so its sub-request fails before
+	// producing any content.
+	tooLong := strings.Repeat("hi ", 1024)
+
+	DescribeTable("aborts the request when the handler returns",
+		func(body string, status int) {
+			httpCtx := newCompletionsRequestCtx(body)
+			c.HandleTextCompletions(httpCtx)
+
+			Expect(httpCtx.Response.StatusCode()).To(Equal(status))
+			Expect(recorder.ctx.Done()).To(BeClosed())
+			Eventually(sim.OpenRequests).Should(BeZero())
+		},
+		Entry("for a request rejected before it is queued",
+			`{"model":"unknown","prompt":"hi"}`, fasthttp.StatusNotFound),
+		Entry("for a non-streamed response",
+			fmt.Sprintf(`{"model":%q,"prompt":"hi"}`, common.TestModelName), fasthttp.StatusOK),
+		Entry("for a non-streamed response whose sub-request fails",
+			fmt.Sprintf(`{"model":%q,"prompt":["hi",%q]}`, common.TestModelName, tooLong), fasthttp.StatusBadRequest),
+		Entry("for a streamed response that fails before its first chunk",
+			fmt.Sprintf(`{"model":%q,"prompt":%q,"stream":true}`, common.TestModelName, tooLong), fasthttp.StatusBadRequest),
+	)
+
+	It("leaves a streamed response for its stream goroutine to abort", func() {
+		httpCtx := newCompletionsRequestCtx(fmt.Sprintf(`{"model":%q,"prompt":"hi","stream":true}`, common.TestModelName))
+		c.HandleTextCompletions(httpCtx)
+		Expect(httpCtx.Response.StatusCode()).To(Equal(fasthttp.StatusOK))
+
+		// Nothing reads the body yet, so the stream goroutine is blocked on its first write.
+		Consistently(recorder.ctx.Done(), "100ms").ShouldNot(BeClosed())
+
+		_, err := io.ReadAll(httpCtx.Response.BodyStream())
+		Expect(err).NotTo(HaveOccurred())
+		Expect(recorder.ctx.Done()).To(BeClosed())
+		Eventually(sim.OpenRequests).Should(BeZero())
+	})
+})
