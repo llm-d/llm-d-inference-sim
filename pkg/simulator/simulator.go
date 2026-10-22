@@ -479,7 +479,10 @@ func (s *Simulator) simulateResponseProcessing(respCtx endpoint.ResponseContext)
 		common.WriteToChannel(reqCtx.ResponseChannel(), &endpoint.ResponseInfo{RespCtx: respCtx, ChoiceIdx: choiceIdx},
 			s.Context.logger)
 	} else {
-		s.Context.simulateTTFT(respCtx)
+		done := reqCtx.ResponseChannel().Done
+		if !s.Context.simulateTTFT(respCtx, done) {
+			return false
+		}
 
 		// Response started
 		common.WriteToChannel(reqCtx.ResponseChannel(),
@@ -494,11 +497,10 @@ func (s *Simulator) simulateResponseProcessing(respCtx endpoint.ResponseContext)
 		} else {
 			if respCtx.ResponseTokens() != nil {
 				for i, token := range respCtx.ResponseTokens().Tokens {
-					if responseAbandoned(reqCtx) {
-						return false
-					}
 					if i != 0 {
-						s.Context.simulateInterTokenLatency()
+						if !s.Context.simulateInterTokenLatency(done) {
+							return false
+						}
 						nTokens++
 					}
 
@@ -522,11 +524,10 @@ func (s *Simulator) simulateResponseProcessing(respCtx endpoint.ResponseContext)
 					// have string tokenized arguments
 					args := tc.Function.TokenizedArguments()
 					for i, token := range args.Tokens {
-						if responseAbandoned(reqCtx) {
-							return false
-						}
 						if i != 0 {
-							s.Context.simulateInterTokenLatency()
+							if !s.Context.simulateInterTokenLatency(done) {
+								return false
+							}
 							nTokens++
 						}
 						respInfo := endpoint.ResponseInfo{
@@ -543,23 +544,15 @@ func (s *Simulator) simulateResponseProcessing(respCtx endpoint.ResponseContext)
 				}
 			}
 		}
-		decodeEnded := metrics.DecodeEnded{GenerationTokens: nTokens, DecodeDuration: time.Since(startDecode).Seconds()}
-		if reqCtx.Request().SendImage() && !s.Context.simulateImageGenerationLatency(reqCtx.ResponseChannel().Done) {
+		common.WriteToChannel(s.Context.metricsBus.DecodeEnded,
+			metrics.DecodeEnded{GenerationTokens: nTokens, DecodeDuration: time.Since(startDecode).Seconds()},
+			s.Context.logger)
+
+		if reqCtx.Request().SendImage() && !s.Context.simulateImageGenerationLatency(done) {
 			return false
 		}
-		common.WriteToChannel(s.Context.metricsBus.DecodeEnded, decodeEnded, s.Context.logger)
 	}
 	return true
-}
-
-// responseAbandoned reports whether reqCtx's response channel is done.
-func responseAbandoned(reqCtx endpoint.RequestContext) bool {
-	select {
-	case <-reqCtx.ResponseChannel().Done:
-		return true
-	default:
-		return false
-	}
 }
 
 // request processing finished

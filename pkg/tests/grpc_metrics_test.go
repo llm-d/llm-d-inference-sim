@@ -130,6 +130,112 @@ var _ = Describe("gRPC Metrics", Ordered, func() {
 		Eventually(generateDone).Should(BeClosed())
 	})
 
+	It("should stop a gRPC request cancelled during its time to first token", func() {
+		ctx := context.TODO()
+		args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho,
+			"--time-to-first-token", "10s"}
+
+		_, comm, httpClient, err := startServerHandle(ctx, common.ModeEcho, args, nil)
+		Expect(err).NotTo(HaveOccurred())
+
+		maxTokens := uint32(4)
+		req := pb.GenerateRequest{
+			RequestId: "grpc-ttft-abort-test",
+			Input: &pb.GenerateRequest_Tokenized{
+				Tokenized: &pb.TokenizedInput{
+					InputIds: []uint32{32, 45, 78, 13},
+				},
+			},
+			SamplingParams: &pb.SamplingParams{
+				MaxTokens: &maxTokens,
+			},
+		}
+
+		callCtx, cancel := context.WithCancel(context.Background())
+		DeferCleanup(cancel)
+		generateErr := make(chan error, 1)
+		go func() {
+			defer GinkgoRecover()
+			out := mockGenerateServer{start: time.Now(), ctx: callCtx}
+			generateErr <- comm.Generate(&req, &out)
+		}()
+
+		eventuallyMetrics(httpClient, func(g Gomega, metricsData string) {
+			g.Expect(metricsData).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllm.VLLMReqRunningMetricName, 1)))
+		})
+
+		cancel()
+
+		Eventually(generateErr).Should(Receive(MatchError(context.Canceled)))
+		eventuallyMetrics(httpClient, func(g Gomega, metricsData string) {
+			g.Expect(metricsData).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllm.VLLMReqRunningMetricName, 0)))
+			g.Expect(metricsData).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllm.VLLME2EReqLatencyMetricName+"_count", 1)))
+		})
+	})
+
+	It("should drop a gRPC request cancelled while it is queued", func() {
+		ctx := context.TODO()
+		args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho,
+			"--time-to-first-token", "10s", "--max-num-seqs", "1"}
+
+		_, comm, httpClient, err := startServerHandle(ctx, common.ModeEcho, args, nil)
+		Expect(err).NotTo(HaveOccurred())
+
+		maxTokens := uint32(4)
+		newReq := func(id string) *pb.GenerateRequest {
+			return &pb.GenerateRequest{
+				RequestId: id,
+				Input: &pb.GenerateRequest_Tokenized{
+					Tokenized: &pb.TokenizedInput{
+						InputIds: []uint32{32, 45, 78, 13},
+					},
+				},
+				SamplingParams: &pb.SamplingParams{
+					MaxTokens: &maxTokens,
+				},
+			}
+		}
+
+		runningCtx, cancelRunning := context.WithCancel(context.Background())
+		DeferCleanup(cancelRunning)
+		runningErr := make(chan error, 1)
+		go func() {
+			defer GinkgoRecover()
+			out := mockGenerateServer{start: time.Now(), ctx: runningCtx}
+			runningErr <- comm.Generate(newReq("grpc-running"), &out)
+		}()
+		eventuallyMetrics(httpClient, func(g Gomega, metricsData string) {
+			g.Expect(metricsData).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllm.VLLMReqRunningMetricName, 1)))
+		})
+
+		queuedCtx, cancelQueued := context.WithCancel(context.Background())
+		DeferCleanup(cancelQueued)
+		queuedErr := make(chan error, 1)
+		go func() {
+			defer GinkgoRecover()
+			out := mockGenerateServer{start: time.Now(), ctx: queuedCtx}
+			queuedErr <- comm.Generate(newReq("grpc-queued"), &out)
+		}()
+		eventuallyMetrics(httpClient, func(g Gomega, metricsData string) {
+			g.Expect(metricsData).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllm.VLLMReqWaitingMetricName, 1)))
+		})
+
+		// Cancelling the running request frees its worker, which then drops the
+		// cancelled queued request.
+		cancelQueued()
+		cancelRunning()
+
+		Eventually(runningErr).Should(Receive(MatchError(context.Canceled)))
+		Eventually(queuedErr).Should(Receive(MatchError(context.Canceled)))
+		eventuallyMetrics(httpClient, func(g Gomega, metricsData string) {
+			g.Expect(metricsData).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllm.VLLMReqRunningMetricName, 0)))
+			g.Expect(metricsData).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllm.VLLMReqWaitingMetricName, 0)))
+			g.Expect(metricsData).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllm.VLLMReqQueueTimeMetricName+"_count", 1)))
+			// Only the running request is reported as failed; the dropped one never ran.
+			g.Expect(metricsData).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllm.VLLME2EReqLatencyMetricName+"_count", 1)))
+		})
+	})
+
 	It("should send correct token metrics via gRPC", func() {
 		ctx := context.TODO()
 		args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho}

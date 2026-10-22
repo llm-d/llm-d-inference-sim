@@ -46,7 +46,7 @@ func newBusTestConfig() common.Configuration {
 }
 
 var _ = Describe("LoRA ref counting on the bus", func() {
-	It("moves adapters through waiting -> running -> done", func() {
+	It("moves adapters through waiting -> running -> done, or waiting -> dropped", func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		DeferCleanup(cancel)
 
@@ -74,6 +74,12 @@ var _ = Describe("LoRA ref counting on the bus", func() {
 		send("b", LoRADone)
 		Eventually(loraKeys(&bus.waitingLoras)).Should(BeEmpty())
 		Eventually(loraKeys(&bus.runningLoras)).Should(BeEmpty())
+
+		send("c", LoRAWaiting)
+		Eventually(loraKeys(&bus.waitingLoras)).Should(ConsistOf("c"))
+		send("c", LoRADropped)
+		Eventually(loraKeys(&bus.waitingLoras)).Should(BeEmpty())
+		Consistently(loraKeys(&bus.runningLoras)).Should(BeEmpty())
 	})
 })
 

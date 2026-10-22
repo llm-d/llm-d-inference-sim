@@ -77,6 +77,10 @@ func (c *Communication) Generate(in *pb.GenerateRequest, out grpc.ServerStreamin
 			}
 		}
 	}
+	// A request aborted before its first token closes the channel empty, leaving respCtx nil.
+	if err := out.Context().Err(); err != nil {
+		return err
+	}
 
 	var resp any
 	if in.Stream {

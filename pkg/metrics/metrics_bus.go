@@ -147,6 +147,8 @@ func (b *MetricsBus) loraCounterLoop(ctx context.Context) {
 				b.incrementLoraRefCount(ev.Model, &b.runningLoras)
 			case LoRADone:
 				b.decrementLoraRefCount(ev.Model, &b.runningLoras)
+			case LoRADropped:
+				b.decrementLoraRefCount(ev.Model, &b.waitingLoras)
 			default:
 				// invalid event
 				continue
@@ -309,9 +311,11 @@ const (
 	LoRARunning
 	// LoRADone: request for a LoRA has completed (success or failure).
 	LoRADone
+	// LoRADropped: request for a LoRA was abandoned before it started running.
+	LoRADropped
 )
 
-// LoRAChanged signals a waiting/running/done transition for a LoRA request.
+// LoRAChanged signals a LoRAState transition for a LoRA request.
 type LoRAChanged struct {
 	Model string
 	State LoRAState
