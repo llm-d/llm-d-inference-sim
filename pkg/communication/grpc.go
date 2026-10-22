@@ -42,7 +42,7 @@ func (c *Communication) Generate(in *pb.GenerateRequest, out grpc.ServerStreamin
 	respBuilder := &generationGRPCRespBuilder{}
 	_, _, channel, err, _ := c.processor.HandleRequest(req)
 	if err != nil {
-		return status.Errorf(extractGRPCCode(err), err.Message, err)
+		return status.Error(extractGRPCCode(err), err.Message)
 	}
 
 	c.logger.V(logging.DEBUG).Info("Received", "new gRPC", req.AsString())
@@ -60,7 +60,7 @@ func (c *Communication) Generate(in *pb.GenerateRequest, out grpc.ServerStreamin
 		default:
 			// Send error
 			if response.Err != nil {
-				return status.Errorf(extractGRPCCode(response.Err), response.Err.Message, response.Err)
+				return status.Error(extractGRPCCode(response.Err), response.Err.Message)
 			}
 			respCtx = response.RespCtx
 
