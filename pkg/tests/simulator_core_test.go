@@ -403,6 +403,25 @@ var _ = Describe("Simulator core", forEachEngine(func() {
 			Expect(dataset.IsValidText(strings.TrimPrefix(content, prompt))).To(BeTrue())
 		})
 
+		It("Should fill the context window with ignore_eos when max_tokens is not set", func() {
+			ctx := context.TODO()
+			model := common.TestModelName
+			maxModelLen := int64(100)
+
+			args := []string{"cmd", "--model", model, "--mode", common.ModeRandom,
+				engineFlag(common.FieldContextWindow), strconv.FormatInt(maxModelLen, 10)}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			openaiclient, params := getOpenAIClientAndChatParams(client, model, testUserMessage, false)
+
+			resp, err := openaiclient.Chat.Completions.New(ctx, params, option.WithJSONSet("ignore_eos", true))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.Choices).To(HaveLen(1))
+			Expect(resp.Choices[0].FinishReason).To(Equal(common.LengthFinishReason))
+			Expect(resp.Usage.CompletionTokens).To(Equal(maxModelLen - resp.Usage.PromptTokens))
+		})
+
 		It("Should truncate the echo response to max_tokens when the prompt is longer", func() {
 			ctx := context.TODO()
 			model := common.TestModelName
