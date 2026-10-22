@@ -1178,6 +1178,8 @@ func (g *GenerateRequest) IncludeUsage() bool {
 
 type SamplingParams struct {
 	MaxTokens *int64             `json:"max_tokens"`
+	MinTokens *int64             `json:"min_tokens"`
+	IgnoreEOS bool               `json:"ignore_eos"`
 	ExtraArgs *SamplingExtraArgs `json:"extra_args"`
 }
 
@@ -1208,6 +1210,13 @@ func (g *GenerateRequest) GetMaxCompletionTokens() *int64 {
 
 func (g *GenerateRequest) ExtractMaxTokens() *int64 {
 	return g.SamplingParams.MaxTokens
+}
+
+func (g *GenerateRequest) GetMinTokens() *int64 {
+	if g.SamplingParams == nil {
+		return nil
+	}
+	return g.SamplingParams.MinTokens
 }
 
 func (g *GenerateRequest) GetLogprobs() *int {
