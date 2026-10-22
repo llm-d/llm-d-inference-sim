@@ -419,9 +419,11 @@ Structure of requests/responses
         - token_ids
         - sampling_params
             - max_tokens
+            - min_tokens
+            - ignore_eos
         - features
             - mm_hashes
-        - ignore_eos
+        - ignore_eos (same as `sampling_params.ignore_eos`)
         - kv_transfer_params
           - do_remote_decode
           - do_remote_prefill

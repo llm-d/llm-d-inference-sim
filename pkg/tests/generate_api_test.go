@@ -111,6 +111,38 @@ var _ = Describe("Simulator", func() {
 				`"ignore_eos": true, "sampling_params": {"max_tokens": 10}`, 10),
 		)
 
+		DescribeTable("Should generate max_tokens when sampling_params ask for it",
+			func(samplingParams string) {
+				ctx := context.TODO()
+				args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom}
+				client, err := startServerWithArgs(ctx, args)
+				Expect(err).NotTo(HaveOccurred())
+
+				reqBody := fmt.Sprintf(`{
+					"model": "%s",
+					"token_ids": [1, 2, 3, 4],
+					"sampling_params": %s
+				}`, common.TestModelName, samplingParams)
+				// a random length lands on max_tokens now and then, so a single response proves little
+				for range 10 {
+					resp, err := client.Post("http://localhost/inference/v1/generate", "application/json", strings.NewReader(reqBody))
+					Expect(err).NotTo(HaveOccurred())
+					Expect(resp.StatusCode).To(Equal(http.StatusOK))
+					body, err := io.ReadAll(resp.Body)
+					Expect(err).NotTo(HaveOccurred())
+					Expect(resp.Body.Close()).To(Succeed())
+
+					var generateResp api.GenerateResponse
+					Expect(json.Unmarshal(body, &generateResp)).To(Succeed())
+					Expect(generateResp.Choices).To(HaveLen(1))
+					Expect(generateResp.Choices[0].TokenIDs).To(HaveLen(100))
+					Expect(*generateResp.Choices[0].FinishReason).To(Equal(common.LengthFinishReason))
+				}
+			},
+			Entry("ignore_eos", `{"max_tokens": 100, "ignore_eos": true}`),
+			Entry("min_tokens", `{"max_tokens": 100, "min_tokens": 100}`),
+		)
+
 		DescribeTable("Should return 400 when required fields are missing",
 			func(reqBody string, expectedErrMsg string) {
 				ctx := context.TODO()
