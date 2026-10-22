@@ -73,6 +73,44 @@ var _ = Describe("Simulator", func() {
 			Entry(nil, common.QwenModelName),
 		)
 
+		DescribeTable("Should echo token_ids in echo mode",
+			func(extraParams string, expectedLen int) {
+				ctx := context.TODO()
+				args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho}
+				client, err := startServerWithArgs(ctx, args)
+				Expect(err).NotTo(HaveOccurred())
+
+				reqBody := fmt.Sprintf(`{
+					"model": "%s",
+					"token_ids": [1, 2, 3, 4, 5],
+					%s
+				}`, common.TestModelName, extraParams)
+				resp, err := client.Post("http://localhost/inference/v1/generate", "application/json", strings.NewReader(reqBody))
+				Expect(err).NotTo(HaveOccurred())
+				defer func() {
+					err := resp.Body.Close()
+					Expect(err).NotTo(HaveOccurred())
+				}()
+
+				Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+				body, err := io.ReadAll(resp.Body)
+				Expect(err).NotTo(HaveOccurred())
+
+				var generateResp api.GenerateResponse
+				Expect(json.Unmarshal(body, &generateResp)).To(Succeed())
+				Expect(generateResp.Choices).To(HaveLen(1))
+				Expect(*generateResp.Choices[0].FinishReason).To(Equal(common.LengthFinishReason))
+				Expect(generateResp.Choices[0].TokenIDs).To(HaveLen(expectedLen))
+				echoed := min(expectedLen, 5)
+				Expect(generateResp.Choices[0].TokenIDs[:echoed]).To(Equal([]uint32{1, 2, 3, 4, 5}[:echoed]))
+			},
+			Entry("truncated to max_tokens",
+				`"sampling_params": {"max_tokens": 2}`, 2),
+			Entry("padded to max_tokens with ignore_eos",
+				`"ignore_eos": true, "sampling_params": {"max_tokens": 10}`, 10),
+		)
+
 		DescribeTable("Should return 400 when required fields are missing",
 			func(reqBody string, expectedErrMsg string) {
 				ctx := context.TODO()

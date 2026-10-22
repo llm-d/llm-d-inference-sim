@@ -69,12 +69,22 @@ func (ed *EchoDataset) GetResponseTokens(req api.Request) (*api.Tokenized, strin
 	maxLen, isMaxTokensInReq := ed.calculateResponseMaxLen(req)
 	n := common.EchoResponseLen(tokens.Length(), req.GetMinTokens(), maxLen, req.GetIgnoreEOS() && isMaxTokensInReq)
 
+	// a prompt given as token ids has no strings, and its echo must not get any
+	hasStrings := len(tokens.Strings) != 0
 	switch {
 	case n < tokens.Length():
-		tokens = &api.Tokenized{Tokens: tokens.Tokens[:n], Strings: tokens.Strings[:n]}
+		truncated := api.Tokenized{Tokens: tokens.Tokens[:n]}
+		if hasStrings {
+			truncated.Strings = tokens.Strings[:n]
+		}
+		tokens = &truncated
 	case n > tokens.Length():
+		padding := ed.generatePresetRandomTokens(n - tokens.Length())
+		if !hasStrings {
+			padding.Strings = nil
+		}
 		padded := api.Tokenized{Tokens: slices.Clone(tokens.Tokens), Strings: slices.Clone(tokens.Strings)}
-		padded.Append(ed.generatePresetRandomTokens(n - tokens.Length()))
+		padded.Append(padding)
 		tokens = &padded
 	}
 
