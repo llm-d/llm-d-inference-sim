@@ -17,6 +17,7 @@ limitations under the License.
 package tests
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"io"
@@ -113,6 +114,42 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 			g.Expect(metricsData).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllm.VLLMReqRunningMetricName, 2)))
 			g.Expect(metricsData).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllm.VLLMReqWaitingMetricName, 1)))
 		}).WithTimeout(2 * time.Second).WithPolling(25 * time.Millisecond).Should(Succeed())
+	})
+
+	It("should stop running a streamed request and free its KV cache blocks once the client disconnects", func() {
+		ctx := context.TODO()
+		args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
+			"--inter-token-latency", "50ms", "--enable-kvcache", "--kv-cache-size", "16", "--block-size", "8"}
+
+		client, err := startServerWithArgsAndEnv(ctx, common.ModeRandom, args, map[string]string{"POD_IP": "localhost"})
+		Expect(err).NotTo(HaveOccurred())
+
+		// The prompt spans several KV cache blocks. Generating all 200 tokens
+		// takes 10s, far longer than eventuallyMetrics waits.
+		prompt := strings.Repeat(testUserMessage+" ", 8)
+		reqBody := fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":%q}],"stream":true,"max_tokens":200,"ignore_eos":true}`,
+			common.TestModelName, prompt)
+		resp, err := client.Post("http://localhost/v1/chat/completions", "application/json", strings.NewReader(reqBody))
+		Expect(err).NotTo(HaveOccurred())
+		DeferCleanup(func() { _ = resp.Body.Close() })
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+		_, err = bufio.NewReader(resp.Body).ReadString('\n')
+		Expect(err).NotTo(HaveOccurred())
+
+		kvCacheUsagePrefix := getCountMetricPrefix(common.TestModelName, vllm.VLLMKVCacheUsageMetricName)
+		eventuallyMetrics(client, func(g Gomega, metricsData string) {
+			g.Expect(metricsData).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllm.VLLMReqRunningMetricName, 1)))
+			kvCacheUsage := findFloatMetric(strings.Split(metricsData, "\n"), kvCacheUsagePrefix)
+			g.Expect(kvCacheUsage).NotTo(BeNil())
+			g.Expect(*kvCacheUsage).To(BeNumerically(">", 0))
+		})
+
+		Expect(resp.Body.Close()).To(Succeed())
+
+		eventuallyMetrics(client, func(g Gomega, metricsData string) {
+			g.Expect(metricsData).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllm.VLLMReqRunningMetricName, 0)))
+			g.Expect(metricsData).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllm.VLLMKVCacheUsageMetricName, 0)))
+		})
 	})
 
 	It("should not expose lora_requests_info when no LoRA modules are configured", func() {

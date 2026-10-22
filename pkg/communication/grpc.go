@@ -40,7 +40,7 @@ func (c *Communication) Generate(in *pb.GenerateRequest, out grpc.ServerStreamin
 
 	req := c.pbRequestToRequest(in)
 	respBuilder := &generationGRPCRespBuilder{}
-	_, _, channel, err, _ := c.processor.HandleRequest(req)
+	_, _, channel, err, _ := c.processor.HandleRequest(out.Context(), req)
 	if err != nil {
 		return status.Errorf(extractGRPCCode(err), err.Message, err)
 	}
@@ -76,6 +76,10 @@ func (c *Communication) Generate(in *pb.GenerateRequest, out grpc.ServerStreamin
 				tokens.Append(*response.Tokens)
 			}
 		}
+	}
+	// A request aborted before its first token closes the channel empty, leaving respCtx nil.
+	if err := out.Context().Err(); err != nil {
+		return err
 	}
 
 	var resp any

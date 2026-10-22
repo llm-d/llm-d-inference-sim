@@ -376,7 +376,16 @@ func (c *Communication) handleHTTP(req endpoint.Request, respBuilder responseBui
 	headerOverride, _ := strconv.ParseBool(string(ctx.Request.Header.Peek(XSendImageHeader)))
 	req.SetSendImage(c.runtime.ShouldSendImage(headerOverride))
 
-	numChoices, isStream, channel, err, errInjected := c.processor.HandleRequest(req)
+	// fasthttp's RequestCtx is done only at shutdown, so abortCtx is cancelled
+	// when this handler returns, unless sendStream took the response over.
+	abortCtx, abort := context.WithCancel(context.Background())
+	handedOff := false
+	defer func() {
+		if !handedOff {
+			abort()
+		}
+	}()
+	numChoices, isStream, channel, err, errInjected := c.processor.HandleRequest(abortCtx, req)
 	if err != nil {
 		c.sendError(ctx, err, errInjected)
 		return
@@ -387,7 +396,7 @@ func (c *Communication) handleHTTP(req endpoint.Request, respBuilder responseBui
 	c.addResponseHeaders(ctx, req.GetRequestID())
 
 	if isStream {
-		c.handleStream(ctx, *channel, respBuilder, numChoices)
+		handedOff = c.handleStream(ctx, *channel, respBuilder, numChoices, abort)
 	} else {
 		ctx.SetStatusCode(fasthttp.StatusOK)
 		ctx.SetContentType("application/json")
@@ -401,20 +410,21 @@ func (c *Communication) handleHTTP(req endpoint.Request, respBuilder responseBui
 // the status code can no longer change afterwards. Peeking lets a request
 // that fails before producing any content (e.g. queue full, or a validation
 // error caught only once processing starts) still be reported with its real
-// HTTP status instead of being forced into a 200 SSE error frame.
+// HTTP status instead of being forced into a 200 SSE error frame. It reports
+// whether it handed the response to sendStream.
 func (c *Communication) handleStream(ctx *fasthttp.RequestCtx, channel common.Channel[*endpoint.ResponseInfo],
-	respBuilder responseBuilder, numChoices int) {
+	respBuilder responseBuilder, numChoices int, abort context.CancelFunc) bool {
 	first := <-channel.Channel
 	if first != nil && first.Err != nil {
-		go drainResponseChannel(channel)
 		c.sendError(ctx, first.Err, false)
-		return
+		return false
 	}
 
 	ctx.SetStatusCode(fasthttp.StatusOK)
 	ctx.SetContentType("text/event-stream")
 
-	c.sendStream(ctx, channel, respBuilder, numChoices, first)
+	c.sendStream(ctx, channel, respBuilder, numChoices, first, abort)
+	return true
 }
 
 func (c *Communication) sendNonStream(ctx *fasthttp.RequestCtx, channel common.Channel[*endpoint.ResponseInfo],
@@ -429,9 +439,7 @@ func (c *Communication) sendNonStream(ctx *fasthttp.RequestCtx, channel common.C
 	respCtxPerChoice := make([]endpoint.ResponseContext, numChoices)
 	for response := range channel.Channel {
 		if response.Err != nil {
-			// Fail-fast: abort the whole request. Drain remaining responses in the
-			// background so producers don't fill the buffer and drop messages.
-			go drainResponseChannel(channel)
+			// Fail-fast: abort the whole request.
 			c.sendError(ctx, response.Err, false)
 			return
 		}
@@ -460,13 +468,6 @@ func (c *Communication) sendNonStream(ctx *fasthttp.RequestCtx, channel common.C
 		return
 	}
 	ctx.Response.SetBody(data)
-}
-
-// drainResponseChannel reads and discards responses until the channel closes.
-// Used after a fail-fast abort so in-flight producers can finish cleanly.
-func drainResponseChannel(channel common.Channel[*endpoint.ResponseInfo]) {
-	for range channel.Channel { //nolint:revive
-	}
 }
 
 // sendStreamErrorAndDone writes a single error SSE frame followed by the
@@ -552,9 +553,10 @@ func (c *Communication) sendOrFail(w *bufio.Writer, chunk sseChunk, failMsg stri
 
 // sendStream writes the response from a goroutine that outlives the handler.
 // Once the handler returns, fasthttp owns ctx and may recycle it for another
-// request, so the goroutine must not use ctx.
+// request, so the goroutine must not use ctx. The goroutine calls abort once it
+// stops writing.
 func (c *Communication) sendStream(ctx *fasthttp.RequestCtx, channel common.Channel[*endpoint.ResponseInfo],
-	respBuilder responseBuilder, numChoices int, first *endpoint.ResponseInfo) {
+	respBuilder responseBuilder, numChoices int, first *endpoint.ResponseInfo, abort context.CancelFunc) {
 	pr, pw := io.Pipe()
 	route := errorRoute(string(ctx.Path()))
 
@@ -564,6 +566,7 @@ func (c *Communication) sendStream(ctx *fasthttp.RequestCtx, channel common.Chan
 		state := newStreamState(numChoices)
 
 		defer func() {
+			abort()
 			w.Flush()  //nolint:errcheck
 			pw.Close() //nolint:errcheck
 		}()
@@ -584,7 +587,6 @@ func (c *Communication) sendStream(ctx *fasthttp.RequestCtx, channel common.Chan
 				// Fail-fast: previously streamed chunks remain sent; emit a single error
 				// frame, end the stream, and stop reading from the other prompts.
 				c.sendStreamErrorAndDone(route, w, respBuilder, response.Err)
-				go drainResponseChannel(channel)
 				return
 			}
 			// Set respCtx once from the first response seen across all choices.
@@ -614,7 +616,6 @@ func (c *Communication) sendStream(ctx *fasthttp.RequestCtx, channel common.Chan
 
 			ok, stop := c.emitResponseChunks(route, w, respBuilder, response, respCtx, &state, response.Status == endpoint.ResponseEndOfTokens)
 			if !ok {
-				go drainResponseChannel(channel)
 				return
 			}
 			if stop {
