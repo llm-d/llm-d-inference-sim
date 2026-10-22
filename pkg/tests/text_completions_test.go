@@ -1027,6 +1027,23 @@ var _ = Describe("Simulator", forEachEngine(func() {
 		Entry(nil, common.ModeEcho, 2), // logprobs=2
 	)
 
+	It("returns the sampled token's logprob when logprobs is 0", func() {
+		ctx := context.TODO()
+		client, err := startServer(ctx, common.ModeEcho)
+		Expect(err).NotTo(HaveOccurred())
+
+		openaiclient, params := getOpenAIClientAndCompletionParams(client, common.TestModelName, testUserMessage, false)
+		params.Logprobs = param.NewOpt(int64(0))
+		resp, err := openaiclient.Completions.New(ctx, params)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.Choices).To(HaveLen(1))
+
+		logprobs := resp.Choices[0].Logprobs
+		Expect(logprobs.Tokens).NotTo(BeEmpty())
+		Expect(logprobs.TokenLogprobs).To(HaveLen(len(logprobs.Tokens)))
+		Expect(logprobs.TopLogprobs).To(HaveLen(len(logprobs.Tokens)))
+	})
+
 	DescribeTable("non-streaming text completions with logprobs",
 		func(mode string, logprobsParam interface{}) {
 			ctx := context.TODO()
