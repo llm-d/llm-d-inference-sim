@@ -442,6 +442,71 @@ var _ = Describe("Simulator", forEachEngine(func() {
 		Entry("streaming", true),
 	)
 
+	It("Should group tokens by stream-interval in text completions streaming", func() {
+		ctx := context.TODO()
+		args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom, "--stream-interval", "4"}
+		client, err := startServerWithArgs(ctx, args)
+		Expect(err).NotTo(HaveOccurred())
+
+		openaiclient, params := getOpenAIClientAndCompletionParams(client, common.TestModelName, testUserMessage, true)
+		params.MaxTokens = param.NewOpt(int64(10))
+		params.Logprobs = param.NewOpt(int64(1))
+		stream := openaiclient.Completions.NewStreaming(ctx, params, option.WithJSONSet("ignore_eos", true))
+		defer func() {
+			Expect(stream.Close()).To(Succeed())
+		}()
+		var lens []int
+		for stream.Next() {
+			for _, choice := range stream.Current().Choices {
+				if choice.Text != "" {
+					lens = append(lens, len(choice.Logprobs.Tokens))
+				}
+			}
+		}
+		Expect(stream.Err()).NotTo(HaveOccurred())
+		Expect(lens).To(Equal([]int{1, 4, 4, 1}))
+	})
+
+	It("Should send logprobs per token in text completions streaming with stream-interval", func() {
+		ctx := context.TODO()
+		args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho, "--stream-interval", "4"}
+		client, err := startServerWithArgs(ctx, args)
+		Expect(err).NotTo(HaveOccurred())
+
+		openaiclient := openai.NewClient(option.WithBaseURL(baseURL), option.WithHTTPClient(client))
+		prompts := []string{prompt1, prompt2}
+		params := openai.CompletionNewParams{
+			Prompt:   openai.CompletionNewParamsPromptUnion{OfArrayOfStrings: prompts},
+			Model:    openai.CompletionNewParamsModel(common.TestModelName),
+			Logprobs: param.NewOpt(int64(2)),
+		}
+		stream := openaiclient.Completions.NewStreaming(ctx, params)
+		defer func() {
+			Expect(stream.Close()).To(Succeed())
+		}()
+		texts := make([]string, len(prompts))
+		for stream.Next() {
+			for _, choice := range stream.Current().Choices {
+				if choice.Text == "" {
+					continue
+				}
+				lp := choice.Logprobs
+				Expect(lp.TokenLogprobs).To(HaveLen(len(lp.Tokens)))
+				Expect(lp.TopLogprobs).To(HaveLen(len(lp.Tokens)))
+				Expect(lp.TextOffset).To(HaveLen(len(lp.Tokens)))
+				Expect(len(lp.Tokens)).To(BeNumerically("<=", 4))
+				for i, tok := range lp.Tokens {
+					// text_offset continues across chunks of the same choice
+					Expect(lp.TextOffset[i]).To(BeEquivalentTo(len(texts[choice.Index])))
+					texts[choice.Index] += tok
+				}
+				Expect(strings.Join(lp.Tokens, "")).To(Equal(choice.Text))
+			}
+		}
+		Expect(stream.Err()).NotTo(HaveOccurred())
+		Expect(texts).To(Equal(prompts))
+	})
+
 	// Token-id prompts: /completions accepts the prompt as []uint32 (a single
 	// pre-tokenized prompt) or [][]uint32 (an array of pre-tokenized prompts).
 	// In echo mode the simulator replays the ids back as a comma-separated

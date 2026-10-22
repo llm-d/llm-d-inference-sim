@@ -489,25 +489,34 @@ func (s *Simulator) simulateResponseProcessing(respCtx endpoint.ResponseContext)
 			common.WriteToChannel(reqCtx.ResponseChannel(),
 				&endpoint.ResponseInfo{RespCtx: respCtx, ChoiceIdx: choiceIdx}, s.Context.logger)
 		} else {
+			interval := s.Context.Config().StreamInterval
+			buf := &api.Tokenized{Tokens: []uint32{}, Strings: []string{}}
+			// The first token is sent alone, the rest are grouped into chunks of up to interval tokens.
+			// A chunk never spans two tool calls.
+			flush := func(i, n int, toolCall *api.ToolCall, last bool) {
+				if i != 0 && len(buf.Tokens) < interval && i != n-1 {
+					return
+				}
+				respInfo := endpoint.ResponseInfo{Tokens: buf, RespCtx: respCtx, ToolCall: toolCall, ChoiceIdx: choiceIdx}
+				if last {
+					respInfo.Status = endpoint.ResponseEndOfTokens
+				}
+				common.WriteToChannel(reqCtx.ResponseChannel(), &respInfo, s.Context.logger)
+				buf = &api.Tokenized{Tokens: []uint32{}, Strings: []string{}}
+			}
 			if respCtx.ResponseTokens() != nil {
+				n := len(respCtx.ResponseTokens().Tokens)
 				for i, token := range respCtx.ResponseTokens().Tokens {
 					if i != 0 {
 						s.Context.simulateInterTokenLatency()
 						nTokens++
 					}
 
-					tokens := &api.Tokenized{
-						Tokens:  []uint32{token},
-						Strings: []string{},
-					}
+					buf.Tokens = append(buf.Tokens, token)
 					if len(respCtx.ResponseTokens().Strings) != 0 {
-						tokens.Strings = append(tokens.Strings, respCtx.ResponseTokens().Strings[i])
+						buf.Strings = append(buf.Strings, respCtx.ResponseTokens().Strings[i])
 					}
-					respInfo := endpoint.ResponseInfo{Tokens: tokens, RespCtx: respCtx, ChoiceIdx: choiceIdx}
-					if i == len(respCtx.ResponseTokens().Tokens)-1 {
-						respInfo.Status = endpoint.ResponseEndOfTokens
-					}
-					common.WriteToChannel(reqCtx.ResponseChannel(), &respInfo, s.Context.logger)
+					flush(i, n, nil, i == n-1)
 				}
 			} else {
 				toolCalls := respCtx.ToolCalls()
@@ -515,21 +524,15 @@ func (s *Simulator) simulateResponseProcessing(respCtx endpoint.ResponseContext)
 					// Tool calls are only supported in HTTP at the moment, so we assume that we always
 					// have string tokenized arguments
 					args := tc.Function.TokenizedArguments()
+					n := len(args.Tokens)
 					for i, token := range args.Tokens {
 						if i != 0 {
 							s.Context.simulateInterTokenLatency()
 							nTokens++
 						}
-						respInfo := endpoint.ResponseInfo{
-							Tokens:    &api.Tokenized{Tokens: []uint32{token}, Strings: []string{args.Strings[i]}},
-							RespCtx:   respCtx,
-							ToolCall:  &toolCalls[tcIdx],
-							ChoiceIdx: choiceIdx,
-						}
-						if tcIdx == len(toolCalls)-1 && i == len(args.Tokens)-1 {
-							respInfo.Status = endpoint.ResponseEndOfTokens
-						}
-						common.WriteToChannel(reqCtx.ResponseChannel(), &respInfo, s.Context.logger)
+						buf.Tokens = append(buf.Tokens, token)
+						buf.Strings = append(buf.Strings, args.Strings[i])
+						flush(i, n, &toolCalls[tcIdx], tcIdx == len(toolCalls)-1 && i == n-1)
 					}
 				}
 			}

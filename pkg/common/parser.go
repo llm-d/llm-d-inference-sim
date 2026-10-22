@@ -259,6 +259,7 @@ func ParseCommandParamsAndLoadConfig(eng Engine) (*Configuration, error) {
 
 	f.IntVar(&config.Port, "port", config.Port, "Port")
 	f.IntVar(&config.MaxRequestBodySizeMB, "max-request-body-size-mb", config.MaxRequestBodySizeMB, "Maximum allowed size of an HTTP request body in megabytes, must be between 1 and 512, default is 4 (matching the fasthttp built-in default)")
+	f.IntVar(&config.StreamInterval, "stream-interval", config.StreamInterval, "Number of tokens per streamed chunk after the first token")
 	f.StringVar(&config.Model, "model", config.Model,
 		"Currently 'loaded' model (if omitted on the command line, "+ModelEnv+" may set the model; see docs)")
 	f.StringVar(&config.Mode, "mode", config.Mode, "Simulator mode: echo - returns the same text that was sent in the request, for chat completion returns the last message; random - returns random sentence from a bank of pre-defined sentences")

@@ -157,6 +157,9 @@ func (*baseRespBuilder) createRenderResponse(_ [][]uint32, _ *api.RenderMMFeatur
 type textComplHTTPRespBuilder struct {
 	baseRespBuilder
 	transport Transport
+	// per-choice position and text offset of the next streamed token
+	tokenPos   map[int]int
+	textOffset map[int]int
 }
 
 func (respBuilder *textComplHTTPRespBuilder) createResponse(respCtxPerChoice []endpoint.ResponseContext,
@@ -221,10 +224,22 @@ func (respBuilder *textComplHTTPRespBuilder) createChunk(respCtx endpoint.Respon
 
 	// Generate logprobs if requested and tokens is not empty
 	if respCtx.TopLogprobs() != nil && tokens != nil && len(tokens.Strings) > 0 && *respCtx.TopLogprobs() > 0 {
-		// Use token position based on current time
-		tokenPosition := int(respCtx.CreationTime()) % 1000 // Simple position simulation
-		logprobs := common.GenerateSingleTokenTextLogprobs(tokensStr, tokenPosition, *respCtx.TopLogprobs())
-		if logprobs != nil {
+		if respBuilder.tokenPos == nil {
+			respBuilder.tokenPos = make(map[int]int)
+			respBuilder.textOffset = make(map[int]int)
+		}
+		logprobs := &api.TextLogprobs{}
+		for _, tok := range tokens.Strings {
+			if lp := common.GenerateSingleTokenTextLogprobs(tok, respBuilder.tokenPos[choiceIdx], *respCtx.TopLogprobs()); lp != nil {
+				logprobs.Tokens = append(logprobs.Tokens, lp.Tokens[0])
+				logprobs.TokenLogprobs = append(logprobs.TokenLogprobs, lp.TokenLogprobs[0])
+				logprobs.TopLogprobs = append(logprobs.TopLogprobs, lp.TopLogprobs[0])
+				logprobs.TextOffset = append(logprobs.TextOffset, respBuilder.textOffset[choiceIdx])
+			}
+			respBuilder.tokenPos[choiceIdx]++
+			respBuilder.textOffset[choiceIdx] += len(tok)
+		}
+		if len(logprobs.Tokens) > 0 {
 			choice.Logprobs = logprobs
 		}
 	}
@@ -257,6 +272,8 @@ var _ responseBuilder = (*textComplHTTPRespBuilder)(nil)
 type chatComplHTTPRespBuilder struct {
 	baseRespBuilder
 	transport Transport
+	// per-choice position of the next streamed token
+	tokenPos map[int]int
 }
 
 func (respBuilder *chatComplHTTPRespBuilder) createResponse(respCtxPerChoice []endpoint.ResponseContext,
@@ -365,13 +382,18 @@ func (respBuilder *chatComplHTTPRespBuilder) createChunk(respCtx endpoint.Respon
 
 		// Generate logprobs if requested and token is not empty
 		if respCtx.TopLogprobs() != nil {
-			// Use token position based on current time
-			tokenPosition := int(respCtx.CreationTime()) % 1000 // Simple position simulation
-			logprobs := common.GenerateSingleTokenChatLogprobs(tokensStr, tokenPosition, *respCtx.TopLogprobs())
-			if logprobs != nil {
-				chunk.Choices[0].Logprobs = &api.ChatLogprobs{
-					Content: []api.LogprobsContent{*logprobs},
+			if respBuilder.tokenPos == nil {
+				respBuilder.tokenPos = make(map[int]int)
+			}
+			var content []api.LogprobsContent
+			for _, tok := range tokens.Strings {
+				if lp := common.GenerateSingleTokenChatLogprobs(tok, respBuilder.tokenPos[choiceIdx], *respCtx.TopLogprobs()); lp != nil {
+					content = append(content, *lp)
 				}
+				respBuilder.tokenPos[choiceIdx]++
+			}
+			if len(content) > 0 {
+				chunk.Choices[0].Logprobs = &api.ChatLogprobs{Content: content}
 			}
 		}
 	}
