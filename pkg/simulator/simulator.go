@@ -470,7 +470,7 @@ func (s *Simulator) dequeue() endpoint.RequestContext {
 }
 
 // simulateResponseProcessing returns false if the response was abandoned before
-// its last token.
+// it was fully generated.
 func (s *Simulator) simulateResponseProcessing(respCtx endpoint.ResponseContext) bool {
 	reqCtx := respCtx.RequestContext()
 	choiceIdx := reqCtx.ChoiceIndex()
@@ -543,13 +543,11 @@ func (s *Simulator) simulateResponseProcessing(respCtx endpoint.ResponseContext)
 				}
 			}
 		}
-		common.WriteToChannel(s.Context.metricsBus.DecodeEnded,
-			metrics.DecodeEnded{GenerationTokens: nTokens, DecodeDuration: time.Since(startDecode).Seconds()},
-			s.Context.logger)
-
-		if reqCtx.Request().SendImage() {
-			s.Context.simulateImageGenerationLatency()
+		decodeEnded := metrics.DecodeEnded{GenerationTokens: nTokens, DecodeDuration: time.Since(startDecode).Seconds()}
+		if reqCtx.Request().SendImage() && !s.Context.simulateImageGenerationLatency(reqCtx.ResponseChannel().Done) {
+			return false
 		}
+		common.WriteToChannel(s.Context.metricsBus.DecodeEnded, decodeEnded, s.Context.logger)
 	}
 	return true
 }

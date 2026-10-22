@@ -445,9 +445,20 @@ func (s *SimContext) simulateTTFT(respCtx endpoint.ResponseContext) {
 		metrics.PrefillEnded{PrefillDuration: ttft.Seconds()}, s.logger)
 }
 
-func (s *SimContext) simulateImageGenerationLatency() {
-	if latency := s.latencyCalc().GetImageGenerationLatency(); latency > 0 {
-		time.Sleep(latency)
+// simulateImageGenerationLatency waits for the image generation latency and
+// returns false if done is closed first.
+func (s *SimContext) simulateImageGenerationLatency(done <-chan struct{}) bool {
+	latency := s.latencyCalc().GetImageGenerationLatency()
+	if latency <= 0 {
+		return true
+	}
+	timer := time.NewTimer(latency)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return true
+	case <-done:
+		return false
 	}
 }
 

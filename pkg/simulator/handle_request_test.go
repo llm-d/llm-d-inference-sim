@@ -174,3 +174,37 @@ var _ = Describe("HandleRequest with n > 1 and the KV cache enabled", func() {
 		reqCtx2.KVCacheOnRequestEnd()
 	})
 })
+
+var _ = Describe("simulateResponseProcessing", func() {
+	It("stops waiting for the image once the response is abandoned", func() {
+		sim := newHandleRequestTestSim(context.Background(), 1, "--omni", "--time-to-generate-image", "10s")
+
+		req := &endpoint.ChatCompletionsRequest{}
+		Expect(req.Unmarshal([]byte(`{"model":"` + common.TestModelName +
+			`","messages":[{"role":"user","content":"hi"}],"stream":true}`))).To(Succeed())
+		req.SetRequestID("image")
+		req.SetSendImage(true)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		DeferCleanup(cancel)
+		_, _, respChan, topErr, _ := sim.HandleRequest(ctx, req)
+		Expect(topErr).To(BeNil())
+		reqCtx := <-sim.newRequests.Channel
+		DeferCleanup(reqCtx.SignalDone)
+		respCtx, err := reqCtx.HandleRequest()
+		Expect(err).To(BeNil())
+
+		completed := make(chan bool, 1)
+		go func() { completed <- sim.simulateResponseProcessing(respCtx) }()
+
+		// Once the last token is out, the worker is waiting for the image.
+		Eventually(func(g Gomega) {
+			var response *endpoint.ResponseInfo
+			g.Expect(respChan.Channel).To(Receive(&response))
+			g.Expect(response.Status).To(Equal(endpoint.ResponseEndOfTokens))
+		}).Should(Succeed())
+
+		cancel()
+		Eventually(completed).Should(Receive(BeFalse()))
+	})
+})
