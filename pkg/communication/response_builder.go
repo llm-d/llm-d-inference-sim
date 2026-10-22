@@ -173,7 +173,7 @@ func (respBuilder *textComplHTTPRespBuilder) createResponse(respCtxPerChoice []e
 		choice := respBuilder.transport.DecorateTextChoice(api.CreateTextRespChoice(baseChoice, respText))
 
 		// Generate logprobs if requested for text completion
-		if choiceCtx.TopLogprobs() != nil && *choiceCtx.TopLogprobs() > 0 {
+		if choiceCtx.TopLogprobs() != nil {
 			if logprobsData := common.GenerateTextLogprobs(t.Strings, *choiceCtx.TopLogprobs()); logprobsData != nil &&
 				len(logprobsData.Tokens) > 0 {
 				choice.Logprobs = logprobsData
@@ -220,7 +220,7 @@ func (respBuilder *textComplHTTPRespBuilder) createChunk(respCtx endpoint.Respon
 		api.CreateTextRespChoice(api.CreateBaseResponseChoice(choiceIdx, finishReason), tokensStr))
 
 	// Generate logprobs if requested and tokens is not empty
-	if respCtx.TopLogprobs() != nil && tokens != nil && len(tokens.Strings) > 0 && *respCtx.TopLogprobs() > 0 {
+	if respCtx.TopLogprobs() != nil && tokens != nil && len(tokens.Strings) > 0 {
 		// Use token position based on current time
 		tokenPosition := int(respCtx.CreationTime()) % 1000 // Simple position simulation
 		logprobs := common.GenerateSingleTokenTextLogprobs(tokensStr, tokenPosition, *respCtx.TopLogprobs())
