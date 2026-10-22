@@ -264,7 +264,7 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 			// and skip the bucket distribution.
 			g.Expect(metricsData).To(ContainSubstring(getCountMetricLine(model, vllm.VLLMGenerationTokensMetricName+"_count", 1)))
 			// request_success_total
-			g.Expect(metricsData).To(MatchRegexp(fmt.Sprintf(`vllm:request_success_total{finish_reason="(stop|length)",model_name="%s"} 1`, common.TestModelName)))
+			g.Expect(metricsData).To(MatchRegexp(fmt.Sprintf(`vllm:request_success_total{finished_reason="(stop|length)",model_name="%s"} 1`, common.TestModelName)))
 		}).WithTimeout(2 * time.Second).WithPolling(25 * time.Millisecond).Should(Succeed())
 	})
 
@@ -354,7 +354,7 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 			g.Expect(metricsData).To(ContainSubstring(
 				getCountMetricLine(common.TestModelName, vllm.VLLMGenerationTokensMetricName+"_count", numPrompts)))
 			g.Expect(metricsData).To(MatchRegexp(fmt.Sprintf(
-				`vllm:request_success_total{finish_reason="(stop|length)",model_name="%s"} %d`,
+				`vllm:request_success_total{finished_reason="(stop|length)",model_name="%s"} %d`,
 				common.TestModelName, numPrompts)))
 			g.Expect(metricsData).To(ContainSubstring(fmt.Sprintf(
 				`vllm:prompt_tokens_total{model_name="%s"} %d`, common.TestModelName, expectedPromptTokensTotal)))

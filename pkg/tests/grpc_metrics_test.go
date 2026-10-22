@@ -141,7 +141,7 @@ var _ = Describe("gRPC Metrics", Ordered, func() {
 			// and skip the bucket distribution.
 			g.Expect(metricsData).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllm.VLLMGenerationTokensMetricName+"_count", 1)))
 			// request_success_total
-			g.Expect(metricsData).To(MatchRegexp(fmt.Sprintf(`vllm:request_success_total{finish_reason="(stop|length)",model_name="%s"} 1`, common.TestModelName)))
+			g.Expect(metricsData).To(MatchRegexp(fmt.Sprintf(`vllm:request_success_total{finished_reason="(stop|length)",model_name="%s"} 1`, common.TestModelName)))
 		}).WithTimeout(2 * time.Second).WithPolling(25 * time.Millisecond).Should(Succeed())
 	})
 

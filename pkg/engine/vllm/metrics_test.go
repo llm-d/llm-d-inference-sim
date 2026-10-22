@@ -24,6 +24,8 @@ package vllm
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -158,6 +160,20 @@ var _ = Describe("VLLMMetricsAdapter", func() {
 			Eventually(func() (int, error) {
 				return testutil.GatherAndCount(adapter.registry, "vllm:request_max_num_generation_tokens")
 			}).Should(Equal(1))
+		})
+
+		It("labels request_success_total with vLLM's finished_reason", func() {
+			adapter, _ := newTestAdapter(newTestConfig())
+
+			adapter.OnRequestSucceeded(metrics.RequestSucceeded{GenTokensPerChoice: []int{1}, FinishReason: "stop"})
+			expected := fmt.Sprintf(`
+# HELP vllm:request_success_total Count of successfully processed requests.
+# TYPE vllm:request_success_total counter
+vllm:request_success_total{finished_reason="stop",model_name=%q} 1
+`, common.TestModelName)
+			Eventually(func() error {
+				return testutil.GatherAndCompare(adapter.registry, strings.NewReader(expected), VLLMSuccessTotalMetricName)
+			}).Should(Succeed())
 		})
 
 		It("updates the KV-cache usage gauge", func() {

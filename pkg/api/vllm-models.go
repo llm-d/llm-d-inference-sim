@@ -25,7 +25,7 @@ const (
 	PromLabelRunningLoraAdapters = "running_lora_adapters"
 	PromLabelMaxLora             = "max_lora"
 	PromLabelModelName           = "model_name"
-	PromLabelFinishReason        = "finish_reason"
+	PromLabelFinishReason        = "finished_reason"
 	PromLabelCacheBlockSize      = "block_size"
 	PromLabelCacheDType          = "cache_dtype"
 	PromLabelCacheNumCPUBlocks   = "num_cpu_blocks"
