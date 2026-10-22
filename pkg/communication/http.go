@@ -796,6 +796,13 @@ func (c *Communication) HandleEmbeddings(ctx *fasthttp.RequestCtx) {
 		c.sendError(ctx, &errToSend, false)
 		return
 	}
+	// an empty model means the served model, matching vLLM
+	if req.Model != "" {
+		if err := c.runtime.ValidateModel(req.Model); err != nil {
+			c.sendError(ctx, err, false)
+			return
+		}
+	}
 
 	resp, err := c.runtime.CreateEmbeddings(&req)
 	if err != nil {
@@ -834,6 +841,13 @@ func (c *Communication) HandleTokenize(ctx *fasthttp.RequestCtx) {
 			fasthttp.StatusBadRequest, nil)
 		c.sendError(ctx, &err, false)
 		return
+	}
+	// an empty model means the served model, matching vLLM
+	if req.Model != "" {
+		if err := c.runtime.ValidateModel(req.Model); err != nil {
+			c.sendError(ctx, err, false)
+			return
+		}
 	}
 
 	var tokens []uint32

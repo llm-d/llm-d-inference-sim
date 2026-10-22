@@ -155,6 +155,28 @@ var _ = Describe("Server", forEachEngine(func() {
 			Expect(tokenizeResp.Tokens).To(HaveLen(4))
 			Expect(tokenizeResp.MaxModelLen).To(Equal(2048))
 		})
+
+		DescribeTable("model validation",
+			func(reqBody string, expectedStatus int, expectedMsg string) {
+				client, err := startServer(context.TODO(), common.ModeRandom)
+				Expect(err).NotTo(HaveOccurred())
+
+				resp, err := client.Post("http://localhost/tokenize", "application/json", strings.NewReader(reqBody))
+				Expect(err).NotTo(HaveOccurred())
+				defer func() {
+					Expect(resp.Body.Close()).To(Succeed())
+				}()
+
+				body, err := io.ReadAll(resp.Body)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(resp.StatusCode).To(Equal(expectedStatus))
+				Expect(string(body)).To(ContainSubstring(expectedMsg))
+			},
+			Entry("rejects an unknown model", `{"prompt":"This is a test","model":"unknown-model"}`,
+				http.StatusNotFound, "The model `unknown-model` does not exist."),
+			Entry("accepts a request without a model", `{"prompt":"This is a test"}`,
+				http.StatusOK, `"count":`),
+		)
 	})
 
 	Context("SSL/HTTPS Configuration", func() {

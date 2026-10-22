@@ -20,7 +20,7 @@ In addition, a set of the vLLM HTTP endpoints are supported. The render and dere
 | /inference/v1/generate  | vLLM-specific generation endpoint |
 | /v1/load_lora_adapter   | Simulates the dynamic registration of a LoRA adapter |
 | /v1/unload_lora_adapter | Simulates the dynamic unloading and unregistration of a LoRA adapter |
-| /tokenize               | Tokenizes input text and returns token information |
+| /tokenize               | Tokenizes input text and returns token information. An optional `model`, when set, must be a served model name or a loaded LoRA adapter, otherwise the request is rejected with `404 Not Found` |
 | /v1/completions/render       | Returns the token IDs for a `/v1/completions` request body without generating a response |
 | /v1/chat/completions/render  | Returns the token IDs (and multimodal features when applicable) for a `/v1/chat/completions` request body without generating a response |
 | /v1/responses/render         | Returns the token IDs (and multimodal features when applicable) for a `/v1/responses` request body without generating a response; stateless — `previous_response_id` is rejected. Disabled by `--enable-legacy-render` |

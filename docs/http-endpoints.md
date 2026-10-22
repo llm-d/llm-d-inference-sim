@@ -193,7 +193,7 @@ Structure of requests/responses
             - max_model_len
 - `/v1/embeddings`
     - **request**
-        - model
+        - model (optional; when set, must be a served model name or a loaded LoRA adapter, otherwise the request is rejected with `404 Not Found`)
         - input (string, array of strings, array of token ids, or array of arrays of token ids)
         - dimensions
         - encoding_format (`float` (default) or `base64`)
