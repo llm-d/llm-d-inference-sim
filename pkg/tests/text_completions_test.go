@@ -43,6 +43,43 @@ const prompt2 = "I hear it's very cold."
 
 var _ = Describe("Simulator", forEachEngine(func() {
 
+	It("pads the echoed prompt to min_tokens", func() {
+		ctx := context.TODO()
+		client, err := startServer(ctx, common.ModeEcho)
+		Expect(err).NotTo(HaveOccurred())
+
+		minTokens := getTextPromptTokensCountForTestModel(testUserMessage) + 5
+		reqBody := fmt.Sprintf(`{"model":%q,"prompt":%q,"min_tokens":%d}`, common.TestModelName, testUserMessage, minTokens)
+		resp, err := client.Post("http://localhost/v1/completions", "application/json", strings.NewReader(reqBody))
+		Expect(err).NotTo(HaveOccurred())
+		defer func() { Expect(resp.Body.Close()).To(Succeed()) }()
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+		body, err := io.ReadAll(resp.Body)
+		Expect(err).NotTo(HaveOccurred())
+		var response api.TextCompletionsResponse
+		Expect(json.Unmarshal(body, &response)).To(Succeed())
+		Expect(response.Usage.CompletionTokens).To(BeNumerically("==", minTokens))
+		Expect(*response.Choices[0].FinishReason).To(Equal(common.StopFinishReason))
+		Expect(response.Choices[0].Text).To(HavePrefix(testUserMessage))
+	})
+
+	It("rejects min_tokens above max_tokens", func() {
+		ctx := context.TODO()
+		client, err := startServer(ctx, common.ModeRandom)
+		Expect(err).NotTo(HaveOccurred())
+
+		reqBody := fmt.Sprintf(`{"model":%q,"prompt":%q,"min_tokens":21,"max_tokens":20}`, common.TestModelName, testUserMessage)
+		resp, err := client.Post("http://localhost/v1/completions", "application/json", strings.NewReader(reqBody))
+		Expect(err).NotTo(HaveOccurred())
+		defer func() { Expect(resp.Body.Close()).To(Succeed()) }()
+		Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
+
+		body, err := io.ReadAll(resp.Body)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(string(body)).To(ContainSubstring("min_tokens must be less than or equal to max_tokens=20"))
+	})
+
 	DescribeTable("text completions streaming",
 		func(model string, mode string) {
 			ctx := context.TODO()
