@@ -281,6 +281,52 @@ var _ = Describe("sendStream sub-request error", func() {
 	})
 })
 
+// The choices of one request can end with different finish reasons: under a
+// cache hit threshold, a later choice can hit the blocks an earlier one
+// allocated. The stream must then decide cache_threshold per choice.
+var _ = Describe("sendStream cache_threshold choice", func() {
+	It("emits its finish chunk when another choice streams first", func() {
+		ctx := context.Background()
+		sim := newRunningSim(ctx)
+
+		newStreamReq := func(id string, cacheThreshold bool) *endpoint.TextCompletionsParsedRequest {
+			req := &endpoint.TextCompletionsParsedRequest{}
+			req.RequestID = id
+			req.Model = common.TestModelName
+			req.Prompt = []api.PromptInput{{Text: "hi"}}
+			req.Stream = true
+			req.SetCacheThresholdFinishReason(cacheThreshold)
+			return req
+		}
+
+		// Choice 0 streams tokens and choice 1 ends with cache_threshold, in that order.
+		merged := common.Channel[*endpoint.ResponseInfo]{
+			Channel: make(chan *endpoint.ResponseInfo, 100),
+			Name:    "merged",
+		}
+		for choiceIdx, cacheThreshold := range []bool{false, true} {
+			_, _, respChan, topErr, _ := sim.HandleRequest(ctx, newStreamReq(fmt.Sprintf("mixed-%d", choiceIdx), cacheThreshold))
+			Expect(topErr).To(BeNil())
+			for response := range respChan.Channel {
+				response.ChoiceIdx = choiceIdx
+				merged.Channel <- response
+			}
+		}
+		close(merged.Channel)
+		first := <-merged.Channel
+
+		c := &Communication{logger: klog.Background(), transport: fakeTransport{}}
+		httpCtx := &fasthttp.RequestCtx{}
+		c.sendStream(httpCtx, merged, &textComplHTTPRespBuilder{transport: c.transport}, 2, first, func() {})
+
+		body, err := io.ReadAll(httpCtx.Response.BodyStream())
+		Expect(err).NotTo(HaveOccurred())
+		Expect(string(body)).To(ContainSubstring(`"index":1,"finish_reason":"cache_threshold"`))
+		Expect(string(body)).NotTo(ContainSubstring(`"error"`))
+		Expect(string(body)).To(ContainSubstring("[DONE]"))
+	})
+})
+
 // abortRecorder records the context handleHTTP passes to HandleRequest, which
 // is done once the request is aborted.
 type abortRecorder struct {
