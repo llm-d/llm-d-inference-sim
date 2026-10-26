@@ -798,7 +798,7 @@ func (m *VLLMMetricsAdapter) reportLoras(snap metrics.LoRASetsChanged) {
 		strconv.Itoa(m.config.Lora.MaxLoras),
 		runningLoras,
 		waitingLoras,
-	).Set(float64(time.Now().Unix()))
+	).SetToCurrentTime()
 }
 
 // -- Prometheus wiring ------------------------------------------------------

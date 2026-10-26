@@ -18,6 +18,7 @@ package dataset
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -445,6 +446,32 @@ var _ = Describe("in-memory database", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(responses).To(HaveLen(1))
 		}
+	})
+
+	It("should keep the indexes of the source database", func() {
+		indexedDBPath := filepath.Join(GinkgoT().TempDir(), "indexed.sqlite3")
+		data, err := os.ReadFile(validDBPath)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(os.WriteFile(indexedDBPath, data, 0o600)).To(Succeed())
+		source, err := sql.Open("sqlite3", indexedDBPath)
+		Expect(err).NotTo(HaveOccurred())
+		_, err = source.Exec("CREATE INDEX idx_llmd_prompt_hash ON llmd (prompt_hash)")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(source.Close()).To(Succeed())
+
+		Expect(helper.connectToDB(indexedDBPath, true)).To(Succeed())
+
+		rows, err := helper.db.Query("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'llmd'")
+		Expect(err).NotTo(HaveOccurred())
+		defer rows.Close() //nolint:errcheck
+		var indexes []string
+		for rows.Next() {
+			var name string
+			Expect(rows.Scan(&name)).To(Succeed())
+			indexes = append(indexes, name)
+		}
+		Expect(rows.Err()).NotTo(HaveOccurred())
+		Expect(indexes).To(ConsistOf("idx_llmd_prompt_hash"))
 	})
 })
 

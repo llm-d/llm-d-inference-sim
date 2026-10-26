@@ -113,6 +113,7 @@ Structure of requests/responses
         - model
         - prompt
         - max_tokens
+        - min_tokens
         - stream_options
           - include_usage
         - ignore_eos
@@ -418,9 +419,11 @@ Structure of requests/responses
         - token_ids
         - sampling_params
             - max_tokens
+            - min_tokens
+            - ignore_eos
         - features
             - mm_hashes
-        - ignore_eos
+        - ignore_eos (same as `sampling_params.ignore_eos`)
         - kv_transfer_params
           - do_remote_decode
           - do_remote_prefill
@@ -451,6 +454,23 @@ Structure of requests/responses
             - peer_port
             - size_bytes
             - nixl_agent_metadata_b64
+
+- `/v1/systemone`
+    - **request**
+        - model (optional)
+        - state (required)
+        - questions (1 to 64 keyed `choice`, `noul`, or `score` objects)
+    - **response**
+        - answers (object keyed by question ID, in request order)
+        - usage
+- `/v1/decisions`
+    - **request**
+        - model (required)
+        - input (required text or user messages)
+        - questions (1 to 200 `predicate`, `choice`, or `score` objects)
+    - **response**
+        - answers (array in question order)
+        - usage
 
 ### `/v1/responses` examples
 
@@ -613,3 +633,34 @@ Detokenization depends on the active tokenizer (selected automatically based on 
 
 - **HuggingFace tokenizer** (real model): token IDs are decoded through the upstream vLLM render service's `/v1/completions/derender` endpoint at `--render-url`. The upstream must be a vLLM version that serves the derender endpoints.
 - **Simulated tokenizer** (dummy model): token IDs are pseudo-hashes, so the simulator keeps a bounded in-memory reverse mapping of the IDs it has produced (through render, generation, or tokenization) and decodes by lookup; when full, the least recently encoded IDs are evicted. Only IDs produced by the same simulator instance round-trip to their original text; unknown or evicted IDs are rendered as `<unk_ID>` placeholders.
+
+## Decision APIs
+
+Requires `--engine vllm`. See [vLLM Decision APIs](https://docs.vllm.ai/en/latest/models/structured_decisions_models/#online-serving).
+
+- Text-only; no streaming, thinking or prompt token IDs. System One ignores `priority` and `request_id`.
+- Probabilities normalize weights `n, ..., 1`; scores use probability-weighted, zero-based indices. Confidence uses label mass `1`; predicates omit confidence. These are simulated results, not model predictions.
+- Questions queue separately with standard prefill latency and failure injection. Usage aggregates input tokens and one synthetic output token per question, without decode delay; response datasets are ignored.
+
+```bash
+curl http://localhost:8000/v1/systemone \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "state": "Billing",
+    "questions": {
+      "team": {"type": "choice", "criteria": {"billing": null, "shipping": null}}
+    }
+  }'
+```
+
+```bash
+curl http://localhost:8000/v1/decisions \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "model": "test-model",
+    "input": "Billing",
+    "questions": [
+      {"type": "predicate", "instructions": "Urgent?"}
+    ]
+  }'
+```

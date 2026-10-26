@@ -152,10 +152,10 @@ var _ = Describe("Fake metrics", Ordered, func() {
 				g.Expect(metricsData).To(ContainSubstring(fmt.Sprintf(`vllm:generation_tokens_total{model_name="%s"} 200`, common.TestModelName)))
 				g.Expect(metricsData).To(ContainSubstring(fmt.Sprintf(`vllm:prompt_tokens_total{model_name="%s"} 200`, common.TestModelName)))
 
-				g.Expect(metricsData).To(ContainSubstring(fmt.Sprintf(`vllm:request_success_total{finish_reason="length",model_name="%s"} 0`, common.TestModelName)))
-				g.Expect(metricsData).To(ContainSubstring(fmt.Sprintf(`vllm:request_success_total{finish_reason="remote_decode",model_name="%s"} 0`, common.TestModelName)))
-				g.Expect(metricsData).To(ContainSubstring(fmt.Sprintf(`vllm:request_success_total{finish_reason="stop",model_name="%s"} 20`, common.TestModelName)))
-				g.Expect(metricsData).To(ContainSubstring(fmt.Sprintf(`vllm:request_success_total{finish_reason="tool_calls",model_name="%s"} 0`, common.TestModelName)))
+				g.Expect(metricsData).To(ContainSubstring(fmt.Sprintf(`vllm:request_success_total{finished_reason="length",model_name="%s"} 0`, common.TestModelName)))
+				g.Expect(metricsData).To(ContainSubstring(fmt.Sprintf(`vllm:request_success_total{finished_reason="remote_decode",model_name="%s"} 0`, common.TestModelName)))
+				g.Expect(metricsData).To(ContainSubstring(fmt.Sprintf(`vllm:request_success_total{finished_reason="stop",model_name="%s"} 20`, common.TestModelName)))
+				g.Expect(metricsData).To(ContainSubstring(fmt.Sprintf(`vllm:request_success_total{finished_reason="tool_calls",model_name="%s"} 0`, common.TestModelName)))
 
 				g.Expect(metricsData).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllm.VLLMPrefixCacheHitsTotalMetricName, 750)))
 				g.Expect(metricsData).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllm.VLLMPrefixCacheQueriesTotalMetricName, 2000)))
@@ -754,8 +754,8 @@ var _ = Describe("Fake metrics", Ordered, func() {
 			// Verify initial state
 			eventuallyMetrics(client, func(g Gomega, metricsData string) {
 
-				g.Expect(metricsData).To(ContainSubstring(fmt.Sprintf(`vllm:request_success_total{finish_reason="stop",model_name="%s"} 20`, common.TestModelName)))
-				g.Expect(metricsData).To(ContainSubstring(fmt.Sprintf(`vllm:request_success_total{finish_reason="length",model_name="%s"} 5`, common.TestModelName)))
+				g.Expect(metricsData).To(ContainSubstring(fmt.Sprintf(`vllm:request_success_total{finished_reason="stop",model_name="%s"} 20`, common.TestModelName)))
+				g.Expect(metricsData).To(ContainSubstring(fmt.Sprintf(`vllm:request_success_total{finished_reason="length",model_name="%s"} 5`, common.TestModelName)))
 				g.Expect(metricsData).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllm.VLLMPrefixCacheHitsTotalMetricName, 500)))
 				g.Expect(metricsData).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllm.VLLMPrefixCacheQueriesTotalMetricName, 1000)))
 			})
@@ -774,10 +774,10 @@ var _ = Describe("Fake metrics", Ordered, func() {
 			eventuallyMetrics(client, func(g Gomega, metricsData string) {
 
 				// After update: values should be replaced, not accumulated
-				g.Expect(metricsData).To(ContainSubstring(fmt.Sprintf(`vllm:request_success_total{finish_reason="stop",model_name="%s"} 100`, common.TestModelName)))
-				g.Expect(metricsData).To(ContainSubstring(fmt.Sprintf(`vllm:request_success_total{finish_reason="length",model_name="%s"} 50`, common.TestModelName)))
-				g.Expect(metricsData).To(ContainSubstring(fmt.Sprintf(`vllm:request_success_total{finish_reason="tool_calls",model_name="%s"} 10`, common.TestModelName)))
-				g.Expect(metricsData).To(ContainSubstring(fmt.Sprintf(`vllm:request_success_total{finish_reason="remote_decode",model_name="%s"} 5`, common.TestModelName)))
+				g.Expect(metricsData).To(ContainSubstring(fmt.Sprintf(`vllm:request_success_total{finished_reason="stop",model_name="%s"} 100`, common.TestModelName)))
+				g.Expect(metricsData).To(ContainSubstring(fmt.Sprintf(`vllm:request_success_total{finished_reason="length",model_name="%s"} 50`, common.TestModelName)))
+				g.Expect(metricsData).To(ContainSubstring(fmt.Sprintf(`vllm:request_success_total{finished_reason="tool_calls",model_name="%s"} 10`, common.TestModelName)))
+				g.Expect(metricsData).To(ContainSubstring(fmt.Sprintf(`vllm:request_success_total{finished_reason="remote_decode",model_name="%s"} 5`, common.TestModelName)))
 				g.Expect(metricsData).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllm.VLLMPrefixCacheHitsTotalMetricName, 750)))
 				g.Expect(metricsData).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllm.VLLMPrefixCacheQueriesTotalMetricName, 2000)))
 			})

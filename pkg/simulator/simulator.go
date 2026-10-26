@@ -362,7 +362,7 @@ func (s *Simulator) addRequestToQueue(reqCtx endpoint.RequestContext) {
 // publish per-choice results on. On failure it returns numChoices = 0 and a
 // non-nil error; errInjected indicates whether the failure came from the
 // failure-injection path so the caller can attribute it correctly.
-func (s *Simulator) HandleRequest(req endpoint.Request) (numChoices int, isStream bool,
+func (s *Simulator) HandleRequest(ctx context.Context, req endpoint.Request) (numChoices int, isStream bool,
 	channel *common.Channel[*endpoint.ResponseInfo], err *api.Error, errInjected bool) {
 	// Check if we should inject a failure
 	if shouldInjectFailure(s.Context.Config(), s.Context.Random) {
@@ -390,7 +390,7 @@ func (s *Simulator) HandleRequest(req endpoint.Request) (numChoices int, isStrea
 	// Single shared channel for all sub-requests; each stamps its ChoiceIdx on
 	// responses and calls signalDone when finished. A watcher goroutine closes
 	// the channel once all sub-requests have signalled completion. For most
-	// request types split returns just the receiver; only the parsed text
+	// request types split returns just the receiver; for example, the parsed text
 	// completions form (which can carry an array of prompts) fans out, so this
 	// must be sized off len(subReqs) (total sub-requests sharing the channel),
 	// not req.GetN() (choices per prompt) -- those differ once there's more
@@ -399,6 +399,7 @@ func (s *Simulator) HandleRequest(req endpoint.Request) (numChoices int, isStrea
 	respChan := &common.Channel[*endpoint.ResponseInfo]{
 		Channel: make(chan *endpoint.ResponseInfo, s.Context.Config().MaxModelLen*len(subReqs)),
 		Name:    "responseInfo-" + req.GetRequestID(),
+		Done:    ctx.Done(),
 	}
 	var wg sync.WaitGroup
 	wg.Add(len(subReqs))
@@ -468,7 +469,9 @@ func (s *Simulator) dequeue() endpoint.RequestContext {
 	return nil
 }
 
-func (s *Simulator) simulateResponseProcessing(respCtx endpoint.ResponseContext) {
+// simulateResponseProcessing returns false if the response was abandoned before
+// it was fully generated.
+func (s *Simulator) simulateResponseProcessing(respCtx endpoint.ResponseContext) bool {
 	reqCtx := respCtx.RequestContext()
 	choiceIdx := reqCtx.ChoiceIndex()
 	// Skip delays if finish reason is cache_threshold (immediate return)
@@ -476,7 +479,10 @@ func (s *Simulator) simulateResponseProcessing(respCtx endpoint.ResponseContext)
 		common.WriteToChannel(reqCtx.ResponseChannel(), &endpoint.ResponseInfo{RespCtx: respCtx, ChoiceIdx: choiceIdx},
 			s.Context.logger)
 	} else {
-		s.Context.simulateTTFT(respCtx)
+		done := reqCtx.ResponseChannel().Done
+		if !s.Context.simulateTTFT(respCtx, done) {
+			return false
+		}
 
 		// Response started
 		common.WriteToChannel(reqCtx.ResponseChannel(),
@@ -508,7 +514,9 @@ func (s *Simulator) simulateResponseProcessing(respCtx endpoint.ResponseContext)
 				n := len(respCtx.ResponseTokens().Tokens)
 				for i, token := range respCtx.ResponseTokens().Tokens {
 					if i != 0 {
-						s.Context.simulateInterTokenLatency()
+						if !s.Context.simulateInterTokenLatency(done) {
+							return false
+						}
 						nTokens++
 					}
 
@@ -527,7 +535,9 @@ func (s *Simulator) simulateResponseProcessing(respCtx endpoint.ResponseContext)
 					n := len(args.Tokens)
 					for i, token := range args.Tokens {
 						if i != 0 {
-							s.Context.simulateInterTokenLatency()
+							if !s.Context.simulateInterTokenLatency(done) {
+								return false
+							}
 							nTokens++
 						}
 						buf.Tokens = append(buf.Tokens, token)
@@ -541,10 +551,11 @@ func (s *Simulator) simulateResponseProcessing(respCtx endpoint.ResponseContext)
 			metrics.DecodeEnded{GenerationTokens: nTokens, DecodeDuration: time.Since(startDecode).Seconds()},
 			s.Context.logger)
 
-		if reqCtx.Request().SendImage() {
-			s.Context.simulateImageGenerationLatency()
+		if reqCtx.Request().SendImage() && !s.Context.simulateImageGenerationLatency(done) {
+			return false
 		}
 	}
+	return true
 }
 
 // request processing finished

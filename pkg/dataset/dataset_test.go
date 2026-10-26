@@ -405,6 +405,27 @@ var _ = Describe("Echo Dataset", Ordered, func() {
 		})
 	})
 
+	DescribeTable("should echo a prompt given as token ids",
+		func(maxTokens int64, ignoreEos bool, expectedFinishReason string) {
+			req := &api.GenerateRequest{SamplingParams: &api.SamplingParams{MaxTokens: &maxTokens}}
+			req.IgnoreEOS = ignoreEos
+			promptTokenized := api.Tokenized{Tokens: []uint32{1, 2, 3, 4, 5}, Strings: []string{}}
+			req.SetTokenizedPrompt(&promptTokenized)
+			req.SetTokenizedPromptForEcho(&promptTokenized)
+
+			tokens, finishReason, err := dataset.GetResponseTokens(req)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(finishReason).To(Equal(expectedFinishReason))
+			Expect(tokens.Tokens).To(HaveLen(int(maxTokens)))
+			Expect(tokens.Strings).To(BeEmpty())
+		},
+		func(maxTokens int64, ignoreEos bool, expectedFinishReason string) string {
+			return fmt.Sprintf("maxTokens: %d, ignoreEos: %t", maxTokens, ignoreEos)
+		},
+		Entry(nil, int64(2), false, common.LengthFinishReason),
+		Entry(nil, int64(10), true, common.LengthFinishReason),
+	)
+
 	DescribeTable("should work correctly in echo mode",
 		func(maxTokens *int64, ignoreEos bool, isChat bool, expectedFinishReason string) {
 			// tests that in echo mode the right response is returned

@@ -50,12 +50,6 @@ func validateRequest(req api.Request) *api.Error {
 		return &err
 	}
 
-	if req.GetIgnoreEOS() && req.GetMaxCompletionTokens() == nil {
-		err := api.NewError("Ignore_eos is true but max_completion_tokens (or max_tokens) is not set",
-			fasthttp.StatusBadRequest, nil)
-		return &err
-	}
-
 	return nil
 }
 

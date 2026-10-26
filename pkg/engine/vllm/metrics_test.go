@@ -24,6 +24,8 @@ package vllm
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -160,11 +162,39 @@ var _ = Describe("VLLMMetricsAdapter", func() {
 			}).Should(Equal(1))
 		})
 
+		It("labels request_success_total with vLLM's finished_reason", func() {
+			adapter, _ := newTestAdapter(newTestConfig())
+
+			adapter.OnRequestSucceeded(metrics.RequestSucceeded{GenTokensPerChoice: []int{1}, FinishReason: "stop"})
+			expected := fmt.Sprintf(`
+# HELP vllm:request_success_total Count of successfully processed requests.
+# TYPE vllm:request_success_total counter
+vllm:request_success_total{finished_reason="stop",model_name=%q} 1
+`, common.TestModelName)
+			Eventually(func() error {
+				return testutil.GatherAndCompare(adapter.registry, strings.NewReader(expected), VLLMSuccessTotalMetricName)
+			}).Should(Succeed())
+		})
+
 		It("updates the KV-cache usage gauge", func() {
 			adapter, _ := newTestAdapter(newTestConfig())
 
 			adapter.OnKVCacheUsageChanged(metrics.KVCacheUsageChanged{KVCacheUsagePerc: 0.75})
 			Eventually(gaugeValue(adapter.kvCacheUsagePercentage)).Should(Equal(0.75))
+		})
+
+		It("stamps each lora_requests_info series later than the one before it", func() {
+			cfg := newTestConfig()
+			cfg.Lora.LoraModules = []common.LoraModule{{Name: "lora1", Path: "/lora1"}}
+			adapter, _ := newTestAdapter(cfg)
+			// label order: max_lora, running_lora_adapters, waiting_lora_adapters
+			waiting := func() float64 { return testutil.ToFloat64(adapter.loraInfo.WithLabelValues("2", "", "lora1")) }
+			running := func() float64 { return testutil.ToFloat64(adapter.loraInfo.WithLabelValues("2", "lora1", "")) }
+
+			adapter.OnLoRASetsChanged(metrics.LoRASetsChanged{Waiting: map[string]int{"lora1": 1}})
+			Eventually(waiting).ShouldNot(BeZero())
+			adapter.OnLoRASetsChanged(metrics.LoRASetsChanged{Running: map[string]int{"lora1": 1}})
+			Eventually(running).Should(BeNumerically(">", waiting()))
 		})
 
 		It("accumulates prefix-cache counters", func() {

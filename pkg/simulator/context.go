@@ -431,7 +431,9 @@ func (s *SimContext) KVCacheOnRequestEnd(requestID string) {
 	}
 }
 
-func (s *SimContext) simulateTTFT(respCtx endpoint.ResponseContext) {
+// simulateTTFT waits for the time to first token and returns false if done is
+// closed first.
+func (s *SimContext) simulateTTFT(respCtx endpoint.ResponseContext, done <-chan struct{}) bool {
 	// time to first token delay
 	params := TTFTParams{
 		PromptTokens:       respCtx.UsageData().PromptTokens,
@@ -440,24 +442,56 @@ func (s *SimContext) simulateTTFT(respCtx endpoint.ResponseContext) {
 		RunningReqs:        s.nRunningReqs.Load(),
 	}
 	ttft := s.latencyCalc().GetTimeToFirstToken(&params)
-	time.Sleep(ttft)
+	if !sleepUnlessDone(ttft, done) {
+		return false
+	}
 	common.WriteToChannel(s.metricsBus.PrefillEnded,
 		metrics.PrefillEnded{PrefillDuration: ttft.Seconds()}, s.logger)
+	return true
 }
 
-func (s *SimContext) simulateImageGenerationLatency() {
-	if latency := s.latencyCalc().GetImageGenerationLatency(); latency > 0 {
-		time.Sleep(latency)
+// simulateImageGenerationLatency waits for the image generation latency and
+// returns false if done is closed first.
+func (s *SimContext) simulateImageGenerationLatency(done <-chan struct{}) bool {
+	latency := s.latencyCalc().GetImageGenerationLatency()
+	if latency <= 0 {
+		return true
 	}
+	return sleepUnlessDone(latency, done)
 }
 
-func (s *SimContext) simulateInterTokenLatency() {
+// simulateInterTokenLatency waits for the inter-token latency and returns false
+// if done is closed first.
+func (s *SimContext) simulateInterTokenLatency(done <-chan struct{}) bool {
 	perTokenLatency := s.latencyCalc().GetInterTokenLatency(&InterTokenParams{
 		RunningReqs: s.nRunningReqs.Load()})
-	time.Sleep(perTokenLatency)
-
+	if !sleepUnlessDone(perTokenLatency, done) {
+		return false
+	}
 	common.WriteToChannel(s.metricsBus.TokenGenerated,
 		metrics.TokenGenerated{InterTokenLatency: perTokenLatency.Seconds()}, s.logger)
+	return true
+}
+
+// sleepUnlessDone waits for d and reports whether done stayed open. It checks
+// done even when d <= 0, so loops without latency still stop. done may be nil.
+func sleepUnlessDone(d time.Duration, done <-chan struct{}) bool {
+	select {
+	case <-done:
+		return false
+	default:
+	}
+	if d <= 0 {
+		return true
+	}
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return true
+	case <-done:
+		return false
+	}
 }
 
 // CreateModelsResponse creates and returns ModelResponse for the current state, returned array of models contains the base model + LoRA adapters if exist

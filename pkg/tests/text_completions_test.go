@@ -43,6 +43,43 @@ const prompt2 = "I hear it's very cold."
 
 var _ = Describe("Simulator", forEachEngine(func() {
 
+	It("pads the echoed prompt to min_tokens", func() {
+		ctx := context.TODO()
+		client, err := startServer(ctx, common.ModeEcho)
+		Expect(err).NotTo(HaveOccurred())
+
+		minTokens := getTextPromptTokensCountForTestModel(testUserMessage) + 5
+		reqBody := fmt.Sprintf(`{"model":%q,"prompt":%q,"min_tokens":%d}`, common.TestModelName, testUserMessage, minTokens)
+		resp, err := client.Post("http://localhost/v1/completions", "application/json", strings.NewReader(reqBody))
+		Expect(err).NotTo(HaveOccurred())
+		defer func() { Expect(resp.Body.Close()).To(Succeed()) }()
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+		body, err := io.ReadAll(resp.Body)
+		Expect(err).NotTo(HaveOccurred())
+		var response api.TextCompletionsResponse
+		Expect(json.Unmarshal(body, &response)).To(Succeed())
+		Expect(response.Usage.CompletionTokens).To(BeNumerically("==", minTokens))
+		Expect(*response.Choices[0].FinishReason).To(Equal(common.StopFinishReason))
+		Expect(response.Choices[0].Text).To(HavePrefix(testUserMessage))
+	})
+
+	It("rejects min_tokens above max_tokens", func() {
+		ctx := context.TODO()
+		client, err := startServer(ctx, common.ModeRandom)
+		Expect(err).NotTo(HaveOccurred())
+
+		reqBody := fmt.Sprintf(`{"model":%q,"prompt":%q,"min_tokens":21,"max_tokens":20}`, common.TestModelName, testUserMessage)
+		resp, err := client.Post("http://localhost/v1/completions", "application/json", strings.NewReader(reqBody))
+		Expect(err).NotTo(HaveOccurred())
+		defer func() { Expect(resp.Body.Close()).To(Succeed()) }()
+		Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
+
+		body, err := io.ReadAll(resp.Body)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(string(body)).To(ContainSubstring("min_tokens must be less than or equal to max_tokens=20"))
+	})
+
 	DescribeTable("text completions streaming",
 		func(model string, mode string) {
 			ctx := context.TODO()
@@ -995,10 +1032,10 @@ var _ = Describe("Simulator", forEachEngine(func() {
 
 	It("text completions array prompt still serves new requests after a fail-fast abort", func() {
 		// The existing fail-fast test verifies the client sees an error + [DONE].
-		// This test covers the *follow-up*: after fail-fast triggers `drainResponseChannel`
-		// and the original request's remaining sub-requests drain in the background,
-		// the simulator must be ready to serve another request. Regression guard for
-		// wg leaks, dangling worker state, or permanently-stuck waiting queue.
+		// This test covers the *follow-up*: after fail-fast aborts the original
+		// request's remaining sub-requests, the simulator must be ready to serve
+		// another request. Regression guard for wg leaks, dangling worker state, or
+		// permanently-stuck waiting queue.
 		ctx := context.TODO()
 		args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
 			"--time-to-first-token", "1s",
@@ -1020,8 +1057,7 @@ var _ = Describe("Simulator", forEachEngine(func() {
 		Expect(errors.As(err, &oaiErr)).To(BeTrue())
 		Expect(oaiErr.StatusCode).To(Equal(fasthttp.StatusTooManyRequests))
 
-		// Give the background drain/wg bookkeeping time to complete before we probe.
-		// 2× TTFT covers the worst case where the queued sub-request was already past TTFT.
+		// Give the aborted sub-requests time to finish before we probe.
 		time.Sleep(2500 * time.Millisecond)
 
 		// Follow-up: a single-prompt request must succeed end-to-end.
@@ -1091,6 +1127,23 @@ var _ = Describe("Simulator", forEachEngine(func() {
 		Entry(nil, common.ModeEcho, 0), // No logprobs
 		Entry(nil, common.ModeEcho, 2), // logprobs=2
 	)
+
+	It("returns the sampled token's logprob when logprobs is 0", func() {
+		ctx := context.TODO()
+		client, err := startServer(ctx, common.ModeEcho)
+		Expect(err).NotTo(HaveOccurred())
+
+		openaiclient, params := getOpenAIClientAndCompletionParams(client, common.TestModelName, testUserMessage, false)
+		params.Logprobs = param.NewOpt(int64(0))
+		resp, err := openaiclient.Completions.New(ctx, params)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.Choices).To(HaveLen(1))
+
+		logprobs := resp.Choices[0].Logprobs
+		Expect(logprobs.Tokens).NotTo(BeEmpty())
+		Expect(logprobs.TokenLogprobs).To(HaveLen(len(logprobs.Tokens)))
+		Expect(logprobs.TopLogprobs).To(HaveLen(len(logprobs.Tokens)))
+	})
 
 	DescribeTable("non-streaming text completions with logprobs",
 		func(mode string, logprobsParam interface{}) {

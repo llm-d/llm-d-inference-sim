@@ -21,7 +21,7 @@ In this mode, the simulator generates synthetic responses. The length and conten
 **Context window:** The request is rejected with `400 Bad Request` if `<input_length> >= <context_window>`. The response length is still bounded by the remaining context window; see below.
 
 ### Response Length Calculation
-`min_tokens` sets the lower bound for generated chat-completion response length. A value of zero is valid and preserves the default lower bound of one token. Negative values, a minimum greater than the requested maximum, and a minimum greater than the context-clamped maximum return `400 Bad Request`.
+`min_tokens` sets the lower bound for generated chat-completion and completion response length. A value of zero is valid and preserves the default lower bound of one token. Negative values, a minimum greater than the requested maximum, and a minimum greater than the context-clamped maximum return `400 Bad Request`.
 
 If `max_tokens` or `max_completion_tokens` is specified, the response length is sampled from a custom histogram with **six buckets** between the minimum and the effective maximum. If the specified value exceeds the room remaining in the context window (`<model_context_limit> - <input_length>`), that remaining room is used as the cap instead — the response never overflows the context window.
 

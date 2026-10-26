@@ -17,6 +17,8 @@ limitations under the License.
 package communication
 
 import (
+	"context"
+
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
@@ -29,8 +31,10 @@ import (
 // admin/metrics surface. It is satisfied implicitly by *simulator.Simulator,
 // which keeps this package free of any dependency on the simulator package.
 type Processor interface {
-	// HandleRequest submits req to the simulator's worker queue.
-	HandleRequest(req endpoint.Request) (numChoices int, isStream bool,
+	// HandleRequest submits req to the simulator's worker queue. Once ctx is
+	// done, the rest of the response will not be read (e.g. the client
+	// disconnected), so the simulator stops generating it.
+	HandleRequest(ctx context.Context, req endpoint.Request) (numChoices int, isStream bool,
 		channel *common.Channel[*endpoint.ResponseInfo], err *api.Error, errInjected bool)
 	// OpenRequests reports the number of requests currently in flight.
 	OpenRequests() int64

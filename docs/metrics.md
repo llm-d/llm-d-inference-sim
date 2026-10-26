@@ -32,3 +32,9 @@ Currently supported are the following metrics:
 | vllm:prefix_cache_hits_total | Prefix cache hits, in terms of number of cached tokens |
 | vllm:prefix_cache_queries_total | Prefix cache queries, in terms of number of queried tokens |
 | process_* | Standard process metrics such as `process_start_time_seconds`, as vLLM exports them |
+
+A request is aborted when its response is no longer read: for a streamed HTTP response, at the first failed write to the client, for example after the client disconnected; for a gRPC `Generate` call, when the call is cancelled; and for the other sub-requests of a request (n > 1, a prompt array in `/v1/completions`, or several Decision API questions) when one of them fails. A non-streamed HTTP request runs to completion even if its client disconnects.
+
+A request aborted before a worker starts it is dropped when a worker picks it up. It never enters `vllm:num_requests_running` or the KV cache; if it was queued, it stays in `vllm:num_requests_waiting` until then and `vllm:request_queue_time_seconds` is its only observation.
+
+Once a running request is aborted, it stops at once, also during its time-to-first-token, inter-token or image wait: it generates no further tokens, leaves `vllm:num_requests_running` and releases its KV cache blocks. It is counted like a failed request: `vllm:e2e_request_latency_seconds`, `vllm:request_inference_time_seconds` and the queue, prefill, time-to-first-token and inter-token latencies recorded before the abort are observed, while `vllm:request_success_total`, `vllm:prompt_tokens_total`, `vllm:generation_tokens_total`, `vllm:request_prompt_tokens`, `vllm:request_generation_tokens`, `vllm:request_params_max_tokens` and `vllm:request_max_num_generation_tokens` are not updated (`vllm:request_decode_time_seconds` and `vllm:request_time_per_output_token_seconds` are observed only when it is aborted during the image wait).
