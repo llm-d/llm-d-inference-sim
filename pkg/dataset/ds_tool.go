@@ -313,6 +313,10 @@ func (dt *DatasetTool) storeToSQLite(ctx context.Context, records []outputRecord
 	}
 	dt.logger.Info("Table created successfully", "table", dt.config.tableName)
 
+	if _, err := db.ExecContext(ctx, dt.sqlHelper.getCreatePromptHashIndexQuery()); err != nil {
+		return fmt.Errorf("failed to create prompt hash index: %w", err)
+	}
+
 	// Insert records
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {

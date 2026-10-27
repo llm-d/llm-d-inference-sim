@@ -79,3 +79,43 @@ func TestDSToolConfigurationOutput(t *testing.T) {
 		})
 	}
 }
+
+func TestDSToolStoreToSQLitePromptHashIndex(t *testing.T) {
+	cfg := NewDefaultDSToolConfiguration()
+	cfg.outputPath = t.TempDir()
+	tool := &DatasetTool{config: cfg, sqlHelper: newSqliteHelper(cfg.tableName, logr.Discard()), logger: logr.Discard()}
+	// the second run stores into the existing output database
+	for range 2 {
+		if err := tool.storeToSQLite(context.Background(), nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	db, err := sql.Open("sqlite3", "file:"+cfg.getOutputDBFullFileName()+"?mode=ro")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	rows, err := db.Query("SELECT i.name FROM sqlite_master AS m JOIN pragma_index_info(m.name) AS i WHERE m.type = 'index' AND m.tbl_name = ?", cfg.tableName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close() //nolint:errcheck
+	var columns []string
+	for rows.Next() {
+		var column string
+		if err := rows.Scan(&column); err != nil {
+			t.Fatal(err)
+		}
+		columns = append(columns, column)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if len(columns) != 1 || columns[0] != promptHashCol {
+		t.Fatalf("indexed columns = %v; want [%s]", columns, promptHashCol)
+	}
+}

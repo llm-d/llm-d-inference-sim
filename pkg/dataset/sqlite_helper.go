@@ -177,7 +177,11 @@ func (s *sqliteHelper) copyIntoMemory(path string) error {
 	}
 
 	if err := s.copyIndexes(ctx, conn); err != nil {
-		s.logger.Error(err, "failed to copy indexes, in-memory lookups will scan the whole table")
+		s.logger.Error(err, "failed to copy indexes")
+	}
+
+	if err := s.ensurePromptHashIndex(ctx, conn); err != nil {
+		s.logger.Error(err, "failed to create prompt hash index, in-memory prompt lookups will scan the whole table")
 	}
 
 	if _, err := conn.ExecContext(ctx, "DETACH DATABASE source"); err != nil {
@@ -210,6 +214,25 @@ func (s *sqliteHelper) copyIndexes(ctx context.Context, conn *sql.Conn) error {
 		if _, err := conn.ExecContext(ctx, statement); err != nil {
 			return fmt.Errorf("failed to create index (%s): %w", statement, err)
 		}
+	}
+	return nil
+}
+
+// ensurePromptHashIndex creates the prompt hash index in the in-memory database
+// unless an index there already starts with the prompt hash column
+func (s *sqliteHelper) ensurePromptHashIndex(ctx context.Context, conn *sql.Conn) error {
+	var indexed bool
+	err := conn.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM pragma_index_list(?, 'main') AS l
+		JOIN pragma_index_info(l.name, 'main') AS i WHERE i.seqno = 0 AND i.name = ?)`,
+		s.tableName, promptHashCol).Scan(&indexed)
+	if err != nil {
+		return fmt.Errorf("failed to read indexes: %w", err)
+	}
+	if indexed {
+		return nil
+	}
+	if _, err := conn.ExecContext(ctx, s.getCreatePromptHashIndexQuery()); err != nil {
+		return fmt.Errorf("failed to create index: %w", err)
 	}
 	return nil
 }
@@ -372,6 +395,10 @@ func (s *sqliteHelper) getCreateTableQuery() string {
 		gen_tokens JSON NOT NULL,
 		n_gen_tokens INTEGER NOT NULL
 	)`, s.tableName)
+}
+
+func (s *sqliteHelper) getCreatePromptHashIndexQuery() string {
+	return fmt.Sprintf("CREATE INDEX IF NOT EXISTS idx_%[1]s_%[2]s ON %[1]s (%[2]s)", s.tableName, promptHashCol)
 }
 
 func (s *sqliteHelper) getInsertQuery() string {
