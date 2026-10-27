@@ -313,10 +313,6 @@ func (dt *DatasetTool) storeToSQLite(ctx context.Context, records []outputRecord
 	}
 	dt.logger.Info("Table created successfully", "table", dt.config.tableName)
 
-	if _, err := db.ExecContext(ctx, dt.sqlHelper.getCreatePromptHashIndexQuery()); err != nil {
-		return fmt.Errorf("failed to create prompt hash index: %w", err)
-	}
-
 	// Insert records
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
@@ -355,6 +351,11 @@ func (dt *DatasetTool) storeToSQLite(ctx context.Context, records []outputRecord
 	dt.logger.Info("Records stored successfully", "count", len(records))
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	// built after the inserts in a single pass; without it the dataset still works, only slower
+	if _, err := db.ExecContext(ctx, dt.sqlHelper.getCreatePromptHashIndexQuery()); err != nil {
+		dt.logger.Error(err, "failed to create prompt hash index, prompt lookups will scan the whole table")
 	}
 
 	return nil

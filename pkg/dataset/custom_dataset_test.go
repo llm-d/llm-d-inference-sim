@@ -427,35 +427,6 @@ var _ = Describe("in-memory database", func() {
 		helper.closeDB()
 	})
 
-	// connectToIndexedCopy connects in memory to a copy of the valid database with the given index added
-	connectToIndexedCopy := func(createIndex string) {
-		indexedDBPath := filepath.Join(GinkgoT().TempDir(), "indexed.sqlite3")
-		data, err := os.ReadFile(validDBPath)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(os.WriteFile(indexedDBPath, data, 0o600)).To(Succeed())
-		source, err := sql.Open("sqlite3", indexedDBPath)
-		Expect(err).NotTo(HaveOccurred())
-		_, err = source.Exec(createIndex)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(source.Close()).To(Succeed())
-
-		Expect(helper.connectToDB(indexedDBPath, true)).To(Succeed())
-	}
-
-	indexNames := func() []string {
-		rows, err := helper.db.Query("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'llmd'")
-		Expect(err).NotTo(HaveOccurred())
-		defer rows.Close() //nolint:errcheck
-		var indexes []string
-		for rows.Next() {
-			var name string
-			Expect(rows.Scan(&name)).To(Succeed())
-			indexes = append(indexes, name)
-		}
-		Expect(rows.Err()).NotTo(HaveOccurred())
-		return indexes
-	}
-
 	It("should serve queries on every pooled connection", func() {
 		// holding one connection forces the next query onto another one
 		conn, err := helper.db.Conn(context.Background())
@@ -478,22 +449,100 @@ var _ = Describe("in-memory database", func() {
 	})
 
 	It("should keep the indexes of the source database", func() {
-		connectToIndexedCopy("CREATE INDEX idx_llmd_prompt_hash ON llmd (prompt_hash)")
-		Expect(indexNames()).To(ConsistOf("idx_llmd_prompt_hash"))
+		indexedDBPath := filepath.Join(GinkgoT().TempDir(), "indexed.sqlite3")
+		data, err := os.ReadFile(validDBPath)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(os.WriteFile(indexedDBPath, data, 0o600)).To(Succeed())
+		source, err := sql.Open("sqlite3", indexedDBPath)
+		Expect(err).NotTo(HaveOccurred())
+		_, err = source.Exec("CREATE INDEX idx_llmd_n_gen_tokens ON llmd (n_gen_tokens)")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(source.Close()).To(Succeed())
+
+		Expect(helper.connectToDB(indexedDBPath, true)).To(Succeed())
+
+		rows, err := helper.db.Query("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'llmd'")
+		Expect(err).NotTo(HaveOccurred())
+		defer rows.Close() //nolint:errcheck
+		var indexes []string
+		for rows.Next() {
+			var name string
+			Expect(rows.Scan(&name)).To(Succeed())
+			indexes = append(indexes, name)
+		}
+		Expect(rows.Err()).NotTo(HaveOccurred())
+		Expect(indexes).To(ContainElement("idx_llmd_n_gen_tokens"))
+	})
+})
+
+var _ = Describe("prompt hash index", func() {
+	var helper *sqliteHelper
+
+	BeforeEach(func() {
+		helper = newSqliteHelper("llmd", klog.Background())
 	})
 
-	It("should create a prompt hash index when the source database has none", func() {
-		Expect(indexNames()).To(ConsistOf("idx_llmd_prompt_hash"))
+	AfterEach(func() {
+		helper.closeDB()
 	})
 
-	It("should not duplicate a prompt hash index of the source database", func() {
-		connectToIndexedCopy("CREATE INDEX source_prompt_hash ON llmd (prompt_hash, n_gen_tokens)")
-		Expect(indexNames()).To(ConsistOf("source_prompt_hash"))
+	// the table is created here rather than copied from a fixture, so the statements add its only indexes
+	connectToSource := func(useInMemory bool, statements ...string) {
+		path := filepath.Join(GinkgoT().TempDir(), "source.sqlite3")
+		source, err := sql.Open("sqlite3", path)
+		Expect(err).NotTo(HaveOccurred())
+		for _, statement := range append([]string{helper.getCreateTableQuery()}, statements...) {
+			_, err := source.Exec(statement)
+			Expect(err).NotTo(HaveOccurred())
+		}
+		Expect(source.Close()).To(Succeed())
+
+		Expect(helper.connectToDB(path, useInMemory)).To(Succeed())
+	}
+
+	indexNames := func() []string {
+		rows, err := helper.db.Query("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'llmd'")
+		Expect(err).NotTo(HaveOccurred())
+		defer rows.Close() //nolint:errcheck
+		var indexes []string
+		for rows.Next() {
+			var name string
+			Expect(rows.Scan(&name)).To(Succeed())
+			indexes = append(indexes, name)
+		}
+		Expect(rows.Err()).NotTo(HaveOccurred())
+		return indexes
+	}
+
+	DescribeTable("should be created in memory when no source index serves prompt lookups",
+		func(statements ...string) {
+			connectToSource(true, statements...)
+			Expect(indexNames()).To(ContainElement("idx_llmd_prompt_hash"))
+		},
+		Entry("no index"),
+		Entry("prompt hash not the first column", "CREATE INDEX source_index ON llmd (n_gen_tokens, prompt_hash)"),
+		Entry("partial index", "CREATE INDEX source_index ON llmd (prompt_hash) WHERE n_gen_tokens > 100"),
+		Entry("other collation", "CREATE INDEX source_index ON llmd (prompt_hash COLLATE NOCASE)"),
+	)
+
+	It("should not be duplicated in memory when a source index serves prompt lookups", func() {
+		connectToSource(true, "CREATE INDEX source_index ON llmd (prompt_hash, n_gen_tokens)")
+		Expect(indexNames()).To(ConsistOf("source_index"))
 	})
 
-	It("should create a prompt hash index when the source indexes do not start with it", func() {
-		connectToIndexedCopy("CREATE INDEX source_n_gen_tokens ON llmd (n_gen_tokens, prompt_hash)")
-		Expect(indexNames()).To(ConsistOf("source_n_gen_tokens", "idx_llmd_prompt_hash"))
+	It("should report an error when a source index that does not serve prompt lookups has its name", func() {
+		connectToSource(true, "CREATE INDEX idx_llmd_prompt_hash ON llmd (n_gen_tokens)")
+		Expect(helper.ensurePromptHashIndex()).To(MatchError(ContainSubstring("already exists")))
+	})
+
+	It("should be detected as missing in a file database", func() {
+		connectToSource(false)
+		Expect(helper.promptLookupUsesIndex()).To(BeFalse())
+	})
+
+	It("should be detected in a file database", func() {
+		connectToSource(false, helper.getCreatePromptHashIndexQuery())
+		Expect(helper.promptLookupUsesIndex()).To(BeTrue())
 	})
 })
 
