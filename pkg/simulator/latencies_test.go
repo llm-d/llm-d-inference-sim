@@ -414,4 +414,30 @@ var _ = Describe("Check random latencies", Ordered, func() {
 		Expect(latency).To(BeNumerically(">=", float32(milliseconds(500))*0.3))
 		Expect(latency).To(BeNumerically("<=", float32(milliseconds(500))*1.7))
 	})
+
+	It("keeps sub-millisecond latencies", func() {
+		latencies := common.LatenciesConfig{
+			InterTokenLatency:           750 * time.Microsecond,
+			KVCacheTransferTimePerToken: 3 * time.Microsecond,
+		}
+		latencyCalculator := newPerTokenCalculator(&latencies, 1, random)
+
+		Expect(latencyCalculator.GetInterTokenLatency(&InterTokenParams{})).To(Equal(750 * time.Microsecond))
+		ttft := latencyCalculator.GetTimeToFirstToken(&TTFTParams{PromptTokens: 100, DoRemotePrefill: true})
+		Expect(ttft).To(Equal(300 * time.Microsecond))
+	})
+
+	It("applies a sub-millisecond std-dev", func() {
+		latencies := common.LatenciesConfig{
+			KVCacheTransferLatency:       milliseconds(2),
+			KVCacheTransferLatencyStdDev: 400 * time.Microsecond,
+		}
+		latencyCalculator := newConstantCalculator(&latencies, 1, random)
+
+		samples := map[time.Duration]bool{}
+		for range 10 {
+			samples[latencyCalculator.GetTimeToFirstToken(&TTFTParams{DoRemotePrefill: true})] = true
+		}
+		Expect(len(samples)).To(BeNumerically(">", 1))
+	})
 })
