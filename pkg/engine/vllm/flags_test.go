@@ -885,7 +885,7 @@ var _ = Describe("Simulator configuration", func() {
 		},
 		{
 			name:          "valueless fake-metrics followed by another flag",
-			args:          []string{"cmd", "--model", common.TestModelName, "--fake-metrics", "--max-loras", "2", "--enable-metrics"},
+			args:          []string{"cmd", "--model", common.TestModelName, "--fake-metrics", "--max-loras", "2"},
 			expectedError: "--fake-metrics requires a JSON value",
 		},
 		{
