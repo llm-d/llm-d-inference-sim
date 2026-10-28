@@ -12,7 +12,7 @@ require (
 	github.com/ncruces/go-sqlite3 v0.35.6
 	github.com/onsi/ginkgo/v2 v2.33.1
 	github.com/onsi/gomega v1.44.0
-	github.com/openai/openai-go/v3 v3.81.0
+	github.com/openai/openai-go/v3 v3.86.0
 	github.com/prometheus/client_golang v1.25.0
 	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1
 	github.com/soheilhy/cmux v0.1.5
