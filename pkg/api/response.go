@@ -799,6 +799,28 @@ type MessagesContentBlock struct {
 	Input map[string]any `json:"input,omitempty"`
 }
 
+// MarshalJSON keeps the text of a text block and the input of a tool_use block
+// when they are empty, as the Messages API requires them: clients build each
+// streamed block from its content_block_start event.
+func (b MessagesContentBlock) MarshalJSON() ([]byte, error) {
+	switch b.Type {
+	case ContentTypeText:
+		return json.Marshal(struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		}{Type: b.Type, Text: b.Text})
+	case "tool_use":
+		return json.Marshal(struct {
+			Type  string         `json:"type"`
+			ID    string         `json:"id"`
+			Name  string         `json:"name"`
+			Input map[string]any `json:"input"`
+		}{Type: b.Type, ID: b.ID, Name: b.Name, Input: b.Input})
+	}
+	type alias MessagesContentBlock
+	return json.Marshal(alias(b))
+}
+
 // MessagesResponse is the non-streaming Anthropic /v1/messages response.
 type MessagesResponse struct {
 	ID           string                 `json:"id"`
