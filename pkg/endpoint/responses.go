@@ -270,6 +270,10 @@ func (r *responsesReqCtx) createToolCalls() ([]api.ToolCall, int, string, error)
 	return toolCalls, completionTokens, common.ToolsFinishReason, nil
 }
 
+func (*responsesReqCtx) createStructuredOutput() (*api.Tokenized, string, error) {
+	return nil, "", nil
+}
+
 // shouldForceRequiredToolChoice reports whether Responses should rewrite tool_choice
 // to required for a deterministic first tool turn.
 func shouldForceRequiredToolChoice(toolChoice api.ToolChoice) bool {
