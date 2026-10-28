@@ -248,6 +248,13 @@ type Configuration struct {
 	// report the key instead of applying a setting it cannot act on.
 	EnableSleepMode bool `yaml:"-" json:"enable-sleep-mode"`
 
+	// EnableMetrics serves the Prometheus /metrics route. Engine-owned
+	// (yaml:"-"), like EnableSleepMode: the engines disagree on whether the
+	// route is opt-in at all, so each supplies its own default and only the one
+	// that spells a flag for it claims the key. Not admin-configurable: the
+	// route is bound once at startup.
+	EnableMetrics bool `yaml:"-" json:"enable-metrics"`
+
 	// EnableRequestIDHeaders enables including X-Request-Id header in responses
 	EnableRequestIDHeaders bool `yaml:"enable-request-id-headers" json:"enable-request-id-headers"`
 

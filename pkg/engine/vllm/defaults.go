@@ -22,6 +22,10 @@ import "github.com/llm-d/llm-d-inference-sim/pkg/common"
 // engine owns. Called before a config file is loaded and before BindFlags, so
 // that a YAML value overrides a default and a flag overrides both.
 func (Engine) ApplyDefaults(cfg *common.Configuration) {
+	// vLLM exports its Prometheus metrics unconditionally and spells no flag for
+	// turning them off, so this engine claims no key for the setting either.
+	cfg.EnableMetrics = true
+
 	cfg.Lora = common.LoraConfig{MaxLoras: 1}
 	cfg.KVCache = common.KVCacheConfig{
 		KVCacheSize:             1024,
