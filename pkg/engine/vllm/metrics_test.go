@@ -249,11 +249,8 @@ vllm:request_success_total{finished_reason="stop",model_name=%q} 1
 			cfg.FakeMetrics = &VLLMFakeMetrics{}
 			adapter, _ := newTestAdapter(cfg)
 
-			// Simulate that Start() has already run, the ticker only auto-starts
-			// once the adapter is marked started.
-			adapter.genMu.Lock()
-			adapter.started = true
-			adapter.genMu.Unlock()
+			// The ticker comes up only once the generators are started.
+			adapter.generators.Start()
 
 			// Enable a generator: ticker must come up.
 			upd := &VLLMFakeMetrics{
@@ -269,10 +266,7 @@ vllm:request_success_total{finished_reason="stop",model_name=%q} 1
 			}
 			adapter.ApplyFakeMetricsUpdate(upd)
 
-			adapter.genMu.Lock()
-			running := adapter.tickerRunning
-			adapter.genMu.Unlock()
-			Expect(running).To(BeTrue(), "expected ticker running after generator enabled")
+			Expect(adapter.generators.Running()).To(BeTrue(), "expected ticker running after generator enabled")
 
 			// Replace the generator with a fixed value: generator set becomes empty,
 			// ticker must stop.
@@ -281,10 +275,7 @@ vllm:request_success_total{finished_reason="stop",model_name=%q} 1
 			}
 			adapter.ApplyFakeMetricsUpdate(upd2)
 
-			adapter.genMu.Lock()
-			running = adapter.tickerRunning
-			adapter.genMu.Unlock()
-			Expect(running).To(BeFalse(), "expected ticker stopped after generators cleared")
+			Expect(adapter.generators.Running()).To(BeFalse(), "expected ticker stopped after generators cleared")
 		})
 
 		It("stops the ticker on Close", func() {
@@ -292,9 +283,7 @@ vllm:request_success_total{finished_reason="stop",model_name=%q} 1
 			cfg.FakeMetrics = &VLLMFakeMetrics{}
 			adapter, _ := newTestAdapter(cfg)
 
-			adapter.genMu.Lock()
-			adapter.started = true
-			adapter.genMu.Unlock()
+			adapter.generators.Start()
 
 			upd := &VLLMFakeMetrics{
 				WaitingRequests: &common.FakeMetricWithFunction{
@@ -310,12 +299,13 @@ vllm:request_success_total{finished_reason="stop",model_name=%q} 1
 			adapter.ApplyFakeMetricsUpdate(upd)
 			Expect(adapter.Close()).To(Succeed())
 
-			adapter.genMu.Lock()
-			running := adapter.tickerRunning
-			started := adapter.started
-			adapter.genMu.Unlock()
-			Expect(running).To(BeFalse(), "expected ticker stopped after Close")
-			Expect(started).To(BeFalse(), "expected started=false after Close")
+			Expect(adapter.generators.Running()).To(BeFalse(), "expected ticker stopped after Close")
+
+			adapter.ApplyFakeMetricsUpdate(&VLLMFakeMetrics{
+				WaitingRequests: &common.FakeMetricWithFunction{FixedValue: 1},
+			})
+			adapter.ApplyFakeMetricsUpdate(upd)
+			Expect(adapter.generators.Running()).To(BeFalse(), "expected no ticker restart after Close")
 		})
 
 		It("resets collectors in place and drops stale series", func() {
