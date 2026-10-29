@@ -17,9 +17,14 @@ limitations under the License.
 package communication
 
 import (
+	"bufio"
+	"bytes"
 	"encoding/json"
+	"strings"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
+	"github.com/llm-d/llm-d-inference-sim/pkg/common"
+	"github.com/llm-d/llm-d-inference-sim/pkg/endpoint"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -106,5 +111,69 @@ var _ = Describe("Responses HTTP tool streaming", func() {
 		Expect(argsDone.Arguments).To(Equal(`{"city":"Paris"}`))
 		Expect(argsDone.ItemID).To(Equal("fc_abc123"))
 		Expect(string(lastPayloads[1])).To(ContainSubstring(`"status":"completed"`))
+	})
+})
+
+// toolCallRespCtx is the minimal response context sendStreamedTools reads.
+type toolCallRespCtx struct {
+	endpoint.ResponseContext
+}
+
+func (toolCallRespCtx) FinishReason() *string {
+	reason := common.ToolsFinishReason
+	return &reason
+}
+func (toolCallRespCtx) CreationTime() int64  { return 1 }
+func (toolCallRespCtx) DisplayModel() string { return common.TestModelName }
+func (toolCallRespCtx) RequestID() string    { return "req" }
+
+var _ = Describe("Chat completions tool streaming", func() {
+	It("sends the tool call's id, type and name only in its first delta", func() {
+		name := "get_weather"
+		argTokens := []string{`{"city":`, `"Paris"`, `}`}
+		tc := api.ToolCall{
+			ID:   common.ChatCmplToolIDPrefix + "123",
+			Type: "function",
+			Function: api.FunctionCall{
+				Name:      &name,
+				Arguments: strings.Join(argTokens, ""),
+			},
+		}
+		tc.Function.SetTokenizedArguments(&api.Tokenized{Tokens: []uint32{1, 2, 3}, Strings: argTokens})
+
+		var buf bytes.Buffer
+		w := bufio.NewWriter(&buf)
+		comm := &Communication{}
+		builder := &chatComplHTTPRespBuilder{transport: fakeTransport{}}
+		for i, token := range argTokens {
+			Expect(comm.sendStreamedTools(toolCallRespCtx{}, builder, w, []string{token}, &tc, i, 0)).To(Succeed())
+		}
+
+		var deltas []map[string]any
+		for _, line := range strings.Split(buf.String(), "\n") {
+			if !strings.HasPrefix(line, "data: ") {
+				continue
+			}
+			var chunk struct {
+				Choices []struct {
+					Delta struct {
+						ToolCalls []map[string]any `json:"tool_calls"`
+					} `json:"delta"`
+				} `json:"choices"`
+			}
+			Expect(json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &chunk)).To(Succeed())
+			Expect(chunk.Choices).To(HaveLen(1))
+			Expect(chunk.Choices[0].Delta.ToolCalls).To(HaveLen(1))
+			deltas = append(deltas, chunk.Choices[0].Delta.ToolCalls[0])
+		}
+		Expect(deltas).To(HaveLen(len(argTokens)))
+
+		Expect(deltas[0]).To(HaveKeyWithValue("id", tc.ID))
+		Expect(deltas[0]).To(HaveKeyWithValue("type", "function"))
+		Expect(deltas[0]["function"]).To(HaveKeyWithValue("name", name))
+		for _, delta := range deltas[1:] {
+			Expect(delta).NotTo(HaveKey("id"))
+			Expect(delta).NotTo(HaveKey("type"))
+		}
 	})
 })

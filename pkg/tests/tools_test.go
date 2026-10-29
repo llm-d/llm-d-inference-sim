@@ -414,15 +414,17 @@ var _ = Describe("Simulator for request with tools", Ordered, forEachEngine(func
 						Expect(tc.Index).To(Or(BeNumerically("==", lastIndex), BeNumerically("==", lastIndex+1)))
 						if tc.Index > int64(lastIndex) {
 							Expect(tc.Function.Name).To(Or(Equal(functionNameGetWeather), Equal(functionNameGetTemperature)))
+							Expect(tc.ID).To(HavePrefix(common.ChatCmplToolIDPrefix))
+							Expect(tc.Type).To(Equal("function"))
 							lastIndex++
 							args[tc.Function.Name] = []string{tc.Function.Arguments}
 							functionName = tc.Function.Name
 						} else {
 							Expect(tc.Function.Name).To(BeEmpty())
+							Expect(tc.ID).To(BeEmpty())
+							Expect(tc.Type).To(BeEmpty())
 							args[functionName] = append(args[functionName], tc.Function.Arguments)
 						}
-						Expect(tc.ID).To(HavePrefix(common.ChatCmplToolIDPrefix))
-						Expect(tc.Type).To(Equal("function"))
 					}
 				}
 				if chunk.Usage.CompletionTokens != 0 || chunk.Usage.PromptTokens != 0 || chunk.Usage.TotalTokens != 0 {

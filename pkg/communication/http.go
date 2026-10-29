@@ -724,14 +724,15 @@ func (c *Communication) sendStreamedTools(respCtx endpoint.ResponseContext, resp
 	tokensStr := strings.Join(tokens, "")
 
 	toolChunkInsert := &api.ToolCall{
-		ID:    tc.ID,
-		Type:  tc.Type,
 		Index: tc.Index,
 		Function: api.FunctionCall{
 			Arguments: tokensStr,
 		},
 	}
+	// As in vLLM and OpenAI, only a tool call's first delta carries its id, type and name.
 	if index == 0 {
+		toolChunkInsert.ID = tc.ID
+		toolChunkInsert.Type = tc.Type
 		toolChunkInsert.Function.Name = tc.Function.Name
 	}
 
