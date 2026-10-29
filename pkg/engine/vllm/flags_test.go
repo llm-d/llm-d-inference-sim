@@ -18,6 +18,7 @@ package vllm
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -28,6 +29,7 @@ import (
 	. "github.com/onsi/gomega"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
+	"github.com/llm-d/llm-d-inference-sim/pkg/metrics"
 )
 
 // writeConfig writes a config file for one spec and returns its path.
@@ -611,7 +613,7 @@ var _ = Describe("Simulator configuration", func() {
 			name: "invalid fake metrics: negative running requests",
 			args: []string{"cmd", "--fake-metrics", "{\"running-requests\":-10,\"waiting-requests\":30,\"kv-cache-usage\":0.4}",
 				"--config", "../../../manifests/vllm-config.yaml"},
-			expectedError: "fake metrics request counters cannot be negative",
+			expectedError: "fake metrics running-requests cannot be negative",
 		},
 		{
 			name: "invalid fake metrics: invalid running requests function",
@@ -641,7 +643,7 @@ var _ = Describe("Simulator configuration", func() {
 			name: "invalid fake metrics: kv cache usage",
 			args: []string{"cmd", "--fake-metrics", "{\"running-requests\":10,\"waiting-requests\":30,\"kv-cache-usage\":40}",
 				"--config", "../../../manifests/vllm-config.yaml"},
-			expectedError: "fake metrics KV cache usage must be between 0 and 1",
+			expectedError: "fake metrics kv-cache-usage must be between 0 and 1",
 		},
 		{
 			name: "invalid fake metrics: negative kv cache usage function parameters",
@@ -653,7 +655,7 @@ var _ = Describe("Simulator configuration", func() {
 			name: "invalid fake metrics: invalid kv cache usage function parameters",
 			args: []string{"cmd", "--fake-metrics", "{\"running-requests\":10,\"waiting-requests\":30,\"kv-cache-usage\":\"ramp:0:5:10s\"}",
 				"--config", "../../../manifests/vllm-config.yaml"},
-			expectedError: "fake metrics KV cache usage start and end must be between 0 and 1",
+			expectedError: "fake metrics kv-cache-usage start and end must be between 0 and 1",
 		},
 		{
 			name: "invalid fake metrics refresh period",
@@ -799,13 +801,13 @@ var _ = Describe("Simulator configuration", func() {
 			name: "invalid ttft",
 			args: []string{"cmd", "--fake-metrics", "{\"ttft-buckets-values\":[1, 2, -10, 1]}",
 				"--config", "../../../manifests/vllm-config.yaml"},
-			expectedError: "time-to-first-token fake metrics should contain only non-negative values",
+			expectedError: "fake metrics ttft-buckets-values cannot contain negative values",
 		},
 		{
 			name: "invalid tpot",
 			args: []string{"cmd", "--fake-metrics", "{\"tpot-buckets-values\":[1, 2, -10, 1]}",
 				"--config", "../../../manifests/vllm-config.yaml"},
-			expectedError: "time-per-output-token fake metrics should contain only non-negative values",
+			expectedError: "fake metrics tpot-buckets-values cannot contain negative values",
 		},
 		{
 			name: "invalid request-max-generation-tokens",
@@ -1369,6 +1371,49 @@ var _ = Describe("Setting names", func() {
 		Entry("context-length", "--context-length"),
 		Entry("max-running-requests", "--max-running-requests"),
 		Entry("max-queued-requests", "--max-queued-requests"),
+	)
+
+	// Every bucket array is checked against its histogram's bucket count, not
+	// only ttft and tpot.
+	DescribeTable("should reject a fake-metrics bucket array longer than its histogram",
+		func(key string, boundaries []float64) {
+			samples := strings.TrimRight(strings.Repeat("0,", len(boundaries)+2), ",")
+			_, err := createSimConfig([]string{"cmd", "--model", common.TestModelName,
+				"--fake-metrics", fmt.Sprintf(`{%q:[%s]}`, key, samples)})
+			Expect(err).To(MatchError(ContainSubstring(
+				fmt.Sprintf("fake metrics %s is too long", key))))
+		},
+		Entry("ttft", "ttft-buckets-values", common.TTFTBucketsBoundaries),
+		Entry("tpot", "tpot-buckets-values", common.TPOTBucketsBoundaries),
+		Entry("request-tpot", "request-tpot-buckets-values", common.TPOTBucketsBoundaries),
+		Entry("e2erl", "e2erl-buckets-values", common.RequestLatencyBucketsBoundaries),
+		Entry("queue-time", "queue-time-buckets-values", common.RequestLatencyBucketsBoundaries),
+		Entry("inf-time", "inf-time-buckets-values", common.RequestLatencyBucketsBoundaries),
+		Entry("prefill-time", "prefill-time-buckets-values", common.RequestLatencyBucketsBoundaries),
+		Entry("decode-time", "decode-time-buckets-values", common.RequestLatencyBucketsBoundaries),
+	)
+
+	// The token-length histograms' buckets are built from the context window, so
+	// ValidateConfig checks them rather than Validate.
+	DescribeTable("should accept a token-bucket array up to its histogram length and reject a longer one",
+		func(maxModelLen int, args ...string) {
+			buckets := metrics.BuildBuckets(maxModelLen, TokenBucketMantissas)
+			for _, key := range []string{"request-prompt-tokens", "request-generation-tokens",
+				"request-params-max-tokens", "request-max-generation-tokens"} {
+				createWithSamples := func(n int) error {
+					samples := strings.TrimRight(strings.Repeat("0,", n), ",")
+					_, err := createSimConfig(append([]string{"cmd", "--model", common.TestModelName,
+						"--fake-metrics", fmt.Sprintf(`{%q:[%s]}`, key, samples)}, args...))
+					return err
+				}
+
+				Expect(createWithSamples(len(buckets)+1)).To(Succeed(), key)
+				Expect(createWithSamples(len(buckets) + 2)).To(MatchError(ContainSubstring(fmt.Sprintf("fake metrics %s is too long", key))))
+			}
+		},
+		Entry("default max-model-len", 1024),
+		Entry("lower max-model-len", 512, "--max-model-len", "512"),
+		Entry("higher max-model-len", 2048, "--max-model-len", "2048"),
 	)
 
 	It("should read those settings from a config file under vLLM's keys", func() {

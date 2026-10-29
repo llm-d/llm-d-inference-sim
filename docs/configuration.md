@@ -234,6 +234,7 @@ Command-line flag names are as listed below. In a YAML config file, these settin
     - `waiting-requests` - similar to `running-requests`.
     - `kv-cache-usage` - similar to `running-requests`.
     - `loras` - an array containing LoRA information objects, each with the fields: `running` (a comma-separated list of LoRAs in use by running requests), `waiting` (a comma-separated list of LoRAs to be used by waiting requests), and `timestamp` (seconds since Jan 1 1970, the timestamp of this metric). If `loras` is omitted, `vllm:lora_requests_info` is not exposed.
+    - Histogram arrays below may have at most one value per bucket (boundaries plus +Inf); longer arrays are rejected.
     - `ttft-buckets-values` - array of values for time-to-first-token buckets, each value in this array is a value for the corresponding bucket. Array may contain less values than number of buckets, all trailing missing values assumed as 0. Buckets upper boundaries are: 0.001, 0.005, 0.01, 0.02, 0.04, 0.06, 0.08, 0.1, 0.25, 0.5, 0.75, 1.0, 2.5, 5.0, 7.5, 10.0, 20.0, 40.0, 80.0, 160.0, 640.0, 2560.0, +Inf.
     - `tpot-buckets-values` - array of values for time-per-output-token buckets, each value in this array is a value for the corresponding bucket. Array may contain less values than number of buckets, all trailing missing values assumed as 0. Buckets upper boundaries are: 0.01, 0.025, 0.05, 0.075, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5, 0.75, 1.0, 2.5, 5.0, 7.5, 10.0, 20.0, 40.0, 80.0, +Inf.
     - `e2erl-buckets-values` - array of values for e2e request latency buckets, each value in this array is a value for the corresponding bucket. Array may contain less values than number of buckets, all trailing missing values assumed as 0. Buckets upper boundaries are: 0.3, 0.5, 0.8, 1.0, 1.5, 2.0, 2.5, 5.0, 10.0, 15.0, 20.0, 30.0, 40.0, 50.0, 60.0, 120.0, 240.0, 480.0, 
@@ -250,6 +251,8 @@ Command-line flag names are as listed below. In a YAML config file, these settin
     - `request-generation-tokens` - array of values for generation-length buckets
     - `request-max-generation-tokens` - array of values for request_max_num_generation_tokens buckets
     - `request-params-max-tokens` - array of values for  max_tokens parameter buckets
+
+      Boundaries of these four token histograms are 1, 2 and 5 times powers of ten up to `max-model-len`, plus +Inf.
     - `request-success-total` - number of successful requests per finish reason, key: finish-reason (stop, length, etc.).
     - `total-prompt-tokens` - initial value for the `vllm:prompt_tokens_total` counter (total number of prompt tokens processed).
     - `total-generation-tokens` - initial value for the `vllm:generation_tokens_total` counter (total number of generated tokens).
