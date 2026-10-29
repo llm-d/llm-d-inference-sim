@@ -57,9 +57,7 @@ TTFT can grow several-fold even though the prefill itself is unchanged.
 | 405B (TP=8) | 60–100 ms | infeasible¹ | — | 70–120 ms |
 
 `StdDev` for ITL is typically small in well-behaved engines - 5–15% of the mean
-(`1–3 ms` for the 8B/H100 row). Note that if calculating StdDev for ultra-fast models 
-where the value falls below 1ms (e.g., 10% of a 5ms latency), you must round up and keep the 
-value at or above `1ms` to prevent `RandomNormDuration` from truncating your jitter to zero.
+(`1–3 ms` for the 8B/H100 row).
 
 ¹ See footnote under `time-to-first-token` above.
 
