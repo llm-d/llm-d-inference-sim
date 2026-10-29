@@ -246,6 +246,7 @@ type PrefillStarted struct {
 // value observed on both histograms).
 type PrefillEnded struct {
 	PrefillDuration float64 // seconds
+	IsStreaming     bool
 }
 
 // DecodeStarted fires before the per-token generation loop. State marker.
@@ -265,19 +266,25 @@ type TokenGenerated struct {
 type DecodeEnded struct {
 	GenerationTokens int
 	DecodeDuration   float64 // seconds
+	FinishReason     string
+	IsStreaming      bool
 }
 
 // RequestSucceeded is the terminal event for a request that produced a
 // response. Drives all token, success, and both request-level latency
 // histograms, plus num_requests_running (-1) and LoRA running-set removal.
 type RequestSucceeded struct {
-	PromptTokens       int
+	PromptTokens int
+	// CachedPromptTokens is the part of PromptTokens served from the prefix
+	// cache, zero when the KV cache is disabled.
+	CachedPromptTokens int
 	GenerationTokens   int
 	GenTokensPerChoice []int
 	MaxTokens          *int64
 	FinishReason       string
 	E2ELatency         float64 // seconds
 	InferenceTime      float64 // seconds
+	IsStreaming        bool
 }
 
 // RequestFailed is the terminal event for a request that errored out. Same

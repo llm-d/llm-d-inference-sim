@@ -100,15 +100,21 @@ func (s *Simulator) processRequest(reqCtx endpoint.RequestContext) {
 	}
 	s.Context.logger.V(logging.DEBUG).Info("Finished processing request", "id", req.GetRequestID())
 
+	finishReason := ""
+	if respCtx.FinishReason() != nil {
+		finishReason = *respCtx.FinishReason()
+	}
 	common.WriteToChannel(s.Context.metricsBus.RequestSucceeded,
 		metrics.RequestSucceeded{
 			PromptTokens:       respCtx.UsageData().PromptTokens,
+			CachedPromptTokens: respCtx.NumberCachedPromptTokens(),
 			GenerationTokens:   respCtx.UsageData().CompletionTokens,
 			GenTokensPerChoice: []int{respCtx.UsageData().CompletionTokens},
 			MaxTokens:          req.GetMaxCompletionTokens(),
-			FinishReason:       *respCtx.FinishReason(),
+			FinishReason:       finishReason,
 			E2ELatency:         time.Since(reqCtx.StartProcessingTime()).Seconds(),
 			InferenceTime:      time.Since(startTime).Seconds(),
+			IsStreaming:        req.IsStream(),
 		}, s.Context.logger)
 }
 

@@ -304,6 +304,59 @@ var _ = Describe("processRequest", func() {
 		Expect(respChan.Channel).To(BeEmpty())
 		Eventually(respChan.Channel).Should(BeClosed())
 	})
+
+	DescribeTable("reports streaming and finish reason on the prefill, decode and success events",
+		func(stream bool) {
+			sim := newHandleRequestTestSim(context.Background(), 1)
+			bus := useUnreadMetricsBus(sim)
+
+			req := newTextCompletionsRequestWithChoices("stream", 1)
+			req.Prompt = []api.PromptInput{{Text: "hello there, how are you"}}
+			req.Stream = stream
+			_, _, _, topErr, _ := sim.HandleRequest(context.Background(), req)
+			Expect(topErr).To(BeNil())
+			sim.processRequest(<-sim.newRequests.Channel)
+
+			var prefill metrics.PrefillEnded
+			Expect(bus.PrefillEnded.Channel).To(Receive(&prefill))
+			Expect(prefill.IsStreaming).To(Equal(stream))
+
+			var decode metrics.DecodeEnded
+			Expect(bus.DecodeEnded.Channel).To(Receive(&decode))
+			Expect(decode.IsStreaming).To(Equal(stream))
+			Expect(decode.FinishReason).To(Equal(common.StopFinishReason))
+
+			var succeeded metrics.RequestSucceeded
+			Expect(bus.RequestSucceeded.Channel).To(Receive(&succeeded))
+			Expect(succeeded.IsStreaming).To(Equal(stream))
+			Expect(succeeded.FinishReason).To(Equal(common.StopFinishReason))
+		},
+		Entry("streaming", true),
+		Entry("non-streaming", false),
+	)
+
+	It("reports the prompt tokens served from the prefix cache on the success event", func() {
+		GinkgoT().Setenv("POD_IP", "localhost")
+		sim := newHandleRequestTestSim(context.Background(), 1,
+			"--enable-kvcache", "--kv-cache-size", "16", "--block-size", "8")
+		bus := useUnreadMetricsBus(sim)
+
+		runRequest := func(id string) metrics.RequestSucceeded {
+			req := newTextCompletionsRequestWithChoices(id, 1)
+			req.Prompt = []api.PromptInput{{Text: "one two three four five six seven eight nine ten eleven twelve"}}
+			_, _, _, topErr, _ := sim.HandleRequest(context.Background(), req)
+			Expect(topErr).To(BeNil())
+			sim.processRequest(<-sim.newRequests.Channel)
+			var succeeded metrics.RequestSucceeded
+			Expect(bus.RequestSucceeded.Channel).To(Receive(&succeeded))
+			return succeeded
+		}
+
+		Expect(runRequest("first").CachedPromptTokens).To(BeZero())
+		second := runRequest("second")
+		Expect(second.CachedPromptTokens).To(Equal(8))
+		Expect(second.PromptTokens).To(BeNumerically(">", second.CachedPromptTokens))
+	})
 })
 
 var _ = Describe("sleepUnlessDone", func() {

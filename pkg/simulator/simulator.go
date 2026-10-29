@@ -544,8 +544,17 @@ func (s *Simulator) simulateResponseProcessing(respCtx endpoint.ResponseContext)
 				}
 			}
 		}
+		finishReason := ""
+		if respCtx.FinishReason() != nil {
+			finishReason = *respCtx.FinishReason()
+		}
 		common.WriteToChannel(s.Context.metricsBus.DecodeEnded,
-			metrics.DecodeEnded{GenerationTokens: nTokens, DecodeDuration: time.Since(startDecode).Seconds()},
+			metrics.DecodeEnded{
+				GenerationTokens: nTokens,
+				DecodeDuration:   time.Since(startDecode).Seconds(),
+				FinishReason:     finishReason,
+				IsStreaming:      reqCtx.Request().IsStream(),
+			},
 			s.Context.logger)
 
 		if reqCtx.Request().SendImage() && !s.Context.simulateImageGenerationLatency(done) {
