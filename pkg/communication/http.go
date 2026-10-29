@@ -614,12 +614,8 @@ func (c *Communication) sendStream(ctx *fasthttp.RequestCtx, channel common.Chan
 				continue
 			}
 
-			ok, stop := c.emitResponseChunks(route, w, respBuilder, response, respCtx, &state, response.Status == endpoint.ResponseEndOfTokens)
-			if !ok {
+			if !c.emitResponseChunks(route, w, respBuilder, response, respCtx, &state, response.Status == endpoint.ResponseEndOfTokens) {
 				return
-			}
-			if stop {
-				break
 			}
 		}
 
@@ -648,18 +644,16 @@ func (c *Communication) sendStream(ctx *fasthttp.RequestCtx, channel common.Chan
 }
 
 // emitResponseChunks handles a single non-error, non-Created response. Returns
-// (ok, stop): ok=false means the caller should return (a send failed and was
-// already logged); stop=true means the stream is complete and the main
-// loop should break out to finalize.
+// false when the caller should return (a send failed and was already logged).
 func (c *Communication) emitResponseChunks(route api.ErrorRoute, w *bufio.Writer, respBuilder responseBuilder,
-	response *endpoint.ResponseInfo, respCtx endpoint.ResponseContext, state *streamState, lastTokensChunk bool) (ok bool, stop bool) {
+	response *endpoint.ResponseInfo, respCtx endpoint.ResponseContext, state *streamState, lastTokensChunk bool) bool {
 	choiceIdx := response.ChoiceIdx
 
 	if response.Tokens != nil {
 		// In chat completion the first chunk contains the role.
 		if state.firstTokens[choiceIdx] {
 			if !c.sendOrFail(w, respBuilder.createFirstChunk(respCtx, choiceIdx), "Sending first stream chunk failed") {
-				return false, false
+				return false
 			}
 			state.firstTokens[choiceIdx] = false
 		}
@@ -672,10 +666,10 @@ func (c *Communication) emitResponseChunks(route api.ErrorRoute, w *bufio.Writer
 			if err := c.sendStreamedTools(respCtx, respBuilder, w, response.Tokens.Strings, response.ToolCall,
 				state.toolCallIndex[choiceIdx], choiceIdx); err != nil {
 				c.chunkSendFailed("Sending tools chunk failed", err)
-				return false, false
+				return false
 			}
 			state.lastToolCall[choiceIdx] = response.ToolCall
-			return true, false
+			return true
 		}
 
 		var finishReason *string
@@ -683,18 +677,19 @@ func (c *Communication) emitResponseChunks(route api.ErrorRoute, w *bufio.Writer
 			finishReason = respCtx.FinishReason()
 		}
 		return c.sendOrFail(w, respBuilder.createChunk(respCtx, response.Tokens, nil, "", finishReason, choiceIdx),
-			"Sending stream chunk failed"), false
+			"Sending stream chunk failed")
 	}
 
-	if respCtx.FinishReason() != nil && *respCtx.FinishReason() == common.CacheThresholdFinishReason {
+	// Choices can end with different finish reasons, so check this choice's own.
+	if finishReason := response.RespCtx.FinishReason(); finishReason != nil && *finishReason == common.CacheThresholdFinishReason {
 		// No tokens to stream but we still need to emit a finish chunk for cache_threshold.
-		return c.sendOrFail(w, respBuilder.createChunk(respCtx, nil, nil, "", respCtx.FinishReason(), choiceIdx),
-			"Sending finish chunk failed"), true
+		return c.sendOrFail(w, respBuilder.createChunk(respCtx, nil, nil, "", finishReason, choiceIdx),
+			"Sending finish chunk failed")
 	}
 
 	errToSend := api.NewError("unexpected response part in streaming", fasthttp.StatusInternalServerError, nil)
 	c.sendStreamErrorAndDone(route, w, respBuilder, &errToSend)
-	return false, false
+	return false
 }
 
 // finalizeStream emits the post-loop SSE frames: a last chunk per choice (if the
