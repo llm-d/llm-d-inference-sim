@@ -923,6 +923,12 @@ var _ = Describe("Model environment variable", func() {
 		Expect(config.Model).To(Equal("env-override-model"))
 	})
 
+	It("prefers the positional model over the config file", func() {
+		config, err := createSimConfig([]string{"cmd", common.TestModelName, "--config", "../../../manifests/vllm-config.yaml"})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(config.Model).To(Equal(common.TestModelName))
+	})
+
 	It("does not change model when unset and --model is passed", func() {
 		config, err := createSimConfig([]string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom, "--seed", "100"})
 		Expect(err).NotTo(HaveOccurred())
