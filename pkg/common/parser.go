@@ -422,8 +422,8 @@ func ParseCommandParamsAndLoadConfig(eng Engine) (*Configuration, error) {
 // GetParamValueFromArgs manually scans os.Args for a flag that takes multiple
 // space-separated values (which pflag cannot bind directly to a slice the way
 // this codebase needs), returning the values that followed it, if present. The
-// result is nil when the flag is absent and empty when the flag was given
-// without any value, so callers can tell those two apart.
+// result is nil when the flag is absent, empty when the flag was given without
+// any value, and a single empty string for --param=.
 func GetParamValueFromArgs(param string) []string {
 	var values []string
 	var readValues bool

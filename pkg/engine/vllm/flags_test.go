@@ -879,6 +879,11 @@ var _ = Describe("Simulator configuration", func() {
 			args:          []string{"cmd", "--model", common.TestModelName, "--fake-metrics", ""},
 			expectedError: "--fake-metrics requires a JSON value",
 		},
+		{
+			name:          "fake-metrics with an empty inline value",
+			args:          []string{"cmd", "--model", common.TestModelName, "--fake-metrics="},
+			expectedError: "--fake-metrics requires a JSON value",
+		},
 	}
 
 	for _, test := range invalidTests {

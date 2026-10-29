@@ -89,7 +89,7 @@ func (Engine) BindFlags(f *pflag.FlagSet, cfg *common.Configuration, rawYAML map
 	}
 
 	if fakeMetricsStrings != nil {
-		if len(fakeMetricsStrings) == 0 {
+		if len(fakeMetricsStrings) == 0 || fakeMetricsStrings[0] == "" {
 			return errors.New("--fake-metrics requires a JSON value")
 		}
 		// The flag replaces the whole struct (its JSON "loras" key maps straight
