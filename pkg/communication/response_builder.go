@@ -963,7 +963,7 @@ func (b *messagesHTTPRespBuilder) createResponse(respCtxPerChoice []endpoint.Res
 				name = *tc.Function.Name
 			}
 			content = append(content, api.MessagesContentBlock{
-				Type:  "tool_use",
+				Type:  api.ContentTypeToolUse,
 				ID:    tc.ID,
 				Name:  name,
 				Input: input,
@@ -1059,7 +1059,7 @@ func (b *messagesHTTPRespBuilder) createChunk(_ endpoint.ResponseContext, tokens
 				Type:  api.MessagesEventContentBlockStart,
 				Index: b.contentBlockIndex,
 				ContentBlock: api.MessagesContentBlock{
-					Type:  "tool_use",
+					Type:  api.ContentTypeToolUse,
 					ID:    tool.ID,
 					Name:  *tool.Function.Name,
 					Input: map[string]any{},

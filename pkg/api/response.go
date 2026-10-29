@@ -747,7 +747,8 @@ const (
 	// response carries MessagesType.
 	MessagesTypeError = "error"
 
-	ContentTypeText = "text"
+	ContentTypeText    = "text"
+	ContentTypeToolUse = "tool_use"
 )
 
 // MessagesError is the error object of an Anthropic error body. It carries the
@@ -809,7 +810,7 @@ func (b MessagesContentBlock) MarshalJSON() ([]byte, error) {
 			Type string `json:"type"`
 			Text string `json:"text"`
 		}{Type: b.Type, Text: b.Text})
-	case "tool_use":
+	case ContentTypeToolUse:
 		return json.Marshal(struct {
 			Type  string         `json:"type"`
 			ID    string         `json:"id"`
