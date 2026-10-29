@@ -177,6 +177,31 @@ var _ = Describe("Server", forEachEngine(func() {
 			Entry("accepts a request without a model", `{"prompt":"This is a test"}`,
 				http.StatusOK, `"count":`),
 		)
+
+		DescribeTable("model validation with a served model name",
+			func(reqBody string, expectedStatus int) {
+				args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
+					"--served-model-name", "alias"}
+				client, err := startServerWithArgs(context.TODO(), args)
+				Expect(err).NotTo(HaveOccurred())
+
+				resp, err := client.Post("http://localhost/tokenize", "application/json", strings.NewReader(reqBody))
+				Expect(err).NotTo(HaveOccurred())
+				defer func() {
+					Expect(resp.Body.Close()).To(Succeed())
+				}()
+
+				body, err := io.ReadAll(resp.Body)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(resp.StatusCode).To(Equal(expectedStatus), string(body))
+			},
+			Entry("accepts the served model name",
+				`{"prompt":"This is a test","model":"alias"}`, http.StatusOK),
+			Entry("accepts a request without a model",
+				`{"prompt":"This is a test"}`, http.StatusOK),
+			Entry("rejects an unknown model",
+				`{"prompt":"This is a test","model":"unknown-model"}`, http.StatusNotFound),
+		)
 	})
 
 	Context("SSL/HTTPS Configuration", func() {
