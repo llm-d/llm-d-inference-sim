@@ -96,4 +96,9 @@ type Engine interface {
 	// NewKVEventEncoder builds the encoder that turns the block cache's
 	// engine-independent events into this engine's KV-event wire format.
 	NewKVEventEncoder(config common.Configuration) (kvcache.EventEncoder, error)
+	// NewFakeMetrics returns a zero-valued FakeMetrics for this engine so
+	// POST /admin/config can enable fake metrics at runtime when the process
+	// was started without --fake-metrics. Engines that do not support fake
+	// metrics return nil.
+	NewFakeMetrics() common.FakeMetrics
 }
