@@ -137,17 +137,7 @@ func (r *Random) RandomNormTruncated(mean int, stddev int) int {
 }
 
 func (r *Random) RandomNormDuration(mean, stddev time.Duration) time.Duration {
-	meanMilliseconds := mean.Milliseconds()
-	stddevMilliseconds := stddev.Milliseconds()
-	value := r.RandomNorm(int(meanMilliseconds), int(stddevMilliseconds))
-	mean_ := float64(meanMilliseconds)
-	if value < 0.3*mean_ {
-		value = 0.3 * mean_
-	} else if value > 1.7*mean_ {
-		value = 1.7 * mean_
-	}
-
-	return time.Millisecond * time.Duration(value)
+	return time.Duration(r.RandomNormTruncated(int(mean), int(stddev)))
 }
 
 // GenerateUUIDString generates a UUID string under a lock
@@ -172,7 +162,8 @@ func (r *Random) RandomNumericString(length int) string {
 type Channel[T any] struct {
 	Channel chan T
 	Name    string
-	// Done, if set, suppresses the dropped-write warning when closed (e.g. pass ctx.Done()).
+	// Done, if set, is closed when the reader of Channel goes away (e.g. pass ctx.Done()).
+	// Producers may stop sending once it is closed, and a dropped write is not logged as a warning.
 	Done <-chan struct{}
 }
 
@@ -185,7 +176,7 @@ func NewChannel[T any](prefix string, capacity int, done <-chan struct{}) Channe
 }
 
 // WriteToChannelWithError attempts a non-blocking write to channel and returns an error
-// if the channel is full, unless channel.Done is closed (shutting down), in which case a
+// if the channel is full, unless channel.Done is closed (its reader is gone), in which case a
 // full channel is not reported as an error.
 func WriteToChannelWithError[T any](channel Channel[T], object T) error {
 	select {

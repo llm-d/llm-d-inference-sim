@@ -173,7 +173,7 @@ func (respBuilder *textComplHTTPRespBuilder) createResponse(respCtxPerChoice []e
 		choice := respBuilder.transport.DecorateTextChoice(api.CreateTextRespChoice(baseChoice, respText))
 
 		// Generate logprobs if requested for text completion
-		if choiceCtx.TopLogprobs() != nil && *choiceCtx.TopLogprobs() > 0 {
+		if choiceCtx.TopLogprobs() != nil {
 			if logprobsData := common.GenerateTextLogprobs(t.Strings, *choiceCtx.TopLogprobs()); logprobsData != nil &&
 				len(logprobsData.Tokens) > 0 {
 				choice.Logprobs = logprobsData
@@ -220,7 +220,7 @@ func (respBuilder *textComplHTTPRespBuilder) createChunk(respCtx endpoint.Respon
 		api.CreateTextRespChoice(api.CreateBaseResponseChoice(choiceIdx, finishReason), tokensStr))
 
 	// Generate logprobs if requested and tokens is not empty
-	if respCtx.TopLogprobs() != nil && tokens != nil && len(tokens.Strings) > 0 && *respCtx.TopLogprobs() > 0 {
+	if respCtx.TopLogprobs() != nil && tokens != nil && len(tokens.Strings) > 0 {
 		// Use token position based on current time
 		tokenPosition := int(respCtx.CreationTime()) % 1000 // Simple position simulation
 		logprobs := common.GenerateSingleTokenTextLogprobs(tokensStr, tokenPosition, *respCtx.TopLogprobs())
@@ -810,6 +810,59 @@ func (respBuilder *responsesHTTPRespBuilder) createLastChunk(respCtx endpoint.Re
 func (*responsesHTTPRespBuilder) createDoneChunk() sseChunk { return nil }
 
 var _ responseBuilder = (*responsesHTTPRespBuilder)(nil)
+
+type decisionHTTPRespBuilder struct {
+	baseRespBuilder
+	request *endpoint.DecisionRequest
+}
+
+func (b *decisionHTTPRespBuilder) createResponse(contexts []endpoint.ResponseContext, _ []api.Tokenized) any {
+	// Each question has its own prompt and cache lookup, including identical questions.
+	usage := &api.Usage{PromptTokensDetails: &api.PromptTokensDetails{}}
+	for _, context := range contexts {
+		u := context.UsageData()
+		usage.PromptTokens += u.PromptTokens
+		usage.CompletionTokens += u.CompletionTokens
+		if u.PromptTokensDetails != nil {
+			usage.PromptTokensDetails.CachedTokens += u.PromptTokensDetails.CachedTokens
+		}
+	}
+	usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
+	model := contexts[0].DisplayModel()
+	if b.request.Protocol == endpoint.DecisionsProtocol {
+		return api.DecisionsResponse{
+			Model: model, Answers: b.request.DecisionAnswers(),
+			Usage: api.OpenAIDecisionUsage{
+				DecisionUsage:      api.DecisionUsage{InputTokens: usage.PromptTokens, OutputTokens: usage.CompletionTokens},
+				InputTokensDetails: api.DecisionInputTokensDetails{CachedTokens: usage.PromptTokensDetails.CachedTokens},
+				TotalTokens:        usage.TotalTokens,
+			},
+		}
+	}
+	answers, diagnostics := b.request.SystemOneAnswers()
+	return api.SystemOneResponse{
+		ID:          "decision-" + b.request.GetRequestID(),
+		Object:      "structured_decision",
+		Created:     time.Now().Unix(),
+		Model:       model,
+		Answers:     answers,
+		Diagnostics: diagnostics,
+		Usage:       api.DecisionUsage{InputTokens: usage.PromptTokens, OutputTokens: usage.CompletionTokens},
+	}
+}
+
+func (*decisionHTTPRespBuilder) createUsageChunk([]endpoint.ResponseContext) sseChunk { return nil }
+
+func (*decisionHTTPRespBuilder) createChunk(endpoint.ResponseContext, *api.Tokenized, *api.ToolCall,
+	string, *string, int) sseChunk {
+	return nil
+}
+
+func (*decisionHTTPRespBuilder) createLastChunk(endpoint.ResponseContext, string, int) sseChunk {
+	return nil
+}
+
+var _ responseBuilder = (*decisionHTTPRespBuilder)(nil)
 
 type generateHTTPRespBuilder struct{ baseRespBuilder }
 

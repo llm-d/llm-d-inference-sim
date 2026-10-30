@@ -38,7 +38,7 @@ declares is the only one it answers to, on the command line and in a config file
 - `port`: the port the simulator listens on, default is 8000
 - `max-request-body-size-mb`: maximum allowed size of an HTTP request body in megabytes, optional, default is 4 (matching the fasthttp built-in default). Must be between 1 and 512.
 - `engine`: the inference engine to simulate, one of `vllm` or `sglang`, optional, default is `vllm`. SGLang support is experimental: it currently covers the OpenAI-compatible endpoints only, and rejects a configuration asking for LoRA adapters, the KV cache, fake metrics, sleep mode, or encoder-only mode; see [SGLang support](engine-backends.md#sglang-support-experimental). Determines which flags, environment variables, metric names, and KV-event format the simulator uses; see [Engines](engine-backends.md). If you omit `--engine` on the command line, a non-empty `SIM_ENGINE` environment variable can supply it; see [Configuration precedence](#configuration-precedence) and [Environment variables](#environment-variables).
-- `model`: the currently 'loaded' model, mandatory. If you omit `--model` on the command line, a non-empty `SIM_MODEL` environment variable can supply the model; see [Configuration precedence](#configuration-precedence) and [Environment variables](#environment-variables).
+- `model`: the currently 'loaded' model, mandatory. Can also be given as the first command-line argument instead of `--model`, as in `vllm serve <model>`; passing both is rejected. If you omit the model on the command line, a non-empty `SIM_MODEL` environment variable can supply the model; see [Configuration precedence](#configuration-precedence) and [Environment variables](#environment-variables).
 - `served-model-name`: model names exposed by the API (a list of space-separated strings)
 - `mode`: the simulator mode, optional, by default `random`
     - `echo`: returns the same text that was sent in the request
@@ -234,6 +234,7 @@ Command-line flag names are as listed below. In a YAML config file, these settin
     - `waiting-requests` - similar to `running-requests`.
     - `kv-cache-usage` - similar to `running-requests`.
     - `loras` - an array containing LoRA information objects, each with the fields: `running` (a comma-separated list of LoRAs in use by running requests), `waiting` (a comma-separated list of LoRAs to be used by waiting requests), and `timestamp` (seconds since Jan 1 1970, the timestamp of this metric). If `loras` is omitted, `vllm:lora_requests_info` is not exposed.
+    - Histogram arrays below may have at most one value per bucket (boundaries plus +Inf); longer arrays are rejected.
     - `ttft-buckets-values` - array of values for time-to-first-token buckets, each value in this array is a value for the corresponding bucket. Array may contain less values than number of buckets, all trailing missing values assumed as 0. Buckets upper boundaries are: 0.001, 0.005, 0.01, 0.02, 0.04, 0.06, 0.08, 0.1, 0.25, 0.5, 0.75, 1.0, 2.5, 5.0, 7.5, 10.0, 20.0, 40.0, 80.0, 160.0, 640.0, 2560.0, +Inf.
     - `tpot-buckets-values` - array of values for time-per-output-token buckets, each value in this array is a value for the corresponding bucket. Array may contain less values than number of buckets, all trailing missing values assumed as 0. Buckets upper boundaries are: 0.01, 0.025, 0.05, 0.075, 0.1, 0.15, 0.2, 0.3, 0.4, 0.5, 0.75, 1.0, 2.5, 5.0, 7.5, 10.0, 20.0, 40.0, 80.0, +Inf.
     - `e2erl-buckets-values` - array of values for e2e request latency buckets, each value in this array is a value for the corresponding bucket. Array may contain less values than number of buckets, all trailing missing values assumed as 0. Buckets upper boundaries are: 0.3, 0.5, 0.8, 1.0, 1.5, 2.0, 2.5, 5.0, 10.0, 15.0, 20.0, 30.0, 40.0, 50.0, 60.0, 120.0, 240.0, 480.0, 
@@ -250,6 +251,8 @@ Command-line flag names are as listed below. In a YAML config file, these settin
     - `request-generation-tokens` - array of values for generation-length buckets
     - `request-max-generation-tokens` - array of values for request_max_num_generation_tokens buckets
     - `request-params-max-tokens` - array of values for  max_tokens parameter buckets
+
+      Boundaries of these four token histograms are 1, 2 and 5 times powers of ten up to `max-model-len`, plus +Inf.
     - `request-success-total` - number of successful requests per finish reason, key: finish-reason (stop, length, etc.).
     - `total-prompt-tokens` - initial value for the `vllm:prompt_tokens_total` counter (total number of prompt tokens processed).
     - `total-generation-tokens` - initial value for the `vllm:generation_tokens_total` counter (total number of generated tokens).
@@ -286,7 +289,7 @@ alias of its own `--model-path`, and `data-parallel-size`, an alias of its `--dp
 
 ## Available with every engine
 - `SIM_ENGINE`: when non-empty and **`--engine` is not passed on the command line**, selects the engine and overrides the `engine` value from the YAML file (if any) and the default. If you pass `--engine`, it always wins. See [Engines](engine-backends.md).
-- `SIM_MODEL`: when non-empty and **`--model` is not passed on the command line**, sets the model name. In that case it overrides the `model` value from the YAML file (if any) and the default. If you pass `--model`, it always wins. Useful in Kubernetes when the same image arguments are reused and the model name comes from the pod environment.
+- `SIM_MODEL`: when non-empty and **the model is not passed on the command line** (neither `--model` nor positionally), sets the model name. In that case it overrides the `model` value from the YAML file (if any) and the default. If you pass the model on the command line, it always wins. Useful in Kubernetes when the same image arguments are reused and the model name comes from the pod environment.
 - `POD_NAME`: the simulator pod name. If defined, the response will contain the HTTP header `x-inference-pod` with this value, and the HTTP header `x-inference-port` with the port that the request was received on 
 - `POD_NAMESPACE`: the simulator pod namespace. If defined, the response will contain the HTTP header `x-inference-namespace` with this value
 - `POD_IP`: the simulator pod IP address. Used together with the serving port (`--port`) to build the kv-events topic `kv@<ip>:<port>@<model>` (see [KV cache](kv-cache.md#topic-format)).

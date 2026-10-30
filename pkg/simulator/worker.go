@@ -60,37 +60,72 @@ type requestProcessor interface {
 }
 
 func (s *Simulator) processRequest(reqCtx endpoint.RequestContext) {
+	req := reqCtx.Request()
+	if responseAbandoned(reqCtx) {
+		// Abandoned before it started, e.g. while queued: release it without running it.
+		s.Context.logger.V(logging.DEBUG).Info("Dropped request, its response is no longer read",
+			"id", req.GetRequestID())
+		if req.IsModelLoRA() {
+			common.WriteToChannel(s.Context.metricsBus.LoRAChanged,
+				metrics.LoRAChanged{Model: req.GetDisplayedModel(), State: metrics.LoRADropped}, s.Context.logger)
+		}
+		reqCtx.SignalDone()
+		return
+	}
 	defer s.onResponseProcessingFinished(reqCtx)
 
 	startTime := time.Now()
-	req := reqCtx.Request()
+	reportFailed := func() {
+		common.WriteToChannel(s.Context.metricsBus.RequestFailed,
+			metrics.RequestFailed{
+				E2ELatency:    time.Since(reqCtx.StartProcessingTime()).Seconds(),
+				InferenceTime: time.Since(startTime).Seconds(),
+			}, s.Context.logger)
+	}
 	respCtx, err := reqCtx.HandleRequest()
 	if err != nil {
 		common.WriteToChannel(reqCtx.ResponseChannel(),
 			&endpoint.ResponseInfo{RespCtx: respCtx, Err: err, ChoiceIdx: reqCtx.ChoiceIndex()},
 			s.Context.logger)
 		// api.Error is a struct wire type (not error interface); drop it here
-		common.WriteToChannel(s.Context.metricsBus.RequestFailed,
-			metrics.RequestFailed{
-				E2ELatency:    time.Since(reqCtx.StartProcessingTime()).Seconds(),
-				InferenceTime: time.Since(startTime).Seconds(),
-			}, s.Context.logger)
+		reportFailed()
 		return
 	}
 
-	s.simulateResponseProcessing(respCtx)
+	if !s.simulateResponseProcessing(respCtx) {
+		s.Context.logger.V(logging.DEBUG).Info("Aborted request, its response is no longer read",
+			"id", req.GetRequestID())
+		reportFailed()
+		return
+	}
 	s.Context.logger.V(logging.DEBUG).Info("Finished processing request", "id", req.GetRequestID())
 
+	finishReason := ""
+	if respCtx.FinishReason() != nil {
+		finishReason = *respCtx.FinishReason()
+	}
 	common.WriteToChannel(s.Context.metricsBus.RequestSucceeded,
 		metrics.RequestSucceeded{
 			PromptTokens:       respCtx.UsageData().PromptTokens,
+			CachedPromptTokens: respCtx.NumberCachedPromptTokens(),
 			GenerationTokens:   respCtx.UsageData().CompletionTokens,
 			GenTokensPerChoice: []int{respCtx.UsageData().CompletionTokens},
 			MaxTokens:          req.GetMaxCompletionTokens(),
-			FinishReason:       *respCtx.FinishReason(),
+			FinishReason:       finishReason,
 			E2ELatency:         time.Since(reqCtx.StartProcessingTime()).Seconds(),
 			InferenceTime:      time.Since(startTime).Seconds(),
+			IsStreaming:        req.IsStream(),
 		}, s.Context.logger)
+}
+
+// responseAbandoned reports whether reqCtx's response channel is done.
+func responseAbandoned(reqCtx endpoint.RequestContext) bool {
+	select {
+	case <-reqCtx.ResponseChannel().Done:
+		return true
+	default:
+		return false
+	}
 }
 
 // getFreeWorker returns a free worker or nil if none are available (non-blocking)

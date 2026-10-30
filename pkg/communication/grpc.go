@@ -40,9 +40,9 @@ func (c *Communication) Generate(in *pb.GenerateRequest, out grpc.ServerStreamin
 
 	req := c.pbRequestToRequest(in)
 	respBuilder := &generationGRPCRespBuilder{}
-	_, _, channel, err, _ := c.processor.HandleRequest(req)
+	_, _, channel, err, _ := c.processor.HandleRequest(out.Context(), req)
 	if err != nil {
-		return status.Errorf(extractGRPCCode(err), err.Message, err)
+		return status.Error(extractGRPCCode(err), err.Message)
 	}
 
 	c.logger.V(logging.DEBUG).Info("Received", "new gRPC", req.AsString())
@@ -60,7 +60,7 @@ func (c *Communication) Generate(in *pb.GenerateRequest, out grpc.ServerStreamin
 		default:
 			// Send error
 			if response.Err != nil {
-				return status.Errorf(extractGRPCCode(response.Err), response.Err.Message, response.Err)
+				return status.Error(extractGRPCCode(response.Err), response.Err.Message)
 			}
 			respCtx = response.RespCtx
 
@@ -76,6 +76,10 @@ func (c *Communication) Generate(in *pb.GenerateRequest, out grpc.ServerStreamin
 				tokens.Append(*response.Tokens)
 			}
 		}
+	}
+	// A request aborted before its first token closes the channel empty, leaving respCtx nil.
+	if err := out.Context().Err(); err != nil {
+		return err
 	}
 
 	var resp any
@@ -147,8 +151,9 @@ func (c *Communication) pbRequestToRequest(in *pb.GenerateRequest) *endpoint.Gen
 		maxTokensValue := int64(*in.GetSamplingParams().MaxTokens)
 		maxTokens = &maxTokensValue
 	}
+	// a gRPC request names no model, so it is served by the base model under its served name
 	req := api.NewGenerationRequest(in.GetRequestId(), in.GetStream(),
-		c.runtime.Config().Model, maxTokens)
+		c.runtime.Config().DisplayModelName, maxTokens)
 
 	if in.GetTokenized() != nil {
 		prompt := &api.Tokenized{}

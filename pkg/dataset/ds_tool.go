@@ -353,6 +353,11 @@ func (dt *DatasetTool) storeToSQLite(ctx context.Context, records []outputRecord
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
 
+	// built after the inserts in a single pass; without it the dataset still works, only slower
+	if _, err := db.ExecContext(ctx, dt.sqlHelper.getCreatePromptHashIndexQuery()); err != nil {
+		dt.logger.Error(err, "failed to create prompt hash index, prompt lookups will scan the whole table")
+	}
+
 	return nil
 }
 

@@ -38,6 +38,10 @@ func (g *GenerateRequest) Unmarshal(data []byte) error {
 	if g.KVParams == nil && g.SamplingParams != nil && g.SamplingParams.ExtraArgs != nil {
 		g.KVParams = g.SamplingParams.ExtraArgs.KVTransferParams
 	}
+	// vLLM reads ignore_eos from sampling_params; the root field is accepted as well
+	if g.SamplingParams != nil && g.SamplingParams.IgnoreEOS {
+		g.IgnoreEOS = true
+	}
 	g.SetTokenizedPrompt(&api.Tokenized{Tokens: g.TokenIDs, Strings: []string{}})
 	return nil
 }

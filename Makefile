@@ -110,7 +110,7 @@ format: $(GOLANGCI_LINT) ## Format Go code
 .PHONY: vulncheck
 vulncheck: check-go ## Run govulncheck
 	@printf "\033[33;1m==== Running vulncheck ====\033[0m\n"
-	@GOBIN=$(LOCALBIN) go install golang.org/x/vuln/cmd/govulncheck@latest
+	@GOBIN=$(LOCALBIN) go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
 	$(LOCALBIN)/govulncheck ./...
 
 .PHONY: check-latest-tags

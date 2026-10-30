@@ -27,7 +27,9 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 )
 
 var _ = Describe("gRPC", func() {
@@ -185,6 +187,30 @@ var _ = Describe("gRPC", func() {
 		Entry(nil, common.ModeRandom, true),
 	)
 
+	It("generate with a served model name", func() {
+		ctx := context.TODO()
+		_, comm, _, err := startServerHandle(ctx, common.ModeEcho, []string{
+			"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho,
+			"--served-model-name", "alias",
+		}, nil)
+		Expect(err).NotTo(HaveOccurred())
+
+		req := pb.GenerateRequest{
+			RequestId: "123",
+			Input: &pb.GenerateRequest_Tokenized{
+				Tokenized: &pb.TokenizedInput{
+					InputIds: []uint32{32, 45, 78, 13},
+				},
+			},
+		}
+
+		out := mockGenerateServer{start: time.Now(), ctx: context.Background()}
+		err = comm.Generate(&req, &out)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(out.responses).To(HaveLen(1))
+		Expect(out.responses[0].GetComplete().OutputIds).To(HaveLen(4))
+	})
+
 	It("failure", func() {
 		ctx := context.TODO()
 		_, comm, _, err := startServerHandle(ctx, common.ModeRandom, []string{
@@ -204,6 +230,30 @@ var _ = Describe("gRPC", func() {
 		out := mockGenerateServer{start: time.Now(), ctx: context.Background()}
 		err = comm.Generate(&req, &out)
 		Expect(err).To(HaveOccurred())
+	})
+
+	It("failure status carries the error message", func() {
+		ctx := context.TODO()
+		_, comm, _, err := startServerHandle(ctx, common.ModeRandom, []string{
+			"cmd", "--model", common.TestModelName,
+			"--failure-injection-rate", "100", "--failure-types", common.FailureTypeServerError,
+		}, nil)
+		Expect(err).NotTo(HaveOccurred())
+		req := pb.GenerateRequest{
+			RequestId: "123",
+			Input: &pb.GenerateRequest_Tokenized{
+				Tokenized: &pb.TokenizedInput{
+					InputIds: []uint32{32, 45, 78, 13},
+				},
+			},
+		}
+
+		out := mockGenerateServer{start: time.Now(), ctx: context.Background()}
+		err = comm.Generate(&req, &out)
+		st, ok := status.FromError(err)
+		Expect(ok).To(BeTrue())
+		Expect(st.Code()).To(Equal(codes.Unavailable))
+		Expect(st.Message()).To(Equal("The server is overloaded or not ready yet."))
 	})
 
 })

@@ -569,7 +569,7 @@ func sendSimpleEmbeddingsRequest(envs map[string]string) *http.Response {
 		Input: openai.EmbeddingNewParamsInputUnion{
 			OfString: param.NewOpt(testUserMessage),
 		},
-		Model: openai.EmbeddingModelTextEmbedding3Small,
+		Model: common.TestModelName,
 	}
 	var httpResp *http.Response
 	resp, err := openaiclient.Embeddings.New(ctx, params, option.WithResponseInto(&httpResp))

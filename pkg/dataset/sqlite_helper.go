@@ -26,6 +26,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -102,6 +103,16 @@ func (s *sqliteHelper) connectToDB(path string, useInMemory bool) error {
 		return fmt.Errorf("failed to verify database: %w", err)
 	}
 
+	if useInMemory {
+		if err := s.ensurePromptHashIndex(); err != nil {
+			s.logger.Error(err, "in-memory prompt lookups will scan the whole table")
+		}
+	} else if indexed, err := s.promptLookupUsesIndex(); err != nil {
+		s.logger.Error(err, "failed to check the prompt hash index")
+	} else if !indexed {
+		s.logger.V(logging.WARN).Info("Dataset has no prompt hash index, prompt lookups will scan the whole table", "path", path)
+	}
+
 	count, err := s.getRecordsCount()
 	if err != nil {
 		s.logger.Error(err, "failed to get records count")
@@ -176,10 +187,76 @@ func (s *sqliteHelper) copyIntoMemory(path string) error {
 		return fmt.Errorf("failed to copy data: %w", err)
 	}
 
+	if err := s.copyIndexes(ctx, conn); err != nil {
+		s.logger.Error(err, "failed to copy indexes")
+	}
+
 	if _, err := conn.ExecContext(ctx, "DETACH DATABASE source"); err != nil {
 		s.logger.Error(err, "failed to detach source database")
 	}
 	return nil
+}
+
+// copyIndexes recreates the indexes of the attached source table in the in-memory database,
+// since INSERT ... SELECT copies only the rows
+func (s *sqliteHelper) copyIndexes(ctx context.Context, conn *sql.Conn) error {
+	rows, err := conn.QueryContext(ctx,
+		"SELECT sql FROM source.sqlite_master WHERE type = 'index' AND tbl_name = ? AND sql IS NOT NULL", s.tableName)
+	if err != nil {
+		return fmt.Errorf("failed to read source indexes: %w", err)
+	}
+	var statements []string
+	for rows.Next() {
+		var statement string
+		if err := rows.Scan(&statement); err != nil {
+			return errors.Join(fmt.Errorf("failed to read source index: %w", err), rows.Close())
+		}
+		statements = append(statements, statement)
+	}
+	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+		return fmt.Errorf("failed to read source indexes: %w", err)
+	}
+
+	for _, statement := range statements {
+		if _, err := conn.ExecContext(ctx, statement); err != nil {
+			return fmt.Errorf("failed to create index (%s): %w", statement, err)
+		}
+	}
+	return nil
+}
+
+// ensurePromptHashIndex creates the prompt hash index unless prompt lookups already use an index
+func (s *sqliteHelper) ensurePromptHashIndex() error {
+	indexed, err := s.promptLookupUsesIndex()
+	if err != nil || indexed {
+		return err
+	}
+	if _, err := s.db.Exec(s.getCreatePromptHashIndexQuery()); err != nil {
+		return fmt.Errorf("failed to create prompt hash index: %w", err)
+	}
+	return nil
+}
+
+// promptLookupUsesIndex asks the query planner rather than inspecting the indexes,
+// since an index on the prompt hash can still be unusable, e.g. a partial one or one with another collation
+func (s *sqliteHelper) promptLookupUsesIndex() (bool, error) {
+	rows, err := s.db.Query("EXPLAIN QUERY PLAN " + s.getPromptQuery(""))
+	if err != nil {
+		return false, fmt.Errorf("failed to get the prompt lookup plan: %w", err)
+	}
+	usesIndex := false
+	for rows.Next() {
+		var id, parent, notUsed int
+		var detail string
+		if err := rows.Scan(&id, &parent, &notUsed, &detail); err != nil {
+			return false, errors.Join(fmt.Errorf("failed to read the prompt lookup plan: %w", err), rows.Close())
+		}
+		usesIndex = usesIndex || strings.HasPrefix(detail, "SEARCH")
+	}
+	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+		return false, fmt.Errorf("failed to read the prompt lookup plan: %w", err)
+	}
+	return usesIndex, nil
 }
 
 // closeDB closes the database and releases its in-memory copy, if any
@@ -315,8 +392,11 @@ func (s *sqliteHelper) buildQuery(where string, isRand bool, isLimitOne bool) st
 }
 
 func (s *sqliteHelper) getResponsesForPrompt(promptHashHex string) ([]api.Tokenized, error) {
-	query := s.buildQuery(promptHashCol+"=X'"+promptHashHex+"'", false, false)
-	return s.query(query)
+	return s.query(s.getPromptQuery(promptHashHex))
+}
+
+func (s *sqliteHelper) getPromptQuery(promptHashHex string) string {
+	return s.buildQuery(promptHashCol+"=X'"+promptHashHex+"'", false, false)
 }
 
 func (s *sqliteHelper) getResponsesForLen(maxLen int, isExact bool) ([]api.Tokenized, error) {
@@ -340,6 +420,12 @@ func (s *sqliteHelper) getCreateTableQuery() string {
 		gen_tokens JSON NOT NULL,
 		n_gen_tokens INTEGER NOT NULL
 	)`, s.tableName)
+}
+
+// the index name is quoted, since the table name it embeds may be a quoted identifier
+func (s *sqliteHelper) getCreatePromptHashIndexQuery() string {
+	name := strings.ReplaceAll("idx_"+s.tableName+"_"+promptHashCol, `"`, `""`)
+	return fmt.Sprintf(`CREATE INDEX "%s" ON %s (%s)`, name, s.tableName, promptHashCol)
 }
 
 func (s *sqliteHelper) getInsertQuery() string {
