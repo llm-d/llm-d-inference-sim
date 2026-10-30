@@ -75,6 +75,14 @@ The simulator constructs responses by concatenating sentences from an internal l
 - If it exceeds the target length, it is trimmed.
 - If it is too short, additional sentences are appended until the target length is met.
 
+#### JSON Output
+A chat completion whose `response_format` has type `json_object` or `json_schema` gets JSON content in place of the predefined text:
+- `json_object`: an object with one string field, `text`.
+- `json_schema`: a value generated from `json_schema.schema` by the generator for tool-call arguments, using the [tool settings](configuration.md#tools).
+- The content is the whole JSON value, not a sampled length. It stops early at `max_tokens` or the remaining context window, with finish reason `LENGTH`, which leaves the JSON incomplete.
+- `min_tokens` and `ignore_eos` do not apply to JSON output.
+- Echo mode and dataset responses ignore `response_format`.
+
 #### Dataset Responses (Optional)
 If a valid SQLite dataset is provided, the simulator attempts to find a matching conversation:
 - Hash Matching: the request prompt is tokenized and hashed and matched against the dataset.

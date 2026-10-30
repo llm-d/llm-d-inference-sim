@@ -74,6 +74,7 @@ type RequestContext interface {
 	kvCacheOnRequestStart() (stats metrics.PrefixCacheQueried, serverError *api.Error)
 	KVCacheOnRequestEnd()
 	createToolCalls() ([]api.ToolCall, int, string, error)
+	createStructuredOutput() (*api.Tokenized, string, error)
 	HandleRequest() (ResponseContext, *api.Error)
 	ResponseChannel() common.Channel[*ResponseInfo]
 	tokenizedPromptForEcho() (*api.Tokenized, error)
@@ -170,10 +171,7 @@ func (b *baseRequestContext) validateTokenizedRequest() (string, int) {
 		return message, fasthttp.StatusBadRequest
 	}
 
-	effectiveMaxTokens := maxModelLen - promptTokens
-	if maxTokens := req.GetMaxCompletionTokens(); maxTokens != nil && *maxTokens < int64(effectiveMaxTokens) {
-		effectiveMaxTokens = int(*maxTokens)
-	}
+	effectiveMaxTokens := b.maxResponseTokens()
 	if minTokens := req.GetMinTokens(); minTokens != nil && *minTokens > int64(effectiveMaxTokens) {
 		message := fmt.Sprintf("min_tokens must be less than or equal to max_tokens=%d, got %d.",
 			effectiveMaxTokens, *minTokens)
@@ -181,6 +179,16 @@ func (b *baseRequestContext) validateTokenizedRequest() (string, int) {
 	}
 
 	return "", fasthttp.StatusOK
+}
+
+// maxResponseTokens returns max_tokens, capped by the room left in the context window.
+func (b *baseRequestContext) maxResponseTokens() int {
+	req := b.Request()
+	limit := b.runtime.Config().MaxModelLen - getNumberOfPromptTokens(req)
+	if maxTokens := req.GetMaxCompletionTokens(); maxTokens != nil && *maxTokens < int64(limit) {
+		limit = int(*maxTokens)
+	}
+	return limit
 }
 
 func (reqCtx *baseRequestContext) HandleRequest() (ResponseContext, *api.Error) {
@@ -232,7 +240,10 @@ func (reqCtx *baseRequestContext) HandleRequest() (ResponseContext, *api.Error) 
 	if toolCalls == nil && err == nil {
 		// Either no tool calls were defined, or we randomly chose not to create tool calls,
 		// so we generate a response text.
-		responseTokens, finishReason, err = reqCtx.runtime.GetResponseTokens(req)
+		responseTokens, finishReason, err = reqCtx.createStructuredOutput()
+		if responseTokens == nil && err == nil {
+			responseTokens, finishReason, err = reqCtx.runtime.GetResponseTokens(req)
+		}
 		if err == nil {
 			completionTokens += responseTokens.Length()
 		}

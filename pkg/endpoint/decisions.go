@@ -163,6 +163,10 @@ func (*decisionReqCtx) createToolCalls() ([]api.ToolCall, int, string, error) {
 	return nil, 0, "", nil
 }
 
+func (*decisionReqCtx) createStructuredOutput() (*api.Tokenized, string, error) {
+	return nil, "", nil
+}
+
 func (r *decisionReqCtx) HandleRequest() (ResponseContext, *api.Error) {
 	r.runtime.RequestStarted(r.req)
 	if err := r.tokenize(); err != nil {
