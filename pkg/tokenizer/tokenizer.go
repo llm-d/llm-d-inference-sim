@@ -105,7 +105,7 @@ func New(ctx context.Context, config *common.Configuration, logger logr.Logger) 
 }
 
 func newBaseTokenizer() baseTokenizer {
-	re := regexp.MustCompile(`(\{|\}|:|,|-|\.|\?|\!|;|@|#|\$|%|\^|&|\*|\(|\)|\+|\-|_|~|/|\\|>|<|\[|\]|=|"|'|\w+)(\s*)`)
+	re := regexp.MustCompile(`(\{|\}|:|,|-|\.|\?|\!|;|@|#|\$|%|\^|&|\*|\(|\)|\+|\-|_|~|/|\\|>|<|\[|\]|=|"|'|\w+|[^\x00-\x7F])(\s*)`)
 	return baseTokenizer{re: re}
 }
 
