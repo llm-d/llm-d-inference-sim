@@ -687,7 +687,7 @@ func (c *Configuration) validate() error {
 	if c.Mode != ModeEcho && c.Mode != ModeRandom {
 		return fmt.Errorf("invalid mode '%s', valid values are 'random' and 'echo'", c.Mode)
 	}
-	if c.Port <= 0 {
+	if c.Port <= 0 || c.Port > 65535 {
 		return fmt.Errorf("invalid port '%d'", c.Port)
 	}
 	if c.Latencies.InterTokenLatency < 0 {
