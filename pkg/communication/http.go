@@ -217,13 +217,18 @@ func (c *Communication) HandleMessagesCountTokens(ctx *fasthttp.RequestCtx) {
 func (c *Communication) handleRender(req endpoint.RenderableRequest, respBuilder responseBuilder,
 	acceptLoRA bool, ctx *fasthttp.RequestCtx) {
 	c.logger.V(logging.TRACE).Info("Render request received", "endpoint", string(ctx.Path()))
-	if err := req.Unmarshal(ctx.Request.Body()); err != nil {
+	var mmPayload api.RenderMMPayload
+	if err := errors.Join(req.Unmarshal(ctx.Request.Body()), json.Unmarshal(ctx.Request.Body(), &mmPayload)); err != nil {
 		c.logger.Error(err, "failed to read and parse render request body")
 		errToSend := api.NewError("Failed to read and parse request body, "+err.Error(), fasthttp.StatusBadRequest, nil)
 		c.sendError(ctx, &errToSend, false)
 		return
 	}
 	if err := req.ValidateBody(); err != nil {
+		c.sendError(ctx, err, false)
+		return
+	}
+	if err := mmPayload.Validate(); err != nil {
 		c.sendError(ctx, err, false)
 		return
 	}
@@ -243,6 +248,10 @@ func (c *Communication) handleRender(req endpoint.RenderableRequest, respBuilder
 		errToSend := api.NewError("Render failed, "+err.Error(), fasthttp.StatusInternalServerError, nil)
 		c.sendError(ctx, &errToSend, false)
 		return
+	}
+	if features != nil && mmPayload.OmitsTensors() {
+		features.KwargsData = nil
+		features.MMMetadata = nil
 	}
 	respBody, err := json.Marshal(respBuilder.createRenderResponse(tokens, features))
 	if err != nil {

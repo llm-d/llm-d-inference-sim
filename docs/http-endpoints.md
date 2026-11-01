@@ -300,6 +300,7 @@ Structure of requests/responses
                 - offset (token index where the multimodal region begins)
                 - length (number of tokens the region spans)
             - kwargs_data (map keyed by modality to an array of strings, one per multimodal item; content is tokenizer-dependent — see [Render endpoints](#render-endpoints))
+            - mm_metadata (map keyed by modality to an array of strings, one per multimodal item; passed through from the upstream renderer, `null` from the simulated tokenizer)
 - `/v1/responses/render`
     - **request** — same shape as `/v1/responses`; only `model`, `instructions`, and `input` are inspected. The endpoint is stateless: `previous_response_id` is rejected with `400 Bad Request` (a caller is expected to rehydrate the chain into `input`). The route is not registered when `--enable-legacy-render` is set, so requests get `404 Not Found`, matching vLLM versions that predate the endpoint.
         - model
@@ -313,6 +314,7 @@ Structure of requests/responses
                 - offset (token index where the multimodal region begins)
                 - length (number of tokens the region spans)
             - kwargs_data (map keyed by modality to an array of strings, one per multimodal item; content is tokenizer-dependent — see [Render endpoints](#render-endpoints))
+            - mm_metadata (map keyed by modality to an array of strings, one per multimodal item; passed through from the upstream renderer, `null` from the simulated tokenizer)
 - `/v1/completions/derender`
     - **request**
         - stream (must be absent or `false`; streaming derender is rejected with `400 Bad Request`)
@@ -615,6 +617,8 @@ For full details on the expected API behavior and specification, please refer to
 `/v1/messages/render` and `/v1/messages/count_tokens` convert the request to chat-completions messages, the same conversion the `/v1/messages` generation path uses, and render those messages, as vLLM does. `tools` are forwarded to the render service in chat-completions form (`input_schema` becomes `parameters`, with its key order preserved and `"type":"object"` added when the schema has no `type`), and `tool_choice` is mapped as vLLM maps it: `auto` to `"auto"`, `any` to `"required"`, `none` to `"none"`, and `tool` to a named function. With `--enable-legacy-render` the `/v1/messages/render` route is not registered at all, matching vLLM versions that predate the endpoint.
 
 `/v1/responses/render` is stateless: `previous_response_id` is rejected with `400 Bad Request`. The simulator renders a Responses request by converting its `input` items to chat-completions messages — the same conversion the `/v1/responses` generation path uses — and rendering those messages. For a real model this means the upstream render service is asked to render a `/v1/chat/completions` request, so the returned token IDs are those of the chat-rendered prompt and do not necessarily match what a real vLLM `/v1/responses/render` produces for the same body. With `--enable-legacy-render` the route is not registered at all, matching vLLM versions that predate the endpoint.
+
+All render endpoints accept `mm_payload` (`tensors`, the default, or `none`; any other value is rejected with `400 Bad Request`) and its deprecated alias `return_mm_kwargs`, where `false` means `mm_payload: "none"` and is ignored when `mm_payload` is set. With `none`, `features` keeps `mm_hashes` and `mm_placeholders` and returns `kwargs_data` and `mm_metadata` as `null`.
 
 Pre-tokenized prompts on `/v1/completions/render` (a token-id array, or an array of token-id arrays) are copied through verbatim — the tokenizer is not invoked for those entries — regardless of which tokenizer is active.
 

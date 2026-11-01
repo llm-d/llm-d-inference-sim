@@ -17,7 +17,11 @@ limitations under the License.
 // Contains structures and functions related to requests for all supported APIs
 package api
 
-import "encoding/json"
+import (
+	"encoding/json"
+
+	"github.com/valyala/fasthttp"
+)
 
 type RenderRequest interface {
 	Model() string
@@ -117,7 +121,28 @@ type RenderResponse struct {
 type RenderMMFeatures struct {
 	MMHashes       map[string][]string            `json:"mm_hashes"`
 	MMPlaceholders map[string][]RenderPlaceholder `json:"mm_placeholders"`
-	KwargsData     map[string][]string            `json:"kwargs_data,omitempty"`
+	KwargsData     map[string][]string            `json:"kwargs_data"`
+	MMMetadata     map[string][]string            `json:"mm_metadata"`
+}
+
+type RenderMMPayload struct {
+	MMPayload      *string `json:"mm_payload"`
+	ReturnMMKwargs *bool   `json:"return_mm_kwargs"`
+}
+
+func (p *RenderMMPayload) Validate() *Error {
+	if p.MMPayload != nil && *p.MMPayload != "tensors" && *p.MMPayload != "none" {
+		err := NewError("mm_payload must be 'tensors' or 'none'", fasthttp.StatusBadRequest, nil)
+		return &err
+	}
+	return nil
+}
+
+func (p *RenderMMPayload) OmitsTensors() bool {
+	if p.MMPayload != nil {
+		return *p.MMPayload == "none"
+	}
+	return p.ReturnMMKwargs != nil && !*p.ReturnMMKwargs
 }
 
 type RenderPlaceholder struct {

@@ -533,6 +533,17 @@ var _ = Describe("Messages API render", func() {
 		Expect(resp.Features.MMHashes["image"]).To(HaveLen(2))
 	})
 
+	It("returns null kwargs_data and mm_metadata for mm_payload none", func() {
+		body := `{"model":"` + model + `","max_tokens":100,"mm_payload":"none","messages":[{"role":"user","content":[` +
+			`{"type":"text","text":"describe"},` +
+			`{"type":"image","source":{"type":"url","url":"https://example.com/a.png"}},` +
+			`{"type":"image","source":{"type":"url","url":"https://example.com/b.png"}}` +
+			`]}]}`
+		status, respBody := postMessagesRoute(client, "/v1/messages/render", body)
+		Expect(status).To(Equal(http.StatusOK), "response body: %s", string(respBody))
+		expectMMPayloadOmitted(respBody)
+	})
+
 	It("matches the count_tokens count", func() {
 		prompt := `"model":"` + model + `","system":"You are a helpful assistant.",` +
 			`"messages":[{"role":"user","content":"` + testUserMessage + `"}]`
