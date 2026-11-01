@@ -1462,7 +1462,7 @@ func (m *MessagesRequest) ToChatCompletionsRequest() *ChatCompletionsRequest {
 						ImageURL: &ChatComplURLBlock{Url: url},
 					})
 				}
-			case "tool_use":
+			case ContentTypeToolUse:
 				var args []byte
 				if b.Input != nil {
 					args, _ = json.Marshal(b.Input)

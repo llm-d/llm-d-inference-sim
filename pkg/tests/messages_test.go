@@ -130,6 +130,15 @@ var anthropicGetTemperatureTool = map[string]any{
 	},
 }
 
+var anthropicGetTimeTool = map[string]any{
+	"name":        "get_time",
+	"description": "Get the current time",
+	"input_schema": map[string]any{
+		"type":       "object",
+		"properties": map[string]any{},
+	},
+}
+
 // messagesBadRequestType is the error type each engine reports for a 400 on
 // /v1/messages. Each engine's full status-to-type mapping is covered in its own
 // package; this is the single value the specs below need.
@@ -267,6 +276,28 @@ var _ = Describe("Simulator for /v1/messages (Anthropic Messages API)", forEachE
 			}
 		})
 
+		It("returns an empty input for a tool without parameters", func() {
+			client, err := startServer(ctx, common.ModeRandom)
+			Expect(err).NotTo(HaveOccurred())
+
+			body := buildMessagesBody(model, false, []map[string]any{
+				{"role": "user", "content": testUserMessage},
+			}, "", []map[string]any{anthropicGetTimeTool}, map[string]any{"type": "any"})
+			status, respBody := postMessagesRoute(client, "/v1/messages", body)
+			Expect(status).To(Equal(http.StatusOK), "response body: %s", string(respBody))
+
+			var resp struct {
+				Content []map[string]any `json:"content"`
+			}
+			Expect(json.Unmarshal(respBody, &resp)).To(Succeed())
+			Expect(resp.Content).NotTo(BeEmpty())
+			for _, block := range resp.Content {
+				Expect(block).To(HaveKeyWithValue("type", "tool_use"))
+				Expect(block).To(HaveKeyWithValue("input", Equal(map[string]any{})))
+				Expect(block).NotTo(HaveKey("text"))
+			}
+		})
+
 		// The error carries the Messages API's own envelope, not the OpenAI one
 		// the other endpoints use: every engine answers this route the way the
 		// Anthropic SDK expects, so that its typed error classes still parse.
@@ -336,6 +367,11 @@ var _ = Describe("Simulator for /v1/messages (Anthropic Messages API)", forEachE
 			Expect(blockStart.ContentBlock.Type).To(Equal("text"))
 			Expect(blockStart.Index).To(Equal(0))
 
+			// its text is present though empty: clients append the deltas to it
+			rawBlock := contentBlockStartFields(events[cbsIdx].Data)
+			Expect(rawBlock).To(HaveKeyWithValue("text", ""))
+			Expect(rawBlock).NotTo(HaveKey("input"))
+
 			// content_block_delta carries text
 			deltasText := collectTextDeltas(events)
 			Expect(strings.Join(deltasText, "")).NotTo(BeEmpty())
@@ -382,6 +418,9 @@ var _ = Describe("Simulator for /v1/messages (Anthropic Messages API)", forEachE
 			Expect(blockStart.ContentBlock.Type).To(Equal("tool_use"))
 			Expect(blockStart.ContentBlock.ID).To(HavePrefix(common.MessagesToolIDPrefix))
 			Expect(blockStart.ContentBlock.Name).To(Equal(functionNameGetWeather))
+			rawBlock := contentBlockStartFields(events[cbsIdx].Data)
+			Expect(rawBlock).To(HaveKeyWithValue("input", Equal(map[string]any{})))
+			Expect(rawBlock).NotTo(HaveKey("text"))
 
 			// content_block_delta events carry input_json_delta
 			for _, e := range events {
@@ -695,6 +734,17 @@ func findEventIndex(types []string, eventType string) int {
 		}
 	}
 	return -1
+}
+
+// contentBlockStartFields returns the content block of a content_block_start
+// event as sent, since decoding into api.MessagesContentBlock cannot tell an
+// absent field from an empty one.
+func contentBlockStartFields(data json.RawMessage) map[string]any {
+	var event struct {
+		ContentBlock map[string]any `json:"content_block"`
+	}
+	Expect(json.Unmarshal(data, &event)).To(Succeed())
+	return event.ContentBlock
 }
 
 // collectTextDeltas returns the Text field from every content_block_delta event that carries a text_delta.
