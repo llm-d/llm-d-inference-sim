@@ -461,6 +461,15 @@ var _ = Describe("Simulator for /v1/messages (Anthropic Messages API)", forEachE
 				Expect(resp.ContextManagement.OriginalInputTokens).To(Equal(resp.InputTokens))
 			}
 		})
+
+		It("ignores mm_payload", func() {
+			client, err := startServer(ctx, common.ModeRandom)
+			Expect(err).NotTo(HaveOccurred())
+
+			body := `{"model":"` + model + `","mm_payload":"all","messages":[{"role":"user","content":"` + testUserMessage + `"}]}`
+			status, respBody := postMessagesRoute(client, "/v1/messages/count_tokens", body)
+			Expect(status).To(Equal(http.StatusOK), "response body: %s", string(respBody))
+		})
 	})
 
 	// count_tokens answers in the Messages API's error envelope. render answers

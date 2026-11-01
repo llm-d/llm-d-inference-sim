@@ -126,23 +126,20 @@ type RenderMMFeatures struct {
 }
 
 type RenderMMPayload struct {
-	MMPayload      *string `json:"mm_payload"`
-	ReturnMMKwargs *bool   `json:"return_mm_kwargs"`
+	MMPayload      json.RawMessage `json:"mm_payload"`
+	ReturnMMKwargs json.RawMessage `json:"return_mm_kwargs"`
 }
 
-func (p *RenderMMPayload) Validate() *Error {
-	if p.MMPayload != nil && *p.MMPayload != "tensors" && *p.MMPayload != "none" {
-		err := NewError("mm_payload must be 'tensors' or 'none'", fasthttp.StatusBadRequest, nil)
-		return &err
+func (p *RenderMMPayload) OmitTensors() (bool, *Error) {
+	if p.MMPayload == nil {
+		return string(p.ReturnMMKwargs) == "false", nil
 	}
-	return nil
-}
-
-func (p *RenderMMPayload) OmitsTensors() bool {
-	if p.MMPayload != nil {
-		return *p.MMPayload == "none"
+	var mmPayload string
+	if err := json.Unmarshal(p.MMPayload, &mmPayload); err != nil || (mmPayload != "tensors" && mmPayload != "none") {
+		serverErr := NewError("mm_payload must be 'tensors' or 'none'", fasthttp.StatusBadRequest, nil)
+		return false, &serverErr
 	}
-	return p.ReturnMMKwargs != nil && !*p.ReturnMMKwargs
+	return mmPayload == "none", nil
 }
 
 type RenderPlaceholder struct {
