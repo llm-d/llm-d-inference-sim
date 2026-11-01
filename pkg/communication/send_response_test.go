@@ -51,6 +51,8 @@ func (stubEngine) NewKVEventEncoder(_ common.Configuration) (kvcache.EventEncode
 	return nil, nil
 }
 
+func (stubEngine) NewFakeMetrics() common.FakeMetrics { return nil }
+
 // newRunningSim builds and starts a real Simulator (echo mode), so
 // HandleRequest produces genuine ResponseInfo entries -- including real,
 // non-nil RespCtx values -- via the actual worker pool. Built directly via
