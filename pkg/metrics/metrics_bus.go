@@ -103,7 +103,11 @@ func (b *MetricsBus) Start(ctx context.Context) error {
 
 	b.subscribeAdapter(ctx)
 
-	return b.adapter.Start(ctx)
+	if b.adapter != nil {
+		return b.adapter.Start(ctx)
+	}
+
+	return nil
 }
 
 // Close releases the adapter's resources. Callers must cancel the context
