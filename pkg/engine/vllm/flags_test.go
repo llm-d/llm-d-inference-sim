@@ -1379,6 +1379,17 @@ var _ = Describe("Setting names", func() {
 		Entry("max-queued-requests", "--max-queued-requests"),
 	)
 
+	// vLLM exports its Prometheus metrics unconditionally and spells no flag for
+	// the setting.
+	It("should export metrics without registering a flag for them", func() {
+		config, err := createSimConfig([]string{"cmd", "--model", common.TestModelName})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(config.EnableMetrics).To(BeTrue())
+
+		_, err = createSimConfig([]string{"cmd", "--model", common.TestModelName, "--enable-metrics"})
+		Expect(err).To(MatchError(ContainSubstring("unknown flag")))
+	})
+
 	// Every bucket array is checked against its histogram's bucket count, not
 	// only ttft and tpot.
 	DescribeTable("should reject a fake-metrics bucket array longer than its histogram",

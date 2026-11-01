@@ -208,13 +208,17 @@ func (s *SimContext) initialize(ctx context.Context) error {
 	}
 
 	var err error
-	s.metricsBus, err = metrics.NewMetricsBus(ctx, *s.Config(), s.prometheusRegistry, s.logger,
-		s.Engine.NewMetricsAdapter)
-	if err != nil {
-		return err
-	}
-	if err := s.metricsBus.Start(ctx); err != nil {
-		return err
+	if s.Config().EnableMetrics {
+		s.metricsBus, err = metrics.NewMetricsBus(ctx, *s.Config(), s.prometheusRegistry, s.logger,
+			s.Engine.NewMetricsAdapter)
+		if err != nil {
+			return err
+		}
+		if err := s.metricsBus.Start(ctx); err != nil {
+			return err
+		}
+	} else {
+		s.metricsBus = metrics.NewDisabledMetricsBus()
 	}
 
 	// KVCache doesn't support images at the moment, so in mm-encoder only mode

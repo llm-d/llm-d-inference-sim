@@ -110,6 +110,9 @@ func (b *MetricsBus) Start(ctx context.Context) error {
 // passed to Start first, so the drainer goroutines are gone before the adapter
 // tears itself down.
 func (b *MetricsBus) Close() error {
+	if b.adapter == nil {
+		return nil
+	}
 	return b.adapter.Close()
 }
 
@@ -200,7 +203,7 @@ func (b *MetricsBus) decrementLoraRefCount(lora string, theMap *sync.Map) {
 // fake mode ignore it; the caller is expected to have already gated on
 // config.FakeMetrics != nil.
 func (b *MetricsBus) ApplyFakeMetricsUpdate(update common.FakeMetrics) {
-	if b == nil || update == nil {
+	if b == nil || b.adapter == nil || update == nil {
 		return
 	}
 	b.adapter.ApplyFakeMetricsUpdate(update)
@@ -333,6 +336,12 @@ type LoRAChanged struct {
 type LoRASetsChanged struct {
 	Running map[string]int
 	Waiting map[string]int
+}
+
+// NewDisabledMetricsBus returns a bus with no adapter, channels or goroutines;
+// every write to it is discarded.
+func NewDisabledMetricsBus() *MetricsBus {
+	return &MetricsBus{}
 }
 
 // ChannelCapacities returns the buffered-channel sizes derived from config,
