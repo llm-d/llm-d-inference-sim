@@ -149,9 +149,9 @@ Emitted when new blocks are allocated for a request:
 | `parent_block_hash` | uint64 (or `null` in map format) | hash of the last already-cached block before these new blocks; `0` (legacy) or `null` (map format) when the request has no cached prefix |
 | `token_ids` | array of uint32 | tokens contained in these blocks |
 | `block_size` | int | tokens per block (mirrors `--block-size`) |
-| `lora_id` | int (optional) | LoRA adapter ID, unset for base model requests |
+| `lora_id` | int (optional) | LoRA adapter ID, `null` for base model requests |
 | `medium` | string (optional) | always `"GPU"` |
-| `lora_name` | string (optional) | LoRA adapter name, unset for base model requests |
+| `lora_name` | string (optional) | LoRA adapter name, `null` for base model requests |
 | `extra_keys` | array (optional) | one entry per stored block; for a salted text request, the first block carries `[cache_salt]` and subsequent entries are `nil`. Events extending a cached prefix inherit the salt through the parent hash |
 
 #### BlockRemoved
@@ -176,7 +176,7 @@ Emitted when the cache is fully discarded (see [Sleep mode](#sleep-mode-integrat
 
 **Legacy format** (default, `use-vllm-map-event-format: false`): each event is a msgpack **array**. The `tag` field is at position 0; all other fields follow in the order listed above, so BlockStored is always 9 elements and BlockRemoved always 3. An array carries every field: the ones marked optional above are present as `null` rather than omitted. `parent_block_hash` is a `uint64` and is `0` when the request has no cached prefix.
 
-**Map format** (`use-vllm-map-event-format: true`): each event is a msgpack **map** with named string keys, matching the schema introduced in vLLM PR #42892 and consumed by `VLLMAdapter`. The `tag` field is keyed `"type"`. Optional fields are omitted when unset, so an unsalted base-model BlockStored carries no `lora_id`, `lora_name`, or `extra_keys` key at all. `parent_block_hash` is `null` (not `0`) when the request has no cached prefix; `VLLMAdapter` normalises `null` to `0` on the consumer side.
+**Map format** (`use-vllm-map-event-format: true`): each event is a msgpack **map** with named string keys, matching the schema introduced in vLLM PR #42892 and consumed by `VLLMAdapter`. The `tag` field is keyed `"type"`. `lora_id` and `lora_name` are always present, as in vLLM; other optional fields are omitted when unset. `parent_block_hash` is `null` (not `0`) when the request has no cached prefix; `VLLMAdapter` normalises `null` to `0` on the consumer side.
 
 ### Event batching
 
@@ -221,7 +221,7 @@ Block keys incorporate the model name, so a prompt cached under the base model i
 - **Loaded adapter**: its blocks are treated the same as base model blocks (lower eviction priority)
 - **Unloaded adapter**: its blocks become the first eviction candidates
 
-`BlockStored` events include `lora_id` and `lora_name` fields when the request targets a LoRA adapter, allowing subscribers to associate blocks with the correct adapter.
+`BlockStored` events carry the adapter's ID and name in `lora_id` and `lora_name` when the request targets a LoRA adapter, allowing subscribers to associate blocks with the correct adapter.
 
 ## Cache hit threshold
 
