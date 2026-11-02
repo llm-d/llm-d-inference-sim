@@ -174,7 +174,7 @@ func (r *decisionReqCtx) HandleRequest() (ResponseContext, *api.Error) {
 		apiErr := api.NewError("decision prompt exceeds the model context length", fasthttp.StatusBadRequest, nil)
 		return nil, &apiErr
 	}
-	stats, apiErr := r.kvCacheOnRequestStart()
+	stats, _, apiErr := r.kvCacheOnRequestStart(0)
 	if apiErr != nil {
 		return nil, apiErr
 	}

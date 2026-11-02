@@ -45,8 +45,11 @@ type Runtime interface {
 	// GetResponseTokens generates response tokens for req from the
 	// simulator's configured dataset.
 	GetResponseTokens(req api.Request) (*api.Tokenized, string, error)
-	// KVCacheOnRequestStart records req's arrival in the KV cache, if enabled.
-	KVCacheOnRequestStart(req api.Request) (metrics.PrefixCacheQueried, *api.Error)
+	// KVCacheOnRequestStart records req's arrival in the KV cache, if enabled. A
+	// request with less than minHitRate of its prompt cached is not added to the
+	// cache, and started is false.
+	KVCacheOnRequestStart(req api.Request, minHitRate float64) (stats metrics.PrefixCacheQueried, started bool,
+		serverError *api.Error)
 	// KVCacheOnRequestEnd records the request's completion in the KV cache, if enabled.
 	KVCacheOnRequestEnd(requestID string)
 	// Sleep transitions the simulator into sleep mode. Returns whether it

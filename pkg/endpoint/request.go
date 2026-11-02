@@ -71,7 +71,7 @@ type RequestContext interface {
 	Request() Request
 	StartProcessingTime() time.Time
 	tokenize() *api.Error
-	kvCacheOnRequestStart() (stats metrics.PrefixCacheQueried, serverError *api.Error)
+	kvCacheOnRequestStart(minHitRate float64) (stats metrics.PrefixCacheQueried, started bool, serverError *api.Error)
 	KVCacheOnRequestEnd()
 	createToolCalls() ([]api.ToolCall, int, string, error)
 	HandleRequest() (ResponseContext, *api.Error)
@@ -198,17 +198,16 @@ func (reqCtx *baseRequestContext) HandleRequest() (ResponseContext, *api.Error) 
 		return nil, &oaiServerError
 	}
 
-	prefixCacheStats, oaiServerError := reqCtx.kvCacheOnRequestStart()
+	// A request below its cache hit threshold is not added to the KV cache, so it
+	// does not raise the hit rate of the other choices of its prompt.
+	prefixCacheStats, inKVCache, oaiServerError := reqCtx.kvCacheOnRequestStart(reqCtx.cacheHitThreshold(req))
 	if oaiServerError != nil {
 		return nil, oaiServerError
 	}
-	hitRate := float64(0)
-	if prefixCacheStats.QueriedTokens > 0 {
-		hitRate = float64(prefixCacheStats.CachedPromptTokens) / float64(prefixCacheStats.QueriedTokens)
-	}
 
 	var finishReason string
-	if reqCtx.shouldReturnCacheThresholdFinishReason(req, hitRate) {
+	// The cache threshold finish reason header forces a cache_threshold finish reason
+	if req.CacheThresholdFinishReason() || !inKVCache {
 		finishReason = common.CacheThresholdFinishReason
 
 		numOfInputTokens := getNumberOfPromptTokens(req)
@@ -274,31 +273,14 @@ func (reqCtx *baseRequestContext) HandleRequest() (ResponseContext, *api.Error) 
 	return respCtx, nil
 }
 
-func (reqCtx *baseRequestContext) shouldReturnCacheThresholdFinishReason(req api.Request, hitRate float64) bool {
-	// Check for cache threshold finish reason header - this forces a cache_threshold finish reason
-	if req.CacheThresholdFinishReason() {
-		return true
+// cacheHitThreshold returns the minimum fraction of req's prompt that must be in
+// the KV cache: the request's cache_hit_threshold, or the global one when the
+// request has none. 0 means no threshold.
+func (reqCtx *baseRequestContext) cacheHitThreshold(req api.Request) float64 {
+	if reqThreshold := req.GetCacheHitThreshold(); reqThreshold != nil && *reqThreshold >= 0 && *reqThreshold <= 1 {
+		return *reqThreshold
 	}
-	// Check cache hit threshold if specified and KV cache is enabled
-	// First, get cache hit info without modifying cache state
-	if reqCtx.runtime.Config().KVCache.EnableKVCache {
-		// Get cacheHitThreshold from request first, fall back to global cacheHitThreshold if not set
-		var cacheHitThreshold *float64
-		if reqThreshold := req.GetCacheHitThreshold(); reqThreshold != nil && *reqThreshold >= 0 && *reqThreshold <= 1 {
-			cacheHitThreshold = reqThreshold
-		} else if reqCtx.runtime.Config().GlobalCacheHitThreshold > 0 {
-			cacheHitThreshold = &reqCtx.runtime.Config().GlobalCacheHitThreshold
-		}
-
-		if cacheHitThreshold != nil {
-			// If hit rate is below threshold, return cache_threshold finish reason
-			if hitRate < *cacheHitThreshold {
-				return true
-			}
-		}
-	}
-
-	return false
+	return reqCtx.runtime.Config().GlobalCacheHitThreshold
 }
 
 // kvCacheRequest keys a sub-request in the KV cache by its choice: the n
@@ -314,8 +296,10 @@ func (reqCtx *baseRequestContext) kvCacheID() string {
 	return fmt.Sprintf("%s-%d", reqCtx.Request().GetRequestID(), reqCtx.idx)
 }
 
-func (reqCtx *baseRequestContext) kvCacheOnRequestStart() (stat metrics.PrefixCacheQueried, oaiServerError *api.Error) {
-	return reqCtx.runtime.KVCacheOnRequestStart(kvCacheRequest{Request: reqCtx.Request(), id: reqCtx.kvCacheID()})
+func (reqCtx *baseRequestContext) kvCacheOnRequestStart(minHitRate float64) (stat metrics.PrefixCacheQueried,
+	started bool, oaiServerError *api.Error) {
+	return reqCtx.runtime.KVCacheOnRequestStart(kvCacheRequest{Request: reqCtx.Request(), id: reqCtx.kvCacheID()},
+		minHitRate)
 }
 
 func (reqCtx *baseRequestContext) KVCacheOnRequestEnd() {

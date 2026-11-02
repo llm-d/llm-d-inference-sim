@@ -97,7 +97,11 @@ func (h *KVCacheHelper) Activate() {
 	h.blockCache.activate()
 }
 
-func (h *KVCacheHelper) OnRequestStart(req api.Request) (metrics.PrefixCacheQueried, error) {
+// OnRequestStart adds req to the cache and reports how much of its prompt was
+// already cached. A request with less than minHitRate of its prompt cached is
+// rejected before it allocates blocks: it is not added, and started is false.
+func (h *KVCacheHelper) OnRequestStart(req api.Request, minHitRate float64) (stats metrics.PrefixCacheQueried,
+	started bool, err error) {
 	h.logger.V(logging.TRACE).Info("KV cache - process request")
 
 	tokens := req.TokenizedPrompt().Tokens
@@ -120,7 +124,7 @@ func (h *KVCacheHelper) OnRequestStart(req api.Request) (metrics.PrefixCacheQuer
 	}
 	blockKeys, err := h.tokensProcessor.TokensToKVBlockKeys(parent, tokens, req.GetDisplayedModel(), extraFeatures)
 	if err != nil {
-		return metrics.PrefixCacheQueried{}, fmt.Errorf("failed to convert tokens to block keys: %w", err)
+		return metrics.PrefixCacheQueried{}, false, fmt.Errorf("failed to convert tokens to block keys: %w", err)
 	}
 	h.logger.V(logging.TRACE).Info("Found tokens", "tokens", tokens, "block-keys", blockKeys)
 
@@ -131,15 +135,23 @@ func (h *KVCacheHelper) OnRequestStart(req api.Request) (metrics.PrefixCacheQuer
 		blockTokens[i] = tokens[i*h.blockSize : i*h.blockSize+h.blockSize]
 	}
 
-	nBlocksAlreadyInCache, err := h.blockCache.startRequest(req, blockHashes, blockTokens)
-	if err != nil {
-		return metrics.PrefixCacheQueried{}, err
+	started = true
+	nBlocksAlreadyInCache := 0
+	if minHitRate > 0 {
+		nBlocksAlreadyInCache = h.blockCache.cachedBlocks(req.GetDisplayedModel(), blockHashes)
+		started = hitRate(nBlocksAlreadyInCache*h.blockSize, len(tokens)) >= minHitRate
+	}
+	if started {
+		nBlocksAlreadyInCache, err = h.blockCache.startRequest(req, blockHashes, blockTokens)
+		if err != nil {
+			return metrics.PrefixCacheQueried{}, false, err
+		}
 	}
 
 	cachedTokens := nBlocksAlreadyInCache * h.blockSize
 	req.SetNumberOfCachedPromptTokens(cachedTokens)
 
-	stats := metrics.PrefixCacheQueried{
+	stats = metrics.PrefixCacheQueried{
 		QueriedTokens:      len(tokens),
 		CachedPromptTokens: cachedTokens,
 	}
@@ -147,7 +159,16 @@ func (h *KVCacheHelper) OnRequestStart(req api.Request) (metrics.PrefixCacheQuer
 		common.WriteToChannel(h.metrics.PrefixCacheQuery, stats, h.logger)
 	}
 
-	return stats, nil
+	return stats, started, nil
+}
+
+// hitRate is the fraction of a prompt of promptTokens tokens that is cached,
+// or 0 for an empty prompt.
+func hitRate(cachedTokens, promptTokens int) float64 {
+	if promptTokens == 0 {
+		return 0
+	}
+	return float64(cachedTokens) / float64(promptTokens)
 }
 
 func (h *KVCacheHelper) OnRequestEnd(requestID string) error {
