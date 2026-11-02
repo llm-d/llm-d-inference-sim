@@ -825,6 +825,13 @@ func (c *Configuration) validate() error {
 		return errors.New("data parallel rank must be between 0 and 7")
 	}
 
+	// In data-parallel-size mode each rank after the first listens on port + rank,
+	// so the highest port in use must stay within the valid TCP range.
+	if c.Rank < 0 && c.Port+c.DPSize-1 > 65535 {
+		return fmt.Errorf("port '%d' is too high for data parallel size %d: the last rank would listen on port %d",
+			c.Port, c.DPSize, c.Port+c.DPSize-1)
+	}
+
 	if (c.SSL.SSLCertFile == "") != (c.SSL.SSLKeyFile == "") {
 		return errors.New("both ssl-certfile and ssl-keyfile must be provided together")
 	}
