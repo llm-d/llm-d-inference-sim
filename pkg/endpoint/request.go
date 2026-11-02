@@ -57,8 +57,9 @@ type RenderableRequest interface {
 	ValidateBody() *api.Error
 	// Render tokenizes the request and returns the tokens (one slice per
 	// prompt; chat completions always returns a single slice) and any
-	// mm_features produced by the tokenizer.
-	Render(t tokenizer.Tokenizer) ([][]uint32, *api.RenderMMFeatures, error)
+	// mm_features produced by the tokenizer. mmPayload is passed to
+	// Tokenizer.RenderMessages.
+	Render(t tokenizer.Tokenizer, mmPayload string) ([][]uint32, *api.RenderMMFeatures, error)
 }
 
 type Request interface {

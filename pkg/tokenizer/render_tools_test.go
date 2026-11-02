@@ -60,7 +60,7 @@ var _ = Describe("HF tokenizer chat render tools", func() {
 			ToolChoice: json.RawMessage(`{"type":"function","function":{"name":"get_weather"}}`),
 		}
 
-		tokens, _, _, err := tk.RenderMessages(messages, tools)
+		tokens, _, _, err := tk.RenderMessages(messages, tools, "")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(tokens).To(Equal([]uint32{1, 2, 3}))
 
@@ -74,7 +74,7 @@ var _ = Describe("HF tokenizer chat render tools", func() {
 	})
 
 	It("omits both when the request has neither", func() {
-		_, _, _, err := tk.RenderMessages(messages, api.RenderTools{})
+		_, _, _, err := tk.RenderMessages(messages, api.RenderTools{}, "")
 		Expect(err).NotTo(HaveOccurred())
 		var sent map[string]json.RawMessage
 		Expect(json.Unmarshal(body, &sent)).To(Succeed())

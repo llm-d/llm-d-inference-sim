@@ -67,7 +67,7 @@ var _ = Describe("tokenizer", func() {
 	})
 
 	It("should tokenize chat with simple tokenizer", func() {
-		tokens, strTokens, _, err := tokenizerMngr.TestTokenizer().RenderMessages(messages, api.RenderTools{})
+		tokens, strTokens, _, err := tokenizerMngr.TestTokenizer().RenderMessages(messages, api.RenderTools{}, "")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(tokens).NotTo(BeEmpty())
 		Expect(strTokens).NotTo(BeEmpty())
@@ -87,7 +87,7 @@ var _ = Describe("tokenizer", func() {
 
 	It("should tokenize chat with real tokenizer", func() {
 		// in /chat/completions case the string tokens are not returned
-		tokens, _, _, err := tokenizerMngr.RealTokenizer().RenderMessages(messages, api.RenderTools{})
+		tokens, _, _, err := tokenizerMngr.RealTokenizer().RenderMessages(messages, api.RenderTools{}, "")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(tokens).NotTo(BeEmpty())
 	})
@@ -100,13 +100,28 @@ var _ = Describe("tokenizer", func() {
 				},
 			}},
 		}
-		_, _, features, err := tokenizerMngr.TestTokenizer().RenderMessages(mmMessages, api.RenderTools{})
+		_, _, features, err := tokenizerMngr.TestTokenizer().RenderMessages(mmMessages, api.RenderTools{}, "")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(features).NotTo(BeNil())
 		Expect(features.KwargsData).To(HaveKey(mmModalityImage))
 		Expect(features.KwargsData[mmModalityImage]).To(HaveLen(1))
 		_, decodeErr := base64.StdEncoding.DecodeString(features.KwargsData[mmModalityImage][0])
 		Expect(decodeErr).NotTo(HaveOccurred())
+	})
+
+	It("should omit kwargs_data for mm_payload none via test tokenizer", func() {
+		mmMessages := []api.Message{
+			{Role: api.RoleUser, Content: api.ChatComplContent{
+				Structured: []api.ChatComplContentBlock{
+					{Type: "image_url", ImageURL: &api.ChatComplURLBlock{Url: "http://x/a.jpg"}},
+				},
+			}},
+		}
+		_, _, features, err := tokenizerMngr.TestTokenizer().RenderMessages(mmMessages, api.RenderTools{}, api.MMPayloadNone)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(features).NotTo(BeNil())
+		Expect(features.MMHashes).To(HaveKey(mmModalityImage))
+		Expect(features.KwargsData).To(BeNil())
 	})
 
 	It("should detokenize previously tokenized text with simple tokenizer", func() {
@@ -176,7 +191,7 @@ var _ = Describe("tokenizer", func() {
 	})
 
 	It("should return nil kwargs_data for text-only messages via real tokenizer", func() {
-		tokens, _, features, err := tokenizerMngr.RealTokenizer().RenderMessages(messages, api.RenderTools{})
+		tokens, _, features, err := tokenizerMngr.RealTokenizer().RenderMessages(messages, api.RenderTools{}, "")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(tokens).NotTo(BeEmpty())
 		// text-only messages carry no MM features

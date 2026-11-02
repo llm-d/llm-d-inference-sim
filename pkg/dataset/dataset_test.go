@@ -331,7 +331,7 @@ var _ = Describe("Echo Dataset", Ordered, func() {
 					{Role: api.RoleUser, Content: api.ChatComplContent{Raw: testPrompt}},
 				},
 			}
-			promptTokens, promptStrTokens, _, err := tokenizerMngr.TestTokenizer().RenderMessages(req.Messages, api.RenderTools{})
+			promptTokens, promptStrTokens, _, err := tokenizerMngr.TestTokenizer().RenderMessages(req.Messages, api.RenderTools{}, "")
 			Expect(err).ShouldNot(HaveOccurred())
 			respTokens, resptStrTokens, err := tokenizerMngr.TestTokenizer().RenderText(testPrompt)
 			Expect(err).ShouldNot(HaveOccurred())

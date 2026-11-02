@@ -500,6 +500,15 @@ var _ = Describe("Simulator for /v1/messages (Anthropic Messages API)", forEachE
 				Expect(resp.ContextManagement.OriginalInputTokens).To(Equal(resp.InputTokens))
 			}
 		})
+
+		It("ignores mm_payload", func() {
+			client, err := startServer(ctx, common.ModeRandom)
+			Expect(err).NotTo(HaveOccurred())
+
+			body := `{"model":"` + model + `","mm_payload":"all","messages":[{"role":"user","content":"` + testUserMessage + `"}]}`
+			status, respBody := postMessagesRoute(client, "/v1/messages/count_tokens", body)
+			Expect(status).To(Equal(http.StatusOK), "response body: %s", string(respBody))
+		})
 	})
 
 	// count_tokens answers in the Messages API's error envelope. render answers
@@ -570,6 +579,17 @@ var _ = Describe("Messages API render", func() {
 		Expect(resp.Features).NotTo(BeNil())
 		Expect(resp.Features.MMHashes).To(HaveKey("image"))
 		Expect(resp.Features.MMHashes["image"]).To(HaveLen(2))
+	})
+
+	It("returns null kwargs_data and mm_metadata for mm_payload none", func() {
+		body := `{"model":"` + model + `","max_tokens":100,"mm_payload":"none","messages":[{"role":"user","content":[` +
+			`{"type":"text","text":"describe"},` +
+			`{"type":"image","source":{"type":"url","url":"https://example.com/a.png"}},` +
+			`{"type":"image","source":{"type":"url","url":"https://example.com/b.png"}}` +
+			`]}]}`
+		status, respBody := postMessagesRoute(client, "/v1/messages/render", body)
+		Expect(status).To(Equal(http.StatusOK), "response body: %s", string(respBody))
+		expectMMPayloadOmitted(respBody)
 	})
 
 	It("matches the count_tokens count", func() {

@@ -87,7 +87,7 @@ var _ = Describe("HF tokenizer tools against a real vLLM renderer", Ordered, fun
 		return out.TokenIDs
 	}
 	viaSimulator := func(tools api.RenderTools) []uint32 {
-		tokens, _, _, err := tk.RenderMessages(messages, tools)
+		tokens, _, _, err := tk.RenderMessages(messages, tools, "")
 		Expect(err).NotTo(HaveOccurred())
 		return tokens
 	}
@@ -150,7 +150,7 @@ var _ = Describe("HF tokenizer tools against a real vLLM renderer", Ordered, fun
 			var want api.RenderResponse
 			Expect(json.NewDecoder(resp.Body).Decode(&want)).To(Succeed())
 
-			got, _, _, err := plain.RenderMessages(messages, rt)
+			got, _, _, err := plain.RenderMessages(messages, rt, "")
 			Expect(err).NotTo(HaveOccurred())
 			Expect(got).To(Equal(want.TokenIDs))
 		})
@@ -161,7 +161,7 @@ var _ = Describe("HF tokenizer tools against a real vLLM renderer", Ordered, fun
 			_ = resp.Body.Close()
 			Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
 
-			_, _, _, err := plain.RenderMessages(messages, rt)
+			_, _, _, err := plain.RenderMessages(messages, rt, "")
 			Expect(err).To(HaveOccurred())
 		})
 	})
