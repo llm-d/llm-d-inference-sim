@@ -237,9 +237,9 @@ var _ = Describe("Responses convertInputToMessages", func() {
 		Expect(withTools[2].Role).To(Equal("tool"))
 		Expect(withTools[2].Content.Raw).To(Equal("sunny, 22C"))
 
-		tokensOnly, _, _, err := tok.RenderMessages(msgOnly, api.RenderTools{})
+		tokensOnly, _, _, err := tok.RenderMessages(msgOnly, api.RenderTools{}, "")
 		Expect(err).NotTo(HaveOccurred())
-		tokensWith, _, _, err := tok.RenderMessages(withTools, api.RenderTools{})
+		tokensWith, _, _, err := tok.RenderMessages(withTools, api.RenderTools{}, "")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(len(tokensWith)).To(BeNumerically(">", len(tokensOnly)))
 	})
@@ -333,7 +333,7 @@ var _ = Describe("Responses instructions tokenization", func() {
 			expectedMessages = append(expectedMessages, api.Message{
 				Role: api.RoleUser, Content: api.ChatComplContent{Raw: "Hello world"},
 			})
-			expectedTokens, expectedStrings, _, err := tk.RenderMessages(expectedMessages, api.RenderTools{})
+			expectedTokens, expectedStrings, _, err := tk.RenderMessages(expectedMessages, api.RenderTools{}, "")
 			Expect(err).NotTo(HaveOccurred())
 			tokens, tokenStrings, _, err := ctx.encode()
 			Expect(err).NotTo(HaveOccurred())
@@ -394,7 +394,7 @@ var _ = Describe("Responses render", func() {
 		expectedTokens, _, _, err := ctx.encode()
 		Expect(err).NotTo(HaveOccurred())
 
-		tokens, features, err := renderReq.Render(tk)
+		tokens, features, err := renderReq.Render(tk, "")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(tokens).To(HaveLen(1))
 		Expect(tokens[0]).To(Equal(expectedTokens))

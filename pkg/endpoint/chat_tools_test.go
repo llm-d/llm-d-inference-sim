@@ -31,7 +31,7 @@ type recordingTokenizer struct {
 
 func (r *recordingTokenizer) RenderText(string) ([]uint32, []string, error) { return nil, nil, nil }
 func (r *recordingTokenizer) Detokenize([]uint32) (string, error)           { return "", nil }
-func (r *recordingTokenizer) RenderMessages(_ []api.Message, tools api.RenderTools) ([]uint32, []string, *api.RenderMMFeatures, error) {
+func (r *recordingTokenizer) RenderMessages(_ []api.Message, tools api.RenderTools, _ string) ([]uint32, []string, *api.RenderMMFeatures, error) {
 	r.calls++
 	r.tools = tools
 	return []uint32{7}, nil, nil, nil
@@ -45,7 +45,7 @@ var _ = Describe("Chat completions raw tools", func() {
 		var req ChatCompletionsRequest
 		Expect(req.Unmarshal([]byte(body))).To(Succeed())
 		tk := &recordingTokenizer{}
-		_, _, err := req.Render(tk)
+		_, _, err := req.Render(tk, "")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(tk.calls).To(Equal(1))
 		return tk.tools

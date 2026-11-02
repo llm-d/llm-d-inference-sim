@@ -77,8 +77,8 @@ func (c *ChatCompletionsRequest) ValidateBody() *api.Error {
 // Render tokenizes the chat messages for /v1/chat/completions/render and
 // returns the tokens (wrapped as a single-element slice for shape parity with
 // /v1/completions/render) and any mm_features.
-func (c *ChatCompletionsRequest) Render(tk tokenizer.Tokenizer) ([][]uint32, *api.RenderMMFeatures, error) {
-	tokens, _, features, err := tk.RenderMessages(c.Messages, c.renderTools)
+func (c *ChatCompletionsRequest) Render(tk tokenizer.Tokenizer, mmPayload string) ([][]uint32, *api.RenderMMFeatures, error) {
+	tokens, _, features, err := tk.RenderMessages(c.Messages, c.renderTools, mmPayload)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -193,7 +193,7 @@ func (c *chatCompletionReqCtx) Request() Request {
 }
 
 func (c *chatCompletionReqCtx) encode() ([]uint32, []string, *api.RenderMMFeatures, error) {
-	return c.runtime.GetTokenizer().RenderMessages(c.req.Messages, c.req.renderTools)
+	return c.runtime.GetTokenizer().RenderMessages(c.req.Messages, c.req.renderTools, "")
 }
 
 func (c *chatCompletionReqCtx) createToolCalls() ([]api.ToolCall, int, string, error) {

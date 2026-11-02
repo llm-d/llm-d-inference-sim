@@ -229,10 +229,10 @@ func (c *Communication) handleRender(req endpoint.RenderableRequest, respBuilder
 		c.sendError(ctx, err, false)
 		return
 	}
-	omitTensors := false
+	resolvedMMPayload := ""
 	if acceptMMPayload {
 		var mmPayloadErr *api.Error
-		if omitTensors, mmPayloadErr = mmPayload.OmitTensors(); mmPayloadErr != nil {
+		if resolvedMMPayload, mmPayloadErr = mmPayload.Resolve(); mmPayloadErr != nil {
 			c.sendError(ctx, mmPayloadErr, false)
 			return
 		}
@@ -247,16 +247,12 @@ func (c *Communication) handleRender(req endpoint.RenderableRequest, respBuilder
 		c.sendError(ctx, modelErr, false)
 		return
 	}
-	tokens, features, err := req.Render(c.runtime.GetTokenizer())
+	tokens, features, err := req.Render(c.runtime.GetTokenizer(), resolvedMMPayload)
 	if err != nil {
 		c.logger.Error(err, "render failed")
 		errToSend := api.NewError("Render failed, "+err.Error(), fasthttp.StatusInternalServerError, nil)
 		c.sendError(ctx, &errToSend, false)
 		return
-	}
-	if features != nil && omitTensors {
-		features.KwargsData = nil
-		features.MMMetadata = nil
 	}
 	respBody, err := json.Marshal(respBuilder.createRenderResponse(tokens, features))
 	if err != nil {
@@ -870,7 +866,7 @@ func (c *Communication) HandleTokenize(ctx *fasthttp.RequestCtx) {
 		tokens, _, err = c.runtime.GetTokenizer().RenderText(req.Prompt)
 	} else {
 		// has messages
-		tokens, _, _, err = c.runtime.GetTokenizer().RenderMessages(req.Messages, api.RenderTools{})
+		tokens, _, _, err = c.runtime.GetTokenizer().RenderMessages(req.Messages, api.RenderTools{}, "")
 	}
 
 	if err != nil {

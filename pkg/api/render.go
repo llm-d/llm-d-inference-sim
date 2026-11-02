@@ -49,7 +49,7 @@ type RenderTools struct {
 	ToolChoice json.RawMessage
 }
 
-func NewChatCompletionsRenderRequest(model string, messages []Message, tools RenderTools) ChatCompletionsRenderRequest {
+func NewChatCompletionsRenderRequest(model string, messages []Message, tools RenderTools, mmPayload string) ChatCompletionsRenderRequest {
 	return ChatCompletionsRenderRequest{
 		baseRenderRequest: baseRenderRequest{
 			ModelName: model,
@@ -58,6 +58,7 @@ func NewChatCompletionsRenderRequest(model string, messages []Message, tools Ren
 		Messages:   messages,
 		Tools:      tools.Tools,
 		ToolChoice: tools.ToolChoice,
+		MMPayload:  mmPayload,
 	}
 }
 
@@ -100,6 +101,10 @@ type ChatCompletionsRenderRequest struct {
 	// can also change what is rendered.
 	Tools      json.RawMessage `json:"tools,omitempty"`
 	ToolChoice json.RawMessage `json:"tool_choice,omitempty"`
+
+	// MMPayload is the client's resolved mm_payload; empty when the client sent
+	// neither mm_payload nor return_mm_kwargs.
+	MMPayload string `json:"mm_payload,omitempty"`
 }
 
 func (c *ChatCompletionsRenderRequest) IsMultiModal() bool {
@@ -130,24 +135,34 @@ type RenderMMPayload struct {
 	ReturnMMKwargs json.RawMessage `json:"return_mm_kwargs"`
 }
 
-func (p *RenderMMPayload) OmitTensors() (bool, *Error) {
-if p.MMPayload == nil {
-	if p.ReturnMMKwargs == nil {
-		return false, nil
+const (
+	MMPayloadTensors = "tensors"
+	MMPayloadNone    = "none"
+)
+
+// Resolve returns the mm_payload to render with, applying the return_mm_kwargs
+// alias. It returns an empty string when the client sent neither field.
+func (p *RenderMMPayload) Resolve() (string, *Error) {
+	if p.MMPayload == nil {
+		if p.ReturnMMKwargs == nil {
+			return "", nil
+		}
+		var returnMMKwargs *bool
+		if err := json.Unmarshal(p.ReturnMMKwargs, &returnMMKwargs); err != nil {
+			serverErr := NewError("return_mm_kwargs must be a boolean", fasthttp.StatusBadRequest, nil)
+			return "", &serverErr
+		}
+		if returnMMKwargs != nil && !*returnMMKwargs {
+			return MMPayloadNone, nil
+		}
+		return "", nil
 	}
-	var returnMMKwargs *bool
-	if err := json.Unmarshal(p.ReturnMMKwargs, &returnMMKwargs); err != nil {
-		serverErr := NewError("return_mm_kwargs must be a boolean", fasthttp.StatusBadRequest, nil)
-		return false, &serverErr
-	}
-	return returnMMKwargs != nil && !*returnMMKwargs, nil
-}
 	var mmPayload string
-	if err := json.Unmarshal(p.MMPayload, &mmPayload); err != nil || (mmPayload != "tensors" && mmPayload != "none") {
+	if err := json.Unmarshal(p.MMPayload, &mmPayload); err != nil || (mmPayload != MMPayloadTensors && mmPayload != MMPayloadNone) {
 		serverErr := NewError("mm_payload must be 'tensors' or 'none'", fasthttp.StatusBadRequest, nil)
-		return false, &serverErr
+		return "", &serverErr
 	}
-	return mmPayload == "none", nil
+	return mmPayload, nil
 }
 
 type RenderPlaceholder struct {

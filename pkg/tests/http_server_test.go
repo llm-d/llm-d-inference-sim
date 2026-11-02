@@ -662,6 +662,9 @@ var _ = Describe("Server render endpoints", func() {
 		Entry("rejects an unknown mm_payload",
 			fmt.Sprintf(`{"model":"%s","input":"hi","mm_payload":"all"}`, common.TestModelName),
 			http.StatusBadRequest, "mm_payload must be 'tensors' or 'none'"),
+		Entry("rejects a non-boolean return_mm_kwargs",
+			fmt.Sprintf(`{"model":"%s","input":"hi","return_mm_kwargs":"banana"}`, common.TestModelName),
+			http.StatusBadRequest, "return_mm_kwargs must be a boolean"),
 	)
 
 	It("/v1/responses/render and /v1/messages/render are disabled by --enable-legacy-render", func() {
