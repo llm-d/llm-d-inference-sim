@@ -131,9 +131,17 @@ type RenderMMPayload struct {
 }
 
 func (p *RenderMMPayload) OmitTensors() (bool, *Error) {
-	if p.MMPayload == nil {
-		return string(p.ReturnMMKwargs) == "false", nil
+if p.MMPayload == nil {
+	if p.ReturnMMKwargs == nil {
+		return false, nil
 	}
+	var returnMMKwargs *bool
+	if err := json.Unmarshal(p.ReturnMMKwargs, &returnMMKwargs); err != nil {
+		serverErr := NewError("return_mm_kwargs must be a boolean", fasthttp.StatusBadRequest, nil)
+		return false, &serverErr
+	}
+	return returnMMKwargs != nil && !*returnMMKwargs, nil
+}
 	var mmPayload string
 	if err := json.Unmarshal(p.MMPayload, &mmPayload); err != nil || (mmPayload != "tensors" && mmPayload != "none") {
 		serverErr := NewError("mm_payload must be 'tensors' or 'none'", fasthttp.StatusBadRequest, nil)
