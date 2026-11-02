@@ -342,12 +342,6 @@ type LoRASetsChanged struct {
 	Waiting map[string]int
 }
 
-// NewDisabledMetricsBus returns a bus with no adapter, channels or goroutines;
-// every write to it is discarded.
-func NewDisabledMetricsBus() *MetricsBus {
-	return &MetricsBus{}
-}
-
 // ChannelCapacities returns the buffered-channel sizes derived from config,
 // shared by the bus and every EngineMetricsAdapter so buffer sizing stays
 // consistent across both.
@@ -363,6 +357,12 @@ func ChannelCapacities(config common.Configuration) (running, waiting, requests,
 }
 
 // --------------------------------
+// NewDisabledMetricsBus returns a bus with no adapter, channels or goroutines;
+// every write to it is discarded.
+func NewDisabledMetricsBus() *MetricsBus {
+	return &MetricsBus{}
+}
+
 func NewMetricsBus(ctx context.Context, config common.Configuration, registry *prometheus.Registry,
 	logger logr.Logger, newAdapter AdapterFactory) (*MetricsBus, error) {
 	if newAdapter == nil {
