@@ -107,6 +107,9 @@ func (c *ChatCompletionsRequest) Validate(toolsValidator *ToolsValidator) *api.E
 			return &serverErr
 		}
 	}
+	if err := validateResponseFormat(c.responseFormat, toolsValidator); err != nil {
+		return err
+	}
 
 	return validateRequest(c)
 }

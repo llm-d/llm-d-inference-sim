@@ -19,7 +19,9 @@ package endpoint
 import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/valyala/fasthttp"
 
+	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 )
@@ -54,5 +56,57 @@ var _ = Describe("Chat completions structured output", func() {
 		Entry("dataset path", func(c *common.Configuration) { c.Dataset.DatasetPath = "responses.sqlite3" }),
 		Entry("dataset URL", func(c *common.Configuration) { c.Dataset.DatasetURL = "https://example.com/responses.sqlite3" }),
 		Entry("mm-encoder-only", func(c *common.Configuration) { c.MMEncoderOnly = true }),
+	)
+})
+
+var _ = Describe("Chat completions response_format validation", func() {
+	validate := func(responseFormat string, skipToolValidation bool) *api.Error {
+		v, err := NewToolsValidator()
+		Expect(err).NotTo(HaveOccurred())
+		v.Skip = func() bool { return skipToolValidation }
+		var req ChatCompletionsRequest
+		Expect(req.Unmarshal([]byte(`{"model":"m","messages":[{"role":"user","content":"hi"}],` +
+			`"response_format":` + responseFormat + `}`))).To(Succeed())
+		return req.Validate(v)
+	}
+
+	DescribeTable("accepts",
+		func(responseFormat string) {
+			Expect(validate(responseFormat, false)).To(BeNil())
+		},
+		Entry("null", `null`),
+		Entry("text", `{"type":"text"}`),
+		Entry("json_object", `{"type":"json_object"}`),
+		Entry("structural_tag", `{"type":"structural_tag","format":{}}`),
+		Entry("json_schema", `{"type":"json_schema","json_schema":{"name":"city","schema":`+
+			`{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}}}`),
+	)
+
+	DescribeTable("rejects with 400",
+		func(responseFormat string, skipToolValidation bool) {
+			apiErr := validate(responseFormat, skipToolValidation)
+			Expect(apiErr).NotTo(BeNil())
+			Expect(apiErr.Code).To(Equal(fasthttp.StatusBadRequest))
+		},
+		Entry("a string", `"json_object"`, false),
+		Entry("an unknown type", `{"type":"xml"}`, false),
+		Entry("json_schema without json_schema", `{"type":"json_schema"}`, false),
+		Entry("json_schema that is not an object", `{"type":"json_schema","json_schema":[]}`, false),
+		Entry("json_schema without schema", `{"type":"json_schema","json_schema":{"name":"x"}}`, false),
+		Entry("a schema without type", `{"type":"json_schema","json_schema":{"name":"x","schema":{"properties":{}}}}`, false),
+		Entry("a schema with $ref", `{"type":"json_schema","json_schema":{"name":"x","schema":{"$ref":"#/$defs/a"}}}`, false),
+		Entry("a nested model with $defs and $ref", `{"type":"json_schema","json_schema":{"name":"x","schema":`+
+			`{"$defs":{"City":{"type":"object","properties":{"name":{"type":"string"}}}},`+
+			`"type":"object","properties":{"city":{"$ref":"#/$defs/City"}},"required":["city"]}}}`, false),
+		Entry("an optional property with anyOf", `{"type":"json_schema","json_schema":{"name":"x","schema":`+
+			`{"type":"object","properties":{"age":{"anyOf":[{"type":"integer"},{"type":"null"}]}},"required":["age"]}}}`, false),
+		Entry("a schema with oneOf", `{"type":"json_schema","json_schema":{"name":"x","schema":`+
+			`{"oneOf":[{"type":"string"},{"type":"integer"}]}}}`, false),
+		Entry("a string minItems", `{"type":"json_schema","json_schema":{"name":"x","schema":`+
+			`{"type":"array","items":{"type":"string"},"minItems":"2"}}}`, false),
+		Entry("a negative maxItems", `{"type":"json_schema","json_schema":{"name":"x","schema":`+
+			`{"type":"array","items":{"type":"string"},"maxItems":-1}}}`, false),
+		Entry("a string minItems with tool validation skipped", `{"type":"json_schema","json_schema":{"name":"x","schema":`+
+			`{"type":"array","items":{"type":"string"},"minItems":"2"}}}`, true),
 	)
 })

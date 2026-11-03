@@ -82,6 +82,7 @@ A chat completion whose `response_format` has type `json_object` or `json_schema
 - The content is the whole JSON value, not a sampled length. It stops early at `max_tokens` or the remaining context window, with finish reason `LENGTH`, which leaves the JSON incomplete.
 - `min_tokens` and `ignore_eos` do not apply to JSON output.
 - Echo mode and dataset responses ignore `response_format`.
+- In every mode, a request is rejected with `400 Bad Request` when `response_format` is not an object, has a `type` other than `text`, `json_object`, `json_schema` or `structural_tag`, or has type `json_schema` without a `json_schema.schema`. The schema must also use the subset of JSON Schema that tool parameters allow (see `skip-tool-validation` in the [configuration](configuration.md)); `$ref`, `anyOf`, `oneOf` and schemas without `type` are rejected. `skip-tool-validation` does not turn this check off.
 
 #### Dataset Responses (Optional)
 If a valid SQLite dataset is provided, the simulator attempts to find a matching conversation:

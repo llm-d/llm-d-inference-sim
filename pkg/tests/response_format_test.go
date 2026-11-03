@@ -19,6 +19,7 @@ package tests
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"strings"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -141,5 +142,23 @@ var _ = Describe("Simulator for request with response_format", forEachEngine(fun
 	It("echoes the prompt in echo mode", func() {
 		content, _, _ := chat(common.ModeEcho, jsonObject, 0, false)
 		Expect(content).To(Equal(testUserMessage))
+	})
+
+	It("rejects an invalid schema with 400 and keeps serving", func() {
+		ctx := context.TODO()
+		client, err := startServer(ctx, common.ModeRandom)
+		Expect(err).NotTo(HaveOccurred())
+
+		post := func(responseFormat string) int {
+			body := `{"model":"` + common.TestModelName + `","messages":[{"role":"user","content":"hi"}],` +
+				`"response_format":` + responseFormat + `}`
+			resp, err := client.Post("http://localhost/v1/chat/completions", "application/json", strings.NewReader(body))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.Body.Close()).To(Succeed())
+			return resp.StatusCode
+		}
+		Expect(post(`{"type":"json_schema","json_schema":{"name":"x","schema":` +
+			`{"type":"array","items":{"type":"string"},"minItems":"2"}}}`)).To(Equal(http.StatusBadRequest))
+		Expect(post(`{"type":"json_object"}`)).To(Equal(http.StatusOK))
 	})
 }))

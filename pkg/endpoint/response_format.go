@@ -18,14 +18,19 @@ package endpoint
 
 import (
 	"encoding/json"
+	"fmt"
+
+	"github.com/valyala/fasthttp"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 )
 
 const (
-	responseFormatJSONObject = "json_object"
-	responseFormatJSONSchema = "json_schema"
+	responseFormatText          = "text"
+	responseFormatJSONObject    = "json_object"
+	responseFormatJSONSchema    = "json_schema"
+	responseFormatStructuralTag = "structural_tag"
 )
 
 // jsonObjectSchema shapes the output for json_object, which carries no schema.
@@ -40,6 +45,55 @@ type responseFormat struct {
 	JSONSchema struct {
 		Schema map[string]any `json:"schema"`
 	} `json:"json_schema"`
+}
+
+// validateResponseFormat rejects what vLLM rejects: a response_format that is not an object, an
+// unknown type, and a json_schema type without json_schema. It also rejects a schema that
+// createArgument cannot generate a value for, which is one outside the tool parameter subset.
+func validateResponseFormat(raw json.RawMessage, toolsValidator *ToolsValidator) *api.Error {
+	if raw == nil {
+		return nil
+	}
+	badRequest := func(message string) *api.Error {
+		param := "response_format"
+		err := api.NewError(message, fasthttp.StatusBadRequest, &param)
+		return &err
+	}
+
+	var format struct {
+		Type       string          `json:"type"`
+		JSONSchema json.RawMessage `json:"json_schema"`
+	}
+	if err := json.Unmarshal(raw, &format); err != nil {
+		return badRequest("response_format must be an object with a string type: " + err.Error())
+	}
+	switch format.Type {
+	case responseFormatText, responseFormatJSONObject, responseFormatStructuralTag:
+		return nil
+	case responseFormatJSONSchema:
+	default:
+		return badRequest(fmt.Sprintf("response_format type must be one of %s, %s, %s or %s, got %q",
+			responseFormatText, responseFormatJSONObject, responseFormatJSONSchema, responseFormatStructuralTag,
+			format.Type))
+	}
+
+	var jsonSchema struct {
+		Schema json.RawMessage `json:"schema"`
+	}
+	if present(format.JSONSchema) == nil || json.Unmarshal(format.JSONSchema, &jsonSchema) != nil {
+		return badRequest("When response_format type is 'json_schema', the 'json_schema' field must be an object.")
+	}
+	if present(jsonSchema.Schema) == nil {
+		return badRequest("response_format json_schema.schema is required")
+	}
+	var schema any
+	if err := json.Unmarshal(jsonSchema.Schema, &schema); err != nil {
+		return badRequest("response_format json_schema.schema is not valid JSON: " + err.Error())
+	}
+	if err := toolsValidator.validateParameters(schema); err != nil {
+		return badRequest("response_format json_schema.schema is not supported: " + err.Error())
+	}
+	return nil
 }
 
 // createStructuredOutput returns JSON content for a response_format of type json_object or
