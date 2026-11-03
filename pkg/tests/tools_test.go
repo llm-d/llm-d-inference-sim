@@ -30,6 +30,7 @@ import (
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
 	"github.com/openai/openai-go/v3/packages/param"
+	"github.com/openai/openai-go/v3/packages/respjson"
 )
 
 const (
@@ -420,9 +421,9 @@ var _ = Describe("Simulator for request with tools", Ordered, forEachEngine(func
 							args[tc.Function.Name] = []string{tc.Function.Arguments}
 							functionName = tc.Function.Name
 						} else {
-							Expect(tc.Function.Name).To(BeEmpty())
-							Expect(tc.ID).To(BeEmpty())
-							Expect(tc.Type).To(BeEmpty())
+							Expect(tc.Function.JSON.Name.Raw()).To(Equal(respjson.Omitted))
+							Expect(tc.JSON.ID.Raw()).To(Equal(respjson.Omitted))
+							Expect(tc.JSON.Type.Raw()).To(Equal(respjson.Omitted))
 							args[functionName] = append(args[functionName], tc.Function.Arguments)
 						}
 					}
