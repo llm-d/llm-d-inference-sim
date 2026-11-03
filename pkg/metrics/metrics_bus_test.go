@@ -83,6 +83,26 @@ var _ = Describe("LoRA ref counting on the bus", func() {
 	})
 })
 
+var _ = Describe("Disabled metrics bus", func() {
+	It("discards every write and closes without an adapter", func() {
+		bus := NewDisabledMetricsBus()
+
+		Expect(func() {
+			common.WriteToChannel(bus.RequestQueued, RequestQueued{}, logr.Discard())
+			common.WriteToChannel(bus.RequestSucceeded, RequestSucceeded{}, logr.Discard())
+			common.WriteToChannel(bus.LoRAChanged, LoRAChanged{Model: "a", State: LoRAWaiting}, logr.Discard())
+			bus.ApplyFakeMetricsUpdate(&stubFakeMetrics{})
+		}).NotTo(Panic())
+		Expect(common.WriteToChannelWithError(bus.TokenGenerated, TokenGenerated{})).To(Succeed())
+		Expect(bus.Close()).To(Succeed())
+	})
+})
+
+type stubFakeMetrics struct{}
+
+func (*stubFakeMetrics) Validate() error         { return nil }
+func (*stubFakeMetrics) New() common.FakeMetrics { return &stubFakeMetrics{} }
+
 // loraKeys returns a poller that snapshots the string keys of a sync.Map-like
 // container (any type implementing Range).
 func loraKeys(m interface {

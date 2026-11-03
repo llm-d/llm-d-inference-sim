@@ -103,13 +103,20 @@ func (b *MetricsBus) Start(ctx context.Context) error {
 
 	b.subscribeAdapter(ctx)
 
-	return b.adapter.Start(ctx)
+	if b.adapter != nil {
+		return b.adapter.Start(ctx)
+	}
+
+	return nil
 }
 
 // Close releases the adapter's resources. Callers must cancel the context
 // passed to Start first, so the drainer goroutines are gone before the adapter
 // tears itself down.
 func (b *MetricsBus) Close() error {
+	if b.adapter == nil {
+		return nil
+	}
 	return b.adapter.Close()
 }
 
@@ -200,7 +207,7 @@ func (b *MetricsBus) decrementLoraRefCount(lora string, theMap *sync.Map) {
 // fake mode ignore it; the caller is expected to have already gated on
 // config.FakeMetrics != nil.
 func (b *MetricsBus) ApplyFakeMetricsUpdate(update common.FakeMetrics) {
-	if b == nil || update == nil {
+	if b == nil || b.adapter == nil || update == nil {
 		return
 	}
 	b.adapter.ApplyFakeMetricsUpdate(update)
@@ -350,6 +357,12 @@ func ChannelCapacities(config common.Configuration) (running, waiting, requests,
 }
 
 // --------------------------------
+// NewDisabledMetricsBus returns a bus with no adapter, channels or goroutines;
+// every write to it is discarded.
+func NewDisabledMetricsBus() *MetricsBus {
+	return &MetricsBus{}
+}
+
 func NewMetricsBus(ctx context.Context, config common.Configuration, registry *prometheus.Registry,
 	logger logr.Logger, newAdapter AdapterFactory) (*MetricsBus, error) {
 	if newAdapter == nil {
