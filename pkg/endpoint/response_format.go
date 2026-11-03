@@ -101,9 +101,7 @@ func validateResponseFormat(raw json.RawMessage, toolsValidator *ToolsValidator)
 // token budget even when that cuts the JSON short. It returns nil tokens when the request
 // does not ask for JSON, or when responses come from echo mode or a dataset.
 func (c *chatCompletionReqCtx) createStructuredOutput() (*api.Tokenized, string, error) {
-	config := c.runtime.Config()
-	if c.req.responseFormat == nil || config.Mode != common.ModeRandom || config.MMEncoderOnly ||
-		config.Dataset.DatasetPath != "" || config.Dataset.DatasetURL != "" {
+	if c.req.responseFormat == nil || !c.runtime.RandomResponses() {
 		return nil, "", nil
 	}
 
@@ -121,7 +119,7 @@ func (c *chatCompletionReqCtx) createStructuredOutput() (*api.Tokenized, string,
 		return nil, "", nil
 	}
 
-	value, err := createArgument(schema, &config.ToolCalls, c.runtime.GetRandom())
+	value, err := createArgument(schema, &c.runtime.Config().ToolCalls, c.runtime.GetRandom())
 	if err != nil {
 		return nil, "", err
 	}

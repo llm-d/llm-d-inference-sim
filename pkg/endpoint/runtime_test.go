@@ -33,6 +33,8 @@ type fakeRuntime struct {
 	random            *common.Random
 	tokenizer         tokenizer.Tokenizer
 	responseTokensErr error
+	// nonRandomResponses stands in for an echo, mm-encoder-only or file dataset.
+	nonRandomResponses bool
 }
 
 var _ Runtime = (*fakeRuntime)(nil)
@@ -45,6 +47,7 @@ func (f *fakeRuntime) RequestStarted(req api.Request)    {}
 func (f *fakeRuntime) GetResponseTokens(req api.Request) (*api.Tokenized, string, error) {
 	return nil, "", f.responseTokensErr
 }
+func (f *fakeRuntime) RandomResponses() bool { return !f.nonRandomResponses }
 func (f *fakeRuntime) KVCacheOnRequestStart(req api.Request) (metrics.PrefixCacheQueried, *api.Error) {
 	return metrics.PrefixCacheQueried{}, nil
 }

@@ -27,13 +27,12 @@ import (
 )
 
 var _ = Describe("Chat completions structured output", func() {
-	structuredOutput := func(configure func(*common.Configuration)) []string {
-		config := common.NewConfig()
-		configure(config)
+	structuredOutput := func(nonRandomResponses bool) []string {
 		var req ChatCompletionsRequest
 		Expect(req.Unmarshal([]byte(`{"model":"m","messages":[{"role":"user","content":"hi"}],` +
 			`"response_format":{"type":"json_object"}}`))).To(Succeed())
-		runtime := &fakeRuntime{config: config, random: common.NewRandom(1, 0), tokenizer: tokenizer.NewSimpleTokenizer()}
+		runtime := &fakeRuntime{config: common.NewConfig(), random: common.NewRandom(1, 0),
+			tokenizer: tokenizer.NewSimpleTokenizer(), nonRandomResponses: nonRandomResponses}
 		reqCtx := req.BuildRequestContext(runtime, common.Channel[*ResponseInfo]{}, 0, func() {})
 		Expect(reqCtx.tokenize()).To(BeNil())
 		tokens, _, err := reqCtx.(*chatCompletionReqCtx).createStructuredOutput()
@@ -44,19 +43,13 @@ var _ = Describe("Chat completions structured output", func() {
 		return tokens.Strings
 	}
 
-	It("generates JSON in random mode", func() {
-		Expect(structuredOutput(func(*common.Configuration) {})).NotTo(BeEmpty())
+	It("generates JSON when responses are random text", func() {
+		Expect(structuredOutput(false)).NotTo(BeEmpty())
 	})
 
-	DescribeTable("leaves the response to the configured source",
-		func(configure func(*common.Configuration)) {
-			Expect(structuredOutput(configure)).To(BeNil())
-		},
-		Entry("echo mode", func(c *common.Configuration) { c.Mode = common.ModeEcho }),
-		Entry("dataset path", func(c *common.Configuration) { c.Dataset.DatasetPath = "responses.sqlite3" }),
-		Entry("dataset URL", func(c *common.Configuration) { c.Dataset.DatasetURL = "https://example.com/responses.sqlite3" }),
-		Entry("mm-encoder-only", func(c *common.Configuration) { c.MMEncoderOnly = true }),
-	)
+	It("leaves the response to the dataset otherwise", func() {
+		Expect(structuredOutput(true)).To(BeNil())
+	})
 })
 
 var _ = Describe("Chat completions response_format validation", func() {
