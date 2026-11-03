@@ -16,7 +16,7 @@ This mode is activated when `--render-url` points at a running vLLM render servi
 This mode is activated when `--render-url` is not set.
 
 * **Behavior:** Uses an in-process regex-based tokenizer to split text and generates token hashes using the FNV-32a algorithm. No external service or network access is needed. Because the hashes are one-way, detokenization (used by the [derender endpoints](http-endpoints.md#derender-endpoints)) relies on a bounded in-memory reverse mapping of the token IDs the instance has produced (least recently encoded IDs are evicted when it is full); unknown or evicted IDs are rendered as `<unk_ID>` placeholders.
-* **Accuracy:** Approximate. Token boundaries will not match real models. The simulated tokenizer preserves non-ASCII characters by emitting each Unicode code point as a token, with any trailing ASCII whitespace attached. This includes Chinese text, accented characters, and emoji; an emoji sequence can span multiple tokens.
+* **Accuracy:** Approximate. Token boundaries will not match real models. The regex groups Unicode letters, combining marks, and numbers into word runs, including underscores within a run. Other characters are retained individually. Trailing whitespace attaches to the preceding token; leading whitespace is retained as a separate token. This preserves the input text, including punctuation, Chinese text, accented words, and emoji; an emoji sequence can span multiple tokens.
 * **Pros:**
     * **Zero startup overhead:** No render service, no downloads.
     * **High throughput:** Ideal for infrastructure testing where exact token boundaries are irrelevant.

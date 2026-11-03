@@ -39,11 +39,11 @@ const (
 func TestSimpleTokenizerOwnsCachedStrings(t *testing.T) {
 	st := NewSimpleTokenizer()
 	ids, texts, err := st.RenderText(strings.Repeat(" ", 1024*1024) + "token")
-	if err != nil || len(ids) != 1 {
-		t.Fatalf("expected one token, got %v, %v", ids, err)
+	if err != nil || len(ids) != 2 {
+		t.Fatalf("expected whitespace and word tokens, got %v, %v", ids, err)
 	}
-	cached := st.idToEntry[ids[0]].Value.(*reverseMapEntry).str
-	if cached != texts[0] || unsafe.StringData(cached) == unsafe.StringData(texts[0]) {
+	cached := st.idToEntry[ids[1]].Value.(*reverseMapEntry).str
+	if cached != texts[1] || unsafe.StringData(cached) == unsafe.StringData(texts[1]) {
 		t.Fatal("cached token must own its text without retaining the source prompt")
 	}
 }
