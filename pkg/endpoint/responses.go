@@ -133,8 +133,8 @@ func (r *ResponsesRenderRequest) ValidateBody() *api.Error {
 // (wrapped as a single-element slice for shape parity with the other render
 // endpoints) and any mm_features. The prompt is built the same way as on the
 // generation path, via buildResponsesMessages.
-func (r *ResponsesRenderRequest) Render(tk tokenizer.Tokenizer) ([][]uint32, *api.RenderMMFeatures, error) {
-	tokens, _, features, err := tk.RenderMessages(buildResponsesMessages(r.Input, r.Instructions), api.RenderTools{})
+func (r *ResponsesRenderRequest) Render(tk tokenizer.Tokenizer, mmPayload string) ([][]uint32, *api.RenderMMFeatures, error) {
+	tokens, _, features, err := tk.RenderMessages(buildResponsesMessages(r.Input, r.Instructions), api.RenderTools{}, mmPayload)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -239,7 +239,7 @@ func buildResponsesMessages(input []api.InputItem, instructions string) []api.Me
 }
 
 func (r *responsesReqCtx) encode() ([]uint32, []string, *api.RenderMMFeatures, error) {
-	return r.runtime.GetTokenizer().RenderMessages(buildResponsesMessages(r.req.Input, r.req.Instructions), api.RenderTools{})
+	return r.runtime.GetTokenizer().RenderMessages(buildResponsesMessages(r.req.Input, r.req.Instructions), api.RenderTools{}, "")
 }
 
 func (r *responsesReqCtx) createToolCalls() ([]api.ToolCall, int, string, error) {
@@ -268,6 +268,10 @@ func (r *responsesReqCtx) createToolCalls() ([]api.ToolCall, int, string, error)
 		return nil, 0, "", nil
 	}
 	return toolCalls, completionTokens, common.ToolsFinishReason, nil
+}
+
+func (*responsesReqCtx) createStructuredOutput() (*api.Tokenized, string, error) {
+	return nil, "", nil
 }
 
 // shouldForceRequiredToolChoice reports whether Responses should rewrite tool_choice

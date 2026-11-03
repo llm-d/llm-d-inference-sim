@@ -22,7 +22,10 @@ limitations under the License.
 // is rejected rather than silently ignored.
 package sglang
 
-import "github.com/llm-d/llm-d-inference-sim/pkg/communication"
+import (
+	"github.com/llm-d/llm-d-inference-sim/pkg/common"
+	"github.com/llm-d/llm-d-inference-sim/pkg/communication"
+)
 
 // Engine implements engine.Engine for the SGLang backend.
 type Engine struct{}
@@ -32,6 +35,9 @@ func New() Engine { return Engine{} }
 
 // Name identifies this engine backend.
 func (Engine) Name() string { return "sglang" }
+
+// NewFakeMetrics returns nil: this engine does not support fake metrics.
+func (Engine) NewFakeMetrics() common.FakeMetrics { return nil }
 
 // NewRequestValidator leaves strict validation disabled for the experimental backend.
 func (Engine) NewRequestValidator() (communication.RequestValidator, error) {

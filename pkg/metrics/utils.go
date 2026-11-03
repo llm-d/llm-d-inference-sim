@@ -52,7 +52,10 @@ func BuildBuckets(maxValue int, mantissas []int) []float64 {
 // This includes the last bucket (last_boundary, +Inf].
 // bucketsSamplesCount - array containing number of samples per bucket, starting from the first bucket.
 // Trailing empty buckets are not included in this array, so its length can be <= len(bucketsBoundaries)+1
-func InitFakeHistogram(hist *prometheus.HistogramVec, modelName string, bucketsBoundaries []float64, bucketsSamplesCount []int) *float64 {
+// labelValues - the series to observe on, in the order hist declares its labels.
+// A histogram an engine splits by request kind takes more than one.
+func InitFakeHistogram(hist *prometheus.HistogramVec, bucketsBoundaries []float64,
+	bucketsSamplesCount []int, labelValues ...string) *float64 {
 	var valueToObserve float64
 	var total float64
 	numOfBoundaries := len(bucketsBoundaries)
@@ -77,7 +80,7 @@ func InitFakeHistogram(hist *prometheus.HistogramVec, modelName string, bucketsB
 		if hist != nil {
 			for range bucketSamplesCount {
 				// create required number of observations for the calculated sample
-				hist.WithLabelValues(modelName).Observe(valueToObserve)
+				hist.WithLabelValues(labelValues...).Observe(valueToObserve)
 			}
 		}
 
@@ -85,4 +88,12 @@ func InitFakeHistogram(hist *prometheus.HistogramVec, modelName string, bucketsB
 	}
 
 	return &total
+}
+
+func Int64ToFloat64(v *int64) *float64 {
+	if v == nil {
+		return nil
+	}
+	f := float64(*v)
+	return &f
 }

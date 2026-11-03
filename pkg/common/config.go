@@ -248,6 +248,13 @@ type Configuration struct {
 	// report the key instead of applying a setting it cannot act on.
 	EnableSleepMode bool `yaml:"-" json:"enable-sleep-mode"`
 
+	// EnableMetrics serves the Prometheus /metrics route. Engine-owned
+	// (yaml:"-"), like EnableSleepMode: the engines disagree on whether the
+	// route is opt-in at all, so each supplies its own default and only the one
+	// that spells a flag for it claims the key. Not admin-configurable: the
+	// route is bound once at startup.
+	EnableMetrics bool `yaml:"-" json:"enable-metrics"`
+
 	// EnableRequestIDHeaders enables including X-Request-Id header in responses
 	EnableRequestIDHeaders bool `yaml:"enable-request-id-headers" json:"enable-request-id-headers"`
 
@@ -687,7 +694,7 @@ func (c *Configuration) validate() error {
 	if c.Mode != ModeEcho && c.Mode != ModeRandom {
 		return fmt.Errorf("invalid mode '%s', valid values are 'random' and 'echo'", c.Mode)
 	}
-	if c.Port <= 0 {
+	if c.Port <= 0 || c.Port > 65535 {
 		return fmt.Errorf("invalid port '%d'", c.Port)
 	}
 	if c.Latencies.InterTokenLatency < 0 {
@@ -823,6 +830,13 @@ func (c *Configuration) validate() error {
 
 	if c.Rank > 7 {
 		return errors.New("data parallel rank must be between 0 and 7")
+	}
+
+	// In data-parallel-size mode each rank after the first listens on port + rank,
+	// so the highest port in use must stay within the valid TCP range.
+	if c.Rank < 0 && c.Port+c.DPSize-1 > 65535 {
+		return fmt.Errorf("port '%d' is too high for data parallel size %d: the last rank would listen on port %d",
+			c.Port, c.DPSize, c.Port+c.DPSize-1)
 	}
 
 	if (c.SSL.SSLCertFile == "") != (c.SSL.SSLKeyFile == "") {
@@ -1085,9 +1099,13 @@ func (c *Configuration) Update(body []byte) (*Configuration, *Configuration, boo
 	// staying nil because the body omitted the field from it staying nil
 	// because there was no concrete type to allocate. An explicit null asks
 	// for no change, so it stays a no-op rather than an error.
-	rawFakeMetrics, bodyHasFakeMetrics := raw["fake-metrics"]
-	if bodyHasFakeMetrics && strings.TrimSpace(string(rawFakeMetrics)) == "null" {
-		bodyHasFakeMetrics = false
+	//
+	// Callers that want to enable fake metrics for the first time (no
+	// --fake-metrics at startup) must seed c.FakeMetrics via
+	// Engine.NewFakeMetrics before calling Update; see SimContext.ApplyConfigUpdate.
+	bodyHasFakeMetrics, err := rawRequestsFakeMetrics(raw)
+	if err != nil {
+		return nil, nil, false, err
 	}
 	if bodyHasFakeMetrics && c.FakeMetrics == nil {
 		return nil, nil, false, errors.New("the simulator is reporting real metrics; fake metrics cannot be updated")
@@ -1098,7 +1116,6 @@ func (c *Configuration) Update(body []byte) (*Configuration, *Configuration, boo
 	}
 	// re-marshal after normalization and folding so subsequent Unmarshal calls
 	// get integers and see Latencies nested under "latencies"
-	var err error
 	body, err = json.Marshal(raw)
 	if err != nil {
 		return nil, nil, false, fmt.Errorf("failed to re-marshal normalized payload: %w", err)
@@ -1133,6 +1150,28 @@ func (c *Configuration) Update(body []byte) (*Configuration, *Configuration, boo
 		return nil, nil, false, err
 	}
 	return next, update, latencyChanged, nil
+}
+
+// BodyRequestsFakeMetrics reports whether body is a JSON object that includes
+// a non-null "fake-metrics" field. Used by admin-config to decide whether to
+// seed a concrete FakeMetrics before Configuration.Update.
+func BodyRequestsFakeMetrics(body []byte) (bool, error) {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return false, fmt.Errorf("failed to unmarshal payload: %w", err)
+	}
+	return rawRequestsFakeMetrics(raw)
+}
+
+func rawRequestsFakeMetrics(raw map[string]json.RawMessage) (bool, error) {
+	rawFakeMetrics, ok := raw["fake-metrics"]
+	if !ok {
+		return false, nil
+	}
+	if strings.TrimSpace(string(rawFakeMetrics)) == "null" {
+		return false, nil
+	}
+	return true, nil
 }
 
 // Copy returns a deep copy of c.

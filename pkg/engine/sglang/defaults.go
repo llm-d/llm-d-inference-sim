@@ -25,6 +25,10 @@ import "github.com/llm-d/llm-d-inference-sim/pkg/common"
 // The KV-cache group is left zero-valued: this engine simulates no KV cache,
 // and a configuration that asks for one is rejected.
 func (Engine) ApplyDefaults(cfg *common.Configuration) {
+	// The metrics adapter registers no collectors, so /metrics serves an empty
+	// body.
+	cfg.EnableMetrics = true
+
 	// One LoRA slot, so the simulator's adapter bookkeeping has a table to
 	// index. No adapter can occupy it: this engine registers no LoRA flags and
 	// claims no LoRA configuration keys.

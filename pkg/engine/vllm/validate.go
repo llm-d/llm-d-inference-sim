@@ -77,6 +77,13 @@ func (Engine) ValidateConfig(cfg *common.Configuration) error {
 		if err := cfg.FakeMetrics.Validate(); err != nil {
 			return err
 		}
+		// The token-length histograms' buckets scale with the context window, so
+		// they are checked here rather than inside Validate.
+		if fake, ok := cfg.FakeMetrics.(*VLLMFakeMetrics); ok {
+			if err := fake.ValidateTokenBuckets(cfg.MaxModelLen); err != nil {
+				return err
+			}
+		}
 		if cfg.FakeMetricsRefreshInterval <= 0 {
 			return errors.New("fake metrics refresh interval must be positive")
 		}

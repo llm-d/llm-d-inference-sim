@@ -703,9 +703,39 @@ func parseArgs(args []string) (*Configuration, error) {
 	return ParseCommandParamsAndLoadConfig(NoopEngine{})
 }
 
-var _ = Describe("unexpected positional arguments", func() {
-	// This tool takes no positional arguments: the model is set with --model,
-	// not with a positional the way "vllm serve <model>" takes one.
+var _ = Describe("positional arguments", func() {
+	AfterEach(func() {
+		Expect(os.Unsetenv(ModelEnv)).To(Succeed())
+	})
+
+	It("accepts the model as a positional argument", func() {
+		config, err := parseArgs([]string{"cmd", TestModelName, "--port", "8001"})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(config.Model).To(Equal(TestModelName))
+	})
+
+	It("prefers the positional model over "+ModelEnv, func() {
+		Expect(os.Setenv(ModelEnv, "from-env")).To(Succeed())
+		config, err := parseArgs([]string{"cmd", TestModelName})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(config.Model).To(Equal(TestModelName))
+	})
+
+	It("rejects a positional model that is not the first argument", func() {
+		_, err := parseArgs([]string{"cmd", "--port", "8001", TestModelName})
+		Expect(err).To(MatchError(ContainSubstring("unrecognized arguments: " + TestModelName)))
+	})
+
+	It("rejects a positional model together with --model", func() {
+		_, err := parseArgs([]string{"cmd", "other-model", "--model", TestModelName})
+		Expect(err).To(MatchError(ContainSubstring("model is given both as a positional argument (\"other-model\") and with --model")))
+	})
+
+	It("rejects more than one positional argument", func() {
+		_, err := parseArgs([]string{"cmd", TestModelName, "garbage"})
+		Expect(err).To(MatchError(ContainSubstring("unrecognized arguments: garbage")))
+	})
+
 	It("rejects a stray argument that is not any flag's value", func() {
 		_, err := parseArgs([]string{"cmd", "--model", TestModelName, "--port", "8001", "garbage"})
 		Expect(err).To(MatchError(ContainSubstring("unrecognized arguments: garbage")))

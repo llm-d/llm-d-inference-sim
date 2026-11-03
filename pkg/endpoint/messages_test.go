@@ -35,7 +35,7 @@ var _ = Describe("Messages render tools", func() {
 		var req MessagesRequest
 		Expect(req.Unmarshal([]byte(body))).To(Succeed())
 		tk := &recordingTokenizer{}
-		_, _, err := req.Render(tk)
+		_, _, err := req.Render(tk, "")
 		Expect(err).NotTo(HaveOccurred())
 		Expect(tk.calls).To(Equal(1))
 		return tk.tools

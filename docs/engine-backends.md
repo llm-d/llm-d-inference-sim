@@ -66,6 +66,12 @@ validation rules all come from the engine, and `pkg/common` holds no defaults fo
 goes further: `Configuration.FakeMetrics` is an interface, so the engine supplies the concrete type as
 well, since the set of fakeable fields mirrors its own real metrics.
 
+What an adapter does *not* own is the plumbing between its event handlers and its Prometheus
+collectors: the channel payload shapes, the generator ticker behind function-valued fake metrics, and
+the bucket replay a histogram reset performs are the same for every engine and live in
+[pkg/metrics](../pkg/metrics). A payload whose variants carry engine-specific labels stays with its
+engine, which is why vLLM keeps its LoRA and finish-reason payloads.
+
 A single `Configuration` field can be engine-named the same way, for a setting the engines disagree on the
 name of. `MaxModelLen`, `MaxNumSeqs` and `MaxWaitingQueueLength` are tagged `yaml:"-"` and have no core
 flag: the core keeps the field, its default and its validation, and each engine's `BindFlags` registers

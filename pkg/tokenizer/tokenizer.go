@@ -43,7 +43,9 @@ type Tokenizer interface {
 	RenderText(text string) ([]uint32, []string, error)
 	// RenderMessages renders chat messages and returns token IDs, string tokens, and multimodal features.
 	// tools holds the request's tools and tool_choice as the client sent them.
-	RenderMessages(messages []api.Message, tools api.RenderTools) ([]uint32, []string, *api.RenderMMFeatures, error)
+	// mmPayload is the client's mm_payload (api.MMPayloadTensors or api.MMPayloadNone),
+	// or empty for the render service's default.
+	RenderMessages(messages []api.Message, tools api.RenderTools, mmPayload string) ([]uint32, []string, *api.RenderMMFeatures, error)
 	// Detokenize converts token IDs back to text
 	Detokenize(tokenIDs []uint32) (string, error)
 }
@@ -105,7 +107,8 @@ func New(ctx context.Context, config *common.Configuration, logger logr.Logger) 
 }
 
 func newBaseTokenizer() baseTokenizer {
-	re := regexp.MustCompile(`(\{|\}|:|,|-|\.|\?|\!|;|@|#|\$|%|\^|&|\*|\(|\)|\+|\-|_|~|/|\\|>|<|\[|\]|=|"|'|\w+)(\s*)`)
+	// Every rune must match to avoid silently dropping input text.
+	re := regexp.MustCompile(`(?:[^\p{L}\p{M}\p{N}]|[\p{L}\p{M}\p{N}_]+)[\s\p{Z}\v\x{0085}]*`)
 	return baseTokenizer{re: re}
 }
 
@@ -198,7 +201,7 @@ func (st *SimpleTokenizer) Detokenize(tokenIDs []uint32) (string, error) {
 // RenderMessages tokenizes the messages and synthesizes stub mm_features when
 // any message contains image_url blocks, so downstream MM-aware code paths can
 // be exercised without a real renderer.
-func (st *SimpleTokenizer) RenderMessages(messages []api.Message, _ api.RenderTools) ([]uint32, []string, *api.RenderMMFeatures, error) {
+func (st *SimpleTokenizer) RenderMessages(messages []api.Message, _ api.RenderTools, mmPayload string) ([]uint32, []string, *api.RenderMMFeatures, error) {
 	var builder strings.Builder
 	for _, msg := range messages {
 		builder.WriteString(api.StartMessageSeparator)
@@ -208,6 +211,9 @@ func (st *SimpleTokenizer) RenderMessages(messages []api.Message, _ api.RenderTo
 	}
 	tokens, textTokens := st.tokenize(builder.String())
 	features := stubMMFeaturesForMessages(messages, len(tokens))
+	if features != nil && mmPayload == api.MMPayloadNone {
+		features.KwargsData = nil
+	}
 	return tokens, textTokens, features, nil
 }
 
