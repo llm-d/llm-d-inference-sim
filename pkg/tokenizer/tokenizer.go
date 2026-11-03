@@ -107,7 +107,8 @@ func New(ctx context.Context, config *common.Configuration, logger logr.Logger) 
 }
 
 func newBaseTokenizer() baseTokenizer {
-	re := regexp.MustCompile(`(\{|\}|:|,|-|\.|\?|\!|;|@|#|\$|%|\^|&|\*|\(|\)|\+|\-|_|~|/|\\|>|<|\[|\]|=|"|'|\w+)(\s*)`)
+	// Every rune must match to avoid silently dropping input text.
+	re := regexp.MustCompile(`(?:[^\p{L}\p{M}\p{N}]|[\p{L}\p{M}\p{N}_]+)[\s\p{Z}\v\x{0085}]*`)
 	return baseTokenizer{re: re}
 }
 
