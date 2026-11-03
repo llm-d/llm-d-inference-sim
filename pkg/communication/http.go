@@ -733,18 +733,7 @@ func (c *Communication) sendStreamedTools(respCtx endpoint.ResponseContext, resp
 	w *bufio.Writer, tokens []string, tc *api.ToolCall, index int, choiceIdx int) error {
 	tokensStr := strings.Join(tokens, "")
 
-	toolChunkInsert := &api.ToolCall{
-		Index: tc.Index,
-		Function: api.FunctionCall{
-			Arguments: tokensStr,
-		},
-	}
-	// As in vLLM and OpenAI, only a tool call's first delta carries its id, type and name.
-	if index == 0 {
-		toolChunkInsert.ID = tc.ID
-		toolChunkInsert.Type = tc.Type
-		toolChunkInsert.Function.Name = tc.Function.Name
-	}
+	toolChunkInsert := api.NewToolCallStreamDelta(tc, tokensStr, index == 0)
 
 	var finishReasonToSend *string
 	if index == tc.Function.TokenizedArguments().Length()-1 && (*respCtx.FinishReason() == common.LengthFinishReason ||
