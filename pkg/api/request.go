@@ -1550,3 +1550,21 @@ func (m *MessagesRequest) ToChatCompletionsRequest() *ChatCompletionsRequest {
 		ToolChoice:          toolChoice,
 	}
 }
+
+// ResponseMaxLen returns the maximum response length for req: max_tokens (or
+// max_completion_tokens), capped by the room left in the context window
+// (maxModelLen minus the prompt tokens), or that room when the request sets no maximum.
+// The boolean reports whether the request set a maximum.
+func ResponseMaxLen(req Request, maxModelLen int) (int, bool) {
+	remaining := maxModelLen - req.TokenizedPrompt().Length()
+	maxTokens := req.GetMaxCompletionTokens()
+
+	if maxTokens != nil {
+		if int(*maxTokens) < remaining {
+			return int(*maxTokens), true
+		}
+		return remaining, true
+	}
+
+	return remaining, false
+}

@@ -45,6 +45,9 @@ type Runtime interface {
 	// GetResponseTokens generates response tokens for req from the
 	// simulator's configured dataset.
 	GetResponseTokens(req api.Request) (*api.Tokenized, string, error)
+	// RandomResponses reports whether the dataset generates the predefined random text, rather
+	// than echoing the prompt or reading responses from a dataset file.
+	RandomResponses() bool
 	// KVCacheOnRequestStart records req's arrival in the KV cache, if enabled.
 	KVCacheOnRequestStart(req api.Request) (metrics.PrefixCacheQueried, *api.Error)
 	// KVCacheOnRequestEnd records the request's completion in the KV cache, if enabled.

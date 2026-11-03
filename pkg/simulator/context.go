@@ -442,6 +442,12 @@ func (s *SimContext) GetResponseTokens(req api.Request) (*api.Tokenized, string,
 	return s.dataset.GetResponseTokens(req)
 }
 
+// RandomResponses reports whether the dataset generates the predefined random text.
+func (s *SimContext) RandomResponses() bool {
+	_, ok := s.dataset.(*dataset.DefaultDataset)
+	return ok
+}
+
 // KVCacheOnRequestStart records req's arrival in the KV cache, if enabled.
 func (s *SimContext) KVCacheOnRequestStart(req api.Request) (metrics.PrefixCacheQueried, *api.Error) {
 	if !s.Config().KVCache.EnableKVCache {

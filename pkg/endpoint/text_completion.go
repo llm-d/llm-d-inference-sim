@@ -201,6 +201,10 @@ func (t *textCompletionReqCtx) createToolCalls() ([]api.ToolCall, int, string, e
 	return nil, 0, "", nil
 }
 
+func (*textCompletionReqCtx) createStructuredOutput() (*api.Tokenized, string, error) {
+	return nil, "", nil
+}
+
 func (t *textCompletionReqCtx) tokenizedPromptForEcho() (*api.Tokenized, error) {
 	if t.req.Prompt.IsTokens() {
 		// prompt arrived as token ids; render each id as its decimal form with
