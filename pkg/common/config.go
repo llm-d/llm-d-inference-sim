@@ -694,7 +694,7 @@ func (c *Configuration) validate() error {
 	if c.Mode != ModeEcho && c.Mode != ModeRandom {
 		return fmt.Errorf("invalid mode '%s', valid values are 'random' and 'echo'", c.Mode)
 	}
-	if c.Port <= 0 {
+	if c.Port <= 0 || c.Port > 65535 {
 		return fmt.Errorf("invalid port '%d'", c.Port)
 	}
 	if c.Latencies.InterTokenLatency < 0 {
@@ -830,6 +830,13 @@ func (c *Configuration) validate() error {
 
 	if c.Rank > 7 {
 		return errors.New("data parallel rank must be between 0 and 7")
+	}
+
+	// In data-parallel-size mode each rank after the first listens on port + rank,
+	// so the highest port in use must stay within the valid TCP range.
+	if c.Rank < 0 && c.Port+c.DPSize-1 > 65535 {
+		return fmt.Errorf("port '%d' is too high for data parallel size %d: the last rank would listen on port %d",
+			c.Port, c.DPSize, c.Port+c.DPSize-1)
 	}
 
 	if (c.SSL.SSLCertFile == "") != (c.SSL.SSLKeyFile == "") {

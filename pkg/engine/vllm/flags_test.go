@@ -478,6 +478,17 @@ var _ = Describe("Simulator configuration", func() {
 			expectedError: "invalid port",
 		},
 		{
+			name:          "invalid port above the valid range",
+			args:          []string{"cmd", "--port", "65536", "--config", "../../../manifests/vllm-config.yaml"},
+			expectedError: "invalid port",
+		},
+		{
+			name: "port too high for data parallel size",
+			args: []string{"cmd", "--port", "65530", "--data-parallel-size", "8",
+				"--config", "../../../manifests/vllm-config.yaml"},
+			expectedError: "too high for data parallel size",
+		},
+		{
 			name:          "invalid max-loras",
 			args:          []string{"cmd", "--max-loras", "15", "--config", "../../../manifests/vllm-config.yaml"},
 			expectedError: "max CPU LoRAs cannot be less than max LoRAs",
