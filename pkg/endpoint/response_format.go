@@ -132,7 +132,7 @@ func (c *chatCompletionReqCtx) createStructuredOutput() (*api.Tokenized, string,
 		return nil, "", err
 	}
 
-	if limit := c.maxResponseTokens(); len(tokens) > limit {
+	if limit, _ := api.ResponseMaxLen(c.Request(), c.runtime.Config().MaxModelLen); len(tokens) > limit {
 		return &api.Tokenized{Tokens: tokens[:limit], Strings: strs[:limit]}, common.LengthFinishReason, nil
 	}
 	return &api.Tokenized{Tokens: tokens, Strings: strs}, common.StopFinishReason, nil

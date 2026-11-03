@@ -171,7 +171,7 @@ func (b *baseRequestContext) validateTokenizedRequest() (string, int) {
 		return message, fasthttp.StatusBadRequest
 	}
 
-	effectiveMaxTokens := b.maxResponseTokens()
+	effectiveMaxTokens, _ := api.ResponseMaxLen(req, maxModelLen)
 	if minTokens := req.GetMinTokens(); minTokens != nil && *minTokens > int64(effectiveMaxTokens) {
 		message := fmt.Sprintf("min_tokens must be less than or equal to max_tokens=%d, got %d.",
 			effectiveMaxTokens, *minTokens)
@@ -179,16 +179,6 @@ func (b *baseRequestContext) validateTokenizedRequest() (string, int) {
 	}
 
 	return "", fasthttp.StatusOK
-}
-
-// maxResponseTokens returns max_tokens, capped by the room left in the context window.
-func (b *baseRequestContext) maxResponseTokens() int {
-	req := b.Request()
-	limit := b.runtime.Config().MaxModelLen - getNumberOfPromptTokens(req)
-	if maxTokens := req.GetMaxCompletionTokens(); maxTokens != nil && *maxTokens < int64(limit) {
-		limit = int(*maxTokens)
-	}
-	return limit
 }
 
 func (reqCtx *baseRequestContext) HandleRequest() (ResponseContext, *api.Error) {

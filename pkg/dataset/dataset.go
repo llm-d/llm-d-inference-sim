@@ -66,7 +66,7 @@ type EchoDataset struct {
 // if the response reaches the maximum response length, finish reason is set to LENGTH, otherwise finish reason is STOP
 func (ed *EchoDataset) GetResponseTokens(req api.Request) (*api.Tokenized, string, error) {
 	tokens := req.TokenizedPromptForEcho()
-	maxLen, isMaxTokensInReq := ed.calculateResponseMaxLen(req)
+	maxLen, isMaxTokensInReq := api.ResponseMaxLen(req, ed.maxModelLen)
 	n := common.EchoResponseLen(tokens.Length(), req.GetMinTokens(), maxLen, req.GetIgnoreEOS() && isMaxTokensInReq)
 
 	// a prompt given as token ids has no strings, and its echo must not get any
@@ -176,7 +176,7 @@ func (d *DefaultDataset) Close() error {
 
 // GetResponseTokens returns response tokens and finishReason for the given request
 func (d *DefaultDataset) GetResponseTokens(req api.Request) (*api.Tokenized, string, error) {
-	maxRespTokens, isMaxTokensInReq := d.calculateResponseMaxLen(req)
+	maxRespTokens, isMaxTokensInReq := api.ResponseMaxLen(req, d.maxModelLen)
 	minRespTokens := d.calculateResponseMinLen(req)
 
 	numOfRespTokens := 0
@@ -201,28 +201,6 @@ func (d *DefaultDataset) GetResponseTokens(req api.Request) (*api.Tokenized, str
 
 	respTokens := d.generatePresetRandomTokens(numOfRespTokens)
 	return &respTokens, finishReason, nil
-}
-
-// calculateResponseMaxLen - calculates maximum length of a response to be randomly chosen from the dataset
-// for the given request and the simulator configuration.
-// If max-tokens/max-completion-tokens is defined - use it, unless it exceeds the room left in the
-// context window (<model context window size> - <number of input tokens>), in which case that
-// remaining room is used as the maximum instead, since the context window is no longer validated
-// against max-tokens up front.
-// If max-tokens is not defined - use the remaining room in the context window.
-// boolean returned value defines whether max tokens number was passed in the request
-func (d *DefaultDataset) calculateResponseMaxLen(req api.Request) (int, bool) {
-	remaining := d.maxModelLen - req.TokenizedPrompt().Length()
-	maxTokens := req.GetMaxCompletionTokens()
-
-	if maxTokens != nil {
-		if int(*maxTokens) < remaining {
-			return int(*maxTokens), true
-		}
-		return remaining, true
-	}
-
-	return remaining, false
 }
 
 func (d *DefaultDataset) calculateResponseMinLen(req api.Request) int {
