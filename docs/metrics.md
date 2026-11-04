@@ -76,8 +76,7 @@ SGLang adds are left out: the simulator models neither disaggregation roles nor 
 labels would carry one constant value. The vLLM surface above is reduced the same way, dropping real
 vLLM's `engine`.
 
-A request that fails contributes to no metric but `sglang:num_running_reqs`, since SGLang observes a
-request's latency and token counts only once it has finished. `sglang:request_time_per_output_token_seconds`
+`sglang:request_time_per_output_token_seconds`
 is narrower still: a request that generated a single token, or that stopped for any reason other than
 `stop`, `length` or `tool_calls`, reports no time per output token, as it reports none upstream.
 
