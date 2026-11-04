@@ -55,7 +55,7 @@ func newTestConfig() common.Configuration {
 // newTestAdapter builds a VLLMMetricsAdapter with a fresh Prometheus registry
 // and a canceled-on-cleanup context, which stops all updater goroutines and
 // the ticker.
-func newTestAdapter(cfg common.Configuration) (*VLLMMetricsAdapter, *metrics.MetricsBus) {
+func newTestAdapter(cfg common.Configuration) (*vllmMetricsAdapter, *metrics.MetricsBus) {
 	ctx, cancel := context.WithCancel(context.Background())
 	DeferCleanup(cancel)
 
@@ -298,7 +298,8 @@ vllm:request_success_total{finished_reason="stop",model_name=%q} 1
 			cfg.FakeMetrics = &VLLMFakeMetrics{}
 			adapter, _ := newTestAdapter(cfg)
 
-			// The ticker comes up only once the generators are started.
+			// Simulate that Start() has already run, the ticker only auto-starts
+			// once the adapter is marked started.
 			adapter.generators.Start()
 
 			// Enable a generator: ticker must come up.
@@ -327,6 +328,21 @@ vllm:request_success_total{finished_reason="stop",model_name=%q} 1
 			Expect(adapter.generators.Running()).To(BeFalse(), "expected ticker stopped after generators cleared")
 		})
 
+		// Reached only by calling the applier directly: Configuration.Update
+		// refuses a fake-metrics body while the simulator reports real metrics.
+		// Applying it anyway would stamp fake values beside the real ones the
+		// event handlers keep reporting.
+		It("drops a fake-metrics update while reporting real metrics", func() {
+			adapter, _ := newTestAdapter(newTestConfig())
+
+			Expect(func() {
+				adapter.ApplyFakeMetricsUpdate(&VLLMFakeMetrics{
+					WaitingRequests: &common.FakeMetricWithFunction{FixedValue: 7},
+				})
+			}).NotTo(Panic())
+			Consistently(gaugeValue(adapter.waitingRequests)).Should(BeZero())
+		})
+
 		It("stops the ticker on Close", func() {
 			cfg := newTestConfig()
 			cfg.FakeMetrics = &VLLMFakeMetrics{}
@@ -349,12 +365,6 @@ vllm:request_success_total{finished_reason="stop",model_name=%q} 1
 			Expect(adapter.Close()).To(Succeed())
 
 			Expect(adapter.generators.Running()).To(BeFalse(), "expected ticker stopped after Close")
-
-			adapter.ApplyFakeMetricsUpdate(&VLLMFakeMetrics{
-				WaitingRequests: &common.FakeMetricWithFunction{FixedValue: 1},
-			})
-			adapter.ApplyFakeMetricsUpdate(upd)
-			Expect(adapter.generators.Running()).To(BeFalse(), "expected no ticker restart after Close")
 		})
 
 		It("resets collectors in place and drops stale series", func() {

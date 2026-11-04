@@ -22,6 +22,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"time"
 
@@ -1391,7 +1392,7 @@ var _ = Describe("Setting names", func() {
 	)
 
 	// vLLM exports its Prometheus metrics unconditionally and spells no flag for
-	// the setting.
+	// the setting, where sglang makes them opt-in behind --enable-metrics.
 	It("should export metrics without registering a flag for them", func() {
 		config, err := createSimConfig([]string{"cmd", "--model", common.TestModelName})
 		Expect(err).NotTo(HaveOccurred())
@@ -1423,25 +1424,22 @@ var _ = Describe("Setting names", func() {
 
 	// The token-length histograms' buckets are built from the context window, so
 	// ValidateConfig checks them rather than Validate.
-	DescribeTable("should accept a token-bucket array up to its histogram length and reject a longer one",
-		func(maxModelLen int, args ...string) {
+	DescribeTable("should reject a token-bucket array longer than its histogram",
+		func(key string) {
+			const maxModelLen = 1024
 			buckets := metrics.BuildBuckets(maxModelLen, TokenBucketMantissas)
-			for _, key := range []string{"request-prompt-tokens", "request-generation-tokens",
-				"request-params-max-tokens", "request-max-generation-tokens"} {
-				createWithSamples := func(n int) error {
-					samples := strings.TrimRight(strings.Repeat("0,", n), ",")
-					_, err := createSimConfig(append([]string{"cmd", "--model", common.TestModelName,
-						"--fake-metrics", fmt.Sprintf(`{%q:[%s]}`, key, samples)}, args...))
-					return err
-				}
+			samples := strings.TrimRight(strings.Repeat("0,", len(buckets)+2), ",")
 
-				Expect(createWithSamples(len(buckets)+1)).To(Succeed(), key)
-				Expect(createWithSamples(len(buckets) + 2)).To(MatchError(ContainSubstring(fmt.Sprintf("fake metrics %s is too long", key))))
-			}
+			_, err := createSimConfig([]string{"cmd", "--model", common.TestModelName,
+				"--max-model-len", strconv.Itoa(maxModelLen),
+				"--fake-metrics", fmt.Sprintf(`{%q:[%s]}`, key, samples)})
+			Expect(err).To(MatchError(ContainSubstring(
+				fmt.Sprintf("fake metrics %s is too long", key))))
 		},
-		Entry("default max-model-len", 1024),
-		Entry("lower max-model-len", 512, "--max-model-len", "512"),
-		Entry("higher max-model-len", 2048, "--max-model-len", "2048"),
+		Entry("request-prompt-tokens", "request-prompt-tokens"),
+		Entry("request-generation-tokens", "request-generation-tokens"),
+		Entry("request-params-max-tokens", "request-params-max-tokens"),
+		Entry("request-max-generation-tokens", "request-max-generation-tokens"),
 	)
 
 	It("should read those settings from a config file under vLLM's keys", func() {

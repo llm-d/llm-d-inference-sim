@@ -270,6 +270,10 @@ type TokenGenerated struct {
 // DecodeEnded fires after the last token. Drives request_decode_time_seconds
 // (Observe DecodeDuration) and request_time_per_output_token_seconds
 // (Observe DecodeDuration/GenerationTokens when GenerationTokens > 0).
+//
+// GenerationTokens counts the gaps between generated tokens, one fewer than
+// the tokens themselves, so DecodeDuration/GenerationTokens is the time per
+// output token after the first.
 type DecodeEnded struct {
 	GenerationTokens int
 	DecodeDuration   float64 // seconds
@@ -340,6 +344,12 @@ type LoRAChanged struct {
 type LoRASetsChanged struct {
 	Running map[string]int
 	Waiting map[string]int
+}
+
+// NewDisabledMetricsBus returns a bus with no adapter, channels or goroutines;
+// every write to it is discarded.
+func NewDisabledMetricsBus() *MetricsBus {
+	return &MetricsBus{}
 }
 
 // ChannelCapacities returns the buffered-channel sizes derived from config,

@@ -17,6 +17,9 @@ limitations under the License.
 // Generator functions for fake metrics. Each generator maps elapsed time to a
 // value in [Start, End] according to a specific shape. Dispatch resolves the
 // function name from common.FunctionInfo to its implementation.
+//
+// FakeGenerators owns the set an adapter has registered and the ticker that
+// re-evaluates them, which is the same bookkeeping for every engine.
 
 package metrics
 
@@ -93,6 +96,10 @@ func Squarewave(params *common.FunctionInfo, t time.Duration) float64 {
 // ticker that re-evaluates them on every refresh. One generator is registered
 // per scalar metric a fake-metrics configuration gives a function rather than a
 // fixed value.
+//
+// Its mutex also covers whatever adapter state is mutated inside Apply, so an
+// adapter's own merged fake-metrics state can be updated there rather than
+// behind a second lock of its own.
 type FakeGenerators struct {
 	ctx      context.Context
 	interval time.Duration
