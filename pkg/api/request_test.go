@@ -465,3 +465,34 @@ var _ = Describe("ResponsesRequest tools and function call input", func() {
 		Expect(err.Error()).To(ContainSubstring(`unsupported tool type "custom"`))
 	})
 })
+
+var _ = Describe("MessagesRequest system", func() {
+	systemMessage := func(body string) Message {
+		var req MessagesRequest
+		Expect(json.Unmarshal([]byte(body), &req)).To(Succeed())
+		msgs := req.ToChatCompletionsRequest().Messages
+		Expect(msgs).NotTo(BeEmpty())
+		Expect(msgs[0].Role).To(Equal("system"))
+		return msgs[0]
+	}
+
+	It("should accept a string", func() {
+		msg := systemMessage(`{"system":"be brief","messages":[{"role":"user","content":"hi"}]}`)
+		Expect(msg.Content.Raw).To(Equal("be brief"))
+	})
+
+	It("should accept text blocks and join their text as vLLM does", func() {
+		msg := systemMessage(`{"system":[{"type":"text","text":"be "},` +
+			`{"type":"text","text":"brief","cache_control":{"type":"ephemeral"}}],` +
+			`"messages":[{"role":"user","content":"hi"}]}`)
+		Expect(msg.Content.Raw).To(Equal("be brief"))
+	})
+
+	It("should omit the system message when no block has text", func() {
+		var req MessagesRequest
+		Expect(json.Unmarshal([]byte(`{"system":[],"messages":[{"role":"user","content":"hi"}]}`), &req)).To(Succeed())
+		msgs := req.ToChatCompletionsRequest().Messages
+		Expect(msgs).To(HaveLen(1))
+		Expect(msgs[0].Role).To(Equal("user"))
+	})
+})

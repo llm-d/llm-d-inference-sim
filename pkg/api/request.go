@@ -1377,8 +1377,8 @@ type MessagesRequest struct {
 	baseRequest
 	// Messages is the list of input messages (required)
 	Messages []AnthropicMessage `json:"messages"`
-	// System is the optional system prompt
-	System string `json:"system,omitempty"`
+	// System is the optional system prompt: a string or an array of text blocks
+	System AnthropicMessageContent `json:"system,omitempty"`
 	// MaxTokens is the maximum number of output tokens (required by the API)
 	MaxTokens *int64 `json:"max_tokens"`
 	// Tools is the list of tools available to the model
@@ -1409,11 +1409,25 @@ func (m *MessagesRequest) GetLogprobs() *int {
 	return nil
 }
 
+func (m *MessagesRequest) systemText() string {
+	if m.System.Raw != "" {
+		return m.System.Raw
+	}
+	var b strings.Builder
+	for _, block := range m.System.Blocks {
+		if block.Type == ContentTypeText {
+			b.WriteString(block.Text)
+		}
+	}
+	return b.String()
+}
+
 // ToChatCompletionsRequest converts this Anthropic Messages request to an
 // equivalent ChatCompletionsRequest for processing by the existing pipeline.
 //
 // Mapping rules:
-//   - system prompt -> leading Message{Role: "system"}
+//   - system prompt -> leading Message{Role: "system"}; text blocks are joined
+//     without a separator, as vLLM joins them
 //   - "text" block  -> ChatComplContentBlock{Type: "text"}
 //   - "image" block -> ChatComplContentBlock{Type: "image_url"} (base64 sources become data URLs)
 //   - "tool_use" block (assistant) -> Message.ToolCalls entry
@@ -1421,10 +1435,10 @@ func (m *MessagesRequest) GetLogprobs() *int {
 //   - AnthropicTool -> Tool with function.parameters = input_schema
 func (m *MessagesRequest) ToChatCompletionsRequest() *ChatCompletionsRequest {
 	msgs := make([]Message, 0, len(m.Messages)+1)
-	if m.System != "" {
+	if system := m.systemText(); system != "" {
 		msgs = append(msgs, Message{
 			Role:    "system",
-			Content: ChatComplContent{Raw: m.System},
+			Content: ChatComplContent{Raw: system},
 		})
 	}
 

@@ -209,6 +209,20 @@ var _ = Describe("Simulator for /v1/messages (Anthropic Messages API)", forEachE
 			Expect(resp.Usage.InputTokens).To(BeNumerically(">", 0))
 		})
 
+		It("returns a text response with a system prompt given as text blocks", func() {
+			client, err := startServer(ctx, common.ModeRandom)
+			Expect(err).NotTo(HaveOccurred())
+
+			body := `{"model":"` + model + `","max_tokens":100,` +
+				`"system":[{"type":"text","text":"You are a helpful assistant.","cache_control":{"type":"ephemeral"}}],` +
+				`"messages":[{"role":"user","content":"` + testUserMessage + `"}]}`
+
+			resp := sendMessagesRequest(client, body)
+
+			Expect(resp.Type).To(Equal(api.MessagesType))
+			Expect(resp.Usage.InputTokens).To(BeNumerically(">", 0))
+		})
+
 		It("returns a text response with multi-turn messages", func() {
 			client, err := startServer(ctx, common.ModeRandom)
 			Expect(err).NotTo(HaveOccurred())
