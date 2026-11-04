@@ -16,6 +16,7 @@ limitations under the License.
 package kvcache
 
 import (
+	"container/list"
 	"context"
 	"errors"
 	"fmt"
@@ -68,6 +69,12 @@ type blockCache struct {
 	metrics          *metrics.MetricsBus    // event-bus emitter for KV-cache-usage / prefix-cache stats
 	logger           logr.Logger
 	disabled         bool // indicated whether the cache is disabled
+
+	// unusedByModel keeps each model's unused blocks in eviction order (front first), so
+	// picking a block to evict only compares the front of each model's list instead of
+	// scanning every unused block. unusedElems locates a block in its list.
+	unusedByModel map[string]*list.List
+	unusedElems   map[blockKey]*list.Element
 }
 
 // newBlockCache creates a new blockCache with the specified maximum number of blocks
@@ -113,6 +120,8 @@ func newBlockCache(ctx context.Context, config *common.Configuration, logger log
 		usedBlocks:       make(map[blockKey]int),
 		unusedBlocks:     make(map[blockKey]time.Time),
 		unusedBlockOrder: make(map[blockKey]uint64),
+		unusedByModel:    make(map[string]*list.List),
+		unusedElems:      make(map[blockKey]*list.Element),
 		blockToTokens:    make(map[blockKey][]uint32),
 		loadedModels:     make(map[string]struct{}),
 		maxBlocks:        kvCfg.KVCacheSize,
@@ -152,6 +161,8 @@ func (bc *blockCache) discard() {
 	bc.usedBlocks = make(map[blockKey]int)
 	bc.unusedBlocks = make(map[blockKey]time.Time)
 	bc.unusedBlockOrder = make(map[blockKey]uint64)
+	bc.unusedByModel = make(map[string]*list.List)
+	bc.unusedElems = make(map[blockKey]*list.Element)
 	bc.evictionOrder = 0
 	bc.blockToTokens = make(map[blockKey][]uint32)
 
@@ -242,8 +253,7 @@ func (bc *blockCache) startRequest(req Request, blockHashes []uint64, blockToken
 	// for block used in the past - move them to the used blocks collection
 	for _, block := range blockToMoveToUsed {
 		bc.usedBlocks[block] = 1
-		delete(bc.unusedBlocks, block)
-		delete(bc.unusedBlockOrder, block)
+		bc.removeUnused(block)
 	}
 
 	// for new block - add them, if there is no empty slots - evict a block using priority:
@@ -256,8 +266,7 @@ func (bc *blockCache) startRequest(req Request, blockHashes []uint64, blockToken
 		if len(bc.usedBlocks)+len(bc.unusedBlocks) == bc.maxBlocks {
 			// cache is full but contains unused blocks - evict one block
 			evictHash := bc.pickBlockToEvict()
-			delete(bc.unusedBlocks, evictHash)
-			delete(bc.unusedBlockOrder, evictHash)
+			bc.removeUnused(evictHash)
 			common.WriteToChannel(bc.eventChan,
 				Event{Action: ActionRemove, Hashes: []uint64{evictHash.hash},
 					Tokens: bc.blockToTokens[evictHash]},
@@ -339,6 +348,7 @@ func (bc *blockCache) finishRequest(requestID string) error {
 
 	// Decrease reference count for each block
 	errBlocks := make([]blockKey, 0)
+	freed := make([]blockKey, 0, len(blockHashes))
 	for i, blockHash := range blockHashes {
 		if refCount, exists := bc.usedBlocks[blockHash]; exists {
 			if refCount > 1 {
@@ -349,10 +359,17 @@ func (bc *blockCache) finishRequest(requestID string) error {
 				bc.unusedBlocks[blockHash] = now
 				bc.unusedBlockOrder[blockHash] = requestOrder - uint64(i)
 				delete(bc.usedBlocks, blockHash)
+				freed = append(freed, blockHash)
 			}
 		} else {
 			errBlocks = append(errBlocks, blockHash)
 		}
+	}
+	// Blocks freed now are newer than every unused block (now is not earlier, and requestOrder
+	// is larger, than for any earlier call), and within this request the deepest block has the
+	// lowest order. Appending them deepest first keeps each model's list in eviction order.
+	for i := len(freed) - 1; i >= 0; i-- {
+		bc.appendUnused(freed[i])
 	}
 
 	if bc.metrics != nil {
@@ -408,9 +425,37 @@ func (bc *blockCache) getBlockInfo(blockHash blockKey) (int, bool) {
 	return 0, false
 }
 
+// appendUnused adds a block that just became unused at the back of its model's list.
+// Must be called with bc.mu held.
+func (bc *blockCache) appendUnused(block blockKey) {
+	l, exists := bc.unusedByModel[block.modelName]
+	if !exists {
+		l = list.New()
+		bc.unusedByModel[block.modelName] = l
+	}
+	bc.unusedElems[block] = l.PushBack(block)
+}
+
+// removeUnused removes a block from the unused collections, when it is used again or evicted.
+// Must be called with bc.mu held.
+func (bc *blockCache) removeUnused(block blockKey) {
+	delete(bc.unusedBlocks, block)
+	delete(bc.unusedBlockOrder, block)
+	if elem, exists := bc.unusedElems[block]; exists {
+		l := bc.unusedByModel[block.modelName]
+		l.Remove(elem)
+		if l.Len() == 0 {
+			delete(bc.unusedByModel, block.modelName)
+		}
+		delete(bc.unusedElems, block)
+	}
+}
+
 // pickBlockToEvict selects the best unused block to evict using priority:
 // 1. oldest unused block of an unloaded model
 // 2. oldest unused block of any model
+// Each model's unused blocks are kept in eviction order, so the oldest block of a model is
+// the front of its list and only those fronts need to be compared.
 // Must be called with bc.mu held.
 func (bc *blockCache) pickBlockToEvict() blockKey {
 	var bestLoadedHash blockKey
@@ -422,7 +467,9 @@ func (bc *blockCache) pickBlockToEvict() blockKey {
 	var bestUnloadedOrder uint64
 	hasUnloadedCandidate := false
 
-	for blockKey, unusedTime := range bc.unusedBlocks {
+	for _, l := range bc.unusedByModel {
+		blockKey := l.Front().Value.(blockKey)
+		unusedTime := bc.unusedBlocks[blockKey]
 		order := bc.unusedBlockOrder[blockKey]
 		if _, exists := bc.loadedModels[blockKey.modelName]; exists {
 			// this is a block with loaded model,
