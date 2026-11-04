@@ -1409,13 +1409,18 @@ func (m *MessagesRequest) GetLogprobs() *int {
 	return nil
 }
 
+// anthropicBillingHeaderPrefix starts the system text block in which Claude Code
+// sends a per-request hash. vLLM drops that block so the hash does not defeat
+// prefix caching.
+const anthropicBillingHeaderPrefix = "x-anthropic-billing-header"
+
 func (m *MessagesRequest) systemText() string {
 	if m.System.Raw != "" {
 		return m.System.Raw
 	}
 	var b strings.Builder
 	for _, block := range m.System.Blocks {
-		if block.Type == ContentTypeText {
+		if block.Type == ContentTypeText && !strings.HasPrefix(block.Text, anthropicBillingHeaderPrefix) {
 			b.WriteString(block.Text)
 		}
 	}
@@ -1427,7 +1432,7 @@ func (m *MessagesRequest) systemText() string {
 //
 // Mapping rules:
 //   - system prompt -> leading Message{Role: "system"}; text blocks are joined
-//     without a separator, as vLLM joins them
+//     without a separator and billing header blocks are dropped, as vLLM does
 //   - "text" block  -> ChatComplContentBlock{Type: "text"}
 //   - "image" block -> ChatComplContentBlock{Type: "image_url"} (base64 sources become data URLs)
 //   - "tool_use" block (assistant) -> Message.ToolCalls entry

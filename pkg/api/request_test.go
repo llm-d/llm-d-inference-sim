@@ -488,6 +488,26 @@ var _ = Describe("MessagesRequest system", func() {
 		Expect(msg.Content.Raw).To(Equal("be brief"))
 	})
 
+	It("should drop text blocks holding Claude Code's billing header, as vLLM does", func() {
+		msg := systemMessage(`{"system":[{"type":"text","text":"x-anthropic-billing-header: cch=1a2b;"},` +
+			`{"type":"text","text":"be brief"}],"messages":[{"role":"user","content":"hi"}]}`)
+		Expect(msg.Content.Raw).To(Equal("be brief"))
+	})
+
+	It("should omit the system message when only a billing header block is given", func() {
+		var req MessagesRequest
+		Expect(json.Unmarshal([]byte(`{"system":[{"type":"text","text":"x-anthropic-billing-header: cch=1a2b;"}],`+
+			`"messages":[{"role":"user","content":"hi"}]}`), &req)).To(Succeed())
+		msgs := req.ToChatCompletionsRequest().Messages
+		Expect(msgs).To(HaveLen(1))
+		Expect(msgs[0].Role).To(Equal("user"))
+	})
+
+	It("should keep a string system prompt that starts with the billing header", func() {
+		msg := systemMessage(`{"system":"x-anthropic-billing-header: cch=1a2b;","messages":[{"role":"user","content":"hi"}]}`)
+		Expect(msg.Content.Raw).To(Equal("x-anthropic-billing-header: cch=1a2b;"))
+	})
+
 	It("should omit the system message when no block has text", func() {
 		var req MessagesRequest
 		Expect(json.Unmarshal([]byte(`{"system":[],"messages":[{"role":"user","content":"hi"}]}`), &req)).To(Succeed())
