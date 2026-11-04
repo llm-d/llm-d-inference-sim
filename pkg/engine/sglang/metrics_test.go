@@ -14,6 +14,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+// Unit tests for the sglang metrics adapter, covering the paths reached by
+// invoking the event handlers directly, without booting the simulator.
+
 package sglang
 
 import (
@@ -23,20 +26,262 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
+	"github.com/llm-d/llm-d-inference-sim/pkg/metrics"
 )
 
+const (
+	streaming    = "true"
+	nonStreaming = "false"
+)
+
+func newTestConfig() common.Configuration {
+	return common.Configuration{
+		Model:                 common.TestModelName,
+		ServedModelNames:      []string{common.TestModelName},
+		DisplayModelName:      common.TestModelName,
+		MaxNumSeqs:            4,
+		MaxWaitingQueueLength: 8,
+		MaxModelLen:           1024,
+	}
+}
+
+// newTestAdapter builds a metricsAdapter with a fresh Prometheus registry and a
+// canceled-on-cleanup context, which stops all updater goroutines.
+func newTestAdapter() (*sglangMetricsAdapter, *prometheus.Registry) {
+	ctx, cancel := context.WithCancel(context.Background())
+	DeferCleanup(cancel)
+
+	registry := prometheus.NewRegistry()
+	adapter, err := newMetricsAdapter(ctx, registry, logr.Discard(), newTestConfig())
+	Expect(err).NotTo(HaveOccurred())
+	Expect(adapter.Start(ctx)).To(Succeed())
+	DeferCleanup(func() { Expect(adapter.Close()).To(Succeed()) })
+
+	return adapter, registry
+}
+
+// gaugeValue reads the model-labeled gauge. Adapter writes are asynchronous
+// (channel -> updater goroutine -> Prometheus), so callers wrap this in
+// Eventually.
+func gaugeValue(g *prometheus.GaugeVec) func() float64 {
+	return func() float64 {
+		return testutil.ToFloat64(g.WithLabelValues(common.TestModelName))
+	}
+}
+
+func counterValue(c *prometheus.CounterVec, labelValues ...string) func() float64 {
+	return func() float64 {
+		return testutil.ToFloat64(c.WithLabelValues(labelValues...))
+	}
+}
+
+// histogramStats returns the observation count and sum of the series of the
+// named histogram carrying the given is_streaming value, and zeroes when no
+// such series exists. An empty stream matches the series of a histogram that is
+// not split by request kind.
+func histogramStats(registry *prometheus.Registry, name string, stream string) (uint64, float64) {
+	gathered, err := registry.Gather()
+	Expect(err).NotTo(HaveOccurred())
+
+	for _, family := range gathered {
+		if family.GetName() != name {
+			continue
+		}
+		for _, metric := range family.GetMetric() {
+			value := ""
+			for _, label := range metric.GetLabel() {
+				if label.GetName() == promLabelIsStreaming {
+					value = label.GetValue()
+				}
+			}
+			if value == stream {
+				return metric.GetHistogram().GetSampleCount(), metric.GetHistogram().GetSampleSum()
+			}
+		}
+	}
+	return 0, 0
+}
+
+func histogramCount(registry *prometheus.Registry, name string, stream string) func() uint64 {
+	return func() uint64 {
+		count, _ := histogramStats(registry, name, stream)
+		return count
+	}
+}
+
+func histogramSum(registry *prometheus.Registry, name string, stream string) func() float64 {
+	return func() float64 {
+		_, sum := histogramStats(registry, name, stream)
+		return sum
+	}
+}
+
 var _ = Describe("Metrics adapter", func() {
-	It("should expose no collectors", func() {
-		registry := prometheus.NewPedanticRegistry()
-		adapter, err := New().NewMetricsAdapter(context.Background(), registry, logr.Discard(), *common.NewConfig())
-		Expect(err).NotTo(HaveOccurred())
-		Expect(adapter.Start(context.Background())).To(Succeed())
-		DeferCleanup(func() {
-			Expect(adapter.Close()).To(Succeed())
+	Describe("initial values", func() {
+		It("starts the request gauges at zero and leaves the rest unstamped", func() {
+			adapter, registry := newTestAdapter()
+
+			Expect(testutil.ToFloat64(adapter.runningRequests.WithLabelValues(common.TestModelName))).To(BeZero())
+			Expect(testutil.ToFloat64(adapter.queuedRequests.WithLabelValues(common.TestModelName))).To(BeZero())
+
+			gathered, err := registry.Gather()
+			Expect(err).NotTo(HaveOccurred())
+			names := make([]string, 0, len(gathered))
+			for _, family := range gathered {
+				names = append(names, family.GetName())
+			}
+			Expect(names).To(ConsistOf(SGLangQueueReqsMetricName, SGLangRunningReqsMetricName,
+				SGLangContextLenMetricName))
 		})
 
-		Expect(registry.Gather()).To(BeEmpty())
+		It("stamps the context length from the configuration", func() {
+			adapter, _ := newTestAdapter()
+
+			Expect(testutil.ToFloat64(adapter.contextLen.WithLabelValues(common.TestModelName))).
+				To(Equal(float64(newTestConfig().MaxModelLen)))
+		})
+	})
+
+	Describe("event handlers", func() {
+		It("updates the queue gauge and queue time histogram on queue/dequeue", func() {
+			adapter, registry := newTestAdapter()
+
+			adapter.OnRequestQueued(metrics.RequestQueued{})
+			adapter.OnRequestQueued(metrics.RequestQueued{})
+			Eventually(gaugeValue(adapter.queuedRequests)).Should(Equal(float64(2)))
+
+			adapter.OnRequestDequeued(metrics.RequestDequeued{QueueTime: 0.1})
+			Eventually(gaugeValue(adapter.queuedRequests)).Should(Equal(float64(1)))
+			Eventually(histogramCount(registry, SGLangQueueTimeMetricName, "")).Should(Equal(uint64(1)))
+		})
+
+		It("updates the running gauge on OnRequestRunning", func() {
+			adapter, _ := newTestAdapter()
+
+			adapter.OnRequestRunning(metrics.RequestRunning{})
+			adapter.OnRequestRunning(metrics.RequestRunning{})
+			Eventually(gaugeValue(adapter.runningRequests)).Should(Equal(float64(2)))
+		})
+
+		It("observes time to first token", func() {
+			adapter, registry := newTestAdapter()
+
+			adapter.OnPrefillEnded(metrics.PrefillEnded{PrefillDuration: 0.3, IsStreaming: true})
+			Eventually(histogramCount(registry, SGLangTTFTMetricName, streaming)).Should(Equal(uint64(1)))
+		})
+
+		It("observes inter-token latency per generated token", func() {
+			adapter, registry := newTestAdapter()
+
+			adapter.OnTokenGenerated(metrics.TokenGenerated{InterTokenLatency: 0.01})
+			adapter.OnTokenGenerated(metrics.TokenGenerated{InterTokenLatency: 0.02})
+			Eventually(histogramCount(registry, SGLangInterTokenLatencyMetricName, "")).Should(Equal(uint64(2)))
+		})
+
+		It("observes a per-request time per output token", func() {
+			adapter, registry := newTestAdapter()
+
+			adapter.OnDecodeEnded(metrics.DecodeEnded{
+				GenerationTokens: 4,
+				DecodeDuration:   0.4,
+				FinishReason:     common.StopFinishReason,
+				IsStreaming:      true,
+			})
+			Eventually(histogramCount(registry, SGLangReqTPOTMetricName, streaming)).Should(Equal(uint64(1)))
+			Eventually(histogramSum(registry, SGLangReqTPOTMetricName, streaming)).Should(BeNumerically("~", 0.1, 1e-9))
+		})
+
+		It("skips the per-request time per output token where sglang skips it", func() {
+			adapter, registry := newTestAdapter()
+
+			// A single generated token leaves no gap to measure.
+			adapter.OnDecodeEnded(metrics.DecodeEnded{
+				GenerationTokens: 0, DecodeDuration: 0.4, FinishReason: common.StopFinishReason,
+			})
+			// A truncated decode phase.
+			adapter.OnDecodeEnded(metrics.DecodeEnded{
+				GenerationTokens: 4, DecodeDuration: 0.4, FinishReason: common.RemoteDecodeFinishReason,
+			})
+
+			Consistently(histogramCount(registry, SGLangReqTPOTMetricName, nonStreaming)).Should(BeZero())
+		})
+
+		It("observes a per-request time per output token for a tool-call finish", func() {
+			adapter, registry := newTestAdapter()
+
+			adapter.OnDecodeEnded(metrics.DecodeEnded{
+				GenerationTokens: 4, DecodeDuration: 0.4, FinishReason: common.ToolsFinishReason,
+			})
+			Eventually(histogramCount(registry, SGLangReqTPOTMetricName, nonStreaming)).Should(Equal(uint64(1)))
+		})
+
+		It("decrements running and records latency and tokens on success", func() {
+			adapter, registry := newTestAdapter()
+
+			adapter.OnRequestRunning(metrics.RequestRunning{})
+			Eventually(gaugeValue(adapter.runningRequests)).Should(Equal(float64(1)))
+
+			adapter.OnRequestSucceeded(metrics.RequestSucceeded{
+				PromptTokens:     10,
+				GenerationTokens: 20,
+				FinishReason:     common.StopFinishReason,
+				E2ELatency:       0.5,
+			})
+			Eventually(gaugeValue(adapter.runningRequests)).Should(BeZero())
+			Eventually(counterValue(adapter.promptTokensTotal, common.TestModelName, nonStreaming)).Should(Equal(float64(10)))
+			Eventually(counterValue(adapter.generationTokensTotal, common.TestModelName, nonStreaming)).Should(Equal(float64(20)))
+			Eventually(counterValue(adapter.requestsTotal, common.TestModelName, nonStreaming)).Should(Equal(float64(1)))
+			Eventually(histogramCount(registry, SGLangE2EReqLatencyMetricName, nonStreaming)).Should(Equal(uint64(1)))
+			Eventually(histogramCount(registry, SGLangPromptTokensHistMetricName, "")).Should(Equal(uint64(1)))
+			Eventually(histogramCount(registry, SGLangGenerationTokensHistMetricName, "")).Should(Equal(uint64(1)))
+		})
+
+		It("splits the per-request metrics by request kind", func() {
+			adapter, registry := newTestAdapter()
+
+			adapter.OnRequestSucceeded(metrics.RequestSucceeded{
+				PromptTokens: 10, GenerationTokens: 20, E2ELatency: 0.5, IsStreaming: true,
+			})
+			adapter.OnRequestSucceeded(metrics.RequestSucceeded{
+				PromptTokens: 3, GenerationTokens: 7, E2ELatency: 0.2,
+			})
+
+			Eventually(counterValue(adapter.promptTokensTotal, common.TestModelName, streaming)).Should(Equal(float64(10)))
+			Eventually(counterValue(adapter.promptTokensTotal, common.TestModelName, nonStreaming)).Should(Equal(float64(3)))
+			Eventually(counterValue(adapter.generationTokensTotal, common.TestModelName, streaming)).Should(Equal(float64(20)))
+			Eventually(counterValue(adapter.generationTokensTotal, common.TestModelName, nonStreaming)).Should(Equal(float64(7)))
+			Eventually(histogramCount(registry, SGLangE2EReqLatencyMetricName, streaming)).Should(Equal(uint64(1)))
+			Eventually(histogramCount(registry, SGLangE2EReqLatencyMetricName, nonStreaming)).Should(Equal(uint64(1)))
+		})
+
+		It("records only the running gauge for a failed request", func() {
+			adapter, registry := newTestAdapter()
+
+			adapter.OnRequestRunning(metrics.RequestRunning{})
+			adapter.OnRequestFailed(metrics.RequestFailed{E2ELatency: 0.5, InferenceTime: 0.4})
+
+			Eventually(gaugeValue(adapter.runningRequests)).Should(BeZero())
+			Consistently(histogramCount(registry, SGLangE2EReqLatencyMetricName, nonStreaming)).Should(BeZero())
+			Consistently(counterValue(adapter.promptTokensTotal, common.TestModelName, nonStreaming)).Should(BeZero())
+		})
+	})
+
+	Describe("rejected features", func() {
+		It("accepts and drops the events of a feature it does not simulate", func() {
+			adapter, _ := newTestAdapter()
+
+			Expect(func() {
+				adapter.OnRequestReceived(metrics.RequestReceived{})
+				adapter.OnRequestRejected(metrics.RequestRejected{})
+				adapter.OnPrefillStarted(metrics.PrefillStarted{})
+				adapter.OnDecodeStarted(metrics.DecodeStarted{})
+				adapter.OnKVCacheUsageChanged(metrics.KVCacheUsageChanged{KVCacheUsagePerc: 0.5})
+				adapter.OnPrefixCacheQueried(metrics.PrefixCacheQueried{QueriedTokens: 10, CachedPromptTokens: 5})
+				adapter.OnLoRASetsChanged(metrics.LoRASetsChanged{})
+			}).NotTo(Panic())
+		})
 	})
 })
