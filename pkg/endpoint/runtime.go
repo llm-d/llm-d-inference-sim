@@ -48,8 +48,11 @@ type Runtime interface {
 	// RandomResponses reports whether the dataset generates the predefined random text, rather
 	// than echoing the prompt or reading responses from a dataset file.
 	RandomResponses() bool
-	// KVCacheOnRequestStart records req's arrival in the KV cache, if enabled.
-	KVCacheOnRequestStart(req api.Request) (metrics.PrefixCacheQueried, *api.Error)
+	// KVCacheOnRequestStart records req's arrival in the KV cache, if enabled. A
+	// request with less than minHitRate of its prompt cached is not added to the
+	// cache, and started is false.
+	KVCacheOnRequestStart(req api.Request, minHitRate float64) (stats metrics.PrefixCacheQueried, started bool,
+		serverError *api.Error)
 	// KVCacheOnRequestEnd records the request's completion in the KV cache, if enabled.
 	KVCacheOnRequestEnd(requestID string)
 	// Sleep transitions the simulator into sleep mode. Returns whether it

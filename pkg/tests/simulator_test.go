@@ -184,6 +184,7 @@ var _ = Describe("Simulator", func() {
 			MaxTokens         int      `json:"max_tokens"`
 			CacheHitThreshold *float64 `json:"cache_hit_threshold,omitempty"`
 			Stream            bool     `json:"stream,omitempty"`
+			N                 int      `json:"n,omitempty"`
 		}
 
 		createCompletionRequest := func(params completionRequestParams) *http.Request {
@@ -371,6 +372,71 @@ var _ = Describe("Simulator", func() {
 			Expect(hasCacheThreshold).To(BeTrue(), "Should have cache_threshold finish reason in streaming response")
 			Expect(chunksWithFinishReason).To(BeNumerically(">", 0), "Should have at least one chunk with finish reason")
 		})
+
+		DescribeTable("Should return cache_threshold for every choice when the hit rate is below the threshold",
+			func(stream bool) {
+				globalThreshold := 0.5
+				client := setupKVCacheServer(true, &globalThreshold, common.QwenModelName)
+
+				// The prompt fills whole blocks, so the choices that respond after one
+				// that added the prompt to the cache would see a hit rate above the
+				// threshold.
+				n := 3
+				req := createCompletionRequest(completionRequestParams{
+					Prompt:    prompt1 + prompt2,
+					Model:     common.QwenModelName,
+					MaxTokens: 1000,
+					Stream:    stream,
+					N:         n,
+				})
+				resp, err := client.Do(req)
+				Expect(err).NotTo(HaveOccurred())
+				defer func() {
+					err := resp.Body.Close()
+					Expect(err).NotTo(HaveOccurred())
+				}()
+				Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+				body, err := io.ReadAll(resp.Body)
+				Expect(err).NotTo(HaveOccurred())
+
+				finishReasons := make(map[int][]string)
+				texts := make(map[int]string)
+				collect := func(data string) {
+					var completion struct {
+						Choices []struct {
+							Index        int     `json:"index"`
+							Text         string  `json:"text"`
+							FinishReason *string `json:"finish_reason"`
+						} `json:"choices"`
+					}
+					Expect(json.Unmarshal([]byte(data), &completion)).To(Succeed())
+					for _, choice := range completion.Choices {
+						texts[choice.Index] += choice.Text
+						if choice.FinishReason != nil {
+							finishReasons[choice.Index] = append(finishReasons[choice.Index], *choice.FinishReason)
+						}
+					}
+				}
+				if stream {
+					for _, line := range strings.Split(string(body), "\n") {
+						if data, ok := strings.CutPrefix(line, api.SSEDataPrefix); ok && data != api.SSEDoneMarker {
+							collect(data)
+						}
+					}
+				} else {
+					collect(string(body))
+				}
+
+				Expect(finishReasons).To(HaveLen(n))
+				for i := range n {
+					Expect(finishReasons[i]).To(Equal([]string{common.CacheThresholdFinishReason}), "choice %d", i)
+					Expect(texts[i]).To(BeEmpty(), "choice %d", i)
+				}
+			},
+			Entry("non-streamed", false),
+			Entry("streamed", true),
+		)
 
 		It("Should use global cache hit threshold when request doesn't specify cache_hit_threshold", func() {
 			globalThreshold := 0.9

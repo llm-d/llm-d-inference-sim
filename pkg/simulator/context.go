@@ -448,17 +448,19 @@ func (s *SimContext) RandomResponses() bool {
 	return ok
 }
 
-// KVCacheOnRequestStart records req's arrival in the KV cache, if enabled.
-func (s *SimContext) KVCacheOnRequestStart(req api.Request) (metrics.PrefixCacheQueried, *api.Error) {
+// KVCacheOnRequestStart records req's arrival in the KV cache, if enabled. A
+// request with less than minHitRate of its prompt cached is not added to the
+// cache, and started is false.
+func (s *SimContext) KVCacheOnRequestStart(req api.Request, minHitRate float64) (metrics.PrefixCacheQueried, bool, *api.Error) {
 	if !s.Config().KVCache.EnableKVCache {
-		return metrics.PrefixCacheQueried{}, nil
+		return metrics.PrefixCacheQueried{}, true, nil
 	}
-	stat, err := s.kvcacheHelper.OnRequestStart(req)
+	stat, started, err := s.kvcacheHelper.OnRequestStart(req, minHitRate)
 	if err != nil {
 		serverError := api.NewError(err.Error(), fasthttp.StatusInternalServerError, nil)
-		return metrics.PrefixCacheQueried{}, &serverError
+		return metrics.PrefixCacheQueried{}, false, &serverError
 	}
-	return stat, nil
+	return stat, started, nil
 }
 
 // KVCacheOnRequestEnd records the request's completion in the KV cache, if enabled.
