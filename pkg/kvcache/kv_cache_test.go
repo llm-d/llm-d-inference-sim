@@ -20,8 +20,10 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"testing"
 	"time"
 
+	"github.com/go-logr/logr"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -802,6 +804,80 @@ var _ = Describe("KV cache", Ordered, func() {
 			}
 		})
 
+		It("evicts several blocks for one request in eviction order", func() {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			config := &common.Configuration{
+				IP:      localhost,
+				Port:    1234,
+				Model:   common.TestModelName,
+				KVCache: common.KVCacheConfig{KVCacheSize: 6},
+			}
+
+			blockCache, err := newBlockCache(ctx, config, GinkgoLogr, nil, stubEncoder{})
+			Expect(err).NotTo(HaveOccurred())
+
+			older := testRequest{id: "older", blockHashes: []uint64{1, 2, 3}, tokens: [][]uint32{{1}, {2}, {3}}}
+			newer := testRequest{id: "newer", blockHashes: []uint64{4, 5, 6}, tokens: [][]uint32{{4}, {5}, {6}}}
+			for _, req := range []testRequest{older, newer} {
+				_, err = blockCache.startRequest(&req, req.blockHashes, req.tokens)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(blockCache.finishRequest(req.id)).To(Succeed())
+			}
+
+			// four new blocks: the whole older chain goes first, then the deepest block of the newer one
+			large := testRequest{id: "large", blockHashes: []uint64{7, 8, 9, 10}, tokens: [][]uint32{{7}, {8}, {9}, {10}}}
+			_, err = blockCache.startRequest(&large, large.blockHashes, large.tokens)
+			Expect(err).NotTo(HaveOccurred())
+
+			for _, blockHash := range []uint64{1, 2, 3, 6} {
+				_, exists := blockCache.getBlockInfo(blockKey{hash: blockHash, modelName: common.TestModelName})
+				Expect(exists).To(BeFalse(), "block %d should have been evicted", blockHash)
+			}
+			for _, blockHash := range []uint64{4, 5} {
+				_, exists := blockCache.getBlockInfo(blockKey{hash: blockHash, modelName: common.TestModelName})
+				Expect(exists).To(BeTrue(), "block %d should remain cached", blockHash)
+			}
+		})
+
+		It("moves a reused block behind blocks that stayed unused", func() {
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			config := &common.Configuration{
+				IP:      localhost,
+				Port:    1234,
+				Model:   common.TestModelName,
+				KVCache: common.KVCacheConfig{KVCacheSize: 4},
+			}
+
+			blockCache, err := newBlockCache(ctx, config, GinkgoLogr, nil, stubEncoder{})
+			Expect(err).NotTo(HaveOccurred())
+
+			chainA := testRequest{id: "chainA", blockHashes: []uint64{1, 2}, tokens: [][]uint32{{1}, {2}}}
+			chainB := testRequest{id: "chainB", blockHashes: []uint64{3, 4}, tokens: [][]uint32{{3}, {4}}}
+			// reuses block 1 only, after both chains became unused
+			reuse := testRequest{id: "reuse", blockHashes: []uint64{1}, tokens: [][]uint32{{1}}}
+			for _, req := range []testRequest{chainA, chainB, reuse} {
+				_, err = blockCache.startRequest(&req, req.blockHashes, req.tokens)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(blockCache.finishRequest(req.id)).To(Succeed())
+			}
+
+			// three new blocks evict 2, 4 and 3, which stayed unused; block 1 was used last
+			next := testRequest{id: "next", blockHashes: []uint64{5, 6, 7}, tokens: [][]uint32{{5}, {6}, {7}}}
+			_, err = blockCache.startRequest(&next, next.blockHashes, next.tokens)
+			Expect(err).NotTo(HaveOccurred())
+
+			for _, blockHash := range []uint64{2, 3, 4} {
+				_, exists := blockCache.getBlockInfo(blockKey{hash: blockHash, modelName: common.TestModelName})
+				Expect(exists).To(BeFalse(), "block %d should have been evicted", blockHash)
+			}
+			_, exists := blockCache.getBlockInfo(blockKey{hash: 1, modelName: common.TestModelName})
+			Expect(exists).To(BeTrue(), "the most recently used block should remain cached")
+		})
+
 		It("should evict unloaded lora blocks before loaded lora blocks", func() {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
@@ -1206,4 +1282,46 @@ func createRandomArray(minArrLen, maxArrLen int, maxValue uint64, random *common
 	}
 
 	return hashes, tokens
+}
+
+// BenchmarkEvictManyBlocks measures a request whose new blocks all have to evict unused ones:
+// 20,000 new blocks into a full cache of 40,000 unused blocks.
+func BenchmarkEvictManyBlocks(b *testing.B) {
+	const blocks = 20000
+	chain := func(id string, first uint64) testRequest {
+		req := testRequest{id: id}
+		for i := range uint64(blocks) {
+			req.blockHashes = append(req.blockHashes, first+i)
+			req.tokens = append(req.tokens, []uint32{uint32(first + i)})
+		}
+		return req
+	}
+	config := &common.Configuration{
+		IP:      localhost,
+		Port:    1234,
+		Model:   common.TestModelName,
+		KVCache: common.KVCacheConfig{KVCacheSize: 2 * blocks},
+	}
+	for range b.N {
+		b.StopTimer()
+		ctx, cancel := context.WithCancel(context.Background())
+		blockCache, err := newBlockCache(ctx, config, logr.Discard(), nil, stubEncoder{})
+		if err != nil {
+			b.Fatal(err)
+		}
+		for _, req := range []testRequest{chain("a", 0), chain("b", blocks)} {
+			if _, err := blockCache.startRequest(&req, req.blockHashes, req.tokens); err != nil {
+				b.Fatal(err)
+			}
+			if err := blockCache.finishRequest(req.id); err != nil {
+				b.Fatal(err)
+			}
+		}
+		req := chain("c", 2*blocks)
+		b.StartTimer()
+		if _, err := blockCache.startRequest(&req, req.blockHashes, req.tokens); err != nil {
+			b.Fatal(err)
+		}
+		cancel()
+	}
 }
