@@ -143,6 +143,37 @@ var _ = Describe("gRPC", func() {
 		Entry(nil, uint32(128), common.StopFinishReason, "500ms", "300ms", 500*time.Millisecond, 1400*time.Millisecond),
 	)
 
+	It("generate, echo, streaming with stream-interval", func() {
+		ctx := context.TODO()
+		args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho, "--stream-interval", "4"}
+		_, comm, _, err := startServerHandle(ctx, common.ModeEcho, args, nil)
+		Expect(err).NotTo(HaveOccurred())
+
+		inputIDs := []uint32{32, 45, 78, 13, 11, 12, 14, 15, 16, 17}
+		req := pb.GenerateRequest{
+			RequestId: "123",
+			Input: &pb.GenerateRequest_Tokenized{
+				Tokenized: &pb.TokenizedInput{InputIds: inputIDs},
+			},
+			Stream: true,
+		}
+
+		out := mockGenerateServer{start: time.Now(), ctx: context.Background()}
+		Expect(comm.Generate(&req, &out)).To(Succeed())
+		Expect(out.responses).To(HaveLen(5))
+		chunkLens := make([]int, 0, 4)
+		outputIDs := make([]uint32, 0, len(inputIDs))
+		for _, resp := range out.responses[:4] {
+			chunk := resp.GetChunk()
+			Expect(chunk).NotTo(BeNil())
+			chunkLens = append(chunkLens, len(chunk.TokenIds))
+			outputIDs = append(outputIDs, chunk.TokenIds...)
+		}
+		Expect(chunkLens).To(Equal([]int{1, 4, 4, 1}))
+		Expect(outputIDs).To(Equal(inputIDs))
+		Expect(out.responses[4].GetComplete()).NotTo(BeNil())
+	})
+
 	DescribeTable("generate, text input",
 		func(mode string, stream bool) {
 			ctx := context.TODO()
