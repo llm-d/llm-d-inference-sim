@@ -52,8 +52,8 @@ func (Engine) ValidateConfig(cfg *common.Configuration) error {
 			return errors.New("token block size should be one of the following: 8, 16, 32, 64, 128")
 		}
 
-		if cfg.KVCache.KVCacheSize < 0 {
-			return errors.New("KV cache size cannot be negative")
+		if cfg.KVCache.KVCacheSize < 1 {
+			return errors.New("KV cache size must be at least 1")
 		}
 		if cfg.KVCache.EventBatchSize < 1 {
 			return errors.New("event batch size cannot less than 1")
