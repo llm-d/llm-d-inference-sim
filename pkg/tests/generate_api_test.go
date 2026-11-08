@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
@@ -210,6 +211,164 @@ var _ = Describe("Simulator", func() {
 			Expect(generateResp.ECTransferParams).To(HaveKey("abc123hash"))
 			Expect(generateResp.ECTransferParams).To(HaveKey("def456hash"))
 			Expect(generateResp.ECTransferParams["abc123hash"].PeerPort).To(BeNumerically(">", 0))
+			Expect(generateResp.ECTransferParams["abc123hash"].Metadata).To(Equal(map[string][]int64{"image_grid_thw": {1, 8, 8}}))
+		})
+
+		Describe("content_parts", func() {
+			const imageA = "http://example.com/a.png"
+			const imageB = "http://example.com/b.png"
+			chatMessages := fmt.Sprintf(`[{"role":"user","content":[`+
+				`{"type":"text","text":"compare these pictures in detail please"},`+
+				`{"type":"image_url","image_url":{"url":"%s"}},`+
+				`{"type":"image_url","image_url":{"url":"%s"}}]}]`, imageA, imageB)
+
+			post := func(client *http.Client, path, body string) (int, []byte) {
+				resp, err := client.Post("http://localhost"+path, "application/json", strings.NewReader(body))
+				Expect(err).NotTo(HaveOccurred())
+				defer func() {
+					Expect(resp.Body.Close()).To(Succeed())
+				}()
+				respBody, err := io.ReadAll(resp.Body)
+				Expect(err).NotTo(HaveOccurred())
+				return resp.StatusCode, respBody
+			}
+
+			renderAndCollapse := func(client *http.Client) (api.RenderResponse, []uint32) {
+				status, body := post(client, "/v1/chat/completions/render",
+					fmt.Sprintf(`{"model":"%s","mm_payload":"none","messages":%s}`, common.TestModelName, chatMessages))
+				Expect(status).To(Equal(http.StatusOK))
+				var rendered api.RenderResponse
+				Expect(json.Unmarshal(body, &rendered)).To(Succeed())
+				Expect(rendered.Features).NotTo(BeNil())
+				placeholders := rendered.Features.MMPlaceholders["image"]
+				Expect(placeholders).To(HaveLen(2))
+				var collapsed []uint32
+				pos := 0
+				for _, p := range placeholders {
+					expectUniformSpan(rendered.TokenIDs, p)
+					collapsed = append(collapsed, rendered.TokenIDs[pos:p.Offset+1]...)
+					pos = p.Offset + p.Length
+				}
+				return rendered, append(collapsed, rendered.TokenIDs[pos:]...)
+			}
+
+			contentParts := func(hashes []string) string {
+				return fmt.Sprintf(`[{"type":"image_url","url":"%s","uuid":"%s"},{"type":"image_url","url":"%s","uuid":"%s"}]`,
+					imageA, hashes[0], imageB, hashes[1])
+			}
+
+			tokenIDsJSON := func(ids []uint32) string {
+				b, err := json.Marshal(ids)
+				Expect(err).NotTo(HaveOccurred())
+				return string(b)
+			}
+
+			prefillBody := func(collapsed []uint32, hashes []string) string {
+				return fmt.Sprintf(`{
+					"model": "%s",
+					"token_ids": %s,
+					"content_parts": %s,
+					"sampling_params": {"max_tokens": 1},
+					"stream": true,
+					"stream_options": {"include_usage": true}
+				}`, common.TestModelName, tokenIDsJSON(collapsed), contentParts(hashes))
+			}
+
+			streamUsage := func(client *http.Client, body string) *api.Usage {
+				resp, err := client.Post("http://localhost/inference/v1/generate", "application/json", strings.NewReader(body))
+				Expect(err).NotTo(HaveOccurred())
+				defer func() {
+					Expect(resp.Body.Close()).To(Succeed())
+				}()
+				Expect(resp.StatusCode).To(Equal(http.StatusOK))
+				reader := bufio.NewReader(resp.Body)
+				for {
+					line, err := reader.ReadString('\n')
+					if err == io.EOF {
+						return nil
+					}
+					Expect(err).NotTo(HaveOccurred())
+					data := strings.TrimSpace(strings.TrimPrefix(line, api.SSEDataPrefix))
+					if !strings.HasPrefix(line, api.SSEDataPrefix) || data == api.SSEDoneMarker {
+						continue
+					}
+					var chunk api.GenerateStreamResponse
+					Expect(json.Unmarshal([]byte(data), &chunk)).To(Succeed())
+					if chunk.Usage != nil {
+						return chunk.Usage
+					}
+				}
+			}
+
+			It("returns ec_transfer_params keyed by content part uuid in MMEncoderOnly mode", func() {
+				client, err := startServerWithArgs(context.TODO(), []string{"cmd", "--model", common.TestModelName, "--mm-encoder-only"})
+				Expect(err).NotTo(HaveOccurred())
+
+				status, body := post(client, "/inference/v1/generate", fmt.Sprintf(`{
+					"model": "%s",
+					"token_ids": [1, 2, 3],
+					"content_parts": [
+						{"type": "image_url", "url": "%s", "uuid": "img-a"},
+						{"type": "video_url", "url": "http://example.com/v.mp4", "uuid": "vid-a"}
+					],
+					"sampling_params": {"max_tokens": 1}
+				}`, common.TestModelName, imageA))
+				Expect(status).To(Equal(http.StatusOK))
+
+				var generateResp api.GenerateResponse
+				Expect(json.Unmarshal(body, &generateResp)).To(Succeed())
+				Expect(generateResp.ECTransferParams).To(HaveLen(2))
+				Expect(generateResp.ECTransferParams).To(HaveKey("img-a"))
+				Expect(generateResp.ECTransferParams).To(HaveKey("vid-a"))
+				Expect(generateResp.ECTransferParams["img-a"].Metadata).To(Equal(map[string][]int64{"image_grid_thw": {1, 8, 8}}))
+				Expect(generateResp.ECTransferParams["vid-a"].Metadata).To(Equal(map[string][]int64{"video_grid_thw": {2, 8, 8}}))
+			})
+
+			It("rejects content_parts together with features", func() {
+				client, err := startServerWithArgs(context.TODO(), []string{"cmd", "--model", common.TestModelName})
+				Expect(err).NotTo(HaveOccurred())
+
+				status, body := post(client, "/inference/v1/generate", fmt.Sprintf(`{
+					"model": "%s",
+					"token_ids": [1, 2, 3],
+					"content_parts": [{"type": "image_url", "url": "%s", "uuid": "img-a"}],
+					"features": {"mm_hashes": {"image": ["img-a"]}},
+					"sampling_params": {"max_tokens": 1}
+				}`, common.TestModelName, imageA))
+				Expect(status).To(Equal(http.StatusBadRequest))
+				Expect(string(body)).To(ContainSubstring("content_parts and features are mutually exclusive"))
+			})
+
+			It("expands collapsed placeholders to the rendered prompt length", func() {
+				client, err := startServerWithArgs(context.TODO(), []string{"cmd", "--model", common.TestModelName})
+				Expect(err).NotTo(HaveOccurred())
+
+				rendered, collapsed := renderAndCollapse(client)
+				Expect(len(collapsed)).To(BeNumerically("<", len(rendered.TokenIDs)))
+
+				usage := streamUsage(client, prefillBody(collapsed, rendered.Features.MMHashes["image"]))
+				Expect(usage).NotTo(BeNil())
+				Expect(usage.PromptTokens).To(Equal(len(rendered.TokenIDs)))
+			})
+
+			It("hits the KV cache blocks a chat request over the same messages stored", func() {
+				const blockSize = 8
+				client, err := startServerWithArgsAndEnv(context.TODO(), "", []string{"cmd", "--model", common.TestModelName,
+					"--enable-kvcache", "--block-size", strconv.Itoa(blockSize), "--zmq-endpoint", ""},
+					map[string]string{"POD_IP": "localhost"})
+				Expect(err).NotTo(HaveOccurred())
+
+				rendered, collapsed := renderAndCollapse(client)
+
+				status, _ := post(client, "/v1/chat/completions",
+					fmt.Sprintf(`{"model":"%s","max_tokens":1,"messages":%s}`, common.TestModelName, chatMessages))
+				Expect(status).To(Equal(http.StatusOK))
+
+				usage := streamUsage(client, prefillBody(collapsed, rendered.Features.MMHashes["image"]))
+				Expect(usage).NotTo(BeNil())
+				Expect(usage.PromptTokensDetails).NotTo(BeNil())
+				Expect(usage.PromptTokensDetails.CachedTokens).To(Equal(len(rendered.TokenIDs) / blockSize * blockSize))
+			})
 		})
 
 		It("Should not return ec_transfer_params when features are nil", func() {

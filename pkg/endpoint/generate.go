@@ -21,6 +21,7 @@ import (
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
+	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 	"github.com/valyala/fasthttp"
 )
 
@@ -42,7 +43,9 @@ func (g *GenerateRequest) Unmarshal(data []byte) error {
 	if g.SamplingParams != nil && g.SamplingParams.IgnoreEOS {
 		g.IgnoreEOS = true
 	}
-	g.SetTokenizedPrompt(&api.Tokenized{Tokens: g.TokenIDs, Strings: []string{}})
+	if len(g.ContentParts) == 0 {
+		g.SetTokenizedPrompt(&api.Tokenized{Tokens: g.TokenIDs, Strings: []string{}})
+	}
 	return nil
 }
 
@@ -54,6 +57,11 @@ func (g *GenerateRequest) Validate(toolsValidator *ToolsValidator) *api.Error {
 
 	if g.SamplingParams == nil {
 		err := api.NewError("Missing sampling_params field", fasthttp.StatusBadRequest, nil)
+		return &err
+	}
+
+	if len(g.ContentParts) > 0 && g.Features != nil {
+		err := api.NewError("content_parts and features are mutually exclusive", fasthttp.StatusBadRequest, nil)
 		return &err
 	}
 
@@ -88,8 +96,12 @@ func (g *GenerateRequest) createResponseContext(reqCtx RequestContext, displayMo
 		logprobs, g.GetRequestID(), g.IsDoRemotePrefill(), g.IsDoRemoteDecode(), g.GetNumberOfCachedPromptTokens())
 
 	var ecParams map[string]api.ECTransferParams
-	if mmEncoderOnlyMode && g.Features != nil {
-		ecParams = buildECTransferParams(g.Features.MMHashes)
+	if mmEncoderOnlyMode {
+		if g.Features != nil {
+			ecParams = buildECTransferParams(g.Features.MMHashes)
+		} else if hashes := tokenizer.ContentPartsMMHashes(g.ContentParts); hashes != nil {
+			ecParams = buildECTransferParams(hashes)
+		}
 	}
 
 	return &generateResponseCtx{
@@ -115,7 +127,11 @@ func (g *generateReqCtx) tokenizedPromptForEcho() (*api.Tokenized, error) {
 }
 
 func (g *generateReqCtx) encode() ([]uint32, []string, *api.RenderMMFeatures, error) {
-	return g.req.TokenizedPrompt().Tokens, g.req.TokenizedPrompt().Strings, nil, nil
+	if _, simulated := g.runtime.GetTokenizer().(*tokenizer.SimpleTokenizer); simulated {
+		tokens, features := tokenizer.ExpandContentParts(g.req.TokenIDs, g.req.ContentParts)
+		return tokens, []string{}, features, nil
+	}
+	return g.req.TokenIDs, []string{}, nil, nil
 }
 
 func (g *generateReqCtx) createToolCalls() ([]api.ToolCall, int, string, error) {
