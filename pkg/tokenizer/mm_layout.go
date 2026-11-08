@@ -53,6 +53,11 @@ var contentPartModalities = map[string]string{
 	"video_url": mmModalityVideo,
 }
 
+func KnownContentPartType(t string) bool {
+	_, ok := contentPartModalities[t]
+	return ok
+}
+
 func (l mmLayout) padTokenID() uint32 {
 	return fnv32(l.padToken)
 }

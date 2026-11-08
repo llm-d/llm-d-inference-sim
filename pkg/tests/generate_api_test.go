@@ -339,6 +339,20 @@ var _ = Describe("Simulator", func() {
 				Expect(string(body)).To(ContainSubstring("content_parts and features are mutually exclusive"))
 			})
 
+			It("rejects content_parts with an unsupported type", func() {
+				client, err := startServerWithArgs(context.TODO(), []string{"cmd", "--model", common.TestModelName})
+				Expect(err).NotTo(HaveOccurred())
+
+				status, body := post(client, "/inference/v1/generate", fmt.Sprintf(`{
+					"model": "%s",
+					"token_ids": [1, 2, 3],
+					"content_parts": [{"type": "input_audio", "url": "http://example.com/a.wav"}],
+					"sampling_params": {"max_tokens": 1}
+				}`, common.TestModelName))
+				Expect(status).To(Equal(http.StatusBadRequest))
+				Expect(string(body)).To(ContainSubstring("Unsupported content part type: input_audio"))
+			})
+
 			It("expands collapsed placeholders to the rendered prompt length", func() {
 				client, err := startServerWithArgs(context.TODO(), []string{"cmd", "--model", common.TestModelName})
 				Expect(err).NotTo(HaveOccurred())

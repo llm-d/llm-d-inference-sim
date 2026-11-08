@@ -65,6 +65,13 @@ func (g *GenerateRequest) Validate(toolsValidator *ToolsValidator) *api.Error {
 		return &err
 	}
 
+	for _, part := range g.ContentParts {
+		if !tokenizer.KnownContentPartType(part.Type) {
+			err := api.NewError("Unsupported content part type: "+part.Type, fasthttp.StatusBadRequest, nil)
+			return &err
+		}
+	}
+
 	return validateRequest(g)
 }
 
