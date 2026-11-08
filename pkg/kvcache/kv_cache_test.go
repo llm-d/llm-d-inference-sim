@@ -742,9 +742,12 @@ var _ = Describe("KV cache", Ordered, func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(blockCache.finishRequest(seed.id)).To(Succeed())
 
-			block1Order := blockCache.unusedBlockOrder[blockKey{hash: 1, modelName: common.TestModelName}]
-			block2Order := blockCache.unusedBlockOrder[blockKey{hash: 2, modelName: common.TestModelName}]
-			block3Order := blockCache.unusedBlockOrder[blockKey{hash: 3, modelName: common.TestModelName}]
+			order := func(hash uint64) uint64 {
+				o, exists := blockCache.unused.orderOf(blockKey{hash: hash, modelName: common.TestModelName})
+				Expect(exists).To(BeTrue())
+				return o
+			}
+			block1Order, block2Order, block3Order := order(1), order(2), order(3)
 			Expect(block1Order).To(BeNumerically(">", block2Order))
 			Expect(block2Order).To(BeNumerically(">", block3Order))
 
