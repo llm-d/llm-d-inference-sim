@@ -733,17 +733,7 @@ func (c *Communication) sendStreamedTools(respCtx endpoint.ResponseContext, resp
 	w *bufio.Writer, tokens []string, tc *api.ToolCall, index int, choiceIdx int) error {
 	tokensStr := strings.Join(tokens, "")
 
-	toolChunkInsert := &api.ToolCall{
-		ID:    tc.ID,
-		Type:  tc.Type,
-		Index: tc.Index,
-		Function: api.FunctionCall{
-			Arguments: tokensStr,
-		},
-	}
-	if index == 0 {
-		toolChunkInsert.Function.Name = tc.Function.Name
-	}
+	toolChunkInsert := api.NewToolCallStreamDelta(tc, tokensStr, index == 0)
 
 	var finishReasonToSend *string
 	if index == tc.Function.TokenizedArguments().Length()-1 && (*respCtx.FinishReason() == common.LengthFinishReason ||
