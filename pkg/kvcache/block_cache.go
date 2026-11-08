@@ -169,6 +169,27 @@ func (bc *blockCache) activate() {
 	bc.disabled = false
 }
 
+// cachedBlocks returns how many of blockHashes are in the cache for modelName,
+// without changing the cache.
+func (bc *blockCache) cachedBlocks(modelName string, blockHashes []uint64) int {
+	bc.mu.RLock()
+	defer bc.mu.RUnlock()
+
+	if bc.disabled {
+		return 0
+	}
+	n := 0
+	for _, blockHash := range blockHashes {
+		bKey := blockKey{hash: blockHash, modelName: modelName}
+		if _, exists := bc.usedBlocks[bKey]; exists {
+			n++
+		} else if _, exists := bc.unusedBlocks[bKey]; exists {
+			n++
+		}
+	}
+	return n
+}
+
 // startRequest adds a request with its associated block hashes to the cache
 // and returns the number of blocks that were already in the cache
 // model name is the name of the model for the current request, used for eviction policy

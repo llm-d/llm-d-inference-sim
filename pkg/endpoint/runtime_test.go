@@ -48,8 +48,9 @@ func (f *fakeRuntime) GetResponseTokens(req api.Request) (*api.Tokenized, string
 	return nil, "", f.responseTokensErr
 }
 func (f *fakeRuntime) RandomResponses() bool { return !f.nonRandomResponses }
-func (f *fakeRuntime) KVCacheOnRequestStart(req api.Request) (metrics.PrefixCacheQueried, *api.Error) {
-	return metrics.PrefixCacheQueried{}, nil
+func (f *fakeRuntime) KVCacheOnRequestStart(req api.Request, minHitRate float64) (metrics.PrefixCacheQueried, bool,
+	*api.Error) {
+	return metrics.PrefixCacheQueried{}, true, nil
 }
 func (f *fakeRuntime) KVCacheOnRequestEnd(requestID string)            {}
 func (f *fakeRuntime) Sleep() bool                                     { return false }
