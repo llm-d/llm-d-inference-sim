@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -233,15 +234,18 @@ var _ = Describe("Simulator", func() {
 				return resp.StatusCode, respBody
 			}
 
-			renderAndCollapse := func(client *http.Client) (api.RenderResponse, []uint32) {
+			renderAndCollapse := func(client *http.Client, messages string) (api.RenderResponse, []uint32) {
 				status, body := post(client, "/v1/chat/completions/render",
-					fmt.Sprintf(`{"model":"%s","mm_payload":"none","messages":%s}`, common.TestModelName, chatMessages))
+					fmt.Sprintf(`{"model":"%s","mm_payload":"none","messages":%s}`, common.TestModelName, messages))
 				Expect(status).To(Equal(http.StatusOK))
 				var rendered api.RenderResponse
 				Expect(json.Unmarshal(body, &rendered)).To(Succeed())
 				Expect(rendered.Features).NotTo(BeNil())
-				placeholders := rendered.Features.MMPlaceholders["image"]
-				Expect(placeholders).To(HaveLen(2))
+				var placeholders []api.RenderPlaceholder
+				for _, spans := range rendered.Features.MMPlaceholders {
+					placeholders = append(placeholders, spans...)
+				}
+				slices.SortFunc(placeholders, func(a, b api.RenderPlaceholder) int { return a.Offset - b.Offset })
 				var collapsed []uint32
 				pos := 0
 				for _, p := range placeholders {
@@ -304,24 +308,51 @@ var _ = Describe("Simulator", func() {
 				client, err := startServerWithArgs(context.TODO(), []string{"cmd", "--model", common.TestModelName, "--mm-encoder-only"})
 				Expect(err).NotTo(HaveOccurred())
 
+				messages := fmt.Sprintf(`[{"role":"user","content":[`+
+					`{"type":"text","text":"describe"},`+
+					`{"type":"image_url","image_url":{"url":"%s"}},`+
+					`{"type":"video_url","video_url":{"url":"http://example.com/v.mp4"}}]}]`, imageA)
+				rendered, collapsed := renderAndCollapse(client, messages)
+				imageHash := rendered.Features.MMHashes["image"][0]
+				videoHash := rendered.Features.MMHashes["video"][0]
+
 				status, body := post(client, "/inference/v1/generate", fmt.Sprintf(`{
 					"model": "%s",
-					"token_ids": [1, 2, 3],
+					"token_ids": %s,
 					"content_parts": [
-						{"type": "image_url", "url": "%s", "uuid": "img-a"},
-						{"type": "video_url", "url": "http://example.com/v.mp4", "uuid": "vid-a"}
+						{"type": "image_url", "url": "%s", "uuid": "%s"},
+						{"type": "video_url", "url": "http://example.com/v.mp4", "uuid": "%s"}
 					],
 					"sampling_params": {"max_tokens": 1}
-				}`, common.TestModelName, imageA))
+				}`, common.TestModelName, tokenIDsJSON(collapsed), imageA, imageHash, videoHash))
 				Expect(status).To(Equal(http.StatusOK))
 
 				var generateResp api.GenerateResponse
 				Expect(json.Unmarshal(body, &generateResp)).To(Succeed())
 				Expect(generateResp.ECTransferParams).To(HaveLen(2))
-				Expect(generateResp.ECTransferParams).To(HaveKey("img-a"))
-				Expect(generateResp.ECTransferParams).To(HaveKey("vid-a"))
-				Expect(generateResp.ECTransferParams["img-a"].Metadata).To(Equal(map[string][]int64{"image_grid_thw": {1, 8, 8}}))
-				Expect(generateResp.ECTransferParams["vid-a"].Metadata).To(Equal(map[string][]int64{"video_grid_thw": {2, 8, 8}}))
+				Expect(generateResp.ECTransferParams).To(HaveKey(imageHash))
+				Expect(generateResp.ECTransferParams).To(HaveKey(videoHash))
+				Expect(generateResp.ECTransferParams[imageHash].Metadata).To(Equal(map[string][]int64{"image_grid_thw": {1, 8, 8}}))
+				Expect(generateResp.ECTransferParams[videoHash].Metadata).To(Equal(map[string][]int64{"video_grid_thw": {2, 8, 8}}))
+			})
+
+			It("rejects content parts that outnumber the collapsed placeholders", func() {
+				client, err := startServerWithArgs(context.TODO(), []string{"cmd", "--model", common.TestModelName})
+				Expect(err).NotTo(HaveOccurred())
+
+				_, collapsed := renderAndCollapse(client, chatMessages)
+				status, body := post(client, "/inference/v1/generate", fmt.Sprintf(`{
+					"model": "%s",
+					"token_ids": %s,
+					"content_parts": [
+						{"type": "image_url", "url": "%s", "uuid": "img-a"},
+						{"type": "image_url", "url": "%s", "uuid": "img-b"},
+						{"type": "image_url", "url": "%s", "uuid": "img-c"}
+					],
+					"sampling_params": {"max_tokens": 1}
+				}`, common.TestModelName, tokenIDsJSON(collapsed), imageA, imageB, imageB))
+				Expect(status).To(Equal(http.StatusInternalServerError))
+				Expect(string(body)).To(ContainSubstring("placeholder"))
 			})
 
 			It("rejects content_parts together with features", func() {
@@ -357,7 +388,7 @@ var _ = Describe("Simulator", func() {
 				client, err := startServerWithArgs(context.TODO(), []string{"cmd", "--model", common.TestModelName})
 				Expect(err).NotTo(HaveOccurred())
 
-				rendered, collapsed := renderAndCollapse(client)
+				rendered, collapsed := renderAndCollapse(client, chatMessages)
 				Expect(len(collapsed)).To(BeNumerically("<", len(rendered.TokenIDs)))
 
 				usage := streamUsage(client, prefillBody(collapsed, rendered.Features.MMHashes["image"]))
@@ -372,7 +403,7 @@ var _ = Describe("Simulator", func() {
 					map[string]string{"POD_IP": "localhost"})
 				Expect(err).NotTo(HaveOccurred())
 
-				rendered, collapsed := renderAndCollapse(client)
+				rendered, collapsed := renderAndCollapse(client, chatMessages)
 
 				status, _ := post(client, "/v1/chat/completions",
 					fmt.Sprintf(`{"model":"%s","max_tokens":1,"messages":%s}`, common.TestModelName, chatMessages))
