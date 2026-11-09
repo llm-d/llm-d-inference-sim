@@ -610,6 +610,9 @@ func (c *Communication) sendStream(ctx *fasthttp.RequestCtx, channel common.Chan
 			// Capture per-choice respCtx so the final usage chunk can aggregate
 			// across all sub-requests and send separate finish reason for each choice.
 			if state.respCtxPerChoice[choiceIdx] == nil {
+				// All choices in a stream must carry the same creation timestamp,
+				// including the context used to construct the final usage chunk.
+				response.RespCtx.SetCreationTime(respCtx.CreationTime())
 				state.respCtxPerChoice[choiceIdx] = response.RespCtx
 			}
 			// Every choice emits a Created status as its first message. Emit the initial
