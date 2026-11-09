@@ -180,7 +180,7 @@ type Message struct {
 func (m Message) MarshalJSON() ([]byte, error) {
 	type alias struct {
 		Role       string            `json:"role,omitempty"`
-		Content    *ChatComplContent `json:"content,omitempty"`
+		Content    any              `json:"content,omitempty"`
 		Reasoning  *string          `json:"reasoning,omitempty"`
 		ToolCalls  []ToolCall        `json:"tool_calls,omitempty"`
 		ToolCallID string            `json:"tool_call_id,omitempty"`
@@ -189,6 +189,9 @@ func (m Message) MarshalJSON() ([]byte, error) {
 	a := alias{Role: m.Role, ToolCalls: m.ToolCalls, ToolCallID: m.ToolCallID, Audio: m.Audio, Reasoning: m.Reasoning}
 	if m.Content.Raw != "" || len(m.Content.Structured) > 0 {
 		a.Content = &m.Content
+	} else if m.Reasoning != nil && m.Role == RoleAssistant {
+		// A reasoning-only complete message has JSON null content, not an absent field.
+		a.Content = json.RawMessage("null")
 	}
 	return json.Marshal(a)
 }
