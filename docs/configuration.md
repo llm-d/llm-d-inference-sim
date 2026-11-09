@@ -41,6 +41,7 @@ declares is the only one it answers to, on the command line and in a config file
 - `model`: the currently 'loaded' model, mandatory. Can also be given as the first command-line argument instead of `--model`, as in `vllm serve <model>`; passing both is rejected. If you omit the model on the command line, a non-empty `SIM_MODEL` environment variable can supply the model; see [Configuration precedence](#configuration-precedence) and [Environment variables](#environment-variables).
 - `served-model-name`: model names exposed by the API (a list of space-separated strings)
 - `stream-interval`: number of tokens sent per streamed chunk; the first token is always sent alone. Must be >= 1, default is 1
+- `reasoning-percentage`: percentage (0-100, default 0) of generated chat completion tokens returned in the vLLM `reasoning` field rather than `content`. Applies to `/v1/chat/completions`, for both streaming and non-streaming responses. Disabled for tool calls, structured response formats, image emission, and audio generation. Token usage still counts the complete output. No effect at the default value.
 - `mode`: the simulator mode, optional, by default `random`
     - `echo`: returns the same text that was sent in the request
     - `random`: returns a sentence chosen at random from a set of pre-defined sentences or a given dataset
