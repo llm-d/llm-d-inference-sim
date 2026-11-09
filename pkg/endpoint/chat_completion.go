@@ -151,8 +151,15 @@ func (c *ChatCompletionsRequest) createResponseContext(reqCtx RequestContext, di
 		}
 	}
 
+	reasoningTokenCount := 0
+	if ctx, ok := reqCtx.(*chatCompletionReqCtx); ok && responseTokens != nil && len(toolCalls) == 0 &&
+		c.responseFormat == nil && !sendAudio && !c.SendImage() {
+		reasoningTokenCount = len(responseTokens.Strings) * ctx.runtime.Config().ReasoningPercentage / 100
+	}
+
 	return &chatCompletionsResponseCtx{
 		baseResponseContext: base,
+		reasoningTokenCount: reasoningTokenCount,
 		toolsCalls:          toolCalls,
 		ecTransferParams:    ecParams,
 		sendAudio:           sendAudio,
@@ -222,6 +229,8 @@ type chatCompletionsResponseCtx struct {
 	baseResponseContext
 	// tool calls to be sent in the response
 	toolsCalls []api.ToolCall
+	// Number of generated tokens assigned to the reasoning prefix.
+	reasoningTokenCount int
 	// ecTransferParams holds simulated encoder-cache transfer params per mm hash
 	ecTransferParams map[string]api.ECTransferParams
 	// sendAudio is true when the client requested the "audio" output modality
@@ -230,6 +239,10 @@ type chatCompletionsResponseCtx struct {
 
 func (respCtx *chatCompletionsResponseCtx) ToolCalls() []api.ToolCall {
 	return respCtx.toolsCalls
+}
+
+func (respCtx *chatCompletionsResponseCtx) ReasoningTokenCount() int {
+	return respCtx.reasoningTokenCount
 }
 
 func (respCtx *chatCompletionsResponseCtx) ECTransferParams() map[string]api.ECTransferParams {
