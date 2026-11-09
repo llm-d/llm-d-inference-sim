@@ -259,6 +259,8 @@ func ParseCommandParamsAndLoadConfig(eng Engine) (*Configuration, error) {
 	f.StringVar(&config.Model, "model", config.Model,
 		"Currently 'loaded' model, can also be given as the first argument (if omitted on the command line, "+ModelEnv+" may set the model; see docs)")
 	f.StringVar(&config.Mode, "mode", config.Mode, "Simulator mode: echo - returns the same text that was sent in the request, for chat completion returns the last message; random - returns random sentence from a bank of pre-defined sentences")
+	f.IntVar(&config.ReasoningPercentage, "reasoning-percentage", config.ReasoningPercentage,
+		"Percentage of chat completion tokens emitted as reasoning (0-100, default 0)")
 	f.DurationVar(&config.Latencies.InterTokenLatency, "inter-token-latency", config.Latencies.InterTokenLatency, "Time to generate one token, e.g. 100ms")
 	f.DurationVar(&config.Latencies.TimeToFirstToken, "time-to-first-token", config.Latencies.TimeToFirstToken, "Time to first token, e.g. 100ms")
 
