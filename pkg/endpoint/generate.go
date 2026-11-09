@@ -135,7 +135,10 @@ func (g *generateReqCtx) tokenizedPromptForEcho() (*api.Tokenized, error) {
 
 func (g *generateReqCtx) encode() ([]uint32, []string, *api.RenderMMFeatures, error) {
 	if _, simulated := g.runtime.GetTokenizer().(*tokenizer.SimpleTokenizer); simulated {
-		tokens, features := tokenizer.ExpandContentParts(g.req.TokenIDs, g.req.ContentParts)
+		tokens, features, err := tokenizer.ExpandContentParts(g.req.TokenIDs, g.req.ContentParts)
+		if err != nil {
+			return nil, nil, nil, err
+		}
 		return tokens, []string{}, features, nil
 	}
 	return g.req.TokenIDs, []string{}, nil, nil

@@ -402,7 +402,8 @@ var _ = Describe("tokenizer", func() {
 				{Type: "video_url", URL: "http://x/v.mp4", UUID: "vid-a"},
 				{Type: "image_url", URL: "http://x/b.jpg", UUID: "img-b"},
 			}
-			tokens, feats := ExpandContentParts([]uint32{1, imagePad, 2, videoPad, 3, imagePad, 4}, parts)
+			tokens, feats, err := ExpandContentParts([]uint32{1, imagePad, 2, videoPad, 3, imagePad, 4}, parts)
+			Expect(err).NotTo(HaveOccurred())
 			Expect(tokens).To(HaveLen(4 + 2*imageSpan + videoSpan))
 			Expect(feats.MMHashes).To(Equal(map[string][]string{
 				mmModalityImage: {"img-a", "img-b"},
@@ -438,7 +439,8 @@ var _ = Describe("tokenizer", func() {
 				{Type: "image_url", URL: "http://x/a.jpg", UUID: feats.MMHashes[mmModalityImage][0]},
 				{Type: "image_url", URL: "http://x/b.jpg", UUID: feats.MMHashes[mmModalityImage][1]},
 			}
-			expanded, expandedFeats := ExpandContentParts(collapsed, parts)
+			expanded, expandedFeats, err := ExpandContentParts(collapsed, parts)
+			Expect(err).NotTo(HaveOccurred())
 			Expect(expanded).To(Equal(rendered))
 			Expect(expandedFeats.MMHashes).To(Equal(feats.MMHashes))
 			Expect(expandedFeats.MMPlaceholders).To(Equal(feats.MMPlaceholders))
@@ -455,19 +457,18 @@ var _ = Describe("tokenizer", func() {
 			Expect(hashes).To(Equal(feats.MMHashes))
 		})
 
-		It("leaves a part without a pad token out of the features", func() {
+		It("fails when a part has no matching pad token", func() {
 			parts := []api.GenerateContentPart{
 				{Type: "image_url", URL: "http://x/a.jpg", UUID: "img-a"},
 				{Type: "video_url", URL: "http://x/v.mp4", UUID: "vid-a"},
 			}
-			tokens, feats := ExpandContentParts([]uint32{1, imagePad, 2}, parts)
-			Expect(tokens).To(HaveLen(2 + imageSpan))
-			Expect(feats.MMHashes).To(Equal(map[string][]string{mmModalityImage: {"img-a"}}))
-			Expect(feats.MMPlaceholders).NotTo(HaveKey(mmModalityVideo))
+			_, _, err := ExpandContentParts([]uint32{1, imagePad, 2}, parts)
+			Expect(err).To(MatchError(ContainSubstring("<|video_pad|>")))
 		})
 
 		It("skips parts of unknown type", func() {
-			tokens, feats := ExpandContentParts([]uint32{1, 2}, []api.GenerateContentPart{{Type: "file_url", URL: "x", UUID: "f"}})
+			tokens, feats, err := ExpandContentParts([]uint32{1, 2}, []api.GenerateContentPart{{Type: "file_url", URL: "x", UUID: "f"}})
+			Expect(err).NotTo(HaveOccurred())
 			Expect(tokens).To(Equal([]uint32{1, 2}))
 			Expect(feats).To(BeNil())
 		})

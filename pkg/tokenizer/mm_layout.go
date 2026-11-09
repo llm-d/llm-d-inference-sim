@@ -117,9 +117,10 @@ func contentPartID(modality string, modalIndex int, part api.GenerateContentPart
 }
 
 // ExpandContentParts restores the placeholder runs a coordinator collapsed to
-// one pad token each, matching content_parts to pad tokens in order. Features
-// cover only the parts whose pad token was found.
-func ExpandContentParts(tokenIDs []uint32, parts []api.GenerateContentPart) ([]uint32, *api.RenderMMFeatures) {
+// one pad token each, matching content_parts to pad tokens in order. A part
+// without a matching pad token is an error, matching vLLM's placeholder-count
+// validation.
+func ExpandContentParts(tokenIDs []uint32, parts []api.GenerateContentPart) ([]uint32, *api.RenderMMFeatures, error) {
 	expanded := make([]uint32, 0, len(tokenIDs))
 	hashes := map[string][]string{}
 	placeholders := map[string][]api.RenderPlaceholder{}
@@ -135,7 +136,7 @@ func ExpandContentParts(tokenIDs []uint32, parts []api.GenerateContentPart) ([]u
 		layout := mmLayouts[modality]
 		idx := slices.Index(tokenIDs[pos:], layout.padTokenID())
 		if idx < 0 {
-			continue
+			return nil, nil, fmt.Errorf("expected a %s placeholder for %s content part %d, but none found in token_ids", layout.padToken, modality, modalIndex)
 		}
 		expanded = append(expanded, tokenIDs[pos:pos+idx]...)
 		hashes[modality] = append(hashes[modality], contentPartID(modality, modalIndex, part))
@@ -145,8 +146,8 @@ func ExpandContentParts(tokenIDs []uint32, parts []api.GenerateContentPart) ([]u
 		pos += idx + 1
 	}
 	if len(hashes) == 0 {
-		return tokenIDs, nil
+		return tokenIDs, nil, nil
 	}
 	expanded = append(expanded, tokenIDs[pos:]...)
-	return expanded, &api.RenderMMFeatures{MMHashes: hashes, MMPlaceholders: placeholders}
+	return expanded, &api.RenderMMFeatures{MMHashes: hashes, MMPlaceholders: placeholders}, nil
 }
