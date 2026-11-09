@@ -66,6 +66,16 @@ var _ = Describe("Chat completion reasoning JSON", func() {
         Expect(string(data)).NotTo(ContainSubstring("reasoning"))
     })
 
+    It("returns null content for a completed reasoning-only assistant message", func() {
+        reasoning := "thoughts"
+        data, err := json.Marshal(Message{Role: RoleAssistant, Reasoning: &reasoning})
+        Expect(err).NotTo(HaveOccurred())
+        var object map[string]json.RawMessage
+        Expect(json.Unmarshal(data, &object)).To(Succeed())
+        Expect(string(object["content"])).To(Equal("null"))
+        Expect(string(object["reasoning"])).To(Equal(`"thoughts"`))
+    })
+
     It("serializes reasoning without an empty content delta", func() {
         reasoning := "think"
         data, err := json.Marshal(Message{Reasoning: &reasoning})
