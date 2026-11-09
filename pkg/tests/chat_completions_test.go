@@ -376,8 +376,14 @@ var _ = Describe("Simulator", forEachEngine(func() {
 			roles := make(map[int64]string)
 			var chunk openai.ChatCompletionChunk
 			numberOfChunksWithUsage := 0
+			var streamCreated int64
 			for stream.Next() {
 				chunk = stream.Current()
+				if streamCreated == 0 {
+					streamCreated = chunk.Created
+					Expect(streamCreated).To(BeNumerically(">", 0))
+				}
+				Expect(chunk.Created).To(Equal(streamCreated), "all choice and usage chunks must have the same created time")
 				for _, choice := range chunk.Choices {
 					if choice.Delta.Role != "" {
 						roles[choice.Index] = choice.Delta.Role
