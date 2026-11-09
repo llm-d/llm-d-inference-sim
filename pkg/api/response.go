@@ -179,12 +179,12 @@ type Message struct {
 // {"role":...} or {} rather than {"content":""}.
 func (m Message) MarshalJSON() ([]byte, error) {
 	type alias struct {
-		Role       string            `json:"role,omitempty"`
-		Content    any              `json:"content,omitempty"`
-		Reasoning  *string          `json:"reasoning,omitempty"`
-		ToolCalls  []ToolCall        `json:"tool_calls,omitempty"`
-		ToolCallID string            `json:"tool_call_id,omitempty"`
-		Audio      *ChatAudio        `json:"audio,omitempty"`
+		Role       string     `json:"role,omitempty"`
+		Content    any        `json:"content,omitempty"`
+		Reasoning  *string    `json:"reasoning,omitempty"`
+		ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
+		ToolCallID string     `json:"tool_call_id,omitempty"`
+		Audio      *ChatAudio `json:"audio,omitempty"`
 	}
 	a := alias{Role: m.Role, ToolCalls: m.ToolCalls, ToolCallID: m.ToolCallID, Audio: m.Audio, Reasoning: m.Reasoning}
 	if m.Content.Raw != "" || len(m.Content.Structured) > 0 {

@@ -28,25 +28,25 @@ import (
 )
 
 var _ = Describe("reasoning percentage validation", func() {
-    DescribeTable("validates the configured percentage",
-        func(pct int, accepted bool) {
-            cfg := NewConfig()
-            cfg.Model = "model"
-            cfg.ReasoningPercentage = pct
-            err := cfg.validate()
-            if accepted {
-                Expect(err).NotTo(HaveOccurred())
-            } else {
-                Expect(err).To(HaveOccurred())
-                Expect(err.Error()).To(ContainSubstring("reasoning-percentage"))
-            }
-        },
-        Entry("default zero", 0, true),
-        Entry("half", 50, true),
-        Entry("all", 100, true),
-        Entry("negative", -1, false),
-        Entry("above 100", 101, false),
-    )
+	DescribeTable("validates the configured percentage",
+		func(pct int, accepted bool) {
+			cfg := NewConfig()
+			cfg.Model = "model"
+			cfg.ReasoningPercentage = pct
+			err := cfg.validate()
+			if accepted {
+				Expect(err).NotTo(HaveOccurred())
+			} else {
+				Expect(err).To(HaveOccurred())
+				Expect(err.Error()).To(ContainSubstring("reasoning-percentage"))
+			}
+		},
+		Entry("default zero", 0, true),
+		Entry("half", 50, true),
+		Entry("all", 100, true),
+		Entry("negative", -1, false),
+		Entry("above 100", 101, false),
+	)
 })
 
 // writeConfig writes a config file for one spec and returns its path.
