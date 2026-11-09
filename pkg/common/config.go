@@ -263,6 +263,10 @@ type Configuration struct {
 	// StrictRequestValidation enables vLLM-compatible validation for OpenAI completion requests.
 	StrictRequestValidation bool `yaml:"strict" json:"strict"`
 
+	// ReasoningPercentage reserves this share of chat completion tokens for reasoning output.
+	// A zero value preserves the ordinary content-only behavior.
+	ReasoningPercentage int `yaml:"reasoning-percentage" json:"reasoning-percentage"`
+
 	// DefaultEmbeddingDimensions is the default size of embedding vectors when the request does not specify dimensions.
 	// Used by the /v1/embeddings endpoint. Default is 384.
 	DefaultEmbeddingDimensions int `yaml:"default-embedding-dimensions" json:"default-embedding-dimensions"`
@@ -693,6 +697,9 @@ func (c *Configuration) validate() error {
 
 	if c.Mode != ModeEcho && c.Mode != ModeRandom {
 		return fmt.Errorf("invalid mode '%s', valid values are 'random' and 'echo'", c.Mode)
+	}
+	if c.ReasoningPercentage < 0 || c.ReasoningPercentage > 100 {
+		return fmt.Errorf("reasoning-percentage must be between 0 and 100, got %d", c.ReasoningPercentage)
 	}
 	if c.Port <= 0 || c.Port > 65535 {
 		return fmt.Errorf("invalid port '%d'", c.Port)
