@@ -178,7 +178,7 @@ func (bc *blockCache) cachedBlocks(modelName string, blockHashes []uint64) int {
 		bKey := blockKey{hash: blockHash, modelName: modelName}
 		if _, exists := bc.usedBlocks[bKey]; exists {
 			n++
-		} else if _, exists := bc.unusedBlocks[bKey]; exists {
+		} else if bc.unused.contains(bKey) {
 			n++
 		}
 	}
