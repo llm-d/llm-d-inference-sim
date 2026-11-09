@@ -21,6 +21,7 @@ import (
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
+	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 	"github.com/valyala/fasthttp"
 )
 
@@ -57,13 +58,14 @@ func validateRequest(req api.Request) *api.Error {
 func buildECTransferParams(mmHashes map[string][]string) map[string]api.ECTransferParams {
 	params := make(map[string]api.ECTransferParams)
 
-	for _, hashes := range mmHashes {
+	for modality, hashes := range mmHashes {
 		for _, hash := range hashes {
 			params[hash] = api.ECTransferParams{
 				PeerHost:      "DUMMY",
 				PeerPort:      1234,
 				SizeBytes:     2359296,
 				NixlAgentData: []byte("NIXL_METADATA_PLACEHOLDER"),
+				Metadata:      tokenizer.MMItemMetadata(modality),
 			}
 		}
 	}

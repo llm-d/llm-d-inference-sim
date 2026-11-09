@@ -1172,10 +1172,17 @@ func (req *ResponsesRequest) ExtractMaxTokens() *int64 {
 // GenerateRequest defines structure of generate request
 type GenerateRequest struct {
 	baseRequest
-	TokenIDs       []uint32          `json:"token_ids"`
-	SamplingParams *SamplingParams   `json:"sampling_params"`
-	Features       *EncodeMMFeatures `json:"features"`
-	StreamOptions  *StreamOptions    `json:"stream_options,omitempty"`
+	TokenIDs       []uint32              `json:"token_ids"`
+	SamplingParams *SamplingParams       `json:"sampling_params"`
+	Features       *EncodeMMFeatures     `json:"features"`
+	ContentParts   []GenerateContentPart `json:"content_parts"`
+	StreamOptions  *StreamOptions        `json:"stream_options,omitempty"`
+}
+
+type GenerateContentPart struct {
+	Type string `json:"type"`
+	URL  string `json:"url"`
+	UUID string `json:"uuid"`
 }
 
 func (g *GenerateRequest) IncludeUsage() bool {
