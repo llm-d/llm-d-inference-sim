@@ -60,31 +60,31 @@ var _ = Describe("ImagesGenerationsRequest", func() {
 })
 
 var _ = Describe("Chat completion reasoning JSON", func() {
-    It("omits reasoning when it is not configured", func() {
-        data, err := json.Marshal(Message{Role: RoleAssistant, Content: ChatComplContent{Raw: "hello"}})
-        Expect(err).NotTo(HaveOccurred())
-        Expect(string(data)).NotTo(ContainSubstring("reasoning"))
-    })
+	It("omits reasoning when it is not configured", func() {
+		data, err := json.Marshal(Message{Role: RoleAssistant, Content: ChatComplContent{Raw: "hello"}})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(string(data)).NotTo(ContainSubstring("reasoning"))
+	})
 
-    It("returns null content for a completed reasoning-only assistant message", func() {
-        reasoning := "thoughts"
-        data, err := json.Marshal(Message{Role: RoleAssistant, Reasoning: &reasoning})
-        Expect(err).NotTo(HaveOccurred())
-        var object map[string]json.RawMessage
-        Expect(json.Unmarshal(data, &object)).To(Succeed())
-        Expect(string(object["content"])).To(Equal("null"))
-        Expect(string(object["reasoning"])).To(Equal(`"thoughts"`))
-    })
+	It("returns null content for a completed reasoning-only assistant message", func() {
+		reasoning := "thoughts"
+		data, err := json.Marshal(Message{Role: RoleAssistant, Reasoning: &reasoning})
+		Expect(err).NotTo(HaveOccurred())
+		var object map[string]json.RawMessage
+		Expect(json.Unmarshal(data, &object)).To(Succeed())
+		Expect(string(object["content"])).To(Equal("null"))
+		Expect(string(object["reasoning"])).To(Equal(`"thoughts"`))
+	})
 
-    It("serializes reasoning without an empty content delta", func() {
-        reasoning := "think"
-        data, err := json.Marshal(Message{Reasoning: &reasoning})
-        Expect(err).NotTo(HaveOccurred())
-        var object map[string]any
-        Expect(json.Unmarshal(data, &object)).To(Succeed())
-        Expect(object).To(HaveKeyWithValue("reasoning", "think"))
-        Expect(object).NotTo(HaveKey("content"))
-    })
+	It("serializes reasoning without an empty content delta", func() {
+		reasoning := "think"
+		data, err := json.Marshal(Message{Reasoning: &reasoning})
+		Expect(err).NotTo(HaveOccurred())
+		var object map[string]any
+		Expect(json.Unmarshal(data, &object)).To(Succeed())
+		Expect(object).To(HaveKeyWithValue("reasoning", "think"))
+		Expect(object).NotTo(HaveKey("content"))
+	})
 })
 
 var _ = Describe("ChatAudio in Message", func() {

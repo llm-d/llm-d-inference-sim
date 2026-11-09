@@ -686,7 +686,14 @@ func (c *Communication) emitResponseChunks(route api.ErrorRoute, w *bufio.Writer
 		if lastTokensChunk && respBuilder.sendFinishReasonWithTokens() {
 			finishReason = respCtx.FinishReason()
 		}
-		return c.sendOrFail(w, respBuilder.createChunk(respCtx, response.Tokens, nil, "", finishReason, choiceIdx),
+		// The reasoning budget belongs to this choice: when n > 1 each sub-request
+		// can generate a different number of tokens. Use the choice's own context
+		// for the reasoning/content split, keeping the stream-wide creation time.
+		choiceCtx := response.RespCtx
+		if choiceCtx.CreationTime() == 0 {
+			choiceCtx.SetCreationTime(respCtx.CreationTime())
+		}
+		return c.sendOrFail(w, respBuilder.createChunk(choiceCtx, response.Tokens, nil, "", finishReason, choiceIdx),
 			"Sending stream chunk failed")
 	}
 

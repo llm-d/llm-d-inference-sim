@@ -275,7 +275,9 @@ func (respBuilder *chatComplHTTPRespBuilder) createResponse(respCtxPerChoice []e
 
 		message := api.Message{Role: api.RoleAssistant}
 		if count := choiceCtx.ReasoningTokenCount(); count > 0 {
-			if count > len(t.Strings) { count = len(t.Strings) }
+			if count > len(t.Strings) {
+				count = len(t.Strings)
+			}
 			reasoning := strings.Join(t.Strings[:count], "")
 			message.Reasoning = &reasoning
 			t.Strings = t.Strings[count:]
