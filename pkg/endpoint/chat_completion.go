@@ -153,6 +153,7 @@ func (c *ChatCompletionsRequest) createResponseContext(reqCtx RequestContext, di
 
 	reasoningTokenCount := 0
 	if ctx, ok := reqCtx.(*chatCompletionReqCtx); ok && responseTokens != nil && len(toolCalls) == 0 &&
+		ctx.runtime.Config().EngineName == common.DefaultEngineName &&
 		c.responseFormat == nil && !sendAudio && !c.SendImage() {
 		reasoningTokenCount = len(responseTokens.Strings) * ctx.runtime.Config().ReasoningPercentage / 100
 	}
