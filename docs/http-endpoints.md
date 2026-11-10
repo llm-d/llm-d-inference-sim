@@ -107,6 +107,7 @@ Structure of requests/responses
             - peer_port
             - size_bytes
             - nixl_agent_metadata_b64
+            - metadata (placeholder metadata of the item, e.g. `image_grid_thw`; see [Render endpoints](#render-endpoints))
 - `/v1/completions`
     - **request**
         - stream
@@ -193,7 +194,7 @@ Structure of requests/responses
             - max_model_len
 - `/v1/embeddings`
     - **request**
-        - model
+        - model (optional; when set, must be a served model name or a loaded LoRA adapter, otherwise the request is rejected with `404 Not Found`)
         - input (string, array of strings, array of token ids, or array of arrays of token ids)
         - dimensions
         - encoding_format (`float` (default) or `base64`)
@@ -270,6 +271,7 @@ Structure of requests/responses
             - peer_port
             - size_bytes
             - nixl_agent_metadata_b64
+            - metadata (placeholder metadata of the item, e.g. `image_grid_thw`; see [Render endpoints](#render-endpoints))
 - `/v1/messages/render`
     - **request**: same shape as `/v1/messages`, including the required positive `max_tokens`. `model` may name a loaded LoRA adapter, as in vLLM; the other render endpoints accept base models only. Only `model`, `system`, `messages`, `tools`, and `tool_choice` are inspected. Errors are framed like the other render endpoints, not in the Messages API envelope. The route is not registered when `--enable-legacy-render` is set, so requests get `404 Not Found`, matching vLLM versions that predate the endpoint.
     - **response**: single JSON object, same shape as the `/v1/chat/completions/render` response
@@ -300,6 +302,7 @@ Structure of requests/responses
                 - offset (token index where the multimodal region begins)
                 - length (number of tokens the region spans)
             - kwargs_data (map keyed by modality to an array of strings, one per multimodal item; content is tokenizer-dependent — see [Render endpoints](#render-endpoints))
+            - mm_metadata (map keyed by modality to an array of strings, one per multimodal item; passed through from the upstream renderer, `null` from the simulated tokenizer)
 - `/v1/responses/render`
     - **request** — same shape as `/v1/responses`; only `model`, `instructions`, and `input` are inspected. The endpoint is stateless: `previous_response_id` is rejected with `400 Bad Request` (a caller is expected to rehydrate the chain into `input`). The route is not registered when `--enable-legacy-render` is set, so requests get `404 Not Found`, matching vLLM versions that predate the endpoint.
         - model
@@ -313,6 +316,7 @@ Structure of requests/responses
                 - offset (token index where the multimodal region begins)
                 - length (number of tokens the region spans)
             - kwargs_data (map keyed by modality to an array of strings, one per multimodal item; content is tokenizer-dependent — see [Render endpoints](#render-endpoints))
+            - mm_metadata (map keyed by modality to an array of strings, one per multimodal item; passed through from the upstream renderer, `null` from the simulated tokenizer)
 - `/v1/completions/derender`
     - **request**
         - stream (must be absent or `false`; streaming derender is rejected with `400 Bad Request`)
@@ -409,6 +413,7 @@ Structure of requests/responses
             - peer_port
             - size_bytes
             - nixl_agent_metadata_b64
+            - metadata (placeholder metadata of the item, e.g. `image_grid_thw`; see [Render endpoints](#render-endpoints))
 
     Tool turns: when `tools` are present and `tool_choice` is not `none`, the simulator emits exactly one `function_call` output item (non-streaming) or the equivalent SSE event sequence (streaming; see below). On the first tool turn, omitted or `auto` `tool_choice` is forced to call a tool 100% of the time (unlike the real Responses API). If `input` already contains any `function_call_output`, tool-calling stays off for the rest of that conversation — including a later, unrelated user turn that still carries prior tool history — and the simulator returns a normal assistant `message` instead. `allowed_tools` / `custom` `tool_choice` values are accepted on the wire but are not enforced (same limitation as chat completions). Parallel / multi tool calls are not supported.
 
@@ -423,6 +428,10 @@ Structure of requests/responses
             - ignore_eos
         - features
             - mm_hashes
+        - content_parts (the request's media; mutually exclusive with `features`, rejected with `400 Bad Request` when both are set)
+            - type (`image_url`, `audio_url`, or `video_url`)
+            - url
+            - uuid (the item's mm hash; when absent, the hash the simulated tokenizer's render gives the URL)
         - ignore_eos (same as `sampling_params.ignore_eos`)
         - kv_transfer_params
           - do_remote_decode
@@ -449,11 +458,12 @@ Structure of requests/responses
           - remote_host
           - remote_port
           - tp_size
-        - ec_transfer_params (map keyed by mm hash)
+        - ec_transfer_params (map keyed by `features.mm_hashes` or `content_parts` uuid)
             - peer_host
             - peer_port
             - size_bytes
             - nixl_agent_metadata_b64
+            - metadata (placeholder metadata of the item, e.g. `image_grid_thw`; see [Render endpoints](#render-endpoints))
 
 - `/v1/systemone`
     - **request**
@@ -616,12 +626,22 @@ For full details on the expected API behavior and specification, please refer to
 
 `/v1/responses/render` is stateless: `previous_response_id` is rejected with `400 Bad Request`. The simulator renders a Responses request by converting its `input` items to chat-completions messages — the same conversion the `/v1/responses` generation path uses — and rendering those messages. For a real model this means the upstream render service is asked to render a `/v1/chat/completions` request, so the returned token IDs are those of the chat-rendered prompt and do not necessarily match what a real vLLM `/v1/responses/render` produces for the same body. With `--enable-legacy-render` the route is not registered at all, matching vLLM versions that predate the endpoint.
 
+All render endpoints accept `mm_payload` (`tensors`, the default, or `none`; any other value is rejected with `400 Bad Request`) and its deprecated alias `return_mm_kwargs`, where `false` means `mm_payload: "none"` and is ignored when `mm_payload` is set. With the simulated tokenizer, `none` keeps `mm_hashes` and `mm_placeholders` in `features` and returns `kwargs_data` and `mm_metadata` as `null`. With the HuggingFace tokenizer, the resolved value is sent to the upstream render service as `mm_payload`, and its `features` are returned unchanged.
+
 Pre-tokenized prompts on `/v1/completions/render` (a token-id array, or an array of token-id arrays) are copied through verbatim — the tokenizer is not invoked for those entries — regardless of which tokenizer is active.
 
 For everything else, behavior depends on the active tokenizer (selected automatically based on `--model`):
 
 - **HuggingFace tokenizer** (real model): each text prompt, chat-completions request, and responses request (converted to chat messages first, as described above) is forwarded to the upstream vLLM render service at `--render-url`. `mm_features` returned by the upstream are passed through.
-- **Simulated tokenizer** (dummy model): the simulator tokenizes locally using its regex-based splitter. For chat requests and converted responses input containing `image_url`, `audio_url`, `input_audio`, or `video_url` chat content blocks, synthetic `mm_features` are produced so multimodal-aware downstream code paths can be exercised without a real renderer.
+- **Simulated tokenizer** (dummy model): the simulator tokenizes locally using its regex-based splitter. For chat requests and converted responses input containing `image_url`, `audio_url`, `input_audio`, or `video_url` chat content blocks, synthetic `mm_features` are produced so multimodal-aware downstream code paths can be exercised without a real renderer. Each media item renders as a run of one pad token, the shape the Qwen-VL family produces, and its `mm_placeholders` region spans that run. The run length and the `metadata` in `ec_transfer_params` descriptors are fixed per modality:
+
+| Modality | Pad token | Run length | Descriptor `metadata` |
+|---|---|---|---|
+| image | `<\|image_pad\|>` | 16 | `{"image_grid_thw": [1, 8, 8]}` |
+| video | `<\|video_pad\|>` | 32 | `{"video_grid_thw": [2, 8, 8]}` |
+| audio | `<\|audio_pad\|>` | 16 | `{"audio_num_tokens": [16]}` |
+
+`/inference/v1/generate` with `content_parts` expects each item's run collapsed to one pad token, as a disaggregation coordinator sends it with `mm_payload: none`. With the simulated tokenizer the simulator expands each collapsed token back to its run, so prompt token counts and KV-cache blocks match the rendered prompt. With the HuggingFace tokenizer the token IDs are used as sent.
 
 ### Derender endpoints
 

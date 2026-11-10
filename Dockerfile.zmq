@@ -4,7 +4,7 @@ FROM python:3.15-slim
 WORKDIR /workspace
 
 # Install dependencies
-RUN pip install --no-cache-dir pyzmq==27.1.0 msgpack==1.1.2
+RUN pip install --no-cache-dir pyzmq==27.1.0 msgpack==1.2.3
 
 # Copy the listener script
 COPY zmq-listener/listener.py /workspace/listener.py

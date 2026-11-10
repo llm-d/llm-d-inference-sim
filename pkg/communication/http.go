@@ -188,36 +188,38 @@ func (c *Communication) handleDecision(ctx *fasthttp.RequestCtx, protocol endpoi
 
 // HandleChatCompletionsRender http handler for /v1/chat/completions/render
 func (c *Communication) HandleChatCompletionsRender(ctx *fasthttp.RequestCtx) {
-	c.handleRender(&endpoint.ChatCompletionsRequest{}, &chatComplHTTPRespBuilder{}, false, ctx)
+	c.handleRender(&endpoint.ChatCompletionsRequest{}, &chatComplHTTPRespBuilder{}, false, true, ctx)
 }
 
 // HandleTextCompletionsRender http handler for /v1/completions/render
 func (c *Communication) HandleTextCompletionsRender(ctx *fasthttp.RequestCtx) {
-	c.handleRender(&endpoint.TextCompletionsParsedRequest{}, &textComplHTTPRespBuilder{}, false, ctx)
+	c.handleRender(&endpoint.TextCompletionsParsedRequest{}, &textComplHTTPRespBuilder{}, false, true, ctx)
 }
 
 // HandleResponsesRender http handler for /v1/responses/render
 func (c *Communication) HandleResponsesRender(ctx *fasthttp.RequestCtx) {
-	c.handleRender(&endpoint.ResponsesRenderRequest{}, &responsesHTTPRespBuilder{}, false, ctx)
+	c.handleRender(&endpoint.ResponsesRenderRequest{}, &responsesHTTPRespBuilder{}, false, true, ctx)
 }
 
 // HandleMessagesRender http handler for /v1/messages/render
 func (c *Communication) HandleMessagesRender(ctx *fasthttp.RequestCtx) {
-	c.handleRender(&endpoint.MessagesRenderRequest{}, &messagesHTTPRespBuilder{}, true, ctx)
+	c.handleRender(&endpoint.MessagesRenderRequest{}, &messagesHTTPRespBuilder{}, true, true, ctx)
 }
 
 // HandleMessagesCountTokens http handler for /v1/messages/count_tokens
 func (c *Communication) HandleMessagesCountTokens(ctx *fasthttp.RequestCtx) {
-	c.handleRender(&endpoint.MessagesRequest{}, &messagesCountTokensHTTPRespBuilder{transport: c.transport}, true, ctx)
+	c.handleRender(&endpoint.MessagesRequest{}, &messagesCountTokensHTTPRespBuilder{transport: c.transport}, true, false, ctx)
 }
 
 // handleRender parses and renders a request without generating a response.
 // acceptLoRA lets the request name a loaded LoRA adapter as its model, as vLLM
 // does on the Messages API; the other render endpoints accept base models only.
+// acceptMMPayload is false for /v1/messages/count_tokens, whose vLLM request has no mm_payload.
 func (c *Communication) handleRender(req endpoint.RenderableRequest, respBuilder responseBuilder,
-	acceptLoRA bool, ctx *fasthttp.RequestCtx) {
+	acceptLoRA, acceptMMPayload bool, ctx *fasthttp.RequestCtx) {
 	c.logger.V(logging.TRACE).Info("Render request received", "endpoint", string(ctx.Path()))
-	if err := req.Unmarshal(ctx.Request.Body()); err != nil {
+	var mmPayload api.RenderMMPayload
+	if err := errors.Join(req.Unmarshal(ctx.Request.Body()), json.Unmarshal(ctx.Request.Body(), &mmPayload)); err != nil {
 		c.logger.Error(err, "failed to read and parse render request body")
 		errToSend := api.NewError("Failed to read and parse request body, "+err.Error(), fasthttp.StatusBadRequest, nil)
 		c.sendError(ctx, &errToSend, false)
@@ -226,6 +228,14 @@ func (c *Communication) handleRender(req endpoint.RenderableRequest, respBuilder
 	if err := req.ValidateBody(); err != nil {
 		c.sendError(ctx, err, false)
 		return
+	}
+	resolvedMMPayload := ""
+	if acceptMMPayload {
+		var mmPayloadErr *api.Error
+		if resolvedMMPayload, mmPayloadErr = mmPayload.Resolve(); mmPayloadErr != nil {
+			c.sendError(ctx, mmPayloadErr, false)
+			return
+		}
 	}
 	var modelErr *api.Error
 	if acceptLoRA {
@@ -237,7 +247,7 @@ func (c *Communication) handleRender(req endpoint.RenderableRequest, respBuilder
 		c.sendError(ctx, modelErr, false)
 		return
 	}
-	tokens, features, err := req.Render(c.runtime.GetTokenizer())
+	tokens, features, err := req.Render(c.runtime.GetTokenizer(), resolvedMMPayload)
 	if err != nil {
 		c.logger.Error(err, "render failed")
 		errToSend := api.NewError("Render failed, "+err.Error(), fasthttp.StatusInternalServerError, nil)
@@ -614,12 +624,8 @@ func (c *Communication) sendStream(ctx *fasthttp.RequestCtx, channel common.Chan
 				continue
 			}
 
-			ok, stop := c.emitResponseChunks(route, w, respBuilder, response, respCtx, &state, response.Status == endpoint.ResponseEndOfTokens)
-			if !ok {
+			if !c.emitResponseChunks(route, w, respBuilder, response, respCtx, &state, response.Status == endpoint.ResponseEndOfTokens) {
 				return
-			}
-			if stop {
-				break
 			}
 		}
 
@@ -648,18 +654,16 @@ func (c *Communication) sendStream(ctx *fasthttp.RequestCtx, channel common.Chan
 }
 
 // emitResponseChunks handles a single non-error, non-Created response. Returns
-// (ok, stop): ok=false means the caller should return (a send failed and was
-// already logged); stop=true means the stream is complete and the main
-// loop should break out to finalize.
+// false when the caller should return (a send failed and was already logged).
 func (c *Communication) emitResponseChunks(route api.ErrorRoute, w *bufio.Writer, respBuilder responseBuilder,
-	response *endpoint.ResponseInfo, respCtx endpoint.ResponseContext, state *streamState, lastTokensChunk bool) (ok bool, stop bool) {
+	response *endpoint.ResponseInfo, respCtx endpoint.ResponseContext, state *streamState, lastTokensChunk bool) bool {
 	choiceIdx := response.ChoiceIdx
 
 	if response.Tokens != nil {
 		// In chat completion the first chunk contains the role.
 		if state.firstTokens[choiceIdx] {
 			if !c.sendOrFail(w, respBuilder.createFirstChunk(respCtx, choiceIdx), "Sending first stream chunk failed") {
-				return false, false
+				return false
 			}
 			state.firstTokens[choiceIdx] = false
 		}
@@ -671,11 +675,11 @@ func (c *Communication) emitResponseChunks(route api.ErrorRoute, w *bufio.Writer
 			}
 			if err := c.sendStreamedTools(respCtx, respBuilder, w, response.Tokens.Strings, response.ToolCall,
 				state.toolCallIndex[choiceIdx], choiceIdx, lastTokensChunk); err != nil {
-				c.chunkSendFailed("Sending tools chunk failed, ", err)
-				return false, false
+				c.chunkSendFailed("Sending tools chunk failed", err)
+				return false
 			}
 			state.lastToolCall[choiceIdx] = response.ToolCall
-			return true, false
+			return true
 		}
 
 		var finishReason *string
@@ -683,18 +687,19 @@ func (c *Communication) emitResponseChunks(route api.ErrorRoute, w *bufio.Writer
 			finishReason = respCtx.FinishReason()
 		}
 		return c.sendOrFail(w, respBuilder.createChunk(respCtx, response.Tokens, nil, "", finishReason, choiceIdx),
-			"Sending stream chunk failed"), false
+			"Sending stream chunk failed")
 	}
 
-	if respCtx.FinishReason() != nil && *respCtx.FinishReason() == common.CacheThresholdFinishReason {
+	// Choices can end with different finish reasons, so check this choice's own.
+	if finishReason := response.RespCtx.FinishReason(); finishReason != nil && *finishReason == common.CacheThresholdFinishReason {
 		// No tokens to stream but we still need to emit a finish chunk for cache_threshold.
-		return c.sendOrFail(w, respBuilder.createChunk(respCtx, nil, nil, "", respCtx.FinishReason(), choiceIdx),
-			"Sending finish chunk failed"), true
+		return c.sendOrFail(w, respBuilder.createChunk(respCtx, nil, nil, "", finishReason, choiceIdx),
+			"Sending finish chunk failed")
 	}
 
 	errToSend := api.NewError("unexpected response part in streaming", fasthttp.StatusInternalServerError, nil)
 	c.sendStreamErrorAndDone(route, w, respBuilder, &errToSend)
-	return false, false
+	return false
 }
 
 // finalizeStream emits the post-loop SSE frames: a last chunk per choice (if the
@@ -723,17 +728,7 @@ func (c *Communication) sendStreamedTools(respCtx endpoint.ResponseContext, resp
 	w *bufio.Writer, tokens []string, tc *api.ToolCall, index int, choiceIdx int, lastTokensChunk bool) error {
 	tokensStr := strings.Join(tokens, "")
 
-	toolChunkInsert := &api.ToolCall{
-		ID:    tc.ID,
-		Type:  tc.Type,
-		Index: tc.Index,
-		Function: api.FunctionCall{
-			Arguments: tokensStr,
-		},
-	}
-	if index == 0 {
-		toolChunkInsert.Function.Name = tc.Function.Name
-	}
+	toolChunkInsert := api.NewToolCallStreamDelta(tc, tokensStr, index == 0)
 
 	var finishReasonToSend *string
 	if lastTokensChunk && (*respCtx.FinishReason() == common.LengthFinishReason ||
@@ -796,6 +791,13 @@ func (c *Communication) HandleEmbeddings(ctx *fasthttp.RequestCtx) {
 		c.sendError(ctx, &errToSend, false)
 		return
 	}
+	// an empty model means the served model, matching vLLM
+	if req.Model != "" {
+		if err := c.runtime.ValidateModel(req.Model); err != nil {
+			c.sendError(ctx, err, false)
+			return
+		}
+	}
 
 	resp, err := c.runtime.CreateEmbeddings(&req)
 	if err != nil {
@@ -835,6 +837,13 @@ func (c *Communication) HandleTokenize(ctx *fasthttp.RequestCtx) {
 		c.sendError(ctx, &err, false)
 		return
 	}
+	// an empty model means the served model, matching vLLM
+	if req.Model != "" {
+		if err := c.runtime.ValidateModel(req.Model); err != nil {
+			c.sendError(ctx, err, false)
+			return
+		}
+	}
 
 	var tokens []uint32
 
@@ -842,7 +851,7 @@ func (c *Communication) HandleTokenize(ctx *fasthttp.RequestCtx) {
 		tokens, _, err = c.runtime.GetTokenizer().RenderText(req.Prompt)
 	} else {
 		// has messages
-		tokens, _, _, err = c.runtime.GetTokenizer().RenderMessages(req.Messages, api.RenderTools{})
+		tokens, _, _, err = c.runtime.GetTokenizer().RenderMessages(req.Messages, api.RenderTools{}, "")
 	}
 
 	if err != nil {

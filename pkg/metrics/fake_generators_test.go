@@ -17,6 +17,7 @@ limitations under the License.
 package metrics
 
 import (
+	"context"
 	"time"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
@@ -121,5 +122,83 @@ var _ = Describe("Fake metric generators", func() {
 		It("returns nil for an unknown name", func() {
 			Expect(Dispatch("nope")).To(BeNil())
 		})
+	})
+})
+
+var _ = Describe("FakeGenerators", func() {
+	var (
+		gens   *FakeGenerators
+		values chan float64
+		update func(GaugeUpdate)
+	)
+
+	ramp := &common.FakeMetricWithFunction{
+		IsFunction: true,
+		Function:   &common.FunctionInfo{Name: common.RampFuncName, Start: 1.5, End: 9.5, Period: time.Hour},
+	}
+	fixed := &common.FakeMetricWithFunction{FixedValue: 4}
+
+	BeforeEach(func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		DeferCleanup(cancel)
+		gens = NewFakeGenerators(ctx, 10*time.Millisecond)
+		ch := make(chan float64, 1000)
+		values = ch
+		update = func(upd GaugeUpdate) {
+			if upd.Add == nil && upd.Reset != nil {
+				ch <- *upd.Reset
+			}
+		}
+	})
+
+	It("pushes a fixed value once and registers no generator", func() {
+		gens.Start()
+		gens.Apply(func(set *GeneratorSet) { set.Set("m", fixed, update, false) })
+
+		Expect(values).To(Receive(Equal(float64(4))))
+		Expect(gens.Running()).To(BeFalse())
+	})
+
+	It("pushes a function's value at t=0 and keeps refreshing it", func() {
+		gens.Start()
+		gens.Apply(func(set *GeneratorSet) { set.Set("m", ramp, update, false) })
+
+		Expect(values).To(Receive(Equal(1.5)))
+		Expect(gens.Running()).To(BeTrue())
+		Eventually(values).Should(Receive(BeNumerically(">", 1.5)))
+	})
+
+	It("truncates a function's value when asked to round", func() {
+		gens.Apply(func(set *GeneratorSet) { set.Set("m", ramp, update, true) })
+
+		Expect(values).To(Receive(Equal(float64(1))))
+	})
+
+	It("keeps the ticker down until Start", func() {
+		gens.Apply(func(set *GeneratorSet) { set.Set("m", ramp, update, false) })
+		Expect(gens.Running()).To(BeFalse())
+
+		gens.Start()
+		Expect(gens.Running()).To(BeTrue())
+	})
+
+	It("stops the ticker when a fixed value replaces the last function", func() {
+		gens.Start()
+		gens.Apply(func(set *GeneratorSet) { set.Set("m", ramp, update, false) })
+		Expect(gens.Running()).To(BeTrue())
+
+		gens.Apply(func(set *GeneratorSet) { set.Set("m", fixed, update, false) })
+		Expect(gens.Running()).To(BeFalse())
+	})
+
+	It("does not restart the ticker after Stop", func() {
+		gens.Start()
+		gens.Apply(func(set *GeneratorSet) { set.Set("m", ramp, update, false) })
+		gens.Stop()
+		Expect(gens.Running()).To(BeFalse())
+
+		gens.Apply(func(set *GeneratorSet) { set.Set("m", fixed, update, false) })
+		gens.Apply(func(set *GeneratorSet) { set.Set("m", ramp, update, false) })
+		Expect(gens.Running()).To(BeFalse())
 	})
 })

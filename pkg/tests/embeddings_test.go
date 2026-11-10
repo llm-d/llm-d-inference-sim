@@ -146,4 +146,47 @@ var _ = Describe("Simulator for /v1/embeddings", forEachEngine(func() {
 		Expect(embeddings.Data).To(HaveLen(1))
 		Expect(embeddings.Usage.PromptTokens).To(BeNumerically(">", 0))
 	})
+
+	It("rejects an unknown model", func() {
+		client, err := startServer(ctx, common.ModeRandom)
+		Expect(err).NotTo(HaveOccurred())
+
+		resp, err := client.Post("http://localhost/v1/embeddings", "application/json",
+			strings.NewReader(`{"model":"unknown-model","input":"`+testUserMessage+`"}`))
+		Expect(err).NotTo(HaveOccurred())
+		defer resp.Body.Close() //nolint:errcheck
+
+		body, err := io.ReadAll(resp.Body)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.StatusCode).To(Equal(http.StatusNotFound))
+		Expect(string(body)).To(ContainSubstring("The model `unknown-model` does not exist."))
+	})
+
+	It("uses the base model when the request names none", func() {
+		client, err := startServer(ctx, common.ModeRandom)
+		Expect(err).NotTo(HaveOccurred())
+
+		embeddings := postEmbeddings(client, `{"input":"`+testUserMessage+`"}`)
+
+		Expect(embeddings.Model).To(Equal(common.TestModelName))
+	})
+
+	DescribeTable("model validation with a served model name",
+		func(reqBody string, expectedStatus int) {
+			client, err := startServerWithArgs(ctx, []string{"cmd", "--model", common.TestModelName,
+				"--mode", common.ModeRandom, "--served-model-name", "alias"})
+			Expect(err).NotTo(HaveOccurred())
+
+			resp, err := client.Post("http://localhost/v1/embeddings", "application/json", strings.NewReader(reqBody))
+			Expect(err).NotTo(HaveOccurred())
+			defer resp.Body.Close() //nolint:errcheck
+
+			body, err := io.ReadAll(resp.Body)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.StatusCode).To(Equal(expectedStatus), string(body))
+		},
+		Entry("accepts the served model name", `{"model":"alias","input":"`+testUserMessage+`"}`, http.StatusOK),
+		Entry("accepts a request without a model", `{"input":"`+testUserMessage+`"}`, http.StatusOK),
+		Entry("rejects an unknown model", `{"model":"unknown-model","input":"`+testUserMessage+`"}`, http.StatusNotFound),
+	)
 }))

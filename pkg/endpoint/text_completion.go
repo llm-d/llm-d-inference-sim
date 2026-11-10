@@ -67,7 +67,7 @@ func (t *TextCompletionsParsedRequest) ValidateBody() *api.Error {
 // Render tokenizes each prompt for /v1/completions/render (passing
 // pre-tokenized prompts through verbatim) and returns one token slice per
 // prompt. Features is always nil for text completions.
-func (t *TextCompletionsParsedRequest) Render(tk tokenizer.Tokenizer) ([][]uint32, *api.RenderMMFeatures, error) {
+func (t *TextCompletionsParsedRequest) Render(tk tokenizer.Tokenizer, _ string) ([][]uint32, *api.RenderMMFeatures, error) {
 	result := make([][]uint32, len(t.Prompt))
 	for i, p := range t.Prompt {
 		tokens := p.Tokens
@@ -199,6 +199,10 @@ func (t *textCompletionReqCtx) encode() ([]uint32, []string, *api.RenderMMFeatur
 
 func (t *textCompletionReqCtx) createToolCalls() ([]api.ToolCall, int, string, error) {
 	return nil, 0, "", nil
+}
+
+func (*textCompletionReqCtx) createStructuredOutput() (*api.Tokenized, string, error) {
+	return nil, "", nil
 }
 
 func (t *textCompletionReqCtx) tokenizedPromptForEcho() (*api.Tokenized, error) {

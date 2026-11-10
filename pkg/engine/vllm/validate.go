@@ -52,8 +52,8 @@ func (Engine) ValidateConfig(cfg *common.Configuration) error {
 			return errors.New("token block size should be one of the following: 8, 16, 32, 64, 128")
 		}
 
-		if cfg.KVCache.KVCacheSize < 0 {
-			return errors.New("KV cache size cannot be negative")
+		if cfg.KVCache.KVCacheSize < 1 {
+			return errors.New("KV cache size must be at least 1")
 		}
 		if cfg.KVCache.EventBatchSize < 1 {
 			return errors.New("event batch size cannot less than 1")
@@ -76,6 +76,13 @@ func (Engine) ValidateConfig(cfg *common.Configuration) error {
 	if cfg.FakeMetrics != nil {
 		if err := cfg.FakeMetrics.Validate(); err != nil {
 			return err
+		}
+		// The token-length histograms' buckets scale with the context window, so
+		// they are checked here rather than inside Validate.
+		if fake, ok := cfg.FakeMetrics.(*VLLMFakeMetrics); ok {
+			if err := fake.ValidateTokenBuckets(cfg.MaxModelLen); err != nil {
+				return err
+			}
 		}
 		if cfg.FakeMetricsRefreshInterval <= 0 {
 			return errors.New("fake metrics refresh interval must be positive")

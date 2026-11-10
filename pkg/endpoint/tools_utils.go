@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
@@ -72,6 +73,8 @@ func isToolChoiceNone(toolChoice api.ToolChoice) bool {
 // ToolsValidator validates tool definitions against the tool-schema JSON Schema.
 type ToolsValidator struct {
 	schema *jsonschema.Schema
+	// paramSchema is the part of schema that a tool's parameters must match.
+	paramSchema *jsonschema.Schema
 	// Skip reports whether tool schema validation is currently disabled. It is read on
 	// every call so that a configuration swapped in at runtime takes effect immediately.
 	// A nil Skip means validation is always performed.
@@ -80,11 +83,25 @@ type ToolsValidator struct {
 
 // NewToolsValidator compiles the tool-schema JSON Schema and returns a ToolsValidator.
 func NewToolsValidator() (*ToolsValidator, error) {
-	sch, err := jsonschema.CompileString("schema.json", schema)
+	compiler := jsonschema.NewCompiler()
+	if err := compiler.AddResource("schema.json", strings.NewReader(schema)); err != nil {
+		return nil, err
+	}
+	sch, err := compiler.Compile("schema.json")
 	if err != nil {
 		return nil, err
 	}
-	return &ToolsValidator{schema: sch}, nil
+	paramSch, err := compiler.Compile("schema.json#/$defs/param_definition")
+	if err != nil {
+		return nil, err
+	}
+	return &ToolsValidator{schema: sch, paramSchema: paramSch}, nil
+}
+
+// validateParameters checks a JSON schema that createArgument will generate a value from.
+// It ignores Skip: createArgument assumes a schema that passed this check.
+func (v *ToolsValidator) validateParameters(schema any) error {
+	return v.paramSchema.Validate(schema)
 }
 
 func (v *ToolsValidator) validateTool(tool []byte) error {

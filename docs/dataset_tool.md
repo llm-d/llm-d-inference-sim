@@ -166,6 +166,7 @@ The SQLite version of this dataset is used by the simulator for efficient queryi
 | `gen_tokens` | `JSON NOT NULL` | JSON containing `strings` and `numbers` arrays. |
 | `n_gen_tokens`| `INTEGER NOT NULL` | The count of generated tokens. |
 
+The tool also creates an index on `prompt_hash`, which the simulator uses for prompt lookups.
 
 ### SQL Query Example
 To find the average token length of generated responses:

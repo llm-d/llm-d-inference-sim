@@ -33,6 +33,8 @@ type ChatCompletionsRequest struct {
 	// renderTools holds the request's tools and tool_choice as received, for
 	// the render service.
 	renderTools api.RenderTools
+	// responseFormat holds the request's response_format as received.
+	responseFormat json.RawMessage
 }
 
 func (c *ChatCompletionsRequest) SetSendImage(v bool) { c.willSendImage = v }
@@ -44,13 +46,15 @@ func (c *ChatCompletionsRequest) Unmarshal(data []byte) error {
 		return err
 	}
 	var raw struct {
-		Tools      json.RawMessage `json:"tools"`
-		ToolChoice json.RawMessage `json:"tool_choice"`
+		Tools          json.RawMessage `json:"tools"`
+		ToolChoice     json.RawMessage `json:"tool_choice"`
+		ResponseFormat json.RawMessage `json:"response_format"`
 	}
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}
 	c.renderTools = api.RenderTools{Tools: present(raw.Tools), ToolChoice: present(raw.ToolChoice)}
+	c.responseFormat = present(raw.ResponseFormat)
 	return nil
 }
 
@@ -77,8 +81,8 @@ func (c *ChatCompletionsRequest) ValidateBody() *api.Error {
 // Render tokenizes the chat messages for /v1/chat/completions/render and
 // returns the tokens (wrapped as a single-element slice for shape parity with
 // /v1/completions/render) and any mm_features.
-func (c *ChatCompletionsRequest) Render(tk tokenizer.Tokenizer) ([][]uint32, *api.RenderMMFeatures, error) {
-	tokens, _, features, err := tk.RenderMessages(c.Messages, c.renderTools)
+func (c *ChatCompletionsRequest) Render(tk tokenizer.Tokenizer, mmPayload string) ([][]uint32, *api.RenderMMFeatures, error) {
+	tokens, _, features, err := tk.RenderMessages(c.Messages, c.renderTools, mmPayload)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -102,6 +106,9 @@ func (c *ChatCompletionsRequest) Validate(toolsValidator *ToolsValidator) *api.E
 				fasthttp.StatusBadRequest, nil)
 			return &serverErr
 		}
+	}
+	if err := validateResponseFormat(c.responseFormat, toolsValidator); err != nil {
+		return err
 	}
 
 	return validateRequest(c)
@@ -193,7 +200,7 @@ func (c *chatCompletionReqCtx) Request() Request {
 }
 
 func (c *chatCompletionReqCtx) encode() ([]uint32, []string, *api.RenderMMFeatures, error) {
-	return c.runtime.GetTokenizer().RenderMessages(c.req.Messages, c.req.renderTools)
+	return c.runtime.GetTokenizer().RenderMessages(c.req.Messages, c.req.renderTools, "")
 }
 
 func (c *chatCompletionReqCtx) createToolCalls() ([]api.ToolCall, int, string, error) {

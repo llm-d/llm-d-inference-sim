@@ -20,6 +20,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -195,6 +197,37 @@ var _ = Describe("LoRAs", func() {
 			Expect(finishedLora3.Sub(finishedLora2)).To(BeNumerically(">=", 400*time.Millisecond))
 		})
 	})
+
+	DescribeTable("model validation with a LoRA adapter",
+		func(path string, reqBody string, expectedStatus int) {
+			client, err := startServerWithArgs(context.TODO(),
+				[]string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
+					"--lora-modules", "{\"name\":\"lora1\",\"path\":\"/path/to/lora1\"}"})
+			Expect(err).NotTo(HaveOccurred())
+
+			resp, err := client.Post("http://localhost"+path, "application/json", strings.NewReader(reqBody))
+			Expect(err).NotTo(HaveOccurred())
+			defer func() {
+				Expect(resp.Body.Close()).To(Succeed())
+			}()
+
+			body, err := io.ReadAll(resp.Body)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.StatusCode).To(Equal(expectedStatus), string(body))
+		},
+		Entry("tokenize, LoRA adapter", "/tokenize",
+			`{"prompt":"This is a test","model":"lora1"}`, http.StatusOK),
+		Entry("tokenize, no model", "/tokenize",
+			`{"prompt":"This is a test"}`, http.StatusOK),
+		Entry("tokenize, unknown model", "/tokenize",
+			`{"prompt":"This is a test","model":"unknown-model"}`, http.StatusNotFound),
+		Entry("embeddings, LoRA adapter", "/v1/embeddings",
+			`{"input":"This is a test","model":"lora1"}`, http.StatusOK),
+		Entry("embeddings, no model", "/v1/embeddings",
+			`{"input":"This is a test"}`, http.StatusOK),
+		Entry("embeddings, unknown model", "/v1/embeddings",
+			`{"input":"This is a test","model":"unknown-model"}`, http.StatusNotFound),
+	)
 })
 
 func unloadLora(ctx context.Context, openaiclient openai.Client, name string) {

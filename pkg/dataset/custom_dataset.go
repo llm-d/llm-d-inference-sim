@@ -93,7 +93,7 @@ func (d *CustomDataset) getRandomResponse(responses []api.Tokenized) api.Tokeniz
 // if ignore_eos=true the response always will have the max response len tokens, missing tokens
 // are randomly selected from the hard-coded collection
 func (d *CustomDataset) GetResponseTokens(req api.Request) (*api.Tokenized, string, error) {
-	maxResponseLen, _ := d.calculateResponseMaxLen(req)
+	maxResponseLen, _ := api.ResponseMaxLen(req, d.maxModelLen)
 	minResponseLen := d.calculateResponseMinLen(req)
 	var responseTokens api.Tokenized
 

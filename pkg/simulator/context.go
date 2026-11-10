@@ -112,6 +112,11 @@ type Engine interface {
 	NewMetricsAdapter(ctx context.Context, registry *prometheus.Registry,
 		logger logr.Logger, config common.Configuration) (metrics.MetricsAdapter, error)
 	NewKVEventEncoder(config common.Configuration) (kvcache.EventEncoder, error)
+	// NewFakeMetrics returns a zero-valued FakeMetrics for this engine so
+	// POST /admin/config can enable fake metrics at runtime when the process
+	// was started without --fake-metrics. Engines that do not support fake
+	// metrics return nil.
+	NewFakeMetrics() common.FakeMetrics
 }
 
 type latencyCalcHolder struct {
@@ -160,11 +165,36 @@ func (s *SimContext) SetConfig(c *common.Configuration) {
 // fake-metrics controller after Configuration.Update has validated the merged
 // result. The controller only enqueues the update, so the Prometheus side
 // effect lands after this returns and cannot abort the config swap.
+//
+// When the process is still reporting real metrics (no --fake-metrics at
+// startup), a non-null "fake-metrics" field switches the pod into fake mode
+// using Engine.NewFakeMetrics as the concrete type to unmarshal into.
 func (s *SimContext) ApplyConfigUpdate(body []byte) error {
 	s.adminMu.Lock()
 	defer s.adminMu.Unlock()
 
-	next, update, latencyChanged, err := s.Config().Update(body)
+	cfg := s.Config()
+	wantsFake, err := common.BodyRequestsFakeMetrics(body)
+	if err != nil {
+		return err
+	}
+	if wantsFake && cfg.FakeMetrics == nil {
+		if s.Engine == nil {
+			return errors.New("the simulator is reporting real metrics; fake metrics cannot be updated")
+		}
+		seed := s.Engine.NewFakeMetrics()
+		if seed == nil {
+			return errors.New("the simulator is reporting real metrics; fake metrics cannot be updated")
+		}
+		seeded, copyErr := cfg.Copy()
+		if copyErr != nil {
+			return fmt.Errorf("failed to copy configuration: %w", copyErr)
+		}
+		seeded.FakeMetrics = seed
+		cfg = seeded
+	}
+
+	next, update, latencyChanged, err := cfg.Update(body)
 	if err != nil {
 		return err
 	}
@@ -208,13 +238,17 @@ func (s *SimContext) initialize(ctx context.Context) error {
 	}
 
 	var err error
-	s.metricsBus, err = metrics.NewMetricsBus(ctx, *s.Config(), s.prometheusRegistry, s.logger,
-		s.Engine.NewMetricsAdapter)
-	if err != nil {
-		return err
-	}
-	if err := s.metricsBus.Start(ctx); err != nil {
-		return err
+	if s.Config().EnableMetrics {
+		s.metricsBus, err = metrics.NewMetricsBus(ctx, *s.Config(), s.prometheusRegistry, s.logger,
+			s.Engine.NewMetricsAdapter)
+		if err != nil {
+			return err
+		}
+		if err := s.metricsBus.Start(ctx); err != nil {
+			return err
+		}
+	} else {
+		s.metricsBus = metrics.NewDisabledMetricsBus()
 	}
 
 	// KVCache doesn't support images at the moment, so in mm-encoder only mode
@@ -408,17 +442,25 @@ func (s *SimContext) GetResponseTokens(req api.Request) (*api.Tokenized, string,
 	return s.dataset.GetResponseTokens(req)
 }
 
-// KVCacheOnRequestStart records req's arrival in the KV cache, if enabled.
-func (s *SimContext) KVCacheOnRequestStart(req api.Request) (metrics.PrefixCacheQueried, *api.Error) {
+// RandomResponses reports whether the dataset generates the predefined random text.
+func (s *SimContext) RandomResponses() bool {
+	_, ok := s.dataset.(*dataset.DefaultDataset)
+	return ok
+}
+
+// KVCacheOnRequestStart records req's arrival in the KV cache, if enabled. A
+// request with less than minHitRate of its prompt cached is not added to the
+// cache, and started is false.
+func (s *SimContext) KVCacheOnRequestStart(req api.Request, minHitRate float64) (metrics.PrefixCacheQueried, bool, *api.Error) {
 	if !s.Config().KVCache.EnableKVCache {
-		return metrics.PrefixCacheQueried{}, nil
+		return metrics.PrefixCacheQueried{}, true, nil
 	}
-	stat, err := s.kvcacheHelper.OnRequestStart(req)
+	stat, started, err := s.kvcacheHelper.OnRequestStart(req, minHitRate)
 	if err != nil {
 		serverError := api.NewError(err.Error(), fasthttp.StatusInternalServerError, nil)
-		return metrics.PrefixCacheQueried{}, &serverError
+		return metrics.PrefixCacheQueried{}, false, &serverError
 	}
-	return stat, nil
+	return stat, started, nil
 }
 
 // KVCacheOnRequestEnd records the request's completion in the KV cache, if enabled.
@@ -446,7 +488,10 @@ func (s *SimContext) simulateTTFT(respCtx endpoint.ResponseContext, done <-chan 
 		return false
 	}
 	common.WriteToChannel(s.metricsBus.PrefillEnded,
-		metrics.PrefillEnded{PrefillDuration: ttft.Seconds()}, s.logger)
+		metrics.PrefillEnded{
+			PrefillDuration: ttft.Seconds(),
+			IsStreaming:     respCtx.RequestContext().Request().IsStream(),
+		}, s.logger)
 	return true
 }
 

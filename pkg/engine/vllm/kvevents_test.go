@@ -136,7 +136,7 @@ var _ = Describe("vLLM KV-event encoder", func() {
 		Entry("map format", true),
 	)
 
-	DescribeTable("omits lora metadata for base-model requests",
+	DescribeTable("reports no lora metadata for base-model requests",
 		func(mapFormat bool) {
 			base := storeEvent
 			base.LoraName = nil
@@ -210,6 +210,22 @@ var _ = Describe("vLLM KV-event encoder", func() {
 		removed, err := enc.EncodeEvent(kvcache.Event{Action: kvcache.ActionRemove, Hashes: []uint64{3}})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(fieldCount(removed)).To(Equal(3))
+	})
+
+	It("encodes every required BlockStored key in map events", func() {
+		base := storeEvent
+		base.LoraName = nil
+		base.LoraID = nil
+
+		encoded, err := newEventEncoder(true).EncodeEvent(base)
+		Expect(err).NotTo(HaveOccurred())
+		var fields map[string]any
+		Expect(msgpack.Unmarshal(encoded, &fields)).To(Succeed())
+		for _, key := range []string{"type", "block_hashes", "parent_block_hash", "token_ids", "block_size", "lora_id", "medium", "lora_name"} {
+			Expect(fields).To(HaveKey(key))
+		}
+		Expect(fields["lora_id"]).To(BeNil())
+		Expect(fields["lora_name"]).To(BeNil())
 	})
 
 	// Evidence that sglang's format differs only in array length, not layout:

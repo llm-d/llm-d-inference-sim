@@ -55,10 +55,11 @@ type blockStoredEvent struct {
 	ParentBlockHash any      `msgpack:"parent_block_hash"`
 	TokenIds        []uint32 `msgpack:"token_ids"`
 	BlockSize       int      `msgpack:"block_size"`
-	LoraID          *int     `msgpack:"lora_id,omitempty"`
-	Medium          *string  `msgpack:"medium,omitempty"`
-	LoraName        *string  `msgpack:"lora_name,omitempty"`
-	ExtraKeys       []any    `msgpack:"extra_keys,omitempty"`
+	// No omitempty: vLLM declares lora_id and lora_name without a default.
+	LoraID    *int    `msgpack:"lora_id"`
+	Medium    *string `msgpack:"medium,omitempty"`
+	LoraName  *string `msgpack:"lora_name"`
+	ExtraKeys []any   `msgpack:"extra_keys,omitempty"`
 	// Cache-spec metadata is reserved for forward compatibility.
 	GroupIdx                 *int    `msgpack:"group_idx,omitempty"`
 	KVCacheSpecKind          *string `msgpack:"kv_cache_spec_kind,omitempty"`

@@ -103,13 +103,20 @@ func (b *MetricsBus) Start(ctx context.Context) error {
 
 	b.subscribeAdapter(ctx)
 
-	return b.adapter.Start(ctx)
+	if b.adapter != nil {
+		return b.adapter.Start(ctx)
+	}
+
+	return nil
 }
 
 // Close releases the adapter's resources. Callers must cancel the context
 // passed to Start first, so the drainer goroutines are gone before the adapter
 // tears itself down.
 func (b *MetricsBus) Close() error {
+	if b.adapter == nil {
+		return nil
+	}
 	return b.adapter.Close()
 }
 
@@ -200,7 +207,7 @@ func (b *MetricsBus) decrementLoraRefCount(lora string, theMap *sync.Map) {
 // fake mode ignore it; the caller is expected to have already gated on
 // config.FakeMetrics != nil.
 func (b *MetricsBus) ApplyFakeMetricsUpdate(update common.FakeMetrics) {
-	if b == nil || update == nil {
+	if b == nil || b.adapter == nil || update == nil {
 		return
 	}
 	b.adapter.ApplyFakeMetricsUpdate(update)
@@ -246,6 +253,7 @@ type PrefillStarted struct {
 // value observed on both histograms).
 type PrefillEnded struct {
 	PrefillDuration float64 // seconds
+	IsStreaming     bool
 }
 
 // DecodeStarted fires before the per-token generation loop. State marker.
@@ -265,19 +273,25 @@ type TokenGenerated struct {
 type DecodeEnded struct {
 	GenerationTokens int
 	DecodeDuration   float64 // seconds
+	FinishReason     string
+	IsStreaming      bool
 }
 
 // RequestSucceeded is the terminal event for a request that produced a
 // response. Drives all token, success, and both request-level latency
 // histograms, plus num_requests_running (-1) and LoRA running-set removal.
 type RequestSucceeded struct {
-	PromptTokens       int
+	PromptTokens int
+	// CachedPromptTokens is the part of PromptTokens served from the prefix
+	// cache, zero when the KV cache is disabled.
+	CachedPromptTokens int
 	GenerationTokens   int
 	GenTokensPerChoice []int
 	MaxTokens          *int64
 	FinishReason       string
 	E2ELatency         float64 // seconds
 	InferenceTime      float64 // seconds
+	IsStreaming        bool
 }
 
 // RequestFailed is the terminal event for a request that errored out. Same
@@ -343,6 +357,12 @@ func ChannelCapacities(config common.Configuration) (running, waiting, requests,
 }
 
 // --------------------------------
+// NewDisabledMetricsBus returns a bus with no adapter, channels or goroutines;
+// every write to it is discarded.
+func NewDisabledMetricsBus() *MetricsBus {
+	return &MetricsBus{}
+}
+
 func NewMetricsBus(ctx context.Context, config common.Configuration, registry *prometheus.Registry,
 	logger logr.Logger, newAdapter AdapterFactory) (*MetricsBus, error) {
 	if newAdapter == nil {

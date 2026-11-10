@@ -2,5 +2,6 @@
 # https://github.com/crate-ci/typos
 
 [default.extend-words]
+caf = "caf"
 PN = "PN"
 unmarshaling = "unmarshaling"

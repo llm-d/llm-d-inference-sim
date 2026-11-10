@@ -186,6 +186,29 @@ var _ = Describe("HandleRequest with n > 1 and the KV cache enabled", func() {
 		reqCtx1.KVCacheOnRequestEnd()
 		reqCtx2.KVCacheOnRequestEnd()
 	})
+
+	It("gives every choice cache_threshold when the prompt's hit rate is below the threshold", func() {
+		GinkgoT().Setenv("POD_IP", "localhost")
+		sim := newHandleRequestTestSim(context.Background(), 2,
+			"--enable-kvcache", "--kv-cache-size", "16", "--block-size", "8", "--global-cache-hit-threshold", "0.5")
+
+		// The prompt fills whole blocks: once one choice holds them, the other's
+		// hit rate is above the threshold.
+		req := newTextCompletionsRequestWithChoices("threshold", 2)
+		req.Prompt = []api.PromptInput{{Text: "the quick brown fox jumps over the lazy dog while the old cat sleeps under the tree"}}
+		_, _, _, topErr, _ := sim.HandleRequest(context.Background(), req)
+		Expect(topErr).To(BeNil())
+		reqCtx1 := <-sim.newRequests.Channel
+		reqCtx2 := <-sim.newRequests.Channel
+
+		for _, reqCtx := range []endpoint.RequestContext{reqCtx1, reqCtx2} {
+			respCtx, err := reqCtx.HandleRequest()
+			Expect(err).To(BeNil())
+			Expect(*respCtx.FinishReason()).To(Equal(common.CacheThresholdFinishReason))
+		}
+		reqCtx1.KVCacheOnRequestEnd()
+		reqCtx2.KVCacheOnRequestEnd()
+	})
 })
 
 var _ = Describe("simulateResponseProcessing", func() {
@@ -303,6 +326,59 @@ var _ = Describe("processRequest", func() {
 		Expect(bus.LoRAChanged.Channel).To(BeEmpty())
 		Expect(respChan.Channel).To(BeEmpty())
 		Eventually(respChan.Channel).Should(BeClosed())
+	})
+
+	DescribeTable("reports streaming and finish reason on the prefill, decode and success events",
+		func(stream bool) {
+			sim := newHandleRequestTestSim(context.Background(), 1)
+			bus := useUnreadMetricsBus(sim)
+
+			req := newTextCompletionsRequestWithChoices("stream", 1)
+			req.Prompt = []api.PromptInput{{Text: "hello there, how are you"}}
+			req.Stream = stream
+			_, _, _, topErr, _ := sim.HandleRequest(context.Background(), req)
+			Expect(topErr).To(BeNil())
+			sim.processRequest(<-sim.newRequests.Channel)
+
+			var prefill metrics.PrefillEnded
+			Expect(bus.PrefillEnded.Channel).To(Receive(&prefill))
+			Expect(prefill.IsStreaming).To(Equal(stream))
+
+			var decode metrics.DecodeEnded
+			Expect(bus.DecodeEnded.Channel).To(Receive(&decode))
+			Expect(decode.IsStreaming).To(Equal(stream))
+			Expect(decode.FinishReason).To(Equal(common.StopFinishReason))
+
+			var succeeded metrics.RequestSucceeded
+			Expect(bus.RequestSucceeded.Channel).To(Receive(&succeeded))
+			Expect(succeeded.IsStreaming).To(Equal(stream))
+			Expect(succeeded.FinishReason).To(Equal(common.StopFinishReason))
+		},
+		Entry("streaming", true),
+		Entry("non-streaming", false),
+	)
+
+	It("reports the prompt tokens served from the prefix cache on the success event", func() {
+		GinkgoT().Setenv("POD_IP", "localhost")
+		sim := newHandleRequestTestSim(context.Background(), 1,
+			"--enable-kvcache", "--kv-cache-size", "16", "--block-size", "8")
+		bus := useUnreadMetricsBus(sim)
+
+		runRequest := func(id string) metrics.RequestSucceeded {
+			req := newTextCompletionsRequestWithChoices(id, 1)
+			req.Prompt = []api.PromptInput{{Text: "one two three four five six seven eight nine ten eleven twelve"}}
+			_, _, _, topErr, _ := sim.HandleRequest(context.Background(), req)
+			Expect(topErr).To(BeNil())
+			sim.processRequest(<-sim.newRequests.Channel)
+			var succeeded metrics.RequestSucceeded
+			Expect(bus.RequestSucceeded.Channel).To(Receive(&succeeded))
+			return succeeded
+		}
+
+		Expect(runRequest("first").CachedPromptTokens).To(BeZero())
+		second := runRequest("second")
+		Expect(second.CachedPromptTokens).To(Equal(8))
+		Expect(second.PromptTokens).To(BeNumerically(">", second.CachedPromptTokens))
 	})
 })
 

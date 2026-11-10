@@ -93,6 +93,10 @@ func (g *generationReqCtx) createToolCalls() ([]api.ToolCall, int, string, error
 	return nil, 0, "", nil
 }
 
+func (*generationReqCtx) createStructuredOutput() (*api.Tokenized, string, error) {
+	return nil, "", nil
+}
+
 var _ RequestContext = (*generationReqCtx)(nil)
 
 // Implementation of ResponseContext for generation requests

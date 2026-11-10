@@ -155,6 +155,53 @@ var _ = Describe("Server", forEachEngine(func() {
 			Expect(tokenizeResp.Tokens).To(HaveLen(4))
 			Expect(tokenizeResp.MaxModelLen).To(Equal(2048))
 		})
+
+		DescribeTable("model validation",
+			func(reqBody string, expectedStatus int, expectedMsg string) {
+				client, err := startServer(context.TODO(), common.ModeRandom)
+				Expect(err).NotTo(HaveOccurred())
+
+				resp, err := client.Post("http://localhost/tokenize", "application/json", strings.NewReader(reqBody))
+				Expect(err).NotTo(HaveOccurred())
+				defer func() {
+					Expect(resp.Body.Close()).To(Succeed())
+				}()
+
+				body, err := io.ReadAll(resp.Body)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(resp.StatusCode).To(Equal(expectedStatus))
+				Expect(string(body)).To(ContainSubstring(expectedMsg))
+			},
+			Entry("rejects an unknown model", `{"prompt":"This is a test","model":"unknown-model"}`,
+				http.StatusNotFound, "The model `unknown-model` does not exist."),
+			Entry("accepts a request without a model", `{"prompt":"This is a test"}`,
+				http.StatusOK, `"count":`),
+		)
+
+		DescribeTable("model validation with a served model name",
+			func(reqBody string, expectedStatus int) {
+				args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
+					"--served-model-name", "alias"}
+				client, err := startServerWithArgs(context.TODO(), args)
+				Expect(err).NotTo(HaveOccurred())
+
+				resp, err := client.Post("http://localhost/tokenize", "application/json", strings.NewReader(reqBody))
+				Expect(err).NotTo(HaveOccurred())
+				defer func() {
+					Expect(resp.Body.Close()).To(Succeed())
+				}()
+
+				body, err := io.ReadAll(resp.Body)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(resp.StatusCode).To(Equal(expectedStatus), string(body))
+			},
+			Entry("accepts the served model name",
+				`{"prompt":"This is a test","model":"alias"}`, http.StatusOK),
+			Entry("accepts a request without a model",
+				`{"prompt":"This is a test"}`, http.StatusOK),
+			Entry("rejects an unknown model",
+				`{"prompt":"This is a test","model":"unknown-model"}`, http.StatusNotFound),
+		)
 	})
 
 	Context("SSL/HTTPS Configuration", func() {
@@ -338,6 +385,36 @@ var _ = Describe("Server", forEachEngine(func() {
 
 }))
 
+func expectUniformSpan(tokenIDs []uint32, p api.RenderPlaceholder) {
+	Expect(p.Offset).To(BeNumerically(">=", 0))
+	Expect(p.Length).To(BeNumerically(">", 1))
+	Expect(p.Offset + p.Length).To(BeNumerically("<=", len(tokenIDs)))
+	for _, id := range tokenIDs[p.Offset : p.Offset+p.Length] {
+		Expect(id).To(Equal(tokenIDs[p.Offset]), "placeholder %+v is not a uniform run of one token", p)
+	}
+}
+
+func expectMMPayloadOmitted(body []byte) {
+	var resp api.RenderResponse
+	Expect(json.Unmarshal(body, &resp)).To(Succeed())
+	Expect(resp.TokenIDs).NotTo(BeEmpty())
+	Expect(resp.Features).NotTo(BeNil())
+	Expect(resp.Features.MMHashes).To(HaveKey("image"))
+	Expect(resp.Features.MMHashes["image"]).To(HaveLen(2))
+	Expect(resp.Features.MMPlaceholders).To(HaveKey("image"))
+	Expect(resp.Features.MMPlaceholders["image"]).To(HaveLen(2))
+	for _, p := range resp.Features.MMPlaceholders["image"] {
+		expectUniformSpan(resp.TokenIDs, p)
+	}
+
+	var raw struct {
+		Features map[string]json.RawMessage `json:"features"`
+	}
+	Expect(json.Unmarshal(body, &raw)).To(Succeed())
+	Expect(raw.Features).To(HaveKeyWithValue("kwargs_data", json.RawMessage("null")))
+	Expect(raw.Features).To(HaveKeyWithValue("mm_metadata", json.RawMessage("null")))
+}
+
 // The render and derender endpoints are vLLM's: sglang serves none of them, so these specs name no other engine.
 var _ = Describe("Server render endpoints", func() {
 	DescribeTable("render endpoints",
@@ -431,6 +508,35 @@ var _ = Describe("Server render endpoints", func() {
 				Expect(resp.Features.KwargsData).To(HaveKey("image"))
 				Expect(resp.Features.KwargsData["image"]).To(HaveLen(2))
 			}),
+		Entry("simulate /v1/chat/completions/render with mm_payload none returns null kwargs_data and mm_metadata",
+			common.TestModelName, "/v1/chat/completions/render",
+			fmt.Sprintf(`{"model":"%s","mm_payload":"none","messages":[{"role":"user","content":[`+
+				`{"type":"text","text":"describe this"},`+
+				`{"type":"image_url","image_url":{"url":"http://example.com/a.png"}},`+
+				`{"type":"image_url","image_url":{"url":"http://example.com/b.png"}}`+
+				`]}]}`, common.TestModelName),
+			expectMMPayloadOmitted),
+		Entry("simulate /v1/chat/completions/render with return_mm_kwargs false returns null kwargs_data and mm_metadata",
+			common.TestModelName, "/v1/chat/completions/render",
+			fmt.Sprintf(`{"model":"%s","return_mm_kwargs":false,"messages":[{"role":"user","content":[`+
+				`{"type":"text","text":"describe this"},`+
+				`{"type":"image_url","image_url":{"url":"http://example.com/a.png"}},`+
+				`{"type":"image_url","image_url":{"url":"http://example.com/b.png"}}`+
+				`]}]}`, common.TestModelName),
+			expectMMPayloadOmitted),
+		Entry("simulate /v1/chat/completions/render with mm_payload tensors ignores return_mm_kwargs",
+			common.TestModelName, "/v1/chat/completions/render",
+			fmt.Sprintf(`{"model":"%s","mm_payload":"tensors","return_mm_kwargs":false,"messages":[{"role":"user","content":[`+
+				`{"type":"text","text":"describe this"},`+
+				`{"type":"image_url","image_url":{"url":"http://example.com/a.png"}}`+
+				`]}]}`, common.TestModelName),
+			func(body []byte) {
+				var resp api.RenderResponse
+				Expect(json.Unmarshal(body, &resp)).To(Succeed())
+				Expect(resp.Features).NotTo(BeNil())
+				Expect(resp.Features.KwargsData).To(HaveKey("image"))
+				Expect(resp.Features.KwargsData["image"]).To(HaveLen(1))
+			}),
 		Entry("simulate /v1/responses/render with a string input",
 			common.TestModelName, "/v1/responses/render",
 			fmt.Sprintf(`{"model":"%s","input":"This is a test"}`, common.TestModelName),
@@ -472,6 +578,14 @@ var _ = Describe("Server render endpoints", func() {
 				Expect(resp.Features.KwargsData).To(HaveKey("image"))
 				Expect(resp.Features.KwargsData["image"]).To(HaveLen(2))
 			}),
+		Entry("simulate /v1/responses/render with mm_payload none returns null kwargs_data and mm_metadata",
+			common.TestModelName, "/v1/responses/render",
+			fmt.Sprintf(`{"model":"%s","mm_payload":"none","input":[{"type":"message","role":"user","content":[`+
+				`{"type":"input_text","text":"describe this"},`+
+				`{"type":"input_image","image_url":"http://example.com/a.png"},`+
+				`{"type":"input_image","image_url":"http://example.com/b.png"}`+
+				`]}]}`, common.TestModelName),
+			expectMMPayloadOmitted),
 		Entry("proxy /v1/completions/render to the upstream renderer (HF model)",
 			common.QwenModelName, "/v1/completions/render",
 			fmt.Sprintf(`{"model":"%s","prompt":"This is a test"}`, common.QwenModelName),
@@ -551,6 +665,18 @@ var _ = Describe("Server render endpoints", func() {
 		Entry("rejects previous_response_id",
 			fmt.Sprintf(`{"model":"%s","input":"hi","previous_response_id":"resp_1"}`, common.TestModelName),
 			http.StatusBadRequest, "previous_response_id"),
+		Entry("rejects a non-string mm_payload",
+			fmt.Sprintf(`{"model":"%s","input":"hi","mm_payload":1}`, common.TestModelName),
+			http.StatusBadRequest, "mm_payload must be 'tensors' or 'none'"),
+		Entry("rejects a null mm_payload",
+			fmt.Sprintf(`{"model":"%s","input":"hi","mm_payload":null,"return_mm_kwargs":false}`, common.TestModelName),
+			http.StatusBadRequest, "mm_payload must be 'tensors' or 'none'"),
+		Entry("rejects an unknown mm_payload",
+			fmt.Sprintf(`{"model":"%s","input":"hi","mm_payload":"all"}`, common.TestModelName),
+			http.StatusBadRequest, "mm_payload must be 'tensors' or 'none'"),
+		Entry("rejects a non-boolean return_mm_kwargs",
+			fmt.Sprintf(`{"model":"%s","input":"hi","return_mm_kwargs":"banana"}`, common.TestModelName),
+			http.StatusBadRequest, "return_mm_kwargs must be a boolean"),
 	)
 
 	It("/v1/responses/render and /v1/messages/render are disabled by --enable-legacy-render", func() {

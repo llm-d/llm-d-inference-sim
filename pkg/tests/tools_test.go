@@ -30,6 +30,7 @@ import (
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
 	"github.com/openai/openai-go/v3/packages/param"
+	"github.com/openai/openai-go/v3/packages/respjson"
 )
 
 const (
@@ -457,15 +458,17 @@ var _ = Describe("Simulator for request with tools", Ordered, forEachEngine(func
 						Expect(tc.Index).To(Or(BeNumerically("==", lastIndex), BeNumerically("==", lastIndex+1)))
 						if tc.Index > int64(lastIndex) {
 							Expect(tc.Function.Name).To(Or(Equal(functionNameGetWeather), Equal(functionNameGetTemperature)))
+							Expect(tc.ID).To(HavePrefix(common.ChatCmplToolIDPrefix))
+							Expect(tc.Type).To(Equal("function"))
 							lastIndex++
 							args[tc.Function.Name] = []string{tc.Function.Arguments}
 							functionName = tc.Function.Name
 						} else {
-							Expect(tc.Function.Name).To(BeEmpty())
+							Expect(tc.Function.JSON.Name.Raw()).To(Equal(respjson.Omitted))
+							Expect(tc.JSON.ID.Raw()).To(Equal(respjson.Omitted))
+							Expect(tc.JSON.Type.Raw()).To(Equal(respjson.Omitted))
 							args[functionName] = append(args[functionName], tc.Function.Arguments)
 						}
-						Expect(tc.ID).To(HavePrefix(common.ChatCmplToolIDPrefix))
-						Expect(tc.Type).To(Equal("function"))
 					}
 				}
 				if chunk.Usage.CompletionTokens != 0 || chunk.Usage.PromptTokens != 0 || chunk.Usage.TotalTokens != 0 {
