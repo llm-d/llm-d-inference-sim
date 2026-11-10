@@ -29,9 +29,23 @@ func getNumberOfPromptTokens(req api.Request) int {
 	return req.TokenizedPrompt().Length()
 }
 
+// maxRequestN bounds the client-supplied n (completions per request) so a
+// single request cannot allocate an unbounded slice of sub-requests. It matches
+// the strict validator's default VLLM_MAX_N_SEQUENCES.
+const maxRequestN = 16384
+
 func validateRequest(req api.Request) *api.Error {
 	if n := req.GetRawN(); n != nil && *n <= 0 {
 		err := api.NewError("n must be at least 1", fasthttp.StatusBadRequest, nil)
+		return &err
+	}
+
+	// An unbounded n is split into a slice of that many sub-requests
+	// (Request.Split), so a huge value allocates without limit and can crash
+	// the process. Bound it to the same maximum the strict validator enforces
+	// (VLLM_MAX_N_SEQUENCES) so strict and non-strict modes agree.
+	if n := req.GetRawN(); n != nil && *n > maxRequestN {
+		err := api.NewError(fmt.Sprintf("n must be at most %d, got %d.", maxRequestN, *n), fasthttp.StatusBadRequest, nil)
 		return &err
 	}
 
