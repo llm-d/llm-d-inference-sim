@@ -177,14 +177,18 @@ func newMetricsAdapter(ctx context.Context, registry *prometheus.Registry,
 	if err := m.buildMetrics(); err != nil {
 		return nil, err
 	}
-	m.createAndStartPrometheusChannels(ctx)
+	m.createPrometheusChannels(ctx)
 	m.setInitialValues()
 
 	return m, nil
 }
 
-func (m *sglangMetricsAdapter) Start(context.Context) error { return nil }
-func (m *sglangMetricsAdapter) Close() error                { return nil }
+func (m *sglangMetricsAdapter) Start(ctx context.Context) error {
+	m.startPrometheusChannels(ctx)
+	return nil
+}
+
+func (m *sglangMetricsAdapter) Close() error { return nil }
 
 // -- Event handlers  -------------------
 
@@ -299,44 +303,36 @@ func (m *sglangMetricsAdapter) finishRunning() {
 	common.WriteToChannel(m.runReqChan, metrics.GaugeAdd(-1), m.logger)
 }
 
-func (m *sglangMetricsAdapter) createAndStartPrometheusChannels(ctx context.Context) {
+func (m *sglangMetricsAdapter) startPrometheusChannels(ctx context.Context) {
+	go common.Subscribe(ctx, m.runReqChan, m.updateRunningRequests)
+	go common.Subscribe(ctx, m.queueReqChan, m.updateQueuedRequests)
+	go common.Subscribe(ctx, m.queueTimeChan, m.updateQueueTime)
+	go common.Subscribe(ctx, m.ttftChan, m.updateTTFT)
+	go common.Subscribe(ctx, m.interTokenLatencyChan, m.updateInterTokenLatency)
+	go common.Subscribe(ctx, m.reqTpotChan, m.updateReqTpot)
+	go common.Subscribe(ctx, m.e2eReqLatencyChan, m.updateE2EReqLatency)
+	go common.Subscribe(ctx, m.promptTokensHistChan, m.updatePromptTokensHist)
+	go common.Subscribe(ctx, m.generationTokensHistChan, m.updateGenerationTokensHist)
+	go common.Subscribe(ctx, m.promptTokensTotalChan, m.updatePromptTokensTotal)
+	go common.Subscribe(ctx, m.generationTokensTotalChan, m.updateGenerationTokensTotal)
+	go common.Subscribe(ctx, m.requestsTotalChan, m.updateRequestsTotal)
+}
+
+func (m *sglangMetricsAdapter) createPrometheusChannels(ctx context.Context) {
 	maxNumberOfRunningRequests, maxNumberOfWaitingRequests, _, maxNumberOfTokens := metrics.ChannelCapacities(m.config)
 
 	m.runReqChan = common.NewChannel[metrics.GaugeUpdate]("sglang", maxNumberOfRunningRequests, ctx.Done())
-	go common.Subscribe(ctx, m.runReqChan, m.updateRunningRequests)
-
 	m.queueReqChan = common.NewChannel[metrics.GaugeUpdate]("sglang", maxNumberOfWaitingRequests, ctx.Done())
-	go common.Subscribe(ctx, m.queueReqChan, m.updateQueuedRequests)
-
 	m.queueTimeChan = common.NewChannel[metrics.HistogramUpdate]("sglang", maxNumberOfWaitingRequests, ctx.Done())
-	go common.Subscribe(ctx, m.queueTimeChan, m.updateQueueTime)
-
 	m.ttftChan = common.NewChannel[streamObservation]("sglang", maxNumberOfRunningRequests, ctx.Done())
-	go common.Subscribe(ctx, m.ttftChan, m.updateTTFT)
-
 	m.interTokenLatencyChan = common.NewChannel[metrics.HistogramUpdate]("sglang", maxNumberOfTokens, ctx.Done())
-	go common.Subscribe(ctx, m.interTokenLatencyChan, m.updateInterTokenLatency)
-
 	m.reqTpotChan = common.NewChannel[streamObservation]("sglang", maxNumberOfRunningRequests, ctx.Done())
-	go common.Subscribe(ctx, m.reqTpotChan, m.updateReqTpot)
-
 	m.e2eReqLatencyChan = common.NewChannel[streamObservation]("sglang", maxNumberOfRunningRequests, ctx.Done())
-	go common.Subscribe(ctx, m.e2eReqLatencyChan, m.updateE2EReqLatency)
-
 	m.promptTokensHistChan = common.NewChannel[metrics.HistogramUpdate]("sglang", maxNumberOfRunningRequests, ctx.Done())
-	go common.Subscribe(ctx, m.promptTokensHistChan, m.updatePromptTokensHist)
-
 	m.generationTokensHistChan = common.NewChannel[metrics.HistogramUpdate]("sglang", maxNumberOfRunningRequests, ctx.Done())
-	go common.Subscribe(ctx, m.generationTokensHistChan, m.updateGenerationTokensHist)
-
 	m.promptTokensTotalChan = common.NewChannel[streamObservation]("sglang", maxNumberOfRunningRequests, ctx.Done())
-	go common.Subscribe(ctx, m.promptTokensTotalChan, m.updatePromptTokensTotal)
-
 	m.generationTokensTotalChan = common.NewChannel[streamObservation]("sglang", maxNumberOfRunningRequests, ctx.Done())
-	go common.Subscribe(ctx, m.generationTokensTotalChan, m.updateGenerationTokensTotal)
-
 	m.requestsTotalChan = common.NewChannel[streamObservation]("sglang", maxNumberOfRunningRequests, ctx.Done())
-	go common.Subscribe(ctx, m.requestsTotalChan, m.updateRequestsTotal)
 }
 
 // -- Per-metric updaters --------------------------------------------------
