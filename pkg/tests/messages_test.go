@@ -546,6 +546,25 @@ var _ = Describe("Simulator for /v1/messages (Anthropic Messages API)", forEachE
 					`{"role":"user","content":"`+testUserMessage+`"}]`),
 		)
 
+		It("counts system messages inside messages as part of the leading system message", func() {
+			client, err := startServer(ctx, common.ModeRandom)
+			Expect(err).NotTo(HaveOccurred())
+
+			count := func(body string) int {
+				status, respBody := postMessagesRoute(client, "/v1/messages/count_tokens", body)
+				Expect(status).To(Equal(http.StatusOK), "response body: %s", string(respBody))
+				var resp api.MessagesCountTokensResponse
+				Expect(json.Unmarshal(respBody, &resp)).To(Succeed())
+				return resp.InputTokens
+			}
+			inline := count(`{"model":"` + model + `","system":"You are a helpful assistant.",` +
+				`"messages":[{"role":"user","content":"` + testUserMessage + `"},` +
+				`{"role":"system","content":" Be brief."},{"role":"user","content":"` + testUserMessage + `"}]}`)
+			merged := count(`{"model":"` + model + `","system":"You are a helpful assistant. Be brief.",` +
+				`"messages":[{"role":"user","content":"` + testUserMessage + `"},{"role":"user","content":"` + testUserMessage + `"}]}`)
+			Expect(inline).To(Equal(merged))
+		})
+
 		It("ignores mm_payload", func() {
 			client, err := startServer(ctx, common.ModeRandom)
 			Expect(err).NotTo(HaveOccurred())
