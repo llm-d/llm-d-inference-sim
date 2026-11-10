@@ -249,11 +249,12 @@ type PrefillStarted struct {
 }
 
 // PrefillEnded fires after the simulated prefill delay. Drives
-// request_prefill_time_seconds and time_to_first_token_seconds (same
-// value observed on both histograms).
+// request_prefill_time_seconds (PrefillDuration) and
+// time_to_first_token_seconds (TimeToFirstToken).
 type PrefillEnded struct {
-	PrefillDuration float64 // seconds
-	IsStreaming     bool
+	PrefillDuration  float64 // seconds
+	TimeToFirstToken float64 // seconds since the request arrived, queue time included
+	IsStreaming      bool
 }
 
 // DecodeStarted fires before the per-token generation loop. State marker.

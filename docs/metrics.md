@@ -23,7 +23,7 @@ Currently supported are the following metrics:
 | vllm:request_prefill_time_seconds | Histogram of time spent in PREFILL phase for request |
 | vllm:request_decode_time_seconds | Histogram of time spent in DECODE phase for request |
 | vllm:request_time_per_output_token_seconds | Histogram of time_per_output_token_seconds per request |
-| vllm:time_to_first_token_seconds | Histogram of time to first token in seconds |
+| vllm:time_to_first_token_seconds | Histogram of time from request arrival to the first token in seconds, including the time spent in the queue |
 | vllm:time_per_output_token_seconds | Histogram of time per output token in seconds |
 | vllm:inter_token_latency_seconds | Histogram of inter-token latency in seconds |
 | vllm:lora_requests_info | Running stats on LoRA requests. Exposed only when LoRA modules are configured, and only after the first LoRA request |

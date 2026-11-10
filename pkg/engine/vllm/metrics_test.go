@@ -88,6 +88,28 @@ func counterValue(c *prometheus.CounterVec, labelValues ...string) func() float6
 	}
 }
 
+type histogramValue struct {
+	count uint64
+	sum   float64
+}
+
+// histogramSample reads the named histogram from the adapter's registry, or
+// the zero value before its first observation. Like gaugeValue, callers wrap
+// it in Eventually.
+func histogramSample(adapter *VLLMMetricsAdapter, name string) func() histogramValue {
+	return func() histogramValue {
+		families, err := adapter.registry.Gather()
+		Expect(err).NotTo(HaveOccurred())
+		for _, family := range families {
+			if family.GetName() == name && len(family.GetMetric()) == 1 {
+				histogram := family.GetMetric()[0].GetHistogram()
+				return histogramValue{count: histogram.GetSampleCount(), sum: histogram.GetSampleSum()}
+			}
+		}
+		return histogramValue{}
+	}
+}
+
 var _ = Describe("MetricsBus", func() {
 	It("has a nil-safe ApplyFakeMetricsUpdate", func() {
 		var b *metrics.MetricsBus
@@ -160,6 +182,14 @@ var _ = Describe("VLLMMetricsAdapter", func() {
 			Eventually(func() (int, error) {
 				return testutil.GatherAndCount(adapter.registry, "vllm:request_max_num_generation_tokens")
 			}).Should(Equal(1))
+		})
+
+		It("observes the time to first token and the prefill duration on their own histograms", func() {
+			adapter, _ := newTestAdapter(newTestConfig())
+
+			adapter.OnPrefillEnded(metrics.PrefillEnded{PrefillDuration: 0.1, TimeToFirstToken: 0.4})
+			Eventually(histogramSample(adapter, VLLMTTFTMetricName)).Should(Equal(histogramValue{count: 1, sum: 0.4}))
+			Eventually(histogramSample(adapter, VLLMPrefillTimeMetricName)).Should(Equal(histogramValue{count: 1, sum: 0.1}))
 		})
 
 		It("labels request_success_total with vLLM's finished_reason", func() {

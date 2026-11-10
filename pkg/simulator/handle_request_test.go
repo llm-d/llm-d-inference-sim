@@ -89,6 +89,25 @@ func newTextCompletionsRequestWithChoices(id string, n int) *endpoint.TextComple
 	return req
 }
 
+type histogramSample struct {
+	count uint64
+	sum   float64
+}
+
+// histogramSampleOf reads the named histogram from sim's registry. Before its
+// first observation it returns the zero value.
+func histogramSampleOf(sim *Simulator, name string) histogramSample {
+	families, err := sim.Context.prometheusRegistry.Gather()
+	Expect(err).NotTo(HaveOccurred())
+	for _, family := range families {
+		if family.GetName() == name && len(family.GetMetric()) == 1 {
+			histogram := family.GetMetric()[0].GetHistogram()
+			return histogramSample{count: histogram.GetSampleCount(), sum: histogram.GetSampleSum()}
+		}
+	}
+	return histogramSample{}
+}
+
 var _ = Describe("HandleRequest enqueue failure", func() {
 	It("returns a 429 error instead of dropping the request when newRequests is full", func() {
 		sim := newHandleRequestTestSim(context.Background(), 1)
@@ -356,6 +375,33 @@ var _ = Describe("processRequest", func() {
 		},
 		Entry("streaming", true),
 		Entry("non-streaming", false),
+	)
+
+	DescribeTable("observes the wait before processing in the time to first token but not in the prefill time",
+		func(stream bool, wait time.Duration) {
+			sim := newHandleRequestTestSim(context.Background(), 1, "--time-to-first-token", "50ms")
+
+			req := newTextCompletionsRequestWithChoices("waited", 1)
+			req.Stream = stream
+			_, _, _, topErr, _ := sim.HandleRequest(context.Background(), req)
+			Expect(topErr).To(BeNil())
+			reqCtx := <-sim.newRequests.Channel
+			time.Sleep(wait)
+			sim.processRequest(reqCtx)
+
+			Eventually(func(g Gomega) {
+				ttft := histogramSampleOf(sim, vllm.VLLMTTFTMetricName)
+				prefill := histogramSampleOf(sim, vllm.VLLMPrefillTimeMetricName)
+				g.Expect(ttft.count).To(Equal(uint64(1)))
+				g.Expect(prefill.count).To(Equal(uint64(1)))
+				g.Expect(prefill.sum).To(BeNumerically("~", 0.05, 0.01))
+				g.Expect(ttft.sum).To(BeNumerically(">=", prefill.sum+wait.Seconds()))
+				g.Expect(ttft.sum).To(BeNumerically("<", prefill.sum+wait.Seconds()+0.5))
+			}).Should(Succeed())
+		},
+		Entry("streaming, after a wait", true, 300*time.Millisecond),
+		Entry("non-streaming, after a wait", false, 300*time.Millisecond),
+		Entry("non-streaming, without a wait", false, time.Duration(0)),
 	)
 
 	It("reports the prompt tokens served from the prefix cache on the success event", func() {

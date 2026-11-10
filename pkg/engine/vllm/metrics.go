@@ -287,7 +287,7 @@ func (m *VLLMMetricsAdapter) OnPrefillEnded(ev metrics.PrefillEnded) {
 		return
 	}
 	common.WriteToChannel(m.reqPrefillTimeChan, metrics.Observation(ev.PrefillDuration), m.logger)
-	common.WriteToChannel(m.ttftChan, metrics.Observation(ev.PrefillDuration), m.logger)
+	common.WriteToChannel(m.ttftChan, metrics.Observation(ev.TimeToFirstToken), m.logger)
 }
 
 func (m *VLLMMetricsAdapter) OnDecodeStarted(_ metrics.DecodeStarted) {
