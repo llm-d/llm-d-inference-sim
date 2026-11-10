@@ -1421,9 +1421,6 @@ func (m *MessagesRequest) systemText() string {
 	return systemBlocksText(m.System.Blocks)
 }
 
-// inlineSystemText returns the text of a system message inside messages. vLLM
-// drops the billing header there in string form too, unlike the top-level
-// system prompt.
 func inlineSystemText(c AnthropicMessageContent) string {
 	if c.Raw != "" {
 		if strings.HasPrefix(c.Raw, anthropicBillingHeaderPrefix) {
