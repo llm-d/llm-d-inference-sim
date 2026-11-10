@@ -797,13 +797,13 @@ var _ = Describe("Simulator configuration", func() {
 			expectedError: "max num seqs cannot be less than 1",
 		},
 		{
-			name: "invalid stream-interval",
+			name: "invalid stream-interval zero",
 			args: []string{"cmd", "--stream-interval", "0",
 				"--config", "../../../manifests/vllm-config.yaml"},
 			expectedError: "stream interval cannot be less than 1",
 		},
 		{
-			name: "invalid stream-interval",
+			name: "invalid stream-interval negative",
 			args: []string{"cmd", "--stream-interval", "-1",
 				"--config", "../../../manifests/vllm-config.yaml"},
 			expectedError: "stream interval cannot be less than 1",
