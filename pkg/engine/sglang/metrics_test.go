@@ -30,6 +30,7 @@ import (
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/metrics"
+	"github.com/llm-d/llm-d-inference-sim/pkg/metrics/metricstest"
 )
 
 const (
@@ -61,21 +62,6 @@ func newTestAdapter() (*sglangMetricsAdapter, *prometheus.Registry) {
 	DeferCleanup(func() { Expect(adapter.Close()).To(Succeed()) })
 
 	return adapter, registry
-}
-
-// gaugeValue reads the model-labeled gauge. Adapter writes are asynchronous
-// (channel -> updater goroutine -> Prometheus), so callers wrap this in
-// Eventually.
-func gaugeValue(g *prometheus.GaugeVec) func() float64 {
-	return func() float64 {
-		return testutil.ToFloat64(g.WithLabelValues(common.TestModelName))
-	}
-}
-
-func counterValue(c *prometheus.CounterVec, labelValues ...string) func() float64 {
-	return func() float64 {
-		return testutil.ToFloat64(c.WithLabelValues(labelValues...))
-	}
 }
 
 // histogramStats returns the observation count and sum of the series of the
@@ -151,10 +137,10 @@ var _ = Describe("Metrics adapter", func() {
 
 			adapter.OnRequestQueued(metrics.RequestQueued{})
 			adapter.OnRequestQueued(metrics.RequestQueued{})
-			Eventually(gaugeValue(adapter.queuedRequests)).Should(Equal(float64(2)))
+			Eventually(metricstest.GaugeValue(adapter.queuedRequests)).Should(Equal(float64(2)))
 
 			adapter.OnRequestDequeued(metrics.RequestDequeued{QueueTime: 0.1})
-			Eventually(gaugeValue(adapter.queuedRequests)).Should(Equal(float64(1)))
+			Eventually(metricstest.GaugeValue(adapter.queuedRequests)).Should(Equal(float64(1)))
 			Eventually(histogramCount(registry, SGLangQueueTimeMetricName, "")).Should(Equal(uint64(1)))
 		})
 
@@ -163,7 +149,7 @@ var _ = Describe("Metrics adapter", func() {
 
 			adapter.OnRequestRunning(metrics.RequestRunning{})
 			adapter.OnRequestRunning(metrics.RequestRunning{})
-			Eventually(gaugeValue(adapter.runningRequests)).Should(Equal(float64(2)))
+			Eventually(metricstest.GaugeValue(adapter.runningRequests)).Should(Equal(float64(2)))
 		})
 
 		It("observes time to first token", func() {
@@ -222,7 +208,7 @@ var _ = Describe("Metrics adapter", func() {
 			adapter, registry := newTestAdapter()
 
 			adapter.OnRequestRunning(metrics.RequestRunning{})
-			Eventually(gaugeValue(adapter.runningRequests)).Should(Equal(float64(1)))
+			Eventually(metricstest.GaugeValue(adapter.runningRequests)).Should(Equal(float64(1)))
 
 			adapter.OnRequestSucceeded(metrics.RequestSucceeded{
 				PromptTokens:     10,
@@ -230,10 +216,10 @@ var _ = Describe("Metrics adapter", func() {
 				FinishReason:     common.StopFinishReason,
 				E2ELatency:       0.5,
 			})
-			Eventually(gaugeValue(adapter.runningRequests)).Should(BeZero())
-			Eventually(counterValue(adapter.promptTokensTotal, common.TestModelName, nonStreaming)).Should(Equal(float64(10)))
-			Eventually(counterValue(adapter.generationTokensTotal, common.TestModelName, nonStreaming)).Should(Equal(float64(20)))
-			Eventually(counterValue(adapter.requestsTotal, common.TestModelName, nonStreaming)).Should(Equal(float64(1)))
+			Eventually(metricstest.GaugeValue(adapter.runningRequests)).Should(BeZero())
+			Eventually(metricstest.CounterValue(adapter.promptTokensTotal, common.TestModelName, nonStreaming)).Should(Equal(float64(10)))
+			Eventually(metricstest.CounterValue(adapter.generationTokensTotal, common.TestModelName, nonStreaming)).Should(Equal(float64(20)))
+			Eventually(metricstest.CounterValue(adapter.requestsTotal, common.TestModelName, nonStreaming)).Should(Equal(float64(1)))
 			Eventually(histogramCount(registry, SGLangE2EReqLatencyMetricName, nonStreaming)).Should(Equal(uint64(1)))
 			Eventually(histogramCount(registry, SGLangPromptTokensHistMetricName, "")).Should(Equal(uint64(1)))
 			Eventually(histogramCount(registry, SGLangGenerationTokensHistMetricName, "")).Should(Equal(uint64(1)))
@@ -249,10 +235,10 @@ var _ = Describe("Metrics adapter", func() {
 				PromptTokens: 3, GenerationTokens: 7, E2ELatency: 0.2,
 			})
 
-			Eventually(counterValue(adapter.promptTokensTotal, common.TestModelName, streaming)).Should(Equal(float64(10)))
-			Eventually(counterValue(adapter.promptTokensTotal, common.TestModelName, nonStreaming)).Should(Equal(float64(3)))
-			Eventually(counterValue(adapter.generationTokensTotal, common.TestModelName, streaming)).Should(Equal(float64(20)))
-			Eventually(counterValue(adapter.generationTokensTotal, common.TestModelName, nonStreaming)).Should(Equal(float64(7)))
+			Eventually(metricstest.CounterValue(adapter.promptTokensTotal, common.TestModelName, streaming)).Should(Equal(float64(10)))
+			Eventually(metricstest.CounterValue(adapter.promptTokensTotal, common.TestModelName, nonStreaming)).Should(Equal(float64(3)))
+			Eventually(metricstest.CounterValue(adapter.generationTokensTotal, common.TestModelName, streaming)).Should(Equal(float64(20)))
+			Eventually(metricstest.CounterValue(adapter.generationTokensTotal, common.TestModelName, nonStreaming)).Should(Equal(float64(7)))
 			Eventually(histogramCount(registry, SGLangE2EReqLatencyMetricName, streaming)).Should(Equal(uint64(1)))
 			Eventually(histogramCount(registry, SGLangE2EReqLatencyMetricName, nonStreaming)).Should(Equal(uint64(1)))
 		})
@@ -263,9 +249,9 @@ var _ = Describe("Metrics adapter", func() {
 			adapter.OnRequestRunning(metrics.RequestRunning{})
 			adapter.OnRequestFailed(metrics.RequestFailed{E2ELatency: 0.5, InferenceTime: 0.4})
 
-			Eventually(gaugeValue(adapter.runningRequests)).Should(BeZero())
+			Eventually(metricstest.GaugeValue(adapter.runningRequests)).Should(BeZero())
 			Consistently(histogramCount(registry, SGLangE2EReqLatencyMetricName, nonStreaming)).Should(BeZero())
-			Consistently(counterValue(adapter.promptTokensTotal, common.TestModelName, nonStreaming)).Should(BeZero())
+			Consistently(metricstest.CounterValue(adapter.promptTokensTotal, common.TestModelName, nonStreaming)).Should(BeZero())
 		})
 	})
 

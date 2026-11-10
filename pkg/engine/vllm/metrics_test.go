@@ -36,6 +36,7 @@ import (
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/metrics"
+	"github.com/llm-d/llm-d-inference-sim/pkg/metrics/metricstest"
 )
 
 func newTestConfig() common.Configuration {
@@ -73,21 +74,6 @@ func newTestAdapter(cfg common.Configuration) (*VLLMMetricsAdapter, *metrics.Met
 	return adapter, bus
 }
 
-// gaugeValue reads the model-labeled gauge. Adapter writes are asynchronous
-// (channel -> updater goroutine -> Prometheus), so callers wrap this in
-// Eventually.
-func gaugeValue(g *prometheus.GaugeVec) func() float64 {
-	return func() float64 {
-		return testutil.ToFloat64(g.WithLabelValues(common.TestModelName))
-	}
-}
-
-func counterValue(c *prometheus.CounterVec, labelValues ...string) func() float64 {
-	return func() float64 {
-		return testutil.ToFloat64(c.WithLabelValues(labelValues...))
-	}
-}
-
 var _ = Describe("MetricsBus", func() {
 	It("has a nil-safe ApplyFakeMetricsUpdate", func() {
 		var b *metrics.MetricsBus
@@ -119,10 +105,10 @@ var _ = Describe("VLLMMetricsAdapter", func() {
 
 			adapter.OnRequestQueued(metrics.RequestQueued{})
 			adapter.OnRequestQueued(metrics.RequestQueued{})
-			Eventually(gaugeValue(adapter.waitingRequests)).Should(Equal(float64(2)))
+			Eventually(metricstest.GaugeValue(adapter.waitingRequests)).Should(Equal(float64(2)))
 
 			adapter.OnRequestDequeued(metrics.RequestDequeued{QueueTime: 0.1})
-			Eventually(gaugeValue(adapter.waitingRequests)).Should(Equal(float64(1)))
+			Eventually(metricstest.GaugeValue(adapter.waitingRequests)).Should(Equal(float64(1)))
 		})
 
 		It("updates the running gauge on OnRequestRunning", func() {
@@ -130,14 +116,14 @@ var _ = Describe("VLLMMetricsAdapter", func() {
 
 			adapter.OnRequestRunning(metrics.RequestRunning{})
 			adapter.OnRequestRunning(metrics.RequestRunning{})
-			Eventually(gaugeValue(adapter.runningRequests)).Should(Equal(float64(2)))
+			Eventually(metricstest.GaugeValue(adapter.runningRequests)).Should(Equal(float64(2)))
 		})
 
 		It("decrements running and records tokens on success", func() {
 			adapter, _ := newTestAdapter(newTestConfig())
 
 			adapter.OnRequestRunning(metrics.RequestRunning{})
-			Eventually(gaugeValue(adapter.runningRequests)).Should(Equal(float64(1)))
+			Eventually(metricstest.GaugeValue(adapter.runningRequests)).Should(Equal(float64(1)))
 
 			adapter.OnRequestSucceeded(metrics.RequestSucceeded{
 				PromptTokens:       10,
@@ -147,10 +133,10 @@ var _ = Describe("VLLMMetricsAdapter", func() {
 				E2ELatency:         0.5,
 				InferenceTime:      0.4,
 			})
-			Eventually(gaugeValue(adapter.runningRequests)).Should(BeZero())
-			Eventually(counterValue(adapter.promptTokensTotal, common.TestModelName)).Should(Equal(float64(10)))
-			Eventually(counterValue(adapter.generationTokensTotal, common.TestModelName)).Should(Equal(float64(20)))
-			Eventually(counterValue(adapter.requestSuccessTotal, common.TestModelName, "stop")).Should(Equal(float64(1)))
+			Eventually(metricstest.GaugeValue(adapter.runningRequests)).Should(BeZero())
+			Eventually(metricstest.CounterValue(adapter.promptTokensTotal, common.TestModelName)).Should(Equal(float64(10)))
+			Eventually(metricstest.CounterValue(adapter.generationTokensTotal, common.TestModelName)).Should(Equal(float64(20)))
+			Eventually(metricstest.CounterValue(adapter.requestSuccessTotal, common.TestModelName, "stop")).Should(Equal(float64(1)))
 		})
 
 		It("exports the max generation tokens histogram under vLLM's name", func() {
@@ -180,7 +166,7 @@ vllm:request_success_total{finished_reason="stop",model_name=%q} 1
 			adapter, _ := newTestAdapter(newTestConfig())
 
 			adapter.OnKVCacheUsageChanged(metrics.KVCacheUsageChanged{KVCacheUsagePerc: 0.75})
-			Eventually(gaugeValue(adapter.kvCacheUsagePercentage)).Should(Equal(0.75))
+			Eventually(metricstest.GaugeValue(adapter.kvCacheUsagePercentage)).Should(Equal(0.75))
 		})
 
 		It("stamps each lora_requests_info series later than the one before it", func() {
@@ -202,8 +188,8 @@ vllm:request_success_total{finished_reason="stop",model_name=%q} 1
 
 			adapter.OnPrefixCacheQueried(metrics.PrefixCacheQueried{QueriedTokens: 100, CachedPromptTokens: 40})
 			adapter.OnPrefixCacheQueried(metrics.PrefixCacheQueried{QueriedTokens: 50, CachedPromptTokens: 10})
-			Eventually(counterValue(adapter.prefixCacheQueriesTotal, common.TestModelName)).Should(Equal(float64(150)))
-			Eventually(counterValue(adapter.prefixCacheHitsTotal, common.TestModelName)).Should(Equal(float64(50)))
+			Eventually(metricstest.CounterValue(adapter.prefixCacheQueriesTotal, common.TestModelName)).Should(Equal(float64(150)))
+			Eventually(metricstest.CounterValue(adapter.prefixCacheHitsTotal, common.TestModelName)).Should(Equal(float64(50)))
 		})
 	})
 
@@ -220,10 +206,10 @@ vllm:request_success_total{finished_reason="stop",model_name=%q} 1
 
 			// Nothing should change; Consistently gives the updater goroutines a
 			// chance to run and still find zeros.
-			Consistently(gaugeValue(adapter.waitingRequests), 50*time.Millisecond).Should(BeZero())
-			Expect(gaugeValue(adapter.runningRequests)()).To(BeZero())
-			Expect(gaugeValue(adapter.kvCacheUsagePercentage)()).To(BeZero())
-			Expect(counterValue(adapter.prefixCacheQueriesTotal, common.TestModelName)()).To(BeZero())
+			Consistently(metricstest.GaugeValue(adapter.waitingRequests), 50*time.Millisecond).Should(BeZero())
+			Expect(metricstest.GaugeValue(adapter.runningRequests)()).To(BeZero())
+			Expect(metricstest.GaugeValue(adapter.kvCacheUsagePercentage)()).To(BeZero())
+			Expect(metricstest.CounterValue(adapter.prefixCacheQueriesTotal, common.TestModelName)()).To(BeZero())
 		})
 
 		It("applies fixed scalar values via ApplyUpdate", func() {
@@ -239,9 +225,9 @@ vllm:request_success_total{finished_reason="stop",model_name=%q} 1
 			}
 			adapter.ApplyFakeMetricsUpdate(upd)
 
-			Eventually(gaugeValue(adapter.runningRequests)).Should(Equal(float64(3)))
-			Eventually(gaugeValue(adapter.waitingRequests)).Should(Equal(float64(7)))
-			Eventually(gaugeValue(adapter.kvCacheUsagePercentage)).Should(Equal(kv))
+			Eventually(metricstest.GaugeValue(adapter.runningRequests)).Should(Equal(float64(3)))
+			Eventually(metricstest.GaugeValue(adapter.waitingRequests)).Should(Equal(float64(7)))
+			Eventually(metricstest.GaugeValue(adapter.kvCacheUsagePercentage)).Should(Equal(kv))
 		})
 
 		It("enters fake mode from a real-metrics adapter on first ApplyUpdate", func() {
@@ -257,15 +243,15 @@ vllm:request_success_total{finished_reason="stop",model_name=%q} 1
 			adapter.ApplyFakeMetricsUpdate(upd)
 
 			Expect(adapter.fake.Load()).NotTo(BeNil())
-			Eventually(gaugeValue(adapter.runningRequests)).Should(Equal(float64(20)))
-			Eventually(gaugeValue(adapter.waitingRequests)).Should(Equal(float64(10)))
-			Eventually(gaugeValue(adapter.kvCacheUsagePercentage)).Should(Equal(kv))
+			Eventually(metricstest.GaugeValue(adapter.runningRequests)).Should(Equal(float64(20)))
+			Eventually(metricstest.GaugeValue(adapter.waitingRequests)).Should(Equal(float64(10)))
+			Eventually(metricstest.GaugeValue(adapter.kvCacheUsagePercentage)).Should(Equal(kv))
 
 			// Real-path events must no-op after entering fake mode.
 			adapter.OnRequestRunning(metrics.RequestRunning{})
 			adapter.OnKVCacheUsageChanged(metrics.KVCacheUsageChanged{KVCacheUsagePerc: 0.1})
-			Consistently(gaugeValue(adapter.runningRequests)).Should(Equal(float64(20)))
-			Consistently(gaugeValue(adapter.kvCacheUsagePercentage)).Should(Equal(kv))
+			Consistently(metricstest.GaugeValue(adapter.runningRequests)).Should(Equal(float64(20)))
+			Consistently(metricstest.GaugeValue(adapter.kvCacheUsagePercentage)).Should(Equal(kv))
 		})
 
 		It("enters fake mode concurrently with real-path event handlers without data races", func() {
@@ -288,9 +274,9 @@ vllm:request_success_total{finished_reason="stop",model_name=%q} 1
 			}
 			<-done
 			Expect(adapter.fake.Load()).NotTo(BeNil())
-			Eventually(gaugeValue(adapter.runningRequests)).Should(Equal(float64(9)))
-			Eventually(gaugeValue(adapter.waitingRequests)).Should(Equal(float64(3)))
-			Eventually(gaugeValue(adapter.kvCacheUsagePercentage)).Should(Equal(0.8))
+			Eventually(metricstest.GaugeValue(adapter.runningRequests)).Should(Equal(float64(9)))
+			Eventually(metricstest.GaugeValue(adapter.waitingRequests)).Should(Equal(float64(3)))
+			Eventually(metricstest.GaugeValue(adapter.kvCacheUsagePercentage)).Should(Equal(0.8))
 		})
 
 		It("starts and stops the ticker as generators are enabled and cleared", func() {
@@ -372,7 +358,7 @@ vllm:request_success_total{finished_reason="stop",model_name=%q} 1
 				TotalPromptTokens:   &firstTotal,
 				RequestSuccessTotal: map[string]int64{"stop": 3, "length": 2},
 			})
-			Eventually(counterValue(adapter.promptTokensTotal, common.TestModelName)).Should(Equal(float64(firstTotal)))
+			Eventually(metricstest.CounterValue(adapter.promptTokensTotal, common.TestModelName)).Should(Equal(float64(firstTotal)))
 			Eventually(func() int { return testutil.CollectAndCount(adapter.requestSuccessTotal) }).Should(Equal(2))
 
 			adapter.ApplyFakeMetricsUpdate(&VLLMFakeMetrics{
@@ -380,9 +366,9 @@ vllm:request_success_total{finished_reason="stop",model_name=%q} 1
 				TotalPromptTokens:   &secondTotal,
 				RequestSuccessTotal: map[string]int64{"stop": 1},
 			})
-			Eventually(counterValue(adapter.promptTokensTotal, common.TestModelName)).Should(Equal(float64(secondTotal)))
+			Eventually(metricstest.CounterValue(adapter.promptTokensTotal, common.TestModelName)).Should(Equal(float64(secondTotal)))
 			Eventually(func() int { return testutil.CollectAndCount(adapter.requestSuccessTotal) }).Should(Equal(1))
-			Expect(counterValue(adapter.requestSuccessTotal, common.TestModelName, "stop")()).To(Equal(float64(1)))
+			Expect(metricstest.CounterValue(adapter.requestSuccessTotal, common.TestModelName, "stop")()).To(Equal(float64(1)))
 
 			Expect(adapter.ttft).To(BeIdenticalTo(ttft))
 			Expect(adapter.promptTokensTotal).To(BeIdenticalTo(promptTokensTotal))
