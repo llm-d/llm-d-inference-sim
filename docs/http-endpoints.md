@@ -224,7 +224,7 @@ Structure of requests/responses
                 - url
               - type, id, name, input (for `tool_use` blocks)
               - type, tool_use_id, content (for `tool_result` blocks)
-        - system
+        - system (string or array of `text` blocks)
         - max_tokens (required)
         - tools
           - name
