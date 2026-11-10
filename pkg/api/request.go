@@ -1342,7 +1342,7 @@ func (c *AnthropicMessageContent) PlainText() string {
 
 // AnthropicMessage is a single message in the Anthropic Messages API.
 type AnthropicMessage struct {
-	// Role is "user" or "assistant"
+	// Role is "user", "assistant" or "system"
 	Role    string                  `json:"role"`
 	Content AnthropicMessageContent `json:"content"`
 }
@@ -1418,8 +1418,25 @@ func (m *MessagesRequest) systemText() string {
 	if m.System.Raw != "" {
 		return m.System.Raw
 	}
+	return systemBlocksText(m.System.Blocks)
+}
+
+// inlineSystemText returns the text of a system message inside messages. vLLM
+// drops the billing header there in string form too, unlike the top-level
+// system prompt.
+func inlineSystemText(c AnthropicMessageContent) string {
+	if c.Raw != "" {
+		if strings.HasPrefix(c.Raw, anthropicBillingHeaderPrefix) {
+			return ""
+		}
+		return c.Raw
+	}
+	return systemBlocksText(c.Blocks)
+}
+
+func systemBlocksText(blocks []AnthropicContentBlock) string {
 	var b strings.Builder
-	for _, block := range m.System.Blocks {
+	for _, block := range blocks {
 		if block.Type == ContentTypeText && !strings.HasPrefix(block.Text, anthropicBillingHeaderPrefix) {
 			b.WriteString(block.Text)
 		}
@@ -1433,6 +1450,8 @@ func (m *MessagesRequest) systemText() string {
 // Mapping rules:
 //   - system prompt -> leading Message{Role: "system"}; text blocks are joined
 //     without a separator and billing header blocks are dropped, as vLLM does
+//   - "system" message -> Message{Role: "system"} with its text joined the same
+//     way; a billing header is dropped in string form too
 //   - "text" block  -> ChatComplContentBlock{Type: "text"}
 //   - "image" block -> ChatComplContentBlock{Type: "image_url"} (base64 sources become data URLs)
 //   - "tool_use" block (assistant) -> Message.ToolCalls entry
@@ -1448,6 +1467,16 @@ func (m *MessagesRequest) ToChatCompletionsRequest() *ChatCompletionsRequest {
 	}
 
 	for _, am := range m.Messages {
+		if am.Role == "system" {
+			if text := inlineSystemText(am.Content); text != "" {
+				msgs = append(msgs, Message{
+					Role:    "system",
+					Content: ChatComplContent{Raw: text},
+				})
+			}
+			continue
+		}
+
 		// String-form content: emit directly.
 		if am.Content.Raw != "" {
 			msgs = append(msgs, Message{

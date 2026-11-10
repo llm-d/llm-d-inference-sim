@@ -515,6 +515,37 @@ var _ = Describe("Simulator for /v1/messages (Anthropic Messages API)", forEachE
 			}
 		})
 
+		DescribeTable("leaves the billing header out of the prompt",
+			func(withHeader, withoutHeader string) {
+				client, err := startServer(ctx, common.ModeRandom)
+				Expect(err).NotTo(HaveOccurred())
+
+				count := func(messages string) int {
+					body := `{"model":"` + model + `",` + messages + `}`
+					status, respBody := postMessagesRoute(client, "/v1/messages/count_tokens", body)
+					Expect(status).To(Equal(http.StatusOK), "response body: %s", string(respBody))
+					var resp api.MessagesCountTokensResponse
+					Expect(json.Unmarshal(respBody, &resp)).To(Succeed())
+					return resp.InputTokens
+				}
+				Expect(count(withHeader)).To(Equal(count(withoutHeader)))
+			},
+			Entry("system text blocks",
+				`"system":[{"type":"text","text":"x-anthropic-billing-header: cch=1a2b;"},{"type":"text","text":"You are a helpful assistant."}],`+
+					`"messages":[{"role":"user","content":"`+testUserMessage+`"}]`,
+				`"system":[{"type":"text","text":"You are a helpful assistant."}],`+
+					`"messages":[{"role":"user","content":"`+testUserMessage+`"}]`),
+			Entry("system message in string form",
+				`"messages":[{"role":"system","content":"x-anthropic-billing-header: cch=1a2b;"},`+
+					`{"role":"user","content":"`+testUserMessage+`"}]`,
+				`"messages":[{"role":"user","content":"`+testUserMessage+`"}]`),
+			Entry("system message with text blocks",
+				`"messages":[{"role":"system","content":[{"type":"text","text":"x-anthropic-billing-header: cch=1a2b;"},`+
+					`{"type":"text","text":"You are a helpful assistant."}]},{"role":"user","content":"`+testUserMessage+`"}]`,
+				`"messages":[{"role":"system","content":"You are a helpful assistant."},`+
+					`{"role":"user","content":"`+testUserMessage+`"}]`),
+		)
+
 		It("ignores mm_payload", func() {
 			client, err := startServer(ctx, common.ModeRandom)
 			Expect(err).NotTo(HaveOccurred())
