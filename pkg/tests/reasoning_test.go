@@ -43,7 +43,7 @@ var _ = Describe("chat completion reasoning simulation", func() {
 			body := `{"model":"` + common.TestModelName + `","messages":[{"role":"user","content":"` + prompt + `"}],"max_tokens":20}`
 			resp, err := client.Post(baseURL+"/chat/completions", "application/json", strings.NewReader(body))
 			Expect(err).NotTo(HaveOccurred())
-			defer resp.Body.Close()
+			defer func() { Expect(resp.Body.Close()).To(Succeed()) }()
 			Expect(resp.StatusCode).To(Equal(http.StatusOK))
 			data, err := io.ReadAll(resp.Body)
 			Expect(err).NotTo(HaveOccurred())
@@ -62,11 +62,12 @@ var _ = Describe("chat completion reasoning simulation", func() {
 			Expect(out.Choices).To(HaveLen(1))
 			Expect(out.Choices[0].Message.Reasoning + out.Choices[0].Message.Content).To(Equal(prompt))
 			Expect(out.Usage.CompletionTokens).To(BeNumerically(">", 0))
-			if pct == 0 {
+			switch pct {
+			case 0:
 				Expect(out.Choices[0].Message.Reasoning).To(BeEmpty())
-			} else if pct == 100 {
+			case 100:
 				Expect(out.Choices[0].Message.Content).To(BeEmpty())
-			} else {
+			default:
 				Expect(out.Choices[0].Message.Reasoning).NotTo(BeEmpty())
 				Expect(out.Choices[0].Message.Content).NotTo(BeEmpty())
 			}
@@ -83,7 +84,7 @@ var _ = Describe("chat completion reasoning simulation", func() {
 		body := `{"model":"` + common.TestModelName + `","messages":[{"role":"user","content":"` + prompt + `"}],"max_tokens":20,"stream":true,"stream_options":{"include_usage":true},"n":2}`
 		resp, err := client.Post(baseURL+"/chat/completions", "application/json", strings.NewReader(body))
 		Expect(err).NotTo(HaveOccurred())
-		defer resp.Body.Close()
+		defer func() { Expect(resp.Body.Close()).To(Succeed()) }()
 		Expect(resp.StatusCode).To(Equal(http.StatusOK))
 		scanner := bufio.NewScanner(resp.Body)
 		reason := map[int]string{}
