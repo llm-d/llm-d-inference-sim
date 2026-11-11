@@ -269,7 +269,8 @@ type TokenGenerated struct {
 
 // DecodeEnded fires after the last token. Drives request_decode_time_seconds
 // (Observe DecodeDuration) and request_time_per_output_token_seconds
-// (Observe DecodeDuration/GenerationTokens when GenerationTokens > 0).
+// (Observe DecodeDuration/GenerationTokens; each engine adapter decides what a
+// single-token output, GenerationTokens 0, reports).
 //
 // GenerationTokens counts the gaps between generated tokens, one fewer than
 // the tokens themselves, so DecodeDuration/GenerationTokens is the time per

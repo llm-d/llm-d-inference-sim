@@ -314,9 +314,12 @@ func (m *VLLMMetricsAdapter) OnDecodeEnded(ev metrics.DecodeEnded) {
 	}
 	common.WriteToChannel(m.reqDecodeTimeChan, metrics.Observation(ev.DecodeDuration), m.logger)
 
+	// vLLM observes 0 for a request that generated a single token.
+	tpot := 0.0
 	if ev.GenerationTokens > 0 {
-		common.WriteToChannel(m.reqTpotChan, metrics.Observation(ev.DecodeDuration/float64(ev.GenerationTokens)), m.logger)
+		tpot = ev.DecodeDuration / float64(ev.GenerationTokens)
 	}
+	common.WriteToChannel(m.reqTpotChan, metrics.Observation(tpot), m.logger)
 }
 
 // request processing finished successfully - update all relevant metrics
