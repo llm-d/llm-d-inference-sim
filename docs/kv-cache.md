@@ -4,7 +4,7 @@ The simulator includes a prefix-cache subsystem that mimics vLLM's KV cache beha
 
 ## What the KV cache simulation does
 
-- **Prefix cache tracking**: incoming prompts are tokenized and split into fixed-size blocks. Blocks already present in the cache are counted as cache hits and do not need to be prefilled.
+- **Prefix cache tracking**: incoming prompts are tokenized and split into fixed-size blocks. Blocks already present in the cache are counted as cache hits and do not need to be prefilled, except the last block of a prompt whose length is a multiple of the block size. The last token is recomputed to produce logits, so that hit is reported as `prompt_tokens - block_size`, matching vLLM.
 - **ZMQ event emission**: `BlockStored`, `BlockRemoved`, and `AllBlocksCleared` events are published over ZMQ so that external consumers (e.g., the llm-d KV cache router) can maintain an accurate view of which blocks each pod holds.
 - **Latency simulation**: when `prefill-time-per-token` is configured, cache hits reduce the simulated TTFT proportionally — only non-cached tokens contribute to prefill time.
 - **Prometheus metrics**: `vllm:kv_cache_usage_perc`, `vllm:prefix_cache_hits_total`, and `vllm:prefix_cache_queries_total` are reported.
@@ -268,7 +268,7 @@ When KV cache is enabled, the response `usage` object includes cached token info
 }
 ```
 
-`cached_tokens` is the number of prompt tokens that were found in the local KV cache.
+`cached_tokens` is the number of prompt tokens served from the local KV cache. A fully cached prompt whose length is a multiple of the block size reports one block fewer than the prompt length, matching vLLM.
 
 ## Prometheus metrics
 

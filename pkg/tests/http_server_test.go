@@ -1172,7 +1172,7 @@ func TestDecisionAPI(t *testing.T) {
 		for _, question := range parsed.Questions {
 			tokens, _, err := sim.Context.Tokenizer.RenderText(parsed.Input + "\n" + string(question))
 			g.Expect(err).NotTo(HaveOccurred())
-			expected += len(tokens) / 8 * 8
+			expected += (len(tokens) - 1) / 8 * 8
 		}
 		g.Expect(expected).To(BeNumerically(">", 0))
 		for i := range 3 {

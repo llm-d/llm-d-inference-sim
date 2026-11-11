@@ -42,11 +42,11 @@ var _ = Describe("Cache salt isolation", func() {
 		}{
 			{"model-a", `"tenant-a"`, false, 0},
 			{"model-a", `"tenant-b"`, false, 0},
-			{"model-a", `"tenant-a"`, false, 16},
+			{"model-a", `"tenant-a"`, false, 8},
 			{"model-a", `"tenant-a"`, true, 16},
 			{"model-b", `"tenant-a"`, false, 0},
 			{"model-a", `null`, false, 0},
-			{"model-a", `""`, false, 16},
+			{"model-a", `""`, false, 8},
 			{"model-a", `"tenant-b"`, true, 16},
 		}
 		for i, tc := range cases {
