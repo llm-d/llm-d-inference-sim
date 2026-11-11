@@ -148,7 +148,7 @@ func (h *KVCacheHelper) OnRequestStart(req api.Request, minHitRate float64) (sta
 		}
 	}
 
-	cachedTokens := nBlocksAlreadyInCache * h.blockSize
+	cachedTokens := reportedCachedPromptTokens(nBlocksAlreadyInCache*h.blockSize, len(tokens), h.blockSize)
 	req.SetNumberOfCachedPromptTokens(cachedTokens)
 
 	stats = metrics.PrefixCacheQueried{
@@ -160,6 +160,21 @@ func (h *KVCacheHelper) OnRequestStart(req api.Request, minHitRate float64) (sta
 	}
 
 	return stats, started, nil
+}
+
+// reportedCachedPromptTokens is the prefix-cache hit vLLM reports for a prompt.
+// The last prompt token is always recomputed to produce logits, and hits are
+// block-aligned, so a fully cached prompt whose length is a multiple of the
+// block size counts one block fewer than the blocks resident in the cache.
+func reportedCachedPromptTokens(cachedTokens, promptTokens, blockSize int) int {
+	if promptTokens <= 0 || blockSize <= 0 {
+		return 0
+	}
+	maxCached := ((promptTokens - 1) / blockSize) * blockSize
+	if cachedTokens > maxCached {
+		return maxCached
+	}
+	return cachedTokens
 }
 
 // hitRate is the fraction of a prompt of promptTokens tokens that is cached,
