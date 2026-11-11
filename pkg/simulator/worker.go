@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 	"github.com/llm-d/llm-d-inference-sim/pkg/endpoint"
@@ -104,13 +105,15 @@ func (s *Simulator) processRequest(reqCtx endpoint.RequestContext) {
 	if respCtx.FinishReason() != nil {
 		finishReason = *respCtx.FinishReason()
 	}
+	responseMaxLen, _ := api.ResponseMaxLen(req, s.Context.Config().MaxModelLen)
+	maxTokens := int64(responseMaxLen)
 	common.WriteToChannel(s.Context.metricsBus.RequestSucceeded,
 		metrics.RequestSucceeded{
 			PromptTokens:       respCtx.UsageData().PromptTokens,
 			CachedPromptTokens: respCtx.NumberCachedPromptTokens(),
 			GenerationTokens:   respCtx.UsageData().CompletionTokens,
 			GenTokensPerChoice: []int{respCtx.UsageData().CompletionTokens},
-			MaxTokens:          req.GetMaxCompletionTokens(),
+			MaxTokens:          &maxTokens,
 			FinishReason:       finishReason,
 			E2ELatency:         time.Since(reqCtx.StartProcessingTime()).Seconds(),
 			InferenceTime:      time.Since(startTime).Seconds(),
