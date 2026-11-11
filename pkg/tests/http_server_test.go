@@ -385,6 +385,15 @@ var _ = Describe("Server", forEachEngine(func() {
 
 }))
 
+func expectUniformSpan(tokenIDs []uint32, p api.RenderPlaceholder) {
+	Expect(p.Offset).To(BeNumerically(">=", 0))
+	Expect(p.Length).To(BeNumerically(">", 1))
+	Expect(p.Offset + p.Length).To(BeNumerically("<=", len(tokenIDs)))
+	for _, id := range tokenIDs[p.Offset : p.Offset+p.Length] {
+		Expect(id).To(Equal(tokenIDs[p.Offset]), "placeholder %+v is not a uniform run of one token", p)
+	}
+}
+
 func expectMMPayloadOmitted(body []byte) {
 	var resp api.RenderResponse
 	Expect(json.Unmarshal(body, &resp)).To(Succeed())
@@ -394,6 +403,9 @@ func expectMMPayloadOmitted(body []byte) {
 	Expect(resp.Features.MMHashes["image"]).To(HaveLen(2))
 	Expect(resp.Features.MMPlaceholders).To(HaveKey("image"))
 	Expect(resp.Features.MMPlaceholders["image"]).To(HaveLen(2))
+	for _, p := range resp.Features.MMPlaceholders["image"] {
+		expectUniformSpan(resp.TokenIDs, p)
+	}
 
 	var raw struct {
 		Features map[string]json.RawMessage `json:"features"`

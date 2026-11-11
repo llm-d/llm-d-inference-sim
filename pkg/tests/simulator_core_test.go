@@ -539,6 +539,44 @@ var _ = Describe("Simulator core", forEachEngine(func() {
 		It("Should return normal finish reason when header is not set", func() {
 			testCacheThresholdFinishReasonHeader(false, []string{common.StopFinishReason, common.LengthFinishReason})
 		})
+
+		DescribeTable("Should end every streamed choice with cache_threshold finish reason when header is set",
+			func(n int) {
+				ctx := context.TODO()
+				client, err := startServer(ctx, common.ModeRandom)
+				Expect(err).NotTo(HaveOccurred())
+
+				openaiclient, params := getOpenAIClientAndChatParams(client, common.TestModelName, testUserMessage, true)
+				params.N = param.NewOpt(int64(n))
+				stream := openaiclient.Chat.Completions.NewStreaming(ctx, params,
+					option.WithHeader(communication.CacheThresholdFinishReasonHeader, "true"))
+				defer func() {
+					err := stream.Close()
+					Expect(err).NotTo(HaveOccurred())
+				}()
+
+				finishReasons := make(map[int64][]string)
+				for stream.Next() {
+					for _, choice := range stream.Current().Choices {
+						if choice.FinishReason != "" {
+							finishReasons[choice.Index] = append(finishReasons[choice.Index], choice.FinishReason)
+						}
+					}
+				}
+				Expect(stream.Err()).NotTo(HaveOccurred())
+
+				Expect(finishReasons).To(HaveLen(n))
+				for i := int64(0); i < int64(n); i++ {
+					Expect(finishReasons[i]).To(Equal([]string{common.CacheThresholdFinishReason}), "choice %d", i)
+				}
+			},
+			func(n int) string {
+				return fmt.Sprintf("n: %d", n)
+			},
+			Entry(nil, 1),
+			Entry(nil, 2),
+			Entry(nil, 3),
+		)
 	})
 
 	Context("X-Return-Error header", func() {

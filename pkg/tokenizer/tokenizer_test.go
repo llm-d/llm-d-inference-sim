@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -200,7 +201,7 @@ var _ = Describe("tokenizer", func() {
 		}
 	})
 
-	Describe("stubMMFeaturesForMessages", func() {
+	Describe("multimodal render", func() {
 		text := func(s string) api.ChatComplContentBlock {
 			return api.ChatComplContentBlock{Type: "text", Text: s}
 		}
@@ -234,14 +235,38 @@ var _ = Describe("tokenizer", func() {
 				Content: api.ChatComplContent{Structured: blocks},
 			}
 		}
+		render := func(msgs ...api.Message) ([]uint32, []string, *api.RenderMMFeatures) {
+			tokens, strs, feats, err := NewSimpleTokenizer().RenderMessages(msgs, api.RenderTools{}, "")
+			Expect(err).NotTo(HaveOccurred())
+			return tokens, strs, feats
+		}
+		expectPadRun := func(tokens []uint32, p api.RenderPlaceholder, modality string) {
+			layout := mmLayouts[modality]
+			Expect(p.Length).To(Equal(layout.spanLength()))
+			Expect(p.Offset + p.Length).To(BeNumerically("<=", len(tokens)))
+			for _, id := range tokens[p.Offset : p.Offset+p.Length] {
+				Expect(id).To(Equal(layout.padTokenID()))
+			}
+		}
 
-		It("returns nil when no media blocks are present", func() {
-			feats := stubMMFeaturesForMessages([]api.Message{mkMsg(text("hello"))}, 100)
+		It("returns nil features when no media blocks are present", func() {
+			_, _, feats := render(mkMsg(text("hello")))
 			Expect(feats).To(BeNil())
 		})
 
+		It("renders text-only messages as the joined string", func() {
+			msgs := []api.Message{mkMsg(text("hello")), mkMsg(text("world"))}
+			tokens, strs, _ := render(msgs...)
+			expected, expectedStrs, err := NewSimpleTokenizer().RenderText(
+				api.StartMessageSeparator + msgs[0].PlainText(true) + api.EndMessageSeparator +
+					api.StartMessageSeparator + msgs[1].PlainText(true) + api.EndMessageSeparator)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(tokens).To(Equal(expected))
+			Expect(strs).To(Equal(expectedStrs))
+		})
+
 		It("emits an image hash keyed by image", func() {
-			feats := stubMMFeaturesForMessages([]api.Message{mkMsg(text("describe"), image("http://x/a.jpg"))}, 100)
+			_, _, feats := render(mkMsg(text("describe"), image("http://x/a.jpg")))
 			Expect(feats).NotTo(BeNil())
 			Expect(feats.MMHashes).To(HaveKey(mmModalityImage))
 			Expect(feats.MMHashes[mmModalityImage]).To(HaveLen(1))
@@ -250,14 +275,14 @@ var _ = Describe("tokenizer", func() {
 		})
 
 		It("emits an audio hash keyed by audio", func() {
-			feats := stubMMFeaturesForMessages([]api.Message{mkMsg(text("transcribe"), audio("base64data", "wav"))}, 100)
+			_, _, feats := render(mkMsg(text("transcribe"), audio("base64data", "wav")))
 			Expect(feats).NotTo(BeNil())
 			Expect(feats.MMHashes).To(HaveKey(mmModalityAudio))
 			Expect(feats.MMHashes[mmModalityAudio][0]).To(HavePrefix("sim_audio_"))
 		})
 
 		It("emits an audio hash for audio_url keyed by audio", func() {
-			feats := stubMMFeaturesForMessages([]api.Message{mkMsg(text("transcribe"), audioURL("http://x/a.flac"))}, 100)
+			_, _, feats := render(mkMsg(text("transcribe"), audioURL("http://x/a.flac")))
 			Expect(feats).NotTo(BeNil())
 			Expect(feats.MMHashes).To(HaveKey(mmModalityAudio))
 			Expect(feats.MMHashes[mmModalityAudio]).To(HaveLen(1))
@@ -266,70 +291,186 @@ var _ = Describe("tokenizer", func() {
 		})
 
 		It("emits a video hash keyed by video", func() {
-			feats := stubMMFeaturesForMessages([]api.Message{mkMsg(text("watch"), video("http://x/v.mp4"))}, 100)
+			_, _, feats := render(mkMsg(text("watch"), video("http://x/v.mp4")))
 			Expect(feats).NotTo(BeNil())
 			Expect(feats.MMHashes).To(HaveKey(mmModalityVideo))
 			Expect(feats.MMHashes[mmModalityVideo][0]).To(HavePrefix("sim_video_"))
 		})
 
-		It("returns all three modality keys for mixed multimedia", func() {
-			feats := stubMMFeaturesForMessages([]api.Message{mkMsg(
-				text("mixed"), image("http://x/a.jpg"), audio("data", "wav"), video("http://x/v.mp4"),
-			)}, 120)
+		It("places each item as a uniform run of its modality's pad token", func() {
+			tokens, strs, feats := render(mkMsg(
+				text("mixed"), image("http://x/a.jpg"), text("and"), audio("data", "wav"), video("http://x/v.mp4"), image("http://x/b.jpg"),
+			))
 			Expect(feats).NotTo(BeNil())
-			Expect(feats.MMHashes).To(HaveKey(mmModalityImage))
-			Expect(feats.MMHashes).To(HaveKey(mmModalityAudio))
-			Expect(feats.MMHashes).To(HaveKey(mmModalityVideo))
+			Expect(tokens).To(HaveLen(len(strs)))
+			Expect(feats.MMPlaceholders[mmModalityImage]).To(HaveLen(2))
+			for modality, placeholders := range feats.MMPlaceholders {
+				Expect(placeholders).To(HaveLen(len(feats.MMHashes[modality])))
+				for _, p := range placeholders {
+					expectPadRun(tokens, p, modality)
+					Expect(strs[p.Offset]).To(Equal(mmLayouts[modality].padToken))
+				}
+			}
+		})
+
+		It("keeps placeholders sorted and non-overlapping across modalities", func() {
+			_, _, feats := render(mkMsg(image("http://x/a.jpg"), audio("data", "wav"), image("http://x/b.jpg"), video("http://x/v.mp4")))
+			var all []api.RenderPlaceholder
+			for _, placeholders := range feats.MMPlaceholders {
+				all = append(all, placeholders...)
+			}
+			sort.Slice(all, func(i, j int) bool { return all[i].Offset < all[j].Offset })
+			for i := 1; i < len(all); i++ {
+				Expect(all[i].Offset).To(BeNumerically(">=", all[i-1].Offset+all[i-1].Length))
+			}
+		})
+
+		It("places the run right after the preceding text", func() {
+			msg := mkMsg(text("describe"), image("http://x/a.jpg"))
+			tokens, _, feats := render(msg)
+			prefix, _, err := NewSimpleTokenizer().RenderText(api.StartMessageSeparator + msg.Role + ": describe\n")
+			Expect(err).NotTo(HaveOccurred())
+			p := feats.MMPlaceholders[mmModalityImage][0]
+			Expect(p.Offset).To(Equal(len(prefix)))
+			Expect(tokens[:p.Offset]).To(Equal(prefix))
+		})
+
+		It("detokenizes pad runs to the pad token string", func() {
+			st := NewSimpleTokenizer()
+			tokens, _, feats, err := st.RenderMessages([]api.Message{mkMsg(image("http://x/a.jpg"))}, api.RenderTools{}, "")
+			Expect(err).NotTo(HaveOccurred())
+			p := feats.MMPlaceholders[mmModalityImage][0]
+			out, err := st.Detokenize(tokens[p.Offset : p.Offset+p.Length])
+			Expect(err).NotTo(HaveOccurred())
+			Expect(out).To(Equal(strings.Repeat(mmLayouts[mmModalityImage].padToken, p.Length)))
+		})
+
+		It("derives the image and video span from the grid metadata", func() {
+			for _, modality := range []string{mmModalityImage, mmModalityVideo} {
+				var thw []int64
+				for _, v := range MMItemMetadata(modality) {
+					thw = v
+				}
+				Expect(thw).To(HaveLen(3))
+				Expect(mmLayouts[modality].spanLength()).To(Equal(int(thw[0] * thw[1] * thw[2] / 4)))
+			}
+			Expect(MMItemMetadata(mmModalityImage)).To(HaveKeyWithValue("image_grid_thw", []int64{1, 8, 8}))
+			Expect(MMItemMetadata(mmModalityVideo)).To(HaveKeyWithValue("video_grid_thw", []int64{2, 8, 8}))
 		})
 
 		It("produces deterministic hashes for identical input", func() {
 			msgs := []api.Message{mkMsg(image("http://x/a.jpg"), audio("data", "wav"), video("http://x/v.mp4"))}
-			a := stubMMFeaturesForMessages(msgs, 100)
-			b := stubMMFeaturesForMessages(msgs, 100)
+			_, _, a := render(msgs...)
+			_, _, b := render(msgs...)
 			Expect(a).To(Equal(b))
 		})
 
 		It("skips media blocks with empty identifiers", func() {
-			feats := stubMMFeaturesForMessages([]api.Message{mkMsg(
-				image(""), audio("", "wav"), video(""),
-			)}, 100)
+			_, _, feats := render(mkMsg(image(""), audio("", "wav"), video("")))
 			Expect(feats).To(BeNil())
 		})
 
 		It("treats audio format as routing-irrelevant (same data different format collides)", func() {
-			wav := stubMMFeaturesForMessages([]api.Message{mkMsg(audio("samebytes", "wav"))}, 100)
-			mp3 := stubMMFeaturesForMessages([]api.Message{mkMsg(audio("samebytes", "mp3"))}, 100)
+			_, _, wav := render(mkMsg(audio("samebytes", "wav")))
+			_, _, mp3 := render(mkMsg(audio("samebytes", "mp3")))
 			Expect(wav.MMHashes[mmModalityAudio]).To(Equal(mp3.MMHashes[mmModalityAudio]))
 		})
 
-		It("emits kwargs_data as valid base64 per modality for a single image", func() {
-			feats := stubMMFeaturesForMessages([]api.Message{mkMsg(image("http://x/a.jpg"))}, 100)
-			Expect(feats).NotTo(BeNil())
-			Expect(feats.KwargsData).To(HaveKey(mmModalityImage))
-			Expect(feats.KwargsData[mmModalityImage]).To(HaveLen(1))
-			_, err := base64.StdEncoding.DecodeString(feats.KwargsData[mmModalityImage][0])
-			Expect(err).NotTo(HaveOccurred())
-		})
-
-		It("emits kwargs_data for all modalities in mixed content, each entry valid base64", func() {
-			feats := stubMMFeaturesForMessages([]api.Message{mkMsg(
-				image("http://x/a.jpg"), audio("data", "wav"), video("http://x/v.mp4"),
-			)}, 120)
+		It("emits kwargs_data as valid base64 per modality for each item", func() {
+			_, _, feats := render(mkMsg(image("http://x/a.jpg"), audio("data", "wav"), video("http://x/v.mp4")))
 			Expect(feats).NotTo(BeNil())
 			for _, mod := range []string{mmModalityImage, mmModalityAudio, mmModalityVideo} {
 				Expect(feats.KwargsData).To(HaveKey(mod))
+				Expect(feats.KwargsData[mod]).To(HaveLen(1))
 				for _, s := range feats.KwargsData[mod] {
 					_, err := base64.StdEncoding.DecodeString(s)
 					Expect(err).NotTo(HaveOccurred(), "kwargs_data[%s] entry is not valid base64", mod)
 				}
 			}
 		})
+	})
 
-		It("produces deterministic kwargs_data for identical input", func() {
-			msgs := []api.Message{mkMsg(image("http://x/a.jpg"), audio("data", "wav"))}
-			a := stubMMFeaturesForMessages(msgs, 100)
-			b := stubMMFeaturesForMessages(msgs, 100)
-			Expect(a.KwargsData).To(Equal(b.KwargsData))
+	Describe("ExpandContentParts", func() {
+		imagePad := mmLayouts[mmModalityImage].padTokenID()
+		videoPad := mmLayouts[mmModalityVideo].padTokenID()
+		imageSpan := mmLayouts[mmModalityImage].spanLength()
+		videoSpan := mmLayouts[mmModalityVideo].spanLength()
+
+		It("expands each collapsed pad token to its modality's run, in order", func() {
+			parts := []api.GenerateContentPart{
+				{Type: "image_url", URL: "http://x/a.jpg", UUID: "img-a"},
+				{Type: "video_url", URL: "http://x/v.mp4", UUID: "vid-a"},
+				{Type: "image_url", URL: "http://x/b.jpg", UUID: "img-b"},
+			}
+			tokens, feats, err := ExpandContentParts([]uint32{1, imagePad, 2, videoPad, 3, imagePad, 4}, parts)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(tokens).To(HaveLen(4 + 2*imageSpan + videoSpan))
+			Expect(feats.MMHashes).To(Equal(map[string][]string{
+				mmModalityImage: {"img-a", "img-b"},
+				mmModalityVideo: {"vid-a"},
+			}))
+			Expect(feats.MMPlaceholders).To(Equal(map[string][]api.RenderPlaceholder{
+				mmModalityImage: {{Offset: 1, Length: imageSpan}, {Offset: 3 + imageSpan + videoSpan, Length: imageSpan}},
+				mmModalityVideo: {{Offset: 2 + imageSpan, Length: videoSpan}},
+			}))
+			Expect(tokens[0]).To(Equal(uint32(1)))
+			Expect(tokens[1+imageSpan]).To(Equal(uint32(2)))
+			Expect(tokens[len(tokens)-1]).To(Equal(uint32(4)))
+		})
+
+		It("matches the render layout after the coordinator collapses it", func() {
+			st := NewSimpleTokenizer()
+			msgs := []api.Message{{Role: api.RoleUser, Content: api.ChatComplContent{Structured: []api.ChatComplContentBlock{
+				{Type: "text", Text: "compare"},
+				{Type: "image_url", ImageURL: &api.ChatComplURLBlock{Url: "http://x/a.jpg"}},
+				{Type: "image_url", ImageURL: &api.ChatComplURLBlock{Url: "http://x/b.jpg"}},
+			}}}}
+			rendered, _, feats, err := st.RenderMessages(msgs, api.RenderTools{}, api.MMPayloadNone)
+			Expect(err).NotTo(HaveOccurred())
+			placeholders := feats.MMPlaceholders[mmModalityImage]
+			var collapsed []uint32
+			pos := 0
+			for _, p := range placeholders {
+				collapsed = append(collapsed, rendered[pos:p.Offset+1]...)
+				pos = p.Offset + p.Length
+			}
+			collapsed = append(collapsed, rendered[pos:]...)
+			parts := []api.GenerateContentPart{
+				{Type: "image_url", URL: "http://x/a.jpg", UUID: feats.MMHashes[mmModalityImage][0]},
+				{Type: "image_url", URL: "http://x/b.jpg", UUID: feats.MMHashes[mmModalityImage][1]},
+			}
+			expanded, expandedFeats, err := ExpandContentParts(collapsed, parts)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(expanded).To(Equal(rendered))
+			Expect(expandedFeats.MMHashes).To(Equal(feats.MMHashes))
+			Expect(expandedFeats.MMPlaceholders).To(Equal(feats.MMPlaceholders))
+		})
+
+		It("keys a part without uuid by the hash render gives its URL", func() {
+			st := NewSimpleTokenizer()
+			msgs := []api.Message{{Role: api.RoleUser, Content: api.ChatComplContent{Structured: []api.ChatComplContentBlock{
+				{Type: "image_url", ImageURL: &api.ChatComplURLBlock{Url: "http://x/a.jpg"}},
+			}}}}
+			_, _, feats, err := st.RenderMessages(msgs, api.RenderTools{}, "")
+			Expect(err).NotTo(HaveOccurred())
+			hashes := ContentPartsMMHashes([]api.GenerateContentPart{{Type: "image_url", URL: "http://x/a.jpg"}})
+			Expect(hashes).To(Equal(feats.MMHashes))
+		})
+
+		It("fails when a part has no matching pad token", func() {
+			parts := []api.GenerateContentPart{
+				{Type: "image_url", URL: "http://x/a.jpg", UUID: "img-a"},
+				{Type: "video_url", URL: "http://x/v.mp4", UUID: "vid-a"},
+			}
+			_, _, err := ExpandContentParts([]uint32{1, imagePad, 2}, parts)
+			Expect(err).To(MatchError(ContainSubstring("<|video_pad|>")))
+		})
+
+		It("skips parts of unknown type", func() {
+			tokens, feats, err := ExpandContentParts([]uint32{1, 2}, []api.GenerateContentPart{{Type: "file_url", URL: "x", UUID: "f"}})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(tokens).To(Equal([]uint32{1, 2}))
+			Expect(feats).To(BeNil())
 		})
 	})
 
