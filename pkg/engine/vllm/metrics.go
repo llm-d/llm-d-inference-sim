@@ -210,7 +210,7 @@ func newMetricsAdapter(ctx context.Context, registry *prometheus.Registry,
 	if err := m.buildMetrics(); err != nil {
 		return nil, err
 	}
-	m.createAndStartPrometheusChannels(ctx)
+	m.createPrometheusChannels(ctx)
 	m.setInitialValues()
 
 	return m, nil
@@ -225,7 +225,9 @@ func (m *VLLMMetricsAdapter) Close() error {
 // Start applies the initial fake-metrics configuration and starts the
 // generator ticker. The bus has already subscribed the On<Event> handlers to
 // its channels by the time this runs.
-func (m *VLLMMetricsAdapter) Start(_ context.Context) error {
+func (m *VLLMMetricsAdapter) Start(ctx context.Context) error {
+	m.startPrometheusChannels(ctx)
+
 	if fake := m.fake.Load(); fake != nil {
 		fm := *fake
 		m.applyFakeMetrics(&fm)
@@ -398,70 +400,53 @@ func (m *VLLMMetricsAdapter) finishRunning() {
 	common.WriteToChannel(m.runReqChan, metrics.GaugeAdd(-1), m.logger)
 }
 
-func (m *VLLMMetricsAdapter) createAndStartPrometheusChannels(ctx context.Context) {
+func (m *VLLMMetricsAdapter) createPrometheusChannels(ctx context.Context) {
 	maxNumberOfRunningRequests, maxNumberOfWaitingRequests, maxNumberOfRequests, maxNumberOfTokens := metrics.ChannelCapacities(m.config)
 
 	m.runReqChan = common.NewChannel[metrics.GaugeUpdate]("vllm", maxNumberOfRunningRequests, ctx.Done())
-	go common.Subscribe(ctx, m.runReqChan, m.updateRunningRequests)
-
 	m.waitingReqChan = common.NewChannel[metrics.GaugeUpdate]("vllm", maxNumberOfWaitingRequests, ctx.Done())
-	go common.Subscribe(ctx, m.waitingReqChan, m.updateWaitingRequests)
-
 	m.kvCacheUsageChan = common.NewChannel[metrics.GaugeUpdate]("vllm", maxNumberOfRunningRequests, ctx.Done())
-	go common.Subscribe(ctx, m.kvCacheUsageChan, m.updateKVCacheUsage)
-
 	m.ttftChan = common.NewChannel[metrics.HistogramUpdate]("vllm", maxNumberOfRunningRequests, ctx.Done())
-	go common.Subscribe(ctx, m.ttftChan, m.updateTTFT)
-
 	m.perTokenLatencyChan = common.NewChannel[metrics.HistogramUpdate]("vllm", maxNumberOfTokens, ctx.Done())
-	go common.Subscribe(ctx, m.perTokenLatencyChan, m.updatePerTokenLatency)
-
 	m.e2eReqLatencyChan = common.NewChannel[metrics.HistogramUpdate]("vllm", maxNumberOfRunningRequests, ctx.Done())
-	go common.Subscribe(ctx, m.e2eReqLatencyChan, m.updateE2EReqLatency)
-
 	m.reqQueueTimeChan = common.NewChannel[metrics.HistogramUpdate]("vllm", maxNumberOfWaitingRequests, ctx.Done())
-	go common.Subscribe(ctx, m.reqQueueTimeChan, m.updateReqQueueTime)
-
 	m.reqInferenceTimeChan = common.NewChannel[metrics.HistogramUpdate]("vllm", maxNumberOfRunningRequests, ctx.Done())
-	go common.Subscribe(ctx, m.reqInferenceTimeChan, m.updateReqInferenceTime)
-
 	m.reqPrefillTimeChan = common.NewChannel[metrics.HistogramUpdate]("vllm", maxNumberOfRunningRequests, ctx.Done())
-	go common.Subscribe(ctx, m.reqPrefillTimeChan, m.updateReqPrefillTime)
-
 	m.reqDecodeTimeChan = common.NewChannel[metrics.HistogramUpdate]("vllm", maxNumberOfRunningRequests, ctx.Done())
-	go common.Subscribe(ctx, m.reqDecodeTimeChan, m.updateReqDecodeTime)
-
 	m.reqTpotChan = common.NewChannel[metrics.HistogramUpdate]("vllm", maxNumberOfRunningRequests, ctx.Done())
-	go common.Subscribe(ctx, m.reqTpotChan, m.updateReqTpot)
-
 	m.lorasChan = common.NewChannel[LoRAUpdate]("vllm", maxNumberOfRequests, ctx.Done())
-	go common.Subscribe(ctx, m.lorasChan, m.updateLoRAs)
-
 	m.requestPromptTokensChan = common.NewChannel[metrics.HistogramUpdate]("vllm", maxNumberOfRunningRequests, ctx.Done())
-	go common.Subscribe(ctx, m.requestPromptTokensChan, m.updateRequestPromptTokens)
-
 	m.requestGenerationTokensChan = common.NewChannel[metrics.HistogramUpdate]("vllm", maxNumberOfRunningRequests, ctx.Done())
-	go common.Subscribe(ctx, m.requestGenerationTokensChan, m.updateRequestGenerationTokens)
-
 	m.maxNumGenerationTokensChan = common.NewChannel[metrics.HistogramUpdate]("vllm", maxNumberOfRunningRequests, ctx.Done())
-	go common.Subscribe(ctx, m.maxNumGenerationTokensChan, m.updateMaxNumGenerationTokens)
-
 	m.requestParamsMaxTokensChan = common.NewChannel[metrics.HistogramUpdate]("vllm", maxNumberOfRunningRequests, ctx.Done())
-	go common.Subscribe(ctx, m.requestParamsMaxTokensChan, m.updateRequestParamsMaxTokens)
-
 	m.promptTokensTotalChan = common.NewChannel[metrics.CounterUpdate]("vllm", maxNumberOfRunningRequests, ctx.Done())
-	go common.Subscribe(ctx, m.promptTokensTotalChan, m.updatePromptTokensTotal)
-
 	m.generationTokensTotalChan = common.NewChannel[metrics.CounterUpdate]("vllm", maxNumberOfRunningRequests, ctx.Done())
-	go common.Subscribe(ctx, m.generationTokensTotalChan, m.updateGenerationTokensTotal)
-
 	m.requestSuccessTotalChan = common.NewChannel[RequestSuccessCounterUpdate]("vllm", maxNumberOfRunningRequests, ctx.Done())
-	go common.Subscribe(ctx, m.requestSuccessTotalChan, m.updateRequestSuccessTotal)
-
 	m.prefixCacheHitsTotalChan = common.NewChannel[metrics.CounterUpdate]("vllm", maxNumberOfRunningRequests, ctx.Done())
-	go common.Subscribe(ctx, m.prefixCacheHitsTotalChan, m.updatePrefixCacheHitsTotal)
-
 	m.prefixCacheQueriesTotalChan = common.NewChannel[metrics.CounterUpdate]("vllm", maxNumberOfRunningRequests, ctx.Done())
+}
+
+func (m *VLLMMetricsAdapter) startPrometheusChannels(ctx context.Context) {
+	go common.Subscribe(ctx, m.runReqChan, m.updateRunningRequests)
+	go common.Subscribe(ctx, m.waitingReqChan, m.updateWaitingRequests)
+	go common.Subscribe(ctx, m.kvCacheUsageChan, m.updateKVCacheUsage)
+	go common.Subscribe(ctx, m.ttftChan, m.updateTTFT)
+	go common.Subscribe(ctx, m.perTokenLatencyChan, m.updatePerTokenLatency)
+	go common.Subscribe(ctx, m.e2eReqLatencyChan, m.updateE2EReqLatency)
+	go common.Subscribe(ctx, m.reqQueueTimeChan, m.updateReqQueueTime)
+	go common.Subscribe(ctx, m.reqInferenceTimeChan, m.updateReqInferenceTime)
+	go common.Subscribe(ctx, m.reqPrefillTimeChan, m.updateReqPrefillTime)
+	go common.Subscribe(ctx, m.reqDecodeTimeChan, m.updateReqDecodeTime)
+	go common.Subscribe(ctx, m.reqTpotChan, m.updateReqTpot)
+	go common.Subscribe(ctx, m.lorasChan, m.updateLoRAs)
+	go common.Subscribe(ctx, m.requestPromptTokensChan, m.updateRequestPromptTokens)
+	go common.Subscribe(ctx, m.requestGenerationTokensChan, m.updateRequestGenerationTokens)
+	go common.Subscribe(ctx, m.maxNumGenerationTokensChan, m.updateMaxNumGenerationTokens)
+	go common.Subscribe(ctx, m.requestParamsMaxTokensChan, m.updateRequestParamsMaxTokens)
+	go common.Subscribe(ctx, m.promptTokensTotalChan, m.updatePromptTokensTotal)
+	go common.Subscribe(ctx, m.generationTokensTotalChan, m.updateGenerationTokensTotal)
+	go common.Subscribe(ctx, m.requestSuccessTotalChan, m.updateRequestSuccessTotal)
+	go common.Subscribe(ctx, m.prefixCacheHitsTotalChan, m.updatePrefixCacheHitsTotal)
 	go common.Subscribe(ctx, m.prefixCacheQueriesTotalChan, m.updatePrefixCacheQueriesTotal)
 }
 

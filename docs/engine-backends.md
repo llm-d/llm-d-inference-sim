@@ -21,10 +21,11 @@ maps the name to an implementation, rejecting one that is not registered.
 
 SGLang support is experimental and incomplete: it is not ready for production use. For now it simulates
 the engine-neutral surface only: the OpenAI-compatible endpoints, the latency model, and dataset-backed
-response generation, with `owned_by` reported as `sglang`. It has no native HTTP routes, no gRPC service,
-no metrics, no LoRA adapters, and no KV cache. Because the settings behind those features are engine-owned,
-a configuration file asking for one is rejected rather than silently ignored, and the corresponding flags
-do not exist. `/metrics` serves an empty body.
+response generation, with `owned_by` reported as `sglang`, plus the `sglang:`-prefixed metrics described
+in [Metrics](metrics.md#sglang), which `--enable-metrics` turns on. It has no native HTTP routes, no gRPC
+service, no LoRA adapters, and no KV cache. Because the settings behind those features are engine-owned, a
+configuration file asking for one is rejected rather than silently ignored, and the corresponding flags do
+not exist.
 
 It does not serve the render endpoints (`/v1/completions/render`, `/v1/chat/completions/render`,
 `/v1/responses/render`, `/v1/messages/render`) or the derender endpoints (`/v1/completions/derender`,
@@ -70,7 +71,7 @@ What an adapter does *not* own is the plumbing between its event handlers and it
 collectors: the channel payload shapes, the generator ticker behind function-valued fake metrics, and
 the bucket replay a histogram reset performs are the same for every engine and live in
 [pkg/metrics](../pkg/metrics). A payload whose variants carry engine-specific labels stays with its
-engine, which is why vLLM keeps its LoRA and finish-reason payloads.
+engine, which is why vLLM keeps its LoRA and finish-reason payloads and SGLang its `is_streaming` one.
 
 A single `Configuration` field can be engine-named the same way, for a setting the engines disagree on the
 name of. `MaxModelLen`, `MaxNumSeqs` and `MaxWaitingQueueLength` are tagged `yaml:"-"` and have no core
