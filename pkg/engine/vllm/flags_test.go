@@ -590,7 +590,13 @@ var _ = Describe("Simulator configuration", func() {
 			name: "invalid (negative) kv-cache-size",
 			args: []string{"cmd", "--enable-kvcache", "--kv-cache-size", "-35",
 				"--config", "../../../manifests/vllm-config.yaml"},
-			expectedError: "KV cache size cannot be negative",
+			expectedError: "KV cache size must be at least 1",
+		},
+		{
+			name: "invalid (zero) kv-cache-size",
+			args: []string{"cmd", "--enable-kvcache", "--kv-cache-size", "0",
+				"--config", "../../../manifests/vllm-config.yaml"},
+			expectedError: "KV cache size must be at least 1",
 		},
 		{
 			name: "invalid block-size",

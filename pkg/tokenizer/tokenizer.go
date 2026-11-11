@@ -154,6 +154,11 @@ func (st *baseTokenizer) tokenize(input string) ([]uint32, []string) {
 // Detokenize can reverse the one-way hashes.
 func (st *SimpleTokenizer) tokenize(input string) ([]uint32, []string) {
 	tokens, strTokens := st.baseTokenizer.tokenize(input)
+	st.record(tokens, strTokens)
+	return tokens, strTokens
+}
+
+func (st *SimpleTokenizer) record(tokens []uint32, strTokens []string) {
 	st.mu.Lock()
 	for i, id := range tokens {
 		if elem, ok := st.idToEntry[id]; ok {
@@ -173,7 +178,6 @@ func (st *SimpleTokenizer) tokenize(input string) ([]uint32, []string) {
 		}
 	}
 	st.mu.Unlock()
-	return tokens, strTokens
 }
 
 func (st *SimpleTokenizer) RenderText(text string) ([]uint32, []string, error) {
@@ -199,103 +203,61 @@ func (st *SimpleTokenizer) Detokenize(tokenIDs []uint32) (string, error) {
 }
 
 // RenderMessages tokenizes the messages and synthesizes stub mm_features when
-// any message contains image_url blocks, so downstream MM-aware code paths can
-// be exercised without a real renderer.
+// any message contains media blocks, so downstream MM-aware code paths can be
+// exercised without a real renderer. Each media item renders as a run of its
+// modality's pad token, which mm_placeholders points at.
 func (st *SimpleTokenizer) RenderMessages(messages []api.Message, _ api.RenderTools, mmPayload string) ([]uint32, []string, *api.RenderMMFeatures, error) {
-	var builder strings.Builder
-	for _, msg := range messages {
-		builder.WriteString(api.StartMessageSeparator)
-		text := msg.PlainText(true)
-		builder.WriteString(text)
-		builder.WriteString(api.EndMessageSeparator)
+	var tokens []uint32
+	var textTokens []string
+	var pending strings.Builder
+	flush := func() {
+		ids, strs := st.tokenize(pending.String())
+		tokens = append(tokens, ids...)
+		textTokens = append(textTokens, strs...)
+		pending.Reset()
 	}
-	tokens, textTokens := st.tokenize(builder.String())
-	features := stubMMFeaturesForMessages(messages, len(tokens))
+
+	var features *api.RenderMMFeatures
+	modalIndexes := map[string]int{}
+	onMedia := func(block api.ChatComplContentBlock) {
+		flush()
+		modality := blockModalities[block.Type]
+		layout := mmLayouts[modality]
+		if features == nil {
+			features = &api.RenderMMFeatures{
+				MMHashes:       map[string][]string{},
+				MMPlaceholders: map[string][]api.RenderPlaceholder{},
+				KwargsData:     map[string][]string{},
+			}
+		}
+		hash := simMMHash(modality, modalIndexes[modality], block.MediaIdentifier())
+		modalIndexes[modality]++
+		features.MMHashes[modality] = append(features.MMHashes[modality], hash)
+		features.KwargsData[modality] = append(features.KwargsData[modality], base64.StdEncoding.EncodeToString([]byte(hash)))
+		features.MMPlaceholders[modality] = append(features.MMPlaceholders[modality],
+			api.RenderPlaceholder{Offset: len(tokens), Length: layout.spanLength()})
+
+		run := layout.padRun()
+		runStrs := make([]string, len(run))
+		for i := range runStrs {
+			runStrs[i] = layout.padToken
+		}
+		st.record(run[:1], runStrs[:1])
+		tokens = append(tokens, run...)
+		textTokens = append(textTokens, runStrs...)
+	}
+
+	for _, msg := range messages {
+		pending.WriteString(api.StartMessageSeparator)
+		msg.WalkPlainText(true, func(text string) { pending.WriteString(text) }, onMedia)
+		pending.WriteString(api.EndMessageSeparator)
+	}
+	flush()
+
 	if features != nil && mmPayload == api.MMPayloadNone {
 		features.KwargsData = nil
 	}
 	return tokens, textTokens, features, nil
-}
-
-// stubMMFeaturesForMessages synthesizes per-modality mm_hashes and placeholders
-// for image_url, input_audio, audio_url, and video_url blocks; nil if none present.
-func stubMMFeaturesForMessages(messages []api.Message, totalTokens int) *api.RenderMMFeatures {
-	type item struct {
-		modality, prefix, identifier string
-		modalIndex                   int
-	}
-
-	var items []item
-	var imgIdx, audIdx, vidIdx int
-	for _, msg := range messages {
-		for _, block := range msg.Content.Structured {
-			switch block.Type {
-			case "image_url":
-				if block.ImageURL == nil || block.ImageURL.Url == "" {
-					continue
-				}
-				items = append(items, item{mmModalityImage, "img", block.ImageURL.Url, imgIdx})
-				imgIdx++
-			case "input_audio":
-				if block.InputAudio == nil || block.InputAudio.Data == "" {
-					continue
-				}
-				items = append(items, item{mmModalityAudio, "audio", block.InputAudio.Data, audIdx})
-				audIdx++
-			case "audio_url":
-				if block.AudioURL == nil || block.AudioURL.Url == "" {
-					continue
-				}
-				items = append(items, item{mmModalityAudio, "audio", block.AudioURL.Url, audIdx})
-				audIdx++
-			case "video_url":
-				if block.VideoURL == nil || block.VideoURL.Url == "" {
-					continue
-				}
-				items = append(items, item{mmModalityVideo, "video", block.VideoURL.Url, vidIdx})
-				vidIdx++
-			}
-		}
-	}
-	if len(items) == 0 {
-		return nil
-	}
-
-	span := max(totalTokens/len(items), 1)
-	mmHashes := map[string][]string{}
-	mmPlaceholders := map[string][]api.RenderPlaceholder{}
-	mmKwargsData := map[string][]string{}
-
-	for i, it := range items {
-		// Deterministic so repeats hit cache.
-		hash := fmt.Sprintf("sim_%s_%d_%x", it.prefix, it.modalIndex, fnv32(it.identifier))
-		mmHashes[it.modality] = append(mmHashes[it.modality], hash)
-
-		kwarg := base64.StdEncoding.EncodeToString([]byte(hash))
-		mmKwargsData[it.modality] = append(mmKwargsData[it.modality], kwarg)
-
-		offset := i * span
-		if offset >= totalTokens {
-			offset = totalTokens - 1
-		}
-		if offset < 0 {
-			offset = 0
-		}
-		// Trim length so offset+length stays within bounds; never zero.
-		length := span
-		if offset+length > totalTokens {
-			length = totalTokens - offset
-		}
-		if length < 1 {
-			length = 1
-		}
-		mmPlaceholders[it.modality] = append(mmPlaceholders[it.modality], api.RenderPlaceholder{Offset: offset, Length: length})
-	}
-	return &api.RenderMMFeatures{
-		MMHashes:       mmHashes,
-		MMPlaceholders: mmPlaceholders,
-		KwargsData:     mmKwargsData,
-	}
 }
 
 func fnv32(s string) uint32 {

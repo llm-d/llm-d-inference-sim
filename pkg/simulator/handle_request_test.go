@@ -186,6 +186,29 @@ var _ = Describe("HandleRequest with n > 1 and the KV cache enabled", func() {
 		reqCtx1.KVCacheOnRequestEnd()
 		reqCtx2.KVCacheOnRequestEnd()
 	})
+
+	It("gives every choice cache_threshold when the prompt's hit rate is below the threshold", func() {
+		GinkgoT().Setenv("POD_IP", "localhost")
+		sim := newHandleRequestTestSim(context.Background(), 2,
+			"--enable-kvcache", "--kv-cache-size", "16", "--block-size", "8", "--global-cache-hit-threshold", "0.5")
+
+		// The prompt fills whole blocks: once one choice holds them, the other's
+		// hit rate is above the threshold.
+		req := newTextCompletionsRequestWithChoices("threshold", 2)
+		req.Prompt = []api.PromptInput{{Text: "the quick brown fox jumps over the lazy dog while the old cat sleeps under the tree"}}
+		_, _, _, topErr, _ := sim.HandleRequest(context.Background(), req)
+		Expect(topErr).To(BeNil())
+		reqCtx1 := <-sim.newRequests.Channel
+		reqCtx2 := <-sim.newRequests.Channel
+
+		for _, reqCtx := range []endpoint.RequestContext{reqCtx1, reqCtx2} {
+			respCtx, err := reqCtx.HandleRequest()
+			Expect(err).To(BeNil())
+			Expect(*respCtx.FinishReason()).To(Equal(common.CacheThresholdFinishReason))
+		}
+		reqCtx1.KVCacheOnRequestEnd()
+		reqCtx2.KVCacheOnRequestEnd()
+	})
 })
 
 var _ = Describe("simulateResponseProcessing", func() {

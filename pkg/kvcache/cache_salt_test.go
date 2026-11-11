@@ -59,7 +59,7 @@ var _ = Describe("Cache salt isolation", func() {
 				tokens = append(tokens, 17, 18, 19, 20, 21, 22, 23, 24)
 			}
 			req.SetTokenizedPrompt(&api.Tokenized{Tokens: tokens})
-			stats, err := helper.OnRequestStart(&req)
+			stats, _, err := helper.OnRequestStart(&req, 0)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(stats.CachedPromptTokens).To(Equal(tc.cached), "case %d", i)
 			Expect(helper.OnRequestEnd(req.GetRequestID())).To(Succeed())
