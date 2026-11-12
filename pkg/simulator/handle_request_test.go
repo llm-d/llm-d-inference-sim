@@ -380,6 +380,32 @@ var _ = Describe("processRequest", func() {
 		Expect(second.CachedPromptTokens).To(Equal(8))
 		Expect(second.PromptTokens).To(BeNumerically(">", second.CachedPromptTokens))
 	})
+
+	DescribeTable("reports the output token limit the request ran with on the success event",
+		func(maxTokensField string, expected func(promptTokens int) int64) {
+			sim := newHandleRequestTestSim(context.Background(), 1, "--max-model-len", "64")
+			bus := useUnreadMetricsBus(sim)
+
+			req := &endpoint.ChatCompletionsRequest{}
+			Expect(req.Unmarshal([]byte(`{"model":"` + common.TestModelName +
+				`","messages":[{"role":"user","content":"hello there"}]` + maxTokensField + `}`))).To(Succeed())
+			req.SetRequestID("max-tokens")
+			_, _, _, topErr, _ := sim.HandleRequest(context.Background(), req)
+			Expect(topErr).To(BeNil())
+			sim.processRequest(<-sim.newRequests.Channel)
+
+			var succeeded metrics.RequestSucceeded
+			Expect(bus.RequestSucceeded.Channel).To(Receive(&succeeded))
+			Expect(succeeded.MaxTokens).NotTo(BeNil())
+			Expect(*succeeded.MaxTokens).To(Equal(expected(succeeded.PromptTokens)))
+		},
+		Entry("max_tokens within the context", `,"max_tokens":5`,
+			func(int) int64 { return 5 }),
+		Entry("max_tokens beyond the context is capped", `,"max_tokens":500`,
+			func(promptTokens int) int64 { return int64(64 - promptTokens) }),
+		Entry("no max_tokens is the rest of the context", ``,
+			func(promptTokens int) int64 { return int64(64 - promptTokens) }),
+	)
 })
 
 var _ = Describe("sleepUnlessDone", func() {
