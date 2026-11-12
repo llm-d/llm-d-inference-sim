@@ -153,6 +153,26 @@ var _ = Describe("VLLMMetricsAdapter", func() {
 			}).Should(Equal(1))
 		})
 
+		It("observes a zero time per output token for a single-token output", func() {
+			adapter, _ := newTestAdapter(newTestConfig())
+
+			adapter.OnDecodeEnded(metrics.DecodeEnded{GenerationTokens: 0, DecodeDuration: 0.002, FinishReason: "length"})
+
+			Eventually(func(g Gomega) {
+				families, err := adapter.registry.Gather()
+				g.Expect(err).NotTo(HaveOccurred())
+				found := false
+				for _, family := range families {
+					if family.GetName() == VLLMReqTPOTMetricName && len(family.GetMetric()) == 1 {
+						found = true
+						g.Expect(family.GetMetric()[0].GetHistogram().GetSampleCount()).To(Equal(uint64(1)))
+						g.Expect(family.GetMetric()[0].GetHistogram().GetSampleSum()).To(BeZero())
+					}
+				}
+				g.Expect(found).To(BeTrue())
+			}).Should(Succeed())
+		})
+
 		It("labels request_success_total with vLLM's finished_reason", func() {
 			adapter, _ := newTestAdapter(newTestConfig())
 			_ = adapter.Start(context.Background())
