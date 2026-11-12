@@ -121,21 +121,6 @@ func metricNames(registry *prometheus.Registry) []string {
 	return names
 }
 
-// gaugeValue reads the model-labeled gauge. Adapter writes are asynchronous
-// (channel -> updater goroutine -> Prometheus), so callers wrap this in
-// Eventually.
-func gaugeValue(g *prometheus.GaugeVec) func() float64 {
-	return func() float64 {
-		return testutil.ToFloat64(g.WithLabelValues(common.TestModelName))
-	}
-}
-
-func counterValue(c *prometheus.CounterVec, labelValues ...string) func() float64 {
-	return func() float64 {
-		return testutil.ToFloat64(c.WithLabelValues(labelValues...))
-	}
-}
-
 // histogramStats returns the observation count and sum of the series of the
 // named histogram carrying the given is_streaming value, and zeroes when no
 // such series exists. An empty stream matches the series of a histogram that is
@@ -388,8 +373,8 @@ var _ = Describe("Metrics adapter", func() {
 				QueuedRequests:  &common.FakeMetricWithFunction{FixedValue: 30},
 			})
 
-			Eventually(gaugeValue(adapter.runningRequests)).Should(Equal(float64(5)))
-			Eventually(gaugeValue(adapter.queuedRequests)).Should(Equal(float64(30)))
+			Eventually(metrics.GaugeValue(adapter.runningRequests)).Should(Equal(float64(5)))
+			Eventually(metrics.GaugeValue(adapter.queuedRequests)).Should(Equal(float64(30)))
 		})
 
 		It("leaves a load metric the configuration does not name absent", func() {
@@ -410,10 +395,10 @@ var _ = Describe("Metrics adapter", func() {
 				RunningRequests: &common.FakeMetricWithFunction{FixedValue: 5},
 			})
 
-			Expect(gaugeValue(adapter.contextLen)()).To(Equal(float64(newTestConfig().MaxModelLen)))
-			Expect(gaugeValue(adapter.maxTotalNumTokens)()).To(Equal(float64(kvCapacityTokens)))
-			Expect(gaugeValue(adapter.pageSize)()).To(Equal(float64(16)))
-			Expect(gaugeValue(adapter.numPages)()).To(Equal(float64(128)))
+			Expect(metrics.GaugeValue(adapter.contextLen)()).To(Equal(float64(newTestConfig().MaxModelLen)))
+			Expect(metrics.GaugeValue(adapter.maxTotalNumTokens)()).To(Equal(float64(kvCapacityTokens)))
+			Expect(metrics.GaugeValue(adapter.pageSize)()).To(Equal(float64(16)))
+			Expect(metrics.GaugeValue(adapter.numPages)()).To(Equal(float64(128)))
 		})
 
 		It("recalculates a generator-valued metric over time", func() {
@@ -429,7 +414,7 @@ var _ = Describe("Metrics adapter", func() {
 				},
 			})
 
-			Eventually(gaugeValue(adapter.runningRequests)).Should(Equal(float64(10)))
+			Eventually(metrics.GaugeValue(adapter.runningRequests)).Should(Equal(float64(10)))
 		})
 
 		It("derives the token counts from the usage fraction", func() {
@@ -437,10 +422,10 @@ var _ = Describe("Metrics adapter", func() {
 				TokenUsage: &common.FakeMetricWithFunction{FixedValue: 0.25},
 			})
 
-			Eventually(gaugeValue(adapter.tokenUsage)).Should(Equal(0.25))
-			Eventually(gaugeValue(adapter.usedTokens)).Should(Equal(float64(kvCapacityTokens) * 0.25))
-			Eventually(gaugeValue(adapter.kvUsedTokens)).Should(Equal(float64(kvCapacityTokens) * 0.25))
-			Eventually(gaugeValue(adapter.kvAvailableTokens)).Should(Equal(float64(kvCapacityTokens) * 0.75))
+			Eventually(metrics.GaugeValue(adapter.tokenUsage)).Should(Equal(0.25))
+			Eventually(metrics.GaugeValue(adapter.usedTokens)).Should(Equal(float64(kvCapacityTokens) * 0.25))
+			Eventually(metrics.GaugeValue(adapter.kvUsedTokens)).Should(Equal(float64(kvCapacityTokens) * 0.25))
+			Eventually(metrics.GaugeValue(adapter.kvAvailableTokens)).Should(Equal(float64(kvCapacityTokens) * 0.75))
 		})
 
 		It("derives the hit rate from the prefix cache tallies", func() {
@@ -449,8 +434,8 @@ var _ = Describe("Metrics adapter", func() {
 				QueriedTokens: int64Ptr(8000),
 			})
 
-			Eventually(gaugeValue(adapter.cacheHitRate)).Should(Equal(0.25))
-			Eventually(counterValue(adapter.cachedTokensTotal, common.TestModelName, cacheSourceTotal)).
+			Eventually(metrics.GaugeValue(adapter.cacheHitRate)).Should(Equal(0.25))
+			Eventually(metrics.CounterValue(adapter.cachedTokensTotal, common.TestModelName, cacheSourceTotal)).
 				Should(Equal(float64(2000)))
 		})
 
@@ -483,7 +468,7 @@ var _ = Describe("Metrics adapter", func() {
 					NonStreaming: int64Ptr(1038),
 				},
 			})
-			Eventually(gaugeValue(adapter.runningRequests)).Should(Equal(float64(5)))
+			Eventually(metrics.GaugeValue(adapter.runningRequests)).Should(Equal(float64(5)))
 
 			adapter.OnRequestQueued(metrics.RequestQueued{})
 			adapter.OnRequestDequeued(metrics.RequestDequeued{QueueTime: 0.1})
@@ -497,10 +482,10 @@ var _ = Describe("Metrics adapter", func() {
 			adapter.OnKVCacheUsageChanged(metrics.KVCacheUsageChanged{KVCacheUsagePerc: 0.9})
 			adapter.OnPrefixCacheQueried(metrics.PrefixCacheQueried{CachedPromptTokens: 7, QueriedTokens: 9})
 
-			Consistently(gaugeValue(adapter.runningRequests)).Should(Equal(float64(5)))
-			Consistently(gaugeValue(adapter.queuedRequests)).Should(Equal(float64(30)))
-			Consistently(gaugeValue(adapter.tokenUsage)).Should(Equal(0.25))
-			Consistently(gaugeValue(adapter.cacheHitRate)).Should(Equal(0.25))
+			Consistently(metrics.GaugeValue(adapter.runningRequests)).Should(Equal(float64(5)))
+			Consistently(metrics.GaugeValue(adapter.queuedRequests)).Should(Equal(float64(30)))
+			Consistently(metrics.GaugeValue(adapter.tokenUsage)).Should(Equal(0.25))
+			Consistently(metrics.GaugeValue(adapter.cacheHitRate)).Should(Equal(0.25))
 			Consistently(counterSeries(registry, SGLangRequestsTotalMetricName)).Should(Equal(
 				map[string]float64{streaming: 412, nonStreaming: 1038}))
 		})
@@ -517,15 +502,15 @@ var _ = Describe("Metrics adapter", func() {
 			})
 
 			Expect(adapter.fake.Load()).NotTo(BeNil())
-			Eventually(gaugeValue(adapter.runningRequests)).Should(Equal(float64(20)))
-			Eventually(gaugeValue(adapter.queuedRequests)).Should(Equal(float64(10)))
-			Eventually(gaugeValue(adapter.tokenUsage)).Should(Equal(0.95))
+			Eventually(metrics.GaugeValue(adapter.runningRequests)).Should(Equal(float64(20)))
+			Eventually(metrics.GaugeValue(adapter.queuedRequests)).Should(Equal(float64(10)))
+			Eventually(metrics.GaugeValue(adapter.tokenUsage)).Should(Equal(0.95))
 
 			// Real-path events must no-op after entering fake mode.
 			adapter.OnRequestRunning(metrics.RequestRunning{})
 			adapter.OnKVCacheUsageChanged(metrics.KVCacheUsageChanged{KVCacheUsagePerc: 0.1})
-			Consistently(gaugeValue(adapter.runningRequests)).Should(Equal(float64(20)))
-			Consistently(gaugeValue(adapter.tokenUsage)).Should(Equal(0.95))
+			Consistently(metrics.GaugeValue(adapter.runningRequests)).Should(Equal(float64(20)))
+			Consistently(metrics.GaugeValue(adapter.tokenUsage)).Should(Equal(0.95))
 		})
 
 		It("enters fake mode concurrently with real-path event handlers without data races", func() {
@@ -549,9 +534,9 @@ var _ = Describe("Metrics adapter", func() {
 			}
 			<-done
 			Expect(adapter.fake.Load()).NotTo(BeNil())
-			Eventually(gaugeValue(adapter.runningRequests)).Should(Equal(float64(9)))
-			Eventually(gaugeValue(adapter.queuedRequests)).Should(Equal(float64(3)))
-			Eventually(gaugeValue(adapter.tokenUsage)).Should(Equal(0.8))
+			Eventually(metrics.GaugeValue(adapter.runningRequests)).Should(Equal(float64(9)))
+			Eventually(metrics.GaugeValue(adapter.queuedRequests)).Should(Equal(float64(3)))
+			Eventually(metrics.GaugeValue(adapter.tokenUsage)).Should(Equal(0.8))
 		})
 
 		// A histogram the configuration names nothing for reports nothing, rather
@@ -614,14 +599,14 @@ var _ = Describe("Metrics adapter", func() {
 					RunningRequests: &common.FakeMetricWithFunction{FixedValue: 5},
 					QueuedRequests:  &common.FakeMetricWithFunction{FixedValue: 30},
 				})
-				Eventually(gaugeValue(adapter.queuedRequests)).Should(Equal(float64(30)))
+				Eventually(metrics.GaugeValue(adapter.queuedRequests)).Should(Equal(float64(30)))
 
 				adapter.ApplyFakeMetricsUpdate(&SGLangFakeMetrics{
 					QueuedRequests: &common.FakeMetricWithFunction{FixedValue: 7},
 				})
 
-				Eventually(gaugeValue(adapter.queuedRequests)).Should(Equal(float64(7)))
-				Consistently(gaugeValue(adapter.runningRequests)).Should(Equal(float64(5)))
+				Eventually(metrics.GaugeValue(adapter.queuedRequests)).Should(Equal(float64(7)))
+				Consistently(metrics.GaugeValue(adapter.runningRequests)).Should(Equal(float64(5)))
 			})
 
 			It("drops the other series of a stream-split counter", func() {
@@ -647,15 +632,15 @@ var _ = Describe("Metrics adapter", func() {
 					CachedTokens:  int64Ptr(2000),
 					QueriedTokens: int64Ptr(8000),
 				})
-				Eventually(gaugeValue(adapter.cacheHitRate)).Should(Equal(0.25))
+				Eventually(metrics.GaugeValue(adapter.cacheHitRate)).Should(Equal(0.25))
 
 				adapter.ApplyFakeMetricsUpdate(&SGLangFakeMetrics{
 					CachedTokens:  int64Ptr(3000),
 					QueriedTokens: int64Ptr(6000),
 				})
 
-				Eventually(gaugeValue(adapter.cacheHitRate)).Should(Equal(0.5))
-				Eventually(counterValue(adapter.cachedTokensTotal, common.TestModelName, cacheSourceTotal)).
+				Eventually(metrics.GaugeValue(adapter.cacheHitRate)).Should(Equal(0.5))
+				Eventually(metrics.CounterValue(adapter.cachedTokensTotal, common.TestModelName, cacheSourceTotal)).
 					Should(Equal(float64(3000)))
 			})
 
@@ -666,12 +651,12 @@ var _ = Describe("Metrics adapter", func() {
 					CachedTokens:  int64Ptr(2000),
 					QueriedTokens: int64Ptr(8000),
 				})
-				Eventually(gaugeValue(adapter.cacheHitRate)).Should(Equal(0.25))
+				Eventually(metrics.GaugeValue(adapter.cacheHitRate)).Should(Equal(0.25))
 
 				adapter.ApplyFakeMetricsUpdate(&SGLangFakeMetrics{CachedTokens: int64Ptr(4000)})
 
-				Eventually(gaugeValue(adapter.cacheHitRate)).Should(Equal(0.5))
-				Eventually(counterValue(adapter.cachedTokensTotal, common.TestModelName, cacheSourceTotal)).
+				Eventually(metrics.GaugeValue(adapter.cacheHitRate)).Should(Equal(0.5))
+				Eventually(metrics.CounterValue(adapter.cachedTokensTotal, common.TestModelName, cacheSourceTotal)).
 					Should(Equal(float64(4000)))
 			})
 
@@ -704,7 +689,7 @@ var _ = Describe("Metrics adapter", func() {
 				Eventually(histogramCount(registry, SGLangTTFTMetricName, streaming)).Should(Equal(uint64(5)))
 				Eventually(counterSeries(registry, SGLangRequestsTotalMetricName)).Should(Equal(
 					map[string]float64{streaming: 10}))
-				Eventually(gaugeValue(adapter.cacheHitRate)).Should(Equal(0.25))
+				Eventually(metrics.GaugeValue(adapter.cacheHitRate)).Should(Equal(0.25))
 
 				queueTime := adapter.queueTime
 				ttft := adapter.ttft
@@ -722,7 +707,7 @@ var _ = Describe("Metrics adapter", func() {
 				Eventually(histogramCount(registry, SGLangTTFTMetricName, streaming)).Should(Equal(uint64(2)))
 				Eventually(counterSeries(registry, SGLangRequestsTotalMetricName)).Should(Equal(
 					map[string]float64{streaming: 4}))
-				Eventually(gaugeValue(adapter.cacheHitRate)).Should(Equal(0.5))
+				Eventually(metrics.GaugeValue(adapter.cacheHitRate)).Should(Equal(0.5))
 
 				Expect(adapter.queueTime).To(BeIdenticalTo(queueTime))
 				Expect(adapter.ttft).To(BeIdenticalTo(ttft))
@@ -747,7 +732,7 @@ var _ = Describe("Metrics adapter", func() {
 				})
 
 				Expect(adapter.generators.Running()).To(BeFalse())
-				Eventually(gaugeValue(adapter.runningRequests)).Should(Equal(float64(3)))
+				Eventually(metrics.GaugeValue(adapter.runningRequests)).Should(Equal(float64(3)))
 			})
 		})
 	})
