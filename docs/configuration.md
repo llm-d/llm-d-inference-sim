@@ -287,9 +287,53 @@ Its names for the three settings each engine names itself are listed under
   for what is reported once it is on.
 
 SGLang's other metrics flags are not accepted: `--enable-mfu-metrics` and `--enable-metrics-for-all-schedulers`
-describe a runtime and a device topology the simulator does not model, `--extra-metric-labels` would add
-labels no simulated value fills, and the `--bucket-*` boundary overrides are replaced by SGLang's defaults,
-listed under [Metrics](metrics.md#sglang).
+describe a runtime and a device topology the simulator does not model, and `--extra-metric-labels`
+together with the `--bucket-*` boundary overrides are listed under [Metrics](metrics.md#sglang) as
+deliberately absent.
+
+#### Fake metrics
+
+- `running-requests` - `sglang:num_running_reqs`. A fixed number or a generator function, in the same
+  `fun:start:end:period` form the [vLLM section](#fake-metrics) describes.
+- `queue-requests` - `sglang:num_queue_reqs`, same shape.
+- `token-usage` - `sglang:token_usage`, same shape, between 0 and 1. The absolute token counts beside it,
+  `sglang:num_used_tokens`, `sglang:kv_used_tokens` and `sglang:kv_available_tokens`, are derived from it
+  and the cache's configured capacity.
+- `total-prompt-tokens`, `total-generation-tokens`, `num-requests-total` - `sglang:prompt_tokens_total`,
+  `sglang:generation_tokens_total` and `sglang:num_requests_total`. SGLang labels these by
+  `is_streaming`, so each takes both series as an object with the keys `streaming` and `non-streaming`.
+  Either key may be omitted, which leaves that series absent from a scrape rather than reporting a zero.
+- `cached-tokens`, `queried-tokens` - the prefix cache's cumulative tallies, in tokens. The first is
+  reported as `sglang:cached_tokens_total`, and the two together as `sglang:cache_hit_rate`, so they must
+  be specified together and the first may not exceed the second.
+
+Each histogram takes an array of bucket sample counts, in bucket order. The array may be shorter than the
+number of buckets, which leaves the trailing ones empty, and may not be longer. Every sample is observed
+at its bucket's upper boundary, so the histogram's `_sum` follows from which buckets are filled rather
+than being configurable on its own. The three SGLang labels by `is_streaming` take one array per series,
+under the same `streaming` / `non-streaming` keys as the counters:
+
+- `ttft-buckets-values` - `sglang:time_to_first_token_seconds`, split.
+- `request-tpot-buckets-values` - `sglang:request_time_per_output_token_seconds`, split.
+- `e2erl-buckets-values` - `sglang:e2e_request_latency_seconds`, split.
+- `itl-buckets-values` - `sglang:inter_token_latency_seconds`.
+- `queue-time-buckets-values` - `sglang:queue_time_seconds`.
+- `prompt-tokens-buckets-values` - `sglang:prompt_tokens_histogram`.
+- `uncached-prompt-tokens-buckets-values` - `sglang:uncached_prompt_tokens_histogram`.
+- `generation-tokens-buckets-values` - `sglang:generation_tokens_histogram`.
+
+The bucket boundaries are SGLang's own defaults, listed in [Metrics](metrics.md#sglang); the simulator
+does not accept the `--bucket-*` flags that override them. Unlike the vLLM engine, no token total is
+derived from a histogram: SGLang splits `prompt_tokens_total` by `is_streaming` but reports
+`prompt_tokens_histogram` without the label, so the totals are set on their own.
+
+The gauges describing the configuration are not fakeable and keep their real values: `sglang:context_len`,
+`sglang:page_size`, `sglang:num_pages` and `sglang:max_total_num_tokens`.
+
+**Example:**<br>
+```
+--fake-metrics '{"running-requests":"oscillate:0:10:5s","queue-requests":30,"token-usage":0.4,"cached-tokens":2000,"queried-tokens":8000,"num-requests-total":{"streaming":412,"non-streaming":1038},"queue-time-buckets-values":[0,2,3],"ttft-buckets-values":{"streaming":[5,3,2],"non-streaming":[0,0,1,4,10]}}'
+```
 
 #### Other settings
 

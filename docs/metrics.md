@@ -48,6 +48,7 @@ Metrics are opt-in under this engine, as they are in SGLang: `/metrics` is serve
 an empty body.
 
 Currently supported are the following metrics:
+
 | Metric | Description |
 |---|---|
 | sglang:num_running_reqs | The number of running requests |
@@ -62,13 +63,22 @@ Currently supported are the following metrics:
 | sglang:generation_tokens_total | Number of generation tokens processed |
 | sglang:num_requests_total | Number of requests processed |
 | sglang:prompt_tokens_histogram | Histogram of prompt token length |
+| sglang:uncached_prompt_tokens_histogram | Histogram of uncached (compute) prompt token length |
 | sglang:generation_tokens_histogram | Histogram of generation token length |
+| sglang:token_usage | The token usage |
+| sglang:num_used_tokens | The number of used tokens |
+| sglang:kv_used_tokens | Number of actively used token slots in the KV cache pool |
+| sglang:kv_available_tokens | Number of free token slots in the KV cache pool |
+| sglang:max_total_num_tokens | Maximum total number of tokens in the KV cache pool |
+| sglang:page_size | KV cache page size in tokens |
+| sglang:num_pages | Number of KV cache pages |
+| sglang:cache_hit_rate | The prefix cache hit rate |
+| sglang:cached_tokens_total | Number of cached prompt tokens, labeled by `cache_source` |
 
 The bucket boundaries of the three request-latency histograms are the defaults of SGLang's
 `--bucket-time-to-first-token`, `--bucket-inter-token-latency`, and `--bucket-e2e-request-latency`; the
 simulator does not accept the flags that override them. `sglang:queue_time_seconds` and the token-length
-histograms take SGLang's fixed boundaries for them, so unlike the vLLM engine's token histograms they do
-not scale with `max-model-len`.
+histograms take SGLang's fixed boundaries for them, so unlike the vLLM engine's token histograms they do not scale with `max-model-len`.
 
 Every metric carries a `model_name` label, and the six per-request metrics are additionally split by
 `is_streaming`, as SGLang splits them. `engine_type` and the `tp_rank`/`pp_rank`/`moe_ep_rank` labels real
@@ -82,3 +92,46 @@ is narrower still: a request that generated a single token, or that stopped for 
 
 `sglang:queue_time_seconds` is observed when a request leaves the waiting queue, so it stays absent
 while a free worker is always available to take a request immediately.
+A request that fails contributes to no metric but `sglang:num_running_reqs`, since SGLang observes a
+request's latency and token counts only once it has finished. `sglang:request_time_per_output_token_seconds`
+is narrower still: a request that generated a single token, or that stopped for any reason other than
+`stop` or `length`, reports no time per output token, as it reports none upstream.
+`sglang:uncached_prompt_tokens_histogram` equals `sglang:prompt_tokens_histogram` while no KV cache is
+simulated, since no prompt token can be served from a prefix cache.
+
+`sglang:queue_time_seconds` is observed when a request leaves the waiting queue, so it stays absent
+while a free worker is always available to take a request immediately.
+
+### The KV-cache metrics
+
+This engine simulates no KV cache, so the metrics measuring one report an empty cache of the configured
+geometry: `token_usage`, `num_used_tokens`, `kv_used_tokens`, and `cache_hit_rate` read zero,
+`kv_available_tokens` reads the full capacity, and `cached_tokens_total` stays absent. The ones describing
+the cache rather than measuring it carry real values: `max_total_num_tokens` is `kv-cache-size` x
+`block-size`, `page_size` is `block-size`, and `num_pages` is `kv-cache-size`. The handlers behind the
+measurements are wired, so they begin reporting as soon as the engine gains a KV cache, without a change
+here. `cached_tokens_total` is labeled `cache_source="total"`, SGLang's own fallback label when it has no
+per-tier breakdown to report, which the simulator's single-tier block cache never will.
+
+### Fake metrics
+
+[Fake metrics](configuration.md#fake-metrics-1) replace every load metric of this surface: the request
+gauges, the token-usage gauges, the prefix-cache gauge and counter, the three token and request counters,
+and all eight histograms. The keys are this engine's own, since the fakeable set mirrors its own metrics,
+and the six metrics SGLang labels by `is_streaming` take both series, so a scrape can break down by the
+label the way a real one does.
+
+The gauges describing the configuration are reported from the configuration either way:
+`sglang:context_len`, `sglang:page_size`, `sglang:num_pages` and `sglang:max_total_num_tokens`. Fake
+metrics do not replace them, since they report the geometry the simulator was given rather than anything a
+request changes.
+
+A metric the configuration names nothing for reports nothing: real and fake metrics are never served
+together, so a scrape carries what the configuration sets and the gauges above, and no other series at
+all. For a histogram split by `is_streaming`, that holds per series.
+
+A faked histogram's samples are observed at their bucket's upper boundary, so its `_sum` follows from
+which buckets are filled rather than being configurable on its own. No total is derived from a histogram
+the way the vLLM engine derives its token counters: SGLang splits `sglang:prompt_tokens_total` by
+`is_streaming` but reports `sglang:prompt_tokens_histogram` without the label, so neither carries a
+per-series sum for the other, and the totals are set on their own.
