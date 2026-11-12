@@ -187,6 +187,68 @@ var _ = Describe("gRPC", func() {
 		Entry(nil, common.ModeRandom, true),
 	)
 
+	DescribeTable("generate honors ignore_eos and min_tokens",
+		func(mode string, params *pb.SamplingParams, expectedLen int, finishReason string) {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", mode}
+			_, comm, _, err := startServerHandle(ctx, mode, args, nil)
+			Expect(err).NotTo(HaveOccurred())
+
+			req := pb.GenerateRequest{
+				RequestId: "123",
+				Input: &pb.GenerateRequest_Tokenized{
+					Tokenized: &pb.TokenizedInput{
+						InputIds: []uint32{32, 45, 78, 13},
+					},
+				},
+				SamplingParams: params,
+			}
+
+			out := mockGenerateServer{start: time.Now(), ctx: context.Background()}
+			err = comm.Generate(&req, &out)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(out.responses).To(HaveLen(1))
+			resp := out.responses[0].GetComplete()
+			Expect(resp).NotTo(BeNil())
+			Expect(resp.OutputIds).To(HaveLen(expectedLen))
+			Expect(resp.CompletionTokens).To(Equal(uint32(expectedLen)))
+			Expect(resp.FinishReason).To(Equal(finishReason))
+		},
+		func(mode string, params *pb.SamplingParams, expectedLen int, finishReason string) string {
+			return fmt.Sprintf("mode: %s, ignore_eos: %t, min_tokens: %d, max_tokens: %d",
+				mode, params.IgnoreEos, params.MinTokens, params.GetMaxTokens())
+		},
+		Entry(nil, common.ModeEcho, &pb.SamplingParams{MaxTokens: new(uint32(10)), IgnoreEos: true},
+			10, common.LengthFinishReason),
+		Entry(nil, common.ModeEcho, &pb.SamplingParams{MaxTokens: new(uint32(10)), MinTokens: 7},
+			7, common.StopFinishReason),
+		Entry(nil, common.ModeRandom, &pb.SamplingParams{MaxTokens: new(uint32(300)), IgnoreEos: true},
+			300, common.LengthFinishReason),
+		Entry(nil, common.ModeRandom, &pb.SamplingParams{MaxTokens: new(uint32(300)), MinTokens: 300},
+			300, common.LengthFinishReason),
+	)
+
+	It("generate rejects min_tokens above max_tokens", func() {
+		ctx := context.TODO()
+		_, comm, _, err := startServerHandle(ctx, common.ModeEcho, nil, nil)
+		Expect(err).NotTo(HaveOccurred())
+
+		req := pb.GenerateRequest{
+			RequestId: "123",
+			Input: &pb.GenerateRequest_Tokenized{
+				Tokenized: &pb.TokenizedInput{
+					InputIds: []uint32{32, 45, 78, 13},
+				},
+			},
+			SamplingParams: &pb.SamplingParams{MaxTokens: new(uint32(5)), MinTokens: 6},
+		}
+
+		out := mockGenerateServer{start: time.Now(), ctx: context.Background()}
+		err = comm.Generate(&req, &out)
+		Expect(status.Code(err)).To(Equal(codes.InvalidArgument))
+		Expect(err.Error()).To(ContainSubstring("min_tokens"))
+	})
+
 	It("generate with a served model name", func() {
 		ctx := context.TODO()
 		_, comm, _, err := startServerHandle(ctx, common.ModeEcho, []string{

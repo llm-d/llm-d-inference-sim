@@ -751,6 +751,10 @@ type GenerationRequest struct {
 	// The token count of your prompt plus `max_tokens` cannot exceed the model's
 	// context length.
 	MaxTokens *int64
+
+	// MinTokens is the minimum number of tokens to generate before an
+	// end-of-sequence token may end the completion.
+	MinTokens *int64
 }
 
 var _ Request = (*GenerationRequest)(nil)
@@ -771,6 +775,10 @@ func (c *GenerationRequest) GetMaxCompletionTokens() *int64 {
 // for text completions - max_tokens field is used
 func (req *GenerationRequest) ExtractMaxTokens() *int64 {
 	return req.MaxTokens
+}
+
+func (c *GenerationRequest) GetMinTokens() *int64 {
+	return c.MinTokens
 }
 
 func (t *GenerationRequest) GetLogprobs() *int {

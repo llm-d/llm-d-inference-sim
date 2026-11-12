@@ -154,6 +154,11 @@ func (c *Communication) pbRequestToRequest(in *pb.GenerateRequest) *endpoint.Gen
 	// a gRPC request names no model, so it is served by the base model under its served name
 	req := api.NewGenerationRequest(in.GetRequestId(), in.GetStream(),
 		c.runtime.Config().DisplayModelName, maxTokens)
+	req.SetIgnoreEOS(in.GetSamplingParams().GetIgnoreEos())
+	// min_tokens is a plain proto3 field, so 0 means unset, as in vLLM
+	if minTokens := in.GetSamplingParams().GetMinTokens(); minTokens > 0 {
+		req.MinTokens = new(int64(minTokens))
+	}
 
 	if in.GetTokenized() != nil {
 		prompt := &api.Tokenized{}
