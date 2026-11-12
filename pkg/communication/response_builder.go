@@ -236,7 +236,7 @@ func (respBuilder *textComplHTTPRespBuilder) createLastChunk(respCtx endpoint.Re
 	if finishReason == common.CacheThresholdFinishReason {
 		return nil
 	}
-	return respBuilder.createChunk(respCtx, nil, nil, "", respCtx.FinishReason(), choiceIdx)
+	return respBuilder.createChunk(respCtx, nil, nil, "", &finishReason, choiceIdx)
 }
 
 // createRenderResponse builds the wire payload for /v1/completions/render: an
@@ -387,7 +387,7 @@ func (respBuilder *chatComplHTTPRespBuilder) createLastChunk(respCtx endpoint.Re
 	if finishReason == common.ToolsFinishReason || finishReason == common.CacheThresholdFinishReason {
 		return nil
 	}
-	return respBuilder.createChunk(respCtx, nil, nil, "", respCtx.FinishReason(), choiceIdx)
+	return respBuilder.createChunk(respCtx, nil, nil, "", &finishReason, choiceIdx)
 }
 
 func (b *chatComplHTTPRespBuilder) createImageChunk(respCtx endpoint.ResponseContext, choiceIdx int) sseChunk {

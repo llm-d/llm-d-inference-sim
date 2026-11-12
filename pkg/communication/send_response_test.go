@@ -329,6 +329,55 @@ var _ = Describe("sendStream cache_threshold choice", func() {
 	})
 })
 
+// The choices of one request can end with different finish reasons. The last
+// chunk of each streamed choice must carry that choice's own reason, not the
+// reason of the choice that responded first.
+var _ = Describe("sendStream finish_reason per choice", func() {
+	DescribeTable("puts each choice's own finish_reason in its last chunk",
+		func(body string, newReq func() endpoint.Request, builder responseBuilder) {
+			ctx := context.Background()
+			sim := newRunningSim(ctx)
+
+			// Choice 0 is capped by max_tokens and streams first, choice 1 is not.
+			merged := common.Channel[*endpoint.ResponseInfo]{
+				Channel: make(chan *endpoint.ResponseInfo, 100),
+				Name:    "merged",
+			}
+			for choiceIdx, maxTokens := range []string{`,"max_tokens":1`, ""} {
+				req := newReq()
+				Expect(req.Unmarshal([]byte(fmt.Sprintf(body, common.TestModelName, maxTokens)))).To(Succeed())
+				req.SetRequestID(fmt.Sprintf("finish-%d", choiceIdx))
+				_, _, respChan, topErr, _ := sim.HandleRequest(ctx, req)
+				Expect(topErr).To(BeNil())
+				for response := range respChan.Channel {
+					response.ChoiceIdx = choiceIdx
+					merged.Channel <- response
+				}
+			}
+			close(merged.Channel)
+			first := <-merged.Channel
+
+			c := &Communication{logger: klog.Background(), transport: fakeTransport{}}
+			httpCtx := &fasthttp.RequestCtx{}
+			c.sendStream(httpCtx, merged, builder, 2, first, func() {})
+
+			out, err := io.ReadAll(httpCtx.Response.BodyStream())
+			Expect(err).NotTo(HaveOccurred())
+			Expect(string(out)).To(ContainSubstring(`"index":0,"finish_reason":"length"`))
+			Expect(string(out)).To(ContainSubstring(`"index":1,"finish_reason":"stop"`))
+			Expect(string(out)).To(ContainSubstring("[DONE]"))
+		},
+		Entry("for text completions",
+			`{"model":%q,"prompt":"hello there my friend","stream":true%s}`,
+			func() endpoint.Request { return &endpoint.TextCompletionsParsedRequest{} },
+			&textComplHTTPRespBuilder{transport: fakeTransport{}}),
+		Entry("for chat completions",
+			`{"model":%q,"messages":[{"role":"user","content":"hello there my friend"}],"stream":true%s}`,
+			func() endpoint.Request { return &endpoint.ChatCompletionsRequest{} },
+			&chatComplHTTPRespBuilder{transport: fakeTransport{}}),
+	)
+})
+
 // abortRecorder records the context handleHTTP passes to HandleRequest, which
 // is done once the request is aborted.
 type abortRecorder struct {
