@@ -376,6 +376,45 @@ var _ = Describe("sendStream finish_reason per choice", func() {
 			func() endpoint.Request { return &endpoint.ChatCompletionsRequest{} },
 			&chatComplHTTPRespBuilder{transport: fakeTransport{}}),
 	)
+
+	It("ends a tool-call choice with tool_calls when a text choice streams first", func() {
+		ctx := context.Background()
+		sim := newRunningSim(ctx)
+
+		// Choice 0 answers in text and streams first, choice 1 calls a tool.
+		tools := `[{"type":"function","function":{"name":"get_weather","parameters":` +
+			`{"type":"object","properties":{"location":{"type":"string"}},"required":["location"]}}}]`
+		merged := common.Channel[*endpoint.ResponseInfo]{
+			Channel: make(chan *endpoint.ResponseInfo, 100),
+			Name:    "merged",
+		}
+		for choiceIdx, toolChoice := range []string{"none", "required"} {
+			req := &endpoint.ChatCompletionsRequest{}
+			body := fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"hello there my friend"}],`+
+				`"stream":true,"tools":%s,"tool_choice":%q}`, common.TestModelName, tools, toolChoice)
+			Expect(req.Unmarshal([]byte(body))).To(Succeed())
+			req.SetRequestID(fmt.Sprintf("tools-%d", choiceIdx))
+			_, _, respChan, topErr, _ := sim.HandleRequest(ctx, req)
+			Expect(topErr).To(BeNil())
+			for response := range respChan.Channel {
+				response.ChoiceIdx = choiceIdx
+				merged.Channel <- response
+			}
+		}
+		close(merged.Channel)
+		first := <-merged.Channel
+
+		c := &Communication{logger: klog.Background(), transport: fakeTransport{}}
+		httpCtx := &fasthttp.RequestCtx{}
+		c.sendStream(httpCtx, merged, &chatComplHTTPRespBuilder{transport: fakeTransport{}}, 2, first, func() {})
+
+		out, err := io.ReadAll(httpCtx.Response.BodyStream())
+		Expect(err).NotTo(HaveOccurred())
+		Expect(string(out)).To(ContainSubstring(`"index":0,"finish_reason":"stop"`))
+		Expect(string(out)).To(ContainSubstring(`"tool_calls":[`))
+		Expect(string(out)).To(ContainSubstring(`"finish_reason":"tool_calls"`))
+		Expect(string(out)).To(ContainSubstring("[DONE]"))
+	})
 })
 
 // abortRecorder records the context handleHTTP passes to HandleRequest, which
