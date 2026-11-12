@@ -1454,8 +1454,8 @@ func systemBlocksText(blocks []AnthropicContentBlock) string {
 // Mapping rules:
 //   - system prompt -> leading Message{Role: "system"}; text blocks are joined
 //     without a separator and billing header blocks are dropped, as vLLM does
-//   - "system" message -> Message{Role: "system"} with its text joined the same
-//     way; a billing header is dropped in string form too
+//   - "system" message -> text appended to the leading system message, as vLLM
+//     does without --chat-template; a billing header is dropped in string form too
 //   - "text" block  -> ChatComplContentBlock{Type: "text"}
 //   - "image" block -> ChatComplContentBlock{Type: "image_url"} (base64 sources become data URLs)
 //   - "tool_use" block (assistant) -> Message.ToolCalls entry
@@ -1463,21 +1463,22 @@ func systemBlocksText(blocks []AnthropicContentBlock) string {
 //   - AnthropicTool -> Tool with function.parameters = input_schema
 func (m *MessagesRequest) ToChatCompletionsRequest() *ChatCompletionsRequest {
 	msgs := make([]Message, 0, len(m.Messages)+1)
-	if system := m.systemText(); system != "" {
+	var system strings.Builder
+	system.WriteString(m.systemText())
+	for _, am := range m.Messages {
+		if am.Role == "system" {
+			system.WriteString(inlineSystemText(am.Content))
+		}
+	}
+	if system.Len() > 0 {
 		msgs = append(msgs, Message{
 			Role:    "system",
-			Content: ChatComplContent{Raw: system},
+			Content: ChatComplContent{Raw: system.String()},
 		})
 	}
 
 	for _, am := range m.Messages {
 		if am.Role == "system" {
-			if text := inlineSystemText(am.Content); text != "" {
-				msgs = append(msgs, Message{
-					Role:    "system",
-					Content: ChatComplContent{Raw: text},
-				})
-			}
 			continue
 		}
 
