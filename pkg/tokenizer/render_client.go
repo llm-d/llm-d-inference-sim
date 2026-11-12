@@ -32,6 +32,16 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 )
 
+// RenderStatusError is a non-2xx answer from the render service.
+type RenderStatusError struct {
+	StatusCode int
+	Body       []byte
+}
+
+func (e *RenderStatusError) Error() string {
+	return fmt.Sprintf("vLLM render returned status %d: %s", e.StatusCode, e.Body)
+}
+
 type renderClient struct {
 	ctx       context.Context
 	logger    logr.Logger
@@ -144,7 +154,7 @@ func (rc *renderClient) postRaw(path string, payload []byte, timeout time.Durati
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
-		return nil, fmt.Errorf("vLLM render returned status %d: %s", httpResp.StatusCode, string(respBody))
+		return nil, &RenderStatusError{StatusCode: httpResp.StatusCode, Body: respBody}
 	}
 	return respBody, nil
 }
