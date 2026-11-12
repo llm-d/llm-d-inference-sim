@@ -37,7 +37,7 @@ declares is the only one it answers to, on the command line and in a config file
 - `config`: the path to a yaml configuration file that can contain the simulator's command line parameters. If a parameter is defined in both the config file and the command line, the command line value overwrites the configuration file value. An example that loads under any engine is [manifests/basic-config.yaml](../manifests/basic-config.yaml); [manifests/vllm-config.yaml](../manifests/vllm-config.yaml) and [manifests/sglang-config.yaml](../manifests/sglang-config.yaml) are written for one engine each and name it in their `engine` key. A key the simulator does not recognize is an error, not a no-op: startup fails naming the key. Since some settings are engine-owned, which keys are recognized depends on the selected engine; see [Engines](engine-backends.md).
 - `port`: the port the simulator listens on, default is 8000
 - `max-request-body-size-mb`: maximum allowed size of an HTTP request body in megabytes, optional, default is 4 (matching the fasthttp built-in default). Must be between 1 and 512.
-- `engine`: the inference engine to simulate, one of `vllm` or `sglang`, optional, default is `vllm`. SGLang support is experimental: it currently covers the OpenAI-compatible endpoints only, and rejects a configuration asking for LoRA adapters, the KV cache, fake metrics, sleep mode, or encoder-only mode; see [SGLang support](engine-backends.md#sglang-support-experimental). Determines which flags, environment variables, metric names, and KV-event format the simulator uses; see [Engines](engine-backends.md). If you omit `--engine` on the command line, a non-empty `SIM_ENGINE` environment variable can supply it; see [Configuration precedence](#configuration-precedence) and [Environment variables](#environment-variables).
+- `engine`: the inference engine to simulate, one of `vllm` or `sglang`, optional, default is `vllm`. SGLang support is experimental: it currently covers the OpenAI-compatible endpoints and the metrics subset, and rejects a configuration asking for LoRA adapters, the KV cache, fake metrics, sleep mode, or encoder-only mode; see [SGLang support](engine-backends.md#sglang-support-experimental). Determines which flags, environment variables, metric names, and KV-event format the simulator uses; see [Engines](engine-backends.md). If you omit `--engine` on the command line, a non-empty `SIM_ENGINE` environment variable can supply it; see [Configuration precedence](#configuration-precedence) and [Environment variables](#environment-variables).
 - `model`: the currently 'loaded' model, mandatory. Can also be given as the first command-line argument instead of `--model`, as in `vllm serve <model>`; passing both is rejected. If you omit the model on the command line, a non-empty `SIM_MODEL` environment variable can supply the model; see [Configuration precedence](#configuration-precedence) and [Environment variables](#environment-variables).
 - `served-model-name`: model names exposed by the API (a list of space-separated strings)
 - `stream-interval`: number of tokens sent per streamed chunk; the first token is always sent alone. Must be >= 1, default is 1
@@ -276,11 +276,26 @@ The following command line parameters are ignored by the simulator:
 
 ### SGLang
 
-This engine owns no settings of its own yet: it simulates the engine-neutral surface only, so none of the
-vLLM settings above are available under it.
-
 Its names for the three settings each engine names itself are listed under
 [Settings each engine names itself](#settings-each-engine-names-itself).
+
+#### Metrics
+
+- `enable-metrics`: serves the Prometheus `/metrics` route, optional, default is off. SGLang's own
+  `--enable-metrics` is opt-in the same way, and without it nothing is mounted at `/metrics`, so a
+  scrape of a simulator started without this flag gets a 404 rather than an empty body. The vLLM engine
+  exports its metrics unconditionally and spells no flag for the setting. See [Metrics](metrics.md#sglang)
+  for what is reported once it is on.
+
+SGLang's other metrics flags are not accepted: `--enable-mfu-metrics` and `--enable-metrics-for-all-schedulers`
+describe a runtime and a device topology the simulator does not model, `--extra-metric-labels` would add
+labels no simulated value fills, and the `--bucket-*` boundary overrides are replaced by SGLang's defaults,
+listed under [Metrics](metrics.md#sglang).
+
+#### Other settings
+
+None of the other vLLM settings above are available under this engine, which simulates the
+engine-neutral surface only.
 
 Every other setting SGLang spells the way the core does, including `model`, which SGLang accepts as an
 alias of its own `--model-path`, and `data-parallel-size`, an alias of its `--dp-size`. `seed` and

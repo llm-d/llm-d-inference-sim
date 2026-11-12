@@ -214,7 +214,7 @@ Structure of requests/responses
         - stream
         - model
         - messages (required)
-            - role (`user` or `assistant`)
+            - role (`user`, `assistant` or `system`)
             - content (string or array of content blocks)
               - type (`text`, `image`, `tool_use`, `tool_result`)
               - text (for `text` blocks)
@@ -225,7 +225,7 @@ Structure of requests/responses
                 - url
               - type, id, name, input (for `tool_use` blocks)
               - type, tool_use_id, content (for `tool_result` blocks)
-        - system
+        - system (string or array of `text` blocks). As in vLLM, `text` blocks whose text starts with `x-anthropic-billing-header` are left out of the prompt; Claude Code sends a per-request hash in that block. In a `system` message inside `messages` a string with that prefix is left out too.
         - max_tokens (required)
         - tools
           - name
