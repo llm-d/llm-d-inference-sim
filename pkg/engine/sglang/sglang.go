@@ -36,8 +36,11 @@ func New() Engine { return Engine{} }
 // Name identifies this engine backend.
 func (Engine) Name() string { return "sglang" }
 
-// NewFakeMetrics returns nil: this engine does not support fake metrics.
-func (Engine) NewFakeMetrics() common.FakeMetrics { return nil }
+// NewFakeMetrics returns a zero-valued SGLangFakeMetrics for runtime enable via
+// POST /admin/config when the process was started without --fake-metrics.
+func (Engine) NewFakeMetrics() common.FakeMetrics {
+	return &SGLangFakeMetrics{}
+}
 
 // NewRequestValidator leaves strict validation disabled for the experimental backend.
 func (Engine) NewRequestValidator() (communication.RequestValidator, error) {

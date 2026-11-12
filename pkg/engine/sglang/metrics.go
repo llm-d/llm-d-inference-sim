@@ -20,7 +20,6 @@ package sglang
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strconv"
 	"sync/atomic"
@@ -1017,9 +1016,11 @@ func (m *sglangMetricsAdapter) setInitialValues() {
 
 // -------- Fake Metrics ------
 
-// ApplyFakeMetricsUpdate narrows the engine-owned fake-metrics configuration to
-// this engine's concrete type and applies it. A configuration belonging to
-// another engine is logged and dropped.
+// ApplyFakeMetricsUpdate narrows the engine-owned fake-metrics configuration
+// to this engine's concrete type and applies it. A configuration belonging to
+// another engine is logged and dropped. The first successful call enters fake
+// mode so subsequent Reset updates are accepted and real-path event handlers
+// no-op.
 func (m *sglangMetricsAdapter) ApplyFakeMetricsUpdate(update common.FakeMetrics) {
 	sglangUpdate, ok := update.(*SGLangFakeMetrics)
 	if !ok || sglangUpdate == nil {
@@ -1027,16 +1028,7 @@ func (m *sglangMetricsAdapter) ApplyFakeMetricsUpdate(update common.FakeMetrics)
 			"ignoring fake-metrics update")
 		return
 	}
-	if m.fake.Load() == nil {
-		// There is no state to merge the partial onto, and applying it would
-		// stamp fake values while the event handlers, which gate on fake being
-		// set, keep reporting real ones; the two are never reported together.
-		// Configuration.Update refuses a body carrying fake metrics in this
-		// state, so this is reached only if that gate is bypassed.
-		m.logger.Error(errors.New("the simulator is reporting real metrics"),
-			"ignoring fake-metrics update")
-		return
-	}
+	m.fake.CompareAndSwap(nil, &SGLangFakeMetrics{})
 	m.applyFakeMetrics(sglangUpdate)
 }
 

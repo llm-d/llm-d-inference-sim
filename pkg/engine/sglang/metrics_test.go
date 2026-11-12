@@ -505,6 +505,55 @@ var _ = Describe("Metrics adapter", func() {
 				map[string]float64{streaming: 412, nonStreaming: 1038}))
 		})
 
+		It("enters fake mode from a real-metrics adapter on first ApplyUpdate", func() {
+			adapter, _ := newTestAdapter()
+
+			Expect(adapter.fake.Load()).To(BeNil())
+
+			adapter.ApplyFakeMetricsUpdate(&SGLangFakeMetrics{
+				RunningRequests: &common.FakeMetricWithFunction{FixedValue: 20},
+				QueuedRequests:  &common.FakeMetricWithFunction{FixedValue: 10},
+				TokenUsage:      &common.FakeMetricWithFunction{FixedValue: 0.95},
+			})
+
+			Expect(adapter.fake.Load()).NotTo(BeNil())
+			Eventually(gaugeValue(adapter.runningRequests)).Should(Equal(float64(20)))
+			Eventually(gaugeValue(adapter.queuedRequests)).Should(Equal(float64(10)))
+			Eventually(gaugeValue(adapter.tokenUsage)).Should(Equal(0.95))
+
+			// Real-path events must no-op after entering fake mode.
+			adapter.OnRequestRunning(metrics.RequestRunning{})
+			adapter.OnKVCacheUsageChanged(metrics.KVCacheUsageChanged{KVCacheUsagePerc: 0.1})
+			Consistently(gaugeValue(adapter.runningRequests)).Should(Equal(float64(20)))
+			Consistently(gaugeValue(adapter.tokenUsage)).Should(Equal(0.95))
+		})
+
+		It("enters fake mode concurrently with real-path event handlers without data races", func() {
+			adapter, _ := newTestAdapter()
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				for range 2000 {
+					adapter.OnRequestQueued(metrics.RequestQueued{})
+					adapter.OnRequestDequeued(metrics.RequestDequeued{})
+					adapter.OnRequestRunning(metrics.RequestRunning{})
+					adapter.OnKVCacheUsageChanged(metrics.KVCacheUsageChanged{KVCacheUsagePerc: 0.25})
+				}
+			}()
+			for range 50 {
+				adapter.ApplyFakeMetricsUpdate(&SGLangFakeMetrics{
+					RunningRequests: &common.FakeMetricWithFunction{FixedValue: 9},
+					QueuedRequests:  &common.FakeMetricWithFunction{FixedValue: 3},
+					TokenUsage:      &common.FakeMetricWithFunction{FixedValue: 0.8},
+				})
+			}
+			<-done
+			Expect(adapter.fake.Load()).NotTo(BeNil())
+			Eventually(gaugeValue(adapter.runningRequests)).Should(Equal(float64(9)))
+			Eventually(gaugeValue(adapter.queuedRequests)).Should(Equal(float64(3)))
+			Eventually(gaugeValue(adapter.tokenUsage)).Should(Equal(0.8))
+		})
+
 		// A histogram the configuration names nothing for reports nothing, rather
 		// than the observations of real requests.
 		It("leaves an unnamed histogram unpopulated", func() {
@@ -716,17 +765,6 @@ var _ = Describe("Metrics adapter", func() {
 				adapter.OnPrefixCacheQueried(metrics.PrefixCacheQueried{QueriedTokens: 10, CachedPromptTokens: 5})
 				adapter.OnLoRASetsChanged(metrics.LoRASetsChanged{})
 			}).NotTo(Panic())
-		})
-
-		It("drops a fake-metrics update while reporting real metrics", func() {
-			adapter, _ := newTestAdapter()
-
-			Expect(func() {
-				adapter.ApplyFakeMetricsUpdate(&SGLangFakeMetrics{
-					QueuedRequests: &common.FakeMetricWithFunction{FixedValue: 7},
-				})
-			}).NotTo(Panic())
-			Consistently(gaugeValue(adapter.queuedRequests)).Should(BeZero())
 		})
 	})
 })
