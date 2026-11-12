@@ -17,11 +17,15 @@ limitations under the License.
 package endpoint
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
@@ -29,6 +33,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"github.com/valyala/fasthttp"
+	"k8s.io/klog/v2"
 )
 
 // ptrInt64 and ptrInt return pointers to their argument; small helpers for
@@ -265,6 +270,60 @@ var _ = Describe("HandleRequest", func() {
 		Expect(err).NotTo(BeNil())
 		Expect(err.Code).To(Equal(fasthttp.StatusInternalServerError))
 		Expect(err.Message).To(ContainSubstring("invalid gen_tokens"))
+	})
+
+	Context("when the render service answers with an error", func() {
+		handleChatWithRenderAnswer := func(status int, body string) *api.Error {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(status)
+				_, _ = w.Write([]byte(body))
+			}))
+			defer srv.Close()
+			tk, err := tokenizer.NewHFTokenizer(context.Background(), klog.Background(), srv.URL, "m", time.Second, time.Second)
+			Expect(err).NotTo(HaveOccurred())
+			runtime := &fakeRuntime{
+				config:    &common.Configuration{MaxModelLen: 2048, Mode: common.ModeRandom},
+				tokenizer: tk,
+			}
+			req := &ChatCompletionsRequest{}
+			Expect(req.Unmarshal([]byte(`{"model":"m","messages":[{"role":"user","content":"hi"}]}`))).To(Succeed())
+			req.SetRequestID("req-render")
+
+			respCtx, apiErr := req.BuildRequestContext(runtime, common.Channel[*ResponseInfo]{}, 0, func() {}).HandleRequest()
+
+			Expect(respCtx).To(BeNil())
+			Expect(apiErr).NotTo(BeNil())
+			return apiErr
+		}
+
+		It("returns a 400 from the render service to the client as it is", func() {
+			// vLLM 0.33.0's render answer for a chat prompt over --max-model-len 2048
+			apiErr := handleChatWithRenderAnswer(http.StatusBadRequest,
+				`{"error":{"message":"This model's maximum context length is 2048 tokens. However, your prompt `+
+					`contains at least 2049 input tokens, which exceeds this limit even without any output tokens. `+
+					`Please reduce the length of the input prompt. (parameter=input_tokens, value=2049)",`+
+					`"type":"BadRequestError","param":"input_tokens","code":400}}`)
+
+			Expect(apiErr.Code).To(Equal(fasthttp.StatusBadRequest))
+			Expect(apiErr.Type).To(Equal("BadRequestError"))
+			Expect(apiErr.Message).To(Equal("This model's maximum context length is 2048 tokens. However, your prompt " +
+				"contains at least 2049 input tokens, which exceeds this limit even without any output tokens. " +
+				"Please reduce the length of the input prompt. (parameter=input_tokens, value=2049)"))
+			Expect(apiErr.Param).To(HaveValue(Equal("input_tokens")))
+		})
+
+		DescribeTable("returns a server error for any other render answer",
+			func(status int, body string) {
+				apiErr := handleChatWithRenderAnswer(status, body)
+
+				Expect(apiErr.Code).To(Equal(fasthttp.StatusInternalServerError))
+			},
+			// vLLM 0.33.0's render answer when it runs without --enable-scale-out
+			Entry("403 from a render service without scale-out endpoints", http.StatusForbidden,
+				`{"error":{"message":"Scale-out endpoints are disabled. Restart vllm serve with --enable-scale-out `+
+					`to enable them.","type":"PermissionDeniedError","param":null,"code":403}}`),
+			Entry("400 whose body is not an error object", http.StatusBadRequest, "bad request"),
+		)
 	})
 })
 

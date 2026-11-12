@@ -17,6 +17,8 @@ limitations under the License.
 package endpoint
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -123,6 +125,22 @@ func (b *baseRequestContext) StartProcessingTime() time.Time {
 	return b.startProcessing
 }
 
+// renderBadRequest returns the render service's error for a request it rejected
+// with 400, since vLLM gives the client that same answer. Any other render failure
+// points at the render setup, so the caller reports it as a server error.
+func renderBadRequest(err error) *api.Error {
+	var statusErr *tokenizer.RenderStatusError
+	if !errors.As(err, &statusErr) || statusErr.StatusCode != fasthttp.StatusBadRequest {
+		return nil
+	}
+	var resp api.ErrorResponse
+	if json.Unmarshal(statusErr.Body, &resp) != nil {
+		return nil
+	}
+	apiErr := api.NewError(resp.Error.Message, fasthttp.StatusBadRequest, resp.Error.Param)
+	return &apiErr
+}
+
 func (b *baseRequestContext) tokenize() *api.Error {
 	req := b.Request()
 
@@ -130,6 +148,9 @@ func (b *baseRequestContext) tokenize() *api.Error {
 		// the prompt is still not tokenized - tokenize now
 		tokens, textTokens, mmFeatures, err := b.encode()
 		if err != nil {
+			if badRequest := renderBadRequest(err); badRequest != nil {
+				return badRequest
+			}
 			b.logger.Error(err, "failed to tokenize")
 			serverErr := api.NewError("Failed to tokenize, "+err.Error(), fasthttp.StatusInternalServerError, nil)
 			return &serverErr
