@@ -151,8 +151,26 @@ func (c *ChatCompletionsRequest) createResponseContext(reqCtx RequestContext, di
 		}
 	}
 
+	reasoningTokenCount := 0
+	// HandleRequest is promoted from baseRequestContext, so its receiver is the
+	// base context even when processing a chat completion. Keep the direct chat
+	// context path for callers that invoke createResponseContext themselves.
+	var runtimeCtx *baseRequestContext
+	switch ctx := reqCtx.(type) {
+	case *baseRequestContext:
+		runtimeCtx = ctx
+	case *chatCompletionReqCtx:
+		runtimeCtx = &ctx.baseRequestContext
+	}
+	if runtimeCtx != nil && responseTokens != nil && len(toolCalls) == 0 &&
+		runtimeCtx.runtime.Config().EngineName == common.DefaultEngineName &&
+		c.responseFormat == nil && !sendAudio && !c.SendImage() {
+		reasoningTokenCount = len(responseTokens.Strings) * runtimeCtx.runtime.Config().ReasoningPercentage / 100
+	}
+
 	return &chatCompletionsResponseCtx{
 		baseResponseContext: base,
+		reasoningTokenCount: reasoningTokenCount,
 		toolsCalls:          toolCalls,
 		ecTransferParams:    ecParams,
 		sendAudio:           sendAudio,
@@ -222,6 +240,8 @@ type chatCompletionsResponseCtx struct {
 	baseResponseContext
 	// tool calls to be sent in the response
 	toolsCalls []api.ToolCall
+	// Number of generated tokens assigned to the reasoning prefix.
+	reasoningTokenCount int
 	// ecTransferParams holds simulated encoder-cache transfer params per mm hash
 	ecTransferParams map[string]api.ECTransferParams
 	// sendAudio is true when the client requested the "audio" output modality
@@ -230,6 +250,10 @@ type chatCompletionsResponseCtx struct {
 
 func (respCtx *chatCompletionsResponseCtx) ToolCalls() []api.ToolCall {
 	return respCtx.toolsCalls
+}
+
+func (respCtx *chatCompletionsResponseCtx) ReasoningTokenCount() int {
+	return respCtx.reasoningTokenCount
 }
 
 func (respCtx *chatCompletionsResponseCtx) ECTransferParams() map[string]api.ECTransferParams {

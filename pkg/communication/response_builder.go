@@ -257,6 +257,8 @@ var _ responseBuilder = (*textComplHTTPRespBuilder)(nil)
 type chatComplHTTPRespBuilder struct {
 	baseRespBuilder
 	transport Transport
+	// Counts tokens already emitted for each choice of one SSE response.
+	emittedTokens map[int]int
 }
 
 func (respBuilder *chatComplHTTPRespBuilder) createResponse(respCtxPerChoice []endpoint.ResponseContext,
@@ -272,6 +274,14 @@ func (respBuilder *chatComplHTTPRespBuilder) createResponse(respCtxPerChoice []e
 		baseChoice := api.CreateBaseResponseChoice(i, choiceCtx.FinishReason())
 
 		message := api.Message{Role: api.RoleAssistant}
+		if count := choiceCtx.ReasoningTokenCount(); count > 0 {
+			if count > len(t.Strings) {
+				count = len(t.Strings)
+			}
+			reasoning := strings.Join(t.Strings[:count], "")
+			message.Reasoning = &reasoning
+			t.Strings = t.Strings[count:]
+		}
 		sendImage := choiceCtx.SendImage()
 		if choiceCtx.ToolCalls() != nil {
 			message.ToolCalls = choiceCtx.ToolCalls()
@@ -338,7 +348,57 @@ func (respBuilder *chatComplHTTPRespBuilder) createUsageChunk(respCtxPerChoice [
 
 // createChunk creates and returns a CompletionsRespChunk, a single chunk of streamed completion
 // API response, for chat completion. It sets either role, or token, or tool call info in the message.
+// createChunk separates reasoning and content at token boundaries without changing usage.
 func (respBuilder *chatComplHTTPRespBuilder) createChunk(respCtx endpoint.ResponseContext, tokens *api.Tokenized,
+	tool *api.ToolCall, role string, finishReason *string, choiceIdx int) sseChunk {
+	if tool == nil && tokens != nil && len(tokens.Strings) > 0 && respCtx.ReasoningTokenCount() > 0 {
+		if respBuilder.emittedTokens == nil {
+			respBuilder.emittedTokens = make(map[int]int)
+		}
+		previous := respBuilder.emittedTokens[choiceIdx]
+		respBuilder.emittedTokens[choiceIdx] += len(tokens.Strings)
+		if remaining := respCtx.ReasoningTokenCount() - previous; remaining > 0 {
+			n := min(remaining, len(tokens.Strings))
+			reasoning := respBuilder.createReasoningChunk(respCtx, strings.Join(tokens.Strings[:n], ""), choiceIdx)
+			if n == len(tokens.Strings) {
+				return reasoning
+			}
+			rest := &api.Tokenized{Tokens: tokens.Tokens[n:], Strings: tokens.Strings[n:]}
+			return &joinedSSEChunks{chunks: []sseChunk{
+				reasoning, respBuilder.createContentChunk(respCtx, rest, tool, role, finishReason, choiceIdx),
+			}}
+		}
+	}
+	return respBuilder.createContentChunk(respCtx, tokens, tool, role, finishReason, choiceIdx)
+}
+
+// joinedSSEChunks preserves one SSE frame per reasoning or content transition.
+type joinedSSEChunks struct{ chunks []sseChunk }
+
+func (j *joinedSSEChunks) SSEBytes() ([]byte, error) {
+	var result []byte
+	for _, chunk := range j.chunks {
+		data, err := chunk.SSEBytes()
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, data...)
+	}
+	return result, nil
+}
+
+func (respBuilder *chatComplHTTPRespBuilder) createReasoningChunk(
+	respCtx endpoint.ResponseContext, reasoning string, choiceIdx int) sseChunk {
+	base := api.CreateBaseCompletionsResponse(
+		respCtx.CreationTime(), respCtx.DisplayModel(), nil, respCtx.RequestID(), false)
+	base.Object = api.ChatCompletionChunkObject
+	choice := api.CreateChatRespChunkChoice(api.CreateBaseResponseChoice(choiceIdx, nil),
+		api.Message{Reasoning: &reasoning})
+	return &jsonDataChunk{data: api.CreateChatCompletionsRespChunk(base,
+		[]api.ChatRespChunkChoice{respBuilder.transport.DecorateChatChunkChoice(choice)})}
+}
+
+func (respBuilder *chatComplHTTPRespBuilder) createContentChunk(respCtx endpoint.ResponseContext, tokens *api.Tokenized,
 	tool *api.ToolCall, role string, finishReason *string, choiceIdx int) sseChunk {
 	baseChunk := api.CreateBaseCompletionsResponse(
 		respCtx.CreationTime(), respCtx.DisplayModel(), nil, respCtx.RequestID(), false)
