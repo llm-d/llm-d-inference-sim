@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"sync/atomic"
 
 	"github.com/go-logr/logr"
 	"github.com/prometheus/client_golang/prometheus"
@@ -177,9 +178,8 @@ type prefixCacheReset struct {
 type sglangMetricsAdapter struct {
 	logger logr.Logger
 	config common.Configuration
-	// fake is config.FakeMetrics narrowed to this engine's concrete type, nil
-	// when fake metrics are off or another engine owns the configuration.
-	fake *SGLangFakeMetrics
+
+	fake atomic.Pointer[SGLangFakeMetrics]
 
 	registry *prometheus.Registry
 
@@ -279,7 +279,7 @@ func newMetricsAdapter(ctx context.Context, registry *prometheus.Registry,
 		kvCapacityTokens: config.KVCache.KVCacheSize * config.KVCache.TokenBlockSize,
 	}
 	if fake, ok := config.FakeMetrics.(*SGLangFakeMetrics); ok {
-		m.fake = fake
+		m.fake.Store(fake)
 	}
 
 	if err := m.buildMetrics(); err != nil {
@@ -297,8 +297,9 @@ func newMetricsAdapter(ctx context.Context, registry *prometheus.Registry,
 func (m *sglangMetricsAdapter) Start(ctx context.Context) error {
 	m.startPrometheusChannels(ctx)
 
-	if m.fake != nil {
-		m.applyFakeMetrics(m.fake)
+	if fake := m.fake.Load(); fake != nil {
+		fm := *fake
+		m.applyFakeMetrics(&fm)
 	}
 	m.generators.Start()
 
@@ -324,7 +325,7 @@ func (m *sglangMetricsAdapter) OnRequestRejected(metrics.RequestRejected) {
 // request queued
 // - update number of queued requests
 func (m *sglangMetricsAdapter) OnRequestQueued(metrics.RequestQueued) {
-	if m.fake != nil {
+	if m.fake.Load() != nil {
 		return
 	}
 	common.WriteToChannel(m.queueReqChan, metrics.GaugeAdd(1), m.logger)
@@ -334,7 +335,7 @@ func (m *sglangMetricsAdapter) OnRequestQueued(metrics.RequestQueued) {
 // - update number of queued requests
 // - update queue time histogram
 func (m *sglangMetricsAdapter) OnRequestDequeued(ev metrics.RequestDequeued) {
-	if m.fake != nil {
+	if m.fake.Load() != nil {
 		return
 	}
 	common.WriteToChannel(m.queueReqChan, metrics.GaugeAdd(-1), m.logger)
@@ -344,7 +345,7 @@ func (m *sglangMetricsAdapter) OnRequestDequeued(ev metrics.RequestDequeued) {
 // request running
 // - update number of running requests
 func (m *sglangMetricsAdapter) OnRequestRunning(metrics.RequestRunning) {
-	if m.fake != nil {
+	if m.fake.Load() != nil {
 		return
 	}
 	common.WriteToChannel(m.runReqChan, metrics.GaugeAdd(1), m.logger)
@@ -357,7 +358,7 @@ func (m *sglangMetricsAdapter) OnPrefillStarted(metrics.PrefillStarted) {
 // prefill step ended
 // - update TTFT histogram
 func (m *sglangMetricsAdapter) OnPrefillEnded(ev metrics.PrefillEnded) {
-	if m.fake != nil {
+	if m.fake.Load() != nil {
 		return
 	}
 	common.WriteToChannel(m.ttftChan,
@@ -371,7 +372,7 @@ func (m *sglangMetricsAdapter) OnDecodeStarted(metrics.DecodeStarted) {
 // token generated
 // - update inter-token latency histogram
 func (m *sglangMetricsAdapter) OnTokenGenerated(ev metrics.TokenGenerated) {
-	if m.fake != nil {
+	if m.fake.Load() != nil {
 		return
 	}
 	common.WriteToChannel(m.interTokenLatencyChan, metrics.Observation(ev.InterTokenLatency), m.logger)
@@ -384,7 +385,7 @@ func (m *sglangMetricsAdapter) OnTokenGenerated(ev metrics.TokenGenerated) {
 // report, and one that ended for any other reason stopped mid-decode, so
 // neither contributes, as neither does upstream.
 func (m *sglangMetricsAdapter) OnDecodeEnded(ev metrics.DecodeEnded) {
-	if m.fake != nil {
+	if m.fake.Load() != nil {
 		return
 	}
 	if ev.GenerationTokens <= 0 || !tpotFinishReasons[ev.FinishReason] {
@@ -396,7 +397,7 @@ func (m *sglangMetricsAdapter) OnDecodeEnded(ev metrics.DecodeEnded) {
 
 // request processing finished successfully - update all relevant metrics
 func (m *sglangMetricsAdapter) OnRequestSucceeded(ev metrics.RequestSucceeded) {
-	if m.fake != nil {
+	if m.fake.Load() != nil {
 		return
 	}
 	common.WriteToChannel(m.promptTokensTotalChan,
@@ -421,7 +422,7 @@ func (m *sglangMetricsAdapter) OnRequestSucceeded(ev metrics.RequestSucceeded) {
 // latency and token counts when it finishes, so a request that never did
 // contributes to neither.
 func (m *sglangMetricsAdapter) OnRequestFailed(metrics.RequestFailed) {
-	if m.fake != nil {
+	if m.fake.Load() != nil {
 		return
 	}
 	// Do not send update to e2eReqLatencyChan because sglang does not report a latency for failed requests
@@ -434,7 +435,7 @@ func (m *sglangMetricsAdapter) OnRequestFailed(metrics.RequestFailed) {
 // Not reached while ValidateConfig rejects an enabled KV cache, which leaves
 // the gauges reporting the empty cache they are stamped with.
 func (m *sglangMetricsAdapter) OnKVCacheUsageChanged(ev metrics.KVCacheUsageChanged) {
-	if m.fake != nil {
+	if m.fake.Load() != nil {
 		return
 	}
 	common.WriteToChannel(m.kvUsageChan, metrics.GaugeAdd(ev.KVCacheUsagePerc), m.logger)
@@ -445,7 +446,7 @@ func (m *sglangMetricsAdapter) OnKVCacheUsageChanged(ev metrics.KVCacheUsageChan
 //
 // Not reached while ValidateConfig rejects an enabled KV cache.
 func (m *sglangMetricsAdapter) OnPrefixCacheQueried(ev metrics.PrefixCacheQueried) {
-	if m.fake != nil {
+	if m.fake.Load() != nil {
 		return
 	}
 	common.WriteToChannel(m.prefixCacheChan, prefixCacheUpdate{
@@ -503,9 +504,9 @@ func (m *sglangMetricsAdapter) createPrometheusChannels(ctx context.Context) {
 
 func (m *sglangMetricsAdapter) updateRunningRequests(upd metrics.GaugeUpdate) {
 	switch {
-	case upd.Add != nil && m.fake == nil:
+	case upd.Add != nil && m.fake.Load() == nil:
 		m.nRunningReqs += int64(*upd.Add)
-	case upd.Reset != nil && m.fake != nil:
+	case upd.Reset != nil && m.fake.Load() != nil:
 		m.nRunningReqs = int64(*upd.Reset)
 	default:
 		return
@@ -515,9 +516,9 @@ func (m *sglangMetricsAdapter) updateRunningRequests(upd metrics.GaugeUpdate) {
 
 func (m *sglangMetricsAdapter) updateQueuedRequests(upd metrics.GaugeUpdate) {
 	switch {
-	case upd.Add != nil && m.fake == nil:
+	case upd.Add != nil && m.fake.Load() == nil:
 		m.nQueuedReqs += int64(*upd.Add)
-	case upd.Reset != nil && m.fake != nil:
+	case upd.Reset != nil && m.fake.Load() != nil:
 		m.nQueuedReqs = int64(*upd.Reset)
 	default:
 		return
@@ -571,9 +572,9 @@ func (m *sglangMetricsAdapter) updateRequestsTotal(upd streamCounterUpdate) {
 
 func (m *sglangMetricsAdapter) updateKVCacheUsage(upd metrics.GaugeUpdate) {
 	switch {
-	case upd.Add != nil && m.fake == nil:
+	case upd.Add != nil && m.fake.Load() == nil:
 		m.reportKVCacheUsage(*upd.Add)
-	case upd.Reset != nil && m.fake != nil:
+	case upd.Reset != nil && m.fake.Load() != nil:
 		m.reportKVCacheUsage(*upd.Reset)
 	}
 }
@@ -586,13 +587,13 @@ func (m *sglangMetricsAdapter) updatePrefixCache(upd prefixCacheUpdate) {
 	model := m.config.DisplayModelName
 
 	switch {
-	case upd.query != nil && m.fake == nil:
+	case upd.query != nil && m.fake.Load() == nil:
 		if upd.query.cached > 0 {
 			m.cachedTokensTotal.WithLabelValues(model, cacheSourceTotal).Add(float64(upd.query.cached))
 		}
 		m.nCachedTokens += int64(upd.query.cached)
 		m.nQueriedTokens += int64(upd.query.queried)
-	case upd.reset != nil && m.fake != nil:
+	case upd.reset != nil && m.fake.Load() != nil:
 		// The tallies are the adapter's record of both, so an update naming one
 		// of the pair leaves the other where it was.
 		if upd.reset.cached != nil {
@@ -622,7 +623,7 @@ func (m *sglangMetricsAdapter) updatePrefixCache(upd prefixCacheUpdate) {
 func (m *sglangMetricsAdapter) updateStreamCounter(counter *prometheus.CounterVec, upd streamCounterUpdate) {
 	switch {
 	case upd.add != nil:
-		if m.fake != nil {
+		if m.fake.Load() != nil {
 			return
 		}
 		counter.WithLabelValues(m.config.DisplayModelName,
@@ -659,7 +660,7 @@ func (m *sglangMetricsAdapter) reportKVCacheUsage(usage float64) {
 func (m *sglangMetricsAdapter) updateHistogram(hist *prometheus.HistogramVec, upd metrics.HistogramUpdate) {
 	switch {
 	case upd.Observe != nil:
-		if m.fake != nil {
+		if m.fake.Load() != nil {
 			return
 		}
 		hist.WithLabelValues(m.config.DisplayModelName).Observe(*upd.Observe)
@@ -677,7 +678,7 @@ func (m *sglangMetricsAdapter) updateHistogram(hist *prometheus.HistogramVec, up
 func (m *sglangMetricsAdapter) updateStreamHistogram(hist *prometheus.HistogramVec, upd streamHistogramUpdate) {
 	switch {
 	case upd.observe != nil:
-		if m.fake != nil {
+		if m.fake.Load() != nil {
 			return
 		}
 		hist.WithLabelValues(m.config.DisplayModelName,
@@ -995,7 +996,7 @@ func (m *sglangMetricsAdapter) createAndRegisterCachedTokensTotalCounter() error
 func (m *sglangMetricsAdapter) setInitialValues() {
 	model := m.config.DisplayModelName
 
-	if m.fake == nil {
+	if m.fake.Load() == nil {
 		m.runningRequests.WithLabelValues(model).Set(0)
 		m.queuedRequests.WithLabelValues(model).Set(0)
 
@@ -1026,7 +1027,7 @@ func (m *sglangMetricsAdapter) ApplyFakeMetricsUpdate(update common.FakeMetrics)
 			"ignoring fake-metrics update")
 		return
 	}
-	if m.fake == nil {
+	if m.fake.Load() == nil {
 		// There is no state to merge the partial onto, and applying it would
 		// stamp fake values while the event handlers, which gate on fake being
 		// set, keep reporting real ones; the two are never reported together.
