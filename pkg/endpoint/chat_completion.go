@@ -152,10 +152,20 @@ func (c *ChatCompletionsRequest) createResponseContext(reqCtx RequestContext, di
 	}
 
 	reasoningTokenCount := 0
-	if ctx, ok := reqCtx.(*chatCompletionReqCtx); ok && responseTokens != nil && len(toolCalls) == 0 &&
-		ctx.runtime.Config().EngineName == common.DefaultEngineName &&
+	// HandleRequest is promoted from baseRequestContext, so its receiver is the
+	// base context even when processing a chat completion. Keep the direct chat
+	// context path for callers that invoke createResponseContext themselves.
+	var runtimeCtx *baseRequestContext
+	switch ctx := reqCtx.(type) {
+	case *baseRequestContext:
+		runtimeCtx = ctx
+	case *chatCompletionReqCtx:
+		runtimeCtx = &ctx.baseRequestContext
+	}
+	if runtimeCtx != nil && responseTokens != nil && len(toolCalls) == 0 &&
+		runtimeCtx.runtime.Config().EngineName == common.DefaultEngineName &&
 		c.responseFormat == nil && !sendAudio && !c.SendImage() {
-		reasoningTokenCount = len(responseTokens.Strings) * ctx.runtime.Config().ReasoningPercentage / 100
+		reasoningTokenCount = len(responseTokens.Strings) * runtimeCtx.runtime.Config().ReasoningPercentage / 100
 	}
 
 	return &chatCompletionsResponseCtx{
