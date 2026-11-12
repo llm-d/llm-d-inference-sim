@@ -106,8 +106,7 @@ type loraReset struct {
 type vllmMetricsAdapter struct {
 	logger logr.Logger
 	config common.Configuration
-	// fake is config.FakeMetrics narrowed to vLLM's concrete type, nil when
-	// fake metrics are off or another engine owns the configuration.
+
 	fake atomic.Pointer[VLLMFakeMetrics]
 
 	registry *prometheus.Registry
