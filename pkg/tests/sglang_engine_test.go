@@ -417,3 +417,40 @@ var _ = Describe("sglang engine fake metrics", func() {
 		})
 	})
 })
+
+var _ = Describe("sglang engine fake-metrics enable", func() {
+	It("Should enable fake metrics via POST /admin/config without startup --fake-metrics", func() {
+		client, err := startServerWithArgs(context.TODO(),
+			[]string{"cmd", "--engine", "sglang", "--model", common.TestModelName, "--mode", common.ModeEcho,
+				"--enable-metrics"})
+		Expect(err).NotTo(HaveOccurred())
+
+		resp, err := postFakeMetricsUpdate(client, `{"running-requests":20,"queue-requests":10,"token-usage":0.95}`)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+		Expect(resp.Body.Close()).To(Succeed())
+
+		eventuallyThenConsistentlyMetrics(client, func(g Gomega, metricsData string) {
+			g.Expect(metricsData).To(ContainSubstring(fmt.Sprintf(`%s{model_name="%s"} 20`,
+				sglang.SGLangRunningReqsMetricName, common.TestModelName)))
+			g.Expect(metricsData).To(ContainSubstring(fmt.Sprintf(`%s{model_name="%s"} 10`,
+				sglang.SGLangQueueReqsMetricName, common.TestModelName)))
+			g.Expect(metricsData).To(ContainSubstring(fmt.Sprintf(`%s{model_name="%s"} 0.95`,
+				sglang.SGLangTokenUsageMetricName, common.TestModelName)))
+		})
+
+		// Partial update still works after the cold enable.
+		resp, err = postFakeMetricsUpdate(client, `{"queue-requests":7}`)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+		Expect(resp.Body.Close()).To(Succeed())
+
+		eventuallyThenConsistentlyMetrics(client, func(g Gomega, metricsData string) {
+			g.Expect(metricsData).To(ContainSubstring(fmt.Sprintf(`%s{model_name="%s"} 7`,
+				sglang.SGLangQueueReqsMetricName, common.TestModelName)))
+			// Not named by the update, so unchanged.
+			g.Expect(metricsData).To(ContainSubstring(fmt.Sprintf(`%s{model_name="%s"} 20`,
+				sglang.SGLangRunningReqsMetricName, common.TestModelName)))
+		})
+	})
+})
