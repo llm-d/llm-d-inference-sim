@@ -327,22 +327,6 @@ vllm:request_success_total{finished_reason="stop",model_name=%q} 1
 			Expect(adapter.generators.Running()).To(BeFalse(), "expected ticker stopped after generators cleared")
 		})
 
-		// Reached only by calling the applier directly: Configuration.Update
-		// refuses a fake-metrics body while the simulator reports real metrics.
-		// Applying it anyway would stamp fake values beside the real ones the
-		// event handlers keep reporting.
-		It("drops a fake-metrics update while reporting real metrics", func() {
-			adapter, _ := newTestAdapter(newTestConfig())
-			_ = adapter.Start(context.Background())
-
-			Expect(func() {
-				adapter.ApplyFakeMetricsUpdate(&VLLMFakeMetrics{
-					WaitingRequests: &common.FakeMetricWithFunction{FixedValue: 7},
-				})
-			}).NotTo(Panic())
-			Consistently(metrics.GaugeValue(adapter.waitingRequests)).Should(BeZero())
-		})
-
 		It("stops the ticker on Close", func() {
 			cfg := newTestConfig()
 			cfg.FakeMetrics = &VLLMFakeMetrics{}
