@@ -347,11 +347,21 @@ func createArgument(property any, config *common.ToolCallConfig, random *common.
 		}
 		minItems := config.MinToolCallArrayParamLength
 		maxItems := config.MaxToolCallArrayParamLength
-		if value, ok := propertyMap["minItems"]; ok {
-			minItems = int(value.(float64))
+		minValue, hasMin := propertyMap["minItems"]
+		if hasMin {
+			minItems = int(minValue.(float64))
 		}
-		if value, ok := propertyMap["maxItems"]; ok {
-			maxItems = int(value.(float64))
+		maxValue, hasMax := propertyMap["maxItems"]
+		if hasMax {
+			maxItems = int(maxValue.(float64))
+		}
+		// A bound the schema leaves out comes from the configuration and must
+		// not contradict the one the schema sets.
+		if hasMin && !hasMax && maxItems < minItems {
+			maxItems = minItems
+		}
+		if hasMax && !hasMin && minItems > maxItems {
+			minItems = maxItems
 		}
 		if minItems > maxItems {
 			return nil, fmt.Errorf("minItems (%d) is greater than maxItems(%d)", minItems, maxItems)
