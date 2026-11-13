@@ -127,8 +127,9 @@ func aggregateUsage(respCtxPerChoice []endpoint.ResponseContext) *api.Usage {
 	for _, rc := range respCtxPerChoice {
 		u := rc.UsageData()
 		agg.CompletionTokens += u.CompletionTokens
-		if !seenIDs[rc.RequestID()] {
-			seenIDs[rc.RequestID()] = true
+		id := rc.RequestContext().Request().GetRequestID()
+		if !seenIDs[id] {
+			seenIDs[id] = true
 			agg.PromptTokens += u.PromptTokens
 			if u.PromptTokensDetails != nil && agg.PromptTokensDetails == nil {
 				agg.PromptTokensDetails = u.PromptTokensDetails

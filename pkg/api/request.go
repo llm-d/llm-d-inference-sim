@@ -585,6 +585,9 @@ type TextCompletionsRequest struct {
 	baseTextCompletionsRequest
 	// Prompt is the single prompt this request will generate against.
 	Prompt PromptInput
+	// ResponseID is the id of the request this prompt was split from. All the
+	// prompts of one request report it as the response id.
+	ResponseID string
 }
 
 // UnmarshalJSON accepts any of the four wire forms allowed for the `prompt`
@@ -691,7 +694,8 @@ func (t *TextCompletionsParsedRequest) MarshalJSON() ([]byte, error) {
 // AsSingle returns a single-prompt TextCompletionsRequest for t.Prompt[index],
 // sharing this request's envelope (model, lora, max_tokens, KV params, ...). The
 // sub-request's RequestID is stamped as "<requestID>-<index>" so each sub
-// carries a unique, deterministic id derived from the parent.
+// carries a unique, deterministic id derived from the parent, while ResponseID
+// keeps the parent's id for the response.
 //
 // This helper exists so the splitting logic, which lives in another package,
 // can produce sub-requests without needing access to the unexported
@@ -702,6 +706,7 @@ func (t *TextCompletionsParsedRequest) AsSingle(index int) TextCompletionsReques
 		Prompt:                     t.Prompt[index],
 	}
 	sub.RequestID = fmt.Sprintf("%s-%d", t.RequestID, index)
+	sub.ResponseID = t.RequestID
 	if sub.Prompt.IsTokens() {
 		// prompt arrived already tokenized; pre-populate TokenizedPrompt so the
 		// worker can skip the encode() round-trip. Strings is left nil and
