@@ -39,6 +39,11 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
 )
 
+// maxEmbeddingDimensions bounds the client-supplied embedding dimensions so one
+// request cannot allocate an unbounded float slice. Comfortably above real model
+// embedding sizes; adjust if a larger stub is needed.
+const maxEmbeddingDimensions = 65536
+
 // LoRAs usage info for requests execution
 type lorasUsageInfo struct {
 	mux sync.RWMutex
@@ -590,6 +595,10 @@ func (s *SimContext) CreateEmbeddings(req *api.EmbeddingRequest) (*api.Embedding
 	if req.Dimensions != nil {
 		if *req.Dimensions < 1 {
 			err := api.NewError("dimensions must be at least 1", fasthttp.StatusBadRequest, nil)
+			return nil, &err
+		}
+		if *req.Dimensions > maxEmbeddingDimensions {
+			err := api.NewError(fmt.Sprintf("dimensions must be at most %d, got %d", maxEmbeddingDimensions, *req.Dimensions), fasthttp.StatusBadRequest, nil)
 			return nil, &err
 		}
 		dim = *req.Dimensions
