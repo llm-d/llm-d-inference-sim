@@ -1169,14 +1169,14 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 				for _, boundary := range common.RequestLatencyBucketsBoundaries {
 					if boundary < 1.5 {
 						g.Expect(metricsData).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllm.VLLMReqInferenceTimeMetricName, boundary, 0)))
-						g.Expect(metricsData).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllm.VLLMReqQueueTimeMetricName, boundary, 0)))
+						g.Expect(metricsData).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllm.VLLMReqQueueTimeMetricName, boundary, 1)))
 					} else {
 						g.Expect(metricsData).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllm.VLLMReqInferenceTimeMetricName, boundary, 2)))
-						g.Expect(metricsData).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllm.VLLMReqQueueTimeMetricName, boundary, 1)))
+						g.Expect(metricsData).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllm.VLLMReqQueueTimeMetricName, boundary, 2)))
 					}
 				}
 				g.Expect(metricsData).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllm.VLLMReqInferenceTimeMetricName, math.Inf(1), 2)))
-				g.Expect(metricsData).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllm.VLLMReqQueueTimeMetricName, math.Inf(1), 1)))
+				g.Expect(metricsData).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllm.VLLMReqQueueTimeMetricName, math.Inf(1), 2)))
 			}).WithTimeout(2 * time.Second).WithPolling(25 * time.Millisecond).Should(Succeed())
 		})
 	})

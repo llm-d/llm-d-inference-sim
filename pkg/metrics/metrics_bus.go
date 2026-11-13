@@ -39,6 +39,7 @@ type MetricsAdapter interface {
 	OnRequestReceived(ev RequestReceived)
 	OnRequestQueued(ev RequestQueued)
 	OnRequestDequeued(ev RequestDequeued)
+	OnQueueTimeObserved(ev QueueTimeObserved)
 	OnRequestRunning(ev RequestRunning)
 	OnPrefillStarted(ev PrefillStarted)
 	OnPrefillEnded(ev PrefillEnded)
@@ -78,18 +79,19 @@ type MetricsBus struct {
 	runningLoras sync.Map
 	waitingLoras sync.Map
 
-	RequestQueued    common.Channel[RequestQueued]
-	RequestDequeued  common.Channel[RequestDequeued]
-	RequestRunning   common.Channel[RequestRunning]
-	PrefillStarted   common.Channel[PrefillStarted]
-	PrefillEnded     common.Channel[PrefillEnded]
-	DecodeStarted    common.Channel[DecodeStarted]
-	TokenGenerated   common.Channel[TokenGenerated]
-	DecodeEnded      common.Channel[DecodeEnded]
-	RequestSucceeded common.Channel[RequestSucceeded]
-	RequestFailed    common.Channel[RequestFailed]
-	KVCacheUsage     common.Channel[KVCacheUsageChanged]
-	PrefixCacheQuery common.Channel[PrefixCacheQueried]
+	RequestQueued     common.Channel[RequestQueued]
+	RequestDequeued   common.Channel[RequestDequeued]
+	QueueTimeObserved common.Channel[QueueTimeObserved]
+	RequestRunning    common.Channel[RequestRunning]
+	PrefillStarted    common.Channel[PrefillStarted]
+	PrefillEnded      common.Channel[PrefillEnded]
+	DecodeStarted     common.Channel[DecodeStarted]
+	TokenGenerated    common.Channel[TokenGenerated]
+	DecodeEnded       common.Channel[DecodeEnded]
+	RequestSucceeded  common.Channel[RequestSucceeded]
+	RequestFailed     common.Channel[RequestFailed]
+	KVCacheUsage      common.Channel[KVCacheUsageChanged]
+	PrefixCacheQuery  common.Channel[PrefixCacheQueried]
 	// LoRAChanged carries all LoRA request transitions on one channel to preserve per-request ordering.
 	LoRAChanged common.Channel[LoRAChanged]
 	// LoRASetsChanged is emitted by the bus after each LoRAChanged event with the per-LoRA waiting/running counts.
@@ -125,6 +127,7 @@ func (b *MetricsBus) Close() error {
 func (b *MetricsBus) subscribeAdapter(ctx context.Context) {
 	go common.Subscribe(ctx, b.RequestQueued, b.adapter.OnRequestQueued)
 	go common.Subscribe(ctx, b.RequestDequeued, b.adapter.OnRequestDequeued)
+	go common.Subscribe(ctx, b.QueueTimeObserved, b.adapter.OnQueueTimeObserved)
 	go common.Subscribe(ctx, b.RequestRunning, b.adapter.OnRequestRunning)
 	go common.Subscribe(ctx, b.PrefillStarted, b.adapter.OnPrefillStarted)
 	go common.Subscribe(ctx, b.PrefillEnded, b.adapter.OnPrefillEnded)
@@ -234,8 +237,14 @@ type RequestQueued struct {
 }
 
 // RequestDequeued fires when a request is pulled from the waiting queue.
-// Drives num_requests_waiting (-1) and request_queue_time_seconds.
+// Drives waiting gauges (-1) and SGLang's queue-time histogram.
 type RequestDequeued struct {
+	QueueTime float64 // seconds
+}
+
+// QueueTimeObserved fires when a request is dispatched to a worker.
+// Drives vLLM's queue-time histogram, including zero for immediate dispatch.
+type QueueTimeObserved struct {
 	QueueTime float64 // seconds
 }
 
@@ -386,6 +395,7 @@ func NewMetricsBus(ctx context.Context, config common.Configuration, registry *p
 
 	mBus.RequestQueued = common.NewChannel[RequestQueued]("bus", maxNumberOfWaitingRequests, done)
 	mBus.RequestDequeued = common.NewChannel[RequestDequeued]("bus", maxNumberOfWaitingRequests, done)
+	mBus.QueueTimeObserved = common.NewChannel[QueueTimeObserved]("bus", maxNumberOfRunningRequests, done)
 	mBus.RequestRunning = common.NewChannel[RequestRunning]("bus", maxNumberOfRunningRequests, done)
 	mBus.PrefillStarted = common.NewChannel[PrefillStarted]("bus", maxNumberOfRunningRequests, done)
 	mBus.PrefillEnded = common.NewChannel[PrefillEnded]("bus", maxNumberOfRunningRequests, done)
