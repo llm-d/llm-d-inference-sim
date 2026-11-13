@@ -67,6 +67,29 @@ var _ = Describe("createArgument with under-specified schemas", func() {
 		Expect(arg).To(BeEmpty())
 	})
 
+	// A bound the schema leaves out falls back to the configured one (1 and 5
+	// here), which can contradict the bound the schema does set.
+	DescribeTable("generates an array within the bound the schema sets when it is outside the configured range",
+		func(schemaJSON string, expectedLen int) {
+			arg, err := createArgument(property(schemaJSON), config, random)
+
+			Expect(err).NotTo(HaveOccurred())
+			Expect(arg).To(HaveLen(expectedLen))
+		},
+		Entry("minItems above the configured maximum",
+			`{"type": "array", "items": {"type": "string"}, "minItems": 7}`, 7),
+		Entry("maxItems below the configured minimum",
+			`{"type": "array", "items": {"type": "string"}, "maxItems": 0}`, 0),
+	)
+
+	It("rejects an array whose own minItems is greater than its maxItems", func() {
+		_, err := createArgument(
+			property(`{"type": "array", "items": {"type": "string"}, "minItems": 3, "maxItems": 1}`),
+			config, random)
+
+		Expect(err).To(MatchError(ContainSubstring("minItems (3) is greater than maxItems(1)")))
+	})
+
 	It("still generates nested values when properties are present", func() {
 		arg, err := createArgument(
 			property(`{"type": "object", "properties": {"city": {"type": "string"}}, "required": ["city"]}`),
