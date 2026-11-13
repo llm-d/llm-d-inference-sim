@@ -166,7 +166,7 @@ func (t *TextCompletionsRequest) createResponseContext(reqCtx RequestContext, di
 	responseTokens *api.Tokenized, finishReason *string, usageData *api.Usage, sendUsageData bool,
 	logprobs *int, toolCalls []api.ToolCall, _ bool) ResponseContext {
 	base := newBaseResponseContext(reqCtx, displayModel, responseTokens, finishReason, usageData, sendUsageData,
-		logprobs, t.GetRequestID(), t.IsDoRemotePrefill(), t.IsDoRemoteDecode(), t.GetNumberOfCachedPromptTokens())
+		logprobs, t.ResponseID, t.IsDoRemotePrefill(), t.IsDoRemoteDecode(), t.GetNumberOfCachedPromptTokens())
 	return &textCompletionsResponseCtx{
 		baseResponseContext: base,
 	}
