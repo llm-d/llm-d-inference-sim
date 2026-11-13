@@ -214,6 +214,10 @@ func (m *sglangMetricsAdapter) OnRequestDequeued(ev metrics.RequestDequeued) {
 	common.WriteToChannel(m.queueTimeChan, metrics.Observation(ev.QueueTime), m.logger)
 }
 
+func (m *sglangMetricsAdapter) OnQueueTimeObserved(ev metrics.QueueTimeObserved) {
+	// State marker; no exposed metric today.
+}
+
 // request running
 // - update number of running requests
 func (m *sglangMetricsAdapter) OnRequestRunning(metrics.RequestRunning) {
