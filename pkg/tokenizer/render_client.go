@@ -42,6 +42,16 @@ func (e *RenderStatusError) Error() string {
 	return fmt.Sprintf("vLLM render returned status %d: %s", e.StatusCode, e.Body)
 }
 
+// Below vLLM's default keep-alive timeout (VLLM_HTTP_TIMEOUT_KEEP_ALIVE, 5s), so pooled connections are closed by the
+// client before the server closes them under a request.
+const renderIdleConnTimeout = 4 * time.Second
+
+func newRenderTransport() *http.Transport {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.IdleConnTimeout = renderIdleConnTimeout
+	return t
+}
+
 type renderClient struct {
 	ctx       context.Context
 	logger    logr.Logger
@@ -58,7 +68,7 @@ func newRenderClient(ctx context.Context, logger logr.Logger, renderURL string, 
 		ctx:       ctx,
 		logger:    logger,
 		renderURL: url,
-		client:    &http.Client{},
+		client:    &http.Client{Transport: newRenderTransport()},
 		timeout:   timeout,
 		mmTimeout: mmTimeout,
 	}
@@ -142,6 +152,9 @@ func (rc *renderClient) postRaw(path string, payload []byte, timeout time.Durati
 		return nil, fmt.Errorf("build request: %w", err)
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
+	// Render has no side effects. Marking the POST idempotent lets the transport resend it on a new connection when
+	// the server closed a reused one; a nil value sends no header.
+	httpReq.Header["Idempotency-Key"] = nil
 
 	httpResp, err := rc.client.Do(httpReq)
 	if err != nil {
