@@ -175,6 +175,38 @@ var _ = Describe("Default Dataset", Ordered, func() {
 			}
 		}, SpecTimeout(10*time.Second))
 
+		It("should cap a text completion that omits max_tokens at vLLM's default of 16", func() {
+			req := &api.TextCompletionsRequest{}
+			req.SetTokenizedPrompt(&api.Tokenized{})
+
+			for range 100 {
+				tokens, finishReason, err := dataset.GetResponseTokens(req)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(tokens.Length()).To(BeNumerically("<=", api.TextCompletionDefaultMaxTokens))
+				if tokens.Length() == int(api.TextCompletionDefaultMaxTokens) {
+					Expect(finishReason).To(Equal(common.LengthFinishReason))
+				} else {
+					Expect(finishReason).To(Equal(common.StopFinishReason))
+				}
+			}
+		})
+
+		It("should not cap a chat completion that omits max_tokens", func() {
+			req := &api.ChatCompletionsRequest{}
+			req.SetTokenizedPrompt(&api.Tokenized{})
+
+			sawLongerThanCompletionsDefault := false
+			for range 100 {
+				tokens, _, err := dataset.GetResponseTokens(req)
+				Expect(err).NotTo(HaveOccurred())
+				if tokens.Length() > int(api.TextCompletionDefaultMaxTokens) {
+					sawLongerThanCompletionsDefault = true
+					break
+				}
+			}
+			Expect(sawLongerThanCompletionsDefault).To(BeTrue())
+		})
+
 		DescribeTable("should return exact num of tokens",
 			func(maxCompletionTokens int) {
 				n := int64(maxCompletionTokens)

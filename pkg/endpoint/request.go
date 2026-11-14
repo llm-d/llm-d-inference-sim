@@ -193,7 +193,15 @@ func (b *baseRequestContext) validateTokenizedRequest() (string, int) {
 		return message, fasthttp.StatusBadRequest
 	}
 
-	effectiveMaxTokens, _ := api.ResponseMaxLen(req, maxModelLen)
+	effectiveMaxTokens, isMaxTokensInReq := api.ResponseMaxLen(req, maxModelLen)
+	// compare against the limit the request will generate with, so min_tokens
+	// above a defaulted max_tokens is rejected the way vLLM rejects it
+	if !isMaxTokensInReq && b.runtime.Config().Mode != common.ModeEcho {
+		if defaultMaxTokens := api.DefaultMaxCompletionTokens(req); defaultMaxTokens != nil &&
+			int(*defaultMaxTokens) < effectiveMaxTokens {
+			effectiveMaxTokens = int(*defaultMaxTokens)
+		}
+	}
 	if minTokens := req.GetMinTokens(); minTokens != nil && *minTokens > int64(effectiveMaxTokens) {
 		message := fmt.Sprintf("min_tokens must be less than or equal to max_tokens=%d, got %d.",
 			effectiveMaxTokens, *minTokens)

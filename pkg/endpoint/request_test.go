@@ -380,6 +380,51 @@ var _ = Describe("baseRequestContext.validateTokenizedRequest", func() {
 		Expect(message).To(ContainSubstring("min_tokens must be less than or equal to max_tokens=5"))
 	})
 
+	It("rejects min_tokens above the completions default when max_tokens is omitted", func() {
+		minTokens := int64(20)
+		req := &TextCompletionsRequest{}
+		req.MinTokens = &minTokens
+		req.SetTokenizedPrompt(&api.Tokenized{Tokens: make([]uint32, 5)})
+
+		runtime := &fakeRuntime{config: &common.Configuration{
+			Mode:        common.ModeRandom,
+			MaxModelLen: 100,
+		}}
+		reqCtx := &textCompletionReqCtx{
+			baseRequestContext: baseRequestContext{runtime: runtime},
+			req:                req,
+		}
+		reqCtx.RequestContext = reqCtx
+
+		message, statusCode := reqCtx.validateTokenizedRequest()
+
+		Expect(statusCode).To(Equal(400))
+		Expect(message).To(ContainSubstring("min_tokens must be less than or equal to max_tokens=16"))
+	})
+
+	It("does not reject min_tokens above the completions default in echo mode", func() {
+		minTokens := int64(20)
+		req := &TextCompletionsRequest{}
+		req.MinTokens = &minTokens
+		req.SetTokenizedPrompt(&api.Tokenized{Tokens: make([]uint32, 5)})
+		req.SetTokenizedPromptForEcho(&api.Tokenized{Tokens: make([]uint32, 5)})
+
+		runtime := &fakeRuntime{config: &common.Configuration{
+			Mode:        common.ModeEcho,
+			MaxModelLen: 100,
+		}}
+		reqCtx := &textCompletionReqCtx{
+			baseRequestContext: baseRequestContext{runtime: runtime},
+			req:                req,
+		}
+		reqCtx.RequestContext = reqCtx
+
+		message, statusCode := reqCtx.validateTokenizedRequest()
+
+		Expect(statusCode).To(Equal(200))
+		Expect(message).To(BeEmpty())
+	})
+
 	DescribeTable("in echo mode",
 		func(promptLen int, echoLen int, minTokens *int64, maxTokens *int64, ignoreEOS bool, maxModelLen int,
 			expectedMessage string) {

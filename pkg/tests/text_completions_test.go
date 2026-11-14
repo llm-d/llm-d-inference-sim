@@ -80,6 +80,49 @@ var _ = Describe("Simulator", forEachEngine(func() {
 		Expect(string(body)).To(ContainSubstring("min_tokens must be less than or equal to max_tokens=20"))
 	})
 
+	It("caps a text completion without max_tokens at the vLLM default of 16", func() {
+		ctx := context.TODO()
+		client, err := startServer(ctx, common.ModeRandom)
+		Expect(err).NotTo(HaveOccurred())
+
+		reqBody := fmt.Sprintf(`{"model":%q,"prompt":%q}`, common.TestModelName, testUserMessage)
+		resp, err := client.Post("http://localhost/v1/completions", "application/json", strings.NewReader(reqBody))
+		Expect(err).NotTo(HaveOccurred())
+		defer func() { Expect(resp.Body.Close()).To(Succeed()) }()
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+		body, err := io.ReadAll(resp.Body)
+		Expect(err).NotTo(HaveOccurred())
+		var response api.TextCompletionsResponse
+		Expect(json.Unmarshal(body, &response)).To(Succeed())
+		Expect(response.Usage.CompletionTokens).To(BeNumerically(">", 0))
+		Expect(response.Usage.CompletionTokens).To(BeNumerically("<=", api.TextCompletionDefaultMaxTokens))
+	})
+
+	It("does not cut an echo longer than the completions default", func() {
+		ctx := context.TODO()
+		client, err := startServer(ctx, common.ModeEcho)
+		Expect(err).NotTo(HaveOccurred())
+
+		// the echo is the prompt, which vLLM's default max_tokens does not bound
+		longPrompt := strings.TrimSpace(strings.Repeat(prompt1+" ", 5))
+		promptTokens := getTextPromptTokensCountForTestModel(longPrompt)
+		Expect(promptTokens).To(BeNumerically(">", api.TextCompletionDefaultMaxTokens))
+
+		reqBody := fmt.Sprintf(`{"model":%q,"prompt":%q}`, common.TestModelName, longPrompt)
+		resp, err := client.Post("http://localhost/v1/completions", "application/json", strings.NewReader(reqBody))
+		Expect(err).NotTo(HaveOccurred())
+		defer func() { Expect(resp.Body.Close()).To(Succeed()) }()
+		Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+		body, err := io.ReadAll(resp.Body)
+		Expect(err).NotTo(HaveOccurred())
+		var response api.TextCompletionsResponse
+		Expect(json.Unmarshal(body, &response)).To(Succeed())
+		Expect(response.Usage.CompletionTokens).To(Equal(int(promptTokens)))
+		Expect(response.Choices[0].Text).To(Equal(longPrompt))
+	})
+
 	DescribeTable("text completions streaming",
 		func(model string, mode string) {
 			ctx := context.TODO()

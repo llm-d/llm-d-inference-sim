@@ -177,6 +177,15 @@ func (d *DefaultDataset) Close() error {
 // GetResponseTokens returns response tokens and finishReason for the given request
 func (d *DefaultDataset) GetResponseTokens(req api.Request) (*api.Tokenized, string, error) {
 	maxRespTokens, isMaxTokensInReq := api.ResponseMaxLen(req, d.maxModelLen)
+	// vLLM caps a /v1/completions request that omits max_tokens at 16 tokens.
+	// Echo mode is not covered here: there the response is the prompt itself,
+	// which max_tokens does not bound.
+	if !isMaxTokensInReq {
+		if defaultMaxTokens := api.DefaultMaxCompletionTokens(req); defaultMaxTokens != nil &&
+			int(*defaultMaxTokens) < maxRespTokens {
+			maxRespTokens = int(*defaultMaxTokens)
+		}
+	}
 	minRespTokens := d.calculateResponseMinLen(req)
 
 	numOfRespTokens := 0
