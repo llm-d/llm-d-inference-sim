@@ -32,17 +32,13 @@ const notYet = " (not simulated by the sglang engine yet)"
 // whose wire format it owns. Must be called before f.Parse.
 //
 // What it registers is this engine's name for each of the three core fields the
-// engines disagree on the name of, plus the toggles of two features this engine
-// does not simulate yet, bound to the configuration fields they will eventually
-// fill. Asking for one of those two is therefore parsed and then rejected by
-// ValidateConfig, which names the feature, instead of failing as an unknown
-// flag: these are features the engine is expected to grow, not mistakes. Both
-// are spelled the same whatever the engine, which is why this engine can name
-// them already. LoRA is not among them: its flags are spelled per engine, so
-// this engine registers none until it has its own.
-//
-// It also registers the metrics toggle, which sglang spells --enable-metrics
-// and defaults to off.
+// engines disagree on the name of, the KV-cache toggle with sglang's
+// --page-size, the metrics toggle, which sglang spells --enable-metrics and
+// defaults to off, and the toggle of fake metrics, which this engine does not
+// simulate yet. Asking for fake metrics is therefore parsed and then rejected
+// by ValidateConfig, which names the feature, instead of failing as an unknown
+// flag. LoRA is not among them: its flags are spelled per engine, so this
+// engine registers none until it has its own.
 func (Engine) BindFlags(f *pflag.FlagSet, cfg *common.Configuration, rawYAML map[string]any) error {
 	if err := claimYAMLKeys(cfg, rawYAML); err != nil {
 		return err
@@ -55,7 +51,9 @@ func (Engine) BindFlags(f *pflag.FlagSet, cfg *common.Configuration, rawYAML map
 	// Registered after the config file has been read, so each flag's default is
 	// the file's value and an explicit flag still overrides it.
 	common.AddToggle(f, &cfg.KVCache.EnableKVCache,
-		"enable-kvcache", "Enable KV cache simulation"+notYet, "Disable KV cache simulation")
+		"enable-kvcache", "Enable KV cache simulation", "Disable KV cache simulation")
+	f.IntVar(&cfg.KVCache.TokenBlockSize, "page-size", cfg.KVCache.TokenBlockSize,
+		"Number of tokens in a KV-cache page, the block size of the simulated KV cache")
 	common.AddToggle(f, &cfg.EnableMetrics,
 		"enable-metrics", "Enable Prometheus metrics", "Disable Prometheus metrics")
 
@@ -113,15 +111,15 @@ func claimBool(raw map[string]any, key string, out *bool) error {
 }
 
 // claimYAMLKeys reads this engine's own flat config-file keys out of a config
-// file's raw tree: the two toggles whose flags BindFlags registers, and the
-// fake-metrics block. A file asking for an unimplemented feature is then
-// refused by ValidateConfig naming the feature rather than reported as an
-// unrecognized key. rawYAML is nil when no --config file was given; indexing
-// and deleting a nil map are both no-ops.
+// file's raw tree: the two toggles whose flags BindFlags registers, page-size,
+// and the fake-metrics block. A file asking for fake metrics is then refused by
+// ValidateConfig naming the feature rather than reported as an unrecognized
+// key. rawYAML is nil when no --config file was given; indexing and deleting a
+// nil map are both no-ops.
 //
-// Only the flat spelling of enable-kvcache is claimed. A nested kvcache block
-// carries the rest of the group, whose names this engine cannot commit to yet,
-// so leaving the block unclaimed reports it, which is the honest outcome.
+// Only the flat enable-kvcache and page-size keys are claimed. A nested kvcache
+// block carries the rest of the group, whose names this engine cannot commit to
+// yet, so leaving the block unclaimed reports it, which is the honest outcome.
 func claimYAMLKeys(cfg *common.Configuration, rawYAML map[string]any) error {
 	if err := claimBool(rawYAML, "enable-kvcache", &cfg.KVCache.EnableKVCache); err != nil {
 		return err
@@ -129,6 +127,11 @@ func claimYAMLKeys(cfg *common.Configuration, rawYAML map[string]any) error {
 	if err := claimBool(rawYAML, "enable-metrics", &cfg.EnableMetrics); err != nil {
 		return err
 	}
+
+	if err := common.UnmarshalYAMLKey(rawYAML, "page-size", &cfg.KVCache.TokenBlockSize); err != nil {
+		return err
+	}
+	delete(rawYAML, "page-size")
 
 	if v, ok := rawYAML["fake-metrics"]; ok {
 		// A present but empty block leaves fake metrics unset, as it does for

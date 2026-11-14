@@ -15,11 +15,12 @@ limitations under the License.
 */
 
 // Package sglang implements the engine.Engine interface for the SGLang
-// backend. It covers the engine-neutral surface only: the OpenAI-compatible
-// endpoints, the latency model, and dataset-backed response generation. SGLang's
-// own HTTP routes, its Prometheus metrics, its LoRA adapters, and its KV-cache
-// event format are not implemented, and a configuration asking for one of them
-// is rejected rather than silently ignored.
+// backend. It covers the engine-neutral surface (the OpenAI-compatible
+// endpoints, the latency model, and dataset-backed response generation), a
+// subset of SGLang's Prometheus metrics, and the KV cache, whose events it
+// publishes in SGLang's format. SGLang's own HTTP routes and its LoRA adapters
+// are not implemented, and a configuration asking for one of them is rejected
+// rather than silently ignored.
 package sglang
 
 import (

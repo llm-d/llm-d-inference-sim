@@ -114,8 +114,6 @@ var _ = Describe("Configuration", func() {
 				"--config", writeConfig(body)})
 			Expect(err).To(MatchError(ContainSubstring(expected)))
 		},
-		Entry("enable-kvcache", "enable-kvcache: true\n",
-			"KV-cache simulation is not implemented by the sglang engine yet"),
 		Entry("fake-metrics", "fake-metrics:\n  running-requests: 16\n",
 			"fake metrics are not implemented by the sglang engine yet"),
 	)
@@ -154,12 +152,6 @@ var _ = Describe("Configuration", func() {
 			_, err := createSimConfig(append([]string{"cmd", "--model", common.TestModelName}, args...))
 			Expect(err).To(MatchError(ContainSubstring(expected)))
 		},
-		Entry("enable-kvcache", "KV-cache simulation is not implemented by the sglang engine yet",
-			"--enable-kvcache"),
-		// An attached value reaches the same rejection: the feature is refused
-		// after parsing, not by the flag failing to parse.
-		Entry("enable-kvcache with an explicit value",
-			"KV-cache simulation is not implemented by the sglang engine yet", "--enable-kvcache=true"),
 		Entry("fake-metrics", "fake metrics are not implemented by the sglang engine yet",
 			"--fake-metrics", `{"running-requests":16}`),
 	)
@@ -214,6 +206,33 @@ var _ = Describe("Configuration", func() {
 		Entry("enable-kvcache turned off by its no- form", "--no-enable-kvcache"),
 		Entry("no flag at all"),
 	)
+
+	DescribeTable("should enable the KV cache with sglang's page size",
+		func(pageSize int, args ...string) {
+			config, err := createSimConfig(append([]string{"cmd", "--model", common.TestModelName}, args...))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(config.KVCache.EnableKVCache).To(BeTrue())
+			Expect(config.KVCache.TokenBlockSize).To(Equal(pageSize))
+			Expect(config.KVCache.KVCacheSize).To(Equal(1024))
+		},
+		Entry("default page size", 16, "--enable-kvcache"),
+		Entry("page-size flag", 32, "--enable-kvcache", "--page-size", "32"),
+		Entry("explicit enable value", 1, "--enable-kvcache=true", "--page-size=1"),
+	)
+
+	It("should read the page size from a config file", func() {
+		config, err := createSimConfig([]string{"cmd", "--model", common.TestModelName,
+			"--config", writeConfig("enable-kvcache: true\npage-size: 64\n")})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(config.KVCache.EnableKVCache).To(BeTrue())
+		Expect(config.KVCache.TokenBlockSize).To(Equal(64))
+	})
+
+	It("should reject a page size of 0 with the KV cache enabled", func() {
+		_, err := createSimConfig([]string{"cmd", "--model", common.TestModelName,
+			"--enable-kvcache", "--page-size", "0"})
+		Expect(err).To(MatchError(ContainSubstring("page size must be at least 1")))
+	})
 
 	// LoRA is spelled differently by every engine, so this one registers no LoRA
 	// flag rather than borrowing vLLM's names to reject them.
@@ -270,6 +289,7 @@ var _ = Describe("Setting names", func() {
 		Entry("max-model-len", "--max-model-len"),
 		Entry("max-num-seqs", "--max-num-seqs"),
 		Entry("max-waiting-queue-length", "--max-waiting-queue-length"),
+		Entry("block-size", "--block-size"),
 	)
 
 	It("should read those settings from a config file under sglang's keys", func() {
