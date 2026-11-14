@@ -39,11 +39,11 @@ type fakeRuntime struct {
 
 var _ Runtime = (*fakeRuntime)(nil)
 
-func (f *fakeRuntime) Config() *common.Configuration     { return f.config }
-func (f *fakeRuntime) GetRandom() *common.Random         { return f.random }
-func (f *fakeRuntime) GetTokenizer() tokenizer.Tokenizer { return f.tokenizer }
-func (f *fakeRuntime) Logger() logr.Logger               { return klog.Background() }
-func (f *fakeRuntime) RequestStarted(req api.Request)    {}
+func (f *fakeRuntime) Config() *common.Configuration               { return f.config }
+func (f *fakeRuntime) GetRandom() *common.Random                   { return f.random }
+func (f *fakeRuntime) GetTokenizer() tokenizer.Tokenizer           { return f.tokenizer }
+func (f *fakeRuntime) Logger() logr.Logger                         { return klog.Background() }
+func (f *fakeRuntime) RequestStarted(req api.Request, queued bool) {}
 func (f *fakeRuntime) GetResponseTokens(req api.Request) (*api.Tokenized, string, error) {
 	return nil, "", f.responseTokensErr
 }
