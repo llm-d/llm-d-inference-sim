@@ -73,8 +73,6 @@ func (s *Simulator) processRequest(reqCtx endpoint.RequestContext) {
 		reqCtx.SignalDone()
 		return
 	}
-	defer s.onResponseProcessingFinished(reqCtx)
-
 	startTime := time.Now()
 	reportFailed := func() {
 		common.WriteToChannel(s.Context.metricsBus.RequestFailed,
@@ -84,6 +82,19 @@ func (s *Simulator) processRequest(reqCtx endpoint.RequestContext) {
 			}, s.Context.logger)
 	}
 	respCtx, err := reqCtx.HandleRequest()
+	if err != nil && !reqCtx.Started() {
+		// Rejected before it ran, e.g. a prompt over the context window: vLLM rejects it
+		// before the engine, so it is neither running nor observed as failed.
+		common.WriteToChannel(reqCtx.ResponseChannel(),
+			&endpoint.ResponseInfo{Err: err, ChoiceIdx: reqCtx.ChoiceIndex()}, s.Context.logger)
+		if req.IsModelLoRA() {
+			common.WriteToChannel(s.Context.metricsBus.LoRAChanged,
+				metrics.LoRAChanged{Model: req.GetDisplayedModel(), State: metrics.LoRADropped}, s.Context.logger)
+		}
+		reqCtx.SignalDone()
+		return
+	}
+	defer s.onResponseProcessingFinished(reqCtx)
 	if err != nil {
 		common.WriteToChannel(reqCtx.ResponseChannel(),
 			&endpoint.ResponseInfo{RespCtx: respCtx, Err: err, ChoiceIdx: reqCtx.ChoiceIndex()},

@@ -79,6 +79,9 @@ type RequestContext interface {
 	createToolCalls() ([]api.ToolCall, int, string, error)
 	createStructuredOutput() (*api.Tokenized, string, error)
 	HandleRequest() (ResponseContext, *api.Error)
+	// Started reports whether HandleRequest got past the checks that reject a
+	// request before it runs, and so recorded it as started.
+	Started() bool
 	ResponseChannel() common.Channel[*ResponseInfo]
 	tokenizedPromptForEcho() (*api.Tokenized, error)
 	encode() ([]uint32, []string, *api.RenderMMFeatures, error)
@@ -94,6 +97,7 @@ type baseRequestContext struct {
 	respChannel     common.Channel[*ResponseInfo]
 	idx             int
 	doneFn          func()
+	started         bool
 }
 
 func newBaseRequestContext(runtime Runtime, channel common.Channel[*ResponseInfo], choiceIdx int, doneFn func()) baseRequestContext {
@@ -123,6 +127,17 @@ func (b *baseRequestContext) SignalDone() {
 
 func (b *baseRequestContext) StartProcessingTime() time.Time {
 	return b.startProcessing
+}
+
+func (b *baseRequestContext) Started() bool {
+	return b.started
+}
+
+// start records the request as started, once it passed the checks that reject
+// it before it runs.
+func (b *baseRequestContext) start() {
+	b.runtime.RequestStarted(b.Request())
+	b.started = true
 }
 
 // renderBadRequest returns the render service's error for a request it rejected
@@ -207,8 +222,6 @@ func (reqCtx *baseRequestContext) HandleRequest() (ResponseContext, *api.Error) 
 	req := reqCtx.Request()
 	dispModel := req.GetDisplayedModel()
 
-	reqCtx.runtime.RequestStarted(req)
-
 	if err := reqCtx.tokenize(); err != nil {
 		return nil, err
 	}
@@ -217,6 +230,8 @@ func (reqCtx *baseRequestContext) HandleRequest() (ResponseContext, *api.Error) 
 		oaiServerError := api.NewError(errMsg, errCode, nil)
 		return nil, &oaiServerError
 	}
+
+	reqCtx.start()
 
 	// A request below its cache hit threshold is not added to the KV cache, so it
 	// does not raise the hit rate of the other choices of its prompt.

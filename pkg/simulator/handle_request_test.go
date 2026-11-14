@@ -19,6 +19,7 @@ package simulator
 import (
 	"context"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
@@ -326,6 +327,99 @@ var _ = Describe("processRequest", func() {
 		Expect(bus.LoRAChanged.Channel).To(BeEmpty())
 		Expect(respChan.Channel).To(BeEmpty())
 		Eventually(respChan.Channel).Should(BeClosed())
+	})
+
+	DescribeTable("answers a request rejected before it started without counting it as running or failed",
+		func(maxModelLen string, newReq func() endpoint.Request) {
+			sim := newHandleRequestTestSim(context.Background(), 1, "--max-model-len", maxModelLen)
+			bus := useUnreadMetricsBus(sim)
+
+			_, _, respChan, topErr, _ := sim.HandleRequest(context.Background(), newReq())
+			Expect(topErr).To(BeNil())
+			sim.processRequest(<-sim.newRequests.Channel)
+
+			var response *endpoint.ResponseInfo
+			Expect(respChan.Channel).To(Receive(&response))
+			Expect(response.Err).NotTo(BeNil())
+			Expect(response.Err.Code).To(Equal(fasthttp.StatusBadRequest))
+			Eventually(respChan.Channel).Should(BeClosed())
+
+			Expect(sim.Context.nRunningReqs.Load()).To(BeZero())
+			Expect(bus.RequestRunning.Channel).To(BeEmpty())
+			Expect(bus.RequestFailed.Channel).To(BeEmpty())
+			Expect(bus.RequestSucceeded.Channel).To(BeEmpty())
+		},
+		Entry("prompt over the context window", "10", func() endpoint.Request {
+			req := newTextCompletionsRequestWithChoices("too-long", 1)
+			req.Prompt = []api.PromptInput{{Text: "one two three four five six seven eight nine ten eleven twelve"}}
+			return req
+		}),
+		Entry("min_tokens over max_tokens", "1024", func() endpoint.Request {
+			req := &endpoint.ChatCompletionsRequest{}
+			Expect(req.Unmarshal([]byte(`{"model":"` + common.TestModelName +
+				`","messages":[{"role":"user","content":"hi"}],"max_tokens":2,"min_tokens":5}`))).To(Succeed())
+			req.SetRequestID("min-tokens")
+			return req
+		}),
+		Entry("decision prompt over the context window", "10", func() endpoint.Request {
+			req := &endpoint.DecisionRequest{Protocol: endpoint.DecisionsProtocol}
+			Expect(req.Unmarshal([]byte(`{"model":"` + common.TestModelName +
+				`","input":"one two three four five six seven eight nine ten eleven twelve",` +
+				`"questions":[{"type":"predicate","instructions":"q"}]}`))).To(Succeed())
+			return req
+		}),
+	)
+
+	It("moves a LoRA request rejected before it started out of the waiting set without running it", func() {
+		sim := newHandleRequestTestSim(context.Background(), 1, "--max-model-len", "10",
+			"--lora-modules", `{"name":"lora1","path":"/path/to/lora1"}`, "--max-loras", "1")
+		bus := useUnreadMetricsBus(sim)
+		sim.queueCapacity = 1
+
+		req := newTextCompletionsRequestWithChoices("lora-too-long", 1)
+		req.Model = "lora1"
+		req.Prompt = []api.PromptInput{{Text: "one two three four five six seven eight nine ten eleven twelve"}}
+		_, _, respChan, topErr, _ := sim.HandleRequest(context.Background(), req)
+		Expect(topErr).To(BeNil())
+		sim.addRequestToQueue(<-sim.newRequests.Channel)
+		reqCtx := sim.dequeue()
+		Expect(reqCtx).NotTo(BeNil())
+		sim.processRequest(reqCtx)
+
+		var response *endpoint.ResponseInfo
+		Expect(respChan.Channel).To(Receive(&response))
+		Expect(response.Err).NotTo(BeNil())
+		Expect(response.Err.Code).To(Equal(fasthttp.StatusBadRequest))
+		Expect(sim.Context.nRunningReqs.Load()).To(BeZero())
+		Expect(bus.RequestRunning.Channel).To(BeEmpty())
+		Expect(bus.RequestFailed.Channel).To(BeEmpty())
+		Expect(bus.LoRAChanged.Channel).To(Receive(Equal(metrics.LoRAChanged{Model: "lora1", State: metrics.LoRAWaiting})))
+		Expect(bus.LoRAChanged.Channel).To(Receive(Equal(metrics.LoRAChanged{Model: "lora1", State: metrics.LoRADropped})))
+		Expect(bus.LoRAChanged.Channel).To(BeEmpty())
+		Eventually(respChan.Channel).Should(BeClosed())
+	})
+
+	It("counts a request that fails after it started as running and failed", func() {
+		GinkgoT().Setenv("POD_IP", "localhost")
+		sim := newHandleRequestTestSim(context.Background(), 1,
+			"--enable-kvcache", "--kv-cache-size", "1", "--block-size", "8")
+		bus := useUnreadMetricsBus(sim)
+
+		// A prompt of several full blocks does not fit in a one-block KV cache.
+		req := newTextCompletionsRequestWithChoices("no-kv-capacity", 1)
+		req.Prompt = []api.PromptInput{{Text: strings.Repeat("one two three four five six seven eight ", 4)}}
+		_, _, respChan, topErr, _ := sim.HandleRequest(context.Background(), req)
+		Expect(topErr).To(BeNil())
+		sim.processRequest(<-sim.newRequests.Channel)
+
+		var response *endpoint.ResponseInfo
+		Expect(respChan.Channel).To(Receive(&response))
+		Expect(response.Err).NotTo(BeNil())
+		Expect(response.Err.Code).To(Equal(fasthttp.StatusInternalServerError))
+		Expect(sim.Context.nRunningReqs.Load()).To(BeZero())
+		Expect(bus.RequestRunning.Channel).To(HaveLen(1))
+		Expect(bus.RequestFailed.Channel).To(HaveLen(1))
+		Expect(bus.RequestSucceeded.Channel).To(BeEmpty())
 	})
 
 	DescribeTable("reports streaming and finish reason on the prefill, decode and success events",

@@ -168,7 +168,6 @@ func (*decisionReqCtx) createStructuredOutput() (*api.Tokenized, string, error) 
 }
 
 func (r *decisionReqCtx) HandleRequest() (ResponseContext, *api.Error) {
-	r.runtime.RequestStarted(r.req)
 	if err := r.tokenize(); err != nil {
 		return nil, err
 	}
@@ -178,6 +177,7 @@ func (r *decisionReqCtx) HandleRequest() (ResponseContext, *api.Error) {
 		apiErr := api.NewError("decision prompt exceeds the model context length", fasthttp.StatusBadRequest, nil)
 		return nil, &apiErr
 	}
+	r.start()
 	stats, _, apiErr := r.kvCacheOnRequestStart(0)
 	if apiErr != nil {
 		return nil, apiErr

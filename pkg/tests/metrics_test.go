@@ -206,7 +206,6 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 			_, err = openaiclient.Chat.Completions.New(ctx, params)
 			Expect(err).To(HaveOccurred())
 
-			var metricsLines []string
 			Eventually(func(g Gomega) {
 				metricsResp, err := client.Get(metricsUrl)
 				g.Expect(err).NotTo(HaveOccurred())
@@ -221,18 +220,12 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 				g.Expect(metricsData).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllm.VLLMReqRunningMetricName, 0)))
 				g.Expect(metricsData).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllm.VLLMReqWaitingMetricName, 0)))
 
-				// We sent one request (that failed), we expect to see (in this order)
-				// 1. running: lora1, waiting: empty
-				// 2. running: empty, waiting: empty
-				metricsLines = strings.Split(metricsData, "\n")
-				g.Expect(isLoraMetricPresent(metricsLines, lora1Arr, emptyArray)).To(BeTrue())
+				// We sent one request, rejected for its context length before it ran,
+				// so lora1 is never reported as running
+				metricsLines := strings.Split(metricsData, "\n")
 				g.Expect(isLoraMetricPresent(metricsLines, emptyArray, emptyArray)).To(BeTrue())
+				g.Expect(isLoraMetricPresent(metricsLines, lora1Arr, emptyArray)).To(BeFalse())
 			}).WithTimeout(2 * time.Second).WithPolling(25 * time.Millisecond).Should(Succeed())
-
-			// Check the order
-			timestamp1 := getLoraValidTimestamp(metricsLines, lora1Arr, emptyArray)
-			timestamp2 := getLoraValidTimestamp(metricsLines, emptyArray, emptyArray)
-			Expect(timestamp1 <= timestamp2).To(BeTrue())
 		},
 		Entry("no streaming", false),
 		Entry("streaming", true),
