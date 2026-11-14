@@ -729,6 +729,12 @@ func (b *baseTextCompletionsRequest) GetMaxCompletionTokens() *int64 {
 	return b.MaxTokens
 }
 
+// DefaultMaxCompletionTokens implements defaultMaxTokensProvider.
+func (b *baseTextCompletionsRequest) DefaultMaxCompletionTokens() *int64 {
+	defaultMaxTokens := TextCompletionDefaultMaxTokens
+	return &defaultMaxTokens
+}
+
 // ExtractMaxTokens extracts the max tokens from the request
 // for text completions - max_tokens field is used.
 func (b *baseTextCompletionsRequest) ExtractMaxTokens() *int64 {
@@ -1619,4 +1625,24 @@ func ResponseMaxLen(req Request, maxModelLen int) (int, bool) {
 	}
 
 	return remaining, false
+}
+
+// TextCompletionDefaultMaxTokens is the value vLLM applies to max_tokens on a
+// /v1/completions request that does not set one. Chat completions and the other
+// APIs leave generation unbounded when the field is absent.
+const TextCompletionDefaultMaxTokens int64 = 16
+
+// defaultMaxTokensProvider is implemented by the request types whose API defines
+// a default for max_tokens. Only /v1/completions does.
+type defaultMaxTokensProvider interface {
+	DefaultMaxCompletionTokens() *int64
+}
+
+// DefaultMaxCompletionTokens returns the max_tokens the API generates with when
+// the request omits the field, or nil when the API defines no default.
+func DefaultMaxCompletionTokens(req Request) *int64 {
+	if provider, ok := req.(defaultMaxTokensProvider); ok {
+		return provider.DefaultMaxCompletionTokens()
+	}
+	return nil
 }
