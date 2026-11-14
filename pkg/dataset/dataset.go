@@ -46,7 +46,7 @@ var completionFakeResponses = []string{
 type Dataset interface {
 	// Close closes the dataset
 	Close() error
-	// GetResponseTokens returns ressponse tokens for the given request
+	// GetResponseTokens returns response tokens for the given request
 	GetResponseTokens(req api.Request) (*api.Tokenized, string, error)
 }
 
