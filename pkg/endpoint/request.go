@@ -82,6 +82,11 @@ type RequestContext interface {
 	// Started reports whether HandleRequest got past the checks that reject a
 	// request before it runs, and so recorded it as started.
 	Started() bool
+	// MarkQueued records that the request went through the waiting queue.
+	MarkQueued()
+	// Queued reports whether the request went through the waiting queue, and
+	// so holds a LoRA waiting reference to release when it runs or is dropped.
+	Queued() bool
 	ResponseChannel() common.Channel[*ResponseInfo]
 	tokenizedPromptForEcho() (*api.Tokenized, error)
 	encode() ([]uint32, []string, *api.RenderMMFeatures, error)
@@ -98,6 +103,7 @@ type baseRequestContext struct {
 	idx             int
 	doneFn          func()
 	started         bool
+	queued          bool
 }
 
 func newBaseRequestContext(runtime Runtime, channel common.Channel[*ResponseInfo], choiceIdx int, doneFn func()) baseRequestContext {
@@ -133,10 +139,18 @@ func (b *baseRequestContext) Started() bool {
 	return b.started
 }
 
+func (b *baseRequestContext) MarkQueued() {
+	b.queued = true
+}
+
+func (b *baseRequestContext) Queued() bool {
+	return b.queued
+}
+
 // start records the request as started, once it passed the checks that reject
 // it before it runs.
 func (b *baseRequestContext) start() {
-	b.runtime.RequestStarted(b.Request())
+	b.runtime.RequestStarted(b.Request(), b.queued)
 	b.started = true
 }
 

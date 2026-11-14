@@ -150,12 +150,16 @@ func (b *MetricsBus) loraCounterLoop(ctx context.Context) {
 			case LoRAWaiting:
 				b.incrementLoraRefCount(ev.Model, &b.waitingLoras)
 			case LoRARunning:
-				b.decrementLoraRefCount(ev.Model, &b.waitingLoras)
+				if ev.Queued {
+					b.decrementLoraRefCount(ev.Model, &b.waitingLoras)
+				}
 				b.incrementLoraRefCount(ev.Model, &b.runningLoras)
 			case LoRADone:
 				b.decrementLoraRefCount(ev.Model, &b.runningLoras)
 			case LoRADropped:
-				b.decrementLoraRefCount(ev.Model, &b.waitingLoras)
+				if ev.Queued {
+					b.decrementLoraRefCount(ev.Model, &b.waitingLoras)
+				}
 			default:
 				// invalid event
 				continue
@@ -338,6 +342,11 @@ const (
 type LoRAChanged struct {
 	Model string
 	State LoRAState
+	// Queued is true when the request went through the waiting queue and so
+	// emitted LoRAWaiting. Only such a request holds a waiting reference that
+	// LoRARunning or LoRADropped may release; a request that went straight to
+	// a free worker never added one.
+	Queued bool
 }
 
 // LoRASetsChanged is emitted after the bus applies a LoRAChanged event; it

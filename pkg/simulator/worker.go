@@ -66,9 +66,11 @@ func (s *Simulator) processRequest(reqCtx endpoint.RequestContext) {
 		// Abandoned before it started, e.g. while queued: release it without running it.
 		s.Context.logger.V(logging.DEBUG).Info("Dropped request, its response is no longer read",
 			"id", req.GetRequestID())
-		if req.IsModelLoRA() {
+		// Only a request that waited in the queue holds a LoRA waiting reference to release.
+		if req.IsModelLoRA() && reqCtx.Queued() {
 			common.WriteToChannel(s.Context.metricsBus.LoRAChanged,
-				metrics.LoRAChanged{Model: req.GetDisplayedModel(), State: metrics.LoRADropped}, s.Context.logger)
+				metrics.LoRAChanged{Model: req.GetDisplayedModel(), State: metrics.LoRADropped, Queued: true},
+				s.Context.logger)
 		}
 		reqCtx.SignalDone()
 		return
@@ -87,9 +89,11 @@ func (s *Simulator) processRequest(reqCtx endpoint.RequestContext) {
 		// before the engine, so it is neither running nor observed as failed.
 		common.WriteToChannel(reqCtx.ResponseChannel(),
 			&endpoint.ResponseInfo{Err: err, ChoiceIdx: reqCtx.ChoiceIndex()}, s.Context.logger)
-		if req.IsModelLoRA() {
+		// Only a request that waited in the queue holds a LoRA waiting reference to release.
+		if req.IsModelLoRA() && reqCtx.Queued() {
 			common.WriteToChannel(s.Context.metricsBus.LoRAChanged,
-				metrics.LoRAChanged{Model: req.GetDisplayedModel(), State: metrics.LoRADropped}, s.Context.logger)
+				metrics.LoRAChanged{Model: req.GetDisplayedModel(), State: metrics.LoRADropped, Queued: true},
+				s.Context.logger)
 		}
 		reqCtx.SignalDone()
 		return

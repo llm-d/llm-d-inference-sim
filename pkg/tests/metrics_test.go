@@ -203,29 +203,43 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 
 			openaiclient, params := getOpenAIClientAndChatParams(client, "lora1", testUserMessage, stream)
 
-			_, err = openaiclient.Chat.Completions.New(ctx, params)
-			Expect(err).To(HaveOccurred())
+			if stream {
+				s := openaiclient.Chat.Completions.NewStreaming(ctx, params)
+				for s.Next() {
+				}
+				Expect(s.Err()).To(HaveOccurred())
+				s.Close() //nolint:errcheck
+			} else {
+				_, err = openaiclient.Chat.Completions.New(ctx, params)
+				Expect(err).To(HaveOccurred())
+			}
 
-			Eventually(func(g Gomega) {
+			scrape := func(g Gomega) string {
 				metricsResp, err := client.Get(metricsUrl)
 				g.Expect(err).NotTo(HaveOccurred())
 				defer func() { _ = metricsResp.Body.Close() }()
 				g.Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
-
 				data, err := io.ReadAll(metricsResp.Body)
 				g.Expect(err).NotTo(HaveOccurred())
-				metricsData := string(data)
+				return string(data)
+			}
 
-				// There should be no running or waiting requests
+			// There should be no running or waiting requests
+			Eventually(func(g Gomega) {
+				metricsData := scrape(g)
 				g.Expect(metricsData).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllm.VLLMReqRunningMetricName, 0)))
 				g.Expect(metricsData).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllm.VLLMReqWaitingMetricName, 0)))
-
-				// We sent one request, rejected for its context length before it ran,
-				// so lora1 is never reported as running
-				metricsLines := strings.Split(metricsData, "\n")
-				g.Expect(isLoraMetricPresent(metricsLines, emptyArray, emptyArray)).To(BeTrue())
-				g.Expect(isLoraMetricPresent(metricsLines, lora1Arr, emptyArray)).To(BeFalse())
 			}).WithTimeout(2 * time.Second).WithPolling(25 * time.Millisecond).Should(Succeed())
+
+			// We sent one request, rejected for its context length before it ran.
+			// A free worker took it without queueing it, so lora1 is reported
+			// neither as running nor as waiting. Watched over a window, since an
+			// absence seen once could be a scrape taken before the update.
+			Consistently(func(g Gomega) {
+				metricsLines := strings.Split(scrape(g), "\n")
+				g.Expect(isLoraMetricPresent(metricsLines, lora1Arr, emptyArray)).To(BeFalse())
+				g.Expect(isLoraMetricPresent(metricsLines, emptyArray, lora1Arr)).To(BeFalse())
+			}).WithTimeout(500 * time.Millisecond).WithPolling(25 * time.Millisecond).Should(Succeed())
 		},
 		Entry("no streaming", false),
 		Entry("streaming", true),

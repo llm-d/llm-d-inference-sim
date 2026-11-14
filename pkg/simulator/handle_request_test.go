@@ -322,8 +322,10 @@ var _ = Describe("processRequest", func() {
 		Expect(bus.RequestRunning.Channel).To(BeEmpty())
 		Expect(bus.RequestFailed.Channel).To(BeEmpty())
 		Expect(bus.RequestSucceeded.Channel).To(BeEmpty())
-		Expect(bus.LoRAChanged.Channel).To(Receive(Equal(metrics.LoRAChanged{Model: "lora1", State: metrics.LoRAWaiting})))
-		Expect(bus.LoRAChanged.Channel).To(Receive(Equal(metrics.LoRAChanged{Model: "lora1", State: metrics.LoRADropped})))
+		Expect(bus.LoRAChanged.Channel).To(Receive(Equal(
+			metrics.LoRAChanged{Model: "lora1", State: metrics.LoRAWaiting, Queued: true})))
+		Expect(bus.LoRAChanged.Channel).To(Receive(Equal(
+			metrics.LoRAChanged{Model: "lora1", State: metrics.LoRADropped, Queued: true})))
 		Expect(bus.LoRAChanged.Channel).To(BeEmpty())
 		Expect(respChan.Channel).To(BeEmpty())
 		Eventually(respChan.Channel).Should(BeClosed())
@@ -370,6 +372,44 @@ var _ = Describe("processRequest", func() {
 		}),
 	)
 
+	It("rejects a LoRA request that never queued without touching the waiting set", func() {
+		sim := newHandleRequestTestSim(context.Background(), 1, "--max-model-len", "10",
+			"--lora-modules", `{"name":"lora1","path":"/path/to/lora1"}`, "--max-loras", "1")
+		bus := useUnreadMetricsBus(sim)
+
+		req := newTextCompletionsRequestWithChoices("lora-direct-too-long", 1)
+		req.Model = "lora1"
+		req.Prompt = []api.PromptInput{{Text: "one two three four five six seven eight nine ten eleven twelve"}}
+		_, _, respChan, topErr, _ := sim.HandleRequest(context.Background(), req)
+		Expect(topErr).To(BeNil())
+		// Straight to a worker, as when one is free: it never emitted LoRAWaiting.
+		sim.processRequest(<-sim.newRequests.Channel)
+
+		var response *endpoint.ResponseInfo
+		Expect(respChan.Channel).To(Receive(&response))
+		Expect(response.Err).NotTo(BeNil())
+		Expect(bus.RequestRunning.Channel).To(BeEmpty())
+		Expect(bus.LoRAChanged.Channel).To(BeEmpty())
+		Eventually(respChan.Channel).Should(BeClosed())
+	})
+
+	It("starts a LoRA request that never queued without releasing a waiting reference", func() {
+		sim := newHandleRequestTestSim(context.Background(), 1,
+			"--lora-modules", `{"name":"lora1","path":"/path/to/lora1"}`, "--max-loras", "1")
+		bus := useUnreadMetricsBus(sim)
+
+		req := newTextCompletionsRequestWithChoices("lora-direct", 1)
+		req.Model = "lora1"
+		_, _, respChan, topErr, _ := sim.HandleRequest(context.Background(), req)
+		Expect(topErr).To(BeNil())
+		go sim.processRequest(<-sim.newRequests.Channel)
+
+		Eventually(bus.LoRAChanged.Channel).Should(Receive(Equal(
+			metrics.LoRAChanged{Model: "lora1", State: metrics.LoRARunning, Queued: false})))
+		for range respChan.Channel {
+		}
+	})
+
 	It("moves a LoRA request rejected before it started out of the waiting set without running it", func() {
 		sim := newHandleRequestTestSim(context.Background(), 1, "--max-model-len", "10",
 			"--lora-modules", `{"name":"lora1","path":"/path/to/lora1"}`, "--max-loras", "1")
@@ -393,8 +433,10 @@ var _ = Describe("processRequest", func() {
 		Expect(sim.Context.nRunningReqs.Load()).To(BeZero())
 		Expect(bus.RequestRunning.Channel).To(BeEmpty())
 		Expect(bus.RequestFailed.Channel).To(BeEmpty())
-		Expect(bus.LoRAChanged.Channel).To(Receive(Equal(metrics.LoRAChanged{Model: "lora1", State: metrics.LoRAWaiting})))
-		Expect(bus.LoRAChanged.Channel).To(Receive(Equal(metrics.LoRAChanged{Model: "lora1", State: metrics.LoRADropped})))
+		Expect(bus.LoRAChanged.Channel).To(Receive(Equal(
+			metrics.LoRAChanged{Model: "lora1", State: metrics.LoRAWaiting, Queued: true})))
+		Expect(bus.LoRAChanged.Channel).To(Receive(Equal(
+			metrics.LoRAChanged{Model: "lora1", State: metrics.LoRADropped, Queued: true})))
 		Expect(bus.LoRAChanged.Channel).To(BeEmpty())
 		Eventually(respChan.Channel).Should(BeClosed())
 	})
