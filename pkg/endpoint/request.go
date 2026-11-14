@@ -193,7 +193,12 @@ func (b *baseRequestContext) validateTokenizedRequest() (string, int) {
 		return message, fasthttp.StatusBadRequest
 	}
 
-	effectiveMaxTokens, _ := api.ResponseMaxLen(req, maxModelLen)
+	// echo mode is bounded by an explicit max_tokens only, not by the completions default
+	responseMaxLen := api.ResponseMaxLen
+	if b.runtime.Config().Mode == common.ModeEcho {
+		responseMaxLen = api.ResponseMaxLenNoDefault
+	}
+	effectiveMaxTokens, _ := responseMaxLen(req, maxModelLen)
 	if minTokens := req.GetMinTokens(); minTokens != nil && *minTokens > int64(effectiveMaxTokens) {
 		message := fmt.Sprintf("min_tokens must be less than or equal to max_tokens=%d, got %d.",
 			effectiveMaxTokens, *minTokens)

@@ -373,6 +373,29 @@ var _ = Describe("CustomDataset", Ordered, func() {
 			Expect(finishReason).To(Equal(common.StopFinishReason))
 		})
 
+		It("should cap a matching text completion without max_tokens at the completions default", func() {
+			req := &api.TextCompletionsRequest{}
+			req.IgnoreEOS = true
+			req.SetTokenizedPrompt(&validDB[1].tokenizedInput)
+
+			tokens, finishReason, err := dataset.GetResponseTokens(req)
+
+			Expect(err).NotTo(HaveOccurred())
+			Expect(tokens.Length()).To(Equal(int(api.TextCompletionDefaultMaxTokens)))
+			Expect(finishReason).To(Equal(common.LengthFinishReason))
+		})
+
+		It("should not cap a chat completion without max_tokens at the completions default", func() {
+			req := &api.ChatCompletionsRequest{}
+			req.IgnoreEOS = true
+			req.SetTokenizedPrompt(&validDB[2].tokenizedInput)
+
+			tokens, _, err := dataset.GetResponseTokens(req)
+
+			Expect(err).NotTo(HaveOccurred())
+			Expect(tokens.Length()).To(BeNumerically(">", api.TextCompletionDefaultMaxTokens))
+		})
+
 		It("should successfully init dataset with in-memory option", func() {
 			req := &api.TextCompletionsRequest{
 				Prompt: api.PromptInput{Text: validDB[1].input},

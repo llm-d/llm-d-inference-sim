@@ -84,6 +84,10 @@ type Request interface {
 	GetToolChoice() ToolChoice
 	// GetMaxCompletionTokens returns the maximum completion tokens requested
 	GetMaxCompletionTokens() *int64
+	// GetDefaultMaxCompletionTokens returns the maximum completion tokens the API
+	// generates with when the request omits the field, or nil when the API defines
+	// no such default.
+	GetDefaultMaxCompletionTokens() *int64
 	GetMinTokens() *int64
 	// GetIgnoreEOS returns true if the end-of-sequence tokens will be ignored
 	GetIgnoreEOS() bool
@@ -339,6 +343,12 @@ func (b *baseRequest) GetIgnoreEOS() bool {
 // GetN returns 1 for non-completions requests that don't support the n parameter.
 func (b *baseRequest) GetN() int {
 	return 1
+}
+
+// GetDefaultMaxCompletionTokens returns nil for the APIs that define no maximum
+// for a request that omits it.
+func (b *baseRequest) GetDefaultMaxCompletionTokens() *int64 {
+	return nil
 }
 
 // GetRawN returns nil for non-completions requests that don't support the n parameter.
@@ -727,6 +737,13 @@ func (b *baseTextCompletionsRequest) GetToolChoice() ToolChoice {
 
 func (b *baseTextCompletionsRequest) GetMaxCompletionTokens() *int64 {
 	return b.MaxTokens
+}
+
+// GetDefaultMaxCompletionTokens returns the max_tokens vLLM applies to a
+// /v1/completions request that omits the field.
+func (b *baseTextCompletionsRequest) GetDefaultMaxCompletionTokens() *int64 {
+	defaultMaxTokens := TextCompletionDefaultMaxTokens
+	return &defaultMaxTokens
 }
 
 // ExtractMaxTokens extracts the max tokens from the request
@@ -1604,12 +1621,27 @@ func (m *MessagesRequest) ToChatCompletionsRequest() *ChatCompletionsRequest {
 }
 
 // ResponseMaxLen returns the maximum response length for req: max_tokens (or
-// max_completion_tokens), capped by the room left in the context window
-// (maxModelLen minus the prompt tokens), or that room when the request sets no maximum.
-// The boolean reports whether the request set a maximum.
+// max_completion_tokens), or the default the API applies when the request omits
+// max_tokens, capped by the room left in the context window (maxModelLen minus the
+// prompt tokens), or that room when neither applies. The boolean reports whether a
+// maximum applies, from the request or from the API default.
 func ResponseMaxLen(req Request, maxModelLen int) (int, bool) {
+	return responseMaxLen(req, maxModelLen, req.GetDefaultMaxCompletionTokens())
+}
+
+// ResponseMaxLenNoDefault is ResponseMaxLen for a response that the API default
+// for max_tokens does not bound: in echo mode the response is the prompt, so only
+// an explicit max_tokens limits it.
+func ResponseMaxLenNoDefault(req Request, maxModelLen int) (int, bool) {
+	return responseMaxLen(req, maxModelLen, nil)
+}
+
+func responseMaxLen(req Request, maxModelLen int, defaultMaxTokens *int64) (int, bool) {
 	remaining := maxModelLen - req.TokenizedPrompt().Length()
 	maxTokens := req.GetMaxCompletionTokens()
+	if maxTokens == nil {
+		maxTokens = defaultMaxTokens
+	}
 
 	if maxTokens != nil {
 		if int(*maxTokens) < remaining {
@@ -1620,3 +1652,8 @@ func ResponseMaxLen(req Request, maxModelLen int) (int, bool) {
 
 	return remaining, false
 }
+
+// TextCompletionDefaultMaxTokens is the value vLLM applies to max_tokens on a
+// /v1/completions request that does not set one. Chat completions and the other
+// APIs leave generation unbounded when the field is absent.
+const TextCompletionDefaultMaxTokens int64 = 16

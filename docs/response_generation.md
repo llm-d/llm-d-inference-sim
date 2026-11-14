@@ -7,7 +7,7 @@ In this mode, the simulator acts as a loopback mechanism.
 - **Response Content:** Mirrors the echoed text of the input request.
   - For `/v1/completions`: The echoed text is the `prompt` field.
   - For `/v1/chat/completions`: The echoed text is the content of the last message in the `messages` list.
-- **Maximum length:** `max_tokens` / `max_completion_tokens` capped by `<context_window> - <input_length>`, or `<context_window> - <input_length>` if neither is set, where `<input_length>` is the token count of the full input (for chat, all messages).
+- **Maximum length:** `max_tokens` / `max_completion_tokens` capped by `<context_window> - <input_length>`, or `<context_window> - <input_length>` if neither is set, where `<input_length>` is the token count of the full input (for chat, all messages). The `max_tokens` default applied to a `/v1/completions` request that omits it (see [Response Length Calculation](#response-length-calculation)) does not bound the echo: only an explicit `max_tokens` does.
 - **Truncation:** If the echoed text is longer than the maximum length, the response is truncated to the first maximum length tokens.
 - **`ignore_eos`:** If `true`, `max_tokens` is set, and the maximum length is longer than the echoed text, the echoed text is padded up to the maximum length with predefined text (see [Predefined Text](#predefined-text-default)). Otherwise it has no effect.
 - **`min_tokens`:** If the response is still shorter than `min_tokens`, it is padded up to `min_tokens` with predefined text. Negative values and a value above the maximum length return `400 Bad Request`.
@@ -24,6 +24,8 @@ In this mode, the simulator generates synthetic responses. The length and conten
 `min_tokens` sets the lower bound for generated chat-completion and completion response length. A value of zero is valid and preserves the default lower bound of one token. Negative values, a minimum greater than the requested maximum, and a minimum greater than the context-clamped maximum return `400 Bad Request`.
 
 If `max_tokens` or `max_completion_tokens` is specified, the response length is sampled from a custom histogram with **six buckets** between the minimum and the effective maximum. If the specified value exceeds the room remaining in the context window (`<model_context_limit> - <input_length>`), that remaining room is used as the cap instead — the response never overflows the context window.
+
+A `/v1/completions` request that omits `max_tokens` behaves exactly as if it sent `max_tokens: 16`, the default vLLM applies: the histogram is used over `[min_tokens, 16]`, and the `vllm:request_params_max_tokens` metric records 16. Chat completions and the other APIs define no such default, so an omitted maximum leaves their length bound to the remaining context window.
 
 **Probability Distribution:**
 | Bucket | Probability |
@@ -66,6 +68,8 @@ If `max_tokens` or `max_completion_tokens` is specified, the response length is 
 
 **Default Length:**
 If no maximum length is specified, the length defaults to `<model_context_limit> - <input_length>`. In this specific case, unless the calculated maximum length is smaller than 20, the length is sampled from a Gaussian distribution (Mean=40, SD=20) within the range of the minimum and the maximum. If `min_tokens` is greater than 60 (Mean + SD), the mean is `40 + min_tokens`. If the calculated maximum length is smaller than 20, the length is chosen uniformly at random.
+
+This default does not apply to `/v1/completions`, which is capped at 16 tokens when `max_tokens` is omitted.
 
 ### Content Generation Source
 
