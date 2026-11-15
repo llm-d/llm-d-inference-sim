@@ -415,9 +415,6 @@ func (m *sglangMetricsAdapter) OnRequestSucceeded(ev metrics.RequestSucceeded) {
 	m.finishRunning()
 }
 
-// request processing failed
-// - update e2e latency histogram
-// - update requests total counter
 func (m *sglangMetricsAdapter) OnRequestFailed(ev metrics.RequestFailed) {
 	if m.fake.Load() != nil {
 		return

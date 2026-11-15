@@ -96,7 +96,7 @@ is narrower still: a request that generated a single token, or that stopped for 
 while a free worker is always available to take a request immediately.
 
 A request that fails contributes only to `sglang:num_running_reqs`, `sglang:e2e_request_latency_seconds`
-and `sglang:num_requests_total`, since SGLang counts an aborted request as a finished one. 
+and `sglang:num_requests_total`, since SGLang counts an aborted request as a finished one.
 
 `sglang:uncached_prompt_tokens_histogram` equals `sglang:prompt_tokens_histogram` while no KV cache is
 simulated, since no prompt token can be served from a prefix cache.
