@@ -18,6 +18,7 @@ package communication
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
@@ -376,6 +377,65 @@ var _ = Describe("sendStream finish_reason per choice", func() {
 			func() endpoint.Request { return &endpoint.ChatCompletionsRequest{} },
 			&chatComplHTTPRespBuilder{transport: fakeTransport{}}),
 	)
+})
+
+var _ = Describe("sendStream responses events", func() {
+	It("numbers every event and carries output_index and content_index 0", func() {
+		ctx := context.Background()
+		sim := newRunningSim(ctx)
+
+		req := &endpoint.ResponsesRequest{}
+		Expect(req.Unmarshal([]byte(fmt.Sprintf(
+			`{"model":%q,"input":"hello there my friend","stream":true}`, common.TestModelName)))).To(Succeed())
+		req.SetRequestID("seq")
+		_, _, respChan, topErr, _ := sim.HandleRequest(ctx, req)
+		Expect(topErr).To(BeNil())
+		first := <-respChan.Channel
+
+		c := &Communication{logger: klog.Background(), transport: fakeTransport{}}
+		httpCtx := &fasthttp.RequestCtx{}
+		c.sendStream(httpCtx, *respChan, &responsesHTTPRespBuilder{}, 1, first, func() {})
+
+		out, err := io.ReadAll(httpCtx.Response.BodyStream())
+		Expect(err).NotTo(HaveOccurred())
+
+		withContentIndex := map[string]bool{
+			api.ResponsesEventContentPartAdded: true,
+			api.ResponsesEventTextDelta:        true,
+			api.ResponsesEventTextDone:         true,
+			api.ResponsesEventContentPartDone:  true,
+		}
+		responseEvents := map[string]bool{
+			api.ResponsesEventCreated:    true,
+			api.ResponsesEventInProgress: true,
+			api.ResponsesEventCompleted:  true,
+		}
+		var types []string
+		for _, line := range strings.Split(string(out), "\n") {
+			data, ok := strings.CutPrefix(line, api.SSEDataPrefix)
+			if !ok {
+				continue
+			}
+			var event map[string]any
+			Expect(json.Unmarshal([]byte(data), &event)).To(Succeed())
+			eventType, _ := event["type"].(string)
+			Expect(event).To(HaveKeyWithValue("sequence_number", BeNumerically("==", len(types))), eventType)
+			if responseEvents[eventType] {
+				Expect(event).NotTo(HaveKey("output_index"), eventType)
+			} else {
+				Expect(event).To(HaveKeyWithValue("output_index", BeNumerically("==", 0)), eventType)
+			}
+			if withContentIndex[eventType] {
+				Expect(event).To(HaveKeyWithValue("content_index", BeNumerically("==", 0)), eventType)
+			} else {
+				Expect(event).NotTo(HaveKey("content_index"), eventType)
+			}
+			types = append(types, eventType)
+		}
+		Expect(types).To(ContainElements(api.ResponsesEventCreated, api.ResponsesEventOutputItemAdded,
+			api.ResponsesEventContentPartAdded, api.ResponsesEventTextDelta, api.ResponsesEventTextDone,
+			api.ResponsesEventContentPartDone, api.ResponsesEventOutputItemDone, api.ResponsesEventCompleted))
+	})
 })
 
 // abortRecorder records the context handleHTTP passes to HandleRequest, which
