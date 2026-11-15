@@ -1133,6 +1133,7 @@ func (m *vllmMetricsAdapter) applyFakeMetrics(update *VLLMFakeMetrics) {
 	}
 
 	if update.RequestSuccessTotal != nil {
+		addRequiredFinishReasons(update.RequestSuccessTotal)
 		common.WriteToChannel(m.requestSuccessTotalChan, requestSuccessCounterUpdate{Reset: &successTotalReset{Reasons: update.RequestSuccessTotal}}, m.logger)
 	}
 

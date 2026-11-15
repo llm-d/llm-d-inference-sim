@@ -18,6 +18,7 @@ package tests
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"math"
@@ -48,6 +49,18 @@ func postFakeMetricsUpdate(client *http.Client, body string) (*http.Response, er
 	}
 	req.Header.Set("Content-Type", "application/json")
 	return client.Do(req)
+}
+
+func getFakeMetricsConfig(client *http.Client) map[string]json.RawMessage {
+	resp, err := client.Get(adminConfigURL)
+	Expect(err).NotTo(HaveOccurred())
+	defer func() { Expect(resp.Body.Close()).To(Succeed()) }()
+	Expect(resp.StatusCode).To(Equal(http.StatusOK))
+	var cfg struct {
+		FakeMetrics map[string]json.RawMessage `json:"fake-metrics"`
+	}
+	Expect(json.NewDecoder(resp.Body).Decode(&cfg)).To(Succeed())
+	return cfg.FakeMetrics
 }
 
 var _ = Describe("Fake metrics", Ordered, func() {
@@ -810,6 +823,39 @@ var _ = Describe("Fake metrics", Ordered, func() {
 				g.Expect(metricsData).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllm.VLLMPrefixCacheHitsTotalMetricName, 750)))
 				g.Expect(metricsData).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllm.VLLMPrefixCacheQueriesTotalMetricName, 2000)))
 			})
+		})
+
+		It("Should reset the labels a labeled metric update leaves out", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
+				"--fake-metrics",
+				`{` +
+					`"request-success-total":{"stop":20,"length":5,"tool_calls":3},` +
+					`"loras":[{"running":"lora1","waiting":"lora2","timestamp":1000000001}]` +
+					`}`,
+			}
+
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			resp, err := postFakeMetricsUpdate(client,
+				`{"request-success-total":{"stop":7},"loras":[{"running":"lora3","timestamp":2000000001}]}`)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			Expect(resp.Body.Close()).To(Succeed())
+
+			eventuallyThenConsistentlyMetrics(client, func(g Gomega, metricsData string) {
+				g.Expect(metricsData).To(ContainSubstring(fmt.Sprintf(`vllm:request_success_total{finished_reason="stop",model_name="%s"} 7`, common.TestModelName)))
+				g.Expect(metricsData).To(ContainSubstring(fmt.Sprintf(`vllm:request_success_total{finished_reason="length",model_name="%s"} 0`, common.TestModelName)))
+				g.Expect(metricsData).To(ContainSubstring(fmt.Sprintf(`vllm:request_success_total{finished_reason="tool_calls",model_name="%s"} 0`, common.TestModelName)))
+				g.Expect(metricsData).To(ContainSubstring(`vllm:lora_requests_info{max_lora="1",running_lora_adapters="lora3",waiting_lora_adapters=""} 2.000000001e+09`))
+				g.Expect(metricsData).NotTo(ContainSubstring("lora1"))
+			})
+
+			fakeMetrics := getFakeMetricsConfig(client)
+			Expect(fakeMetrics["request-success-total"]).To(MatchJSON(
+				`{"stop":7,"length":0,"tool_calls":0,"remote_decode":0,"cache_threshold":0,"error":0}`))
+			Expect(fakeMetrics["loras"]).To(MatchJSON(`[{"running":"lora3","waiting":"","timestamp":2000000001}]`))
 		})
 
 		It("Should expose lora_requests_info in fake metrics only when loras are provided", func() {

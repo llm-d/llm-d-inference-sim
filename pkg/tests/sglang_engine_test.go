@@ -402,8 +402,9 @@ var _ = Describe("sglang engine fake metrics", func() {
 		})
 	})
 
-	It("Should drop the other series of a stream-split counter", func() {
-		resp, err := postFakeMetricsUpdate(client, `{"num-requests-total":{"streaming":500}}`)
+	It("Should drop the other series of a stream-split metric", func() {
+		resp, err := postFakeMetricsUpdate(client,
+			`{"num-requests-total":{"streaming":500},"ttft-buckets-values":{"streaming":[1]}}`)
 		Expect(err).NotTo(HaveOccurred())
 		defer func() {
 			Expect(resp.Body.Close()).To(Succeed())
@@ -414,7 +415,14 @@ var _ = Describe("sglang engine fake metrics", func() {
 			g.Expect(metricsData).To(ContainSubstring(fmt.Sprintf(`%s{is_streaming="true",model_name="%s"} 500`,
 				sglang.SGLangRequestsTotalMetricName, common.TestModelName)))
 			g.Expect(metricsData).NotTo(ContainSubstring(sglang.SGLangRequestsTotalMetricName + `{is_streaming="false"`))
+			g.Expect(metricsData).To(ContainSubstring(fmt.Sprintf(`%s_count{is_streaming="true",model_name="%s"} 1`,
+				sglang.SGLangTTFTMetricName, common.TestModelName)))
+			g.Expect(metricsData).NotTo(ContainSubstring(sglang.SGLangTTFTMetricName + `_count{is_streaming="false"`))
 		})
+
+		fakeMetrics := getFakeMetricsConfig(client)
+		Expect(fakeMetrics["num-requests-total"]).To(MatchJSON(`{"streaming":500}`))
+		Expect(fakeMetrics["ttft-buckets-values"]).To(MatchJSON(`{"streaming":[1]}`))
 	})
 })
 
