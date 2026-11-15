@@ -19,6 +19,7 @@ package endpoint
 import (
 	"encoding/json"
 
+	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 
 	. "github.com/onsi/ginkgo/v2"
@@ -74,5 +75,31 @@ var _ = Describe("createArgument with under-specified schemas", func() {
 
 		Expect(err).NotTo(HaveOccurred())
 		Expect(arg).To(HaveKey("city"))
+	})
+})
+
+var _ = Describe("generateToolArguments with a seed", func() {
+	It("generates the same arguments for the same seed", func() {
+		var tool api.Tool
+		Expect(json.Unmarshal([]byte(`{"type": "function", "function": {"name": "get_weather", "parameters": {
+			"type": "object",
+			"properties": {
+				"city": {"type": "string"},
+				"country": {"type": "string"},
+				"unit": {"type": "string", "enum": ["celsius", "fahrenheit"]},
+				"days": {"type": "integer"},
+				"location": {"type": "object", "properties": {
+					"street": {"type": "string"}, "zip": {"type": "string"}, "floor": {"type": "integer"}},
+					"required": ["street", "zip", "floor"]}},
+			"required": ["city", "country", "unit", "days", "location"]}}}`), &tool)).To(Succeed())
+		config := &common.ToolCallConfig{MaxToolCallIntegerParam: 100}
+
+		first, err := generateToolArguments(tool, config, common.NewRandom(100, 0))
+		Expect(err).NotTo(HaveOccurred())
+		for range 20 {
+			args, err := generateToolArguments(tool, config, common.NewRandom(100, 0))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(args).To(Equal(first))
+		}
 	})
 })
