@@ -310,6 +310,7 @@ type RequestSucceeded struct {
 type RequestFailed struct {
 	E2ELatency    float64 // seconds
 	InferenceTime float64 // seconds
+	IsStreaming   bool
 }
 
 // KVCacheUsageChanged fires when block-cache utilization changes.

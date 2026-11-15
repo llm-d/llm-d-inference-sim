@@ -81,6 +81,7 @@ func (s *Simulator) processRequest(reqCtx endpoint.RequestContext) {
 			metrics.RequestFailed{
 				E2ELatency:    time.Since(reqCtx.StartProcessingTime()).Seconds(),
 				InferenceTime: time.Since(startTime).Seconds(),
+				IsStreaming:   req.IsStream(),
 			}, s.Context.logger)
 	}
 	respCtx, err := reqCtx.HandleRequest()

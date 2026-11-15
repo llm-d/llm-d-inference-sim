@@ -50,6 +50,7 @@ const (
 	ToolsFinishReason          = "tool_calls"
 	RemoteDecodeFinishReason   = "remote_decode"
 	CacheThresholdFinishReason = "cache_threshold"
+	ErrorFinishReason          = "error"
 
 	ChatCmplToolIDPrefix = "chatcmpl-tool-"
 	MessagesToolIDPrefix = "toolu_"
@@ -76,6 +77,7 @@ var (
 		ToolsFinishReason,
 		RemoteDecodeFinishReason,
 		CacheThresholdFinishReason,
+		ErrorFinishReason,
 	}
 
 	ValidFinishReasons = map[string]struct{}{
@@ -84,6 +86,7 @@ var (
 		ToolsFinishReason:          {},
 		RemoteDecodeFinishReason:   {},
 		CacheThresholdFinishReason: {},
+		ErrorFinishReason:          {},
 	}
 )
 

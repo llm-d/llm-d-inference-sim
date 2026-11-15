@@ -416,15 +416,15 @@ func (m *sglangMetricsAdapter) OnRequestSucceeded(ev metrics.RequestSucceeded) {
 }
 
 // request processing failed
-//
-// Only the running-request gauge is updated: sglang observes a request's
-// latency and token counts when it finishes, so a request that never did
-// contributes to neither.
-func (m *sglangMetricsAdapter) OnRequestFailed(metrics.RequestFailed) {
+// - update e2e latency histogram
+// - update requests total counter
+func (m *sglangMetricsAdapter) OnRequestFailed(ev metrics.RequestFailed) {
 	if m.fake.Load() != nil {
 		return
 	}
-	// Do not send update to e2eReqLatencyChan because sglang does not report a latency for failed requests
+	common.WriteToChannel(m.e2eReqLatencyChan,
+		histObserve(ev.E2ELatency, ev.IsStreaming), m.logger)
+	common.WriteToChannel(m.requestsTotalChan, counterAdd(1, ev.IsStreaming), m.logger)
 	m.finishRunning()
 }
 

@@ -355,6 +355,9 @@ func (m *vllmMetricsAdapter) OnRequestFailed(ev metrics.RequestFailed) {
 	}
 	common.WriteToChannel(m.e2eReqLatencyChan, metrics.Observation(ev.E2ELatency), m.logger)
 	common.WriteToChannel(m.reqInferenceTimeChan, metrics.Observation(ev.InferenceTime), m.logger)
+	// update number of successful requests with finish reason="error"
+	finishReason := common.ErrorFinishReason
+	common.WriteToChannel(m.requestSuccessTotalChan, requestSuccessCounterUpdate{Increment: &finishReason}, m.logger)
 
 	m.finishRunning()
 }

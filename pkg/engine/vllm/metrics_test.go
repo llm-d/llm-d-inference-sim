@@ -34,6 +34,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 
+	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/metrics"
 )
@@ -72,6 +73,31 @@ func newTestAdapter(cfg common.Configuration) (*vllmMetricsAdapter, *metrics.Met
 	Expect(err).NotTo(HaveOccurred())
 
 	return adapter, bus
+}
+
+// successTotalSeries returns the values of request_success_total's series, keyed by
+// their finished_reason label. Reading through the collector would create the series
+// it asks for, so a series the adapter never stamped has to be read off a scrape.
+func successTotalSeries(registry *prometheus.Registry) func() map[string]float64 {
+	return func() map[string]float64 {
+		gathered, err := registry.Gather()
+		Expect(err).NotTo(HaveOccurred())
+
+		series := map[string]float64{}
+		for _, family := range gathered {
+			if family.GetName() != VLLMSuccessTotalMetricName {
+				continue
+			}
+			for _, metric := range family.GetMetric() {
+				for _, label := range metric.GetLabel() {
+					if label.GetName() == api.PromLabelFinishReason {
+						series[label.GetValue()] = metric.GetCounter().GetValue()
+					}
+				}
+			}
+		}
+		return series
+	}
 }
 
 var _ = Describe("MetricsBus", func() {
@@ -186,6 +212,18 @@ vllm:request_success_total{finished_reason="stop",model_name=%q} 1
 			Eventually(func() error {
 				return testutil.GatherAndCompare(adapter.registry, strings.NewReader(expected), VLLMSuccessTotalMetricName)
 			}).Should(Succeed())
+		})
+
+		It("counts a failed request in request_success_total with the error finished_reason", func() {
+			adapter, _ := newTestAdapter(newTestConfig())
+			_ = adapter.Start(context.Background())
+
+			adapter.OnRequestRunning(metrics.RequestRunning{})
+			adapter.OnRequestFailed(metrics.RequestFailed{E2ELatency: 0.5, InferenceTime: 0.4})
+
+			Eventually(successTotalSeries(adapter.registry)).Should(Equal(
+				map[string]float64{common.ErrorFinishReason: 1}))
+			Eventually(metrics.GaugeValue(adapter.runningRequests)).Should(BeZero())
 		})
 
 		It("updates the KV-cache usage gauge", func() {

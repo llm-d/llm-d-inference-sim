@@ -330,15 +330,20 @@ var _ = Describe("Metrics adapter", func() {
 			Eventually(histogramCount(registry, SGLangE2EReqLatencyMetricName, nonStreaming)).Should(Equal(uint64(1)))
 		})
 
-		It("records only the running gauge for a failed request", func() {
+		It("records only the running gauge, the end-to-end latency and the request total for a failed request", func() {
 			adapter, registry := newTestAdapter()
 
 			adapter.OnRequestRunning(metrics.RequestRunning{})
-			adapter.OnRequestFailed(metrics.RequestFailed{E2ELatency: 0.5, InferenceTime: 0.4})
+			adapter.OnRequestFailed(metrics.RequestFailed{E2ELatency: 0.5, InferenceTime: 0.4, IsStreaming: true})
 
 			Eventually(metrics.GaugeValue(adapter.runningRequests)).Should(BeZero())
+			Eventually(histogramCount(registry, SGLangE2EReqLatencyMetricName, streaming)).Should(Equal(uint64(1)))
+			Eventually(histogramSum(registry, SGLangE2EReqLatencyMetricName, streaming)).Should(Equal(0.5))
 			Consistently(histogramCount(registry, SGLangE2EReqLatencyMetricName, nonStreaming)).Should(BeZero())
-			Consistently(metrics.CounterValue(adapter.promptTokensTotal, common.TestModelName, nonStreaming)).Should(BeZero())
+			Eventually(counterSeries(registry, SGLangRequestsTotalMetricName)).Should(Equal(
+				map[string]float64{streaming: 1}))
+			Consistently(counterSeries(registry, SGLangPromptTokensTotalMetricName)).Should(BeEmpty())
+			Consistently(counterSeries(registry, SGLangGenerationTokensTotalMetricName)).Should(BeEmpty())
 		})
 
 		// Not reachable while the engine rejects an enabled KV cache, so these

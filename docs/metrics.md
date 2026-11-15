@@ -94,15 +94,13 @@ is narrower still: a request that generated a single token, or that stopped for 
 
 `sglang:queue_time_seconds` is observed when a request leaves the waiting queue, so it stays absent
 while a free worker is always available to take a request immediately.
-A request that fails contributes to no metric but `sglang:num_running_reqs`, since SGLang observes a
-request's latency and token counts only once it has finished. `sglang:request_time_per_output_token_seconds`
-is narrower still: a request that generated a single token, or that stopped for any reason other than
-`stop` or `length`, reports no time per output token, as it reports none upstream.
+
+A request that fails contributes only to `sglang:num_running_reqs`, `sglang:e2e_request_latency_seconds`
+and `sglang:num_requests_total`, since SGLang counts an aborted request as a finished one. This departs from
+SGLang, which also records an aborted request's token counts and token histograms.
+
 `sglang:uncached_prompt_tokens_histogram` equals `sglang:prompt_tokens_histogram` while no KV cache is
 simulated, since no prompt token can be served from a prefix cache.
-
-`sglang:queue_time_seconds` is observed when a request leaves the waiting queue, so it stays absent
-while a free worker is always available to take a request immediately.
 
 ### The KV-cache metrics
 
