@@ -19,6 +19,7 @@ package main
 
 import (
 	"context"
+	"time"
 
 	"golang.org/x/sync/errgroup"
 	"k8s.io/klog/v2"
@@ -40,11 +41,13 @@ func main() {
 	engineName, err := common.ResolveEngineName()
 	if err != nil {
 		logger.Error(err, "failed to resolve engine")
+		exitOnStartupError(ctx)
 		return
 	}
 	eng, err := engine.Select(engineName)
 	if err != nil {
 		logger.Error(err, "failed to select engine")
+		exitOnStartupError(ctx)
 		return
 	}
 
@@ -52,6 +55,7 @@ func main() {
 	config, err := common.ParseCommandParamsAndLoadConfig(eng)
 	if err != nil {
 		logger.Error(err, "failed to read configuration")
+		exitOnStartupError(ctx)
 		return
 	}
 
@@ -67,12 +71,14 @@ func main() {
 
 	if err := config.Show(logger); err != nil {
 		logger.Error(err, "failed to show configuration")
+		exitOnStartupError(ctx)
 		return
 	}
 
 	simulators, err := simulator.Start(ctx, config, logger, eng)
 	if err != nil {
 		logger.Error(err, "failed to create inference simulator")
+		exitOnStartupError(ctx)
 		return
 	}
 
@@ -85,7 +91,26 @@ func main() {
 	}
 	if err := g.Wait(); err != nil {
 		logger.Error(err, "failed to start communication layer")
+		exitOnStartupError(ctx)
 		return
 	}
 
+}
+
+// exitOnStartupError ends the process with status 1 unless the signal handler cancelled ctx: a stop requested while
+// the simulator starts is not a startup failure, so main returns and the process exits 0.
+func exitOnStartupError(ctx context.Context) {
+	if ctx.Err() == nil {
+		klog.FlushAndExit(klog.ExitFlushTimeout, 1)
+	}
+	// Bounded as FlushAndExit is, so a stalled log file cannot keep the process from stopping.
+	flushed := make(chan struct{})
+	go func() {
+		klog.Flush()
+		close(flushed)
+	}()
+	select {
+	case <-flushed:
+	case <-time.After(klog.ExitFlushTimeout):
+	}
 }

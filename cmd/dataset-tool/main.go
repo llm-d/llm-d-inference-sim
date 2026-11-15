@@ -37,18 +37,18 @@ func main() {
 	config := dataset.NewDefaultDSToolConfiguration()
 	if err := config.LoadConfig(); err != nil {
 		logger.Error(err, "invalid configuration")
-		return
+		klog.FlushAndExit(klog.ExitFlushTimeout, 1)
 	}
 
 	tool, err := dataset.NewDatasetTool(ctx, config, logger)
 	if err != nil {
 		logger.Error(err, "failed to create dataset creation tool")
-		return
+		klog.FlushAndExit(klog.ExitFlushTimeout, 1)
 	}
 	err = tool.Run(ctx)
 	if err != nil {
 		logger.Error(err, "failed to run dataset creation tool")
-		return
+		klog.FlushAndExit(klog.ExitFlushTimeout, 1)
 	}
 	logger.V(logging.INFO).Info("Dataset creation tool finished")
 }
