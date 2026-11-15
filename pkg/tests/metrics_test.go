@@ -35,6 +35,7 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
+	"github.com/openai/openai-go/v3/packages/param"
 )
 
 const (
@@ -244,6 +245,45 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 		Entry("no streaming", false),
 		Entry("streaming", true),
 	)
+
+	It("Should count a rejected request in every finished-request metric", func() {
+		client, err := startServerWithArgs(context.TODO(),
+			[]string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho, "--max-model-len", "5"})
+		Expect(err).NotTo(HaveOccurred())
+
+		openaiclient, params := getOpenAIClientAndTextParams(client, common.TestModelName, "hi", false)
+		params.MaxTokens = param.NewOpt(int64(1))
+		resp, err := openaiclient.Completions.New(context.TODO(), params)
+		Expect(err).NotTo(HaveOccurred())
+		promptTokens := resp.Usage.PromptTokens
+		generationTokens := resp.Usage.CompletionTokens
+
+		params.Prompt = openai.CompletionNewParamsPromptUnion{OfString: param.NewOpt(strings.Repeat("hello ", 25))}
+		_, err = openaiclient.Completions.New(context.TODO(), params)
+		Expect(err).To(HaveOccurred())
+
+		eventuallyThenConsistentlyMetrics(client, func(g Gomega, metricsData string) {
+			g.Expect(metricsData).To(ContainSubstring(fmt.Sprintf(`%s{finished_reason="%s",model_name="%s"} 1`,
+				vllm.VLLMSuccessTotalMetricName, common.ErrorFinishReason, common.TestModelName)))
+			for _, metric := range []string{
+				vllm.VLLME2EReqLatencyMetricName,
+				vllm.VLLMReqInferenceTimeMetricName,
+				vllm.VLLMPromptTokensMetricName,
+				vllm.VLLMGenerationTokensMetricName,
+				vllm.VLLMMaxNumGenerationTokensMetricName,
+				vllm.VLLMParamMaxTokensMetricName,
+			} {
+				g.Expect(metricsData).To(ContainSubstring(
+					getCountMetricLine(common.TestModelName, metric+"_count", 2)))
+			}
+			g.Expect(metricsData).To(ContainSubstring(
+				getCountMetricLine(common.TestModelName, vllm.VLLMPromptTokensTotalMetricName, float64(promptTokens))))
+			g.Expect(metricsData).To(ContainSubstring(
+				getCountMetricLine(common.TestModelName, vllm.VLLMGenerationTokensTotalMetricName, float64(generationTokens))))
+			g.Expect(metricsData).To(ContainSubstring(
+				getCountMetricLine(common.TestModelName, vllm.VLLMTTFTMetricName+"_count", 1)))
+		})
+	})
 
 	It("Should record correct prompt and generation token counts", func() {
 		ctx := context.TODO()

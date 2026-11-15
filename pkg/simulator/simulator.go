@@ -477,11 +477,12 @@ func (s *Simulator) dequeue() endpoint.RequestContext {
 	return nil
 }
 
-// simulateResponseProcessing returns false if the response was abandoned before
-// it was fully generated.
-func (s *Simulator) simulateResponseProcessing(respCtx endpoint.ResponseContext) bool {
+// simulateResponseProcessing returns the number of tokens it generated, and false if
+// the response was abandoned before it was fully generated.
+func (s *Simulator) simulateResponseProcessing(respCtx endpoint.ResponseContext) (int, bool) {
 	reqCtx := respCtx.RequestContext()
 	choiceIdx := reqCtx.ChoiceIndex()
+	generated := 0
 	// Skip delays if finish reason is cache_threshold (immediate return)
 	if respCtx.FinishReason() != nil && *respCtx.FinishReason() == common.CacheThresholdFinishReason {
 		common.WriteToChannel(reqCtx.ResponseChannel(), &endpoint.ResponseInfo{RespCtx: respCtx, ChoiceIdx: choiceIdx},
@@ -489,7 +490,7 @@ func (s *Simulator) simulateResponseProcessing(respCtx endpoint.ResponseContext)
 	} else {
 		done := reqCtx.ResponseChannel().Done
 		if !s.Context.simulateTTFT(respCtx, done) {
-			return false
+			return generated, false
 		}
 
 		// Response started
@@ -523,7 +524,7 @@ func (s *Simulator) simulateResponseProcessing(respCtx endpoint.ResponseContext)
 				for i, token := range respCtx.ResponseTokens().Tokens {
 					if i != 0 {
 						if !s.Context.simulateInterTokenLatency(done) {
-							return false
+							return generated, false
 						}
 						nTokens++
 					}
@@ -532,6 +533,7 @@ func (s *Simulator) simulateResponseProcessing(respCtx endpoint.ResponseContext)
 					if len(respCtx.ResponseTokens().Strings) != 0 {
 						buf.Strings = append(buf.Strings, respCtx.ResponseTokens().Strings[i])
 					}
+					generated++
 					flush(i, n, nil, i == n-1)
 				}
 			} else {
@@ -544,12 +546,13 @@ func (s *Simulator) simulateResponseProcessing(respCtx endpoint.ResponseContext)
 					for i, token := range args.Tokens {
 						if i != 0 {
 							if !s.Context.simulateInterTokenLatency(done) {
-								return false
+								return generated, false
 							}
 							nTokens++
 						}
 						buf.Tokens = append(buf.Tokens, token)
 						buf.Strings = append(buf.Strings, args.Strings[i])
+						generated++
 						flush(i, n, &toolCalls[tcIdx], tcIdx == len(toolCalls)-1 && i == n-1)
 					}
 				}
@@ -569,10 +572,10 @@ func (s *Simulator) simulateResponseProcessing(respCtx endpoint.ResponseContext)
 			s.Context.logger)
 
 		if reqCtx.Request().SendImage() && !s.Context.simulateImageGenerationLatency(done) {
-			return false
+			return generated, false
 		}
 	}
-	return true
+	return generated, true
 }
 
 // request processing finished

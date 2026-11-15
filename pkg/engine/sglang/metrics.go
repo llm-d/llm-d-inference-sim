@@ -399,30 +399,33 @@ func (m *sglangMetricsAdapter) OnRequestSucceeded(ev metrics.RequestSucceeded) {
 	if m.fake.Load() != nil {
 		return
 	}
-	common.WriteToChannel(m.promptTokensTotalChan,
-		counterAdd(float64(ev.PromptTokens), ev.IsStreaming), m.logger)
-	common.WriteToChannel(m.generationTokensTotalChan,
-		counterAdd(float64(ev.GenerationTokens), ev.IsStreaming), m.logger)
-	common.WriteToChannel(m.e2eReqLatencyChan,
-		histObserve(ev.E2ELatency, ev.IsStreaming), m.logger)
-	common.WriteToChannel(m.requestsTotalChan, counterAdd(1, ev.IsStreaming), m.logger)
-
-	common.WriteToChannel(m.promptTokensHistChan, metrics.Observation(float64(ev.PromptTokens)), m.logger)
-	common.WriteToChannel(m.uncachedPromptTokensHistChan,
-		metrics.Observation(float64(ev.PromptTokens-ev.CachedPromptTokens)), m.logger)
-	common.WriteToChannel(m.generationTokensHistChan, metrics.Observation(float64(ev.GenerationTokens)), m.logger)
-
+	m.observeFinished(ev.PromptTokens, ev.CachedPromptTokens, ev.GenerationTokens, ev.E2ELatency, ev.IsStreaming)
 	m.finishRunning()
 }
 
+// request processing failed - update all relevant metrics
 func (m *sglangMetricsAdapter) OnRequestFailed(ev metrics.RequestFailed) {
 	if m.fake.Load() != nil {
 		return
 	}
-	common.WriteToChannel(m.e2eReqLatencyChan,
-		histObserve(ev.E2ELatency, ev.IsStreaming), m.logger)
-	common.WriteToChannel(m.requestsTotalChan, counterAdd(1, ev.IsStreaming), m.logger)
+	m.observeFinished(ev.PromptTokens, ev.CachedPromptTokens, ev.GenerationTokens, ev.E2ELatency, ev.IsStreaming)
 	m.finishRunning()
+}
+
+func (m *sglangMetricsAdapter) observeFinished(promptTokens, cachedPromptTokens, generationTokens int,
+	e2eLatency float64, isStreaming bool) {
+	common.WriteToChannel(m.promptTokensTotalChan,
+		counterAdd(float64(promptTokens), isStreaming), m.logger)
+	common.WriteToChannel(m.generationTokensTotalChan,
+		counterAdd(float64(generationTokens), isStreaming), m.logger)
+	common.WriteToChannel(m.e2eReqLatencyChan,
+		histObserve(e2eLatency, isStreaming), m.logger)
+	common.WriteToChannel(m.requestsTotalChan, counterAdd(1, isStreaming), m.logger)
+
+	common.WriteToChannel(m.promptTokensHistChan, metrics.Observation(float64(promptTokens)), m.logger)
+	common.WriteToChannel(m.uncachedPromptTokensHistChan,
+		metrics.Observation(float64(promptTokens-cachedPromptTokens)), m.logger)
+	common.WriteToChannel(m.generationTokensHistChan, metrics.Observation(float64(generationTokens)), m.logger)
 }
 
 // change in kv cache utilization

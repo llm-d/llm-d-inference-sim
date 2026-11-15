@@ -27,6 +27,7 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/openai/openai-go/v3/packages/param"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
@@ -459,6 +460,50 @@ var _ = Describe("sglang engine fake-metrics enable", func() {
 			// Not named by the update, so unchanged.
 			g.Expect(metricsData).To(ContainSubstring(fmt.Sprintf(`%s{model_name="%s"} 20`,
 				sglang.SGLangRunningReqsMetricName, common.TestModelName)))
+		})
+	})
+})
+
+var _ = Describe("sglang engine failed requests", func() {
+	It("Should count a rejected request in every finished-request metric", func() {
+		client, err := startServerWithArgs(context.TODO(),
+			[]string{"cmd", "--engine", "sglang", "--model", common.TestModelName, "--mode", common.ModeEcho,
+				"--enable-metrics", "--context-length", "5"})
+		Expect(err).NotTo(HaveOccurred())
+
+		openaiclient, params := getOpenAIClientAndTextParams(client, common.TestModelName, "hi", false)
+		params.MaxTokens = param.NewOpt(int64(1))
+		resp, err := openaiclient.Completions.New(context.TODO(), params)
+		Expect(err).NotTo(HaveOccurred())
+		promptTokens := resp.Usage.PromptTokens
+		generationTokens := resp.Usage.CompletionTokens
+
+		_, params = getOpenAIClientAndTextParams(client, common.TestModelName, strings.Repeat("hello ", 25), false)
+		_, err = openaiclient.Completions.New(context.TODO(), params)
+		Expect(err).To(HaveOccurred())
+
+		eventuallyThenConsistentlyMetrics(client, func(g Gomega, metricsData string) {
+			for _, metric := range []string{
+				sglang.SGLangRequestsTotalMetricName,
+				sglang.SGLangE2EReqLatencyMetricName + "_count",
+			} {
+				g.Expect(metricsData).To(ContainSubstring(fmt.Sprintf(`%s{is_streaming="false",model_name="%s"} 2`,
+					metric, common.TestModelName)))
+			}
+			for _, metric := range []string{
+				sglang.SGLangPromptTokensHistMetricName,
+				sglang.SGLangUncachedPromptTokensHistMetricName,
+				sglang.SGLangGenerationTokensHistMetricName,
+			} {
+				g.Expect(metricsData).To(ContainSubstring(fmt.Sprintf(`%s_count{model_name="%s"} 2`,
+					metric, common.TestModelName)))
+			}
+			g.Expect(metricsData).To(ContainSubstring(fmt.Sprintf(`%s{is_streaming="false",model_name="%s"} %d`,
+				sglang.SGLangPromptTokensTotalMetricName, common.TestModelName, promptTokens)))
+			g.Expect(metricsData).To(ContainSubstring(fmt.Sprintf(`%s{is_streaming="false",model_name="%s"} %d`,
+				sglang.SGLangGenerationTokensTotalMetricName, common.TestModelName, generationTokens)))
+			g.Expect(metricsData).To(ContainSubstring(fmt.Sprintf(`%s_count{is_streaming="false",model_name="%s"} 1`,
+				sglang.SGLangTTFTMetricName, common.TestModelName)))
 		})
 	})
 })

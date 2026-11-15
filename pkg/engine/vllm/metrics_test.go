@@ -214,16 +214,43 @@ vllm:request_success_total{finished_reason="stop",model_name=%q} 1
 			}).Should(Succeed())
 		})
 
-		It("counts a failed request in request_success_total with the error finished_reason", func() {
+		It("records a failed request in the same metrics as a successful one, with the error finished_reason", func() {
 			adapter, _ := newTestAdapter(newTestConfig())
 			_ = adapter.Start(context.Background())
 
+			maxTokens := int64(8)
 			adapter.OnRequestRunning(metrics.RequestRunning{})
-			adapter.OnRequestFailed(metrics.RequestFailed{E2ELatency: 0.5, InferenceTime: 0.4})
+			adapter.OnRequestFailed(metrics.RequestFailed{
+				PromptTokens: 10, GenerationTokens: 3, MaxTokens: &maxTokens, E2ELatency: 0.5, InferenceTime: 0.4,
+			})
 
 			Eventually(successTotalSeries(adapter.registry)).Should(Equal(
 				map[string]float64{common.ErrorFinishReason: 1}))
 			Eventually(metrics.GaugeValue(adapter.runningRequests)).Should(BeZero())
+			Eventually(metrics.CounterValue(adapter.promptTokensTotal, common.TestModelName)).Should(Equal(float64(10)))
+			Eventually(metrics.CounterValue(adapter.generationTokensTotal, common.TestModelName)).Should(Equal(float64(3)))
+			histogramSum := func(name string) func() float64 {
+				return func() float64 {
+					families, err := adapter.registry.Gather()
+					Expect(err).NotTo(HaveOccurred())
+					for _, family := range families {
+						if family.GetName() == name {
+							return family.GetMetric()[0].GetHistogram().GetSampleSum()
+						}
+					}
+					return -1
+				}
+			}
+			for name, sum := range map[string]float64{
+				VLLMPromptTokensMetricName:           10,
+				VLLMGenerationTokensMetricName:       3,
+				VLLMMaxNumGenerationTokensMetricName: 3,
+				VLLMParamMaxTokensMetricName:         8,
+				VLLME2EReqLatencyMetricName:          0.5,
+				VLLMReqInferenceTimeMetricName:       0.4,
+			} {
+				Eventually(histogramSum(name)).Should(Equal(sum), name)
+			}
 		})
 
 		It("updates the KV-cache usage gauge", func() {

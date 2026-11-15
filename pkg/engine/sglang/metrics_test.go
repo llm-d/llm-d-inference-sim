@@ -330,11 +330,14 @@ var _ = Describe("Metrics adapter", func() {
 			Eventually(histogramCount(registry, SGLangE2EReqLatencyMetricName, nonStreaming)).Should(Equal(uint64(1)))
 		})
 
-		It("records only the running gauge, the end-to-end latency and the request total for a failed request", func() {
+		It("records a failed request in the same metrics as a successful one", func() {
 			adapter, registry := newTestAdapter()
 
 			adapter.OnRequestRunning(metrics.RequestRunning{})
-			adapter.OnRequestFailed(metrics.RequestFailed{E2ELatency: 0.5, InferenceTime: 0.4, IsStreaming: true})
+			adapter.OnRequestFailed(metrics.RequestFailed{
+				PromptTokens: 10, CachedPromptTokens: 4, GenerationTokens: 3,
+				E2ELatency: 0.5, InferenceTime: 0.4, IsStreaming: true,
+			})
 
 			Eventually(metrics.GaugeValue(adapter.runningRequests)).Should(BeZero())
 			Eventually(histogramCount(registry, SGLangE2EReqLatencyMetricName, streaming)).Should(Equal(uint64(1)))
@@ -342,8 +345,13 @@ var _ = Describe("Metrics adapter", func() {
 			Consistently(histogramCount(registry, SGLangE2EReqLatencyMetricName, nonStreaming)).Should(BeZero())
 			Eventually(counterSeries(registry, SGLangRequestsTotalMetricName)).Should(Equal(
 				map[string]float64{streaming: 1}))
-			Consistently(counterSeries(registry, SGLangPromptTokensTotalMetricName)).Should(BeEmpty())
-			Consistently(counterSeries(registry, SGLangGenerationTokensTotalMetricName)).Should(BeEmpty())
+			Eventually(counterSeries(registry, SGLangPromptTokensTotalMetricName)).Should(Equal(
+				map[string]float64{streaming: 10}))
+			Eventually(counterSeries(registry, SGLangGenerationTokensTotalMetricName)).Should(Equal(
+				map[string]float64{streaming: 3}))
+			Eventually(histogramSum(registry, SGLangPromptTokensHistMetricName, "")).Should(Equal(float64(10)))
+			Eventually(histogramSum(registry, SGLangUncachedPromptTokensHistMetricName, "")).Should(Equal(float64(6)))
+			Eventually(histogramSum(registry, SGLangGenerationTokensHistMetricName, "")).Should(Equal(float64(3)))
 		})
 
 		// Not reachable while the engine rejects an enabled KV cache, so these
