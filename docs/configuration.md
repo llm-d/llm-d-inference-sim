@@ -213,7 +213,6 @@ Command-line flag names are as listed below. In a YAML config file, these settin
 - `kv-cache-dtype`: cache dtype reported by the vLLM-compatible `cache_config_info` metric, defaults to `auto`. This metadata setting does not change simulation behavior.
 - `global-cache-hit-threshold`: default cache hit threshold [0, 1] for all requests. If a request specifies cache_hit_threshold, it takes precedence over this global value
 - `block-size`: token block size for contiguous chunks of tokens, possible values: 8,16,32,64,128
-- `page-size`: the block size under the SGLang engine, which names it as SGLang does; 1 or more, default 16. The SGLang engine has no flag yet for the other settings in this list, which keep their defaults.
 - `hash-seed`: seed for hash generation. If you omit `--hash-seed` on the command line, a non-empty `PYTHONHASHSEED` environment variable can supply the seed; see [Configuration precedence](#configuration-precedence) and [Environment variables](#environment-variables).
 - `zmq-endpoint`: ZMQ address to publish events
 - `zmq-topic`: ZMQ topic to publish KV-cache events under. Empty (the default) uses the llm-d convention `kv@<pod-ip>:<serving-port>@<model>`. When set, the value replaces that topic verbatim, matching vLLM's static `KVEventsConfig.topic`, for subscribers that expect a fixed name. Note that a static topic is shared by every rank in a data-parallel deployment, unlike the default.
@@ -291,6 +290,14 @@ SGLang's other metrics flags are not accepted: `--enable-mfu-metrics` and `--ena
 describe a runtime and a device topology the simulator does not model, `--extra-metric-labels` would add
 labels no simulated value fills, and the `--bucket-*` boundary overrides are replaced by SGLang's defaults,
 listed under [Metrics](metrics.md#sglang).
+
+#### KV cache
+
+- `enable-kvcache`: as under vLLM.
+- `page-size`: the block size of the simulated KV cache, which vLLM calls `block-size`; 1 or more, default 16.
+
+In a YAML config file both keys stay top-level. This engine has no flag yet for the rest of the KV-cache
+settings, which keep their defaults, so it does not accept a nested `kvcache:` block: startup fails naming it.
 
 #### Other settings
 
