@@ -347,12 +347,12 @@ var _ = Describe("tokenizer", func() {
 
 		It("derives the image and video span from the grid metadata", func() {
 			for _, modality := range []string{mmModalityImage, mmModalityVideo} {
-				var thw []int64
-				for _, v := range MMItemMetadata(modality) {
-					thw = v
-				}
-				Expect(thw).To(HaveLen(3))
-				Expect(mmLayouts[modality].spanLength()).To(Equal(int(thw[0] * thw[1] * thw[2] / 4)))
+			var gridDims []int64
+			for _, v := range MMItemMetadata(modality) {
+				gridDims = v
+			}
+			Expect(gridDims).To(HaveLen(3))
+			Expect(mmLayouts[modality].spanLength()).To(Equal(int(gridDims[0] * gridDims[1] * gridDims[2] / 4)))
 			}
 			Expect(MMItemMetadata(mmModalityImage)).To(HaveKeyWithValue("image_grid_thw", []int64{1, 8, 8}))
 			Expect(MMItemMetadata(mmModalityVideo)).To(HaveKeyWithValue("video_grid_thw", []int64{2, 8, 8}))
