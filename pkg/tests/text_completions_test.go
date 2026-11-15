@@ -427,10 +427,12 @@ var _ = Describe("Simulator", forEachEngine(func() {
 				// Collect streamed text per choice index
 				texts := make([]string, len(prompts))
 				chunksWithLogprobs := make([]int, len(prompts))
+				ids := make(map[string]struct{})
 				var chunk openai.Completion
 				var usage openai.CompletionUsage
 				for stream.Next() {
 					chunk = stream.Current()
+					ids[chunk.ID] = struct{}{}
 					for _, choice := range chunk.Choices {
 						texts[choice.Index] += choice.Text
 						if choice.FinishReason == "" && choice.Text != "" && len(choice.Logprobs.Tokens) > 0 {
@@ -447,6 +449,8 @@ var _ = Describe("Simulator", forEachEngine(func() {
 				}
 				Expect(stream.Err()).NotTo(HaveOccurred())
 				Expect(string(chunk.Object)).To(Equal(api.TextCompletionObject))
+				// All the chunks of one stream carry the same id, whichever prompt they belong to.
+				Expect(ids).To(HaveLen(1))
 				for i, prompt := range prompts {
 					Expect(texts[i]).To(Equal(prompt))
 					// Every choice must carry its own logprobs stream.

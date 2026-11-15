@@ -380,6 +380,18 @@ var _ = Describe("Server", forEachEngine(func() {
 					Expect(resp["id"]).To(Equal("chatcmpl-body-test-999"))
 				},
 			),
+			Entry("uses request ID in text completions response body ID field",
+				true,
+				"/v1/completions",
+				`{"prompt": "Hello world", "model": "`+common.TestModelName+`", "max_tokens": 5}`,
+				"body-test-998",
+				ptr("body-test-998"),
+				func(body []byte) {
+					var resp map[string]any
+					Expect(json.Unmarshal(body, &resp)).To(Succeed())
+					Expect(resp["id"]).To(Equal("cmpl-body-test-998"))
+				},
+			),
 		)
 	})
 
