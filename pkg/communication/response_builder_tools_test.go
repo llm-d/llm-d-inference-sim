@@ -18,7 +18,6 @@ package communication
 
 import (
 	"encoding/json"
-	"fmt"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	. "github.com/onsi/ginkgo/v2"
@@ -109,8 +108,11 @@ var _ = Describe("Responses HTTP tool streaming", func() {
 		Expect(string(lastPayloads[1])).To(ContainSubstring(`"status":"completed"`))
 
 		for i, payload := range append(append(payloads, eventPayloadsFromChunk(chunk2)...), lastPayloads...) {
-			Expect(string(payload)).To(ContainSubstring(fmt.Sprintf(`"sequence_number":%d,"output_index":0,`, i)))
-			Expect(string(payload)).NotTo(ContainSubstring(`"content_index"`))
+			var event map[string]any
+			Expect(json.Unmarshal(payload, &event)).To(Succeed())
+			Expect(event).To(HaveKeyWithValue("sequence_number", BeNumerically("==", i)), event["type"])
+			Expect(event).To(HaveKeyWithValue("output_index", BeNumerically("==", 0)), event["type"])
+			Expect(event).NotTo(HaveKey("content_index"), event["type"])
 		}
 	})
 })
