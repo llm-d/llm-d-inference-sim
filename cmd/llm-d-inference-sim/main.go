@@ -110,8 +110,9 @@ func runRanks(ctx context.Context, starts []func(context.Context) error) (stoppe
 }
 
 // exitAfterError ends the process after an error from simulator start-up or a rank.
-// stopRequested reports whether a stop signal arrived before the error: the process then exits 0, as for any
-// requested stop; otherwise it exits 1.
+// stopRequested reports whether a stop signal arrived before that error: the process then exits 0, as a graceful
+// shutdown does; otherwise it exits 1.
+// Errors before simulator start-up exit 1 without consulting it, since a stop signal does not cause them.
 func exitAfterError(stopRequested bool) {
 	code := 1
 	if stopRequested {
