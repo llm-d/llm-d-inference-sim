@@ -48,3 +48,28 @@ func TestConfigurationErrorExitsNonZero(t *testing.T) {
 		t.Fatalf("exit status 1 came from another error than the missing --model\n%s", out)
 	}
 }
+
+func TestRunErrorExitsNonZero(t *testing.T) {
+	bin := filepath.Join(t.TempDir(), "dataset-tool")
+	buildCtx, cancelBuild := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancelBuild()
+	if out, err := exec.CommandContext(buildCtx, "go", "build", "-o", bin, ".").CombinedOutput(); err != nil {
+		t.Fatalf("build: %v\n%s", err, out)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	dir := t.TempDir()
+	out, err := exec.CommandContext(ctx, bin, "--model=test-model", "--local-path="+filepath.Join(dir, "missing"),
+		"--input-file=input.json", "--render-url=http://127.0.0.1:1", "--output-path="+dir).CombinedOutput()
+	if ctx.Err() != nil {
+		t.Fatalf("dataset-tool did not exit in time\n%s", out)
+	}
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 1 {
+		t.Fatalf("dataset-tool exited with %v on a missing input file, want exit status 1\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "failed to run dataset creation tool") {
+		t.Fatalf("exit status 1 came from another error than the failed run\n%s", out)
+	}
+}

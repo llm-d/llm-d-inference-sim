@@ -19,6 +19,7 @@ package main
 
 import (
 	"context"
+	"sync/atomic"
 
 	"golang.org/x/sync/errgroup"
 	"k8s.io/klog/v2"
@@ -40,19 +41,19 @@ func main() {
 	engineName, err := common.ResolveEngineName()
 	if err != nil {
 		logger.Error(err, "failed to resolve engine")
-		exitOnStartupError(ctx)
+		exitAfterError(ctx.Err() != nil)
 	}
 	eng, err := engine.Select(engineName)
 	if err != nil {
 		logger.Error(err, "failed to select engine")
-		exitOnStartupError(ctx)
+		exitAfterError(ctx.Err() != nil)
 	}
 
 	// parse command line parameters
 	config, err := common.ParseCommandParamsAndLoadConfig(eng)
 	if err != nil {
 		logger.Error(err, "failed to read configuration")
-		exitOnStartupError(ctx)
+		exitAfterError(ctx.Err() != nil)
 	}
 
 	// klog's default verbosity (0) is only raised to INFO by ParseCommandParamsAndLoadConfig
@@ -67,35 +68,42 @@ func main() {
 
 	if err := config.Show(logger); err != nil {
 		logger.Error(err, "failed to show configuration")
-		exitOnStartupError(ctx)
+		exitAfterError(ctx.Err() != nil)
 	}
 
 	simulators, err := simulator.Start(ctx, config, logger, eng)
 	if err != nil {
 		logger.Error(err, "failed to create inference simulator")
-		exitOnStartupError(ctx)
+		exitAfterError(ctx.Err() != nil)
 	}
 
 	// A rank that fails stops the others, so the process exits instead of serving on some ranks only.
+	// The failure is recorded when it happens, so a stop signal that arrives while the other ranks drain does not
+	// turn it into a requested stop.
+	var failedBeforeStop atomic.Bool
 	g, rankCtx := errgroup.WithContext(ctx)
 	for _, sim := range simulators {
 		comm := communication.New(logger, sim, &sim.Context)
 		g.Go(func() error {
-			return comm.Start(rankCtx, eng)
+			err := comm.Start(rankCtx, eng)
+			if err != nil && ctx.Err() == nil {
+				failedBeforeStop.Store(true)
+			}
+			return err
 		})
 	}
 	if err := g.Wait(); err != nil {
 		logger.Error(err, "failed to start communication layer")
-		exitOnStartupError(ctx)
+		exitAfterError(ctx.Err() != nil && !failedBeforeStop.Load())
 	}
 
 }
 
-// exitOnStartupError ends the process after a startup error. A stop signal received before the error means the stop
-// was requested, so the process exits 0 whatever the error says; any other startup error exits 1.
-func exitOnStartupError(ctx context.Context) {
+// exitAfterError ends the process after an error. stopRequested reports whether a stop signal arrived before the
+// error: the process then exits 0, as for any requested stop; otherwise it exits 1.
+func exitAfterError(stopRequested bool) {
 	code := 1
-	if ctx.Err() != nil {
+	if stopRequested {
 		code = 0
 	}
 	klog.FlushAndExit(klog.ExitFlushTimeout, code)

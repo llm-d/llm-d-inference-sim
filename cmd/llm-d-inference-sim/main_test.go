@@ -24,13 +24,14 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 )
 
 func buildSimulator(t *testing.T) string {
@@ -44,74 +45,157 @@ func buildSimulator(t *testing.T) string {
 	return bin
 }
 
-// simulatorCommand runs the binary with the vllm engine, whatever SIM_ENGINE the environment sets.
-func simulatorCommand(ctx context.Context, bin string, args ...string) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, bin, append([]string{"--engine=vllm", "--model=test-model"}, args...)...)
-	for _, kv := range os.Environ() {
-		if !strings.HasPrefix(kv, "SIM_ENGINE=") {
-			cmd.Env = append(cmd.Env, kv)
-		}
+func freePort(t *testing.T) int {
+	t.Helper()
+	port, err := common.FreeTCPPort()
+	if err != nil {
+		t.Fatal(err)
 	}
-	return cmd
+	return port
 }
 
-func exitCode(t *testing.T, ctx context.Context, err error, out []byte) int {
+// simProcess is one simulator process whose output is safe to read once it has exited.
+type simProcess struct {
+	cmd    *exec.Cmd
+	out    bytes.Buffer
+	done   chan struct{}
+	err    error
+	cancel context.CancelFunc
+}
+
+func startSimulator(t *testing.T, bin string, args ...string) *simProcess {
 	t.Helper()
-	if ctx.Err() != nil {
-		t.Fatalf("the simulator did not exit in time\n%s", out)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	s := &simProcess{done: make(chan struct{}), cancel: cancel}
+	s.cmd = exec.CommandContext(ctx, bin, append([]string{"--engine=vllm", "--model=test-model"}, args...)...)
+	s.cmd.Stdout, s.cmd.Stderr = &s.out, &s.out
+	if err := s.cmd.Start(); err != nil {
+		cancel()
+		t.Fatal(err)
+	}
+	go func() {
+		s.err = s.cmd.Wait()
+		close(s.done)
+	}()
+	// Every path out of the test waits for the process, so its output is never read while it is still written.
+	t.Cleanup(func() {
+		cancel()
+		<-s.done
+	})
+	return s
+}
+
+// exitCode waits for the process and returns its exit status, failing the test if it does not exit in time.
+func (s *simProcess) exitCode(t *testing.T) int {
+	t.Helper()
+	select {
+	case <-s.done:
+	case <-time.After(60 * time.Second):
+		s.cancel()
+		<-s.done
+		t.Fatalf("the simulator did not exit in time\n%s", s.out.String())
 	}
 	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) {
+	if errors.As(s.err, &exitErr) {
 		return exitErr.ExitCode()
 	}
-	if err != nil {
-		t.Fatalf("run: %v\n%s", err, out)
+	if s.err != nil {
+		t.Fatalf("run: %v\n%s", s.err, s.out.String())
 	}
 	return 0
 }
 
 func TestStartupErrorExitsNonZero(t *testing.T) {
-	bin := buildSimulator(t)
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	out, err := simulatorCommand(ctx, bin, "--kv-cache-size=256 --enable-request-id-headers").CombinedOutput()
-	if code := exitCode(t, ctx, err, out); code != 1 {
-		t.Fatalf("exit status %d on an invalid flag, want 1\n%s", code, out)
+	s := startSimulator(t, buildSimulator(t), "--kv-cache-size=256 --enable-request-id-headers")
+	if code := s.exitCode(t); code != 1 {
+		t.Fatalf("exit status %d on an invalid flag, want 1\n%s", code, s.out.String())
 	}
-	if !strings.Contains(string(out), "--kv-cache-size") || !strings.Contains(string(out), "must be an integer") {
+	if out := s.out.String(); !strings.Contains(out, "--kv-cache-size") || !strings.Contains(out, "must be an integer") {
 		t.Fatalf("exit status 1 came from another error than the invalid flag\n%s", out)
 	}
 }
 
-func freePort(t *testing.T) int {
-	t.Helper()
-	l, err := net.Listen("tcp", ":0")
-	if err != nil {
-		t.Fatal(err)
+func TestInitializationErrorExitsNonZero(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+	s := startSimulator(t, buildSimulator(t), fmt.Sprintf("--port=%d", freePort(t)),
+		"--dataset-path="+filepath.Join(t.TempDir(), "dataset.sqlite3"), "--dataset-url="+server.URL)
+	if code := s.exitCode(t); code != 1 {
+		t.Fatalf("exit status %d when the dataset download fails, want 1\n%s", code, s.out.String())
 	}
-	defer func() { _ = l.Close() }()
-	return l.Addr().(*net.TCPAddr).Port
+	if !strings.Contains(s.out.String(), "failed to create inference simulator") {
+		t.Fatalf("exit status 1 came from another error than the failed download\n%s", s.out.String())
+	}
+}
+
+// reservePortPair returns a free port whose successor is held by a listener, so the second rank cannot bind it.
+func reservePortPair(t *testing.T) (int, net.Listener) {
+	t.Helper()
+	for range 20 {
+		port := freePort(t)
+		busy, err := net.Listen("tcp", fmt.Sprintf(":%d", port+1))
+		if err == nil {
+			return port, busy
+		}
+	}
+	t.Fatal("no free pair of adjacent ports found")
+	return 0, nil
 }
 
 func TestFailedRankExitsNonZero(t *testing.T) {
 	bin := buildSimulator(t)
-	port := freePort(t)
-	busy, err := net.Listen("tcp", fmt.Sprintf(":%d", port+1))
-	if err != nil {
-		t.Skipf("port %d is not free: %v", port+1, err)
-	}
+	port, busy := reservePortPair(t)
 	defer func() { _ = busy.Close() }()
+	s := startSimulator(t, bin, fmt.Sprintf("--port=%d", port), "--data-parallel-size=2")
+	if code := s.exitCode(t); code != 1 {
+		t.Fatalf("exit status %d with the second rank's port taken, want 1\n%s", code, s.out.String())
+	}
+	out := s.out.String()
+	if !strings.Contains(out, fmt.Sprintf(":%d", port+1)) || !strings.Contains(out, "address already in use") {
+		t.Fatalf("exit status 1 came from another error than the second rank's port\n%s", out)
+	}
+	// The first rank started serving, so the exit shows the failed rank stopped it.
+	if !strings.Contains(out, fmt.Sprintf(`"Server starting" protocol="HTTP" port=%d`, port)) {
+		t.Fatalf("the first rank never started serving\n%s", out)
+	}
+}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-	out, err := simulatorCommand(ctx, bin, fmt.Sprintf("--port=%d", port), "--data-parallel-size=2").CombinedOutput()
-	if code := exitCode(t, ctx, err, out); code != 1 {
-		t.Fatalf("exit status %d with the second rank's port taken, want 1\n%s", code, out)
+func waitReady(t *testing.T, s *simProcess, port int) {
+	t.Helper()
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		select {
+		case <-s.done:
+			t.Fatalf("the simulator exited before it was ready\n%s", s.out.String())
+		default:
+		}
+		resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/health", port))
+		if err == nil {
+			_ = resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				return
+			}
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatal("the simulator was not ready within 30s")
+}
+
+func TestStopSignalWhileServingExitsZero(t *testing.T) {
+	port := freePort(t)
+	s := startSimulator(t, buildSimulator(t), fmt.Sprintf("--port=%d", port))
+	waitReady(t, s, port)
+	if err := s.cmd.Process.Signal(syscall.SIGTERM); err != nil {
+		t.Fatal(err)
+	}
+	if code := s.exitCode(t); code != 0 {
+		t.Fatalf("exit status %d after a stop signal while serving, want 0\n%s", code, s.out.String())
 	}
 }
 
 func TestStopSignalDuringStartupExitsZero(t *testing.T) {
-	bin := buildSimulator(t)
 	requested := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Length", "100000000")
@@ -130,26 +214,19 @@ func TestStopSignalDuringStartupExitsZero(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-	var out bytes.Buffer
-	cmd := simulatorCommand(ctx, bin, fmt.Sprintf("--port=%d", freePort(t)),
+	s := startSimulator(t, buildSimulator(t), fmt.Sprintf("--port=%d", freePort(t)),
 		"--dataset-path="+filepath.Join(t.TempDir(), "dataset.sqlite3"), "--dataset-url="+server.URL)
-	cmd.Stdout, cmd.Stderr = &out, &out
-	if err := cmd.Start(); err != nil {
-		t.Fatal(err)
-	}
 	select {
 	case <-requested:
-	case <-ctx.Done():
-		t.Fatalf("the simulator never requested the dataset\n%s", out.String())
+	case <-s.done:
+		t.Fatalf("the simulator exited before requesting the dataset\n%s", s.out.String())
+	case <-time.After(60 * time.Second):
+		t.Fatal("the simulator never requested the dataset")
 	}
-	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
+	if err := s.cmd.Process.Signal(syscall.SIGTERM); err != nil {
 		t.Fatal(err)
 	}
-	err := cmd.Wait()
-	if code := exitCode(t, ctx, err, out.Bytes()); code != 0 {
-		t.Fatalf("exit status %d after a stop signal during startup, want 0\n%s", code, out.String())
+	if code := s.exitCode(t); code != 0 {
+		t.Fatalf("exit status %d after a stop signal during startup, want 0\n%s", code, s.out.String())
 	}
 }
