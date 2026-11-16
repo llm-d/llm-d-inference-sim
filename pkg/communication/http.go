@@ -42,10 +42,6 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/endpoint"
 )
 
-// maxImageCount bounds the client-supplied image n so one request cannot
-// allocate an unbounded result slice. OpenAI caps /v1/images/generations n at 10.
-const maxImageCount = 10
-
 const (
 	PodHeader                        = "x-inference-pod"
 	PortHeader                       = "x-inference-port"
@@ -1219,8 +1215,8 @@ func (c *Communication) HandleImagesGenerations(ctx *fasthttp.RequestCtx) {
 	if n <= 0 {
 		n = 1
 	}
-	if n > maxImageCount {
-		errToSend := api.NewError(fmt.Sprintf("n must be at most %d, got %d", maxImageCount, n), fasthttp.StatusBadRequest, nil)
+	if maxImages := c.runtime.Config().MaxImagesPerRequest; n > maxImages {
+		errToSend := api.NewError(fmt.Sprintf("n must be at most %d, got %d", maxImages, n), fasthttp.StatusBadRequest, nil)
 		c.sendError(ctx, &errToSend, false)
 		return
 	}

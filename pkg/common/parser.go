@@ -335,6 +335,12 @@ func ParseCommandParamsAndLoadConfig(eng Engine) (*Configuration, error) {
 
 	f.IntVar(&config.DefaultEmbeddingDimensions, "default-embedding-dimensions", config.DefaultEmbeddingDimensions,
 		"Default size of embedding vectors when the request does not specify dimensions (used by /v1/embeddings)")
+	f.IntVar(&config.MaxNSequences, "max-n-sequences", config.MaxNSequences,
+		"Largest n (completions per request) a request may ask for; larger values are rejected with 400")
+	f.IntVar(&config.MaxImagesPerRequest, "max-images-per-request", config.MaxImagesPerRequest,
+		"Largest n a /v1/images/generations request may ask for; larger values are rejected with 400")
+	f.IntVar(&config.MaxEmbeddingDimensions, "max-embedding-dimensions", config.MaxEmbeddingDimensions,
+		"Largest dimensions a /v1/embeddings request may ask for; larger values are rejected with 400")
 
 	AddToggle(f, &config.Omni,
 		"omni", "Enable omni mode: emit an image chunk when X-Send-Image header is present", "Disable omni mode")

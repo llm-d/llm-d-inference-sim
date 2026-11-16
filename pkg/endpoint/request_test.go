@@ -437,6 +437,26 @@ var _ = Describe("validateRequest", func() {
 	})
 })
 
+var _ = Describe("ValidateN", func() {
+	const maxN = 16
+	DescribeTable("bounds n",
+		func(n int, wantErr bool) {
+			body := []byte(`{"model":"m","messages":[{"role":"user","content":"hi"}],"n":` + strconv.Itoa(n) + `}`)
+			var req ChatCompletionsRequest
+			Expect(json.Unmarshal(body, &req)).To(Succeed())
+			if wantErr {
+				Expect(ValidateN(&req, maxN)).NotTo(BeNil())
+			} else {
+				Expect(ValidateN(&req, maxN)).To(BeNil())
+			}
+		},
+		Entry("one", 1, false),
+		Entry("the limit", maxN, false),
+		Entry("above the limit", maxN+1, true),
+		Entry("huge", 1000000000000000000, true),
+	)
+})
+
 var _ = Describe("Decision API", func() {
 	DescribeTable("rejects malformed JSON and field types during decoding",
 		func(protocol DecisionProtocol, body string, expectedMessage ...string) {

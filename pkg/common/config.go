@@ -267,6 +267,14 @@ type Configuration struct {
 	// Used by the /v1/embeddings endpoint. Default is 384.
 	DefaultEmbeddingDimensions int `yaml:"default-embedding-dimensions" json:"default-embedding-dimensions"`
 
+	// MaxNSequences is the largest n (completions per request) a request may ask for.
+	// Default is 16384, vLLM's VLLM_MAX_N_SEQUENCES default.
+	MaxNSequences int `yaml:"max-n-sequences" json:"max-n-sequences"`
+	// MaxImagesPerRequest is the largest n a /v1/images/generations request may ask for. Default is 10.
+	MaxImagesPerRequest int `yaml:"max-images-per-request" json:"max-images-per-request"`
+	// MaxEmbeddingDimensions is the largest dimensions a /v1/embeddings request may ask for. Default is 65536.
+	MaxEmbeddingDimensions int `yaml:"max-embedding-dimensions" json:"max-embedding-dimensions"`
+
 	// MMEncoderOnly defines whether to skip the language component of the model.
 	// Engine-owned (yaml:"-"), like EnableSleepMode: the setting changes the
 	// served endpoints and the response path, so an engine that does not spell it
@@ -515,6 +523,9 @@ func NewConfig() *Configuration {
 		Rank:                       -1,
 		Dataset:                    DatasetConfig{DatasetTableName: DefaultDSTableName},
 		DefaultEmbeddingDimensions: 384,
+		MaxNSequences:              16384,
+		MaxImagesPerRequest:        10,
+		MaxEmbeddingDimensions:     65536,
 		FakeMetricsRefreshInterval: 100 * time.Millisecond,
 		MaxRequestBodySizeMB:       4,
 		RenderURL:                  "",
@@ -863,6 +874,18 @@ func (c *Configuration) validate() error {
 
 	if c.DefaultEmbeddingDimensions < 1 {
 		return errors.New("default embedding dimensions must be at least 1")
+	}
+
+	if c.MaxNSequences < 1 {
+		return errors.New("max n sequences must be at least 1")
+	}
+
+	if c.MaxImagesPerRequest < 1 {
+		return errors.New("max images per request must be at least 1")
+	}
+
+	if c.MaxEmbeddingDimensions < c.DefaultEmbeddingDimensions {
+		return errors.New("max embedding dimensions must be at least the default embedding dimensions")
 	}
 
 	if c.MaxRequestBodySizeMB < 1 || c.MaxRequestBodySizeMB > 512 {
