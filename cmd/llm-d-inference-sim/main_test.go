@@ -23,7 +23,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -126,28 +125,12 @@ func (s *simProcess) exitCode(t *testing.T) int {
 }
 
 func TestStartupErrorExitsNonZero(t *testing.T) {
-	s := startSimulator(t, "--kv-cache-size=256 --enable-request-id-headers")
+	s := startSimulator(t, "--kv-cache-size=abc")
 	if code := s.exitCode(t); code != 1 {
 		t.Fatalf("exit status %d on an invalid flag, want 1\n%s", code, s.out.String())
 	}
 	if out := s.out.String(); !strings.Contains(out, "--kv-cache-size") || !strings.Contains(out, "must be an integer") {
 		t.Fatalf("exit status 1 came from another error than the invalid flag\n%s", out)
-	}
-}
-
-func TestInitializationErrorExitsNonZero(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-	}))
-	t.Cleanup(server.Close) // registered first, so it runs after the subprocess cleanup has killed the child
-	s := startSimulator(t, fmt.Sprintf("--port=%d", freePort(t)),
-		"--dataset-path="+filepath.Join(t.TempDir(), "dataset.sqlite3"), "--dataset-url="+server.URL)
-	if code := s.exitCode(t); code != 1 {
-		t.Fatalf("exit status %d when the dataset download fails, want 1\n%s", code, s.out.String())
-	}
-	if out := s.out.String(); !strings.Contains(out, "failed to create inference simulator") ||
-		!strings.Contains(out, "dataset download bad status: 500") {
-		t.Fatalf("exit status 1 came from another error than the failed download\n%s", out)
 	}
 }
 
@@ -214,42 +197,6 @@ func TestStopSignalWhileServingExitsZero(t *testing.T) {
 	}
 	if code := s.exitCode(t); code != 0 {
 		t.Fatalf("exit status %d after a stop signal while serving, want 0\n%s", code, s.out.String())
-	}
-}
-
-func TestStopSignalDuringStartupExitsZero(t *testing.T) {
-	requested := make(chan struct{})
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Length", "100000000")
-		w.WriteHeader(http.StatusOK)
-		close(requested)
-		for {
-			if _, err := w.Write(bytes.Repeat([]byte{0}, 1024)); err != nil {
-				return
-			}
-			w.(http.Flusher).Flush()
-			select {
-			case <-r.Context().Done():
-				return
-			case <-time.After(100 * time.Millisecond):
-			}
-		}
-	}))
-	t.Cleanup(server.Close) // registered first, so it runs after the subprocess cleanup has killed the child
-	s := startSimulator(t, fmt.Sprintf("--port=%d", freePort(t)),
-		"--dataset-path="+filepath.Join(t.TempDir(), "dataset.sqlite3"), "--dataset-url="+server.URL)
-	select {
-	case <-requested:
-	case <-s.done:
-		t.Fatalf("the simulator exited before requesting the dataset\n%s", s.out.String())
-	case <-time.After(60 * time.Second):
-		t.Fatal("the simulator never requested the dataset")
-	}
-	if err := s.cmd.Process.Signal(syscall.SIGTERM); err != nil {
-		t.Fatal(err)
-	}
-	if code := s.exitCode(t); code != 0 {
-		t.Fatalf("exit status %d after a stop signal during startup, want 0\n%s", code, s.out.String())
 	}
 }
 

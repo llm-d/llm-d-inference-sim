@@ -40,23 +40,20 @@ func main() {
 
 	engineName, err := common.ResolveEngineName()
 	if err != nil {
-		stopped := ctx.Err() != nil
 		logger.Error(err, "failed to resolve engine")
-		exitAfterError(stopped)
+		klog.FlushAndExit(klog.ExitFlushTimeout, 1)
 	}
 	eng, err := engine.Select(engineName)
 	if err != nil {
-		stopped := ctx.Err() != nil
 		logger.Error(err, "failed to select engine")
-		exitAfterError(stopped)
+		klog.FlushAndExit(klog.ExitFlushTimeout, 1)
 	}
 
 	// parse command line parameters
 	config, err := common.ParseCommandParamsAndLoadConfig(eng)
 	if err != nil {
-		stopped := ctx.Err() != nil
 		logger.Error(err, "failed to read configuration")
-		exitAfterError(stopped)
+		klog.FlushAndExit(klog.ExitFlushTimeout, 1)
 	}
 
 	// klog's default verbosity (0) is only raised to INFO by ParseCommandParamsAndLoadConfig
@@ -70,9 +67,8 @@ func main() {
 	}
 
 	if err := config.Show(logger); err != nil {
-		stopped := ctx.Err() != nil
 		logger.Error(err, "failed to show configuration")
-		exitAfterError(stopped)
+		klog.FlushAndExit(klog.ExitFlushTimeout, 1)
 	}
 
 	simulators, err := simulator.Start(ctx, config, logger, eng)
@@ -94,8 +90,9 @@ func main() {
 }
 
 // runRanks runs every rank and waits for all of them; a rank that fails stops the others, so the process does not keep
-// serving on some ranks only. stopped reports whether ctx was cancelled before any rank failure was observed: a rank
-// that returns an error while ctx is live counts as failed, even if a stop signal arrives while the others shut down.
+// serving on some ranks only.
+// stopped reports whether ctx was cancelled before any rank failure was observed: a rank that returns an error while
+// ctx is live counts as failed, even if a stop signal arrives while the others shut down.
 func runRanks(ctx context.Context, starts []func(context.Context) error) (stopped bool, err error) {
 	var failedBeforeStop atomic.Bool
 	g, rankCtx := errgroup.WithContext(ctx)
@@ -112,8 +109,9 @@ func runRanks(ctx context.Context, starts []func(context.Context) error) (stoppe
 	return ctx.Err() != nil && !failedBeforeStop.Load(), err
 }
 
-// exitAfterError ends the process after an error. stopRequested reports whether a stop signal arrived before the
-// error: the process then exits 0, as for any requested stop; otherwise it exits 1.
+// exitAfterError ends the process after an error from simulator start-up or a rank.
+// stopRequested reports whether a stop signal arrived before the error: the process then exits 0, as for any
+// requested stop; otherwise it exits 1.
 func exitAfterError(stopRequested bool) {
 	code := 1
 	if stopRequested {
