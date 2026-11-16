@@ -18,6 +18,8 @@ package simulator
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
@@ -56,10 +58,9 @@ func shouldInjectFailure(config *common.Configuration, random *common.Random) bo
 func getRandomFailure(config *common.Configuration, random *common.Random) api.Error {
 	var availableFailures []string
 	if len(config.FailureTypes) == 0 {
-		// Use all failure types if none specified
-		for failureType := range predefinedFailures {
-			availableFailures = append(availableFailures, failureType)
-		}
+		// Use all failure types if none specified, sorted so that a seeded run
+		// draws the same sequence of types.
+		availableFailures = slices.Sorted(maps.Keys(predefinedFailures))
 	} else {
 		availableFailures = config.FailureTypes
 	}
