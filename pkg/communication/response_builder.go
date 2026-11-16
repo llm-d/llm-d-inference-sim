@@ -292,6 +292,7 @@ func (respBuilder *chatComplHTTPRespBuilder) createResponse(respCtxPerChoice []e
 		baseChoice := api.CreateBaseResponseChoice(i, choiceCtx.FinishReason())
 
 		message := api.Message{Role: api.RoleAssistant}
+		allTokens := t.Strings
 		if count := choiceCtx.ReasoningTokenCount(); count > 0 {
 			if count > len(t.Strings) {
 				count = len(t.Strings)
@@ -327,9 +328,10 @@ func (respBuilder *chatComplHTTPRespBuilder) createResponse(respCtxPerChoice []e
 
 		choice := respBuilder.transport.DecorateChatChoice(api.CreateChatRespChoice(baseChoice, message))
 
-		// Generate logprobs if requested
+		// Generate logprobs if requested. Positions run over the whole output, reasoning
+		// included, so they stay aligned with the token indices the response reports.
 		if choiceCtx.TopLogprobs() != nil && choiceCtx.ToolCalls() == nil {
-			if logprobsData := common.GenerateChatLogprobs(t.Strings, *choiceCtx.TopLogprobs()); logprobsData != nil &&
+			if logprobsData := common.GenerateChatLogprobs(allTokens, *choiceCtx.TopLogprobs()); logprobsData != nil &&
 				len(logprobsData.Content) > 0 {
 				choice.Logprobs = logprobsData
 			}
@@ -377,7 +379,7 @@ func (respBuilder *chatComplHTTPRespBuilder) createChunk(respCtx endpoint.Respon
 		respBuilder.emittedTokens[choiceIdx] += len(tokens.Strings)
 		if remaining := respCtx.ReasoningTokenCount() - previous; remaining > 0 {
 			n := min(remaining, len(tokens.Strings))
-			reasoning := respBuilder.createReasoningChunk(respCtx, strings.Join(tokens.Strings[:n], ""), choiceIdx)
+			reasoning := respBuilder.createReasoningChunk(respCtx, tokens.Strings[:n], choiceIdx)
 			if n == len(tokens.Strings) {
 				return reasoning
 			}
@@ -406,14 +408,42 @@ func (j *joinedSSEChunks) SSEBytes() ([]byte, error) {
 }
 
 func (respBuilder *chatComplHTTPRespBuilder) createReasoningChunk(
-	respCtx endpoint.ResponseContext, reasoning string, choiceIdx int) sseChunk {
+	respCtx endpoint.ResponseContext, reasoningTokens []string, choiceIdx int) sseChunk {
+	reasoning := strings.Join(reasoningTokens, "")
 	base := api.CreateBaseCompletionsResponse(
 		respCtx.CreationTime(), respCtx.DisplayModel(), nil, respCtx.RequestID(), false)
 	base.Object = api.ChatCompletionChunkObject
 	choice := api.CreateChatRespChunkChoice(api.CreateBaseResponseChoice(choiceIdx, nil),
 		api.Message{Reasoning: &reasoning})
+	// Reasoning tokens keep their per-token metadata: vLLM only drops logprobs for them when
+	// the client suppresses reasoning, and the position counter has to advance across both
+	// halves so content logprobs continue where reasoning left off.
+	choice.Logprobs = respBuilder.createLogprobs(reasoningTokens, respCtx, choiceIdx)
 	return &jsonDataChunk{data: api.CreateChatCompletionsRespChunk(base,
 		[]api.ChatRespChunkChoice{respBuilder.transport.DecorateChatChunkChoice(choice)})}
+}
+
+// createLogprobs builds the synthetic logprobs of one streamed chunk, numbering the tokens from
+// the per-choice position reached so far. Callers pass reasoning and content tokens alike.
+func (respBuilder *chatComplHTTPRespBuilder) createLogprobs(tokens []string,
+	respCtx endpoint.ResponseContext, choiceIdx int) *api.ChatLogprobs {
+	if respCtx.TopLogprobs() == nil || len(tokens) == 0 {
+		return nil
+	}
+	if respBuilder.tokenPos == nil {
+		respBuilder.tokenPos = make(map[int]int)
+	}
+	content := make([]api.LogprobsContent, 0, len(tokens))
+	for _, tok := range tokens {
+		if lp := common.GenerateSingleTokenChatLogprobs(tok, respBuilder.tokenPos[choiceIdx], *respCtx.TopLogprobs()); lp != nil {
+			content = append(content, *lp)
+		}
+		respBuilder.tokenPos[choiceIdx]++
+	}
+	if len(content) == 0 {
+		return nil
+	}
+	return &api.ChatLogprobs{Content: content}
 }
 
 func (respBuilder *chatComplHTTPRespBuilder) createContentChunk(respCtx endpoint.ResponseContext, tokens *api.Tokenized,
@@ -442,21 +472,7 @@ func (respBuilder *chatComplHTTPRespBuilder) createContentChunk(respCtx endpoint
 		}
 
 		// Generate logprobs if requested and token is not empty
-		if respCtx.TopLogprobs() != nil {
-			if respBuilder.tokenPos == nil {
-				respBuilder.tokenPos = make(map[int]int)
-			}
-			var content []api.LogprobsContent
-			for _, tok := range tokens.Strings {
-				if lp := common.GenerateSingleTokenChatLogprobs(tok, respBuilder.tokenPos[choiceIdx], *respCtx.TopLogprobs()); lp != nil {
-					content = append(content, *lp)
-				}
-				respBuilder.tokenPos[choiceIdx]++
-			}
-			if len(content) > 0 {
-				chunk.Choices[0].Logprobs = &api.ChatLogprobs{Content: content}
-			}
-		}
+		chunk.Choices[0].Logprobs = respBuilder.createLogprobs(tokens.Strings, respCtx, choiceIdx)
 	}
 
 	return &jsonDataChunk{data: &chunk}
