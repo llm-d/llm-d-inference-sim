@@ -257,20 +257,7 @@ func GenerateMessagesLogprobs(tokens []string, topLogprobsCount int) []api.Respo
 	chat := GenerateChatLogprobs(tokens, topLogprobsCount)
 	result := make([]api.ResponsesLogprob, len(chat.Content))
 	for i, c := range chat.Content {
-		topLogprobs := make([]api.TopLogprob, len(c.TopLogprobs))
-		for j, top := range c.TopLogprobs {
-			topLogprobs[j] = api.TopLogprob{
-				Token:   top.Token,
-				Logprob: top.Logprob,
-				Bytes:   top.Bytes,
-			}
-		}
-		result[i] = api.ResponsesLogprob{
-			Token:       c.Token,
-			Logprob:     c.Logprob,
-			Bytes:       c.Bytes,
-			TopLogprobs: topLogprobs,
-		}
+		result[i] = api.ResponsesLogprob(c)
 	}
 	return result
 }
