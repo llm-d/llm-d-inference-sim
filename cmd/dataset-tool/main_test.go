@@ -19,6 +19,8 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -26,17 +28,34 @@ import (
 	"time"
 )
 
-func TestConfigurationErrorExitsNonZero(t *testing.T) {
-	bin := filepath.Join(t.TempDir(), "dataset-tool")
-	buildCtx, cancelBuild := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancelBuild()
-	if out, err := exec.CommandContext(buildCtx, "go", "build", "-o", bin, ".").CombinedOutput(); err != nil {
-		t.Fatalf("build: %v\n%s", err, out)
+// toolBinary is the dataset tool built once for the subprocess tests.
+var toolBinary string
+
+func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("", "dataset-tool-test")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
 	}
+	toolBinary = filepath.Join(dir, "dataset-tool")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	out, err := exec.CommandContext(ctx, "go", "build", "-o", toolBinary, ".").CombinedOutput()
+	cancel()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "build: %v\n%s", err, out)
+		_ = os.RemoveAll(dir)
+		os.Exit(1)
+	}
+	code := m.Run()
+	_ = os.RemoveAll(dir)
+	os.Exit(code)
+}
+
+func TestConfigurationErrorExitsNonZero(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, bin).CombinedOutput()
+	out, err := exec.CommandContext(ctx, toolBinary).CombinedOutput()
 	if ctx.Err() != nil {
 		t.Fatalf("dataset-tool did not exit in time\n%s", out)
 	}
@@ -50,17 +69,11 @@ func TestConfigurationErrorExitsNonZero(t *testing.T) {
 }
 
 func TestRunErrorExitsNonZero(t *testing.T) {
-	bin := filepath.Join(t.TempDir(), "dataset-tool")
-	buildCtx, cancelBuild := context.WithTimeout(context.Background(), 5*time.Minute)
-	defer cancelBuild()
-	if out, err := exec.CommandContext(buildCtx, "go", "build", "-o", bin, ".").CombinedOutput(); err != nil {
-		t.Fatalf("build: %v\n%s", err, out)
-	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	dir := t.TempDir()
-	out, err := exec.CommandContext(ctx, bin, "--model=test-model", "--local-path="+filepath.Join(dir, "missing"),
+	out, err := exec.CommandContext(ctx, toolBinary, "--model=test-model", "--local-path="+filepath.Join(dir, "missing"),
 		"--input-file=input.json", "--render-url=http://127.0.0.1:1", "--output-path="+dir).CombinedOutput()
 	if ctx.Err() != nil {
 		t.Fatalf("dataset-tool did not exit in time\n%s", out)

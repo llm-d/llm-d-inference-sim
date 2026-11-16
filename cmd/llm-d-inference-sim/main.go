@@ -40,20 +40,23 @@ func main() {
 
 	engineName, err := common.ResolveEngineName()
 	if err != nil {
+		stopped := ctx.Err() != nil
 		logger.Error(err, "failed to resolve engine")
-		exitAfterError(ctx.Err() != nil)
+		exitAfterError(stopped)
 	}
 	eng, err := engine.Select(engineName)
 	if err != nil {
+		stopped := ctx.Err() != nil
 		logger.Error(err, "failed to select engine")
-		exitAfterError(ctx.Err() != nil)
+		exitAfterError(stopped)
 	}
 
 	// parse command line parameters
 	config, err := common.ParseCommandParamsAndLoadConfig(eng)
 	if err != nil {
+		stopped := ctx.Err() != nil
 		logger.Error(err, "failed to read configuration")
-		exitAfterError(ctx.Err() != nil)
+		exitAfterError(stopped)
 	}
 
 	// klog's default verbosity (0) is only raised to INFO by ParseCommandParamsAndLoadConfig
@@ -67,36 +70,46 @@ func main() {
 	}
 
 	if err := config.Show(logger); err != nil {
+		stopped := ctx.Err() != nil
 		logger.Error(err, "failed to show configuration")
-		exitAfterError(ctx.Err() != nil)
+		exitAfterError(stopped)
 	}
 
 	simulators, err := simulator.Start(ctx, config, logger, eng)
 	if err != nil {
+		stopped := ctx.Err() != nil
 		logger.Error(err, "failed to create inference simulator")
-		exitAfterError(ctx.Err() != nil)
+		exitAfterError(stopped)
 	}
 
-	// A rank that fails stops the others, so the process exits instead of serving on some ranks only.
-	// The failure is recorded when it happens, so a stop signal that arrives while the other ranks drain does not
-	// turn it into a requested stop.
-	var failedBeforeStop atomic.Bool
-	g, rankCtx := errgroup.WithContext(ctx)
+	starts := make([]func(context.Context) error, 0, len(simulators))
 	for _, sim := range simulators {
 		comm := communication.New(logger, sim, &sim.Context)
+		starts = append(starts, func(rankCtx context.Context) error { return comm.Start(rankCtx, eng) })
+	}
+	if stopped, err := runRanks(ctx, starts); err != nil {
+		logger.Error(err, "failed to start communication layer")
+		exitAfterError(stopped)
+	}
+}
+
+// runRanks runs every rank and waits for all of them; a rank that fails stops the others, so the process does not keep
+// serving on some ranks only. stopped reports whether ctx was cancelled before any rank failed: a failure is recorded
+// when it happens, so a stop signal that arrives while the other ranks shut down does not hide it.
+func runRanks(ctx context.Context, starts []func(context.Context) error) (stopped bool, err error) {
+	var failedBeforeStop atomic.Bool
+	g, rankCtx := errgroup.WithContext(ctx)
+	for _, start := range starts {
 		g.Go(func() error {
-			err := comm.Start(rankCtx, eng)
+			err := start(rankCtx)
 			if err != nil && ctx.Err() == nil {
 				failedBeforeStop.Store(true)
 			}
 			return err
 		})
 	}
-	if err := g.Wait(); err != nil {
-		logger.Error(err, "failed to start communication layer")
-		exitAfterError(ctx.Err() != nil && !failedBeforeStop.Load())
-	}
-
+	err = g.Wait()
+	return ctx.Err() != nil && !failedBeforeStop.Load(), err
 }
 
 // exitAfterError ends the process after an error. stopRequested reports whether a stop signal arrived before the
