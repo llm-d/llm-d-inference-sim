@@ -301,13 +301,40 @@ func TestRunRanksKeepsAFailureThatPrecedesTheStop(t *testing.T) {
 }
 
 func TestRunRanksReportsAStopThatPrecedesTheError(t *testing.T) {
-	ctx, signal := context.WithCancel(context.Background())
-	signal()
-	stopped, err := runRanks(ctx, []func(context.Context) error{
-		func(context.Context) error { return errors.New("download cancelled") },
-	})
-	if err == nil || !stopped {
-		t.Fatalf("stopped %v err %v, want a requested stop with its error", stopped, err)
+	// Any error observed after the stop counts as part of the stop, whether or not it comes from the cancellation.
+	for _, rankErr := range []error{errors.New("download cancelled"), errors.New("bind: address already in use")} {
+		t.Run(rankErr.Error(), func(t *testing.T) {
+			ctx, signal := context.WithCancel(context.Background())
+			defer signal()
+			running := make(chan struct{})
+			result := make(chan error, 1)
+			var stopped bool
+			go func() {
+				var err error
+				stopped, err = runRanks(ctx, []func(context.Context) error{
+					func(rankCtx context.Context) error {
+						close(running)
+						<-rankCtx.Done()
+						return rankErr
+					},
+				})
+				result <- err
+			}()
+			select {
+			case <-running:
+			case <-time.After(10 * time.Second):
+				t.Fatal("the rank did not start")
+			}
+			signal()
+			select {
+			case err := <-result:
+				if !errors.Is(err, rankErr) || !stopped {
+					t.Fatalf("stopped %v err %v, want a requested stop with the rank's error", stopped, err)
+				}
+			case <-time.After(10 * time.Second):
+				t.Fatal("runRanks did not return")
+			}
+		})
 	}
 }
 
