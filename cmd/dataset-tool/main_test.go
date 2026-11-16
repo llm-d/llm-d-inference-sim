@@ -24,12 +24,24 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
 
-// toolBinary is the dataset tool built once for the subprocess tests.
 var toolBinary string
+
+// buildBinary builds the package in its own process group, so a build that times out is stopped with every compiler
+// process it started.
+func buildBinary(out string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "go", "build", "-o", out, ".")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	cmd.WaitDelay = 10 * time.Second
+	return cmd.CombinedOutput()
+}
 
 func TestMain(m *testing.M) {
 	dir, err := os.MkdirTemp("", "dataset-tool-test")
@@ -38,10 +50,7 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 	toolBinary = filepath.Join(dir, "dataset-tool")
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	out, err := exec.CommandContext(ctx, "go", "build", "-o", toolBinary, ".").CombinedOutput()
-	cancel()
-	if err != nil {
+	if out, err := buildBinary(toolBinary); err != nil {
 		fmt.Fprintf(os.Stderr, "build: %v\n%s", err, out)
 		_ = os.RemoveAll(dir)
 		os.Exit(1)
@@ -52,7 +61,6 @@ func TestMain(m *testing.M) {
 }
 
 func TestConfigurationErrorExitsNonZero(t *testing.T) {
-
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	out, err := exec.CommandContext(ctx, toolBinary).CombinedOutput()
@@ -69,7 +77,6 @@ func TestConfigurationErrorExitsNonZero(t *testing.T) {
 }
 
 func TestRunErrorExitsNonZero(t *testing.T) {
-
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	dir := t.TempDir()

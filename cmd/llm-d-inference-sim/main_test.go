@@ -28,6 +28,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -35,8 +36,19 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 )
 
-// simBinary is the simulator built once for the subprocess tests.
 var simBinary string
+
+// buildBinary builds the package in its own process group, so a build that times out is stopped with every compiler
+// process it started.
+func buildBinary(out string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "go", "build", "-o", out, ".")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	cmd.WaitDelay = 10 * time.Second
+	return cmd.CombinedOutput()
+}
 
 func TestMain(m *testing.M) {
 	dir, err := os.MkdirTemp("", "llm-d-inference-sim-test")
@@ -45,10 +57,7 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 	simBinary = filepath.Join(dir, "llm-d-inference-sim")
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	out, err := exec.CommandContext(ctx, "go", "build", "-o", simBinary, ".").CombinedOutput()
-	cancel()
-	if err != nil {
+	if out, err := buildBinary(simBinary); err != nil {
 		fmt.Fprintf(os.Stderr, "build: %v\n%s", err, out)
 		_ = os.RemoveAll(dir)
 		os.Exit(1)
@@ -130,7 +139,7 @@ func TestInitializationErrorExitsNonZero(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
-	defer server.Close()
+	t.Cleanup(server.Close) // registered first, so it runs after the subprocess cleanup has killed the child
 	s := startSimulator(t, fmt.Sprintf("--port=%d", freePort(t)),
 		"--dataset-path="+filepath.Join(t.TempDir(), "dataset.sqlite3"), "--dataset-url="+server.URL)
 	if code := s.exitCode(t); code != 1 {
@@ -225,7 +234,7 @@ func TestStopSignalDuringStartupExitsZero(t *testing.T) {
 			}
 		}
 	}))
-	defer server.Close()
+	t.Cleanup(server.Close) // registered first, so it runs after the subprocess cleanup has killed the child
 	s := startSimulator(t, fmt.Sprintf("--port=%d", freePort(t)),
 		"--dataset-path="+filepath.Join(t.TempDir(), "dataset.sqlite3"), "--dataset-url="+server.URL)
 	select {
@@ -245,28 +254,48 @@ func TestStopSignalDuringStartupExitsZero(t *testing.T) {
 
 func TestRunRanksKeepsAFailureThatPrecedesTheStop(t *testing.T) {
 	ctx, signal := context.WithCancel(context.Background())
-	defer signal()
 	draining, release := make(chan struct{}), make(chan struct{})
-	failing := func(context.Context) error { return errors.New("bind: address already in use") }
-	draining2 := func(rankCtx context.Context) error {
-		<-rankCtx.Done()
-		close(draining)
-		<-release
-		return nil
+	var releaseOnce sync.Once
+	releaseRank := func() { releaseOnce.Do(func() { close(release) }) }
+	t.Cleanup(func() {
+		signal()
+		releaseRank()
+	})
+	starts := []func(context.Context) error{
+		func(context.Context) error { return errors.New("bind: address already in use") },
+		func(rankCtx context.Context) error {
+			<-rankCtx.Done()
+			close(draining)
+			<-release
+			return rankCtx.Err()
+		},
 	}
-	result := make(chan bool)
+	type outcome struct {
+		stopped bool
+		err     error
+	}
+	result := make(chan outcome, 1)
 	go func() {
-		stopped, err := runRanks(ctx, []func(context.Context) error{failing, draining2})
-		if err == nil {
-			t.Error("runRanks returned no error after a rank failed")
-		}
-		result <- stopped
+		stopped, err := runRanks(ctx, starts)
+		result <- outcome{stopped, err}
 	}()
-	<-draining
+	select {
+	case <-draining:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the failed rank did not stop the other rank")
+	}
 	signal() // the stop signal arrives while the other rank drains
-	close(release)
-	if <-result {
-		t.Fatal("a rank failure followed by a stop signal was reported as a requested stop")
+	releaseRank()
+	select {
+	case o := <-result:
+		if o.err == nil {
+			t.Fatal("runRanks returned no error after a rank failed")
+		}
+		if o.stopped {
+			t.Fatal("a rank failure followed by a stop signal was reported as a requested stop")
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("runRanks did not return")
 	}
 }
 

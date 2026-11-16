@@ -94,8 +94,8 @@ func main() {
 }
 
 // runRanks runs every rank and waits for all of them; a rank that fails stops the others, so the process does not keep
-// serving on some ranks only. stopped reports whether ctx was cancelled before any rank failed: a failure is recorded
-// when it happens, so a stop signal that arrives while the other ranks shut down does not hide it.
+// serving on some ranks only. stopped reports whether ctx was cancelled before any rank failure was observed: a rank
+// that returns an error while ctx is live counts as failed, even if a stop signal arrives while the others shut down.
 func runRanks(ctx context.Context, starts []func(context.Context) error) (stopped bool, err error) {
 	var failedBeforeStop atomic.Bool
 	g, rankCtx := errgroup.WithContext(ctx)
