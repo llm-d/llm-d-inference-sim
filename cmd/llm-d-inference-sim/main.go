@@ -19,7 +19,6 @@ package main
 
 import (
 	"context"
-	"time"
 
 	"golang.org/x/sync/errgroup"
 	"k8s.io/klog/v2"
@@ -42,13 +41,11 @@ func main() {
 	if err != nil {
 		logger.Error(err, "failed to resolve engine")
 		exitOnStartupError(ctx)
-		return
 	}
 	eng, err := engine.Select(engineName)
 	if err != nil {
 		logger.Error(err, "failed to select engine")
 		exitOnStartupError(ctx)
-		return
 	}
 
 	// parse command line parameters
@@ -56,7 +53,6 @@ func main() {
 	if err != nil {
 		logger.Error(err, "failed to read configuration")
 		exitOnStartupError(ctx)
-		return
 	}
 
 	// klog's default verbosity (0) is only raised to INFO by ParseCommandParamsAndLoadConfig
@@ -72,45 +68,35 @@ func main() {
 	if err := config.Show(logger); err != nil {
 		logger.Error(err, "failed to show configuration")
 		exitOnStartupError(ctx)
-		return
 	}
 
 	simulators, err := simulator.Start(ctx, config, logger, eng)
 	if err != nil {
 		logger.Error(err, "failed to create inference simulator")
 		exitOnStartupError(ctx)
-		return
 	}
 
-	g := new(errgroup.Group)
+	// A rank that fails stops the others, so the process exits instead of serving on some ranks only.
+	g, rankCtx := errgroup.WithContext(ctx)
 	for _, sim := range simulators {
 		comm := communication.New(logger, sim, &sim.Context)
 		g.Go(func() error {
-			return comm.Start(ctx, eng)
+			return comm.Start(rankCtx, eng)
 		})
 	}
 	if err := g.Wait(); err != nil {
 		logger.Error(err, "failed to start communication layer")
 		exitOnStartupError(ctx)
-		return
 	}
 
 }
 
-// exitOnStartupError ends the process with status 1 unless the signal handler cancelled ctx: a stop requested while
-// the simulator starts is not a startup failure, so main returns and the process exits 0.
+// exitOnStartupError ends the process after a startup error. A stop signal received before the error means the stop
+// was requested, so the process exits 0 whatever the error says; any other startup error exits 1.
 func exitOnStartupError(ctx context.Context) {
-	if ctx.Err() == nil {
-		klog.FlushAndExit(klog.ExitFlushTimeout, 1)
+	code := 1
+	if ctx.Err() != nil {
+		code = 0
 	}
-	// Bounded as FlushAndExit is, so a stalled log file cannot keep the process from stopping.
-	flushed := make(chan struct{})
-	go func() {
-		klog.Flush()
-		close(flushed)
-	}()
-	select {
-	case <-flushed:
-	case <-time.After(klog.ExitFlushTimeout):
-	}
+	klog.FlushAndExit(klog.ExitFlushTimeout, code)
 }
