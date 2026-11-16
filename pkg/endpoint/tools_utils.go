@@ -20,6 +20,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
@@ -266,7 +268,9 @@ func generateToolArguments(tool api.Tool, config *common.ToolCallConfig, random 
 
 	required := getRequiredAsMap(tool.Function.Parameters)
 
-	for param, property := range properties {
+	// Sorted so that a seeded run draws the same random value for each parameter.
+	for _, param := range slices.Sorted(maps.Keys(properties)) {
+		property := properties[param]
 		_, paramIsRequired := required[param]
 		if !paramIsRequired && !random.RandomBool(config.ToolCallNotRequiredParamProbability) {
 			continue
@@ -374,7 +378,9 @@ func createArgument(property any, config *common.ToolCallConfig, random *common.
 			return map[string]any{}, nil
 		}
 		object := make(map[string]interface{})
-		for fieldName, fieldProperties := range objectProperties {
+		// Sorted so that a seeded run draws the same random value for each field.
+		for _, fieldName := range slices.Sorted(maps.Keys(objectProperties)) {
+			fieldProperties := objectProperties[fieldName]
 			_, fieldIsRequired := required[fieldName]
 			if !fieldIsRequired && !random.RandomBool(config.ObjectToolCallNotRequiredParamProbability) {
 				continue
