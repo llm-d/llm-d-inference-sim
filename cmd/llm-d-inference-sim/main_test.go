@@ -145,8 +145,9 @@ func TestInitializationErrorExitsNonZero(t *testing.T) {
 	if code := s.exitCode(t); code != 1 {
 		t.Fatalf("exit status %d when the dataset download fails, want 1\n%s", code, s.out.String())
 	}
-	if !strings.Contains(s.out.String(), "failed to create inference simulator") {
-		t.Fatalf("exit status 1 came from another error than the failed download\n%s", s.out.String())
+	if out := s.out.String(); !strings.Contains(out, "failed to create inference simulator") ||
+		!strings.Contains(out, "dataset download bad status: 500") {
+		t.Fatalf("exit status 1 came from another error than the failed download\n%s", out)
 	}
 }
 

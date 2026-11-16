@@ -89,7 +89,8 @@ func TestRunErrorExitsNonZero(t *testing.T) {
 	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 1 {
 		t.Fatalf("dataset-tool exited with %v on a missing input file, want exit status 1\n%s", err, out)
 	}
-	if !strings.Contains(string(out), "failed to run dataset creation tool") {
+	if !strings.Contains(string(out), "failed to run dataset creation tool") ||
+		!strings.Contains(string(out), filepath.Join(dir, "missing", "input.json")) {
 		t.Fatalf("exit status 1 came from another error than the failed run\n%s", out)
 	}
 }
