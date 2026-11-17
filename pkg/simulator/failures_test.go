@@ -107,4 +107,25 @@ var _ = Describe("Failures", func() {
 			Expect(failure.Type).ToNot(BeEmpty())
 		})
 	})
+
+	Describe("getRandomFailure with a seed", func() {
+		It("returns the same failure types for the same seed", func() {
+			config := &common.Configuration{
+				Model:        common.TestModelName,
+				FailureTypes: []string{},
+			}
+			draw := func() []string {
+				random := common.NewRandom(100, 0)
+				types := make([]string, 0, 20)
+				for range 20 {
+					types = append(types, getRandomFailure(config, random).Message)
+				}
+				return types
+			}
+			first := draw()
+			for range 20 {
+				Expect(draw()).To(Equal(first))
+			}
+		})
+	})
 })
