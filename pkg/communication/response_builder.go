@@ -969,6 +969,7 @@ var _ responseBuilder = (*generateHTTPRespBuilder)(nil)
 // messagesHTTPRespBuilder implements responseBuilder for /v1/messages (Anthropic Messages API).
 type messagesHTTPRespBuilder struct {
 	baseRespBuilder
+	transport         Transport
 	contentBlockIndex int  // tracks which content block index we are on for streaming
 	inToolMode        bool // true when streaming tool call arguments
 }
@@ -1165,7 +1166,9 @@ func (b *messagesHTTPRespBuilder) createLastChunk(respCtx endpoint.ResponseConte
 	msgDelta := api.MessagesMessageDeltaEvent{
 		Type:  api.MessagesEventMessageDelta,
 		Delta: api.MessagesMessageDeltaPayload{StopReason: &sr, StopSequence: nil},
-		Usage: api.MessagesStreamUsage{OutputTokens: respCtx.UsageData().CompletionTokens},
+		Usage: b.transport.DecorateMessagesDeltaUsage(
+			api.MessagesStreamUsage{OutputTokens: respCtx.UsageData().CompletionTokens},
+			messagesUsage(respCtx, respCtx.UsageData().CompletionTokens)),
 	}
 	msgStop := api.MessagesMessageStopEvent{Type: api.MessagesEventMessageStop}
 
@@ -1189,7 +1192,6 @@ var _ responseBuilder = (*messagesHTTPRespBuilder)(nil)
 // the render path, as vLLM counts the tokens of the rendered prompt.
 type messagesCountTokensHTTPRespBuilder struct {
 	messagesHTTPRespBuilder
-	transport Transport
 }
 
 func (b *messagesCountTokensHTTPRespBuilder) createRenderResponse(tokens [][]uint32,

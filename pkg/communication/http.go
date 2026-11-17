@@ -165,7 +165,7 @@ func (c *Communication) HandleResponses(ctx *fasthttp.RequestCtx) {
 
 // HandleMessages http handler for /v1/messages (Anthropic Messages API)
 func (c *Communication) HandleMessages(ctx *fasthttp.RequestCtx) {
-	c.handleHTTP(&endpoint.MessagesRequest{}, &messagesHTTPRespBuilder{}, ctx)
+	c.handleHTTP(&endpoint.MessagesRequest{}, &messagesHTTPRespBuilder{transport: c.transport}, ctx)
 }
 
 // HandleGenerate http handler for /inference/v1/generate
@@ -208,7 +208,7 @@ func (c *Communication) HandleMessagesRender(ctx *fasthttp.RequestCtx) {
 
 // HandleMessagesCountTokens http handler for /v1/messages/count_tokens
 func (c *Communication) HandleMessagesCountTokens(ctx *fasthttp.RequestCtx) {
-	c.handleRender(&endpoint.MessagesRequest{}, &messagesCountTokensHTTPRespBuilder{transport: c.transport}, true, false, ctx)
+	c.handleRender(&endpoint.MessagesRequest{}, &messagesCountTokensHTTPRespBuilder{messagesHTTPRespBuilder{transport: c.transport}}, true, false, ctx)
 }
 
 // handleRender parses and renders a request without generating a response.

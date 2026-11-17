@@ -857,9 +857,14 @@ type MessagesUsage struct {
 	OutputTokens             int `json:"output_tokens"`
 }
 
-// MessagesStreamUsage carries only output_tokens in streaming delta events.
+// MessagesStreamUsage is the usage of a message_delta event. output_tokens is
+// always set; the input fields are set only by an engine that reports the full
+// usage there.
 type MessagesStreamUsage struct {
-	OutputTokens int `json:"output_tokens"`
+	InputTokens              *int `json:"input_tokens,omitempty"`
+	CacheCreationInputTokens *int `json:"cache_creation_input_tokens,omitempty"`
+	CacheReadInputTokens     *int `json:"cache_read_input_tokens,omitempty"`
+	OutputTokens             int  `json:"output_tokens"`
 }
 
 // MessagesContentBlock is a single content block in a Messages API response.
