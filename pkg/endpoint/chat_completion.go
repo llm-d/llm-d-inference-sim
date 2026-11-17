@@ -176,7 +176,7 @@ func (c *ChatCompletionsRequest) AsString() string {
 
 func (c *ChatCompletionsRequest) createResponseContext(reqCtx RequestContext, displayModel string,
 	responseTokens *api.Tokenized, finishReason *string, usageData *api.Usage,
-	sendUsageData bool, logprobs *int, toolCalls []api.ToolCall, mmEncoderOnlyMode bool) ResponseContext {
+	sendUsageData bool, logprobs *int, toolCalls []api.ToolCall, mmEncoderOnlyMode bool, runtime Runtime) ResponseContext {
 	base := newBaseResponseContext(reqCtx, displayModel, responseTokens, finishReason, usageData, sendUsageData,
 		logprobs, c.GetRequestID(), c.IsDoRemotePrefill(), c.IsDoRemoteDecode(), c.GetNumberOfCachedPromptTokens())
 
@@ -196,20 +196,12 @@ func (c *ChatCompletionsRequest) createResponseContext(reqCtx RequestContext, di
 	}
 
 	reasoningTokenCount := 0
-	// HandleRequest is promoted from baseRequestContext, so its receiver is the
-	// base context even when processing a chat completion. Keep the direct chat
-	// context path for callers that invoke createResponseContext themselves.
-	var runtimeCtx *baseRequestContext
-	switch ctx := reqCtx.(type) {
-	case *baseRequestContext:
-		runtimeCtx = ctx
-	case *chatCompletionReqCtx:
-		runtimeCtx = &ctx.baseRequestContext
-	}
-	if runtimeCtx != nil && responseTokens != nil && len(toolCalls) == 0 &&
+	// The caller passes the runtime in: HandleRequest is promoted from
+	// baseRequestContext, so the concrete context is not reachable from reqCtx here.
+	if runtime != nil && responseTokens != nil && len(toolCalls) == 0 &&
 		c.responseFormatAllowsReasoning() && !sendAudio && !c.SendImage() {
 		reasoningTokenCount = len(responseTokens.Strings) *
-			c.reasoningShare(runtimeCtx.runtime.Config().ReasoningPercentage) / 100
+			c.reasoningShare(runtime.Config().ReasoningPercentage) / 100
 	}
 
 	return &chatCompletionsResponseCtx{

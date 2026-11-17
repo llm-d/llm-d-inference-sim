@@ -119,7 +119,7 @@ func (t *TextCompletionsParsedRequest) BuildRequestContext(_ Runtime, _ common.C
 
 func (t *TextCompletionsParsedRequest) createResponseContext(_ RequestContext, _ string,
 	_ *api.Tokenized, _ *string, _ *api.Usage, _ bool,
-	_ *int, _ []api.ToolCall, _ bool) ResponseContext {
+	_ *int, _ []api.ToolCall, _ bool, _ Runtime) ResponseContext {
 	panic("TextCompletionsParsedRequest.createResponseContext: Split must be called first")
 }
 
@@ -164,7 +164,7 @@ func (t *TextCompletionsRequest) AsString() string {
 
 func (t *TextCompletionsRequest) createResponseContext(reqCtx RequestContext, displayModel string,
 	responseTokens *api.Tokenized, finishReason *string, usageData *api.Usage, sendUsageData bool,
-	logprobs *int, toolCalls []api.ToolCall, _ bool) ResponseContext {
+	logprobs *int, toolCalls []api.ToolCall, _ bool, _ Runtime) ResponseContext {
 	base := newBaseResponseContext(reqCtx, displayModel, responseTokens, finishReason, usageData, sendUsageData,
 		logprobs, t.ResponseID, t.IsDoRemotePrefill(), t.IsDoRemoteDecode(), t.GetNumberOfCachedPromptTokens())
 	return &textCompletionsResponseCtx{

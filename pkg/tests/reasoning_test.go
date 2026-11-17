@@ -33,9 +33,8 @@ import (
 )
 
 var _ = Describe("chat completion reasoning simulation", func() {
-	for _, percentage := range []int{0, 50, 100} {
-		pct := percentage
-		It("partitions echo tokens in non-streamed responses", func() {
+	DescribeTable("partitions echo tokens in non-streamed responses",
+		func(pct int) {
 			client, err := startServerWithArgs(context.TODO(), []string{
 				"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho,
 				"--reasoning-percentage", strconv.Itoa(pct),
@@ -73,8 +72,11 @@ var _ = Describe("chat completion reasoning simulation", func() {
 				Expect(out.Choices[0].Message.Reasoning).NotTo(BeEmpty())
 				Expect(out.Choices[0].Message.Content).NotTo(BeEmpty())
 			}
-		})
-	}
+		},
+		Entry("no reasoning", 0),
+		Entry("half the tokens", 50),
+		Entry("every token", 100),
+	)
 
 	It("streams reasoning before content with usage unchanged", func() {
 		client, err := startServerWithArgs(context.TODO(), []string{
@@ -139,9 +141,10 @@ var _ = Describe("chat completion reasoning simulation", func() {
 // with both field names an engine may use. Pointers tell an absent field from
 // an empty one, which is what the field-name and structured-format specs need.
 type reasoningMessage struct {
-	Reasoning        *string `json:"reasoning"`
-	ReasoningContent *string `json:"reasoning_content"`
-	Content          string  `json:"content"`
+	Reasoning        *string           `json:"reasoning"`
+	ReasoningContent *string           `json:"reasoning_content"`
+	Content          string            `json:"content"`
+	ToolCalls        []json.RawMessage `json:"tool_calls"`
 }
 
 // postChatCompletions posts body to /v1/chat/completions with the given extra
@@ -292,4 +295,185 @@ var _ = Describe("chat completion reasoning controls", func() {
 		Entry("json_schema", `{"type":"json_schema","json_schema":{"name":"r","schema":`+
 			`{"type":"object","properties":{"text":{"type":"string"}},"required":["text"]}}}`, false),
 	)
+
+	// A tool call choice carries no reasoning: the message is the call itself, and
+	// a reasoning prefix would sit in front of the arguments the client awaits.
+	It("adds no reasoning to a tool call", func() {
+		client := startEchoWithReasoning(50)
+		body := `{"model":"` + common.TestModelName +
+			`","messages":[{"role":"user","content":"weather in Paris"}],"max_tokens":20,` +
+			`"tool_choice":"required","tools":[{"type":"function","function":{"name":"get_weather",` +
+			`"parameters":{"type":"object","properties":{"location":{"type":"string"}},` +
+			`"required":["location"]}}}]}`
+
+		message := readReasoningMessage(postChatCompletions(client, body, nil))
+		Expect(message.ToolCalls).NotTo(BeEmpty())
+		Expect(message.Reasoning).To(BeNil())
+		Expect(message.ReasoningContent).To(BeNil())
+	})
+
+	// Random responses give every choice its own length, so a budget shared across
+	// the choices of one request would starve the later ones. Echo mode cannot show
+	// that, because every choice there has the same number of tokens.
+	It("reserves reasoning for every choice of a multi-choice response", func() {
+		client, err := startServerWithArgs(context.TODO(), []string{
+			"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
+			"--reasoning-percentage", "50", "--max-num-seqs", "4",
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		body := `{"model":"` + common.TestModelName +
+			`","messages":[{"role":"user","content":"alpha beta gamma delta"}],` +
+			`"min_tokens":8,"max_tokens":40,"n":3}`
+		resp := postChatCompletions(client, body, nil)
+		defer func() { Expect(resp.Body.Close()).To(Succeed()) }()
+		data, err := io.ReadAll(resp.Body)
+		Expect(err).NotTo(HaveOccurred())
+		var out struct {
+			Choices []struct {
+				Message reasoningMessage `json:"message"`
+			} `json:"choices"`
+		}
+		Expect(json.Unmarshal(data, &out)).To(Succeed())
+		Expect(out.Choices).To(HaveLen(3))
+		for i, choice := range out.Choices {
+			Expect(choice.Message.Reasoning).NotTo(BeNil(), "choice %d", i)
+			Expect(*choice.Message.Reasoning).NotTo(BeEmpty(), "choice %d", i)
+			Expect(choice.Message.Content).NotTo(BeEmpty(), "choice %d", i)
+		}
+	})
+
+	// With a stream interval above one, a single batch can straddle the boundary
+	// and still has to be split. The reasoning frame is then the only place where
+	// several reasoning tokens share one frame.
+	It("splits a multi-token chunk at the reasoning boundary", func() {
+		client, err := startServerWithArgs(context.TODO(), []string{
+			"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho,
+			"--reasoning-percentage", "50", "--stream-interval", "3", "--max-num-seqs", "2",
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		// Six echo tokens put three in reasoning. The first token streams alone, then
+		// batches of three, so the boundary lands inside the second batch and that
+		// batch has to yield a two-token reasoning frame plus a one-token content one.
+		frames := collectChatStream(client, `{"model":"`+common.TestModelName+
+			`","messages":[{"role":"user","content":"alpha beta gamma delta epsilon zeta"}],"max_tokens":20,`+
+			`"stream":true,"logprobs":true,"top_logprobs":1}`)
+
+		maxReasoning := 0
+		for _, frame := range frames {
+			if len(frame.Choices) == 0 {
+				continue
+			}
+			choice := frame.Choices[0]
+			if choice.Delta.Reasoning == "" || choice.Logprobs == nil {
+				continue
+			}
+			if n := len(choice.Logprobs.Content); n > maxReasoning {
+				maxReasoning = n
+			}
+		}
+		Expect(maxReasoning).To(BeNumerically(">", 1),
+			"a stream interval of 3 must put several reasoning tokens in one frame")
+	})
+
+	// Numbering continues across the split, so the logprobs streamed frame by frame
+	// match the ones a non-streamed response reports for the whole output.
+	It("numbers logprobs continuously across the split", func() {
+		client, err := startServerWithArgs(context.TODO(), []string{
+			"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho,
+			"--reasoning-percentage", "50", "--stream-interval", "3", "--max-num-seqs", "2",
+		})
+		Expect(err).NotTo(HaveOccurred())
+
+		base := `{"model":"` + common.TestModelName +
+			`","messages":[{"role":"user","content":"alpha beta gamma delta"}],"max_tokens":20,` +
+			`"logprobs":true,"top_logprobs":2`
+
+		var streamed []logprobEntry
+		for _, frame := range collectChatStream(client, base+`,"stream":true}`) {
+			for _, choice := range frame.Choices {
+				if choice.Logprobs != nil {
+					streamed = append(streamed, choice.Logprobs.Content...)
+				}
+			}
+		}
+
+		whole, message := readWholeChatLogprobs(client, base+`}`)
+		Expect(message.Reasoning).NotTo(BeNil())
+		Expect(message.Content).NotTo(BeEmpty())
+		Expect(streamed).To(HaveLen(len(whole)))
+		for i := range whole {
+			Expect(streamed[i].Token).To(Equal(whole[i].Token), "token %d", i)
+			Expect(streamed[i].Logprob).To(BeNumerically("~", whole[i].Logprob, 1e-9), "logprob %d", i)
+		}
+	})
 })
+
+// logprobEntry is one token's logprob, as both the streamed and the non-streamed
+// chat completion report it.
+type logprobEntry struct {
+	Token   string  `json:"token"`
+	Logprob float64 `json:"logprob"`
+}
+
+// chatStreamFrame is one SSE frame of a streamed chat completion, reduced to the
+// per-choice fields the reasoning specs look at.
+type chatStreamFrame struct {
+	Choices []struct {
+		Index int `json:"index"`
+		Delta struct {
+			Reasoning string `json:"reasoning"`
+			Content   string `json:"content"`
+		} `json:"delta"`
+		Logprobs *struct {
+			Content []logprobEntry `json:"content"`
+		} `json:"logprobs"`
+	} `json:"choices"`
+}
+
+// collectChatStream posts body as a streaming chat completion and returns its
+// JSON frames, skipping the [DONE] sentinel.
+func collectChatStream(client *http.Client, body string) []chatStreamFrame {
+	resp := postChatCompletions(client, body, nil)
+	defer func() { Expect(resp.Body.Close()).To(Succeed()) }()
+	Expect(resp.StatusCode).To(Equal(http.StatusOK))
+
+	var frames []chatStreamFrame
+	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.HasPrefix(line, "data: ") || line == "data: [DONE]" {
+			continue
+		}
+		var frame chatStreamFrame
+		Expect(json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &frame)).To(Succeed())
+		frames = append(frames, frame)
+	}
+	Expect(scanner.Err()).NotTo(HaveOccurred())
+	return frames
+}
+
+// readWholeChatLogprobs decodes the message and the logprobs of one non-streamed
+// chat completion.
+func readWholeChatLogprobs(client *http.Client, body string) ([]logprobEntry, reasoningMessage) {
+	resp := postChatCompletions(client, body, nil)
+	defer func() { Expect(resp.Body.Close()).To(Succeed()) }()
+	data, err := io.ReadAll(resp.Body)
+	Expect(err).NotTo(HaveOccurred())
+	var out struct {
+		Choices []struct {
+			Message  reasoningMessage `json:"message"`
+			Logprobs *struct {
+				Content []logprobEntry `json:"content"`
+			} `json:"logprobs"`
+		} `json:"choices"`
+	}
+	Expect(json.Unmarshal(data, &out)).To(Succeed())
+	Expect(out.Choices).To(HaveLen(1))
+	if out.Choices[0].Logprobs == nil {
+		return nil, out.Choices[0].Message
+	}
+	return out.Choices[0].Logprobs.Content, out.Choices[0].Message
+}

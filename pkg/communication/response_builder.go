@@ -273,10 +273,10 @@ var _ responseBuilder = (*textComplHTTPRespBuilder)(nil)
 type chatComplHTTPRespBuilder struct {
 	baseRespBuilder
 	transport Transport
-	// per-choice position of the next streamed token
+	// tokenPos counts, per choice, the tokens already streamed in this response. The
+	// reasoning budget needs that count and logprobs need the position of the next
+	// token, which is the same number, so one always-advancing counter serves both.
 	tokenPos map[int]int
-	// Counts tokens already emitted for each choice of one SSE response.
-	emittedTokens map[int]int
 }
 
 func (respBuilder *chatComplHTTPRespBuilder) createResponse(respCtxPerChoice []endpoint.ResponseContext,
@@ -368,28 +368,35 @@ func (respBuilder *chatComplHTTPRespBuilder) createUsageChunk(respCtxPerChoice [
 
 // createChunk creates and returns a CompletionsRespChunk, a single chunk of streamed completion
 // API response, for chat completion. It sets either role, or token, or tool call info in the message.
-// createChunk separates reasoning and content at token boundaries without changing usage.
+// A configured reasoning share splits the batch at the reasoning/content boundary, emitting one SSE
+// frame per half without changing usage.
 func (respBuilder *chatComplHTTPRespBuilder) createChunk(respCtx endpoint.ResponseContext, tokens *api.Tokenized,
 	tool *api.ToolCall, role string, finishReason *string, choiceIdx int) sseChunk {
-	if tool == nil && tokens != nil && len(tokens.Strings) > 0 && respCtx.ReasoningTokenCount() > 0 {
-		if respBuilder.emittedTokens == nil {
-			respBuilder.emittedTokens = make(map[int]int)
+	// Advance the counter before splitting, so both halves are numbered from where
+	// the previous batch stopped.
+	start := 0
+	if tokens != nil && len(tokens.Strings) > 0 {
+		if respBuilder.tokenPos == nil {
+			respBuilder.tokenPos = make(map[int]int)
 		}
-		previous := respBuilder.emittedTokens[choiceIdx]
-		respBuilder.emittedTokens[choiceIdx] += len(tokens.Strings)
-		if remaining := respCtx.ReasoningTokenCount() - previous; remaining > 0 {
+		start = respBuilder.tokenPos[choiceIdx]
+		respBuilder.tokenPos[choiceIdx] = start + len(tokens.Strings)
+	}
+	if tool == nil && tokens != nil && len(tokens.Strings) > 0 && respCtx.ReasoningTokenCount() > 0 {
+		if remaining := respCtx.ReasoningTokenCount() - start; remaining > 0 {
 			n := min(remaining, len(tokens.Strings))
-			reasoning := respBuilder.createReasoningChunk(respCtx, tokens.Strings[:n], choiceIdx)
+			reasoning := respBuilder.createReasoningChunk(respCtx, tokens.Strings[:n], start, choiceIdx)
 			if n == len(tokens.Strings) {
 				return reasoning
 			}
 			rest := &api.Tokenized{Tokens: tokens.Tokens[n:], Strings: tokens.Strings[n:]}
 			return &joinedSSEChunks{chunks: []sseChunk{
-				reasoning, respBuilder.createContentChunk(respCtx, rest, tool, role, finishReason, choiceIdx),
+				reasoning,
+				respBuilder.createContentChunk(respCtx, rest, tool, role, finishReason, start+n, choiceIdx),
 			}}
 		}
 	}
-	return respBuilder.createContentChunk(respCtx, tokens, tool, role, finishReason, choiceIdx)
+	return respBuilder.createContentChunk(respCtx, tokens, tool, role, finishReason, start, choiceIdx)
 }
 
 // joinedSSEChunks preserves one SSE frame per reasoning or content transition.
@@ -408,7 +415,7 @@ func (j *joinedSSEChunks) SSEBytes() ([]byte, error) {
 }
 
 func (respBuilder *chatComplHTTPRespBuilder) createReasoningChunk(
-	respCtx endpoint.ResponseContext, reasoningTokens []string, choiceIdx int) sseChunk {
+	respCtx endpoint.ResponseContext, reasoningTokens []string, startPos, choiceIdx int) sseChunk {
 	reasoning := strings.Join(reasoningTokens, "")
 	base := api.CreateBaseCompletionsResponse(
 		respCtx.CreationTime(), respCtx.DisplayModel(), nil, respCtx.RequestID(), false)
@@ -419,27 +426,24 @@ func (respBuilder *chatComplHTTPRespBuilder) createReasoningChunk(
 	// Reasoning tokens keep their per-token metadata: vLLM only drops logprobs for them when
 	// the client suppresses reasoning, and the position counter has to advance across both
 	// halves so content logprobs continue where reasoning left off.
-	choice.Logprobs = respBuilder.createLogprobs(reasoningTokens, respCtx, choiceIdx)
+	choice.Logprobs = respBuilder.createLogprobs(reasoningTokens, respCtx, startPos)
 	return &jsonDataChunk{data: api.CreateChatCompletionsRespChunk(base,
 		[]api.ChatRespChunkChoice{respBuilder.transport.DecorateChatChunkChoice(choice)})}
 }
 
 // createLogprobs builds the synthetic logprobs of one streamed chunk, numbering the tokens from
-// the per-choice position reached so far. Callers pass reasoning and content tokens alike.
+// startPos. Callers pass reasoning and content tokens alike, and the position they pass already
+// accounts for everything emitted before this batch.
 func (respBuilder *chatComplHTTPRespBuilder) createLogprobs(tokens []string,
-	respCtx endpoint.ResponseContext, choiceIdx int) *api.ChatLogprobs {
+	respCtx endpoint.ResponseContext, startPos int) *api.ChatLogprobs {
 	if respCtx.TopLogprobs() == nil || len(tokens) == 0 {
 		return nil
 	}
-	if respBuilder.tokenPos == nil {
-		respBuilder.tokenPos = make(map[int]int)
-	}
 	content := make([]api.LogprobsContent, 0, len(tokens))
-	for _, tok := range tokens {
-		if lp := common.GenerateSingleTokenChatLogprobs(tok, respBuilder.tokenPos[choiceIdx], *respCtx.TopLogprobs()); lp != nil {
+	for i, tok := range tokens {
+		if lp := common.GenerateSingleTokenChatLogprobs(tok, startPos+i, *respCtx.TopLogprobs()); lp != nil {
 			content = append(content, *lp)
 		}
-		respBuilder.tokenPos[choiceIdx]++
 	}
 	if len(content) == 0 {
 		return nil
@@ -448,7 +452,7 @@ func (respBuilder *chatComplHTTPRespBuilder) createLogprobs(tokens []string,
 }
 
 func (respBuilder *chatComplHTTPRespBuilder) createContentChunk(respCtx endpoint.ResponseContext, tokens *api.Tokenized,
-	tool *api.ToolCall, role string, finishReason *string, choiceIdx int) sseChunk {
+	tool *api.ToolCall, role string, finishReason *string, startPos, choiceIdx int) sseChunk {
 	baseChunk := api.CreateBaseCompletionsResponse(
 		respCtx.CreationTime(), respCtx.DisplayModel(), nil, respCtx.RequestID(), false)
 	baseChunk.Object = api.ChatCompletionChunkObject
@@ -473,7 +477,7 @@ func (respBuilder *chatComplHTTPRespBuilder) createContentChunk(respCtx endpoint
 		}
 
 		// Generate logprobs if requested and token is not empty
-		chunk.Choices[0].Logprobs = respBuilder.createLogprobs(tokens.Strings, respCtx, choiceIdx)
+		chunk.Choices[0].Logprobs = respBuilder.createLogprobs(tokens.Strings, respCtx, startPos)
 	}
 
 	return &jsonDataChunk{data: &chunk}
