@@ -1179,6 +1179,61 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 				g.Expect(metricsData).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllm.VLLMReqQueueTimeMetricName, math.Inf(1), 1)))
 			}).WithTimeout(2 * time.Second).WithPolling(25 * time.Millisecond).Should(Succeed())
 		})
+
+		It("should include the time a request waits in the queue in the time to first token", func() {
+			ctx := context.TODO()
+			ttft := 1800 * time.Millisecond
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho,
+				"--time-to-first-token", ttft.String(), "--max-num-seqs", "1",
+			}
+
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			openaiclient, params := getOpenAIClientAndChatParams(client, common.TestModelName, testUserMessage, false)
+
+			var reqWg sync.WaitGroup
+			reqWg.Add(2)
+
+			// the single worker serves one request at a time, the other one waits in the queue
+			for range 2 {
+				go func() {
+					defer reqWg.Done()
+					defer GinkgoRecover()
+
+					_, err := openaiclient.Chat.Completions.New(ctx, params)
+					Expect(err).NotTo(HaveOccurred())
+				}()
+			}
+
+			reqWg.Wait()
+			prefill := ttft.Seconds()
+			eventuallyMetrics(client, func(g Gomega, metricsData string) {
+				// The first request reports its prefill time. The second one reports the time it waited for
+				// the first (about one prefill) on top of its own prefill.
+				for _, boundary := range common.TTFTBucketsBoundaries {
+					expected := 0
+					if boundary >= prefill {
+						expected++
+					}
+					if boundary >= 2*prefill {
+						expected++
+					}
+					g.Expect(metricsData).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllm.VLLMTTFTMetricName, boundary, expected)))
+				}
+				g.Expect(metricsData).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllm.VLLMTTFTMetricName, math.Inf(1), 2)))
+
+				// the prefill time excludes the wait in the queue for both requests
+				for _, boundary := range common.RequestLatencyBucketsBoundaries {
+					expected := 0
+					if boundary >= prefill {
+						expected = 2
+					}
+					g.Expect(metricsData).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllm.VLLMPrefillTimeMetricName, boundary, expected)))
+				}
+				g.Expect(metricsData).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllm.VLLMPrefillTimeMetricName, math.Inf(1), 2)))
+			})
+		})
 	})
 })
 

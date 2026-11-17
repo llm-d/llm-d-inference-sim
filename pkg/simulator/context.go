@@ -489,8 +489,9 @@ func (s *SimContext) simulateTTFT(respCtx endpoint.ResponseContext, done <-chan 
 	}
 	common.WriteToChannel(s.metricsBus.PrefillEnded,
 		metrics.PrefillEnded{
-			PrefillDuration: ttft.Seconds(),
-			IsStreaming:     respCtx.RequestContext().Request().IsStream(),
+			PrefillDuration:  ttft.Seconds(),
+			TimeToFirstToken: time.Since(respCtx.RequestContext().StartProcessingTime()).Seconds(),
+			IsStreaming:      respCtx.RequestContext().Request().IsStream(),
 		}, s.logger)
 	return true
 }
