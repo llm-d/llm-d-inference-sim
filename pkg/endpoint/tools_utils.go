@@ -355,6 +355,9 @@ func createArgument(property any, config *common.ToolCallConfig, random *common.
 		if hasMax {
 			maxItems = int(maxValue.(float64))
 		}
+		if minItems < 0 || maxItems < 0 {
+			return nil, fmt.Errorf("minItems (%d) and maxItems (%d) must not be negative", minItems, maxItems)
+		}
 		// A bound the schema leaves out comes from the configuration and must
 		// not contradict the one the schema sets.
 		if hasMin && !hasMax && maxItems < minItems {

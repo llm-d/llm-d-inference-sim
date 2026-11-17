@@ -90,6 +90,16 @@ var _ = Describe("createArgument with under-specified schemas", func() {
 		Expect(err).To(MatchError(ContainSubstring("minItems (3) is greater than maxItems(1)")))
 	})
 
+	DescribeTable("rejects an array with a negative bound",
+		func(schemaJSON string) {
+			_, err := createArgument(property(schemaJSON), config, random)
+
+			Expect(err).To(MatchError(ContainSubstring("must not be negative")))
+		},
+		Entry("minItems", `{"type": "array", "items": {"type": "string"}, "minItems": -1}`),
+		Entry("maxItems", `{"type": "array", "items": {"type": "string"}, "maxItems": -1}`),
+	)
+
 	It("still generates nested values when properties are present", func() {
 		arg, err := createArgument(
 			property(`{"type": "object", "properties": {"city": {"type": "string"}}, "required": ["city"]}`),
