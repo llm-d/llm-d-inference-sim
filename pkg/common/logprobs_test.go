@@ -17,6 +17,8 @@ limitations under the License.
 package common
 
 import (
+	"encoding/json"
+
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 )
@@ -248,6 +250,34 @@ var _ = Describe("Logprobs", func() {
 			// Test minimum (at least 1)
 			textLogprobs = GenerateTextLogprobs(tokens, 0)
 			Expect(textLogprobs.TopLogprobs[0]).To(HaveLen(1))
+		})
+	})
+
+	Context("Chat logprobs JSON", func() {
+		marshal := func(content any) map[string]any {
+			data, err := json.Marshal(content)
+			Expect(err).NotTo(HaveOccurred())
+			var fields map[string]any
+			Expect(json.Unmarshal(data, &fields)).To(Succeed())
+			return fields
+		}
+
+		It("should send an empty top_logprobs array when top_logprobs is 0", func() {
+			for _, content := range []any{GenerateChatLogprobs([]string{"Hi"}, 0).Content[0], GenerateSingleTokenChatLogprobs("Hi", 0, 0)} {
+				Expect(marshal(content)).To(HaveKeyWithValue("top_logprobs", BeEmpty()))
+				Expect(marshal(content)["top_logprobs"]).To(BeAssignableToTypeOf([]any{}))
+			}
+		})
+
+		It("should not send top_logprobs inside the alternatives", func() {
+			for _, content := range []any{GenerateChatLogprobs([]string{"Hi"}, 2).Content[0], GenerateSingleTokenChatLogprobs("Hi", 0, 2)} {
+				alternatives := marshal(content)["top_logprobs"]
+				Expect(alternatives).To(HaveLen(2))
+				for _, alternative := range alternatives.([]any) {
+					Expect(alternative).To(HaveKey("bytes"))
+					Expect(alternative).NotTo(HaveKey("top_logprobs"))
+				}
+			}
 		})
 	})
 })

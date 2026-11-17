@@ -101,7 +101,7 @@ type LogprobsContent struct {
 	// Bytes is the byte representation of the token
 	Bytes []int `json:"bytes"`
 	// TopLogprobs is the list of top alternative tokens along their log probabilities
-	TopLogprobs []LogprobsContent `json:"top_logprobs,omitempty"`
+	TopLogprobs []TopLogprob `json:"top_logprobs"`
 }
 
 // ChatLogprobs represents logprobs for chat completion responses
@@ -687,7 +687,7 @@ func (f FunctionCallOutputItem) MarshalJSON() ([]byte, error) {
 	return json.Marshal(alias(f))
 }
 
-// TopLogprob represents a top alternative token in Responses API logprobs
+// TopLogprob represents a top alternative token in chat completions and Responses API logprobs
 type TopLogprob struct {
 	Token   string  `json:"token"`
 	Logprob float64 `json:"logprob"`

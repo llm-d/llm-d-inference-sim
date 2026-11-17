@@ -656,15 +656,11 @@ func (respBuilder *responsesHTTPRespBuilder) createChunk(respCtx endpoint.Respon
 			if lp == nil {
 				continue
 			}
-			topLogprobs := make([]api.TopLogprob, len(lp.TopLogprobs))
-			for i, top := range lp.TopLogprobs {
-				topLogprobs[i] = api.TopLogprob{Token: top.Token, Logprob: top.Logprob, Bytes: top.Bytes}
-			}
 			entry := api.ResponsesLogprob{
 				Token:       lp.Token,
 				Logprob:     lp.Logprob,
 				Bytes:       lp.Bytes,
-				TopLogprobs: topLogprobs,
+				TopLogprobs: lp.TopLogprobs,
 			}
 			logprobs = append(logprobs, entry)
 			respBuilder.accumulatedLogprobs = append(respBuilder.accumulatedLogprobs, entry)

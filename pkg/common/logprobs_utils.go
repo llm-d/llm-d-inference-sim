@@ -67,18 +67,19 @@ func GenerateSingleTokenChatLogprobs(token string, tokenPosition int, topLogprob
 	tokenBytes := stringToIntBytes(token)
 
 	content := api.LogprobsContent{
-		Token:   token,
-		Logprob: mainLogprob,
-		Bytes:   tokenBytes,
+		Token:       token,
+		Logprob:     mainLogprob,
+		Bytes:       tokenBytes,
+		TopLogprobs: []api.TopLogprob{},
 	}
 
 	// Generate top alternatives if requested
 	if topLogprobsCount > 0 {
 		// Pre-size alternatives slice
-		content.TopLogprobs = make([]api.LogprobsContent, topLogprobsCount)
+		content.TopLogprobs = make([]api.TopLogprob, topLogprobsCount)
 
 		// Main token first
-		content.TopLogprobs[0] = api.LogprobsContent{
+		content.TopLogprobs[0] = api.TopLogprob{
 			Token:   token,
 			Logprob: mainLogprob,
 			Bytes:   tokenBytes,
@@ -90,7 +91,7 @@ func GenerateSingleTokenChatLogprobs(token string, tokenPosition int, topLogprob
 			altLogprob := calculateLogprob(tokenPosition, j)
 			altBytes := stringToIntBytes(altToken)
 
-			content.TopLogprobs[j] = api.LogprobsContent{
+			content.TopLogprobs[j] = api.TopLogprob{
 				Token:   altToken,
 				Logprob: altLogprob,
 				Bytes:   altBytes,
@@ -212,18 +213,19 @@ func GenerateChatLogprobs(tokens []string, topLogprobsCount int) *api.ChatLogpro
 		tokenBytes := stringToIntBytes(token)
 
 		content := api.LogprobsContent{
-			Token:   token,
-			Logprob: mainLogprob,
-			Bytes:   tokenBytes,
+			Token:       token,
+			Logprob:     mainLogprob,
+			Bytes:       tokenBytes,
+			TopLogprobs: []api.TopLogprob{},
 		}
 
 		// Generate top alternatives if requested
 		if topLogprobsCount > 0 {
 			// Pre-size alternatives slice
-			content.TopLogprobs = make([]api.LogprobsContent, topLogprobsCount)
+			content.TopLogprobs = make([]api.TopLogprob, topLogprobsCount)
 
 			// Main token first
-			content.TopLogprobs[0] = api.LogprobsContent{
+			content.TopLogprobs[0] = api.TopLogprob{
 				Token:   token,
 				Logprob: mainLogprob,
 				Bytes:   tokenBytes,
@@ -235,7 +237,7 @@ func GenerateChatLogprobs(tokens []string, topLogprobsCount int) *api.ChatLogpro
 				altLogprob := calculateLogprob(i, j)
 				altBytes := stringToIntBytes(altToken)
 
-				content.TopLogprobs[j] = api.LogprobsContent{
+				content.TopLogprobs[j] = api.TopLogprob{
 					Token:   altToken,
 					Logprob: altLogprob,
 					Bytes:   altBytes,
@@ -255,20 +257,7 @@ func GenerateMessagesLogprobs(tokens []string, topLogprobsCount int) []api.Respo
 	chat := GenerateChatLogprobs(tokens, topLogprobsCount)
 	result := make([]api.ResponsesLogprob, len(chat.Content))
 	for i, c := range chat.Content {
-		topLogprobs := make([]api.TopLogprob, len(c.TopLogprobs))
-		for j, top := range c.TopLogprobs {
-			topLogprobs[j] = api.TopLogprob{
-				Token:   top.Token,
-				Logprob: top.Logprob,
-				Bytes:   top.Bytes,
-			}
-		}
-		result[i] = api.ResponsesLogprob{
-			Token:       c.Token,
-			Logprob:     c.Logprob,
-			Bytes:       c.Bytes,
-			TopLogprobs: topLogprobs,
-		}
+		result[i] = api.ResponsesLogprob(c)
 	}
 	return result
 }
