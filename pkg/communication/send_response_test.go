@@ -469,6 +469,13 @@ var _ = Describe("sendStream responses events", func() {
 			} else {
 				Expect(event).NotTo(HaveKey("content_index"), eventType)
 			}
+			if part, ok := event["part"].(map[string]any); ok {
+				Expect(part).To(HaveKeyWithValue("text", BeAssignableToTypeOf("")), eventType)
+				Expect(part).To(HaveKeyWithValue("annotations", Equal([]any{})), eventType)
+			}
+			if eventType == api.ResponsesEventContentPartAdded {
+				Expect(event).To(HaveKeyWithValue("part", HaveKeyWithValue("text", "")))
+			}
 			types = append(types, eventType)
 		}
 		Expect(types).To(ContainElements(api.ResponsesEventCreated, api.ResponsesEventOutputItemAdded,
