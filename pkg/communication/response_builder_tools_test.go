@@ -106,5 +106,13 @@ var _ = Describe("Responses HTTP tool streaming", func() {
 		Expect(argsDone.Arguments).To(Equal(`{"city":"Paris"}`))
 		Expect(argsDone.ItemID).To(Equal("fc_abc123"))
 		Expect(string(lastPayloads[1])).To(ContainSubstring(`"status":"completed"`))
+
+		for i, payload := range append(append(payloads, eventPayloadsFromChunk(chunk2)...), lastPayloads...) {
+			var event map[string]any
+			Expect(json.Unmarshal(payload, &event)).To(Succeed())
+			Expect(event).To(HaveKeyWithValue("sequence_number", BeNumerically("==", i)), event["type"])
+			Expect(event).To(HaveKeyWithValue("output_index", BeNumerically("==", 0)), event["type"])
+			Expect(event).NotTo(HaveKey("content_index"), event["type"])
+		}
 	})
 })

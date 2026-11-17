@@ -743,8 +743,9 @@ const (
 // ResponsesResponseEvent is used for events that carry a full response object
 // (response.created, response.in_progress, response.completed).
 type ResponsesResponseEvent struct {
-	Type     string             `json:"type"`
-	Response *ResponsesResponse `json:"response"`
+	Type           string             `json:"type"`
+	SequenceNumber int                `json:"sequence_number"`
+	Response       *ResponsesResponse `json:"response"`
 }
 
 // ResponsesItemEvent is used for all item/content/text streaming events
@@ -752,9 +753,11 @@ type ResponsesResponseEvent struct {
 // output_text.logprobs.delta, function_call_arguments.delta/done).
 // Fields not relevant to a given event type are omitted via omitempty.
 type ResponsesItemEvent struct {
-	Type         string              `json:"type"`
-	OutputIndex  int                 `json:"output_index,omitempty"`
-	ContentIndex int                 `json:"content_index,omitempty"`
+	Type           string `json:"type"`
+	SequenceNumber int    `json:"sequence_number"`
+	OutputIndex    int    `json:"output_index"`
+	// ContentIndex is set only on content_part and output_text events.
+	ContentIndex *int                `json:"content_index,omitempty"`
 	ItemID       string              `json:"item_id,omitempty"`
 	Item         OutputItem          `json:"item,omitempty"`
 	Part         *OutputContent      `json:"part,omitempty"`

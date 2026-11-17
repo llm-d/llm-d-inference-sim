@@ -492,6 +492,15 @@ type responsesHTTPRespBuilder struct {
 	fcID            string
 	callID          string
 	toolName        string
+
+	// sequenceNumber is the sequence_number of the next streamed event
+	sequenceNumber int
+}
+
+func (respBuilder *responsesHTTPRespBuilder) nextSequenceNumber() int {
+	n := respBuilder.sequenceNumber
+	respBuilder.sequenceNumber++
+	return n
 }
 
 // functionCallOutputItem builds a Responses function_call output item from an internal ToolCall.
@@ -625,8 +634,9 @@ func (respBuilder *responsesHTTPRespBuilder) createUsageChunk(respCtxPerChoice [
 	return &namedEventChunk{
 		names: []string{api.ResponsesEventCompleted},
 		data: []any{&api.ResponsesResponseEvent{
-			Type:     api.ResponsesEventCompleted,
-			Response: resp,
+			Type:           api.ResponsesEventCompleted,
+			SequenceNumber: respBuilder.nextSequenceNumber(),
+			Response:       resp,
 		}}}
 }
 
@@ -643,9 +653,11 @@ func (respBuilder *responsesHTTPRespBuilder) createChunk(respCtx endpoint.Respon
 
 	itemID := api.ResponsesMessageIDPrefix + respCtx.RequestID()
 	deltaEvent := &api.ResponsesItemEvent{
-		Type:   api.ResponsesEventTextDelta,
-		ItemID: itemID,
-		Delta:  delta,
+		Type:           api.ResponsesEventTextDelta,
+		SequenceNumber: respBuilder.nextSequenceNumber(),
+		ContentIndex:   new(int),
+		ItemID:         itemID,
+		Delta:          delta,
 	}
 
 	if respCtx.TopLogprobs() != nil {
@@ -686,8 +698,9 @@ func (respBuilder *responsesHTTPRespBuilder) createToolChunk(tool *api.ToolCall)
 		respBuilder.callID = item.CallID
 		respBuilder.toolName = item.Name
 		outputItemAdded := api.ResponsesItemEvent{
-			Type: api.ResponsesEventOutputItemAdded,
-			Item: item,
+			Type:           api.ResponsesEventOutputItemAdded,
+			SequenceNumber: respBuilder.nextSequenceNumber(),
+			Item:           item,
 		}
 		names = append(names, outputItemAdded.Type)
 		data = append(data, outputItemAdded)
@@ -695,9 +708,10 @@ func (respBuilder *responsesHTTPRespBuilder) createToolChunk(tool *api.ToolCall)
 
 	respBuilder.accumulatedArgs.WriteString(tool.Function.Arguments)
 	deltaEvent := api.ResponsesItemEvent{
-		Type:   api.ResponsesEventFunctionCallArgumentsDelta,
-		ItemID: respBuilder.fcID,
-		Delta:  tool.Function.Arguments,
+		Type:           api.ResponsesEventFunctionCallArgumentsDelta,
+		SequenceNumber: respBuilder.nextSequenceNumber(),
+		ItemID:         respBuilder.fcID,
+		Delta:          tool.Function.Arguments,
 	}
 	names = append(names, deltaEvent.Type)
 	data = append(data, deltaEvent)
@@ -715,8 +729,10 @@ func (respBuilder *responsesHTTPRespBuilder) createInitialChunk(respCtx endpoint
 		false,
 	)
 	resp.Status = api.ResponsesStatusInProgress
-	created := api.ResponsesResponseEvent{Type: api.ResponsesEventCreated, Response: resp}
-	inProgress := api.ResponsesResponseEvent{Type: api.ResponsesEventInProgress, Response: resp}
+	created := api.ResponsesResponseEvent{Type: api.ResponsesEventCreated,
+		SequenceNumber: respBuilder.nextSequenceNumber(), Response: resp}
+	inProgress := api.ResponsesResponseEvent{Type: api.ResponsesEventInProgress,
+		SequenceNumber: respBuilder.nextSequenceNumber(), Response: resp}
 
 	return &namedEventChunk{
 		names: []string{created.Type, inProgress.Type},
@@ -733,7 +749,8 @@ func (respBuilder *responsesHTTPRespBuilder) createFirstChunk(respCtx endpoint.R
 
 	itemID := api.ResponsesMessageIDPrefix + respCtx.RequestID()
 	outputItemAdded := api.ResponsesItemEvent{
-		Type: api.ResponsesEventOutputItemAdded,
+		Type:           api.ResponsesEventOutputItemAdded,
+		SequenceNumber: respBuilder.nextSequenceNumber(),
 		Item: api.MessageOutput{
 			Type:    api.ResponsesOutputMessage,
 			ID:      itemID,
@@ -748,9 +765,11 @@ func (respBuilder *responsesHTTPRespBuilder) createFirstChunk(respCtx endpoint.R
 		part.Logprobs = &emptyLogprobs
 	}
 	contentPartAdded := api.ResponsesItemEvent{
-		Type:   api.ResponsesEventContentPartAdded,
-		ItemID: itemID,
-		Part:   &part,
+		Type:           api.ResponsesEventContentPartAdded,
+		SequenceNumber: respBuilder.nextSequenceNumber(),
+		ContentIndex:   new(int),
+		ItemID:         itemID,
+		Part:           &part,
 	}
 	return &namedEventChunk{
 		names: []string{outputItemAdded.Type, contentPartAdded.Type},
@@ -762,13 +781,15 @@ func (respBuilder *responsesHTTPRespBuilder) createLastChunk(respCtx endpoint.Re
 	if respBuilder.inToolMode {
 		args := respBuilder.accumulatedArgs.String()
 		argsDone := api.ResponsesItemEvent{
-			Type:      api.ResponsesEventFunctionCallArgumentsDone,
-			ItemID:    respBuilder.fcID,
-			Name:      respBuilder.toolName,
-			Arguments: args,
+			Type:           api.ResponsesEventFunctionCallArgumentsDone,
+			SequenceNumber: respBuilder.nextSequenceNumber(),
+			ItemID:         respBuilder.fcID,
+			Name:           respBuilder.toolName,
+			Arguments:      args,
 		}
 		outputItemDone := api.ResponsesItemEvent{
-			Type: api.ResponsesEventOutputItemDone,
+			Type:           api.ResponsesEventOutputItemDone,
+			SequenceNumber: respBuilder.nextSequenceNumber(),
 			Item: api.FunctionCallOutputItem{
 				Type:      api.ResponsesOutputFunctionCall,
 				ID:        respBuilder.fcID,
@@ -788,9 +809,11 @@ func (respBuilder *responsesHTTPRespBuilder) createLastChunk(respCtx endpoint.Re
 	text := respBuilder.accumulated.String()
 
 	textDone := api.ResponsesItemEvent{
-		Type:   api.ResponsesEventTextDone,
-		ItemID: itemID,
-		Text:   text,
+		Type:           api.ResponsesEventTextDone,
+		SequenceNumber: respBuilder.nextSequenceNumber(),
+		ContentIndex:   new(int),
+		ItemID:         itemID,
+		Text:           text,
 	}
 	if respCtx.TopLogprobs() != nil {
 		emptyLogprobs := []api.ResponsesLogprob{}
@@ -805,12 +828,15 @@ func (respBuilder *responsesHTTPRespBuilder) createLastChunk(respCtx endpoint.Re
 		doneContent.Logprobs = &nullLogprobs
 	}
 	contentPartDone := api.ResponsesItemEvent{
-		Type:   api.ResponsesEventContentPartDone,
-		ItemID: itemID,
-		Part:   &part,
+		Type:           api.ResponsesEventContentPartDone,
+		SequenceNumber: respBuilder.nextSequenceNumber(),
+		ContentIndex:   new(int),
+		ItemID:         itemID,
+		Part:           &part,
 	}
 	outputItemDone := api.ResponsesItemEvent{
-		Type: api.ResponsesEventOutputItemDone,
+		Type:           api.ResponsesEventOutputItemDone,
+		SequenceNumber: respBuilder.nextSequenceNumber(),
 		Item: api.MessageOutput{
 			Type:    api.ResponsesOutputMessage,
 			ID:      itemID,
