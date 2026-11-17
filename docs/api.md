@@ -37,13 +37,14 @@ In addition, a set of the vLLM HTTP endpoints are supported. The render and dere
 
 ### `/admin/config`
 
-The simulator exposes `GET` and `POST` on `/admin/config` for runtime configuration introspection and partial updates. This endpoint is simulator-specific and is intended for adjusting behavior (currently failure injection, fake metrics, and request latencies) during a test run without restarting the process.
+The simulator exposes `GET` and `POST` on `/admin/config` for runtime configuration introspection and partial updates. This endpoint is simulator-specific and is intended for adjusting behavior (currently failure injection, fake metrics, request latencies, image emission, and the reasoning share) during a test run without restarting the process.
 
 - **`GET /admin/config`** returns the current configuration as JSON. Internal helper fields (`LorasString`) are stripped, `LoraModules` is exposed as `lora-modules` nested under `lora`, and the per-rank `port` is omitted when running with `--data-parallel-size > 1`.
 - **`POST /admin/config`** applies a partial JSON update and returns the new configuration. The request body must be a JSON object whose keys are a subset of the admin-configurable fields:
   - `failure-injection-rate` — integer in `[0, 100]`
   - `failure-types` — array of strings from `rate_limit`, `invalid_api_key`, `context_length`, `server_error`, `invalid_request`, `model_not_found`
   - `image-emission-rate` — integer in `[0, 100]`; probability that each `/v1/chat/completions` request emits a synthetic image chunk when the simulator is running with `--omni`. 0 disables the rate mechanism (the `X-Send-Image` header still works); 100 means every request gets an image.
+  - `reasoning-percentage` — integer in `[0, 100]`; share of each `/v1/chat/completions` response's generated tokens returned as reasoning rather than `content`, the same value as the `--reasoning-percentage` flag. Takes effect on subsequent requests; a request's own `X-Reasoning-Percentage` header still overrides it.
   - `fake-metrics` — partial update of [fake metric](configuration.md#fake-metrics) values. The value is itself a JSON object containing only the metrics to change. Metrics omitted from the request remain unchanged. When the simulator was started without `--fake-metrics`, the first non-null `fake-metrics` update also switches that process into fake mode (real metrics stop updating); omitted gauges may keep their last real values until a later update sets them.
 
     Absent fields and fields explicitly set to `null` are treated identically — both mean "leave unchanged". To clear a metric whose value is a slice or map (e.g. `ttft-buckets-values`, `request-success-total`), send an empty value: `[]` or `{}`. There is no way to clear a scalar metric (e.g. `running-requests`, `total-prompt-tokens`) via partial update — assign a new value instead.
@@ -82,6 +83,11 @@ The simulator exposes `GET` and `POST` on `/admin/config` for runtime configurat
   curl -X POST http://localhost:8000/admin/config \
     -H 'Content-Type: application/json' \
     -d '{"image-emission-rate": 30}'
+
+  # Return 25% of chat completion tokens as reasoning
+  curl -X POST http://localhost:8000/admin/config \
+    -H 'Content-Type: application/json' \
+    -d '{"reasoning-percentage": 25}'
   ```
 
 
@@ -95,6 +101,7 @@ In addition to standard HTTP headers, the simulator recognizes a few simulator-s
 | `X-Return-Error` | Deterministic failure injection. When set to a numeric HTTP status code (e.g. `429`, `500`), the simulator immediately returns a synthetic error response with that status code, bypassing the probabilistic `--failure-injection-rate` mechanism. A non-integer value yields HTTP 400. Honored on `/v1/chat/completions`, `/v1/completions`, and `/inference/v1/generate`; not honored by `/v1/embeddings`. |
 | `X-Cache-Threshold-Finish-Reason` | Deterministic forcing of the `cache_threshold` finish reason. When set to `true`, the response is forced to use the `cache_threshold` finish reason regardless of the actual cache hit rate or the configured `cache_hit_threshold` / `global-cache-hit-threshold` values. Any other value (including `false`, missing, or unparsable) leaves the normal cache-threshold logic in place. The header is parsed for all generation endpoints, but only takes effect on `/v1/chat/completions` and `/v1/completions` (the other endpoints' request types do not implement the cache-threshold override). |
 | `X-Send-Image` | Image output for omni mode. Requires the simulator to be started with `--omni`. When set to `true`, a synthetic 1×1 transparent PNG (`data:image/png;base64,…`) is appended to `/v1/chat/completions` responses. In non-streaming responses the assistant message `content` becomes a structured array — a `text` block with the generated tokens followed by an `image_url` block. In streaming responses an additional SSE chunk with `"modality":"image"` is emitted after the token stream, carrying the image in its delta `content`. Has no effect when `--omni` is not set or when the header value is not parseable as `true`. Images can also be emitted probabilistically without this header via the `--image-emission-rate` flag (or the `image-emission-rate` field on `POST /admin/config`). |
+| `X-Reasoning-Percentage` | Per-request override of `--reasoning-percentage`, honored on `/v1/chat/completions` only. Must be an integer in `[0, 100]`; any other value is rejected with `400 Bad Request`. A header keeps the request body valid for vLLM, which has no equivalent request field. The share it selects is applied to that request alone and leaves the configured value untouched. |
 
 ## gRPC Endpoints
 The simulator implements the `vllm.grpc.engine.VllmEngine` service definition. 

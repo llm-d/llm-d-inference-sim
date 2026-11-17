@@ -152,6 +152,9 @@ func (Engine) DecorateMessagesCountTokens(resp api.MessagesCountTokensResponse) 
 func (Engine) DecorateMessagesDeltaUsage(usage api.MessagesStreamUsage, _ api.MessagesUsage) api.MessagesStreamUsage {
 	return usage
 }
+// ReasoningFieldName reports "reasoning_content", the field sglang emits an
+// assistant message's reasoning prefix under.
+func (Engine) ReasoningFieldName() string { return api.ReasoningContentField }
 
 // messagesErrorBody puts the error in the Anthropic envelope, with the type
 // mapped to Anthropic's vocabulary and a server error's message replaced.

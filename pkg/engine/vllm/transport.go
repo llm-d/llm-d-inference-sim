@@ -77,6 +77,11 @@ func (e Engine) StreamErrorBody(err api.Error, route api.ErrorRoute) any {
 // matched_stop.
 func (Engine) DecorateChatChoice(choice api.ChatRespChoice) api.ChatRespChoice { return choice }
 
+// ReasoningFieldName reports "reasoning", the field vLLM emits an assistant
+// message's reasoning prefix under. vLLM does not also emit the deprecated
+// "reasoning_content" alongside it.
+func (Engine) ReasoningFieldName() string { return api.ReasoningField }
+
 // DecorateChatChunkChoice adds no fields: vLLM has no equivalent of sglang's
 // matched_stop.
 func (Engine) DecorateChatChunkChoice(choice api.ChatRespChunkChoice) api.ChatRespChunkChoice {

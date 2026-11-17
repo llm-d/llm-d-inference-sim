@@ -266,8 +266,10 @@ type Configuration struct {
 	StrictRequestValidation bool `yaml:"strict" json:"strict"`
 
 	// ReasoningPercentage reserves this share of chat completion tokens for reasoning output.
-	// A zero value preserves the ordinary content-only behavior.
-	ReasoningPercentage int `yaml:"reasoning-percentage" json:"reasoning-percentage"`
+	// A zero value preserves the ordinary content-only behavior. The
+	// X-Reasoning-Percentage request header overrides it for a single request,
+	// and POST /admin/config can change it at runtime.
+	ReasoningPercentage int `yaml:"reasoning-percentage" json:"reasoning-percentage" admin:"configurable"`
 
 	// DefaultEmbeddingDimensions is the default size of embedding vectors when the request does not specify dimensions.
 	// Used by the /v1/embeddings endpoint. Default is 384.

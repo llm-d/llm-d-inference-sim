@@ -132,6 +132,14 @@ type Request interface {
 	SetSendImage(bool)
 	// SendImage reports whether an image will be emitted with this response.
 	SendImage() bool
+	// SetReasoningPercentageOverride records the reasoning share carried by the
+	// X-Reasoning-Percentage header, which takes precedence over the configured
+	// --reasoning-percentage for this request alone. Only meaningful for chat
+	// completions; no-op for all other request types.
+	SetReasoningPercentageOverride(*int)
+	// ReasoningPercentageOverride returns the reasoning share this request
+	// carries, or nil when it carries none.
+	ReasoningPercentageOverride() *int
 }
 
 // baseRequest contains base completions request related information
@@ -402,8 +410,10 @@ func (b *baseRequest) SetMMFeatures(mmFeatures *RenderMMFeatures) {
 	b.mmFeatures = mmFeatures
 }
 
-func (b *baseRequest) SetSendImage(bool) {}
-func (b *baseRequest) SendImage() bool   { return false }
+func (b *baseRequest) SetSendImage(bool)                   {}
+func (b *baseRequest) SendImage() bool                     { return false }
+func (b *baseRequest) SetReasoningPercentageOverride(*int) {}
+func (b *baseRequest) ReasoningPercentageOverride() *int   { return nil }
 
 func (b *baseCompletionsRequest) IncludeUsage() bool {
 	return !b.Stream || (b.StreamOptions != nil && b.StreamOptions.IncludeUsage)

@@ -35,10 +35,54 @@ type ChatCompletionsRequest struct {
 	renderTools api.RenderTools
 	// responseFormat holds the request's response_format as received.
 	responseFormat json.RawMessage
+	// reasoningPercentageOverride holds the X-Reasoning-Percentage header value,
+	// which takes precedence over the configured --reasoning-percentage for this
+	// request alone. nil when the header was absent.
+	reasoningPercentageOverride *int
 }
 
 func (c *ChatCompletionsRequest) SetSendImage(v bool) { c.willSendImage = v }
 func (c *ChatCompletionsRequest) SendImage() bool     { return c.willSendImage }
+
+func (c *ChatCompletionsRequest) SetReasoningPercentageOverride(pct *int) {
+	c.reasoningPercentageOverride = pct
+}
+
+func (c *ChatCompletionsRequest) ReasoningPercentageOverride() *int {
+	return c.reasoningPercentageOverride
+}
+
+// reasoningShare returns the share of this response's tokens reserved for
+// reasoning: the request's own X-Reasoning-Percentage value when it carries one,
+// and the configured --reasoning-percentage otherwise.
+func (c *ChatCompletionsRequest) reasoningShare(configured int) int {
+	if c.reasoningPercentageOverride != nil {
+		return *c.reasoningPercentageOverride
+	}
+	return configured
+}
+
+// responseFormatAllowsReasoning reports whether this request's response may
+// carry a reasoning prefix. Only a plain-text answer can: json_object,
+// json_schema and structural_tag all constrain the output to a JSON value, and a
+// reasoning prefix would land in front of that value and break it.
+func (c *ChatCompletionsRequest) responseFormatAllowsReasoning() bool {
+	if c.responseFormat == nil {
+		return true
+	}
+	var format responseFormat
+	if err := json.Unmarshal(c.responseFormat, &format); err != nil {
+		// A format that does not parse is rejected by validateResponseFormat
+		// before this runs, so it cannot reach a response either way.
+		return true
+	}
+	switch format.Type {
+	case responseFormatJSONObject, responseFormatJSONSchema, responseFormatStructuralTag:
+		return false
+	default:
+		return true
+	}
+}
 
 // reads and parses data from the body of the given request
 func (c *ChatCompletionsRequest) Unmarshal(data []byte) error {
@@ -163,9 +207,9 @@ func (c *ChatCompletionsRequest) createResponseContext(reqCtx RequestContext, di
 		runtimeCtx = &ctx.baseRequestContext
 	}
 	if runtimeCtx != nil && responseTokens != nil && len(toolCalls) == 0 &&
-		runtimeCtx.runtime.Config().EngineName == common.DefaultEngineName &&
-		c.responseFormat == nil && !sendAudio && !c.SendImage() {
-		reasoningTokenCount = len(responseTokens.Strings) * runtimeCtx.runtime.Config().ReasoningPercentage / 100
+		c.responseFormatAllowsReasoning() && !sendAudio && !c.SendImage() {
+		reasoningTokenCount = len(responseTokens.Strings) *
+			c.reasoningShare(runtimeCtx.runtime.Config().ReasoningPercentage) / 100
 	}
 
 	return &chatCompletionsResponseCtx{

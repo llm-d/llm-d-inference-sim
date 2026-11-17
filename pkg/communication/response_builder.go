@@ -298,7 +298,7 @@ func (respBuilder *chatComplHTTPRespBuilder) createResponse(respCtxPerChoice []e
 				count = len(t.Strings)
 			}
 			reasoning := strings.Join(t.Strings[:count], "")
-			message.Reasoning = &reasoning
+			message.SetReasoning(respBuilder.transport.ReasoningFieldName(), reasoning)
 			t.Strings = t.Strings[count:]
 		}
 		sendImage := choiceCtx.SendImage()
@@ -413,8 +413,9 @@ func (respBuilder *chatComplHTTPRespBuilder) createReasoningChunk(
 	base := api.CreateBaseCompletionsResponse(
 		respCtx.CreationTime(), respCtx.DisplayModel(), nil, respCtx.RequestID(), false)
 	base.Object = api.ChatCompletionChunkObject
-	choice := api.CreateChatRespChunkChoice(api.CreateBaseResponseChoice(choiceIdx, nil),
-		api.Message{Reasoning: &reasoning})
+	var message api.Message
+	message.SetReasoning(respBuilder.transport.ReasoningFieldName(), reasoning)
+	choice := api.CreateChatRespChunkChoice(api.CreateBaseResponseChoice(choiceIdx, nil), message)
 	// Reasoning tokens keep their per-token metadata: vLLM only drops logprobs for them when
 	// the client suppresses reasoning, and the position counter has to advance across both
 	// halves so content logprobs continue where reasoning left off.
