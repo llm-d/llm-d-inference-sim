@@ -39,6 +39,7 @@ const (
 	ResponsesStatusCompleted      = "completed"
 	ResponsesStatusInProgress     = "in_progress"
 	ResponsesStatusIncomplete     = "incomplete"
+	ResponsesIncompleteMaxTokens  = "max_output_tokens"
 	ResponsesOutputText           = "output_text"
 	ResponsesOutputMessage        = "message"
 	ResponsesOutputFunctionCall   = "function_call"

@@ -525,7 +525,7 @@ var _ = Describe("responses status at the token limit", func() {
 			Expect(eventType).To(Equal(wantEvent))
 			Expect(resp).To(HaveKeyWithValue("status", api.ResponsesStatusIncomplete))
 			Expect(resp).To(HaveKeyWithValue("incomplete_details",
-				HaveKeyWithValue("reason", "max_output_tokens")))
+				HaveKeyWithValue("reason", api.ResponsesIncompleteMaxTokens)))
 		},
 		Entry("non-streamed", false, ""),
 		Entry("streamed", true, api.ResponsesEventIncomplete),

@@ -575,11 +575,11 @@ func (respBuilder *responsesHTTPRespBuilder) createResponse(respCtxPerChoice []e
 	return resp
 }
 
-// setIncompleteStatus marks a response cut off by the token limit as incomplete, as vLLM does.
+// setIncompleteStatus marks a response cut off by the token limit as incomplete.
 func setIncompleteStatus(resp *api.ResponsesResponse, finishReason *string) {
 	if finishReason != nil && *finishReason == common.LengthFinishReason {
 		resp.Status = api.ResponsesStatusIncomplete
-		resp.IncompleteDetails = &api.ResponsesIncompleteDetails{Reason: "max_output_tokens"}
+		resp.IncompleteDetails = &api.ResponsesIncompleteDetails{Reason: api.ResponsesIncompleteMaxTokens}
 	}
 }
 
