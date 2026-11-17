@@ -525,6 +525,30 @@ var _ = Describe("MessagesRequest system", func() {
 		Expect(msg.Content.Raw).To(Equal("be brief"))
 	})
 
+	It("should append system messages inside messages to the leading system message, as vLLM does", func() {
+		var req MessagesRequest
+		Expect(json.Unmarshal([]byte(`{"system":"be ","messages":[{"role":"user","content":"hi"},`+
+			`{"role":"system","content":"brief"},{"role":"user","content":"again"},`+
+			`{"role":"system","content":[{"type":"text","text":"."}]}]}`), &req)).To(Succeed())
+		msgs := req.ToChatCompletionsRequest().Messages
+		Expect(msgs).To(HaveLen(3))
+		Expect(msgs[0].Role).To(Equal("system"))
+		Expect(msgs[0].Content.Raw).To(Equal("be brief."))
+		Expect(msgs[1].Role).To(Equal("user"))
+		Expect(msgs[2].Role).To(Equal("user"))
+	})
+
+	It("should move a system message inside messages to the front when there is no system prompt", func() {
+		var req MessagesRequest
+		Expect(json.Unmarshal([]byte(`{"messages":[{"role":"user","content":"hi"},`+
+			`{"role":"system","content":"be brief"}]}`), &req)).To(Succeed())
+		msgs := req.ToChatCompletionsRequest().Messages
+		Expect(msgs).To(HaveLen(2))
+		Expect(msgs[0].Role).To(Equal("system"))
+		Expect(msgs[0].Content.Raw).To(Equal("be brief"))
+		Expect(msgs[1].Role).To(Equal("user"))
+	})
+
 	It("should omit the system message when no block has text", func() {
 		var req MessagesRequest
 		Expect(json.Unmarshal([]byte(`{"system":[],"messages":[{"role":"user","content":"hi"}]}`), &req)).To(Succeed())
