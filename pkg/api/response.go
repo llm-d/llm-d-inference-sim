@@ -949,8 +949,8 @@ type MessagesCountTokensResponse struct {
 }
 
 // CreateMessagesStreamStartMessage builds the initial message object for the
-// message_start streaming event: empty content, nil stop_reason, input_tokens set.
-func CreateMessagesStreamStartMessage(model, requestID string, inputTokens int) *MessagesResponse {
+// message_start streaming event: empty content, nil stop_reason, usage set.
+func CreateMessagesStreamStartMessage(model, requestID string, usage MessagesUsage) *MessagesResponse {
 	return &MessagesResponse{
 		ID:           MessagesIDPrefix + requestID,
 		Type:         MessagesType,
@@ -959,7 +959,7 @@ func CreateMessagesStreamStartMessage(model, requestID string, inputTokens int) 
 		Model:        model,
 		StopReason:   nil,
 		StopSequence: nil,
-		Usage:        MessagesUsage{InputTokens: inputTokens},
+		Usage:        usage,
 		RequestID:    requestID,
 	}
 }

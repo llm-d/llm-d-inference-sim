@@ -984,6 +984,17 @@ func (b *messagesHTTPRespBuilder) stopReason(finishReason string) string {
 	}
 }
 
+// messagesUsage splits the prompt as vLLM does: input_tokens excludes the prompt
+// tokens read from the prefix cache, which are reported in cache_read_input_tokens.
+func messagesUsage(respCtx endpoint.ResponseContext, outputTokens int) api.MessagesUsage {
+	cached := respCtx.NumberCachedPromptTokens()
+	return api.MessagesUsage{
+		InputTokens:          respCtx.UsageData().PromptTokens - cached,
+		CacheReadInputTokens: cached,
+		OutputTokens:         outputTokens,
+	}
+}
+
 func (b *messagesHTTPRespBuilder) createResponse(respCtxPerChoice []endpoint.ResponseContext,
 	tokens []api.Tokenized) any {
 	respCtx := respCtxPerChoice[0]
@@ -1024,10 +1035,7 @@ func (b *messagesHTTPRespBuilder) createResponse(respCtxPerChoice []endpoint.Res
 		respCtx.RequestID(),
 		b.stopReason(finishReason),
 		content,
-		api.MessagesUsage{
-			InputTokens:  usage.PromptTokens,
-			OutputTokens: usage.CompletionTokens,
-		},
+		messagesUsage(respCtx, usage.CompletionTokens),
 		respCtx.DoRemoteDecode(),
 	)
 	resp.ECTransferParams = respCtx.ECTransferParams()
@@ -1050,7 +1058,7 @@ func (b *messagesHTTPRespBuilder) createInitialChunk(respCtx endpoint.ResponseCo
 	msg := api.CreateMessagesStreamStartMessage(
 		respCtx.DisplayModel(),
 		respCtx.RequestID(),
-		respCtx.UsageData().PromptTokens,
+		messagesUsage(respCtx, 0),
 	)
 	return &namedEventChunk{
 		names: []string{api.MessagesEventMessageStart},
