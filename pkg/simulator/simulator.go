@@ -340,6 +340,9 @@ func (s *Simulator) findRequestAndSendToProcess(worker *worker) bool {
 }
 
 func (s *Simulator) addRequestToQueue(reqCtx endpoint.RequestContext) {
+	// Marked before enqueue: the queue lock orders this write before a worker
+	// reads it after dequeue, and a rejected enqueue never reaches a worker.
+	reqCtx.MarkQueued()
 	if err := s.enqueue(reqCtx); err != nil {
 		s.Context.logger.Error(err, "failed to enqueue request")
 		err := api.NewError("Failed to enqueue request, "+err.Error(),
@@ -356,7 +359,7 @@ func (s *Simulator) addRequestToQueue(reqCtx endpoint.RequestContext) {
 		s.Context.logger)
 	if reqCtx.Request().IsModelLoRA() {
 		common.WriteToChannel(s.Context.metricsBus.LoRAChanged,
-			metrics.LoRAChanged{Model: dispModel, State: metrics.LoRAWaiting},
+			metrics.LoRAChanged{Model: dispModel, State: metrics.LoRAWaiting, Queued: true},
 			s.Context.logger)
 	}
 }

@@ -425,7 +425,7 @@ func (s *SimContext) MooncakeEngineMap() map[string]map[string]string {
 // RequestStarted records that req has begun processing: increments the
 // running-request metric and, if req targets a LoRA, stamps its LoRA ID and
 // marks the LoRA as running.
-func (s *SimContext) RequestStarted(req api.Request) {
+func (s *SimContext) RequestStarted(req api.Request, queued bool) {
 	s.nRunningReqs.Add(1)
 	common.WriteToChannel(s.metricsBus.RequestRunning, metrics.RequestRunning{}, s.logger)
 
@@ -433,7 +433,7 @@ func (s *SimContext) RequestStarted(req api.Request) {
 	if req.IsModelLoRA() {
 		req.SetModelLoraID(s.GetLoraID(dispModel))
 		common.WriteToChannel(s.metricsBus.LoRAChanged,
-			metrics.LoRAChanged{Model: dispModel, State: metrics.LoRARunning}, s.logger)
+			metrics.LoRAChanged{Model: dispModel, State: metrics.LoRARunning, Queued: queued}, s.logger)
 	}
 }
 
