@@ -551,6 +551,50 @@ var _ = Describe("processRequest", func() {
 		Entry("no max_tokens is the rest of the context", ``,
 			func(promptTokens int) int64 { return int64(64 - promptTokens) }),
 	)
+
+	DescribeTable("reports the output token limit on the failure event as on the success event",
+		func(prompt, extraFields string, abort bool, expected func(promptTokens int) int64) {
+			sim := newHandleRequestTestSim(context.Background(), 1, "--max-model-len", "64", "--time-to-first-token", "10s")
+			bus := useUnreadMetricsBus(sim)
+
+			req := &endpoint.ChatCompletionsRequest{}
+			Expect(req.Unmarshal([]byte(`{"model":"` + common.TestModelName +
+				`","messages":[{"role":"user","content":"` + prompt + `"}]` + extraFields + `}`))).To(Succeed())
+			req.SetRequestID("failed-max-tokens")
+			ctx, cancel := context.WithCancel(context.Background())
+			DeferCleanup(cancel)
+			_, _, _, topErr, _ := sim.HandleRequest(ctx, req)
+			Expect(topErr).To(BeNil())
+
+			processed := make(chan struct{})
+			reqCtx := <-sim.newRequests.Channel
+			go func() {
+				sim.processRequest(reqCtx)
+				close(processed)
+			}()
+			if abort {
+				Eventually(bus.RequestRunning.Channel).Should(HaveLen(1))
+				cancel()
+			}
+			Eventually(processed).Should(BeClosed())
+
+			var failed metrics.RequestFailed
+			Expect(bus.RequestFailed.Channel).To(Receive(&failed))
+			Expect(failed.MaxTokens).NotTo(BeNil())
+			Expect(*failed.MaxTokens).To(Equal(expected(reqCtx.Request().TokenizedPrompt().Length())))
+		},
+		Entry("aborted, max_tokens within the context", "hello there", `,"max_tokens":5`, true,
+			func(int) int64 { return 5 }),
+		Entry("aborted, max_tokens beyond the context is capped", "hello there", `,"max_tokens":500`, true,
+			func(promptTokens int) int64 { return int64(64 - promptTokens) }),
+		Entry("aborted, no max_tokens is the rest of the context", "hello there", ``, true,
+			func(promptTokens int) int64 { return int64(64 - promptTokens) }),
+		Entry("rejected with a prompt that fits the context", "hello there", `,"max_tokens":5,"min_tokens":10`, false,
+			func(int) int64 { return 5 }),
+		Entry("rejected with a prompt longer than the context is 0",
+			strings.Repeat("hello there ", 40), `,"max_tokens":5`, false,
+			func(int) int64 { return 0 }),
+	)
 })
 
 var _ = Describe("sleepUnlessDone", func() {

@@ -30,9 +30,10 @@ import (
 // since they report the configuration the simulator was given rather than
 // anything a request changes.
 //
-// A metric this names nothing for reports nothing: real and fake metrics are
-// never served together, so a scrape under fake metrics carries what the
-// configuration sets and the startup gauges, and no other series at all.
+// Under fake metrics, real request processing no longer updates the fakeable
+// surface. A metric this names nothing for reports nothing when fake metrics are
+// set at startup; when they are first enabled at runtime, it keeps its last real
+// value until an update sets it.
 //
 // No total is derived from a histogram the way the vLLM engine derives its token
 // counters: sglang splits prompt_tokens_total by is_streaming but reports
