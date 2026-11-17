@@ -88,6 +88,10 @@ type Engine interface {
 	// DecorateMessagesCountTokens adds any fields this engine puts on a
 	// /v1/messages/count_tokens response beyond input_tokens.
 	DecorateMessagesCountTokens(resp api.MessagesCountTokensResponse) api.MessagesCountTokensResponse
+	// DecorateMessagesDeltaUsage adds any fields this engine puts on the usage
+	// of a streamed message_delta event beyond output_tokens; full is the
+	// request's complete Messages usage.
+	DecorateMessagesDeltaUsage(usage api.MessagesStreamUsage, full api.MessagesUsage) api.MessagesStreamUsage
 	// NewMetricsAdapter builds the engine's own metrics adapter, registering
 	// its collectors on registry. ctx must match the one passed to
 	// metrics.NewMetricsBus.

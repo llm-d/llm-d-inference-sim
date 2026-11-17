@@ -63,6 +63,10 @@ func (fakeTransport) DecorateMessagesCountTokens(resp api.MessagesCountTokensRes
 	return resp
 }
 
+func (fakeTransport) DecorateMessagesDeltaUsage(usage api.MessagesStreamUsage, _ api.MessagesUsage) api.MessagesStreamUsage {
+	return usage
+}
+
 var _ = Describe("bindGRPC", func() {
 	var comm *Communication
 

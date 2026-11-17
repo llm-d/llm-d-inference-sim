@@ -67,3 +67,33 @@ var _ = Describe("Messages HTTP usage", func() {
 		Expect(start.Message.Usage).To(Equal(api.MessagesUsage{InputTokens: 3, CacheReadInputTokens: 24}))
 	})
 })
+
+// deltaUsageTransport records the full usage the builder hands the engine for
+// a message_delta event.
+type deltaUsageTransport struct {
+	fakeTransport
+	full api.MessagesUsage
+}
+
+func (t *deltaUsageTransport) DecorateMessagesDeltaUsage(usage api.MessagesStreamUsage, full api.MessagesUsage) api.MessagesStreamUsage {
+	t.full = full
+	return usage
+}
+
+var _ = Describe("Messages HTTP message_delta usage", func() {
+	It("hands the engine the full usage, split by the prefix cache", func() {
+		respCtx := &cachedPromptRespCtx{
+			usage: api.Usage{PromptTokens: 27, CompletionTokens: 5, TotalTokens: 32,
+				PromptTokensDetails: &api.PromptTokensDetails{CachedTokens: 24}},
+			cached: 24,
+		}
+		transport := &deltaUsageTransport{}
+		b := &messagesHTTPRespBuilder{transport: transport}
+		chunk, ok := b.createLastChunk(respCtx, common.StopFinishReason, 0).(*namedEventChunk)
+		Expect(ok).To(BeTrue())
+		delta, ok := chunk.data[1].(api.MessagesMessageDeltaEvent)
+		Expect(ok).To(BeTrue())
+		Expect(delta.Usage.OutputTokens).To(Equal(5))
+		Expect(transport.full).To(Equal(api.MessagesUsage{InputTokens: 3, CacheReadInputTokens: 24, OutputTokens: 5}))
+	})
+})
