@@ -2,14 +2,16 @@
 
 The `ds-tool` is used to convert conversation datasets into the format required by llm-d-inference-sim. It processes source datasets (from HuggingFace or local files) and generates both JSON and SQLite outputs with tokenized data. In addition, a dataset card is generated too.
 
-This tool requires a **vLLM render server**, which handles tokenization over HTTP. Start it with Docker before running the tool:
+Build the tool from the repository root with `make ds-tool-build`. The binary is written to `./bin/ds_tool`.
+
+The tool requires a **vLLM render server**, which handles tokenization over HTTP. Start it with Docker before running the tool:
 
 ```bash
-docker run --rm -p 8082:8082 vllm/vllm-openai-cpu:v0.21.0 \
-  vllm launch render <model> --port=8082
+docker run --rm -p 8082:8082 --entrypoint vllm \
+  vllm/vllm-openai-cpu:v0.21.0 launch render Qwen/Qwen2.5-0.5B-Instruct --port=8082
 ```
 
-Replace `<model>` with the same model name you pass to `--model`. If the model requires a HuggingFace token, set the `HF_TOKEN` environment variable and add `-e HF_TOKEN=$HF_TOKEN` to the Docker command.
+Use the same model name for the render server and the tool's `--model` flag. If the model requires a HuggingFace token, export `HF_TOKEN` and add `-e HF_TOKEN` to the Docker command.
 
 
 ## Prerequisites
@@ -35,7 +37,7 @@ Replace `<model>` with the same model name you pass to `--model`. If the model r
 | `--output-file` | string | No | `inference-sim-dataset` | Output file name without extension (creates `.json`, `.sqlite3` and `.md` files) |
 | `--table-name` | string | No | `llmd` | Name of the table created in the SQLite DB |
 | `--max-records` | int | No | `10000` | Maximum number of source dataset records to process; if the dataset contains more, the rest are discarded. |
-| `--render-url` | string | Yes | `http://localhost:8082` | URL of the vLLM render server |
+| `--render-url` | string | Yes | - | URL of the vLLM render server (e.g., `http://localhost:8082`) |
 
 **Note:** Either `--hf-repo` or `--local-path` must be specified, but not both.
 
@@ -45,11 +47,12 @@ Replace `<model>` with the same model name you pass to `--model`. If the model r
 
 #### Example 1: Download from HuggingFace
 ```bash
-export HF_TOKEN=your_token_here
-./ds-tool \
+mkdir -p ./output
+./bin/ds_tool \
   --hf-repo anon8231489123/ShareGPT_Vicuna_unfiltered \
   --input-file ShareGPT_V3_unfiltered_cleaned_split.json \
-  --model meta-llama/Llama-3-8B \
+  --model Qwen/Qwen2.5-0.5B-Instruct \
+  --render-url http://localhost:8082 \
   --output-path ./output \
   --output-file my-dataset \
   --max-records 5000
@@ -57,17 +60,19 @@ export HF_TOKEN=your_token_here
 
 #### Example 2: Process Local Dataset
 ```bash
-./ds-tool \
+./bin/ds_tool \
   --local-path ./data \
   --input-file conversations.json \
-  --model meta-llama/Llama-3-8B \
-  --output-file local-dataset 
+  --model Qwen/Qwen2.5-0.5B-Instruct \
+  --render-url http://localhost:8082 \
+  --output-file local-dataset
 ```
 
 #### Example 3: Minimal Configuration
 ```bash
-./dataset-tool \
-  --model meta-llama/Llama-3-8B
+./bin/ds_tool \
+  --model Qwen/Qwen2.5-0.5B-Instruct \
+  --render-url http://localhost:8082 \
   --local-path ./data \
   --input-file dataset.json
 ```
