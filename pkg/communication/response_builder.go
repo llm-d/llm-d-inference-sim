@@ -287,7 +287,7 @@ func (respBuilder *chatComplHTTPRespBuilder) createResponse(respCtxPerChoice []e
 	choices := make([]api.ChatRespChoice, len(tokens))
 	for i, t := range tokens {
 		choiceCtx := respCtxPerChoice[i]
-		baseChoice := api.CreateBaseResponseChoice(i, choiceCtx.FinishReason())
+		baseChoice := api.CreateBaseResponseChoice(i, respBuilder.finishReason(choiceCtx, choiceCtx.FinishReason()))
 
 		message := api.Message{Role: api.RoleAssistant}
 		sendImage := choiceCtx.SendImage()
@@ -332,6 +332,17 @@ func (respBuilder *chatComplHTTPRespBuilder) createResponse(respCtxPerChoice []e
 	return resp
 }
 
+// finishReason returns the finish reason the engine reports for finishReason,
+// which differs from it only for a choice that ends in tool calls.
+func (respBuilder *chatComplHTTPRespBuilder) finishReason(respCtx endpoint.ResponseContext, finishReason *string) *string {
+	if finishReason == nil || *finishReason != common.ToolsFinishReason {
+		return finishReason
+	}
+	named := respCtx.RequestContext().Request().GetToolChoice().OfFunctionToolChoice != nil
+	reason := respBuilder.transport.ChatToolCallsFinishReason(named)
+	return &reason
+}
+
 // buildSyntheticAudio constructs a ChatAudio value carrying the silent WAV payload.
 // The audio ID is derived from the request ID so it is stable within a request.
 func buildSyntheticAudio(requestID, transcript string) *api.ChatAudio {
@@ -364,7 +375,7 @@ func (respBuilder *chatComplHTTPRespBuilder) createChunk(respCtx endpoint.Respon
 	chunk := api.CreateChatCompletionsRespChunk(baseChunk,
 		[]api.ChatRespChunkChoice{
 			respBuilder.transport.DecorateChatChunkChoice(api.CreateChatRespChunkChoice(
-				api.CreateBaseResponseChoice(choiceIdx, finishReason), api.Message{}))})
+				api.CreateBaseResponseChoice(choiceIdx, respBuilder.finishReason(respCtx, finishReason)), api.Message{}))})
 
 	if len(role) > 0 {
 		chunk.Choices[0].Delta.Role = role

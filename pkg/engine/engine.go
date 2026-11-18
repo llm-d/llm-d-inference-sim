@@ -82,6 +82,10 @@ type Engine interface {
 	DecorateChatChoice(choice api.ChatRespChoice) api.ChatRespChoice
 	// DecorateChatChunkChoice is DecorateChatChoice's streaming-chunk counterpart.
 	DecorateChatChunkChoice(choice api.ChatRespChunkChoice) api.ChatRespChunkChoice
+	// ChatToolCallsFinishReason returns the finish reason of a chat-completion
+	// choice that ends in tool calls; named reports whether tool_choice named
+	// the function to call.
+	ChatToolCallsFinishReason(named bool) string
 	// DecorateTextChoice adds any fields this engine puts on a text-completion
 	// choice; both the full response and streamed chunks reuse this one type.
 	DecorateTextChoice(choice api.TextRespChoice) api.TextRespChoice

@@ -613,6 +613,55 @@ var _ = Describe("Simulator for request with tools", Ordered, forEachEngine(func
 		Entry(nil, common.ModeRandom, functionNameGetTemperature),
 	)
 
+	DescribeTable("finish reason of a call to a specific tool",
+		func(stream bool) {
+			ctx := context.TODO()
+			client, err := startServer(ctx, common.ModeRandom)
+			Expect(err).NotTo(HaveOccurred())
+
+			openaiclient, params := getOpenAIClientAndChatParams(client, model, testUserMessage, stream)
+			params.ToolChoice = openai.ToolChoiceOptionFunctionToolChoice(openai.ChatCompletionNamedToolChoiceFunctionParam{
+				Name: functionNameGetWeather,
+			})
+			params.Tools = tools
+
+			// vLLM ends a call to a named tool with stop; sglang with tool_calls.
+			expected := common.StopFinishReason
+			if currentEngine == "sglang" {
+				expected = common.ToolsFinishReason
+			}
+
+			if !stream {
+				resp, err := openaiclient.Chat.Completions.New(ctx, params)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(resp.Choices).To(HaveLen(1))
+				Expect(resp.Choices[0].Message.ToolCalls).NotTo(BeEmpty())
+				Expect(resp.Choices[0].FinishReason).To(Equal(expected))
+				return
+			}
+
+			s := openaiclient.Chat.Completions.NewStreaming(ctx, params)
+			defer func() {
+				Expect(s.Close()).To(Succeed())
+			}()
+			var finishReasons []string
+			toolCallChunks := 0
+			for s.Next() {
+				for _, choice := range s.Current().Choices {
+					toolCallChunks += len(choice.Delta.ToolCalls)
+					if choice.FinishReason != "" {
+						finishReasons = append(finishReasons, choice.FinishReason)
+					}
+				}
+			}
+			Expect(s.Err()).NotTo(HaveOccurred())
+			Expect(toolCallChunks).To(BeNumerically(">", 0))
+			Expect(finishReasons).To(Equal([]string{expected}))
+		},
+		Entry("no streaming", false),
+		Entry("streaming", true),
+	)
+
 	DescribeTable("check validator",
 		func(mode string) {
 			ctx := context.TODO()

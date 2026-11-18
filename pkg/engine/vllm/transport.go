@@ -21,6 +21,7 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
+	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/communication"
 	"github.com/llm-d/llm-d-inference-sim/pkg/communication/grpc/pb"
 )
@@ -81,6 +82,15 @@ func (Engine) DecorateChatChoice(choice api.ChatRespChoice) api.ChatRespChoice {
 // matched_stop.
 func (Engine) DecorateChatChunkChoice(choice api.ChatRespChunkChoice) api.ChatRespChunkChoice {
 	return choice
+}
+
+// ChatToolCallsFinishReason is stop for a call to the function named in
+// tool_choice, as in vLLM's resolve_finish_reason, and tool_calls otherwise.
+func (Engine) ChatToolCallsFinishReason(named bool) string {
+	if named {
+		return common.StopFinishReason
+	}
+	return common.ToolsFinishReason
 }
 
 // DecorateTextChoice adds no fields: vLLM has no equivalent of sglang's

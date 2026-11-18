@@ -23,6 +23,7 @@ import (
 	. "github.com/onsi/gomega"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
+	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 )
 
 // vLLM frames an error the same way everywhere except the Messages API, where it
@@ -75,6 +76,13 @@ var _ = Describe("choice decoration", func() {
 	It("should leave a text choice unchanged", func() {
 		choice := api.CreateTextRespChoice(api.CreateBaseResponseChoice(0, nil), "hello")
 		Expect(New().DecorateTextChoice(choice)).To(Equal(choice))
+	})
+})
+
+var _ = Describe("chat tool-call finish reason", func() {
+	It("should be stop for a named tool and tool_calls otherwise", func() {
+		Expect(New().ChatToolCallsFinishReason(true)).To(Equal(common.StopFinishReason))
+		Expect(New().ChatToolCallsFinishReason(false)).To(Equal(common.ToolsFinishReason))
 	})
 })
 
