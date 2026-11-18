@@ -670,7 +670,7 @@ type FunctionCallOutputItem struct {
 	ID        string `json:"id,omitempty"`
 	CallID    string `json:"call_id,omitempty"`
 	Name      string `json:"name,omitempty"`
-	Arguments string `json:"arguments,omitempty"`
+	Arguments string `json:"arguments"`
 	Status    string `json:"status,omitempty"`
 }
 
@@ -704,7 +704,9 @@ type ResponsesLogprob struct {
 
 type OutputContent struct {
 	Type string `json:"type"` // output_text
-	Text string `json:"text,omitempty"`
+	Text string `json:"text"`
+	// Annotations is always an empty array: the simulator does not generate citations.
+	Annotations []any `json:"annotations"`
 	// nil ptr -> omit (not requested); non-nil ptr to nil slice -> null; non-nil ptr to empty slice -> [];
 	// non-nil ptr to populated slice -> full array
 	Logprobs *[]ResponsesLogprob `json:"logprobs,omitempty"`
@@ -713,6 +715,9 @@ type OutputContent struct {
 func (c OutputContent) MarshalJSON() ([]byte, error) {
 	if c.Type == "" {
 		c.Type = ResponsesOutputText
+	}
+	if c.Annotations == nil {
+		c.Annotations = []any{}
 	}
 	type alias OutputContent
 	return json.Marshal(alias(c))

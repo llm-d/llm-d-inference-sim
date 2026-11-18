@@ -81,6 +81,9 @@ var _ = Describe("Responses HTTP tool streaming", func() {
 		Expect(string(payloads[0])).To(ContainSubstring(`"name":"get_weather"`))
 		Expect(string(payloads[0])).To(ContainSubstring(`"status":"in_progress"`))
 		Expect(string(payloads[0])).To(ContainSubstring(`"call_id":"call_abc123"`))
+		var added map[string]any
+		Expect(json.Unmarshal(payloads[0], &added)).To(Succeed())
+		Expect(added).To(HaveKeyWithValue("item", HaveKeyWithValue("arguments", "")))
 
 		second := &api.ToolCall{
 			ID:   "fc_abc123",
