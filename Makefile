@@ -49,7 +49,7 @@ endif
 endif
 TEST_ENV := CGO_ENABLED=0 $(if $(TEST_DOCKER_HOST),DOCKER_HOST=$(TEST_DOCKER_HOST) TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=$(or $(TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE),/var/run/docker.sock))
 
-VLLM_RENDER_IMAGE ?= vllm/vllm-openai-cpu:v0.21.0
+VLLM_RENDER_IMAGE ?= vllm/vllm-openai-cpu:v0.34.0
 RENDER_PORT ?= 8082
 # Extra `vllm launch render` options, e.g. tool calling: --enable-auto-tool-choice --tool-call-parser hermes
 RENDER_ARGS ?=
