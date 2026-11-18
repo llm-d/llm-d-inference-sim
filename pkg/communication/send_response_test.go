@@ -484,6 +484,72 @@ var _ = Describe("sendStream responses events", func() {
 	})
 })
 
+var _ = Describe("responses status at the token limit", func() {
+	// send returns the last streamed event's type and response, or an empty
+	// type and the response body when not streaming.
+	send := func(maxOutputTokens string, stream bool) (string, map[string]any) {
+		ctx := context.Background()
+		sim := newRunningSim(ctx)
+
+		req := &endpoint.ResponsesRequest{}
+		Expect(req.Unmarshal([]byte(fmt.Sprintf(`{"model":%q,"input":"hello there my friend","stream":%t%s}`,
+			common.TestModelName, stream, maxOutputTokens)))).To(Succeed())
+		req.SetRequestID("status")
+		_, _, respChan, topErr, _ := sim.HandleRequest(ctx, req)
+		Expect(topErr).To(BeNil())
+
+		c := &Communication{logger: klog.Background(), transport: fakeTransport{}}
+		httpCtx := &fasthttp.RequestCtx{}
+		if !stream {
+			c.sendNonStream(httpCtx, *respChan, &responsesHTTPRespBuilder{}, 1)
+			var resp map[string]any
+			Expect(json.Unmarshal(httpCtx.Response.Body(), &resp)).To(Succeed())
+			return "", resp
+		}
+
+		first := <-respChan.Channel
+		c.sendStream(httpCtx, *respChan, &responsesHTTPRespBuilder{}, 1, first, func() {})
+		out, err := io.ReadAll(httpCtx.Response.BodyStream())
+		Expect(err).NotTo(HaveOccurred())
+		var lastType string
+		var lastResp map[string]any
+		for _, line := range strings.Split(string(out), "\n") {
+			data, ok := strings.CutPrefix(line, api.SSEDataPrefix)
+			if !ok {
+				continue
+			}
+			var event map[string]any
+			Expect(json.Unmarshal([]byte(data), &event)).To(Succeed())
+			lastType, _ = event["type"].(string)
+			lastResp, _ = event["response"].(map[string]any)
+		}
+		return lastType, lastResp
+	}
+
+	DescribeTable("is incomplete when max_output_tokens cuts the answer",
+		func(stream bool, wantEvent string) {
+			eventType, resp := send(`,"max_output_tokens":1`, stream)
+			Expect(eventType).To(Equal(wantEvent))
+			Expect(resp).To(HaveKeyWithValue("status", api.ResponsesStatusIncomplete))
+			Expect(resp).To(HaveKeyWithValue("incomplete_details",
+				HaveKeyWithValue("reason", api.ResponsesIncompleteMaxTokens)))
+		},
+		Entry("non-streamed", false, ""),
+		Entry("streamed", true, api.ResponsesEventIncomplete),
+	)
+
+	DescribeTable("stays completed when the answer ends before the limit",
+		func(stream bool, wantEvent string) {
+			eventType, resp := send("", stream)
+			Expect(eventType).To(Equal(wantEvent))
+			Expect(resp).To(HaveKeyWithValue("status", api.ResponsesStatusCompleted))
+			Expect(resp).NotTo(HaveKey("incomplete_details"))
+		},
+		Entry("non-streamed", false, ""),
+		Entry("streamed", true, api.ResponsesEventCompleted),
+	)
+})
+
 // abortRecorder records the context handleHTTP passes to HandleRequest, which
 // is done once the request is aborted.
 type abortRecorder struct {

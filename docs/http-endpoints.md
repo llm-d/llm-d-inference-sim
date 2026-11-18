@@ -589,6 +589,8 @@ The streaming response uses Server-Sent Events (SSE) and emits the following eve
 
 When the turn is a tool call (`tools` present and `tool_choice` is not `none`, and `input` has no `function_call_output`), the stream instead emits: `response.created`, `response.in_progress`, `response.output_item.added` (item type `function_call`), one or more `response.function_call_arguments.delta`, `response.function_call_arguments.done`, `response.output_item.done`, `response.completed` (with a single `function_call` in `output`).
 
+A response that stops at the `max_output_tokens` limit has status `incomplete` and `incomplete_details.reason` `max_output_tokens`, and its stream ends with `response.incomplete` instead of `response.completed`.
+
 ## `finish_reason` values
 
 The `finish_reason` field in choices may be one of:
