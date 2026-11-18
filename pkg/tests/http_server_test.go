@@ -330,6 +330,35 @@ var _ = Describe("Server", forEachEngine(func() {
 		)
 	})
 
+	DescribeTable("serves a generation request without a model with the served model",
+		func(path string, reqBody string) {
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
+				"--served-model-name", "alias"}
+			client, err := startServerWithArgs(context.TODO(), args)
+			Expect(err).NotTo(HaveOccurred())
+
+			resp, err := client.Post("http://localhost"+path, "application/json", strings.NewReader(reqBody))
+			Expect(err).NotTo(HaveOccurred())
+			defer func() {
+				Expect(resp.Body.Close()).To(Succeed())
+			}()
+
+			body, err := io.ReadAll(resp.Body)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.StatusCode).To(Equal(http.StatusOK), string(body))
+			var got struct {
+				Model string `json:"model"`
+			}
+			Expect(json.Unmarshal(body, &got)).To(Succeed())
+			Expect(got.Model).To(Equal("alias"))
+		},
+		Entry("completions", "/v1/completions", `{"prompt":"This is a test","max_tokens":1}`),
+		Entry("completions, empty model", "/v1/completions", `{"model":"","prompt":"This is a test","max_tokens":1}`),
+		Entry("chat completions", "/v1/chat/completions",
+			`{"messages":[{"role":"user","content":"This is a test"}],"max_tokens":1}`),
+		Entry("responses", "/v1/responses", `{"input":"This is a test","max_output_tokens":16}`),
+	)
+
 	Context("SSL/HTTPS Configuration", func() {
 		It("Should start HTTPS server with provided SSL certificates", func(ctx SpecContext) {
 			tempDir := GinkgoT().TempDir()
