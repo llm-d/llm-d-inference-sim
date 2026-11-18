@@ -19,6 +19,7 @@ package simulator
 import (
 	"context"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
