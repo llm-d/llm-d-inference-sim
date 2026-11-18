@@ -297,7 +297,7 @@ type RequestSucceeded struct {
 	CachedPromptTokens int
 	GenerationTokens   int
 	GenTokensPerChoice []int
-	MaxTokens          *int64 // limit the request ran with: max_tokens capped by the context window, or what is left of it
+	MaxTokens          *int64 // limit the request ran with: max_tokens, or the API default for it, capped by the context window
 	FinishReason       string
 	E2ELatency         float64 // seconds
 	InferenceTime      float64 // seconds
