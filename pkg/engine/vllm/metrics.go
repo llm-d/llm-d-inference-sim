@@ -320,32 +320,12 @@ func (m *vllmMetricsAdapter) OnRequestSucceeded(ev metrics.RequestSucceeded) {
 	if m.fake.Load() != nil {
 		return
 	}
-	m.observeFinished(ev)
-	m.finishRunning()
-}
 
-// request processing failed - update all relevant metrics
-func (m *vllmMetricsAdapter) OnRequestFailed(ev metrics.RequestFailed) {
-	if m.fake.Load() != nil {
-		return
-	}
-	m.observeFinished(metrics.RequestSucceeded{
-		PromptTokens:       ev.PromptTokens,
-		GenerationTokens:   ev.GenerationTokens,
-		GenTokensPerChoice: []int{ev.GenerationTokens},
-		MaxTokens:          ev.MaxTokens,
-		FinishReason:       common.ErrorFinishReason,
-		E2ELatency:         ev.E2ELatency,
-		InferenceTime:      ev.InferenceTime,
-	})
-	m.finishRunning()
-}
-
-func (m *vllmMetricsAdapter) observeFinished(ev metrics.RequestSucceeded) {
 	// update number of successful requests per finish reason
 	common.WriteToChannel(m.requestSuccessTotalChan, requestSuccessCounterUpdate{Increment: &ev.FinishReason}, m.logger)
 
-	// update number of prompt and generated tokens, both total and histogram metrics
+	// request finished successfully, update number of prompt and generated tokens
+	// both total and histogram metrics
 	common.WriteToChannel(m.requestPromptTokensChan, metrics.Observation(float64(ev.PromptTokens)), m.logger)
 	common.WriteToChannel(m.requestGenerationTokensChan, metrics.Observation(float64(ev.GenerationTokens)), m.logger)
 	promptTokens := float64(ev.PromptTokens)
@@ -363,6 +343,20 @@ func (m *vllmMetricsAdapter) observeFinished(ev metrics.RequestSucceeded) {
 
 	common.WriteToChannel(m.e2eReqLatencyChan, metrics.Observation(ev.E2ELatency), m.logger)
 	common.WriteToChannel(m.reqInferenceTimeChan, metrics.Observation(ev.InferenceTime), m.logger)
+
+	m.finishRunning()
+}
+
+// request processing failed
+// - update all relevant metrics
+func (m *vllmMetricsAdapter) OnRequestFailed(ev metrics.RequestFailed) {
+	if m.fake.Load() != nil {
+		return
+	}
+	common.WriteToChannel(m.e2eReqLatencyChan, metrics.Observation(ev.E2ELatency), m.logger)
+	common.WriteToChannel(m.reqInferenceTimeChan, metrics.Observation(ev.InferenceTime), m.logger)
+
+	m.finishRunning()
 }
 
 // change in kv cache utilization

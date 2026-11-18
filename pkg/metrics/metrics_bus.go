@@ -313,7 +313,6 @@ type RequestFailed struct {
 	PromptTokens       int
 	CachedPromptTokens int
 	GenerationTokens   int
-	MaxTokens          *int64
 	E2ELatency         float64 // seconds
 	InferenceTime      float64 // seconds
 	IsStreaming        bool

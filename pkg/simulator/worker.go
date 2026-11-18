@@ -80,7 +80,6 @@ func (s *Simulator) processRequest(reqCtx endpoint.RequestContext) {
 		ev.E2ELatency = time.Since(reqCtx.StartProcessingTime()).Seconds()
 		ev.InferenceTime = time.Since(startTime).Seconds()
 		ev.IsStreaming = req.IsStream()
-		ev.MaxTokens = s.requestMaxTokens(req)
 		common.WriteToChannel(s.Context.metricsBus.RequestFailed, ev, s.Context.logger)
 	}
 	respCtx, err := reqCtx.HandleRequest()
@@ -124,29 +123,20 @@ func (s *Simulator) processRequest(reqCtx endpoint.RequestContext) {
 	if respCtx.FinishReason() != nil {
 		finishReason = *respCtx.FinishReason()
 	}
+	responseMaxLen, _ := api.ResponseMaxLen(req, s.Context.Config().MaxModelLen)
+	maxTokens := int64(responseMaxLen)
 	common.WriteToChannel(s.Context.metricsBus.RequestSucceeded,
 		metrics.RequestSucceeded{
 			PromptTokens:       respCtx.UsageData().PromptTokens,
 			CachedPromptTokens: respCtx.NumberCachedPromptTokens(),
 			GenerationTokens:   respCtx.UsageData().CompletionTokens,
 			GenTokensPerChoice: []int{respCtx.UsageData().CompletionTokens},
-			MaxTokens:          s.requestMaxTokens(req),
+			MaxTokens:          &maxTokens,
 			FinishReason:       finishReason,
 			E2ELatency:         time.Since(reqCtx.StartProcessingTime()).Seconds(),
 			InferenceTime:      time.Since(startTime).Seconds(),
 			IsStreaming:        req.IsStream(),
 		}, s.Context.logger)
-}
-
-// requestMaxTokens returns the output token limit req runs with, or 0 when its
-// prompt was not tokenized or leaves no room in the context window.
-func (s *Simulator) requestMaxTokens(req api.Request) *int64 {
-	maxTokens := int64(0)
-	if req.TokenizedPrompt() != nil {
-		responseMaxLen, _ := api.ResponseMaxLen(req, s.Context.Config().MaxModelLen)
-		maxTokens = int64(max(responseMaxLen, 0))
-	}
-	return &maxTokens
 }
 
 // responseAbandoned reports whether reqCtx's response channel is done.

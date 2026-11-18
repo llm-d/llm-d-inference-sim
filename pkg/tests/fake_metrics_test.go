@@ -854,7 +854,7 @@ var _ = Describe("Fake metrics", Ordered, func() {
 
 			fakeMetrics := getFakeMetricsConfig(client)
 			Expect(fakeMetrics["request-success-total"]).To(MatchJSON(
-				`{"stop":7,"length":0,"tool_calls":0,"remote_decode":0,"cache_threshold":0,"error":0}`))
+				`{"stop":7,"length":0,"tool_calls":0,"remote_decode":0,"cache_threshold":0}`))
 			Expect(fakeMetrics["loras"]).To(MatchJSON(`[{"running":"lora3","waiting":"","timestamp":2000000001}]`))
 		})
 

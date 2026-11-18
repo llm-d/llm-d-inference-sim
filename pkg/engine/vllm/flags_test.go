@@ -286,7 +286,6 @@ var _ = Describe("Simulator configuration", func() {
 			common.ToolsFinishReason:          0,
 			common.RemoteDecodeFinishReason:   0,
 			common.CacheThresholdFinishReason: 0,
-			common.ErrorFinishReason:          0,
 		},
 	}
 	test = testCase{
