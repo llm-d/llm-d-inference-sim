@@ -242,10 +242,11 @@ var _ = Describe("sglang engine", func() {
 })
 
 var _ = Describe("sglang engine startup", func() {
-	It("Should refuse to start with the KV cache enabled, naming the feature", func() {
-		_, err := startServerWithArgs(context.TODO(),
-			[]string{"cmd", "--engine", "sglang", "--model", common.TestModelName, "--enable-kvcache"})
-		Expect(err).To(MatchError(ContainSubstring("KV-cache simulation is not implemented by the sglang engine yet")))
+	It("Should start with the KV cache enabled", func() {
+		_, err := startServerWithArgsAndEnv(context.TODO(), "",
+			[]string{"cmd", "--engine", "sglang", "--model", common.TestModelName, "--enable-kvcache", "--page-size", "32"},
+			map[string]string{"POD_IP": "localhost"})
+		Expect(err).NotTo(HaveOccurred())
 	})
 
 	It("Should refuse a config file written for vLLM", func() {

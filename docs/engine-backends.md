@@ -23,9 +23,12 @@ SGLang support is experimental and incomplete: it is not ready for production us
 the engine-neutral surface only: the OpenAI-compatible endpoints, the latency model, and dataset-backed
 response generation, with `owned_by` reported as `sglang`, plus the `sglang:`-prefixed metrics described
 in [Metrics](metrics.md#sglang), which `--enable-metrics` turns on. It has no native HTTP routes, no gRPC
-service, no LoRA adapters, and no KV cache. Because the settings behind those features are engine-owned, a
+service, and no LoRA adapters. Because the settings behind those features are engine-owned, a
 configuration file asking for one is rejected rather than silently ignored, and the corresponding flags do
 not exist.
+
+Its KV cache takes `--page-size` for the block size and publishes events in SGLang's format. The other
+KV-cache settings have no SGLang flag yet and keep their defaults.
 
 It does not serve the render endpoints (`/v1/completions/render`, `/v1/chat/completions/render`,
 `/v1/responses/render`, `/v1/messages/render`) or the derender endpoints (`/v1/completions/derender`,
