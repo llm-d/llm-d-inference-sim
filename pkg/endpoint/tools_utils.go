@@ -20,6 +20,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
@@ -266,7 +268,9 @@ func generateToolArguments(tool api.Tool, config *common.ToolCallConfig, random 
 
 	required := getRequiredAsMap(tool.Function.Parameters)
 
-	for param, property := range properties {
+	// Sorted so that a seeded run draws the same random value for each parameter.
+	for _, param := range slices.Sorted(maps.Keys(properties)) {
+		property := properties[param]
 		_, paramIsRequired := required[param]
 		if !paramIsRequired && !random.RandomBool(config.ToolCallNotRequiredParamProbability) {
 			continue
@@ -347,11 +351,24 @@ func createArgument(property any, config *common.ToolCallConfig, random *common.
 		}
 		minItems := config.MinToolCallArrayParamLength
 		maxItems := config.MaxToolCallArrayParamLength
-		if value, ok := propertyMap["minItems"]; ok {
-			minItems = int(value.(float64))
+		minValue, hasMin := propertyMap["minItems"]
+		if hasMin {
+			minItems = int(minValue.(float64))
 		}
-		if value, ok := propertyMap["maxItems"]; ok {
-			maxItems = int(value.(float64))
+		maxValue, hasMax := propertyMap["maxItems"]
+		if hasMax {
+			maxItems = int(maxValue.(float64))
+		}
+		if minItems < 0 || maxItems < 0 {
+			return nil, fmt.Errorf("minItems (%d) and maxItems (%d) must not be negative", minItems, maxItems)
+		}
+		// A bound the schema leaves out comes from the configuration and must
+		// not contradict the one the schema sets.
+		if hasMin && !hasMax && maxItems < minItems {
+			maxItems = minItems
+		}
+		if hasMax && !hasMin && minItems > maxItems {
+			minItems = maxItems
 		}
 		if minItems > maxItems {
 			return nil, fmt.Errorf("minItems (%d) is greater than maxItems(%d)", minItems, maxItems)
@@ -374,7 +391,9 @@ func createArgument(property any, config *common.ToolCallConfig, random *common.
 			return map[string]any{}, nil
 		}
 		object := make(map[string]interface{})
-		for fieldName, fieldProperties := range objectProperties {
+		// Sorted so that a seeded run draws the same random value for each field.
+		for _, fieldName := range slices.Sorted(maps.Keys(objectProperties)) {
+			fieldProperties := objectProperties[fieldName]
 			_, fieldIsRequired := required[fieldName]
 			if !fieldIsRequired && !random.RandomBool(config.ObjectToolCallNotRequiredParamProbability) {
 				continue

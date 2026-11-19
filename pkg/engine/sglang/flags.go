@@ -40,6 +40,9 @@ const notYet = " (not simulated by the sglang engine yet)"
 // are spelled the same whatever the engine, which is why this engine can name
 // them already. LoRA is not among them: its flags are spelled per engine, so
 // this engine registers none until it has its own.
+//
+// It also registers the metrics toggle, which sglang spells --enable-metrics
+// and defaults to off.
 func (Engine) BindFlags(f *pflag.FlagSet, cfg *common.Configuration, rawYAML map[string]any) error {
 	if err := claimYAMLKeys(cfg, rawYAML); err != nil {
 		return err
@@ -49,10 +52,12 @@ func (Engine) BindFlags(f *pflag.FlagSet, cfg *common.Configuration, rawYAML map
 		return err
 	}
 
-	// Registered after the config file has been read, so the flag's default is
+	// Registered after the config file has been read, so each flag's default is
 	// the file's value and an explicit flag still overrides it.
 	common.AddToggle(f, &cfg.KVCache.EnableKVCache,
 		"enable-kvcache", "Enable KV cache simulation"+notYet, "Disable KV cache simulation")
+	common.AddToggle(f, &cfg.EnableMetrics,
+		"enable-metrics", "Enable Prometheus metrics", "Disable Prometheus metrics")
 
 	// fake-metrics takes multiple space-separated JSON strings, which pflag
 	// cannot bind directly, so its presence is read from os.Args instead. The
@@ -91,27 +96,38 @@ func declareFields(f *pflag.FlagSet, cfg *common.Configuration, rawYAML map[stri
 		"Maximum length of inference requests waiting queue")
 }
 
-// claimYAMLKeys reads the config-file keys of the two unimplemented features out
-// of a config file's raw tree, so that a file asking for one is refused by
-// ValidateConfig naming the feature rather than reported as an unrecognized key.
-// rawYAML is nil when no --config file was given; indexing and deleting a nil
-// map are both no-ops.
+// claimBool reads key out of raw into out, leaving out at its current value for
+// a valueless "key:" the way unmarshaling a null into a bool does, and claims
+// the key either way.
+func claimBool(raw map[string]any, key string, out *bool) error {
+	v, ok := raw[key]
+	if ok && v != nil {
+		enabled, isBool := v.(bool)
+		if !isBool {
+			return fmt.Errorf("%s must be a boolean, got '%v'", key, v)
+		}
+		*out = enabled
+	}
+	delete(raw, key)
+	return nil
+}
+
+// claimYAMLKeys reads this engine's own flat config-file keys out of a config
+// file's raw tree: the two toggles whose flags BindFlags registers, and the
+// fake-metrics block. A file asking for an unimplemented feature is then
+// refused by ValidateConfig naming the feature rather than reported as an
+// unrecognized key. rawYAML is nil when no --config file was given; indexing
+// and deleting a nil map are both no-ops.
 //
 // Only the flat spelling of enable-kvcache is claimed. A nested kvcache block
 // carries the rest of the group, whose names this engine cannot commit to yet,
 // so leaving the block unclaimed reports it, which is the honest outcome.
 func claimYAMLKeys(cfg *common.Configuration, rawYAML map[string]any) error {
-	if v, ok := rawYAML["enable-kvcache"]; ok {
-		// A valueless "enable-kvcache:" leaves the default, the way unmarshaling
-		// a null into a bool does for the engines that read the key that way.
-		if v != nil {
-			enabled, isBool := v.(bool)
-			if !isBool {
-				return fmt.Errorf("enable-kvcache must be a boolean, got '%v'", v)
-			}
-			cfg.KVCache.EnableKVCache = enabled
-		}
-		delete(rawYAML, "enable-kvcache")
+	if err := claimBool(rawYAML, "enable-kvcache", &cfg.KVCache.EnableKVCache); err != nil {
+		return err
+	}
+	if err := claimBool(rawYAML, "enable-metrics", &cfg.EnableMetrics); err != nil {
+		return err
 	}
 
 	if v, ok := rawYAML["fake-metrics"]; ok {

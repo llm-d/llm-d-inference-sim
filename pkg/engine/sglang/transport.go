@@ -147,6 +147,18 @@ func (Engine) DecorateMessagesCountTokens(resp api.MessagesCountTokensResponse) 
 	return resp
 }
 
+// DecorateMessagesDeltaUsage adds no fields: sglang's message_delta usage has
+// output_tokens alone.
+func (Engine) DecorateMessagesDeltaUsage(usage api.MessagesStreamUsage, _ api.MessagesUsage) api.MessagesStreamUsage {
+	return usage
+}
+
+// DecorateTokenizeResponse adds no fields: sglang's /tokenize has no
+// return_token_strs.
+func (Engine) DecorateTokenizeResponse(resp api.TokenizeResponse, _ api.TokenizeRequest, _ []string) api.TokenizeResponse {
+	return resp
+}
+
 // messagesErrorBody puts the error in the Anthropic envelope, with the type
 // mapped to Anthropic's vocabulary and a server error's message replaced.
 func messagesErrorBody(err api.Error) any {

@@ -93,3 +93,21 @@ func (Engine) DecorateMessagesCountTokens(resp api.MessagesCountTokensResponse) 
 	resp.ContextManagement = &api.MessagesContextManagement{OriginalInputTokens: resp.InputTokens}
 	return resp
 }
+
+// DecorateMessagesDeltaUsage adds the input fields: vLLM sends the full usage
+// in message_delta.
+func (Engine) DecorateMessagesDeltaUsage(usage api.MessagesStreamUsage, full api.MessagesUsage) api.MessagesStreamUsage {
+	usage.InputTokens = &full.InputTokens
+	usage.CacheCreationInputTokens = &full.CacheCreationInputTokens
+	usage.CacheReadInputTokens = &full.CacheReadInputTokens
+	return usage
+}
+
+// DecorateTokenizeResponse adds token_strs when the request sets
+// return_token_strs, as vLLM does.
+func (Engine) DecorateTokenizeResponse(resp api.TokenizeResponse, req api.TokenizeRequest, tokenStrs []string) api.TokenizeResponse {
+	if req.ReturnTokenStrs {
+		resp.TokenStrs = tokenStrs
+	}
+	return resp
+}

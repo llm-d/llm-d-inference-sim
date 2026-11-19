@@ -165,7 +165,7 @@ func (c *Communication) HandleResponses(ctx *fasthttp.RequestCtx) {
 
 // HandleMessages http handler for /v1/messages (Anthropic Messages API)
 func (c *Communication) HandleMessages(ctx *fasthttp.RequestCtx) {
-	c.handleHTTP(&endpoint.MessagesRequest{}, &messagesHTTPRespBuilder{}, ctx)
+	c.handleHTTP(&endpoint.MessagesRequest{}, &messagesHTTPRespBuilder{transport: c.transport}, ctx)
 }
 
 // HandleGenerate http handler for /inference/v1/generate
@@ -208,7 +208,7 @@ func (c *Communication) HandleMessagesRender(ctx *fasthttp.RequestCtx) {
 
 // HandleMessagesCountTokens http handler for /v1/messages/count_tokens
 func (c *Communication) HandleMessagesCountTokens(ctx *fasthttp.RequestCtx) {
-	c.handleRender(&endpoint.MessagesRequest{}, &messagesCountTokensHTTPRespBuilder{transport: c.transport}, true, false, ctx)
+	c.handleRender(&endpoint.MessagesRequest{}, &messagesCountTokensHTTPRespBuilder{messagesHTTPRespBuilder{transport: c.transport}}, true, false, ctx)
 }
 
 // handleRender parses and renders a request without generating a response.
@@ -673,8 +673,9 @@ func (c *Communication) emitResponseChunks(route api.ErrorRoute, w *bufio.Writer
 			} else {
 				state.toolCallIndex[choiceIdx]++
 			}
-			if err := c.sendStreamedTools(respCtx, respBuilder, w, response.Tokens.Strings, response.ToolCall,
-				state.toolCallIndex[choiceIdx], choiceIdx); err != nil {
+			// Choices can end with different finish reasons, so pass this choice's own.
+			if err := c.sendStreamedTools(respCtx, response.RespCtx.FinishReason(), respBuilder, w, response.Tokens.Strings, response.ToolCall,
+				state.toolCallIndex[choiceIdx], choiceIdx, lastTokensChunk); err != nil {
 				c.chunkSendFailed("Sending tools chunk failed", err)
 				return false
 			}
@@ -724,17 +725,17 @@ func (c *Communication) chunkSendFailed(msg string, err error) {
 	c.logger.Error(err, msg)
 }
 
-func (c *Communication) sendStreamedTools(respCtx endpoint.ResponseContext, respBuilder responseBuilder,
-	w *bufio.Writer, tokens []string, tc *api.ToolCall, index int, choiceIdx int) error {
+func (c *Communication) sendStreamedTools(respCtx endpoint.ResponseContext, finishReason *string, respBuilder responseBuilder,
+	w *bufio.Writer, tokens []string, tc *api.ToolCall, index int, choiceIdx int, lastTokensChunk bool) error {
 	tokensStr := strings.Join(tokens, "")
 
 	toolChunkInsert := api.NewToolCallStreamDelta(tc, tokensStr, index == 0)
 
 	var finishReasonToSend *string
-	if index == tc.Function.TokenizedArguments().Length()-1 && (*respCtx.FinishReason() == common.LengthFinishReason ||
-		*respCtx.FinishReason() == common.ToolsFinishReason ||
-		*respCtx.FinishReason() == common.CacheThresholdFinishReason) {
-		finishReasonToSend = respCtx.FinishReason()
+	if lastTokensChunk && finishReason != nil && (*finishReason == common.LengthFinishReason ||
+		*finishReason == common.ToolsFinishReason ||
+		*finishReason == common.CacheThresholdFinishReason) {
+		finishReasonToSend = finishReason
 	}
 	return c.sendChunk(w, respBuilder.createChunk(respCtx, nil, toolChunkInsert, "", finishReasonToSend, choiceIdx))
 }
@@ -846,12 +847,13 @@ func (c *Communication) HandleTokenize(ctx *fasthttp.RequestCtx) {
 	}
 
 	var tokens []uint32
+	var tokenStrs []string
 
 	if req.Prompt != "" {
-		tokens, _, err = c.runtime.GetTokenizer().RenderText(req.Prompt)
+		tokens, tokenStrs, err = c.runtime.GetTokenizer().RenderText(req.Prompt)
 	} else {
 		// has messages
-		tokens, _, _, err = c.runtime.GetTokenizer().RenderMessages(req.Messages, api.RenderTools{}, "")
+		tokens, tokenStrs, _, err = c.runtime.GetTokenizer().RenderMessages(req.Messages, api.RenderTools{}, "")
 	}
 
 	if err != nil {
@@ -866,6 +868,7 @@ func (c *Communication) HandleTokenize(ctx *fasthttp.RequestCtx) {
 		Tokens:      tokens,
 		MaxModelLen: c.runtime.Config().MaxModelLen,
 	}
+	resp = c.transport.DecorateTokenizeResponse(resp, *req, tokenStrs)
 	data, err := json.Marshal(resp)
 	if err != nil {
 		errToSend := api.NewError("Response body creation failed, "+err.Error(), fasthttp.StatusInternalServerError, nil)

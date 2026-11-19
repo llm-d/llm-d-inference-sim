@@ -150,12 +150,16 @@ func (b *MetricsBus) loraCounterLoop(ctx context.Context) {
 			case LoRAWaiting:
 				b.incrementLoraRefCount(ev.Model, &b.waitingLoras)
 			case LoRARunning:
-				b.decrementLoraRefCount(ev.Model, &b.waitingLoras)
+				if ev.Queued {
+					b.decrementLoraRefCount(ev.Model, &b.waitingLoras)
+				}
 				b.incrementLoraRefCount(ev.Model, &b.runningLoras)
 			case LoRADone:
 				b.decrementLoraRefCount(ev.Model, &b.runningLoras)
 			case LoRADropped:
-				b.decrementLoraRefCount(ev.Model, &b.waitingLoras)
+				if ev.Queued {
+					b.decrementLoraRefCount(ev.Model, &b.waitingLoras)
+				}
 			default:
 				// invalid event
 				continue
@@ -249,11 +253,12 @@ type PrefillStarted struct {
 }
 
 // PrefillEnded fires after the simulated prefill delay. Drives
-// request_prefill_time_seconds and time_to_first_token_seconds (same
-// value observed on both histograms).
+// request_prefill_time_seconds (PrefillDuration) and
+// time_to_first_token_seconds (TimeToFirstToken).
 type PrefillEnded struct {
-	PrefillDuration float64 // seconds
-	IsStreaming     bool
+	PrefillDuration  float64 // seconds
+	TimeToFirstToken float64 // seconds since the request arrived, queue time included
+	IsStreaming      bool
 }
 
 // DecodeStarted fires before the per-token generation loop. State marker.
@@ -269,7 +274,12 @@ type TokenGenerated struct {
 
 // DecodeEnded fires after the last token. Drives request_decode_time_seconds
 // (Observe DecodeDuration) and request_time_per_output_token_seconds
-// (Observe DecodeDuration/GenerationTokens when GenerationTokens > 0).
+// (Observe DecodeDuration/GenerationTokens; each engine adapter decides what a
+// single-token output, GenerationTokens 0, reports).
+//
+// GenerationTokens counts the gaps between generated tokens, one fewer than
+// the tokens themselves, so DecodeDuration/GenerationTokens is the time per
+// output token after the first.
 type DecodeEnded struct {
 	GenerationTokens int
 	DecodeDuration   float64 // seconds
@@ -287,7 +297,7 @@ type RequestSucceeded struct {
 	CachedPromptTokens int
 	GenerationTokens   int
 	GenTokensPerChoice []int
-	MaxTokens          *int64
+	MaxTokens          *int64 // limit the request ran with: max_tokens capped by the context window, or what is left of it
 	FinishReason       string
 	E2ELatency         float64 // seconds
 	InferenceTime      float64 // seconds
@@ -333,6 +343,11 @@ const (
 type LoRAChanged struct {
 	Model string
 	State LoRAState
+	// Queued is true when the request went through the waiting queue and so
+	// emitted LoRAWaiting. Only such a request holds a waiting reference that
+	// LoRARunning or LoRADropped may release; a request that went straight to
+	// a free worker never added one.
+	Queued bool
 }
 
 // LoRASetsChanged is emitted after the bus applies a LoRAChanged event; it

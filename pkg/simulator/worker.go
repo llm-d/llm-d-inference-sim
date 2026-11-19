@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
 	"github.com/llm-d/llm-d-inference-sim/pkg/endpoint"
@@ -65,15 +66,15 @@ func (s *Simulator) processRequest(reqCtx endpoint.RequestContext) {
 		// Abandoned before it started, e.g. while queued: release it without running it.
 		s.Context.logger.V(logging.DEBUG).Info("Dropped request, its response is no longer read",
 			"id", req.GetRequestID())
-		if req.IsModelLoRA() {
+		// Only a request that waited in the queue holds a LoRA waiting reference to release.
+		if req.IsModelLoRA() && reqCtx.Queued() {
 			common.WriteToChannel(s.Context.metricsBus.LoRAChanged,
-				metrics.LoRAChanged{Model: req.GetDisplayedModel(), State: metrics.LoRADropped}, s.Context.logger)
+				metrics.LoRAChanged{Model: req.GetDisplayedModel(), State: metrics.LoRADropped, Queued: true},
+				s.Context.logger)
 		}
 		reqCtx.SignalDone()
 		return
 	}
-	defer s.onResponseProcessingFinished(reqCtx)
-
 	startTime := time.Now()
 	reportFailed := func() {
 		common.WriteToChannel(s.Context.metricsBus.RequestFailed,
@@ -83,6 +84,21 @@ func (s *Simulator) processRequest(reqCtx endpoint.RequestContext) {
 			}, s.Context.logger)
 	}
 	respCtx, err := reqCtx.HandleRequest()
+	if err != nil && !reqCtx.Started() {
+		// Rejected before it ran, e.g. a prompt over the context window: vLLM rejects it
+		// before the engine, so it is neither running nor observed as failed.
+		common.WriteToChannel(reqCtx.ResponseChannel(),
+			&endpoint.ResponseInfo{Err: err, ChoiceIdx: reqCtx.ChoiceIndex()}, s.Context.logger)
+		// Only a request that waited in the queue holds a LoRA waiting reference to release.
+		if req.IsModelLoRA() && reqCtx.Queued() {
+			common.WriteToChannel(s.Context.metricsBus.LoRAChanged,
+				metrics.LoRAChanged{Model: req.GetDisplayedModel(), State: metrics.LoRADropped, Queued: true},
+				s.Context.logger)
+		}
+		reqCtx.SignalDone()
+		return
+	}
+	defer s.onResponseProcessingFinished(reqCtx)
 	if err != nil {
 		common.WriteToChannel(reqCtx.ResponseChannel(),
 			&endpoint.ResponseInfo{RespCtx: respCtx, Err: err, ChoiceIdx: reqCtx.ChoiceIndex()},
@@ -104,13 +120,15 @@ func (s *Simulator) processRequest(reqCtx endpoint.RequestContext) {
 	if respCtx.FinishReason() != nil {
 		finishReason = *respCtx.FinishReason()
 	}
+	responseMaxLen, _ := api.ResponseMaxLen(req, s.Context.Config().MaxModelLen)
+	maxTokens := int64(responseMaxLen)
 	common.WriteToChannel(s.Context.metricsBus.RequestSucceeded,
 		metrics.RequestSucceeded{
 			PromptTokens:       respCtx.UsageData().PromptTokens,
 			CachedPromptTokens: respCtx.NumberCachedPromptTokens(),
 			GenerationTokens:   respCtx.UsageData().CompletionTokens,
 			GenTokensPerChoice: []int{respCtx.UsageData().CompletionTokens},
-			MaxTokens:          req.GetMaxCompletionTokens(),
+			MaxTokens:          &maxTokens,
 			FinishReason:       finishReason,
 			E2ELatency:         time.Since(reqCtx.StartProcessingTime()).Seconds(),
 			InferenceTime:      time.Since(startTime).Seconds(),

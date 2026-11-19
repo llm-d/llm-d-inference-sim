@@ -38,6 +38,8 @@ const (
 	ResponsesObject               = "response"
 	ResponsesStatusCompleted      = "completed"
 	ResponsesStatusInProgress     = "in_progress"
+	ResponsesStatusIncomplete     = "incomplete"
+	ResponsesIncompleteMaxTokens  = "max_output_tokens"
 	ResponsesOutputText           = "output_text"
 	ResponsesOutputMessage        = "message"
 	ResponsesOutputFunctionCall   = "function_call"
@@ -101,7 +103,7 @@ type LogprobsContent struct {
 	// Bytes is the byte representation of the token
 	Bytes []int `json:"bytes"`
 	// TopLogprobs is the list of top alternative tokens along their log probabilities
-	TopLogprobs []LogprobsContent `json:"top_logprobs,omitempty"`
+	TopLogprobs []TopLogprob `json:"top_logprobs"`
 }
 
 // ChatLogprobs represents logprobs for chat completion responses
@@ -635,15 +637,16 @@ type OutputItem interface {
 
 type ResponsesResponse struct {
 	baseResponse
-	CreatedAt        int64                       `json:"created_at,omitempty"`
-	Status           string                      `json:"status,omitempty"`
-	Instructions     *string                     `json:"instructions,omitempty"`
-	Output           []OutputItem                `json:"output,omitempty"`
-	Text             *TextSettings               `json:"text,omitempty"`
-	Usage            *ResponsesUsage             `json:"usage,omitempty"`
-	Error            *Error                      `json:"error,omitempty"`
-	Store            *bool                       `json:"store,omitempty"`
-	ECTransferParams map[string]ECTransferParams `json:"ec_transfer_params,omitempty"`
+	CreatedAt         int64                       `json:"created_at,omitempty"`
+	Status            string                      `json:"status,omitempty"`
+	Instructions      *string                     `json:"instructions,omitempty"`
+	Output            []OutputItem                `json:"output,omitempty"`
+	Text              *TextSettings               `json:"text,omitempty"`
+	Usage             *ResponsesUsage             `json:"usage,omitempty"`
+	IncompleteDetails *ResponsesIncompleteDetails `json:"incomplete_details,omitempty"`
+	Error             *Error                      `json:"error,omitempty"`
+	Store             *bool                       `json:"store,omitempty"`
+	ECTransferParams  map[string]ECTransferParams `json:"ec_transfer_params,omitempty"`
 }
 
 type MessageOutput struct {
@@ -670,7 +673,7 @@ type FunctionCallOutputItem struct {
 	ID        string `json:"id,omitempty"`
 	CallID    string `json:"call_id,omitempty"`
 	Name      string `json:"name,omitempty"`
-	Arguments string `json:"arguments,omitempty"`
+	Arguments string `json:"arguments"`
 	Status    string `json:"status,omitempty"`
 }
 
@@ -687,7 +690,7 @@ func (f FunctionCallOutputItem) MarshalJSON() ([]byte, error) {
 	return json.Marshal(alias(f))
 }
 
-// TopLogprob represents a top alternative token in Responses API logprobs
+// TopLogprob represents a top alternative token in chat completions and Responses API logprobs
 type TopLogprob struct {
 	Token   string  `json:"token"`
 	Logprob float64 `json:"logprob"`
@@ -704,7 +707,9 @@ type ResponsesLogprob struct {
 
 type OutputContent struct {
 	Type string `json:"type"` // output_text
-	Text string `json:"text,omitempty"`
+	Text string `json:"text"`
+	// Annotations is always an empty array: the simulator does not generate citations.
+	Annotations []any `json:"annotations"`
 	// nil ptr -> omit (not requested); non-nil ptr to nil slice -> null; non-nil ptr to empty slice -> [];
 	// non-nil ptr to populated slice -> full array
 	Logprobs *[]ResponsesLogprob `json:"logprobs,omitempty"`
@@ -714,8 +719,15 @@ func (c OutputContent) MarshalJSON() ([]byte, error) {
 	if c.Type == "" {
 		c.Type = ResponsesOutputText
 	}
+	if c.Annotations == nil {
+		c.Annotations = []any{}
+	}
 	type alias OutputContent
 	return json.Marshal(alias(c))
+}
+
+type ResponsesIncompleteDetails struct {
+	Reason string `json:"reason"`
 }
 
 type ResponsesUsage struct {
@@ -738,13 +750,15 @@ const (
 	ResponsesEventFunctionCallArgumentsDone  = "response.function_call_arguments.done"
 	ResponsesEventOutputItemDone             = "response.output_item.done"
 	ResponsesEventCompleted                  = "response.completed"
+	ResponsesEventIncomplete                 = "response.incomplete"
 )
 
 // ResponsesResponseEvent is used for events that carry a full response object
-// (response.created, response.in_progress, response.completed).
+// (response.created, response.in_progress, response.completed, response.incomplete).
 type ResponsesResponseEvent struct {
-	Type     string             `json:"type"`
-	Response *ResponsesResponse `json:"response"`
+	Type           string             `json:"type"`
+	SequenceNumber int                `json:"sequence_number"`
+	Response       *ResponsesResponse `json:"response"`
 }
 
 // ResponsesItemEvent is used for all item/content/text streaming events
@@ -752,9 +766,11 @@ type ResponsesResponseEvent struct {
 // output_text.logprobs.delta, function_call_arguments.delta/done).
 // Fields not relevant to a given event type are omitted via omitempty.
 type ResponsesItemEvent struct {
-	Type         string              `json:"type"`
-	OutputIndex  int                 `json:"output_index,omitempty"`
-	ContentIndex int                 `json:"content_index,omitempty"`
+	Type           string `json:"type"`
+	SequenceNumber int    `json:"sequence_number"`
+	OutputIndex    int    `json:"output_index"`
+	// ContentIndex is set only on content_part and output_text events.
+	ContentIndex *int                `json:"content_index,omitempty"`
 	ItemID       string              `json:"item_id,omitempty"`
 	Item         OutputItem          `json:"item,omitempty"`
 	Part         *OutputContent      `json:"part,omitempty"`
@@ -854,9 +870,14 @@ type MessagesUsage struct {
 	OutputTokens             int `json:"output_tokens"`
 }
 
-// MessagesStreamUsage carries only output_tokens in streaming delta events.
+// MessagesStreamUsage is the usage of a message_delta event. output_tokens is
+// always set; the input fields are set only by an engine that reports the full
+// usage there.
 type MessagesStreamUsage struct {
-	OutputTokens int `json:"output_tokens"`
+	InputTokens              *int `json:"input_tokens,omitempty"`
+	CacheCreationInputTokens *int `json:"cache_creation_input_tokens,omitempty"`
+	CacheReadInputTokens     *int `json:"cache_read_input_tokens,omitempty"`
+	OutputTokens             int  `json:"output_tokens"`
 }
 
 // MessagesContentBlock is a single content block in a Messages API response.
@@ -946,8 +967,8 @@ type MessagesCountTokensResponse struct {
 }
 
 // CreateMessagesStreamStartMessage builds the initial message object for the
-// message_start streaming event: empty content, nil stop_reason, input_tokens set.
-func CreateMessagesStreamStartMessage(model, requestID string, inputTokens int) *MessagesResponse {
+// message_start streaming event: empty content, nil stop_reason, usage set.
+func CreateMessagesStreamStartMessage(model, requestID string, usage MessagesUsage) *MessagesResponse {
 	return &MessagesResponse{
 		ID:           MessagesIDPrefix + requestID,
 		Type:         MessagesType,
@@ -956,7 +977,7 @@ func CreateMessagesStreamStartMessage(model, requestID string, inputTokens int) 
 		Model:        model,
 		StopReason:   nil,
 		StopSequence: nil,
-		Usage:        MessagesUsage{InputTokens: inputTokens},
+		Usage:        usage,
 		RequestID:    requestID,
 	}
 }

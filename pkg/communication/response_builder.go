@@ -127,8 +127,9 @@ func aggregateUsage(respCtxPerChoice []endpoint.ResponseContext) *api.Usage {
 	for _, rc := range respCtxPerChoice {
 		u := rc.UsageData()
 		agg.CompletionTokens += u.CompletionTokens
-		if !seenIDs[rc.RequestID()] {
-			seenIDs[rc.RequestID()] = true
+		id := rc.RequestContext().Request().GetRequestID()
+		if !seenIDs[id] {
+			seenIDs[id] = true
 			agg.PromptTokens += u.PromptTokens
 			if u.PromptTokensDetails != nil && agg.PromptTokensDetails == nil {
 				agg.PromptTokensDetails = u.PromptTokensDetails
@@ -157,6 +158,9 @@ func (*baseRespBuilder) createRenderResponse(_ [][]uint32, _ *api.RenderMMFeatur
 type textComplHTTPRespBuilder struct {
 	baseRespBuilder
 	transport Transport
+	// per-choice position and text offset of the next streamed token
+	tokenPos   map[int]int
+	textOffset map[int]int
 }
 
 func (respBuilder *textComplHTTPRespBuilder) createResponse(respCtxPerChoice []endpoint.ResponseContext,
@@ -221,10 +225,22 @@ func (respBuilder *textComplHTTPRespBuilder) createChunk(respCtx endpoint.Respon
 
 	// Generate logprobs if requested and tokens is not empty
 	if respCtx.TopLogprobs() != nil && tokens != nil && len(tokens.Strings) > 0 {
-		// Use token position based on current time
-		tokenPosition := int(respCtx.CreationTime()) % 1000 // Simple position simulation
-		logprobs := common.GenerateSingleTokenTextLogprobs(tokensStr, tokenPosition, *respCtx.TopLogprobs())
-		if logprobs != nil {
+		if respBuilder.tokenPos == nil {
+			respBuilder.tokenPos = make(map[int]int)
+			respBuilder.textOffset = make(map[int]int)
+		}
+		logprobs := &api.TextLogprobs{}
+		for _, tok := range tokens.Strings {
+			if lp := common.GenerateSingleTokenTextLogprobs(tok, respBuilder.tokenPos[choiceIdx], *respCtx.TopLogprobs()); lp != nil {
+				logprobs.Tokens = append(logprobs.Tokens, lp.Tokens[0])
+				logprobs.TokenLogprobs = append(logprobs.TokenLogprobs, lp.TokenLogprobs[0])
+				logprobs.TopLogprobs = append(logprobs.TopLogprobs, lp.TopLogprobs[0])
+				logprobs.TextOffset = append(logprobs.TextOffset, respBuilder.textOffset[choiceIdx])
+			}
+			respBuilder.tokenPos[choiceIdx]++
+			respBuilder.textOffset[choiceIdx] += len(tok)
+		}
+		if len(logprobs.Tokens) > 0 {
 			choice.Logprobs = logprobs
 		}
 	}
@@ -236,7 +252,7 @@ func (respBuilder *textComplHTTPRespBuilder) createLastChunk(respCtx endpoint.Re
 	if finishReason == common.CacheThresholdFinishReason {
 		return nil
 	}
-	return respBuilder.createChunk(respCtx, nil, nil, "", respCtx.FinishReason(), choiceIdx)
+	return respBuilder.createChunk(respCtx, nil, nil, "", &finishReason, choiceIdx)
 }
 
 // createRenderResponse builds the wire payload for /v1/completions/render: an
@@ -257,6 +273,8 @@ var _ responseBuilder = (*textComplHTTPRespBuilder)(nil)
 type chatComplHTTPRespBuilder struct {
 	baseRespBuilder
 	transport Transport
+	// per-choice position of the next streamed token
+	tokenPos map[int]int
 }
 
 func (respBuilder *chatComplHTTPRespBuilder) createResponse(respCtxPerChoice []endpoint.ResponseContext,
@@ -365,13 +383,18 @@ func (respBuilder *chatComplHTTPRespBuilder) createChunk(respCtx endpoint.Respon
 
 		// Generate logprobs if requested and token is not empty
 		if respCtx.TopLogprobs() != nil {
-			// Use token position based on current time
-			tokenPosition := int(respCtx.CreationTime()) % 1000 // Simple position simulation
-			logprobs := common.GenerateSingleTokenChatLogprobs(tokensStr, tokenPosition, *respCtx.TopLogprobs())
-			if logprobs != nil {
-				chunk.Choices[0].Logprobs = &api.ChatLogprobs{
-					Content: []api.LogprobsContent{*logprobs},
+			if respBuilder.tokenPos == nil {
+				respBuilder.tokenPos = make(map[int]int)
+			}
+			var content []api.LogprobsContent
+			for _, tok := range tokens.Strings {
+				if lp := common.GenerateSingleTokenChatLogprobs(tok, respBuilder.tokenPos[choiceIdx], *respCtx.TopLogprobs()); lp != nil {
+					content = append(content, *lp)
 				}
+				respBuilder.tokenPos[choiceIdx]++
+			}
+			if len(content) > 0 {
+				chunk.Choices[0].Logprobs = &api.ChatLogprobs{Content: content}
 			}
 		}
 	}
@@ -387,7 +410,7 @@ func (respBuilder *chatComplHTTPRespBuilder) createLastChunk(respCtx endpoint.Re
 	if finishReason == common.ToolsFinishReason || finishReason == common.CacheThresholdFinishReason {
 		return nil
 	}
-	return respBuilder.createChunk(respCtx, nil, nil, "", respCtx.FinishReason(), choiceIdx)
+	return respBuilder.createChunk(respCtx, nil, nil, "", &finishReason, choiceIdx)
 }
 
 func (b *chatComplHTTPRespBuilder) createImageChunk(respCtx endpoint.ResponseContext, choiceIdx int) sseChunk {
@@ -469,6 +492,15 @@ type responsesHTTPRespBuilder struct {
 	fcID            string
 	callID          string
 	toolName        string
+
+	// sequenceNumber is the sequence_number of the next streamed event
+	sequenceNumber int
+}
+
+func (respBuilder *responsesHTTPRespBuilder) nextSequenceNumber() int {
+	n := respBuilder.sequenceNumber
+	respBuilder.sequenceNumber++
+	return n
 }
 
 // functionCallOutputItem builds a Responses function_call output item from an internal ToolCall.
@@ -539,7 +571,16 @@ func (respBuilder *responsesHTTPRespBuilder) createResponse(respCtxPerChoice []e
 		respCtx.DoRemoteDecode(),
 	)
 	resp.ECTransferParams = respCtx.ECTransferParams()
+	setIncompleteStatus(resp, respCtx.FinishReason())
 	return resp
+}
+
+// setIncompleteStatus marks a response cut off by the token limit as incomplete.
+func setIncompleteStatus(resp *api.ResponsesResponse, finishReason *string) {
+	if finishReason != nil && *finishReason == common.LengthFinishReason {
+		resp.Status = api.ResponsesStatusIncomplete
+		resp.IncompleteDetails = &api.ResponsesIncompleteDetails{Reason: api.ResponsesIncompleteMaxTokens}
+	}
 }
 
 // createRenderResponse builds the wire payload for /v1/responses/render: a
@@ -599,11 +640,17 @@ func (respBuilder *responsesHTTPRespBuilder) createUsageChunk(respCtxPerChoice [
 		respCtx.DoRemoteDecode(),
 	)
 	resp.ECTransferParams = respCtx.ECTransferParams()
+	setIncompleteStatus(resp, respCtx.FinishReason())
+	eventType := api.ResponsesEventCompleted
+	if resp.Status == api.ResponsesStatusIncomplete {
+		eventType = api.ResponsesEventIncomplete
+	}
 	return &namedEventChunk{
-		names: []string{api.ResponsesEventCompleted},
+		names: []string{eventType},
 		data: []any{&api.ResponsesResponseEvent{
-			Type:     api.ResponsesEventCompleted,
-			Response: resp,
+			Type:           eventType,
+			SequenceNumber: respBuilder.nextSequenceNumber(),
+			Response:       resp,
 		}}}
 }
 
@@ -620,9 +667,11 @@ func (respBuilder *responsesHTTPRespBuilder) createChunk(respCtx endpoint.Respon
 
 	itemID := api.ResponsesMessageIDPrefix + respCtx.RequestID()
 	deltaEvent := &api.ResponsesItemEvent{
-		Type:   api.ResponsesEventTextDelta,
-		ItemID: itemID,
-		Delta:  delta,
+		Type:           api.ResponsesEventTextDelta,
+		SequenceNumber: respBuilder.nextSequenceNumber(),
+		ContentIndex:   new(int),
+		ItemID:         itemID,
+		Delta:          delta,
 	}
 
 	if respCtx.TopLogprobs() != nil {
@@ -633,15 +682,11 @@ func (respBuilder *responsesHTTPRespBuilder) createChunk(respCtx endpoint.Respon
 			if lp == nil {
 				continue
 			}
-			topLogprobs := make([]api.TopLogprob, len(lp.TopLogprobs))
-			for i, top := range lp.TopLogprobs {
-				topLogprobs[i] = api.TopLogprob{Token: top.Token, Logprob: top.Logprob, Bytes: top.Bytes}
-			}
 			entry := api.ResponsesLogprob{
 				Token:       lp.Token,
 				Logprob:     lp.Logprob,
 				Bytes:       lp.Bytes,
-				TopLogprobs: topLogprobs,
+				TopLogprobs: lp.TopLogprobs,
 			}
 			logprobs = append(logprobs, entry)
 			respBuilder.accumulatedLogprobs = append(respBuilder.accumulatedLogprobs, entry)
@@ -667,8 +712,9 @@ func (respBuilder *responsesHTTPRespBuilder) createToolChunk(tool *api.ToolCall)
 		respBuilder.callID = item.CallID
 		respBuilder.toolName = item.Name
 		outputItemAdded := api.ResponsesItemEvent{
-			Type: api.ResponsesEventOutputItemAdded,
-			Item: item,
+			Type:           api.ResponsesEventOutputItemAdded,
+			SequenceNumber: respBuilder.nextSequenceNumber(),
+			Item:           item,
 		}
 		names = append(names, outputItemAdded.Type)
 		data = append(data, outputItemAdded)
@@ -676,9 +722,10 @@ func (respBuilder *responsesHTTPRespBuilder) createToolChunk(tool *api.ToolCall)
 
 	respBuilder.accumulatedArgs.WriteString(tool.Function.Arguments)
 	deltaEvent := api.ResponsesItemEvent{
-		Type:   api.ResponsesEventFunctionCallArgumentsDelta,
-		ItemID: respBuilder.fcID,
-		Delta:  tool.Function.Arguments,
+		Type:           api.ResponsesEventFunctionCallArgumentsDelta,
+		SequenceNumber: respBuilder.nextSequenceNumber(),
+		ItemID:         respBuilder.fcID,
+		Delta:          tool.Function.Arguments,
 	}
 	names = append(names, deltaEvent.Type)
 	data = append(data, deltaEvent)
@@ -696,8 +743,10 @@ func (respBuilder *responsesHTTPRespBuilder) createInitialChunk(respCtx endpoint
 		false,
 	)
 	resp.Status = api.ResponsesStatusInProgress
-	created := api.ResponsesResponseEvent{Type: api.ResponsesEventCreated, Response: resp}
-	inProgress := api.ResponsesResponseEvent{Type: api.ResponsesEventInProgress, Response: resp}
+	created := api.ResponsesResponseEvent{Type: api.ResponsesEventCreated,
+		SequenceNumber: respBuilder.nextSequenceNumber(), Response: resp}
+	inProgress := api.ResponsesResponseEvent{Type: api.ResponsesEventInProgress,
+		SequenceNumber: respBuilder.nextSequenceNumber(), Response: resp}
 
 	return &namedEventChunk{
 		names: []string{created.Type, inProgress.Type},
@@ -714,7 +763,8 @@ func (respBuilder *responsesHTTPRespBuilder) createFirstChunk(respCtx endpoint.R
 
 	itemID := api.ResponsesMessageIDPrefix + respCtx.RequestID()
 	outputItemAdded := api.ResponsesItemEvent{
-		Type: api.ResponsesEventOutputItemAdded,
+		Type:           api.ResponsesEventOutputItemAdded,
+		SequenceNumber: respBuilder.nextSequenceNumber(),
 		Item: api.MessageOutput{
 			Type:    api.ResponsesOutputMessage,
 			ID:      itemID,
@@ -729,9 +779,11 @@ func (respBuilder *responsesHTTPRespBuilder) createFirstChunk(respCtx endpoint.R
 		part.Logprobs = &emptyLogprobs
 	}
 	contentPartAdded := api.ResponsesItemEvent{
-		Type:   api.ResponsesEventContentPartAdded,
-		ItemID: itemID,
-		Part:   &part,
+		Type:           api.ResponsesEventContentPartAdded,
+		SequenceNumber: respBuilder.nextSequenceNumber(),
+		ContentIndex:   new(int),
+		ItemID:         itemID,
+		Part:           &part,
 	}
 	return &namedEventChunk{
 		names: []string{outputItemAdded.Type, contentPartAdded.Type},
@@ -743,13 +795,15 @@ func (respBuilder *responsesHTTPRespBuilder) createLastChunk(respCtx endpoint.Re
 	if respBuilder.inToolMode {
 		args := respBuilder.accumulatedArgs.String()
 		argsDone := api.ResponsesItemEvent{
-			Type:      api.ResponsesEventFunctionCallArgumentsDone,
-			ItemID:    respBuilder.fcID,
-			Name:      respBuilder.toolName,
-			Arguments: args,
+			Type:           api.ResponsesEventFunctionCallArgumentsDone,
+			SequenceNumber: respBuilder.nextSequenceNumber(),
+			ItemID:         respBuilder.fcID,
+			Name:           respBuilder.toolName,
+			Arguments:      args,
 		}
 		outputItemDone := api.ResponsesItemEvent{
-			Type: api.ResponsesEventOutputItemDone,
+			Type:           api.ResponsesEventOutputItemDone,
+			SequenceNumber: respBuilder.nextSequenceNumber(),
 			Item: api.FunctionCallOutputItem{
 				Type:      api.ResponsesOutputFunctionCall,
 				ID:        respBuilder.fcID,
@@ -769,9 +823,11 @@ func (respBuilder *responsesHTTPRespBuilder) createLastChunk(respCtx endpoint.Re
 	text := respBuilder.accumulated.String()
 
 	textDone := api.ResponsesItemEvent{
-		Type:   api.ResponsesEventTextDone,
-		ItemID: itemID,
-		Text:   text,
+		Type:           api.ResponsesEventTextDone,
+		SequenceNumber: respBuilder.nextSequenceNumber(),
+		ContentIndex:   new(int),
+		ItemID:         itemID,
+		Text:           text,
 	}
 	if respCtx.TopLogprobs() != nil {
 		emptyLogprobs := []api.ResponsesLogprob{}
@@ -786,12 +842,15 @@ func (respBuilder *responsesHTTPRespBuilder) createLastChunk(respCtx endpoint.Re
 		doneContent.Logprobs = &nullLogprobs
 	}
 	contentPartDone := api.ResponsesItemEvent{
-		Type:   api.ResponsesEventContentPartDone,
-		ItemID: itemID,
-		Part:   &part,
+		Type:           api.ResponsesEventContentPartDone,
+		SequenceNumber: respBuilder.nextSequenceNumber(),
+		ContentIndex:   new(int),
+		ItemID:         itemID,
+		Part:           &part,
 	}
 	outputItemDone := api.ResponsesItemEvent{
-		Type: api.ResponsesEventOutputItemDone,
+		Type:           api.ResponsesEventOutputItemDone,
+		SequenceNumber: respBuilder.nextSequenceNumber(),
 		Item: api.MessageOutput{
 			Type:    api.ResponsesOutputMessage,
 			ID:      itemID,
@@ -924,6 +983,7 @@ var _ responseBuilder = (*generateHTTPRespBuilder)(nil)
 // messagesHTTPRespBuilder implements responseBuilder for /v1/messages (Anthropic Messages API).
 type messagesHTTPRespBuilder struct {
 	baseRespBuilder
+	transport         Transport
 	contentBlockIndex int  // tracks which content block index we are on for streaming
 	inToolMode        bool // true when streaming tool call arguments
 }
@@ -936,6 +996,17 @@ func (b *messagesHTTPRespBuilder) stopReason(finishReason string) string {
 		return api.MessagesStopReasonMaxTokens
 	default:
 		return api.MessagesStopReasonEndTurn
+	}
+}
+
+// messagesUsage splits the prompt as vLLM does: input_tokens excludes the prompt
+// tokens read from the prefix cache, which are reported in cache_read_input_tokens.
+func messagesUsage(respCtx endpoint.ResponseContext, outputTokens int) api.MessagesUsage {
+	cached := respCtx.NumberCachedPromptTokens()
+	return api.MessagesUsage{
+		InputTokens:          respCtx.UsageData().PromptTokens - cached,
+		CacheReadInputTokens: cached,
+		OutputTokens:         outputTokens,
 	}
 }
 
@@ -979,10 +1050,7 @@ func (b *messagesHTTPRespBuilder) createResponse(respCtxPerChoice []endpoint.Res
 		respCtx.RequestID(),
 		b.stopReason(finishReason),
 		content,
-		api.MessagesUsage{
-			InputTokens:  usage.PromptTokens,
-			OutputTokens: usage.CompletionTokens,
-		},
+		messagesUsage(respCtx, usage.CompletionTokens),
 		respCtx.DoRemoteDecode(),
 	)
 	resp.ECTransferParams = respCtx.ECTransferParams()
@@ -1005,7 +1073,7 @@ func (b *messagesHTTPRespBuilder) createInitialChunk(respCtx endpoint.ResponseCo
 	msg := api.CreateMessagesStreamStartMessage(
 		respCtx.DisplayModel(),
 		respCtx.RequestID(),
-		respCtx.UsageData().PromptTokens,
+		messagesUsage(respCtx, 0),
 	)
 	return &namedEventChunk{
 		names: []string{api.MessagesEventMessageStart},
@@ -1112,7 +1180,9 @@ func (b *messagesHTTPRespBuilder) createLastChunk(respCtx endpoint.ResponseConte
 	msgDelta := api.MessagesMessageDeltaEvent{
 		Type:  api.MessagesEventMessageDelta,
 		Delta: api.MessagesMessageDeltaPayload{StopReason: &sr, StopSequence: nil},
-		Usage: api.MessagesStreamUsage{OutputTokens: respCtx.UsageData().CompletionTokens},
+		Usage: b.transport.DecorateMessagesDeltaUsage(
+			api.MessagesStreamUsage{OutputTokens: respCtx.UsageData().CompletionTokens},
+			messagesUsage(respCtx, respCtx.UsageData().CompletionTokens)),
 	}
 	msgStop := api.MessagesMessageStopEvent{Type: api.MessagesEventMessageStop}
 
@@ -1136,7 +1206,6 @@ var _ responseBuilder = (*messagesHTTPRespBuilder)(nil)
 // the render path, as vLLM counts the tokens of the rendered prompt.
 type messagesCountTokensHTTPRespBuilder struct {
 	messagesHTTPRespBuilder
-	transport Transport
 }
 
 func (b *messagesCountTokensHTTPRespBuilder) createRenderResponse(tokens [][]uint32,

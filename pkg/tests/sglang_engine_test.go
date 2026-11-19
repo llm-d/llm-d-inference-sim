@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -29,6 +30,7 @@ import (
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
+	"github.com/llm-d/llm-d-inference-sim/pkg/engine/sglang"
 )
 
 var _ = Describe("sglang engine", func() {
@@ -37,7 +39,8 @@ var _ = Describe("sglang engine", func() {
 	BeforeEach(func() {
 		var err error
 		client, err = startServerWithArgs(context.TODO(),
-			[]string{"cmd", "--engine", "sglang", "--model", common.TestModelName, "--mode", common.ModeEcho})
+			[]string{"cmd", "--engine", "sglang", "--model", common.TestModelName, "--mode", common.ModeEcho,
+				"--enable-metrics"})
 		Expect(err).NotTo(HaveOccurred())
 	})
 
@@ -66,10 +69,70 @@ var _ = Describe("sglang engine", func() {
 		Expect(models.Data[0].OwnedBy).To(Equal("sglang"))
 	})
 
-	// No collector is registered for this engine yet, so the route exists and
-	// serves nothing. Real sglang mounts /metrics only under --enable-metrics.
-	It("Should expose no metrics", func() {
-		Expect(sampleMetrics(client)).To(BeEmpty())
+	// The engine reports the sglang:-prefixed subset of sglang's metrics, with
+	// the per-request ones split by request kind, so one non-streaming and one
+	// streaming request are needed to see both halves of the split.
+	It("Should expose the sglang metrics", func() {
+		openaiclient, params := getOpenAIClientAndChatParams(client, common.TestModelName, testUserMessage, false)
+		_, err := openaiclient.Chat.Completions.New(context.TODO(), params)
+		Expect(err).NotTo(HaveOccurred())
+
+		_, streamParams := getOpenAIClientAndChatParams(client, common.TestModelName, testUserMessage, true)
+		stream := openaiclient.Chat.Completions.NewStreaming(context.TODO(), streamParams)
+		for stream.Next() {
+		}
+		Expect(stream.Err()).NotTo(HaveOccurred())
+		Expect(stream.Close()).To(Succeed())
+
+		eventuallyMetrics(client, func(g Gomega, metricsData string) {
+			g.Expect(metricsData).To(ContainSubstring(
+				getCountMetricLine(common.TestModelName, sglang.SGLangRunningReqsMetricName, 0)))
+			g.Expect(metricsData).To(ContainSubstring(
+				getCountMetricLine(common.TestModelName, sglang.SGLangQueueReqsMetricName, 0)))
+
+			g.Expect(metricsData).To(ContainSubstring(
+				getCountMetricLine(common.TestModelName, sglang.SGLangContextLenMetricName, 1024)))
+
+			// Both requests reached first token, decode, and completion, so each
+			// of the request-kind series carries exactly one of them.
+			for _, isStreaming := range []string{"false", "true"} {
+				for _, metric := range []string{
+					sglang.SGLangTTFTMetricName,
+					sglang.SGLangE2EReqLatencyMetricName,
+					sglang.SGLangReqTPOTMetricName,
+				} {
+					g.Expect(metricsData).To(ContainSubstring(fmt.Sprintf(`%s_count{is_streaming="%s",model_name="%s"} 1`,
+						metric, isStreaming, common.TestModelName)))
+				}
+				g.Expect(metricsData).To(ContainSubstring(fmt.Sprintf(`%s{is_streaming="%s",model_name="%s"} 1`,
+					sglang.SGLangRequestsTotalMetricName, isStreaming, common.TestModelName)))
+				g.Expect(metricsData).To(MatchRegexp(fmt.Sprintf(`%s{is_streaming="%s",model_name="%s"} [1-9]`,
+					sglang.SGLangPromptTokensTotalMetricName, isStreaming, common.TestModelName)))
+				g.Expect(metricsData).To(MatchRegexp(fmt.Sprintf(`%s{is_streaming="%s",model_name="%s"} [1-9]`,
+					sglang.SGLangGenerationTokensTotalMetricName, isStreaming, common.TestModelName)))
+			}
+
+			// The token-length histograms record one observation per request, and
+			// the inter-token latency one per generated token beyond the first.
+			// sglang:queue_time_seconds is absent: a free worker takes a request
+			// without it ever entering the waiting queue, so nothing was queued
+			// here. Its observation is covered by the adapter's own suite.
+			for _, metric := range []string{
+				sglang.SGLangPromptTokensHistMetricName,
+				sglang.SGLangGenerationTokensHistMetricName,
+			} {
+				g.Expect(metricsData).To(ContainSubstring(fmt.Sprintf(`%s_count{model_name="%s"} 2`,
+					metric, common.TestModelName)))
+			}
+
+			g.Expect(metricsData).To(MatchRegexp(fmt.Sprintf(`%s_count{model_name="%s"} [1-9]`,
+				sglang.SGLangInterTokenLatencyMetricName, common.TestModelName)))
+		})
+	})
+
+	// No vLLM metric leaks into this engine's surface.
+	It("Should expose no vllm metrics", func() {
+		Expect(sampleMetrics(client)).NotTo(ContainSubstring("vllm:"))
 	})
 
 	// The Messages API's envelope is the same for every engine; the error type
@@ -190,4 +253,27 @@ var _ = Describe("sglang engine startup", func() {
 			[]string{"cmd", "--engine", "sglang", "--config", "../../manifests/vllm-config.yaml"})
 		Expect(err).To(MatchError(ContainSubstring("does not recognize the following configuration key(s)")))
 	})
+
+	// Metrics are opt-in under this engine, as they are in sglang, which mounts
+	// nothing at /metrics without --enable-metrics.
+	DescribeTable("Should serve no metrics route unless metrics are enabled",
+		func(args ...string) {
+			client, err := startServerWithArgs(context.TODO(),
+				append([]string{"cmd", "--engine", "sglang", "--model", common.TestModelName}, args...))
+			Expect(err).NotTo(HaveOccurred())
+
+			resp, err := client.Get(baseURL + "/metrics")
+			Expect(err).NotTo(HaveOccurred())
+			defer func() {
+				Expect(resp.Body.Close()).To(Succeed())
+			}()
+			Expect(resp.StatusCode).To(Equal(http.StatusNotFound))
+		},
+		Entry("no flag at all"),
+		// Written with "=" or as the negative spelling, since pflag gives a bool
+		// flag a NoOptDefVal: in the separate-argument form the value is a
+		// positional and the flag is true.
+		Entry("turned off explicitly", "--enable-metrics=false"),
+		Entry("turned off by its no- form", "--no-enable-metrics"),
+	)
 })

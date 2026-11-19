@@ -156,6 +156,67 @@ var _ = Describe("Server", forEachEngine(func() {
 			Expect(tokenizeResp.MaxModelLen).To(Equal(2048))
 		})
 
+		DescribeTable("return_token_strs",
+			func(reqBody string, expectStrs bool) {
+				client, err := startServer(context.TODO(), common.ModeRandom)
+				Expect(err).NotTo(HaveOccurred())
+
+				resp, err := client.Post("http://localhost/tokenize", "application/json", strings.NewReader(reqBody))
+				Expect(err).NotTo(HaveOccurred())
+				defer func() {
+					Expect(resp.Body.Close()).To(Succeed())
+				}()
+
+				body, err := io.ReadAll(resp.Body)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(resp.StatusCode).To(Equal(http.StatusOK), string(body))
+
+				var tokenizeResp struct {
+					Count     int      `json:"count"`
+					TokenStrs []string `json:"token_strs"`
+				}
+				Expect(json.Unmarshal(body, &tokenizeResp)).To(Succeed())
+				// sglang's /tokenize has no return_token_strs
+				if expectStrs && currentEngine == "vllm" {
+					Expect(tokenizeResp.TokenStrs).To(HaveLen(tokenizeResp.Count))
+				} else {
+					Expect(tokenizeResp.TokenStrs).To(BeNil())
+				}
+			},
+			Entry("returns token strings for a prompt",
+				`{"prompt":"This is a test","return_token_strs":true}`, true),
+			Entry("returns token strings for messages",
+				`{"messages":[{"role":"user","content":"This is a test"}],"return_token_strs":true}`, true),
+			Entry("omits token strings by default",
+				`{"prompt":"This is a test"}`, false),
+			Entry("omits token strings when not requested",
+				`{"prompt":"This is a test","return_token_strs":false}`, false),
+		)
+
+		It("Should return the prompt's token strings in order", func() {
+			if currentEngine != "vllm" {
+				Skip("sglang's /tokenize has no return_token_strs")
+			}
+			client, err := startServer(context.TODO(), common.ModeRandom)
+			Expect(err).NotTo(HaveOccurred())
+
+			resp, err := client.Post("http://localhost/tokenize", "application/json",
+				strings.NewReader(`{"prompt":"This is a test","return_token_strs":true}`))
+			Expect(err).NotTo(HaveOccurred())
+			defer func() {
+				Expect(resp.Body.Close()).To(Succeed())
+			}()
+
+			body, err := io.ReadAll(resp.Body)
+			Expect(err).NotTo(HaveOccurred())
+
+			var tokenizeResp struct {
+				TokenStrs []string `json:"token_strs"`
+			}
+			Expect(json.Unmarshal(body, &tokenizeResp)).To(Succeed())
+			Expect(tokenizeResp.TokenStrs).To(Equal([]string{"This ", "is ", "a ", "test"}))
+		})
+
 		DescribeTable("model validation",
 			func(reqBody string, expectedStatus int, expectedMsg string) {
 				client, err := startServer(context.TODO(), common.ModeRandom)
@@ -378,6 +439,18 @@ var _ = Describe("Server", forEachEngine(func() {
 					var resp map[string]any
 					Expect(json.Unmarshal(body, &resp)).To(Succeed())
 					Expect(resp["id"]).To(Equal("chatcmpl-body-test-999"))
+				},
+			),
+			Entry("uses request ID in text completions response body ID field",
+				true,
+				"/v1/completions",
+				`{"prompt": "Hello world", "model": "`+common.TestModelName+`", "max_tokens": 5}`,
+				"body-test-998",
+				ptr("body-test-998"),
+				func(body []byte) {
+					var resp map[string]any
+					Expect(json.Unmarshal(body, &resp)).To(Succeed())
+					Expect(resp["id"]).To(Equal("cmpl-body-test-998"))
 				},
 			),
 		)

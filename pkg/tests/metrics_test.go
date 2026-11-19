@@ -203,36 +203,43 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 
 			openaiclient, params := getOpenAIClientAndChatParams(client, "lora1", testUserMessage, stream)
 
-			_, err = openaiclient.Chat.Completions.New(ctx, params)
-			Expect(err).To(HaveOccurred())
+			if stream {
+				s := openaiclient.Chat.Completions.NewStreaming(ctx, params)
+				for s.Next() {
+				}
+				Expect(s.Err()).To(HaveOccurred())
+				s.Close() //nolint:errcheck
+			} else {
+				_, err = openaiclient.Chat.Completions.New(ctx, params)
+				Expect(err).To(HaveOccurred())
+			}
 
-			var metricsLines []string
-			Eventually(func(g Gomega) {
+			scrape := func(g Gomega) string {
 				metricsResp, err := client.Get(metricsUrl)
 				g.Expect(err).NotTo(HaveOccurred())
 				defer func() { _ = metricsResp.Body.Close() }()
 				g.Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
-
 				data, err := io.ReadAll(metricsResp.Body)
 				g.Expect(err).NotTo(HaveOccurred())
-				metricsData := string(data)
+				return string(data)
+			}
 
-				// There should be no running or waiting requests
+			// There should be no running or waiting requests
+			Eventually(func(g Gomega) {
+				metricsData := scrape(g)
 				g.Expect(metricsData).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllm.VLLMReqRunningMetricName, 0)))
 				g.Expect(metricsData).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllm.VLLMReqWaitingMetricName, 0)))
-
-				// We sent one request (that failed), we expect to see (in this order)
-				// 1. running: lora1, waiting: empty
-				// 2. running: empty, waiting: empty
-				metricsLines = strings.Split(metricsData, "\n")
-				g.Expect(isLoraMetricPresent(metricsLines, lora1Arr, emptyArray)).To(BeTrue())
-				g.Expect(isLoraMetricPresent(metricsLines, emptyArray, emptyArray)).To(BeTrue())
 			}).WithTimeout(2 * time.Second).WithPolling(25 * time.Millisecond).Should(Succeed())
 
-			// Check the order
-			timestamp1 := getLoraValidTimestamp(metricsLines, lora1Arr, emptyArray)
-			timestamp2 := getLoraValidTimestamp(metricsLines, emptyArray, emptyArray)
-			Expect(timestamp1 <= timestamp2).To(BeTrue())
+			// We sent one request, rejected for its context length before it ran.
+			// A free worker took it without queueing it, so lora1 is reported
+			// neither as running nor as waiting. Watched over a window, since an
+			// absence seen once could be a scrape taken before the update.
+			Consistently(func(g Gomega) {
+				metricsLines := strings.Split(scrape(g), "\n")
+				g.Expect(isLoraMetricPresent(metricsLines, lora1Arr, emptyArray)).To(BeFalse())
+				g.Expect(isLoraMetricPresent(metricsLines, emptyArray, lora1Arr)).To(BeFalse())
+			}).WithTimeout(500 * time.Millisecond).WithPolling(25 * time.Millisecond).Should(Succeed())
 		},
 		Entry("no streaming", false),
 		Entry("streaming", true),
@@ -1178,6 +1185,61 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 				g.Expect(metricsData).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllm.VLLMReqInferenceTimeMetricName, math.Inf(1), 2)))
 				g.Expect(metricsData).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllm.VLLMReqQueueTimeMetricName, math.Inf(1), 1)))
 			}).WithTimeout(2 * time.Second).WithPolling(25 * time.Millisecond).Should(Succeed())
+		})
+
+		It("should include the time a request waits in the queue in the time to first token", func() {
+			ctx := context.TODO()
+			ttft := 1800 * time.Millisecond
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho,
+				"--time-to-first-token", ttft.String(), "--max-num-seqs", "1",
+			}
+
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			openaiclient, params := getOpenAIClientAndChatParams(client, common.TestModelName, testUserMessage, false)
+
+			var reqWg sync.WaitGroup
+			reqWg.Add(2)
+
+			// the single worker serves one request at a time, the other one waits in the queue
+			for range 2 {
+				go func() {
+					defer reqWg.Done()
+					defer GinkgoRecover()
+
+					_, err := openaiclient.Chat.Completions.New(ctx, params)
+					Expect(err).NotTo(HaveOccurred())
+				}()
+			}
+
+			reqWg.Wait()
+			prefill := ttft.Seconds()
+			eventuallyMetrics(client, func(g Gomega, metricsData string) {
+				// The first request reports its prefill time. The second one reports the time it waited for
+				// the first (about one prefill) on top of its own prefill.
+				for _, boundary := range common.TTFTBucketsBoundaries {
+					expected := 0
+					if boundary >= prefill {
+						expected++
+					}
+					if boundary >= 2*prefill {
+						expected++
+					}
+					g.Expect(metricsData).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllm.VLLMTTFTMetricName, boundary, expected)))
+				}
+				g.Expect(metricsData).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllm.VLLMTTFTMetricName, math.Inf(1), 2)))
+
+				// the prefill time excludes the wait in the queue for both requests
+				for _, boundary := range common.RequestLatencyBucketsBoundaries {
+					expected := 0
+					if boundary >= prefill {
+						expected = 2
+					}
+					g.Expect(metricsData).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllm.VLLMPrefillTimeMetricName, boundary, expected)))
+				}
+				g.Expect(metricsData).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllm.VLLMPrefillTimeMetricName, math.Inf(1), 2)))
+			})
 		})
 	})
 })

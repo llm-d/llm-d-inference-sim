@@ -164,6 +164,42 @@ var _ = Describe("Configuration", func() {
 			"--fake-metrics", `{"running-requests":16}`),
 	)
 
+	// Metrics are opt-in, matching sglang's own enable_metrics default.
+	DescribeTable("should resolve the metrics toggle",
+		func(enabled bool, args ...string) {
+			config, err := createSimConfig(append([]string{"cmd", "--model", common.TestModelName}, args...))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(config.EnableMetrics).To(Equal(enabled))
+		},
+		Entry("off by default", false),
+		Entry("on by the flag", true, "--enable-metrics"),
+		Entry("on by an explicit value", true, "--enable-metrics=true"),
+		Entry("off by an explicit value", false, "--enable-metrics=false"),
+		Entry("off by the no- form", false, "--no-enable-metrics"),
+	)
+
+	DescribeTable("should resolve the metrics toggle from a config file",
+		func(enabled bool, body string, args ...string) {
+			config, err := createSimConfig(append([]string{"cmd", "--model", common.TestModelName,
+				"--config", writeConfig(body)}, args...))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(config.EnableMetrics).To(Equal(enabled))
+		},
+		Entry("enabled by the file", true, "enable-metrics: true\n"),
+		Entry("disabled by the file", false, "enable-metrics: false\n"),
+		// A valueless key leaves the default, the way unmarshaling a null into a
+		// bool does.
+		Entry("left at the default by a valueless key", false, "enable-metrics:\n"),
+		// The flag is registered after the file has been read, so it overrides.
+		Entry("overridden by the flag", false, "enable-metrics: true\n", "--no-enable-metrics"),
+	)
+
+	It("should reject a non-boolean metrics toggle in a config file", func() {
+		_, err := createSimConfig([]string{"cmd", "--model", common.TestModelName,
+			"--config", writeConfig("enable-metrics: yes please\n")})
+		Expect(err).To(MatchError(ContainSubstring("enable-metrics must be a boolean")))
+	})
+
 	DescribeTable("should accept a flag it can honor for a feature it lacks",
 		func(args ...string) {
 			config, err := createSimConfig(append([]string{"cmd", "--model", common.TestModelName}, args...))

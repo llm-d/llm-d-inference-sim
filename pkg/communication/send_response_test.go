@@ -18,6 +18,7 @@ package communication
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
@@ -327,6 +328,226 @@ var _ = Describe("sendStream cache_threshold choice", func() {
 		Expect(string(body)).NotTo(ContainSubstring(`"error"`))
 		Expect(string(body)).To(ContainSubstring("[DONE]"))
 	})
+})
+
+// The choices of one request can end with different finish reasons. The last
+// chunk of each streamed choice must carry that choice's own reason, not the
+// reason of the choice that responded first.
+var _ = Describe("sendStream finish_reason per choice", func() {
+	DescribeTable("puts each choice's own finish_reason in its last chunk",
+		func(body string, newReq func() endpoint.Request, builder responseBuilder) {
+			ctx := context.Background()
+			sim := newRunningSim(ctx)
+
+			// Choice 0 is capped by max_tokens and streams first, choice 1 is not.
+			merged := common.Channel[*endpoint.ResponseInfo]{
+				Channel: make(chan *endpoint.ResponseInfo, 100),
+				Name:    "merged",
+			}
+			for choiceIdx, maxTokens := range []string{`,"max_tokens":1`, ""} {
+				req := newReq()
+				Expect(req.Unmarshal([]byte(fmt.Sprintf(body, common.TestModelName, maxTokens)))).To(Succeed())
+				req.SetRequestID(fmt.Sprintf("finish-%d", choiceIdx))
+				_, _, respChan, topErr, _ := sim.HandleRequest(ctx, req)
+				Expect(topErr).To(BeNil())
+				for response := range respChan.Channel {
+					response.ChoiceIdx = choiceIdx
+					merged.Channel <- response
+				}
+			}
+			close(merged.Channel)
+			first := <-merged.Channel
+
+			c := &Communication{logger: klog.Background(), transport: fakeTransport{}}
+			httpCtx := &fasthttp.RequestCtx{}
+			c.sendStream(httpCtx, merged, builder, 2, first, func() {})
+
+			out, err := io.ReadAll(httpCtx.Response.BodyStream())
+			Expect(err).NotTo(HaveOccurred())
+			Expect(string(out)).To(ContainSubstring(`"index":0,"finish_reason":"length"`))
+			Expect(string(out)).To(ContainSubstring(`"index":1,"finish_reason":"stop"`))
+			Expect(string(out)).To(ContainSubstring("[DONE]"))
+		},
+		Entry("for text completions",
+			`{"model":%q,"prompt":"hello there my friend","stream":true%s}`,
+			func() endpoint.Request { return &endpoint.TextCompletionsParsedRequest{} },
+			&textComplHTTPRespBuilder{transport: fakeTransport{}}),
+		Entry("for chat completions",
+			`{"model":%q,"messages":[{"role":"user","content":"hello there my friend"}],"stream":true%s}`,
+			func() endpoint.Request { return &endpoint.ChatCompletionsRequest{} },
+			&chatComplHTTPRespBuilder{transport: fakeTransport{}}),
+	)
+
+	It("ends a tool-call choice with tool_calls when a text choice streams first", func() {
+		ctx := context.Background()
+		sim := newRunningSim(ctx)
+
+		// Choice 0 answers in text and streams first, choice 1 calls a tool.
+		tools := `[{"type":"function","function":{"name":"get_weather","parameters":` +
+			`{"type":"object","properties":{"location":{"type":"string"}},"required":["location"]}}}]`
+		merged := common.Channel[*endpoint.ResponseInfo]{
+			Channel: make(chan *endpoint.ResponseInfo, 100),
+			Name:    "merged",
+		}
+		for choiceIdx, toolChoice := range []string{"none", "required"} {
+			req := &endpoint.ChatCompletionsRequest{}
+			body := fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"hello there my friend"}],`+
+				`"stream":true,"tools":%s,"tool_choice":%q}`, common.TestModelName, tools, toolChoice)
+			Expect(req.Unmarshal([]byte(body))).To(Succeed())
+			req.SetRequestID(fmt.Sprintf("tools-%d", choiceIdx))
+			_, _, respChan, topErr, _ := sim.HandleRequest(ctx, req)
+			Expect(topErr).To(BeNil())
+			for response := range respChan.Channel {
+				response.ChoiceIdx = choiceIdx
+				merged.Channel <- response
+			}
+		}
+		close(merged.Channel)
+		first := <-merged.Channel
+
+		c := &Communication{logger: klog.Background(), transport: fakeTransport{}}
+		httpCtx := &fasthttp.RequestCtx{}
+		c.sendStream(httpCtx, merged, &chatComplHTTPRespBuilder{transport: fakeTransport{}}, 2, first, func() {})
+
+		out, err := io.ReadAll(httpCtx.Response.BodyStream())
+		Expect(err).NotTo(HaveOccurred())
+		Expect(string(out)).To(ContainSubstring(`"index":0,"finish_reason":"stop"`))
+		Expect(string(out)).To(ContainSubstring(`"tool_calls":[`))
+		Expect(string(out)).To(ContainSubstring(`"finish_reason":"tool_calls"`))
+		Expect(string(out)).To(ContainSubstring("[DONE]"))
+	})
+})
+
+var _ = Describe("sendStream responses events", func() {
+	It("numbers every event and carries output_index and content_index 0", func() {
+		ctx := context.Background()
+		sim := newRunningSim(ctx)
+
+		req := &endpoint.ResponsesRequest{}
+		Expect(req.Unmarshal([]byte(fmt.Sprintf(
+			`{"model":%q,"input":"hello there my friend","stream":true}`, common.TestModelName)))).To(Succeed())
+		req.SetRequestID("seq")
+		_, _, respChan, topErr, _ := sim.HandleRequest(ctx, req)
+		Expect(topErr).To(BeNil())
+		first := <-respChan.Channel
+
+		c := &Communication{logger: klog.Background(), transport: fakeTransport{}}
+		httpCtx := &fasthttp.RequestCtx{}
+		c.sendStream(httpCtx, *respChan, &responsesHTTPRespBuilder{}, 1, first, func() {})
+
+		out, err := io.ReadAll(httpCtx.Response.BodyStream())
+		Expect(err).NotTo(HaveOccurred())
+
+		withContentIndex := map[string]bool{
+			api.ResponsesEventContentPartAdded: true,
+			api.ResponsesEventTextDelta:        true,
+			api.ResponsesEventTextDone:         true,
+			api.ResponsesEventContentPartDone:  true,
+		}
+		responseEvents := map[string]bool{
+			api.ResponsesEventCreated:    true,
+			api.ResponsesEventInProgress: true,
+			api.ResponsesEventCompleted:  true,
+		}
+		var types []string
+		for _, line := range strings.Split(string(out), "\n") {
+			data, ok := strings.CutPrefix(line, api.SSEDataPrefix)
+			if !ok {
+				continue
+			}
+			var event map[string]any
+			Expect(json.Unmarshal([]byte(data), &event)).To(Succeed())
+			eventType, _ := event["type"].(string)
+			Expect(event).To(HaveKeyWithValue("sequence_number", BeNumerically("==", len(types))), eventType)
+			if responseEvents[eventType] {
+				Expect(event).NotTo(HaveKey("output_index"), eventType)
+			} else {
+				Expect(event).To(HaveKeyWithValue("output_index", BeNumerically("==", 0)), eventType)
+			}
+			if withContentIndex[eventType] {
+				Expect(event).To(HaveKeyWithValue("content_index", BeNumerically("==", 0)), eventType)
+			} else {
+				Expect(event).NotTo(HaveKey("content_index"), eventType)
+			}
+			if part, ok := event["part"].(map[string]any); ok {
+				Expect(part).To(HaveKeyWithValue("text", BeAssignableToTypeOf("")), eventType)
+				Expect(part).To(HaveKeyWithValue("annotations", Equal([]any{})), eventType)
+			}
+			if eventType == api.ResponsesEventContentPartAdded {
+				Expect(event).To(HaveKeyWithValue("part", HaveKeyWithValue("text", "")))
+			}
+			types = append(types, eventType)
+		}
+		Expect(types).To(ContainElements(api.ResponsesEventCreated, api.ResponsesEventOutputItemAdded,
+			api.ResponsesEventContentPartAdded, api.ResponsesEventTextDelta, api.ResponsesEventTextDone,
+			api.ResponsesEventContentPartDone, api.ResponsesEventOutputItemDone, api.ResponsesEventCompleted))
+	})
+})
+
+var _ = Describe("responses status at the token limit", func() {
+	// send returns the last streamed event's type and response, or an empty
+	// type and the response body when not streaming.
+	send := func(maxOutputTokens string, stream bool) (string, map[string]any) {
+		ctx := context.Background()
+		sim := newRunningSim(ctx)
+
+		req := &endpoint.ResponsesRequest{}
+		Expect(req.Unmarshal([]byte(fmt.Sprintf(`{"model":%q,"input":"hello there my friend","stream":%t%s}`,
+			common.TestModelName, stream, maxOutputTokens)))).To(Succeed())
+		req.SetRequestID("status")
+		_, _, respChan, topErr, _ := sim.HandleRequest(ctx, req)
+		Expect(topErr).To(BeNil())
+
+		c := &Communication{logger: klog.Background(), transport: fakeTransport{}}
+		httpCtx := &fasthttp.RequestCtx{}
+		if !stream {
+			c.sendNonStream(httpCtx, *respChan, &responsesHTTPRespBuilder{}, 1)
+			var resp map[string]any
+			Expect(json.Unmarshal(httpCtx.Response.Body(), &resp)).To(Succeed())
+			return "", resp
+		}
+
+		first := <-respChan.Channel
+		c.sendStream(httpCtx, *respChan, &responsesHTTPRespBuilder{}, 1, first, func() {})
+		out, err := io.ReadAll(httpCtx.Response.BodyStream())
+		Expect(err).NotTo(HaveOccurred())
+		var lastType string
+		var lastResp map[string]any
+		for _, line := range strings.Split(string(out), "\n") {
+			data, ok := strings.CutPrefix(line, api.SSEDataPrefix)
+			if !ok {
+				continue
+			}
+			var event map[string]any
+			Expect(json.Unmarshal([]byte(data), &event)).To(Succeed())
+			lastType, _ = event["type"].(string)
+			lastResp, _ = event["response"].(map[string]any)
+		}
+		return lastType, lastResp
+	}
+
+	DescribeTable("is incomplete when max_output_tokens cuts the answer",
+		func(stream bool, wantEvent string) {
+			eventType, resp := send(`,"max_output_tokens":1`, stream)
+			Expect(eventType).To(Equal(wantEvent))
+			Expect(resp).To(HaveKeyWithValue("status", api.ResponsesStatusIncomplete))
+			Expect(resp).To(HaveKeyWithValue("incomplete_details",
+				HaveKeyWithValue("reason", api.ResponsesIncompleteMaxTokens)))
+		},
+		Entry("non-streamed", false, ""),
+		Entry("streamed", true, api.ResponsesEventIncomplete),
+	)
+
+	DescribeTable("stays completed when the answer ends before the limit",
+		func(stream bool, wantEvent string) {
+			eventType, resp := send("", stream)
+			Expect(eventType).To(Equal(wantEvent))
+			Expect(resp).To(HaveKeyWithValue("status", api.ResponsesStatusCompleted))
+			Expect(resp).NotTo(HaveKey("incomplete_details"))
+		},
+		Entry("non-streamed", false, ""),
+		Entry("streamed", true, api.ResponsesEventCompleted),
+	)
 })
 
 // abortRecorder records the context handleHTTP passes to HandleRequest, which

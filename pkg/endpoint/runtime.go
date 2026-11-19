@@ -41,7 +41,7 @@ type Runtime interface {
 	// RequestStarted records that req has begun processing: increments the
 	// running-request metric and, if req targets a LoRA, stamps its LoRA ID
 	// and marks the LoRA as running.
-	RequestStarted(req api.Request)
+	RequestStarted(req api.Request, queued bool)
 	// GetResponseTokens generates response tokens for req from the
 	// simulator's configured dataset.
 	GetResponseTokens(req api.Request) (*api.Tokenized, string, error)

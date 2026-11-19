@@ -209,6 +209,20 @@ var _ = Describe("Simulator for /v1/messages (Anthropic Messages API)", forEachE
 			Expect(resp.Usage.InputTokens).To(BeNumerically(">", 0))
 		})
 
+		It("returns a text response with a system prompt given as text blocks", func() {
+			client, err := startServer(ctx, common.ModeRandom)
+			Expect(err).NotTo(HaveOccurred())
+
+			body := `{"model":"` + model + `","max_tokens":100,` +
+				`"system":[{"type":"text","text":"You are a helpful assistant.","cache_control":{"type":"ephemeral"}}],` +
+				`"messages":[{"role":"user","content":"` + testUserMessage + `"}]}`
+
+			resp := sendMessagesRequest(client, body)
+
+			Expect(resp.Type).To(Equal(api.MessagesType))
+			Expect(resp.Usage.InputTokens).To(BeNumerically(">", 0))
+		})
+
 		It("returns a text response with multi-turn messages", func() {
 			client, err := startServer(ctx, common.ModeRandom)
 			Expect(err).NotTo(HaveOccurred())
@@ -500,6 +514,37 @@ var _ = Describe("Simulator for /v1/messages (Anthropic Messages API)", forEachE
 				Expect(resp.ContextManagement.OriginalInputTokens).To(Equal(resp.InputTokens))
 			}
 		})
+
+		DescribeTable("leaves the billing header out of the prompt",
+			func(withHeader, withoutHeader string) {
+				client, err := startServer(ctx, common.ModeRandom)
+				Expect(err).NotTo(HaveOccurred())
+
+				count := func(messages string) int {
+					body := `{"model":"` + model + `",` + messages + `}`
+					status, respBody := postMessagesRoute(client, "/v1/messages/count_tokens", body)
+					Expect(status).To(Equal(http.StatusOK), "response body: %s", string(respBody))
+					var resp api.MessagesCountTokensResponse
+					Expect(json.Unmarshal(respBody, &resp)).To(Succeed())
+					return resp.InputTokens
+				}
+				Expect(count(withHeader)).To(Equal(count(withoutHeader)))
+			},
+			Entry("system text blocks",
+				`"system":[{"type":"text","text":"x-anthropic-billing-header: cch=1a2b;"},{"type":"text","text":"You are a helpful assistant."}],`+
+					`"messages":[{"role":"user","content":"`+testUserMessage+`"}]`,
+				`"system":[{"type":"text","text":"You are a helpful assistant."}],`+
+					`"messages":[{"role":"user","content":"`+testUserMessage+`"}]`),
+			Entry("system message in string form",
+				`"messages":[{"role":"system","content":"x-anthropic-billing-header: cch=1a2b;"},`+
+					`{"role":"user","content":"`+testUserMessage+`"}]`,
+				`"messages":[{"role":"user","content":"`+testUserMessage+`"}]`),
+			Entry("system message with text blocks",
+				`"messages":[{"role":"system","content":[{"type":"text","text":"x-anthropic-billing-header: cch=1a2b;"},`+
+					`{"type":"text","text":"You are a helpful assistant."}]},{"role":"user","content":"`+testUserMessage+`"}]`,
+				`"messages":[{"role":"system","content":"You are a helpful assistant."},`+
+					`{"role":"user","content":"`+testUserMessage+`"}]`),
+		)
 
 		It("ignores mm_payload", func() {
 			client, err := startServer(ctx, common.ModeRandom)

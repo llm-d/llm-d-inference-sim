@@ -17,6 +17,8 @@ limitations under the License.
 package endpoint
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -77,6 +79,14 @@ type RequestContext interface {
 	createToolCalls() ([]api.ToolCall, int, string, error)
 	createStructuredOutput() (*api.Tokenized, string, error)
 	HandleRequest() (ResponseContext, *api.Error)
+	// Started reports whether HandleRequest got past the checks that reject a
+	// request before it runs, and so recorded it as started.
+	Started() bool
+	// MarkQueued records that the request went through the waiting queue.
+	MarkQueued()
+	// Queued reports whether the request went through the waiting queue, and
+	// so holds a LoRA waiting reference to release when it runs or is dropped.
+	Queued() bool
 	ResponseChannel() common.Channel[*ResponseInfo]
 	tokenizedPromptForEcho() (*api.Tokenized, error)
 	encode() ([]uint32, []string, *api.RenderMMFeatures, error)
@@ -92,6 +102,8 @@ type baseRequestContext struct {
 	respChannel     common.Channel[*ResponseInfo]
 	idx             int
 	doneFn          func()
+	started         bool
+	queued          bool
 }
 
 func newBaseRequestContext(runtime Runtime, channel common.Channel[*ResponseInfo], choiceIdx int, doneFn func()) baseRequestContext {
@@ -123,6 +135,41 @@ func (b *baseRequestContext) StartProcessingTime() time.Time {
 	return b.startProcessing
 }
 
+func (b *baseRequestContext) Started() bool {
+	return b.started
+}
+
+func (b *baseRequestContext) MarkQueued() {
+	b.queued = true
+}
+
+func (b *baseRequestContext) Queued() bool {
+	return b.queued
+}
+
+// start records the request as started, once it passed the checks that reject
+// it before it runs.
+func (b *baseRequestContext) start() {
+	b.runtime.RequestStarted(b.Request(), b.queued)
+	b.started = true
+}
+
+// renderBadRequest returns the render service's error for a request it rejected
+// with 400, since vLLM gives the client that same answer. Any other render failure
+// points at the render setup, so the caller reports it as a server error.
+func renderBadRequest(err error) *api.Error {
+	var statusErr *tokenizer.RenderStatusError
+	if !errors.As(err, &statusErr) || statusErr.StatusCode != fasthttp.StatusBadRequest {
+		return nil
+	}
+	var resp api.ErrorResponse
+	if json.Unmarshal(statusErr.Body, &resp) != nil {
+		return nil
+	}
+	apiErr := api.NewError(resp.Error.Message, fasthttp.StatusBadRequest, resp.Error.Param)
+	return &apiErr
+}
+
 func (b *baseRequestContext) tokenize() *api.Error {
 	req := b.Request()
 
@@ -130,6 +177,9 @@ func (b *baseRequestContext) tokenize() *api.Error {
 		// the prompt is still not tokenized - tokenize now
 		tokens, textTokens, mmFeatures, err := b.encode()
 		if err != nil {
+			if badRequest := renderBadRequest(err); badRequest != nil {
+				return badRequest
+			}
 			b.logger.Error(err, "failed to tokenize")
 			serverErr := api.NewError("Failed to tokenize, "+err.Error(), fasthttp.StatusInternalServerError, nil)
 			return &serverErr
@@ -186,8 +236,6 @@ func (reqCtx *baseRequestContext) HandleRequest() (ResponseContext, *api.Error) 
 	req := reqCtx.Request()
 	dispModel := req.GetDisplayedModel()
 
-	reqCtx.runtime.RequestStarted(req)
-
 	if err := reqCtx.tokenize(); err != nil {
 		return nil, err
 	}
@@ -196,6 +244,8 @@ func (reqCtx *baseRequestContext) HandleRequest() (ResponseContext, *api.Error) 
 		oaiServerError := api.NewError(errMsg, errCode, nil)
 		return nil, &oaiServerError
 	}
+
+	reqCtx.start()
 
 	// A request below its cache hit threshold is not added to the KV cache, so it
 	// does not raise the hit rate of the other choices of its prompt.

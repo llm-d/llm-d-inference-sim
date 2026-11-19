@@ -81,6 +81,9 @@ var _ = Describe("Responses HTTP tool streaming", func() {
 		Expect(string(payloads[0])).To(ContainSubstring(`"name":"get_weather"`))
 		Expect(string(payloads[0])).To(ContainSubstring(`"status":"in_progress"`))
 		Expect(string(payloads[0])).To(ContainSubstring(`"call_id":"call_abc123"`))
+		var added map[string]any
+		Expect(json.Unmarshal(payloads[0], &added)).To(Succeed())
+		Expect(added).To(HaveKeyWithValue("item", HaveKeyWithValue("arguments", "")))
 
 		second := &api.ToolCall{
 			ID:   "fc_abc123",
@@ -106,5 +109,13 @@ var _ = Describe("Responses HTTP tool streaming", func() {
 		Expect(argsDone.Arguments).To(Equal(`{"city":"Paris"}`))
 		Expect(argsDone.ItemID).To(Equal("fc_abc123"))
 		Expect(string(lastPayloads[1])).To(ContainSubstring(`"status":"completed"`))
+
+		for i, payload := range append(append(payloads, eventPayloadsFromChunk(chunk2)...), lastPayloads...) {
+			var event map[string]any
+			Expect(json.Unmarshal(payload, &event)).To(Succeed())
+			Expect(event).To(HaveKeyWithValue("sequence_number", BeNumerically("==", i)), event["type"])
+			Expect(event).To(HaveKeyWithValue("output_index", BeNumerically("==", 0)), event["type"])
+			Expect(event).NotTo(HaveKey("content_index"), event["type"])
+		}
 	})
 })

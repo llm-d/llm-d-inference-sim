@@ -57,7 +57,7 @@ var _ = Describe("LoRA ref counting on the bus", func() {
 
 		send := func(name string, state LoRAState) {
 			common.WriteToChannel(bus.LoRAChanged,
-				LoRAChanged{Model: name, State: state},
+				LoRAChanged{Model: name, State: state, Queued: true},
 				logr.Discard())
 		}
 
@@ -80,6 +80,37 @@ var _ = Describe("LoRA ref counting on the bus", func() {
 		send("c", LoRADropped)
 		Eventually(loraKeys(&bus.waitingLoras)).Should(BeEmpty())
 		Consistently(loraKeys(&bus.runningLoras)).Should(BeEmpty())
+	})
+})
+
+var _ = Describe("LoRA waiting references", func() {
+	It("releases a waiting reference only for a request that queued", func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		DeferCleanup(cancel)
+
+		bus, err := NewMetricsBus(ctx, newBusTestConfig(), prometheus.NewRegistry(), logr.Discard(),
+			NewStubAdapter)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(bus.Start(ctx)).To(Succeed())
+
+		send := func(state LoRAState, queued bool) {
+			common.WriteToChannel(bus.LoRAChanged, LoRAChanged{Model: "a", State: state, Queued: queued},
+				logr.Discard())
+		}
+
+		// B queues for adapter a, then A, which went straight to a free worker,
+		// starts on the same adapter: B is still waiting.
+		send(LoRAWaiting, true)
+		send(LoRARunning, false)
+		Eventually(loraKeys(&bus.runningLoras)).Should(ConsistOf("a"))
+		Consistently(loraKeys(&bus.waitingLoras)).Should(ConsistOf("a"))
+
+		// A rejected request that never queued releases nothing either.
+		send(LoRADropped, false)
+		Consistently(loraKeys(&bus.waitingLoras)).Should(ConsistOf("a"))
+
+		send(LoRARunning, true)
+		Eventually(loraKeys(&bus.waitingLoras)).Should(BeEmpty())
 	})
 })
 

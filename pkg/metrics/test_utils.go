@@ -20,6 +20,7 @@ import (
 
 	"github.com/go-logr/logr"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 )
@@ -62,4 +63,19 @@ func (StubAdapter) ValidateConfig(*common.Configuration) error { return nil }
 func (StubAdapter) NewMetricsAdapter(context.Context, *prometheus.Registry, logr.Logger,
 	common.Configuration) (MetricsAdapter, error) {
 	return StubAdapter{}, nil
+}
+
+// GaugeValue reads the model-labeled gauge. Adapter writes are asynchronous
+// (channel -> updater goroutine -> Prometheus), so callers wrap this in
+// Eventually.
+func GaugeValue(g *prometheus.GaugeVec) func() float64 {
+	return func() float64 {
+		return testutil.ToFloat64(g.WithLabelValues(common.TestModelName))
+	}
+}
+
+func CounterValue(c *prometheus.CounterVec, labelValues ...string) func() float64 {
+	return func() float64 {
+		return testutil.ToFloat64(c.WithLabelValues(labelValues...))
+	}
 }

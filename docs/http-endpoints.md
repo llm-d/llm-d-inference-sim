@@ -214,7 +214,7 @@ Structure of requests/responses
         - stream
         - model
         - messages (required)
-            - role (`user` or `assistant`)
+            - role (`user`, `assistant` or `system`)
             - content (string or array of content blocks)
               - type (`text`, `image`, `tool_use`, `tool_result`)
               - text (for `text` blocks)
@@ -225,7 +225,7 @@ Structure of requests/responses
                 - url
               - type, id, name, input (for `tool_use` blocks)
               - type, tool_use_id, content (for `tool_result` blocks)
-        - system
+        - system (string or array of `text` blocks). As in vLLM, `text` blocks whose text starts with `x-anthropic-billing-header` are left out of the prompt; Claude Code sends a per-request hash in that block. In a `system` message inside `messages` a string with that prefix is left out too.
         - max_tokens (required)
         - tools
           - name
@@ -588,6 +588,8 @@ curl -N -X POST http://localhost:8000/v1/responses \
 The streaming response uses Server-Sent Events (SSE) and emits the following event types in order: `response.created`, `response.in_progress`, `response.output_item.added`, `response.content_part.added`, one or more `response.output_text.delta`, `response.output_text.done`, `response.content_part.done`, `response.output_item.done`, `response.completed`.
 
 When the turn is a tool call (`tools` present and `tool_choice` is not `none`, and `input` has no `function_call_output`), the stream instead emits: `response.created`, `response.in_progress`, `response.output_item.added` (item type `function_call`), one or more `response.function_call_arguments.delta`, `response.function_call_arguments.done`, `response.output_item.done`, `response.completed` (with a single `function_call` in `output`).
+
+A response that stops at the `max_output_tokens` limit has status `incomplete` and `incomplete_details.reason` `max_output_tokens`, and its stream ends with `response.incomplete` instead of `response.completed`.
 
 ## `finish_reason` values
 

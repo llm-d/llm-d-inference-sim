@@ -121,3 +121,23 @@ var _ = Describe("messages count_tokens decoration", func() {
 		Expect(New().DecorateMessagesCountTokens(resp)).To(Equal(resp))
 	})
 })
+
+// sglang's message_delta usage carries output_tokens alone.
+var _ = Describe("messages message_delta usage decoration", func() {
+	It("should leave the usage unchanged", func() {
+		full := api.MessagesUsage{InputTokens: 3, CacheReadInputTokens: 24, OutputTokens: 5}
+		usage := New().DecorateMessagesDeltaUsage(api.MessagesStreamUsage{OutputTokens: 5}, full)
+		body, err := json.Marshal(usage)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(body).To(MatchJSON(`{"output_tokens":5}`))
+	})
+})
+
+// sglang's /tokenize has no return_token_strs.
+var _ = Describe("tokenize response decoration", func() {
+	It("should leave the response unchanged", func() {
+		resp := api.TokenizeResponse{Count: 2}
+		Expect(New().DecorateTokenizeResponse(resp, api.TokenizeRequest{ReturnTokenStrs: true},
+			[]string{"Hello ", "world"})).To(Equal(resp))
+	})
+})

@@ -85,3 +85,27 @@ var _ = Describe("messages count_tokens decoration", func() {
 		Expect(resp.ContextManagement).To(Equal(&api.MessagesContextManagement{OriginalInputTokens: 7}))
 	})
 })
+
+// vLLM builds the message_delta usage like the response usage, with the input fields.
+var _ = Describe("messages message_delta usage decoration", func() {
+	It("should add the input fields of the full usage", func() {
+		full := api.MessagesUsage{InputTokens: 3, CacheReadInputTokens: 24, OutputTokens: 5}
+		usage := New().DecorateMessagesDeltaUsage(api.MessagesStreamUsage{OutputTokens: 5}, full)
+		body, err := json.Marshal(usage)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(body).To(MatchJSON(`{"input_tokens":3,"cache_creation_input_tokens":0,"cache_read_input_tokens":24,"output_tokens":5}`))
+	})
+})
+
+var _ = Describe("tokenize response decoration", func() {
+	strs := []string{"Hello ", "world"}
+	It("should add the token strings when return_token_strs is set", func() {
+		resp := New().DecorateTokenizeResponse(api.TokenizeResponse{Count: 2},
+			api.TokenizeRequest{ReturnTokenStrs: true}, strs)
+		Expect(resp.TokenStrs).To(Equal(strs))
+	})
+	It("should leave token_strs null otherwise", func() {
+		resp := New().DecorateTokenizeResponse(api.TokenizeResponse{Count: 2}, api.TokenizeRequest{}, strs)
+		Expect(resp.TokenStrs).To(BeNil())
+	})
+})
