@@ -149,11 +149,7 @@ func (f *VLLMFakeMetrics) Validate() error {
 					"%s (valid reasons: %v)", reason, common.RequiredFinishReasons)
 			}
 		}
-		for _, reason := range common.RequiredFinishReasons {
-			if _, exists := f.RequestSuccessTotal[reason]; !exists {
-				f.RequestSuccessTotal[reason] = 0
-			}
-		}
+		addRequiredFinishReasons(f.RequestSuccessTotal)
 	}
 
 	if f.PrefixCacheHits != nil && *f.PrefixCacheHits < 0 {
@@ -171,6 +167,14 @@ func (f *VLLMFakeMetrics) Validate() error {
 	}
 
 	return nil
+}
+
+func addRequiredFinishReasons(reasons map[string]int64) {
+	for _, reason := range common.RequiredFinishReasons {
+		if _, exists := reasons[reason]; !exists {
+			reasons[reason] = 0
+		}
+	}
 }
 
 // ValidateTokenBuckets checks the token-length histogram arrays against the

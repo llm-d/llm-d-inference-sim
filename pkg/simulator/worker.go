@@ -76,12 +76,11 @@ func (s *Simulator) processRequest(reqCtx endpoint.RequestContext) {
 		return
 	}
 	startTime := time.Now()
-	reportFailed := func() {
-		common.WriteToChannel(s.Context.metricsBus.RequestFailed,
-			metrics.RequestFailed{
-				E2ELatency:    time.Since(reqCtx.StartProcessingTime()).Seconds(),
-				InferenceTime: time.Since(startTime).Seconds(),
-			}, s.Context.logger)
+	reportFailed := func(ev metrics.RequestFailed) {
+		ev.E2ELatency = time.Since(reqCtx.StartProcessingTime()).Seconds()
+		ev.InferenceTime = time.Since(startTime).Seconds()
+		ev.IsStreaming = req.IsStream()
+		common.WriteToChannel(s.Context.metricsBus.RequestFailed, ev, s.Context.logger)
 	}
 	respCtx, err := reqCtx.HandleRequest()
 	if err != nil && !reqCtx.Started() {
@@ -104,14 +103,18 @@ func (s *Simulator) processRequest(reqCtx endpoint.RequestContext) {
 			&endpoint.ResponseInfo{RespCtx: respCtx, Err: err, ChoiceIdx: reqCtx.ChoiceIndex()},
 			s.Context.logger)
 		// api.Error is a struct wire type (not error interface); drop it here
-		reportFailed()
+		reportFailed(metrics.RequestFailed{})
 		return
 	}
 
-	if !s.simulateResponseProcessing(respCtx) {
+	if generated, completed := s.simulateResponseProcessing(respCtx); !completed {
 		s.Context.logger.V(logging.DEBUG).Info("Aborted request, its response is no longer read",
 			"id", req.GetRequestID())
-		reportFailed()
+		reportFailed(metrics.RequestFailed{
+			PromptTokens:       respCtx.UsageData().PromptTokens,
+			CachedPromptTokens: respCtx.NumberCachedPromptTokens(),
+			GenerationTokens:   generated,
+		})
 		return
 	}
 	s.Context.logger.V(logging.DEBUG).Info("Finished processing request", "id", req.GetRequestID())

@@ -17,7 +17,7 @@ limitations under the License.
 // Package sglang implements the engine.Engine interface for the SGLang
 // backend. It covers the engine-neutral surface only: the OpenAI-compatible
 // endpoints, the latency model, and dataset-backed response generation. SGLang's
-// own HTTP routes, its Prometheus metrics, its LoRA adapters, and its KV-cache
+// own HTTP routes, its LoRA adapters, and its KV-cache
 // event format are not implemented, and a configuration asking for one of them
 // is rejected rather than silently ignored.
 package sglang
@@ -36,8 +36,11 @@ func New() Engine { return Engine{} }
 // Name identifies this engine backend.
 func (Engine) Name() string { return "sglang" }
 
-// NewFakeMetrics returns nil: this engine does not support fake metrics.
-func (Engine) NewFakeMetrics() common.FakeMetrics { return nil }
+// NewFakeMetrics returns a zero-valued SGLangFakeMetrics for runtime enable via
+// POST /admin/config when the process was started without --fake-metrics.
+func (Engine) NewFakeMetrics() common.FakeMetrics {
+	return &SGLangFakeMetrics{}
+}
 
 // NewRequestValidator leaves strict validation disabled for the experimental backend.
 func (Engine) NewRequestValidator() (communication.RequestValidator, error) {

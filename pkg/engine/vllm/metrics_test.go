@@ -55,7 +55,7 @@ func newTestConfig() common.Configuration {
 // newTestAdapter builds a VLLMMetricsAdapter with a fresh Prometheus registry
 // and a canceled-on-cleanup context, which stops all updater goroutines and
 // the ticker.
-func newTestAdapter(cfg common.Configuration) (*VLLMMetricsAdapter, *metrics.MetricsBus) {
+func newTestAdapter(cfg common.Configuration) (*vllmMetricsAdapter, *metrics.MetricsBus) {
 	ctx, cancel := context.WithCancel(context.Background())
 	DeferCleanup(cancel)
 
@@ -376,7 +376,7 @@ vllm:request_success_total{finished_reason="stop",model_name=%q} 1
 				RequestSuccessTotal: map[string]int64{"stop": 3, "length": 2},
 			})
 			Eventually(metrics.CounterValue(adapter.promptTokensTotal, common.TestModelName)).Should(Equal(float64(firstTotal)))
-			Eventually(func() int { return testutil.CollectAndCount(adapter.requestSuccessTotal) }).Should(Equal(2))
+			Eventually(metrics.CounterValue(adapter.requestSuccessTotal, common.TestModelName, "length")).Should(Equal(float64(2)))
 
 			adapter.ApplyFakeMetricsUpdate(&VLLMFakeMetrics{
 				TTFTBucketValues:    []int{0, 1},
@@ -384,8 +384,9 @@ vllm:request_success_total{finished_reason="stop",model_name=%q} 1
 				RequestSuccessTotal: map[string]int64{"stop": 1},
 			})
 			Eventually(metrics.CounterValue(adapter.promptTokensTotal, common.TestModelName)).Should(Equal(float64(secondTotal)))
-			Eventually(func() int { return testutil.CollectAndCount(adapter.requestSuccessTotal) }).Should(Equal(1))
-			Expect(metrics.CounterValue(adapter.requestSuccessTotal, common.TestModelName, "stop")()).To(Equal(float64(1)))
+			Eventually(metrics.CounterValue(adapter.requestSuccessTotal, common.TestModelName, "stop")).Should(Equal(float64(1)))
+			Expect(metrics.CounterValue(adapter.requestSuccessTotal, common.TestModelName, "length")()).To(Equal(float64(0)))
+			Expect(testutil.CollectAndCount(adapter.requestSuccessTotal)).To(Equal(len(common.RequiredFinishReasons)))
 
 			Expect(adapter.ttft).To(BeIdenticalTo(ttft))
 			Expect(adapter.promptTokensTotal).To(BeIdenticalTo(promptTokensTotal))
