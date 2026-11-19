@@ -164,6 +164,10 @@ func (Engine) DecorateTokenizeResponse(resp api.TokenizeResponse, _ api.Tokenize
 	return resp
 }
 
+// ReasoningFieldName reports "reasoning_content", the field sglang emits an
+// assistant message's reasoning prefix under.
+func (Engine) ReasoningFieldName() string { return api.ReasoningContentField }
+
 // messagesErrorBody puts the error in the Anthropic envelope, with the type
 // mapped to Anthropic's vocabulary and a server error's message replaced.
 func messagesErrorBody(err api.Error) any {

@@ -68,6 +68,9 @@ Structure of requests/responses
           - message
             - role
             - content
+            - reasoning (vllm only; present when `--reasoning-percentage` or the
+              `X-Reasoning-Percentage` header reserves part of the answer for it)
+            - reasoning_content (sglang only, same conditions; sglang never emits `reasoning`)
             - audio (present when `modalities` contains `"audio"`; synthetic and fixed-size,
               does not count against `max_completion_tokens`, which governs text content only)
               - id

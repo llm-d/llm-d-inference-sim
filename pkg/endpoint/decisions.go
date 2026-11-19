@@ -187,7 +187,8 @@ func (r *decisionReqCtx) HandleRequest() (ResponseContext, *api.Error) {
 		PromptTokensDetails: &api.PromptTokensDetails{CachedTokens: stats.CachedPromptTokens},
 	}
 	finish := common.StopFinishReason
-	return r.req.createResponseContext(r, r.req.GetDisplayedModel(), output, &finish, usage, true, nil, nil, false), nil
+	return r.req.createResponseContext(r, r.req.GetDisplayedModel(), output, &finish, usage, true, nil, nil, false,
+		r.runtime), nil
 }
 
 func (d *DecisionRequest) setModel(model *string) {

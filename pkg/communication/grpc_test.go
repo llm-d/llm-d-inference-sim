@@ -70,6 +70,8 @@ func (fakeTransport) DecorateMessagesDeltaUsage(usage api.MessagesStreamUsage, _
 	return usage
 }
 
+func (fakeTransport) ReasoningFieldName() string { return api.ReasoningField }
+
 func (fakeTransport) DecorateTokenizeResponse(resp api.TokenizeResponse, _ api.TokenizeRequest, _ []string) api.TokenizeResponse {
 	return resp
 }

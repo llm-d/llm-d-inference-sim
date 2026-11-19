@@ -98,7 +98,7 @@ func (g *GenerateRequest) AsString() string {
 
 func (g *GenerateRequest) createResponseContext(reqCtx RequestContext, displayModel string,
 	responseTokens *api.Tokenized, finishReason *string, usageData *api.Usage,
-	sendUsageData bool, logprobs *int, toolCalls []api.ToolCall, mmEncoderOnlyMode bool) ResponseContext {
+	sendUsageData bool, logprobs *int, toolCalls []api.ToolCall, mmEncoderOnlyMode bool, _ Runtime) ResponseContext {
 	base := newBaseResponseContext(reqCtx, displayModel, responseTokens, finishReason, usageData, sendUsageData,
 		logprobs, g.GetRequestID(), g.IsDoRemotePrefill(), g.IsDoRemoteDecode(), g.GetNumberOfCachedPromptTokens())
 

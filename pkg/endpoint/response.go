@@ -45,6 +45,7 @@ type ResponseContext interface {
 	DoRemoteDecode() bool
 	NumberCachedPromptTokens() int
 	ResponseTokens() *api.Tokenized
+	ReasoningTokenCount() int
 	FinishReason() *string
 	SendUsageData() bool
 	ToolCalls() []api.ToolCall
@@ -133,6 +134,7 @@ func (respCtx *baseResponseContext) NumberCachedPromptTokens() int {
 func (respCtx *baseResponseContext) ResponseTokens() *api.Tokenized {
 	return respCtx.respTokens
 }
+func (respCtx *baseResponseContext) ReasoningTokenCount() int { return 0 }
 func (respCtx *baseResponseContext) FinishReason() *string {
 	return respCtx.finishReasonPtr
 }
