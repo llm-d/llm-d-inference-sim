@@ -804,14 +804,6 @@ var _ = Describe("Server render endpoints", func() {
 			return string(data)
 		}
 
-		// skipWithoutUpstreamDerender skips proxy-mode specs when the render
-		// container's vLLM does not serve the derender endpoints.
-		skipWithoutUpstreamDerender := func(status int, body []byte) {
-			if status == http.StatusInternalServerError && strings.Contains(string(body), "status 404") {
-				Skip("render container does not serve /derender")
-			}
-		}
-
 		chatDerenderRoundTrip := func(model string) {
 			client := startSim(model)
 			status, body := post(client, "/v1/chat/completions/render",
@@ -825,7 +817,6 @@ var _ = Describe("Server render endpoints", func() {
 				fmt.Sprintf(`{"model":"%s","prompt_tokens":5,"generate_response":{"request_id":"req-42",`+
 					`"choices":[{"index":0,"finish_reason":"stop","token_ids":%s}]}}`,
 					model, idsAsJSON(renderResp.TokenIDs)))
-			skipWithoutUpstreamDerender(status, body)
 			Expect(status).To(Equal(http.StatusOK))
 
 			var resp api.ChatCompletionsResponse
@@ -856,7 +847,6 @@ var _ = Describe("Server render endpoints", func() {
 					`{"request_id":"req-1","choices":[{"index":0,"finish_reason":"stop","token_ids":%s}]},`+
 					`{"request_id":"req-2","choices":[{"index":0,"finish_reason":"length","token_ids":%s}]}]}`,
 					model, idsAsJSON(renderResps[0].TokenIDs), idsAsJSON(renderResps[1].TokenIDs)))
-			skipWithoutUpstreamDerender(status, body)
 			Expect(status).To(Equal(http.StatusOK))
 
 			var resp api.TextCompletionsResponse

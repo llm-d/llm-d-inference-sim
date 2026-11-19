@@ -653,7 +653,7 @@ Both endpoints are synchronous and stateless. `usage` is computed from the reque
 
 Detokenization depends on the active tokenizer (selected automatically based on `--model`):
 
-- **HuggingFace tokenizer** (real model): token IDs are decoded through the upstream vLLM render service's `/v1/completions/derender` endpoint at `--render-url`. The upstream must be a vLLM version that serves the derender endpoints.
+- **HuggingFace tokenizer** (real model): token IDs are decoded through the upstream vLLM render service's `/v1/completions/derender` endpoint at `--render-url`. The upstream must be a vLLM version that serves the derender endpoints, such as `v0.34.0`, the version the render image is pinned to.
 - **Simulated tokenizer** (dummy model): token IDs are pseudo-hashes, so the simulator keeps a bounded in-memory reverse mapping of the IDs it has produced (through render, generation, or tokenization) and decodes by lookup; when full, the least recently encoded IDs are evicted. Only IDs produced by the same simulator instance round-trip to their original text; unknown or evicted IDs are rendered as `<unk_ID>` placeholders.
 
 ## Decision APIs
