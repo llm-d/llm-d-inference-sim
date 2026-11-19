@@ -25,6 +25,8 @@ type TokenizeRequest struct {
 	Prompt string `json:"prompt"`
 	// Messages is an array of messages to tokenize
 	Messages []Message `json:"messages"`
+	// ReturnTokenStrs requests the token strings alongside the token ids
+	ReturnTokenStrs bool `json:"return_token_strs"`
 }
 
 // TokenizeResponse is a response for tokenize request
@@ -35,6 +37,6 @@ type TokenizeResponse struct {
 	Count int `json:"count"`
 	// Tokens are an array of tokens - the result of request tokenization
 	Tokens []uint32 `json:"tokens"`
-	// TokenStrs is currently unsupported, will always be null
-	TokenStrs []int `json:"token_strs"`
+	// TokenStrs are the token strings, set by an engine that supports return_token_strs
+	TokenStrs []string `json:"token_strs"`
 }

@@ -847,12 +847,13 @@ func (c *Communication) HandleTokenize(ctx *fasthttp.RequestCtx) {
 	}
 
 	var tokens []uint32
+	var tokenStrs []string
 
 	if req.Prompt != "" {
-		tokens, _, err = c.runtime.GetTokenizer().RenderText(req.Prompt)
+		tokens, tokenStrs, err = c.runtime.GetTokenizer().RenderText(req.Prompt)
 	} else {
 		// has messages
-		tokens, _, _, err = c.runtime.GetTokenizer().RenderMessages(req.Messages, api.RenderTools{}, "")
+		tokens, tokenStrs, _, err = c.runtime.GetTokenizer().RenderMessages(req.Messages, api.RenderTools{}, "")
 	}
 
 	if err != nil {
@@ -867,6 +868,7 @@ func (c *Communication) HandleTokenize(ctx *fasthttp.RequestCtx) {
 		Tokens:      tokens,
 		MaxModelLen: c.runtime.Config().MaxModelLen,
 	}
+	resp = c.transport.DecorateTokenizeResponse(resp, *req, tokenStrs)
 	data, err := json.Marshal(resp)
 	if err != nil {
 		errToSend := api.NewError("Response body creation failed, "+err.Error(), fasthttp.StatusInternalServerError, nil)

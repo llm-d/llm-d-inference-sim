@@ -92,6 +92,10 @@ type Engine interface {
 	// of a streamed message_delta event beyond output_tokens; full is the
 	// request's complete Messages usage.
 	DecorateMessagesDeltaUsage(usage api.MessagesStreamUsage, full api.MessagesUsage) api.MessagesStreamUsage
+	// DecorateTokenizeResponse adds any fields this engine puts on a /tokenize
+	// response beyond count, tokens and max_model_len; tokenStrs are the
+	// prompt's token strings.
+	DecorateTokenizeResponse(resp api.TokenizeResponse, req api.TokenizeRequest, tokenStrs []string) api.TokenizeResponse
 	// NewMetricsAdapter builds the engine's own metrics adapter, registering
 	// its collectors on registry. ctx must match the one passed to
 	// metrics.NewMetricsBus.

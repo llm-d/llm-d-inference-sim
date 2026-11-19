@@ -132,3 +132,12 @@ var _ = Describe("messages message_delta usage decoration", func() {
 		Expect(body).To(MatchJSON(`{"output_tokens":5}`))
 	})
 })
+
+// sglang's /tokenize has no return_token_strs.
+var _ = Describe("tokenize response decoration", func() {
+	It("should leave the response unchanged", func() {
+		resp := api.TokenizeResponse{Count: 2}
+		Expect(New().DecorateTokenizeResponse(resp, api.TokenizeRequest{ReturnTokenStrs: true},
+			[]string{"Hello ", "world"})).To(Equal(resp))
+	})
+})

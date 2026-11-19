@@ -58,6 +58,7 @@ close as SGLang support matures, not a permanent design boundary the way the vLL
 | `ErrorBody`, `StreamErrorBody` | How an error object is framed in a response body | [transport.go](../pkg/engine/vllm/transport.go) |
 | `DecorateChatChoice`, `DecorateChatChunkChoice`, `DecorateTextChoice` | Fields a completion choice carries beyond the OpenAI-compatible core | [transport.go](../pkg/engine/vllm/transport.go) |
 | `DecorateMessagesCountTokens` | Fields a `/v1/messages/count_tokens` response carries beyond `input_tokens` (vLLM adds `context_management`; SGLang adds none) | [transport.go](../pkg/engine/vllm/transport.go) |
+| `DecorateTokenizeResponse` | Fields a `/tokenize` response carries beyond `count`, `tokens` and `max_model_len` (vLLM adds `token_strs` when `return_token_strs` is set; SGLang adds none) | [transport.go](../pkg/engine/vllm/transport.go) |
 | `DecorateMessagesDeltaUsage` | Fields the usage of a streamed `/v1/messages` `message_delta` event carries beyond `output_tokens` (vLLM adds the input fields of the full usage; SGLang adds none) | [transport.go](../pkg/engine/vllm/transport.go) |
 | `NewMetricsAdapter` | Prometheus metric names, labels, and the fake-metrics schema | [metrics.go](../pkg/engine/vllm/metrics.go), [fakemetrics.go](../pkg/engine/vllm/fakemetrics.go) |
 | `NewKVEventEncoder` | The wire format of a single KV-cache event | [kvevents.go](../pkg/engine/vllm/kvevents.go) |

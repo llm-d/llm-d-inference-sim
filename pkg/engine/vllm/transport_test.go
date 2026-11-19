@@ -96,3 +96,16 @@ var _ = Describe("messages message_delta usage decoration", func() {
 		Expect(body).To(MatchJSON(`{"input_tokens":3,"cache_creation_input_tokens":0,"cache_read_input_tokens":24,"output_tokens":5}`))
 	})
 })
+
+var _ = Describe("tokenize response decoration", func() {
+	strs := []string{"Hello ", "world"}
+	It("should add the token strings when return_token_strs is set", func() {
+		resp := New().DecorateTokenizeResponse(api.TokenizeResponse{Count: 2},
+			api.TokenizeRequest{ReturnTokenStrs: true}, strs)
+		Expect(resp.TokenStrs).To(Equal(strs))
+	})
+	It("should leave token_strs null otherwise", func() {
+		resp := New().DecorateTokenizeResponse(api.TokenizeResponse{Count: 2}, api.TokenizeRequest{}, strs)
+		Expect(resp.TokenStrs).To(BeNil())
+	})
+})
