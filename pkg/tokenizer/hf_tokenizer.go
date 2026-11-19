@@ -21,7 +21,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"regexp"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -37,7 +41,18 @@ type HFTokenizer struct {
 	ctx          context.Context
 	logger       logr.Logger
 	renderClient *renderClient
+
+	// tokenizeMu guards whether the render service serves /tokenize, read
+	// from its /version on the first Tokenize call.
+	tokenizeMu        sync.Mutex
+	tokenizeChecked   bool
+	tokenizeSupported bool
 }
+
+// minTokenizeVersion is the first vLLM version whose render service serves /tokenize.
+var minTokenizeVersion = [3]int{0, 24, 0}
+
+var vllmVersionRe = regexp.MustCompile(`^v?(\d+)\.(\d+)\.(\d+)`)
 
 // HF Tokenizer
 func NewHFTokenizer(ctx context.Context, logger logr.Logger, renderURL, baseModel string,
@@ -76,6 +91,92 @@ func (hft *HFTokenizer) Detokenize(tokenIDs []uint32) (string, error) {
 		return "", err
 	}
 	return hft.renderClient.derender(payload)
+}
+
+// Tokenize forwards the request to the render service's /tokenize endpoint,
+// so the token IDs and strings are the model's own. A render service older
+// than minTokenizeVersion renders the request instead.
+func (hft *HFTokenizer) Tokenize(req api.TokenizeRequest) ([]uint32, []string, error) {
+	if !hft.renderServesTokenize() {
+		return tokenizeByRendering(hft, req)
+	}
+	body := tokenizeRenderRequest{
+		Model:           hft.baseModel,
+		Prompt:          req.Prompt,
+		ReturnTokenStrs: req.ReturnTokenStrs,
+	}
+	if req.Prompt == nil {
+		messages := req.Messages
+		if messages == nil {
+			messages = []api.Message{}
+		}
+		body.Messages = &messages
+	}
+	payload, err := json.Marshal(body)
+	if err != nil {
+		return nil, nil, err
+	}
+	return hft.renderClient.tokenize(payload)
+}
+
+// renderServesTokenize reports whether the render service's vLLM version
+// serves /tokenize. A 4xx or a body that is not a version object counts as an
+// older service; a network error or a 5xx is retried on the next call. The lock is not held during the
+// read, so concurrent first calls may each read the version.
+func (hft *HFTokenizer) renderServesTokenize() bool {
+	hft.tokenizeMu.Lock()
+	checked, supported := hft.tokenizeChecked, hft.tokenizeSupported
+	hft.tokenizeMu.Unlock()
+	if checked {
+		return supported
+	}
+
+	version, err := hft.renderClient.version()
+	if err != nil {
+		var statusErr *RenderStatusError
+		isStatus := errors.As(err, &statusErr) && statusErr.StatusCode < http.StatusInternalServerError
+		if !isStatus && !errors.Is(err, errVersionBody) {
+			hft.logger.Error(err, "failed to read the render service version, rendering this /tokenize request")
+			return false
+		}
+		hft.logger.V(logging.WARN).Info("render service has no usable /version, rendering /tokenize requests",
+			"error", err.Error())
+	} else {
+		supported = versionAtLeast(version, minTokenizeVersion)
+		hft.logger.V(logging.INFO).Info("Render service version read", "version", version,
+			"forward /tokenize", supported)
+	}
+
+	hft.tokenizeMu.Lock()
+	hft.tokenizeChecked, hft.tokenizeSupported = true, supported
+	hft.tokenizeMu.Unlock()
+	return supported
+}
+
+// versionAtLeast reports whether a vLLM version string such as "0.34.0" or
+// "0.34.0+cpu" is at least minVersion. A version it cannot parse is not.
+func versionAtLeast(version string, minVersion [3]int) bool {
+	m := vllmVersionRe.FindStringSubmatch(version)
+	if m == nil {
+		return false
+	}
+	for i := range minVersion {
+		n, _ := strconv.Atoi(m[i+1])
+		if n != minVersion[i] {
+			return n > minVersion[i]
+		}
+	}
+	return true
+}
+
+// tokenizeRenderRequest is the body sent to the render service's /tokenize.
+// vLLM picks the prompt or the chat form by which field is present, so
+// messages, even an empty list, are sent only without a prompt.
+type tokenizeRenderRequest struct {
+	Model           string         `json:"model"`
+	Prompt          *string        `json:"prompt,omitempty"`
+	Messages        *[]api.Message `json:"messages,omitempty"`
+	ReturnTokenStrs bool           `json:"return_token_strs,omitempty"`
 }
 
 func (hft *HFTokenizer) renderRequest(req api.RenderRequest, plainText string) ([]uint32, []string, *api.RenderMMFeatures, error) {
