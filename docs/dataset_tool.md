@@ -8,7 +8,7 @@ The tool requires a **vLLM render server**, which handles tokenization over HTTP
 
 ```bash
 docker run --rm -p 8082:8082 --entrypoint vllm \
-  vllm/vllm-openai-cpu:v0.21.0 launch render Qwen/Qwen2.5-0.5B-Instruct --port=8082
+  vllm/vllm-openai-cpu:v0.34.0 launch render Qwen/Qwen2.5-0.5B-Instruct --port=8082
 ```
 
 Use the same model name for the render server and the tool's `--model` flag. If the model requires a HuggingFace token, export `HF_TOKEN` and add `-e HF_TOKEN` to the Docker command.

@@ -131,7 +131,7 @@ var RenderToolArgs = []string{"--enable-auto-tool-choice", "--tool-call-parser=h
 // returns the HTTP base URL (http://host:port), cleanup function and error
 func (tm *TokenizerManager) startRenderContainer(ctx context.Context, model string, extraArgs ...string) (string, func(), error) {
 	container, err := testcontainers.Run(ctx,
-		"vllm/vllm-openai-cpu:v0.21.0",
+		"vllm/vllm-openai-cpu:v0.34.0",
 		testcontainers.WithExposedPorts("8000/tcp"),
 		testcontainers.WithEntrypoint("vllm"),
 		testcontainers.WithCmd(append([]string{"launch", "render", model, "--port=8000"}, extraArgs...)...),
