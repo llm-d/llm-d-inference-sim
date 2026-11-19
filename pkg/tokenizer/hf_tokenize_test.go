@@ -128,9 +128,9 @@ var _ = Describe("HF tokenizer Tokenize", func() {
 		Expect(paths).To(Equal([]string{"/tokenize", "/tokenize", "/tokenize"}))
 	})
 
-	Context("with a render service older than v0.30.0", func() {
+	Context("with a render service older than v0.24.0", func() {
 		BeforeEach(func() {
-			version = "0.29.0"
+			version = "0.23.0"
 		})
 
 		It("renders a prompt and splits its text", func() {
@@ -163,6 +163,17 @@ var _ = Describe("HF tokenizer Tokenize", func() {
 		Expect(paths).To(Equal([]string{"/v1/completions/render", "/v1/completions/render"}))
 	})
 
+	It("treats a /version body that is not JSON as an older service and does not read it again", func() {
+		version = `not" json`
+		prompt := "Hi!"
+		for range 2 {
+			_, _, err := hft.Tokenize(api.TokenizeRequest{Prompt: &prompt})
+			Expect(err).NotTo(HaveOccurred())
+		}
+		Expect(versionCalls).To(Equal(1))
+		Expect(paths).To(Equal([]string{"/v1/completions/render", "/v1/completions/render"}))
+	})
+
 	It("renders the request and reads the version again when /version fails", func() {
 		versionStatus = http.StatusServiceUnavailable
 		prompt := "Hi!"
@@ -178,16 +189,16 @@ var _ = Describe("HF tokenizer Tokenize", func() {
 	})
 })
 
-var _ = DescribeTable("versionAtLeast v0.30.0",
+var _ = DescribeTable("versionAtLeast v0.24.0",
 	func(version string, want bool) {
 		Expect(versionAtLeast(version, minTokenizeVersion)).To(Equal(want))
 	},
-	Entry("same version", "0.30.0", true),
+	Entry("same version", "0.24.0", true),
 	Entry("newer minor", "0.34.0", true),
 	Entry("v prefix", "v0.34.0", true),
 	Entry("local build suffix", "0.34.0+cpu", true),
 	Entry("newer major", "1.0.0", true),
-	Entry("older patch line", "0.29.9", false),
+	Entry("older patch line", "0.23.9", false),
 	Entry("dev build without a release tag", "0.1.dev1+gabc", false),
 	Entry("not a version", "unknown", false),
 )

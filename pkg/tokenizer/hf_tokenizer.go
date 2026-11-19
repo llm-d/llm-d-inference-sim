@@ -50,7 +50,7 @@ type HFTokenizer struct {
 }
 
 // minTokenizeVersion is the first vLLM version whose render service serves /tokenize.
-var minTokenizeVersion = [3]int{0, 30, 0}
+var minTokenizeVersion = [3]int{0, 24, 0}
 
 var vllmVersionRe = regexp.MustCompile(`^v?(\d+)\.(\d+)\.(\d+)`)
 
@@ -120,8 +120,8 @@ func (hft *HFTokenizer) Tokenize(req api.TokenizeRequest) ([]uint32, []string, e
 }
 
 // renderServesTokenize reports whether the render service's vLLM version
-// serves /tokenize. A 4xx from /version counts as an older service; a network
-// error or a 5xx is retried on the next call. The lock is not held during the
+// serves /tokenize. A 4xx or a body that is not a version object counts as an
+// older service; a network error or a 5xx is retried on the next call. The lock is not held during the
 // read, so concurrent first calls may each read the version.
 func (hft *HFTokenizer) renderServesTokenize() bool {
 	hft.tokenizeMu.Lock()
@@ -134,12 +134,13 @@ func (hft *HFTokenizer) renderServesTokenize() bool {
 	version, err := hft.renderClient.version()
 	if err != nil {
 		var statusErr *RenderStatusError
-		if !errors.As(err, &statusErr) || statusErr.StatusCode >= http.StatusInternalServerError {
+		isStatus := errors.As(err, &statusErr) && statusErr.StatusCode < http.StatusInternalServerError
+		if !isStatus && !errors.Is(err, errVersionBody) {
 			hft.logger.Error(err, "failed to read the render service version, rendering this /tokenize request")
 			return false
 		}
 		hft.logger.V(logging.WARN).Info("render service has no usable /version, rendering /tokenize requests",
-			"status", statusErr.StatusCode)
+			"error", err.Error())
 	} else {
 		supported = versionAtLeast(version, minTokenizeVersion)
 		hft.logger.V(logging.INFO).Info("Render service version read", "version", version,

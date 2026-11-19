@@ -159,10 +159,13 @@ func (rc *renderClient) version() (string, error) {
 		Version string `json:"version"`
 	}
 	if err := json.Unmarshal(respBody, &resp); err != nil {
-		return "", fmt.Errorf("unmarshal version response: %w", err)
+		return "", fmt.Errorf("%w: %w", errVersionBody, err)
 	}
 	return resp.Version, nil
 }
+
+// errVersionBody is a /version answer whose body is not a version object.
+var errVersionBody = errors.New("unmarshal version response")
 
 // parseRenderResponse handles both array (completions) and object (chat/responses) response shapes.
 func (rc *renderClient) parseRenderResponse(body []byte) ([]uint32, *api.RenderMMFeatures, error) {
