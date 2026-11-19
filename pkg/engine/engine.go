@@ -96,6 +96,10 @@ type Engine interface {
 	// message's reasoning prefix under: vLLM spells it "reasoning", SGLang
 	// "reasoning_content".
 	ReasoningFieldName() string
+	// DecorateTokenizeResponse adds any fields this engine puts on a /tokenize
+	// response beyond count, tokens and max_model_len; tokenStrs are the
+	// prompt's token strings.
+	DecorateTokenizeResponse(resp api.TokenizeResponse, req api.TokenizeRequest, tokenStrs []string) api.TokenizeResponse
 	// NewMetricsAdapter builds the engine's own metrics adapter, registering
 	// its collectors on registry. ctx must match the one passed to
 	// metrics.NewMetricsBus.

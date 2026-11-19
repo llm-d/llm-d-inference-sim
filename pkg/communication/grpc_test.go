@@ -66,7 +66,12 @@ func (fakeTransport) DecorateMessagesCountTokens(resp api.MessagesCountTokensRes
 func (fakeTransport) DecorateMessagesDeltaUsage(usage api.MessagesStreamUsage, _ api.MessagesUsage) api.MessagesStreamUsage {
 	return usage
 }
+
 func (fakeTransport) ReasoningFieldName() string { return api.ReasoningField }
+
+func (fakeTransport) DecorateTokenizeResponse(resp api.TokenizeResponse, _ api.TokenizeRequest, _ []string) api.TokenizeResponse {
+	return resp
+}
 
 var _ = Describe("bindGRPC", func() {
 	var comm *Communication

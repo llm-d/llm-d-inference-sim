@@ -107,3 +107,12 @@ func (Engine) DecorateMessagesDeltaUsage(usage api.MessagesStreamUsage, full api
 	usage.CacheReadInputTokens = &full.CacheReadInputTokens
 	return usage
 }
+
+// DecorateTokenizeResponse adds token_strs when the request sets
+// return_token_strs, as vLLM does.
+func (Engine) DecorateTokenizeResponse(resp api.TokenizeResponse, req api.TokenizeRequest, tokenStrs []string) api.TokenizeResponse {
+	if req.ReturnTokenStrs {
+		resp.TokenStrs = tokenStrs
+	}
+	return resp
+}

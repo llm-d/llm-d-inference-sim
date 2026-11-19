@@ -153,6 +153,12 @@ func (Engine) DecorateMessagesDeltaUsage(usage api.MessagesStreamUsage, _ api.Me
 	return usage
 }
 
+// DecorateTokenizeResponse adds no fields: sglang's /tokenize has no
+// return_token_strs.
+func (Engine) DecorateTokenizeResponse(resp api.TokenizeResponse, _ api.TokenizeRequest, _ []string) api.TokenizeResponse {
+	return resp
+}
+
 // ReasoningFieldName reports "reasoning_content", the field sglang emits an
 // assistant message's reasoning prefix under.
 func (Engine) ReasoningFieldName() string { return api.ReasoningContentField }

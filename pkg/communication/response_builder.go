@@ -652,7 +652,16 @@ func (respBuilder *responsesHTTPRespBuilder) createResponse(respCtxPerChoice []e
 		respCtx.DoRemoteDecode(),
 	)
 	resp.ECTransferParams = respCtx.ECTransferParams()
+	setIncompleteStatus(resp, respCtx.FinishReason())
 	return resp
+}
+
+// setIncompleteStatus marks a response cut off by the token limit as incomplete.
+func setIncompleteStatus(resp *api.ResponsesResponse, finishReason *string) {
+	if finishReason != nil && *finishReason == common.LengthFinishReason {
+		resp.Status = api.ResponsesStatusIncomplete
+		resp.IncompleteDetails = &api.ResponsesIncompleteDetails{Reason: api.ResponsesIncompleteMaxTokens}
+	}
 }
 
 // createRenderResponse builds the wire payload for /v1/responses/render: a
@@ -712,10 +721,15 @@ func (respBuilder *responsesHTTPRespBuilder) createUsageChunk(respCtxPerChoice [
 		respCtx.DoRemoteDecode(),
 	)
 	resp.ECTransferParams = respCtx.ECTransferParams()
+	setIncompleteStatus(resp, respCtx.FinishReason())
+	eventType := api.ResponsesEventCompleted
+	if resp.Status == api.ResponsesStatusIncomplete {
+		eventType = api.ResponsesEventIncomplete
+	}
 	return &namedEventChunk{
-		names: []string{api.ResponsesEventCompleted},
+		names: []string{eventType},
 		data: []any{&api.ResponsesResponseEvent{
-			Type:           api.ResponsesEventCompleted,
+			Type:           eventType,
 			SequenceNumber: respBuilder.nextSequenceNumber(),
 			Response:       resp,
 		}}}

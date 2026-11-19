@@ -38,6 +38,8 @@ const (
 	ResponsesObject               = "response"
 	ResponsesStatusCompleted      = "completed"
 	ResponsesStatusInProgress     = "in_progress"
+	ResponsesStatusIncomplete     = "incomplete"
+	ResponsesIncompleteMaxTokens  = "max_output_tokens"
 	ResponsesOutputText           = "output_text"
 	ResponsesOutputMessage        = "message"
 	ResponsesOutputFunctionCall   = "function_call"
@@ -670,15 +672,16 @@ type OutputItem interface {
 
 type ResponsesResponse struct {
 	baseResponse
-	CreatedAt        int64                       `json:"created_at,omitempty"`
-	Status           string                      `json:"status,omitempty"`
-	Instructions     *string                     `json:"instructions,omitempty"`
-	Output           []OutputItem                `json:"output,omitempty"`
-	Text             *TextSettings               `json:"text,omitempty"`
-	Usage            *ResponsesUsage             `json:"usage,omitempty"`
-	Error            *Error                      `json:"error,omitempty"`
-	Store            *bool                       `json:"store,omitempty"`
-	ECTransferParams map[string]ECTransferParams `json:"ec_transfer_params,omitempty"`
+	CreatedAt         int64                       `json:"created_at,omitempty"`
+	Status            string                      `json:"status,omitempty"`
+	Instructions      *string                     `json:"instructions,omitempty"`
+	Output            []OutputItem                `json:"output,omitempty"`
+	Text              *TextSettings               `json:"text,omitempty"`
+	Usage             *ResponsesUsage             `json:"usage,omitempty"`
+	IncompleteDetails *ResponsesIncompleteDetails `json:"incomplete_details,omitempty"`
+	Error             *Error                      `json:"error,omitempty"`
+	Store             *bool                       `json:"store,omitempty"`
+	ECTransferParams  map[string]ECTransferParams `json:"ec_transfer_params,omitempty"`
 }
 
 type MessageOutput struct {
@@ -705,7 +708,7 @@ type FunctionCallOutputItem struct {
 	ID        string `json:"id,omitempty"`
 	CallID    string `json:"call_id,omitempty"`
 	Name      string `json:"name,omitempty"`
-	Arguments string `json:"arguments,omitempty"`
+	Arguments string `json:"arguments"`
 	Status    string `json:"status,omitempty"`
 }
 
@@ -739,7 +742,9 @@ type ResponsesLogprob struct {
 
 type OutputContent struct {
 	Type string `json:"type"` // output_text
-	Text string `json:"text,omitempty"`
+	Text string `json:"text"`
+	// Annotations is always an empty array: the simulator does not generate citations.
+	Annotations []any `json:"annotations"`
 	// nil ptr -> omit (not requested); non-nil ptr to nil slice -> null; non-nil ptr to empty slice -> [];
 	// non-nil ptr to populated slice -> full array
 	Logprobs *[]ResponsesLogprob `json:"logprobs,omitempty"`
@@ -749,8 +754,15 @@ func (c OutputContent) MarshalJSON() ([]byte, error) {
 	if c.Type == "" {
 		c.Type = ResponsesOutputText
 	}
+	if c.Annotations == nil {
+		c.Annotations = []any{}
+	}
 	type alias OutputContent
 	return json.Marshal(alias(c))
+}
+
+type ResponsesIncompleteDetails struct {
+	Reason string `json:"reason"`
 }
 
 type ResponsesUsage struct {
@@ -773,10 +785,11 @@ const (
 	ResponsesEventFunctionCallArgumentsDone  = "response.function_call_arguments.done"
 	ResponsesEventOutputItemDone             = "response.output_item.done"
 	ResponsesEventCompleted                  = "response.completed"
+	ResponsesEventIncomplete                 = "response.incomplete"
 )
 
 // ResponsesResponseEvent is used for events that carry a full response object
-// (response.created, response.in_progress, response.completed).
+// (response.created, response.in_progress, response.completed, response.incomplete).
 type ResponsesResponseEvent struct {
 	Type           string             `json:"type"`
 	SequenceNumber int                `json:"sequence_number"`
