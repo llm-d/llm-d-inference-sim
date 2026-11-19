@@ -24,6 +24,7 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
+	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/communication"
 )
 
@@ -134,6 +135,10 @@ func (Engine) DecorateChatChunkChoice(choice api.ChatRespChunkChoice) api.ChatRe
 	choice.MatchedStop = matchedStopNull
 	return choice
 }
+
+// ChatToolCallsFinishReason is tool_calls whether or not tool_choice names
+// the function: sglang treats a named tool_choice like required.
+func (Engine) ChatToolCallsFinishReason(bool) string { return common.ToolsFinishReason }
 
 // DecorateTextChoice sets matched_stop to null, the same way DecorateChatChoice
 // does for chat completions.

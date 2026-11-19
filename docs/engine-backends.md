@@ -57,6 +57,7 @@ close as SGLang support matures, not a permanent design boundary the way the vLL
 | `BindGRPC` | The gRPC service, and whether the engine has one at all | [transport.go](../pkg/engine/vllm/transport.go) |
 | `ErrorBody`, `StreamErrorBody` | How an error object is framed in a response body | [transport.go](../pkg/engine/vllm/transport.go) |
 | `DecorateChatChoice`, `DecorateChatChunkChoice`, `DecorateTextChoice` | Fields a completion choice carries beyond the OpenAI-compatible core | [transport.go](../pkg/engine/vllm/transport.go) |
+| `ChatToolCallsFinishReason` | The `finish_reason` of a chat-completion choice that ends in tool calls (vLLM: `stop` when `tool_choice` names the function, `tool_calls` otherwise; SGLang: always `tool_calls`) | [transport.go](../pkg/engine/vllm/transport.go) |
 | `DecorateMessagesCountTokens` | Fields a `/v1/messages/count_tokens` response carries beyond `input_tokens` (vLLM adds `context_management`; SGLang adds none) | [transport.go](../pkg/engine/vllm/transport.go) |
 | `DecorateTokenizeResponse` | Fields a `/tokenize` response carries beyond `count`, `tokens` and `max_model_len` (vLLM adds `token_strs` when `return_token_strs` is set; SGLang adds none) | [transport.go](../pkg/engine/vllm/transport.go) |
 | `DecorateMessagesDeltaUsage` | Fields the usage of a streamed `/v1/messages` `message_delta` event carries beyond `output_tokens` (vLLM adds the input fields of the full usage; SGLang adds none) | [transport.go](../pkg/engine/vllm/transport.go) |

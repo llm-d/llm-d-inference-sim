@@ -416,7 +416,60 @@ var _ = Describe("sendStream finish_reason per choice", func() {
 		Expect(string(out)).To(ContainSubstring(`"finish_reason":"tool_calls"`))
 		Expect(string(out)).To(ContainSubstring("[DONE]"))
 	})
+
+	DescribeTable("takes a tool-call choice's finish reason from the engine",
+		func(stream bool, toolChoice string, expected string) {
+			ctx := context.Background()
+			sim := newRunningSim(ctx)
+
+			tools := `[{"type":"function","function":{"name":"get_weather","parameters":` +
+				`{"type":"object","properties":{"location":{"type":"string"}},"required":["location"]}}}]`
+			req := &endpoint.ChatCompletionsRequest{}
+			body := fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"hello there my friend"}],`+
+				`"stream":%t,"tools":%s,"tool_choice":%s}`, common.TestModelName, stream, tools, toolChoice)
+			Expect(req.Unmarshal([]byte(body))).To(Succeed())
+			req.SetRequestID("named-tool")
+			numChoices, _, respChan, topErr, _ := sim.HandleRequest(ctx, req)
+			Expect(topErr).To(BeNil())
+
+			transport := namedToolStopTransport{}
+			c := &Communication{logger: klog.Background(), transport: transport}
+			builder := &chatComplHTTPRespBuilder{transport: transport}
+			httpCtx := &fasthttp.RequestCtx{}
+			var out []byte
+			if stream {
+				first := <-respChan.Channel
+				c.sendStream(httpCtx, *respChan, builder, numChoices, first, func() {})
+				var err error
+				out, err = io.ReadAll(httpCtx.Response.BodyStream())
+				Expect(err).NotTo(HaveOccurred())
+			} else {
+				c.sendNonStream(httpCtx, *respChan, builder, numChoices)
+				out = httpCtx.Response.Body()
+			}
+			Expect(string(out)).To(ContainSubstring(`"tool_calls":[`))
+			Expect(strings.Count(string(out), `"finish_reason":"`)).To(Equal(1), string(out))
+			Expect(string(out)).To(ContainSubstring(`"finish_reason":"`+expected+`"`), string(out))
+		},
+		Entry("named tool", false, `{"type":"function","function":{"name":"get_weather"}}`, common.StopFinishReason),
+		Entry("named tool, streaming", true, `{"type":"function","function":{"name":"get_weather"}}`,
+			common.StopFinishReason),
+		Entry("required", false, `"required"`, common.ToolsFinishReason),
+		Entry("required, streaming", true, `"required"`, common.ToolsFinishReason),
+	)
 })
+
+// namedToolStopTransport ends a call to a tool named in tool_choice with stop.
+type namedToolStopTransport struct {
+	fakeTransport
+}
+
+func (namedToolStopTransport) ChatToolCallsFinishReason(named bool) string {
+	if named {
+		return common.StopFinishReason
+	}
+	return common.ToolsFinishReason
+}
 
 var _ = Describe("sendStream responses events", func() {
 	It("numbers every event and carries output_index and content_index 0", func() {

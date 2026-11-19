@@ -23,6 +23,7 @@ import (
 	"google.golang.org/grpc"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
+	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 )
 
 // fakeTransport is a minimal Transport double for testing the behaviour this
@@ -56,6 +57,8 @@ func (fakeTransport) DecorateChatChoice(choice api.ChatRespChoice) api.ChatRespC
 func (fakeTransport) DecorateChatChunkChoice(choice api.ChatRespChunkChoice) api.ChatRespChunkChoice {
 	return choice
 }
+
+func (fakeTransport) ChatToolCallsFinishReason(bool) string { return common.ToolsFinishReason }
 
 func (fakeTransport) DecorateTextChoice(choice api.TextRespChoice) api.TextRespChoice { return choice }
 
