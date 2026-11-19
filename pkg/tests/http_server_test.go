@@ -1438,3 +1438,69 @@ func startDecisionTestServer(t *testing.T, engineName string, extraArgs ...strin
 	})
 	return sim, client
 }
+
+func TestEmptyModelIsServedModel(t *testing.T) {
+	const messages = `"messages":[{"role":"user","content":"hi"}]`
+	requests := []struct {
+		path     string
+		body     string
+		hasModel bool
+	}{
+		{"/v1/completions", `"prompt":"hi","max_tokens":1`, true},
+		{"/v1/chat/completions", messages + `,"max_tokens":1`, true},
+		{"/v1/responses", `"input":"hi","max_output_tokens":16`, true},
+		{"/inference/v1/generate", `"token_ids":[1,2,3],"sampling_params":{"max_tokens":1}`, false},
+	}
+	post := func(t *testing.T, client *http.Client, path, body string) (int, []byte) {
+		t.Helper()
+		g := NewWithT(t)
+		resp, err := client.Post("http://localhost"+path, "application/json", strings.NewReader("{"+body+"}"))
+		g.Expect(err).NotTo(HaveOccurred())
+		defer func() { g.Expect(resp.Body.Close()).To(Succeed()) }()
+		respBody, err := io.ReadAll(resp.Body)
+		g.Expect(err).NotTo(HaveOccurred())
+		return resp.StatusCode, respBody
+	}
+
+	for _, args := range [][]string{nil, {"--strict"}, {"--served-model-name", "served-alias", "second-alias"}} {
+
+		wantModel := common.TestModelName
+		if len(args) > 1 {
+			wantModel = args[1]
+		}
+		_, client := startDecisionTestServer(t, "vllm", args...)
+		for _, r := range requests {
+			for name, model := range map[string]string{"missing": "", "empty": `"model":"",`} {
+				t.Run(fmt.Sprintf("%s %s model with %v", r.path, name, args), func(t *testing.T) {
+					g := NewWithT(t)
+					status, body := post(t, client, r.path, model+r.body)
+					g.Expect(status).To(Equal(http.StatusOK), "response body: %s", body)
+					if !r.hasModel {
+						return
+					}
+					var resp struct {
+						Model string `json:"model"`
+					}
+					g.Expect(json.Unmarshal(body, &resp)).To(Succeed())
+					g.Expect(resp.Model).To(Equal(wantModel))
+				})
+			}
+			t.Run(fmt.Sprintf("%s unknown model with %v", r.path, args), func(t *testing.T) {
+				g := NewWithT(t)
+				status, body := post(t, client, r.path, `"model":"unknown-model",`+r.body)
+				g.Expect(status).To(Equal(http.StatusNotFound))
+				g.Expect(string(body)).To(ContainSubstring("The model `unknown-model` does not exist."))
+			})
+		}
+	}
+
+	t.Run("/v1/messages requires a model", func(t *testing.T) {
+		g := NewWithT(t)
+		_, client := startDecisionTestServer(t, "vllm")
+		for _, model := range []string{"", `"model":"",`} {
+			status, body := post(t, client, "/v1/messages", model+messages+`,"max_tokens":1`)
+			g.Expect(status).To(Equal(http.StatusBadRequest), "response body: %s", body)
+			g.Expect(string(body)).To(ContainSubstring("Model is required"))
+		}
+	})
+}
