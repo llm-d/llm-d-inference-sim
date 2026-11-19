@@ -10,6 +10,7 @@ This mode is activated when `--render-url` points at a running vLLM render servi
 * **Requirements:**
     * **A running vLLM render service** reachable at `--render-url`. See the [README](../README.md#standalone-testing) for instructions on starting the render container, or use the `make run-render` helper.
 * **Performance:** Each tokenization call is a network round-trip to the render service.
+* **`/tokenize`:** With a render service on vLLM `v0.30.0` or later, a `/tokenize` request is forwarded to the render service's `/tokenize`, so `tokens` and `token_strs` are the model's own. The simulator reads the version from the render service's `/version` on the first `/tokenize` request, and reads it again on the next request if the read fails with a network error or a 5xx. A 4xx from `/version` counts as an older render service. With an older render service, the request is rendered like other requests and `token_strs` is the simulator's split of the text, which does not line up with `tokens`.
 * **Tools:** A chat request's `tools` and `tool_choice` are forwarded to the render service as the client sent them (fields and key order preserved), because the chat template renders tool definitions into the prompt. Start the render service with the same tool-calling options as the vLLM you are simulating, for example `--enable-auto-tool-choice --tool-call-parser hermes`. Without them, vLLM accepts tools only with `"tool_choice": "none"`, and rejects the rest with 400, just as the real server would.
 
 ## Simulated Mode (Dummy Models)

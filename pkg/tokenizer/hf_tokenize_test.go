@@ -33,11 +33,14 @@ import (
 
 var _ = Describe("HF tokenizer Tokenize", func() {
 	var (
-		srv    *httptest.Server
-		path   string
-		body   []byte
-		status int
-		hft    *HFTokenizer
+		srv           *httptest.Server
+		paths         []string
+		body          []byte
+		status        int
+		version       string
+		versionStatus int
+		versionCalls  int
+		hft           *HFTokenizer
 	)
 
 	received := func() map[string]any {
@@ -47,12 +50,29 @@ var _ = Describe("HF tokenizer Tokenize", func() {
 	}
 
 	BeforeEach(func() {
+		paths = nil
 		status = http.StatusOK
+		version = "0.34.0"
+		versionStatus = http.StatusOK
+		versionCalls = 0
 		srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			path = r.URL.Path
+			if r.URL.Path == "/version" {
+				versionCalls++
+				w.WriteHeader(versionStatus)
+				_, _ = w.Write([]byte(`{"version":"` + version + `"}`))
+				return
+			}
+			paths = append(paths, r.URL.Path)
 			body, _ = io.ReadAll(r.Body)
 			w.WriteHeader(status)
-			_, _ = w.Write([]byte(`{"count":2,"max_model_len":32,"tokens":[5,6],"token_strs":["Hi","!"]}`))
+			switch r.URL.Path {
+			case "/v1/completions/render":
+				_, _ = w.Write([]byte(`[{"token_ids":[5,6]}]`))
+			case "/v1/chat/completions/render":
+				_, _ = w.Write([]byte(`{"token_ids":[5,6,7]}`))
+			default:
+				_, _ = w.Write([]byte(`{"count":2,"max_model_len":32,"tokens":[5,6],"token_strs":["Hi","!"]}`))
+			}
 		}))
 		DeferCleanup(srv.Close)
 		var err error
@@ -65,7 +85,7 @@ var _ = Describe("HF tokenizer Tokenize", func() {
 		prompt := "Hi!"
 		tokens, strs, err := hft.Tokenize(api.TokenizeRequest{Model: "lora-1", Prompt: &prompt, ReturnTokenStrs: true})
 		Expect(err).NotTo(HaveOccurred())
-		Expect(path).To(Equal("/tokenize"))
+		Expect(paths).To(Equal([]string{"/tokenize"}))
 		Expect(received()).To(Equal(map[string]any{
 			"model": "base-model", "prompt": "Hi!", "return_token_strs": true,
 		}))
@@ -85,13 +105,92 @@ var _ = Describe("HF tokenizer Tokenize", func() {
 		Expect(got["model"]).To(Equal("base-model"))
 	})
 
+	It("forwards an empty messages list as an empty list", func() {
+		_, _, err := hft.Tokenize(api.TokenizeRequest{Messages: []api.Message{}})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(string(body)).To(Equal(`{"model":"base-model","messages":[]}`))
+	})
+
 	It("returns an error when the render service rejects the request", func() {
 		status = http.StatusBadRequest
 		prompt := "Hi!"
 		_, _, err := hft.Tokenize(api.TokenizeRequest{Prompt: &prompt})
 		Expect(err).To(HaveOccurred())
 	})
+
+	It("reads the render service version once", func() {
+		prompt := "Hi!"
+		for range 3 {
+			_, _, err := hft.Tokenize(api.TokenizeRequest{Prompt: &prompt})
+			Expect(err).NotTo(HaveOccurred())
+		}
+		Expect(versionCalls).To(Equal(1))
+		Expect(paths).To(Equal([]string{"/tokenize", "/tokenize", "/tokenize"}))
+	})
+
+	Context("with a render service older than v0.30.0", func() {
+		BeforeEach(func() {
+			version = "0.29.0"
+		})
+
+		It("renders a prompt and splits its text", func() {
+			prompt := "Hi there"
+			tokens, strs, err := hft.Tokenize(api.TokenizeRequest{Prompt: &prompt, ReturnTokenStrs: true})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(paths).To(Equal([]string{"/v1/completions/render"}))
+			Expect(tokens).To(Equal([]uint32{5, 6}))
+			Expect(strs).To(Equal([]string{"Hi ", "there"}))
+		})
+
+		It("renders messages", func() {
+			tokens, _, err := hft.Tokenize(api.TokenizeRequest{
+				Messages: []api.Message{{Role: "user", Content: api.ChatComplContent{Raw: "Hi!"}}},
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(paths).To(Equal([]string{"/v1/chat/completions/render"}))
+			Expect(tokens).To(Equal([]uint32{5, 6, 7}))
+		})
+	})
+
+	It("treats a render service whose /version answers 404 as older and does not read it again", func() {
+		versionStatus = http.StatusNotFound
+		prompt := "Hi!"
+		for range 2 {
+			_, _, err := hft.Tokenize(api.TokenizeRequest{Prompt: &prompt})
+			Expect(err).NotTo(HaveOccurred())
+		}
+		Expect(versionCalls).To(Equal(1))
+		Expect(paths).To(Equal([]string{"/v1/completions/render", "/v1/completions/render"}))
+	})
+
+	It("renders the request and reads the version again when /version fails", func() {
+		versionStatus = http.StatusServiceUnavailable
+		prompt := "Hi!"
+		_, _, err := hft.Tokenize(api.TokenizeRequest{Prompt: &prompt})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(paths).To(Equal([]string{"/v1/completions/render"}))
+
+		versionStatus = http.StatusOK
+		_, _, err = hft.Tokenize(api.TokenizeRequest{Prompt: &prompt})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(versionCalls).To(Equal(2))
+		Expect(paths).To(Equal([]string{"/v1/completions/render", "/tokenize"}))
+	})
 })
+
+var _ = DescribeTable("versionAtLeast v0.30.0",
+	func(version string, want bool) {
+		Expect(versionAtLeast(version, minTokenizeVersion)).To(Equal(want))
+	},
+	Entry("same version", "0.30.0", true),
+	Entry("newer minor", "0.34.0", true),
+	Entry("v prefix", "v0.34.0", true),
+	Entry("local build suffix", "0.34.0+cpu", true),
+	Entry("newer major", "1.0.0", true),
+	Entry("older patch line", "0.29.9", false),
+	Entry("dev build without a release tag", "0.1.dev1+gabc", false),
+	Entry("not a version", "unknown", false),
+)
 
 var _ = Describe("Simple tokenizer Tokenize", func() {
 	It("renders the prompt like RenderText", func() {
