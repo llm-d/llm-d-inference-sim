@@ -593,6 +593,10 @@ func (s *SimContext) CreateEmbeddings(req *api.EmbeddingRequest) (*api.Embedding
 			err := api.NewError("dimensions must be at least 1", fasthttp.StatusBadRequest, nil)
 			return nil, &err
 		}
+		if maxDims := s.Config().MaxEmbeddingDimensions; *req.Dimensions > maxDims {
+			err := api.NewError(fmt.Sprintf("dimensions must be at most %d, got %d", maxDims, *req.Dimensions), fasthttp.StatusBadRequest, nil)
+			return nil, &err
+		}
 		dim = *req.Dimensions
 	}
 	useBase64 := req.EncodingFormat == "base64"

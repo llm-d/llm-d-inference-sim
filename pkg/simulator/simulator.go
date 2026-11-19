@@ -394,6 +394,9 @@ func (s *Simulator) HandleRequest(ctx context.Context, req endpoint.Request) (nu
 	if serverErr := req.Validate(s.toolsValidator); serverErr != nil {
 		return 0, false, nil, serverErr, false
 	}
+	if serverErr := endpoint.ValidateN(req, s.Context.Config().MaxNSequences); serverErr != nil {
+		return 0, false, nil, serverErr, false
+	}
 
 	// Single shared channel for all sub-requests; each stamps its ChoiceIdx on
 	// responses and calls signalDone when finished. A watcher goroutine closes

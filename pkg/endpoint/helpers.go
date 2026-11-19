@@ -29,6 +29,16 @@ func getNumberOfPromptTokens(req api.Request) int {
 	return req.TokenizedPrompt().Length()
 }
 
+// ValidateN rejects an n above maxN. Split allocates one sub-request per n, so
+// an unbounded value allocates without limit and can crash the process.
+func ValidateN(req api.Request, maxN int) *api.Error {
+	if n := req.GetRawN(); n != nil && *n > maxN {
+		err := api.NewError(fmt.Sprintf("n must be at most %d, got %d.", maxN, *n), fasthttp.StatusBadRequest, nil)
+		return &err
+	}
+	return nil
+}
+
 func validateRequest(req api.Request) *api.Error {
 	if n := req.GetRawN(); n != nil && *n <= 0 {
 		err := api.NewError("n must be at least 1", fasthttp.StatusBadRequest, nil)

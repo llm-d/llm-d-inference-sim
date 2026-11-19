@@ -1221,6 +1221,11 @@ func (c *Communication) HandleImagesGenerations(ctx *fasthttp.RequestCtx) {
 	if n <= 0 {
 		n = 1
 	}
+	if maxImages := c.runtime.Config().MaxImagesPerRequest; n > maxImages {
+		errToSend := api.NewError(fmt.Sprintf("n must be at most %d, got %d", maxImages, n), fasthttp.StatusBadRequest, nil)
+		c.sendError(ctx, &errToSend, false)
+		return
+	}
 	data := make([]api.ImageData, n)
 	for i := range data {
 		data[i] = api.ImageData{B64JSON: syntheticImageData}
