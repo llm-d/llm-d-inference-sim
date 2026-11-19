@@ -154,10 +154,10 @@ func (b *baseRequestContext) start() {
 	b.started = true
 }
 
-// renderBadRequest returns the render service's error for a request it rejected
+// RenderBadRequest returns the render service's error for a request it rejected
 // with 400, since vLLM gives the client that same answer. Any other render failure
 // points at the render setup, so the caller reports it as a server error.
-func renderBadRequest(err error) *api.Error {
+func RenderBadRequest(err error) *api.Error {
 	var statusErr *tokenizer.RenderStatusError
 	if !errors.As(err, &statusErr) || statusErr.StatusCode != fasthttp.StatusBadRequest {
 		return nil
@@ -177,7 +177,7 @@ func (b *baseRequestContext) tokenize() *api.Error {
 		// the prompt is still not tokenized - tokenize now
 		tokens, textTokens, mmFeatures, err := b.encode()
 		if err != nil {
-			if badRequest := renderBadRequest(err); badRequest != nil {
+			if badRequest := RenderBadRequest(err); badRequest != nil {
 				return badRequest
 			}
 			b.logger.Error(err, "failed to tokenize")

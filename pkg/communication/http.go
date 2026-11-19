@@ -857,6 +857,10 @@ func (c *Communication) HandleTokenize(ctx *fasthttp.RequestCtx) {
 
 	tokens, tokenStrs, err := c.runtime.GetTokenizer().Tokenize(*req)
 	if err != nil {
+		if badRequest := endpoint.RenderBadRequest(err); badRequest != nil {
+			c.sendError(ctx, badRequest, false)
+			return
+		}
 		c.logger.Error(err, "failed to tokenize")
 		errToSend := api.NewError("Failed to tokenize, "+err.Error(), fasthttp.StatusInternalServerError, nil)
 		c.sendError(ctx, &errToSend, false)
