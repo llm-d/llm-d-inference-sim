@@ -302,8 +302,14 @@ var _ = Describe("Simulator", forEachEngine(func() {
 			tokensPerChoice := make(map[int64][]string)
 			var chunk openai.Completion
 			numberOfChunksWithUsage := 0
+			var streamCreated int64
 			for stream.Next() {
 				chunk = stream.Current()
+				if streamCreated == 0 {
+					streamCreated = chunk.Created
+					Expect(streamCreated).To(BeNumerically(">", 0))
+				}
+				Expect(chunk.Created).To(Equal(streamCreated), "all choice and usage chunks must have the same created time")
 				for _, choice := range chunk.Choices {
 					if choice.FinishReason == "" {
 						tokensPerChoice[choice.Index] = append(tokensPerChoice[choice.Index], choice.Text)
