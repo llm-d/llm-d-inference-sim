@@ -90,7 +90,6 @@ var _ = Describe("VLLMMetricsAdapter", func() {
 	Describe("initial values", func() {
 		It("starts request and cache gauges at zero and stamps cache_config_info", func() {
 			adapter, _ := newTestAdapter(newTestConfig())
-			_ = adapter.Start(context.Background())
 
 			Expect(testutil.ToFloat64(adapter.runningRequests.WithLabelValues(common.TestModelName))).To(BeZero())
 			Expect(testutil.ToFloat64(adapter.waitingRequests.WithLabelValues(common.TestModelName))).To(BeZero())
@@ -103,7 +102,6 @@ var _ = Describe("VLLMMetricsAdapter", func() {
 	Describe("event handlers", func() {
 		It("updates the waiting gauge on queue/dequeue", func() {
 			adapter, _ := newTestAdapter(newTestConfig())
-			_ = adapter.Start(context.Background())
 
 			adapter.OnRequestQueued(metrics.RequestQueued{})
 			adapter.OnRequestQueued(metrics.RequestQueued{})
@@ -115,7 +113,6 @@ var _ = Describe("VLLMMetricsAdapter", func() {
 
 		It("updates the running gauge on OnRequestRunning", func() {
 			adapter, _ := newTestAdapter(newTestConfig())
-			_ = adapter.Start(context.Background())
 
 			adapter.OnRequestRunning(metrics.RequestRunning{})
 			adapter.OnRequestRunning(metrics.RequestRunning{})
@@ -124,7 +121,6 @@ var _ = Describe("VLLMMetricsAdapter", func() {
 
 		It("decrements running and records tokens on success", func() {
 			adapter, _ := newTestAdapter(newTestConfig())
-			_ = adapter.Start(context.Background())
 
 			adapter.OnRequestRunning(metrics.RequestRunning{})
 			Eventually(metrics.GaugeValue(adapter.runningRequests)).Should(Equal(float64(1)))
@@ -145,7 +141,6 @@ var _ = Describe("VLLMMetricsAdapter", func() {
 
 		It("exports the max generation tokens histogram under vLLM's name", func() {
 			adapter, _ := newTestAdapter(newTestConfig())
-			_ = adapter.Start(context.Background())
 
 			adapter.OnRequestSucceeded(metrics.RequestSucceeded{GenTokensPerChoice: []int{3}, FinishReason: "stop"})
 			Eventually(func() (int, error) {
@@ -175,7 +170,6 @@ var _ = Describe("VLLMMetricsAdapter", func() {
 
 		It("labels request_success_total with vLLM's finished_reason", func() {
 			adapter, _ := newTestAdapter(newTestConfig())
-			_ = adapter.Start(context.Background())
 
 			adapter.OnRequestSucceeded(metrics.RequestSucceeded{GenTokensPerChoice: []int{1}, FinishReason: "stop"})
 			expected := fmt.Sprintf(`
@@ -190,7 +184,6 @@ vllm:request_success_total{finished_reason="stop",model_name=%q} 1
 
 		It("updates the KV-cache usage gauge", func() {
 			adapter, _ := newTestAdapter(newTestConfig())
-			_ = adapter.Start(context.Background())
 
 			adapter.OnKVCacheUsageChanged(metrics.KVCacheUsageChanged{KVCacheUsagePerc: 0.75})
 			Eventually(metrics.GaugeValue(adapter.kvCacheUsagePercentage)).Should(Equal(0.75))
@@ -200,7 +193,6 @@ vllm:request_success_total{finished_reason="stop",model_name=%q} 1
 			cfg := newTestConfig()
 			cfg.Lora.LoraModules = []common.LoraModule{{Name: "lora1", Path: "/lora1"}}
 			adapter, _ := newTestAdapter(cfg)
-			_ = adapter.Start(context.Background())
 
 			// label order: max_lora, running_lora_adapters, waiting_lora_adapters
 			waiting := func() float64 { return testutil.ToFloat64(adapter.loraInfo.WithLabelValues("2", "", "lora1")) }
@@ -214,7 +206,6 @@ vllm:request_success_total{finished_reason="stop",model_name=%q} 1
 
 		It("accumulates prefix-cache counters", func() {
 			adapter, _ := newTestAdapter(newTestConfig())
-			_ = adapter.Start(context.Background())
 
 			adapter.OnPrefixCacheQueried(metrics.PrefixCacheQueried{QueriedTokens: 100, CachedPromptTokens: 40})
 			adapter.OnPrefixCacheQueried(metrics.PrefixCacheQueried{QueriedTokens: 50, CachedPromptTokens: 10})
@@ -228,7 +219,6 @@ vllm:request_success_total{finished_reason="stop",model_name=%q} 1
 			cfg := newTestConfig()
 			cfg.FakeMetrics = &VLLMFakeMetrics{}
 			adapter, _ := newTestAdapter(cfg)
-			_ = adapter.Start(context.Background())
 
 			adapter.OnRequestQueued(metrics.RequestQueued{})
 			adapter.OnRequestRunning(metrics.RequestRunning{})
@@ -247,7 +237,6 @@ vllm:request_success_total{finished_reason="stop",model_name=%q} 1
 			cfg := newTestConfig()
 			cfg.FakeMetrics = &VLLMFakeMetrics{}
 			adapter, _ := newTestAdapter(cfg)
-			_ = adapter.Start(context.Background())
 
 			kv := 0.4
 			upd := &VLLMFakeMetrics{
@@ -264,7 +253,6 @@ vllm:request_success_total{finished_reason="stop",model_name=%q} 1
 
 		It("enters fake mode from a real-metrics adapter on first ApplyUpdate", func() {
 			adapter, _ := newTestAdapter(newTestConfig())
-			_ = adapter.Start(context.Background())
 
 			Expect(adapter.fake.Load()).To(BeNil())
 
@@ -290,7 +278,6 @@ vllm:request_success_total{finished_reason="stop",model_name=%q} 1
 
 		It("enters fake mode concurrently with real-path event handlers without data races", func() {
 			adapter, _ := newTestAdapter(newTestConfig())
-			_ = adapter.Start(context.Background())
 			done := make(chan struct{})
 			go func() {
 				defer close(done)
@@ -318,8 +305,6 @@ vllm:request_success_total{finished_reason="stop",model_name=%q} 1
 			cfg := newTestConfig()
 			cfg.FakeMetrics = &VLLMFakeMetrics{}
 			adapter, _ := newTestAdapter(cfg)
-			// The ticker comes up only once the adapter is started.
-			_ = adapter.Start(context.Background())
 
 			// Enable a generator: ticker must come up.
 			upd := &VLLMFakeMetrics{
@@ -351,7 +336,6 @@ vllm:request_success_total{finished_reason="stop",model_name=%q} 1
 			cfg := newTestConfig()
 			cfg.FakeMetrics = &VLLMFakeMetrics{}
 			adapter, _ := newTestAdapter(cfg)
-			_ = adapter.Start(context.Background())
 
 			upd := &VLLMFakeMetrics{
 				WaitingRequests: &common.FakeMetricWithFunction{
@@ -380,7 +364,6 @@ vllm:request_success_total{finished_reason="stop",model_name=%q} 1
 			cfg := newTestConfig()
 			cfg.FakeMetrics = &VLLMFakeMetrics{}
 			adapter, _ := newTestAdapter(cfg)
-			_ = adapter.Start(context.Background())
 
 			ttft := adapter.ttft
 			promptTokensTotal := adapter.promptTokensTotal
