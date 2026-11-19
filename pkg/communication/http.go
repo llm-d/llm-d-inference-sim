@@ -834,9 +834,15 @@ func (c *Communication) HandleTokenize(ctx *fasthttp.RequestCtx) {
 		return
 	}
 
-	// Check that the request has only one input to tokenize
-	if req.Prompt != "" && req.Messages != nil {
+	// Check that the request has exactly one input to tokenize
+	if req.Prompt != nil && req.Messages != nil {
 		err := api.NewError("both prompt and messages fields in tokenize request",
+			fasthttp.StatusBadRequest, nil)
+		c.sendError(ctx, &err, false)
+		return
+	}
+	if req.Prompt == nil && req.Messages == nil {
+		err := api.NewError("tokenize request must have either prompt or messages",
 			fasthttp.StatusBadRequest, nil)
 		c.sendError(ctx, &err, false)
 		return
@@ -852,8 +858,8 @@ func (c *Communication) HandleTokenize(ctx *fasthttp.RequestCtx) {
 	var tokens []uint32
 	var tokenStrs []string
 
-	if req.Prompt != "" {
-		tokens, tokenStrs, err = c.runtime.GetTokenizer().RenderText(req.Prompt)
+	if req.Prompt != nil {
+		tokens, tokenStrs, err = c.runtime.GetTokenizer().RenderText(*req.Prompt)
 	} else {
 		// has messages
 		tokens, tokenStrs, _, err = c.runtime.GetTokenizer().RenderMessages(req.Messages, api.RenderTools{}, "")
@@ -866,6 +872,13 @@ func (c *Communication) HandleTokenize(ctx *fasthttp.RequestCtx) {
 		return
 	}
 
+	// vLLM and SGLang send empty lists, not null
+	if tokens == nil {
+		tokens = []uint32{}
+	}
+	if tokenStrs == nil {
+		tokenStrs = []string{}
+	}
 	resp := api.TokenizeResponse{
 		Count:       len(tokens),
 		Tokens:      tokens,

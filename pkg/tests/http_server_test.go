@@ -178,6 +178,7 @@ var _ = Describe("Server", forEachEngine(func() {
 				Expect(json.Unmarshal(body, &tokenizeResp)).To(Succeed())
 				// sglang's /tokenize has no return_token_strs
 				if expectStrs && currentEngine == "vllm" {
+					Expect(tokenizeResp.TokenStrs).NotTo(BeNil())
 					Expect(tokenizeResp.TokenStrs).To(HaveLen(tokenizeResp.Count))
 				} else {
 					Expect(tokenizeResp.TokenStrs).To(BeNil())
@@ -187,8 +188,12 @@ var _ = Describe("Server", forEachEngine(func() {
 				`{"prompt":"This is a test","return_token_strs":true}`, true),
 			Entry("returns token strings for messages",
 				`{"messages":[{"role":"user","content":"This is a test"}],"return_token_strs":true}`, true),
+			Entry("returns empty token strings for an empty prompt",
+				`{"prompt":"","return_token_strs":true}`, true),
 			Entry("omits token strings by default",
 				`{"prompt":"This is a test"}`, false),
+			Entry("omits token strings for an empty prompt by default",
+				`{"prompt":""}`, false),
 			Entry("omits token strings when not requested",
 				`{"prompt":"This is a test","return_token_strs":false}`, false),
 		)
@@ -216,6 +221,34 @@ var _ = Describe("Server", forEachEngine(func() {
 			Expect(json.Unmarshal(body, &tokenizeResp)).To(Succeed())
 			Expect(tokenizeResp.TokenStrs).To(Equal([]string{"This ", "is ", "a ", "test"}))
 		})
+
+		DescribeTable("input validation",
+			func(reqBody string, expectedStatus int, expectedBody string) {
+				client, err := startServer(context.TODO(), common.ModeRandom)
+				Expect(err).NotTo(HaveOccurred())
+
+				resp, err := client.Post("http://localhost/tokenize", "application/json", strings.NewReader(reqBody))
+				Expect(err).NotTo(HaveOccurred())
+				defer func() {
+					Expect(resp.Body.Close()).To(Succeed())
+				}()
+
+				body, err := io.ReadAll(resp.Body)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(resp.StatusCode).To(Equal(expectedStatus), string(body))
+				Expect(string(body)).To(ContainSubstring(expectedBody))
+			},
+			Entry("rejects a request without prompt or messages", `{}`,
+				http.StatusBadRequest, "prompt or messages"),
+			Entry("rejects a request with both prompt and messages",
+				`{"prompt":"This is a test","messages":[{"role":"user","content":"This is a test"}]}`,
+				http.StatusBadRequest, "both prompt and messages"),
+			Entry("rejects an empty prompt with messages",
+				`{"prompt":"","messages":[{"role":"user","content":"This is a test"}]}`,
+				http.StatusBadRequest, "both prompt and messages"),
+			Entry("tokenizes an empty prompt", `{"prompt":""}`,
+				http.StatusOK, `"count":0,"tokens":[]`),
+		)
 
 		DescribeTable("model validation",
 			func(reqBody string, expectedStatus int, expectedMsg string) {

@@ -21,8 +21,8 @@ package api
 type TokenizeRequest struct {
 	// Model is the model for tokenization
 	Model string `json:"model"`
-	// Prompt is the text to tokenize
-	Prompt string `json:"prompt"`
+	// Prompt is the text to tokenize; nil when the request has no prompt field
+	Prompt *string `json:"prompt"`
 	// Messages is an array of messages to tokenize
 	Messages []Message `json:"messages"`
 	// ReturnTokenStrs requests the token strings alongside the token ids
