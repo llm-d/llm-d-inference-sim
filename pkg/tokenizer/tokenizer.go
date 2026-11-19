@@ -48,6 +48,8 @@ type Tokenizer interface {
 	RenderMessages(messages []api.Message, tools api.RenderTools, mmPayload string) ([]uint32, []string, *api.RenderMMFeatures, error)
 	// Detokenize converts token IDs back to text
 	Detokenize(tokenIDs []uint32) (string, error)
+	// Tokenize serves a /tokenize request and returns token IDs and string tokens
+	Tokenize(req api.TokenizeRequest) ([]uint32, []string, error)
 }
 
 type baseTokenizer struct {
@@ -183,6 +185,15 @@ func (st *SimpleTokenizer) record(tokens []uint32, strTokens []string) {
 func (st *SimpleTokenizer) RenderText(text string) ([]uint32, []string, error) {
 	tokens, textTokens := st.tokenize(text)
 	return tokens, textTokens, nil
+}
+
+// Tokenize renders the request's prompt, or its messages when it has no prompt.
+func (st *SimpleTokenizer) Tokenize(req api.TokenizeRequest) ([]uint32, []string, error) {
+	if req.Prompt != nil {
+		return st.RenderText(*req.Prompt)
+	}
+	tokens, strTokens, _, err := st.RenderMessages(req.Messages, api.RenderTools{}, "")
+	return tokens, strTokens, err
 }
 
 // Detokenize maps token ids back to the strings recorded during tokenization.

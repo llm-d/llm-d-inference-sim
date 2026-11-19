@@ -31,6 +31,9 @@ type recordingTokenizer struct {
 
 func (r *recordingTokenizer) RenderText(string) ([]uint32, []string, error) { return nil, nil, nil }
 func (r *recordingTokenizer) Detokenize([]uint32) (string, error)           { return "", nil }
+func (r *recordingTokenizer) Tokenize(api.TokenizeRequest) ([]uint32, []string, error) {
+	return nil, nil, nil
+}
 func (r *recordingTokenizer) RenderMessages(_ []api.Message, tools api.RenderTools, _ string) ([]uint32, []string, *api.RenderMMFeatures, error) {
 	r.calls++
 	r.tools = tools

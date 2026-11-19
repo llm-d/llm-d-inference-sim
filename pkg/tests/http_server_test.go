@@ -156,6 +156,38 @@ var _ = Describe("Server", forEachEngine(func() {
 			Expect(tokenizeResp.MaxModelLen).To(Equal(2048))
 		})
 
+		It("Should return the render service's token strings for messages", func() {
+			if currentEngine != "vllm" {
+				Skip("sglang's /tokenize has no return_token_strs")
+			}
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.QwenModelName, "--mode", common.ModeRandom}
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			reqBody := fmt.Sprintf(`{
+				"messages": [{"role": "user", "content": "This is a test"}],
+				"model": "%s",
+				"return_token_strs": true
+			}`, common.QwenModelName)
+			resp, err := client.Post("http://localhost/tokenize", "application/json", strings.NewReader(reqBody))
+			Expect(err).NotTo(HaveOccurred())
+			defer func() {
+				Expect(resp.Body.Close()).To(Succeed())
+			}()
+
+			body, err := io.ReadAll(resp.Body)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.StatusCode).To(Equal(http.StatusOK), string(body))
+
+			var tokenizeResp api.TokenizeResponse
+			Expect(json.Unmarshal(body, &tokenizeResp)).To(Succeed())
+			Expect(tokenizeResp.Tokens).To(HaveLen(23))
+			Expect(tokenizeResp.TokenStrs).To(HaveLen(23))
+			Expect(tokenizeResp.TokenStrs[0]).To(Equal("<|im_start|>"))
+			Expect(tokenizeResp.TokenStrs).To(ContainElements("This", "Ġis", "Ġa", "Ġtest"))
+		})
+
 		DescribeTable("return_token_strs",
 			func(reqBody string, expectStrs bool) {
 				client, err := startServer(context.TODO(), common.ModeRandom)

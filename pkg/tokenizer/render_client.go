@@ -118,6 +118,21 @@ func (rc *renderClient) derender(payload []byte) (string, error) {
 	return resp.Choices[0].Text, nil
 }
 
+// tokenize posts a /tokenize payload to the render service and returns its
+// token ids and, when requested, token strings.
+func (rc *renderClient) tokenize(payload []byte) ([]uint32, []string, error) {
+	respBody, err := rc.postRaw("/tokenize", payload, rc.timeout)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var resp api.TokenizeResponse
+	if err := json.Unmarshal(respBody, &resp); err != nil {
+		return nil, nil, fmt.Errorf("unmarshal tokenize response: %w", err)
+	}
+	return resp.Tokens, resp.TokenStrs, nil
+}
+
 // parseRenderResponse handles both array (completions) and object (chat/responses) response shapes.
 func (rc *renderClient) parseRenderResponse(body []byte) ([]uint32, *api.RenderMMFeatures, error) {
 	body = bytes.TrimSpace(body)

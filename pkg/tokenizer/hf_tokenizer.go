@@ -78,6 +78,30 @@ func (hft *HFTokenizer) Detokenize(tokenIDs []uint32) (string, error) {
 	return hft.renderClient.derender(payload)
 }
 
+// Tokenize forwards the request to the render service's /tokenize endpoint,
+// so the token IDs and strings are the model's own.
+func (hft *HFTokenizer) Tokenize(req api.TokenizeRequest) ([]uint32, []string, error) {
+	payload, err := json.Marshal(tokenizeRenderRequest{
+		Model:           hft.baseModel,
+		Prompt:          req.Prompt,
+		Messages:        req.Messages,
+		ReturnTokenStrs: req.ReturnTokenStrs,
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return hft.renderClient.tokenize(payload)
+}
+
+// tokenizeRenderRequest is the body sent to the render service's /tokenize.
+// vLLM picks the prompt or the chat form by which field is present.
+type tokenizeRenderRequest struct {
+	Model           string        `json:"model"`
+	Prompt          *string       `json:"prompt,omitempty"`
+	Messages        []api.Message `json:"messages,omitempty"`
+	ReturnTokenStrs bool          `json:"return_token_strs,omitempty"`
+}
+
 func (hft *HFTokenizer) renderRequest(req api.RenderRequest, plainText string) ([]uint32, []string, *api.RenderMMFeatures, error) {
 	if req.Endpoint() == "" {
 		return nil, nil, nil, errors.New("renderRequest: render endpoint is empty")
