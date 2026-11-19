@@ -412,7 +412,7 @@ var _ = Describe("Simulator", func() {
 				usage := streamUsage(client, prefillBody(collapsed, rendered.Features.MMHashes["image"]))
 				Expect(usage).NotTo(BeNil())
 				Expect(usage.PromptTokensDetails).NotTo(BeNil())
-				Expect(usage.PromptTokensDetails.CachedTokens).To(Equal(len(rendered.TokenIDs) / blockSize * blockSize))
+				Expect(usage.PromptTokensDetails.CachedTokens).To(Equal((len(rendered.TokenIDs) - 1) / blockSize * blockSize))
 			})
 		})
 
