@@ -338,6 +338,20 @@ var _ = Describe("Simulator for /v1/messages (Anthropic Messages API)", forEachE
 			Expect(errResp.Error.Type).To(Equal(expectedType))
 			Expect(errResp.Error.Message).To(ContainSubstring("messages must not be empty"))
 		})
+
+		DescribeTable("returns 400 for a request without a model",
+			func(modelField string) {
+				client, err := startServer(ctx, common.ModeRandom)
+				Expect(err).NotTo(HaveOccurred())
+
+				body := `{` + modelField + `"max_tokens":100,"messages":[{"role":"user","content":"hi"}]}`
+				status, respBody := postMessagesRoute(client, "/v1/messages", body)
+				Expect(status).To(Equal(http.StatusBadRequest), "response body: %s", string(respBody))
+				Expect(string(respBody)).To(ContainSubstring("model is required"))
+			},
+			Entry("omitted", ``),
+			Entry("empty", `"model":"",`),
+		)
 	})
 
 	Describe("streaming", func() {
