@@ -258,12 +258,17 @@ func (m *VLLMMetricsAdapter) OnRequestQueued(ev metrics.RequestQueued) {
 
 // request dequeued
 // - update number of waiting requests
-// - update queue time histogram
 func (m *VLLMMetricsAdapter) OnRequestDequeued(ev metrics.RequestDequeued) {
 	if m.fake.Load() != nil {
 		return
 	}
 	common.WriteToChannel(m.waitingReqChan, metrics.GaugeAdd(-1), m.logger)
+}
+
+func (m *VLLMMetricsAdapter) OnQueueTimeObserved(ev metrics.QueueTimeObserved) {
+	if m.fake.Load() != nil {
+		return
+	}
 	common.WriteToChannel(m.reqQueueTimeChan, metrics.Observation(ev.QueueTime), m.logger)
 }
 
