@@ -536,6 +536,18 @@ func functionCallOutputItem(tc api.ToolCall, status string) api.FunctionCallOutp
 	}
 }
 
+func responsesUsage(usage *api.Usage) *api.ResponsesUsage {
+	result := &api.ResponsesUsage{
+		InputTokens:  usage.PromptTokens,
+		OutputTokens: usage.CompletionTokens,
+		TotalTokens:  usage.TotalTokens,
+	}
+	if usage.PromptTokensDetails != nil {
+		result.InputTokensDetails = *usage.PromptTokensDetails
+	}
+	return result
+}
+
 func (respBuilder *responsesHTTPRespBuilder) createResponse(respCtxPerChoice []endpoint.ResponseContext,
 	tokens []api.Tokenized) any {
 	respCtx := respCtxPerChoice[0]
@@ -574,11 +586,7 @@ func (respBuilder *responsesHTTPRespBuilder) createResponse(respCtxPerChoice []e
 		time.Now().Unix(),
 		respCtx.Instructions(),
 		output,
-		&api.ResponsesUsage{
-			InputTokens:  usage.PromptTokens,
-			OutputTokens: usage.CompletionTokens,
-			TotalTokens:  usage.TotalTokens,
-		},
+		responsesUsage(usage),
 		respCtx.DoRemoteDecode(),
 	)
 	resp.ECTransferParams = respCtx.ECTransferParams()
@@ -643,11 +651,7 @@ func (respBuilder *responsesHTTPRespBuilder) createUsageChunk(respCtxPerChoice [
 		respCtx.CreationTime(),
 		respCtx.Instructions(),
 		output,
-		&api.ResponsesUsage{
-			InputTokens:  usage.PromptTokens,
-			OutputTokens: usage.CompletionTokens,
-			TotalTokens:  usage.TotalTokens,
-		},
+		responsesUsage(usage),
 		respCtx.DoRemoteDecode(),
 	)
 	resp.ECTransferParams = respCtx.ECTransferParams()

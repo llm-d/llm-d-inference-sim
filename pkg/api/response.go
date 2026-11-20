@@ -731,9 +731,11 @@ type ResponsesIncompleteDetails struct {
 }
 
 type ResponsesUsage struct {
-	InputTokens  int `json:"input_tokens,omitempty"`
-	OutputTokens int `json:"output_tokens,omitempty"`
-	TotalTokens  int `json:"total_tokens,omitempty"`
+	InputTokens         int                         `json:"input_tokens"`
+	InputTokensDetails  PromptTokensDetails         `json:"input_tokens_details"`
+	OutputTokens        int                         `json:"output_tokens"`
+	OutputTokensDetails DecisionOutputTokensDetails `json:"output_tokens_details"`
+	TotalTokens         int                         `json:"total_tokens"`
 }
 
 // Responses API streaming event types
