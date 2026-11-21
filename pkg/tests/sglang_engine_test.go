@@ -465,7 +465,7 @@ var _ = Describe("sglang engine fake-metrics enable", func() {
 })
 
 var _ = Describe("sglang engine failed requests", func() {
-	It("Should count a rejected request in every finished-request metric", func() {
+	It("Should not count a rejected request in any finished-request metric", func() {
 		client, err := startServerWithArgs(context.TODO(),
 			[]string{"cmd", "--engine", "sglang", "--model", common.TestModelName, "--mode", common.ModeEcho,
 				"--enable-metrics", "--context-length", "5"})
@@ -487,7 +487,7 @@ var _ = Describe("sglang engine failed requests", func() {
 				sglang.SGLangRequestsTotalMetricName,
 				sglang.SGLangE2EReqLatencyMetricName + "_count",
 			} {
-				g.Expect(metricsData).To(ContainSubstring(fmt.Sprintf(`%s{is_streaming="false",model_name="%s"} 2`,
+				g.Expect(metricsData).To(ContainSubstring(fmt.Sprintf(`%s{is_streaming="false",model_name="%s"} 1`,
 					metric, common.TestModelName)))
 			}
 			for _, metric := range []string{
@@ -495,7 +495,7 @@ var _ = Describe("sglang engine failed requests", func() {
 				sglang.SGLangUncachedPromptTokensHistMetricName,
 				sglang.SGLangGenerationTokensHistMetricName,
 			} {
-				g.Expect(metricsData).To(ContainSubstring(fmt.Sprintf(`%s_count{model_name="%s"} 2`,
+				g.Expect(metricsData).To(ContainSubstring(fmt.Sprintf(`%s_count{model_name="%s"} 1`,
 					metric, common.TestModelName)))
 			}
 			g.Expect(metricsData).To(ContainSubstring(fmt.Sprintf(`%s{is_streaming="false",model_name="%s"} %d`,

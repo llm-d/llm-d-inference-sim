@@ -98,11 +98,12 @@ while a free worker is always available to take a request immediately.
 A request that fails is counted as a finished one, as SGLang counts an aborted request:
 `sglang:num_requests_total`, `sglang:e2e_request_latency_seconds`, the prompt and generation token
 totals and the three token histograms all count it, with the tokens it processed before failing. A
-request rejected before generation, for example for a prompt longer than the context window, processed
-none; an aborted request processed its prompt and the tokens it generated before the abort. A failed
-request reaches `sglang:time_to_first_token_seconds` and `sglang:request_time_per_output_token_seconds`
-only if it got that far. This departs from SGLang for a rejected request, which SGLang turns away
-before it reaches the scheduler and counts in none of these metrics.
+failed request reaches `sglang:time_to_first_token_seconds` and `sglang:request_time_per_output_token_seconds`
+only if it got that far.
+
+A request rejected when a worker tokenizes its prompt, for example a prompt longer than the context
+window or a `min_tokens` above the output token limit, gets its error response and counts in none of
+these metrics, as SGLang turns it away before it reaches the scheduler.
 
 `sglang:uncached_prompt_tokens_histogram` equals `sglang:prompt_tokens_histogram` while no KV cache is
 simulated, since no prompt token can be served from a prefix cache.
