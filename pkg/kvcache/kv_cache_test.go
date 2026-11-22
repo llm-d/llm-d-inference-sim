@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/go-logr/logr"
+	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -198,6 +199,70 @@ var _ = Describe("configured ZMQ topic", func() {
 		Expect(bc.eventSender.replayer).NotTo(BeNil())
 		Expect(bc.eventSender.replayer.topic).To(Equal(bc.eventSender.topic))
 	})
+})
+
+var _ = Describe("reported prefix cache hits", func() {
+	const blockSize = 16
+
+	newHelper := func() *KVCacheHelper {
+		helper, err := NewKVCacheHelper(context.Background(), &common.Configuration{
+			IP: localhost, Model: common.TestModelName,
+			KVCache: common.KVCacheConfig{KVCacheSize: 64, TokenBlockSize: blockSize, EventBatchSize: 1},
+		}, logr.Discard(), nil, nil, nil)
+		Expect(err).NotTo(HaveOccurred())
+		return helper
+	}
+
+	promptTokens := func(n int) []uint32 {
+		tokens := make([]uint32, n)
+		for i := range tokens {
+			tokens[i] = uint32(i + 1)
+		}
+		return tokens
+	}
+
+	start := func(helper *KVCacheHelper, id string, tokens []uint32, minHitRate float64) (int, bool) {
+		req := &api.ChatCompletionsRequest{}
+		req.SetDisplayedModel(common.TestModelName)
+		req.SetRequestID(id)
+		req.SetTokenizedPrompt(&api.Tokenized{Tokens: tokens})
+		stats, started, err := helper.OnRequestStart(req, minHitRate)
+		Expect(err).NotTo(HaveOccurred())
+		if started {
+			Expect(helper.OnRequestEnd(id)).To(Succeed())
+		}
+		return stats.CachedPromptTokens, started
+	}
+
+	DescribeTable("caps a full hit at one block below the prompt length",
+		func(nTokens, expected int) {
+			helper := newHelper()
+			tokens := promptTokens(nTokens)
+			cached, _ := start(helper, "first", tokens, 0)
+			Expect(cached).To(BeZero())
+			cached, _ = start(helper, "second", tokens, 0)
+			Expect(cached).To(Equal(expected))
+		},
+		Entry("32-token prompt, both blocks resident", 32, 16),
+		Entry("40-token prompt, trailing partial block", 40, 32),
+		Entry("33-token prompt, last token in a partial block", 33, 32),
+		Entry("16-token prompt, single resident block", 16, 0),
+	)
+
+	DescribeTable("applies the cache-hit threshold to the capped hit",
+		func(minHitRate float64, expectStarted bool) {
+			helper := newHelper()
+			tokens := promptTokens(32)
+			_, started := start(helper, "first", tokens, 0)
+			Expect(started).To(BeTrue())
+			// both blocks are resident, but only 16 of 32 tokens count as cached
+			cached, started := start(helper, "second", tokens, minHitRate)
+			Expect(started).To(Equal(expectStarted))
+			Expect(cached).To(Equal(blockSize))
+		},
+		Entry("rejects when only the uncapped hit meets the threshold", 0.75, false),
+		Entry("accepts when the capped hit meets the threshold", 0.5, true),
+	)
 })
 
 var _ = Describe("KV cache", Ordered, func() {
