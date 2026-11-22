@@ -1560,13 +1560,41 @@ var _ = Describe("Request model", forEachEngine(func() {
 		Entry("with served model names", []string{"--served-model-name", "served-alias", "second-alias"}, "served-alias"),
 	)
 
-	It("is required by /v1/messages", func() {
+	It("is required by /v1/messages and /v1/messages/count_tokens", func() {
 		client, err := startServerWithArgs(context.TODO(), serverArgs)
 		Expect(err).NotTo(HaveOccurred())
-		for _, model := range []string{"", `"model":"",`} {
-			status, body := post(client, "/v1/messages", model+messages+`,"max_tokens":1`)
-			Expect(status).To(Equal(http.StatusBadRequest), "response body: %s", body)
-			Expect(string(body)).To(ContainSubstring("Model is required"))
+		for _, path := range []string{"/v1/messages", "/v1/messages/count_tokens"} {
+			for _, model := range []string{"", `"model":"",`} {
+				status, body := post(client, path, model+messages+`,"max_tokens":1`)
+				Expect(status).To(Equal(http.StatusBadRequest), "%s: %s", path, body)
+				Expect(string(body)).To(ContainSubstring("Model is required"))
+			}
 		}
 	})
 }))
+
+// The render endpoints are served only by the vllm engine.
+var _ = Describe("Render endpoints model", func() {
+	const messages = `"messages":[{"role":"user","content":"hi"}]`
+	DescribeTable("missing, null or empty",
+		func(path, body string, wantStatus int) {
+			client, err := startServerWithArgs(context.TODO(), []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho})
+			Expect(err).NotTo(HaveOccurred())
+			for _, model := range []string{"", `"model":null,`, `"model":"",`} {
+				resp, err := client.Post("http://localhost"+path, "application/json", strings.NewReader("{"+model+body+"}"))
+				Expect(err).NotTo(HaveOccurred())
+				respBody, err := io.ReadAll(resp.Body)
+				Expect(err).NotTo(HaveOccurred())
+				Expect(resp.Body.Close()).To(Succeed())
+				Expect(resp.StatusCode).To(Equal(wantStatus), "model %q: %s", model, respBody)
+				if wantStatus == http.StatusBadRequest {
+					Expect(string(respBody)).To(ContainSubstring("Model is required"))
+				}
+			}
+		},
+		Entry("is the served model on /v1/chat/completions/render", "/v1/chat/completions/render", messages, http.StatusOK),
+		Entry("is the served model on /v1/completions/render", "/v1/completions/render", `"prompt":"hi"`, http.StatusOK),
+		Entry("is the served model on /v1/responses/render", "/v1/responses/render", `"input":"hi"`, http.StatusOK),
+		Entry("is rejected on /v1/messages/render", "/v1/messages/render", messages+`,"max_tokens":1`, http.StatusBadRequest),
+	)
+})

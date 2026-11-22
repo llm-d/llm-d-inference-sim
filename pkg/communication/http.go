@@ -237,11 +237,14 @@ func (c *Communication) handleRender(req endpoint.RenderableRequest, respBuilder
 			return
 		}
 	}
+	// an empty model means the served model; the Messages routes reject it in ValidateBody
 	var modelErr *api.Error
-	if acceptLoRA {
-		modelErr = c.runtime.ValidateModel(req.GetModel())
-	} else {
-		modelErr = c.runtime.ValidateBaseModel(req.GetModel(), "render")
+	if model := req.GetModel(); model != "" {
+		if acceptLoRA {
+			modelErr = c.runtime.ValidateModel(model)
+		} else {
+			modelErr = c.runtime.ValidateBaseModel(model, "render")
+		}
 	}
 	if modelErr != nil {
 		c.sendError(ctx, modelErr, false)
