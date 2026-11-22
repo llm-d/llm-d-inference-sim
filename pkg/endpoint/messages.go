@@ -183,6 +183,11 @@ func (m *MessagesRequest) Validate(tv *ToolsValidator) *api.Error {
 	if err := m.ValidateBody(); err != nil {
 		return err
 	}
+	// The Messages API requires a model, unlike the OpenAI endpoints
+	if m.GetModel() == "" {
+		err := api.NewError("Model is required", fasthttp.StatusBadRequest, nil)
+		return &err
+	}
 	if err := m.validateMaxTokens(); err != nil {
 		return err
 	}

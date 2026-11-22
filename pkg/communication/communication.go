@@ -102,6 +102,10 @@ type Transport interface {
 	// choice that ends in tool calls; named reports whether tool_choice named
 	// the function to call.
 	ChatToolCallsFinishReason(named bool) string
+	// EmptyModelNotFound reports whether a request to a route of the given
+	// family that sets "model" to the empty string gets the unknown-model 404
+	// rather than the served model. A missing or null model is the served model.
+	EmptyModelNotFound(route api.ErrorRoute) bool
 	// DecorateTextChoice adds any fields this engine puts on a text-completion
 	// choice; both the full response and streamed chunks reuse this one type.
 	DecorateTextChoice(choice api.TextRespChoice) api.TextRespChoice

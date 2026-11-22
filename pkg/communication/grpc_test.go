@@ -60,6 +60,8 @@ func (fakeTransport) DecorateChatChunkChoice(choice api.ChatRespChunkChoice) api
 
 func (fakeTransport) ChatToolCallsFinishReason(bool) string { return common.ToolsFinishReason }
 
+func (fakeTransport) EmptyModelNotFound(api.ErrorRoute) bool { return false }
+
 func (fakeTransport) DecorateTextChoice(choice api.TextRespChoice) api.TextRespChoice { return choice }
 
 func (fakeTransport) DecorateMessagesCountTokens(resp api.MessagesCountTokensResponse) api.MessagesCountTokensResponse {
