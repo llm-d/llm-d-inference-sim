@@ -230,7 +230,7 @@ var _ = Describe("gRPC Metrics", Ordered, func() {
 		eventuallyMetrics(httpClient, func(g Gomega, metricsData string) {
 			g.Expect(metricsData).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllm.VLLMReqRunningMetricName, 0)))
 			g.Expect(metricsData).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllm.VLLMReqWaitingMetricName, 0)))
-			g.Expect(metricsData).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllm.VLLMReqQueueTimeMetricName+"_count", 1)))
+			g.Expect(metricsData).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllm.VLLMReqQueueTimeMetricName+"_count", 2)))
 			// Only the running request is reported as failed; the dropped one never ran.
 			g.Expect(metricsData).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllm.VLLME2EReqLatencyMetricName+"_count", 1)))
 		})
@@ -551,14 +551,14 @@ var _ = Describe("gRPC Metrics", Ordered, func() {
 			for _, boundary := range common.RequestLatencyBucketsBoundaries {
 				if boundary < 1.5 {
 					g.Expect(metricsData).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllm.VLLMReqInferenceTimeMetricName, boundary, 0)))
-					g.Expect(metricsData).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllm.VLLMReqQueueTimeMetricName, boundary, 0)))
+					g.Expect(metricsData).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllm.VLLMReqQueueTimeMetricName, boundary, 1)))
 				} else {
 					g.Expect(metricsData).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllm.VLLMReqInferenceTimeMetricName, boundary, 2)))
-					g.Expect(metricsData).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllm.VLLMReqQueueTimeMetricName, boundary, 1)))
+					g.Expect(metricsData).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllm.VLLMReqQueueTimeMetricName, boundary, 2)))
 				}
 			}
 			g.Expect(metricsData).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllm.VLLMReqInferenceTimeMetricName, math.Inf(1), 2)))
-			g.Expect(metricsData).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllm.VLLMReqQueueTimeMetricName, math.Inf(1), 1)))
+			g.Expect(metricsData).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllm.VLLMReqQueueTimeMetricName, math.Inf(1), 2)))
 		}).WithTimeout(2 * time.Second).WithPolling(25 * time.Millisecond).Should(Succeed())
 	})
 })

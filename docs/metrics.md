@@ -21,7 +21,7 @@ Currently supported are the following metrics:
 | vllm:request_max_num_generation_tokens | Maximum number of requested generation tokens. Currently same as `vllm:request_generation_tokens` since always only one choice is returned |
 | vllm:e2e_request_latency_seconds | Histogram of end to end request latency in seconds |
 | vllm:request_inference_time_seconds | Histogram of time spent in RUNNING phase for request |
-| vllm:request_queue_time_seconds | Histogram of time spent in WAITING phase for request |
+| vllm:request_queue_time_seconds | Histogram of time spent waiting, observed at dispatch to a worker; zero for requests that start immediately |
 | vllm:request_prefill_time_seconds | Histogram of time spent in PREFILL phase for request |
 | vllm:request_decode_time_seconds | Histogram of time spent in DECODE phase for request |
 | vllm:request_time_per_output_token_seconds | Histogram of time_per_output_token_seconds per request |

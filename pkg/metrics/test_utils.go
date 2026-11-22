@@ -41,6 +41,7 @@ func (StubAdapter) Close() error                { return nil }
 func (StubAdapter) OnRequestReceived(RequestReceived)         {}
 func (StubAdapter) OnRequestQueued(RequestQueued)             {}
 func (StubAdapter) OnRequestDequeued(RequestDequeued)         {}
+func (StubAdapter) OnQueueTimeObserved(QueueTimeObserved)     {}
 func (StubAdapter) OnRequestRunning(RequestRunning)           {}
 func (StubAdapter) OnPrefillStarted(PrefillStarted)           {}
 func (StubAdapter) OnPrefillEnded(PrefillEnded)               {}

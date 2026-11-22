@@ -315,6 +315,8 @@ func (s *Simulator) processing(ctx context.Context) {
 				break
 			}
 
+			common.WriteToChannel(s.Context.metricsBus.QueueTimeObserved, metrics.QueueTimeObserved{QueueTime: 0}, s.Context.logger)
+
 			s.Context.logger.V(logging.TRACE).Info("Sending the request to the processing channel", "model", reqCtx.Request().GetModel(),
 				"req id", reqCtx.Request().GetRequestID(), "worker", worker.id)
 			common.WriteToChannel(worker.reqChan, reqCtx, s.Context.logger)
@@ -453,10 +455,11 @@ func (s *Simulator) dequeue() endpoint.RequestContext {
 		if ok && item.reqCtx != nil && s.Context.loraIsLoaded(requestLora(item.reqCtx.Request())) {
 			s.waitingQueue.Remove(elem)
 			s.Context.incrementLora(requestLora(item.reqCtx.Request()))
+			queueTime := time.Since(item.enqueueTime).Seconds()
 			common.WriteToChannel(s.Context.metricsBus.RequestDequeued,
-				metrics.RequestDequeued{
-					QueueTime: time.Since(item.enqueueTime).Seconds(),
-				}, s.Context.logger)
+				metrics.RequestDequeued{QueueTime: queueTime}, s.Context.logger)
+			common.WriteToChannel(s.Context.metricsBus.QueueTimeObserved,
+				metrics.QueueTimeObserved{QueueTime: queueTime}, s.Context.logger)
 			return item.reqCtx
 		}
 	}
@@ -466,10 +469,11 @@ func (s *Simulator) dequeue() endpoint.RequestContext {
 		item, ok := elem.Value.(waitingQueueItem)
 		if ok && item.reqCtx != nil && s.Context.loadLora(requestLora(item.reqCtx.Request())) {
 			s.waitingQueue.Remove(elem)
+			queueTime := time.Since(item.enqueueTime).Seconds()
 			common.WriteToChannel(s.Context.metricsBus.RequestDequeued,
-				metrics.RequestDequeued{
-					QueueTime: time.Since(item.enqueueTime).Seconds(),
-				}, s.Context.logger)
+				metrics.RequestDequeued{QueueTime: queueTime}, s.Context.logger)
+			common.WriteToChannel(s.Context.metricsBus.QueueTimeObserved,
+				metrics.QueueTimeObserved{QueueTime: queueTime}, s.Context.logger)
 			return item.reqCtx
 		}
 	}
