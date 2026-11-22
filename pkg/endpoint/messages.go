@@ -183,7 +183,7 @@ func (m *MessagesRequest) Validate(tv *ToolsValidator) *api.Error {
 	if err := m.ValidateBody(); err != nil {
 		return err
 	}
-	// vLLM's Messages API requires a model, unlike its OpenAI endpoints
+	// The Messages API requires a model, unlike the OpenAI endpoints
 	if m.GetModel() == "" {
 		err := api.NewError("Model is required", fasthttp.StatusBadRequest, nil)
 		return &err

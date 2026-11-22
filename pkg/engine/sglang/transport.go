@@ -136,6 +136,12 @@ func (Engine) DecorateChatChunkChoice(choice api.ChatRespChunkChoice) api.ChatRe
 	return choice
 }
 
+// EmptyModelNotFound is true for the Responses API, whose model check in
+// sglang skips only a missing or null model.
+func (Engine) EmptyModelNotFound(route api.ErrorRoute) bool {
+	return route == api.ErrorRouteResponses
+}
+
 // ChatToolCallsFinishReason is tool_calls whether or not tool_choice names
 // the function: sglang treats a named tool_choice like required.
 func (Engine) ChatToolCallsFinishReason(bool) string { return common.ToolsFinishReason }

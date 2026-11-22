@@ -27,6 +27,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -1490,7 +1491,7 @@ func startDecisionTestServer(t *testing.T, engineName string, extraArgs ...strin
 	return sim, client
 }
 
-func TestEmptyModelIsServedModel(t *testing.T) {
+var _ = Describe("Request model", forEachEngine(func() {
 	const messages = `"messages":[{"role":"user","content":"hi"}]`
 	requests := []struct {
 		path     string
@@ -1502,56 +1503,60 @@ func TestEmptyModelIsServedModel(t *testing.T) {
 		{"/v1/responses", `"input":"hi","max_output_tokens":16`, true},
 		{"/inference/v1/generate", `"token_ids":[1,2,3],"sampling_params":{"max_tokens":1}`, false},
 	}
-	post := func(t *testing.T, client *http.Client, path, body string) (int, []byte) {
-		t.Helper()
-		g := NewWithT(t)
+	post := func(client *http.Client, path, body string) (int, []byte) {
 		resp, err := client.Post("http://localhost"+path, "application/json", strings.NewReader("{"+body+"}"))
-		g.Expect(err).NotTo(HaveOccurred())
-		defer func() { g.Expect(resp.Body.Close()).To(Succeed()) }()
+		Expect(err).NotTo(HaveOccurred())
+		defer func() { Expect(resp.Body.Close()).To(Succeed()) }()
 		respBody, err := io.ReadAll(resp.Body)
-		g.Expect(err).NotTo(HaveOccurred())
+		Expect(err).NotTo(HaveOccurred())
 		return resp.StatusCode, respBody
 	}
+	serverArgs := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeEcho}
 
-	for _, args := range [][]string{nil, {"--strict"}, {"--served-model-name", "served-alias", "second-alias"}} {
-
-		wantModel := common.TestModelName
-		if len(args) > 1 {
-			wantModel = args[1]
-		}
-		_, client := startDecisionTestServer(t, "vllm", args...)
-		for _, r := range requests {
-			for name, model := range map[string]string{"missing": "", "empty": `"model":"",`} {
-				t.Run(fmt.Sprintf("%s %s model with %v", r.path, name, args), func(t *testing.T) {
-					g := NewWithT(t)
-					status, body := post(t, client, r.path, model+r.body)
-					g.Expect(status).To(Equal(http.StatusOK), "response body: %s", body)
+	DescribeTable("missing, null or empty is the served model",
+		func(extraArgs []string, wantModel string) {
+			if slices.Contains(extraArgs, "--strict") && currentEngine != "vllm" {
+				Skip("--strict is a vLLM flag")
+			}
+			client, err := startServerWithArgs(context.TODO(), append(serverArgs, extraArgs...))
+			Expect(err).NotTo(HaveOccurred())
+			for _, r := range requests {
+				if r.path == "/inference/v1/generate" && currentEngine != "vllm" {
+					continue
+				}
+				for name, model := range map[string]string{"missing": "", "null": `"model":null,`, "empty": `"model":"",`} {
+					status, body := post(client, r.path, model+r.body)
+					if name == "empty" && r.path == "/v1/responses" && currentEngine == "sglang" {
+						Expect(status).To(Equal(http.StatusNotFound), "%s %s model: %s", r.path, name, body)
+						continue
+					}
+					Expect(status).To(Equal(http.StatusOK), "%s %s model: %s", r.path, name, body)
 					if !r.hasModel {
-						return
+						continue
 					}
 					var resp struct {
 						Model string `json:"model"`
 					}
-					g.Expect(json.Unmarshal(body, &resp)).To(Succeed())
-					g.Expect(resp.Model).To(Equal(wantModel))
-				})
+					Expect(json.Unmarshal(body, &resp)).To(Succeed())
+					Expect(resp.Model).To(Equal(wantModel), "%s %s model", r.path, name)
+				}
+				status, body := post(client, r.path, `"model":"unknown-model",`+r.body)
+				Expect(status).To(Equal(http.StatusNotFound), "%s unknown model: %s", r.path, body)
+				Expect(string(body)).To(ContainSubstring("The model `unknown-model` does not exist."))
 			}
-			t.Run(fmt.Sprintf("%s unknown model with %v", r.path, args), func(t *testing.T) {
-				g := NewWithT(t)
-				status, body := post(t, client, r.path, `"model":"unknown-model",`+r.body)
-				g.Expect(status).To(Equal(http.StatusNotFound))
-				g.Expect(string(body)).To(ContainSubstring("The model `unknown-model` does not exist."))
-			})
-		}
-	}
+		},
+		Entry("with default flags", nil, common.TestModelName),
+		Entry("with --strict", []string{"--strict"}, common.TestModelName),
+		Entry("with served model names", []string{"--served-model-name", "served-alias", "second-alias"}, "served-alias"),
+	)
 
-	t.Run("/v1/messages requires a model", func(t *testing.T) {
-		g := NewWithT(t)
-		_, client := startDecisionTestServer(t, "vllm")
+	It("is required by /v1/messages", func() {
+		client, err := startServerWithArgs(context.TODO(), serverArgs)
+		Expect(err).NotTo(HaveOccurred())
 		for _, model := range []string{"", `"model":"",`} {
-			status, body := post(t, client, "/v1/messages", model+messages+`,"max_tokens":1`)
-			g.Expect(status).To(Equal(http.StatusBadRequest), "response body: %s", body)
-			g.Expect(string(body)).To(ContainSubstring("Model is required"))
+			status, body := post(client, "/v1/messages", model+messages+`,"max_tokens":1`)
+			Expect(status).To(Equal(http.StatusBadRequest), "response body: %s", body)
+			Expect(string(body)).To(ContainSubstring("Model is required"))
 		}
 	})
-}
+}))

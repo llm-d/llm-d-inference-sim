@@ -84,6 +84,9 @@ func (Engine) DecorateChatChunkChoice(choice api.ChatRespChunkChoice) api.ChatRe
 	return choice
 }
 
+// EmptyModelNotFound is false: vLLM serves an empty model as the served model.
+func (Engine) EmptyModelNotFound(api.ErrorRoute) bool { return false }
+
 // ChatToolCallsFinishReason is stop for a call to the function named in
 // tool_choice, as in vLLM's resolve_finish_reason, and tool_calls otherwise.
 func (Engine) ChatToolCallsFinishReason(named bool) string {

@@ -378,7 +378,7 @@ func (s *Simulator) HandleRequest(ctx context.Context, req endpoint.Request) (nu
 		return 0, false, nil, &failure, true
 	}
 
-	// the model defined in the request should be checked here; an empty model means the served model, matching vLLM
+	// the model defined in the request should be checked here; an empty model means the served model
 	if model := req.GetModel(); model != "" && !s.Context.isValidModel(model) {
 		serverErr := api.NewError(fmt.Sprintf("The model `%s` does not exist.",
 			model), fasthttp.StatusNotFound, nil)

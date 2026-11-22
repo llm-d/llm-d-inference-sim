@@ -395,6 +395,11 @@ func (c *Communication) handleHTTP(req endpoint.Request, respBuilder responseBui
 			abort()
 		}
 	}()
+	if req.GetModel() == "" && c.transport.EmptyModelNotFound(errorRoute(path)) && setsEmptyModel(ctx.Request.Body()) {
+		errToSend := api.NewError("The model `` does not exist.", fasthttp.StatusNotFound, nil)
+		c.sendError(ctx, &errToSend, false)
+		return
+	}
 	numChoices, isStream, channel, err, errInjected := c.processor.HandleRequest(abortCtx, req)
 	if err != nil {
 		c.sendError(ctx, err, errInjected)
@@ -505,6 +510,15 @@ func (c *Communication) errorBody(ctx *fasthttp.RequestCtx, err api.Error) any {
 // framed like the family (e.g. /v1/messages/count_tokens), except for
 // /v1/messages/render, which vLLM serves from the render router that frames
 // errors like the other render endpoints.
+// setsEmptyModel reports whether body sets "model" to the empty string, as
+// opposed to leaving it out or setting it to null.
+func setsEmptyModel(body []byte) bool {
+	var m struct {
+		Model *string `json:"model"`
+	}
+	return json.Unmarshal(body, &m) == nil && m.Model != nil && *m.Model == ""
+}
+
 func errorRoute(path string) api.ErrorRoute {
 	switch {
 	case path == messagesRenderRoute:

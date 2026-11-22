@@ -342,7 +342,7 @@ Structure of requests/responses
 - `/v1/responses`
     - **request**
         - stream
-        - model (optional; defaults to the served model name)
+        - model (optional; defaults to the served model name; under sglang, an empty string is an unknown model)
         - input (array of input items)
             - type (`message`, `function_call`, or `function_call_output`)
             - role (`user`, `system`, `developer`) — for `message`
