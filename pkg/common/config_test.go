@@ -141,6 +141,34 @@ var _ = Describe("ApplyAdminUpdate", func() {
 		Entry("zero", `{"fake-metrics":{"running-requests":0}}`, `{"running-requests":0,"waiting-requests":30}`),
 	)
 
+	DescribeTable("replaces a labeled fake metric the body names as a whole",
+		func(body, expected string) {
+			original := `{"waiting-requests":30,"by-reason":{"x":1,"y":2},"split":{"a":5,"b":3},"entries":[{"a":5,"b":3}]}`
+			base.FakeMetrics = &stubFakeMetrics{}
+			Expect(json.Unmarshal([]byte(original), base.FakeMetrics)).To(Succeed())
+
+			next, _, _, err := base.Update([]byte(body))
+			Expect(err).ToNot(HaveOccurred())
+			data, err := next.MarshalCleaned()
+			Expect(err).ToNot(HaveOccurred())
+			var fields map[string]json.RawMessage
+			Expect(json.Unmarshal(data, &fields)).To(Succeed())
+			Expect(fields["fake-metrics"]).To(MatchJSON(expected))
+
+			unchanged, err := json.Marshal(base.FakeMetrics)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(unchanged).To(MatchJSON(original))
+		},
+		Entry("map", `{"fake-metrics":{"by-reason":{"x":9}}}`,
+			`{"waiting-requests":30,"by-reason":{"x":9},"split":{"a":5,"b":3},"entries":[{"a":5,"b":3}]}`),
+		Entry("object", `{"fake-metrics":{"split":{"a":7}}}`,
+			`{"waiting-requests":30,"by-reason":{"x":1,"y":2},"split":{"a":7},"entries":[{"a":5,"b":3}]}`),
+		Entry("slice of objects", `{"fake-metrics":{"entries":[{"a":7}]}}`,
+			`{"waiting-requests":30,"by-reason":{"x":1,"y":2},"split":{"a":5,"b":3},"entries":[{"a":7}]}`),
+		Entry("null", `{"fake-metrics":{"split":null,"by-reason":null}}`,
+			`{"waiting-requests":30,"by-reason":{"x":1,"y":2},"split":{"a":5,"b":3},"entries":[{"a":5,"b":3}]}`),
+	)
+
 	It("rejects a fake-metrics partial when no fake-metrics is configured", func() {
 		// Without a concrete FakeMetrics to unmarshal into, the partial would be
 		// silently dropped, so it is rejected instead.
@@ -356,6 +384,14 @@ var _ = Describe("Configuration.MarshalCleaned", func() {
 type stubFakeMetrics struct {
 	RunningRequests *FakeMetricWithFunction `json:"running-requests,omitempty"`
 	WaitingRequests *FakeMetricWithFunction `json:"waiting-requests,omitempty"`
+	ByReason        map[string]int64        `json:"by-reason,omitempty"`
+	Split           *stubSplit              `json:"split,omitempty"`
+	Entries         []stubSplit             `json:"entries,omitempty"`
+}
+
+type stubSplit struct {
+	A *int64 `json:"a,omitempty"`
+	B *int64 `json:"b,omitempty"`
 }
 
 func (s *stubFakeMetrics) Validate() error  { return nil }

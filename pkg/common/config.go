@@ -1152,11 +1152,46 @@ func (c *Configuration) Update(body []byte) (*Configuration, *Configuration, boo
 	if err := json.Unmarshal(body, next); err != nil {
 		return nil, nil, false, fmt.Errorf("failed to unmarshal payload: %w", err)
 	}
+	if bodyHasFakeMetrics {
+		if next.FakeMetrics, err = replaceFakeMetricsFields(c.FakeMetrics, raw["fake-metrics"]); err != nil {
+			return nil, nil, false, err
+		}
+	}
 
 	if err := next.validate(); err != nil {
 		return nil, nil, false, err
 	}
 	return next, update, latencyChanged, nil
+}
+
+// replaceFakeMetricsFields returns a copy of current with each field partial
+// names replaced as a whole, so a labeled metric keeps only the label values
+// partial gives it. A field partial sets to null keeps its current value.
+func replaceFakeMetricsFields(current FakeMetrics, partial json.RawMessage) (FakeMetrics, error) {
+	data, err := json.Marshal(current)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal fake metrics: %w", err)
+	}
+	var fields, partialFields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal fake metrics: %w", err)
+	}
+	if err := json.Unmarshal(partial, &partialFields); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal fake metrics payload: %w", err)
+	}
+	for name, value := range partialFields {
+		if strings.TrimSpace(string(value)) != "null" {
+			fields[name] = value
+		}
+	}
+	if data, err = json.Marshal(fields); err != nil {
+		return nil, fmt.Errorf("failed to marshal fake metrics: %w", err)
+	}
+	replaced := current.New()
+	if err := json.Unmarshal(data, replaced); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal fake metrics: %w", err)
+	}
+	return replaced, nil
 }
 
 // BodyRequestsFakeMetrics reports whether body is a JSON object that includes

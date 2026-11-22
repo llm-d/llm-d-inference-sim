@@ -61,7 +61,7 @@ close as SGLang support matures, not a permanent design boundary the way the vLL
 | `DecorateMessagesCountTokens` | Fields a `/v1/messages/count_tokens` response carries beyond `input_tokens` (vLLM adds `context_management`; SGLang adds none) | [transport.go](../pkg/engine/vllm/transport.go) |
 | `DecorateTokenizeResponse` | Fields a `/tokenize` response carries beyond `count`, `tokens` and `max_model_len` (vLLM adds `token_strs` when `return_token_strs` is set; SGLang adds none) | [transport.go](../pkg/engine/vllm/transport.go) |
 | `DecorateMessagesDeltaUsage` | Fields the usage of a streamed `/v1/messages` `message_delta` event carries beyond `output_tokens` (vLLM adds the input fields of the full usage; SGLang adds none) | [transport.go](../pkg/engine/vllm/transport.go) |
-| `NewMetricsAdapter` | Prometheus metric names, labels, and the fake-metrics schema | [metrics.go](../pkg/engine/vllm/metrics.go), [fakemetrics.go](../pkg/engine/vllm/fakemetrics.go) |
+| `NewMetricsAdapter` | Prometheus metric names, labels, and the fake-metrics schema | [metrics.go](../pkg/engine/vllm/metrics.go), [fakemetrics.go](../pkg/engine/vllm/fakemetrics.go), [sglang/fakemetrics.go](../pkg/engine/sglang/fakemetrics.go) |
 | `NewKVEventEncoder` | The wire format of a single KV-cache event | [kvevents.go](../pkg/engine/vllm/kvevents.go) |
 
 A `Configuration` group can be engine-owned even though the struct lives in `pkg/common`: `lora` and
@@ -163,8 +163,7 @@ simulator's own, so SGLang's `The model 'x' does not exist` with `"param": "mode
    [configuration.md](configuration.md) and [metrics.md](metrics.md), and extend the `engine` flag's
    description.
 4. Add a test suite in `pkg/engine/<name>/` for the parts with an external contract: the KV-event encoder
-   should be asserted against the matching `engineadapter` parser from `llm-d-router`, which is the
-   consumer these events exist to feed. In `pkg/tests`, a spec that exercises only the engine-neutral
-   surface belongs in a container wrapped in `forEachEngine`, which runs it once per registered engine, so
-   a new engine inherits that coverage. Every other spec names its own engine. Suites resolve the engine
+   should be asserted against the wire format its consumers parse. In `pkg/tests`, a spec that exercises
+   only the engine-neutral surface belongs in a container wrapped in `forEachEngine`, which runs it once
+   per registered engine, so a new engine inherits that coverage. Every other spec names its own engine. Suites resolve the engine
    the same way `main` does, so setting `SIM_ENGINE` selects it for the specs that do not.

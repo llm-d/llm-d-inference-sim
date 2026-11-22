@@ -213,10 +213,15 @@ var _ = Describe("HandleRequest with n > 1 and the KV cache enabled", func() {
 })
 
 var _ = Describe("simulateResponseProcessing", func() {
+	type processingResult struct {
+		sent      int
+		completed bool
+	}
+
 	// startProcessing runs req up to simulateResponseProcessing on a goroutine
-	// and returns its response channel and a channel for its result.
+	// and returns its response context, its response channel and a channel for its result.
 	startProcessing := func(sim *Simulator, ctx context.Context, req endpoint.Request) (
-		*common.Channel[*endpoint.ResponseInfo], chan bool) {
+		endpoint.ResponseContext, *common.Channel[*endpoint.ResponseInfo], chan processingResult) {
 		_, _, respChan, topErr, _ := sim.HandleRequest(ctx, req)
 		Expect(topErr).To(BeNil())
 		reqCtx := <-sim.newRequests.Channel
@@ -224,9 +229,12 @@ var _ = Describe("simulateResponseProcessing", func() {
 		respCtx, err := reqCtx.HandleRequest()
 		Expect(err).To(BeNil())
 
-		completed := make(chan bool, 1)
-		go func() { completed <- sim.simulateResponseProcessing(respCtx) }()
-		return respChan, completed
+		completed := make(chan processingResult, 1)
+		go func() {
+			sent, ok := sim.simulateResponseProcessing(respCtx)
+			completed <- processingResult{sent: sent, completed: ok}
+		}()
+		return respCtx, respChan, completed
 	}
 
 	It("stops waiting for the first token once the response is abandoned", func() {
@@ -235,11 +243,11 @@ var _ = Describe("simulateResponseProcessing", func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		DeferCleanup(cancel)
-		respChan, completed := startProcessing(sim, ctx, newTextCompletionsRequestWithChoices("ttft", 1))
+		_, respChan, completed := startProcessing(sim, ctx, newTextCompletionsRequestWithChoices("ttft", 1))
 		Consistently(completed).ShouldNot(Receive())
 
 		cancel()
-		Eventually(completed).Should(Receive(BeFalse()))
+		Eventually(completed).Should(Receive(Equal(processingResult{sent: 0, completed: false})))
 		Expect(respChan.Channel).To(BeEmpty())
 		Expect(bus.PrefillEnded.Channel).To(BeEmpty())
 	})
@@ -252,7 +260,7 @@ var _ = Describe("simulateResponseProcessing", func() {
 		req.Prompt = []api.PromptInput{{Text: "hello there, how are you"}}
 		ctx, cancel := context.WithCancel(context.Background())
 		DeferCleanup(cancel)
-		respChan, completed := startProcessing(sim, ctx, req)
+		_, respChan, completed := startProcessing(sim, ctx, req)
 
 		// Once the first token is out, the worker is waiting for the second.
 		Eventually(func(g Gomega) {
@@ -263,7 +271,7 @@ var _ = Describe("simulateResponseProcessing", func() {
 		Consistently(completed).ShouldNot(Receive())
 
 		cancel()
-		Eventually(completed).Should(Receive(BeFalse()))
+		Eventually(completed).Should(Receive(Equal(processingResult{sent: 1, completed: false})))
 		Expect(respChan.Channel).To(BeEmpty())
 		Expect(bus.TokenGenerated.Channel).To(BeEmpty())
 		Expect(bus.DecodeEnded.Channel).To(BeEmpty())
@@ -281,7 +289,7 @@ var _ = Describe("simulateResponseProcessing", func() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		DeferCleanup(cancel)
-		respChan, completed := startProcessing(sim, ctx, req)
+		respCtx, respChan, completed := startProcessing(sim, ctx, req)
 
 		// Once the last token is out, the worker is waiting for the image.
 		Eventually(func(g Gomega) {
@@ -293,7 +301,8 @@ var _ = Describe("simulateResponseProcessing", func() {
 		Consistently(completed).ShouldNot(Receive())
 
 		cancel()
-		Eventually(completed).Should(Receive(BeFalse()))
+		Eventually(completed).Should(Receive(Equal(processingResult{
+			sent: respCtx.ResponseTokens().Length(), completed: false})))
 	})
 })
 
@@ -462,6 +471,30 @@ var _ = Describe("processRequest", func() {
 		Expect(bus.RequestRunning.Channel).To(HaveLen(1))
 		Expect(bus.RequestFailed.Channel).To(HaveLen(1))
 		Expect(bus.RequestSucceeded.Channel).To(BeEmpty())
+	})
+
+	It("reports the full prompt and no cached or generated tokens on the failure event of a request that fails before generation", func() {
+		GinkgoT().Setenv("POD_IP", "localhost")
+		sim := newHandleRequestTestSim(context.Background(), 1,
+			"--enable-kvcache", "--kv-cache-size", "1", "--block-size", "8")
+		bus := useUnreadMetricsBus(sim)
+
+		prompt := strings.Repeat("one two three four five six seven eight ", 4)
+		promptTokens, _, err := sim.Context.Tokenizer.RenderText(prompt)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(promptTokens).NotTo(BeEmpty())
+
+		req := newTextCompletionsRequestWithChoices("no-kv-capacity", 1)
+		req.Prompt = []api.PromptInput{{Text: prompt}}
+		_, _, _, topErr, _ := sim.HandleRequest(context.Background(), req)
+		Expect(topErr).To(BeNil())
+		sim.processRequest(<-sim.newRequests.Channel)
+
+		var failed metrics.RequestFailed
+		Expect(bus.RequestFailed.Channel).To(Receive(&failed))
+		Expect(failed.PromptTokens).To(Equal(len(promptTokens)))
+		Expect(failed.CachedPromptTokens).To(BeZero())
+		Expect(failed.GenerationTokens).To(BeZero())
 	})
 
 	DescribeTable("reports streaming and finish reason on the prefill, decode and success events",
