@@ -473,6 +473,30 @@ var _ = Describe("processRequest", func() {
 		Expect(bus.RequestSucceeded.Channel).To(BeEmpty())
 	})
 
+	It("reports the full prompt and no cached or generated tokens on the failure event of a request that fails before generation", func() {
+		GinkgoT().Setenv("POD_IP", "localhost")
+		sim := newHandleRequestTestSim(context.Background(), 1,
+			"--enable-kvcache", "--kv-cache-size", "1", "--block-size", "8")
+		bus := useUnreadMetricsBus(sim)
+
+		prompt := strings.Repeat("one two three four five six seven eight ", 4)
+		promptTokens, _, err := sim.Context.Tokenizer.RenderText(prompt)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(promptTokens).NotTo(BeEmpty())
+
+		req := newTextCompletionsRequestWithChoices("no-kv-capacity", 1)
+		req.Prompt = []api.PromptInput{{Text: prompt}}
+		_, _, _, topErr, _ := sim.HandleRequest(context.Background(), req)
+		Expect(topErr).To(BeNil())
+		sim.processRequest(<-sim.newRequests.Channel)
+
+		var failed metrics.RequestFailed
+		Expect(bus.RequestFailed.Channel).To(Receive(&failed))
+		Expect(failed.PromptTokens).To(Equal(len(promptTokens)))
+		Expect(failed.CachedPromptTokens).To(BeZero())
+		Expect(failed.GenerationTokens).To(BeZero())
+	})
+
 	DescribeTable("reports streaming and finish reason on the prefill, decode and success events",
 		func(stream bool) {
 			sim := newHandleRequestTestSim(context.Background(), 1)
