@@ -35,24 +35,29 @@ var _ = Describe("ValidateConfig", func() {
 		Expect(New().ValidateConfig(config)).To(Succeed())
 	})
 
-	It("should reject an enabled KV cache", func() {
+	It("should accept an enabled KV cache with a page size of 1", func() {
 		config.KVCache.EnableKVCache = true
-		Expect(New().ValidateConfig(config)).To(
-			MatchError(ContainSubstring("KV-cache simulation is not implemented by the sglang engine yet")))
+		config.KVCache.TokenBlockSize = 1
+		Expect(New().ValidateConfig(config)).To(Succeed())
+		Expect(config.KVCache.TokenBlockSize).To(Equal(1))
+	})
+
+	It("should reject a page size below 1 with the KV cache enabled", func() {
+		config.KVCache.EnableKVCache = true
+		config.KVCache.TokenBlockSize = 0
+		Expect(New().ValidateConfig(config)).To(MatchError(ContainSubstring("page size must be at least 1")))
+	})
+
+	It("should clear the KV-cache settings while the cache is disabled", func() {
+		Expect(config.KVCache.TokenBlockSize).To(Equal(16))
+		Expect(New().ValidateConfig(config)).To(Succeed())
+		Expect(config.KVCache).To(Equal(common.KVCacheConfig{}))
 	})
 
 	It("should reject fake metrics", func() {
 		config.FakeMetrics = fakeMetrics{}
 		Expect(New().ValidateConfig(config)).To(
 			MatchError(ContainSubstring("fake metrics are not implemented by the sglang engine yet")))
-	})
-})
-
-var _ = Describe("KV events", func() {
-	It("should have no encoder", func() {
-		encoder, err := New().NewKVEventEncoder(*common.NewConfig())
-		Expect(err).To(MatchError(ContainSubstring("does not support KV-cache events")))
-		Expect(encoder).To(BeNil())
 	})
 })
 

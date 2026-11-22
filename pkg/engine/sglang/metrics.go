@@ -284,11 +284,11 @@ func (m *sglangMetricsAdapter) OnRequestFailed(metrics.RequestFailed) {
 }
 
 func (m *sglangMetricsAdapter) OnKVCacheUsageChanged(metrics.KVCacheUsageChanged) {
-	// Not reached: ValidateConfig rejects an enabled KV cache.
+	// sglang's KV-cache usage metric is not simulated yet.
 }
 
 func (m *sglangMetricsAdapter) OnPrefixCacheQueried(metrics.PrefixCacheQueried) {
-	// Not reached: ValidateConfig rejects an enabled KV cache.
+	// sglang's prefix-cache hit metric is not simulated yet.
 }
 
 func (m *sglangMetricsAdapter) OnLoRASetsChanged(metrics.LoRASetsChanged) {
