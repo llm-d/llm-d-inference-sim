@@ -304,11 +304,11 @@ type RequestSucceeded struct {
 	IsStreaming        bool
 }
 
-// RequestFailed is the terminal event for a request that errored out. Same
-// running-counter, LoRA, and latency bookkeeping as RequestSucceeded. The
-// token counts are those processed before the failure: zero for a request
-// rejected before generation, and the prompt plus the tokens generated so far
-// for an aborted one.
+// RequestFailed is the terminal event for a request that errored out after it
+// started. Same running-counter, LoRA, and latency bookkeeping as
+// RequestSucceeded. PromptTokens is the full prompt, CachedPromptTokens and
+// GenerationTokens are zero for a request that failed before generation, and
+// the cached prompt tokens and tokens generated so far for an aborted one.
 type RequestFailed struct {
 	PromptTokens       int
 	CachedPromptTokens int

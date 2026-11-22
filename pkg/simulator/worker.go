@@ -103,7 +103,9 @@ func (s *Simulator) processRequest(reqCtx endpoint.RequestContext) {
 			&endpoint.ResponseInfo{RespCtx: respCtx, Err: err, ChoiceIdx: reqCtx.ChoiceIndex()},
 			s.Context.logger)
 		// api.Error is a struct wire type (not error interface); drop it here
-		reportFailed(metrics.RequestFailed{})
+		reportFailed(metrics.RequestFailed{
+			PromptTokens: req.TokenizedPrompt().Length(),
+		})
 		return
 	}
 
