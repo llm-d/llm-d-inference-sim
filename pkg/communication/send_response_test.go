@@ -547,7 +547,7 @@ var _ = DescribeTable("Responses usage on the wire", func(usage api.Usage, cache
 	Expect(terminal.Type).To(Equal(api.ResponsesEventCompleted))
 
 	expected := fmt.Sprintf(`{"input_tokens":%d,"output_tokens":%d,"total_tokens":%d,
-		"input_tokens_details":{"cached_tokens":%d},"output_tokens_details":{"reasoning_tokens":0}}`,
+		"input_tokens_details":{"cached_tokens":%d,"cache_write_tokens":0},"output_tokens_details":{"reasoning_tokens":0}}`,
 		usage.PromptTokens, usage.CompletionTokens, usage.TotalTokens, cached)
 	for _, response := range []*api.ResponsesResponse{full, terminal.Response} {
 		Expect(json.Marshal(response.Usage)).To(MatchJSON(expected))
@@ -606,7 +606,10 @@ var _ = Describe("responses status at the token limit", func() {
 			Expect(eventType).To(Equal(wantEvent))
 			Expect(resp).To(HaveKeyWithValue("status", api.ResponsesStatusIncomplete))
 			Expect(resp).To(HaveKeyWithValue("usage", And(
-				HaveKeyWithValue("input_tokens_details", HaveKeyWithValue("cached_tokens", float64(0))),
+				HaveKeyWithValue("input_tokens_details", And(
+					HaveKeyWithValue("cached_tokens", float64(0)),
+					HaveKeyWithValue("cache_write_tokens", float64(0)),
+				)),
 				HaveKeyWithValue("output_tokens_details", HaveKeyWithValue("reasoning_tokens", float64(0))),
 			)))
 			Expect(resp).To(HaveKeyWithValue("incomplete_details",

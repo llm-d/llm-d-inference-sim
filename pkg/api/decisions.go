@@ -140,20 +140,17 @@ type DecisionAnswer struct {
 	Confidence    *float64              `json:"confidence,omitempty"`
 }
 
-type DecisionInputTokensDetails struct {
-	CachedTokens     int `json:"cached_tokens"`
-	CacheWriteTokens int `json:"cache_write_tokens"`
-}
+// Deprecated: Use InputTokensDetails.
+type DecisionInputTokensDetails = InputTokensDetails
 
-type DecisionOutputTokensDetails struct {
-	ReasoningTokens int `json:"reasoning_tokens"`
-}
+// Deprecated: Use OutputTokensDetails.
+type DecisionOutputTokensDetails = OutputTokensDetails
 
 type OpenAIDecisionUsage struct {
 	DecisionUsage
-	InputTokensDetails  DecisionInputTokensDetails  `json:"input_tokens_details"`
-	OutputTokensDetails DecisionOutputTokensDetails `json:"output_tokens_details"`
-	TotalTokens         int                         `json:"total_tokens"`
+	InputTokensDetails  InputTokensDetails  `json:"input_tokens_details"`
+	OutputTokensDetails OutputTokensDetails `json:"output_tokens_details"`
+	TotalTokens         int                 `json:"total_tokens"`
 }
 
 type DecisionsResponse struct {

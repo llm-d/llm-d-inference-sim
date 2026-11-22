@@ -543,7 +543,7 @@ func responsesUsage(usage *api.Usage) *api.ResponsesUsage {
 		TotalTokens:  usage.TotalTokens,
 	}
 	if usage.PromptTokensDetails != nil {
-		result.InputTokensDetails = *usage.PromptTokensDetails
+		result.InputTokensDetails.CachedTokens = usage.PromptTokensDetails.CachedTokens
 	}
 	return result
 }
@@ -908,7 +908,7 @@ func (b *decisionHTTPRespBuilder) createResponse(contexts []endpoint.ResponseCon
 			Model: model, Answers: b.request.DecisionAnswers(),
 			Usage: api.OpenAIDecisionUsage{
 				DecisionUsage:      api.DecisionUsage{InputTokens: usage.PromptTokens, OutputTokens: usage.CompletionTokens},
-				InputTokensDetails: api.DecisionInputTokensDetails{CachedTokens: usage.PromptTokensDetails.CachedTokens},
+				InputTokensDetails: api.InputTokensDetails{CachedTokens: usage.PromptTokensDetails.CachedTokens},
 				TotalTokens:        usage.TotalTokens,
 			},
 		}

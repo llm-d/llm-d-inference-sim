@@ -94,6 +94,17 @@ type PromptTokensDetails struct {
 	CachedTokens int `json:"cached_tokens"`
 }
 
+// InputTokensDetails is the input token breakdown for Responses and Decisions.
+type InputTokensDetails struct {
+	CachedTokens     int `json:"cached_tokens"`
+	CacheWriteTokens int `json:"cache_write_tokens"`
+}
+
+// OutputTokensDetails is the output token breakdown for Responses and Decisions.
+type OutputTokensDetails struct {
+	ReasoningTokens int `json:"reasoning_tokens"`
+}
+
 // LogprobsContent represents logprobs for a single token in chat completions
 type LogprobsContent struct {
 	// Token is the token string
@@ -731,11 +742,11 @@ type ResponsesIncompleteDetails struct {
 }
 
 type ResponsesUsage struct {
-	InputTokens         int                         `json:"input_tokens"`
-	InputTokensDetails  PromptTokensDetails         `json:"input_tokens_details"`
-	OutputTokens        int                         `json:"output_tokens"`
-	OutputTokensDetails DecisionOutputTokensDetails `json:"output_tokens_details"`
-	TotalTokens         int                         `json:"total_tokens"`
+	InputTokens         int                 `json:"input_tokens"`
+	InputTokensDetails  InputTokensDetails  `json:"input_tokens_details"`
+	OutputTokens        int                 `json:"output_tokens"`
+	OutputTokensDetails OutputTokensDetails `json:"output_tokens_details"`
+	TotalTokens         int                 `json:"total_tokens"`
 }
 
 // Responses API streaming event types
