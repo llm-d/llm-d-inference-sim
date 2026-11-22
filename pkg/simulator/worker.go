@@ -131,6 +131,7 @@ func (s *Simulator) processRequest(reqCtx endpoint.RequestContext) {
 		metrics.RequestSucceeded{
 			PromptTokens:       respCtx.UsageData().PromptTokens,
 			CachedPromptTokens: respCtx.NumberCachedPromptTokens(),
+			DoRemotePrefill:    respCtx.DoRemotePrefill(),
 			GenerationTokens:   respCtx.UsageData().CompletionTokens,
 			GenTokensPerChoice: []int{respCtx.UsageData().CompletionTokens},
 			MaxTokens:          &maxTokens,

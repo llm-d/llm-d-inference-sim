@@ -922,6 +922,70 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 			}).WithTimeout(2 * time.Second).WithPolling(25 * time.Millisecond).Should(Succeed())
 		})
 
+		It("Should split prompt tokens by source", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.QwenModelName, "--mode", common.ModeRandom,
+				"--enable-kvcache", "--kv-cache-size", "64", "--block-size", "8",
+				"--time-to-first-token", "100ms"}
+
+			client, err := startServerWithArgsAndEnv(ctx, common.ModeRandom, args, map[string]string{"POD_IP": "localhost"})
+			Expect(err).NotTo(HaveOccurred())
+
+			openaiclient := openai.NewClient(
+				option.WithBaseURL(baseURL),
+				option.WithHTTPClient(client))
+
+			// The second prompt shares a prefix with the first, so part of it comes from the prefix cache
+			for _, prompt := range []string{
+				"What is the weather like in Haifa today?",
+				"What is the weather like in Haifa today? Is it cold?",
+			} {
+				_, err = openaiclient.Completions.New(ctx, openai.CompletionNewParams{
+					Prompt: openai.CompletionNewParamsPromptUnion{
+						OfString: openai.String(prompt),
+					},
+					Model: openai.CompletionNewParamsModel(common.QwenModelName),
+				})
+				Expect(err).NotTo(HaveOccurred())
+			}
+			// A remote prefill transfers the prompt tokens that are not in the prefix cache
+			sendCompletionsRequestForLatencyTest(client, common.QwenModelName, "Tell me a story about a dragon", false, true)
+
+			sourcePrefix := func(source string) string {
+				return fmt.Sprintf("%s{model_name=\"%s\",source=\"%s\"}",
+					vllm.VLLMPromptTokensBySourceTotalMetricName, common.QwenModelName, source)
+			}
+			Eventually(func(g Gomega) {
+				metricsResp, err := client.Get(metricsUrl)
+				g.Expect(err).NotTo(HaveOccurred())
+				defer func() { _ = metricsResp.Body.Close() }()
+				g.Expect(metricsResp.StatusCode).To(Equal(http.StatusOK))
+
+				data, err := io.ReadAll(metricsResp.Body)
+				g.Expect(err).NotTo(HaveOccurred())
+				metricsLines := strings.Split(string(data), "\n")
+
+				promptTokens := findIntMetric(metricsLines, getCountMetricPrefix(common.QwenModelName, vllm.VLLMPromptTokensTotalMetricName))
+				hits := findIntMetric(metricsLines, getCountMetricPrefix(common.QwenModelName, vllm.VLLMPrefixCacheHitsTotalMetricName))
+				cached := findIntMetric(metricsLines, getCountMetricPrefix(common.QwenModelName, vllm.VLLMPromptTokensCachedTotalMetricName))
+				preemptions := findIntMetric(metricsLines, getCountMetricPrefix(common.QwenModelName, vllm.VLLMNumPreemptionsTotalMetricName))
+				computed := findIntMetric(metricsLines, sourcePrefix("local_compute"))
+				cacheHit := findIntMetric(metricsLines, sourcePrefix("local_cache_hit"))
+				transferred := findIntMetric(metricsLines, sourcePrefix("external_kv_transfer"))
+				for _, value := range []*int{promptTokens, hits, cached, preemptions, computed, cacheHit, transferred} {
+					g.Expect(value).NotTo(BeNil())
+				}
+
+				g.Expect(*cacheHit).To(BeNumerically(">", 0))
+				g.Expect(*cacheHit).To(Equal(*hits))
+				g.Expect(*computed).To(BeNumerically(">", 0))
+				g.Expect(*transferred).To(BeNumerically(">", 0))
+				g.Expect(*computed + *cacheHit + *transferred).To(Equal(*promptTokens))
+				g.Expect(*cached).To(Equal(*cacheHit + *transferred))
+				g.Expect(*preemptions).To(BeZero())
+			}).WithTimeout(2 * time.Second).WithPolling(25 * time.Millisecond).Should(Succeed())
+		})
+
 		It("Should scope prefix cache hits to the request's cache salt", func() {
 			ctx := context.TODO()
 			args := []string{"cmd", "--model", common.QwenModelName, "--mode", common.ModeRandom,

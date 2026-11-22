@@ -295,6 +295,9 @@ type RequestSucceeded struct {
 	// CachedPromptTokens is the part of PromptTokens served from the prefix
 	// cache, zero when the KV cache is disabled.
 	CachedPromptTokens int
+	// DoRemotePrefill is true when a remote prefill instance computed the
+	// prompt, so the tokens beyond CachedPromptTokens were transferred.
+	DoRemotePrefill    bool
 	GenerationTokens   int
 	GenTokensPerChoice []int
 	MaxTokens          *int64 // limit the request ran with: max_tokens capped by the context window, or what is left of it
