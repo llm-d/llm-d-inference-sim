@@ -24,6 +24,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -1396,6 +1397,56 @@ func postDecisionRequest(t *testing.T, client *http.Client, path, body string, h
 	var result map[string]any
 	g.Expect(json.Unmarshal(raw, &result)).To(Succeed(), "body: %s", raw)
 	return resp, raw, result
+}
+
+func TestTokenizeRenderError(t *testing.T) {
+	// vLLM's answer for a prompt it rejects with 400, and the 403 it sends without --enable-scale-out
+	const badRequest = `{"error":{"message":"bad input","type":"BadRequestError","param":"messages","code":400}}`
+	const forbidden = `{"error":{"message":"Scale-out endpoints are disabled.","type":"PermissionDeniedError","param":null,"code":403}}`
+	for _, tc := range []struct {
+		name, body  string
+		status      int
+		wantStatus  int
+		wantMessage string
+	}{
+		{"400 is returned as a 400", badRequest, http.StatusBadRequest, http.StatusBadRequest, "bad input"},
+		{"403 is a server error", forbidden, http.StatusForbidden, http.StatusInternalServerError, "Failed to tokenize"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			g := NewWithT(t)
+			renderPaths := make(chan string, 4)
+			render := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/version" {
+					_, _ = w.Write([]byte(`{"version":"0.34.0"}`))
+					return
+				}
+				renderPaths <- r.URL.Path
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			t.Cleanup(render.Close)
+			sim, client := startDecisionTestServer(t, "vllm")
+			hft, err := tokenizer.NewHFTokenizer(context.Background(), klog.Background(), render.URL, common.TestModelName,
+				time.Second, time.Second)
+			g.Expect(err).NotTo(HaveOccurred())
+			sim.Context.Tokenizer = hft
+
+			resp, err := client.Post("http://localhost/tokenize", "application/json",
+				strings.NewReader(`{"messages":[{"role":"user","content":"hi"}]}`))
+			g.Expect(err).NotTo(HaveOccurred())
+			defer func() { g.Expect(resp.Body.Close()).To(Succeed()) }()
+			body, err := io.ReadAll(resp.Body)
+			g.Expect(err).NotTo(HaveOccurred())
+			close(renderPaths)
+			var paths []string
+			for p := range renderPaths {
+				paths = append(paths, p)
+			}
+			g.Expect(paths).To(Equal([]string{"/tokenize"}))
+			g.Expect(resp.StatusCode).To(Equal(tc.wantStatus), string(body))
+			g.Expect(string(body)).To(ContainSubstring(tc.wantMessage))
+		})
+	}
 }
 
 func startDecisionTestServer(t *testing.T, engineName string, extraArgs ...string) (*simulator.Simulator, *http.Client) {
