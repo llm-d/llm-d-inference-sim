@@ -125,6 +125,14 @@ func (c *ChatCompletionsRequest) Validate(toolsValidator *ToolsValidator) *api.E
 	if err := validateResponseFormat(c.responseFormat, toolsValidator); err != nil {
 		return err
 	}
+	if err := validateLogprobsCount("top_logprobs", c.TopLogprobs); err != nil {
+		return err
+	}
+	if c.TopLogprobs != nil && *c.TopLogprobs != 0 && !c.Logprobs {
+		param := "top_logprobs"
+		err := api.NewError("when using `top_logprobs`, `logprobs` must be set to true.", fasthttp.StatusBadRequest, &param)
+		return &err
+	}
 
 	return validateRequest(c)
 }

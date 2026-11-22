@@ -800,3 +800,55 @@ var _ = Describe("Decision API", func() {
 		Entry("empty score label", DecisionsProtocol, `{"model":"test","input":"x","questions":[{"type":"score","instructions":"q","levels":[{"label":""},{"label":"high"}]}]}`),
 	)
 })
+
+var _ = Describe("logprobs validation", func() {
+	DescribeTable("chat completions",
+		func(fields string, wantErr string, wantParam string) {
+			req := &ChatCompletionsRequest{}
+			Expect(req.Unmarshal([]byte(`{"model":"m","messages":[{"role":"user","content":"hi"}]` + fields + `}`))).To(Succeed())
+			err := req.Validate(nil)
+			if wantErr == "" {
+				Expect(err).To(BeNil())
+				return
+			}
+			Expect(err).NotTo(BeNil())
+			Expect(err.Code).To(Equal(fasthttp.StatusBadRequest))
+			Expect(err.Message).To(Equal(wantErr))
+			Expect(err.Param).To(HaveValue(Equal(wantParam)))
+		},
+		Entry("rejects top_logprobs without logprobs", `,"top_logprobs":3`,
+			"when using `top_logprobs`, `logprobs` must be set to true.", "top_logprobs"),
+		Entry("rejects top_logprobs with logprobs false", `,"logprobs":false,"top_logprobs":3`,
+			"when using `top_logprobs`, `logprobs` must be set to true.", "top_logprobs"),
+		Entry("rejects top_logprobs -1 without logprobs", `,"top_logprobs":-1`,
+			"when using `top_logprobs`, `logprobs` must be set to true.", "top_logprobs"),
+		Entry("accepts top_logprobs 0 without logprobs", `,"top_logprobs":0`, "", ""),
+		Entry("rejects a negative top_logprobs other than -1", `,"logprobs":true,"top_logprobs":-2`,
+			"`top_logprobs` must be a positive value or -1.", "top_logprobs"),
+		Entry("checks the range before logprobs", `,"top_logprobs":-2`,
+			"`top_logprobs` must be a positive value or -1.", "top_logprobs"),
+		Entry("accepts top_logprobs -1 with logprobs", `,"logprobs":true,"top_logprobs":-1`, "", ""),
+		Entry("accepts top_logprobs with logprobs", `,"logprobs":true,"top_logprobs":3`, "", ""),
+	)
+
+	DescribeTable("text completions",
+		func(fields string, wantErr string, wantParam string) {
+			req := &TextCompletionsParsedRequest{}
+			Expect(req.Unmarshal([]byte(`{"model":"m","prompt":"hi"` + fields + `}`))).To(Succeed())
+			err := req.Validate(nil)
+			if wantErr == "" {
+				Expect(err).To(BeNil())
+				return
+			}
+			Expect(err).NotTo(BeNil())
+			Expect(err.Code).To(Equal(fasthttp.StatusBadRequest))
+			Expect(err.Message).To(Equal(wantErr))
+			Expect(err.Param).To(HaveValue(Equal(wantParam)))
+		},
+		Entry("rejects a negative logprobs other than -1", `,"logprobs":-2`,
+			"`logprobs` must be a positive value or -1.", "logprobs"),
+		Entry("accepts logprobs -1", `,"logprobs":-1`, "", ""),
+		Entry("accepts logprobs 0", `,"logprobs":0`, "", ""),
+		Entry("accepts logprobs 5", `,"logprobs":5`, "", ""),
+	)
+})

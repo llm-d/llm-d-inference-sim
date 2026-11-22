@@ -87,6 +87,9 @@ func (t *TextCompletionsParsedRequest) Validate(_ *ToolsValidator) *api.Error {
 	if err := t.ValidateBody(); err != nil {
 		return err
 	}
+	if err := validateLogprobsCount("logprobs", t.Logprobs); err != nil {
+		return err
+	}
 	return validateRequest(t)
 }
 

@@ -54,6 +54,16 @@ func validateRequest(req api.Request) *api.Error {
 	return nil
 }
 
+// validateLogprobsCount rejects a negative count other than -1, as vLLM's
+// request validation does.
+func validateLogprobsCount(field string, count *int) *api.Error {
+	if count != nil && *count < 0 && *count != -1 {
+		err := api.NewError("`"+field+"` must be a positive value or -1.", fasthttp.StatusBadRequest, &field)
+		return &err
+	}
+	return nil
+}
+
 // buildECTransferParams creates simulated ECTransferParams for each MM hash.
 func buildECTransferParams(mmHashes map[string][]string) map[string]api.ECTransferParams {
 	params := make(map[string]api.ECTransferParams)
