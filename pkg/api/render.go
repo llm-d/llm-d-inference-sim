@@ -85,6 +85,8 @@ type TextCompletionsRenderRequest struct {
 
 	// Prompt defines request's content
 	Prompt string `json:"prompt"`
+	// AddSpecialTokens set to false renders the prompt without special tokens such as BOS.
+	AddSpecialTokens *bool `json:"add_special_tokens,omitempty"`
 }
 
 // ChatCompletionsRenderRequest contains chat completions render request related information

@@ -77,6 +77,15 @@ func (hft *HFTokenizer) RenderText(text string) ([]uint32, []string, error) {
 	return tokens, strTokens, err
 }
 
+func (hft *HFTokenizer) RenderOutputText(text string) ([]uint32, []string, error) {
+	req := api.NewTextCompletionsRenderRequest(hft.baseModel, text)
+	req.AddSpecialTokens = new(false)
+
+	tokens, strTokens, _, err := hft.renderRequest(&req, text)
+
+	return tokens, strTokens, err
+}
+
 func (hft *HFTokenizer) RenderMessages(messages []api.Message, tools api.RenderTools, mmPayload string) ([]uint32, []string, *api.RenderMMFeatures, error) {
 	req := api.NewChatCompletionsRenderRequest(hft.baseModel, messages, tools, mmPayload)
 

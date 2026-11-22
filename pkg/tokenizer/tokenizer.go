@@ -41,6 +41,9 @@ const (
 type Tokenizer interface {
 	// RenderText renders plain text and returns token IDs and string tokens
 	RenderText(text string) ([]uint32, []string, error)
+	// RenderOutputText renders text the model generates. Unlike a prompt, it gets
+	// no special tokens such as BOS.
+	RenderOutputText(text string) ([]uint32, []string, error)
 	// RenderMessages renders chat messages and returns token IDs, string tokens, and multimodal features.
 	// tools holds the request's tools and tool_choice as the client sent them.
 	// mmPayload is the client's mm_payload (api.MMPayloadTensors or api.MMPayloadNone),
@@ -185,6 +188,10 @@ func (st *SimpleTokenizer) record(tokens []uint32, strTokens []string) {
 func (st *SimpleTokenizer) RenderText(text string) ([]uint32, []string, error) {
 	tokens, textTokens := st.tokenize(text)
 	return tokens, textTokens, nil
+}
+
+func (st *SimpleTokenizer) RenderOutputText(text string) ([]uint32, []string, error) {
+	return st.RenderText(text)
 }
 
 // Tokenize renders the request's prompt, or its messages when it has no prompt.

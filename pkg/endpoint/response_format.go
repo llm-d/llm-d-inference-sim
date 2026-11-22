@@ -127,7 +127,7 @@ func (c *chatCompletionReqCtx) createStructuredOutput() (*api.Tokenized, string,
 	if err != nil {
 		return nil, "", err
 	}
-	tokens, strs, err := c.runtime.GetTokenizer().RenderText(string(content))
+	tokens, strs, err := c.runtime.GetTokenizer().RenderOutputText(string(content))
 	if err != nil {
 		return nil, "", err
 	}

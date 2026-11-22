@@ -96,7 +96,7 @@ type MMEncoderOnlyDataset struct {
 }
 
 func NewMMEncoderOnlyDataset(logger logr.Logger, tokenizer tokenizer.Tokenizer) (*MMEncoderOnlyDataset, error) {
-	tokens, textTokens, err := tokenizer.RenderText("!")
+	tokens, textTokens, err := tokenizer.RenderOutputText("!")
 	if err != nil {
 		logger.Error(err, "failed to tokenize")
 		return nil, err
@@ -156,7 +156,7 @@ func (d *DefaultDataset) Init(ctx context.Context, logger logr.Logger, random *c
 
 	d.tokenizedResponses = make([]api.Tokenized, len(completionFakeResponses))
 	for i, text := range completionFakeResponses {
-		tokens, textTokens, err := tokenizer.RenderText(text)
+		tokens, textTokens, err := tokenizer.RenderOutputText(text)
 		if err != nil {
 			logger.Error(err, "failed to tokenize")
 			return err
