@@ -30,8 +30,8 @@ import (
 type ChatCompletionsRequest struct {
 	api.ChatCompletionsRequest
 	willSendImage bool
-	// renderTools holds the request's tools and tool_choice as received, for
-	// the render service.
+	// renderTools holds the request's tools, tool_choice and chat template
+	// options as received, for the render service.
 	renderTools api.RenderTools
 	// responseFormat holds the request's response_format as received.
 	responseFormat json.RawMessage
@@ -46,14 +46,29 @@ func (c *ChatCompletionsRequest) Unmarshal(data []byte) error {
 		return err
 	}
 	var raw struct {
-		Tools          json.RawMessage `json:"tools"`
-		ToolChoice     json.RawMessage `json:"tool_choice"`
-		ResponseFormat json.RawMessage `json:"response_format"`
+		Tools                json.RawMessage `json:"tools"`
+		ToolChoice           json.RawMessage `json:"tool_choice"`
+		ResponseFormat       json.RawMessage `json:"response_format"`
+		AddGenerationPrompt  json.RawMessage `json:"add_generation_prompt"`
+		ContinueFinalMessage json.RawMessage `json:"continue_final_message"`
+		AddSpecialTokens     json.RawMessage `json:"add_special_tokens"`
+		Documents            json.RawMessage `json:"documents"`
+		ChatTemplate         json.RawMessage `json:"chat_template"`
+		ChatTemplateKwargs   json.RawMessage `json:"chat_template_kwargs"`
 	}
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}
-	c.renderTools = api.RenderTools{Tools: present(raw.Tools), ToolChoice: present(raw.ToolChoice)}
+	c.renderTools = api.RenderTools{
+		Tools:                present(raw.Tools),
+		ToolChoice:           present(raw.ToolChoice),
+		AddGenerationPrompt:  present(raw.AddGenerationPrompt),
+		ContinueFinalMessage: present(raw.ContinueFinalMessage),
+		AddSpecialTokens:     present(raw.AddSpecialTokens),
+		Documents:            present(raw.Documents),
+		ChatTemplate:         present(raw.ChatTemplate),
+		ChatTemplateKwargs:   present(raw.ChatTemplateKwargs),
+	}
 	c.responseFormat = present(raw.ResponseFormat)
 	return nil
 }

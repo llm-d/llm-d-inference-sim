@@ -43,10 +43,19 @@ func NewTextCompletionsRenderRequest(model, prompt string) TextCompletionsRender
 // sent them, for the render service. Both stay raw JSON: the chat template
 // renders tool definitions into the prompt, and re-encoding them through the
 // typed Tool would reorder parameter keys and drop fields it does not model.
-// The zero value means the request had neither.
+// The remaining fields are the client's chat template options, kept raw so the
+// render service applies its own defaults and validation to them. A nil field
+// means the request did not set it.
 type RenderTools struct {
 	Tools      json.RawMessage
 	ToolChoice json.RawMessage
+
+	AddGenerationPrompt  json.RawMessage
+	ContinueFinalMessage json.RawMessage
+	AddSpecialTokens     json.RawMessage
+	Documents            json.RawMessage
+	ChatTemplate         json.RawMessage
+	ChatTemplateKwargs   json.RawMessage
 }
 
 func NewChatCompletionsRenderRequest(model string, messages []Message, tools RenderTools, mmPayload string) ChatCompletionsRenderRequest {
@@ -59,6 +68,13 @@ func NewChatCompletionsRenderRequest(model string, messages []Message, tools Ren
 		Tools:      tools.Tools,
 		ToolChoice: tools.ToolChoice,
 		MMPayload:  mmPayload,
+
+		AddGenerationPrompt:  tools.AddGenerationPrompt,
+		ContinueFinalMessage: tools.ContinueFinalMessage,
+		AddSpecialTokens:     tools.AddSpecialTokens,
+		Documents:            tools.Documents,
+		ChatTemplate:         tools.ChatTemplate,
+		ChatTemplateKwargs:   tools.ChatTemplateKwargs,
 	}
 }
 
@@ -107,6 +123,13 @@ type ChatCompletionsRenderRequest struct {
 	// MMPayload is the client's resolved mm_payload; empty when the client sent
 	// neither mm_payload nor return_mm_kwargs.
 	MMPayload string `json:"mm_payload,omitempty"`
+
+	AddGenerationPrompt  json.RawMessage `json:"add_generation_prompt,omitempty"`
+	ContinueFinalMessage json.RawMessage `json:"continue_final_message,omitempty"`
+	AddSpecialTokens     json.RawMessage `json:"add_special_tokens,omitempty"`
+	Documents            json.RawMessage `json:"documents,omitempty"`
+	ChatTemplate         json.RawMessage `json:"chat_template,omitempty"`
+	ChatTemplateKwargs   json.RawMessage `json:"chat_template_kwargs,omitempty"`
 }
 
 func (c *ChatCompletionsRenderRequest) IsMultiModal() bool {
