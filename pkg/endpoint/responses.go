@@ -41,6 +41,9 @@ func (r *ResponsesRequest) Validate(toolsValidator *ToolsValidator) *api.Error {
 	if err := r.ValidateBody(); err != nil {
 		return err
 	}
+	if err := validateResponsesToolChoice(r.Tools, r.ToolChoice); err != nil {
+		return err
+	}
 	for _, tool := range r.Tools {
 		toolJson, err := json.Marshal(tool.Function)
 		if err != nil {
@@ -56,6 +59,28 @@ func (r *ResponsesRequest) Validate(toolsValidator *ToolsValidator) *api.Error {
 		}
 	}
 	return validateRequest(r)
+}
+
+// validateResponsesToolChoice rejects a tool_choice of "required" without tools,
+// and a named function that tools does not contain, with vLLM's messages for /v1/responses.
+func validateResponsesToolChoice(tools []api.Tool, toolChoice api.ToolChoice) *api.Error {
+	param := "tool_choice"
+	if len(tools) == 0 && toolChoice.OfAuto.Or("") == toolChoiceRequired {
+		err := api.NewError("Tool choice 'required' must be specified with 'tools' parameter.",
+			fasthttp.StatusBadRequest, &param)
+		return &err
+	}
+	function := toolChoice.GetFunction()
+	if function == nil {
+		return nil
+	}
+	for _, tool := range tools {
+		if tool.Function.Name == function.Name {
+			return nil
+		}
+	}
+	err := api.NewError("Tool choice 'function' not found in 'tools' parameter.", fasthttp.StatusBadRequest, &param)
+	return &err
 }
 
 func (r *ResponsesRequest) BuildRequestContext(runtime Runtime, channel common.Channel[*ResponseInfo],
