@@ -161,7 +161,15 @@ func (m *MessagesRequest) ValidateBody() *api.Error {
 	if err := m.validateBlocks(); err != nil {
 		return err
 	}
-	return m.ChatCompletionsRequest.ValidateBody()
+	if err := m.ChatCompletionsRequest.ValidateBody(); err != nil {
+		return err
+	}
+	// The Messages API requires a model, unlike the OpenAI endpoints
+	if m.GetModel() == "" {
+		err := api.NewError("Model is required", fasthttp.StatusBadRequest, nil)
+		return &err
+	}
+	return nil
 }
 
 // validateMaxTokens checks max_tokens, which vLLM requires to be a positive
@@ -182,11 +190,6 @@ func (m *MessagesRequest) validateMaxTokens() *api.Error {
 func (m *MessagesRequest) Validate(tv *ToolsValidator) *api.Error {
 	if err := m.ValidateBody(); err != nil {
 		return err
-	}
-	// The Messages API requires a model, unlike the OpenAI endpoints
-	if m.GetModel() == "" {
-		err := api.NewError("Model is required", fasthttp.StatusBadRequest, nil)
-		return &err
 	}
 	if err := m.validateMaxTokens(); err != nil {
 		return err
