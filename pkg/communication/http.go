@@ -252,6 +252,10 @@ func (c *Communication) handleRender(req endpoint.RenderableRequest, respBuilder
 	}
 	tokens, features, err := req.Render(c.runtime.GetTokenizer(), resolvedMMPayload)
 	if err != nil {
+		if badRequest := endpoint.RenderBadRequest(err); badRequest != nil {
+			c.sendError(ctx, badRequest, false)
+			return
+		}
 		c.logger.Error(err, "render failed")
 		errToSend := api.NewError("Render failed, "+err.Error(), fasthttp.StatusInternalServerError, nil)
 		c.sendError(ctx, &errToSend, false)

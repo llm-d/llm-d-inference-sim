@@ -35,6 +35,8 @@ In addition, a set of the vLLM HTTP endpoints are supported. The render and dere
 | /health                 | Standard health check endpoint |
 | /health/ready           | Ensure the GPU is "actually working" before allowing the system to send it live traffic |
 
+With `--render-url`, a `400 Bad Request` from the render service on the render endpoints and `/v1/messages/count_tokens` is returned as a `400` with the render service's message.
+
 ### `/admin/config`
 
 The simulator exposes `GET` and `POST` on `/admin/config` for runtime configuration introspection and partial updates. This endpoint is simulator-specific and is intended for adjusting behavior (currently failure injection, fake metrics, and request latencies) during a test run without restarting the process.
