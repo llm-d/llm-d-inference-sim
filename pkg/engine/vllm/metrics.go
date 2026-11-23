@@ -74,6 +74,8 @@ const (
 	promptSourceExternalKVTransfer = "external_kv_transfer"
 )
 
+var promptTokenSources = []string{promptSourceLocalCompute, promptSourceLocalCacheHit, promptSourceExternalKVTransfer}
+
 var modelLabel = []string{api.PromLabelModelName}
 
 // TokenBucketMantissas matches vLLM's build_1_2_5_buckets() in metrics.py.
@@ -95,12 +97,13 @@ type requestSuccessCounterUpdate struct {
 	Reset     *successTotalReset
 }
 
-// promptTokenSources is a promptTokenSourcesChan payload: one request's
-// prompt tokens split by source.
-type promptTokenSources struct {
-	LocalCompute       float64
-	LocalCacheHit      float64
-	ExternalKVTransfer float64
+// promptTokensBySourceUpdate is a promptTokensBySourceTotalChan payload: an
+// Add of one request's prompt tokens, or a Reset to a target state, both keyed
+// by source. Add leaves out the sources the request took no tokens from.
+// Exactly one field is non-nil.
+type promptTokensBySourceUpdate struct {
+	Add   map[string]float64
+	Reset map[string]int64
 }
 
 // loraUpdate is the discriminated-union payload for lorasChan. Event-side
@@ -163,7 +166,8 @@ type vllmMetricsAdapter struct {
 	requestSuccessTotal     *prometheus.CounterVec
 	prefixCacheHitsTotal    *prometheus.CounterVec
 	prefixCacheQueriesTotal *prometheus.CounterVec
-	// numPreemptionsTotal stays at zero: the simulator does not preempt requests.
+	// numPreemptionsTotal is set only by fake metrics: the simulator does not
+	// preempt requests.
 	numPreemptionsTotal       *prometheus.CounterVec
 	promptTokensBySourceTotal *prometheus.CounterVec
 	promptTokensCachedTotal   *prometheus.CounterVec
@@ -192,12 +196,12 @@ type vllmMetricsAdapter struct {
 	generationTokensTotalChan   common.Channel[metrics.CounterUpdate]
 	prefixCacheHitsTotalChan    common.Channel[metrics.CounterUpdate]
 	prefixCacheQueriesTotalChan common.Channel[metrics.CounterUpdate]
+	promptTokensCachedTotalChan common.Channel[metrics.CounterUpdate]
+	numPreemptionsTotalChan     common.Channel[metrics.CounterUpdate]
 
-	lorasChan               common.Channel[loraUpdate]
-	requestSuccessTotalChan common.Channel[requestSuccessCounterUpdate]
-	// promptTokenSourcesChan feeds both prompt_tokens_by_source_total and
-	// prompt_tokens_cached_total, which count the same tokens.
-	promptTokenSourcesChan common.Channel[promptTokenSources]
+	lorasChan                     common.Channel[loraUpdate]
+	requestSuccessTotalChan       common.Channel[requestSuccessCounterUpdate]
+	promptTokensBySourceTotalChan common.Channel[promptTokensBySourceUpdate]
 
 	// nWaitingReqs / nRunningReqs are the adapter-local counters mirrored
 	// onto the num_requests_{waiting,running} gauges.
@@ -362,14 +366,21 @@ func (m *vllmMetricsAdapter) OnRequestSucceeded(ev metrics.RequestSucceeded) {
 
 	// As in vLLM, a remote prefill transfers the prompt tokens that the prefix
 	// cache does not hold, so none are computed locally.
-	sources := promptTokenSources{LocalCacheHit: float64(ev.CachedPromptTokens)}
-	uncached := float64(ev.PromptTokens - ev.CachedPromptTokens)
+	uncachedSource := promptSourceLocalCompute
 	if ev.DoRemotePrefill {
-		sources.ExternalKVTransfer = uncached
-	} else {
-		sources.LocalCompute = uncached
+		uncachedSource = promptSourceExternalKVTransfer
 	}
-	common.WriteToChannel(m.promptTokenSourcesChan, sources, m.logger)
+	bySource := map[string]float64{}
+	if cacheHit := float64(ev.CachedPromptTokens); cacheHit > 0 {
+		bySource[promptSourceLocalCacheHit] = cacheHit
+	}
+	if uncached := float64(ev.PromptTokens - ev.CachedPromptTokens); uncached > 0 {
+		bySource[uncachedSource] = uncached
+	}
+	common.WriteToChannel(m.promptTokensBySourceTotalChan, promptTokensBySourceUpdate{Add: bySource}, m.logger)
+	if cached := bySource[promptSourceLocalCacheHit] + bySource[promptSourceExternalKVTransfer]; cached > 0 {
+		common.WriteToChannel(m.promptTokensCachedTotalChan, metrics.CounterUpdate{Add: &cached}, m.logger)
+	}
 
 	// if max_tokens is set, update the request_params_max_tokens histogram
 	if ev.MaxTokens != nil {
@@ -458,7 +469,9 @@ func (m *vllmMetricsAdapter) createPrometheusChannels(ctx context.Context) {
 	m.requestSuccessTotalChan = common.NewChannel[requestSuccessCounterUpdate]("vllm", maxNumberOfRunningRequests, ctx.Done())
 	m.prefixCacheHitsTotalChan = common.NewChannel[metrics.CounterUpdate]("vllm", maxNumberOfRunningRequests, ctx.Done())
 	m.prefixCacheQueriesTotalChan = common.NewChannel[metrics.CounterUpdate]("vllm", maxNumberOfRunningRequests, ctx.Done())
-	m.promptTokenSourcesChan = common.NewChannel[promptTokenSources]("vllm", maxNumberOfRunningRequests, ctx.Done())
+	m.promptTokensBySourceTotalChan = common.NewChannel[promptTokensBySourceUpdate]("vllm", maxNumberOfRunningRequests, ctx.Done())
+	m.promptTokensCachedTotalChan = common.NewChannel[metrics.CounterUpdate]("vllm", maxNumberOfRunningRequests, ctx.Done())
+	m.numPreemptionsTotalChan = common.NewChannel[metrics.CounterUpdate]("vllm", maxNumberOfRunningRequests, ctx.Done())
 }
 
 func (m *vllmMetricsAdapter) startPrometheusChannels(ctx context.Context) {
@@ -483,7 +496,9 @@ func (m *vllmMetricsAdapter) startPrometheusChannels(ctx context.Context) {
 	go common.Subscribe(ctx, m.requestSuccessTotalChan, m.updateRequestSuccessTotal)
 	go common.Subscribe(ctx, m.prefixCacheHitsTotalChan, m.updatePrefixCacheHitsTotal)
 	go common.Subscribe(ctx, m.prefixCacheQueriesTotalChan, m.updatePrefixCacheQueriesTotal)
-	go common.Subscribe(ctx, m.promptTokenSourcesChan, m.updatePromptTokenSources)
+	go common.Subscribe(ctx, m.promptTokensBySourceTotalChan, m.updatePromptTokensBySourceTotal)
+	go common.Subscribe(ctx, m.promptTokensCachedTotalChan, m.updatePromptTokensCachedTotal)
+	go common.Subscribe(ctx, m.numPreemptionsTotalChan, m.updateNumPreemptionsTotal)
 }
 
 // -- Per-metric updaters --------------------------------------------------
@@ -564,15 +579,39 @@ func (m *vllmMetricsAdapter) updatePrefixCacheQueriesTotal(upd metrics.CounterUp
 	}
 }
 
-func (m *vllmMetricsAdapter) updatePromptTokenSources(upd promptTokenSources) {
-	if m.fake.Load() != nil {
-		return
+func (m *vllmMetricsAdapter) updatePromptTokensBySourceTotal(upd promptTokensBySourceUpdate) {
+	switch {
+	case upd.Add != nil:
+		if m.fake.Load() != nil {
+			return
+		}
+		for source, tokens := range upd.Add {
+			m.promptTokensBySourceTotal.WithLabelValues(m.config.DisplayModelName, source).Add(tokens)
+		}
+	case upd.Reset != nil:
+		m.promptTokensBySourceTotal.Reset()
+		for source, tokens := range upd.Reset {
+			m.promptTokensBySourceTotal.WithLabelValues(m.config.DisplayModelName, source).Add(float64(tokens))
+		}
 	}
-	model := m.config.DisplayModelName
-	m.promptTokensBySourceTotal.WithLabelValues(model, promptSourceLocalCompute).Add(upd.LocalCompute)
-	m.promptTokensBySourceTotal.WithLabelValues(model, promptSourceLocalCacheHit).Add(upd.LocalCacheHit)
-	m.promptTokensBySourceTotal.WithLabelValues(model, promptSourceExternalKVTransfer).Add(upd.ExternalKVTransfer)
-	m.promptTokensCachedTotal.WithLabelValues(model).Add(upd.LocalCacheHit + upd.ExternalKVTransfer)
+}
+
+func (m *vllmMetricsAdapter) updatePromptTokensCachedTotal(upd metrics.CounterUpdate) {
+	switch {
+	case upd.Add != nil:
+		if m.fake.Load() != nil {
+			return
+		}
+		m.promptTokensCachedTotal.WithLabelValues(m.config.DisplayModelName).Add(*upd.Add)
+	case upd.Reset != nil:
+		m.resetCounter(m.promptTokensCachedTotal, upd.Reset.Value)
+	}
+}
+
+func (m *vllmMetricsAdapter) updateNumPreemptionsTotal(upd metrics.CounterUpdate) {
+	if upd.Reset != nil {
+		m.resetCounter(m.numPreemptionsTotal, upd.Reset.Value)
+	}
 }
 
 // updateHistogram records an Observe, or on Reset clears the histogram's
@@ -1096,7 +1135,7 @@ func (m *vllmMetricsAdapter) setInitialValues() {
 		m.waitingRequests.WithLabelValues(m.config.DisplayModelName).Set(0)
 		m.kvCacheUsagePercentage.WithLabelValues(m.config.DisplayModelName).Set(0)
 		m.numPreemptionsTotal.WithLabelValues(m.config.DisplayModelName).Add(0)
-		for _, source := range []string{promptSourceLocalCompute, promptSourceLocalCacheHit, promptSourceExternalKVTransfer} {
+		for _, source := range promptTokenSources {
 			m.promptTokensBySourceTotal.WithLabelValues(m.config.DisplayModelName, source).Add(0)
 		}
 		m.promptTokensCachedTotal.WithLabelValues(m.config.DisplayModelName).Add(0)
@@ -1216,6 +1255,17 @@ func (m *vllmMetricsAdapter) applyFakeMetrics(update *VLLMFakeMetrics) {
 	}
 	if update.PrefixCacheHits != nil {
 		common.WriteToChannel(m.prefixCacheHitsTotalChan, metrics.CounterUpdate{Reset: &metrics.CounterReset{Value: metrics.Int64ToFloat64(update.PrefixCacheHits)}}, m.logger)
+	}
+
+	if update.PromptTokensBySource != nil {
+		addPromptTokenSources(update.PromptTokensBySource)
+		common.WriteToChannel(m.promptTokensBySourceTotalChan, promptTokensBySourceUpdate{Reset: update.PromptTokensBySource}, m.logger)
+	}
+	if update.PromptTokensCached != nil {
+		common.WriteToChannel(m.promptTokensCachedTotalChan, metrics.CounterUpdate{Reset: &metrics.CounterReset{Value: metrics.Int64ToFloat64(update.PromptTokensCached)}}, m.logger)
+	}
+	if update.NumPreemptions != nil {
+		common.WriteToChannel(m.numPreemptionsTotalChan, metrics.CounterUpdate{Reset: &metrics.CounterReset{Value: metrics.Int64ToFloat64(update.NumPreemptions)}}, m.logger)
 	}
 
 	if update.RequestSuccessTotal != nil {
