@@ -54,7 +54,7 @@ func (f *fakeRuntime) KVCacheOnRequestStart(req api.Request, minHitRate float64)
 }
 func (f *fakeRuntime) KVCacheOnRequestEnd(requestID string)            {}
 func (f *fakeRuntime) Sleep() bool                                     { return false }
-func (f *fakeRuntime) WakeUp(activateKVCache bool)                     {}
+func (f *fakeRuntime) WakeUp(tags []string)                            {}
 func (f *fakeRuntime) IsSleeping() bool                                { return false }
 func (f *fakeRuntime) ValidateModel(model string) *api.Error           { return nil }
 func (f *fakeRuntime) ValidateBaseModel(model, _ string) *api.Error    { return nil }

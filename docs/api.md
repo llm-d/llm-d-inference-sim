@@ -29,7 +29,7 @@ In addition, a set of the vLLM HTTP endpoints are supported. The render and dere
 | /v1/completions/derender       | Converts generation results carrying raw token IDs into a `/v1/completions` response (the inverse of `/v1/completions/render`) |
 | /v1/chat/completions/derender  | Converts a generation result carrying raw token IDs into a `/v1/chat/completions` response (the inverse of `/v1/chat/completions/render`) |
 | /sleep                  | Puts the simulator into sleep mode. Requires both the `enable-sleep-mode` flag and the `VLLM_SERVER_DEV_MODE=1` environment variable; otherwise the request is accepted (HTTP 200) but ignored. |
-| /wake_up                | Wakes up the simulator from sleep mode. Accepts an optional `?tags=kv_cache` query parameter; when set (or when no `tags` parameter is provided), the KV cache is re-activated on wake-up. Any other `tags` value wakes up the simulator without re-activating the KV cache. |
+| /wake_up                | Wakes up the simulator from sleep mode. Accepts optional `tags` query parameters, `weights` and `kv_cache`, each waking that part only; without `tags`, everything wakes up. A call naming a tag that is not asleep changes nothing. The KV cache is re-activated when `kv_cache` wakes up, and the simulator stays asleep until both have woken up. |
 | /is_sleeping            | Checks if the simulator is currently in sleep mode |
 | /metrics                | Exposes Prometheus metrics (see [Metrics Guide](metrics.md)) |
 | /health                 | Standard health check endpoint |
