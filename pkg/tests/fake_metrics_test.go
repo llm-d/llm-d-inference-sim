@@ -386,6 +386,98 @@ var _ = Describe("Fake metrics", Ordered, func() {
 		})
 	})
 
+	Context("fake prompt token source and preemption metrics", func() {
+		promptTokensBySourceLine := func(source string, count float64) string {
+			return fmt.Sprintf(`%s{model_name="%s",source="%s"} %g`,
+				vllm.VLLMPromptTokensBySourceTotalMetricName, common.TestModelName, source, count)
+		}
+
+		It("Should respond with fake prompt token source and preemption metrics to /metrics", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
+				"--fake-metrics",
+				`{` +
+					`"prompt-tokens-by-source":{"local_compute":700,"local_cache_hit":300},` +
+					`"prompt-tokens-cached":300,` +
+					`"num-preemptions":3` +
+					`}`,
+			}
+
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			// A served request should not change the fake values
+			openaiclient, params := getOpenAIClientAndChatParams(client, common.TestModelName, testUserMessage, false)
+			_, err = openaiclient.Chat.Completions.New(ctx, params)
+			Expect(err).NotTo(HaveOccurred())
+
+			eventuallyThenConsistentlyMetrics(client, func(g Gomega, metricsData string) {
+				g.Expect(metricsData).To(ContainSubstring(promptTokensBySourceLine("local_compute", 700)))
+				g.Expect(metricsData).To(ContainSubstring(promptTokensBySourceLine("local_cache_hit", 300)))
+				// A source the configuration leaves out is reported as 0
+				g.Expect(metricsData).To(ContainSubstring(promptTokensBySourceLine("external_kv_transfer", 0)))
+				g.Expect(metricsData).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllm.VLLMPromptTokensCachedTotalMetricName, 300)))
+				g.Expect(metricsData).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllm.VLLMNumPreemptionsTotalMetricName, 3)))
+			})
+		})
+
+		It("Should expose the prompt token source and preemption counters only when fake metrics provide them", func() {
+			ctx := context.TODO()
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
+				"--fake-metrics", `{"running-requests":10}`,
+			}
+
+			client, err := startServerWithArgs(ctx, args)
+			Expect(err).NotTo(HaveOccurred())
+
+			eventuallyMetrics(client, func(g Gomega, metricsData string) {
+				g.Expect(metricsData).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllm.VLLMReqRunningMetricName, 10)))
+			})
+			consistentlyMetrics(client, func(g Gomega, metricsData string) {
+				g.Expect(metricsData).NotTo(ContainSubstring(vllm.VLLMPromptTokensBySourceTotalMetricName))
+				g.Expect(metricsData).NotTo(ContainSubstring(vllm.VLLMPromptTokensCachedTotalMetricName))
+				g.Expect(metricsData).NotTo(ContainSubstring(vllm.VLLMNumPreemptionsTotalMetricName))
+			})
+
+			// An update with the counters exposes them
+			resp, err := postFakeMetricsUpdate(client, `{`+
+				`"prompt-tokens-by-source":{"local_compute":600,"local_cache_hit":300,"external_kv_transfer":100},`+
+				`"prompt-tokens-cached":400,`+
+				`"num-preemptions":2`+
+				`}`)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			Expect(resp.Body.Close()).To(Succeed())
+
+			eventuallyThenConsistentlyMetrics(client, func(g Gomega, metricsData string) {
+				g.Expect(metricsData).To(ContainSubstring(promptTokensBySourceLine("local_compute", 600)))
+				g.Expect(metricsData).To(ContainSubstring(promptTokensBySourceLine("local_cache_hit", 300)))
+				g.Expect(metricsData).To(ContainSubstring(promptTokensBySourceLine("external_kv_transfer", 100)))
+				g.Expect(metricsData).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllm.VLLMPromptTokensCachedTotalMetricName, 400)))
+				g.Expect(metricsData).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllm.VLLMNumPreemptionsTotalMetricName, 2)))
+			})
+
+			// A later update replaces the values, with the sources it leaves out back at 0
+			resp, err = postFakeMetricsUpdate(client,
+				`{"prompt-tokens-by-source":{"local_cache_hit":50},"prompt-tokens-cached":50}`)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+			Expect(resp.Body.Close()).To(Succeed())
+
+			eventuallyThenConsistentlyMetrics(client, func(g Gomega, metricsData string) {
+				g.Expect(metricsData).To(ContainSubstring(promptTokensBySourceLine("local_compute", 0)))
+				g.Expect(metricsData).To(ContainSubstring(promptTokensBySourceLine("local_cache_hit", 50)))
+				g.Expect(metricsData).To(ContainSubstring(promptTokensBySourceLine("external_kv_transfer", 0)))
+				g.Expect(metricsData).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllm.VLLMPromptTokensCachedTotalMetricName, 50)))
+				g.Expect(metricsData).To(ContainSubstring(getCountMetricLine(common.TestModelName, vllm.VLLMNumPreemptionsTotalMetricName, 2)))
+			})
+
+			fakeMetrics := getFakeMetricsConfig(client)
+			Expect(fakeMetrics["prompt-tokens-by-source"]).To(MatchJSON(
+				`{"local_compute":0,"local_cache_hit":50,"external_kv_transfer":0}`))
+		})
+	})
+
 	Context("fake ttft metrics", func() {
 		It("Should respond with fake ttft metrics to /metrics", func() {
 			ctx := context.TODO()

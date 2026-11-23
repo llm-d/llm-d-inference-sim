@@ -19,6 +19,7 @@ package vllm
 import (
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/metrics"
@@ -96,6 +97,14 @@ type VLLMFakeMetrics struct {
 	PrefixCacheHits *int64 `yaml:"prefix-cache-hits" json:"prefix-cache-hits,omitempty"`
 	// PrefixCacheQueries is the initial value for the prefix cache queries counter (in tokens)
 	PrefixCacheQueries *int64 `yaml:"prefix-cache-queries" json:"prefix-cache-queries,omitempty"`
+
+	// PromptTokensBySource is the number of prompt tokens per source, key: source
+	// (local_compute, local_cache_hit, external_kv_transfer).
+	PromptTokensBySource map[string]int64 `yaml:"prompt-tokens-by-source" json:"prompt-tokens-by-source"`
+	// PromptTokensCached is the initial value for the cached prompt tokens counter
+	PromptTokensCached *int64 `yaml:"prompt-tokens-cached" json:"prompt-tokens-cached,omitempty"`
+	// NumPreemptions is the initial value for the preemptions counter
+	NumPreemptions *int64 `yaml:"num-preemptions" json:"num-preemptions,omitempty"`
 }
 
 // New returns a fresh, zero-valued *Config.
@@ -166,6 +175,26 @@ func (f *VLLMFakeMetrics) Validate() error {
 		return errors.New("fake metrics prefix-cache-hits cannot exceed prefix-cache-queries")
 	}
 
+	if f.PromptTokensBySource != nil {
+		for source, count := range f.PromptTokensBySource {
+			if count < 0 {
+				return fmt.Errorf("fake metrics prompt-tokens-by-source.%s "+
+					"cannot be negative, got %d", source, count)
+			}
+			if !slices.Contains(promptTokenSources, source) {
+				return fmt.Errorf("invalid source in prompt-tokens-by-source: "+
+					"%s (valid sources: %v)", source, promptTokenSources)
+			}
+		}
+		addPromptTokenSources(f.PromptTokensBySource)
+	}
+	if f.PromptTokensCached != nil && *f.PromptTokensCached < 0 {
+		return errors.New("fake metrics prompt-tokens-cached cannot be negative")
+	}
+	if f.NumPreemptions != nil && *f.NumPreemptions < 0 {
+		return errors.New("fake metrics num-preemptions cannot be negative")
+	}
+
 	return nil
 }
 
@@ -173,6 +202,16 @@ func addRequiredFinishReasons(reasons map[string]int64) {
 	for _, reason := range common.RequiredFinishReasons {
 		if _, exists := reasons[reason]; !exists {
 			reasons[reason] = 0
+		}
+	}
+}
+
+// addPromptTokenSources adds the sources the map leaves out at 0, since vLLM
+// always exports all of them.
+func addPromptTokenSources(sources map[string]int64) {
+	for _, source := range promptTokenSources {
+		if _, exists := sources[source]; !exists {
+			sources[source] = 0
 		}
 	}
 }

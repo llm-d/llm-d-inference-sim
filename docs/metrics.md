@@ -15,6 +15,9 @@ Currently supported are the following metrics:
 | vllm:request_params_max_tokens | Histogram of the max_tokens request parameter | 
 | vllm:request_prompt_tokens | Number of prefill tokens processed |
 | vllm:prompt_tokens_total	 | Total number of prompt tokens processed |
+| vllm:prompt_tokens_by_source_total | Number of prompt tokens by `source`: `local_cache_hit` for the tokens found in the prefix cache; the rest are `external_kv_transfer` for a request with `do_remote_prefill`, and `local_compute` otherwise |
+| vllm:prompt_tokens_cached_total | Number of prompt tokens that were not computed: `local_cache_hit` plus `external_kv_transfer` |
+| vllm:num_preemptions_total | Cumulative number of preemptions. 0 unless fake metrics set it, since the simulator does not preempt requests |
 | vllm:request_success_total | Count of successfully processed requests |
 | vllm:request_generation_tokens | Number of generation tokens processed |
 | vllm:generation_tokens_total	 | Total number of generated tokens. |
@@ -41,7 +44,7 @@ A request aborted before a worker starts it is dropped when a worker picks it up
 
 A request rejected when a worker tokenizes its prompt, for example a prompt over `--max-model-len` or a `min_tokens` above the output token limit, gets its error response but otherwise counts the same way: it never enters `vllm:num_requests_running`, and if it was queued, `vllm:request_queue_time_seconds` is its only observation.
 
-Once a running request is aborted, it stops at once, also during its time-to-first-token, inter-token or image wait: it generates no further tokens, leaves `vllm:num_requests_running` and releases its KV cache blocks. It is counted like a failed request: `vllm:e2e_request_latency_seconds`, `vllm:request_inference_time_seconds` and the queue, prefill, time-to-first-token and inter-token latencies recorded before the abort are observed, while `vllm:request_success_total`, `vllm:prompt_tokens_total`, `vllm:generation_tokens_total`, `vllm:request_prompt_tokens`, `vllm:request_generation_tokens`, `vllm:request_params_max_tokens` and `vllm:request_max_num_generation_tokens` are not updated (`vllm:request_decode_time_seconds` and `vllm:request_time_per_output_token_seconds` are observed only when it is aborted during the image wait).
+Once a running request is aborted, it stops at once, also during its time-to-first-token, inter-token or image wait: it generates no further tokens, leaves `vllm:num_requests_running` and releases its KV cache blocks. It is counted like a failed request: `vllm:e2e_request_latency_seconds`, `vllm:request_inference_time_seconds` and the queue, prefill, time-to-first-token and inter-token latencies recorded before the abort are observed, while `vllm:request_success_total`, `vllm:prompt_tokens_total`, `vllm:prompt_tokens_by_source_total`, `vllm:prompt_tokens_cached_total`, `vllm:generation_tokens_total`, `vllm:request_prompt_tokens`, `vllm:request_generation_tokens`, `vllm:request_params_max_tokens` and `vllm:request_max_num_generation_tokens` are not updated (`vllm:request_decode_time_seconds` and `vllm:request_time_per_output_token_seconds` are observed only when it is aborted during the image wait).
 
 ## SGLang
 

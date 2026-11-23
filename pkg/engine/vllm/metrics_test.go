@@ -97,6 +97,27 @@ var _ = Describe("VLLMMetricsAdapter", func() {
 			// cache_config_info is a one-shot gauge stamped with 1 by setInitialValues.
 			Expect(testutil.ToFloat64(adapter.cacheConfig.WithLabelValues("16", "auto", "0", "128"))).To(Equal(float64(1)))
 		})
+
+		It("exports the preemption and prompt token source counters at zero before the first request", func() {
+			adapter, _ := newTestAdapter(newTestConfig())
+
+			expected := fmt.Sprintf(`
+# HELP vllm:num_preemptions_total Cumulative number of preemption from the engine.
+# TYPE vllm:num_preemptions_total counter
+vllm:num_preemptions_total{model_name=%[1]q} 0
+# HELP vllm:prompt_tokens_by_source_total Number of prompt tokens by source.
+# TYPE vllm:prompt_tokens_by_source_total counter
+vllm:prompt_tokens_by_source_total{model_name=%[1]q,source="external_kv_transfer"} 0
+vllm:prompt_tokens_by_source_total{model_name=%[1]q,source="local_cache_hit"} 0
+vllm:prompt_tokens_by_source_total{model_name=%[1]q,source="local_compute"} 0
+# HELP vllm:prompt_tokens_cached_total Number of cached prompt tokens (local + external).
+# TYPE vllm:prompt_tokens_cached_total counter
+vllm:prompt_tokens_cached_total{model_name=%[1]q} 0
+`, common.TestModelName)
+			Expect(testutil.GatherAndCompare(adapter.registry, strings.NewReader(expected),
+				VLLMNumPreemptionsTotalMetricName, VLLMPromptTokensBySourceTotalMetricName,
+				VLLMPromptTokensCachedTotalMetricName)).To(Succeed())
+		})
 	})
 
 	Describe("event handlers", func() {
@@ -202,6 +223,31 @@ vllm:request_success_total{finished_reason="stop",model_name=%q} 1
 			Eventually(waiting).ShouldNot(BeZero())
 			adapter.OnLoRASetsChanged(metrics.LoRASetsChanged{Running: map[string]int{"lora1": 1}})
 			Eventually(running).Should(BeNumerically(">", waiting()))
+		})
+
+		It("splits prompt tokens by source", func() {
+			adapter, _ := newTestAdapter(newTestConfig())
+
+			adapter.OnRequestSucceeded(metrics.RequestSucceeded{PromptTokens: 100, CachedPromptTokens: 40,
+				GenTokensPerChoice: []int{1}, FinishReason: "stop"})
+			adapter.OnRequestSucceeded(metrics.RequestSucceeded{PromptTokens: 50, CachedPromptTokens: 10,
+				DoRemotePrefill: true, GenTokensPerChoice: []int{1}, FinishReason: "stop"})
+
+			expected := fmt.Sprintf(`
+# HELP vllm:prompt_tokens_by_source_total Number of prompt tokens by source.
+# TYPE vllm:prompt_tokens_by_source_total counter
+vllm:prompt_tokens_by_source_total{model_name=%[1]q,source="external_kv_transfer"} 40
+vllm:prompt_tokens_by_source_total{model_name=%[1]q,source="local_cache_hit"} 50
+vllm:prompt_tokens_by_source_total{model_name=%[1]q,source="local_compute"} 60
+# HELP vllm:prompt_tokens_cached_total Number of cached prompt tokens (local + external).
+# TYPE vllm:prompt_tokens_cached_total counter
+vllm:prompt_tokens_cached_total{model_name=%[1]q} 90
+`, common.TestModelName)
+			Eventually(func() error {
+				return testutil.GatherAndCompare(adapter.registry, strings.NewReader(expected),
+					VLLMPromptTokensBySourceTotalMetricName, VLLMPromptTokensCachedTotalMetricName)
+			}).Should(Succeed())
+			Eventually(metrics.CounterValue(adapter.promptTokensTotal, common.TestModelName)).Should(Equal(float64(150)))
 		})
 
 		It("accumulates prefix-cache counters", func() {

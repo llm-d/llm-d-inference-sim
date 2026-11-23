@@ -876,6 +876,30 @@ var _ = Describe("Simulator configuration", func() {
 			expectedError: "fake metrics prefix-cache-hits cannot exceed prefix-cache-queries",
 		},
 		{
+			name: "invalid fake metrics: negative prompt-tokens-by-source",
+			args: []string{"cmd", "--fake-metrics", "{\"prompt-tokens-by-source\":{\"local_compute\":-1}}",
+				"--config", "../../../manifests/vllm-config.yaml"},
+			expectedError: "fake metrics prompt-tokens-by-source.local_compute cannot be negative",
+		},
+		{
+			name: "invalid fake metrics: unknown source in prompt-tokens-by-source",
+			args: []string{"cmd", "--fake-metrics", "{\"prompt-tokens-by-source\":{\"remote\":1}}",
+				"--config", "../../../manifests/vllm-config.yaml"},
+			expectedError: "invalid source in prompt-tokens-by-source: remote",
+		},
+		{
+			name: "invalid fake metrics: negative prompt-tokens-cached",
+			args: []string{"cmd", "--fake-metrics", "{\"prompt-tokens-cached\":-1}",
+				"--config", "../../../manifests/vllm-config.yaml"},
+			expectedError: "fake metrics prompt-tokens-cached cannot be negative",
+		},
+		{
+			name: "invalid fake metrics: negative num-preemptions",
+			args: []string{"cmd", "--fake-metrics", "{\"num-preemptions\":-1}",
+				"--config", "../../../manifests/vllm-config.yaml"},
+			expectedError: "fake metrics num-preemptions cannot be negative",
+		},
+		{
 			name: "invalid echo mode with dataset",
 			args: []string{"cmd", "--model", common.TestModelName, "--dataset-path", "my/path",
 				"--mode", "echo"},
@@ -1522,5 +1546,24 @@ fake-metrics:
 		Expect(ok).To(BeTrue())
 		Expect(fakeMetrics.TotalPromptTokens).To(HaveValue(BeEquivalentTo(1234)))
 		Expect(fakeMetrics.TotalGenerationTokens).To(HaveValue(BeEquivalentTo(567)))
+	})
+
+	It("reads the prompt token source and preemption counters from a config file", func() {
+		config, err := createSimConfig([]string{"cmd", "--config", writeConfig(`
+model: test-model
+fake-metrics:
+  prompt-tokens-by-source:
+    local_cache_hit: 300
+  prompt-tokens-cached: 400
+  num-preemptions: 2
+`)})
+		Expect(err).NotTo(HaveOccurred())
+
+		fakeMetrics, ok := config.FakeMetrics.(*VLLMFakeMetrics)
+		Expect(ok).To(BeTrue())
+		Expect(fakeMetrics.PromptTokensBySource).To(Equal(map[string]int64{
+			"local_compute": 0, "local_cache_hit": 300, "external_kv_transfer": 0}))
+		Expect(fakeMetrics.PromptTokensCached).To(HaveValue(BeEquivalentTo(400)))
+		Expect(fakeMetrics.NumPreemptions).To(HaveValue(BeEquivalentTo(2)))
 	})
 })
