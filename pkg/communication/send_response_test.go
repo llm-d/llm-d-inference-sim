@@ -537,6 +537,27 @@ var _ = Describe("sendStream responses events", func() {
 	})
 })
 
+var _ = DescribeTable("Responses usage on the wire", func(usage api.Usage, cached int) {
+	ctx := &cachedPromptRespCtx{usage: usage}
+	contexts := []endpoint.ResponseContext{ctx}
+	builder := &responsesHTTPRespBuilder{}
+	full := builder.createResponse(contexts, []api.Tokenized{{}}).(*api.ResponsesResponse)
+	chunk := builder.createUsageChunk(contexts).(*namedEventChunk)
+	terminal := chunk.data[0].(*api.ResponsesResponseEvent)
+	Expect(terminal.Type).To(Equal(api.ResponsesEventCompleted))
+
+	expected := fmt.Sprintf(`{"input_tokens":%d,"output_tokens":%d,"total_tokens":%d,
+		"input_tokens_details":{"cached_tokens":%d,"cache_write_tokens":0},"output_tokens_details":{"reasoning_tokens":0}}`,
+		usage.PromptTokens, usage.CompletionTokens, usage.TotalTokens, cached)
+	for _, response := range []*api.ResponsesResponse{full, terminal.Response} {
+		Expect(json.Marshal(response.Usage)).To(MatchJSON(expected))
+	}
+},
+	Entry("reports cached prompt tokens", api.Usage{PromptTokens: 12, CompletionTokens: 3, TotalTokens: 15,
+		PromptTokensDetails: &api.PromptTokensDetails{CachedTokens: 8}}, 8),
+	Entry("includes zero counts when token details are absent", api.Usage{}, 0),
+)
+
 var _ = Describe("responses status at the token limit", func() {
 	// send returns the last streamed event's type and response, or an empty
 	// type and the response body when not streaming.
@@ -584,6 +605,13 @@ var _ = Describe("responses status at the token limit", func() {
 			eventType, resp := send(`,"max_output_tokens":1`, stream)
 			Expect(eventType).To(Equal(wantEvent))
 			Expect(resp).To(HaveKeyWithValue("status", api.ResponsesStatusIncomplete))
+			Expect(resp).To(HaveKeyWithValue("usage", And(
+				HaveKeyWithValue("input_tokens_details", And(
+					HaveKeyWithValue("cached_tokens", float64(0)),
+					HaveKeyWithValue("cache_write_tokens", float64(0)),
+				)),
+				HaveKeyWithValue("output_tokens_details", HaveKeyWithValue("reasoning_tokens", float64(0))),
+			)))
 			Expect(resp).To(HaveKeyWithValue("incomplete_details",
 				HaveKeyWithValue("reason", api.ResponsesIncompleteMaxTokens)))
 		},

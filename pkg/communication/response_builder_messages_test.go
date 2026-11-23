@@ -43,6 +43,10 @@ func (r *cachedPromptRespCtx) RequestID() string                                
 func (r *cachedPromptRespCtx) DoRemoteDecode() bool                              { return false }
 func (r *cachedPromptRespCtx) ECTransferParams() map[string]api.ECTransferParams { return nil }
 
+func (r *cachedPromptRespCtx) Instructions() *string { return nil }
+func (r *cachedPromptRespCtx) CreationTime() int64   { return 0 }
+func (r *cachedPromptRespCtx) TopLogprobs() *int     { return nil }
+
 var _ = Describe("Messages HTTP usage", func() {
 	respCtx := &cachedPromptRespCtx{
 		usage: api.Usage{PromptTokens: 27, CompletionTokens: 5, TotalTokens: 32,

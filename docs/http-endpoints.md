@@ -398,7 +398,10 @@ Structure of requests/responses
             - type
         - usage
           - input_tokens
+          - input_tokens_details.cached_tokens (prompt tokens served by the prefix cache)
+          - input_tokens_details.cache_write_tokens (zero in the simulator)
           - output_tokens
+          - output_tokens_details.reasoning_tokens (zero for simulated output)
           - total_tokens
         - kv_transfer_params (final response/event only; absent from the initial `response.created`/`response.in_progress` events)
           - do_remote_decode
