@@ -10,7 +10,7 @@ Structure of requests/responses
 - `/v1/chat/completions`
     - **request**
         - stream
-        - model
+        - model (optional; defaults to the served model name)
         - modalities (array of strings: `"text"`, `"audio"`)
         - messages
             - role
@@ -111,7 +111,7 @@ Structure of requests/responses
 - `/v1/completions`
     - **request**
         - stream
-        - model
+        - model (optional; defaults to the served model name)
         - prompt
         - max_tokens
         - min_tokens
@@ -212,7 +212,7 @@ Structure of requests/responses
 - `/v1/messages`
     - **request**
         - stream
-        - model
+        - model (required)
         - messages (required)
             - role (`user`, `assistant` or `system`)
             - content (string or array of content blocks)
@@ -342,7 +342,7 @@ Structure of requests/responses
 - `/v1/responses`
     - **request**
         - stream
-        - model
+        - model (optional; defaults to the served model name)
         - input (array of input items)
             - type (`message`, `function_call`, or `function_call_output`)
             - role (`user`, `system`, `developer`) — for `message`
@@ -420,7 +420,7 @@ Structure of requests/responses
 - `/inference/v1/generate`
     - **request**
         - stream
-        - model
+        - model (optional; defaults to the served model name)
         - token_ids
         - sampling_params
             - max_tokens
