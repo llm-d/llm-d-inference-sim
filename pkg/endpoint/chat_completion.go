@@ -165,7 +165,7 @@ func (c *chatCompletionReqCtx) tokenizedPromptForEcho() (*api.Tokenized, error) 
 		// in echo mode return the last message without role
 		lastMsg = c.req.Messages[len(c.req.Messages)-1].PlainText(false)
 	}
-	tokens, strTokens, err := c.runtime.GetTokenizer().RenderText(lastMsg)
+	tokens, strTokens, err := c.runtime.GetTokenizer().RenderOutputText(lastMsg)
 	if err != nil {
 		return nil, err
 	}

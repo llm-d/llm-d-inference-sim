@@ -256,7 +256,7 @@ func (dt *DatasetTool) conversationToOutputRecords(userTxt, assistantTxt string,
 // rawInput represents the input for reference and debug purpose, it uses "dummy templatisation"
 // and not real model's templatization
 func (dt *DatasetTool) createOutputRecord(inputTokens []uint32, generatedText string, rawInput string) (*outputRecord, error) {
-	generatedTokens, genTextTokens, err := dt.tokenizer.RenderText(generatedText)
+	generatedTokens, genTextTokens, err := dt.tokenizer.RenderOutputText(generatedText)
 	if err != nil {
 		return nil, errors.Join(err, fmt.Errorf("output tokenization failed (%s)", generatedText))
 	}
