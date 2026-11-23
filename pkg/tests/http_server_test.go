@@ -1489,7 +1489,7 @@ func TestRenderEndpointsRenderError(t *testing.T) {
 			wantMessage string
 		}{
 			{"400 is returned as a 400", badRequest, http.StatusBadRequest, http.StatusBadRequest, "bad input"},
-			{"403 is a server error", forbidden, http.StatusForbidden, http.StatusInternalServerError, ""},
+			{"403 is a server error", forbidden, http.StatusForbidden, http.StatusInternalServerError, "Render failed"},
 		} {
 			t.Run(ep.path+" "+tc.name, func(t *testing.T) {
 				g := NewWithT(t)
@@ -1515,6 +1515,14 @@ func TestRenderEndpointsRenderError(t *testing.T) {
 				g.Expect(err).NotTo(HaveOccurred())
 				g.Expect(resp.StatusCode).To(Equal(tc.wantStatus), string(body))
 				g.Expect(string(body)).To(ContainSubstring(tc.wantMessage))
+				if tc.wantStatus != http.StatusBadRequest {
+					return
+				}
+				if ep.path == "/v1/messages/count_tokens" {
+					g.Expect(string(body)).To(ContainSubstring(`"type":"error"`))
+				} else {
+					g.Expect(string(body)).To(ContainSubstring(`"param":"messages"`))
+				}
 			})
 		}
 	}
