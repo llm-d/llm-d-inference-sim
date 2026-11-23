@@ -299,7 +299,7 @@ func (r *responsesReqCtx) tokenizedPromptForEcho() (*api.Tokenized, error) {
 			lastMsg = last.Name + "(" + last.Arguments + ")"
 		}
 	}
-	tokens, strTokens, err := r.runtime.GetTokenizer().RenderText(lastMsg)
+	tokens, strTokens, err := r.runtime.GetTokenizer().RenderOutputText(lastMsg)
 	if err != nil {
 		return nil, err
 	}
