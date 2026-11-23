@@ -28,6 +28,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/engine/vllm"
 	"github.com/llm-d/llm-d-inference-sim/pkg/metrics"
@@ -310,6 +311,26 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 			// request_success_total
 			g.Expect(metricsData).To(MatchRegexp(fmt.Sprintf(`vllm:request_success_total{finished_reason="(stop|length)",model_name="%s"} 1`, common.TestModelName)))
 		}).WithTimeout(2 * time.Second).WithPolling(25 * time.Millisecond).Should(Succeed())
+	})
+
+	It("Should record the completions default as the max_tokens of a text completion that omits it", func() {
+		ctx := context.TODO()
+		model := common.TestModelName
+
+		args := []string{"cmd", "--model", model, "--mode", common.ModeRandom}
+		client, err := startServerWithArgs(ctx, args)
+		Expect(err).NotTo(HaveOccurred())
+
+		openaiclient, params := getOpenAIClientAndCompletionParams(client, model, testUserMessage, false)
+		_, err = openaiclient.Completions.New(ctx, params)
+		Expect(err).NotTo(HaveOccurred())
+
+		eventuallyMetrics(client, func(g Gomega, metricsData string) {
+			g.Expect(metricsData).To(ContainSubstring(
+				getCountMetricLine(model, vllm.VLLMParamMaxTokensMetricName+"_count", 1)))
+			g.Expect(metricsData).To(ContainSubstring(
+				getCountMetricLine(model, vllm.VLLMParamMaxTokensMetricName+"_sum", float64(api.TextCompletionDefaultMaxTokens))))
+		})
 	})
 
 	It("Should record correct metrics for text completions with array prompt", func() {

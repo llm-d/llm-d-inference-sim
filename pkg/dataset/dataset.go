@@ -58,7 +58,9 @@ type EchoDataset struct {
 // for /completion request the prompt is returned
 // for /chat/completion request the last user message is returned (if there is no user messages, last message is used)
 // the maximum response length is max_tokens capped by the room left in the context window,
-// or the room left in the context window if the request does not define max_tokens
+// or the room left in the context window if the request does not define max_tokens;
+// the max_tokens default vLLM applies to a /v1/completions request that omits it does not
+// bound the echo, only an explicit max_tokens does
 // the response is truncated to the first maximum response length tokens if the echo is longer
 // if ignore_eos is true and max_tokens is longer than the echo, the echo is padded up to the maximum response length,
 // otherwise if min_tokens is longer than the echo, the echo is padded up to min_tokens,
@@ -66,7 +68,7 @@ type EchoDataset struct {
 // if the response reaches the maximum response length, finish reason is set to LENGTH, otherwise finish reason is STOP
 func (ed *EchoDataset) GetResponseTokens(req api.Request) (*api.Tokenized, string, error) {
 	tokens := req.TokenizedPromptForEcho()
-	maxLen, isMaxTokensInReq := api.ResponseMaxLen(req, ed.maxModelLen)
+	maxLen, isMaxTokensInReq := api.ResponseMaxLenNoDefault(req, ed.maxModelLen)
 	n := common.EchoResponseLen(tokens.Length(), req.GetMinTokens(), maxLen, req.GetIgnoreEOS() && isMaxTokensInReq)
 
 	// a prompt given as token ids has no strings, and its echo must not get any

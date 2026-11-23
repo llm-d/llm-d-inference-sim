@@ -104,6 +104,63 @@ var _ = Describe("GetN", func() {
 	})
 })
 
+var _ = Describe("ResponseMaxLen", func() {
+	const (
+		promptLen   = 10
+		maxModelLen = 100
+	)
+
+	var req *TextCompletionsRequest
+
+	BeforeEach(func() {
+		req = &TextCompletionsRequest{}
+		req.SetTokenizedPrompt(&Tokenized{Tokens: make([]uint32, promptLen)})
+	})
+
+	It("returns the completions default when max_tokens is omitted", func() {
+		limit, isMaxTokensInReq := ResponseMaxLen(req, maxModelLen)
+
+		Expect(limit).To(Equal(int(TextCompletionDefaultMaxTokens)))
+		Expect(isMaxTokensInReq).To(BeTrue())
+	})
+
+	It("returns max_tokens when it is set", func() {
+		maxTokens := int64(5)
+		req.MaxTokens = &maxTokens
+
+		limit, isMaxTokensInReq := ResponseMaxLen(req, maxModelLen)
+
+		Expect(limit).To(Equal(5))
+		Expect(isMaxTokensInReq).To(BeTrue())
+	})
+
+	It("caps the completions default at the room left in the context window", func() {
+		req.SetTokenizedPrompt(&Tokenized{Tokens: make([]uint32, maxModelLen-5)})
+
+		limit, isMaxTokensInReq := ResponseMaxLen(req, maxModelLen)
+
+		Expect(limit).To(Equal(5))
+		Expect(isMaxTokensInReq).To(BeTrue())
+	})
+
+	It("returns the room left in the context window when a chat completion omits max_tokens", func() {
+		chatReq := &ChatCompletionsRequest{}
+		chatReq.SetTokenizedPrompt(&Tokenized{Tokens: make([]uint32, promptLen)})
+
+		limit, isMaxTokensInReq := ResponseMaxLen(chatReq, maxModelLen)
+
+		Expect(limit).To(Equal(maxModelLen - promptLen))
+		Expect(isMaxTokensInReq).To(BeFalse())
+	})
+
+	It("returns the room left in the context window when the caller asks for no default", func() {
+		limit, isMaxTokensInReq := ResponseMaxLenNoDefault(req, maxModelLen)
+
+		Expect(limit).To(Equal(maxModelLen - promptLen))
+		Expect(isMaxTokensInReq).To(BeFalse())
+	})
+})
+
 var _ = Describe("Message PlainText", func() {
 	Context("role:tool message with ToolCallID", func() {
 		It("includes tool_call_id in the role prefix when includeRole is true", func() {
