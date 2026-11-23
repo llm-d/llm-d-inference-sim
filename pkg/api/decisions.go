@@ -140,12 +140,6 @@ type DecisionAnswer struct {
 	Confidence    *float64              `json:"confidence,omitempty"`
 }
 
-// Deprecated: Use InputTokensDetails.
-type DecisionInputTokensDetails = InputTokensDetails
-
-// Deprecated: Use OutputTokensDetails.
-type DecisionOutputTokensDetails = OutputTokensDetails
-
 type OpenAIDecisionUsage struct {
 	DecisionUsage
 	InputTokensDetails  InputTokensDetails  `json:"input_tokens_details"`
