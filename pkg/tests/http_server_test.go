@@ -1469,6 +1469,65 @@ func TestTokenizeRenderError(t *testing.T) {
 	}
 }
 
+func TestRenderEndpointsRenderError(t *testing.T) {
+	// vLLM's answer for a prompt it rejects with 400, and the 403 it sends without --enable-scale-out
+	const badRequest = `{"error":{"message":"bad input","type":"BadRequestError","param":"messages","code":400}}`
+	const forbidden = `{"error":{"message":"Scale-out endpoints are disabled.","type":"PermissionDeniedError","param":null,"code":403}}`
+	model := `"model":"` + common.TestModelName + `",`
+	messages := `"messages":[{"role":"user","content":"hi"}]`
+	for _, ep := range []struct{ path, body string }{
+		{"/v1/chat/completions/render", model + messages},
+		{"/v1/completions/render", model + `"prompt":"hi"`},
+		{"/v1/responses/render", model + `"input":"hi"`},
+		{"/v1/messages/render", model + `"max_tokens":16,` + messages},
+		{"/v1/messages/count_tokens", model + messages},
+	} {
+		for _, tc := range []struct {
+			name, body  string
+			status      int
+			wantStatus  int
+			wantMessage string
+		}{
+			{"400 is returned as a 400", badRequest, http.StatusBadRequest, http.StatusBadRequest, "bad input"},
+			{"403 is a server error", forbidden, http.StatusForbidden, http.StatusInternalServerError, "Render failed"},
+		} {
+			t.Run(ep.path+" "+tc.name, func(t *testing.T) {
+				g := NewWithT(t)
+				render := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if r.URL.Path == "/version" {
+						_, _ = w.Write([]byte(`{"version":"0.34.0"}`))
+						return
+					}
+					w.WriteHeader(tc.status)
+					_, _ = w.Write([]byte(tc.body))
+				}))
+				t.Cleanup(render.Close)
+				sim, client := startDecisionTestServer(t, "vllm")
+				hft, err := tokenizer.NewHFTokenizer(context.Background(), klog.Background(), render.URL, common.TestModelName,
+					time.Second, time.Second)
+				g.Expect(err).NotTo(HaveOccurred())
+				sim.Context.Tokenizer = hft
+
+				resp, err := client.Post("http://localhost"+ep.path, "application/json", strings.NewReader("{"+ep.body+"}"))
+				g.Expect(err).NotTo(HaveOccurred())
+				defer func() { g.Expect(resp.Body.Close()).To(Succeed()) }()
+				body, err := io.ReadAll(resp.Body)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(resp.StatusCode).To(Equal(tc.wantStatus), string(body))
+				g.Expect(string(body)).To(ContainSubstring(tc.wantMessage))
+				if tc.wantStatus != http.StatusBadRequest {
+					return
+				}
+				if ep.path == "/v1/messages/count_tokens" {
+					g.Expect(string(body)).To(ContainSubstring(`"type":"error"`))
+				} else {
+					g.Expect(string(body)).To(ContainSubstring(`"param":"messages"`))
+				}
+			})
+		}
+	}
+}
+
 func startDecisionTestServer(t *testing.T, engineName string, extraArgs ...string) (*simulator.Simulator, *http.Client) {
 	t.Helper()
 	g := NewWithT(t)
