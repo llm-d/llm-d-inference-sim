@@ -17,6 +17,8 @@ limitations under the License.
 package endpoint
 
 import (
+	"encoding/json"
+
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	. "github.com/onsi/ginkgo/v2"
@@ -96,6 +98,55 @@ var _ = Describe("Chat completions raw tools", func() {
 			got := render(body)
 			Expect(got.Tools).To(BeNil())
 			Expect(got.ToolChoice).To(BeNil())
+		}
+	})
+})
+
+var _ = Describe("Chat completions template options", func() {
+	const messages = `"messages":[{"role":"user","content":"hi"}]`
+	const options = `"add_generation_prompt":false,"continue_final_message":true,"add_special_tokens":true,` +
+		`"documents":[{"title":"t","text":"x"}],"chat_template":"{{ messages }}",` +
+		`"chat_template_kwargs":{"enable_thinking":false,"z":1,"a":2}`
+
+	It("builds the chat render request with the options as the client sent them", func() {
+		var req ChatCompletionsRequest
+		Expect(req.Unmarshal([]byte(`{"model":"m",` + messages + `,` + options + `}`))).To(Succeed())
+		tk := &recordingTokenizer{}
+		reqCtx := req.BuildRequestContext(&fakeRuntime{tokenizer: tk}, common.Channel[*ResponseInfo]{}, 0, func() {})
+		_, _, _, err := reqCtx.(*chatCompletionReqCtx).encode()
+		Expect(err).NotTo(HaveOccurred())
+
+		rendered, err := json.Marshal(api.NewChatCompletionsRenderRequest("m", nil, tk.tools, ""))
+		Expect(err).NotTo(HaveOccurred())
+		var sent map[string]json.RawMessage
+		Expect(json.Unmarshal(rendered, &sent)).To(Succeed())
+		Expect(string(sent["add_generation_prompt"])).To(Equal(`false`))
+		Expect(string(sent["continue_final_message"])).To(Equal(`true`))
+		Expect(string(sent["add_special_tokens"])).To(Equal(`true`))
+		Expect(string(sent["documents"])).To(Equal(`[{"title":"t","text":"x"}]`))
+		Expect(string(sent["chat_template"])).To(Equal(`"{{ messages }}"`))
+		Expect(string(sent["chat_template_kwargs"])).To(Equal(`{"enable_thinking":false,"z":1,"a":2}`))
+	})
+
+	It("leaves the options out when the request has none, or sets them to null", func() {
+		for _, body := range []string{
+			`{"model":"m",` + messages + `}`,
+			`{"model":"m",` + messages + `,"add_generation_prompt":null,"chat_template_kwargs":null}`,
+		} {
+			var req ChatCompletionsRequest
+			Expect(req.Unmarshal([]byte(body))).To(Succeed())
+			tk := &recordingTokenizer{}
+			_, _, err := req.Render(tk, "")
+			Expect(err).NotTo(HaveOccurred())
+
+			rendered, err := json.Marshal(api.NewChatCompletionsRenderRequest("m", nil, tk.tools, ""))
+			Expect(err).NotTo(HaveOccurred())
+			var sent map[string]json.RawMessage
+			Expect(json.Unmarshal(rendered, &sent)).To(Succeed())
+			for _, key := range []string{"add_generation_prompt", "continue_final_message", "add_special_tokens",
+				"documents", "chat_template", "chat_template_kwargs"} {
+				Expect(sent).NotTo(HaveKey(key))
+			}
 		}
 	})
 })
