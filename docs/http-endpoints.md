@@ -49,6 +49,8 @@ Structure of requests/responses
           - include_usage
         - ignore_eos
         - cache_hit_threshold
+        - truncate_prompt_tokens (keeps the last N prompt tokens, as vLLM does; -1 keeps `--max-model-len` - 1; a value greater than `--max-model-len` returns `400 Bad Request`)
+        - truncation_side (`left`, the default, or `right` to keep the first N tokens instead)
         - kv_transfer_params
           - do_remote_decode
           - do_remote_prefill
@@ -120,6 +122,8 @@ Structure of requests/responses
         - ignore_eos
         - logprobs
         - cache_hit_threshold
+        - truncate_prompt_tokens (keeps the last N prompt tokens, as vLLM does; -1 keeps `--max-model-len` - 1; a value greater than `--max-model-len` returns `400 Bad Request`)
+        - truncation_side (`left`, the default, or `right` to keep the first N tokens instead)
         - kv_transfer_params
           - do_remote_decode
           - do_remote_prefill

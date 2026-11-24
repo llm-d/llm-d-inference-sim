@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -422,6 +423,108 @@ var _ = Describe("baseRequestContext.validateTokenizedRequest", func() {
 		Entry("rejects a prompt that fills the context window", 50, 10, nil, nil, false, 50,
 			"This model's maximum context length is 50 tokens. However, you requested 50 tokens in the messages."),
 	)
+})
+
+var _ = Describe("baseRequestContext.tokenize with truncate_prompt_tokens", func() {
+	tokenizeTextPrompt := func(prompt []uint32, truncateTo int64, side string, maxModelLen int) (*api.Tokenized, *api.Error) {
+		req := &TextCompletionsRequest{}
+		req.Prompt = api.PromptInput{Tokens: prompt}
+		req.SetTokenizedPrompt(&api.Tokenized{Tokens: prompt})
+		req.TruncatePromptTokens = &truncateTo
+		req.TruncationSide = side
+		runtime := &fakeRuntime{config: &common.Configuration{Mode: common.ModeRandom, MaxModelLen: maxModelLen}}
+		reqCtx := req.BuildRequestContext(runtime, common.Channel[*ResponseInfo]{}, 0, func() {})
+
+		err := reqCtx.tokenize()
+		return req.TokenizedPrompt(), err
+	}
+
+	DescribeTable("keeps the tokens vLLM keeps",
+		func(truncateTo int64, side string, maxModelLen int, expected []uint32) {
+			tokens, err := tokenizeTextPrompt([]uint32{1, 2, 3, 4, 5, 6}, truncateTo, side, maxModelLen)
+
+			Expect(err).To(BeNil())
+			Expect(tokens.Tokens).To(Equal(expected))
+		},
+		Entry("the last tokens by default", int64(2), "", 100, []uint32{5, 6}),
+		Entry("the last tokens with truncation_side left", int64(2), "left", 100, []uint32{5, 6}),
+		Entry("the first tokens with truncation_side right", int64(2), "right", 100, []uint32{1, 2}),
+		Entry("max_model_len - 1 tokens for -1", int64(-1), "", 5, []uint32{3, 4, 5, 6}),
+		Entry("the whole prompt when it is not longer", int64(6), "", 100, []uint32{1, 2, 3, 4, 5, 6}),
+		Entry("the whole prompt for a size equal to max_model_len", int64(100), "", 100, []uint32{1, 2, 3, 4, 5, 6}),
+	)
+
+	It("rejects a size greater than max_model_len", func() {
+		_, err := tokenizeTextPrompt([]uint32{1, 2, 3}, 101, "", 100)
+
+		Expect(err).NotTo(BeNil())
+		Expect(err.Code).To(Equal(fasthttp.StatusBadRequest))
+		Expect(err.Message).To(Equal("truncate_prompt_tokens=101 cannot be greater than max_model_len = 100. " +
+			"Please request a smaller truncation size. (parameter=truncate_prompt_tokens, value=101)"))
+		Expect(err.Param).To(HaveValue(Equal("truncate_prompt_tokens")))
+	})
+
+	It("rejects a size of 0, which leaves an empty prompt", func() {
+		_, err := tokenizeTextPrompt([]uint32{1, 2, 3}, 0, "", 100)
+
+		Expect(err).NotTo(BeNil())
+		Expect(err.Code).To(Equal(fasthttp.StatusBadRequest))
+		Expect(err.Message).To(Equal("The decoder prompt cannot be empty"))
+	})
+
+	Context("with a multimodal item", func() {
+		// a 10-token prompt whose image spans tokens 2 to 5
+		tokenizeImagePrompt := func(truncateTo int64, side string) (*ChatCompletionsRequest, *api.Error) {
+			req := &ChatCompletionsRequest{}
+			req.SetTokenizedPrompt(&api.Tokenized{
+				Tokens:  []uint32{0, 1, 2, 3, 4, 5, 6, 7, 8, 9},
+				Strings: []string{"a", "b", "i", "i", "i", "c", "d", "e", "f", "g"},
+			})
+			req.SetMMFeatures(&api.RenderMMFeatures{
+				MMHashes:       map[string][]string{"image": {"hash"}},
+				MMPlaceholders: map[string][]api.RenderPlaceholder{"image": {{Offset: 2, Length: 3}}},
+			})
+			req.TruncatePromptTokens = &truncateTo
+			req.TruncationSide = side
+			runtime := &fakeRuntime{config: &common.Configuration{Mode: common.ModeRandom, MaxModelLen: 100}}
+			reqCtx := req.BuildRequestContext(runtime, common.Channel[*ResponseInfo]{}, 0, func() {})
+
+			return req, reqCtx.tokenize()
+		}
+
+		It("moves the placeholder with the cut when the item is kept", func() {
+			req, err := tokenizeImagePrompt(8, "")
+
+			Expect(err).To(BeNil())
+			Expect(req.TokenizedPrompt().Tokens).To(Equal([]uint32{2, 3, 4, 5, 6, 7, 8, 9}))
+			Expect(req.TokenizedPrompt().Strings).To(Equal([]string{"i", "i", "i", "c", "d", "e", "f", "g"}))
+			Expect(req.MMFeatures().MMPlaceholders).To(Equal(map[string][]api.RenderPlaceholder{"image": {{Offset: 0, Length: 3}}}))
+			Expect(req.MMFeatures().MMHashes).To(Equal(map[string][]string{"image": {"hash"}}))
+		})
+
+		It("keeps the placeholder in place when the first tokens are kept", func() {
+			req, err := tokenizeImagePrompt(5, "right")
+
+			Expect(err).To(BeNil())
+			Expect(req.TokenizedPrompt().Tokens).To(Equal([]uint32{0, 1, 2, 3, 4}))
+			Expect(req.MMFeatures().MMPlaceholders).To(Equal(map[string][]api.RenderPlaceholder{"image": {{Offset: 2, Length: 3}}}))
+		})
+
+		DescribeTable("rejects a cut through the item",
+			func(truncateTo int64, side string) {
+				req, err := tokenizeImagePrompt(truncateTo, side)
+
+				Expect(err).NotTo(BeNil())
+				Expect(err.Code).To(Equal(fasthttp.StatusBadRequest))
+				Expect(err.Message).To(HavePrefix(fmt.Sprintf("truncate_prompt_tokens=%d would split or drop a(n) image item, "+
+					"which spans tokens 2 to 5 of the 10-token prompt.", truncateTo)))
+				Expect(err.Param).To(HaveValue(Equal("truncate_prompt_tokens")))
+				Expect(req.TokenizedPrompt().Length()).To(Equal(10))
+			},
+			Entry("from the left", int64(7), ""),
+			Entry("from the right", int64(4), "right"),
+		)
+	})
 })
 
 var _ = Describe("validateRequest", func() {

@@ -210,7 +210,7 @@ func (t *textCompletionReqCtx) tokenizedPromptForEcho() (*api.Tokenized, error) 
 		// prompt arrived as token ids; render each id as its decimal form with
 		// a trailing comma on all but the last so joining the Strings with ""
 		// yields "id0,id1,...,idN" — what echo mode replays back to the client
-		ids := t.req.Prompt.Tokens
+		ids := t.req.TokenizedPrompt().Tokens
 		strs := make([]string, len(ids))
 		for i, id := range ids {
 			strs[i] = strconv.FormatUint(uint64(id), 10)
