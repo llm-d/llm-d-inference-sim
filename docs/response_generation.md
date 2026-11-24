@@ -13,12 +13,12 @@ In this mode, the simulator acts as a loopback mechanism.
 - **`min_tokens`:** If the response is still shorter than `min_tokens`, it is padded up to `min_tokens` with predefined text. Negative values and a value above the maximum length return `400 Bad Request`.
 - **Response length:** The echoed text's token count, after truncation or padding as described above.
 - **Finish reason:** `LENGTH` if the response length reaches the maximum length, otherwise `STOP`.
-- **Context window:** The request is rejected with `400 Bad Request` if `<input_length> >= <context_window>`. The response length is still bounded by the remaining context window.
+- **Context window:** The request is rejected with `400 Bad Request` if `<input_length> >= <context_window>`. The response length is still bounded by the remaining context window. The request is also rejected with `400 Bad Request` if `max_tokens` / `max_completion_tokens` (`max_output_tokens` on `/v1/responses`) is greater than `<context_window>`, before the prompt is checked, as in vLLM.
 
 ## Random Mode
 In this mode, the simulator generates synthetic responses. The length and content depend on the request parameters.
 
-**Context window:** The request is rejected with `400 Bad Request` if `<input_length> >= <context_window>`. The response length is still bounded by the remaining context window; see below.
+**Context window:** The request is rejected with `400 Bad Request` if `<input_length> >= <context_window>`. The response length is still bounded by the remaining context window; see below. The request is also rejected with `400 Bad Request` if `max_tokens` / `max_completion_tokens` (`max_output_tokens` on `/v1/responses`) is greater than `<context_window>`, before the prompt is checked, as in vLLM.
 
 ### Response Length Calculation
 `min_tokens` sets the lower bound for generated chat-completion and completion response length. A value of zero is valid and preserves the default lower bound of one token. Negative values, a minimum greater than the requested maximum, and a minimum greater than the context-clamped maximum return `400 Bad Request`.

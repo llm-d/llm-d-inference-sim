@@ -570,7 +570,7 @@ var _ = Describe("processRequest", func() {
 		},
 		Entry("max_tokens within the context", `,"max_tokens":5`,
 			func(int) int64 { return 5 }),
-		Entry("max_tokens beyond the context is capped", `,"max_tokens":500`,
+		Entry("max_tokens beyond the room the prompt leaves is capped", `,"max_tokens":64`,
 			func(promptTokens int) int64 { return int64(64 - promptTokens) }),
 		Entry("no max_tokens is the rest of the context", ``,
 			func(promptTokens int) int64 { return int64(64 - promptTokens) }),
