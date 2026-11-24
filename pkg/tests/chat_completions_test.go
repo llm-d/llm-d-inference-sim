@@ -668,8 +668,9 @@ var _ = Describe("Simulator", forEachEngine(func() {
 							Expect(logprobContent.Token).To(Equal(choice.Delta.Content))
 							Expect(logprobContent.Logprob).To(BeNumerically("<=", 0))
 
+							// Without top_logprobs, vLLM returns no alternatives.
+							Expect(logprobContent.TopLogprobs).To(HaveLen(topLogprobs))
 							if topLogprobs > 0 {
-								Expect(logprobContent.TopLogprobs).To(HaveLen(topLogprobs))
 								Expect(logprobContent.TopLogprobs[0].Token).To(Equal(choice.Delta.Content))
 							}
 						}
@@ -730,6 +731,26 @@ var _ = Describe("Simulator", forEachEngine(func() {
 		Entry(nil, common.ModeEcho, true), // with logprobs
 		Entry(nil, common.ModeEcho, nil),  // without logprobs
 	)
+
+	It("non-streaming chat completions with logprobs and no top_logprobs return no alternatives", func() {
+		ctx := context.TODO()
+		client, err := startServer(ctx, common.ModeEcho)
+		Expect(err).NotTo(HaveOccurred())
+
+		openaiclient, params := getOpenAIClientAndChatParams(client, common.TestModelName, testUserMessage, false)
+		params.Logprobs = param.NewOpt(true)
+		chatResp, err := openaiclient.Chat.Completions.New(ctx, params)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(chatResp.Choices).ShouldNot(BeEmpty())
+
+		content := chatResp.Choices[0].Logprobs.Content
+		Expect(content).NotTo(BeEmpty())
+		for _, lp := range content {
+			Expect(lp.Logprob).To(BeNumerically("<=", 0))
+			// vLLM and SGLang default top_logprobs to 0.
+			Expect(lp.TopLogprobs).To(BeEmpty())
+		}
+	})
 
 	Context("chat completions with image output (omni mode)", func() {
 		const syntheticImagePrefix = "data:image/png;base64,"
