@@ -10,3 +10,19 @@ permissions:
 jobs:
   prow:
     uses: llm-d/llm-d-infra/.github/workflows/reusable-prow-commands.yaml@main
+    with:
+      prow-commands: |
+        /assign
+        /unassign
+        /retitle
+        /area
+        /kind
+        /priority
+        /remove
+        /close
+        /reopen
+        /lock
+        /milestone
+        /hold
+        /cc
+        /uncc
