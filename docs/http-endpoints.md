@@ -225,7 +225,7 @@ Structure of requests/responses
                 - url
               - type, id, name, input (for `tool_use` blocks)
               - type, tool_use_id, content (for `tool_result` blocks)
-        - system (string or array of `text` blocks). As in vLLM, `text` blocks whose text starts with `x-anthropic-billing-header` are left out of the prompt; Claude Code sends a per-request hash in that block. In a `system` message inside `messages` a string with that prefix is left out too.
+        - system (string or array of `text` blocks). As in vLLM, `text` blocks whose text starts with `x-anthropic-billing-header` are left out of the prompt; Claude Code sends a per-request hash in that block. In a `system` message inside `messages` a string with that prefix is left out too. The text of `system` messages inside `messages` is appended to the system prompt and the messages are removed from their position, as vLLM does when started without `--chat-template`.
         - max_tokens (required)
         - tools
           - name
