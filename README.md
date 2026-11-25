@@ -64,11 +64,11 @@ Unlike simple mock servers that just "sleep" for a fixed time, this simulator mo
 For a detailed explanation of how the simulator models inference time and what each latency parameter does, see [Latency Simulation](docs/latency-simulation.md). For suggested values for each parameter and ready-to-use YAML profiles, see [Latency Reference Tables and Profiles](docs/latency-profiles.md).
 
 ### Tokenization
-The simulator offers flexible tokenization to balance accuracy vs. performance. The simulator automatically selects between two tokenization modes based on the provided `--model` name:
-* **HuggingFace Mode:** Used for real models (e.g., `meta-llama/Llama-3.1-8B-Instruct`). Downloads actual tokenizers for exact accuracy.
-* **Simulated Mode:** Used for dummy/non-existent model names. Uses a fast regex tokenizer for maximum performance with zero startup overhead.
+The simulator offers flexible tokenization to balance accuracy vs. performance. The mode is selected by the `--render-url` flag:
+* **HuggingFace Mode:** Activated when `--render-url` points to a running vLLM render service. Forwards tokenization requests to the external render service for exact accuracy matching real models.
+* **Simulated Mode:** Activated when `--render-url` is not set. Uses a fast in-process regex tokenizer for maximum performance with zero startup overhead, even when `--model` names a real model.
 
-For details on caching, and performance tuning, see the [Tokenization Guide](docs/tokenization.md).
+For details, see the [Tokenization Guide](docs/tokenization.md).
 
 ### LoRA Management
 Simulates the lifecycle (loading/unloading) of LoRA adapters without occupying actual memory. Reports LoRA related Prometheus metrics.
