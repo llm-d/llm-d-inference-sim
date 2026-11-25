@@ -155,6 +155,11 @@ Command-line flag names are as listed below. In a YAML config file, these settin
 
 ### Embeddings
 - `default-embedding-dimensions`: default size of embedding vectors returned by `/v1/embeddings` when the request does not specify a `dimensions` field, optional, defaults to 384.
+- `max-embedding-dimensions`: largest `dimensions` a `/v1/embeddings` request may ask for; a larger value is rejected with 400, optional, defaults to 65536. Must be at least `default-embedding-dimensions`.
+
+### Request limits
+- `max-n-sequences`: largest `n` (completions per request) a request may ask for; a larger value is rejected with 400, optional, defaults to 16384 (vLLM's `VLLM_MAX_N_SEQUENCES` default).
+- `max-images-per-request`: largest `n` a `/v1/images/generations` request may ask for; a larger value is rejected with 400, optional, defaults to 10.
 
 ### SSL
 Command-line flag names are as listed below. In a YAML config file, these settings may be nested under a top-level `ssl:` key using the same key names; the old flat top-level keys are still accepted for backward compatibility.
