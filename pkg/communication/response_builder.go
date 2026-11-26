@@ -161,6 +161,18 @@ type textComplHTTPRespBuilder struct {
 	// per-choice position and text offset of the next streamed token
 	tokenPos   map[int]int
 	textOffset map[int]int
+	// choices whose echoed prompt was already streamed
+	echoed map[int]bool
+}
+
+// echoedPrompt returns the prompt that the request asks to prepend to the text of its choice, or an empty
+// string if it does not ask for it. A prompt given as token ids is not echoed.
+func echoedPrompt(respCtx endpoint.ResponseContext) string {
+	req, ok := respCtx.RequestContext().Request().(*endpoint.TextCompletionsRequest)
+	if !ok || !req.Echo || req.Prompt.IsTokens() {
+		return ""
+	}
+	return req.Prompt.Text
 }
 
 func (respBuilder *textComplHTTPRespBuilder) createResponse(respCtxPerChoice []endpoint.ResponseContext,
@@ -173,7 +185,7 @@ func (respBuilder *textComplHTTPRespBuilder) createResponse(respCtxPerChoice []e
 	for i, t := range tokens {
 		choiceCtx := respCtxPerChoice[i]
 		baseChoice := api.CreateBaseResponseChoice(i, choiceCtx.FinishReason())
-		respText := strings.Join(t.Strings, "")
+		respText := echoedPrompt(choiceCtx) + strings.Join(t.Strings, "")
 		choice := respBuilder.transport.DecorateTextChoice(api.CreateTextRespChoice(baseChoice, respText))
 
 		// Generate logprobs if requested for text completion
@@ -219,6 +231,13 @@ func (respBuilder *textComplHTTPRespBuilder) createChunk(respCtx endpoint.Respon
 	var tokensStr string
 	if tokens != nil {
 		tokensStr = strings.Join(tokens.Strings, "")
+		if !respBuilder.echoed[choiceIdx] {
+			if respBuilder.echoed == nil {
+				respBuilder.echoed = make(map[int]bool)
+			}
+			respBuilder.echoed[choiceIdx] = true
+			tokensStr = echoedPrompt(respCtx) + tokensStr
+		}
 	}
 	choice := respBuilder.transport.DecorateTextChoice(
 		api.CreateTextRespChoice(api.CreateBaseResponseChoice(choiceIdx, finishReason), tokensStr))
