@@ -203,6 +203,21 @@ vllm:request_success_total{finished_reason="stop",model_name=%q} 1
 			}).Should(Succeed())
 		})
 
+		It("counts a request that ended in tool calls under vLLM's stop finished_reason", func() {
+			adapter, _ := newTestAdapter(newTestConfig())
+
+			adapter.OnRequestSucceeded(metrics.RequestSucceeded{GenTokensPerChoice: []int{1},
+				FinishReason: common.ToolsFinishReason})
+			expected := fmt.Sprintf(`
+# HELP vllm:request_success_total Count of successfully processed requests.
+# TYPE vllm:request_success_total counter
+vllm:request_success_total{finished_reason="stop",model_name=%q} 1
+`, common.TestModelName)
+			Eventually(func() error {
+				return testutil.GatherAndCompare(adapter.registry, strings.NewReader(expected), VLLMSuccessTotalMetricName)
+			}).Should(Succeed())
+		})
+
 		It("updates the KV-cache usage gauge", func() {
 			adapter, _ := newTestAdapter(newTestConfig())
 
