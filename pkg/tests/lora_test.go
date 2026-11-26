@@ -198,6 +198,72 @@ var _ = Describe("LoRAs", func() {
 		})
 	})
 
+	DescribeTable("load and unload requests vLLM rejects",
+		func(path string, reqBody string, expectedStatus int, expectedType string, expectedMessage string) {
+			client, err := startServerWithArgs(context.TODO(),
+				[]string{"cmd", "--model", common.TestModelName, "--served-model-name", common.TestModelName, "alias",
+					"--mode", common.ModeRandom, "--lora-modules", "{\"name\":\"lora1\",\"path\":\"/path/to/lora1\"}"})
+			Expect(err).NotTo(HaveOccurred())
+
+			resp, err := client.Post("http://localhost"+path, "application/json", strings.NewReader(reqBody))
+			Expect(err).NotTo(HaveOccurred())
+			defer func() {
+				Expect(resp.Body.Close()).To(Succeed())
+			}()
+
+			body, err := io.ReadAll(resp.Body)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.StatusCode).To(Equal(expectedStatus), string(body))
+			var errResp api.ErrorResponse
+			Expect(json.Unmarshal(body, &errResp)).To(Succeed())
+			Expect(errResp.Error.Type).To(Equal(expectedType))
+			Expect(errResp.Error.Message).To(Equal(expectedMessage))
+			Expect(errResp.Error.Code).To(Equal(expectedStatus))
+
+			var modelsResp api.ModelsResponse
+			getResp, err := client.Get("http://localhost/v1/models")
+			Expect(err).NotTo(HaveOccurred())
+			defer func() {
+				Expect(getResp.Body.Close()).To(Succeed())
+			}()
+			Expect(json.NewDecoder(getResp.Body).Decode(&modelsResp)).To(Succeed())
+			Expect(modelsResp.Data).To(HaveLen(3))
+			Expect(modelsResp.Data[2].ID).To(Equal("lora1"))
+		},
+		Entry("unload, unknown adapter", "/v1/unload_lora_adapter",
+			`{"lora_name":"unknown-lora"}`, http.StatusNotFound, "NotFoundError",
+			"The lora adapter 'unknown-lora' cannot be found."),
+		Entry("unload, no name", "/v1/unload_lora_adapter",
+			`{}`, http.StatusBadRequest, "InvalidUserInput",
+			"'lora_name' needs to be provided to unload a LoRA adapter."),
+		Entry("load, served model name", "/v1/load_lora_adapter",
+			`{"lora_name":"alias","lora_path":"/other/path"}`, http.StatusBadRequest, "InvalidUserInput",
+			"The lora adapter 'alias' conflicts with a served base model."),
+		Entry("load, no name", "/v1/load_lora_adapter",
+			`{"lora_path":"/other/path"}`, http.StatusBadRequest, "InvalidUserInput",
+			"Both 'lora_name' and 'lora_path' must be provided."),
+	)
+
+	It("Should unload an adapter once and load it again", func() {
+		client, err := startServerWithArgs(context.TODO(),
+			[]string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom,
+				"--lora-modules", "{\"name\":\"lora1\",\"path\":\"/path/to/lora1\"}"})
+		Expect(err).NotTo(HaveOccurred())
+
+		post := func(path string, reqBody string) int {
+			resp, err := client.Post("http://localhost"+path, "application/json", strings.NewReader(reqBody))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.Body.Close()).To(Succeed())
+			return resp.StatusCode
+		}
+
+		Expect(post("/v1/unload_lora_adapter", `{"lora_name":"lora1"}`)).To(Equal(http.StatusOK))
+		Expect(post("/v1/unload_lora_adapter", `{"lora_name":"lora1"}`)).To(Equal(http.StatusNotFound))
+		Expect(post("/v1/load_lora_adapter",
+			`{"lora_name":"lora1","lora_path":"/path/to/lora1"}`)).To(Equal(http.StatusOK))
+		Expect(post("/tokenize", `{"prompt":"This is a test","model":"lora1"}`)).To(Equal(http.StatusOK))
+	})
+
 	DescribeTable("model validation with a LoRA adapter",
 		func(path string, reqBody string, expectedStatus int) {
 			client, err := startServerWithArgs(context.TODO(),
