@@ -75,7 +75,7 @@ func (r *ResponsesRequest) AsString() string {
 
 func (r *ResponsesRequest) createResponseContext(reqCtx RequestContext, displayModel string,
 	responseTokens *api.Tokenized, finishReason *string, usageData *api.Usage, sendUsageData bool,
-	logprobs *int, toolCalls []api.ToolCall, mmEncoderOnlyMode bool) ResponseContext {
+	logprobs *int, toolCalls []api.ToolCall, mmEncoderOnlyMode bool, _ Runtime) ResponseContext {
 	base := newBaseResponseContext(reqCtx, displayModel, responseTokens, finishReason, usageData, sendUsageData,
 		logprobs, r.GetRequestID(), r.IsDoRemotePrefill(), r.IsDoRemoteDecode(), r.GetNumberOfCachedPromptTokens())
 

@@ -50,6 +50,7 @@ const (
 	CacheThresholdFinishReasonHeader = "X-Cache-Threshold-Finish-Reason"
 	XReturnErrorHeader               = "X-Return-Error"
 	XSendImageHeader                 = "X-Send-Image"
+	XReasoningPercentageHeader       = "X-Reasoning-Percentage"
 
 	maxHTTPLogBodyBytes = 512 * 1024
 )
@@ -71,6 +72,10 @@ const (
 	messagesRenderRoute = messagesRoute + "/render"
 )
 
+// chatCompletionsRoute is the only route whose responses carry a reasoning
+// prefix, so it is also the only one that reads X-Reasoning-Percentage.
+const chatCompletionsRoute = "/v1/chat/completions"
+
 // startHTTPServer builds and starts the HTTP server, returning the server instance and an error channel.
 // It does not handle shutdown — callers are responsible for calling server.Shutdown().
 // transport adds the active engine's own routes on top of the common ones registered here.
@@ -81,7 +86,7 @@ func (c *Communication) startHTTPServer(ctx context.Context, listener net.Listen
 	r := fasthttprouter.New()
 
 	// support completion APIs
-	r.POST("/v1/chat/completions", c.HandleChatCompletions)
+	r.POST(chatCompletionsRoute, c.HandleChatCompletions)
 	r.POST("/v1/completions", c.HandleTextCompletions)
 	r.POST(responsesRoute, c.HandleResponses)
 	r.POST(messagesRoute, c.HandleMessages)
@@ -392,6 +397,24 @@ func (c *Communication) handleHTTP(req endpoint.Request, respBuilder responseBui
 
 	headerOverride, _ := strconv.ParseBool(string(ctx.Request.Header.Peek(XSendImageHeader)))
 	req.SetSendImage(c.runtime.ShouldSendImage(headerOverride))
+
+	// X-Reasoning-Percentage overrides --reasoning-percentage for this request
+	// alone. It is read only on the chat completions route, the only one whose
+	// responses carry a reasoning prefix.
+	if path == chatCompletionsRoute {
+		if value := string(ctx.Request.Header.Peek(XReasoningPercentageHeader)); value != "" {
+			pct, err := strconv.Atoi(value)
+			if err != nil || pct < 0 || pct > 100 {
+				errToSend := api.NewError(
+					fmt.Sprintf("Invalid %s header value %q: must be an integer between 0 and 100",
+						XReasoningPercentageHeader, value),
+					fasthttp.StatusBadRequest, nil)
+				c.sendError(ctx, &errToSend, false)
+				return
+			}
+			req.SetReasoningPercentageOverride(&pct)
+		}
+	}
 
 	// fasthttp's RequestCtx is done only at shutdown, so abortCtx is cancelled
 	// when this handler returns, unless sendStream took the response over.
@@ -711,7 +734,14 @@ func (c *Communication) emitResponseChunks(route api.ErrorRoute, w *bufio.Writer
 		if lastTokensChunk && respBuilder.sendFinishReasonWithTokens() {
 			finishReason = respCtx.FinishReason()
 		}
-		return c.sendOrFail(w, respBuilder.createChunk(respCtx, response.Tokens, nil, "", finishReason, choiceIdx),
+		// The reasoning budget belongs to this choice: when n > 1 each sub-request
+		// can generate a different number of tokens. Use the choice's own context
+		// for the reasoning/content split, keeping the stream-wide creation time.
+		choiceCtx := response.RespCtx
+		if choiceCtx.CreationTime() == 0 {
+			choiceCtx.SetCreationTime(respCtx.CreationTime())
+		}
+		return c.sendOrFail(w, respBuilder.createChunk(choiceCtx, response.Tokens, nil, "", finishReason, choiceIdx),
 			"Sending stream chunk failed")
 	}
 

@@ -170,6 +170,17 @@ type ChatAudio struct {
 	Transcript string `json:"transcript,omitempty"`
 }
 
+// The two names an engine gives the reasoning prefix of an assistant message.
+// vLLM emits "reasoning" and SGLang "reasoning_content"; the active engine picks
+// one (see communication.Transport.ReasoningFieldName) rather than both being
+// emitted side by side.
+const (
+	// ReasoningField is the reasoning field name vLLM emits.
+	ReasoningField = "reasoning"
+	// ReasoningContentField is the reasoning field name SGLang emits.
+	ReasoningContentField = "reasoning_content"
+)
+
 // v1/chat/completions
 // Message defines chat completions Message
 type Message struct {
@@ -177,6 +188,13 @@ type Message struct {
 	Role string `json:"role,omitempty"`
 	// Content defines text of this message
 	Content ChatComplContent `json:"content,omitempty"`
+	// Reasoning carries the optional reasoning prefix of an assistant response,
+	// under the name vLLM gives it.
+	Reasoning *string `json:"reasoning,omitempty"`
+	// ReasoningContent carries the same prefix under the name SGLang gives it.
+	// At most one of Reasoning and ReasoningContent is set on a response; which
+	// one the simulator fills is decided by the active engine.
+	ReasoningContent *string `json:"reasoning_content,omitempty"`
 	// ToolCalls are the tool calls created by the model
 	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
 	// ToolCallID is the ID of the tool call this message is responding to (role: "tool" only)
@@ -185,20 +203,37 @@ type Message struct {
 	Audio *ChatAudio `json:"audio,omitempty"`
 }
 
+// SetReasoning stores text as this message's reasoning prefix under field, the
+// name the active engine emits reasoning under. Any name other than
+// ReasoningContentField is treated as ReasoningField.
+func (m *Message) SetReasoning(field string, text string) {
+	if field == ReasoningContentField {
+		m.ReasoningContent = &text
+		return
+	}
+	m.Reasoning = &text
+}
+
 // MarshalJSON omits the content field entirely when it carries no data
 // (empty Raw and nil Structured), so finish-reason-only deltas marshal as
 // {"role":...} or {} rather than {"content":""}.
 func (m Message) MarshalJSON() ([]byte, error) {
 	type alias struct {
-		Role       string            `json:"role,omitempty"`
-		Content    *ChatComplContent `json:"content,omitempty"`
-		ToolCalls  []ToolCall        `json:"tool_calls,omitempty"`
-		ToolCallID string            `json:"tool_call_id,omitempty"`
-		Audio      *ChatAudio        `json:"audio,omitempty"`
+		Role             string     `json:"role,omitempty"`
+		Content          any        `json:"content,omitempty"`
+		Reasoning        *string    `json:"reasoning,omitempty"`
+		ReasoningContent *string    `json:"reasoning_content,omitempty"`
+		ToolCalls        []ToolCall `json:"tool_calls,omitempty"`
+		ToolCallID       string     `json:"tool_call_id,omitempty"`
+		Audio            *ChatAudio `json:"audio,omitempty"`
 	}
-	a := alias{Role: m.Role, ToolCalls: m.ToolCalls, ToolCallID: m.ToolCallID, Audio: m.Audio}
+	a := alias{Role: m.Role, ToolCalls: m.ToolCalls, ToolCallID: m.ToolCallID, Audio: m.Audio,
+		Reasoning: m.Reasoning, ReasoningContent: m.ReasoningContent}
 	if m.Content.Raw != "" || len(m.Content.Structured) > 0 {
 		a.Content = &m.Content
+	} else if (m.Reasoning != nil || m.ReasoningContent != nil) && m.Role == RoleAssistant {
+		// A reasoning-only complete message has JSON null content, not an absent field.
+		a.Content = json.RawMessage("null")
 	}
 	return json.Marshal(a)
 }

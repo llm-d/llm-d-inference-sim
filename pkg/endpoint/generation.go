@@ -51,7 +51,7 @@ func (g *GenerationRequest) AsString() string {
 
 func (g *GenerationRequest) createResponseContext(reqCtx RequestContext, displayModel string,
 	responseTokens *api.Tokenized, finishReason *string, usageData *api.Usage,
-	sendUsageData bool, logprobs *int, toolCalls []api.ToolCall, _ bool) ResponseContext {
+	sendUsageData bool, logprobs *int, toolCalls []api.ToolCall, _ bool, _ Runtime) ResponseContext {
 	base := newBaseResponseContext(reqCtx, displayModel, responseTokens, finishReason, usageData, sendUsageData,
 		logprobs, g.GetRequestID(), g.IsDoRemotePrefill(), g.IsDoRemoteDecode(), g.GetNumberOfCachedPromptTokens())
 	return &generationResponseCtx{

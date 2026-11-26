@@ -100,6 +100,10 @@ type Engine interface {
 	// of a streamed message_delta event beyond output_tokens; full is the
 	// request's complete Messages usage.
 	DecorateMessagesDeltaUsage(usage api.MessagesStreamUsage, full api.MessagesUsage) api.MessagesStreamUsage
+	// ReasoningFieldName names the field this engine emits an assistant
+	// message's reasoning prefix under: vLLM spells it "reasoning", SGLang
+	// "reasoning_content".
+	ReasoningFieldName() string
 	// DecorateTokenizeResponse adds any fields this engine puts on a /tokenize
 	// response beyond count, tokens and max_model_len; tokenStrs are the
 	// prompt's token strings.

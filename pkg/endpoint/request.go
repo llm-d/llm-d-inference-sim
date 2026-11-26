@@ -37,7 +37,7 @@ type requestBuilder interface {
 	AsString() string
 	createResponseContext(reqCtx RequestContext, displayModel string, responseTokens *api.Tokenized,
 		finishReason *string, usageData *api.Usage, sendUsageData bool, logprobs *int,
-		toolCalls []api.ToolCall, mmEncoderOnlyMode bool) ResponseContext
+		toolCalls []api.ToolCall, mmEncoderOnlyMode bool, runtime Runtime) ResponseContext
 	// Split returns one or more processing-form Requests, each carrying a single
 	// prompt with a unique RequestID. For request types whose wire form is always
 	// a single prompt (chat, generation, responses, post-split text completions),
@@ -271,7 +271,8 @@ func (reqCtx *baseRequestContext) HandleRequest() (ResponseContext, *api.Error) 
 		}
 		sendUsageData := !req.IsStream() || req.IncludeUsage()
 		respCtx := req.createResponseContext(reqCtx, dispModel, &api.Tokenized{},
-			&finishReason, &usageData, sendUsageData, logprobs, nil, reqCtx.runtime.Config().MMEncoderOnly)
+			&finishReason, &usageData, sendUsageData, logprobs, nil, reqCtx.runtime.Config().MMEncoderOnly,
+			reqCtx.runtime)
 		return respCtx, nil
 	}
 
@@ -320,7 +321,7 @@ func (reqCtx *baseRequestContext) HandleRequest() (ResponseContext, *api.Error) 
 	}
 
 	respCtx := req.createResponseContext(reqCtx, dispModel, responseTokens, &finishReason,
-		&usageData, sendUsageData, logprobs, toolCalls, reqCtx.runtime.Config().MMEncoderOnly)
+		&usageData, sendUsageData, logprobs, toolCalls, reqCtx.runtime.Config().MMEncoderOnly, reqCtx.runtime)
 
 	return respCtx, nil
 }
