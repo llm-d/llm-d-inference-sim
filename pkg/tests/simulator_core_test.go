@@ -248,13 +248,14 @@ var _ = Describe("Simulator core", forEachEngine(func() {
 			client, err := startServerWithArgs(ctx, args)
 			Expect(err).NotTo(HaveOccurred())
 
-			// max_tokens is huge to demonstrate it is irrelevant to this check
+			// max_tokens is the whole context window, the largest accepted, to
+			// demonstrate it is irrelevant to this check
 			// Test with raw HTTP to verify the error response format
 			reqBody := fmt.Sprintf(`{
 				"messages": [{"role": "user", "content": "%s"}],
 				"model": "%s",
-				"max_tokens": 1000000
-			}`, prompt, model)
+				"max_tokens": %d
+			}`, prompt, model, maxModelLen)
 
 			resp, err := client.Post("http://localhost/v1/chat/completions", "application/json", strings.NewReader(reqBody))
 			Expect(err).NotTo(HaveOccurred())
@@ -273,7 +274,7 @@ var _ = Describe("Simulator core", forEachEngine(func() {
 
 			// Also test with OpenAI client to ensure it gets an error
 			openaiclient, params := getOpenAIClientAndChatParams(client, model, prompt, false)
-			params.MaxTokens = openai.Int(1000000)
+			params.MaxTokens = openai.Int(maxModelLen)
 
 			_, err = openaiclient.Chat.Completions.New(ctx, params)
 			Expect(err).To(HaveOccurred())
@@ -282,7 +283,7 @@ var _ = Describe("Simulator core", forEachEngine(func() {
 			Expect(apiErr.StatusCode).To(Equal(400))
 		})
 
-		It("Should accept requests in random mode with a huge max_tokens, as long as the prompt fits", func() {
+		It("Should accept requests in random mode with max_tokens up to the context window, as long as the prompt fits", func() {
 			ctx := context.TODO()
 			model := common.TestModelName
 			prompt := contextWindowTestPrompt
@@ -296,13 +297,71 @@ var _ = Describe("Simulator core", forEachEngine(func() {
 
 			openaiclient, params := getOpenAIClientAndChatParams(client, model, prompt, false)
 			// would have been rejected by a prompt+max_tokens<=context window check
-			params.MaxTokens = openai.Int(1000000)
+			params.MaxTokens = openai.Int(maxModelLen)
 
 			resp, err := openaiclient.Chat.Completions.New(ctx, params)
 			Expect(err).NotTo(HaveOccurred())
 			Expect(resp.Choices).To(HaveLen(1))
 			Expect(resp.Model).To(Equal(model))
 		})
+
+		outputLimitEntries := []TableEntry{
+			Entry("completions", "/v1/completions",
+				`{"model":"`+common.TestModelName+`","prompt":"hi","max_tokens":101}`, "max_tokens"),
+			Entry("completions, prompt over the context window", "/v1/completions",
+				`{"model":"`+common.TestModelName+`","prompt":"`+strings.Repeat("hi ", 200)+`","max_tokens":101}`, "max_tokens"),
+			Entry("chat completions, max_tokens", "/v1/chat/completions",
+				`{"model":"`+common.TestModelName+`","messages":[{"role":"user","content":"hi"}],"max_tokens":101}`, "max_tokens"),
+			Entry("chat completions, max_completion_tokens", "/v1/chat/completions",
+				`{"model":"`+common.TestModelName+`","messages":[{"role":"user","content":"hi"}],"max_completion_tokens":101}`,
+				"max_completion_tokens"),
+			Entry("responses", "/v1/responses",
+				`{"model":"`+common.TestModelName+`","input":"hi","max_output_tokens":101}`, "max_output_tokens"),
+			// vLLM converts the request to chat completions with max_completion_tokens set
+			Entry("messages", "/v1/messages",
+				`{"model":"`+common.TestModelName+`","messages":[{"role":"user","content":"hi"}],"max_tokens":101}`,
+				"max_completion_tokens"),
+		}
+		for _, mode := range []struct {
+			name   string
+			mode   string
+			strict bool
+		}{
+			{"in random mode", common.ModeRandom, false},
+			{"in echo mode", common.ModeEcho, false},
+			{"with --strict", common.ModeRandom, true},
+		} {
+			DescribeTable("Should reject an output token limit greater than the context window "+mode.name+", as vLLM does",
+				func(path string, reqBody string, param string) {
+					args := []string{"cmd", "--model", common.TestModelName, "--mode", mode.mode,
+						engineFlag(common.FieldContextWindow), "100"}
+					if mode.strict {
+						if currentEngine != "vllm" {
+							Skip("--strict is a vLLM flag")
+						}
+						args = append(args, "--strict")
+					}
+					client, err := startServerWithArgs(context.TODO(), args)
+					Expect(err).NotTo(HaveOccurred())
+
+					resp, err := client.Post("http://localhost"+path, "application/json", strings.NewReader(reqBody))
+					Expect(err).NotTo(HaveOccurred())
+					defer func() {
+						Expect(resp.Body.Close()).To(Succeed())
+					}()
+					body, err := io.ReadAll(resp.Body)
+					Expect(err).NotTo(HaveOccurred())
+
+					Expect(resp.StatusCode).To(Equal(http.StatusBadRequest), string(body))
+					Expect(string(body)).To(ContainSubstring(fmt.Sprintf("%s=101 cannot be greater than max_model_len=100. "+
+						"Please request fewer output tokens. (parameter=%s, value=101)", param, param)))
+					if path != "/v1/messages" { // the Messages API error has no param
+						Expect(string(body)).To(ContainSubstring(fmt.Sprintf(`"param":"%s"`, param)))
+					}
+				},
+				outputLimitEntries,
+			)
+		}
 
 		It("Should accept requests within context window in echo mode", func() {
 			ctx := context.TODO()

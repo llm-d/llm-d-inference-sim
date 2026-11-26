@@ -237,7 +237,7 @@ var _ = Describe("Simulator", forEachEngine(func() {
 		},
 		Entry("negative minimum", -1, 20, 0, "min_tokens must be greater than or equal to 0"),
 		Entry("minimum above requested maximum", 21, 20, 0, "min_tokens must be less than or equal to max_tokens=20"),
-		Entry("minimum above context-clamped maximum", 100, 1000, 100, "min_tokens must be less than or equal to max_tokens="),
+		Entry("minimum above context-clamped maximum", 100, 100, 100, "min_tokens must be less than or equal to max_tokens="),
 	)
 
 	It("does not alter echo responses for a valid min_tokens", func() {

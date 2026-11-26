@@ -513,6 +513,13 @@ func (c *ChatCompletionsRequest) GetMaxCompletionTokens() *int64 {
 	return c.MaxTokens
 }
 
+func (c *ChatCompletionsRequest) MaxTokensParam() string {
+	if c.MaxCompletionTokens != nil {
+		return "max_completion_tokens"
+	}
+	return "max_tokens"
+}
+
 func (c *ChatCompletionsRequest) GetMinTokens() *int64 {
 	return c.MinTokens
 }
@@ -732,6 +739,10 @@ func (b *baseTextCompletionsRequest) GetToolChoice() ToolChoice {
 
 func (b *baseTextCompletionsRequest) GetMaxCompletionTokens() *int64 {
 	return b.MaxTokens
+}
+
+func (b *baseTextCompletionsRequest) MaxTokensParam() string {
+	return "max_tokens"
 }
 
 // ExtractMaxTokens extracts the max tokens from the request
@@ -1182,6 +1193,10 @@ func (req *ResponsesRequest) ExtractMaxTokens() *int64 {
 	return req.MaxOutputTokens
 }
 
+func (req *ResponsesRequest) MaxTokensParam() string {
+	return "max_output_tokens"
+}
+
 // GenerateRequest defines structure of generate request
 type GenerateRequest struct {
 	baseRequest
@@ -1614,6 +1629,14 @@ func (m *MessagesRequest) ToChatCompletionsRequest() *ChatCompletionsRequest {
 		Tools:               tools,
 		ToolChoice:          toolChoice,
 	}
+}
+
+// MaxTokensParamRequest is a request whose output token limit vLLM rejects when
+// it is greater than max_model_len. MaxTokensParam names the field that set it.
+// vLLM does not check /inference/v1/generate requests.
+type MaxTokensParamRequest interface {
+	Request
+	MaxTokensParam() string
 }
 
 // ResponseMaxLen returns the maximum response length for req: max_tokens (or

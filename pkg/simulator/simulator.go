@@ -395,6 +395,19 @@ func (s *Simulator) HandleRequest(ctx context.Context, req endpoint.Request) (nu
 		return 0, false, nil, serverErr, false
 	}
 
+	// vLLM rejects an output token limit greater than max_model_len before it
+	// tokenizes the prompt; a smaller one is clamped to the room the prompt leaves
+	if r, ok := req.(api.MaxTokensParamRequest); ok {
+		maxModelLen := int64(s.Context.Config().MaxModelLen)
+		if maxTokens := r.GetMaxCompletionTokens(); maxTokens != nil && *maxTokens > maxModelLen {
+			param := r.MaxTokensParam()
+			serverErr := api.NewError(fmt.Sprintf("%s=%d cannot be greater than max_model_len=%d. "+
+				"Please request fewer output tokens. (parameter=%s, value=%d)",
+				param, *maxTokens, maxModelLen, param, *maxTokens), fasthttp.StatusBadRequest, &param)
+			return 0, false, nil, &serverErr, false
+		}
+	}
+
 	// Single shared channel for all sub-requests; each stamps its ChoiceIdx on
 	// responses and calls signalDone when finished. A watcher goroutine closes
 	// the channel once all sub-requests have signalled completion. For most
