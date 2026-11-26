@@ -194,7 +194,7 @@ func (m *MessagesRequest) Validate(tv *ToolsValidator) *api.Error {
 	if err := m.validateMaxTokens(); err != nil {
 		return err
 	}
-	return m.ChatCompletionsRequest.Validate(tv)
+	return m.validate(tv)
 }
 
 func (m *MessagesRequest) AsString() string {

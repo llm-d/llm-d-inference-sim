@@ -105,6 +105,19 @@ func (c *ChatCompletionsRequest) Render(tk tokenizer.Tokenizer, mmPayload string
 }
 
 func (c *ChatCompletionsRequest) Validate(toolsValidator *ToolsValidator) *api.Error {
+	if err := c.validate(toolsValidator); err != nil {
+		return err
+	}
+	if c.ToolChoice.OfAuto.Or("") == toolChoiceRequired && len(c.Tools) == 0 {
+		param := "tool_choice"
+		err := api.NewError("When using `tool_choice`, `tools` must be set.", fasthttp.StatusBadRequest, &param)
+		return &err
+	}
+	return nil
+}
+
+// validate holds the checks /v1/messages shares with /v1/chat/completions.
+func (c *ChatCompletionsRequest) validate(toolsValidator *ToolsValidator) *api.Error {
 	if err := c.ValidateBody(); err != nil {
 		return err
 	}
@@ -220,10 +233,14 @@ func (c *chatCompletionReqCtx) encode() ([]uint32, []string, *api.RenderMMFeatur
 
 func (c *chatCompletionReqCtx) createToolCalls() ([]api.ToolCall, int, string, error) {
 	req := c.Request()
-	if !isToolChoiceNone(req.GetToolChoice()) &&
-		req.GetTools() != nil {
+	tools, toolChoice := req.GetTools(), req.GetToolChoice()
+	// vLLM reads an empty tools array as an omitted one, unless tool_choice names a tool.
+	if len(tools) == 0 && toolChoice.GetFunction() == nil {
+		tools = nil
+	}
+	if !isToolChoiceNone(toolChoice) && tools != nil {
 		toolCalls, completionTokens, err :=
-			createToolCalls(req.GetTools(), req.GetToolChoice(), &c.runtime.Config().ToolCalls, c.runtime.GetRandom(), c.runtime.GetTokenizer(), c.toolIDPrefix)
+			createToolCalls(tools, toolChoice, &c.runtime.Config().ToolCalls, c.runtime.GetRandom(), c.runtime.GetTokenizer(), c.toolIDPrefix)
 		finishReason := common.ToolsFinishReason
 		return toolCalls, completionTokens, finishReason, err
 	}

@@ -23,6 +23,7 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+	"github.com/valyala/fasthttp"
 )
 
 // recordingTokenizer captures what each RenderMessages call receives.
@@ -99,6 +100,46 @@ var _ = Describe("Chat completions raw tools", func() {
 			Expect(got.Tools).To(BeNil())
 			Expect(got.ToolChoice).To(BeNil())
 		}
+	})
+
+	DescribeTable("creates no tool calls for a request without tools",
+		func(fields string, matchErr OmegaMatcher) {
+			var req ChatCompletionsRequest
+			Expect(req.Unmarshal([]byte(`{"model":"m",` + messages + fields + `}`))).To(Succeed())
+			Expect(req.Validate(nil)).To(BeNil())
+			runtime := &fakeRuntime{config: common.NewConfig(), random: common.NewRandom(1, 0)}
+			reqCtx := req.BuildRequestContext(runtime, common.Channel[*ResponseInfo]{}, 0, func() {})
+			toolCalls, _, _, err := reqCtx.createToolCalls()
+			Expect(err).To(matchErr)
+			Expect(toolCalls).To(BeNil())
+		},
+		Entry("empty tools, no tool_choice", `,"tools":[]`, BeNil()),
+		Entry("empty tools, auto", `,"tools":[],"tool_choice":"auto"`, BeNil()),
+		Entry("empty tools, none", `,"tools":[],"tool_choice":"none"`, BeNil()),
+		Entry("no tools, auto", `,"tool_choice":"auto"`, BeNil()),
+		Entry("empty tools, a named tool is still looked up",
+			`,"tools":[],"tool_choice":{"type":"function","function":{"name":"f"}}`,
+			MatchError(ContainSubstring("not found in the tools list"))),
+	)
+
+	DescribeTable("rejects tool_choice required without tools",
+		func(fields string) {
+			var req ChatCompletionsRequest
+			Expect(req.Unmarshal([]byte(`{"model":"m",` + messages + fields + `}`))).To(Succeed())
+			apiErr := req.Validate(nil)
+			Expect(apiErr).NotTo(BeNil())
+			Expect(apiErr.Code).To(Equal(fasthttp.StatusBadRequest))
+			Expect(apiErr.Message).To(Equal("When using `tool_choice`, `tools` must be set."))
+			Expect(apiErr.Param).To(HaveValue(Equal("tool_choice")))
+		},
+		Entry("required", `,"tools":[],"tool_choice":"required"`),
+		Entry("required, tools omitted", `,"tool_choice":"required"`),
+	)
+
+	It("accepts tool_choice required with a tool", func() {
+		var req ChatCompletionsRequest
+		Expect(req.Unmarshal([]byte(`{"model":"m",` + messages + `,"tools":` + tools + `,"tool_choice":"required"}`))).To(Succeed())
+		Expect(req.Validate(&ToolsValidator{Skip: func() bool { return true }})).To(BeNil())
 	})
 })
 
