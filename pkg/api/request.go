@@ -109,6 +109,12 @@ type Request interface {
 	GetRawN() *int
 	// GetCacheHitThreshold returns the cache hit threshold (0-1) or nil if not set
 	GetCacheHitThreshold() *float64
+	// GetTruncatePromptTokens returns the number of prompt tokens to keep, -1 for
+	// as many as the context window allows, or nil to keep the whole prompt
+	GetTruncatePromptTokens() *int64
+	// GetTruncationSide returns the side truncation removes prompt tokens from:
+	// "right" keeps the first tokens, anything else the last
+	GetTruncationSide() string
 	// TokenizedPrompt returns the tokenized prompt
 	TokenizedPrompt() *Tokenized
 	// SetTokenizedPrompt sets the tokenized prompt
@@ -186,6 +192,12 @@ type baseCompletionsRequest struct {
 	// N is the number of completion choices to generate for each prompt.
 	// Optional and defaults to 1.
 	N *int `json:"n,omitempty"`
+	// TruncatePromptTokens is the number of prompt tokens to keep, -1 for
+	// as many as the context window allows
+	TruncatePromptTokens *int64 `json:"truncate_prompt_tokens,omitempty"`
+	// TruncationSide is "left" (the default) to keep the last prompt tokens,
+	// or "right" to keep the first
+	TruncationSide string `json:"truncation_side,omitempty"`
 }
 
 type KVTransferParams struct {
@@ -362,6 +374,14 @@ func (b *baseRequest) GetCacheHitThreshold() *float64 {
 	return nil
 }
 
+func (b *baseRequest) GetTruncatePromptTokens() *int64 {
+	return nil
+}
+
+func (b *baseRequest) GetTruncationSide() string {
+	return ""
+}
+
 // CacheThresholdFinishReason returns cacheThresholdFinishReason,  when true,
 // forces a cache_threshold finish reason
 func (b *baseRequest) CacheThresholdFinishReason() bool {
@@ -425,6 +445,14 @@ func (b *baseCompletionsRequest) GetRawN() *int {
 // GetCacheHitThreshold returns the cache hit threshold value
 func (b *baseCompletionsRequest) GetCacheHitThreshold() *float64 {
 	return b.CacheHitThreshold
+}
+
+func (b *baseCompletionsRequest) GetTruncatePromptTokens() *int64 {
+	return b.TruncatePromptTokens
+}
+
+func (b *baseCompletionsRequest) GetTruncationSide() string {
+	return b.TruncationSide
 }
 
 // CacheThresholdFinishReason returns cacheThresholdFinishReason,  when true,

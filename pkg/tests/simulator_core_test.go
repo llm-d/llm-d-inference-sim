@@ -490,6 +490,74 @@ var _ = Describe("Simulator core", forEachEngine(func() {
 		})
 	})
 
+	Context("prompt truncation", func() {
+		const maxModelLen = 20
+		longPrompt := strings.Repeat("hello ", 30)
+
+		startTruncationServer := func(mode string) *http.Client {
+			args := []string{"cmd", "--model", common.TestModelName, "--mode", mode,
+				engineFlag(common.FieldContextWindow), strconv.Itoa(maxModelLen)}
+			client, err := startServerWithArgs(context.TODO(), args)
+			Expect(err).NotTo(HaveOccurred())
+			return client
+		}
+
+		DescribeTable("Should truncate a prompt over the context window to truncate_prompt_tokens, as vLLM does",
+			func(path string, bodyFormat string, truncateTo int, expectedPromptTokens int) {
+				Expect(getTextPromptTokensCountForTestModel(longPrompt)).To(BeNumerically(">", maxModelLen))
+				client := startTruncationServer(common.ModeRandom)
+
+				status, body := postMessagesRoute(client, path, fmt.Sprintf(bodyFormat, common.TestModelName, longPrompt, truncateTo))
+
+				Expect(status).To(Equal(fasthttp.StatusOK), string(body))
+				var resp struct {
+					Usage api.Usage `json:"usage"`
+				}
+				Expect(json.Unmarshal(body, &resp)).To(Succeed())
+				Expect(resp.Usage.PromptTokens).To(Equal(expectedPromptTokens))
+			},
+			Entry("completions", "/v1/completions",
+				`{"model":"%s","prompt":"%s","max_tokens":2,"truncate_prompt_tokens":%d}`, 5, 5),
+			Entry("completions, -1 for max_model_len - 1", "/v1/completions",
+				`{"model":"%s","prompt":"%s","max_tokens":2,"truncate_prompt_tokens":%d}`, -1, maxModelLen-1),
+			Entry("chat completions", "/v1/chat/completions",
+				`{"model":"%s","messages":[{"role":"user","content":"%s"}],"max_tokens":2,"truncate_prompt_tokens":%d}`, 5, 5),
+		)
+
+		DescribeTable("Should keep the side of the prompt truncation_side names",
+			func(side string, expectedEcho string) {
+				client := startTruncationServer(common.ModeEcho)
+
+				status, body := postMessagesRoute(client, "/v1/completions", fmt.Sprintf(
+					`{"model":"%s","prompt":[1,2,3,4,5,6],"max_tokens":10,"truncate_prompt_tokens":2%s}`,
+					common.TestModelName, side))
+
+				Expect(status).To(Equal(fasthttp.StatusOK), string(body))
+				var resp api.TextCompletionsResponse
+				Expect(json.Unmarshal(body, &resp)).To(Succeed())
+				Expect(resp.Choices).To(HaveLen(1))
+				Expect(resp.Choices[0].Text).To(Equal(expectedEcho))
+				Expect(resp.Usage.PromptTokens).To(Equal(2))
+			},
+			Entry("the last tokens by default", "", "5,6"),
+			Entry("the first tokens for right", `,"truncation_side":"right"`, "1,2"),
+		)
+
+		It("Should reject truncate_prompt_tokens greater than the context window, as vLLM does", func() {
+			client := startTruncationServer(common.ModeRandom)
+
+			status, body := postMessagesRoute(client, "/v1/completions", fmt.Sprintf(
+				`{"model":"%s","prompt":"hello","max_tokens":2,"truncate_prompt_tokens":%d}`, common.TestModelName, maxModelLen+1))
+
+			Expect(status).To(Equal(fasthttp.StatusBadRequest))
+			apiErr := apiErrorFromBody(body)
+			Expect(apiErr.Message).To(Equal(fmt.Sprintf("truncate_prompt_tokens=%d cannot be greater than max_model_len = %d. "+
+				"Please request a smaller truncation size. (parameter=truncate_prompt_tokens, value=%d)",
+				maxModelLen+1, maxModelLen, maxModelLen+1)))
+			Expect(apiErr.Param).To(HaveValue(Equal("truncate_prompt_tokens")))
+		})
+	})
+
 	Context("cache threshold finish reason header", func() {
 		testCacheThresholdFinishReasonHeader := func(setHeader bool, expectedFinishReasons []string) {
 			ctx := context.TODO()

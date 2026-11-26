@@ -20,6 +20,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -172,6 +174,17 @@ func RenderBadRequest(err error) *api.Error {
 
 func (b *baseRequestContext) tokenize() *api.Error {
 	req := b.Request()
+	maxModelLen := b.runtime.Config().MaxModelLen
+
+	// vLLM checks the truncation size before it tokenizes the prompt
+	truncateTo := req.GetTruncatePromptTokens()
+	if truncateTo != nil && *truncateTo > int64(maxModelLen) {
+		param := "truncate_prompt_tokens"
+		serverErr := api.NewError(fmt.Sprintf("truncate_prompt_tokens=%d cannot be greater than max_model_len = %d. "+
+			"Please request a smaller truncation size. (parameter=truncate_prompt_tokens, value=%d)",
+			*truncateTo, maxModelLen, *truncateTo), fasthttp.StatusBadRequest, &param)
+		return &serverErr
+	}
 
 	if tokens := req.TokenizedPrompt(); tokens == nil {
 		// the prompt is still not tokenized - tokenize now
@@ -193,6 +206,12 @@ func (b *baseRequestContext) tokenize() *api.Error {
 		req.SetMMFeatures(mmFeatures)
 	}
 
+	if truncateTo != nil {
+		if err := truncatePrompt(req, int(*truncateTo), maxModelLen); err != nil {
+			return err
+		}
+	}
+
 	if b.runtime.Config().Mode == common.ModeEcho {
 		// in echo mode need to calculate which part of input will be sent back,
 		// e.g. in /chat/completions we send back only the last message's content
@@ -206,6 +225,64 @@ func (b *baseRequestContext) tokenize() *api.Error {
 		req.SetTokenizedPromptForEcho(echoTokenized)
 	}
 
+	return nil
+}
+
+// truncatePrompt applies truncate_prompt_tokens to the tokenized prompt as vLLM
+// does: -1 keeps max_model_len - 1 tokens, and the last tokens are kept unless
+// truncation_side is "right". A multimodal item must be kept whole, and its
+// placeholder moves with the cut.
+func truncatePrompt(req api.Request, truncateTo int, maxModelLen int) *api.Error {
+	keep := truncateTo
+	if keep < 0 {
+		keep = maxModelLen - 1
+	}
+	prompt := req.TokenizedPrompt()
+	length := prompt.Length()
+	if keep >= length {
+		return nil
+	}
+	if keep == 0 {
+		serverErr := api.NewError("The decoder prompt cannot be empty", fasthttp.StatusBadRequest, nil)
+		return &serverErr
+	}
+	start := 0
+	if req.GetTruncationSide() != "right" {
+		start = length - keep
+	}
+	end := start + keep
+
+	if features := req.MMFeatures(); features != nil && len(features.MMPlaceholders) > 0 {
+		placeholders := make(map[string][]api.RenderPlaceholder, len(features.MMPlaceholders))
+		for _, modality := range slices.Sorted(maps.Keys(features.MMPlaceholders)) {
+			for _, p := range features.MMPlaceholders[modality] {
+				if p.Offset < start || p.Offset+p.Length > end {
+					param := "truncate_prompt_tokens"
+					serverErr := api.NewError(fmt.Sprintf("truncate_prompt_tokens=%d would split or drop a(n) %s item, "+
+						"which spans tokens %d to %d of the %d-token prompt. Multimodal placeholders expand after "+
+						"truncation is applied, so the limit must leave every multimodal item intact. Please raise "+
+						"truncate_prompt_tokens or shorten the multimodal input. (parameter=truncate_prompt_tokens, value=%d)",
+						truncateTo, modality, p.Offset, p.Offset+p.Length, length, truncateTo),
+						fasthttp.StatusBadRequest, &param)
+					return &serverErr
+				}
+				placeholders[modality] = append(placeholders[modality],
+					api.RenderPlaceholder{Offset: p.Offset - start, Length: p.Length})
+			}
+		}
+		shifted := *features
+		shifted.MMPlaceholders = placeholders
+		req.SetMMFeatures(&shifted)
+	}
+
+	truncated := &api.Tokenized{}
+	if len(prompt.Tokens) > 0 {
+		truncated.Tokens = prompt.Tokens[start:end]
+	}
+	if len(prompt.Strings) > 0 {
+		truncated.Strings = prompt.Strings[start:end]
+	}
+	req.SetTokenizedPrompt(truncated)
 	return nil
 }
 
