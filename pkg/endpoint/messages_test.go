@@ -54,6 +54,12 @@ var _ = Describe("Messages render tools", func() {
 		Expect(string(tk.tools.ToolChoice)).To(Equal(`"none"`))
 	})
 
+	It("accepts tool_choice any without tools", func() {
+		var req MessagesRequest
+		Expect(req.Unmarshal([]byte(`{"model":"m","max_tokens":5,` + messages + `,"tool_choice":{"type":"any"}}`))).To(Succeed())
+		Expect(req.Validate(nil)).To(BeNil())
+	})
+
 	DescribeTable("defaults a missing input_schema type to object, as vLLM does",
 		func(schema string, expected string) {
 			got := render(`{"model":"m",` + messages + `,"tools":[{"name":"f","input_schema":` + schema + `}]}`)

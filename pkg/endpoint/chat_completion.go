@@ -105,6 +105,19 @@ func (c *ChatCompletionsRequest) Render(tk tokenizer.Tokenizer, mmPayload string
 }
 
 func (c *ChatCompletionsRequest) Validate(toolsValidator *ToolsValidator) *api.Error {
+	if err := c.validate(toolsValidator); err != nil {
+		return err
+	}
+	if c.ToolChoice.OfAuto.Or("") == toolChoiceRequired && len(c.Tools) == 0 {
+		param := "tool_choice"
+		err := api.NewError("When using `tool_choice`, `tools` must be set.", fasthttp.StatusBadRequest, &param)
+		return &err
+	}
+	return nil
+}
+
+// validate holds the checks /v1/messages shares with /v1/chat/completions.
+func (c *ChatCompletionsRequest) validate(toolsValidator *ToolsValidator) *api.Error {
 	if err := c.ValidateBody(); err != nil {
 		return err
 	}
