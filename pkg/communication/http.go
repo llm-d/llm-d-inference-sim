@@ -711,7 +711,8 @@ func (c *Communication) emitResponseChunks(route api.ErrorRoute, w *bufio.Writer
 		if lastTokensChunk && respBuilder.sendFinishReasonWithTokens() {
 			finishReason = respCtx.FinishReason()
 		}
-		return c.sendOrFail(w, respBuilder.createChunk(respCtx, response.Tokens, nil, "", finishReason, choiceIdx),
+		// The chunk is built from this choice's own context: choices of one request can differ in their prompt.
+		return c.sendOrFail(w, respBuilder.createChunk(response.RespCtx, response.Tokens, nil, "", finishReason, choiceIdx),
 			"Sending stream chunk failed")
 	}
 

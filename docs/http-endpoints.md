@@ -119,6 +119,7 @@ Structure of requests/responses
           - include_usage
         - ignore_eos
         - logprobs
+        - echo (string prompts only)
         - cache_hit_threshold
         - kv_transfer_params
           - do_remote_decode
@@ -619,6 +620,7 @@ Notes:
 
 - An empty top-level array (`[]`), an empty string element (`""`), or an empty token-id element (`[]` inside the outer array) are rejected with `400 Bad Request`.
 - For pre-tokenized prompts, `prompt_tokens` in the usage equals the number of input ids — the tokenizer is never invoked on the prompt.
+- With `echo: true`, a string prompt is prepended to the text of each choice, and the usage is unchanged. A token-id prompt is not echoed, and `logprobs` do not cover the echoed prompt.
 - In `--mode echo`, a token-id prompt is replayed back to the client as the comma-separated decimal of the ids (e.g. `[1,2,3]` → `"1,2,3"`); a string prompt is replayed verbatim.
 
 For full details on the expected API behavior and specification, please refer to the [vLLM OpenAI Compatibility Documentation](https://docs.vllm.ai/en/stable/getting_started/quickstart.html#openai-completions-api-with-vllm).

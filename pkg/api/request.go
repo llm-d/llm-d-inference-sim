@@ -562,6 +562,9 @@ type baseTextCompletionsRequest struct {
 	// always return the logprob of the sampled token, so there may be up to
 	// logprobs+1 elements in the response.
 	Logprobs *int `json:"logprobs,omitempty"`
+
+	// Echo makes each choice's text start with the prompt.
+	Echo bool `json:"echo,omitempty"`
 }
 
 func (t *baseTextCompletionsRequest) GetMinTokens() *int64 {
