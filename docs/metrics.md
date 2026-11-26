@@ -18,7 +18,7 @@ Currently supported are the following metrics:
 | vllm:prompt_tokens_by_source_total | Number of prompt tokens by `source`: `local_cache_hit` for the tokens found in the prefix cache; the rest are `external_kv_transfer` for a request with `do_remote_prefill`, and `local_compute` otherwise |
 | vllm:prompt_tokens_cached_total | Number of prompt tokens that were not computed: `local_cache_hit` plus `external_kv_transfer` |
 | vllm:num_preemptions_total | Cumulative number of preemptions. 0 unless fake metrics set it, since the simulator does not preempt requests |
-| vllm:request_success_total | Count of successfully processed requests |
+| vllm:request_success_total | Count of successfully processed requests by `finished_reason`. A request that ended in tool calls counts as `stop`, the reason vLLM's engine finished it with |
 | vllm:request_generation_tokens | Number of generation tokens processed |
 | vllm:generation_tokens_total	 | Total number of generated tokens. |
 | vllm:request_max_num_generation_tokens | Maximum number of requested generation tokens. Currently same as `vllm:request_generation_tokens` since always only one choice is returned |

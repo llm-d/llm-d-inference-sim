@@ -353,7 +353,13 @@ func (m *vllmMetricsAdapter) OnRequestSucceeded(ev metrics.RequestSucceeded) {
 	}
 
 	// update number of successful requests per finish reason
-	common.WriteToChannel(m.requestSuccessTotalChan, requestSuccessCounterUpdate{Increment: &ev.FinishReason}, m.logger)
+	// vLLM labels the counter with the engine's finish reason, which is stop for
+	// a request that ended in tool calls: tool_calls exists only in the response.
+	finishedReason := ev.FinishReason
+	if finishedReason == common.ToolsFinishReason {
+		finishedReason = common.StopFinishReason
+	}
+	common.WriteToChannel(m.requestSuccessTotalChan, requestSuccessCounterUpdate{Increment: &finishedReason}, m.logger)
 
 	// request finished successfully, update number of prompt and generated tokens
 	// both total and histogram metrics
