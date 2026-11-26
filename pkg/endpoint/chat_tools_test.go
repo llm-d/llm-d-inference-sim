@@ -100,6 +100,23 @@ var _ = Describe("Chat completions raw tools", func() {
 			Expect(got.ToolChoice).To(BeNil())
 		}
 	})
+
+	DescribeTable("creates no tool calls for an empty tools array",
+		func(choice string, matchErr OmegaMatcher) {
+			var req ChatCompletionsRequest
+			Expect(req.Unmarshal([]byte(`{"model":"m",` + messages + `,"tools":[]` + choice + `}`))).To(Succeed())
+			runtime := &fakeRuntime{config: common.NewConfig(), random: common.NewRandom(1, 0)}
+			reqCtx := req.BuildRequestContext(runtime, common.Channel[*ResponseInfo]{}, 0, func() {})
+			toolCalls, _, _, err := reqCtx.createToolCalls()
+			Expect(err).To(matchErr)
+			Expect(toolCalls).To(BeNil())
+		},
+		Entry("no tool_choice", "", BeNil()),
+		Entry("auto", `,"tool_choice":"auto"`, BeNil()),
+		Entry("required", `,"tool_choice":"required"`, BeNil()),
+		Entry("a named tool is still looked up", `,"tool_choice":{"type":"function","function":{"name":"f"}}`,
+			MatchError(ContainSubstring("not found in the tools list"))),
+	)
 })
 
 var _ = Describe("Chat completions template options", func() {
