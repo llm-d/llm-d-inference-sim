@@ -530,8 +530,9 @@ func (c *ChatCompletionsRequest) GetLogprobs() *int {
 	if c.TopLogprobs != nil {
 		return c.TopLogprobs // Return the top_logprobs value
 	}
-	// Default to 1 if logprobs=true but no top_logprobs specified
-	defaultVal := 1
+	// top_logprobs defaults to 0 in vLLM and SGLang: each token keeps its own
+	// logprob and gets no alternatives.
+	defaultVal := 0
 	return &defaultVal
 }
 
