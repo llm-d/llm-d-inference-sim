@@ -915,16 +915,14 @@ func (c *Communication) HandleTokenize(ctx *fasthttp.RequestCtx) {
 func (c *Communication) HandleLoadLora(ctx *fasthttp.RequestCtx) {
 	c.logger.V(logging.DEBUG).Info("Load lora request received")
 	if err := c.processor.LoadLoraAdaptor(ctx.Request.Body()); err != nil {
-		errToSend := api.NewError(err.Error(), fasthttp.StatusBadRequest, nil)
-		c.sendError(ctx, &errToSend, false)
+		c.sendError(ctx, err, false)
 	}
 }
 
 func (c *Communication) HandleUnloadLora(ctx *fasthttp.RequestCtx) {
 	c.logger.V(logging.DEBUG).Info("Unload lora request received")
 	if err := c.processor.UnloadLoraAdaptor(ctx.Request.Body()); err != nil {
-		errToSend := api.NewError(err.Error(), fasthttp.StatusBadRequest, nil)
-		c.sendError(ctx, &errToSend, false)
+		c.sendError(ctx, err, false)
 	}
 }
 

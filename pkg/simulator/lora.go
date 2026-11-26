@@ -20,10 +20,12 @@ package simulator
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 
 	"github.com/llm-d/llm-d-inference-sim/pkg/api"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 	"github.com/llm-d/llm-d-inference-sim/pkg/common/logging"
+	"github.com/valyala/fasthttp"
 )
 
 type loadLoraRequest struct {
@@ -64,35 +66,61 @@ func (s *SimContext) getLoraPath(name string) string {
 	return name
 }
 
-func (s *SimContext) LoadLoraAdaptor(body []byte) error {
+// loraRequestError is the 400 of a load or unload request vLLM rejects, typed
+// InvalidUserInput where its other 400s are BadRequestError.
+func loraRequestError(message string) *api.Error {
+	err := api.NewError(message, fasthttp.StatusBadRequest, nil)
+	err.Type = "InvalidUserInput"
+	return &err
+}
+
+func (s *SimContext) LoadLoraAdaptor(body []byte) *api.Error {
 	var req loadLoraRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		s.logger.Error(err, "failed to read and parse load lora request body")
-		return fmt.Errorf("failed to read and parse load lora request body, %w", err)
+		apiErr := api.NewError("failed to read and parse load lora request body, "+err.Error(),
+			fasthttp.StatusBadRequest, nil)
+		return &apiErr
+	}
+
+	if req.LoraName == "" {
+		return loraRequestError("Both 'lora_name' and 'lora_path' must be provided.")
+	}
+	if slices.Contains(s.Config().ServedModelNames, req.LoraName) {
+		return loraRequestError(fmt.Sprintf("The lora adapter '%s' conflicts with a served base model.", req.LoraName))
 	}
 
 	s.loraAdaptors.Store(req.LoraName, req.LoraPath)
 	return nil
 }
 
-func (s *SimContext) UnloadLoraAdaptor(body []byte) error {
+func (s *SimContext) UnloadLoraAdaptor(body []byte) *api.Error {
 	var req unloadLoraRequest
 	if err := json.Unmarshal(body, &req); err != nil {
 		s.logger.Error(err, "failed to read and parse unload lora request body")
-		return fmt.Errorf("failed to read and parse unload lora request body, %w", err)
+		apiErr := api.NewError("failed to read and parse unload lora request body, "+err.Error(),
+			fasthttp.StatusBadRequest, nil)
+		return &apiErr
 	}
 
-	s.loraAdaptors.Delete(req.LoraName)
+	if req.LoraName == "" {
+		return loraRequestError("'lora_name' needs to be provided to unload a LoRA adapter.")
+	}
+	if _, loaded := s.loraAdaptors.LoadAndDelete(req.LoraName); !loaded {
+		apiErr := api.NewError(fmt.Sprintf("The lora adapter '%s' cannot be found.", req.LoraName),
+			fasthttp.StatusNotFound, nil)
+		return &apiErr
+	}
 	return nil
 }
 
 // LoadLoraAdaptor loads a LoRA adapter described by body.
-func (s *Simulator) LoadLoraAdaptor(body []byte) error {
+func (s *Simulator) LoadLoraAdaptor(body []byte) *api.Error {
 	return s.Context.LoadLoraAdaptor(body)
 }
 
 // UnloadLoraAdaptor unloads a LoRA adapter described by body.
-func (s *Simulator) UnloadLoraAdaptor(body []byte) error {
+func (s *Simulator) UnloadLoraAdaptor(body []byte) *api.Error {
 	return s.Context.UnloadLoraAdaptor(body)
 }
 

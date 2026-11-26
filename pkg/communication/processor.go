@@ -43,7 +43,7 @@ type Processor interface {
 	// MetricsRegistry returns the simulator's Prometheus registry.
 	MetricsRegistry() *prometheus.Registry
 	// LoadLoraAdaptor loads a LoRA adapter described by body.
-	LoadLoraAdaptor(body []byte) error
+	LoadLoraAdaptor(body []byte) *api.Error
 	// UnloadLoraAdaptor unloads a LoRA adapter described by body.
-	UnloadLoraAdaptor(body []byte) error
+	UnloadLoraAdaptor(body []byte) *api.Error
 }

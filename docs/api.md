@@ -18,8 +18,8 @@ In addition, a set of the vLLM HTTP endpoints are supported. The render and dere
 |---|---|
 | /v1/messages            | Anthropic Messages API, converted to the chat completions format internally |
 | /inference/v1/generate  | vLLM-specific generation endpoint |
-| /v1/load_lora_adapter   | Simulates the dynamic registration of a LoRA adapter |
-| /v1/unload_lora_adapter | Simulates the dynamic unloading and unregistration of a LoRA adapter |
+| /v1/load_lora_adapter   | Simulates the dynamic registration of a LoRA adapter. As in vLLM, a request without `lora_name`, or whose `lora_name` is a served model name, is rejected with `400 Bad Request` |
+| /v1/unload_lora_adapter | Simulates the dynamic unloading and unregistration of a LoRA adapter. As in vLLM, an adapter that is not loaded is rejected with `404 Not Found`, and a request without `lora_name` with `400 Bad Request` |
 | /tokenize               | Tokenizes input text and returns token information. An optional `model`, when set, must be a served model name or a loaded LoRA adapter, otherwise the request is rejected with `404 Not Found`. A request with neither `prompt` nor `messages` is rejected with `400 Bad Request`. With `return_token_strs`, the vLLM engine returns `token_strs`. With the simulated tokenizer, `token_strs` is the simulator's split of the text. With `--render-url`, [Tokenization](tokenization.md#huggingface-mode-real-models) says where `tokens` and `token_strs` come from. A `400 Bad Request` from the render service is returned as a `400` with the render service's message. |
 | /v1/completions/render       | Returns the token IDs for a `/v1/completions` request body without generating a response |
 | /v1/chat/completions/render  | Returns the token IDs (and multimodal features when applicable) for a `/v1/chat/completions` request body without generating a response |
