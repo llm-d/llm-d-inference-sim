@@ -267,11 +267,21 @@ func (bc *blockCache) startRequest(req Request, blockHashes []uint64, blockToken
 	hashes := []uint64{}
 	tokens := []uint32{}
 
+	// The cache lock keeps model load state and unused blocks stable between
+	// evictions. Build candidates once when a large batch is expected.
+	expectedEvictions := len(bc.usedBlocks) + bc.unused.len() + len(blocksToAdd) - bc.maxBlocks
+	batch := bc.unused.newEvictionBatch(bc.loadedModels, expectedEvictions)
+
 	for _, block := range blocksToAdd {
 		if len(bc.usedBlocks)+bc.unused.len() == bc.maxBlocks {
 			// cache is full but contains unused blocks (the capacity check above ensures it) -
 			// evict one block
-			evictHash, _ := bc.unused.evict(bc.loadedModels)
+			var evictHash blockKey
+			if batch != nil {
+				evictHash, _ = batch.evict()
+			} else {
+				evictHash, _ = bc.unused.evict(bc.loadedModels)
+			}
 			common.WriteToChannel(bc.eventChan,
 				Event{Action: ActionRemove, Hashes: []uint64{evictHash.hash},
 					Tokens: bc.blockToTokens[evictHash]},
