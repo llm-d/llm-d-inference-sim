@@ -1122,7 +1122,7 @@ var _ = Describe("Server sleep mode", Ordered, func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(resp.StatusCode).To(Equal(http.StatusOK))
 
-		checkSimSleeping(client, false)
+		checkSimSleeping(client, true)
 
 		// Send a request
 		go sendTextCompletionsRequest(ctx, client)
@@ -1145,6 +1145,41 @@ var _ = Describe("Server sleep mode", Ordered, func() {
 		Expect(err).NotTo(HaveOccurred())
 		storedCount, _, _ = kvcache.CountKVEventBlocks(msg.Frames, topic, uint64(4))
 		Expect(storedCount).To(Equal(1))
+	})
+
+	It("Should stay asleep until every tag is woken up", func() {
+		client, err := startServerWithArgsAndEnv(context.TODO(), common.ModeRandom,
+			[]string{"cmd", "--model", common.TestModelName, "--mode", common.ModeRandom, "--enable-sleep-mode",
+				"--enable-kvcache", "--kv-cache-size", "16", "--block-size", "8"},
+			map[string]string{"VLLM_SERVER_DEV_MODE": "1", "POD_IP": "localhost"})
+		Expect(err).NotTo(HaveOccurred())
+		post := func(url string) {
+			resp, err := client.Post(url, "", nil)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.Body.Close()).To(Succeed())
+			Expect(resp.StatusCode).To(Equal(http.StatusOK))
+		}
+
+		post("http://localhost/sleep")
+		post("http://localhost/wake_up?tags=weights")
+		checkSimSleeping(client, true)
+		post("http://localhost/wake_up?tags=kv_cache")
+		checkSimSleeping(client, false)
+
+		// Both tags in one call wake up the KV cache too
+		post("http://localhost/sleep")
+		post("http://localhost/wake_up?tags=weights&tags=kv_cache")
+		checkSimSleeping(client, false)
+		reqBody := fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":%q}],"max_tokens":1}`,
+			common.TestModelName, strings.Repeat(testUserMessage+" ", 4))
+		for range 2 {
+			resp, err := client.Post("http://localhost/v1/chat/completions", "application/json", strings.NewReader(reqBody))
+			Expect(err).NotTo(HaveOccurred())
+			Expect(resp.Body.Close()).To(Succeed())
+		}
+		eventuallyMetrics(client, func(g Gomega, metricsData string) {
+			g.Expect(metricsData).To(MatchRegexp(`vllm:prefix_cache_hits_total\{[^}]*\} [1-9]`))
+		})
 	})
 })
 

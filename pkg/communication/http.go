@@ -1020,17 +1020,13 @@ func (c *Communication) HandleSleep(ctx *fasthttp.RequestCtx) {
 func (c *Communication) HandleWakeUp(ctx *fasthttp.RequestCtx) {
 	c.logger.V(logging.INFO).Info("Wake up request received")
 
-	var wakeUpKVCache bool
-	tags := ctx.QueryArgs().Peek("tags")
-	if tags != nil {
-		if string(tags) == "kv_cache" {
-			wakeUpKVCache = true
-		}
-	} else {
-		wakeUpKVCache = true
+	values := ctx.QueryArgs().PeekMulti("tags")
+	tags := make([]string, 0, len(values))
+	for _, tag := range values {
+		tags = append(tags, string(tag))
 	}
 
-	c.runtime.WakeUp(wakeUpKVCache)
+	c.runtime.WakeUp(tags)
 
 	ctx.Response.Header.SetStatusCode(fasthttp.StatusOK)
 }

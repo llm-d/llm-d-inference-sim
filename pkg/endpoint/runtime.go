@@ -58,9 +58,9 @@ type Runtime interface {
 	// Sleep transitions the simulator into sleep mode. Returns whether it
 	// actually slept.
 	Sleep() bool
-	// WakeUp wakes the simulator, activating the KV cache when
-	// activateKVCache is true and KV cache support is enabled.
-	WakeUp(activateKVCache bool)
+	// WakeUp wakes the sleeping parts of the simulator named by tags
+	// ("weights", "kv_cache"), or all of them when tags is empty.
+	WakeUp(tags []string)
 	// IsSleeping reports whether the simulator is currently sleeping.
 	IsSleeping() bool
 	// ValidateModel checks that model is a known base model or a loaded LoRA

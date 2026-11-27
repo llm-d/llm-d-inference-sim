@@ -20,6 +20,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
+	"slices"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -37,6 +39,12 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/kvcache"
 	"github.com/llm-d/llm-d-inference-sim/pkg/metrics"
 	"github.com/llm-d/llm-d-inference-sim/pkg/tokenizer"
+)
+
+// The parts of the simulator that /sleep puts to sleep and /wake_up?tags= wakes.
+const (
+	sleepTagWeights = "weights"
+	sleepTagKVCache = "kv_cache"
 )
 
 // LoRAs usage info for requests execution
@@ -85,11 +93,12 @@ type SimContext struct {
 	latencyCalculator atomic.Pointer[latencyCalcHolder]
 	// Tokenizer used for request tokenization and in /tokenize
 	Tokenizer tokenizer.Tokenizer
-	// isSleeping records whether the simulator is currently sleeping. Guarded
-	// by sleepMutex rather than adminMu since it's read far more often
+	// sleepingTags holds the sleeping parts of the simulator, "weights" and
+	// "kv_cache" as in vLLM; it sleeps while any is left. Guarded by
+	// sleepMutex rather than adminMu since it's read far more often
 	// (/is_sleeping) than it's written.
-	isSleeping bool
-	sleepMutex sync.RWMutex
+	sleepingTags map[string]bool
+	sleepMutex   sync.RWMutex
 	// mooncakeEngines holds the per-rank engine ids served by /query, generated once so
 	// they stay stable for the simulator's lifetime
 	mooncakeEnginesOnce sync.Once
@@ -365,29 +374,40 @@ func (s *SimContext) Sleep() bool {
 	}
 	s.sleepMutex.Lock()
 	defer s.sleepMutex.Unlock()
-	s.isSleeping = true
+	s.sleepingTags = map[string]bool{sleepTagWeights: true, sleepTagKVCache: true}
 	if cfg.KVCache.EnableKVCache {
 		s.kvcacheHelper.Discard()
 	}
 	return true
 }
 
-// WakeUp wakes the simulator, activating the KV cache when activateKVCache
-// is true and KV cache support is enabled.
-func (s *SimContext) WakeUp(activateKVCache bool) {
+// WakeUp wakes the sleeping parts named by tags, or all of them when tags is
+// empty. Like vLLM, a tag that is not sleeping makes the call a no-op.
+func (s *SimContext) WakeUp(tags []string) {
 	s.sleepMutex.Lock()
 	defer s.sleepMutex.Unlock()
-	if s.Config().KVCache.EnableKVCache && activateKVCache {
+	if len(tags) == 0 {
+		tags = slices.Collect(maps.Keys(s.sleepingTags))
+	}
+	for _, tag := range tags {
+		if !s.sleepingTags[tag] {
+			s.logger.V(logging.WARN).Info("Wake up ignored, tag is not sleeping", "tag", tag)
+			return
+		}
+	}
+	for _, tag := range tags {
+		delete(s.sleepingTags, tag)
+	}
+	if s.Config().KVCache.EnableKVCache && slices.Contains(tags, sleepTagKVCache) {
 		s.kvcacheHelper.Activate()
 	}
-	s.isSleeping = false
 }
 
 // IsSleeping reports whether the simulator is currently sleeping.
 func (s *SimContext) IsSleeping() bool {
 	s.sleepMutex.RLock()
 	defer s.sleepMutex.RUnlock()
-	return s.isSleeping
+	return len(s.sleepingTags) > 0
 }
 
 // ShouldSendImage decides whether an Omni response should include an image.
