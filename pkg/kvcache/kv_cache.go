@@ -135,11 +135,16 @@ func (h *KVCacheHelper) OnRequestStart(req api.Request, minHitRate float64) (sta
 		blockTokens[i] = tokens[i*h.blockSize : i*h.blockSize+h.blockSize]
 	}
 
+	// vLLM always recomputes the last prompt token to produce logits, and hits
+	// are block-aligned, so a fully cached prompt whose length is a multiple of
+	// the block size counts one block fewer than the blocks resident in the cache
+	maxCachedTokens := (len(tokens) - 1) / h.blockSize * h.blockSize
+
 	started = true
 	nBlocksAlreadyInCache := 0
 	if minHitRate > 0 {
 		nBlocksAlreadyInCache = h.blockCache.cachedBlocks(req.GetDisplayedModel(), blockHashes)
-		started = hitRate(nBlocksAlreadyInCache*h.blockSize, len(tokens)) >= minHitRate
+		started = hitRate(min(nBlocksAlreadyInCache*h.blockSize, maxCachedTokens), len(tokens)) >= minHitRate
 	}
 	if started {
 		nBlocksAlreadyInCache, err = h.blockCache.startRequest(req, blockHashes, blockTokens)
@@ -148,7 +153,7 @@ func (h *KVCacheHelper) OnRequestStart(req api.Request, minHitRate float64) (sta
 		}
 	}
 
-	cachedTokens := nBlocksAlreadyInCache * h.blockSize
+	cachedTokens := min(nBlocksAlreadyInCache*h.blockSize, maxCachedTokens)
 	req.SetNumberOfCachedPromptTokens(cachedTokens)
 
 	stats = metrics.PrefixCacheQueried{
