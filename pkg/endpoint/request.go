@@ -87,6 +87,11 @@ type RequestContext interface {
 	// Queued reports whether the request went through the waiting queue, and
 	// so holds a LoRA waiting reference to release when it runs or is dropped.
 	Queued() bool
+	// SetQueueTime records the seconds the request spent in the waiting queue.
+	SetQueueTime(seconds float64)
+	// QueueTime returns the seconds the request spent in the waiting queue, 0
+	// for a request a free worker took right away.
+	QueueTime() float64
 	ResponseChannel() common.Channel[*ResponseInfo]
 	tokenizedPromptForEcho() (*api.Tokenized, error)
 	encode() ([]uint32, []string, *api.RenderMMFeatures, error)
@@ -104,6 +109,7 @@ type baseRequestContext struct {
 	doneFn          func()
 	started         bool
 	queued          bool
+	queueTime       float64
 }
 
 func newBaseRequestContext(runtime Runtime, channel common.Channel[*ResponseInfo], choiceIdx int, doneFn func()) baseRequestContext {
@@ -145,6 +151,14 @@ func (b *baseRequestContext) MarkQueued() {
 
 func (b *baseRequestContext) Queued() bool {
 	return b.queued
+}
+
+func (b *baseRequestContext) SetQueueTime(seconds float64) {
+	b.queueTime = seconds
+}
+
+func (b *baseRequestContext) QueueTime() float64 {
+	return b.queueTime
 }
 
 // start records the request as started, once it passed the checks that reject

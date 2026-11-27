@@ -79,6 +79,7 @@ func (s *Simulator) processRequest(reqCtx endpoint.RequestContext) {
 	reportFailed := func(ev metrics.RequestFailed) {
 		ev.E2ELatency = time.Since(reqCtx.StartProcessingTime()).Seconds()
 		ev.InferenceTime = time.Since(startTime).Seconds()
+		ev.QueueTime = reqCtx.QueueTime()
 		ev.IsStreaming = req.IsStream()
 		common.WriteToChannel(s.Context.metricsBus.RequestFailed, ev, s.Context.logger)
 	}
@@ -138,6 +139,7 @@ func (s *Simulator) processRequest(reqCtx endpoint.RequestContext) {
 			FinishReason:       finishReason,
 			E2ELatency:         time.Since(reqCtx.StartProcessingTime()).Seconds(),
 			InferenceTime:      time.Since(startTime).Seconds(),
+			QueueTime:          reqCtx.QueueTime(),
 			IsStreaming:        req.IsStream(),
 		}, s.Context.logger)
 }

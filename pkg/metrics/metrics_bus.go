@@ -238,7 +238,7 @@ type RequestQueued struct {
 }
 
 // RequestDequeued fires when a request is pulled from the waiting queue.
-// Drives num_requests_waiting (-1) and request_queue_time_seconds.
+// Drives num_requests_waiting (-1) and sglang:queue_time_seconds.
 type RequestDequeued struct {
 	QueueTime float64 // seconds
 }
@@ -288,8 +288,9 @@ type DecodeEnded struct {
 }
 
 // RequestSucceeded is the terminal event for a request that produced a
-// response. Drives all token, success, and both request-level latency
-// histograms, plus num_requests_running (-1) and LoRA running-set removal.
+// response. Drives all token, success, and request-level latency histograms
+// (e2e, inference and, as in vLLM, queue time), plus num_requests_running (-1)
+// and LoRA running-set removal.
 type RequestSucceeded struct {
 	PromptTokens int
 	// CachedPromptTokens is the part of PromptTokens served from the prefix
@@ -304,6 +305,7 @@ type RequestSucceeded struct {
 	FinishReason       string
 	E2ELatency         float64 // seconds
 	InferenceTime      float64 // seconds
+	QueueTime          float64 // seconds in the waiting queue, 0 for a request a free worker took right away
 	IsStreaming        bool
 }
 
@@ -318,6 +320,7 @@ type RequestFailed struct {
 	GenerationTokens   int
 	E2ELatency         float64 // seconds
 	InferenceTime      float64 // seconds
+	QueueTime          float64 // seconds
 	IsStreaming        bool
 }
 

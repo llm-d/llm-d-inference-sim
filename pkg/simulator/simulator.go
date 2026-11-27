@@ -453,9 +453,11 @@ func (s *Simulator) dequeue() endpoint.RequestContext {
 		if ok && item.reqCtx != nil && s.Context.loraIsLoaded(requestLora(item.reqCtx.Request())) {
 			s.waitingQueue.Remove(elem)
 			s.Context.incrementLora(requestLora(item.reqCtx.Request()))
+			queueTime := time.Since(item.enqueueTime).Seconds()
+			item.reqCtx.SetQueueTime(queueTime)
 			common.WriteToChannel(s.Context.metricsBus.RequestDequeued,
 				metrics.RequestDequeued{
-					QueueTime: time.Since(item.enqueueTime).Seconds(),
+					QueueTime: queueTime,
 				}, s.Context.logger)
 			return item.reqCtx
 		}
@@ -466,9 +468,11 @@ func (s *Simulator) dequeue() endpoint.RequestContext {
 		item, ok := elem.Value.(waitingQueueItem)
 		if ok && item.reqCtx != nil && s.Context.loadLora(requestLora(item.reqCtx.Request())) {
 			s.waitingQueue.Remove(elem)
+			queueTime := time.Since(item.enqueueTime).Seconds()
+			item.reqCtx.SetQueueTime(queueTime)
 			common.WriteToChannel(s.Context.metricsBus.RequestDequeued,
 				metrics.RequestDequeued{
-					QueueTime: time.Since(item.enqueueTime).Seconds(),
+					QueueTime: queueTime,
 				}, s.Context.logger)
 			return item.reqCtx
 		}
