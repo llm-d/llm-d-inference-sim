@@ -556,7 +556,7 @@ func expectMMPayloadOmitted(body []byte) {
 }
 
 // The render and derender endpoints are vLLM's: sglang serves none of them, so these specs name no other engine.
-var _ = Describe("Server render endpoints", func() {
+var _ = Describe("Server render endpoints", withVLLM(func() {
 	post := func(client *http.Client, endpoint, reqBody string) (int, []byte) {
 		resp, err := client.Post("http://localhost"+endpoint, "application/json", strings.NewReader(reqBody))
 		Expect(err).NotTo(HaveOccurred())
@@ -1004,11 +1004,11 @@ var _ = Describe("Server render endpoints", func() {
 		Entry("is the served model on /v1/responses/render", "/v1/responses/render", `"input":"hi"`, http.StatusOK),
 		Entry("is rejected on /v1/messages/render", "/v1/messages/render", renderMessages+`,"max_tokens":1`, http.StatusBadRequest),
 	)
-})
+}))
 
 // Sleep mode is vLLM's own: it owns the /sleep, /wake_up, and /is_sleeping
 // routes, so these specs name no other engine.
-var _ = Describe("Server sleep mode", Ordered, func() {
+var _ = Describe("Server sleep mode", Ordered, withVLLM(func() {
 	It("Should respond to /is_sleeping", func() {
 		ctx := context.TODO()
 		client, err := startServer(ctx, common.ModeRandom)
@@ -1146,7 +1146,7 @@ var _ = Describe("Server sleep mode", Ordered, func() {
 		storedCount, _, _ = kvcache.CountKVEventBlocks(msg.Frames, topic, uint64(4))
 		Expect(storedCount).To(Equal(1))
 	})
-})
+}))
 
 // This entry point exercises decision routing without the suite's HF renderer.
 func TestDecisionAPI(t *testing.T) {

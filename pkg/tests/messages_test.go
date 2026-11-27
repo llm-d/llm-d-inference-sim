@@ -583,7 +583,7 @@ var _ = Describe("Simulator for /v1/messages (Anthropic Messages API)", forEachE
 // The render endpoints are vLLM's: sglang serves none of them, so these specs
 // name no other engine. Errors on /v1/messages/render are framed like the other
 // render endpoints, which vLLM serves from its render router.
-var _ = Describe("Messages API render", func() {
+var _ = Describe("Messages API render", withVLLM(func() {
 	var (
 		ctx    = context.TODO()
 		model  = common.TestModelName
@@ -679,11 +679,11 @@ var _ = Describe("Messages API render", func() {
 			`{"model":"`+common.TestModelName+`","max_tokens":0,"messages":[{"role":"user","content":"hi"}]}`,
 			common.InvalidMaxTokensErrMsg),
 	)
-})
+}))
 
 // Encoder-only mode is vLLM's own, so the Messages API specs that turn it on
 // name no other engine.
-var _ = Describe("Messages API in encoder-only mode", func() {
+var _ = Describe("Messages API in encoder-only mode", withVLLM(func() {
 	var client *http.Client
 
 	BeforeEach(func() {
@@ -729,12 +729,12 @@ var _ = Describe("Messages API in encoder-only mode", func() {
 		Expect(json.Unmarshal(respBody, &respObj)).To(Succeed())
 		Expect(respObj).NotTo(HaveKey("ec_transfer_params"))
 	})
-})
+}))
 
 // LoRA adapters are vLLM's own, so the Messages API specs that load one name no
 // other engine. vLLM validates the model of /v1/messages/render and
 // /v1/messages/count_tokens against the base model and the loaded adapters.
-var _ = Describe("Messages API with LoRA adapters", func() {
+var _ = Describe("Messages API with LoRA adapters", withVLLM(func() {
 	const loraName = "lora3"
 
 	var client *http.Client
@@ -777,7 +777,7 @@ var _ = Describe("Messages API with LoRA adapters", func() {
 		Expect(status).To(Equal(http.StatusBadRequest))
 		Expect(string(respBody)).To(ContainSubstring("is a LoRA adapter"))
 	})
-})
+}))
 
 // postMessagesRoute sends body to the given /v1/messages route and returns the
 // status code and response body.

@@ -173,6 +173,18 @@ var suiteEngine = func() string {
 // engines without threading the name through its arguments.
 var currentEngine = suiteEngine
 
+// withVLLM pins a vLLM-only container without leaking its selection to other specs.
+func withVLLM(body func()) func() {
+	return func() {
+		ginkgo.BeforeEach(func() {
+			previous := currentEngine
+			currentEngine = "vllm"
+			ginkgo.DeferCleanup(func() { currentEngine = previous })
+		})
+		body()
+	}
+}
+
 // forEachEngine wraps a container body so it runs once per registered engine.
 // For specs that exercise only the engine-neutral surface: the
 // OpenAI-compatible endpoints, the latency model, and response generation. A

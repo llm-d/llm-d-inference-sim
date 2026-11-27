@@ -42,7 +42,7 @@ import (
 // events, and the Mooncake bootstrap query. The simulator behavior that no
 // engine decides lives in simulator_core_test.go, which runs under each
 // registered engine.
-var _ = Describe("Simulator", func() {
+var _ = Describe("Simulator", withVLLM(func() {
 
 	DescribeTable("mm encoder only",
 		func(model string, mode string, maxTokens int) {
@@ -939,4 +939,4 @@ var _ = Describe("Simulator", func() {
 			Expect(replayedTotal).To(Equal(0))
 		})
 	})
-})
+}))

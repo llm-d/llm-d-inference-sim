@@ -937,7 +937,7 @@ var _ = Describe("Simulator", forEachEngine(func() {
 
 // Encoder-only mode is vLLM's own, so the Responses API specs that turn it on
 // name no other engine.
-var _ = Describe("Responses API in encoder-only mode", func() {
+var _ = Describe("Responses API in encoder-only mode", withVLLM(func() {
 	It("Should return ec_transfer_params in MMEncoderOnly mode when input contains images", func() {
 		ctx := context.TODO()
 		args := []string{"cmd", "--model", common.TestModelName, "--mm-encoder-only",
@@ -1011,4 +1011,4 @@ var _ = Describe("Responses API in encoder-only mode", func() {
 		Expect(json.Unmarshal(body, &respObj)).To(Succeed())
 		Expect(respObj).NotTo(HaveKey("ec_transfer_params"))
 	})
-})
+}))

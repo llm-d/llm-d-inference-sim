@@ -35,7 +35,7 @@ import (
 	"github.com/llm-d/llm-d-inference-sim/pkg/common"
 )
 
-var _ = Describe("LoRAs", func() {
+var _ = Describe("LoRAs", withVLLM(func() {
 	Context("LoRAs config and load", func() {
 		It("Should config, load and unload LoRAs correctly", func() {
 			ctx := context.TODO()
@@ -228,7 +228,7 @@ var _ = Describe("LoRAs", func() {
 		Entry("embeddings, unknown model", "/v1/embeddings",
 			`{"input":"This is a test","model":"unknown-model"}`, http.StatusNotFound),
 	)
-})
+}))
 
 func unloadLora(ctx context.Context, openaiclient openai.Client, name string) {
 	body, err := json.Marshal(map[string]string{"lora_name": name})
