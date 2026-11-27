@@ -189,6 +189,36 @@ vllm:prompt_tokens_cached_total{model_name=%[1]q} 0
 			}).Should(Succeed())
 		})
 
+		It("observes queue time with the e2e latency of each finished request", func() {
+			adapter, _ := newTestAdapter(newTestConfig())
+
+			adapter.OnRequestDequeued(metrics.RequestDequeued{QueueTime: 0.1})
+			adapter.OnRequestSucceeded(metrics.RequestSucceeded{GenTokensPerChoice: []int{1}, FinishReason: "stop", QueueTime: 0})
+			adapter.OnRequestFailed(metrics.RequestFailed{QueueTime: 0.2})
+
+			Eventually(func(g Gomega) {
+				families, err := adapter.registry.Gather()
+				g.Expect(err).NotTo(HaveOccurred())
+				var queueCount, e2eCount uint64
+				var queueSum float64
+				for _, family := range families {
+					if len(family.GetMetric()) != 1 {
+						continue
+					}
+					histogram := family.GetMetric()[0].GetHistogram()
+					switch family.GetName() {
+					case VLLMReqQueueTimeMetricName:
+						queueCount, queueSum = histogram.GetSampleCount(), histogram.GetSampleSum()
+					case VLLME2EReqLatencyMetricName:
+						e2eCount = histogram.GetSampleCount()
+					}
+				}
+				g.Expect(queueCount).To(Equal(uint64(2)))
+				g.Expect(queueSum).To(BeNumerically("~", 0.2, 1e-9))
+				g.Expect(e2eCount).To(Equal(uint64(2)))
+			}).Should(Succeed())
+		})
+
 		It("labels request_success_total with vLLM's finished_reason", func() {
 			adapter, _ := newTestAdapter(newTestConfig())
 

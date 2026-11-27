@@ -282,13 +282,11 @@ func (m *vllmMetricsAdapter) OnRequestQueued(ev metrics.RequestQueued) {
 
 // request dequeued
 // - update number of waiting requests
-// - update queue time histogram
 func (m *vllmMetricsAdapter) OnRequestDequeued(ev metrics.RequestDequeued) {
 	if m.fake.Load() != nil {
 		return
 	}
 	common.WriteToChannel(m.waitingReqChan, metrics.GaugeAdd(-1), m.logger)
-	common.WriteToChannel(m.reqQueueTimeChan, metrics.Observation(ev.QueueTime), m.logger)
 }
 
 // request running
@@ -390,8 +388,10 @@ func (m *vllmMetricsAdapter) OnRequestSucceeded(ev metrics.RequestSucceeded) {
 		common.WriteToChannel(m.maxNumGenerationTokensChan, metrics.Observation(float64(maxGenTokens)), m.logger)
 	}
 
+	// As in vLLM, queue time is observed with the e2e latency of every finished request.
 	common.WriteToChannel(m.e2eReqLatencyChan, metrics.Observation(ev.E2ELatency), m.logger)
 	common.WriteToChannel(m.reqInferenceTimeChan, metrics.Observation(ev.InferenceTime), m.logger)
+	common.WriteToChannel(m.reqQueueTimeChan, metrics.Observation(ev.QueueTime), m.logger)
 
 	m.finishRunning()
 }
@@ -404,6 +404,7 @@ func (m *vllmMetricsAdapter) OnRequestFailed(ev metrics.RequestFailed) {
 	}
 	common.WriteToChannel(m.e2eReqLatencyChan, metrics.Observation(ev.E2ELatency), m.logger)
 	common.WriteToChannel(m.reqInferenceTimeChan, metrics.Observation(ev.InferenceTime), m.logger)
+	common.WriteToChannel(m.reqQueueTimeChan, metrics.Observation(ev.QueueTime), m.logger)
 
 	m.finishRunning()
 }
@@ -454,7 +455,7 @@ func (m *vllmMetricsAdapter) createPrometheusChannels(ctx context.Context) {
 	m.ttftChan = common.NewChannel[metrics.HistogramUpdate]("vllm", maxNumberOfRunningRequests, ctx.Done())
 	m.perTokenLatencyChan = common.NewChannel[metrics.HistogramUpdate]("vllm", maxNumberOfTokens, ctx.Done())
 	m.e2eReqLatencyChan = common.NewChannel[metrics.HistogramUpdate]("vllm", maxNumberOfRunningRequests, ctx.Done())
-	m.reqQueueTimeChan = common.NewChannel[metrics.HistogramUpdate]("vllm", maxNumberOfWaitingRequests, ctx.Done())
+	m.reqQueueTimeChan = common.NewChannel[metrics.HistogramUpdate]("vllm", maxNumberOfRunningRequests, ctx.Done())
 	m.reqInferenceTimeChan = common.NewChannel[metrics.HistogramUpdate]("vllm", maxNumberOfRunningRequests, ctx.Done())
 	m.reqPrefillTimeChan = common.NewChannel[metrics.HistogramUpdate]("vllm", maxNumberOfRunningRequests, ctx.Done())
 	m.reqDecodeTimeChan = common.NewChannel[metrics.HistogramUpdate]("vllm", maxNumberOfRunningRequests, ctx.Done())
