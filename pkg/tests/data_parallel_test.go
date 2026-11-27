@@ -95,6 +95,7 @@ var _ = Describe("Data Parallel", func() {
 
 		clients, err := startDataParallelServers(ctx, []string{
 			"cmd",
+			"--engine", "vllm",
 			"--model", model,
 			"--mode", common.ModeRandom,
 			"--data-parallel-size", "3",

@@ -63,7 +63,7 @@ func getFakeMetricsConfig(client *http.Client) map[string]json.RawMessage {
 	return cfg.FakeMetrics
 }
 
-var _ = Describe("Fake metrics", Ordered, func() {
+var _ = Describe("Fake metrics", Ordered, withVLLM(func() {
 	Context("general fake metrics", func() {
 		It("Should respond with fake metrics to /metrics", func() {
 			ctx := context.TODO()
@@ -1165,7 +1165,7 @@ var _ = Describe("Fake metrics", Ordered, func() {
 				tokenTestPhase{checkBuckets10_20, intPtr(999)}, tokenTestPhase{checkBuckets123, intPtr(888)}),
 		)
 	})
-})
+}))
 
 type checkBucketsFunc func(g Gomega, metricsData string, metricName string)
 

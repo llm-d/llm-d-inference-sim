@@ -33,7 +33,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var _ = Describe("Simulator", func() {
+var _ = Describe("Simulator", withVLLM(func() {
 
 	Context("generate API", func() {
 		DescribeTable("Should return correct response to /inference/v1/generate",
@@ -749,4 +749,4 @@ var _ = Describe("Simulator", func() {
 		})
 	})
 
-})
+}))

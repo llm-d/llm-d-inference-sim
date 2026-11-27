@@ -34,7 +34,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var _ = Describe("gRPC Metrics", Ordered, func() {
+var _ = Describe("gRPC Metrics", Ordered, withVLLM(func() {
 
 	It("should send correct running and waiting requests metrics via gRPC", func() {
 		// Three requests, only two can run in parallel, we expect
@@ -561,4 +561,4 @@ var _ = Describe("gRPC Metrics", Ordered, func() {
 			g.Expect(metricsData).To(ContainSubstring(getFloatBucketMetricLine(common.TestModelName, vllm.VLLMReqQueueTimeMetricName, math.Inf(1), 1)))
 		}).WithTimeout(2 * time.Second).WithPolling(25 * time.Millisecond).Should(Succeed())
 	})
-})
+}))

@@ -32,7 +32,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-var _ = Describe("gRPC", func() {
+var _ = Describe("gRPC", withVLLM(func() {
 
 	It("get model info", func() {
 		ctx := context.TODO()
@@ -349,7 +349,7 @@ var _ = Describe("gRPC", func() {
 		Expect(st.Message()).To(Equal("The server is overloaded or not ready yet."))
 	})
 
-})
+}))
 
 type mockGenerateServer struct {
 	grpc.ServerStream

@@ -81,7 +81,7 @@ var paramsLora5 openai.ChatCompletionNewParams = openai.ChatCompletionNewParams{
 	Model: "lora5",
 }
 
-var _ = Describe("Simulator metrics", Ordered, func() {
+var _ = Describe("Simulator metrics", Ordered, withVLLM(func() {
 	It("should send correct running and waiting requests metrics", func() {
 		// Three requests, only two can run in parallel, we expect
 		// two running requests and one waiting request in the metrics
@@ -1306,7 +1306,7 @@ var _ = Describe("Simulator metrics", Ordered, func() {
 			})
 		})
 	})
-})
+}))
 
 var _ = Describe("build125Buckets", Ordered, func() {
 	It("should create valid 125 buckets", func() {

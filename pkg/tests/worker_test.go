@@ -34,7 +34,7 @@ import (
 	"github.com/valyala/fasthttp"
 )
 
-var _ = Describe("Simulator requests scheduling", Ordered, func() {
+var _ = Describe("Simulator requests scheduling", Ordered, withVLLM(func() {
 	Context("Requests for already loaded loras should be handled first", func() {
 		DescribeTable("Should process in correct order simultaneous requests to two loras", func(maxNumSeq string) {
 			ctx := context.TODO()
@@ -491,7 +491,7 @@ var _ = Describe("Simulator requests scheduling", Ordered, func() {
 			Entry("streaming", true),
 		)
 	})
-})
+}))
 
 func sendReq(ctx context.Context, openaiclient openai.Client, wg *sync.WaitGroup, delay int,
 	params openai.ChatCompletionNewParams, reqNum int, mux *sync.RWMutex, orderOfResponses *[]int) {
