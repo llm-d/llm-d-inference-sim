@@ -377,10 +377,10 @@ var _ = Describe("Responses API tools", forEachEngine(func() {
 		}`))
 		Expect(postErr).NotTo(HaveOccurred())
 		defer func() { Expect(resp.Body.Close()).To(Succeed()) }()
-		Expect(resp.StatusCode).To(Equal(http.StatusInternalServerError))
+		Expect(resp.StatusCode).To(Equal(http.StatusBadRequest))
 		body, err := io.ReadAll(resp.Body)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(string(body)).To(ContainSubstring("not found in the tools list"))
+		Expect(string(body)).To(ContainSubstring("Tool choice 'function' not found in 'tools' parameter."))
 	})
 
 	It("echoes function_call_output in echo mode", func() {
