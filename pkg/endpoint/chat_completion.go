@@ -125,8 +125,33 @@ func (c *ChatCompletionsRequest) Validate(toolsValidator *ToolsValidator) *api.E
 	if err := validateResponseFormat(c.responseFormat, toolsValidator); err != nil {
 		return err
 	}
+	if err := validateNamedToolChoice(c.Tools, c.ToolChoice); err != nil {
+		return err
+	}
 
 	return validateRequest(c)
+}
+
+// validateNamedToolChoice rejects a tool_choice that names a function when
+// tools is omitted, empty, or does not contain it, as vLLM's request validation does.
+func validateNamedToolChoice(tools []api.Tool, toolChoice api.ToolChoice) *api.Error {
+	function := toolChoice.GetFunction()
+	if function == nil {
+		return nil
+	}
+	param := "tool_choice"
+	if len(tools) == 0 {
+		err := api.NewError("When using `tool_choice`, `tools` must be set.", fasthttp.StatusBadRequest, &param)
+		return &err
+	}
+	for _, tool := range tools {
+		if tool.Function.Name == function.Name {
+			return nil
+		}
+	}
+	err := api.NewError("The tool `"+function.Name+"` specified in `tool_choice` does not match any of the specified `tools`",
+		fasthttp.StatusBadRequest, &param)
+	return &err
 }
 
 func (c *ChatCompletionsRequest) BuildRequestContext(runtime Runtime, channel common.Channel[*ResponseInfo],
